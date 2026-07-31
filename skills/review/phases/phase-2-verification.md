@@ -1,4 +1,4 @@
-<!-- devflow:review-ref phase=2 file=skills/review/phases/phase-2-verification.md start -->
+<!-- prflow:review-ref phase=2 file=skills/review/phases/phase-2-verification.md start -->
 ## Phase 2: Checklist Verification
 
 Output: `Phase 2/4: Verifying {N} checklist items...`
@@ -118,4 +118,4 @@ Store all verification results in a single combined array (lite + agent), keyed 
 Output: `Verified: {pass_count} passed, {fail_count} failed, {inconclusive_count} inconclusive ({lite_count} via lite probe, {agent_count} via agent).`
 
 Then append one separate line (never editing the tally line above): `Normalized (wording-only): {normalized_count}; ineligible-on-field-defect FAILs: {field_defect_fail_count}` (replaced by the warning line on the bad-input / everything-else arms).
-<!-- devflow:review-ref phase=2 file=skills/review/phases/phase-2-verification.md end -->
+<!-- prflow:review-ref phase=2 file=skills/review/phases/phase-2-verification.md end -->

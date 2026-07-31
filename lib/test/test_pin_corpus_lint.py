@@ -4914,15 +4914,10 @@ class SanctionedRenameComparison1002Tests(unittest.TestCase):
                 "devflow_module_pin_unique is the helper",
                 "prflow_module_pin_unique is the helper",
             ),
-            "frozen label": ("the DevFlow label", "the PrFlow label"),
             "frozen env var": ("DEVFLOW_GH selects the binary", "PRFLOW_GH selects the binary"),
             "frozen subagent namespace": (
                 'dispatches "devflow:requesting-code-review"',
                 'dispatches "prflow:requesting-code-review"',
-            ),
-            "frozen workpad marker": (
-                "<!-- devflow:workpad -->",
-                "<!-- prflow:workpad -->",
             ),
         }
         for label, (base_literal, head_literal) in cases.items():
@@ -5092,6 +5087,28 @@ class SanctionedRenameComparison1002Tests(unittest.TestCase):
             ("devflow_runner.allowed_tools", "prflow_runner.allowed_tools"),
             ("devflow_retrospective.x", "prflow_retrospective.x"),
             ("devflow_version", "prflow_version"),
+            # Issue #1003's identifier channel. The label is token-matched, the
+            # branch and the marker namespace are prefix-matched, because their
+            # shipped uses extend them with a hyphen / a family name.
+            ("the DevFlow label", "the PRFlow label"),
+            (
+                "scripts/apply-labels.sh <issue_number> DevFlow",
+                "scripts/apply-labels.sh <issue_number> PRFlow",
+            ),
+            ("devflow-telemetry", "prflow-telemetry"),
+            (
+                "name: devflow-telemetry-stage-${{ github.run_id }}",
+                "name: prflow-telemetry-stage-${{ github.run_id }}",
+            ),
+            ("<!-- devflow:workpad -->", "<!-- prflow:workpad -->"),
+            (
+                "<!-- devflow:lint-adjudications-start -->",
+                "<!-- prflow:lint-adjudications-start -->",
+            ),
+            (
+                "<!-- devflow:review-progress run=${GITHUB_RUN_ID} -->",
+                "<!-- prflow:review-progress run=${GITHUB_RUN_ID} -->",
+            ),
         ):
             self.assertEqual(after, substitute(before), before)
         for frozen in (
@@ -5099,9 +5116,17 @@ class SanctionedRenameComparison1002Tests(unittest.TestCase):
             "workflows.devflow-review",
             '"workflows": {"devflow": true}',
             "devflow-marketplace",
-            "devflow-telemetry",
-            "DevFlow",
             "lib + python tests",
+            # Issue #1003 renames the LABEL `DevFlow`, and nothing else spelled
+            # that way: the unrelated compound and every prose occurrence of the
+            # product name are out of the token rule's reach, because `-` and a
+            # following token character both continue the token.
+            "DevFlow-layout closure paths would clobber",
+            "DevFlow-layout",
+            "DevFlowIsTheProduct",
+            # The subagent-override namespace and the transitional command
+            # spellings keep `devflow:` — only the HTML-comment marker form is
+            # renamed, so the structural frozen entry still holds for these.
             "devflow_module_pin_unique",
             "devflow.yml",
             "devflow-implement.yml",
@@ -5109,12 +5134,146 @@ class SanctionedRenameComparison1002Tests(unittest.TestCase):
             "devflow-review.yml",
             "telemetry-push.yml",
             '"devflow:requesting-code-review"',
-            "<!-- devflow:workpad -->",
             "DEVFLOW_GH",
             "/devflow:implement",
             ".prflow/prompt-extensions/review.md",
         ):
             self.assertEqual(frozen, substitute(frozen), frozen)
+
+
+class IdentifierChannel1003Tests(unittest.TestCase):
+    """Issue #1003: the map's identifier channel, and the three edits that were
+    each a SILENT no-op before the compiler was taught to read it.
+
+    The measured failure modes were: un-freezing a name without adding a rule
+    (substitution unchanged, nothing raises); adding a rule while the name stays
+    frozen (the frozen alternative is compiled first and consumes the match, so
+    the rule is inert, nothing raises); and inventing a top-level block the
+    builder does not read (validated blocks only, so an unknown key is ignored
+    without a ValueError). Each is now a refusal that names the input.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load_linter()
+        cls.map_text = (REPO_ROOT / "lib/rename-map.json").read_text(
+            encoding="utf-8"
+        )
+
+    def _document(self):
+        return json.loads(self.map_text)
+
+    # ── the map and the compiler agree, both ways round ────────────────────
+    def test_every_shipped_identifier_is_actually_mapped(self):
+        """The reconciliation the issue's AC asks for, in the mapping direction.
+
+        A name listed in `identifiers` that the compiled substitution leaves
+        alone is exactly the "un-freeze only, no rule" / "unknown block" no-op:
+        the map reads as edited and behaves identically. Driving the SHIPPED map
+        makes that disagreement RED instead of invisible.
+        """
+        document = self._document()
+        substitute = self.mod._compiled_rename_substitution(self.map_text)
+        self.assertIsNotNone(substitute)
+        self.assertTrue(document["identifiers"], "the channel must not be empty")
+        for entry in document["identifiers"]:
+            superseded, current = entry["superseded"], entry["current"]
+            with self.subTest(entry["id"]):
+                self.assertEqual(current, substitute(superseded))
+                # And in a sentence, not only alone — a rule that fires only on a
+                # bare literal would miss every real pin site.
+                self.assertEqual(
+                    f"x {current} y", substitute(f"x {superseded} y")
+                )
+
+    def test_every_shipped_frozen_name_is_still_left_alone(self):
+        """The same reconciliation in the freezing direction: no entry of the
+        frozen block is reachable by any rule, including the new channel."""
+        document = self._document()
+        substitute = self.mod._compiled_rename_substitution(self.map_text)
+        self.assertIsNotNone(substitute)
+        for field in ("config_keys", "identifiers", "workflow_filenames"):
+            for literal in document["frozen"][field]:
+                # The one glob form the map uses stands for a family; drive a
+                # concrete member of it rather than the pattern text.
+                probe = (
+                    literal[:-1] + "unique" if literal.endswith("*") else literal
+                )
+                with self.subTest(f"frozen.{field}: {literal}"):
+                    self.assertEqual(probe, substitute(probe))
+
+    # ── the three refusals ─────────────────────────────────────────────────
+    def test_a_rule_whose_name_is_also_frozen_is_refused(self):
+        """"Add a rule but leave the name frozen" was inert and silent."""
+        document = self._document()
+        document["frozen"]["identifiers"].append("DevFlow")
+        with self.assertRaises(ValueError) as ctx:
+            self.mod._build_rename_substitution(document)
+        self.assertIn("DevFlow", str(ctx.exception))
+        self.assertIn("freezes and maps", str(ctx.exception))
+
+    def test_an_unreadable_top_level_block_is_refused(self):
+        """"Invent a new block without teaching the builder" was ignored."""
+        document = self._document()
+        document["brand_names"] = {"devflow": "prflow"}
+        with self.assertRaises(ValueError) as ctx:
+            self.mod._build_rename_substitution(document)
+        self.assertIn("brand_names", str(ctx.exception))
+
+    def test_an_identifier_entry_with_no_declared_match_is_refused(self):
+        """The match semantics are per entry and REQUIRED: the label must not
+        reach `DevFlow-layout` while the branch must reach
+        `devflow-telemetry-stage-<run>`, so a defaulted match would silently pick
+        the wrong one for half the channel."""
+        for bad in (None, "", "substring", 1):
+            document = self._document()
+            entry = dict(document["identifiers"][0])
+            if bad is None:
+                entry.pop("match", None)
+            else:
+                entry["match"] = bad
+            document["identifiers"][0] = entry
+            with self.subTest(repr(bad)):
+                with self.assertRaises(ValueError) as ctx:
+                    self.mod._build_rename_substitution(document)
+                self.assertIn("identifiers[0]", str(ctx.exception))
+
+    def test_an_absent_identifier_channel_is_refused(self):
+        document = self._document()
+        del document["identifiers"]
+        with self.assertRaises(ValueError):
+            self.mod._build_rename_substitution(document)
+
+    # ── the boundaries the two match kinds buy ─────────────────────────────
+    def test_the_token_rule_cannot_reach_the_unrelated_compound_or_prose(self):
+        """`DevFlow-layout` and the product name in prose stay put — the AC's
+        explicit non-goal. A prefix rule here would rewrite both."""
+        substitute = self.mod._compiled_rename_substitution(self.map_text)
+        for untouched in (
+            "DevFlow-layout",
+            "the DevFlow-layout closure",
+            "DevFlowRunner",
+            "DevFlow_layout",
+        ):
+            with self.subTest(untouched):
+                self.assertEqual(untouched, substitute(untouched))
+
+    def test_the_marker_rule_narrows_the_frozen_subagent_namespace(self):
+        """`<!-- devflow:` is longer than the frozen `devflow:`, so the ordering
+        must let it win — and the frozen entry must still hold everywhere else.
+        Without the longest-literal ordering this rename is a silent no-op."""
+        substitute = self.mod._compiled_rename_substitution(self.map_text)
+        self.assertEqual(
+            "<!-- prflow:review-backstop head=abc -->",
+            substitute("<!-- devflow:review-backstop head=abc -->"),
+        )
+        for untouched in (
+            '"devflow:requesting-code-review"',
+            "/devflow:implement",
+            "subagent_type: devflow:code-reviewer",
+        ):
+            with self.subTest(untouched):
+                self.assertEqual(untouched, substitute(untouched))
 
 
 class BundleTargetInspection956Tests(unittest.TestCase):

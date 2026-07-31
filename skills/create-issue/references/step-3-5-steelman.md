@@ -1,4 +1,4 @@
-<!-- devflow:create-issue-ref step=3.5 file=skills/create-issue/references/step-3-5-steelman.md start -->
+<!-- prflow:create-issue-ref step=3.5 file=skills/create-issue/references/step-3-5-steelman.md start -->
 
 ### Step 3.5: Steelman the draft against the code (mandatory, before the user sees it)
 
@@ -16,4 +16,4 @@ This is a **code-grounded verification loop, not a re-read**. Ambient context �
 
 Only a draft that has survived this step — revised and re-gated if anything was found — proceeds to Step 3.6.
 
-<!-- devflow:create-issue-ref step=3.5 file=skills/create-issue/references/step-3-5-steelman.md end -->
+<!-- prflow:create-issue-ref step=3.5 file=skills/create-issue/references/step-3-5-steelman.md end -->

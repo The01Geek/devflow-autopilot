@@ -20,7 +20,7 @@
 # keep it out of the tree so a run's flight events are never committed.
 /.prflow/logs/verification-flight/
 # Per-run review workpads. These lived in the tree before issue #441 moved the
-# durable copies to the devflow-telemetry branch, which is now their canonical
+# durable copies to the prflow-telemetry branch, which is now their canonical
 # home; lib/efficiency-trace.sh reads them from there and keeps the working-tree
 # glob only as a compatibility fallback for a consumer's pre-#441 archive. The
 # tracked copies were internal per-iteration noise inside a plugin payload that

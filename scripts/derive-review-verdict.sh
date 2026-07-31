@@ -37,10 +37,10 @@
 #     always state APPROVED — the body marker is the second signal)
 #   APPROVE (clean) -> `gh pr review --approve` -> state APPROVED
 #   Same-identity self-review fallback (`gh pr review` fails) -> the verdict is
-#     recovered from THIS run's run-keyed `devflow:review-progress` PROGRESS
+#     recovered from THIS run's run-keyed `prflow:review-progress` PROGRESS
 #     comment, which embeds the full report + the `## Verdict:` line and is the
 #     only artifact this helper matches in step 6 (it carries the run-keyed
-#     `<!-- devflow:review-progress run=<id>- -->` marker). Issue comments carry
+#     `<!-- prflow:review-progress run=<id>- -->` marker). Issue comments carry
 #     no commit_id, so scoping is by that run-keyed marker, never a historical
 #     comment. NOTE: the separate `gh pr comment` self-review fallback comment
 #     the skill posts DOES carry a `## Verdict:` line, but it lacks the run-keyed
@@ -223,16 +223,18 @@ if ! COMMENTS_JSON=$("$DEVFLOW_GH" api --paginate "repos/$REPO/issues/$PR_NUMBER
   emit incomplete false
 fi
 
-# The skill keys its live progress comment by `<!-- devflow:review-progress
+# The skill keys its live progress comment by `<!-- prflow:review-progress
 # run=<RUN_ID>-<ATTEMPT> -->`, so matching the `run=<RUN_ID>-` prefix selects
 # only this run's comment(s) across attempts.
-MARKER="<!-- devflow:review-progress run=${RUN_ID}-"
+MARKER="<!-- prflow:review-progress run=${RUN_ID}-"
+# PRFlow writes the current spelling; every artifact created before the rename carries the superseded one and no body is rewritten, so readers accept BOTH (issue #1003).
+MARKER_SUPERSEDED="<!-- devflow:review-progress run=${RUN_ID}-"
 # Same jq fail-closed posture as step 5 (and the same `-s`/`add` pagination
 # normalization — comments are also oldest-first, and >100 issue comments is the
 # realistic case on a chatty PR): a parse failure must not be read as "no
 # matching comment" and land in step 7's misdiagnosing breadcrumb.
-if ! CBODY=$(printf '%s' "$COMMENTS_JSON" | "$DEVFLOW_JQ" -rs --arg m "$MARKER" \
-          'add | map(select((.body // "") | contains($m))) | last | (.body // "")' 2>/dev/null); then
+if ! CBODY=$(printf '%s' "$COMMENTS_JSON" | "$DEVFLOW_JQ" -rs --arg m "$MARKER" --arg s "$MARKER_SUPERSEDED" \
+          'add | map(select(((.body // "") | contains($m)) or ((.body // "") | contains($s)))) | last | (.body // "")' 2>/dev/null); then
   echo "derive-review-verdict: issue-comments JSON could not be parsed (jq failed or the comments payload was not an array) — verdict unverifiable; failing closed (incomplete)." >&2
   emit incomplete false
 fi

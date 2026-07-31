@@ -1872,9 +1872,17 @@ rm -f "$DI_EVT_NOBODY" "$DI_NOBODY_ERR"
 #      writes into its resume comment. Assert the exact literal is present in both.
 DI_WF="$LIB/../.github/workflows/devflow-implement.yml"
 assert_eq "di: dedupe script defines the stall-backstop-audit marker" "1" \
-  "$(grep -c "STALL_RESUME_MARKER='<!-- devflow:stall-backstop-audit -->'" "$DIR")"
+  "$(grep -c "STALL_RESUME_MARKER='<!-- prflow:stall-backstop-audit -->'" "$DIR")"
 assert_eq "di: same stall-backstop-audit marker literal exists in the workflow (coupling holds)" "true" \
-  "$(grep -q "<!-- devflow:stall-backstop-audit -->" "$DI_WF" && echo true || echo false)"
+  "$(grep -q "<!-- prflow:stall-backstop-audit -->" "$DI_WF" && echo true || echo false)"
+# #1003: the superseded spelling is a SECOND accepted literal on both sides, so a
+# resume comment posted before the rename is still recognised (a miss here makes
+# the carve-out inert and the run is deduped away as an ordinary duplicate).
+assert_eq "di(#1003): dedupe script also defines the superseded stall-backstop-audit marker" "1" \
+  "$(grep -c "STALL_RESUME_MARKER_SUPERSEDED='<!-- devflow:stall-backstop-audit -->'" "$DIR")"
+assert_eq "di(#1003): the workflow counts the superseded spelling too (lifetime cap does not reset)" "true" \
+  "$(grep -q "MARKER_SUPERSEDED='<!-- devflow:stall-backstop-audit -->'" "$DI_WF" \
+     && grep -qF -- 'grep -cxF -e "$MARKER" -e "$MARKER_SUPERSEDED"' "$DI_WF" && echo true || echo false)"
 
 rm -rf "$DI_STUB"
 
@@ -2055,15 +2063,19 @@ assert_eq "drc: notice(unknown cause) emits an empty notice + a breadcrumb (fail
 # on MUST match the review engine's seed template and the backstop producer.
 RSKILL="$LIB/../skills/review/SKILL.md"
 assert_eq "drc: helper's review-progress marker matches skills/review/SKILL.md's seed" "true" \
-  "$(grep -q "PROGRESS_MARKER='<!-- devflow:review-progress'" "$DRC" \
-     && grep -q '<!-- devflow:review-progress' "$RSKILL" && echo true || echo false)"
+  "$(grep -q "PROGRESS_MARKER='<!-- prflow:review-progress'" "$DRC" \
+     && grep -q '<!-- prflow:review-progress' "$RSKILL" && echo true || echo false)"
+assert_eq "drc(#1003): helper also keys on the superseded review-progress spelling" "true" \
+  "$(grep -q "PROGRESS_MARKER_SUPERSEDED='<!-- devflow:review-progress'" "$DRC" && echo true || echo false)"
 assert_eq "drc: helper's 🚀 Reviewing status matches the seed template" "true" \
   "$(grep -q "INFLIGHT_STATUS='🚀 Reviewing'" "$DRC" \
      && grep -q '🚀 Reviewing' "$RSKILL" && echo true || echo false)"
 DRC_BACKSTOP="$LIB/../scripts/request-review-backstop.sh"
 assert_eq "drc: helper's review-backstop marker matches the backstop producer" "true" \
-  "$(grep -q "BACKSTOP_MARKER='<!-- devflow:review-backstop'" "$DRC" \
-     && grep -q 'devflow:review-backstop' "$DRC_BACKSTOP" && echo true || echo false)"
+  "$(grep -q "BACKSTOP_MARKER='<!-- prflow:review-backstop'" "$DRC" \
+     && grep -q 'prflow:review-backstop' "$DRC_BACKSTOP" && echo true || echo false)"
+assert_eq "drc(#1003): helper also keys on the superseded review-backstop spelling" "true" \
+  "$(grep -q "BACKSTOP_MARKER_SUPERSEDED='<!-- devflow:review-backstop'" "$DRC" && echo true || echo false)"
 
 # ── workflow wiring (structural): the guard invokes the helper at the VENDORED
 # path, GUARDS the invocation so a non-zero exit fails open, emits the deciding
@@ -2091,7 +2103,7 @@ assert_eq "drc: legacy Signal 2 (devflow-review.yml workflow-run query) retained
 # backstop check is short-circuited when a legacy signal fires), so the auto-resume
 # is never suppressed. The marker literal is coupled with the producer.
 assert_eq "drc: guard zeroes all signals on a review-backstop resume (never suppressed)" "1" \
-  "$(grep -cF '*"<!-- devflow:review-backstop"*)' "$RDWF")"
+  "$(grep -cF '*"<!-- prflow:review-backstop"*|*"<!-- devflow:review-backstop"*)' "$RDWF")"
 assert_eq "drc: guard's review-backstop marker matches the producer (coupling holds)" "true" \
   "$(grep -q 'devflow:review-backstop' "$RDWF" \
      && grep -q 'devflow:review-backstop' "$LIB/../scripts/request-review-backstop.sh" && echo true || echo false)"

@@ -65,7 +65,7 @@ Schema of `.prflow/tmp/pr-<n>.context.json` produced by `fetch-pr-context.sh`:
 | `pr_comments` | array | PR conversation thread: `[{author,body,createdAt}]` |
 | `pr_reviews` | array | Formal reviews: `[{author,state,body,submittedAt}]` |
 | `commits` | array | `[{sha,author_login,committer_login,committed_at,message}]` |
-| `workpad_body` | string\|null | Full text of the `<!-- devflow:workpad -->` comment, read from the **issue** thread (where the workpad lives), not the PR thread |
+| `workpad_body` | string\|null | Full text of the `<!-- prflow:workpad -->` comment, read from the **issue** thread (where the workpad lives), not the PR thread |
 | `reflections` | array | The bullet lines from the workpad's `## Devflow Reflection` `<details>` block — the bot's own self-reported friction notes (`[]` when none) |
 | `review_verdicts` | array | Verdict entries in time order, drawn from the **union** of the PR conversation comments and the durable bot PR reviews: `[{verdict,createdAt,source}]` where `verdict` is APPROVE or REJECT and `source` is `pr_comment` or `pr_review`. Any verdict heading in either source qualifies (not only `/prflow:review` output). A single review round can contribute **two** entries — a stub review body and its progress comment — so entry count is not round count. |
 | `implement_summary_comment` | string\|null | The `/prflow:implement` completion summary comment body |

@@ -196,9 +196,26 @@ than a contentless skeleton — symmetric with the flag-off contract.
 
 **The durable store is a dedicated telemetry branch (issue #441).** Every writable run — local
 and cloud, `/prflow:review-and-fix` **and** standalone `/prflow:review` — persists its record
-and durable workpad copy to a single long-lived **orphan branch, `devflow-telemetry`** (name
+and durable workpad copy to a single long-lived **orphan branch, `prflow-telemetry`** (name
 configurable via `telemetry.branch`). The branch shares no history with `main` and is never
-merged into it. The persist step (`lib/efficiency-trace.sh --persist`) writes each run's
+merged into it.
+
+**Migrating a repository that already has a `devflow-telemetry` branch (issue #1003).** The
+default branch name renamed `devflow-telemetry` -> `prflow-telemetry`. Records already published
+on the superseded branch are **not** migrated automatically and **not** dual-read: the branch is
+a single orphan ref whose whole content is JSON records, so one push renames it with every byte
+preserved, and a silent dual-read would entrench the superseded name permanently — the ruling
+issue #988 made for the config keys, applied here. Rename it once:
+
+```bash
+git push origin devflow-telemetry:prflow-telemetry
+git push origin --delete devflow-telemetry
+```
+
+The unmigrated state is **detected, never silent**: when the current branch is absent and the
+superseded one is present, `scripts/build-experiment-records.py` warns naming both refs and the
+command above, rather than reading the absence as "no telemetry". Setting `telemetry.branch` to
+`devflow-telemetry` keeps the old name indefinitely and is equally supported. The persist step (`lib/efficiency-trace.sh --persist`) writes each run's
 artifacts to that branch **through git plumbing** — hashing them into the object store,
 assembling a tree against a temporary index, `git commit-tree`, and a compare-and-swap
 `git update-ref` — **without checking the branch out and without materializing anything in the
@@ -209,13 +226,13 @@ cloud authenticates with the workflow token, local with the developer's own git 
 
 This replaces the former current-branch `chore:` commit, and with it three problems it caused:
 durability no longer depends on whichever branch the run sat on ever being pushed and merged (a
-local run's telemetry is retained on the local `devflow-telemetry` ref even offline, and pushed
+local run's telemetry is retained on the local `prflow-telemetry` ref even offline, and pushed
 when a remote is reachable); a local run on the default branch can no longer diverge local `main`
 from `origin/main`; and telemetry from every writable run lands in **one** place. Persistence is
 best-effort and exit-0: when the branch cannot be pushed (offline, no remote, a read-only fork-PR
 token, a missing permission, or the read-only cloud `review` profile) the local ref still
 advances, a `::warning::` is emitted, and the run is never aborted. Before appending to an
-existing `devflow-telemetry` ref the write verifies it is a telemetry store (its tip tree holds
+existing `prflow-telemetry` ref the write verifies it is a telemetry store (its tip tree holds
 only `.prflow/logs/`-shaped paths) and breadcrumb-skips on mismatch — and the push-rejection
 re-parent re-runs the same verification against the freshly-fetched **remote** tip before building
 the union commit (the case where a consumer's same-named branch exists only on the remote and first
@@ -233,10 +250,10 @@ in **staging-only** mode: the workflow does not set the push operand `DEVFLOW_TE
 under `GITHUB_ACTIONS` `--persist` fails closed (issue #469 AC5), staging the run's artifacts under
 `.prflow/tmp/` and writing **no new** telemetry-branch records and doing **no** push. (The
 best-effort fetch-before-exclusion step `do_persist` runs on *every* tier may fast-forward the
-**local** `refs/heads/devflow-telemetry` ref to mirror already-published remote records — a read
+**local** `refs/heads/prflow-telemetry` ref to mirror already-published remote records — a read
 that leaves the tracked tree, `HEAD`, the current branch, and the **remote** ref all byte-unchanged;
 it appends no record and pushes nothing.) The read-only tier therefore leaves the remote
-`devflow-telemetry` ref untouched by its own action. Landing those staged records on the branch is
+`prflow-telemetry` ref untouched by its own action. Landing those staged records on the branch is
 the job of a separate **trusted telemetry-push relay**, which now ships (issue #489):
 `.github/workflows/telemetry-push.yml` — a job that does **not** check out the PR head, mints a
 write-capable App token above its checkout, downloads the review run's uploaded artifact, and
@@ -285,7 +302,7 @@ The telemetry-store branch is configured separately, at the top level of `.prflo
 
 | Key | Type | Default | Effect |
 |---|---|---|---|
-| `telemetry.branch` | string | `devflow-telemetry` | Name of the long-lived orphan branch every writable run persists its observability artifacts to (issue #441). Auto-created on first use; verified to be a telemetry store (its tip tree holds only `.prflow/logs/`-shaped paths) before appending. Keep every workflow `push:` trigger branch-filtered so a push to it runs no CI — PRFlow's own workflows filter `push:` to `main`; a consumer whose `on: push` is unfiltered should add a `branches-ignore` entry for this branch. |
+| `telemetry.branch` | string | `prflow-telemetry` | Name of the long-lived orphan branch every writable run persists its observability artifacts to (issue #441). Auto-created on first use; verified to be a telemetry store (its tip tree holds only `.prflow/logs/`-shaped paths) before appending. Keep every workflow `push:` trigger branch-filtered so a push to it runs no CI — PRFlow's own workflows filter `push:` to `main`; a consumer whose `on: push` is unfiltered should add a `branches-ignore` entry for this branch. |
 
 **Acting on the trace.** The telemetry above tells you *which* subagents earn their cost; the
 per-subagent `prflow_review.agent_overrides` block is the lever to *act* on it — move a mechanical
@@ -869,7 +886,7 @@ joined fields:
 - **`retrospective`** — the PR's retrospective entry (the `branch`-slug join key and PR metadata).
 - **`verdict`** — selected by **artifact shape**: the first completed PR review whose body matches the
   `## Verdict:` contract **regardless of bot identity**; when none exists, the run-keyed
-  `devflow:review-progress` comment's `## Verdict:` line is the fallback; when neither exists the
+  `prflow:review-progress` comment's `## Verdict:` line is the fallback; when neither exists the
   verdict is `null` (the #403 shape). The parser strips both the full-report `(summary)` suffix and
   the pr-review stub suffix `— full report in PR comment` the engine appends when a live progress
   comment is active, so the stored verdict is the bare token (`APPROVE` / `REJECT` / …) on every
@@ -1014,10 +1031,10 @@ to segment by originating skill. (The two skills key the filename differently �
 
 **Live progress comment + read-only cloud.** In PR mode (and when
 `prflow_review.live_progress_comment_enabled` is `true`, the default), `/prflow:review` authors a
-`devflow:review-progress` comment incrementally — a blueprint of the phases, then
+`prflow:review-progress` comment incrementally — a blueprint of the phases, then
 per-phase results and each Phase-3 agent's findings as they land, finalizing with the verdict, the
 full report, and the telemetry summary + effectiveness trace. One such comment is seeded **per review
-run**, keyed by a run-keyed marker (`<!-- devflow:review-progress run=<id>-<attempt> -->`) carrying a
+run**, keyed by a run-keyed marker (`<!-- prflow:review-progress run=<id>-<attempt> -->`) carrying a
 link to that job, so a later run never overwrites an earlier run's comment. It reuses
 `scripts/workpad.py` via the helper's `--marker` flag (passed as a plain argument so the command still
 starts with the allow-listed helper path) rather than a parallel helper. The slim

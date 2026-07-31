@@ -1,6 +1,6 @@
 {
   "map_version": 1,
-  "_comment": "SINGLE SOURCE OF TRUTH for the consumer-facing devflow -> prflow rename (issue #1002, whose Tier 1 scope supersedes issue #988's config-key-only scope). Every site that has to know a superseded name resolves it from here rather than carrying its own literal copy: scripts/scaffold-config.sh's config-key migration, scripts/config-get.sh's superseded-key probe, scripts/migrate-consumer-tier1.sh's four-member atomic unit, and the workflow config-job guards (pinned against this table at desk time by lib/test/run.sh rather than read at runtime, because a workflow's inline jq cannot load a file the checkout may not carry). There is no shared loader helper: every reader parses this file itself — the three named above, plus lib/test/pin-corpus-lint.py, which builds the desk-time rename substitution from it. Two files deliberately do NOT read it and mirror it instead: lib/resolve-state-dir.sh and lib/state_dir.py carry the `paths.state_dir` literals, because a .sh cannot be sourced by the Python readers and a .py cannot be sourced into a shell; the tier1-rename-migration suite module asserts all three agree. The frozen block is enumerated so a later sweep cannot 'helpfully' widen the map -- adding a member there is a behaviour change with its own issue, never a tidy-up.",
+  "_comment": "SINGLE SOURCE OF TRUTH for the consumer-facing devflow -> prflow rename (issue #1002 Tier 1, whose scope supersedes issue #988's config-key-only scope, plus issue #1003 Tier 2's top-level identifiers block). Every site that has to know a superseded name resolves it from here rather than carrying its own literal copy: scripts/scaffold-config.sh's config-key migration, scripts/config-get.sh's superseded-key probe, scripts/migrate-consumer-tier1.sh's four-member atomic unit, and the workflow config-job guards (pinned against this table at desk time by lib/test/run.sh rather than read at runtime, because a workflow's inline jq cannot load a file the checkout may not carry). There is no shared loader helper: every reader parses this file itself — the three named above, plus lib/test/pin-corpus-lint.py, which builds the desk-time rename substitution from it. Two files deliberately do NOT read it and mirror it instead: lib/resolve-state-dir.sh and lib/state_dir.py carry the `paths.state_dir` literals, because a .sh cannot be sourced by the Python readers and a .py cannot be sourced into a shell; the tier1-rename-migration suite module asserts all three agree. The frozen block is enumerated so a later sweep cannot 'helpfully' widen the map -- adding a member there is a behaviour change with its own issue, never a tidy-up.",
 
   "config_keys": {
     "devflow": "prflow",
@@ -20,6 +20,30 @@
       { "superseded": ".devflow-tmp", "current": ".prflow-tmp" }
     ]
   },
+
+  "identifiers": [
+    {
+      "id": "provenance-label",
+      "superseded": "DevFlow",
+      "current": "PRFlow",
+      "match": "token",
+      "detail": "The GitHub provenance label (issue #1003). `token` match, so the unrelated compound `DevFlow-layout` and every prose occurrence of the product name are out of reach: a token rule refuses to fire when the next character continues the token, and `-` counts as a continuation."
+    },
+    {
+      "id": "telemetry-branch",
+      "superseded": "devflow-telemetry",
+      "current": "prflow-telemetry",
+      "match": "prefix",
+      "detail": "The telemetry branch and the artifact names derived from it (issue #1003). `prefix` match, because the shipped names extend it with a hyphen -- `devflow-telemetry-stage-<run>` -- which a token rule would refuse."
+    },
+    {
+      "id": "comment-marker-namespace",
+      "superseded": "<!-- devflow:",
+      "current": "<!-- prflow:",
+      "match": "prefix",
+      "detail": "The `<!-- devflow:* -->` comment-marker namespace (issue #1003). `prefix` match, and it is deliberately NARROWER than the bare `devflow:` namespace: the plugin's subagent-override keys (`devflow:code-reviewer`) and the transitional command spellings (`/devflow:implement`) keep the old namespace as a permanent accepted alias, so only the marker form -- which always opens with the HTML comment token -- is renamed."
+    }
+  ],
 
   "atomic_unit": [
     {
@@ -48,8 +72,6 @@
     "config_keys": ["workflows.devflow", "workflows.devflow-review"],
     "identifiers": [
       "devflow-marketplace",
-      "devflow-telemetry",
-      "DevFlow",
       "devflow_module_pin_*",
       "lib + python tests"
     ],
@@ -227,7 +249,7 @@
       ]
     },
 
-    "_comment": "record_paths are RELATIVE TO THE STATE DIRECTORY: they move with it, and their bytes are never rewritten (they are append-only history and frozen census snapshots, so an edit falsifies the record). env_identifiers is issue #1004's Tier 3 record -- an inventory of DEVFLOW_* names that are NOT renamed, never a rename table. Out of THIS issue's scope and tracked separately: the <!-- devflow:* --> comment markers, the DevFlow label and the devflow-telemetry branch (#1003)."
+    "_comment": "record_paths are RELATIVE TO THE STATE DIRECTORY: they move with it, and their bytes are never rewritten (they are append-only history and frozen census snapshots, so an edit falsifies the record). env_identifiers is issue #1004's Tier 3 record -- an inventory of DEVFLOW_* names that are NOT renamed, never a rename table. The DevFlow label, the devflow-telemetry branch and the <!-- devflow:* --> comment markers left this block in Tier 2 (#1003) and now live in the top-level identifiers block; the subagent-override namespace (devflow:<agent>) and the transitional /devflow:<command> spellings stay frozen, which is why the marker rule carries the HTML comment token rather than a bare devflow: prefix."
   },
 
   "retained_unshipped_workflows": [

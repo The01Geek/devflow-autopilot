@@ -1,4 +1,4 @@
-<!-- devflow:docs-verify-ref mode=write file=skills/docs-verify/references/write-mode.md start -->
+<!-- prflow:docs-verify-ref mode=write file=skills/docs-verify/references/write-mode.md start -->
 
 # Write-mode procedure
 
@@ -99,4 +99,4 @@ Before completing, verify you have:
 3. No contradictions between documentation and code
 4. Documentation file(s) created/updated in `[[INTERNAL_DOC_LOCATION]]`
 
-<!-- devflow:docs-verify-ref mode=write file=skills/docs-verify/references/write-mode.md end -->
+<!-- prflow:docs-verify-ref mode=write file=skills/docs-verify/references/write-mode.md end -->

@@ -105,7 +105,7 @@ assert_eq "#408 helper: empty HEAD_SHA -> no-fire (unscoped)" \
 # The fire path emits the head-scoped marker with the next attempt number.
 RRB408_FIRE="$(DEVFLOW_GH="$T408/gh-empty.sh" VERDICT=incomplete HEAD_SHA=abc PR_NUMBER=5 REPO=o/r APP_TOKEN_PRESENT=true CONFIG_FILE="$T408/cfg-enabled.json" bash "$RRB408" 2>/dev/null)"
 assert_eq "#408 helper: fire emits the head-scoped marker with the next attempt" "yes" \
-  "$(printf '%s\n' "$RRB408_FIRE" | grep -qxF 'marker=<!-- devflow:review-backstop head=abc attempt=1 -->' && echo yes || echo no)"
+  "$(printf '%s\n' "$RRB408_FIRE" | grep -qxF 'marker=<!-- prflow:review-backstop head=abc attempt=1 -->' && echo yes || echo no)"
 # Always exits 0 (best-effort — caller reads `decision`, not the exit code).
 DEVFLOW_GH="$T408/gh-fail.sh" VERDICT=incomplete HEAD_SHA=abc PR_NUMBER=5 REPO=o/r APP_TOKEN_PRESENT=true bash "$RRB408" >/dev/null 2>&1
 assert_eq "#408 helper: always exits 0 even on a fail-closed arm" "0" "$?"
@@ -141,7 +141,43 @@ assert_eq "#408 helper: 1 prior same-head marker under cap -> fire (attempts>0 i
   "fire" "$(rrb408 gh-1marker.sh incomplete abc 5 o/r true "$T408/cfg-max3.json")"
 RRB408_FIRE2="$(DEVFLOW_GH="$T408/gh-1marker.sh" VERDICT=incomplete HEAD_SHA=abc PR_NUMBER=5 REPO=o/r APP_TOKEN_PRESENT=true CONFIG_FILE="$T408/cfg-max3.json" bash "$RRB408" 2>/dev/null)"
 assert_eq "#408 helper: nonzero-base fire emits the NEXT attempt number (attempt=2, not a re-emitted attempt=1)" "yes" \
-  "$(printf '%s\n' "$RRB408_FIRE2" | grep -qxF 'marker=<!-- devflow:review-backstop head=abc attempt=2 -->' && echo yes || echo no)"
+  "$(printf '%s\n' "$RRB408_FIRE2" | grep -qxF 'marker=<!-- prflow:review-backstop head=abc attempt=2 -->' && echo yes || echo no)"
+# -- #1003: the attempt cap counts the UNION of both marker spellings ---------
+# The rename rewrites no existing comment, so one head can carry a pre-rename
+# marker beside a post-rename one. Counting a single spelling would RESET the cap
+# and grant up to MAX extra auto-resumes on a head that had already exhausted it.
+# Three rows: a MIXED pair at cap 2 reads as exhausted, the same pair at cap 3
+# fires with attempt=3 (proving the count is 2, not 1 -- an exhausted-only
+# assertion would also pass if only one spelling were counted), and a mixed pair
+# on a FOREIGN head still counts zero (the union widened spellings, not scope).
+cat > "$T408/gh-mixedns.sh" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"/comments"*) echo '[{"body":"<!-- devflow:review-backstop head=abc attempt=1 -->"},{"body":"<!-- prflow:review-backstop head=abc attempt=2 -->"}]' ;;
+  *"repo view"*) echo 'o/r' ;;
+  *) echo '[]' ;;
+esac
+EOF
+chmod +x "$T408/gh-mixedns.sh"
+assert_eq "#1003 helper: mixed-spelling markers for one head reach the cap (no reset)" \
+  "no-fire" "$(rrb408 gh-mixedns.sh incomplete abc 5 o/r true "$T408/cfg-enabled.json")"
+assert_eq "#1003 helper: ...and the exhausted reason is the cap, not an unreadable count" \
+  "exhausted" "$(rrb408_reason gh-mixedns.sh incomplete abc 5 o/r true "$T408/cfg-enabled.json")"
+RRB1003_MIXED="$(DEVFLOW_GH="$T408/gh-mixedns.sh" VERDICT=incomplete HEAD_SHA=abc PR_NUMBER=5 REPO=o/r APP_TOKEN_PRESENT=true CONFIG_FILE="$T408/cfg-max3.json" bash "$RRB408" 2>/dev/null)"
+assert_eq "#1003 helper: mixed-spelling count is 2 (next attempt is 3, not 2)" "yes" \
+  "$(printf '%s\n' "$RRB1003_MIXED" | grep -qxF 'marker=<!-- prflow:review-backstop head=abc attempt=3 -->' && echo yes || echo no)"
+cat > "$T408/gh-mixedns-foreign.sh" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"/comments"*) echo '[{"body":"<!-- devflow:review-backstop head=zzz attempt=1 -->"},{"body":"<!-- prflow:review-backstop head=zzz attempt=2 -->"}]' ;;
+  *"repo view"*) echo 'o/r' ;;
+  *) echo '[]' ;;
+esac
+EOF
+chmod +x "$T408/gh-mixedns-foreign.sh"
+assert_eq "#1003 helper: mixed-spelling markers on a FOREIGN head do not count (head scope intact)" \
+  "fire" "$(rrb408 gh-mixedns-foreign.sh incomplete abc 5 o/r true "$T408/cfg-enabled.json")"
+
 # Hard config-read failure (PR #410 review gap): a MALFORMED config makes
 # config-get.sh hard-fail with empty stdout, and the helper still resolves toward
 # firing — the documented honest-failure direction (a review backstop must stay
@@ -175,7 +211,7 @@ EOF
 chmod +x "$T408/gh-prefixcollide.sh"
 RRB408_COLLIDE="$(DEVFLOW_GH="$T408/gh-prefixcollide.sh" VERDICT=incomplete HEAD_SHA=ab PR_NUMBER=5 REPO=o/r APP_TOKEN_PRESENT=true CONFIG_FILE="$T408/cfg-enabled.json" bash "$RRB408" 2>/dev/null)"
 assert_eq "#408 helper: short head does not prefix-match a longer head's marker (trailing-space disambiguation)" "yes" \
-  "$(printf '%s\n' "$RRB408_COLLIDE" | grep -qxF 'marker=<!-- devflow:review-backstop head=ab attempt=1 -->' && echo yes || echo no)"
+  "$(printf '%s\n' "$RRB408_COLLIDE" | grep -qxF 'marker=<!-- prflow:review-backstop head=ab attempt=1 -->' && echo yes || echo no)"
 # VERDICT unset -> defaults to the eligible `incomplete` (PR #410 review gap): the
 # header documents this default; drive it (no VERDICT in env) so a regression that
 # changed the default to a decided verdict (silently no-firing every headless run)
@@ -248,7 +284,7 @@ assert_eq "#408 devflow-yml: manual-path mint gated on the dead-run trigger + DE
 # post-review-backstop-comment.sh helper posts it (issue #414 moved the POST out of the two
 # workflow YAMLs into that helper). Assert presence in the writer so a rename there goes RED.
 assert_eq "#408 helper: writes the head-scoped review-backstop marker literal" "yes" \
-  "$(grep -qF 'devflow:review-backstop head=' "$RRB408" && echo yes || echo no)"
+  "$(grep -qF 'prflow:review-backstop head=' "$RRB408" && echo yes || echo no)"
 
 RGB408="$REPO_ROOT/scripts/render-grounding-block.sh"
 GB408_OUT="$(HEAD_SHA=x CI_SUMMARY='c: success' ALLOWED_TOOLS='Read' bash "$RGB408")"
@@ -556,7 +592,7 @@ mkdir -p "$T414/scripts"
 cat > "$T414/scripts/request-review-backstop.sh" <<EOF
 #!/usr/bin/env bash
 printf 'VERDICT=%s HEAD_SHA=%s PR_NUMBER=%s REPO=%s APP_TOKEN_PRESENT=%s\n' "\$VERDICT" "\$HEAD_SHA" "\$PR_NUMBER" "\$REPO" "\$APP_TOKEN_PRESENT" > "$T414/rrb-env.txt"
-printf 'decision=fire\nreason=guarantee-class\nattempt=1\nmarker=<!-- devflow:review-backstop head=abc attempt=1 -->\n'
+printf 'decision=fire\nreason=guarantee-class\nattempt=1\nmarker=<!-- prflow:review-backstop head=abc attempt=1 -->\n'
 EOF
 # POST stub: capture the composed body ($2) + drop the post-invoked sentinel, then emit the
 # EXACT success breadcrumb on stderr (-> ::notice:: posted).
@@ -588,7 +624,7 @@ assert_eq "#414 fire: request-review-backstop.sh receives all five inputs in its
 # mis-interpolated HEAD_SHA/attempt would post a comment that re-triggers nothing while the
 # success ::notice:: still fires, since the notice keys only on the POST breadcrumb).
 assert_eq "#414 fire: composed body carries the head-scoped marker line" "yes" \
-  "$(grep -qxF '<!-- devflow:review-backstop head=abc attempt=1 -->' "$T414/post-body.txt" 2>/dev/null && echo yes || echo no)"
+  "$(grep -qxF '<!-- prflow:review-backstop head=abc attempt=1 -->' "$T414/post-body.txt" 2>/dev/null && echo yes || echo no)"
 assert_eq "#414 fire: composed body carries the stall-backstop header with HEAD_SHA + attempt interpolated" "yes" \
   "$(grep -qF '**DevFlow review stall backstop** — this cloud review ended with no verdict for `abc`. Auto-resume attempt 1:' "$T414/post-body.txt" 2>/dev/null && echo yes || echo no)"
 assert_eq "#414 fire: composed body carries the literal /devflow:review re-trigger line" "yes" \
@@ -691,7 +727,7 @@ assert_eq "#414 helper: posts via the best-effort post-issue-comment.sh REST hel
 T435="$(mktemp -d)"; mkdir -p "$T435/scripts" "$T435/shadow"
 cat > "$T435/scripts/request-review-backstop.sh" <<'EOF'
 #!/usr/bin/env bash
-printf 'decision=fire\nreason=guarantee-class\nattempt=1\nmarker=<!-- devflow:review-backstop head=abc attempt=1 -->\n'
+printf 'decision=fire\nreason=guarantee-class\nattempt=1\nmarker=<!-- prflow:review-backstop head=abc attempt=1 -->\n'
 EOF
 # POST stub: drops a `post-invoked` sentinel if EVER called — AC-5 asserts it is NOT (mktemp
 # fails first, before the POST helper is resolved or invoked).

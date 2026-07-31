@@ -1583,7 +1583,7 @@ class OutOfBoundsEnumerations(unittest.TestCase):
             draft = root / "issue-draft-my-slug.md"
             draft.write_text("# T\n\nbody\n", encoding="utf-8")
             scope = root / "s.md"
-            scope.write_text("<!-- devflow:dispatch-scope v1 -->\nbasis_digest: "
+            scope.write_text("<!-- prflow:dispatch-scope v1 -->\nbasis_digest: "
                              + "a" * 40 + "\nsections:\n- ## A\nclaims:\n- 1.1 — d\n",
                              encoding="utf-8")
             base = ["dispatch-instructions", "--slug", "my-slug",
@@ -1612,7 +1612,7 @@ class TargetedRoundRender(unittest.TestCase):
     renderer that never had the data in the first place.
     """
 
-    SCOPE_MARKER = "<!-- devflow:dispatch-scope v1 -->"
+    SCOPE_MARKER = "<!-- prflow:dispatch-scope v1 -->"
 
     def _scope(self, root, claims=(("1.1", "a defect in the AC list"),),
                sections=("## Acceptance Criteria",), basis="a" * 40):

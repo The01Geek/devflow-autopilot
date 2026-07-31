@@ -340,7 +340,7 @@ jobs:
 
           # Signal 3 (Candidate C, issue #989): an IN-FLIGHT review of THIS PR,
           # detected from the review engine's seeded live progress comment
-          # (`devflow:review-progress`, `🚀 Reviewing`, bot-authored, fresh). This
+          # (`prflow:review-progress`, `🚀 Reviewing`, bot-authored, fresh). This
           # is the signal that fires in THIS tree (Signals 1/2 target the withheld
           # auto-review tier and only fire for a consumer whose installed copy
           # predates the withholding). The branch-selecting decision lives in a
@@ -362,8 +362,12 @@ jobs:
           # signal already fired, so the override is applied HERE to IC/IR too.
           # Marker literal coupled with the helper's BACKSTOP_MARKER and
           # scripts/request-review-backstop.sh (pinned in lib/test/).
+          # BOTH marker spellings are matched (issue #1003): a resume comment
+          # posted before the rename carries the superseded one, and this arm
+          # fails OPEN in the wrong direction -- a miss lets ordinary dedupe
+          # SUPPRESS the auto-resume, so the dead review is never resumed.
           case "$BODY" in
-            *"<!-- devflow:review-backstop"*)
+            *"<!-- prflow:review-backstop"*|*"<!-- devflow:review-backstop"*)
               echo "::notice::dedupe-review: triggering /prflow:review carries the review-backstop marker (a no-verdict auto-resume); not suppressing (all signals overridden)."
               IC=0; IR=0 ;;
           esac
@@ -1434,7 +1438,7 @@ jobs:
 
       # Dead-run review-progress flip (issue #356). A comment-triggered
       # /devflow:review or /devflow:review-and-fix seeds a run-keyed
-      # devflow:review-progress comment; if the run ends non-success the agent
+      # prflow:review-progress comment; if the run ends non-success the agent
       # never flips it out of the interim 🚀 Reviewing state. This always() step
       # does the workflow-level flip on the same three non-success arms
       # devflow-review.yml's finalize_check covers — job failure, cancellation,
@@ -1454,7 +1458,7 @@ jobs:
           ENGINE_ERROR: ${{ steps.engine.outputs.is_error }}
         run: |
           set -euo pipefail
-          FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
+          FLIP_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
           FLIP_HELPER=.prflow/vendor/prflow/scripts/flip-review-progress-failed.sh
           [ -f "$FLIP_HELPER" ] || FLIP_HELPER=scripts/flip-review-progress-failed.sh
           if [ -z "${CONTEXT_NUMBER:-}" ]; then

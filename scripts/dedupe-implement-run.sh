@@ -99,7 +99,9 @@ emit() { printf '%s=%s\n' "$1" "$2"; }
 # The marker every stall-backstop auto-resume comment carries on its first line
 # (see the `MARKER` the Stall backstop step writes in devflow-implement.yml). Keep
 # the two literals identical — lib/test/run.sh pins that they agree across files.
-STALL_RESUME_MARKER='<!-- devflow:stall-backstop-audit -->'
+STALL_RESUME_MARKER='<!-- prflow:stall-backstop-audit -->'
+# PRFlow writes the current spelling; every artifact created before the rename carries the superseded one and no body is rewritten, so readers accept BOTH (issue #1003).
+STALL_RESUME_MARKER_SUPERSEDED='<!-- devflow:stall-backstop-audit -->'
 
 # Resolve the carve-out signal: an explicit IS_STALL_RESUME wins (test hook /
 # override); otherwise self-derive it from the triggering comment body in the
@@ -122,8 +124,8 @@ if [ -z "$is_stall_resume" ] && [ -n "${GITHUB_EVENT_PATH:-}" ]; then
     # still skips the `gh --version` probe.
     marker_err="$(mktemp)"
     jq_rc=0
-    "$DEVFLOW_JQ" -e --arg m "$STALL_RESUME_MARKER" \
-      '(.comment.body // "") | contains($m)' "$GITHUB_EVENT_PATH" >/dev/null 2>"$marker_err" || jq_rc=$?
+    "$DEVFLOW_JQ" -e --arg m "$STALL_RESUME_MARKER" --arg s "$STALL_RESUME_MARKER_SUPERSEDED" \
+      '((.comment.body // "") | contains($m)) or ((.comment.body // "") | contains($s))' "$GITHUB_EVENT_PATH" >/dev/null 2>"$marker_err" || jq_rc=$?
     if [ "$jq_rc" -eq 0 ]; then
       is_stall_resume=true
     elif [ "$jq_rc" -gt 1 ]; then

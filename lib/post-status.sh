@@ -50,7 +50,7 @@ REPO="$("$DEVFLOW_GH" repo view --json nameWithOwner -q .nameWithOwner)" \
 CID="$("$DEVFLOW_GH" api \
     "repos/${REPO}/issues/${PR}/comments" \
     --paginate \
-    --jq '[.[] | select(.body | contains("<!-- devflow:audit-report -->"))] | .[0].id // empty')" \
+    --jq '[.[] | select((.body | contains("<!-- prflow:audit-report -->")) or (.body | contains("<!-- devflow:audit-report -->")))] | .[0].id // empty')" \
   || { echo "::error::post-status: de-dupe comment lookup failed for PR ${PR}" >&2; exit 1; }
 
 # ── Post or patch ─────────────────────────────────────────────────────────────

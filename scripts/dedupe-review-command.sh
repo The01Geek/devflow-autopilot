@@ -4,7 +4,7 @@
 # Decide whether THIS standalone `/prflow:review` command is redundant because a
 # review of the same pull request is already IN FLIGHT — Candidate C of issue
 # #989. The redundancy signal is the review engine's own seeded live progress
-# comment (`<!-- devflow:review-progress run=<id>-<attempt> -->`, body
+# comment (`<!-- prflow:review-progress run=<id>-<attempt> -->`, body
 # `**Status:** 🚀 Reviewing`), which only the review engine authors and which
 # exists from Phase 0.3.5, before any review work — so it detects an *in-flight*
 # review directly, the redundancy that actually costs an engine run.
@@ -70,7 +70,7 @@
 #                  this run (run=<RUN_ID>-...) is excluded, so a run can never
 #                  suppress on its own seeded comment.
 #   TRIGGER_BODY   the triggering comment's body. A `/prflow:review` carrying the
-#                  `<!-- devflow:review-backstop head=… attempt=… -->` marker is a
+#                  `<!-- prflow:review-backstop head=… attempt=… -->` marker is a
 #                  no-verdict auto-resume posted from inside a still-active run;
 #                  it is NEVER suppressed (that run's own progress comment would
 #                  otherwise read as an active peer and swallow the resume).
@@ -109,11 +109,14 @@ emit() { printf '%s=%s\n' "$1" "$2"; }
 # The marker the review engine seeds its live progress comment with, and the
 # in-flight status line it carries until the Phase-4 terminal flip. Kept identical
 # to skills/review/SKILL.md's template (lib/test/run.sh pins the agreement).
-PROGRESS_MARKER='<!-- devflow:review-progress'
+PROGRESS_MARKER='<!-- prflow:review-progress'
+# PRFlow writes the current spelling; every artifact created before the rename carries the superseded one and no body is rewritten, so readers accept BOTH (issue #1003).
+PROGRESS_MARKER_SUPERSEDED='<!-- devflow:review-progress'
 INFLIGHT_STATUS='🚀 Reviewing'
 # The marker a stall-backstop review auto-resume comment carries (kept identical
 # to the marker scripts/request-review-backstop.sh produces; pinned agreeing).
-BACKSTOP_MARKER='<!-- devflow:review-backstop'
+BACKSTOP_MARKER='<!-- prflow:review-backstop'
+BACKSTOP_MARKER_SUPERSEDED='<!-- devflow:review-backstop'
 
 mode="${MODE:-detect}"
 
@@ -145,7 +148,7 @@ fi
 # inside a still-active run whose own seeded comment would otherwise read as an
 # active peer. Match the marker in the triggering body (bash builtin substring).
 case "${TRIGGER_BODY:-}" in
-  *"$BACKSTOP_MARKER"*)
+  *"$BACKSTOP_MARKER"*|*"$BACKSTOP_MARKER_SUPERSEDED"*)
     echo "::notice::dedupe-review: triggering comment carries the review-backstop marker (a no-verdict auto-resume); not suppressing." >&2
     emit suppress false
     exit 0 ;;
@@ -224,9 +227,10 @@ decision="$("$DEVFLOW_JQ" -r \
   --argjson fixed_now "${DEDUPE_NOW_EPOCH:-0}" \
   --argjson window "$window_s" \
   --arg marker "$PROGRESS_MARKER" \
+  --arg marker_superseded "$PROGRESS_MARKER_SUPERSEDED" \
   --arg status "$INFLIGHT_STATUS" \
   --arg runself "run=${run_id}-" '
-  def isprogress: ((.body // "") | type == "string") and ((.body // "") | contains($marker)) and ((.body // "") | contains($status)) and ((.user.type // "") == "Bot");
+  def isprogress: ((.body // "") | type == "string") and (((.body // "") | contains($marker)) or ((.body // "") | contains($marker_superseded))) and ((.body // "") | contains($status)) and ((.user.type // "") == "Bot");
   def notself: ((.body // "") | contains($runself)) | not;
   def freshdate: (.updated_at // null) | (type == "string") and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T");
   (if $fixed_now > 0 then $fixed_now else now end) as $n

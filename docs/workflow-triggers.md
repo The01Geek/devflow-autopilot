@@ -244,7 +244,7 @@ that runs *before* authorization and number resolution: it declines any
 `TRIGGER_TEXT` that *contains* the effective workpad marker. The check reads:
 
 - The marker comes from the `SELF_COMMENT_MARKER` env var, defaulting to
-  `<!-- devflow:workpad -->` when unset/empty — the same fallback `workpad.py`
+  `<!-- prflow:workpad -->` when unset/empty — the same fallback `workpad.py`
   uses, so the guard protects a repo with no config exactly the same.
 - It is a literal **substring** match (`case "$text" in *"$marker"*`), not a
   regex, so a marker customized with regex-special characters still matches
@@ -258,7 +258,7 @@ that runs *before* authorization and number resolution: it declines any
 > environment (and exposing a `workpad_marker` config output) lives in
 > `.github/workflows/devflow-implement.yml`, and is **applied as shipped** — the
 > config job extracts `devflow.workpad_marker` (defaulting to the built-in
-> `<!-- devflow:workpad -->`) and the gate passes it to the resolver. So both the
+> `<!-- prflow:workpad -->`) and the gate passes it to the resolver. So both the
 > **default** marker and any repo-customized `devflow.workpad_marker` are protected
 > out of the box, with no manual edit required.
 
@@ -330,10 +330,10 @@ pre-filter):
 2. **Self-marker guard (defense-in-depth).** Mirrored from
    `resolve-implement-trigger.sh`, the resolver additionally declines — *before*
    authorization — any body that carries a PRFlow self-comment marker: the
-   run-keyed review-progress marker **prefix** `<!-- devflow:review-progress` (the
+   run-keyed review-progress marker **prefix** `<!-- prflow:review-progress` (the
    review engine's live progress comment, whose narrative naturally quotes
    `/prflow:review` — see `scripts/derive-review-verdict.sh`) or the workpad
-   marker `<!-- devflow:workpad -->`. Each is a literal **substring** match, and
+   marker `<!-- prflow:workpad -->`. Each is a literal **substring** match, and
    the effective markers **default to those built-in values internally**, so the
    guard protects a repo with no extra workflow wiring. Note this guard alone was
    insufficient for the reported vector — the PR-review body carried no marker —
@@ -436,8 +436,8 @@ automated `devflow-review.yml` reviewer) is the review-side analogue of the
 implement workpad. In **PR mode**, and when
 `prflow_review.live_progress_comment_enabled` is `true` (the default), the
 review engine maintains a **single per-run** marker-tagged comment — keyed by a
-run-keyed marker (`<!-- devflow:review-progress run=<id>-<attempt> -->`; the bare
-`devflow:review-progress` is its prefix) — and rewrites it **in place** as it works:
+run-keyed marker (`<!-- prflow:review-progress run=<id>-<attempt> -->`; the bare
+`prflow:review-progress` is its prefix) — and rewrites it **in place** as it works:
 a blueprint of the phases up front, then per-phase results (diff classification,
 checklist counts, each Phase-3 agent's findings appended *as that agent
 returns*, the verdict), finalizing with the full Phase 4.1 report plus a
@@ -459,7 +459,7 @@ phase boundary; Phase 4.5 finalizes it).
   runs the skill against the PR. The earlier per-phase PATCH choreography that
   lived in the workflow now lives in the skill. Exactly one such comment exists
   **per review run**: each run seeds its own, keyed by a run-keyed marker
-  (`<!-- devflow:review-progress run=<id>-<attempt> -->`) and carrying a link to
+  (`<!-- prflow:review-progress run=<id>-<attempt> -->`) and carrying a link to
   that job, so `workpad.py id --marker …` resolves only the current run's comment
   — earlier runs' comments are never overwritten and stay on the PR as review
   history.
@@ -498,15 +498,15 @@ phase boundary; Phase 4.5 finalizes it).
   created/edited via `gh` (a comment edit, not a tree write), and the runner's
   `review` tool profile additionally allow-lists `workpad.py`, `config-get.sh`,
   and `efficiency-trace.sh` for this. The effectiveness-trace **record**
-  is persisted to the dedicated `devflow-telemetry` branch (issue #441). Every
+  is persisted to the dedicated `prflow-telemetry` branch (issue #441). Every
   *writable* run pushes it directly. This read-only `review` runner
   (`contents: read`) still runs `--persist`, but in **staging-only** mode: because
   the workflow leaves the push operand `DEVFLOW_TELEMETRY_PUSH` unset, `--persist`
   fails closed under CI (issue #469 AC5) — it stages the records under
   `.prflow/tmp/`, writes no new branch records, and does no push (a best-effort
-  fetch may fast-forward the *local* `devflow-telemetry` ref to mirror the remote;
+  fetch may fast-forward the *local* `prflow-telemetry` ref to mirror the remote;
   that leaves the tree and the *remote* ref untouched), so this runner leaves the
-  remote `devflow-telemetry` ref untouched by its own action. To carry those staged records across
+  remote `prflow-telemetry` ref untouched by its own action. To carry those staged records across
   the workflow boundary the runner **uploads** them as a workflow artifact, and a separate trusted
   telemetry-push relay (`telemetry-push.yml`, issue #489 — which does not check out the PR head,
   mints a write-capable token above its checkout, and validates the artifact as untrusted input)
@@ -577,7 +577,7 @@ the `review_dedupe` job in `devflow.yml`.
 
 - **How "already in flight" is detected (Candidate C, issue #989).** The review
   engine seeds a **live progress comment** at Phase 0.3.5 — before any review work
-  — carrying a run-keyed `devflow:review-progress` marker and `**Status:** 🚀
+  — carrying a run-keyed `prflow:review-progress` marker and `**Status:** 🚀
   Reviewing`. Only the review engine writes that comment, so the candidate
   population is *reviews*, not conversation. The helper suppresses when the PR
   carries such a comment that is **bot-authored** (a forged marker from an ordinary
@@ -588,7 +588,7 @@ the `review_dedupe` job in `devflow.yml`.
   `🚀 Reviewing` is treated as stale, not in-flight.
 - **Exemptions.** `/prflow:review-and-fix` is not deduped (it auto-applies fixes and
   has no automated equivalent), and the `pr-description` flow is untouched. A
-  `/prflow:review` carrying the `devflow:review-backstop` marker — the manual path's
+  `/prflow:review` carrying the `prflow:review-backstop` marker — the manual path's
   no-verdict auto-resume, posted from inside a still-active run — is **never**
   suppressed, so the resume still fires.
 - **Three accepted, deliberate costs.** With `prflow_review.live_progress_comment_enabled`

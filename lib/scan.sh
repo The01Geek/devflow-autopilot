@@ -59,9 +59,24 @@ IMPL_PREFIX="$(devflow_conf '.prflow_retrospective.implementation_branch_prefix'
 # depend on this being set.
 WATCHED="$(devflow_watched_authors)"
 
+# ── The provenance label, both spellings (issue #1003) ───────────────────────
+# PRFlow stamps PROVENANCE_LABEL on everything it creates; PROVENANCE_LABEL_SUPERSEDED
+# is the pre-rename spelling every artifact created before the rename still carries.
+# Selection accepts BOTH, so no retrospective history is lost, and neither name is a
+# config key (see the deferred.labels contrast in .prflow/config.schema.json).
+# END CRITERION for dropping the superseded spelling, mirroring
+# lib/rename-map.json's transitional_read_through.end_criterion: the superseded arm
+# is removed in the first release after the maintainer confirms no repository the
+# retrospective loop scans still carries a PR or issue labelled with it. It is not
+# removed on a timer, and it is not removed while any scanned repository can still
+# surface a pre-rename merged PR inside the scan window.
+PROVENANCE_LABEL='PRFlow'
+PROVENANCE_LABEL_SUPERSEDED='DevFlow'
+
 # ── Retrospection predicate (shared by every mode) ───────────────────────────
 # A merged PR qualifies for retrospection when ANY of these holds:
-#   (a) it carries the reserved DevFlow provenance label   (author/branch-agnostic)
+#   (a) it carries the reserved PRFlow provenance label, or its superseded
+#       DevFlow spelling                                     (author/branch-agnostic)
 #   (b) $watched is true AND it closes >=1 issue (closingIssuesReferences non-empty)
 #   (c) implementation_branch_prefix is set non-empty AND its branch matches it
 # Inputs: $impl (prefix string, "" disables path c), $watched (bool).
@@ -70,7 +85,7 @@ WATCHED="$(devflow_watched_authors)"
 # .labels entries may be objects ({name}) or bare strings depending on the gh
 # call/stub, so normalise to the name before comparing.
 RETRO_PREDICATE='
-  ((.labels // []) | map(if type == "object" then (.name // "") else . end) | any(. == "DevFlow"))
+  ((.labels // []) | map(if type == "object" then (.name // "") else . end) | any(. == "'"$PROVENANCE_LABEL"'" or . == "'"$PROVENANCE_LABEL_SUPERSEDED"'"))
   or ($watched and (((.closingIssuesReferences // []) | length) > 0))
   or (($impl != "") and ((.headRefName // "") | startswith($impl)))
 '
@@ -186,17 +201,22 @@ FETCH_ERR="$(mktemp)"
 trap 'rm -f "$FETCH_ERR"' EXIT
 
 # ── Path (a): label pass — author- and branch-agnostic ───────────────────────
-# Every merged PR carrying the reserved DevFlow provenance label in the window
+# Every merged PR carrying the reserved PRFlow provenance label -- or its
+# superseded DevFlow spelling -- in the window
 # qualifies, regardless of author or branch name. This runs even when no
 # watched authors are configured (the label is the branch-naming-independent
 # detection mechanism). Best-effort: a gh failure logs and yields no candidates.
-if LABEL_BATCH="$("$DEVFLOW_GH" pr list --repo "$REPO" --state merged --label DevFlow \
-        --search "merged:>=${SINCE}" \
+# Both spellings are selected through ONE `--search` qualifier, never two
+# `--label` flags: `gh pr list --label A --label B` (and `--label "A,B"`) is an
+# AND, so it would return only PRs carrying BOTH and silently yield zero
+# candidates. The `label:A,B` search qualifier is the only OR form.
+if LABEL_BATCH="$("$DEVFLOW_GH" pr list --repo "$REPO" --state merged \
+        --search "merged:>=${SINCE} label:${PROVENANCE_LABEL},${PROVENANCE_LABEL_SUPERSEDED}" \
         --json number,headRefName,mergedAt --limit 100 2>"$FETCH_ERR")"; then
     LABEL_BATCH="$(echo "$LABEL_BATCH" | "$DEVFLOW_JQ" '[.[] | {number, headRefName, mergedAt}]' 2>"$FETCH_ERR")" \
-        || { echo "::warning::scan: jq reshape of the DevFlow-label batch failed ($(tr '\n' ' ' < "$FETCH_ERR" | cut -c1-300)); treating as empty" >&2; LABEL_BATCH='[]'; DEGRADED=1; }
+        || { echo "::warning::scan: jq reshape of the provenance-label batch failed ($(tr '\n' ' ' < "$FETCH_ERR" | cut -c1-300)); treating as empty" >&2; LABEL_BATCH='[]'; DEGRADED=1; }
 else
-    echo "::warning::gh pr list --label DevFlow failed ($(tr '\n' ' ' < "$FETCH_ERR" | cut -c1-300))" >&2; LABEL_BATCH='[]'; DEGRADED=1
+    echo "::warning::gh pr list provenance-label search (label:${PROVENANCE_LABEL},${PROVENANCE_LABEL_SUPERSEDED}) failed ($(tr '\n' ' ' < "$FETCH_ERR" | cut -c1-300))" >&2; LABEL_BATCH='[]'; DEGRADED=1
 fi
 _add_candidates "$LABEL_BATCH"
 
@@ -204,7 +224,7 @@ _add_candidates "$LABEL_BATCH"
 # Skipped (not fatal) when no watched authors are configured — the label pass
 # above still stands on its own.
 if [ -z "$WATCHED" ]; then
-    echo "::warning::no watched authors configured (prflow_retrospective.watched_authors / devflow.allowed_bots); relying on the DevFlow-label path only" >&2
+    echo "::warning::no watched authors configured (prflow_retrospective.watched_authors / devflow.allowed_bots); relying on the provenance-label path only" >&2
 else
     IFS=',' read -ra _watched <<< "$WATCHED"
     for _w in "${_watched[@]}"; do

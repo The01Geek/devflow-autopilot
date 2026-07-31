@@ -1,4 +1,4 @@
-<!-- devflow:review-ref phase=4 file=skills/review/phases/phase-4-verdict.md start -->
+<!-- prflow:review-ref phase=4 file=skills/review/phases/phase-4-verdict.md start -->
 ## Phase 4: Aggregation and Verdict
 
 Output: `Phase 4/4: Aggregating findings...`
@@ -263,4 +263,4 @@ fi
 - **Telemetry-on with live comment OFF, in a read-only cloud run:** there is no surface (comment disabled, `--persist` gated out). Do **not** silently compute-and-discard: emit a one-line chat note (`::warning::devflow review telemetry enabled but no surface available (live comment disabled, read-only run) — trace not persisted`) so the no-op is visible. A writable run still persists the record, so this note is read-only-cloud-only.
 
 Best-effort throughout: a telemetry/trace failure is a `::warning::`, never a downgrade of the verdict.
-<!-- devflow:review-ref phase=4 file=skills/review/phases/phase-4-verdict.md end -->
+<!-- prflow:review-ref phase=4 file=skills/review/phases/phase-4-verdict.md end -->

@@ -207,7 +207,7 @@ There is **no trigger label** to create: in the cloud tier, `/prflow:implement` 
 DevFlow does, however, stamp a single reserved **provenance** label — the literal `DevFlow` — on every issue and PR it creates, so the weekly retrospective can detect its own work independently of branch naming. Create that label now (best-effort, only here where `gh` is available — never in `scaffold-config.sh`, which must run without `gh` auth on the vendoring path) so it exists from day one:
 
 ```bash
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh DevFlow
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh PRFlow
 ```
 
 `ensure-label.sh` always exits 0 — it creates the label, treats an already-exists outcome as success, and logs a breadcrumb on a real `gh` failure — so a label-creation failure (no auth, offline) **never fails init**. Report a one-line note if it logged a failure, then continue.

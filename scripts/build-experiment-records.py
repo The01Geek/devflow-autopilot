@@ -14,7 +14,7 @@ Writes one JSON line per merged PR into `.prflow/learnings/experiment-records.js
   * the first-completed independent-review VERDICT, selected by artifact shape — the
     first completed PR review whose body matches the `## Verdict:` contract regardless
     of bot identity, with a progress-comment fallback and a null-verdict arm (#403);
-  * the Important-finding count parsed from the run-keyed `devflow:review-progress`
+  * the Important-finding count parsed from the run-keyed `prflow:review-progress`
     comment, joined via `review.commit_id` == the comment's "Reviewed HEAD:" line —
     the engine's own join (see skills/review/SKILL.md, cited as the normative source);
   * the permission-denial count (from the `Devflow Review` check-run output[summary]
@@ -82,7 +82,10 @@ GH = os.environ.get("DEVFLOW_GH") or "gh"
 GIT = os.environ.get("DEVFLOW_GIT") or "git"
 
 STORE_SCHEMA_VERSION = 1
-PROGRESS_MARKER = "<!-- devflow:review-progress"
+PROGRESS_MARKER = "<!-- prflow:review-progress"
+# PRFlow writes the current spelling; every artifact created before the rename carries the superseded one and no body is rewritten, so readers accept BOTH (issue #1003). Historical analysis reads mostly pre-rename comments, so the
+# superseded alternative is the one that carries the existing corpus.
+PROGRESS_MARKER_SUPERSEDED = "<!-- devflow:review-progress"
 VERDICT_LINE_RE = re.compile(r"^\s*##\s*Verdict:\s*(.+?)\s*$", re.MULTILINE)
 REVIEWED_HEAD_RE = re.compile(r"^\*\*Reviewed HEAD:\*\*\s*(\S+)", re.MULTILINE)
 # The Important-findings sub-heading in the engine's `## Code Review Findings`
@@ -435,9 +438,16 @@ def _slug_variants(branch):
     return v
 
 
+# The shipped default and its pre-rename spelling (issue #1003). Named constants
+# because the detection arm in `_index_efficiency` compares against both, and a
+# re-spelled literal there would silently stop detecting an unmigrated repository.
+_TELEMETRY_BRANCH_DEFAULT = "prflow-telemetry"
+_TELEMETRY_BRANCH_SUPERSEDED = "devflow-telemetry"
+
+
 def _telemetry_branch(repo_root):
     """The telemetry-branch name (config .telemetry.branch, default
-    devflow-telemetry — issue #441). Read in-process from repo_root/.prflow/
+    prflow-telemetry — issue #441). Read in-process from repo_root/.prflow/
     config.json rather than shelling to config-get.sh: this reader is invoked once
     per retrospective run in a known repo root, an empty/missing key resolves to
     the default, a MALFORMED (present-but-unparseable) config degrades to the
@@ -451,7 +461,7 @@ def _telemetry_branch(repo_root):
     Honors DEVFLOW_CONFIG_FILE, because the WRITER does: lib/telemetry-branch.sh
     resolves the branch through devflow_conf → lib/config-source.sh, which reads
     that override. A reader that ignored it would, under an override, union the
-    default `devflow-telemetry` while the writer stored to the overridden branch —
+    default `prflow-telemetry` while the writer stored to the overridden branch —
     a silent store miss where every cost row simply goes missing and nothing says
     so (PR #442 review). Reader and writer must resolve the same key from the same
     file."""
@@ -465,22 +475,22 @@ def _telemetry_branch(repo_root):
         # silent only on a MISSING config; it breadcrumbs a present-but-unreadable one, which
         # this reader deliberately does not — so do not read this as "config-get.sh is silent
         # here too" for the unreadable subcase.
-        return "devflow-telemetry"
+        return _TELEMETRY_BRANCH_DEFAULT
     try:
         data = json.loads(text)
         val = (data.get("telemetry") or {}).get("branch")
     except (json.JSONDecodeError, AttributeError):
         # A PRESENT-but-malformed config IS a degradation — name it (a silent
         # default here would mask a corrupt config the operator needs to fix).
-        _warn(f"could not parse .telemetry.branch from {cfg}; using default 'devflow-telemetry'")
-        return "devflow-telemetry"
+        _warn(f"could not parse .telemetry.branch from {cfg}; using default 'prflow-telemetry'")
+        return _TELEMETRY_BRANCH_DEFAULT
     if val is None:
-        return "devflow-telemetry"
+        return _TELEMETRY_BRANCH_DEFAULT
 
     # Resolve EXACTLY as the writer does, in the writer's order — coerce, then validate as a
     # git ref name, then fall back to the default. Reader and writer must land on the same
     # branch for EVERY config shape, or the store silently splits in two: the writer persists
-    # to branch X while the reader unions `devflow-telemetry`, so every cost row for that run
+    # to branch X while the reader unions `prflow-telemetry`, so every cost row for that run
     # simply goes missing, on both sides, with nothing said (PR #442 review).
     #
     # Both halves are load-bearing, and each was a real split before it was mirrored here:
@@ -513,7 +523,7 @@ def _telemetry_branch(repo_root):
               f"declares a string); the writer coerces it to '{branch}' and persists there, so "
               f"this reader follows it — fix the config to a quoted string")
     if not branch:
-        return "devflow-telemetry"
+        return _TELEMETRY_BRANCH_DEFAULT
     # Same gate and same fallback as the writer for every CONFIG shape. There is exactly one
     # deliberate divergence, and it is in the git-unrunnable direction, not the config
     # direction: the writer falls back on ANY non-zero rc, while this reader keeps the name
@@ -534,9 +544,9 @@ def _telemetry_branch(repo_root):
               f"be run: {(err or '').strip()[:120]}) — proceeding with it unvalidated")
         return branch
     _warn(f".telemetry.branch in {cfg} resolves to '{branch}', which git rejects as a branch name "
-          f"(check-ref-format rc={rc}); the writer falls back to 'devflow-telemetry' and this "
+          f"(check-ref-format rc={rc}); the writer falls back to 'prflow-telemetry' and this "
           f"reader follows it — fix .prflow/config.json to read from your intended branch")
-    return "devflow-telemetry"
+    return _TELEMETRY_BRANCH_DEFAULT
 
 
 def _efficiency_entry(record, run_id):
@@ -584,7 +594,7 @@ def _index_efficiency(eff_dir, repo_root=None, branch=None):
     precedence so a run present in both contributes exactly one cost row:
       1. the working-tree `.prflow/logs/efficiency/*.json` glob — the legacy
          tracked archive a consumer repo may still carry (read first);
-      2. the durable `devflow-telemetry` branch's `.prflow/logs/efficiency/*.json`
+      2. the durable `prflow-telemetry` branch's `.prflow/logs/efficiency/*.json`
          blobs, read via `git ls-tree`/`git show` at repo_root (read second, so it
          OVERWRITES a same-key working-tree entry). The branch is where every run
          now persists; the legacy glob is the read-only migration archive.
@@ -650,6 +660,26 @@ def _index_efficiency(eff_dir, repo_root=None, branch=None):
             _warn(f"could not establish whether telemetry branch {br} exists "
                   f"(git rev-parse rc={rc_v}): {(err_v or '').strip()[:160]} — telemetry-branch "
                   f"cost rows unestablished for this run")
+        if rc_v == 1 and br == _TELEMETRY_BRANCH_DEFAULT:
+            # DETECTION, not a read-through (issue #1003). The branch renamed
+            # devflow-telemetry -> prflow-telemetry, and unlike the state directory
+            # this store is NOT migrated automatically: the branch is a single
+            # orphan ref whose whole content is JSON records, so one push renames it
+            # with every byte preserved, and a silent dual-read would entrench the
+            # superseded name permanently (the same ruling issue #988 made for the
+            # config keys). A repository that still carries the superseded ref while
+            # the current one is absent is therefore told so, loudly, with the exact
+            # command -- never left to read as a measured absence.
+            rc_s, _, _ = _run([GIT, "-C", str(repo_root), "rev-parse", "--verify",
+                               "--quiet", f"{_TELEMETRY_BRANCH_SUPERSEDED}^{{commit}}"])
+            if rc_s == 0:
+                _warn(f"telemetry branch {br} is absent but the superseded "
+                      f"{_TELEMETRY_BRANCH_SUPERSEDED} branch is present: this repository's "
+                      f"telemetry records have not been moved, so every cost row on that "
+                      f"branch is invisible to this run. Rename the branch once "
+                      f"(git push origin {_TELEMETRY_BRANCH_SUPERSEDED}:{br} && "
+                      f"git push origin --delete {_TELEMETRY_BRANCH_SUPERSEDED}), or set "
+                      f"telemetry.branch to keep the superseded name")
         if rc_v == 0:
             rc, out, err = _run([GIT, "-C", str(repo_root), "ls-tree", "-r", "--name-only",
                                  br, "--", ".prflow/logs/efficiency/"])
@@ -775,7 +805,8 @@ def _resolve_verdict_and_important(repo, pr):
     if not reviews_ok or not comments_ok:
         verdict_source = "fetch-failed"
     progress = [c for c in (comments or [])
-                if PROGRESS_MARKER in ((c or {}).get("body") or "")]
+                if PROGRESS_MARKER in ((c or {}).get("body") or "")
+                or PROGRESS_MARKER_SUPERSEDED in ((c or {}).get("body") or "")]
 
     if reviews:
         completed = [r for r in reviews

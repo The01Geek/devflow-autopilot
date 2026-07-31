@@ -1,4 +1,4 @@
-<!-- devflow:create-issue-ref step=2 file=skills/create-issue/references/step-2-clarify.md start -->
+<!-- prflow:create-issue-ref step=2 file=skills/create-issue/references/step-2-clarify.md start -->
 
 ### Step 2: Clarify until the Definition of Ready is met
 
@@ -78,4 +78,4 @@ A screenshot/mockup is **preferred, not mandatory** — verbal verification is a
 - Do **not** invent a default and bury it in the body. Do **not** rephrase the open decision as an "option" or "recommended approach" elsewhere. The Blocked section is the *only* place an unresolved decision may appear.
 - "You decide" is not permission to guess silently — it is an unresolved item that belongs in Blocked, unless the choice is genuinely inconsequential to scope (e.g. a variable name).
 
-<!-- devflow:create-issue-ref step=2 file=skills/create-issue/references/step-2-clarify.md end -->
+<!-- prflow:create-issue-ref step=2 file=skills/create-issue/references/step-2-clarify.md end -->

@@ -117,12 +117,12 @@ This is **two separate calls**, not one fence split for readability: each helper
 
 **Call 1 — ensure the `DevFlow` label exists in the repo** (idempotent; creates it if absent):
 ```bash
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh DevFlow
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh PRFlow
 ```
 
 **Call 2 — apply it to the draft PR**, substituting the digits of the `draft PR number` printed above for `<draft-pr-number>` (a literal, never `$PR_NUM` — see the discipline note above):
 ```bash
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh <draft-pr-number> DevFlow
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh <draft-pr-number> PRFlow
 ```
 
 Both helpers always exit 0 and need only the `repo` scope: `ensure-label.sh` always breadcrumbs — created / present / a `gh` error — so **no output at all from it means the harness refused it**; record that (`--reflection-kind dropped-failed`) and continue, and `apply-labels.sh` applies via REST `POST .../issues/{n}/labels` (not `gh pr edit --add-label`, which resolves the repo via org-scoped GraphQL and fails under a repo-scoped token).
@@ -194,7 +194,7 @@ set -- "$ROOT"/.prflow/tmp/review/*/*/iter-*.json
 { [ -e "$1" ] && printf '%s\n' "$@" | sort; } > "$ROOT/.prflow/tmp/.phase33-iters-before" || :
 ```
 
-Invoke the **Skill tool** with `skill: review-and-fix` and `args: "--push-each-iteration --issue $ISSUE_NUMBER"`, substituting the issue number as its literal digits. `--issue` is load-bearing: it tells the review engine which issue to source the run's acceptance criteria from, and without it the engine judges this PR against a surface the run has already narrowed or rewritten. The `--push-each-iteration` flag is load-bearing here too: this phase operates on the live draft PR created in 3.1, and `--push-each-iteration` propagates each fix iteration to the remote branch so its CI validates the converging state and progress survives a mid-loop crash. (Direct users of `/prflow:review-and-fix` omit the flag and the loop's **fix commits** stay local — though Loop Exit's `--persist` still pushes the `devflow-telemetry` branch regardless of the flag; see that skill's Input section for the flag's semantics.)
+Invoke the **Skill tool** with `skill: review-and-fix` and `args: "--push-each-iteration --issue $ISSUE_NUMBER"`, substituting the issue number as its literal digits. `--issue` is load-bearing: it tells the review engine which issue to source the run's acceptance criteria from, and without it the engine judges this PR against a surface the run has already narrowed or rewritten. The `--push-each-iteration` flag is load-bearing here too: this phase operates on the live draft PR created in 3.1, and `--push-each-iteration` propagates each fix iteration to the remote branch so its CI validates the converging state and progress survives a mid-loop crash. (Direct users of `/prflow:review-and-fix` omit the flag and the loop's **fix commits** stay local — though Loop Exit's `--persist` still pushes the `prflow-telemetry` branch regardless of the flag; see that skill's Input section for the flag's semantics.)
 
 **Stay on the instrumented loop — a cloud permission/sandbox denial is not license to leave it.** This phase drives `review-and-fix` **inline in your context**. If you hit a `claude-code-action` permission or sandbox denial here — a piped/compound `.sh` invocation, a `$(...)` redirect target, or a shell `>` write into `.prflow/tmp` refused as "may only write to files in allowed working directories" — that denial is not the local-tier permission classifier, and is not license to abandon the instrumented loop and hand-run the review engine via direct `Agent` dispatch. On the cloud implement job `Skill`, `Agent`, `Write`, `efficiency-trace.sh`, `workpad.py`, and `config-get.sh` are all allowlisted, so the instrumented loop is navigable, not blocked. Whatever path the review runs, the per-iteration effectiveness record (`iter-<N>.json`) is a non-optional emit on every iteration, written with the Write tool (never a shell `>`/heredoc redirect the sandbox denies) — that is what keeps the **effectiveness** half of the telemetry recoverable even on a degraded, hand-run pass; and the emit is non-optional **on every path, including a degraded one**.
 
@@ -220,7 +220,7 @@ Follow the skill's instructions. It handles evaluation, fixing, testing, and re-
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # Idempotent Layer-3 persist: derives the effectiveness record and durable workpad copy
 # from whatever iter-*.json this run left under .prflow/tmp/review/ and writes them to the
-# long-lived orphan telemetry branch (default `devflow-telemetry`, key telemetry.branch) via
+# long-lived orphan telemetry branch (default `prflow-telemetry`, key telemetry.branch) via
 # git plumbing — it does NOT commit to this feature branch and never touches HEAD, the
 # current branch, or the TRACKED working tree (issue #441). Idempotent on that branch: the
 # effectiveness record is presence-idempotent (a `git cat-file -e <ref>:<path>` probe skips a

@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 # telemetry-branch.sh — persist DevFlow observability artifacts to a dedicated,
-# long-lived ORPHAN branch (default `devflow-telemetry`, name from the
+# long-lived ORPHAN branch (default `prflow-telemetry`, name from the
 # `telemetry.branch` config key) WITHOUT ever touching the current branch, HEAD,
 # the default branch, or the TRACKED working tree. Writes go entirely through git
 # plumbing against the object store (hash-object → write-tree → commit-tree) and
@@ -102,7 +102,7 @@ _devflow_telemetry_should_push() {
 }
 
 # Resolve the telemetry branch name (config .telemetry.branch, default
-# devflow-telemetry). An empty/absent key → the default (a string key, so the
+# prflow-telemetry). An empty/absent key → the default (a string key, so the
 # #312 valid-falsy trap does not apply — an empty branch name is never a valid
 # selection).
 devflow_telemetry_branch() {
@@ -112,9 +112,9 @@ devflow_telemetry_branch() {
   if [ -z "${_DEVFLOW_TELEMETRY_BRANCH_CACHE:-}" ]; then
     local b=""
     if command -v devflow_conf >/dev/null 2>&1; then
-      b="$(devflow_conf '.telemetry.branch' 'devflow-telemetry')"
+      b="$(devflow_conf '.telemetry.branch' 'prflow-telemetry')"
     fi
-    [ -n "$b" ] || b="devflow-telemetry"
+    [ -n "$b" ] || b="prflow-telemetry"
     # Validate the CONFIGURED name is actually usable as a branch ref before it is
     # interpolated into refs/heads/<b>, a push refspec, and refs/remotes/origin/<b>.
     # The schema says `"type": "string"`, but a schema is not a runtime guard: a
@@ -126,8 +126,8 @@ devflow_telemetry_branch() {
     # that actually caused it — on every run (PR #442 review). Fail back to the
     # default so telemetry still persists, and say exactly which key to fix.
     if ! git check-ref-format --branch "$b" >/dev/null 2>&1; then
-      echo "::warning::telemetry-branch: config key 'telemetry.branch' resolved to '${b}', which git rejects as a branch name (git check-ref-format); falling back to 'devflow-telemetry' — fix .prflow/config.json to persist to your intended branch" >&2
-      b="devflow-telemetry"
+      echo "::warning::telemetry-branch: config key 'telemetry.branch' resolved to '${b}', which git rejects as a branch name (git check-ref-format); falling back to 'prflow-telemetry' — fix .prflow/config.json to persist to your intended branch" >&2
+      b="prflow-telemetry"
     fi
     # What actually makes this memo work is `do_persist` SEEDING it in the parent shell before
     # anything forks — not this `export`. A `$(devflow_telemetry_branch)` call site runs in a

@@ -90,7 +90,7 @@ fi
 # ── 5. Issue details ─────────────────────────────────────────────────────────
 ISSUE_JSON="null"
 # The workpad lives on the ISSUE (header `# DevFlow Workpad — Issue #<N>`,
-# marker `<!-- devflow:workpad -->`), authored by github-actions — NOT on the PR
+# marker `<!-- prflow:workpad -->`), authored by github-actions — NOT on the PR
 # conversation thread. Default to an empty array so the workpad/reflection parse
 # below is safe even when no linked issue was found.
 ISSUE_COMMENTS_RAW='[]'
@@ -129,7 +129,7 @@ fi
 # argjson-ok: pr_labels issue -- per-PR bounded operands (one PR's label list and one linked issue's JSON), never corpus-sized (issue #895)
 PR_DEVFLOW_PROVENANCE="$("$DEVFLOW_JQ" -n --argjson pr_labels "$LABELS_JSON" --argjson issue "$ISSUE_JSON" '
     def norm: (if type == "array" then map(if type == "object" then (.name // "") else . end) else [] end);
-    (($pr_labels | norm) + (($issue.labels // []) | norm)) | any(. == "DevFlow")
+    (($pr_labels | norm) + (($issue.labels // []) | norm)) | any(. == "PRFlow" or . == "DevFlow")
 ' 2>/dev/null)" || PR_DEVFLOW_PROVENANCE=""
 # Fail closed to `false` on anything that is not a bare boolean — a jq abort (the
 # `||` above leaves ""), a wrong-type/garbage emission, or an unresolvable label
@@ -290,7 +290,7 @@ fi
 # The workpad lives on the ISSUE thread (ISSUE_COMMENTS_RAW), not the PR
 # conversation thread — reading it from the PR thread (the old bug) left it
 # ~always empty, so the workpad signal in cheap-gate.jq was inert.
-WORKPAD_BODY="$(echo "$ISSUE_COMMENTS_RAW" | "$DEVFLOW_JQ" -r '[.[] | select((.body // "") | test("<!-- devflow:workpad -->"; "i"))] | first | .body // ""')"
+WORKPAD_BODY="$(echo "$ISSUE_COMMENTS_RAW" | "$DEVFLOW_JQ" -r '[.[] | select((.body // "") | test("<!-- (pr|dev)flow:workpad -->"; "i"))] | first | .body // ""')"
 WORKPAD_FINAL_STATUS=""
 REFLECTIONS="[]"
 # reflections_friction_count: the number of reflection bullets that force LLM
@@ -309,7 +309,7 @@ if [ "$ISSUE_NUMBER" = "null" ]; then
     echo "::warning::fetch-pr-context: no linked issue resolved for PR ${PR}; no workpad audit trail (NoIssue)" >&2
     WORKPAD_FINAL_STATUS="NoIssue"
 elif [ -z "$WORKPAD_BODY" ]; then
-    echo "::warning::fetch-pr-context: issue ${ISSUE_NUMBER} resolved for PR ${PR} but no <!-- devflow:workpad --> comment exists (Absent)" >&2
+    echo "::warning::fetch-pr-context: issue ${ISSUE_NUMBER} resolved for PR ${PR} but no <!-- prflow:workpad --> comment exists (Absent)" >&2
     WORKPAD_FINAL_STATUS="Absent"
 else
     # Extract the value after "**Status:** <glyph> <word>" / "Status: <word>".

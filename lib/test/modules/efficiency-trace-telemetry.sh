@@ -698,7 +698,7 @@ echo "efficiency-trace.sh --persist / --self-check (issue #80)"
 # that make /devflow:review-and-fix Loop Exit observability persistence
 # non-droppable. Both are best-effort: they MUST always exit 0 and never abort.
 #
-# As of issue #441 --persist writes to the dedicated `devflow-telemetry` orphan
+# As of issue #441 --persist writes to the dedicated `prflow-telemetry` orphan
 # branch via git plumbing — it NEVER touches the current branch, HEAD, or the
 # working tree, and pushes to the remote when one is reachable. So the outcomes
 # are asserted ON THE BRANCH (`git cat-file`/`git show`/`git ls-remote`), not in
@@ -725,11 +725,11 @@ echo "efficiency-trace.sh --persist / --self-check (issue #80)"
 export DEVFLOW_TELEMETRY_PUSH=1
 
 # yes/no whether path $2 exists on repo $1's telemetry branch (the branch-presence probe).
-_et_on_branch() { git -C "$1" cat-file -e "refs/heads/devflow-telemetry:$2" >/dev/null 2>&1 && echo yes || echo no; }
+_et_on_branch() { git -C "$1" cat-file -e "refs/heads/prflow-telemetry:$2" >/dev/null 2>&1 && echo yes || echo no; }
 # cat the telemetry-branch blob $2 of repo $1 to stdout (empty when absent).
-_et_show() { git -C "$1" show "refs/heads/devflow-telemetry:$2" 2>/dev/null; }
+_et_show() { git -C "$1" show "refs/heads/prflow-telemetry:$2" 2>/dev/null; }
 # number of commits on repo $1's telemetry branch (0 when absent).
-_et_branch_count() { git -C "$1" rev-list --count refs/heads/devflow-telemetry 2>/dev/null || echo 0; }
+_et_branch_count() { git -C "$1" rev-list --count refs/heads/prflow-telemetry 2>/dev/null || echo 0; }
 
 # A throwaway git repo WITH a bare remote so --persist's branch write + push have
 # somewhere real to land. `.prflow/tmp/` is gitignored (as in a real repo) so the
@@ -780,15 +780,15 @@ assert_eq "et-persist(#441): durable copy carries deferrals.json sibling on the 
   "$(_et_on_branch "$ETP_REPO" ".prflow/logs/review/pr-77/run-abc/deferrals.json")"
 assert_eq "et-persist(#441): telemetry-branch tip subject is the chore: persist message" \
   "chore: persist review-and-fix observability artifacts" \
-  "$(git -C "$ETP_REPO" log -1 --format=%s refs/heads/devflow-telemetry)"
+  "$(git -C "$ETP_REPO" log -1 --format=%s refs/heads/prflow-telemetry)"
 # AC3: the telemetry branch is an orphan (shares NO history with main).
 assert_eq "et-persist(#441): telemetry branch is an orphan (no merge-base with main)" "" \
-  "$(git -C "$ETP_REPO" merge-base refs/heads/devflow-telemetry main 2>/dev/null || true)"
+  "$(git -C "$ETP_REPO" merge-base refs/heads/prflow-telemetry main 2>/dev/null || true)"
 assert_eq "et-persist(#441): branch record is a real derivation (schema_version)" "1" \
   "$(_et_show "$ETP_REPO" ".prflow/logs/efficiency/pr-77-run-abc.json" | jq -r '.schema_version')"
 # AC6 (basic push): the branch reached the remote.
 assert_eq "et-persist(#441): telemetry branch was pushed to the remote" "yes" \
-  "$(git -C "$ETP_REPO" ls-remote --heads origin devflow-telemetry | grep -q devflow-telemetry && echo yes || echo no)"
+  "$(git -C "$ETP_REPO" ls-remote --heads origin prflow-telemetry | grep -q prflow-telemetry && echo yes || echo no)"
 
 # --persist idempotency (AC14): a second run makes NO new branch commit and does
 # not re-derive the record (generated_at stays stable).
@@ -843,15 +843,15 @@ printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergen
 ETP_R6_C2="$(git_sandbox "et-persist AC6 second writer")"
 git clone -q "$ETP_R6_BARE" "$ETP_R6_C2" 2>/dev/null
 git -C "$ETP_R6_C2" config user.email x@y; git -C "$ETP_R6_C2" config user.name x
-git -C "$ETP_R6_C2" fetch -q origin devflow-telemetry:devflow-telemetry
-ETP_R6_IDX="$ETP_R6_C2/.git/ac6idx"; ETP_R6_TIP="$(git -C "$ETP_R6_C2" rev-parse devflow-telemetry)"
-GIT_INDEX_FILE="$ETP_R6_IDX" git -C "$ETP_R6_C2" read-tree devflow-telemetry
+git -C "$ETP_R6_C2" fetch -q origin prflow-telemetry:prflow-telemetry
+ETP_R6_IDX="$ETP_R6_C2/.git/ac6idx"; ETP_R6_TIP="$(git -C "$ETP_R6_C2" rev-parse prflow-telemetry)"
+GIT_INDEX_FILE="$ETP_R6_IDX" git -C "$ETP_R6_C2" read-tree prflow-telemetry
 ETP_R6_B="$(printf '{"s":"B"}' | git -C "$ETP_R6_C2" hash-object -w --stdin)"
 GIT_INDEX_FILE="$ETP_R6_IDX" git -C "$ETP_R6_C2" update-index --add --cacheinfo "100644,${ETP_R6_B},.prflow/logs/efficiency/pr-b-run-b.json"
 ETP_R6_T="$(GIT_INDEX_FILE="$ETP_R6_IDX" git -C "$ETP_R6_C2" write-tree)"; rm -f "$ETP_R6_IDX"
 ETP_R6_N="$(GIT_AUTHOR_NAME=x GIT_AUTHOR_EMAIL=x@y GIT_COMMITTER_NAME=x GIT_COMMITTER_EMAIL=x@y git -C "$ETP_R6_C2" commit-tree "$ETP_R6_T" -p "$ETP_R6_TIP" -m sibling)"
-git -C "$ETP_R6_C2" update-ref refs/heads/devflow-telemetry "$ETP_R6_N" "$ETP_R6_TIP"
-git -C "$ETP_R6_C2" push -q origin devflow-telemetry
+git -C "$ETP_R6_C2" update-ref refs/heads/prflow-telemetry "$ETP_R6_N" "$ETP_R6_TIP"
+git -C "$ETP_R6_C2" push -q origin prflow-telemetry
 # Run C locally: its first push is rejected non-ff → the helper fetches, re-parents C
 # on B's tip, and re-pushes. All of A, B, C must land on the REMOTE with no clobber.
 mkdir -p "$ETP_R6/.prflow/tmp/review/pr-c/run-c"
@@ -859,7 +859,7 @@ printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergen
   > "$ETP_R6/.prflow/tmp/review/pr-c/run-c/iter-1.json"
 ETP_R6_RC=$( ( cd "$ETP_R6" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1; echo $? )
 assert_eq "et-persist(#441 AC6): remote-ahead push → exit 0 (retry loop, not abort)" "0" "$ETP_R6_RC"
-git -C "$ETP_R6" fetch -q origin devflow-telemetry:refs/remotes/origin/ac6 2>/dev/null
+git -C "$ETP_R6" fetch -q origin prflow-telemetry:refs/remotes/origin/ac6 2>/dev/null
 for _ac6f in pr-a-run-a pr-b-run-b pr-c-run-c; do
   assert_eq "et-persist(#441 AC6): remote carries ${_ac6f} after fetch/re-parent/re-push (no clobber)" "yes" \
     "$(git -C "$ETP_R6" cat-file -e "refs/remotes/origin/ac6:.prflow/logs/efficiency/${_ac6f}.json" >/dev/null 2>&1 && echo yes || echo no)"
@@ -898,15 +898,15 @@ ETP_OA_XB="$(printf '{"s":"X"}' | git -C "$ETP_OA_C2" hash-object -w --stdin)"
 GIT_INDEX_FILE="$ETP_OA_IDX" git -C "$ETP_OA_C2" update-index --add --cacheinfo "100644,${ETP_OA_XB},.prflow/logs/efficiency/pr-x-run-x.json"
 ETP_OA_XT="$(GIT_INDEX_FILE="$ETP_OA_IDX" git -C "$ETP_OA_C2" write-tree)"; rm -f "$ETP_OA_IDX"
 ETP_OA_XN="$(GIT_AUTHOR_NAME=x GIT_AUTHOR_EMAIL=x@y GIT_COMMITTER_NAME=x GIT_COMMITTER_EMAIL=x@y git -C "$ETP_OA_C2" commit-tree "$ETP_OA_XT" -m x)"
-git -C "$ETP_OA_C2" update-ref refs/heads/devflow-telemetry "$ETP_OA_XN"
-git -C "$ETP_OA_C2" push -q origin devflow-telemetry
+git -C "$ETP_OA_C2" update-ref refs/heads/prflow-telemetry "$ETP_OA_XN"
+git -C "$ETP_OA_C2" push -q origin prflow-telemetry
 # Run B reconnects: its push is rejected (remote diverged), so it fetches, re-parents
 # the UNION of the local tip (offline A + this run B) and the remote tip (X), and pushes.
 mkdir -p "$ETP_OA/.prflow/tmp/review/pr-b/run-b"
 printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
   > "$ETP_OA/.prflow/tmp/review/pr-b/run-b/iter-1.json"
 ( cd "$ETP_OA" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
-git -C "$ETP_OA" fetch -q origin devflow-telemetry:refs/remotes/origin/oa 2>/dev/null
+git -C "$ETP_OA" fetch -q origin prflow-telemetry:refs/remotes/origin/oa 2>/dev/null
 for _oaf in pr-a-run-a pr-b-run-b pr-x-run-x; do
   assert_eq "et-persist(#441 offline-accum): remote carries ${_oaf} after reconnect re-parent (no orphaned offline record)" "yes" \
     "$(git -C "$ETP_OA" cat-file -e "refs/remotes/origin/oa:.prflow/logs/efficiency/${_oaf}.json" >/dev/null 2>&1 && echo yes || echo no)"
@@ -914,7 +914,7 @@ done
 rm -rf "$ETP_OA" "$ETP_OA_BARE" "$ETP_OA_C2"
 
 # Remote-first non-telemetry same-named branch (cloud-review Important-1, PR #442 —
-# the AC4 guarantee on the PUSH path): a consumer's REMOTE `devflow-telemetry` holds
+# the AC4 guarantee on the PUSH path): a consumer's REMOTE `prflow-telemetry` holds
 # non-telemetry content and was never fetched locally, so the pre-write verify_store
 # passes vacuously (no local ref), a local orphan is built, and the push is rejected
 # non-ff. The rejection arm fetches the consumer's tip — which must be RE-VERIFIED as
@@ -933,15 +933,15 @@ mkdir -p "$ETP_RN/.prflow"; printf 'tmp/\n' > "$ETP_RN/.prflow/.gitignore"
 git -C "$ETP_RN" add -A; git -C "$ETP_RN" commit -qm seed; git -C "$ETP_RN" branch -M main
 git -C "$ETP_RN" push -q -u origin main
 # The consumer's remote-only same-named branch: main's tree (non-.prflow/logs/ paths).
-git -C "$ETP_RN" push -q origin main:refs/heads/devflow-telemetry
-ETP_RN_TIP="$(git -C "$ETP_RN_BARE" rev-parse refs/heads/devflow-telemetry)"
+git -C "$ETP_RN" push -q origin main:refs/heads/prflow-telemetry
+ETP_RN_TIP="$(git -C "$ETP_RN_BARE" rev-parse refs/heads/prflow-telemetry)"
 mkdir -p "$ETP_RN/.prflow/tmp/review/pr-a/run-a"
 printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
   > "$ETP_RN/.prflow/tmp/review/pr-a/run-a/iter-1.json"
 ETP_RN_ERR="$( ( cd "$ETP_RN" && bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"; ETP_RN_RC=$?
 assert_eq "et-persist(#442 push-path AC4): remote non-telemetry same-named branch → exit 0 (best-effort)" "0" "$ETP_RN_RC"
 assert_eq "et-persist(#442 push-path AC4): consumer's remote branch is left UNTOUCHED (no push over it)" \
-  "$ETP_RN_TIP" "$(git -C "$ETP_RN_BARE" rev-parse refs/heads/devflow-telemetry)"
+  "$ETP_RN_TIP" "$(git -C "$ETP_RN_BARE" rev-parse refs/heads/prflow-telemetry)"
 assert_eq "et-persist(#442 push-path AC4): the refusal is the rejection-arm store re-verification (attributed breadcrumb)" "yes" \
   "$(printf '%s' "$ETP_RN_ERR" | grep -qF 'refusing to re-parent onto or push over it' && echo yes || echo no)"
 assert_eq "et-persist(#442 push-path AC4): the run's record is retained on the LOCAL ref" "yes" \
@@ -986,7 +986,7 @@ ETP_NS_SEED="$(git_sandbox "et-persist no-lib remote seed")"; git -C "$ETP_NS_SE
 git -C "$ETP_NS_SEED" config user.email t@e.com; git -C "$ETP_NS_SEED" config user.name t
 printf 'not a telemetry store\n' > "$ETP_NS_SEED/random.txt"
 git -C "$ETP_NS_SEED" add -A; git -C "$ETP_NS_SEED" commit -qm seed
-git -C "$ETP_NS_SEED" push -q "$ETP_NS_BARE" HEAD:refs/heads/devflow-telemetry
+git -C "$ETP_NS_SEED" push -q "$ETP_NS_BARE" HEAD:refs/heads/prflow-telemetry
 git -C "$ETP_NS_REPO" remote add origin "$ETP_NS_BARE"
 mkdir -p "$ETP_NS_REPO/.prflow"; printf 'tmp/\n' > "$ETP_NS_REPO/.prflow/.gitignore"
 git -C "$ETP_NS_REPO" add -A; git -C "$ETP_NS_REPO" commit -qm seed
@@ -1000,7 +1000,7 @@ assert_eq "et-persist(#441 Sug-3a): the persist-time 'staged artifacts discarded
 assert_eq "#469 source-failure stubs: missing telemetry-branch.sh degrades without an undefined verify_store call" "no" \
   "$(printf '%s' "$ETP_NS_ERR" | grep -qF 'devflow_telemetry_verify_store: command not found' && echo yes || echo no)"
 assert_eq "et-persist(#441 Sug-3a): lib-missing → no telemetry ref created" "no" \
-  "$(git -C "$ETP_NS_REPO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
+  "$(git -C "$ETP_NS_REPO" rev-parse --verify --quiet refs/heads/prflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
 rm -rf "$ETP_NS_LIB" "$ETP_NS_REPO" "$ETP_NS_BARE" "$ETP_NS_SEED"
 
 # --persist telemetry OFF: no record derived, but the durable copy still persists
@@ -1053,7 +1053,7 @@ git -C "$ETP_EMPTY_REPO" config user.email t@e.com; git -C "$ETP_EMPTY_REPO" con
 ( cd "$ETP_EMPTY_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1; ETP_EMPTY_RC=$?
 assert_eq "et-persist: no review activity → exit 0" "0" "$ETP_EMPTY_RC"
 assert_eq "et-persist(#441): no review activity → no telemetry branch created" "no" \
-  "$(git -C "$ETP_EMPTY_REPO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
+  "$(git -C "$ETP_EMPTY_REPO" rev-parse --verify --quiet refs/heads/prflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
 rm -rf "$ETP_EMPTY_REPO"
 
 # --self-check (warn-only). Telemetry-off silence is the shell-enforceable half
@@ -1438,7 +1438,7 @@ HC_RC_SB="$(printf '%s' "$HC_RC_REC" | git -C "$HC_RC" hash-object -w --stdin)"
 GIT_INDEX_FILE="$HC_RC_IDX" git -C "$HC_RC" update-index --add --cacheinfo "100644,${HC_RC_SB},.prflow/logs/efficiency/pr-6-run-r.json"
 HC_RC_ST="$(GIT_INDEX_FILE="$HC_RC_IDX" git -C "$HC_RC" write-tree)"; rm -f "$HC_RC_IDX"
 HC_RC_SN="$(GIT_AUTHOR_NAME=b GIT_AUTHOR_EMAIL=b@y GIT_COMMITTER_NAME=b GIT_COMMITTER_EMAIL=b@y git -C "$HC_RC" commit-tree "$HC_RC_ST" -m b)"
-git -C "$HC_RC" update-ref refs/heads/devflow-telemetry "$HC_RC_SN"
+git -C "$HC_RC" update-ref refs/heads/prflow-telemetry "$HC_RC_SN"
 mv "${HC_RC_BARE}.down" "$HC_RC_BARE"
 # Writer A (a second clone) MERGES harness_cost into the SAME record R and pushes it.
 HC_RC_A="$(git_sandbox "hc race writerA")"; git clone -q "$HC_RC_BARE" "$HC_RC_A" 2>/dev/null
@@ -1448,8 +1448,8 @@ HC_RC_AB="$(printf '%s' "$HC_RC_AREC" | git -C "$HC_RC_A" hash-object -w --stdin
 GIT_INDEX_FILE="$HC_RC_AIDX" git -C "$HC_RC_A" update-index --add --cacheinfo "100644,${HC_RC_AB},.prflow/logs/efficiency/pr-6-run-r.json"
 HC_RC_AT="$(GIT_INDEX_FILE="$HC_RC_AIDX" git -C "$HC_RC_A" write-tree)"; rm -f "$HC_RC_AIDX"
 HC_RC_AN="$(GIT_AUTHOR_NAME=a GIT_AUTHOR_EMAIL=a@y GIT_COMMITTER_NAME=a GIT_COMMITTER_EMAIL=a@y git -C "$HC_RC_A" commit-tree "$HC_RC_AT" -m a)"
-git -C "$HC_RC_A" update-ref refs/heads/devflow-telemetry "$HC_RC_AN"
-git -C "$HC_RC_A" push -q origin devflow-telemetry
+git -C "$HC_RC_A" update-ref refs/heads/prflow-telemetry "$HC_RC_AN"
+git -C "$HC_RC_A" push -q origin prflow-telemetry
 # Writer B now persists a NEW, unrelated run (its own record) — its push is rejected
 # (remote diverged), so it fetches A's tip and re-parents the UNION. B did NOT stage
 # R this pass, so the merge-aware union must keep A's harness_cost on R (base-wins),
@@ -1457,7 +1457,7 @@ git -C "$HC_RC_A" push -q origin devflow-telemetry
 mkdir -p "$HC_RC/.prflow/tmp/review/pr-6/run-b"
 printf '%s' "$HC_ITER" > "$HC_RC/.prflow/tmp/review/pr-6/run-b/iter-1.json"
 ( cd "$HC_RC" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
-git -C "$HC_RC" fetch -q origin devflow-telemetry:refs/remotes/origin/rc 2>/dev/null
+git -C "$HC_RC" fetch -q origin prflow-telemetry:refs/remotes/origin/rc 2>/dev/null
 assert_eq "hc-race(A5a): the concurrently-merged record R still carries writer A's harness_cost (stale snapshot did NOT revert it)" "9" \
   "$(git -C "$HC_RC" show "refs/remotes/origin/rc:.prflow/logs/efficiency/pr-6-run-r.json" 2>/dev/null | jq -c '.harness_cost.cost_usd')"
 assert_eq "hc-race(A5a): writer B's own new record is also present on the remote after the union" "yes" \
@@ -1488,7 +1488,7 @@ HC_SR_SB="$(printf '%s' "$HC_SR_REC" | git -C "$HC_SR" hash-object -w --stdin)"
 GIT_INDEX_FILE="$HC_SR_IDX" git -C "$HC_SR" update-index --add --cacheinfo "100644,${HC_SR_SB},.prflow/logs/efficiency/pr-6-run-r.json"
 HC_SR_ST="$(GIT_INDEX_FILE="$HC_SR_IDX" git -C "$HC_SR" write-tree)"; rm -f "$HC_SR_IDX"
 HC_SR_SN="$(GIT_AUTHOR_NAME=b GIT_AUTHOR_EMAIL=b@y GIT_COMMITTER_NAME=b GIT_COMMITTER_EMAIL=b@y git -C "$HC_SR" commit-tree "$HC_SR_ST" -m b)"
-git -C "$HC_SR" update-ref refs/heads/devflow-telemetry "$HC_SR_SN"
+git -C "$HC_SR" update-ref refs/heads/prflow-telemetry "$HC_SR_SN"
 mv "${HC_SR_BARE}.down" "$HC_SR_BARE"
 # Writer A MERGES harness_cost (cost_usd=9) into the SAME record R and pushes it.
 HC_SR_A="$(git_sandbox "hc staged-remerge writerA")"; git clone -q "$HC_SR_BARE" "$HC_SR_A" 2>/dev/null
@@ -1498,8 +1498,8 @@ HC_SR_AB="$(printf '%s' "$HC_SR_AREC" | git -C "$HC_SR_A" hash-object -w --stdin
 GIT_INDEX_FILE="$HC_SR_AIDX" git -C "$HC_SR_A" update-index --add --cacheinfo "100644,${HC_SR_AB},.prflow/logs/efficiency/pr-6-run-r.json"
 HC_SR_AT="$(GIT_INDEX_FILE="$HC_SR_AIDX" git -C "$HC_SR_A" write-tree)"; rm -f "$HC_SR_AIDX"
 HC_SR_AN="$(GIT_AUTHOR_NAME=a GIT_AUTHOR_EMAIL=a@y GIT_COMMITTER_NAME=a GIT_COMMITTER_EMAIL=a@y git -C "$HC_SR_A" commit-tree "$HC_SR_AT" -m a)"
-git -C "$HC_SR_A" update-ref refs/heads/devflow-telemetry "$HC_SR_AN"
-git -C "$HC_SR_A" push -q origin devflow-telemetry
+git -C "$HC_SR_A" update-ref refs/heads/prflow-telemetry "$HC_SR_AN"
+git -C "$HC_SR_A" push -q origin prflow-telemetry
 # Writer B persists with the floor env (ident=run-r matches R's filename → merge-arm-b re-stages
 # R with cost_usd=5) plus its own new run dir; the push is rejected (remote diverged) and the
 # re-parent runs the STAGED efficiency-record union arm over R.
@@ -1508,7 +1508,7 @@ printf '%s' "$HC_ITER" > "$HC_SR/.prflow/tmp/review/pr-6/run-b/iter-1.json"
 ( cd "$HC_SR" && GITHUB_RUN_ID=run GITHUB_RUN_ATTEMPT=r \
     DEVFLOW_EXECUTION_COST='{"cost_usd":5,"tokens":{},"model_usage":null,"num_turns":null,"duration_ms":null}' \
     DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
-git -C "$HC_SR" fetch -q origin devflow-telemetry:refs/remotes/origin/sr 2>/dev/null
+git -C "$HC_SR" fetch -q origin prflow-telemetry:refs/remotes/origin/sr 2>/dev/null
 assert_eq "hc-race(A5a staged): the staged re-merge keeps base-side (writer A) harness_cost cost_usd=9, NOT this run's stale cost_usd=5" "9" \
   "$(git -C "$HC_SR" show "refs/remotes/origin/sr:.prflow/logs/efficiency/pr-6-run-r.json" 2>/dev/null | jq -c '.harness_cost.cost_usd')"
 rm -rf "$HC_SR" "$HC_SR_BARE" "$HC_SR_A"
@@ -1661,7 +1661,7 @@ HC_MA_SB="$(printf '%s' "$HC_MA_REC" | git -C "$HC_MA" hash-object -w --stdin)"
 GIT_INDEX_FILE="$HC_MA_IDX" git -C "$HC_MA" update-index --add --cacheinfo "100644,${HC_MA_SB},.prflow/logs/efficiency/pr-6-run-m.json"
 HC_MA_ST="$(GIT_INDEX_FILE="$HC_MA_IDX" git -C "$HC_MA" write-tree)"; rm -f "$HC_MA_IDX"
 HC_MA_SN="$(GIT_AUTHOR_NAME=b GIT_AUTHOR_EMAIL=b@y GIT_COMMITTER_NAME=b GIT_COMMITTER_EMAIL=b@y git -C "$HC_MA" commit-tree "$HC_MA_ST" -m b)"
-git -C "$HC_MA" update-ref refs/heads/devflow-telemetry "$HC_MA_SN"
+git -C "$HC_MA" update-ref refs/heads/prflow-telemetry "$HC_MA_SN"
 mv "${HC_MA_BARE}.down" "$HC_MA_BARE"
 # Writer A seeds R (NO harness_cost) on base AND an UNRELATED record, then pushes → the remote
 # tip diverges from B's local tip so B's push is rejected, forcing the re-parent union over R.
@@ -1673,8 +1673,8 @@ GIT_INDEX_FILE="$HC_MA_AIDX" git -C "$HC_MA_A" update-index --add --cacheinfo "1
 GIT_INDEX_FILE="$HC_MA_AIDX" git -C "$HC_MA_A" update-index --add --cacheinfo "100644,${HC_MA_AOTH},.prflow/logs/efficiency/pr-9-run-other.json"
 HC_MA_AT="$(GIT_INDEX_FILE="$HC_MA_AIDX" git -C "$HC_MA_A" write-tree)"; rm -f "$HC_MA_AIDX"
 HC_MA_AN="$(GIT_AUTHOR_NAME=a GIT_AUTHOR_EMAIL=a@y GIT_COMMITTER_NAME=a GIT_COMMITTER_EMAIL=a@y git -C "$HC_MA_A" commit-tree "$HC_MA_AT" -m a)"
-git -C "$HC_MA_A" update-ref refs/heads/devflow-telemetry "$HC_MA_AN"
-git -C "$HC_MA_A" push -q origin devflow-telemetry
+git -C "$HC_MA_A" update-ref refs/heads/prflow-telemetry "$HC_MA_AN"
+git -C "$HC_MA_A" push -q origin prflow-telemetry
 # B persists with the floor env (ident=run-m matches R's filename → merge-arm-b re-stages R with
 # cost_usd=5) plus its own new run dir; the push is rejected (remote diverged) and the re-parent
 # runs the STAGED efficiency-record union arm over R — base R lacks harness_cost, local R has it.
@@ -1683,7 +1683,7 @@ printf '%s' "$HC_ITER" > "$HC_MA/.prflow/tmp/review/pr-6/run-b/iter-1.json"
 ( cd "$HC_MA" && GITHUB_RUN_ID=run GITHUB_RUN_ATTEMPT=m \
     DEVFLOW_EXECUTION_COST='{"cost_usd":5,"tokens":{},"model_usage":null,"num_turns":null,"duration_ms":null}' \
     DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
-git -C "$HC_MA" fetch -q origin devflow-telemetry:refs/remotes/origin/ma 2>/dev/null
+git -C "$HC_MA" fetch -q origin prflow-telemetry:refs/remotes/origin/ma 2>/dev/null
 assert_eq "hc-race(A5a middle): base R lacked harness_cost, this run's staged copy had it → the union ADDS it (cost_usd=5)" "5" \
   "$(git -C "$HC_MA" show "refs/remotes/origin/ma:.prflow/logs/efficiency/pr-6-run-m.json" 2>/dev/null | jq -c '.harness_cost.cost_usd')"
 assert_eq "hc-race(A5a middle): the concurrent writer's UNRELATED record is preserved on base (base-wins for an unstaged path)" "yes" \
@@ -1765,7 +1765,7 @@ HC_UF_SB="$(printf '%s' "$HC_UF_REC" | git -C "$HC_UF" hash-object -w --stdin)"
 GIT_INDEX_FILE="$HC_UF_IDX" git -C "$HC_UF" update-index --add --cacheinfo "100644,${HC_UF_SB},.prflow/logs/efficiency/pr-6-run-r.json"
 HC_UF_ST="$(GIT_INDEX_FILE="$HC_UF_IDX" git -C "$HC_UF" write-tree)"; rm -f "$HC_UF_IDX"
 HC_UF_SN="$(GIT_AUTHOR_NAME=b GIT_AUTHOR_EMAIL=b@y GIT_COMMITTER_NAME=b GIT_COMMITTER_EMAIL=b@y git -C "$HC_UF" commit-tree "$HC_UF_ST" -m b)"
-git -C "$HC_UF" update-ref refs/heads/devflow-telemetry "$HC_UF_SN"
+git -C "$HC_UF" update-ref refs/heads/prflow-telemetry "$HC_UF_SN"
 mv "${HC_UF_BARE}.down" "$HC_UF_BARE"
 HC_UF_A="$(git_sandbox "hc unionfb writerA")"; git clone -q "$HC_UF_BARE" "$HC_UF_A" 2>/dev/null
 HC_UF_AREC="$(printf '%s' "$HC_UF_REC" | jq -c '.harness_cost={cost_source:"execution-file",cost_usd:9}')"
@@ -1774,8 +1774,8 @@ HC_UF_AB="$(printf '%s' "$HC_UF_AREC" | git -C "$HC_UF_A" hash-object -w --stdin
 GIT_INDEX_FILE="$HC_UF_AIDX" git -C "$HC_UF_A" update-index --add --cacheinfo "100644,${HC_UF_AB},.prflow/logs/efficiency/pr-6-run-r.json"
 HC_UF_AT="$(GIT_INDEX_FILE="$HC_UF_AIDX" git -C "$HC_UF_A" write-tree)"; rm -f "$HC_UF_AIDX"
 HC_UF_AN="$(GIT_AUTHOR_NAME=a GIT_AUTHOR_EMAIL=a@y GIT_COMMITTER_NAME=a GIT_COMMITTER_EMAIL=a@y git -C "$HC_UF_A" commit-tree "$HC_UF_AT" -m a)"
-git -C "$HC_UF_A" update-ref refs/heads/devflow-telemetry "$HC_UF_AN"
-git -C "$HC_UF_A" push -q origin devflow-telemetry
+git -C "$HC_UF_A" update-ref refs/heads/prflow-telemetry "$HC_UF_AN"
+git -C "$HC_UF_A" push -q origin prflow-telemetry
 # Selective jq wrapper: fail ONLY the union merge program, delegate all else to real jq.
 printf '%s\n' '#!/usr/bin/env bash' 'for a in "$@"; do case "$a" in *"elif (\$local.harness_cost"*) exit 1 ;; esac; done' 'exec jq "$@"' > "$HC_UF/jqsel"
 chmod +x "$HC_UF/jqsel"
@@ -1784,7 +1784,7 @@ printf '%s' "$HC_ITER" > "$HC_UF/.prflow/tmp/review/pr-6/run-b/iter-1.json"
 HC_UF_ERR="$( ( cd "$HC_UF" && GITHUB_RUN_ID=run GITHUB_RUN_ATTEMPT=r DEVFLOW_JQ="$HC_UF/jqsel" \
     DEVFLOW_EXECUTION_COST='{"cost_usd":5,"tokens":{},"model_usage":null,"num_turns":null,"duration_ms":null}' \
     DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
-git -C "$HC_UF" fetch -q origin devflow-telemetry:refs/remotes/origin/uf 2>/dev/null
+git -C "$HC_UF" fetch -q origin prflow-telemetry:refs/remotes/origin/uf 2>/dev/null
 assert_eq "hc-race(A5a fallback): union jq failed → LOCAL-WINS fallback (R reverts to this run's staged cost_usd=5, not base-wins 9)" "5" \
   "$(git -C "$HC_UF" show "refs/remotes/origin/uf:.prflow/logs/efficiency/pr-6-run-r.json" 2>/dev/null | jq -c '.harness_cost.cost_usd')"
 assert_eq "hc-race(A5a fallback): the fallback emits the 'fell back to local-wins' ::warning:: (never silent)" "yes" \
@@ -1811,14 +1811,14 @@ HC_SO_SB="$(printf '%s' "$HC_SO_REC" | git -C "$HC_SO" hash-object -w --stdin)"
 GIT_INDEX_FILE="$HC_SO_IDX" git -C "$HC_SO" update-index --add --cacheinfo "100644,${HC_SO_SB},.prflow/logs/efficiency/pr-42-555-1.json"
 HC_SO_ST="$(GIT_INDEX_FILE="$HC_SO_IDX" git -C "$HC_SO" write-tree)"; rm -f "$HC_SO_IDX"
 HC_SO_SN="$(GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@e GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@e git -C "$HC_SO" commit-tree "$HC_SO_ST" -m seed-record)"
-git -C "$HC_SO" update-ref refs/heads/devflow-telemetry "$HC_SO_SN"
+git -C "$HC_SO" update-ref refs/heads/prflow-telemetry "$HC_SO_SN"
 # Run --persist with the SKELETON env (no iter dir → skeleton arm) via the PATCHED lib.
 HC_SO_ERR="$( ( cd "$HC_SO" && GITHUB_RUN_ID=555 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
     DEVFLOW_EXECUTION_PR=42 DEVFLOW_COMMAND_CLASS=review-and-fix bash "$HC_SO_ROOT/lib/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
 assert_eq "hc-skeleton(A6+): guard declines → the real branch record is NOT overwritten (iterations still 7, not the skeleton's 0)" "7" \
-  "$(git -C "$HC_SO" show "refs/heads/devflow-telemetry:.prflow/logs/efficiency/pr-42-555-1.json" 2>/dev/null | jq -c '.iterations')"
+  "$(git -C "$HC_SO" show "refs/heads/prflow-telemetry:.prflow/logs/efficiency/pr-42-555-1.json" 2>/dev/null | jq -c '.iterations')"
 assert_eq "hc-skeleton(A6+): guard declines → the real record's marker survives (skeleton never written over it)" "true" \
-  "$(git -C "$HC_SO" show "refs/heads/devflow-telemetry:.prflow/logs/efficiency/pr-42-555-1.json" 2>/dev/null | jq -c '.real_marker')"
+  "$(git -C "$HC_SO" show "refs/heads/prflow-telemetry:.prflow/logs/efficiency/pr-42-555-1.json" 2>/dev/null | jq -c '.real_marker')"
 assert_eq "hc-skeleton(A6+): guard declines → the specific 'declining to overwrite it with a cost skeleton' breadcrumb" "yes" \
   "$(printf '%s' "$HC_SO_ERR" | grep -qF 'declining to overwrite it with a cost skeleton' && echo yes || echo no)"
 rm -rf "$HC_SO" "$HC_SO_ROOT"
@@ -2095,7 +2095,7 @@ rm -rf "$ETF2_REPO"
 # UNESTABLISHED (_DEVFLOW_TELEMETRY_FETCH_STATUS=failed) → synthesis declines,
 # mirroring the base-ref guard. The fixture makes the two statuses diverge: origin
 # is reachable and main is pushed (base refresh succeeds → established), while a
-# same-named `devflow-telemetry` branch exists on origin holding a NON-.prflow/logs/
+# same-named `prflow-telemetry` branch exists on origin holding a NON-.prflow/logs/
 # path, so do_persist fetches it, devflow_telemetry_verify_store FAILS, and the
 # fetch status is set to `failed`. Before #916 this synthesized (base established +
 # a matching fix commit + an empty exclusion set from the un-advanced local ref) and
@@ -2111,10 +2111,10 @@ git -C "$ETF2B_REPO" commit --allow-empty -qm base; git -C "$ETF2B_REPO" branch 
 git -C "$ETF2B_REPO" remote add origin "$ETF2B_ORIGIN"; git -C "$ETF2B_REPO" push -q origin main
 # A same-named telemetry branch that is NOT a valid store (a top-level non-.prflow/logs
 # file) → verify_store fails → _DEVFLOW_TELEMETRY_FETCH_STATUS=failed.
-git -C "$ETF2B_REPO" checkout -q -b devflow-telemetry
+git -C "$ETF2B_REPO" checkout -q -b prflow-telemetry
 printf x > "$ETF2B_REPO/not-a-store"; git -C "$ETF2B_REPO" add not-a-store
 git -C "$ETF2B_REPO" commit -qm "not a telemetry store"
-git -C "$ETF2B_REPO" push -q origin devflow-telemetry
+git -C "$ETF2B_REPO" push -q origin prflow-telemetry
 git -C "$ETF2B_REPO" checkout -q main
 git -C "$ETF2B_REPO" checkout -q -b feat
 printf a > "$ETF2B_REPO/a"; git -C "$ETF2B_REPO" add a
@@ -3802,7 +3802,7 @@ rm -rf "$LR_PF"
 echo "telemetry-branch persistence (issue #441)"
 # ────────────────────────────────────────────────────────────────────────────
 # The detached, working-tree-untouching persistence of observability artifacts to
-# the dedicated `devflow-telemetry` orphan branch. The _et_on_branch / _et_show /
+# the dedicated `prflow-telemetry` orphan branch. The _et_on_branch / _et_show /
 # _et_branch_count helpers are defined in the --persist block above.
 
 # AC4: an EXISTING ref that is NOT a telemetry store (its tip holds non-.prflow/logs/
@@ -3813,15 +3813,15 @@ git -C "$TB_NS_REPO" config user.email t@e.com; git -C "$TB_NS_REPO" config user
 mkdir -p "$TB_NS_REPO/.prflow"; printf 'tmp/\n' > "$TB_NS_REPO/.prflow/.gitignore"
 printf 'x\n' > "$TB_NS_REPO/code.py"; git -C "$TB_NS_REPO" add -A; git -C "$TB_NS_REPO" commit -qm seed
 git -C "$TB_NS_REPO" branch -M main
-git -C "$TB_NS_REPO" branch devflow-telemetry main   # a same-named branch holding non-logs paths
-TB_NS_TIP="$(git -C "$TB_NS_REPO" rev-parse devflow-telemetry)"
+git -C "$TB_NS_REPO" branch prflow-telemetry main   # a same-named branch holding non-logs paths
+TB_NS_TIP="$(git -C "$TB_NS_REPO" rev-parse prflow-telemetry)"
 mkdir -p "$TB_NS_REPO/.prflow/tmp/review/pr-1/run-a"
 printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
   > "$TB_NS_REPO/.prflow/tmp/review/pr-1/run-a/iter-1.json"
 TB_NS_ERR="$( ( cd "$TB_NS_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"; TB_NS_RC=$?
 assert_eq "tb(#441 AC4): non-telemetry same-named branch → exit 0 (best-effort)" "0" "$TB_NS_RC"
 assert_eq "tb(#441 AC4): non-telemetry same-named branch is left UNTOUCHED (no commit onto it)" \
-  "$TB_NS_TIP" "$(git -C "$TB_NS_REPO" rev-parse devflow-telemetry)"
+  "$TB_NS_TIP" "$(git -C "$TB_NS_REPO" rev-parse prflow-telemetry)"
 assert_eq "tb(#441 AC4): the skip is breadcrumbed (never silent)" "yes" \
   "$(printf '%s' "$TB_NS_ERR" | grep -qF 'not a DevFlow telemetry store' && echo yes || echo no)"
 rm -rf "$TB_NS_REPO"
@@ -3880,16 +3880,16 @@ mkdir -p "$TB_WT_REPO/.prflow/tmp/review/pr-1/run-a"
 printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
   > "$TB_WT_REPO/.prflow/tmp/review/pr-1/run-a/iter-1.json"
 ( cd "$TB_WT_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1   # creates the branch
-TB_WT_TIP="$(git -C "$TB_WT_REPO" rev-parse devflow-telemetry)"
+TB_WT_TIP="$(git -C "$TB_WT_REPO" rev-parse prflow-telemetry)"
 TB_WT_LINK="$(git_sandbox "tb worktree link parent")/wt"
-git -C "$TB_WT_REPO" worktree add -q "$TB_WT_LINK" devflow-telemetry 2>/dev/null
+git -C "$TB_WT_REPO" worktree add -q "$TB_WT_LINK" prflow-telemetry 2>/dev/null
 mkdir -p "$TB_WT_REPO/.prflow/tmp/review/pr-2/run-b"
 printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
   > "$TB_WT_REPO/.prflow/tmp/review/pr-2/run-b/iter-1.json"
 TB_WT_ERR="$( ( cd "$TB_WT_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$TB_WT_REPO/.prflow/tmp/review/pr-2/run-b" --slug pr-2 ) 2>&1 1>/dev/null )"; TB_WT_RC=$?
 assert_eq "tb(#441 AC10): branch checked out in a worktree → exit 0" "0" "$TB_WT_RC"
 assert_eq "tb(#441 AC10): branch checked out in a worktree → ref NOT advanced (worktree uncorrupted)" \
-  "$TB_WT_TIP" "$(git -C "$TB_WT_REPO" rev-parse devflow-telemetry)"
+  "$TB_WT_TIP" "$(git -C "$TB_WT_REPO" rev-parse prflow-telemetry)"
 assert_eq "tb(#441 AC10): worktree-checkout degrade is breadcrumbed" "yes" \
   "$(printf '%s' "$TB_WT_ERR" | grep -qF 'is checked out in a worktree' && echo yes || echo no)"
 # #469 AC8: the worktree-checkout arm is a DEGRADED arm (persist_tree returns 1), so do_persist
@@ -3973,7 +3973,7 @@ PYEOF
 assert_eq "tb(#441): a staged path not under .prflow/logs/ is refused (breadcrumb)" "yes" \
   "$(printf '%s' "$TB_SP_ERR" | grep -qF 'is not under .prflow/logs/' && echo yes || echo no)"
 assert_eq "tb(#441): staged-path refusal creates NO telemetry ref" "no" \
-  "$(git -C "$TB_SP_REPO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
+  "$(git -C "$TB_SP_REPO" rev-parse --verify --quiet refs/heads/prflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
 # PR #442 review (pr-test-analyzer): the fixture above stages ONLY non-conforming paths, so
 # `conforming` ends up empty either way and the guard's FILTER-not-abort semantics — the very
 # thing its comment says it is doing ("skipping just this path ... other conforming records
@@ -4025,10 +4025,10 @@ printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergen
   > "$TB_UT_REPO/.prflow/tmp/review/pr-1/run-b/iter-1.json"
 ( cd "$TB_UT_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
 assert_eq "tb(#441 SFH-4a): positive control — a readable store DOES accept the append" "yes" \
-  "$(git -C "$TB_UT_REPO" cat-file -e refs/heads/devflow-telemetry:.prflow/logs/efficiency/pr-1-run-b.json >/dev/null 2>&1 && echo yes || echo no)"
+  "$(git -C "$TB_UT_REPO" cat-file -e refs/heads/prflow-telemetry:.prflow/logs/efficiency/pr-1-run-b.json >/dev/null 2>&1 && echo yes || echo no)"
 # Now break the tip TREE object (the commit stays readable → ref still PRESENT).
-TB_UT_TREE="$(git -C "$TB_UT_REPO" rev-parse "refs/heads/devflow-telemetry^{tree}")"
-TB_UT_TIP="$(git -C "$TB_UT_REPO" rev-parse refs/heads/devflow-telemetry)"
+TB_UT_TREE="$(git -C "$TB_UT_REPO" rev-parse "refs/heads/prflow-telemetry^{tree}")"
+TB_UT_TIP="$(git -C "$TB_UT_REPO" rev-parse refs/heads/prflow-telemetry)"
 rm -f "$TB_UT_REPO/.git/objects/${TB_UT_TREE:0:2}/${TB_UT_TREE:2}"
 mkdir -p "$TB_UT_REPO/.prflow/tmp/review/pr-1/run-c"
 printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
@@ -4038,7 +4038,7 @@ assert_eq "tb(#441 SFH-4a): unreadable present-ref tree → exit 0 (best-effort)
 assert_eq "tb(#441 SFH-4a): verify_store FAILS CLOSED on an unreadable present-ref tree (breadcrumb names the refusal)" "yes" \
   "$(printf '%s' "$TB_UT_ERR" | grep -qF 'cannot verify it is a telemetry store, refusing to append' && echo yes || echo no)"
 assert_eq "tb(#441 SFH-4a): the ref is NOT advanced when the store cannot be verified" "$TB_UT_TIP" \
-  "$(git -C "$TB_UT_REPO" rev-parse refs/heads/devflow-telemetry)"
+  "$(git -C "$TB_UT_REPO" rev-parse refs/heads/prflow-telemetry)"
 # Attribution: the refusal must be TERMINAL — the write never even reaches the object
 # store. This is what distinguishes fail-CLOSED from fail-OPEN: a mutation flipping the
 # guard's `return 1` to `return 0` (breadcrumb intact) still ends with no ref advance,
@@ -4075,7 +4075,7 @@ mkdir -p "$TB_LK_REPO/.prflow/tmp/review/pr-1/run-a"
 printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
   > "$TB_LK_REPO/.prflow/tmp/review/pr-1/run-a/iter-1.json"
 mkdir -p "$TB_LK_REPO/.git/refs/heads"
-: > "$TB_LK_REPO/.git/refs/heads/devflow-telemetry.lock"   # a stale/held ref lock
+: > "$TB_LK_REPO/.git/refs/heads/prflow-telemetry.lock"   # a stale/held ref lock
 TB_LK_ERR="$( ( cd "$TB_LK_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"; TB_LK_RC=$?
 assert_eq "tb(#442 Sug-3): held ref .lock → exit 0 (best-effort)" "0" "$TB_LK_RC"
 # The breadcrumb no longer claims "NOT a concurrent writer" (PR #442 review): a held
@@ -4092,7 +4092,7 @@ assert_eq "tb(#442 Sug-3): ...and does NOT assert 'NOT a concurrent writer' (a h
 assert_eq "tb(#442 Sug-3): held ref .lock is NOT misdiagnosed as a lost CAS race" "no" \
   "$(printf '%s' "$TB_LK_ERR" | grep -qF 'lost 5 races' && echo yes || echo no)"
 assert_eq "tb(#442 Sug-3): held ref .lock → no telemetry ref created" "no" \
-  "$(git -C "$TB_LK_REPO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
+  "$(git -C "$TB_LK_REPO" rev-parse --verify --quiet refs/heads/prflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
 rm -rf "$TB_LK_REPO"
 
 # AC8 (PR #442 review Suggestion-4): a persist on a checkout with NO configured committer
@@ -4280,14 +4280,14 @@ printf '[user]\n\tname = HostileSystem\n\temail = hostile-sys@e.com\n'  > "$TB_H
     > "$TB_ID_REPO/.prflow/tmp/review/pr-1/run-a/iter-1.json"
   ( cd "$TB_ID_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
   assert_eq "tb(#441 AC8 / #575 AC5): persist SUCCEEDS under a hostile identity env (record on the branch)" "yes" \
-    "$(git -C "$TB_ID_REPO" cat-file -e refs/heads/devflow-telemetry:.prflow/logs/efficiency/pr-1-run-a.json >/dev/null 2>&1 && echo yes || echo no)"
+    "$(git -C "$TB_ID_REPO" cat-file -e refs/heads/prflow-telemetry:.prflow/logs/efficiency/pr-1-run-a.json >/dev/null 2>&1 && echo yes || echo no)"
   # Both halves the helper exports are checked. Committer alone would stay green if the helper
   # dropped its GIT_AUTHOR_* pair, since the hostile HostileAuthor would then be inherited —
   # which is precisely what makes the author assertion discriminating rather than redundant.
   assert_eq "tb(#441 AC8 / #575 AC7): the telemetry commit carries the helper's explicit committer identity" "github-actions[bot]" \
-    "$(git -C "$TB_ID_REPO" log -1 --format='%cn' refs/heads/devflow-telemetry 2>/dev/null)"
+    "$(git -C "$TB_ID_REPO" log -1 --format='%cn' refs/heads/prflow-telemetry 2>/dev/null)"
   assert_eq "tb(#441 AC8 / #575 AC7): the telemetry commit carries the helper's explicit AUTHOR identity" "github-actions[bot]" \
-    "$(git -C "$TB_ID_REPO" log -1 --format='%an' refs/heads/devflow-telemetry 2>/dev/null)"
+    "$(git -C "$TB_ID_REPO" log -1 --format='%an' refs/heads/prflow-telemetry 2>/dev/null)"
 
   # ── Persistence with NO resolvable identity at all (the original #441 AC8 property) ──
   # The hostile-env arm above proves the helper's identity WINS over an ambient one; it cannot
@@ -4302,7 +4302,7 @@ printf '[user]\n\tname = HostileSystem\n\temail = hostile-sys@e.com\n'  > "$TB_H
         GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
         bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
   assert_eq "tb(#441 AC8 / #575 AC5): persist SUCCEEDS on an identity-LESS checkout (helper supplies its own)" "yes" \
-    "$(git -C "$TB_ID_REPO" cat-file -e refs/heads/devflow-telemetry:.prflow/logs/efficiency/pr-1-run-b.json >/dev/null 2>&1 && echo yes || echo no)"
+    "$(git -C "$TB_ID_REPO" cat-file -e refs/heads/prflow-telemetry:.prflow/logs/efficiency/pr-1-run-b.json >/dev/null 2>&1 && echo yes || echo no)"
 
   # Arrival sentinel: every assertion above lives in this subshell, which runs without `set -e`
   # but under `set -u`. An early abort (an unbound-variable expansion) records ZERO FAILs and
@@ -4330,7 +4330,7 @@ printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergen
 assert_eq "tb(#441 AC18): telemetry.branch override routes the write to the named branch" "yes" \
   "$(git -C "$TB_CFG_REPO" cat-file -e refs/heads/my-telem:.prflow/logs/efficiency/pr-1-run-a.json >/dev/null 2>&1 && echo yes || echo no)"
 assert_eq "tb(#441 AC18): the default-named branch is NOT created when the key is overridden" "no" \
-  "$(git -C "$TB_CFG_REPO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
+  "$(git -C "$TB_CFG_REPO" rev-parse --verify --quiet refs/heads/prflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
 rm -rf "$TB_CFG_REPO"
 
 # AC16/AC17: the retrospective reader UNIONS the telemetry-branch records with any
@@ -4469,13 +4469,13 @@ for wf in devflow.yml devflow-implement.yml; do
 done
 # AC19: NO workflow push: trigger can fire on the telemetry branch (a telemetry push must
 # run no CI). PR #442 review Suggestion-7: the former grep-based check only looked at files
-# that TEXTUALLY mention `devflow-telemetry`, so it was structurally blind to the shape that
+# that TEXTUALLY mention `prflow-telemetry`, so it was structurally blind to the shape that
 # actually breaks AC19 — a workflow with an UNFILTERED `on: push` (no `branches:` key at all)
 # or a glob (`'*'`, `'devflow-*'`) that matches the branch without naming it. Audit the real
 # population instead: parse EVERY workflow, take every one with a push trigger, and require
 # it to carry a branches filter none of whose patterns match the telemetry branch. (YAML 1.1
 # parses the bare key `on` as the boolean True — look both up.)
-assert_eq "tb(#441 AC19): every workflow push: trigger is filtered so it cannot fire on devflow-telemetry" "OK" \
+assert_eq "tb(#441 AC19): every workflow push: trigger is filtered so it cannot fire on prflow-telemetry" "OK" \
   "$(python3 - "$LIB/../.github/workflows" <<'PYEOF'
 import fnmatch, pathlib, sys
 import yaml
@@ -4501,8 +4501,8 @@ for wf in sorted(list(wf_dir.glob("*.yml")) + list(wf_dir.glob("*.yaml"))):
         bad.append(f"{wf.name}: push: trigger has no branches filter")
         continue
     for pat in branches:
-        if fnmatch.fnmatch("devflow-telemetry", str(pat)):
-            bad.append(f"{wf.name}: push: branches pattern {pat!r} matches devflow-telemetry")
+        if fnmatch.fnmatch("prflow-telemetry", str(pat)):
+            bad.append(f"{wf.name}: push: branches pattern {pat!r} matches prflow-telemetry")
 print("OK" if not bad else "; ".join(bad))
 PYEOF
 )"
@@ -4594,13 +4594,13 @@ printf '{"iter":1,"fix_commit_sha":"deadbee"}\n' > "$TB_LBU_STAGE/.prflow/logs/r
 # Positive control: with a READABLE store the listing is non-empty (so the RED below is
 # attributable to the unreadable tree, not to an empty/absent branch).
 assert_eq "tb(#442): list_blobs on a readable store lists the record (positive control)" "yes" \
-  "$( ( cd "$TB_LBU_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_list_blobs "$2" refs/heads/devflow-telemetry ".prflow/logs/review/"' _ \
+  "$( ( cd "$TB_LBU_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_list_blobs "$2" refs/heads/prflow-telemetry ".prflow/logs/review/"' _ \
       "$LIB/telemetry-branch.sh" "$TB_LBU_REPO" ) 2>/dev/null | grep -q 'iter-1.json' && echo yes || echo no)"
 # Now make the tip's TREE object unreadable (ref still resolves → the "present but unreadable"
 # case), and assert the breadcrumb fires instead of a silent empty listing.
-TB_LBU_TREE="$(git -C "$TB_LBU_REPO" rev-parse "refs/heads/devflow-telemetry^{tree}")"
+TB_LBU_TREE="$(git -C "$TB_LBU_REPO" rev-parse "refs/heads/prflow-telemetry^{tree}")"
 rm -f "$TB_LBU_REPO/.git/objects/${TB_LBU_TREE:0:2}/${TB_LBU_TREE:2}"
-TB_LBU_ERR="$( ( cd "$TB_LBU_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_list_blobs "$2" refs/heads/devflow-telemetry ".prflow/logs/review/"' _ \
+TB_LBU_ERR="$( ( cd "$TB_LBU_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_list_blobs "$2" refs/heads/prflow-telemetry ".prflow/logs/review/"' _ \
     "$LIB/telemetry-branch.sh" "$TB_LBU_REPO" ) 2>&1 1>/dev/null )"
 assert_eq "tb(#442): list_blobs on a PRESENT-but-unreadable store breadcrumbs (never a silent empty list)" "yes" \
   "$(printf '%s' "$TB_LBU_ERR" | grep -qF 'exclusion set is INCOMPLETE' && echo yes || echo no)"
@@ -4628,9 +4628,9 @@ assert_eq "tb(#442): ...and still persists, on the default branch" "yes" \
   "$(_et_on_branch "$TB_BADNAME_REPO" ".prflow/logs/efficiency/pr-bn-run-1.json")"
 # ...and the READER must follow the writer's fallback to the same default. Asserting only the
 # writer's half here is what let the two tests jointly ENCODE a store split without detecting
-# it: the writer fell back to `devflow-telemetry` while the reader looked on `bad name with
+# it: the writer fell back to `prflow-telemetry` while the reader looked on `bad name with
 # spaces` and found nothing, silently (PR #442 Step-3.5 gate).
-assert_eq "tb(#442): ...and the READER resolves that same default (no silent store split)" "devflow-telemetry" \
+assert_eq "tb(#442): ...and the READER resolves that same default (no silent store split)" "prflow-telemetry" \
   "$(DEVFLOW_CONFIG_FILE="$TB_BADNAME_REPO/.prflow/config.json" python3 - "$TB_BADNAME_REPO" "$LIB/../scripts/build-experiment-records.py" <<'PYEOF'
 import importlib.util, sys, io, contextlib
 root, mod_path = sys.argv[1], sys.argv[2]
@@ -4668,12 +4668,12 @@ assert_eq "tb(#442 C2): offline run → the record is on the LOCAL ref" "yes" \
 git -C "$TB_OFFP_REPO" remote set-url origin "$TB_OFFP_REMOTE"
 ( cd "$TB_OFFP_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
 assert_eq "tb(#442 C2): reconnect with NOTHING new → the offline record is STILL pushed (not stranded)" "yes" \
-  "$(git -C "$TB_OFFP_REMOTE" cat-file -e "refs/heads/devflow-telemetry:.prflow/logs/efficiency/pr-off-run-1.json" >/dev/null 2>&1 && echo yes || echo no)"
+  "$(git -C "$TB_OFFP_REMOTE" cat-file -e "refs/heads/prflow-telemetry:.prflow/logs/efficiency/pr-off-run-1.json" >/dev/null 2>&1 && echo yes || echo no)"
 rm -rf "$TB_OFFP_REPO" "$TB_OFFP_REMOTE"
 
 # PR #442 Step-3.5 fix-delta gate, I1: a NON-STRING .telemetry.branch must not split the store.
 # config-get.sh COERCES a scalar to a string (5 -> "5"), so the writer persists to branch `5`;
-# a reader that fell back to the default would look on `devflow-telemetry` and find nothing,
+# a reader that fell back to the default would look on `prflow-telemetry` and find nothing,
 # silently. Reader and writer must resolve the SAME branch for every row of the wrong-type matrix.
 TB_WT_REPO="$(git_sandbox "tb wrong-typed telemetry.branch repo")"
 git -C "$TB_WT_REPO" init -q
@@ -4748,7 +4748,7 @@ printf '{"slug":"pr-foreign"}\n' > "$TB_UO_FSTAGE/.prflow/logs/efficiency/pr-for
 ( cd "$TB_UO_FOREIGN" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_persist_tree "$2" "$3"' _ \
     "$LIB/telemetry-branch.sh" "$TB_UO_FOREIGN" "$TB_UO_FSTAGE" ) >/dev/null 2>&1
 git -C "$TB_UO_FOREIGN" remote add origin "$TB_UO_REMOTE"
-git -C "$TB_UO_FOREIGN" push -q origin refs/heads/devflow-telemetry:refs/heads/devflow-telemetry
+git -C "$TB_UO_FOREIGN" push -q origin refs/heads/prflow-telemetry:refs/heads/prflow-telemetry
 # Our run: persist locally (creates our local tip), then persist AGAIN so the push is rejected by
 # the foreign remote and the fetch -> union re-parent path is the one that actually runs. (This is
 # the POSITIVE control for that path. It does NOT corrupt anything: corrupting the local tip's tree
@@ -4765,16 +4765,16 @@ printf '{"slug":"pr-mine"}\n' > "$TB_UO_STAGE/.prflow/logs/efficiency/pr-mine-ru
 ( cd "$TB_UO_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_persist_tree "$2" "$3"' _ \
     "$LIB/telemetry-branch.sh" "$TB_UO_REPO" "$TB_UO_STAGE" ) >/dev/null 2>&1
 assert_eq "tb(#442 shadow-C1 control): the union re-parent runs — the FOREIGN record survives the push" "yes" \
-  "$(git -C "$TB_UO_REMOTE" cat-file -e "refs/heads/devflow-telemetry:.prflow/logs/efficiency/pr-foreign-run-1.json" >/dev/null 2>&1 && echo yes || echo no)"
+  "$(git -C "$TB_UO_REMOTE" cat-file -e "refs/heads/prflow-telemetry:.prflow/logs/efficiency/pr-foreign-run-1.json" >/dev/null 2>&1 && echo yes || echo no)"
 assert_eq "tb(#442 shadow-C1 control): ...and OUR record survives it too (no data loss on reconcile)" "yes" \
-  "$(git -C "$TB_UO_REMOTE" cat-file -e "refs/heads/devflow-telemetry:.prflow/logs/efficiency/pr-mine-run-1.json" >/dev/null 2>&1 && echo yes || echo no)"
+  "$(git -C "$TB_UO_REMOTE" cat-file -e "refs/heads/prflow-telemetry:.prflow/logs/efficiency/pr-mine-run-1.json" >/dev/null 2>&1 && echo yes || echo no)"
 rm -rf "$TB_UO_REPO" "$TB_UO_REMOTE" "$TB_UO_FOREIGN"
 # PR #442 shadow review, Important: list_blobs' REF probe is three-way, like its ls-tree arm and
 # like the Python reader. An unreadable refs layer (rc 128) must not fold onto "absent" and
 # silently empty the fix-commit exclusion set.
 TB_LBR_REPO="$(git_sandbox "tb list_blobs unestablished-ref repo")"
 mkdir -p "$TB_LBR_REPO"   # NOT a git repo → rev-parse exits 128, not 1
-TB_LBR_ERR="$( ( cd "$TB_LBR_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_list_blobs "$2" refs/heads/devflow-telemetry ".prflow/logs/review/"' _ \
+TB_LBR_ERR="$( ( cd "$TB_LBR_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_list_blobs "$2" refs/heads/prflow-telemetry ".prflow/logs/review/"' _ \
     "$LIB/telemetry-branch.sh" "$TB_LBR_REPO" ) 2>&1 1>/dev/null )"
 assert_eq "tb(#442 shadow-I2): an UNESTABLISHED ref probe breadcrumbs (never a silent 'no records')" "yes" \
   "$(printf '%s' "$TB_LBR_ERR" | grep -qF 'could not establish whether ref' && echo yes || echo no)"
@@ -4897,9 +4897,9 @@ assert_eq "tb(#442 shadow-T4): ...and the record still persists to the LOCAL ref
 rm -rf "$TB_UP_REPO"
 
 # AC18: config schema + example document telemetry.branch.
-assert_eq "tb(#441 AC18): config.schema.json documents telemetry.branch (default devflow-telemetry)" "yes" \
-  "$(python3 -c 'import json;d=json.load(open("'"$LIB"'/../.prflow/config.schema.json"));print("yes" if d["properties"].get("telemetry",{}).get("properties",{}).get("branch",{}).get("default")=="devflow-telemetry" else "no")')"
-assert_eq "tb(#441 AC18): config.example.json carries the telemetry.branch default" "devflow-telemetry" \
+assert_eq "tb(#441 AC18): config.schema.json documents telemetry.branch (default prflow-telemetry)" "yes" \
+  "$(python3 -c 'import json;d=json.load(open("'"$LIB"'/../.prflow/config.schema.json"));print("yes" if d["properties"].get("telemetry",{}).get("properties",{}).get("branch",{}).get("default")=="prflow-telemetry" else "no")')"
+assert_eq "tb(#441 AC18): config.example.json carries the telemetry.branch default" "prflow-telemetry" \
   "$(python3 -c 'import json;print(json.load(open("'"$LIB"'/../.prflow/config.example.json")).get("telemetry",{}).get("branch",""))')"
 # efficiency-trace.sh sources the shared telemetry-branch lib.
 assert_eq "tb(#441): efficiency-trace.sh sources lib/telemetry-branch.sh" "yes" \
@@ -4932,7 +4932,7 @@ assert_eq "#469 AC5: on CI + operand=0 → stage (non-affirmative fails closed)"
 assert_eq "#469 AC5: on CI + operand=garbage → stage (non-affirmative fails closed)" "stage" \
   "$(_i469_should_push 'GITHUB_ACTIONS=true; DEVFLOW_TELEMETRY_PUSH=maybe')"
 # ── AC5 end-to-end: a CI-context --persist with NO operand STAGES and does not
-# push (the remote devflow-telemetry ref is unchanged), retains the staged tree,
+# push (the remote prflow-telemetry ref is unchanged), retains the staged tree,
 # and breadcrumbs the absent operand. A bare remote proves "unchanged". ─────────
 I469_BARE="$(git_sandbox "#469 staging-only bare remote")"; git -C "$I469_BARE" init --bare -q
 I469_REPO="$(git_sandbox "#469 staging-only repo")"; git -C "$I469_REPO" init -q
@@ -4951,8 +4951,8 @@ assert_eq "#469 AC5(e2e): staging-only --persist still exits 0" "0" "$I469_RC"
 assert_eq "#469 AC13: staging-only leaves git status byte-for-byte unchanged" "$I469_SO_ST0" "$(git -C "$I469_REPO" status --porcelain)"
 assert_eq "#469 AC13: staging-only leaves HEAD unchanged" "$I469_SO_HD0" "$(git -C "$I469_REPO" rev-parse HEAD)"
 assert_eq "#469 AC13: staging-only leaves the current branch unchanged" "$I469_SO_BR0" "$(git -C "$I469_REPO" branch --show-current)"
-assert_eq "#469 AC5(e2e): staging-only leaves the REMOTE devflow-telemetry ref UNCHANGED (absent)" "no" \
-  "$(git -C "$I469_REPO" ls-remote --heads origin devflow-telemetry | grep -q devflow-telemetry && echo yes || echo no)"
+assert_eq "#469 AC5(e2e): staging-only leaves the REMOTE prflow-telemetry ref UNCHANGED (absent)" "no" \
+  "$(git -C "$I469_REPO" ls-remote --heads origin prflow-telemetry | grep -q prflow-telemetry && echo yes || echo no)"
 assert_eq "#469 AC5(e2e): staging-only performs no branch write (local ref not advanced)" "no" \
   "$(_et_on_branch "$I469_REPO" ".prflow/logs/efficiency/pr-so-run-so.json")"
 assert_eq "#469 AC5(e2e): staging-only breadcrumbs the absent push operand" "yes" \
@@ -4966,10 +4966,10 @@ assert_eq "#469 AC5(e2e): staging-only RETAINS the staged tree for the trusted p
 assert_eq "#469 AC5(e2e): staging-only does NOT emit the degraded (rc 1) warning" "no" \
   "$(printf '%s' "$I469_ERR" | grep -qF 'the telemetry-branch write DEGRADED' && echo yes || echo no)"
 # Positive control: the SAME run with the operand set DOES push (proves the fixture reaches a push path).
-git -C "$I469_REPO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && git -C "$I469_REPO" update-ref -d refs/heads/devflow-telemetry
+git -C "$I469_REPO" rev-parse --verify --quiet refs/heads/prflow-telemetry >/dev/null 2>&1 && git -C "$I469_REPO" update-ref -d refs/heads/prflow-telemetry
 ( cd "$I469_REPO" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=1 bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
 assert_eq "#469 AC5(e2e control): the SAME run WITH the operand set pushes to the remote" "yes" \
-  "$(git -C "$I469_REPO" ls-remote --heads origin devflow-telemetry | grep -q devflow-telemetry && echo yes || echo no)"
+  "$(git -C "$I469_REPO" ls-remote --heads origin prflow-telemetry | grep -q prflow-telemetry && echo yes || echo no)"
 rm -rf "$I469_REPO" "$I469_BARE"
 
 # ── AC7: the absent-ref arm of list_blobs distinguishes an ESTABLISHED empty
@@ -4983,7 +4983,7 @@ _i469_lb() {  # $1=fetch-status; drives list_blobs on the ABSENT telemetry ref, 
   # shellcheck disable=SC2069  # Deliberate capture-stderr-only ordering: 2>&1 dups stderr
   # onto the caller's stdout FIRST, then 1>/dev/null discards the subshell's own stdout.
   ( cd "$I469_LB" && DEVFLOW_CONFIG_FILE=/dev/null _DEVFLOW_TELEMETRY_FETCH_STATUS="$1" \
-    bash -c 'set -uo pipefail; . "$1"; devflow_telemetry_list_blobs "$2" refs/heads/devflow-telemetry ".prflow/logs/review/"' \
+    bash -c 'set -uo pipefail; . "$1"; devflow_telemetry_list_blobs "$2" refs/heads/prflow-telemetry ".prflow/logs/review/"' \
     _ "$LIB/telemetry-branch.sh" "$I469_LB" ) 2>&1 1>/dev/null
 }
 assert_eq "#469 AC7: fetch ok + ref absent → ESTABLISHED empty, NO warning" "no" \
@@ -5012,7 +5012,7 @@ printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergen
 # Staging-only isolates the fetch-status derivation (no push attempted); the LOCAL telemetry
 # ref is ABSENT, so list_blobs' absent-ref arm IS consulted during synthesis.
 assert_eq "#469 AC7(e2e): the no-origin fixture's LOCAL telemetry ref is ABSENT before --persist" "no" \
-  "$(git -C "$I469_NO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
+  "$(git -C "$I469_NO" rev-parse --verify --quiet refs/heads/prflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
 # Drive the no-origin derivation BOTH under GITHUB_ACTIONS and off-CI (#469 review Suggestion #2 —
 # requirement (d)'s "with and without GITHUB_ACTIONS"): the no-origin else-arm is GITHUB_ACTIONS-
 # independent, so neither should ever emit UNESTABLISHED. (Off-CI push-by-default with no origin
@@ -5020,7 +5020,7 @@ assert_eq "#469 AC7(e2e): the no-origin fixture's LOCAL telemetry ref is ABSENT 
 I469_NO_ERR="$( ( cd "$I469_NO" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH='' bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
 assert_eq "#469 AC7(e2e, CI): a no-origin first --persist DERIVES an ESTABLISHED empty (no origin → status=ok) — stderr lacks UNESTABLISHED" "no" \
   "$(printf '%s' "$I469_NO_ERR" | grep -qF 'UNESTABLISHED' && echo yes || echo no)"
-git -C "$I469_NO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && git -C "$I469_NO" update-ref -d refs/heads/devflow-telemetry
+git -C "$I469_NO" rev-parse --verify --quiet refs/heads/prflow-telemetry >/dev/null 2>&1 && git -C "$I469_NO" update-ref -d refs/heads/prflow-telemetry
 I469_NO_ERR_LOCAL="$( ( cd "$I469_NO" && env -u GITHUB_ACTIONS bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
 assert_eq "#469 AC7(e2e, off-CI): the SAME no-origin derivation off-CI also stays silent — stderr lacks UNESTABLISHED" "no" \
   "$(printf '%s' "$I469_NO_ERR_LOCAL" | grep -qF 'UNESTABLISHED' && echo yes || echo no)"
@@ -5029,7 +5029,7 @@ assert_eq "#469 AC7(e2e, off-CI): the SAME no-origin derivation off-CI also stay
 # status=failed → list_blobs DOES emit UNESTABLISHED. This proves the no-origin run above
 # actually REACHED list_blobs' absent-ref arm (so its silence is meaningful), rather than
 # --persist having bailed before ever consulting it.
-git -C "$I469_NO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && git -C "$I469_NO" update-ref -d refs/heads/devflow-telemetry
+git -C "$I469_NO" rev-parse --verify --quiet refs/heads/prflow-telemetry >/dev/null 2>&1 && git -C "$I469_NO" update-ref -d refs/heads/prflow-telemetry
 git -C "$I469_NO" remote add origin /nonexistent/telemetry/remote.git
 I469_NO_CTL_ERR="$( ( cd "$I469_NO" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH='' bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
 assert_eq "#469 AC7(e2e control): the SAME fixture WITH an unreachable origin DOES emit UNESTABLISHED (proves list_blobs' absent-ref arm is reached, so the silence above is not vacuous)" "yes" \
@@ -5051,7 +5051,7 @@ mkdir -p "$I469_FP_SEED/.prflow/tmp/review/pr-seed/run-seed"
 printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
   > "$I469_FP_SEED/.prflow/tmp/review/pr-seed/run-seed/iter-1.json"
 ( cd "$I469_FP_SEED" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=1 bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
-I469_FP_TIP="$(git -C "$I469_FP_BARE" rev-parse --verify --quiet refs/heads/devflow-telemetry 2>/dev/null || true)"
+I469_FP_TIP="$(git -C "$I469_FP_BARE" rev-parse --verify --quiet refs/heads/prflow-telemetry 2>/dev/null || true)"
 assert_eq "#469 AC6(producer): the fixture seeded a real telemetry store on the remote" "yes" \
   "$([ -n "$I469_FP_TIP" ] && echo yes || echo no)"
 # Second repo: origin points at the seeded remote, LOCAL telemetry ref ABSENT. A --persist
@@ -5065,25 +5065,25 @@ mkdir -p "$I469_FP/.prflow/tmp/review/pr-fp/run-fp"
 printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
   > "$I469_FP/.prflow/tmp/review/pr-fp/run-fp/iter-1.json"
 assert_eq "#469 AC6(producer): the LOCAL telemetry ref is ABSENT before --persist" "no" \
-  "$(git -C "$I469_FP" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
+  "$(git -C "$I469_FP" rev-parse --verify --quiet refs/heads/prflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
 # Staging-only (operand empty) so this run does not itself push — isolating the FETCH producer.
 ( cd "$I469_FP" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH='' bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
 assert_eq "#469 AC6(producer): --persist fast-forwarded the ABSENT local ref onto the fetched remote tip (prior records now visible to recorded_fix_shas)" "$I469_FP_TIP" \
-  "$(git -C "$I469_FP" rev-parse --verify --quiet refs/heads/devflow-telemetry 2>/dev/null || true)"
+  "$(git -C "$I469_FP" rev-parse --verify --quiet refs/heads/prflow-telemetry 2>/dev/null || true)"
 rm -rf "$I469_FP" "$I469_FP_SEED" "$I469_FP_BARE"
 
 # ── AC7 producer fail-open guard (#469 review fix): when origin HAS a branch named
-# devflow-telemetry but it is NOT a readable telemetry store (a consumer's same-named branch,
+# prflow-telemetry but it is NOT a readable telemetry store (a consumer's same-named branch,
 # or a corrupt tree), do_persist must NOT set status=ok before verify_store — it leaves the
 # state UNESTABLISHED (status=failed + warning) and does NOT advance the local ref, so a
 # present-but-unreadable store is never laundered into a silent established-empty. ──
 I469_VF_BARE="$(git_sandbox "#469 verify-fail bare remote")"; git -C "$I469_VF_BARE" init --bare -q
-# Push a NON-telemetry branch named devflow-telemetry (a root file → verify_store rejects it).
+# Push a NON-telemetry branch named prflow-telemetry (a root file → verify_store rejects it).
 I469_VF_SEED="$(git_sandbox "#469 verify-fail seed repo")"; git -C "$I469_VF_SEED" init -q
 git -C "$I469_VF_SEED" config user.email t@e.com; git -C "$I469_VF_SEED" config user.name t
 printf 'not a telemetry store\n' > "$I469_VF_SEED/random.txt"
 git -C "$I469_VF_SEED" add -A; git -C "$I469_VF_SEED" commit -qm 'not a store'
-git -C "$I469_VF_SEED" push -q "$I469_VF_BARE" HEAD:refs/heads/devflow-telemetry
+git -C "$I469_VF_SEED" push -q "$I469_VF_BARE" HEAD:refs/heads/prflow-telemetry
 # Consumer repo: origin → that remote, local telemetry ref ABSENT.
 I469_VF="$(git_sandbox "#469 verify-fail consumer repo")"; git -C "$I469_VF" init -q
 git -C "$I469_VF" config user.email t@e.com; git -C "$I469_VF" config user.name t
@@ -5097,7 +5097,7 @@ I469_VF_ERR="$( ( cd "$I469_VF" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=''
 assert_eq "#469 AC7 fail-open fix: a present-but-unverifiable remote tip is UNESTABLISHED (do_persist warns it could not be verified), not laundered into status=ok" "yes" \
   "$(printf '%s' "$I469_VF_ERR" | grep -qF 'could not be verified as a readable DevFlow telemetry store' && echo yes || echo no)"
 assert_eq "#469 AC7 fail-open fix: the unverifiable remote tip is NOT advanced onto the local ref" "no" \
-  "$(git -C "$I469_VF" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
+  "$(git -C "$I469_VF" rev-parse --verify --quiet refs/heads/prflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
 # The first assertion is itself the behavioral guard: the "could not be verified as a readable
 # DevFlow telemetry store" warning is emitted ONLY by the post-verify fail arm this fix added.
 # Reverting to the pre-fix "status=ok on bare fetch success" (no such arm) removes that warning,
@@ -5524,7 +5524,7 @@ printf '{"iter":1}\n' > "$_489_CART/.prflow/logs/review/pr-9/run-z/iter-1.json"
 ( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_PUSH" "$_489_CART" "$_489_REPO" ) >/dev/null 2>&1
 assert_eq "489/AC3: a clean artifact's records land on the telemetry branch" "yes" \
   "$(_et_on_branch "$_489_REPO" ".prflow/logs/efficiency/pr-9-run-z.json")"
-_489_TIP="$(git -C "$_489_REPO" rev-parse refs/heads/devflow-telemetry 2>/dev/null)"
+_489_TIP="$(git -C "$_489_REPO" rev-parse refs/heads/prflow-telemetry 2>/dev/null)"
 
 # Each hostile artifact leaves the branch tip UNCHANGED (nothing committed).
 _489_hostile_tip_unchanged() {  # label builder-cmd... — runs pusher, echoes yes/no tip-unchanged
@@ -5534,7 +5534,7 @@ _489_hostile_tip_unchanged() {  # label builder-cmd... — runs pusher, echoes y
   # module lint, which — unlike lib/test/run.sh's own step — keeps extended analysis on).
   shift
   ( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null "$@" bash "$_489_PUSH" "$_489_HART" "$_489_REPO" ) >/dev/null 2>&1
-  [ "$(git -C "$_489_REPO" rev-parse refs/heads/devflow-telemetry 2>/dev/null)" = "$_489_TIP" ] && echo yes || echo no
+  [ "$(git -C "$_489_REPO" rev-parse refs/heads/prflow-telemetry 2>/dev/null)" = "$_489_TIP" ] && echo yes || echo no
 }
 
 _489_HART="$(git_sandbox "489 hostile malformed")"; mkdir -p "$_489_HART/.prflow/logs/efficiency"
@@ -5578,14 +5578,14 @@ assert_eq "489/AC4(Sug#5): an over-count artifact leaves the branch UNCHANGED (e
 _489_HART="$(git_sandbox "489 empty artifact")"
 _489_EMPTY_ERR="$( ( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_PUSH" "$_489_HART" "$_489_REPO" ) 2>&1 1>/dev/null )"
 assert_eq "489/AC3: an EMPTY artifact pushes nothing and leaves the branch UNCHANGED" "yes" \
-  "$([ "$(git -C "$_489_REPO" rev-parse refs/heads/devflow-telemetry 2>/dev/null)" = "$_489_TIP" ] && echo yes || echo no)"
+  "$([ "$(git -C "$_489_REPO" rev-parse refs/heads/prflow-telemetry 2>/dev/null)" = "$_489_TIP" ] && echo yes || echo no)"
 assert_eq "489/AC3: ...and says so (a 'no telemetry records to push' notice)" "yes" \
   "$(printf '%s' "$_489_EMPTY_ERR" | grep -qF 'no telemetry records to push' && echo yes || echo no)"
 
 # Inert on an ABSENT artifact dir too (older review run with no upload).
 _489_ABSENT_ERR="$( ( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_PUSH" "$_489_REPO/.no-such-dl" "$_489_REPO" ) 2>&1 1>/dev/null )"
 assert_eq "489/AC3: an ABSENT artifact dir leaves the branch UNCHANGED" "yes" \
-  "$([ "$(git -C "$_489_REPO" rev-parse refs/heads/devflow-telemetry 2>/dev/null)" = "$_489_TIP" ] && echo yes || echo no)"
+  "$([ "$(git -C "$_489_REPO" rev-parse refs/heads/prflow-telemetry 2>/dev/null)" = "$_489_TIP" ] && echo yes || echo no)"
 
 # Fail-LOUD environment guards (the trusted writer must exit 1 red, not silently no-op, on a
 # broken invocation — the contract at the file head). These arms are otherwise unexercised.
@@ -5654,7 +5654,7 @@ assert_eq "489/AC3(Sug#5): persist rc=2 → 'staging-only despite DEVFLOW_TELEME
 devflow_module_pin_unique "489/AC2: devflow-runner.yml collects the staged telemetry tree" \
   'Collect staged telemetry artifacts' "$_489_WF/devflow-runner.yml"
 devflow_module_pin_unique "489/AC2: devflow-runner.yml uploads the staged telemetry artifact" \
-  'name: devflow-telemetry-stage-${{ github.run_id }}-${{ github.run_attempt }}' "$_489_WF/devflow-runner.yml"
+  'name: prflow-telemetry-stage-${{ github.run_id }}-${{ github.run_attempt }}' "$_489_WF/devflow-runner.yml"
 # F-c — the DOWNLOAD side of the relay was unpinned. The consumer names the artifact via the
 # workflow_run context, where workflow_run.id/.run_attempt resolve to the triggering run's
 # run_id/run_attempt — i.e. the exact values the upload names by. Pin the download name too, so a
@@ -5663,14 +5663,14 @@ devflow_module_pin_unique "489/AC2: devflow-runner.yml uploads the staged teleme
 # with only the indistinguishable benign-no-artifact warning (the same silent-zero-transfer class the
 # upload-side F2/S2c pins guard).
 devflow_module_pin_unique "489/AC3(F-c): telemetry-push.yml downloads the artifact by the run-scoped stage name" \
-  'name: devflow-telemetry-stage-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}' "$_489_WF/telemetry-push.yml"
+  'name: prflow-telemetry-stage-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}' "$_489_WF/telemetry-push.yml"
 # Coupled invariant (producer↔consumer): BOTH files must carry the byte-identical
-# `devflow-telemetry-stage-` stem. A rename on either side alone breaks the join; asserting the stem
+# `prflow-telemetry-stage-` stem. A rename on either side alone breaks the join; asserting the stem
 # is present in each file catches that skew (each side pinned independently, so the failing side names itself).
-assert_eq "489/AC3(F-c): the UPLOAD side carries the devflow-telemetry-stage- artifact-name stem" "1" \
-  "$(grep -cF 'name: devflow-telemetry-stage-' "$_489_WF/devflow-runner.yml")"
-assert_eq "489/AC3(F-c): the DOWNLOAD side carries the SAME devflow-telemetry-stage- stem (producer↔consumer coupling)" "1" \
-  "$(grep -cF 'name: devflow-telemetry-stage-' "$_489_WF/telemetry-push.yml")"
+assert_eq "489/AC3(F-c): the UPLOAD side carries the prflow-telemetry-stage- artifact-name stem" "1" \
+  "$(grep -cF 'name: prflow-telemetry-stage-' "$_489_WF/devflow-runner.yml")"
+assert_eq "489/AC3(F-c): the DOWNLOAD side carries the SAME prflow-telemetry-stage- stem (producer↔consumer coupling)" "1" \
+  "$(grep -cF 'name: prflow-telemetry-stage-' "$_489_WF/telemetry-push.yml")"
 devflow_module_pin_unique "489/AC2/#502: the collect step resolves the vendored collect helper first (consumer portability — bare repo-relative scripts/ path was absent in consumers)" \
   '.prflow/vendor/prflow/scripts/collect-staged-telemetry.sh' "$_489_WF/devflow-runner.yml"
 
@@ -5816,9 +5816,9 @@ printf 'null' > "$T499_P/.prflow/tmp/review/pr-499/run-matrix/iter-7.json"
 printf '{"keep":true}' > "$T499_P/.prflow/tmp/review/pr-499/run-matrix/deferrals.json"
 T499_SRC_BEFORE="$(find "$T499_P/.prflow/tmp/review/pr-499/run-matrix" -type f -exec shasum {} + | sort)"
 T499_P_ERR="$( ( cd "$T499_P" && env -u GITHUB_ACTIONS bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
-T499_TIP1="$(git -C "$T499_P" rev-parse devflow-telemetry)"
+T499_TIP1="$(git -C "$T499_P" rev-parse prflow-telemetry)"
 ( cd "$T499_P" && env -u GITHUB_ACTIONS bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
-T499_TIP2="$(git -C "$T499_P" rev-parse devflow-telemetry)"
+T499_TIP2="$(git -C "$T499_P" rev-parse prflow-telemetry)"
 assert_eq "#499 persist: M3 absent is stamped" "unavailable" "$(_et_show "$T499_P" '.prflow/logs/review/pr-499/run-matrix/iter-3.json' | jq -r '.telemetry')"
 assert_eq "#499 persist: M4 null is stamped" "unavailable" "$(_et_show "$T499_P" '.prflow/logs/review/pr-499/run-matrix/iter-4.json' | jq -r '.telemetry')"
 assert_eq "#499 persist: established false survives" "false" "$(_et_show "$T499_P" '.prflow/logs/review/pr-499/run-matrix/iter-2.json' | jq -r '.telemetry')"
@@ -5887,9 +5887,9 @@ T499_B_BEFORE_WRONG="$(_et_show "$T499_B" '.prflow/logs/efficiency/wrong.json')"
 T499_B_BEFORE_NONOBJ="$(_et_show "$T499_B" '.prflow/logs/efficiency/nonobject.json')"
 T499_B_BEFORE_M7="$(_et_show "$T499_B" '.prflow/logs/review/pr-499/run-b/iter-7.json')"
 T499_B_ERR="$( ( cd "$T499_B" && env -u GITHUB_ACTIONS bash ./scripts/backfill-telemetry-unavailable.sh ) 2>&1 1>/dev/null )"
-T499_B_TIP1="$(git -C "$T499_B" rev-parse devflow-telemetry)"
+T499_B_TIP1="$(git -C "$T499_B" rev-parse prflow-telemetry)"
 ( cd "$T499_B" && env -u GITHUB_ACTIONS bash ./scripts/backfill-telemetry-unavailable.sh ) >/dev/null 2>&1
-T499_B_TIP2="$(git -C "$T499_B" rev-parse devflow-telemetry)"
+T499_B_TIP2="$(git -C "$T499_B" rev-parse prflow-telemetry)"
 assert_eq "#499 backfill: populated M3 iter gains marker" "unavailable" "$(_et_show "$T499_B" '.prflow/logs/review/pr-499/run-b/iter-1.json' | jq -r '.telemetry')"
 assert_eq "#499 backfill: R1 null phases gains marker" "unavailable" "$(_et_show "$T499_B" '.prflow/logs/efficiency/selected.json' | jq -r '.telemetry[0].phases')"
 assert_eq "#499 backfill: R2 missing phases remains absent" "false" "$(_et_show "$T499_B" '.prflow/logs/efficiency/selected.json' | jq -r '.telemetry[1] | has("phases")')"
@@ -5947,8 +5947,8 @@ mkdir -p "$T499_U_A/legacy/.prflow/logs/review/pr-499/run-u" "$T499_U_A/legacy/.
 printf '%s' '{"iter":1}' > "$T499_U_A/legacy/.prflow/logs/review/pr-499/run-u/iter-1.json"
 printf '%s' '{"iter":2,"telemetry":false}' > "$T499_U_A/legacy/.prflow/logs/review/pr-499/run-u/iter-2.json"
 ( cd "$T499_U_A" && unset GITHUB_ACTIONS && . "$LIB/config-source.sh" && . "$LIB/telemetry-branch.sh" && devflow_telemetry_persist_tree "$T499_U_A" "$T499_U_A/legacy" ) >/dev/null 2>&1
-git clone -q "$T499_U_REMOTE" "$T499_U_B"; git -C "$T499_U_B" fetch -q origin devflow-telemetry:devflow-telemetry
-git clone -q "$T499_U_REMOTE" "$T499_U_C"; git -C "$T499_U_C" fetch -q origin devflow-telemetry:devflow-telemetry
+git clone -q "$T499_U_REMOTE" "$T499_U_B"; git -C "$T499_U_B" fetch -q origin prflow-telemetry:prflow-telemetry
+git clone -q "$T499_U_REMOTE" "$T499_U_C"; git -C "$T499_U_C" fetch -q origin prflow-telemetry:prflow-telemetry
 mkdir -p "$T499_U_A/migrated/.prflow/logs/review/pr-499/run-u" "$T499_U_A/migrated/.prflow/logs/efficiency"
 printf '%s' '{"iter":1,"telemetry":"unavailable"}' > "$T499_U_A/migrated/.prflow/logs/review/pr-499/run-u/iter-1.json"
 printf '%s' '{"iter":2,"telemetry":true}' > "$T499_U_A/migrated/.prflow/logs/review/pr-499/run-u/iter-2.json"
@@ -5958,7 +5958,7 @@ printf '%s' '{"slug":"writer-b"}' > "$T499_U_B/new/.prflow/logs/efficiency/write
 printf '%s' '{"iter":1}' > "$T499_U_B/new/.prflow/logs/review/pr-499/run-u/iter-1.json"
 printf '%s' '{"iter":2,"telemetry":false}' > "$T499_U_B/new/.prflow/logs/review/pr-499/run-u/iter-2.json"
 T499_U_B_ERR="$( ( cd "$T499_U_B" && unset GITHUB_ACTIONS && . "$LIB/config-source.sh" && . "$LIB/telemetry-branch.sh" && devflow_telemetry_persist_tree "$T499_U_B" "$T499_U_B/new" ) 2>&1 )"
-git -C "$T499_U_B" fetch -q origin devflow-telemetry
+git -C "$T499_U_B" fetch -q origin prflow-telemetry
 assert_eq "#499 union: normalized remote iter survives stale legacy local overlay" "unavailable" "$(git -C "$T499_U_B" show FETCH_HEAD:.prflow/logs/review/pr-499/run-u/iter-1.json | jq -r '.telemetry')"
 assert_eq "#499 union: ordinary established collision remains local-wins" "false" "$(git -C "$T499_U_B" show FETCH_HEAD:.prflow/logs/review/pr-499/run-u/iter-2.json | jq -r '.telemetry')"
 assert_eq "#499 union: retry also carries writer B's new blob" "writer-b" "$(git -C "$T499_U_B" show FETCH_HEAD:.prflow/logs/efficiency/writer-b.json | jq -r '.slug')"
@@ -5970,7 +5970,7 @@ mkdir -p "$T499_U_C/new/.prflow/logs/efficiency" "$T499_U_C/new/.prflow/logs/rev
 printf '%s' '{"slug":"writer-c"}' > "$T499_U_C/new/.prflow/logs/efficiency/writer-c.json"
 printf '%s' '{"iter":1}' > "$T499_U_C/new/.prflow/logs/review/pr-499/run-u/iter-1.json"
 T499_U_C_ERR="$( ( cd "$T499_U_C" && unset GITHUB_ACTIONS && . "$LIB/config-source.sh" && . "$LIB/telemetry-branch.sh" && DEVFLOW_JQ=/definitely/missing/jq devflow_telemetry_persist_tree "$T499_U_C" "$T499_U_C/new" ) 2>&1 )"
-git -C "$T499_U_C" fetch -q origin devflow-telemetry
+git -C "$T499_U_C" fetch -q origin prflow-telemetry
 assert_eq "#499 union: classifier-unavailable retry refuses the remote write" "no" "$(git -C "$T499_U_C" cat-file -e FETCH_HEAD:.prflow/logs/efficiency/writer-c.json 2>/dev/null && echo yes || echo no)"
 assert_eq "#499 union: classifier-unavailable refusal is breadcrumbed" "yes" "$(printf '%s' "$T499_U_C_ERR" | grep -qF 'could not classify a colliding telemetry blob' && echo yes || echo no)"
 rm -rf "$T499_U_ROOT"

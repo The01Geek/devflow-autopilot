@@ -101,7 +101,7 @@ Throughout the run you maintain exactly **one** marker-tagged comment on the Git
 TRIGGER_COMMENT_ID=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -r '.comment.id // empty' "$GITHUB_EVENT_PATH" 2>/dev/null || true)
 if [ -z "$TRIGGER_COMMENT_ID" ]; then
   TRIGGER_COMMENT_ID=$(gh api "repos/{owner}/{repo}/issues/$ISSUE_NUMBER/comments?per_page=100" \
-    --jq 'map(select((.body | contains("/prflow:implement")) and (.body | contains("devflow:workpad") | not))) | last | .id' 2>/dev/null || true)
+    --jq 'map(select((.body | contains("/prflow:implement")) and ((.body | test("(pr|dev)flow:workpad")) | not))) | last | .id' 2>/dev/null || true)
 fi
 if [ -n "$TRIGGER_COMMENT_ID" ] && [ -z "${TRIGGER_COMMENT_ID//[0-9]/}" ]; then
   # The second test is what makes a non-id capture inert: parameter expansion
@@ -140,7 +140,7 @@ The workpad comment body MUST start with the marker line on its own line, follow
 The always-visible region (marker line, header, `Status`, links, `## Progress`, `## Plan`, `## Acceptance Criteria`) stays uncollapsed so the comment is scannable at a glance. Append-only notes (`--note`) nest under their lifecycle phase *inside* `## Progress` — there is no separate Decisions / Notes section. Only `## Devflow Reflection` is wrapped in a `<details>` block so its accumulating bullets don't push the rest of the comment out of view. **Keep `## Acceptance Criteria` outside any `<details>`** — the Phase 3.4 gate reads it.
 
 ```markdown
-<!-- devflow:workpad -->
+<!-- prflow:workpad -->
 # DevFlow Workpad — Issue #{number}
 
 **Status:** 🚀 Setup
@@ -210,7 +210,7 @@ Subcommand reference:
 | `workpad.py patch COMMENT_ID BODY_FILE` | Low-level body-file PATCH. Prefer `update`; only use this for bulk-rewrite cases the `update` flags don't cover. |
 | `workpad.py handoff-state FILE --issue N --run-id ID --run-attempt ATTEMPT` | Validate the offline gate→claude handoff record (issue #537) and print one of `created-current-run` / `adopted-existing` / `unknown`. Always exits 0; every degraded shape (missing/unreadable/malformed/non-object/bad-version/wrong-type/identity-mismatch/unrecognized-origin) prints `unknown` with a targeted stderr breadcrumb. **No network access** — a pure file read. Used only by Phase 1.3 on the cloud tier to select truthful lifecycle wording. |
 
-The marker-locating subcommands (`id`, `new-body`, `update`) also accept `--marker M` to target a non-default marker comment (precedence: `--marker` > `DEVFLOW_WORKPAD_MARKER` env > `.prflow/config.json` > the built-in default). `/implement` does not pass it — it uses the default workpad marker; the flag exists for `/prflow:review`, which drives its own `devflow:review-progress` comment with the same helper.
+The marker-locating subcommands (`id`, `new-body`, `update`) also accept `--marker M` to target a non-default marker comment (precedence: `--marker` > `DEVFLOW_WORKPAD_MARKER` env > `.prflow/config.json` > the built-in default). `/implement` does not pass it — it uses the default workpad marker; the flag exists for `/prflow:review`, which drives its own `prflow:review-progress` comment with the same helper.
 
 `workpad.py update` accepts (combinable, all optional):
 
@@ -233,7 +233,7 @@ The marker-locating subcommands (`id`, `new-body`, `update`) also accept `--mark
 | `--replace-plan-file FILE` | Replace the Plan section content with FILE. |
 | `--replace-acs-file FILE` | Phase 2.2.5: replace Acceptance Criteria content with FILE. |
 | `--set-reproduction-file FILE` | Phase 2.1.5: set the Reproduction section to FILE; inserts the section after Acceptance Criteria if it doesn't yet exist. |
-| `--checkpoint KEY TEXT` | Write ONE timestamped `## Progress` row carrying a hidden `<!-- devflow:checkpoint KEY -->` marker (issue #537 startup boundaries). **Idempotent:** a second call with the same KEY is a replay that adds no duplicate row; a checkpoint-only replay whose keys all already exist makes **no `Last updated` refresh and no PATCH** (a pure no-op, exit 0), while a replay combined with any other mutation applies that mutation once and does not duplicate the checkpoint. KEY must match `[A-Za-z0-9._:-]+`; the workpad must carry exactly one canonical `## Progress` section. An invalid key, an absent/duplicate `## Progress`, a marker duplicated or living outside `## Progress`, or an empty body is a **structural** failure (zero PATCH). **Cloud-only**; keys are `gha:<run_id>:<run_attempt>:<stage>` with stage ∈ `gate-adopted`/`claude-invoke`/`phase1-entered`/`phase1-hydrated`. **Repeatable.** |
+| `--checkpoint KEY TEXT` | Write ONE timestamped `## Progress` row carrying a hidden `<!-- prflow:checkpoint KEY -->` marker (issue #537 startup boundaries). **Idempotent:** a second call with the same KEY is a replay that adds no duplicate row; a checkpoint-only replay whose keys all already exist makes **no `Last updated` refresh and no PATCH** (a pure no-op, exit 0), while a replay combined with any other mutation applies that mutation once and does not duplicate the checkpoint. KEY must match `[A-Za-z0-9._:-]+`; the workpad must carry exactly one canonical `## Progress` section. An invalid key, an absent/duplicate `## Progress`, a marker duplicated or living outside `## Progress`, or an empty body is a **structural** failure (zero PATCH). **Cloud-only**; keys are `gha:<run_id>:<run_attempt>:<stage>` with stage ∈ `gate-adopted`/`claude-invoke`/`phase1-entered`/`phase1-hydrated`. **Repeatable.** |
 | `--print-body` | Off by default. Writes the patched body to stdout (the pre-#814 bytes). Leave it off unless you actually need the row inventory — the volatile-tick-miss path echoes the body regardless of the flag, because the caller must re-resolve a shifted checkbox index against it. **Not a mutation:** the flag alone never makes a checkpoint-only call PATCH or refresh `Last updated`. |
 | `--expect-comment-id ID` / `--expect-status WORD` | Hydration-race preconditions (issue #537, AC24): after re-resolving the marker comment and re-fetching its body, abort **before any mutation/PATCH** (exit **4**) if the live comment ID or stripped Status word differs from the supplied value. Phase 1.3 passes the comment ID and Status word it observed in triage, so a concurrent terminal-backstop flip, status change, or delete/recreate cannot be overwritten by the stale reset. |
 
@@ -249,7 +249,7 @@ Helper invariants baked into the script (orchestrator doesn't need to enforce th
 - `--rewrite-ac` preserves the original checkbox state (don't tick during a 2.2.6 rewrite — the gate ticks later via `--tick-ac-n`).
 - Heredoc / shell-interpolation hazards are eliminated — body content never traverses bash quoting; everything goes through files.
 
-The helper reads `devflow.workpad_marker` from `.prflow/config.json`, falling back to the built-in default `<!-- devflow:workpad -->` when the config file or key is absent (so it works with no config).
+The helper reads `devflow.workpad_marker` from `.prflow/config.json`, falling back to the built-in default `<!-- prflow:workpad -->` when the config file or key is absent (so it works with no config).
 
 **Reflection style contract (every `--reflection` / `--reflection-file` bullet).** A reflection is the run's expensive-but-loud surface — a non-empty `reflections[]` trips the weekly retrospective's cheap gate and forces an LLM analysis — so every bullet must earn its place:
 

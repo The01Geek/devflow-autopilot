@@ -3943,10 +3943,14 @@ def _normalized_revival_authorization(site, repo_root):
 # The mapping is read from ``lib/rename-map.json``, the repository's single source
 # of truth for this rename, and is never a literal copy of it here. That file's
 # ``frozen`` block enumerates the names the rename must NOT touch, and those are
-# compiled into the same alternation AHEAD of the rename rules so a frozen name is
-# consumed verbatim and no rename rule can reach inside it. That ordering is
-# load-bearing: without it, a bare ``devflow`` rule would rewrite the frozen
-# ``workflows.devflow`` key and silently exempt a real change to it.
+# compiled into the same alternation as the rename rules, ordered LONGEST LITERAL
+# FIRST with a frozen entry winning any tie, so a frozen name is consumed verbatim
+# and no rename rule of equal or shorter length can reach inside it. That ordering
+# is load-bearing in both directions: without the frozen precedence a bare
+# ``devflow`` rule would rewrite the frozen ``workflows.devflow`` key and silently
+# exempt a real change to it; without the longest-first precedence the frozen
+# subagent namespace ``devflow:`` would swallow the marker rule ``<!-- devflow:``
+# that narrows it, and issue #1003's marker rename would be a silent no-op.
 _RENAME_MAP_PATH = "lib/rename-map.json"
 # Characters that continue a token. A rename rule fires only at a token boundary,
 # so ``devflow_module_pin_unique`` and ``.devflow-scratch`` are never reached by
@@ -3955,14 +3959,44 @@ _RENAME_TOKEN_CHARS = "A-Za-z0-9_"
 _RENAME_KEY_LEFT = "(?<![%s-])" % _RENAME_TOKEN_CHARS
 _RENAME_PATH_LEFT = "(?<![%s])" % _RENAME_TOKEN_CHARS
 _RENAME_RIGHT = "(?![%s-])" % _RENAME_TOKEN_CHARS
-# Two guards the map states as PROSE rather than as data, in its own
-# ``frozen._comment``: "Out of THIS issue's scope and tracked separately: the
-# DEVFLOW_* environment variables (#1004) and the <!-- devflow:* --> comment
-# markers". The env-var prefix needs no pattern -- every rename rule is
-# case-sensitive and lower-case, so ``DEVFLOW_GH`` is unreachable. The marker and
-# agent-override namespace does need one, because ``devflow:`` ends at a
-# non-token character that the boundary rule alone would accept.
+# One guard the map states as PROSE rather than as data, in its own
+# ``frozen._comment``: "Out of scope and tracked separately: the DEVFLOW_*
+# environment variables (#1004)". That prefix needs no pattern of its own -- the
+# only upper-case rule is the token-matched ``DevFlow`` label, and ``DEVFLOW_GH``
+# is a different spelling entirely, so no rule reaches it.
+#
+# ``devflow:`` DOES need one, because it ends at a non-token character that the
+# boundary rule alone would accept. Issue #1003 NARROWED what it protects: the
+# comment-marker namespace moved into the map's ``identifiers`` block as the
+# longer literal ``<!-- devflow:``, which out-competes this entry under the
+# longest-literal ordering below, so what remains frozen here is the namespace
+# the rename deliberately keeps -- the subagent-override keys
+# (``"devflow:code-reviewer"``, a permanently accepted alias per the config
+# schema) and the transitional ``/devflow:<command>`` spellings.
 _RENAME_STRUCTURAL_FROZEN = ("devflow:",)
+# The map's top-level blocks this builder knows how to read, plus the blocks that
+# are documentation or are consumed elsewhere. An unrecognised top-level key is
+# REFUSED rather than ignored: a new rename channel added as data alone is
+# otherwise a silent no-op -- the map looks edited and the substitution behaves
+# identically -- which is the failure mode issue #1003 measured.
+_RENAME_MAP_KNOWN_BLOCKS = frozenset(
+    {
+        "map_version",
+        "_comment",
+        "config_keys",
+        "paths",
+        "identifiers",
+        "atomic_unit",
+        "frozen",
+        "retained_unshipped_workflows",
+        "transitional_read_through",
+    }
+)
+# The match semantics an ``identifiers`` entry may declare. ``token`` refuses to
+# fire when the next character continues the token (so ``DevFlow`` never reaches
+# ``DevFlow-layout``); ``prefix`` fires on a self-delimiting literal whose shipped
+# uses extend it (``devflow-telemetry-stage-<run>``, ``<!-- devflow:workpad -->``).
+_RENAME_IDENTIFIER_MATCHES = ("token", "prefix")
 
 
 def _rename_frozen_pattern(literal):
@@ -3995,6 +4029,13 @@ def _build_rename_substitution(document):
     """
     if not isinstance(document, dict):
         raise ValueError("rename map root is not an object")
+    unknown_blocks = sorted(set(document) - _RENAME_MAP_KNOWN_BLOCKS)
+    if unknown_blocks:
+        raise ValueError(
+            "rename map has an unreadable top-level block: "
+            + ", ".join(unknown_blocks)
+            + " (teach _build_rename_substitution to read it, or the edit is inert)"
+        )
     frozen = document.get("frozen")
     if not isinstance(frozen, dict):
         raise ValueError("rename map has no frozen block")
@@ -4046,21 +4087,54 @@ def _build_rename_substitution(document):
             key_rules.append((superseded, current, "qualified-key"))
         else:
             key_rules.append((superseded, current, "key"))
-    # Frozen first so a frozen name is consumed verbatim; then longest literal
-    # first so `.devflow/vendor/devflow` and `devflow_review_and_fix` win over the
-    # shorter rules whose prefix they share.
+    # The identifier channel (issue #1003): brand names that are neither a path
+    # nor a config key -- the provenance label, the telemetry branch, the comment
+    # marker namespace. Each entry declares its own match semantics, because the
+    # shipped uses disagree: the label must NOT reach `DevFlow-layout` while the
+    # branch must reach `devflow-telemetry-stage-<run>`, and no single boundary
+    # rule can serve both.
+    identifiers = document.get("identifiers")
+    if not isinstance(identifiers, list):
+        raise ValueError("rename map has an invalid identifiers block")
+    identifier_rules = []
+    for index, entry in enumerate(identifiers):
+        label = f"identifiers[{index}]"
+        superseded, current = _rename_pair(entry, label)
+        match = entry.get("match")
+        if match not in _RENAME_IDENTIFIER_MATCHES:
+            raise ValueError(f"rename map has an invalid {label} match")
+        identifier_rules.append(
+            (superseded, current, "identifier-token"
+             if match == "token" else "identifier-prefix")
+        )
+    # A rule whose superseded name is ALSO frozen is inert -- the frozen
+    # alternative consumes the match first -- and silently so. Refuse it: the
+    # measured way to get this wrong is to add the rule and forget the unfreeze.
+    rule_names = {rule[0] for rule in identifier_rules}
+    rule_names.update(old for old, _ in path_rules)
+    rule_names.update(rule[0] for rule in key_rules)
+    inert = sorted(rule_names & set(frozen_literals))
+    if inert:
+        raise ValueError(
+            "rename map both freezes and maps: "
+            + ", ".join(inert)
+            + " (a frozen name consumes the match, so the rule would never fire)"
+        )
+    # Longest literal first, so `.devflow/vendor/devflow` and
+    # `devflow_review_and_fix` win over the shorter rules whose prefix they share,
+    # and the marker namespace `<!-- devflow:` wins over the shorter frozen
+    # `devflow:` it narrows. A frozen entry wins any tie, which keeps the original
+    # guarantee intact: no rename rule can reach inside a frozen name of equal or
+    # greater length (`workflows.devflow` still beats the bare `devflow` rule).
     alternatives = []
     replacements = {}
-    ordered = [
-        (literal, None, "frozen")
-        for literal in sorted(frozen_literals, key=len, reverse=True)
-    ]
-    ordered.extend(
-        sorted(
-            [(old, new, "path") for old, new in path_rules] + key_rules,
-            key=lambda rule: len(rule[0]),
-            reverse=True,
-        )
+    ordered = sorted(
+        [(literal, None, "frozen") for literal in frozen_literals]
+        + [(old, new, "path") for old, new in path_rules]
+        + key_rules
+        + identifier_rules,
+        key=lambda rule: (len(rule[0]), rule[2] == "frozen"),
+        reverse=True,
     )
     for index, (literal, replacement, kind) in enumerate(ordered):
         name = f"rn{index}"
@@ -4073,6 +4147,10 @@ def _build_rename_substitution(document):
                 _RENAME_KEY_LEFT + r"\." + re.escape(literal) + _RENAME_RIGHT
             )
             replacement = "." + replacement
+        elif kind == "identifier-prefix":
+            # Self-delimiting on the right (`<!-- devflow:` ends at `:`,
+            # `devflow-telemetry` is extended by `-`), so no right boundary.
+            body = _RENAME_KEY_LEFT + re.escape(literal)
         else:
             body = _RENAME_KEY_LEFT + re.escape(literal) + _RENAME_RIGHT
         alternatives.append(f"(?P<{name}>{body})")

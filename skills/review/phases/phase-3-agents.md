@@ -1,4 +1,4 @@
-<!-- devflow:review-ref phase=3 file=skills/review/phases/phase-3-agents.md start -->
+<!-- prflow:review-ref phase=3 file=skills/review/phases/phase-3-agents.md start -->
 ## Phase 3: Existing Review Agents
 
 Output: `Phase 3/4: Running review agents...`
@@ -356,4 +356,4 @@ A finding without a `defect_signature` block falls back to a text-based agreemen
 Corroboration count calibrates better than an agent's verbalized confidence: a finding raised by 3 of 5 agents is far more likely a true positive than a lone 95%-confidence one. Single-source findings aren't automatically wrong — they're flagged for extra human scrutiny.
 
 If an agent fails, note: "[agent-name] did not return results." in the report. Track the count of failed agents. Failed agents do not reduce the denominator for the corroboration count of findings other agents raised.
-<!-- devflow:review-ref phase=3 file=skills/review/phases/phase-3-agents.md end -->
+<!-- prflow:review-ref phase=3 file=skills/review/phases/phase-3-agents.md end -->

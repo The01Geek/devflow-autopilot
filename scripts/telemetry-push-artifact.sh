@@ -14,7 +14,7 @@
 #   2. On a clean, non-empty validated tree, reuses lib/telemetry-branch.sh's existing
 #      CAS-ref-advance / verify-store / bounded-fetch-and-push write path
 #      (devflow_telemetry_persist_tree) — with DEVFLOW_TELEMETRY_PUSH=1 so the writable
-#      tier actually pushes — to land the records on `devflow-telemetry`. No push is
+#      tier actually pushes — to land the records on `prflow-telemetry`. No push is
 #      re-implemented here.
 #
 # Intermediate-inert contract (issue #489 landing-order): an ABSENT, EMPTY, or fully-dropped
@@ -45,7 +45,7 @@ LIB_DIR="$(cd "$HERE/../lib" && pwd)"
 # Build a validated staging root OUTSIDE the repo tree so it never dirties the checkout.
 # mktemp is avoided (matches the repo's telemetry idiom) — a unique dir from bash builtins.
 STAGE_BASE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
-VALIDATED_ROOT="$STAGE_BASE/devflow-telemetry-validated-$(date -u +%Y%m%d%H%M%S 2>/dev/null || printf '00000000000000')-$$-${RANDOM}"
+VALIDATED_ROOT="$STAGE_BASE/prflow-telemetry-validated-$(date -u +%Y%m%d%H%M%S 2>/dev/null || printf '00000000000000')-$$-${RANDOM}"
 rm -rf "$VALIDATED_ROOT" 2>/dev/null || true
 mkdir -p "$VALIDATED_ROOT" || { echo "::error::telemetry-push-artifact: could not create the validated staging root '$VALIDATED_ROOT'" >&2; exit 1; }
 # Clean up the transient staging tree on every exit path.
