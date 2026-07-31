@@ -126,7 +126,18 @@ def _repo_root(start: Path) -> Path:
             return Path(out.stdout.strip())
     except OSError:
         pass
-    return start
+    # `start` is this file's own directory (lib/test), so the repo root is its
+    # grandparent — returning `start` itself would resolve run.sh to
+    # lib/test/lib/test/run.sh and silently profile nothing. Breadcrumb it: a
+    # value that decides an emitted result must never degrade silently to a
+    # wrong one (CLAUDE.md's non-preflight/silent-default rule).
+    fallback = start.parent.parent
+    print(
+        f"profile-suite: `git rev-parse --show-toplevel` unavailable; "
+        f"falling back to {fallback}",
+        file=sys.stderr,
+    )
+    return fallback
 
 
 def _banner_set(run_sh: Path) -> "set[str]":
@@ -345,6 +356,12 @@ def _report(out: Path, top: int, run_sh: "Path | None") -> int:
             try:
                 float(cells[0])
                 if name != "assertions.tsv":
+                    # Column 1 is the share the renderer parses with float() for
+                    # these two tables; guarding 0 and 2 but not 1 let a malformed
+                    # share through to crash the report this guard exists to keep
+                    # renderable. The assertions table is exempt because its
+                    # renderer computes the share from column 0 and never reads 1.
+                    float(cells[1])
                     int(cells[2])
             except ValueError:
                 dropped += 1
