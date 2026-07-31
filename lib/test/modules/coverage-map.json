@@ -59,6 +59,10 @@
       "note": "#561 capability-profile manifest generator; the capability-profiles module drives its --check over the generated workflow regions.",
       "owner": "capability-profiles"
     },
+    "lib/generate-config-alias-advisory.py": {
+      "note": "issue #1028 config-side accepted-alias advisory: derives which superseded `devflow` spellings a consumer config still carries (override namespace, workpad marker, provenance labels) and renders the report-only notice; never mutates the config",
+      "owner": "tier1-rename-migration"
+    },
     "lib/generate-env-freeze-advisory.py": {
       "note": "issue #1004 Tier 3: renders the frozen out-of-repo DEVFLOW_* advisory region from lib/rename-map.json and re-runs the two-arm criterion over the tree (--audit)",
       "owner": "tier1-rename-migration"
@@ -647,6 +651,10 @@
     "1010": {
       "note": "",
       "owner": "experiment-records"
+    },
+    "1028": {
+      "note": "",
+      "owner": "tier1-rename-migration"
     },
     "103": {
       "note": "",

@@ -651,3 +651,27 @@ if [ -x "$DETECT" ]; then
 else
   log "detect-project-tools.sh not found next to the scaffolder; skipping language auto-detection."
 fi
+
+# ── Accepted-alias advisory (issue #1028) ───────────────────────────────────
+# REPORT-ONLY. After a migration or re-scaffold, tell the consumer ONCE that any
+# remaining superseded `devflow` spellings in their config (an `agent_overrides`
+# `devflow:` key, a `devflow`-spelled workpad marker, a `DevFlow` provenance label)
+# are DELIBERATE, permanently-accepted aliases requiring no action — and that the
+# DEVFLOW_* ENVIRONMENT identifiers must NOT be hand-renamed either. The advisory's
+# population is DERIVED by the helper from what this config actually contains, so it
+# stays silent when nothing is superseded (the scaffolder ethos). It NEVER mutates the
+# config. Both entry points (install.sh --apply and /devflow:init) reach the scaffolder
+# here, so the #1004 constraint that /devflow:init is local-tier-only does not leave a
+# cloud-only consumer uncovered — install.sh's apply path carries the same notice by
+# calling this one scaffolder. Best-effort: a missing python3 or helper skips the notice.
+# The emission decision is made entirely inside python3 (a preflight-guaranteed tool),
+# never through a non-preflight PATH tool (tr/sed/wc/cut) — guard-class 2.
+CONFIG_ALIAS_ADVISORY="$SELF_DIR/../lib/generate-config-alias-advisory.py"
+if [ -f "$CONFIG" ] && [ -f "$CONFIG_ALIAS_ADVISORY" ] && command -v python3 >/dev/null 2>&1; then
+  alias_out="$(python3 "$CONFIG_ALIAS_ADVISORY" "$CONFIG" 2>/dev/null || true)"
+  if [ -n "$alias_out" ]; then
+    while IFS= read -r _alias_line; do log "$_alias_line"; done <<EOF_ALIAS
+$alias_out
+EOF_ALIAS
+  fi
+fi

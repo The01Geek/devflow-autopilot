@@ -1016,3 +1016,108 @@ assert_eq "#1004 install.sh stays SILENT for a first-time install (nothing is ac
   "" "$(_t1_env_installer_arm 'a first-time')"
 assert_eq "#1004 install.sh stays silent for an unestablished install state" "" \
   "$(_t1_env_installer_arm '')"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#1028 K. the config-side accepted-alias advisory (report-only, derived population)"
+# ────────────────────────────────────────────────────────────────────────────
+# The config-side sibling of the env-freeze advisory. lib/generate-config-alias-advisory.py
+# reads a consumer config and reports which superseded `devflow` spellings it STILL carries
+# (override namespace, workpad marker, provenance labels) as deliberate aliases needing no
+# action. Every assertion is behavioural: the helper is driven file-in over a fixture config
+# and judged on its stdout and exit code — no source-text pin (issues #375/#666/#810). The
+# adversarial input-shape matrix leads (CLAUDE.md best-effort-parser rule): each category
+# alone, several together, none, and a config that is unreadable / not an object / invalid
+# JSON / carries valid-falsy and wrong-typed blocks.
+T1_ALIAS="$LIB/generate-config-alias-advisory.py"
+_t1_alias_cfg() { # <json> -> path to a fixture config file holding it
+  local f; f="$(_t1_root)/config.json"
+  printf '%s' "$1" > "$f"
+  printf '%s' "$f"
+}
+_t1_alias_run() { # <path> -> "<exit>|<stdout>"
+  local out rc
+  out="$(python3 "$T1_ALIAS" "$1" 2>/dev/null)"; rc=$?
+  printf '%s|%s' "$rc" "$out"
+}
+
+# — Category present ALONE: agent_overrides `devflow:` keys —
+_t1_alias_out="$(_t1_alias_run "$(_t1_alias_cfg '{"prflow_review":{"agent_overrides":{"default":{"effort":"low"},"devflow:code-reviewer":{"model":"x"}}}}')")"
+assert_eq "#1028 overrides alone: exit 0 and the notice fires" "yes" \
+  "$(_t1_has "$_t1_alias_out" '0|NOTICE:')"
+assert_eq "#1028 overrides alone: names the override namespace and the alias key" "yes yes" \
+  "$(_t1_has "$_t1_alias_out" 'agent_overrides') $(_t1_has "$_t1_alias_out" 'devflow:code-reviewer')"
+assert_eq "#1028 overrides alone: does NOT mention marker or labels" "no no" \
+  "$(_t1_has "$_t1_alias_out" 'workpad marker') $(_t1_has "$_t1_alias_out" 'provenance label')"
+
+# — Category present ALONE: the `devflow`-spelled workpad marker (top-level `prflow` block) —
+_t1_alias_out="$(_t1_alias_run "$(_t1_alias_cfg '{"prflow":{"workpad_marker":"<!-- devflow:workpad -->"}}')")"
+assert_eq "#1028 marker alone: exit 0, names the marker, not the other categories" "yes yes no" \
+  "$(_t1_has "$_t1_alias_out" '0|NOTICE:') $(_t1_has "$_t1_alias_out" 'workpad marker') $(_t1_has "$_t1_alias_out" 'agent_overrides')"
+
+# — Category present ALONE, un-migrated top-level spelling: the marker under `devflow` —
+_t1_alias_out="$(_t1_alias_run "$(_t1_alias_cfg '{"devflow":{"workpad_marker":"<!-- devflow:workpad -->"}}')")"
+assert_eq "#1028 marker under the un-migrated devflow top-level block is still detected" "yes" \
+  "$(_t1_has "$_t1_alias_out" '0|NOTICE:')"
+
+# — Category present ALONE: a `DevFlow` provenance label value —
+_t1_alias_out="$(_t1_alias_run "$(_t1_alias_cfg '{"deferred":{"labels":"DevFlow,Deferred"},"docs":{"labels":"Documented"}}')")"
+assert_eq "#1028 labels alone: exit 0, names the label value, cites deferred.labels" "yes yes yes" \
+  "$(_t1_has "$_t1_alias_out" '0|NOTICE:') $(_t1_has "$_t1_alias_out" 'provenance label') $(_t1_has "$_t1_alias_out" 'deferred.labels')"
+
+# — SEVERAL together: all three categories, and the env-freeze cross-reference is present —
+_t1_alias_out="$(_t1_alias_run "$(_t1_alias_cfg '{"prflow":{"workpad_marker":"<!-- devflow:workpad -->"},"prflow_review":{"agent_overrides":{"devflow:comment-analyzer":{}}},"docs":{"labels":"DevFlow"}}')")"
+assert_eq "#1028 several together: all three categories are named" "yes yes yes" \
+  "$(_t1_has "$_t1_alias_out" 'agent_overrides') $(_t1_has "$_t1_alias_out" 'workpad marker') $(_t1_has "$_t1_alias_out" 'provenance label')"
+assert_eq "#1028 several together: warns that DEVFLOW_* ENV identifiers must not be renamed" "yes" \
+  "$(_t1_has "$_t1_alias_out" 'ENVIRONMENT identifiers')"
+assert_eq "#1028 several together: points at the frozen inventory, does not restate it" "yes yes" \
+  "$(_t1_has "$_t1_alias_out" 'frozen.env_identifiers') $(_t1_has "$_t1_alias_out" 'generate-env-freeze-advisory.py')"
+
+# — NONE present: a clean fully-migrated config says nothing (silent-when-nothing-actionable) —
+_t1_alias_out="$(_t1_alias_run "$(_t1_alias_cfg '{"prflow":{"workpad_marker":"<!-- prflow:workpad -->"},"prflow_review":{"agent_overrides":{"prflow:code-reviewer":{}}},"deferred":{"labels":"PRFlow,Deferred"}}')")"
+assert_eq "#1028 nothing superseded: exit 0 with EMPTY stdout" "0|" "$_t1_alias_out"
+
+# — Adversarial shapes: valid-falsy and wrong-typed blocks yield nothing, never a crash —
+_t1_alias_out="$(_t1_alias_run "$(_t1_alias_cfg '{"prflow":{"workpad_marker":""},"deferred":{"labels":""},"prflow_review":"scalar","docs":[]}')")"
+assert_eq "#1028 valid-falsy/empty + wrong-typed blocks: exit 0, EMPTY stdout" "0|" "$_t1_alias_out"
+_t1_alias_out="$(_t1_alias_run "$(_t1_alias_cfg '{"prflow":{"workpad_marker":123},"prflow_review":{"agent_overrides":42}}')")"
+assert_eq "#1028 non-string marker + non-object agent_overrides: exit 0, EMPTY stdout" "0|" "$_t1_alias_out"
+
+# — INPUT FAILURES: not an object, invalid JSON, unreadable — exit 2, EMPTY stdout —
+_t1_alias_out="$(_t1_alias_run "$(_t1_alias_cfg '[1,2,3]')")"
+assert_eq "#1028 config is a JSON array (not an object): exit 2, EMPTY stdout" "2|" "$_t1_alias_out"
+_t1_alias_out="$(_t1_alias_run "$(_t1_alias_cfg '{not valid json')")"
+assert_eq "#1028 config is invalid JSON: exit 2, EMPTY stdout" "2|" "$_t1_alias_out"
+_t1_alias_out="$(_t1_alias_run "$(_t1_root)/absent.json")"
+assert_eq "#1028 config path is unreadable/absent: exit 2, EMPTY stdout" "2|" "$_t1_alias_out"
+
+# — AC4: the helper NEVER mutates the config — byte-identical across an emitting run —
+_t1_alias_cfg_path="$(_t1_alias_cfg '{"prflow":{"workpad_marker":"<!-- devflow:workpad -->"},"docs":{"labels":"DevFlow"}}')"
+_t1_alias_before="$(cat "$_t1_alias_cfg_path")"
+python3 "$T1_ALIAS" "$_t1_alias_cfg_path" >/dev/null 2>&1
+assert_eq "#1028 report-only: the config is byte-identical after an emitting run" \
+  "$_t1_alias_before" "$(cat "$_t1_alias_cfg_path")"
+
+# — Integration: the scaffolder DELIVERS the advisory end-to-end (both entry points reach
+#   scaffold-config.sh, so this one home covers install.sh --apply AND /devflow:init — the
+#   #1004 local-tier-only constraint on /devflow:init does not leave a cloud-only consumer
+#   uncovered). Fixture: an already-migrated config carrying a nested alias the scaffolder
+#   preserves; the notice must reach its output and the config value must survive. —
+_t1_r="$(_t1_root)"; mkdir -p "$_t1_r/.prflow" "$_t1_r/.github/workflows"
+python3 -c '
+import json,sys
+ex=json.load(open(sys.argv[1]))
+ex.setdefault("prflow_review",{})["agent_overrides"]={"devflow:code-reviewer":{"model":"x"}}
+json.dump(ex, open(sys.argv[2],"w"), indent=2)' "$T1_EXAMPLE" "$_t1_r/.prflow/config.json"
+_t1_out="$("$T1_SCAFFOLD" "$_t1_r" 2>&1)"
+assert_eq "#1028 scaffold integration: the advisory reaches the scaffolder's output" "yes" \
+  "$(_t1_has "$_t1_out" 'permanently-accepted alias')"
+assert_eq "#1028 scaffold integration: it names the surviving alias key" "yes" \
+  "$(_t1_has "$_t1_out" 'devflow:code-reviewer')"
+assert_eq "#1028 scaffold integration: the alias override value is preserved (report-only)" "yes" \
+  "$(python3 -c '
+import json,sys
+d=json.load(open(sys.argv[1]))
+print("yes" if "devflow:code-reviewer" in d.get("prflow_review",{}).get("agent_overrides",{}) else "no")' "$_t1_r/.prflow/config.json" 2>/dev/null)"
+assert_eq "#1028 scaffold integration: a clean config draws NO advisory line" "no" \
+  "$("$T1_SCAFFOLD" "$(_t1_scaffold_root '{"prflow":{"workpad_marker":"<!-- prflow:workpad -->"}}')" 2>&1 | { grep -q 'permanently-accepted alias' && printf 'yes' || printf 'no'; })"
