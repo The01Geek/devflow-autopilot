@@ -64,7 +64,7 @@ These four hold on every path, including every degraded arm above, and are load-
 1. **The issue is created only after the user explicitly approves the full rendered draft in chat.** The full title and body are rendered verbatim in your message first; an earlier "just create it", a complete Step 2, or a paused pipeline is never a substitute for approval of *this* draft.
 2. **The no-options gate** (stated under Step 3 below) passes on the body that is shown and on every revision of it.
 3. **The audit summary line is mandatory and always renders** — even on a clean `VERDICT: FILE` with zero findings. A skipped or degraded audit is **never silent**; the summary line is the evidence the audit ran and which arm it took.
-4. **The reserved `DevFlow` provenance label is applied best-effort after creation, and any degradation is reported explicitly** — a label hiccup never blocks creation, and a `DevFlow` label that could not be applied is named in the final outcome rather than passed over.
+4. **The reserved `PRFlow` provenance label is applied best-effort after creation, and any degradation is reported explicitly** — a label hiccup never blocks creation, and a `PRFlow` label that could not be applied is named in the final outcome rather than passed over.
 
 ## Steps
 

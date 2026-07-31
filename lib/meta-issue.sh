@@ -111,10 +111,12 @@ esac
 . "$HERE/resolve-gh.sh"
 : "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
 
-# The reserved DevFlow provenance label plus a fixed Retrospective marker stamped
+# The reserved PRFlow provenance label plus a fixed Retrospective marker stamped
 # on every filed issue. Both are hardcoded constants — no config key controls
-# them (DevFlow is the scan/classify provenance string; Retrospective marks the
-# loop's own filings). Application is best-effort and never aborts the filing.
+# them (PRFlow is the scan/classify provenance string, whose superseded DevFlow
+# spelling stays selectable on already-labelled history but is never stamped on
+# new filings; Retrospective marks the loop's own filings). Application is
+# best-effort and never aborts the filing.
 _apply_labels() {  # $1 = issue number
     local _num="$1" _lbl
     [[ "$DRY_RUN" -eq 1 ]] && return 0

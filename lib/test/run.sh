@@ -584,6 +584,21 @@ assert_eq "devflow/learnings- branch is skip" \
 assert_eq "#97 classify: DevFlow-label PR on issue-* branch is implementation" \
   "implementation" \
   "$(classify "issue-97-foo" "true" "claude/" '[{"name":"DevFlow"}]' '[]')"
+# The CURRENT spelling, which every post-rename PR actually carries. Its superseded
+# twin above passing is NOT coverage of it: both arms of the `or` are separate
+# literals, so a respelled/typo'd current arm would leave every assertion green
+# while silently dropping the whole post-rename population. Both label shapes the
+# filter normalizes are driven, and a mis-cased near-miss is the negative control
+# that makes these positives load-bearing rather than tautological.
+assert_eq "#97 classify: PRFlow-label PR on issue-* branch is implementation" \
+  "implementation" \
+  "$(classify "issue-97-foo" "true" "claude/" '[{"name":"PRFlow"}]' '[]')"
+assert_eq "#97 classify: bare-string PRFlow label normalizes and is implementation" \
+  "implementation" \
+  "$(classify "issue-97-foo" "true" "claude/" '["PRFlow"]' '[]')"
+assert_eq "#97 classify: mis-cased PrFlow is NOT the provenance label → skip" \
+  "skip" \
+  "$(classify "issue-97-foo" "true" "claude/" '[{"name":"PrFlow"}]' '[]')"
 # A watched-author PR that closes an issue, on a non-prefix branch → implementation.
 assert_eq "#97 classify: closes-issue PR on issue-* branch is implementation" \
   "implementation" \
@@ -12780,13 +12795,23 @@ case "$*" in
   *"pr view 801 --repo"*) echo '{"number":801,"headRefName":"feature/plain","mergedAt":"2026-05-26T00:00:00Z","state":"MERGED","labels":[],"closingIssuesReferences":[],"author":{"login":"nonwatched"}}' ;;
   *"pr view 802 --repo"*) echo '{"number":802,"headRefName":"issue-802-x","mergedAt":"2026-05-27T00:00:00Z","state":"MERGED","labels":[],"closingIssuesReferences":[{"number":702}],"author":{"login":"claude"}}' ;;
   *"pr view 803 --repo"*) echo '{"number":803,"headRefName":"issue-803-x","mergedAt":"2026-05-28T00:00:00Z","state":"MERGED","labels":[],"closingIssuesReferences":[{"number":703}],"author":{"login":"nonwatched"}}' ;;
+  *"pr view 804 --repo"*) echo '{"number":804,"headRefName":"random/y","mergedAt":"2026-05-29T00:00:00Z","state":"MERGED","labels":[{"name":"PRFlow"}],"closingIssuesReferences":[],"author":{"login":"nonwatched"}}' ;;
+  *"pr view 805 --repo"*) echo '{"number":805,"headRefName":"random/z","mergedAt":"2026-05-30T00:00:00Z","state":"MERGED","labels":[{"name":"PrFlow"}],"closingIssuesReferences":[],"author":{"login":"nonwatched"}}' ;;
   *) echo '[]' ;;
 esac
 STUB
 chmod +x "$S97/gh-prs"
-PRS97="$(DEVFLOW_CONFIG_FILE="$S97/cfg.json" DEVFLOW_GH="$S97/gh-prs" bash "$LIB/scan.sh" --prs "800,801,802,803" 2>/dev/null)"
+PRS97="$(DEVFLOW_CONFIG_FILE="$S97/cfg.json" DEVFLOW_GH="$S97/gh-prs" bash "$LIB/scan.sh" --prs "800,801,802,803,804,805" 2>/dev/null)"
 assert_eq "scan #97 --prs: DevFlow-labelled PR on non-prefix branch selected" "true" \
   "$(echo "$PRS97" | jq 'any(.[]; .number==800)')"
+# The CURRENT spelling — 804 is label-only (non-watched author, non-prefix branch,
+# closes nothing), so ONLY scan.sh's local PRFlow arm can select it. 805 is the
+# mis-cased near-miss that proves the match is the exact literal and not a
+# case-insensitive or substring test, so a typo cannot ride in on 804's pass.
+assert_eq "scan #97 --prs: PRFlow-labelled PR on non-prefix branch selected" "true" \
+  "$(echo "$PRS97" | jq 'any(.[]; .number==804)')"
+assert_eq "scan #97 --prs: mis-cased PrFlow label is not provenance → dropped" "false" \
+  "$(echo "$PRS97" | jq 'any(.[]; .number==805)')"
 assert_eq "scan #97 --prs: true-negative (no label/closes/prefix) dropped" "false" \
   "$(echo "$PRS97" | jq 'any(.[]; .number==801)')"
 # --prs closes-issue path is author-gated by _author_is_watched: a WATCHED
@@ -12858,6 +12883,48 @@ assert_eq "fetch #97: reflections[] has the two bullets" "2" \
 EXP_REFL='permission classifier blocked `bash lib/test/run.sh` ($CLAUDE_CODE classifier denied local test exec)'
 assert_eq "fetch #97: reflection bullet byte-for-byte (backticks/\$ survive)" "$EXP_REFL" \
   "$(jq -r '.reflections[0]' <<<"$F_CTX")"
+
+# Scenario 1b: the CURRENT marker namespace. Every workpad fixture in this file
+# writes the superseded `devflow:` spelling, so the `pr` alternative of the
+# reader's marker pattern was never exercised — yet it is the only spelling a
+# post-rename run writes, and a broken alternative would make every new workpad
+# read as Absent (the #626 fail-closed sentinel) while this block stayed green.
+# The near-miss marker after it proves detection is the real pattern and not a
+# loose "contains workpad" test that would pass regardless.
+cat > "$F97/workpad-prflow.md" <<'WPMD'
+<!-- prflow:workpad -->
+# DevFlow Workpad — Issue #901
+
+**Status:** 🎉 Complete
+
+## Progress
+- [x] **Setup**
+
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+- scope narrowed: deferred part X to a follow-up
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]' < "$F97/workpad-prflow.md" > "$F97/issuecomments.json"
+F_OUT_P="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+F_CTX_P="$(cat "$F_OUT_P")"
+assert_eq "fetch #97: prflow:workpad marker is detected → status Complete" "Complete" \
+  "$(jq -r '.signals.workpad_final_status' <<<"$F_CTX_P")"
+assert_eq "fetch #97: prflow:workpad reflections are parsed" "1" \
+  "$(jq '.reflections | length' <<<"$F_CTX_P")"
+
+cat > "$F97/workpad-typo.md" <<'WPMD'
+<!-- prflw:workpad -->
+# DevFlow Workpad — Issue #901
+
+**Status:** 🎉 Complete
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]' < "$F97/workpad-typo.md" > "$F97/issuecomments.json"
+F_OUT_T="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "fetch #97: a near-miss workpad marker is NOT detected → Absent sentinel" "Absent" \
+  "$(jq -r '.signals.workpad_final_status' < "$F_OUT_T")"
 
 # Scenario 2: empty Devflow Reflection block → reflections == []
 cat > "$F97/workpad-empty.md" <<'WPMD'
@@ -13085,6 +13152,49 @@ echo '[]' > "$F97/issuecomments.json"
 F626_C="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
 assert_eq "#626 e2e provenance: PR-label only (object-shaped) → true" "true" \
   "$(jq -r '.pr_devflow_provenance' < "$F626_C")"
+
+# Scenario C2 — the CURRENT spelling, on both legs and both label shapes. Every
+# scenario above feeds the superseded spelling, so the `. == "PRFlow"` arm of the
+# producer's `any(...)` was never executed by any fixture: a typo there would have
+# left this whole block green while silently reporting `false` for every
+# post-rename PR — i.e. exactly the population the field now describes. The
+# mis-cased arm at the end is the negative control that keeps these positives
+# honest (the match is the exact literal, not a case-fold or a substring).
+cat > "$F97/prview.json" <<'PV'
+{"number":900,"headRefName":"claude/issue-901-x","baseRefName":"main","headRefOid":"sha900beef","mergeCommit":{"oid":"merge900"},"mergedAt":"2026-05-08T16:31:00Z","createdAt":"2026-05-08T07:00:00Z","author":{"login":"example-bot"},"title":"t","body":"Closes #901","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[{"name":"PRFlow"}]}
+PV
+F626_C2="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#626 e2e provenance: PRFlow PR-label (object-shaped) → true" "true" \
+  "$(jq -r '.pr_devflow_provenance' < "$F626_C2")"
+
+cat > "$F97/prview.json" <<'PV'
+{"number":900,"headRefName":"claude/issue-901-x","baseRefName":"main","headRefOid":"sha900beef","mergeCommit":{"oid":"merge900"},"mergedAt":"2026-05-08T16:31:00Z","createdAt":"2026-05-08T07:00:00Z","author":{"login":"example-bot"},"title":"t","body":"Closes #901","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":["PRFlow"]}
+PV
+F626_C3="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#626 e2e provenance: PRFlow PR-label (string-shaped) → true" "true" \
+  "$(jq -r '.pr_devflow_provenance' < "$F626_C3")"
+
+# The issue leg carrying the current spelling (PR unlabelled) — the second `norm`
+# operand, which the PR-label scenarios above never reach.
+cat > "$F97/prview.json" <<'PV'
+{"number":900,"headRefName":"claude/issue-901-x","baseRefName":"main","headRefOid":"sha900beef","mergeCommit":{"oid":"merge900"},"mergedAt":"2026-05-08T16:31:00Z","createdAt":"2026-05-08T07:00:00Z","author":{"login":"example-bot"},"title":"t","body":"Closes #901","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[]}
+PV
+cat > "$F97/issue.json" <<'IJ'
+{"number":901,"title":"i","body":"b","labels":[{"name":"PRFlow"}],"comments":[]}
+IJ
+F626_C4="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#626 e2e provenance: PRFlow issue-label leg → true" "true" \
+  "$(jq -r '.pr_devflow_provenance' < "$F626_C4")"
+
+cat > "$F97/prview.json" <<'PV'
+{"number":900,"headRefName":"claude/issue-901-x","baseRefName":"main","headRefOid":"sha900beef","mergeCommit":{"oid":"merge900"},"mergedAt":"2026-05-08T16:31:00Z","createdAt":"2026-05-08T07:00:00Z","author":{"login":"example-bot"},"title":"t","body":"Closes #901","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[{"name":"PrFlow"}]}
+PV
+cat > "$F97/issue.json" <<'IJ'
+{"number":901,"title":"i","body":"b","labels":[],"comments":[]}
+IJ
+F626_C5="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#626 e2e provenance: mis-cased PrFlow is not provenance → false" "false" \
+  "$(jq -r '.pr_devflow_provenance' < "$F626_C5")"
 
 # Scenario D — issue-label only: PR has no label, the resolved issue carries DevFlow.
 cat > "$F97/prview.json" <<'PV'
@@ -16048,7 +16158,7 @@ assert_eq "app-token: overview §15 routes the review agent's posts to DevFlow-R
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/efficiency-trace-telemetry.sh" \
-  "efficiency-trace-telemetry" 879; then
+  "efficiency-trace-telemetry" 884; then
   printf 'ERROR: efficiency-trace-telemetry boundary could not record its result\n'
   exit 1
 fi
