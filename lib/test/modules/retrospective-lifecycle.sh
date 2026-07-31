@@ -754,8 +754,8 @@ assert_eq "meta-issue files the body verbatim" "true" \
   "$(diff -q "$TMP_MI/body.md" "$TMP_MI/created-body.md" >/dev/null 2>&1 && echo true || echo false)"
 # #152: both the DevFlow provenance label and the Retrospective marker are stamped
 # (best-effort) on the freshly filed issue (#4242, derived from the created URL).
-assert_eq "meta-issue stamps DevFlow label (REST labels[] field)" "true" \
-  "$(grep -qF -- 'labels[]=DevFlow' "$TMP_MI/edit-args" && echo true || echo false)"
+assert_eq "meta-issue stamps PRFlow label (REST labels[] field)" "true" \
+  "$(grep -qF -- 'labels[]=PRFlow' "$TMP_MI/edit-args" && echo true || echo false)"
 assert_eq "meta-issue stamps Retrospective label (REST labels[] field)" "true" \
   "$(grep -qF -- 'labels[]=Retrospective' "$TMP_MI/edit-args" && echo true || echo false)"
 assert_eq "meta-issue applies via REST issues/4242/labels (not gh issue edit)" "true" \

@@ -935,7 +935,7 @@ rm -f "$CG_COERCE" "$CG_PARSEERR"
 # ────────────────────────────────────────────────────────────────────────────
 echo "deferred.labels (schema + example + resolution + normalization)"
 # ────────────────────────────────────────────────────────────────────────────
-# /devflow:implement applies deferred.labels (default DevFlow,Deferred) to the
+# /devflow:implement applies deferred.labels (default PRFlow,Deferred) to the
 # follow-up issues it files in Phase 4.0 (deferred ACs) and Phase 4.0.5 (deferred
 # review findings). The value is read via config-get.sh and normalized with the same
 # split/trim/drop-empties idiom Phase 4.1 uses for docs.labels (issue #118). Pin (a)
@@ -946,7 +946,7 @@ DEF_EXAMPLE="$LIB/../.prflow/config.example.json"
 DEF_PROP='.properties.deferred.properties.labels'
 assert_eq "deferred.labels: schema type is string" "string" \
   "$(jq -r "$DEF_PROP.type" "$DEF_SCHEMA")"
-assert_eq "deferred.labels: schema default is DevFlow,Deferred" "DevFlow,Deferred" \
+assert_eq "deferred.labels: schema default is PRFlow,Deferred" "PRFlow,Deferred" \
   "$(jq -r "$DEF_PROP.default" "$DEF_SCHEMA")"
 assert_eq "deferred.labels: schema has a non-empty description" "yes" \
   "$(jq -e "$DEF_PROP.description | type == \"string\" and (length > 0)" "$DEF_SCHEMA" >/dev/null && echo yes || echo no)"
@@ -988,8 +988,8 @@ assert_eq "deferred.labels normalize: empty string → empty (no labels)"    "" 
 # a single file — the deferred.labels idiom these guards pin lives in the Phase 4.0/4.0.5
 # detail that relocated to phases/phase-4-documentation.md.
 DEF_SKILL="$IMPL_SKILL_BUNDLE"
-assert_eq "deferred.labels: SKILL reads via config-get with the DevFlow,Deferred default" "yes" \
-  "$(grep -qF 'config-get.sh .deferred.labels DevFlow,Deferred' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
+assert_eq "deferred.labels: SKILL reads via config-get with the PRFlow,Deferred default" "yes" \
+  "$(grep -qF 'config-get.sh .deferred.labels PRFlow,Deferred' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
 assert_eq "deferred.labels: SKILL ensures each label exists before applying (agent-level per-label call, #455)" "yes" \
   "$(grep -qF 'ensure-label.sh "<label>"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5); #455 reworked the piped-while loop into an agent-level single-leading-token call. #480: the label arg is QUOTED — the retired loop passed "$lbl", and dropping the quotes made a multi-word configured label (docs.labels: "Needs Docs") create the WRONG label ('Needs') while breadcrumbing SUCCESS.
 assert_eq "deferred.labels: SKILL applies labels via best-effort REST apply-labels.sh helper (agent-level per-issue call, #455)" "yes" \
@@ -997,7 +997,7 @@ assert_eq "deferred.labels: SKILL applies labels via best-effort REST apply-labe
 # Both deferral channels must label: Phase 4.0 (no longer "add no --label") and Phase
 # 4.0.5. Require the resolution token to appear at least twice (once per channel).
 assert_eq "deferred.labels: SKILL resolves the labels in BOTH deferral channels (4.0 + 4.0.5)" "yes" \
-  "$([ "$(grep -cF 'config-get.sh .deferred.labels DevFlow,Deferred' "$DEF_SKILL")" -ge 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts >=2 occurrences (both channels), not single-presence
+  "$([ "$(grep -cF 'config-get.sh .deferred.labels PRFlow,Deferred' "$DEF_SKILL")" -ge 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts >=2 occurrences (both channels), not single-presence
 assert_eq "deferred.labels: SKILL Phase 4.0 no longer instructs 'add no --label' as a maintainer task" "no" \
   "$(grep -qF 'add **no** `--label` (labeling is handled separately by maintainers)' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: absence pin: asserts the removed 'add no --label' instruction is GONE (expected no)
 # Pin the normalization pipeline itself (not just the read/ensure/apply tokens): the
@@ -14882,7 +14882,7 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # together, or test_module_runner.py's tranche test goes RED.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 459; then
+  "review-trigger-helpers" 463; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
@@ -28687,7 +28687,7 @@ echo "#408 cloud review no-verdict auto-resume backstop + #414 post-and-annotate
 # module re-derives REPO_ROOT and rebuilds the review-engine bundle itself;
 # see its .inventory.md for the coverage map back to this location.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-stall-backstop.sh" \
-  "review-stall-backstop" 183; then
+  "review-stall-backstop" 187; then
   printf 'ERROR: review-stall-backstop boundary could not record its result\n'
   exit 1
 fi
@@ -38114,7 +38114,7 @@ MLA_HELPER="$MLA_HELPER_PATH" MLA_CFG="$MLA_CFG_FILE" python3 "$MLA_DRIVER" > "$
 MLA_DRV_RC=$?
 assert_eq "#466 mla driver ran to completion (exit 0 — a crash would silently drop every mla-* check)" "0" "$MLA_DRV_RC"
 [ "$MLA_DRV_RC" -eq 0 ] || printf '    mla driver stderr:\n%s\n' "$(sed 's/^/      /' "$MLA_DRV_ERR")"
-assert_eq "#466 mla driver emitted all 79 named checks (guards against a silent partial run)" "79" \
+assert_eq "#466 mla driver emitted all 92 named checks (guards against a silent partial run)" "92" \
   "$(grep -c . "$MLA_RESULTS")"
 while IFS="$(printf '\t')" read -r _mla_name _mla_exp _mla_act; do
   [ -n "$_mla_name" ] && assert_eq "$_mla_name" "$_mla_exp" "$_mla_act"
