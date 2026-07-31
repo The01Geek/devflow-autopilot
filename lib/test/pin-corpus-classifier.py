@@ -37,6 +37,14 @@ PIN_CORPUS_SOURCES = (
     "lib/test/modules/regenerate-artifacts.sh",
     "lib/test/modules/review-stall-backstop.sh",
     "lib/test/modules/review-trigger-helpers.sh",
+    # Added when the efficiency-trace + telemetry-persistence region was extracted out
+    # of lib/test/run.sh: its 20 existence pins were already in the corpus as run.sh
+    # sites, and a module left out of this tuple is not scanned at all — so omitting it
+    # would drop those literals from the census and turn their still-present
+    # adjudication rows into "unknown adjudication keys", failing generation outright.
+    # Placement is deliberate rather than appended: test_pin_corpus_classifier.py pins
+    # the tuple's LAST entry.
+    "lib/test/modules/efficiency-trace-telemetry.sh",
     "lib/test/modules/review-and-fix-contract.sh",
 )
 DEFAULT_SOURCES = PIN_CORPUS_SOURCES

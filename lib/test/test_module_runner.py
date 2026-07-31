@@ -1560,6 +1560,55 @@ class ModuleRunnerTests(unittest.TestCase):
             )
             self.assertTrue(list(Path(log_dir).iterdir()))
 
+    def test_efficiency_trace_telemetry_module_runs_green_through_the_real_runner(
+        self,
+    ) -> None:
+        """The extracted efficiency-trace + telemetry-persistence module runs green
+        through the real runner at exactly its registry floor. The floor is READ from
+        `scripts/workflow-flight-recorder-registry.json` rather than restated here, so
+        the registry entry, the module's emitted tally, and the `lib/test/run.sh`
+        call-site literal stay one coupled triple with a single source of truth."""
+        registry = json.loads(
+            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        floor = registry["test_modules"]["efficiency-trace-telemetry"][
+            "minimum_assertions"
+        ]
+        environment = os.environ.copy()
+        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+        with tempfile.TemporaryDirectory() as log_dir:
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(RUNNER_SOURCE),
+                    "--log-dir",
+                    log_dir,
+                    "efficiency-trace-telemetry",
+                ],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(
+                result.returncode,
+                0,
+                result.stdout[-4000:] + result.stderr[-4000:],
+            )
+            # Membership in the LINE list, not a substring of the whole stdout: a bare
+            # substring match would also accept a summary line that grew a trailing
+            # clause (a skip tally, say — a skipped assertion is never a clean pass,
+            # issue #456), so this pins the runner's exact summary format.
+            self.assertIn(
+                f"Module efficiency-trace-telemetry: {floor} passed, 0 failed",
+                result.stdout.splitlines(),
+            )
+            self.assertTrue(list(Path(log_dir).iterdir()))
+
     def test_harness_python_guards_module_runs_green_through_the_real_runner(self) -> None:
         """Issue #719: the harness-python-guards module — added by #710 — is driven
         through its OWN runner (run-module.sh), the very assertion issue #695 exists to

@@ -1320,6 +1320,7 @@ AUDITED_PIN_SOURCES = frozenset(
         "lib/test/modules/review-stall-backstop.sh",
         "lib/test/modules/retrospective-lifecycle.sh",
         "lib/test/modules/experiment-records.sh",
+        "lib/test/modules/efficiency-trace-telemetry.sh",
     }
 )
 
