@@ -1140,7 +1140,7 @@ rm -rf "$IU_P11"
 # The PR-authoring App was renamed, and the config scaffolder is add-only — it can backfill
 # a key but never rename a VALUE — so a consumer's `devflow.allowed_bots` keeps naming an
 # App slug that authorizes nothing. The installer must REPORT that and route to
-# /devflow:init, and must not write the file itself.
+# /prflow:init, and must not write the file itself.
 #
 # Driven end to end over a real fixture consumer first (the routing + the never-writes
 # invariant can only be established by an actual before/after), then at the FUNCTION level
