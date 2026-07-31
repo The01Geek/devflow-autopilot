@@ -171,29 +171,10 @@ assert_eq "raf max_iterations clamp: non-integer falls back" "5" "$(_raf_maxi_cl
 assert_eq "raf max_iterations clamp: float falls back" "5" "$(_raf_maxi_clamp 2.5)"
 assert_eq "raf max_iterations clamp: empty falls back" "5" "$(_raf_maxi_clamp '')"
 assert_eq "raf max_iterations clamp: resolver failure falls back" "5" "$(_raf_maxi_clamp '' 2)"
-_raf_pin_unique "raf max_iterations: skill keeps negative-aware integer validation" \
-  "'^-?[0-9]+\$'" "$RAF_SKILL"
-_raf_pin_unique "raf max_iterations: skill keeps below-floor guard" \
-  '"$MAX_ITERS" -lt 1' "$RAF_SKILL"
-_raf_pin_unique "raf max_iterations: skill keeps default fallback" "MAX_ITERS=5" "$RAF_SKILL"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "review-and-fix contract: pre-fix gates and guardrails"
 # ────────────────────────────────────────────────────────────────────────────
-_raf_pin_unique "raf guardrail: scoped staging prohibition" \
-  'Never use `git add -A` or `git add .` at the fix-commit step' "$RAF_SKILL"
-_raf_pin_unique "raf guardrail: logs-only post-shadow exemption" \
-  'a post-shadow commit whose diff touches only `.devflow/logs/**` does not constitute an unreviewed edit' "$RAF_SKILL"
-_raf_pin_unique "raf guardrail: non-logs post-shadow edits still gate" \
-  'Any commit touching a path outside `.devflow/logs/**` still trips the gate' "$RAF_SKILL"
-_raf_pin_unique "raf guardrail: empty diff fails closed" \
-  'An empty or errored `git diff` output is NOT exempt' "$RAF_SKILL"
-_raf_pin_unique "raf extension: sourceability guard shape" \
-  'Guard-class shape 1 — existence-vs-sourceability' "$RAF_EXTENSION"
-_raf_pin_unique "raf extension: sourceability checks its outcome" \
-  'type <fn> >/dev/null 2>&1' "$RAF_EXTENSION"
-_raf_pin_unique "raf extension: PATH tool guard shape" \
-  'Guard-class shape 2 — tr-dependence' "$RAF_EXTENSION"
 _raf_pin_unique "raf extension: explicit local focused selection" \
   'bash lib/test/run-module.sh review-and-fix-contract' "$RAF_EXTENSION"
 _raf_pin_unique "raf extension: focused selection never auto-routes files" \
@@ -204,38 +185,12 @@ _raf_pin_unique "raf extension: skips cannot certify a clean run" \
 # ────────────────────────────────────────────────────────────────────────────
 echo "review-and-fix contract: convergence and verification evidence"
 # ────────────────────────────────────────────────────────────────────────────
-_raf_pin_unique "raf convergence: park-calibration gate heading" \
-  '#### Park-calibration gate (before any APPROVE-family conclusion)' "$RAF_SKILL"
-_raf_pin_unique "raf convergence: under-grade finding re-enters the loop" \
-  'route the finding back through Step 2.5 → Step 3 as a promoted iteration' "$RAF_SKILL"
-_raf_pin_unique "raf convergence: early exit also runs the gate" \
-  'on the Step 4.5 early-exit path when non-REJECT' "$RAF_SKILL"
-_raf_pin_unique "raf convergence: clean sentinel is mandatory" \
-  'park-calibration gate clean: no parked finding matched' "$RAF_SKILL"
-_raf_pin_unique "raf convergence: over-grade gate heading" \
-  '#### Over-grade calibration gate (before any Decide outcome 2 promotion)' "$RAF_SKILL"
 _raf_pin_unique "raf convergence: over-grade never auto-demotes" \
   'flags and requires a recorded technical evaluation; it never auto-demotes' "$RAF_SKILL"
-_raf_pin_unique "raf convergence: fix-delta gate is per iteration" \
-  'on **every iteration unconditionally**' "$RAF_SKILL"
-_raf_pin_unique "raf convergence: fix-delta narrows to current cumulative delta" \
-  're-reviews **only the cumulative fix delta of this iteration**' "$RAF_SKILL"
-_raf_pin_unique "raf convergence: fix-delta re-dispatch is bounded" \
-  'triggers **exactly one bounded re-dispatch**' "$RAF_SKILL"
-_raf_pin_unique "raf convergence: no-fix iteration bypasses the delta gate" \
-  'skip the gate for that iteration' "$RAF_SKILL"
 _raf_pin_unique "raf convergence: early shadow trigger is explicit" \
   'run the early shadow once after iteration 1 regardless of that iteration verdict, gated on engine_self_modifying' "$RAF_SKILL"
-_raf_pin_unique "raf convergence: promoted iteration counts against cap" \
-  'promoted iteration 2 it spawns DOES count toward the cap' "$RAF_SKILL"
 _raf_pin_unique "raf verification: re-sweep is mechanism scoped" \
   'Mechanism-scoped self-authored-claim re-sweep' "$RAF_SKILL"
-_raf_pin_unique "raf verification: re-sweep searches identifiers rather than hunks" \
-  'identifier-located, not hunk-located' "$RAF_SKILL"
-_raf_pin_unique "raf verification: re-sweep finding is explicit" \
-  'A comment that still describes the pre-change mechanism is a finding' "$RAF_SKILL"
-_raf_pin_unique "raf verification: executable RED evidence is required" \
-  'the behavior you broke and the executable test you observed go RED' "$RAF_SKILL"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "review-and-fix contract: telemetry, recovery, continuation, and prompt composition"
@@ -244,20 +199,10 @@ _raf_pin_unique "raf telemetry: every iteration emits a record" \
   'a non-optional emit on every iteration — including a degraded or hand-run path where the review engine was dispatched directly via `Agent` instead of this Skill' "$RAF_SKILL"
 _raf_pin_unique "raf telemetry: write tool is required for records" \
   'using the Write tool, not a shell `>` redirect' "$RAF_SKILL"
-_raf_pin_unique "raf telemetry: direct Agent bypass is named" \
-  'hand-runs the review engine via direct `Agent` dispatch' "$RAF_SKILL"
 _raf_pin_unique "raf continuation: loop role schema persists" \
   '"loop_role": "fix | promoted"' "$RAF_SKILL"
-_raf_pin_unique "raf continuation: verification prescription is checked at its source" \
-  'verify the prescription against its cited source of truth' "$RAF_SKILL"
-_raf_pin_unique "raf continuation: expected handoff writes a pushback" \
-  'the source of truth is recorded as a pushback' "$RAF_SKILL"
 _raf_pin_unique "raf continuation: recovery uses the full shadow roster" \
   'keeps the full roster regardless of `iterations`' "$RAF_REVIEW_BUNDLE"
-_raf_pin_unique "raf prompt composition: exhaustive shadow rule" \
-  'Block-presence gate (fail-closed on persistence, not just on value).' "$RAF_SKILL"
-_raf_pin_unique "raf prompt composition: unresolved provenance fails closed" \
-  'do not infer `"none"` without that live evidence' "$RAF_SKILL"
 _raf_pin_unique "raf prompt composition: topic priming stays visible in overview" \
   'Topic-priming is a second, distinct leak channel' "$RAF_ROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 _raf_pin_unique "raf prompt composition: receiving guidance remains coupled" \

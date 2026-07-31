@@ -285,22 +285,23 @@ are read by nobody but the agent. The third (`291(AC4)`, the
 1** instead — same retention, different reason and a coupled copy-removal
 requirement. Do not generalize one `#291` pin's arm to the others.
 
-**Current state — arm 2 is proven reachable and its population is non-empty (issue
-#946 step 2).** Arm 2 selected nothing until #885, because every census row was
+**Current state — arm 2 is proven reachable and its population is empty (issue #946
+step 3).** Arm 2 selected nothing until #885, because every census row was
 adjudicated `boundary`. #885's re-adjudication pass walked every mechanically
 prose-bucketed site, confirmed per site whether any tool or consumer reads the pinned
 literal, and moved the ones nothing reads into `prose-sole-copy` — and the sweep that
 immediately followed retired exactly those pins. **A retired site's row goes with it**
 (a stale `literal:` key makes the classifier error), which drained the population back
-to boundary-only. #946 then refilled it: step 1 brought
-`lib/test/modules/review-and-fix-contract.sh`'s wrapper-routed pins into the corpus, and
-step 2's re-adjudication moved the sites nothing reads into `prose-sole-copy`, so arm 2
-selects a real population *today*, awaiting the step-3 sweep that will retire it and
-drain it again. Read the authorization record for either pass in history — the census as
-of the re-adjudication commit, plus the `pin-corpus-adjudication-changes` bundles, which
-name every key that moved and every key that went. Expect the same shape every time: a
-prose-bucketed population exists only between a re-adjudication and the sweep it
-authorizes.
+to boundary-only. #946 then refilled and drained it again: step 1 brought
+`lib/test/modules/review-and-fix-contract.sh`'s wrapper-routed pins into the corpus,
+step 2's re-adjudication moved the 28 sites nothing reads into `prose-sole-copy`, and
+step 3's sweep retired exactly those 28 pins with their rows. So arm 2 selects nothing
+*today*, and a fresh selection needs a fresh re-adjudication pass — not because the arm
+is unreachable, but because nothing currently sits in a prose bucket. Read the
+authorization record for either pass in history — the census as of the re-adjudication
+commit, plus the `pin-corpus-adjudication-changes` bundles, which name every key that
+moved and every key that went. Expect the same shape every time: a prose-bucketed
+population exists only between a re-adjudication and the sweep it authorizes.
 
 Arm 2's condition reads the *recorded* `bucket_final` rather than an in-the-moment
 judgment about who reads the prose, because the record is what a later reader can audit
@@ -310,10 +311,9 @@ cannot drift ahead of an authorization.
 `lib/test/test_residual_prose_retirement_manifest.py` is arm 2's coupled site: it holds
 the shipped census to the legal bucket set, and holds every prose-bucketed row to arm
 2's own precondition — a `counted_occurrences` matching its bucket, and an explicit
-maintainer rationale rather than the classifier's mechanical fallback. With #946 step 2's
-population in the census, that per-row half now ranges over a non-empty set and is live
-coverage of arm 2's precondition; it reverts to constraining only the *next*
-re-adjudication once the step-3 sweep drains the population again.
+maintainer rationale rather than the classifier's mechanical fallback. With #946 step 3's
+sweep having drained the population, that per-row half again ranges over an empty set and
+constrains only the *next* re-adjudication; the bucket-set half stays live over every row.
 
 One limit on that population is worth knowing before you read a missing row as
 permission. A site adjudicated `boundary` in the #885 or #946 pass was adjudicated **on
@@ -322,7 +322,8 @@ home — so re-litigating one needs an evidence argument, not a fresh opinion. T
 census's other former blind spot is closed: pins routed through the module-private
 wrapper `lib/test/modules/review-and-fix-contract.sh`'s `_raf_pin_unique` used to sit
 outside `PIN_CORPUS_SOURCES` and so outside the corpus entirely, with arm 0 governing
-them; #946 step 1 brought that module in, and step 2 adjudicated all 44 of its sites.
+them; #946 step 1 brought that module in, step 2 adjudicated all 44 of its sites, and
+step 3 retired the 28 of them nothing reads.
 
 Refresh the census with a two-commit, inventory-free snapshot protocol: preserve the
 prior snapshot in history; delete the inventory in the source/retirement commit;

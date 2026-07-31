@@ -1140,10 +1140,13 @@ assert_eq "max_iterations clamp: resolver failure (rc≠0) → 5"  "5"  "$(maxi_
 # Drift guard: maxi_clamp above is a hand-maintained copy of the review-and-fix inline
 # clamp, so the clamp assertions would keep passing even if the *shipped* clamp in
 # references/loop-control.md were edited. #885 retired the pins here that used to catch that,
-# but the guarantee did NOT move to nobody: the negative-aware regex, the below-1 floor and the
-# default-5 fallback are each still pinned in lib/test/modules/review-and-fix-contract.sh
-# against a bundle that includes loop-control.md, so a shipped-clamp edit fails there. Do not
-# re-add a duplicate pin here on the strength of this paragraph — check that module first.
+# and #946 step 3 retired their twins in lib/test/modules/review-and-fix-contract.sh: the
+# negative-aware regex, the below-1 floor and the default-5 fallback were adjudicated
+# prose-sole-copy (agent-executed recipe text no tool reads), so the shipped clamp's WORDING is
+# now pinned nowhere. Its schema-facing constants (integer type, minimum 1, default 5) stay
+# covered executably against config.schema.json and config.example.json by that same module; an
+# edit to the recipe text itself is caught only by the review pass. Do not re-add a duplicate
+# pin here on the strength of this paragraph.
 # #530: review-and-fix is now a thin root + references/*.md. The literal-pin corpus below
 # targets the whole shipped bundle, so MAXI_SKILL/ST_RAF resolve against a byte-faithful
 # concatenation of the shipped root + every reference (the whole POST-split skill surface,
@@ -1875,12 +1878,14 @@ assert_eq "#379(AC8): requesting-code-review negative checks use a readable non-
 
 # Drift guard: what this region still asserts is the mutation-check rule's two coupled
 # sites (the review-and-fix rule and the implement test-writing phase that references it).
-# #885 retired the park-calibration pins that used to live here. Most of that gate is still
-# guarded elsewhere — lib/test/modules/review-and-fix-contract.sh pins the gate heading, the
-# clean sentinel, the Step-2.5 re-routing and the Step-4.5 early exit. What genuinely lost all
-# coverage is narrower: the two explicit firing-site handoffs and the Loop-Exit
-# no-sentinel-means-non-convergence rule, which are agent-executed routing prose the review
-# pass now covers. CAUTION for a later sweep: both pins left in this region belong to the
+# #885 retired the park-calibration pins that used to live here, and #946 step 3 retired the
+# twins that had carried the residual coverage in
+# lib/test/modules/review-and-fix-contract.sh — the gate heading, the clean sentinel, the
+# Step-2.5 re-routing and the Step-4.5 early exit — once they were adjudicated
+# prose-sole-copy. The park-calibration gate is therefore pinned nowhere, alongside the two
+# explicit firing-site handoffs and the Loop-Exit no-sentinel-means-non-convergence rule: all
+# of it is agent-executed routing prose the review pass now covers. CAUTION for a later
+# sweep: both pins left in this region belong to the
 # mutation-check rule, so retiring them empties the region, turns the non-empty control below
 # RED, and makes deleting the region look like the fix — which would also discard
 # count_raw_skill_guards_in_region and the AC3(b*) mutation proofs bound to it.
@@ -2628,12 +2633,13 @@ assert_eq "loop_role #170: SKILL.md no longer claims 'legibility-only' (note + S
 # through assert_pin_unique inside the FIXDELTA region (the meta-test above enforces the
 # assert_pin_unique-only invariant for this region too), so a non-gate-unique literal FAILS
 # by construction. Needles are apostrophe-free (the asserts single-quote them).
-# #885 retired most of what this region used to pin, and the residue is uneven. Still covered:
-# the gate's core shape is twinned in lib/test/modules/review-and-fix-contract.sh (fires every
-# iteration, narrows to this iteration's cumulative delta, exactly one bounded re-dispatch,
-# no-fix iteration skips it), and the supersession guard's authority MECHANISM is still pinned
-# here (retrievable operand, the editor-identity read, author_association excluded, arm order).
-# What this region no longer pins at all, with no twin anywhere: the gate's per-arm outcome
+# #885 retired most of what this region used to pin, and #946 step 3 retired the twins that had
+# carried the residue in lib/test/modules/review-and-fix-contract.sh (fires every iteration,
+# narrows to this iteration's cumulative delta, exactly one bounded re-dispatch, no-fix
+# iteration skips it) once they were adjudicated prose-sole-copy. Still pinned here: the
+# supersession guard's authority MECHANISM (retrievable operand, the editor-identity read,
+# author_association excluded, arm order). The gate's core shape now has no pin anywhere,
+# joining what this region already no longer pinned: the gate's per-arm outcome
 # routing (surviving Critical/Important re-fix, promote-on-cap, at-cap carry into the shadow,
 # advisory Suggestion/Minor, not-counted-toward-the-cap), its blinding detail and its
 # failure/degradation arms (delta-base breadcrumb, whole-run fail-open to the shadow), the
@@ -45821,7 +45827,7 @@ assert_pin_unique "#497 AC10 skill clean render requires both persisted operands
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-and-fix-contract.sh" \
-  "review-and-fix-contract" 67; then
+  "review-and-fix-contract" 39; then
   printf 'ERROR: review-and-fix-contract boundary could not record its result\n'
   exit 1
 fi
