@@ -126,7 +126,7 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
 > **Claude Haiku rejects `effort`.** The `effort` parameter is supported only on Opus 4.5–4.8, Opus 5, Sonnet 4.6, and
 > Sonnet 5; Claude Haiku rejects it with **HTTP 400**. So any entry that pins a Haiku model (a
 > `claude-haiku-*` id) **must not** also carry an `effort` key. The shipped `prflow:checklist-deduper`
-> override pins Claude Sonnet 5 (which *does* support `effort`) with effort `medium`, so it is exempt;
+> override pins Claude Sonnet 5 (which *does* support `effort`) with effort `low`, so it is exempt;
 > the constraint matters if you re-pin a Haiku id there. The schema does not enforce this (it is a model-API fact, not a structural
 > one), so the constraint is documented on the `prflow:checklist-deduper` property in
 > `config.schema.json` and guarded by the shipped-example test in `lib/test/run.sh`.
