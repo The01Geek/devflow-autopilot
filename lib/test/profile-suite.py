@@ -42,10 +42,12 @@ WHY NOT lib/test/shard-tally.py
 THE THREE ATTRIBUTION AXES
     section   — the suite's own `echo "…"` banner lines (the labelled regions between
                 the `# ── … ──` rules). What a human scrolls to.
-    label     — the `#NNN` issue label carried in an assertion's NAME. This is the
-                same unit `lib/test/modules/coverage-map.json` keys its
-                `run_sh_blocks` on, so a per-label cost reads directly as "what would
-                extracting this block into a module move off this shard".
+    label     — the issue number an assertion's NAME carries as `#NNN`, emitted BARE
+                (`10`, never `#10`). That bare spelling is byte-identical to a
+                `lib/test/modules/coverage-map.json` `run_sh_blocks` key, so a
+                per-label cost JOINS to a coverage-map entry with no massaging and
+                reads directly as "what would extracting this block into a module
+                move off this shard".
     assertion — the individual `PASS`/`FAIL`/`NOTE` line. The finest actionable unit;
                 the report maps the expensive ones back to a run.sh line number by
                 looking their names up in the source (unconditional, no flag).
@@ -61,16 +63,20 @@ USAGE
     lib/test/profile-suite.py run --out DIR -- CMD...  # profile an arbitrary command
     lib/test/profile-suite.py report --out DIR --top 20
 
-    POSIX-only: the child is launched with `start_new_session` + a `preexec_fn`, both
-    of which raise on Windows. Profiling is a maintainer-side diagnostic, so this is a
-    stated limitation rather than something the launcher works around.
+    POSIX-only, and `preexec_fn` is the parameter that makes it so: CPython raises
+    `ValueError("preexec_fn is not supported on Windows platforms")` there. Its
+    companion `start_new_session` does NOT raise — the Windows `_execute_child` binds
+    it as `unused_start_new_session` and silently ignores it — so the POSIX-only
+    conclusion rests on `preexec_fn` alone. Profiling is a maintainer-side diagnostic,
+    so this is a stated limitation rather than something the launcher works around.
 
     `run` writes DIR/{log.txt,events.tsv,sections.tsv,labels.tsv,assertions.tsv,
     run.json} and prints the top-N report. The child's exit status is this
-    process's exit status, so a profiled run still fails the way an unprofiled one
-    would. DIR defaults to `.prflow/tmp/profile/<label>` — inside `.prflow/tmp/`,
-    which .gitignore already covers, so a profiled run never dirties the tree (a
-    dirty tree self-skips the #434 stale-prose gate).
+    process's exit status — a signal death arrives from `wait()` as `-N` and is
+    translated to the shell's own `128 + N`, so a profiled run still fails the way an
+    unprofiled one would. DIR defaults to `.prflow/tmp/profile/<label>` — inside
+    `.prflow/tmp/`, which .gitignore already covers, so a profiled run never dirties
+    the tree (a dirty tree self-skips the #434 stale-prose gate).
 """
 
 from __future__ import annotations
@@ -105,6 +111,15 @@ _LABEL_RE = re.compile(r"#(\d{2,5})")
 # stub script) and `echo "stub: … $a" >&2` out of the banner set — both would
 # otherwise let a fixture's OUTPUT masquerade as a section boundary.
 _BANNER_RE = re.compile(r'^echo "([^"$\\]{8,})"\s*$')
+
+# The section a line is charged to before the first banner arrives. It embeds a `"`,
+# which _BANNER_RE's capture class excludes, so run.sh CANNOT contain an `echo "…"`
+# line that produces this exact text as a banner name. A sentinel that could be
+# produced would silently merge two unrelated origins into one row — the preamble's
+# real pre-first-banner time and whatever that echo introduced. Every character class
+# the regex excludes (`"`, `$`, `\`) buys the same immunity; `"` is chosen because it
+# also names the shape it is immune to.
+_PREAMBLE_SECTION = '(preamble: before the first "echo" banner)'
 
 
 def _repo_root(start: Path) -> Path:
@@ -163,12 +178,18 @@ def _banner_set(run_sh: Path) -> "set[str]":
 
 
 def _labels_of(name: str) -> "list[str]":
-    """Every `#NNN` label in an assertion name, deduplicated, order-preserving."""
+    """Every issue label in an assertion name, deduplicated, order-preserving.
+
+    Returned BARE — `10`, not `#10`. `_LABEL_RE` already captures the bare group; the
+    `#` is not re-attached because these strings become the `issue_label` column of
+    labels.tsv, and a bare cell is byte-identical to a `run_sh_blocks` key in
+    lib/test/modules/coverage-map.json. Joining the two is the whole point of the
+    label axis, so the emitted form is the joinable one rather than the display one.
+    """
     seen = []
     for lab in _LABEL_RE.findall(name):
-        tag = "#" + lab
-        if tag not in seen:
-            seen.append(tag)
+        if lab not in seen:
+            seen.append(lab)
     return seen
 
 
@@ -187,7 +208,7 @@ class Profile:
 
     def __init__(self, banners: "set[str]") -> None:
         self.banners = banners
-        self.section = "(preamble)"
+        self.section = _PREAMBLE_SECTION
         self.sections: "dict[str, float]" = {}
         self.section_counts: "dict[str, int]" = {}
         self.labels: "dict[str, float]" = {}
@@ -321,7 +342,16 @@ def _report(out: Path, top: int, run_sh: "Path | None") -> int:
         return 2
     try:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        total = float(meta["total_s"]) or 1e-9
+        # Coerce IN PLACE, exactly like the int() keys below. Binding only the local
+        # `total` left the dict value uncoerced, so a hand-edited `"total_s": "12.5"`
+        # — a JSON string that parses as a float — passed this guarded block and then
+        # detonated the unguarded `f"{meta['total_s']:.1f}"` in the header line with a
+        # raw ValueError traceback and rc 1, contradicting this function's own
+        # degrade-to-breadcrumb-and-rc-2 contract. `total` still keeps the `or 1e-9`
+        # divide-by-zero floor; the header must NOT be rendered through it, because a
+        # genuine 0.0 would then print as 0.0000000001s.
+        meta["total_s"] = float(meta["total_s"])
+        total = meta["total_s"] or 1e-9
         for key in ("exit_code", "passed", "failed", "noted", "sections", "labels"):
             meta[key] = int(meta[key])
     except (OSError, ValueError, TypeError, KeyError) as exc:
@@ -381,7 +411,7 @@ def _report(out: Path, top: int, run_sh: "Path | None") -> int:
     for r in rows("sections.tsv")[:top]:
         print(f"{float(r[0]):8.1f} {float(r[1]):6.2f}% {int(r[2]):6d}  {r[3]}")
 
-    print(f"\n== top {top} issue labels (coverage-map run_sh_blocks units) ==")
+    print(f"\n== top {top} issue labels (bare, as coverage-map run_sh_blocks keys) ==")
     print(f"{'secs':>8} {'share':>7} {'#asrt':>6}  label")
     for r in rows("labels.tsv")[:top]:
         print(f"{float(r[0]):8.1f} {float(r[1]):6.2f}% {int(r[2]):6d}  {r[3]}")
@@ -394,6 +424,18 @@ def _report(out: Path, top: int, run_sh: "Path | None") -> int:
         ln = line_of.get(r[3], 0)
         print(f"{float(r[0]):8.1f} {100.0 * float(r[0]) / total:6.2f}% {ln:7d}  {r[3][:110]}")
     return 0
+
+
+def _exit_status(wait_status: int) -> int:
+    """`Popen.wait()`'s status as a SHELL exit status.
+
+    `wait()` reports a signal death as `-N`, and `sys.exit(-15)` wraps modulo 256 to
+    241 — where `bash lib/test/run.sh` killed by that same SIGTERM exits 143. Left
+    untranslated, a profiled run does NOT fail the way an unprofiled one does, which
+    is the promise the module docstring makes. Non-signal statuses (including 0) pass
+    through untouched.
+    """
+    return 128 + (-wait_status) if wait_status < 0 else wait_status
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -437,7 +479,12 @@ def _run(args: argparse.Namespace) -> int:
     )
     t0 = time.monotonic()
     prev = t0
-    assert proc.stdout is not None
+    if proc.stdout is None:  # pragma: no cover - stdout=PIPE guarantees a stream
+        # NOT an `assert`: python3 -O strips assert statements, so the one shape that
+        # would make the loop below raise an opaque TypeError is exactly the shape a
+        # flag can delete the guard for. stdout=subprocess.PIPE above makes this
+        # unreachable; the raise is what keeps it unreachable under every flag.
+        raise RuntimeError("profile-suite: child stdout pipe was not created")
     with log_path.open("w", encoding="utf-8") as log:
         for raw in proc.stdout:
             now = time.monotonic()
@@ -447,7 +494,11 @@ def _run(args: argparse.Namespace) -> int:
             prev = now
             if args.tee:
                 sys.stdout.write(raw)
-    rc = proc.wait()
+    # One conversion, here, so the `run` subcommand, the emitted run.json, the
+    # printed report and main()'s return are all the SAME number — a re-rendered
+    # report that said `rc=-15` about a process the shell saw exit 143 would be a
+    # second, disagreeing account of one event.
+    rc = _exit_status(proc.wait())
     end = time.monotonic()
     prof.close(end - prev)
     total = end - t0

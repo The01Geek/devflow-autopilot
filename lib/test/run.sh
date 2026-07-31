@@ -41248,10 +41248,11 @@ assert_eq "issue #767: create-issue context eval focused tests pass" "0" "$CICE_
 
 # harness-python-guards contract coverage (issue #707: extracted from this file's
 # #600 / #527 / #528 / #668 / #798 / #810 / #591 Python guard blocks into a focused
-# module). The registry and this full-suite call share the same lower-bound contract;
+# module, plus the #985 profiler unit tests added there directly). The registry and
+# this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/harness-python-guards.sh" \
-  "harness-python-guards" 38; then
+  "harness-python-guards" 39; then
   printf 'ERROR: harness-python-guards boundary could not record its result\n'
   exit 1
 fi
