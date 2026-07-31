@@ -181,6 +181,62 @@ probe_tmp() {  # assertion-name -> prints a temp path (rc 0); on mktemp failure 
   return 1
 }
 
+# Allocate a verified-isolated temp DIRECTORY for a git-mutating test, failing the
+# SUITE (not vacuously, and NEVER in the real repo) if `mktemp -d` fails. The
+# directory twin of probe_tmp. Callers live in lib/test/run.sh and in the sourcing
+# modules under lib/test/modules/, not in this file: they run `git init/add/commit` — or a
+# helper that commits via `git -C "$root"` — inside a throwaway repo. Under this
+# harness's `set -u` WITHOUT `set -e`, a bare `DIR="$(mktemp -d)"` failure leaves DIR
+# the empty string (set, not unset, so `set -u` does not abort), and BOTH `cd "$DIR"`
+# AND `git -C "$DIR"` then silently operate on the CURRENT directory — the real repo —
+# so the test's commit lands on the real branch. (`git -C ""` leaves the cwd unchanged
+# per git(1)'s -C semantics; it is NOT safer than `cd ""`, which is why this guard
+# protects the `git -C` sites too, not only the `cd` ones.)
+#
+# On `mktemp -d` failure (or an empty / non-directory result) this records a suite FAIL
+# under NAME, prints the breadcrumb to STDERR (so it never lands in the caller's `$(…)`),
+# and prints a guaranteed-non-directory sentinel path ROOTED AT /dev/null to STDOUT. The
+# sentinel is the load-bearing safety: `cd`, `git -C`, and `mkdir -p` on any path under
+# /dev/null all fail with ENOTDIR (kernel-enforced — even as root, since /dev/null can
+# never become a directory), so an unguarded caller that then runs `git -C "$DIR" …`,
+# `( cd "$DIR" && … )`, or `mkdir -p "$DIR/…"` fails CLOSED with ZERO real-repo mutation
+# instead of falling back to the cwd. The recorded FAIL makes the suite go RED whether or
+# not the caller checks the rc 1 — fail-closed either way (mirrors probe_tmp's /dev/null
+# safe-sink discipline, applied to directories).
+#
+# Caller contract: callers do NOT each need to guard the return — routing the temp-dir
+# allocation through this helper is sufficient. On `mktemp -d` failure the helper records
+# ONE per-site suite FAIL with a site-named breadcrumb (that pair is the authoritative
+# signal), and the sentinel makes every downstream `git -C`/`cd`/`mkdir` at an unguarded
+# call site fail closed (ENOTDIR) on its own. An unguarded site's *subsequent* assertions
+# may then go RED too (their setup didn't run) — that secondary cascade is harmless extra
+# RED, never a real-repo mutation, and is the deliberate trade for keeping each call-site
+# conversion a one-line change rather than wrapping every fixture in a guard.
+# (`rgb_scan`, in lib/test/run.sh, guards explicitly only because it also needs to branch
+# on `git init` success and clean up its dir; that extra guard is about cleanup, not safety.)
+#
+# Dependency: like assert_eq / probe_tmp, the failure path writes the FAIL via
+# `echo FAIL >> "$RESULTS_FILE"`, so callers must have RESULTS_FILE in scope — it is set
+# globally (the suite tally file) and never unset, so every call site qualifies. The #161
+# AC3 probes (in lib/test/run.sh) deliberately override it per-call (`RESULTS_FILE=… git_sandbox …`) to divert the
+# intentional FAIL into an isolated file; that is the only supported reason to rebind it.
+git_sandbox() {  # assertion-name -> prints an isolated temp dir (rc 0); on mktemp -d
+                 # failure records a suite FAIL, prints the breadcrumb to stderr, and
+                 # prints the /dev/null-rooted sentinel (rc 1) so a downstream
+                 # git -C / cd / mkdir fails CLOSED rather than hitting the real repo
+  local d
+  d="$(mktemp -d)" && [ -n "$d" ] && [ -d "$d" ] && { printf '%s\n' "$d"; return 0; }
+  # The recap bullet names the INFRASTRUCTURE cause, not just the assertion: read from the
+  # recap alone, a bare assertion name is indistinguishable from a genuine failure and sends
+  # the reader to debug an assertion that never ran. (probe_tmp does the same.) The two
+  # writes stay ADJACENT — the pairing the completeness guard scans for.
+  echo FAIL >> "$RESULTS_FILE"
+  record_fail "$1 — mktemp -d failed (git sandbox unavailable)"
+  printf '  FAIL  %s — mktemp -d failed (git sandbox unavailable; git work aborted, not run in the real repo)\n' "$1" >&2
+  printf '/dev/null/devflow-git-sandbox-unavailable\n'
+  return 1
+}
+
 # Run a single assertion function against an ISOLATED results file and echo its verdict
 # (PASS/FAIL) instead of recording it in the tally of whichever runner is executing. Used
 # by the mutation proofs to actually exercise an assertion helper against a mutated target

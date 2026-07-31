@@ -536,8 +536,8 @@ assert_eq "#803 negative control: the exit-2 rejection came from the argparse di
 # Each pin below asserts one new operative statement the #768 rewrite of the
 # instruction-generation / record-dispatch-output / dispatch-barrier paragraphs added.
 # These are structural contract-presence pins over skill prose: the transport itself
-# already has an executable proof in the tree (lib/test/run.sh's ias_instructions() runs
-# the redirect on every steering fixture), so removing any literal below breaks no
+# already has an executable proof in the tree (the issue-audit-state module's
+# ias_instructions() runs the redirect on every steering fixture), so removing any literal below breaks no
 # behavioral guarantee the suite otherwise proves — it removes the skill-side instruction
 # that makes the cheap path conforming, a prose-presence property.
 devflow_module_pin_unique "#768: the instruction write uses a shell redirect in the bash fence" \
