@@ -4,6 +4,15 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.3] — 2026-07-31
+
+### Changed
+Correct the provenance-label prose the Tier 2 rename left stale, and cover the current spelling (#1003, follow-up to PR #1016).
+
+`docs/DEVFLOW_SYSTEM_OVERVIEW.md` stated that the retrospective bundle's `pr_devflow_provenance` boolean is "`true` iff the literal `DevFlow` label" is on the PR or the resolved linked issue — on a line the Tier 2 rename itself modified, while that same change made the producer match `PRFlow` **or** `DevFlow`. A `PRFlow`-only PR, which is what every post-rename run produces, therefore contradicted the documented rule. The clause now reads "`true` iff the `PRFlow` provenance label (or its superseded `DevFlow` spelling)", and the same reconciliation is applied to the describing prose that sat beside already-renamed commands: Phase 3.1's provenance-apply prose and its success-breadcrumb example (`apply-labels.sh PRFlow` emits `'PRFlow'`), `/prflow:create-issue`'s stamp step and its root invariant, the `deferred.labels` bullets, the `meta-issue.sh` label pair (it stamps `PRFlow` + `Retrospective`), the two `DevFlow,Deferred` default mentions that disagreed with the `PRFlow,Deferred` default their own adjacent fence passes, and the `fetch-pr-context.sh` / `meta-issue.sh` comment blocks that still stated the single-spelling rule. Product-name prose, the `DevFlow` App name, the frozen `pr_devflow_provenance` field name and the code-coupled `# DevFlow Workpad` heading are deliberately untouched — none is a label-value claim.
+
+Two coverage gaps found in the same review are closed. `build-experiment-records.py`'s unmigrated-telemetry-branch detection — the arm that warns when `prflow-telemetry` is absent while the superseded `devflow-telemetry` branch is still present — had no test at all, so a fail-open in its second `rev-parse` comparand would have shipped green; it now has a fixture repo per ref combination, asserting the warning fires with its one-shot rename command, that detection is not a read-through, and that neither the already-migrated nor the genuinely-absent repo warns. Separately, no fixture anywhere exercised the **current** spelling: `lib/scan.sh`, `lib/classify-pr-kind.jq` and `lib/fetch-pr-context.sh` were covered only by their superseded twins, so the `PRFlow` literals and the `prflow:workpad` marker — the spelling every post-rename artifact carries — would have survived a typo such as `PrFlow`. Positive coverage now drives both label shapes on both provenance legs, the current workpad marker, and a mis-cased near-miss negative control on each surface.
+
 ## [2.30.2] — 2026-07-31
 
 ### Changed
