@@ -1207,7 +1207,14 @@ class ModuleRunnerTests(unittest.TestCase):
             ],
         )
         self.assertIn('FAIL="$(devflow_fold_module_failures "$FAIL")"', run_text)
-        self.assertIn('"$LIB/test/test_module_runner.py" single-verdict', run_text)
+        # The pool triple moved out of run.sh when the pooled Python suites gained their
+        # own CI shard: membership now has ONE definition, in module-harness.sh, shared
+        # by run.sh and lib/test/run-python-pool.sh. What this claim has always been
+        # about is unchanged — these integration tests are driven from OUTSIDE the module
+        # whose registration and source boundary they pin, so deleting that boundary
+        # cannot delete their execution.
+        harness_text = (ROOT / "lib/test/module-harness.sh").read_text(encoding="utf-8")
+        self.assertIn(POOL_TRIPLE_LITERAL, harness_text)
         self.assertNotIn('IFR_MANIFEST="$LIB/../scripts/capture-workflow-manifest.py"', run_text)
         module_text = module.read_text(encoding="utf-8")
         self.assertTrue(
@@ -1216,7 +1223,7 @@ class ModuleRunnerTests(unittest.TestCase):
                 "# SPDX-License-Identifier: MIT\n"
             )
         )
-        self.assertNotIn('"$LIB/test/test_module_runner.py" single-verdict', module_text)
+        self.assertNotIn(POOL_TRIPLE_LITERAL, module_text)
         self.assertIn(
             'IFR_MANIFEST="$LIB/../scripts/capture-workflow-manifest.py"',
             module_text,
@@ -2092,6 +2099,11 @@ POOLED_SUITES = (
     "test_module_runner.py",
     "test_python_scripts.py",
 )
+# One member of the real pool invocation, as it is spelled in module-harness.sh. Held
+# as a constant because two tests below assert opposite things about it (present in the
+# harness, absent from the extracted module) and a literal typed twice can be corrected
+# in only one place.
+POOL_TRIPLE_LITERAL = '"$_pp_dir/test_module_runner.py" single-verdict'
 SERIAL_BY_EXCLUSION_SUITES = (
     "test_module_harness.py",
     # The mutation-pin census focused tests run serially on the main shell via
@@ -2228,8 +2240,8 @@ def scan_routing_violations(
     from a comment. The scan is also blind to a driver reached from anywhere
     outside the paths its parameters name, notably lib/test/run-module.sh.
 
-    POOLED_SUITES is deliberately absent: run.sh's real devflow_pool_open triples
-    already pin it by set equality (see
+    POOLED_SUITES is deliberately absent: module-harness.sh's real devflow_pool_open
+    triples already pin it by set equality (see
     PoolMembershipCompletenessTests.test_pooled_suites_constant_matches_the_run_sh_pool_invocation),
     which is a stronger guarantee than a name scan.
 
@@ -3177,27 +3189,33 @@ class PoolMembershipCompletenessTests(unittest.TestCase):
     def test_pooled_suites_constant_matches_the_run_sh_pool_invocation(self) -> None:
         # issue #720 review: POOLED_SUITES declares the pool's membership, but the
         # membership/disjointness checks above pin it only against the FILESYSTEM. That
-        # leaves the removal direction unpinned — dropping a suite from run.sh's real
+        # leaves the removal direction unpinned — dropping a suite from the real
         # devflow_pool_open call while leaving it in POOLED_SUITES would pass cleanly, so
         # a suite could silently stop executing while the completeness guard stayed green.
-        # Pin POOLED_SUITES to the ACTUAL wiring: parse run.sh's real pool invocation —
-        # the triples whose script is a "$LIB/test/test_*.py" path (the fixture opens in
-        # run.sh's #720 test block use "$POOL720_FIX/..." / bare names, so this pattern
-        # excludes them) — and assert the pooled set equals POOLED_SUITES exactly. Now
-        # both drift directions (add-to-run.sh-only, remove-from-run.sh-only) go RED.
-        run_text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
+        # Pin POOLED_SUITES to the ACTUAL wiring and assert set equality, so both drift
+        # directions (add-to-the-invocation-only, remove-from-the-invocation-only) go RED.
+        #
+        # The invocation lives in module-harness.sh's devflow_python_suite_pool_open, not
+        # in run.sh: the pooled suites now have their own CI shard, and run.sh and
+        # lib/test/run-python-pool.sh both drive that ONE definition. Reading the real
+        # definition is what keeps this a wiring pin rather than a prose pin — parsing
+        # run.sh would now match nothing and pass vacuously in the direction that matters.
+        # The triples are those whose script is a "$_pp_dir/test_*.py" path (the fixture
+        # opens in run.sh's #720 test block use "$POOL720_FIX/..." / bare names, and are
+        # in another file entirely, so both are excluded).
+        harness_text = (ROOT / "lib/test/module-harness.sh").read_text(encoding="utf-8")
         triples = re.findall(
-            r'"(test_[A-Za-z0-9_]+\.py)"\s+"\$LIB/test/test_[A-Za-z0-9_]+\.py"\s+'
+            r'"(test_[A-Za-z0-9_]+\.py)"\s+"\$_pp_dir/test_[A-Za-z0-9_]+\.py"\s+'
             r"(single-verdict|self-tally)",
-            run_text,
+            harness_text,
         )
-        pooled_in_run_sh = {name for name, _mode in triples}
+        pooled_in_harness = {name for name, _mode in triples}
         self.assertEqual(
-            pooled_in_run_sh,
+            pooled_in_harness,
             set(POOLED_SUITES),
-            "POOLED_SUITES does not match run.sh's real devflow_pool_open invocation "
-            f"(run.sh pools {sorted(pooled_in_run_sh)}, constant declares "
-            f"{sorted(POOLED_SUITES)})",
+            "POOLED_SUITES does not match devflow_python_suite_pool_open's real "
+            f"devflow_pool_open invocation (module-harness.sh pools "
+            f"{sorted(pooled_in_harness)}, constant declares {sorted(POOLED_SUITES)})",
         )
 
 

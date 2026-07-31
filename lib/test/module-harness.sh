@@ -1978,3 +1978,70 @@ devflow_pool_join() {
     "$_DEVFLOW_POOL_SAVED_INT" "$_DEVFLOW_POOL_SAVED_TERM"
   _DEVFLOW_POOL_OPEN=0
 }
+
+# ── The suite's PRODUCTION Python-suite pool: membership + reconciliation ────
+# (Issue #720 opened the pool; the CI shard split moved where it is driven.)
+#
+# The two heavy focused Python suites the complete suite drives CONCURRENTLY. Their
+# membership, each one's tally mode, and the self-tally reconciliation live here — in
+# ONE place — because two callers drive them, and a second copy of the membership list
+# is the coupled-mirror hazard at its worst: a suite added to one caller and not the
+# other would run locally and silently never run in CI (or the reverse), with every
+# tally staying green because the missing suite's assertions simply never appear.
+#
+#   * lib/test/run.sh opens the pool early and joins at the tail, so the Python work
+#     overlaps ~2000 lines of shell assertions — a local full run pays only the idle
+#     remainder at the join, not the suites' whole cost;
+#   * lib/test/run-python-pool.sh is the dedicated CI shard's driver — it has nothing
+#     to overlap, so it opens and joins back-to-back.
+#
+# run.sh skips BOTH calls under DEVFLOW_SKIP_PYTHON_POOL=1 (what the monolith shard
+# sets), so exactly one shard runs these suites per CI run and nothing is
+# double-counted — the same dedup argument DEVFLOW_SKIP_SUITE_MODULES makes for the
+# module tier.
+#
+# test_module_harness.py is deliberately NOT a member — see its serial driver site in
+# run.sh: it asserts on the SIGINT disposition its children inherit, which a pooled
+# fork under job control off would corrupt.
+#
+# The script paths are anchored on THIS file's directory (BASH_SOURCE self-anchoring,
+# the local-tier idiom) rather than on a caller-supplied root, so no caller can hand
+# the pool a wrong base and have a real suite degrade into a missing-script failure.
+devflow_python_suite_pool_open() {
+  local _pp_dir
+  _pp_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" || return 1
+  devflow_pool_open \
+    "test_module_runner.py" "$_pp_dir/test_module_runner.py" single-verdict \
+    "test_python_scripts.py" "$_pp_dir/test_python_scripts.py" self-tally
+}
+
+# Join the production pool and reconcile the self-tally contribution (issue #720):
+# test_python_scripts.py's contribution to RESULTS_FILE must equal the assertion count
+# it reports on its own `N passed, M failed` summary line — parsed POSITIONALLY from
+# that line (field 1 = passed, field 3 = failed), never a checked-in total, so a
+# UNIFORMLY dropped verdict is caught even though the width-1/width-N equality gate
+# would agree. The self-tally line count and summary were captured at reap.
+#
+# Calls assert_eq, which each caller defines against the same RESULTS_FILE +
+# record_fail contract; the name resolves at call time.
+devflow_python_suite_pool_join() {
+  local _ps_lines _ps_summary _ps_total
+  devflow_pool_join
+  _ps_lines="${_DEVFLOW_POOL_SELFTALLY_LINES[test_python_scripts.py]:-}"
+  _ps_summary="${_DEVFLOW_POOL_SELFTALLY_SUMMARY[test_python_scripts.py]:-}"
+  if [ -n "$_ps_summary" ]; then
+    # Positional parse with bash word-splitting (not awk — a value feeding an assertion,
+    # kept off non-preflight PATH tools per guard-class 2): "N passed, M failed".
+    # shellcheck disable=SC2086
+    set -- $_ps_summary
+    _ps_total=$(( ${1:-0} + ${3:-0} ))
+    assert_eq "#720 test_python_scripts.py: RESULTS_FILE contribution equals its summary passed+failed" \
+      "$_ps_total" "${_ps_lines:-unestablished}"
+  else
+    # Summary not captured (e.g. a rendezvous-retry emptied the captured output): record
+    # a FAIL rather than silently skipping the coverage check.
+    echo FAIL >> "$RESULTS_FILE"
+    record_fail "#720 test_python_scripts.py: summary line not captured"
+    printf '  FAIL  #720 test_python_scripts.py: could not capture its summary line to verify RESULTS_FILE contribution\n' >&2
+  fi
+}

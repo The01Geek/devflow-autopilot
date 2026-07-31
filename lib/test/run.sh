@@ -108,6 +108,16 @@ esac
 # the real module-tier invocations run — while dropping the export attribute so no child
 # process inherits it. A no-op when the var is unset (the ordinary full run).
 export -n DEVFLOW_SKIP_SUITE_MODULES 2>/dev/null || true
+# Python-pool selector, the sibling of the module-tier selector above. The monolith CI
+# shard invokes this suite as `DEVFLOW_SKIP_PYTHON_POOL=1 bash lib/test/run.sh` so the
+# two heavy pooled Python suites (test_module_runner.py, test_python_scripts.py) run in
+# their own `python-pool` shard instead — the monolith no longer sits idle at the join
+# waiting for them. `export -n` for exactly the reason above, and with more force here:
+# the pooled suites and the module meta-tests spawn nested run.sh/run-module.sh
+# invocations, and an INHERITED skip would make a nested full-suite run silently drop
+# these suites while reporting green. A no-op when the var is unset (the ordinary full
+# local run, which still drives the pool).
+export -n DEVFLOW_SKIP_PYTHON_POOL 2>/dev/null || true
 RESULTS_FILE="$(mktemp)"
 MODULE_FAILURES_FILE="$(mktemp)"
 # SKIPS_FILE is the skip tally's backing file (issue #456), the SKIP sibling of
@@ -46759,18 +46769,23 @@ unset POOL720_FIX _POOL720_CORE _POOL720_W1 _POOL720_W2 _POOL720_CORE_C _POOL720
 # below — which the pooled test_module_runner.py itself drives through its own
 # run-module.sh subprocess, so that boundary runs in the main shell and in the pooled
 # suite concurrently; the overlap is safe because each execution uses its own isolated
-# owned scratch root, not shared mutable state. The three pooled
+# owned scratch root, not shared mutable state. The pooled
 # suites overlap that last module and the ~2000-line shell tail that follows it,
 # and the pool joins just before the RESULTS_FILE tally is counted
-# (devflow_pool_join, further down). Membership is exactly these two:
-# test_module_runner.py reports one verdict (single-verdict); test_python_scripts.py
-# reports one PASS/FAIL per assertion into the tally path the pool exports
-# (self-tally). Their former standalone driver sites — test_python_scripts.py's
-# awk-parsed block — are deleted below; every pooled verdict reaches PASS/FAIL
-# through RESULTS_FILE.
-devflow_pool_open \
-  "test_module_runner.py" "$LIB/test/test_module_runner.py" single-verdict \
-  "test_python_scripts.py" "$LIB/test/test_python_scripts.py" self-tally
+# (devflow_python_suite_pool_join, further down). Membership and the tally modes are
+# devflow_python_suite_pool_open's, in lib/test/module-harness.sh — ONE definition
+# shared with the dedicated shard driver, so the two cannot drift.
+#
+# PYTHON-POOL SELECTOR: the `python-pool` CI shard runs these same two suites through
+# lib/test/run-python-pool.sh, so the monolith shard invokes this suite with
+# DEVFLOW_SKIP_PYTHON_POOL=1 and skips both the open and the join below — the pooled
+# assertions are counted in exactly one shard per CI run, the same dedup argument
+# DEVFLOW_SKIP_SUITE_MODULES makes for the module tier. Unset (a plain
+# `bash lib/test/run.sh`) is byte-identical to before: the local full suite still runs
+# them, still overlapped with the shell tail.
+if [ "${DEVFLOW_SKIP_PYTHON_POOL:-}" != 1 ]; then
+  devflow_python_suite_pool_open
+fi
 
 # The zero-population mutation census is an executable CI contract. Run its focused
 # unittest suite serially and feed the verdict into the same RESULTS_FILE tally as
@@ -48994,31 +49009,17 @@ fi
 # issue #720: join the concurrent Python-suite pool BEFORE the RESULTS_FILE tally is
 # counted, so every pooled verdict is folded into the grep -c derivations below, covered
 # by the fail-closed derivability guards, and counted like every other verdict. This is
-# the pool's sole join point; it restores the caller's signal traps and installs no EXIT
-# trap (the single `trap _suite_cleanup EXIT` above stays the only EXIT handler).
-devflow_pool_join
-
-# issue #720: assert test_python_scripts.py's contribution to RESULTS_FILE equals the
-# assertion count it reports on its own `N passed, M failed` summary line — parsed
-# POSITIONALLY from that line (field 1 = passed, field 3 = failed), never a checked-in
-# total, so a uniformly-dropped verdict is caught even though the width-1/width-N
-# equality would agree. The self-tally line count and summary were captured at reap.
-_PS_LINES="${_DEVFLOW_POOL_SELFTALLY_LINES[test_python_scripts.py]:-}"
-_PS_SUMMARY="${_DEVFLOW_POOL_SELFTALLY_SUMMARY[test_python_scripts.py]:-}"
-if [ -n "$_PS_SUMMARY" ]; then
-  # Positional parse with bash word-splitting (not awk — a value feeding an assertion,
-  # kept off non-preflight PATH tools per guard-class 2): "N passed, M failed".
-  # shellcheck disable=SC2086
-  set -- $_PS_SUMMARY
-  _PS_TOTAL=$(( ${1:-0} + ${3:-0} ))
-  assert_eq "#720 test_python_scripts.py: RESULTS_FILE contribution equals its summary passed+failed" \
-    "$_PS_TOTAL" "${_PS_LINES:-unestablished}"
-else
-  # Summary not captured (e.g. a rendezvous-retry emptied the captured output): record
-  # a FAIL rather than silently skipping the coverage check.
-  echo FAIL >> "$RESULTS_FILE"
-  record_fail "#720 test_python_scripts.py: summary line not captured"
-  printf '  FAIL  #720 test_python_scripts.py: could not capture its summary line to verify RESULTS_FILE contribution\n' >&2
+# the pool's sole join point in this file; it restores the caller's signal traps and
+# installs no EXIT trap (the single `trap _suite_cleanup EXIT` above stays the only EXIT
+# handler). The join ALSO reconciles test_python_scripts.py's self-tally contribution
+# against its own summary line — both live in devflow_python_suite_pool_join, shared
+# with the `python-pool` shard driver so the reconciliation cannot exist in only one.
+#
+# Gated by the same selector as the open above: under DEVFLOW_SKIP_PYTHON_POOL=1 no pool
+# was opened, so joining one would be meaningless and the reconciliation would fail
+# closed on a summary that was never captured.
+if [ "${DEVFLOW_SKIP_PYTHON_POOL:-}" != 1 ]; then
+  devflow_python_suite_pool_join
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -49265,9 +49266,9 @@ fi
 # and compare; a module added to the registry but to no shard group (or vice versa)
 # turns this RED.
 E877_SHARDS="$(bash "$E877_RUNSHARD" --list-shards 2>/dev/null | tr '\n' ' ')"
-assert_eq "#877 run-shard.sh lists the expected shard set" "monolith modules-pin modules-large modules-rest " \
+assert_eq "#877 run-shard.sh lists the expected shard set" "monolith python-pool modules-pin modules-large modules-rest " \
   "$E877_SHARDS"
-E877_UNION="$(for _s in monolith modules-pin modules-large modules-rest; do bash "$E877_RUNSHARD" --modules-of "$_s" 2>/dev/null; done | sort -u)"
+E877_UNION="$(for _s in monolith python-pool modules-pin modules-large modules-rest; do bash "$E877_RUNSHARD" --modules-of "$_s" 2>/dev/null; done | sort -u)"
 E877_REGSET="$(python3 -c 'import json,sys; print("\n".join(sorted(json.load(open(sys.argv[1]))["test_modules"])))' "$E877_REGISTRY")"
 assert_eq "#877 shard map covers exactly the registered module set (no module dropped or duplicated)" \
   "$E877_REGSET" "$E877_UNION"
@@ -49277,7 +49278,7 @@ assert_eq "#877 shard map covers exactly the registered module set (no module dr
 # ran twice (double-counting its assertions across shards). The raw, non-deduplicated
 # emission count is what closes that half: it equals the registry size only when every
 # module appears in exactly one group.
-E877_UNION_RAW="$(for _s in monolith modules-pin modules-large modules-rest; do bash "$E877_RUNSHARD" --modules-of "$_s" 2>/dev/null; done | grep -c .)"
+E877_UNION_RAW="$(for _s in monolith python-pool modules-pin modules-large modules-rest; do bash "$E877_RUNSHARD" --modules-of "$_s" 2>/dev/null; done | grep -c .)"
 E877_REGCOUNT="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["test_modules"]))' "$E877_REGISTRY")"
 assert_eq "#877 no module is listed in two shard groups (raw emission count equals the registry size)" \
   "$E877_REGCOUNT" "$E877_UNION_RAW"
