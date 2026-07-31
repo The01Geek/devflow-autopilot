@@ -37,13 +37,14 @@ on a pull request; `devflow.yml`'s `gate` job authorizes the actor through
 self-trigger a PRFlow review — a repository collaborator must post the comment.**
 
 **Duplicate `/prflow:review` commands are deduped (issue #989).** A second standalone
-`/prflow:review` on a pull request while a review of the same pull request is already in flight
+`/prflow:review` on a pull request while a review of the **same commit** is already in flight
 is **suppressed** — the second run's `command` job is skipped and a notice naming the reason is
-posted — so a pull request receives one review rather than several billed engine runs and
-duplicate verdicts. The check is **pull-request-scoped, not commit-scoped**: while a review is
-in flight the seeded progress comment carries no head to compare against, so a `/prflow:review`
-requested after pushing a new commit — with the earlier review still running — is skipped too;
-comment again once that review has posted its verdict.
+posted — so a commit receives one review rather than several billed engine runs and
+duplicate verdicts. The check is **commit-scoped** (issue #1010): the engine stamps the head it
+is reviewing into the progress comment it seeds, so a `/prflow:review` requested after pushing a
+new commit — with the review of the *previous* commit still running — proceeds and reviews the
+new head. An in-flight review seeded before this change carries no such head and is never
+suppressed against.
 `devflow.yml`'s `review_dedupe` job detects the in-flight review from the review
 engine's own seeded live progress comment (`prflow:review-progress`, `🚀 Reviewing`,
 bot-authored, fresh) via the bundled `scripts/dedupe-review-command.sh` helper. It **fails
