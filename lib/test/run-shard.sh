@@ -54,7 +54,7 @@ _shard_modules() { # shard-name -> prints module ids (empty for the non-module s
     monolith)      printf '' ;;
     python-pool)   printf '' ;;
     modules-pin)   printf '%s' 'harness-python-guards' ;;
-    modules-large) printf '%s' 'retrospective-lifecycle review-trigger-helpers create-issue-contract review-stall-backstop' ;;
+    modules-large) printf '%s' 'retrospective-lifecycle review-trigger-helpers create-issue-contract review-stall-backstop efficiency-trace-telemetry' ;;
     modules-rest)  printf '%s' 'workflow-flight-recorder review-and-fix-contract capability-profiles regenerate-artifacts installer-wiring prompt-extension-reader experiment-records issue-audit-state' ;;
     *) return 2 ;;
   esac

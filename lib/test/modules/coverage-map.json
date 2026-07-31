@@ -665,7 +665,7 @@
     },
     "177": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "efficiency-trace-telemetry"
     },
     "181": {
       "note": "",
@@ -977,7 +977,7 @@
     },
     "357": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "efficiency-trace-telemetry"
     },
     "362": {
       "note": "",
@@ -1100,8 +1100,8 @@
       "owner": "unmodularized"
     },
     "431": {
-      "note": "partially extracted (issue #746): lib/test/modules/experiment-records.sh carries the build-experiment-records.py assembler coverage, while ordinary executable #431 assertions for configuration-fingerprint selection and efficiency-trace emission remain in lib/test/run.sh",
-      "owner": "unmodularized"
+      "note": "split across two modules and no longer asserted in lib/test/run.sh: lib/test/modules/experiment-records.sh carries the build-experiment-records.py assembler coverage, and lib/test/modules/efficiency-trace-telemetry.sh carries the configuration-fingerprint selection and efficiency-trace emission assertions",
+      "owner": "efficiency-trace-telemetry"
     },
     "434": {
       "note": "",
@@ -1125,11 +1125,11 @@
     },
     "441": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "efficiency-trace-telemetry"
     },
     "442": {
-      "note": "",
-      "owner": "unmodularized"
+      "note": "mostly extracted into lib/test/modules/efficiency-trace-telemetry.sh, but the #442 Critical-1 BEHAVIORAL arm (the bash-3.2 set -u empty-array abort) stays in lib/test/run.sh: it runs only under a real bash 3.x, and a module's emitted tally is compared for equality against its registry floor, so a host-conditional arm cannot live in a module without a permanent host-capability skip. The static half of that guard did move",
+      "owner": "efficiency-trace-telemetry"
     },
     "443": {
       "note": "",
@@ -1189,7 +1189,7 @@
     },
     "469": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "efficiency-trace-telemetry"
     },
     "474": {
       "note": "",
@@ -1237,7 +1237,7 @@
     },
     "499": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "efficiency-trace-telemetry"
     },
     "500": {
       "note": "",
@@ -1245,7 +1245,7 @@
     },
     "501": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "efficiency-trace-telemetry"
     },
     "502": {
       "note": "",
@@ -1281,7 +1281,7 @@
     },
     "52": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "efficiency-trace-telemetry"
     },
     "520": {
       "note": "",
@@ -1349,7 +1349,7 @@
     },
     "55": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "efficiency-trace-telemetry"
     },
     "550": {
       "note": "",
@@ -1381,7 +1381,7 @@
     },
     "56": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "efficiency-trace-telemetry"
     },
     "560": {
       "note": "",
@@ -1409,7 +1409,7 @@
     },
     "575": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "efficiency-trace-telemetry"
     },
     "576": {
       "note": "",
@@ -1449,7 +1449,7 @@
     },
     "609": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "efficiency-trace-telemetry"
     },
     "610": {
       "note": "",

@@ -4,6 +4,13 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.28.16] — 2026-07-31
+
+### Changed
+### Changed
+
+- Extracted the efficiency-trace and telemetry-persistence coverage out of `lib/test/run.sh` into the focused module `lib/test/modules/efficiency-trace-telemetry.sh`, run on the `modules-large` CI shard. The move is assertion-conserving — the module's tally is exactly the assertions that left the monolith — and shortens the `monolith` shard's wall clock, which had been the slowest required-check shard.
+
 ## [2.28.15] — 2026-07-31
 
 ### Changed
