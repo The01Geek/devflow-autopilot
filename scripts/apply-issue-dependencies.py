@@ -164,13 +164,18 @@ def _register(issue: str, numbers: list[str]) -> int:
             })
 
     # Collapse a uniformly-refused run; otherwise emit each refusal individually.
-    statuses = {r["status"] for r in refusals}
-    if len(refusals) >= 2 and len(refusals) == posts_attempted and len(statuses) == 1:
-        status = next(iter(statuses)) or "unknown"
+    # "Uniform" is keyed on the (status, message) PAIR, not the status alone: two
+    # 422s can carry different validation messages, and collapsing on status would
+    # print refusals[0]'s message while naming both numbers — misattributing the
+    # second's cause. Same status + differing message falls to the per-item branch.
+    signatures = {(r["status"], r["message"]) for r in refusals}
+    if len(refusals) >= 2 and len(refusals) == posts_attempted and len(signatures) == 1:
+        status, message = next(iter(signatures))
+        status = status or "unknown"
         names = " ".join(f"#{r['number']}" for r in refusals)
         _err(
             f"every declared prerequisite's registration was refused with the same "
-            f"status (HTTP {status}): {refusals[0]['message']}; registered no "
+            f"status (HTTP {status}): {message}; registered no "
             f"dependency on #{issue} ({names})."
         )
     else:
@@ -230,7 +235,19 @@ def main(argv: list[str]) -> int:
         )
         return 0
 
-    numbers = dependency_section_numbers(body)
+    # Guarded like the import and the _gh calls above: the always-breadcrumb /
+    # always-exit-0 contract holds even if the cross-module recognizer ever raises
+    # on a fetched body (it does not today — str.splitlines() + regex — but that is
+    # an implicit property of a sibling reached across the partial-copy-tolerant
+    # import, not a guarantee this file controls).
+    try:
+        numbers = dependency_section_numbers(body)
+    except Exception as exc:  # noqa: BLE001 - best-effort: any recognizer failure exits 0
+        _err(
+            f"the dependency recognizer failed on issue #{number}'s body "
+            f"({type(exc).__name__}: {exc}); no dependency registered."
+        )
+        return 0
     if not numbers:
         _err(
             f"issue #{number} declares no prerequisites in a `## Dependencies` "

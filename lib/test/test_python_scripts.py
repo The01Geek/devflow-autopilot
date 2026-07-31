@@ -21552,7 +21552,7 @@ for a in "$@"; do
       104) printf '%s\n' '## Dependencies' '- Blocked by #204' ;;
       105) printf '%s\n' '## Dependencies' '- Blocked by #205' '- Blocked by #206' ;;
       106) printf '%s\n' 'blocked by #201 outside a section' ;;
-      107) printf '%s\n' '## Dependencies' '- Blocked by #205' ;;
+      108) printf '%s\n' '## Dependencies' '- Blocked by #207' ;;
       200) exit 1 ;;
       *) printf '\n' ;;
     esac
@@ -21568,6 +21568,7 @@ case "$N" in
   204) echo '{"id":9002,"number":204}' ;;
   205) echo '{"id":9003,"number":205}' ;;
   206) echo '{"id":9003,"number":206}' ;;
+  207) echo '{"id":9005,"number":207}' ;;
   299) exit 1 ;;
   *) echo "{\"id\":9001,\"number\":$N}" ;;
 esac
@@ -21615,12 +21616,16 @@ assert_eq("#1011 duplicate: exit 0", 0, _rc)
 assert_eq("#1011 duplicate: reported as already linked, not a failure", True,
           "was already blocked_by #204" in _se and "1 already linked" in _se)
 
-# deps_other_422_is_not_swallowed — a non-duplicate 422 routes to failure.
-_rc, _se = _run_deps(107, argv=None)  # 107 body declares #205 which POSTs 403; craft 422 via 9005
-# 107 declares #205 (9003 → 403). Assert a non-duplicate refusal is a failure, not benign.
-assert_eq("#1011 non-duplicate refusal: exit 0", 0, _rc)
-assert_eq("#1011 non-duplicate refusal: routed to failure (not already-linked)", True,
-          "API refused" in _se and "already linked" not in _se.split("done for")[0])
+# deps_duplicate_is_benign_but_other_422_is_not — a NON-duplicate 422 ("Target
+# issue may only be an issue", id 9005) must route to the failure breadcrumb and
+# NOT be swallowed as already-linked. 108 declares #207 → id 9005 → real 422.
+_rc, _se = _run_deps(108)
+assert_eq("#1011 non-duplicate 422: exit 0", 0, _rc)
+assert_eq("#1011 non-duplicate 422: routed to failure (API refused, HTTP 422)", True,
+          "API refused" in _se and "HTTP 422" in _se)
+assert_eq("#1011 non-duplicate 422: NOT reported as already-linked", True,
+          "already been taken" not in _se and "was already blocked_by" not in _se
+          and "0 already linked" in _se and "1 failed" in _se)
 
 # deps_uniform_refusal_collapses — two same-status refusals collapse to one line.
 _rc, _se = _run_deps(105)
