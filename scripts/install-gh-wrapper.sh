@@ -132,11 +132,25 @@ _fpcap="$(python3 -c 'import os,sys; print(os.name, oct(os.stat(sys.argv[1]).st_
 # platform token on a host missing that tool and, because the relaxed arm is an
 # allowlist test, silently re-select the strict arm on Windows — restoring the
 # bug. The mode expansion deliberately keeps ALL trailing content beyond the
-# first space, so a three-field capture yields a non-octal mode field and takes
-# the strict arm rather than silently discarding the extra field. A multi-line
-# capture (a python3 shim printing a notice to stdout before the value) lands in
-# the same place for the same reason — the mode field carries the newline and is
-# not solely octal — so it too fails closed.
+# first space, rather than silently discarding it, so a polluted capture is
+# rejected along either of the routes below.
+#
+# Route one — the pollution leaves the mode field non-octal. A capture carrying
+# an extra space-separated field lands here, and so does a multi-line capture
+# (a shim printing a notice to stdout before the value), whose newline the mode
+# field then carries. The octal test fails and the strict comparison runs.
+#
+# Route two — the pollution instead displaces the platform token while leaving
+# a clean octal mode that is not the owner-only 600. The mode is octal, so the
+# first route does not catch it; the platform-equality test then fails to match
+# the displaced token and the strict comparison runs anyway.
+#
+# The one shape that passes is a space-free notice sitting ahead of a genuine
+# owner-only 600: it takes the FIRST arm, on the measured mode value alone.
+# That is safe, because the measured mode IS the guarantee here — the platform
+# token is consulted only when the mode itself cannot supply one. So no blanket
+# "every polluted capture is caught" is claimed: the suite pins that passing
+# shape, and a stronger claim here would contradict a green assertion.
 _fpos="${_fpcap%% *}"
 _fpmode="${_fpcap#* }"
 [ "$_fpcap" != "$_fpmode" ] || _fpmode=""   # no space in the capture => no mode field at all
