@@ -639,9 +639,14 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
         revision = metadata["revision"]
         self.assertRegex(revision, r"^[0-9a-f]{40}$")
         self.assertIn(f"--revision {revision}", metadata["producing-command"])
+        # The census is frozen at a revision that predates the .devflow/ ->
+        # .prflow/ state-directory rename (issue #1002), which moved every record
+        # with its directory and rewrote none of their bytes.  Project the
+        # snapshot's recorded exclusion header onto the current spelling rather
+        # than editing the frozen record, which would falsify it.
         self.assertEqual(
             self.mod.COUNTED_EXCLUSION_HEADER,
-            metadata["counted-file-exclusions"],
+            metadata["counted-file-exclusions"].replace(".devflow/", ".prflow/"),
         )
         self.assertEqual(";".join(self.mod.DEFAULT_SOURCES), metadata["in-scope"])
         self.assertEqual(

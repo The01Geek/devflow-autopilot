@@ -65,12 +65,15 @@ _t1_root() {
 # root), so it cannot descend into a sibling git worktree; issue #711's hazard does
 # not arise and git ls-files cannot see an unversioned fixture.
 _t1_snap() {
-  ( cd "$1" 2>/dev/null || return 0
-    find . -path ./.git -prune -o \( -type f -o -type l \) -print 2>/dev/null \
+  ( cd "$1" || return 0
+    # The walk is confined by the `cd` above to the module's own mktemp fixture root.
+    _t1_paths="$(find . -path ./.git -prune -o \( -type f -o -type l \) -print)"  # tree-walk-ok: rooted at a module-owned mktemp fixture tree, never the repository root, so it cannot descend into a sibling git worktree (issue #711) and git ls-files cannot see an unversioned fixture
+    printf '%s\n' "$_t1_paths" \
       | LC_ALL=C sort \
       | while IFS= read -r f; do
+          [ -n "$f" ] || continue
           printf '%s %s\n' "$f" "$(shasum "$f" 2>/dev/null | cut -d' ' -f1)"
-        done | shasum | cut -d' ' -f1 )
+        done | shasum | cut -d' ' -f1 ) 2>/dev/null
 }
 
 # yes/no over "does this text contain that literal", so an assertion reads as a

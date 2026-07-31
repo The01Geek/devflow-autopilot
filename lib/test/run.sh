@@ -6850,7 +6850,7 @@ done
 
 # Disposable-mutant regression: drop the grant from a scratch workflow and
 # confirm the extractor reports the stale-prose-lint.py head ungranted.
-sed -E '/Bash\(\.prflow\/vendor\/devflow\/scripts\/stale-prose-lint\.py:\*\)/d' "$IMPL_YML" > "$E484/impl-no-spl.yml"
+sed -E '/Bash\(\.prflow\/vendor\/prflow\/scripts\/stale-prose-lint\.py:\*\)/d' "$IMPL_YML" > "$E484/impl-no-spl.yml"
 assert_eq "#484 guard-behavior: with the stale-prose-lint.py grant removed the extractor reports it ungranted over review/SKILL.md" \
   "yes" "$(python3 "$ECH" ungranted "$REVIEW_BUNDLE" "$E484/impl-no-spl.yml" implement-block 2>/dev/null | grep -qF 'stale-prose-lint.py' && echo yes || echo no)"
 
@@ -13553,7 +13553,7 @@ assert_pin_unique "#446: offer gate compares to literal true with bash builtins 
 # classifier-denied) turns RED — the fallback-agreement block below drives a hand-copy of
 # these shapes, so without these pins a SKILL-side drift from that copy would be uncaught.
 assert_pin_unique "#446: SKILL documents the type-tolerant python3 fallback read of workflows.devflow (lowercases only booleans, top-level-tolerant, mirrors config-get)" \
-  "w=d.get('workflows') if isinstance(d,dict) else None; v=w['prflow'] if (isinstance(w,dict) and 'devflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))" "$CI446_SKILL"
+  "w=d.get('workflows') if isinstance(d,dict) else None; v=w['devflow'] if (isinstance(w,dict) and 'devflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))" "$CI446_SKILL"
 assert_pin_unique "#446: SKILL documents the type-tolerant jq fallback read of workflows.devflow (repo-root anchored, string-truthy, top-level-tolerant)" \
   "jq -r 'if (type==\"object\") and ((.workflows|type)==\"object\") then (.workflows.devflow // false) else false end' \"\$ROOT/.prflow/config.json\"" "$CI446_SKILL"
 # A boolean-only fallback (== true / is True) would diverge from config-get.sh AND the cloud gate
@@ -13661,7 +13661,7 @@ assert_eq "#446 offer-gate: capitalized 'True' reads verbatim (NOT enabled — c
 # reason, on exactly the local tier where the fallback is the only read path) turns RED here. The
 # forms are STRING-TRUTHY, mirroring config-get.sh and the cloud gate (never boolean-only — see the
 # pin at the top of this block): the python form mirrors the SKILL's
-# `w=d.get('workflows') if isinstance(d,dict) else None; v=w['prflow'] if (isinstance(w,dict) and
+# `w=d.get('workflows') if isinstance(d,dict) else None; v=w['devflow'] if (isinstance(w,dict) and
 # 'devflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))`; the jq form
 # mirrors `if (type=="object") and ((.workflows|type)=="object") then (.workflows.devflow // false)
 # else false end` — which is why the string "true" fixture must read enabled below. Both are
@@ -13677,7 +13677,7 @@ assert_eq "#446 offer-gate: capitalized 'True' reads verbatim (NOT enabled — c
 for cg446_case in "false:$CG446_FALSE" "false:$CG446_ABSENT" "true:$CG446_TRUE" "false:$CG446_WRONGTYPE" "false:$CG446_TOPARR" "false:$CG446_TOPSCAL" "true:$CG446_STRTRUE" "True:$CG446_STRCAP"; do
   cg446_want="${cg446_case%%:*}"; cg446_file="${cg446_case#*:}"
   assert_eq "#446 offer-gate: python3 fallback shape agrees with config-get ($cg446_want)" "$cg446_want" \
-    "$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); w=d.get('workflows') if isinstance(d,dict) else None; v=w['prflow'] if (isinstance(w,dict) and 'devflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))" "$cg446_file")"
+    "$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); w=d.get('workflows') if isinstance(d,dict) else None; v=w['devflow'] if (isinstance(w,dict) and 'devflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))" "$cg446_file")"
   assert_eq "#446 offer-gate: jq fallback shape agrees with config-get ($cg446_want)" "$cg446_want" \
     "$(jq -r 'if (type=="object") and ((.workflows|type)=="object") then (.workflows.devflow // false) else false end' "$cg446_file")"
 done
@@ -15413,13 +15413,13 @@ echo "#936 — surviving references to the withheld devflow-review.yml"
 # covered by its own criterion) — so a future reference written in the bare form is not
 # caught here.
 _936_EXPECTED="$(cat <<'EOF'
-.prflow/config.schema.json
 .github/workflows/ci.yml
 .github/workflows/devflow-implement.yml
 .github/workflows/devflow-runner.yml
 .github/workflows/devflow.yml
 .github/workflows/matcher-probe.yml
 .github/workflows/telemetry-push.yml
+.prflow/config.schema.json
 CLAUDE.md
 README.md
 docs/DEVFLOW_SYSTEM_OVERVIEW.md
@@ -15430,6 +15430,7 @@ docs/implement-skill.md
 docs/install.md
 docs/workflow-triggers.md
 install.sh
+lib/rename-map.json
 lib/test/fixtures/issue-304-body.md
 lib/test/modules/capability-profiles.sh
 lib/test/modules/installer-wiring.sh
@@ -15446,6 +15447,7 @@ scripts/describe-denial-count.sh
 scripts/describe-skip-title.sh
 scripts/post-review-backstop-comment.sh
 scripts/render-guard-visibility.sh
+scripts/scaffold-config.sh
 scripts/workflow-flight-recorder-registry.json
 EOF
 )"
@@ -16896,7 +16898,7 @@ assert_eq "#458 helper: harden-stop-hooks.sh exists" "yes" \
 # guard entry — COUPLED (a
 # file dropped here silently leaves that PR-head script executable, or the workflow
 # never materializes its trusted copy). Pin the exact closure literal.
-HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'
+HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh lib/resolve-state-dir.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'
 assert_eq "#458 helper: HOOK_TARGETS is the full transitive source/exec closure" "1" \
   "$(grep -cF "HOOK_TARGETS='$HSH_CLOSURE_LIT'" "$HSH" || true)"
 # The three per-class sub-lists (entries / sourced libs / exec'd deps) drive the
@@ -16904,7 +16906,7 @@ assert_eq "#458 helper: HOOK_TARGETS is the full transitive source/exec closure"
 assert_eq "#458 helper: HOOK_ENTRY_TARGETS are the three Stop-hook entries plus the #805 PreToolUse guard" "1" \
   "$(grep -cF "HOOK_ENTRY_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py'" "$HSH" || true)"
 assert_eq "#458 helper: HOOK_SOURCED_TARGETS are the inline-sourced libs (mid-source-break class)" "1" \
-  "$(grep -cF "HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh'" "$HSH" || true)"
+  "$(grep -cF "HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh lib/resolve-state-dir.sh'" "$HSH" || true)"
 assert_eq "#458 helper: HOOK_EXEC_TARGETS are the subprocess-exec'd deps" "1" \
   "$(grep -cF "HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'" "$HSH" || true)"
 SETTINGS="$LIB/../.claude/settings.json"
@@ -16933,7 +16935,7 @@ assert_eq "#805 coupling: HOOK_ENTRY_TARGETS has exactly 4 entries in total (3 .
 # The full closure hardened here is the entry hooks plus their transitive source/exec/python3
 # deps; its exact membership and size are pinned by the assertion below and the drift-guard,
 # not asserted in prose (the count-locked stale-prose lint owns numeric claims).
-assert_eq "#458 coupling: HOOK_TARGETS has exactly 13 closure entries (.sh + .py)" "13" \
+assert_eq "#458 coupling: HOOK_TARGETS has exactly 14 closure entries (.sh + .py)" "14" \
   "$(grep -oE "HOOK_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -cE '\.(sh|py)' || true)"
 # SET-EQUALITY invariant (issue #460 SHADOW, FP-S3): the three per-class lists must
 # partition HOOK_TARGETS exactly — entries ∪ sourced ∪ exec == HOOK_TARGETS. A future
@@ -19281,7 +19283,7 @@ assert_eq "#874 workflow: no never-established arm emits ::warning::" "0" \
 assert_eq "#874 workflow: the materialization ladder carries the vendor_source==fetch rank" "1" \
   "$(grep -cF 'VENDOR_SOURCE:-}" = "fetch" ] \' "$RUNNER" | awk '{print ($1>=1)?1:0}')"
 assert_eq "#874 workflow: the fetch rank points at the runtime-vendored materialization helper" "1" \
-  "$(grep -c 'devflow/scripts/materialize-trusted-prompt-extensions.sh" \]' "$RUNNER" | awk '{print ($1>=1)?1:0}')"
+  "$(grep -c 'vendor/prflow/scripts/materialize-trusted-prompt-extensions.sh" \]' "$RUNNER" | awk '{print ($1>=1)?1:0}')"
 # Assert the binding on the baseprovision step ITSELF, from the parsed YAML. A repo-wide
 # occurrence count says nothing about WHICH step carries it: delete baseprovision's
 # binding while any other site gains one and a count-based check stays green while the
@@ -23515,10 +23517,18 @@ assert_eq "#707 the retired full-suite-before-every-commit convention survives o
 # shallow local clone routes to `skip` (recorded skipped — not a clean pass, not a hard failure)
 # while CI's full-history checkout (fetch-depth: 0, #456) runs the gate for real. The retired
 # control's `if probe_tmp; then … fi` shape (no else, no skip) is deliberately NOT copied.
+# HISTORICAL PATHS — these are the swept files' relpaths AT THE BASELINE REF, not in
+# the current tree. They are arguments to `git show <ref>:<path>` over a frozen
+# past-time snapshot where the state directory was still named `.devflow/`. Issue
+# #1002's `.devflow/` -> `.prflow/` rename is a FORWARD rename of the working tree and
+# must NOT be applied here: rewriting a historical path makes every blob unresolvable,
+# the builder returns NOBLOB on the first file, and the whole control collapses into one
+# fail-closed RED before it validates a single literal. A tree-wide rename sweep must
+# skip this array.
 _WSR_SWEPT_RELPATHS=(
-  '.prflow/prompt-extensions/implement.md'
-  '.prflow/prompt-extensions/review-and-fix.md'
-  '.prflow/prompt-extensions/receiving-code-review.md'
+  '.devflow/prompt-extensions/implement.md'
+  '.devflow/prompt-extensions/review-and-fix.md'
+  '.devflow/prompt-extensions/receiving-code-review.md'
   'CLAUDE.md'
   'docs/DEVFLOW_SYSTEM_OVERVIEW.md'
   'CONTRIBUTING.md'
@@ -30233,8 +30243,10 @@ done
 
 # The two scenarios the ROOT itself must decide (they pick which reference runs, so
 # their routing rule cannot live in a reference — that would be unreachable).
-assert_eq "#529 AC15 pressure: the root gates 0.3.6 to standalone PR mode and 0.6 on its config key" "yes|yes" \
-  "$(grep -qF 'standalone PR mode only' "$REVIEW_ROOT" && echo yes || echo no)|$(grep -qF 'prflow_review.stale_prose.enabled' "$REVIEW_ROOT" && echo yes || echo no)"
+assert_eq "#529 AC15 pressure: the root gates 0.6 on its config key" "yes" \
+  "$(grep -qF 'prflow_review.stale_prose.enabled' "$REVIEW_ROOT" && echo yes || echo no)"
+assert_eq "#529 AC15 pressure: the root gates 0.3.6 to standalone PR mode" "yes" \
+  "$(grep -qF 'standalone PR mode only' "$REVIEW_ROOT" && echo yes || echo no)"
 # The pin above CANNOT carry 0.3.6's real predicate: the under-specified row it
 # replaced ("standalone PR mode only") contains that literal verbatim, so reverting
 # the correction leaves it green. That under-specification is not cosmetic — it led a
@@ -33143,7 +33155,7 @@ I405_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 # established dpt_has() JSON-array-membership helper (the same one the detect-project-tools
 # assertions use against these exact allowed_tools paths) rather than a bespoke inline reader.
 # RED today only if any entry is missing from either array.
-for I405_KEY in devflow prflow_implement; do
+for I405_KEY in prflow prflow_implement; do
   for I405_ENT in 'Bash(lib/test/run.sh:*)' 'Bash(lib/preflight.sh:*)' 'Bash(shellcheck:*)'; do
     assert_eq "#405 AC1 config: $I405_KEY.allowed_tools grants $I405_ENT" "yes" \
       "$(dpt_has ".$I405_KEY.allowed_tools" "$I405_ENT" "$I405_CONFIG")"
@@ -40244,6 +40256,15 @@ fi
 if ! devflow_run_full_suite_module "$LIB/test/modules/capability-profiles.sh" \
   "capability-profiles" 62; then
   printf 'ERROR: capability-profiles boundary could not record its result\n'
+  exit 1
+fi
+
+# Tier 1 rename/migration contract coverage (issue #1002). The registry and this
+# full-suite call share the same lower-bound contract; test_module_runner.py parses
+# this operand and rejects any coupling drift.
+if ! devflow_run_full_suite_module "$LIB/test/modules/tier1-rename-migration.sh" \
+  "tier1-rename-migration" 149; then
+  printf 'ERROR: tier1-rename-migration boundary could not record its result\n'
   exit 1
 fi
 

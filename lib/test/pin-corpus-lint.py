@@ -1322,6 +1322,7 @@ AUDITED_PIN_SOURCES = frozenset(
         "lib/test/modules/experiment-records.sh",
         "lib/test/modules/efficiency-trace-telemetry.sh",
         "lib/test/modules/issue-audit-state.sh",
+        "lib/test/modules/tier1-rename-migration.sh",
     }
 )
 
@@ -1383,6 +1384,11 @@ _RETIRED_PIN_REVIVAL_HEADER = (
     "structural_rationale",
 )
 _ADJUDICATION_BUNDLE_ROOT = ".prflow/logs/pin-corpus-adjudication-changes"
+# Revision-side reads only.  The .devflow/ -> .prflow/ state-directory rename
+# (issue #1002) moved every frozen record with its directory, so a read against a
+# revision that predates the move must address the superseded spelling.
+_SUPERSEDED_STATE_DIR_PREFIX = ".devflow/"
+_STATE_DIR_PREFIX = ".prflow/"
 _ADJUDICATION_TABLE_PATH = "lib/test/pin-corpus-adjudications.tsv"
 _RETIREMENT_MANIFEST_SPECS = {
     ".prflow/logs/residual-prose-retirement-manifest.tsv": (
@@ -1686,6 +1692,49 @@ def _strict_retirement_manifest_literals(text, path, spec):
     return retired
 
 
+def _revision_state_dir_path(repo_root, revision, path, git_runner):
+    """Return PATH as the state directory spelled it at REVISION.
+
+    The .devflow/ -> .prflow/ state-directory rename (issue #1002) moved every
+    frozen record with its directory and rewrote none of their bytes, so a
+    merge-base-side read of a current .prflow/ path resolves nothing on a branch
+    whose base predates the move.  Resolve the current spelling first and fall
+    back to the superseded one only when the current path is absent at that
+    revision and the superseded one is present -- the current-first,
+    fallback-second rule lib/rename-map.json states for live readers, applied to
+    a revision rather than the worktree.
+    """
+    if not path.startswith(_STATE_DIR_PREFIX):
+        return path
+    if _run_git(
+        git_runner, repo_root, "ls-tree", "-r", "--name-only", revision, "--", path
+    ).strip():
+        return path
+    superseded = _SUPERSEDED_STATE_DIR_PREFIX + path[len(_STATE_DIR_PREFIX):]
+    if _run_git(
+        git_runner, repo_root, "ls-tree", "-r", "--name-only", revision, "--", superseded
+    ).strip():
+        return superseded
+    return path
+
+
+def _revision_blob_id(repo_root, revision, path, git_runner):
+    """Return the object id of the regular blob at REVISION:PATH, else ``None``.
+
+    Absence is reported rather than raised so a caller comparing two revisions
+    can treat "not there" as "not identical" and fall through to its own
+    fail-closed arm.  A non-blob or non-regular entry reports ``None`` too.
+    """
+    listing = _run_git(git_runner, repo_root, "ls-tree", revision, "--", path)
+    try:
+        mode, kind, object_id, listed_path = listing.rstrip("\n").split(None, 3)
+    except ValueError:
+        return None
+    if mode != "100644" or kind != "blob" or listed_path != path:
+        return None
+    return object_id
+
+
 def _regular_blob_bytes(repo_root, revision, path, git_runner, label):
     listing = _run_git(git_runner, repo_root, "ls-tree", revision, "--", path)
     try:
@@ -1721,7 +1770,11 @@ def load_retired_wording_literal_keys(
                 f"historical retirement manifest worktree differs from HEAD: {path}"
             )
         base_bytes = _regular_blob_bytes(
-            repo_root, merge_base, path, git_runner, "base retirement manifest"
+            repo_root,
+            merge_base,
+            _revision_state_dir_path(repo_root, merge_base, path, git_runner),
+            git_runner,
+            "base retirement manifest",
         )
         head_bytes = _regular_blob_bytes(
             repo_root, "HEAD", path, git_runner, "HEAD retirement manifest"
@@ -1867,8 +1920,12 @@ def discover_new_adjudication_delta_manifests(
             "adjudication bundle worktree differs from HEAD: "
             f"{worktree_status.strip()}"
         )
-    base_paths = set(
-        filter(
+    base_root = _revision_state_dir_path(
+        repo_root, merge_base, _ADJUDICATION_BUNDLE_ROOT, git_runner
+    )
+    base_paths = {
+        _ADJUDICATION_BUNDLE_ROOT + path[len(base_root):]
+        for path in filter(
             None,
             _run_git(
                 git_runner,
@@ -1878,10 +1935,10 @@ def discover_new_adjudication_delta_manifests(
                 "--name-only",
                 merge_base,
                 "--",
-                _ADJUDICATION_BUNDLE_ROOT,
+                base_root,
             ).splitlines(),
         )
-    )
+    }
     historical_ids = {
         path.split("/")[3]
         for path in base_paths
@@ -1896,6 +1953,7 @@ def discover_new_adjudication_delta_manifests(
         merge_base,
         "HEAD",
         "--",
+        base_root,
         _ADJUDICATION_BUNDLE_ROOT,
     )
     new_paths = {}
@@ -1906,6 +1964,16 @@ def discover_new_adjudication_delta_manifests(
             raise InfrastructureError(
                 f"adjudication bundle diff has malformed name-status row: {line!r}"
             ) from exc
+        if base_root != _ADJUDICATION_BUNDLE_ROOT and path.startswith(base_root + "/"):
+            # Superseded-root side of the state-directory move (issue #1002).  Its
+            # current-root twin below carries the judgement -- a payload that did
+            # not survive the move byte-for-byte fails there, not here -- so a
+            # delete under the superseded root is the expected half of the pair.
+            if status != "D":
+                raise InfrastructureError(
+                    f"superseded adjudication bundle path was not moved away: {path} ({status})"
+                )
+            continue
         parts = path.split("/")
         if len(parts) < 4 or "/".join(parts[:3]) != _ADJUDICATION_BUNDLE_ROOT:
             raise InfrastructureError(f"adjudication bundle path is invalid: {path!r}")
@@ -1914,6 +1982,23 @@ def discover_new_adjudication_delta_manifests(
             r"[A-Za-z0-9][A-Za-z0-9._-]*", change_id
         ):
             raise InfrastructureError(f"adjudication bundle has unsafe bundle ID: {change_id!r}")
+        if (
+            base_root != _ADJUDICATION_BUNDLE_ROOT
+            and status == "A"
+            and change_id in historical_ids
+        ):
+            superseded_path = base_root + path[len(_ADJUDICATION_BUNDLE_ROOT):]
+            base_blob = _revision_blob_id(
+                repo_root, merge_base, superseded_path, git_runner
+            )
+            if base_blob is not None and base_blob == _revision_blob_id(
+                repo_root, "HEAD", path, git_runner
+            ):
+                # Byte-identical historical bundle carried across the move: not a
+                # new bundle, and not a change to a frozen one.  An absent or
+                # differing blob falls through to the historical-change raise
+                # below, so an edit made during the move still fails closed.
+                continue
         delta_path = f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/adjudication-delta.tsv"
         revival_path = (
             f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/retired-pin-revivals.tsv"
