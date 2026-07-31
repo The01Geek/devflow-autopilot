@@ -165,7 +165,7 @@ asserting it as a claim). Enumerate the draft's **own mechanism dependencies** �
 behaviors the designed mechanism relies on but never states — and resolve each with a **cited
 probe** (a "Verified:" bullet citing observed output) or an **implementer-obligation AC** (subject
 to the obligation-arm execution-tier constraint in the Acceptance Criteria guidance above: a
-command already granted in `devflow_implement.allowed_tools`, or a code-reading obligation citing
+command already granted in `prflow_implement.allowed_tools`, or a code-reading obligation citing
 the producer — never an ungranted-helper run). This is the **in-repo sibling of the
 relied-on-third-party-behavior class** above — same discipline, extended to unstated in-repo
 reliances; it adds no duplicate premise class.
@@ -310,7 +310,7 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
   implement-tier verification commands (this governs this value-comparison AC and the Step 3.5
   unstated-mechanism-dependency hunt alike):** an obligation whose discharge requires *executing* an in-repo command must name a
   command already granted on the consuming tier (the repo's declared test/lint commands in
-  `devflow_implement.allowed_tools`) or be phrased as a **code-reading obligation citing the
+  `prflow_implement.allowed_tools`) or be phrased as a **code-reading obligation citing the
   producer code** — never a run-this-ungranted-helper AC that would send a consumer repo's cloud
   `/prflow:implement` run Blocked for a probe the drafter could have run locally.
 - **Every universal quantifier the body asserts about the system under change is grounded,
@@ -591,8 +591,8 @@ through a file rather than a `"$(…)"` capture: command substitution strips tra
 and a re-emitting `printf '%s\n'` re-adds exactly one, mutating the posted bytes against the
 recorded body-only digest (a false attestation mismatch). The file round-trip is **byte-exact**.
 Substitute `<main-root>` with the main working-tree root Step 4 sub-step 2 already resolved
-via `resolve-main-root.sh` (the root whose `.devflow/tmp` that sub-step already created —
-a cwd-relative `.devflow/tmp/` may not exist inside a linked worktree checkout). The
+via `resolve-main-root.sh` (the root whose `.prflow/tmp` that sub-step already created —
+a cwd-relative `.prflow/tmp/` may not exist inside a linked worktree checkout). The
 guarded file is handed to `gh` directly via `--body-file <path>` — never re-piped through
 `cat`, whose absence (a non-preflight PATH tool) would feed `gh` empty stdin and create the
 empty-bodied issue the guard exists to prevent; this temp file IS the gated `emit-body`
@@ -600,7 +600,7 @@ output, so the old never-`--body-file` rule (which banned the unaudited preview 
 not apply to it:
 
 ```bash
-python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/issue-audit-state.py emit-body "<slug>" --nonce "<nonce>" --draft-file "<absolute issue-draft-<slug>.md path>" > "<main-root>/.devflow/tmp/issue-body-<slug>.md" && test -s "<main-root>/.devflow/tmp/issue-body-<slug>.md" && gh issue create --title "Action-oriented title here" --body-file "<main-root>/.devflow/tmp/issue-body-<slug>.md"
+python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/issue-audit-state.py emit-body "<slug>" --nonce "<nonce>" --draft-file "<absolute issue-draft-<slug>.md path>" > "<main-root>/.prflow/tmp/issue-body-<slug>.md" && test -s "<main-root>/.prflow/tmp/issue-body-<slug>.md" && gh issue create --title "Action-oriented title here" --body-file "<main-root>/.prflow/tmp/issue-body-<slug>.md"
 ```
 
 **On an embed- or inline-arm epoch** there is no trustworthy canonical file, so the body is

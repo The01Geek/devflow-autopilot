@@ -153,7 +153,7 @@ def manifest(sid: str, workflow: str = "implement", provisional: bool = False, s
         # Real recorder shape: these three are {"value","source"} dicts, not bare
         # strings (capture_prompt_manifest). Using the real shape here exercises
         # host_profile's dict extraction.
-        "devflow_version": {"value": "1.2.3", "source": "plugin_manifest"},
+        "prflow_version": {"value": "1.2.3", "source": "plugin_manifest"},
         "claude_code_version": {"value": "1.0.0", "source": "cli"},
         "provider": {"value": "anthropic", "source": "env"},
         "model_effort": {"requested_model": "claude-sonnet-5"},
@@ -233,7 +233,7 @@ class _TmpDirTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self._old_cwd = os.getcwd()
         os.chdir(str(ROOT))
-        tmp_root = ROOT / ".devflow/tmp"
+        tmp_root = ROOT / ".prflow/tmp"
         tmp_root.mkdir(parents=True, exist_ok=True)
         self.tmp = tempfile.mkdtemp(dir=str(tmp_root))
         self.manifests = Path(self.tmp) / "manifests"
@@ -656,7 +656,7 @@ class ExportSnapshotTests(unittest.TestCase):
         jobs_by_run = {7: [{"name": "claude", "started_at": "2026-07-16T01:00:10Z", "completed_at": "2026-07-16T02:00:00Z", "conclusion": "success", "status": "completed", "html_url": "u"}]}
         snap = export_census.build_snapshot("The01Geek/prflow", [".github/workflows/devflow-implement.yml"], "2026-07-01", "2026-08-01", runs, jobs_by_run, "2026-07-16T03:00:00Z", True)
         # Write to a temp file and read back through the analyzer's reader.
-        tmp = ROOT / ".devflow/tmp/vb-snap-test.json"
+        tmp = ROOT / ".prflow/tmp/vb-snap-test.json"
         tmp.parent.mkdir(parents=True, exist_ok=True)
         tmp.write_text(json.dumps(snap), encoding="utf-8")
         try:
@@ -752,7 +752,7 @@ class ReviewFixFollowupTests(unittest.TestCase):
 
     def test_read_cloud_census_distinguishes_absent_corrupt_schema(self) -> None:
         self.assertEqual(read_cloud_census(None), (None, "absent"))
-        tmp = ROOT / ".devflow/tmp/vb-snap-reasons.json"
+        tmp = ROOT / ".prflow/tmp/vb-snap-reasons.json"
         tmp.parent.mkdir(parents=True, exist_ok=True)
         try:
             tmp.write_text("{not json", encoding="utf-8")
@@ -964,9 +964,9 @@ class Issue527ReviewFixTests(_TmpDirTestCase):
         with self.assertRaises(ValueError):
             vb._validate_admitted_path("")
         with self.assertRaises(FileNotFoundError):
-            vb._validate_admitted_path(".devflow/tmp/does-not-exist-xyz-527", must_exist=True)
+            vb._validate_admitted_path(".prflow/tmp/does-not-exist-xyz-527", must_exist=True)
         # A valid in-repo path resolves under the repo root.
-        resolved = vb._validate_admitted_path(".devflow/tmp")
+        resolved = vb._validate_admitted_path(".prflow/tmp")
         self.assertTrue(str(resolved).startswith(str(ROOT.resolve())))
 
     # --- J2: the segment split must be quote-aware — a delimiter inside a quoted
@@ -1071,14 +1071,14 @@ class Issue527ReviewFixTests(_TmpDirTestCase):
     def test_host_profile_reads_value_source_dicts(self) -> None:
         doc = {
             "provider": {"value": "bedrock", "source": "env"},
-            "devflow_version": {"value": "2.1.0", "source": "plugin_manifest"},
+            "prflow_version": {"value": "2.1.0", "source": "plugin_manifest"},
             "claude_code_version": {"value": "1.0.0", "source": "cli"},
             "model_effort": {"requested_model": "claude-sonnet-5"},
             "git": {"branch": "main"},
         }
         hp = vb._host_profile_from_manifest(doc)
         self.assertEqual(hp["provider"], "bedrock")
-        self.assertEqual(hp["devflow_version"], "2.1.0")
+        self.assertEqual(hp["prflow_version"], "2.1.0")
         self.assertEqual(hp["claude_code_version"], "1.0.0")
         self.assertEqual(hp["model"], "claude-sonnet-5")
 
@@ -1211,7 +1211,7 @@ class Issue527ReviewFixTests(_TmpDirTestCase):
         self.assertIn("matched 0", err.getvalue())
 
     def test_validate_admitted_path_rejects_symlink_escape(self) -> None:
-        # Plant a symlink under .devflow/tmp pointing outside the repo root and
+        # Plant a symlink under .prflow/tmp pointing outside the repo root and
         # assert it is rejected (the function's headline security promise).
         link = Path(self.tmp) / "escape-link"
         try:

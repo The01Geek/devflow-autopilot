@@ -10,7 +10,7 @@
 # PRs, the exact population the marker's local/interactive scoping excludes. A
 # clause reading it here would read as armed yet almost never legitimately fire.
 # The marker's runtime consumer is instead the shared review engine's tier-scoped
-# advisory (.devflow/prompt-extensions/review.md and its byte-identical twin
+# advisory (.prflow/prompt-extensions/review.md and its byte-identical twin
 # review-and-fix.md), whose per-PR input population contains those surfaces.
 #
 # Invocation:

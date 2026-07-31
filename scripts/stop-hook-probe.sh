@@ -18,10 +18,10 @@
 # Reads the Stop hook payload as JSON on stdin (documented fields: session_id,
 # transcript_path, cwd, permission_mode, hook_event_name, last_assistant_message —
 # https://code.claude.com/docs/en/hooks.md) and writes ONE breadcrumb file:
-#     .devflow/tmp/stop-hook-probe-fired      (gitignored; overwritten each Stop)
+#     .prflow/tmp/stop-hook-probe-fired      (gitignored; overwritten each Stop)
 #
 # Contract with the hook-probe workflow job (COUPLED — change both together):
-# the job keys on the PRESENCE of `.devflow/tmp/stop-hook-probe-fired`. Renaming this
+# the job keys on the PRESENCE of `.prflow/tmp/stop-hook-probe-fired`. Renaming this
 # path silently turns the AC6 probe into a permanent "did not fire".
 #
 # token_shape verdict (AC7) — a four-way, unknown-is-never-zero classification:
@@ -38,7 +38,7 @@
 # Best-effort and SILENT on stdout: a Stop hook that prints or fails non-zero can
 # disrupt the session it is observing. Every failure path writes what it knows,
 # breadcrumbs to stderr, and exits 0. It never blocks, never edits the tree, and
-# never touches anything outside .devflow/tmp/.
+# never touches anything outside .prflow/tmp/.
 
 set -uo pipefail
 
@@ -88,7 +88,7 @@ else
   _root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 fi
 
-MARKER_DIR="$_root/.devflow/tmp"
+MARKER_DIR="$_root/.prflow/tmp"
 MARKER="$MARKER_DIR/stop-hook-probe-fired"
 
 if ! mkdir -p "$MARKER_DIR" 2>/dev/null; then

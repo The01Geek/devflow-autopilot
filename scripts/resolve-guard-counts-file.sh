@@ -59,7 +59,7 @@
 # is forced anyway, the glob fallback still matches the guard's run-keyed store.
 #
 # Usage: resolve-guard-counts-file.sh <TMP_DIR> [GITHUB_RUN_ID] [GITHUB_RUN_ATTEMPT]
-#   TMP_DIR             directory to search (the repo's .devflow/tmp — passed
+#   TMP_DIR             directory to search (the repo's .prflow/tmp — passed
 #                        explicitly, never assumed, so this is testable against a
 #                        fixture directory).
 #   GITHUB_RUN_ID        optional; when omitted, read from the environment.

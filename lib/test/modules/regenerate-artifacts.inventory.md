@@ -41,7 +41,7 @@ drifted" premise. What the image must *not* carry is untracked local state: the 
 builder derived top-level entry **names** from `git ls-files` but copied whole
 **directories**, so because `.claude/settings.json` is tracked the entire untracked
 `.claude/` tree entered the image and then every per-assertion copy. Nothing untracked
-can enter now, so the `__pycache__` / `.ruff_cache` / `.devflow/tmp` prunes that
+can enter now, so the `__pycache__` / `.ruff_cache` / `.prflow/tmp` prunes that
 compensated for it are gone with the loop that needed them.
 
 **Past-time snapshot (macOS, 18 cores, a checkout carrying 1.4 GB under

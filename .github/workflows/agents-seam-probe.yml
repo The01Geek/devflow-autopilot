@@ -132,7 +132,7 @@ jobs:
             --model claude-haiku-4-5-20251001
             --effort high
             --permission-mode acceptEdits
-            --allowed-tools "Read,Glob,Grep,LS,Task,Agent,Bash(echo:*),Bash(printf:*),Bash(cat:*),Bash(ls:*),Write(.devflow/tmp/**)"
+            --allowed-tools "Read,Glob,Grep,LS,Task,Agent,Bash(echo:*),Bash(printf:*),Bash(cat:*),Bash(ls:*),Write(.prflow/tmp/**)"
             --agents '{"seam-probe-agent":{"description":"Cloud seam probe subagent (issue #610). Reports a distinctive seam marker line and its own reasoning effort.","prompt":"You are the seam-probe subagent. Your ENTIRE final response MUST be exactly one line and nothing else: SEAM_PROBE_FORWARDED_OK SEAM_PROBE_EFFORT=<E> where <E> is the reasoning-effort level you are actually operating at (one of low, medium, high, xhigh, max). Report the effort you observe yourself running at, not a guess. Do not add any other text.","effort":"low"}}'
 
       # Deterministic verdict via the unit-tested helper (execution-file only; the

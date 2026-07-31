@@ -95,9 +95,9 @@ fi
 #   --overrides <path>          overrides.json (alias lookup + per-category cap comparand)
 #   --status <status>           the pattern's lifecycle status (regressed bypass)
 #   --filed-this-run <n>        issues filed so far this run (across all patterns)
-#   --max-per-run <n>           .devflow_retrospective.max_issues_per_run
-#   --max-per-cat <n>           .devflow_retrospective.max_open_per_category
-#   --max-open <n>              .devflow_retrospective.max_open_issues
+#   --max-per-run <n>           .prflow_retrospective.max_issues_per_run
+#   --max-per-cat <n>           .prflow_retrospective.max_open_per_category
+#   --max-open <n>              .prflow_retrospective.max_open_issues
 #   --withheld-file <path>      optional: JSON array of {tag, cap}, one per cap withhold
 #   --dropped-file <path>       optional: JSON array carrying one
 #                               {category, total, kept, dropped} object when the

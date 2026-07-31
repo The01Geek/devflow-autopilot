@@ -1,6 +1,6 @@
 name: 'Set up project runtime (Python / Node / PHP / services / deps)'
 description: |
-  Provision the GitHub Actions runner from `.devflow/config.json`'s `setup`
+  Provision the GitHub Actions runner from `.prflow/config.json`'s `setup`
   block BEFORE Claude runs, rather than hardcoding the toolchain (see that file
   / docs/cloud-setup.md for the rationale). In order: optional Python, Node
   (with npm/yarn/pnpm download caching when a lockfile is present), and PHP;
@@ -23,7 +23,7 @@ description: |
 
 inputs:
   config_json:
-    description: '.devflow/config.json contents, as emitted by the read-project-config action (steps.<id>.outputs.json). The automated reviewer (devflow-runner.yml, provision_env path) instead passes the TRUSTED base-ref config it reads directly via git show + `jq -c` — a different provenance but the same shape (a JSON object with a `.setup` block), so this action consumes it identically.'
+    description: '.prflow/config.json contents, as emitted by the read-project-config action (steps.<id>.outputs.json). The automated reviewer (devflow-runner.yml, provision_env path) instead passes the TRUSTED base-ref config it reads directly via git show + `jq -c` — a different provenance but the same shape (a JSON object with a `.setup` block), so this action consumes it identically.'
     required: true
 
 outputs:

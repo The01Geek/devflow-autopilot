@@ -106,7 +106,7 @@ case "$PR_NUMBER" in
 esac
 
 # S3's emptiness discriminator SILENTLY DEPENDS on this: `--marker` short-circuits
-# `_workpad_marker` before the `.devflow/config.json` read, and that read can breadcrumb
+# `_workpad_marker` before the `.prflow/config.json` read, and that read can breadcrumb
 # to stderr. An empty MARKER would let the breadcrumb land in $ERRF on a genuine clean
 # absence, so S3 would read the first write as an interpreter-level exit and route it to
 # SKIP api-error-id-failed — fail-closed, but the live comment is lost with no explanation. Guard

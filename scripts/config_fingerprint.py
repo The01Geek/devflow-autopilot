@@ -5,7 +5,7 @@
 
 The single source of truth for the `config_fingerprint` object. Imported by
 `scripts/build-experiment-records.py` (the reader, resolving a record predating
-the field from `git show <merge_sha>:.devflow/config.json`) AND invoked as a CLI
+the field from `git show <merge_sha>:.prflow/config.json`) AND invoked as a CLI
 by `lib/efficiency-trace.sh`'s `compute_config_fingerprint` (the producer,
 stamping the field into each per-run record). Both paths therefore share ONE
 implementation, so a record-sourced and a git-show-sourced fingerprint are
@@ -24,21 +24,21 @@ import sys
 # Salient key-value pairs carried VERBATIM into the fingerprint, in this fixed
 # order (the insertion order is part of the byte-identical contract): (block, key).
 SALIENT_KEYS = (
-    ("devflow_review", "verdict_severity_threshold"),
-    ("devflow_review_and_fix", "fix_severity_threshold"),
-    ("devflow_review_and_fix", "max_iterations"),
+    ("prflow_review", "verdict_severity_threshold"),
+    ("prflow_review_and_fix", "fix_severity_threshold"),
+    ("prflow_review_and_fix", "max_iterations"),
 )
 
 
 def fingerprint_from_config(cfg):
     """Return the fingerprint object {sha256, partial, salient} for a parsed config
     dict, or None when neither review block exists. Canonicalization: only
-    object-typed devflow_review / devflow_review_and_fix blocks contribute; keys
+    object-typed prflow_review / prflow_review_and_fix blocks contribute; keys
     sorted and separators compact so it is stable across key order / whitespace;
     `partial` records that the hash covers fewer than both blocks."""
     if not isinstance(cfg, dict):
         return None
-    blocks = {k: cfg[k] for k in ("devflow_review", "devflow_review_and_fix")
+    blocks = {k: cfg[k] for k in ("prflow_review", "prflow_review_and_fix")
               if isinstance(cfg.get(k), dict)}
     if not blocks:
         return None

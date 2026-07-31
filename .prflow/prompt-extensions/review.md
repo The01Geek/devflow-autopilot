@@ -3,7 +3,7 @@
 This repository is the DevFlow plugin itself. The base `/prflow:review` engine gates stand
 unchanged — this extension **adds** one repo-specific review-gate criterion (the prompt-surface
 edit routing evidence gate) that the standalone review must enforce. It is the byte-identical
-twin of the same criterion in `.devflow/prompt-extensions/review-and-fix.md`; each skill loads
+twin of the same criterion in `.prflow/prompt-extensions/review-and-fix.md`; each skill loads
 only its own extension name, so the criterion ships as two pinned-identical copies rather than
 one shared file. Edit both copies in the same change.
 
@@ -28,11 +28,11 @@ and one category from this closed set: `helper-contract`, `schema-config-vocabul
 
 DevFlow-repo policy: a reviewed diff that touches a **prompt-surface** file must carry evidence
 that its edit went through the `superpowers:writing-skills` RED/GREEN discipline (see
-`.devflow/prompt-extensions/implement.md`'s "Prompt-surface edit routing" rule). This gate is
+`.prflow/prompt-extensions/implement.md`'s "Prompt-surface edit routing" rule). This gate is
 the review-time backstop for that routing — flag a missing discharge as at least **Important**.
 
 **Trigger.** This gate applies only when the reviewed diff touches a path matching one of the
-trigger globs: `skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/implement/references/*.md`, `skills/review/phases/*.md`, `skills/review-and-fix/references/*.md`, `.devflow/prompt-extensions/*.md`.
+trigger globs: `skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/implement/references/*.md`, `skills/review/phases/*.md`, `skills/review-and-fix/references/*.md`, `.prflow/prompt-extensions/*.md`.
 A diff touching none of them draws no finding.
 
 **Enforcement surfaces.** The gate is enforced on: an implement run's **Phase 3** (which holds
@@ -63,7 +63,7 @@ all read as absent).
 
 ## Verification-evidence marker advisory (tier-scoped, non-blocking)
 
-DevFlow-repo policy: a second marker gate on the **same shared review-engine surface** as the `Writing-skills evidence:` gate above — the gate that already reads the linked issue's workpad and the PR description. It adds a **tier-scoped advisory** for the `Verification evidence:` marker that local/interactive `/prflow:implement`, `/prflow:review-and-fix`, and direct-reception passes record (per `.devflow/prompt-extensions/implement.md`, `review-and-fix.md`, and `receiving-code-review.md`). Unlike the `Writing-skills evidence:` gate, this clause is **advisory (non-blocking)**: it never raises the review verdict to a FAIL/REJECT on its own — it only informs the reader that a completion/PR-ready claim was made with no captured verification run.
+DevFlow-repo policy: a second marker gate on the **same shared review-engine surface** as the `Writing-skills evidence:` gate above — the gate that already reads the linked issue's workpad and the PR description. It adds a **tier-scoped advisory** for the `Verification evidence:` marker that local/interactive `/prflow:implement`, `/prflow:review-and-fix`, and direct-reception passes record (per `.prflow/prompt-extensions/implement.md`, `review-and-fix.md`, and `receiving-code-review.md`). Unlike the `Writing-skills evidence:` gate, this clause is **advisory (non-blocking)**: it never raises the review verdict to a FAIL/REJECT on its own — it only informs the reader that a completion/PR-ready claim was made with no captured verification run.
 
 **Input population (stated explicitly).** The clause reads the two durable per-PR surfaces the `Verification evidence:` marker is recorded on — the **linked issue's workpad** and the **PR description** — the same surfaces the `Writing-skills evidence:` gate already fetches (the workpad via `lib/fetch-pr-context.sh` from the linked issue thread; no new fetch channel is required). The marker is recorded on the **local/interactive tier only** (cloud runs verify in-env under issue #405 and carry no capture obligation), so the clause must classify each PR by tier and act only on local/interactive ones — otherwise it is a guard that reads as armed and can never fire.
 

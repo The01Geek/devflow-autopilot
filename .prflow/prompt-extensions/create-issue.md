@@ -10,7 +10,7 @@ yet.
 
 **Produce the map before any mechanism prose exists** — not alongside it, and not to justify a design
 you have already chosen. Write an **Interaction-surface map** block into this run's derivation
-artifact (`.devflow/tmp/issue-derivation-<slug>.md`, which the Step 2 gate already requires; in a
+artifact (`.prflow/tmp/issue-derivation-<slug>.md`, which the Step 2 gate already requires; in a
 read-only sandbox it goes in the same visible chat block that stands in for that file). The block has
 four parts, in this order. Every entry is a **`Verified:` bullet quoting the sentence from the file
 verbatim, with its location** — the repo's existing cited-evidence convention, applied to contract
@@ -66,11 +66,11 @@ other load-bearing premise. Silence on an axis your mechanism touches is not "no
 is an unexamined premise.
 
 1. **Consumer-repo shape.** A consumer's checkout has the plugin vendored under
-   `.devflow/vendor/devflow/` and **no repo-root `scripts/`** — a workflow step invoking
+   `.prflow/vendor/prflow/` and **no repo-root `scripts/`** — a workflow step invoking
    `scripts/foo.sh` is rc 127 in every consumer run (#502). Ask which paths your mechanism reads
-   that exist only here (`lib/test/run.sh`, `.changeset/`, this repo's own `.devflow/config.json`),
+   that exist only here (`lib/test/run.sh`, `.changeset/`, this repo's own `.prflow/config.json`),
    and which **artifact ships each half** of it: workflows reach consumers by `install.sh`'s
-   file-copy loop, skills by the `devflow_version` vendor fetch. Those are two independently
+   file-copy loop, skills by the `prflow_version` vendor fetch. Those are two independently
    upgraded artifacts, so a mechanism split across both must say what happens when only one side
    lands — a skew that silently re-denies a grant is the #455 failure, not a hypothetical.
 2. **OS, shell, and binaries.** macOS/BSD without GNU coreutils (no `grep -P`, no `date -d`,
@@ -174,13 +174,13 @@ subagent. Judge the draft against each of these, in addition to the generic dime
   **preflight-guaranteed helper contract** (only `git`/`gh`/`jq`/`python3`/PyYAML are guaranteed; a
   resolver's output shape, a gate's exit-code semantics) that the body never asserts as a claim; and — the cross-cutting obligation-arm check on shapes (1)
   and (3), not an additional defect class — (4) an **execution-shaped obligation AC** whose discharge runs an in-repo command — confirm it
-  names a command already granted in **`devflow_implement.allowed_tools`** (or is a code-reading
+  names a command already granted in **`prflow_implement.allowed_tools`** (or is a code-reading
   obligation citing the producer), never one that would send a consumer's cloud implement run
   Blocked on an ungranted helper — and walk each such obligation
   **as the pre-merge implementing run resolves it**, operand by operand, classifying each
   operand by the Grant-timing bootstrap axis's channel rule — the Grant-timing bootstrap
   bullet in the Evidence-axes section of
-  `.devflow/prompt-extensions/create-issue.md`, that file's single statement of which state is
+  `.prflow/prompt-extensions/create-issue.md`, that file's single statement of which state is
   trigger-time-resolved vs runtime-live (read it there; do not restate it): flag an obligation
   whose discharge needs trigger-time-resolved state the same PR ships (in-PR-inert, #593) — it
   must be rewritten per that same bullet's rewrite arms (read them there; this dimension does not
@@ -192,7 +192,7 @@ subagent. Judge the draft against each of these, in addition to the generic dime
 - **Deployment-variance silence.** A draft amending a *shipped* surface (`skills/`, `agents/`,
   `scripts/`, `lib/`, workflows, config schema, `install.sh`) rests on four axes of variance the
   drafting environment hides: **consumer-repo shape** (no repo-root `scripts/`, the vendored path,
-  the `install.sh`-vs-`devflow_version` two-artifact skew — #502/#455), **OS/shell/binaries**
+  the `install.sh`-vs-`prflow_version` two-artifact skew — #502/#455), **OS/shell/binaries**
   (BSD without GNU coreutils, Windows path forms and `.sh`-exec failure, `DEVFLOW_BASH`, the
   `resolve-*.sh` family — #275/#248), **tier** (local classifier denials; the review and implement
   allowlists as *separate* probed surfaces where an ungranted head yields no output at all; headless
@@ -228,7 +228,7 @@ the Interaction-surface map part 2 call-site reads (each consumer named with the
 that reads it) **plus an executed repo-wide whitespace-normalized sweep** for the amended sentence
 or value, the command and its hit list recorded in the entry. The read leg means reads in the
 part-2 *form* — the form defined in the Interaction-surface map section of
-`.devflow/prompt-extensions/create-issue.md`, part 2 (read the form there rather than restating
+`.prflow/prompt-extensions/create-issue.md`, part 2 (read the form there rather than restating
 it) — produced at this floor when the Interaction-surface map did not fire for the mechanism (the
 map fires only on engine-decision surfaces, while this floor fires on any amended contract
 sentence or value, a wider population). The sweep catches the mirror sites the reads missed; the
@@ -251,7 +251,7 @@ Record a bundle entry for each of these, in addition to the generic axes:
   allowlists (a shape proven on one tier is unproven on the other, #363/#455). Record which
   profiles run the changed surface and whether each invoked head is granted.
 - **Install-channel skew.** Workflows reach consumers by `install.sh`'s file-copy loop while
-  skills reach them by the `devflow_version` vendor fetch — two independently-upgraded artifacts
+  skills reach them by the `prflow_version` vendor fetch — two independently-upgraded artifacts
   (#455/#502). Record which artifact ships each half of the change and what happens when only one
   side lands.
 - **Workpad and retrospective lifecycle surfaces.** The issue workpad's status/reflection
@@ -263,8 +263,8 @@ Record a bundle entry for each of these, in addition to the generic axes:
   change adds, moves, or must keep byte-identical (enumerated with a whitespace-normalized search).
   This sweep is repo-wide: enumeration covers the whole tracked tree for every contract sentence the draft amends, and a directory-scoped sweep does not discharge enumeration.
 - **Grant-timing bootstrap.** Record whether any proposed in-run obligation, probe, or verification command
-  relies on a **trigger-time-resolved** `.devflow/config.json` change the same PR ships — a tool grant in
-  `devflow_implement.allowed_tools` or `devflow.allowed_tools`, a `devflow_version` bump, or any other key
+  relies on a **trigger-time-resolved** `.prflow/config.json` change the same PR ships — a tool grant in
+  `prflow_implement.allowed_tools` or `devflow.allowed_tools`, a `prflow_version` bump, or any other key
   the workflow `config` job resolves at trigger time from the default branch (`devflow-implement.yml`'s
   `config` job checks out the default-branch tip and reads config from it, so a grant a PR ships is inert
   for that PR's own implementing run — post-merge-only). Keys skills read at runtime through `config-get.sh`

@@ -6,8 +6,8 @@ kind: growth
 ## Files
 
 - `CLAUDE.md`
-- `.devflow/prompt-extensions/implement.md`
-- `.devflow/prompt-extensions/review-and-fix.md`
+- `.prflow/prompt-extensions/implement.md`
+- `.prflow/prompt-extensions/review-and-fix.md`
 - `skills/review/SKILL.md`
 
 ## Justification

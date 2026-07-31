@@ -34,7 +34,7 @@ Subcommands:
                 invalidations (lease expiry -> incomplete, checkout drift -> stale)
                 and persists them.
 
-State lives under .devflow/tmp/verification-flights/ (directory mode 0700,
+State lives under .prflow/tmp/verification-flights/ (directory mode 0700,
 file mode 0600), published atomically (O_CREAT|O_EXCL create for the single-owner
 guarantee; temp + os.replace for updates), and is durable only within the current
 checkout.
@@ -61,8 +61,8 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 DEFAULT_LEASE_SECONDS = 900  # bounded owner-token lease on a `claimed` handle
-STATE_DIRNAME = os.path.join(".devflow", "tmp", "verification-flights")
-LOGS_DIRNAME = os.path.join(".devflow", "logs", "verification-flight")
+STATE_DIRNAME = os.path.join(".prflow", "tmp", "verification-flights")
+LOGS_DIRNAME = os.path.join(".prflow", "logs", "verification-flight")
 
 # The exact, exhaustive state set (issue #528 AC). Only `passed` (with complete,
 # matching input + command bindings) satisfies verification.
@@ -430,7 +430,7 @@ def _read_flight(path: Path) -> dict:
 # Telemetry (best-effort, local, hermetic)
 # ─────────────────────────────────────────────────────────────────────────────
 def _emit_telemetry(logs_dir: str | None, event: str, payload: dict) -> bool:
-    """Append a per-event JSON record under .devflow/logs/verification-flight/.
+    """Append a per-event JSON record under .prflow/logs/verification-flight/.
 
     Best-effort and hermetic: a stale/incomplete handle is never recorded as
     saved work. The honesty property rides on `flight_attached`'s own
@@ -1050,7 +1050,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True, parser_class=_FlightArgumentParser)
 
     def add_common(p):
-        p.add_argument("--state-dir", default=None, help="Override the flight state directory (default: <cwd>/.devflow/tmp/verification-flights).")
+        p.add_argument("--state-dir", default=None, help="Override the flight state directory (default: <cwd>/.prflow/tmp/verification-flights).")
         p.add_argument("--logs-dir", default=None, help="Override the telemetry logs directory.")
 
     p_desc = sub.add_parser("descriptor", help="Print the descriptor digest + flight key for a declaration.")

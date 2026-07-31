@@ -5,7 +5,7 @@
 # vendor-slice.sh — materialize the DevFlow plugin into the workspace
 # ============================================================================
 # The cloud-tier workflows reference plugin helpers at the literal workspace
-# path `.devflow/vendor/devflow/…`. This script puts the plugin there at RUNTIME
+# path `.prflow/vendor/prflow/…`. This script puts the plugin there at RUNTIME
 # so the tree no longer has to be committed into a consumer repo. It is the ONE
 # definition of "which files are the plugin" — install.sh sources it for the
 # shared `devflow_copy_slice` function (see DEVFLOW_VENDOR_SOURCE below), and the
@@ -13,7 +13,7 @@
 #
 # Executed (the composite action), it follows a single deterministic algorithm.
 # Only the committed branch is a no-op; the self and fetch branches both copy:
-#   1. committed  — `.devflow/vendor/devflow/scripts` already in the checkout → use it (no-op).
+#   1. committed  — `.prflow/vendor/prflow/scripts` already in the checkout → use it (no-op).
 #   2. self       — the plugin lives at the checkout root (this source repo)    → copy it in.
 #   3. fetch      — neither                                                      → clone DEVFLOW_REF and copy it in.
 # The fetch branch refuses to run without a pinned ref, so a thin consumer never
@@ -21,12 +21,12 @@
 #
 # Environment (all optional unless noted):
 #   DEVFLOW_REF        git ref to fetch (REQUIRED on the fetch branch); a branch,
-#                      tag, or commit SHA. Sourced from .devflow/config.json
-#                      `devflow_version` by the workflows.
+#                      tag, or commit SHA. Sourced from .prflow/config.json
+#                      `prflow_version` by the workflows.
 #   DEVFLOW_REPO       owner/name to fetch from (default The01Geek/prflow).
 #   DEVFLOW_REPO_URL   full clone URL (default https://github.com/$DEVFLOW_REPO.git);
 #                      overridable so tests can clone a local fixture offline.
-#   DEVFLOW_DEST       destination dir (default .devflow/vendor/devflow); overridable for tests.
+#   DEVFLOW_DEST       destination dir (default .prflow/vendor/prflow); overridable for tests.
 #   DEVFLOW_VENDOR_SOURCE=1  define functions and return WITHOUT running — for `source`rs.
 # ============================================================================
 set -euo pipefail
@@ -72,12 +72,12 @@ devflow_copy_slice() {
   rm -rf "$stage"
   mkdir -p "$stage"
   cp -R "$src/.claude-plugin" "$src/agents" "$src/docs" "$src/lib" "$src/scripts" "$src/skills" "$src/LICENSES" "$stage/"
-  # Only the committed templates/registry — not the whole .devflow/ tree (which
+  # Only the committed templates/registry — not the whole .prflow/ tree (which
   # would drag in learnings/ and a possibly-dirty config.json).
-  mkdir -p "$stage/.devflow"
-  cp "$src/.devflow/config.example.json" "$src/.devflow/config.schema.json" \
-     "$src/.devflow/tool-presets.json" \
-     "$stage/.devflow/"
+  mkdir -p "$stage/.prflow"
+  cp "$src/.prflow/config.example.json" "$src/.prflow/config.schema.json" \
+     "$src/.prflow/tool-presets.json" \
+     "$stage/.prflow/"
   # The vendored copy is a plugin, not a marketplace — keep only plugin.json.
   rm -f "$stage/.claude-plugin/marketplace.json"
   find "$stage" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
@@ -100,9 +100,9 @@ devflow_copy_slice() {
   rm -rf "$stage/docs/site" "$stage/lib/test"
   # Sanity floor before the swap: the load-bearing members must have landed.
   if [ ! -d "$stage/scripts" ] || [ ! -f "$stage/.claude-plugin/plugin.json" ] \
-     || [ ! -f "$stage/.devflow/config.schema.json" ] || [ ! -d "$stage/LICENSES" ]; then
+     || [ ! -f "$stage/.prflow/config.schema.json" ] || [ ! -d "$stage/LICENSES" ]; then
     rm -rf "$stage"
-    devflow_vendor_die "incomplete plugin slice copied from $src (missing scripts/, plugin.json, .devflow templates, or LICENSES/) — refusing to install a partial copy."
+    devflow_vendor_die "incomplete plugin slice copied from $src (missing scripts/, plugin.json, .prflow templates, or LICENSES/) — refusing to install a partial copy."
   fi
   rm -rf "$dest"
   mkdir -p "$(dirname "$dest")"
@@ -110,7 +110,7 @@ devflow_copy_slice() {
 }
 
 devflow_vendor_main() {
-  local dest="${DEVFLOW_DEST:-.devflow/vendor/devflow}"
+  local dest="${DEVFLOW_DEST:-.prflow/vendor/prflow}"
 
   # 1. committed branch — a consumer that committed the plugin (self-hosting).
   if [ -d "$dest/scripts" ]; then
@@ -138,7 +138,7 @@ devflow_vendor_main() {
 
   # 3. fetch branch — a thin consumer; clone the pinned ref and copy it in.
   [ -n "${DEVFLOW_REF:-}" ] || devflow_vendor_die \
-    "no plugin in the checkout and DEVFLOW_REF (config devflow_version) is unset — refusing to track mutable main. Set .devflow/config.json devflow_version to a tag, branch, or commit SHA."
+    "no plugin in the checkout and DEVFLOW_REF (config prflow_version) is unset — refusing to track mutable main. Set .prflow/config.json prflow_version to a tag, branch, or commit SHA."
   local repo url tmp
   repo="${DEVFLOW_REPO:-The01Geek/prflow}"
   url="${DEVFLOW_REPO_URL:-https://github.com/${repo}.git}"

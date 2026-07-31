@@ -10,7 +10,7 @@ maintainer-chosen **self-apply** standing remedy. That remedy must be encoded on
 fix loop actually loads, and mirrored in the always-loaded project memory, so two mandatory census
 rows grow:
 
-- `.devflow/prompt-extensions/review-and-fix.md` (+1,307 bytes / +173 words) — gains the
+- `.prflow/prompt-extensions/review-and-fix.md` (+1,307 bytes / +173 words) — gains the
   `## Review-bundle ceiling self-apply (issue #618)` section: the authorization for a
   `/prflow:review-and-fix` run to self-apply the escape-valve procedure on a growth breach, the
   `measured + 60` / four-mirror mechanic, the direct-`CLAUDE.md`-edit carve-out (a this-repo-scoped
@@ -42,7 +42,7 @@ whenever a fix loop hits that RED, which is not a rare-path condition.
 
 ## Budget renegotiation (review-and-fix initial load and max active step)
 
-`.devflow/prompt-extensions/review-and-fix.md` was sitting **~4 words** below its documented
+`.prflow/prompt-extensions/review-and-fix.md` was sitting **~4 words** below its documented
 initial-load ceiling — root 3,213 + extension 2,473 = 5,686 words against a 5,690 ceiling — so the
 mandated section could not fit under it at any phrasing. The section was written to its operative
 minimum (the authorization, the `+60`/four-mirror mechanic, the direct-edit carve-out, the

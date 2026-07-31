@@ -12,11 +12,11 @@ If there is output, warn: "You have uncommitted changes that will not be include
 
 **#504 displaced-path attribution.** If the run's engine-ground-truth block lists displaced paths, attribute any such path's `git status --porcelain` output — content delta, mode-only delta (the `chmod +x` floor flips `100644`→`100755` on every closure member tracked non-executable, every run, even when the PR touches none of them), OR untracked delta (a protected prompt-extension name the checkout never carried is *created* empty by the workflow's truncation step, so the path is reported as `??` rather than ` M`) — to the **trusted-source displacement** the block describes: expected displacement, NOT a PR defect or an uncommitted change to flag. The published list has **two producers** — the Stop-hook trusted-source floor (issue #458) and the prompt-extension truncation (issue #874) — so key the attribution on membership in the published list, never on which producer displaced a path.
 
-**Match a porcelain path against the list by prefix, not by equality.** The list publishes **leaf file** paths, but `git status --porcelain` **collapses a wholly-untracked directory to the directory alone** — a consumer that tracks nothing under `.devflow/prompt-extensions/` reports `?? .devflow/prompt-extensions/`, and one tracking nothing under `.devflow/` reports `?? .devflow/`; neither leaf path appears. An equality-only predicate therefore matches nothing on exactly the consumer shape the untracked clause was added for, and the warning fires on every such review run. So attribute a porcelain path when it **is** a displaced path **or is a directory prefix of one**. All three delta kinds take that attribution, so an untracked displaced path draws no warning either. Remaining paths keep the warning sentence above verbatim. With no displaced list (local tier, manual `devflow.yml` path, consumer skip) all paths keep today's warning.
+**Match a porcelain path against the list by prefix, not by equality.** The list publishes **leaf file** paths, but `git status --porcelain` **collapses a wholly-untracked directory to the directory alone** — a consumer that tracks nothing under `.prflow/prompt-extensions/` reports `?? .prflow/prompt-extensions/`, and one tracking nothing under `.prflow/` reports `?? .prflow/`; neither leaf path appears. An equality-only predicate therefore matches nothing on exactly the consumer shape the untracked clause was added for, and the warning fires on every such review run. So attribute a porcelain path when it **is** a displaced path **or is a directory prefix of one**. All three delta kinds take that attribution, so an untracked displaced path draws no warning either. Remaining paths keep the warning sentence above verbatim. With no displaced list (local tier, manual `devflow.yml` path, consumer skip) all paths keep today's warning.
 
 ### 0.1.5 Persist the displaced-path list (compaction survival)
 
-The engine-ground-truth block prepended to this run (rendered by `scripts/render-grounding-block.sh`) carries a displaced-paths section (section 5) ONLY when the workflow published a non-empty `HARDENED_PATHS` this run. Read that section and write the listed repo-relative paths to `.devflow/tmp/displaced-paths.txt` via the **Write tool** (one path per line; write an empty file when there is no such section — `Write(.devflow/tmp/**)` is already granted on the review tier). Phase 2.1a/2.1b, Phase-3 dispatch, and Phase 4.1.6 re-read this file to know which paths route their HEAD verification through `git show`, so a compacted long run keeps the routing at the far end where the sweep executes. A missing or empty file degrades to today's behavior (no displaced list → no routing, no attribution), never to a guess.
+The engine-ground-truth block prepended to this run (rendered by `scripts/render-grounding-block.sh`) carries a displaced-paths section (section 5) ONLY when the workflow published a non-empty `HARDENED_PATHS` this run. Read that section and write the listed repo-relative paths to `.prflow/tmp/displaced-paths.txt` via the **Write tool** (one path per line; write an empty file when there is no such section — `Write(.prflow/tmp/**)` is already granted on the review tier). Phase 2.1a/2.1b, Phase-3 dispatch, and Phase 4.1.6 re-read this file to know which paths route their HEAD verification through `git show`, so a compacted long run keeps the routing at the far end where the sweep executes. A missing or empty file degrades to today's behavior (no displaced list → no routing, no attribution), never to a guess.
 
 ### 0.2 Determine diff scope and cache the diff
 
@@ -68,7 +68,7 @@ if git fetch origin "+refs/heads/$PR_BASE_BRANCH:refs/remotes/origin/$PR_BASE_BR
       :
     else
       MERGE_BASE_RC=$?
-      rm -f .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .devflow/tmp/review/<slug>/<run-id>/diff.candidate .devflow/tmp/review/<slug>/<run-id>/diff.patch
+      rm -f .prflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .prflow/tmp/review/<slug>/<run-id>/diff.candidate .prflow/tmp/review/<slug>/<run-id>/diff.patch
       echo "::error::devflow review: base remains unreachable after unshallow retry (rc=$MERGE_BASE_RC); no review cache was published" >&2
       exit "$MERGE_BASE_RC"
     fi
@@ -76,13 +76,13 @@ if git fetch origin "+refs/heads/$PR_BASE_BRANCH:refs/remotes/origin/$PR_BASE_BR
 else
   FETCH_RC=$?
   if git ls-remote --exit-code --heads origin "refs/heads/$PR_BASE_BRANCH" >/dev/null; then
-    rm -f .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .devflow/tmp/review/<slug>/<run-id>/diff.candidate .devflow/tmp/review/<slug>/<run-id>/diff.patch
+    rm -f .prflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .prflow/tmp/review/<slug>/<run-id>/diff.candidate .prflow/tmp/review/<slug>/<run-id>/diff.patch
     echo "::error::devflow review: PR base ref '$PR_BASE_BRANCH' still exists but its explicit-refspec fetch failed (rc=$FETCH_RC); refusing the stale retained-SHA fallback" >&2
     exit "$FETCH_RC"
   else
     REF_PROBE_RC=$?
     if [ "$REF_PROBE_RC" -ne 2 ]; then
-      rm -f .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .devflow/tmp/review/<slug>/<run-id>/diff.candidate .devflow/tmp/review/<slug>/<run-id>/diff.patch
+      rm -f .prflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .prflow/tmp/review/<slug>/<run-id>/diff.candidate .prflow/tmp/review/<slug>/<run-id>/diff.patch
       echo "::error::devflow review: could not confirm whether PR base ref '$PR_BASE_BRANCH' was deleted (git ls-remote rc=$REF_PROBE_RC; fetch rc=$FETCH_RC); refusing the stale retained-SHA fallback" >&2
       exit "$FETCH_RC"
     fi
@@ -92,7 +92,7 @@ else
       :
     else
       MERGE_BASE_RC=$?
-      rm -f .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .devflow/tmp/review/<slug>/<run-id>/diff.candidate .devflow/tmp/review/<slug>/<run-id>/diff.patch
+      rm -f .prflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .prflow/tmp/review/<slug>/<run-id>/diff.candidate .prflow/tmp/review/<slug>/<run-id>/diff.patch
       echo "::error::devflow review: retained base SHA is unreachable (rc=$MERGE_BASE_RC); no review cache was published" >&2
       exit "$MERGE_BASE_RC"
     fi
@@ -108,7 +108,7 @@ The deleted-base fallback is **leak-equivalent to the pre-fix binding** when the
 
 **Fail-closed at the producer (before the cache write).** Both local-diff paths — head override and current branch — stage raw and filtered candidates, then check a separate promotion write to `diff.patch` before checking the published cache can also be emitted to stdout. A producer, filter, promotion (including a partial write then nonzero), or stdout failure records its rc, removes every candidate and any prior `diff.patch`, and stops — an empty or stale cache must never reach the Phase 1–3 agents as "nothing to flag" and yield `APPROVE`. If the runner is terminated mid-command no downstream phase runs; a retry re-enters Phase 0.2, removes any prior cache before production, and republishes before Phase 1 reads. The wrapping `/prflow:implement` run records an observed stop as **Blocked**; a standalone run stops and reports it. (Phase 0.6's degraded note does **not** gate the agents' verdict, so the guard must sit here, before publication.)
 
-**Caller run-id (run-scoped scratch).** This run's scratch under `.devflow/tmp/review/<slug>/` nests one level deeper under a per-run `<run-id>` so concurrent or repeated reviews of the same PR never clobber each other. Resolve `<run-id>` **once** at the start of Phase 0.2 and hold the literal for the whole run:
+**Caller run-id (run-scoped scratch).** This run's scratch under `.prflow/tmp/review/<slug>/` nests one level deeper under a per-run `<run-id>` so concurrent or repeated reviews of the same PR never clobber each other. Resolve `<run-id>` **once** at the start of Phase 0.2 and hold the literal for the whole run:
 
 - A wrapping skill (currently `/prflow:review-and-fix`) may pass `run_id = <value>` — its own loop-start `RUN_ID`. When provided, use it verbatim so the engine's `diff.patch` lands in the *same* run directory as the wrapper's `iter-*.json` / `deferrals.json`.
 - When absent (standalone `/prflow:review`), compute it with the **same derivation the progress-comment marker uses** — `${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1}` — and reuse that held literal everywhere (never recompute; on a local run the timestamp would otherwise drift between phases and scatter the scratch across directories).
@@ -128,68 +128,68 @@ For the checked cache producer below, render `<resolved-local-diff-base>` before
 
 If the diff is empty, report: "No changes to review. Branch is identical to $BASE." and stop.
 
-**Cache the diff to disk.** Write the diff fetched above to `.devflow/tmp/review/<slug>/<run-id>/diff.patch` — **fetch once, do not re-run `gh pr diff` / `git diff`**. Compute `<slug>`:
+**Cache the diff to disk.** Write the diff fetched above to `.prflow/tmp/review/<slug>/<run-id>/diff.patch` — **fetch once, do not re-run `gh pr diff` / `git diff`**. Compute `<slug>`:
 
 - **PR mode:** `pr-<N>` where `<N>` is the parsed `$PR_NUMBER`.
 - **Current-branch mode:** the current branch name sanitized for filesystem use — replace `/` with `-`, lowercase, drop any character that isn't `[a-z0-9._-]`. (Matches the workpad slug convention `/prflow:review-and-fix` already uses.)
 
 and `<run-id>` per "Caller run-id" above (caller-provided when wrapped, else computed once here).
 
-Combine the fetch with the cache write in one shot using `tee` so the diff is captured exactly once and stdout stays available for Phase 1. **Filter `.devflow/logs/**` hunks out as the diff streams to disk** — interpose an `awk` stage between fetch and `tee` so the cached `diff.patch` (and the stdout Phase 1 consumes) never contains a telemetry-log hunk:
+Combine the fetch with the cache write in one shot using `tee` so the diff is captured exactly once and stdout stays available for Phase 1. **Filter `.prflow/logs/**` hunks out as the diff streams to disk** — interpose an `awk` stage between fetch and `tee` so the cached `diff.patch` (and the stdout Phase 1 consumes) never contains a telemetry-log hunk:
 
 ```bash
-mkdir -p .devflow/tmp/review/<slug>/<run-id>
-gh pr diff $PR_NUMBER | awk '/^diff --git/{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
+mkdir -p .prflow/tmp/review/<slug>/<run-id>
+gh pr diff $PR_NUMBER | awk '/^diff --git/{in_logs=/ [ab]\/\.prflow\/logs\//} !in_logs' | tee .prflow/tmp/review/<slug>/<run-id>/diff.patch
 # or, in current-branch mode ($BASE from the guarded config-get capture above):
-# git diff "origin/$BASE...HEAD" | awk '/^diff --git/{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
+# git diff "origin/$BASE...HEAD" | awk '/^diff --git/{in_logs=/ [ab]\/\.prflow\/logs\//} !in_logs' | tee .prflow/tmp/review/<slug>/<run-id>/diff.patch
 # In either local-diff mode, use this checked candidate/promote form.
 # Render <resolved-local-diff-base> as the selected HEAD_OVERRIDE_BASE
 # (PR head override) or origin/$BASE (current branch). Remove stale authority first.
-rm -f .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .devflow/tmp/review/<slug>/<run-id>/diff.candidate .devflow/tmp/review/<slug>/<run-id>/diff.patch
-if git diff "<resolved-local-diff-base>...HEAD" > .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate; then
-  if awk '/^diff --git/{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate > .devflow/tmp/review/<slug>/<run-id>/diff.candidate; then
-    if sed -n 'p' .devflow/tmp/review/<slug>/<run-id>/diff.candidate > .devflow/tmp/review/<slug>/<run-id>/diff.patch; then
-      if cat .devflow/tmp/review/<slug>/<run-id>/diff.patch; then
-        rm -f .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .devflow/tmp/review/<slug>/<run-id>/diff.candidate
+rm -f .prflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .prflow/tmp/review/<slug>/<run-id>/diff.candidate .prflow/tmp/review/<slug>/<run-id>/diff.patch
+if git diff "<resolved-local-diff-base>...HEAD" > .prflow/tmp/review/<slug>/<run-id>/diff.raw-candidate; then
+  if awk '/^diff --git/{in_logs=/ [ab]\/\.prflow\/logs\//} !in_logs' .prflow/tmp/review/<slug>/<run-id>/diff.raw-candidate > .prflow/tmp/review/<slug>/<run-id>/diff.candidate; then
+    if sed -n 'p' .prflow/tmp/review/<slug>/<run-id>/diff.candidate > .prflow/tmp/review/<slug>/<run-id>/diff.patch; then
+      if cat .prflow/tmp/review/<slug>/<run-id>/diff.patch; then
+        rm -f .prflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .prflow/tmp/review/<slug>/<run-id>/diff.candidate
       else
         CAT_RC=$?
-        rm -f .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .devflow/tmp/review/<slug>/<run-id>/diff.candidate .devflow/tmp/review/<slug>/<run-id>/diff.patch
+        rm -f .prflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .prflow/tmp/review/<slug>/<run-id>/diff.candidate .prflow/tmp/review/<slug>/<run-id>/diff.patch
         echo "::error::devflow review: published diff could not be emitted (rc=$CAT_RC); review cache removed" >&2
         exit "$CAT_RC"
       fi
     else
       PROMOTE_RC=$?
-      rm -f .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .devflow/tmp/review/<slug>/<run-id>/diff.candidate .devflow/tmp/review/<slug>/<run-id>/diff.patch
+      rm -f .prflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .prflow/tmp/review/<slug>/<run-id>/diff.candidate .prflow/tmp/review/<slug>/<run-id>/diff.patch
       echo "::error::devflow review: diff cache promotion failed (rc=$PROMOTE_RC); no review cache was published" >&2
       exit "$PROMOTE_RC"
     fi
   else
     AWK_RC=$?
-    rm -f .devflow/tmp/review/<slug>/<run-id>/diff.candidate .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .devflow/tmp/review/<slug>/<run-id>/diff.patch
+    rm -f .prflow/tmp/review/<slug>/<run-id>/diff.candidate .prflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .prflow/tmp/review/<slug>/<run-id>/diff.patch
     echo "::error::devflow review: head-override diff filter failed (rc=$AWK_RC); no review cache was published" >&2
     exit "$AWK_RC"
   fi
 else
   DIFF_RC=$?
-  rm -f .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .devflow/tmp/review/<slug>/<run-id>/diff.candidate .devflow/tmp/review/<slug>/<run-id>/diff.patch
+  rm -f .prflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .prflow/tmp/review/<slug>/<run-id>/diff.candidate .prflow/tmp/review/<slug>/<run-id>/diff.patch
   echo "::error::devflow review: head-override diff producer failed (rc=$DIFF_RC); no review cache was published" >&2
   exit "$DIFF_RC"
 fi
 ```
 
-**Why the `awk` filter — and why here.** Since issue #441 DevFlow persists durable telemetry to a dedicated **telemetry branch**, never touching the feature branch, so a normal run leaves **no** `.devflow/logs/` hunk in the PR diff and this filter is a no-op. It is **retained as a defensive guard** for a **pre-#441 legacy branch** carrying `chore: persist review-and-fix observability artifacts` commits on the feature branch, or a consumer that commits `.devflow/logs/` there for another reason. Such hunks are **DevFlow telemetry artifacts, not code-review subjects**, yet would appear in the PR diff where Phase 1/2/3 agents flag them as accreting hygiene artifacts. The filter strips them once, at the single cache-write point downstream phases read. The `awk` program sets `in_logs` on each `diff --git` header (true when the path **starts with** `.devflow/logs/` — anchored to the `a/`/`b/` diff-prefix boundary (` [ab]/.devflow/logs/`) so it matches only paths *rooted* there, never one containing the substring) and suppresses every line while `in_logs` holds; the next non-logs header resets it visible. A logs-only diff filters `diff.patch` to empty — the upstream "No changes to review" stop tests the *raw* fetched diff (before this filter) so it does **not** fire here; every downstream phase reads the empty `diff.patch` (Phase 0.3 an empty file list, Phase 3 agents an empty diff), so a telemetry-only PR is correctly reviewed as nothing to flag. A mixed diff keeps its real code hunks in order; the telemetry commits stay on the branch unchanged — only the engine's diff view is filtered. Standalone review uses the read-only profile's granted `gh pr diff`/`git diff`, `awk`, `tee`, `cat`, and `rm` heads. The wrapper-only local head-override path additionally needs git fetch and git ls-remote; only the writable implement/manual profiles reach it and grant those.
+**Why the `awk` filter — and why here.** Since issue #441 DevFlow persists durable telemetry to a dedicated **telemetry branch**, never touching the feature branch, so a normal run leaves **no** `.prflow/logs/` hunk in the PR diff and this filter is a no-op. It is **retained as a defensive guard** for a **pre-#441 legacy branch** carrying `chore: persist review-and-fix observability artifacts` commits on the feature branch, or a consumer that commits `.prflow/logs/` there for another reason. Such hunks are **DevFlow telemetry artifacts, not code-review subjects**, yet would appear in the PR diff where Phase 1/2/3 agents flag them as accreting hygiene artifacts. The filter strips them once, at the single cache-write point downstream phases read. The `awk` program sets `in_logs` on each `diff --git` header (true when the path **starts with** `.prflow/logs/` — anchored to the `a/`/`b/` diff-prefix boundary (` [ab]/.prflow/logs/`) so it matches only paths *rooted* there, never one containing the substring) and suppresses every line while `in_logs` holds; the next non-logs header resets it visible. A logs-only diff filters `diff.patch` to empty — the upstream "No changes to review" stop tests the *raw* fetched diff (before this filter) so it does **not** fire here; every downstream phase reads the empty `diff.patch` (Phase 0.3 an empty file list, Phase 3 agents an empty diff), so a telemetry-only PR is correctly reviewed as nothing to flag. A mixed diff keeps its real code hunks in order; the telemetry commits stay on the branch unchanged — only the engine's diff view is filtered. Standalone review uses the read-only profile's granted `gh pr diff`/`git diff`, `awk`, `tee`, `cat`, and `rm` heads. The wrapper-only local head-override path additionally needs git fetch and git ls-remote; only the writable implement/manual profiles reach it and grant those.
 
-This replaces the bare `gh pr diff` / `git diff` invocation at the top of Phase 0.2 — use the `tee` form instead. Store `<slug>`, `<run-id>`, and the resolved diff path (e.g. `.devflow/tmp/review/pr-863/<run-id>/diff.patch`) so Phase 3 can substitute it into its agent prompts via `{DIFF_PATH}`. Directory creation is harmless if it already exists; the file is overwritten every run *within the same run-id*, never across runs.
+This replaces the bare `gh pr diff` / `git diff` invocation at the top of Phase 0.2 — use the `tee` form instead. Store `<slug>`, `<run-id>`, and the resolved diff path (e.g. `.prflow/tmp/review/pr-863/<run-id>/diff.patch`) so Phase 3 can substitute it into its agent prompts via `{DIFF_PATH}`. Directory creation is harmless if it already exists; the file is overwritten every run *within the same run-id*, never across runs.
 
-**`.devflow/tmp/` should be gitignored** (ephemeral scratch); the rest of `.devflow/` (`config.json`, `learnings/`, the schema/example) is intentionally tracked. The scaffolder (`scripts/scaffold-config.sh`, run by `install.sh` / `/prflow:init`) writes a scoped `.devflow/.gitignore` ignoring only `tmp/`. This skill does not manage that entry (a repo-level concern); flag missing coverage in chat output only if `.devflow/tmp/` is not already ignored.
+**`.prflow/tmp/` should be gitignored** (ephemeral scratch); the rest of `.prflow/` (`config.json`, `learnings/`, the schema/example) is intentionally tracked. The scaffolder (`scripts/scaffold-config.sh`, run by `install.sh` / `/prflow:init`) writes a scoped `.prflow/.gitignore` ignoring only `tmp/`. This skill does not manage that entry (a repo-level concern); flag missing coverage in chat output only if `.prflow/tmp/` is not already ignored.
 
 ### 0.3 Get changed file list
 
-Extract the list of changed files **by parsing the filtered `diff.patch` cached in 0.2** (read its `diff --git a/<path> b/<path>` headers), **not** from an independent `git diff --name-only` / `gh pr diff --name-only`. `.devflow/logs/**` paths were stripped from `diff.patch` in 0.2, so deriving the file list from it excludes them by construction — and Phase 1.1's batch slicing reads the **same** filtered `diff.patch`, so a `.devflow/logs/` hunk can never re-enter a batch slice, and Phase 3's agents Read the same cached diff. An independent `--name-only` would re-introduce those paths and desync the file list from the sliced batches. Store this list — Phase 1 and Phase 3 need it.
+Extract the list of changed files **by parsing the filtered `diff.patch` cached in 0.2** (read its `diff --git a/<path> b/<path>` headers), **not** from an independent `git diff --name-only` / `gh pr diff --name-only`. `.prflow/logs/**` paths were stripped from `diff.patch` in 0.2, so deriving the file list from it excludes them by construction — and Phase 1.1's batch slicing reads the **same** filtered `diff.patch`, so a `.prflow/logs/` hunk can never re-enter a batch slice, and Phase 3's agents Read the same cached diff. An independent `--name-only` would re-introduce those paths and desync the file list from the sliced batches. Store this list — Phase 1 and Phase 3 need it.
 
 ### 0.3.5 Seed the live progress comment (PR mode)
 
-In PR mode, and when `devflow_review.live_progress_comment_enabled` is `true` (read it via `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review.live_progress_comment_enabled true`), seed **this run's** live progress comment **now** — the engine's first GitHub write, so "review started" lands as early as possible. Create a fresh comment for this run, keyed by the run-keyed marker, with the Blueprint template (all boxes unticked) and the `Run` link to this job, per the **Live Progress Comment** section above. Because the marker carries this run's id, the find-or-resume lookup matches **only this run's** comment: on a mid-run retry (`rc=0`) it resumes that same comment, never overwriting a **previous** run's comment (those stay on the PR as review history). Thereafter follow the update protocol at each phase boundary. In non-PR mode, or when the flag is off, skip this step (the narrative goes to chat as you proceed, or once at the end).
+In PR mode, and when `prflow_review.live_progress_comment_enabled` is `true` (read it via `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .prflow_review.live_progress_comment_enabled true`), seed **this run's** live progress comment **now** — the engine's first GitHub write, so "review started" lands as early as possible. Create a fresh comment for this run, keyed by the run-keyed marker, with the Blueprint template (all boxes unticked) and the `Run` link to this job, per the **Live Progress Comment** section above. Because the marker carries this run's id, the find-or-resume lookup matches **only this run's** comment: on a mid-run retry (`rc=0`) it resumes that same comment, never overwriting a **previous** run's comment (those stay on the PR as review history). Thereafter follow the update protocol at each phase boundary. In non-PR mode, or when the flag is off, skip this step (the narrative goes to chat as you proceed, or once at the end).
 
 **Phase 0.3.6 runs at this seam — after 0.3.5, before 0.4 — when its gate is met**; on a hit it ends the run, so 0.4/0.5 never run.
 
@@ -255,16 +255,16 @@ The numeric guard now lives INSIDE `cmd_acs_resolve` (issue #857): a non-numeric
 **PR mode** (a `$PR_NUMBER` resolved) — emit this fence and no other:
 
 ```bash
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py acs-resolve "$ISSUE_NUM" --pr "$PR_NUMBER" 2>.devflow/tmp/review/<slug>/<run-id>/acs.err ; echo "acs-rc=$?"
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py acs-resolve "$ISSUE_NUM" --pr "$PR_NUMBER" 2>.prflow/tmp/review/<slug>/<run-id>/acs.err ; echo "acs-rc=$?"
 ```
 
 **Current-branch mode** (no PR to bind to) — emit this fence and no other. It OMITS `--pr` entirely rather than passing an empty value (`--pr` is `type=int`, so an empty value is an argparse exit 2):
 
 ```bash
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py acs-resolve "$ISSUE_NUM" 2>.devflow/tmp/review/<slug>/<run-id>/acs.err ; echo "acs-rc=$?"
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py acs-resolve "$ISSUE_NUM" 2>.prflow/tmp/review/<slug>/<run-id>/acs.err ; echo "acs-rc=$?"
 ```
 
-**Read the emitted `acs-rc` token — it is the only mechanism that makes a refusal observable.** The invocation's own exit status is what distinguishes "the helper ran and routed an outcome" from "the helper never ran": without it, empty stdout from a denied or non-executable invocation is indistinguishable from a thin-but-successful resolution, and the unestablished state would be collapsed onto the real value `none` — the exact collapse this section forbids. So: on `acs-rc=0`, consume the three blocks the helper printed above the token. On **any** non-zero `acs-rc` — including the 126/127 not-executable-or-not-found codes and the helper's own rc 3 — set `acceptance_criteria_source` to `resolver-unavailable` and read `.devflow/tmp/review/<slug>/<run-id>/acs.err` to quote the cause in the note. A **missing** `acs-rc` token is itself a refusal of the whole statement — likewise `resolver-unavailable`, never a success.
+**Read the emitted `acs-rc` token — it is the only mechanism that makes a refusal observable.** The invocation's own exit status is what distinguishes "the helper ran and routed an outcome" from "the helper never ran": without it, empty stdout from a denied or non-executable invocation is indistinguishable from a thin-but-successful resolution, and the unestablished state would be collapsed onto the real value `none` — the exact collapse this section forbids. So: on `acs-rc=0`, consume the three blocks the helper printed above the token. On **any** non-zero `acs-rc` — including the 126/127 not-executable-or-not-found codes and the helper's own rc 3 — set `acceptance_criteria_source` to `resolver-unavailable` and read `.prflow/tmp/review/<slug>/<run-id>/acs.err` to quote the cause in the note. A **missing** `acs-rc` token is itself a refusal of the whole statement — likewise `resolver-unavailable`, never a success.
 
 `acs-resolve` itself exits 0 on every resolvable state, including an absent or unreadable workpad, which it routes as an outcome carrying its own source token rather than as a run-ending error; a non-numeric `$ISSUE_NUM` is likewise routed (as `resolver-unavailable`, exit 0) by `cmd_acs_resolve`'s own guard rather than by a pre-call `case`. This mirrors how `skills/review/SKILL.md` seeds its live progress comment: the S1 numeric guard, the S2 `workpad.py` readability precheck, and the S3 rc-2 silent-exit discriminator (screens S1–S3) now live inside the bundled helper `scripts/seed-review-progress.sh`, which owns those screens as executable shell, rather than in a prompt fence.
 

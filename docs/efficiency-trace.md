@@ -6,7 +6,7 @@
 When `/prflow:review-and-fix` runs, its fix loop dispatches a lot of subagents per iteration —
 up to six Phase-3 review agents (four always-on plus two structurally-gated analyzers) plus the
 Phase-2 checklist verifiers, re-run across as many iterations as the configurable cap allows
-(`devflow_review_and_fix.max_iterations`, default 5), plus a shadow pass (the parent-orchestrated convergence audit — see
+(`prflow_review_and_fix.max_iterations`, default 5), plus a shadow pass (the parent-orchestrated convergence audit — see
 [shadow-review.md](shadow-review.md) for its mechanics and the `step_2_6` telemetry shape). This
 doc records *why* the run now emits a durable effectiveness record, what that record contains, and
 how each subagent earns its verdict.
@@ -22,11 +22,11 @@ how each subagent earns its verdict.
 
 ## The problem this closes
 
-The per-iteration workpads under `.devflow/tmp/review/<slug>/<run-id>/iter-<N>.json` (run-scoped, so
+The per-iteration workpads under `.prflow/tmp/review/<slug>/<run-id>/iter-<N>.json` (run-scoped, so
 repeated or concurrent reviews of the same PR never clobber each other) already carry the
 data needed to answer "which subagents earned their cost on this PR" — `phase3_findings`
 (with `agent`, `corroboration_count`, `fix_decision`), `fix_decisions`, and per-phase cost
-telemetry (calls / tokens / wall-clock). But `.devflow/tmp/` is **ephemeral** scratch in every
+telemetry (calls / tokens / wall-clock). But `.prflow/tmp/` is **ephemeral** scratch in every
 run — gitignored and routinely cleaned out locally, and destroyed wholesale when a cloud GitHub
 runner is torn down. Either way, the moment a run finishes the data is liable to vanish.
 Optimization decisions ("is this agent pulling its weight?") were left to guesswork.
@@ -126,12 +126,12 @@ visible at a glance.
 ## The per-run record
 
 `lib/efficiency-trace.sh --mode record` emits one JSON record object **to stdout**; `--persist` derives
-that same object and stores it on the telemetry branch at `.devflow/logs/efficiency/<slug>-<run-id>.json`
+that same object and stores it on the telemetry branch at `.prflow/logs/efficiency/<slug>-<run-id>.json`
 — **one file per run** (not an appended JSONL), so parallel writers never touch the same file. The
 filename is keyed by the run's `<run-id>` (the same
 discriminator that scopes the workpad directory), **not** a fresh `date` timestamp: this is what lets
 `--persist` be idempotent — it tests record presence **on the branch** (`git cat-file -e
-refs/heads/<branch>:.devflow/logs/efficiency/<slug>-<run-id>.json` — the fully-qualified ref the
+refs/heads/<branch>:.prflow/logs/efficiency/<slug>-<run-id>.json` — the fully-qualified ref the
 code actually probes, not a bare-name lookup) and never re-derives an existing record, so a
 re-run is a clean no-op (no new branch commit, `generated_at` unchanged) and a run is never recorded
 twice. **The one exception is the harness-cost floor's merge arm (Layer 4, issue #475):** on a
@@ -147,7 +147,7 @@ the tree-equality guard, and every OTHER path stays strictly per-run-immutable. 
   cross-run analyzer.
 - `config_fingerprint` — the config-variant fingerprint (issue #431): an object
   `{sha256, partial, salient}` (or `null` when it could not be established), where `sha256` is over
-  the canonicalized `devflow_review` + `devflow_review_and_fix` blocks, `partial` is `true` when only
+  the canonicalized `prflow_review` + `prflow_review_and_fix` blocks, `partial` is `true` when only
   one of the two blocks exists (the hash covers what exists), and `salient` carries a few
   interrupted-time-series-relevant key values **verbatim** (`verdict_severity_threshold`,
   `fix_severity_threshold`, `max_iterations`). Computed by the wrapper via python3 (a hard preflight
@@ -157,7 +157,7 @@ the tree-equality guard, and every OTHER path stays strictly per-run-immutable. 
   **no consumer gates on `schema_version`**, so the record stays at `schema_version: 1` — a bump would
   imply a breaking change this is not. Records predating the field remain valid; the experiment-record
   assembler (below) handles presence/absence uniformly, falling back to
-  `git show <merge_sha>:.devflow/config.json` and marking the fingerprint source when the record
+  `git show <merge_sha>:.prflow/config.json` and marking the fingerprint source when the record
   carries none.
 - `per_iteration[]` — dispatch counts, `diff_profile` (Phase 0.5 flags — segment cut decisions by
   this), `verification_posture`, checklist lite/agent split, fixes applied, the `added_nothing` flag,
@@ -178,7 +178,7 @@ the tree-equality guard, and every OTHER path stays strictly per-run-immutable. 
   per-iteration `loop_role` in `iter-<N>.json` is legibility the orchestrator writes best-effort, and
   the record surfaces it reliably whether or not that write happened.
 - `telemetry[]` — the existing per-phase / per-iteration cost telemetry (calls / tokens /
-  wall-clock) lifted out of each workpad, so cost data is no longer lost with `.devflow/tmp/`.
+  wall-clock) lifted out of each workpad, so cost data is no longer lost with `.prflow/tmp/`.
   Each entry's `phases` mirrors the workpad's `telemetry` block **verbatim** (unnormalized; `null`
   when the workpad recorded none) — it is a pass-through, not a versioned sub-schema.
 - `harness_cost` — the **harness-side cost floor** (Layer 4, issue #475), added by `--persist`'s
@@ -216,7 +216,7 @@ best-effort and exit-0: when the branch cannot be pushed (offline, no remote, a 
 token, a missing permission, or the read-only cloud `review` profile) the local ref still
 advances, a `::warning::` is emitted, and the run is never aborted. Before appending to an
 existing `devflow-telemetry` ref the write verifies it is a telemetry store (its tip tree holds
-only `.devflow/logs/`-shaped paths) and breadcrumb-skips on mismatch — and the push-rejection
+only `.prflow/logs/`-shaped paths) and breadcrumb-skips on mismatch — and the push-rejection
 re-parent re-runs the same verification against the freshly-fetched **remote** tip before building
 the union commit (the case where a consumer's same-named branch exists only on the remote and first
 surfaces as the push rejection) — so it never commits onto a same-named branch a consumer uses for
@@ -231,7 +231,7 @@ this read-only tier the fail direction is safe either way — if the hook does n
 staged and nothing is lost) — but
 in **staging-only** mode: the workflow does not set the push operand `DEVFLOW_TELEMETRY_PUSH`, so
 under `GITHUB_ACTIONS` `--persist` fails closed (issue #469 AC5), staging the run's artifacts under
-`.devflow/tmp/` and writing **no new** telemetry-branch records and doing **no** push. (The
+`.prflow/tmp/` and writing **no new** telemetry-branch records and doing **no** push. (The
 best-effort fetch-before-exclusion step `do_persist` runs on *every* tier may fast-forward the
 **local** `refs/heads/devflow-telemetry` ref to mirror already-published remote records — a read
 that leaves the tracked tree, `HEAD`, the current branch, and the **remote** ref all byte-unchanged;
@@ -244,7 +244,7 @@ validates the staged artifacts as untrusted PR-influenced input (`scripts/valida
 all-or-nothing) before pushing them through `lib/telemetry-branch.sh`. To make those records
 reachable across the workflow boundary, the auto-review tier now **uploads** its staged tree as a
 workflow artifact (`scripts/collect-staged-telemetry.sh`, with `include-hidden-files: true` since the
-tree is under the dot-prefixed `.devflow/`); the relay is triggered off the auto-review workflow's
+tree is under the dot-prefixed `.prflow/`); the relay is triggered off the auto-review workflow's
 `workflow_run` completion and pushes the validated records. On the ephemeral cloud runner the staged
 tree does **not** survive job teardown, so **the cloud-tier recovery path for a degraded persist is
 that uploaded workflow artifact, not on-disk retention** — the runner filesystem is gone by the time
@@ -252,13 +252,13 @@ any later step could read it, so on-disk retention cannot help there. A degraded
 staging-root retention (below) helps a **local** run, where the filesystem persists.
 
 **Headless persistence.** `/prflow:review-and-fix` invokes `config-get.sh` and
-`efficiency-trace.sh` **directly** (resolving to a `.devflow/vendor/devflow/…` path), the same way
+`efficiency-trace.sh` **directly** (resolving to a `.prflow/vendor/prflow/…` path), the same way
 `/prflow:implement` invokes its helpers — never `bash <path>`. Resolved-path allow-list entries
 match on the command's leading token after expansion, so a `bash`-prefixed command would start with
 `bash`, match nothing, prompt, and be denied on a headless run (silently skipping the trace). Direct
 invocation requires `lib/efficiency-trace.sh` to be committed with its executable bit, and **every**
 workflow allow-list under which `/prflow:review-and-fix`'s Loop Exit runs to carry
-`Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*)`. Two workflows qualify, because the loop's
+`Bash(.prflow/vendor/prflow/lib/efficiency-trace.sh:*)`. Two workflows qualify, because the loop's
 Loop Exit runs on both entry paths:
 
 - `.github/workflows/devflow.yml` — the inline allow-list for the `/prflow:review-and-fix` comment
@@ -273,7 +273,7 @@ needs no entry.
 
 ## Config keys
 
-Both live under `devflow_review_and_fix` in `.devflow/config.json`
+Both live under `prflow_review_and_fix` in `.prflow/config.json`
 (schema in `config.schema.json`, example in `config.example.json`):
 
 | Key | Type | Default | Effect |
@@ -281,14 +281,14 @@ Both live under `devflow_review_and_fix` in `.devflow/config.json`
 | `efficiency_telemetry_enabled` | boolean | `true` | Master gate. When `false`, the loop renders no trace and persists no effectiveness record to the telemetry branch. |
 | `efficiency_cut_candidate_min_dispatch` | integer | `3` | Minimum dispatch count before an all-null/noise agent is flagged as a cut candidate. Defined here so the config surface is stable; **consumed by the follow-up cross-run analyzer**, not by `/prflow:review-and-fix` itself (the record carries it forward). |
 
-The telemetry-store branch is configured separately, at the top level of `.devflow/config.json`:
+The telemetry-store branch is configured separately, at the top level of `.prflow/config.json`:
 
 | Key | Type | Default | Effect |
 |---|---|---|---|
-| `telemetry.branch` | string | `devflow-telemetry` | Name of the long-lived orphan branch every writable run persists its observability artifacts to (issue #441). Auto-created on first use; verified to be a telemetry store (its tip tree holds only `.devflow/logs/`-shaped paths) before appending. Keep every workflow `push:` trigger branch-filtered so a push to it runs no CI — PRFlow's own workflows filter `push:` to `main`; a consumer whose `on: push` is unfiltered should add a `branches-ignore` entry for this branch. |
+| `telemetry.branch` | string | `devflow-telemetry` | Name of the long-lived orphan branch every writable run persists its observability artifacts to (issue #441). Auto-created on first use; verified to be a telemetry store (its tip tree holds only `.prflow/logs/`-shaped paths) before appending. Keep every workflow `push:` trigger branch-filtered so a push to it runs no CI — PRFlow's own workflows filter `push:` to `main`; a consumer whose `on: push` is unfiltered should add a `branches-ignore` entry for this branch. |
 
 **Acting on the trace.** The telemetry above tells you *which* subagents earn their cost; the
-per-subagent `devflow_review.agent_overrides` block is the lever to *act* on it — move a mechanical
+per-subagent `prflow_review.agent_overrides` block is the lever to *act* on it — move a mechanical
 pass to a cheaper model / lower effort, or pin a high-value reviewer to a stronger model / higher
 effort. When the trace shows an agent earns its cost on the first pass but adds nothing unique on
 later fix-loop iterations, its optional `iterations: "first-only"` key (default-off) drops it from
@@ -389,7 +389,7 @@ interactive-drop failure mode so a future orchestrator does not silently skip th
 per-iteration `iter-<N>.json` emit specifically is a **non-optional obligation on every iteration,
 regardless of how the loop was executed** — whether `review-and-fix` ran as a `Skill` invocation or
 was **hand-run via direct `Agent` dispatch** on a degraded path — and it is written **with the Write
-tool, never a shell `>`/heredoc redirect** (which the cloud sandbox denies into `.devflow/tmp`). This
+tool, never a shell `>`/heredoc redirect** (which the cloud sandbox denies into `.prflow/tmp`). This
 is what keeps the effectiveness half recoverable even when the instrumented loop is left; a cloud
 `claude-code-action` permission/sandbox denial is never license to abandon the loop. (This asymmetry
 is worth noting: the read-only `review` runner runs under `--permission-mode acceptEdits`, but the
@@ -406,7 +406,7 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
 - *Self-check.* `lib/efficiency-trace.sh --self-check --workpad-dir DIR --slug SLUG` is run at Loop
   Exit on a converged writable run. If the run wrote **zero** `iter-*.json` workpads, or persisted no
   effectiveness record for `<slug>-<run-id>` to the telemetry branch (`git cat-file -e
-  refs/heads/<branch>:.devflow/logs/efficiency/<slug>-<run-id>.json`), it emits a loud
+  refs/heads/<branch>:.prflow/logs/efficiency/<slug>-<run-id>.json`), it emits a loud
   `::warning::` naming exactly what was not persisted (and points at `--persist` as the recovery).
   It **additionally validates each `iter-<N>.json`'s field set**: for every iter workpad missing a
   field in the single-source `ITER_EXPECTED_FIELDS` set (the iter schema's top-level fields minus the
@@ -432,11 +432,11 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
 
 **Layer 3 — deterministic backstop (harness-executed, the actual guarantee).**
 - *`lib/efficiency-trace.sh --persist`.* Derives the effectiveness record **and** stages the durable
-  workpad copy from whatever `iter-*.json` workpads exist on disk into `.devflow/tmp/` scratch, then
+  workpad copy from whatever `iter-*.json` workpads exist on disk into `.prflow/tmp/` scratch, then
   writes both to the **telemetry branch** via git plumbing (object-store hash → tree → `commit-tree`
   → compare-and-swap `update-ref` → fetch/re-parent/push retry) — nothing is materialized in the
   tracked working tree. With `--workpad-dir`/`--slug` it persists one run; without them it
-  **discovers** every `.devflow/tmp/review/<slug>/<run-id>/` run dir and persists each — a dir holding
+  **discovers** every `.prflow/tmp/review/<slug>/<run-id>/` run dir and persists each — a dir holding
   `iter-*.json` directly, a workpad-less dir via the Layer-3+ synthesis floor below. As of issue #441
   standalone `/prflow:review` runs (`source == "review"`) are **no longer skipped** — they persist
   through this same path to the same branch (their Phase 4.5 step invokes `--persist` too), unifying
@@ -495,7 +495,7 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   **Adopter note.** The guard (`lib/implement-stop-guard.sh`) and probe
   (`scripts/stop-hook-probe.sh`) entries are **this-repo-local** — they ship to no consumer, so an
   adopter does not wire them. What an adopter adapts is only the `efficiency-trace.sh` entry,
-  pointing it at the vendored copy `.devflow/vendor/devflow/lib/efficiency-trace.sh` (keeping the
+  pointing it at the vendored copy `.prflow/vendor/prflow/lib/efficiency-trace.sh` (keeping the
   same git-root anchor form).
 
   > **Note on this repo's `.claude/settings.json`.** Writing `.claude/` is a privileged,
@@ -527,7 +527,7 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
     if: ${{ always() }}
     run: |
       set +e
-      HELPER=.devflow/vendor/devflow/lib/efficiency-trace.sh
+      HELPER=.prflow/vendor/prflow/lib/efficiency-trace.sh
       [ -f "$HELPER" ] || { echo "::warning::observability backstop: $HELPER missing; skipped"; exit 0; }
       # --persist writes to the telemetry branch and pushes it, all inside the helper
       # (it sets its own committer identity). No HEAD gate, no bare git push here.
@@ -539,7 +539,7 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   workflow YAML is the source of truth — this doc snippet is the pre-#475 core it builds on): the
   step now sets `EXECUTION_FILE` / `DEVFLOW_COMMAND` / `DEVFLOW_CANDIDATE_NUMBER` / `GH_TOKEN` in its
   `env:`, runs `scripts/prepare-harness-floor.sh` (guarded by the same `[ -f ]` pattern as `$HELPER`,
-  with a named `::warning::` when a vendored tree pinned to an older `devflow_version` lacks it), and
+  with a named `::warning::` when a vendored tree pinned to an older `prflow_version` lacks it), and
   passes the resulting `DEVFLOW_EXECUTION_COST` / `DEVFLOW_EXECUTION_PR` / `DEVFLOW_COMMAND_CLASS` on
   the `bash "$HELPER" --persist` line. See **Layer 4** above.
 
@@ -563,7 +563,7 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   that snapshot — only files that are genuinely NEW this run count. This is deliberate: a
   whole-tree presence check would let a leftover `iter-*.json` from an earlier local run mask a
   real loss on this run. Because the Layer-3+ synthesis floor writes its reconstructed
-  `iter-*.json` under the same `.devflow/tmp/review/` tree, the detector counts synthesized files
+  `iter-*.json` under the same `.prflow/tmp/review/` tree, the detector counts synthesized files
   as recovered inputs — a zero-workpad run that synthesis recovered does **not** fire the gap
   reflection. Only when the diff is empty — the inline loop wrote no per-iteration workpad **and**
   synthesis also recovered nothing (no unrecorded fix commit, a failed search, failed writes, or a
@@ -571,7 +571,7 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   all) — is the telemetry genuinely lost, and Phase 3.3 records a `dropped-failed` reflection
   naming the gap rather than letting it vanish. The phase anchors both
   the snapshot and the detector on the git top-level the **same** way `efficiency-trace.sh` does, so
-  it scans the exact `.devflow/tmp/review/` tree `--persist` scans and never fires a false "telemetry
+  it scans the exact `.prflow/tmp/review/` tree `--persist` scans and never fires a false "telemetry
   lost" reflection from a cwd-relative divergence (if the pre-loop snapshot is itself missing, the
   detector degrades to whole-tree presence and emits a distinct `::warning::` naming that degrade,
   since it can then mask a real loss behind a leftover file). The detector counts every NEW
@@ -591,8 +591,8 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   derivation/write failure is surfaced even when inputs existed — this is deliberately narrower than
   every conceivable `--persist` failure surface. **The uncovered surface is the telemetry-branch
   write/push itself** (`::warning::telemetry-branch: …` — a non-conforming store, a lost CAS, an
-  unwritable `.devflow/tmp`), which the detector's two literals do not match. Note what that costs:
-  post-#441 the record is staged under gitignored `.devflow/tmp/`, and post-#469 a **degraded**
+  unwritable `.prflow/tmp`), which the detector's two literals do not match. Note what that costs:
+  post-#441 the record is staged under gitignored `.prflow/tmp/`, and post-#469 a **degraded**
   branch write (or a CI staging-only run) **retains** that staging root instead of deleting it — only
   a *clean* write (pushed / idempotent no-op / nothing staged, `persist_tree` rc 0) deletes the
   scratch, so `git status` stays byte-unchanged on the success path. A degraded write emits one
@@ -686,7 +686,7 @@ real record carries, none of which is recoverable **from the fix commits**.
 - *Double-count defenses.* Three guards keep a fix commit from being counted into two runs'
   records or misattributed across runs: (a) **sha-level exclusion** — any commit already recorded
   as a `fix_commit_sha` by another run's `iter-*.json`, in the live tmp tree **or** the committed
-  durable copies under `.devflow/logs/review/`, is skipped; the exclusion is checked **before**
+  durable copies under `.prflow/logs/review/`, is skipped; the exclusion is checked **before**
   duplicate-N dedupe so an excluded commit never consumes its iteration number and shadows this
   run's own commit; (b) among one slug's workpad-less dirs, only the **lexicographically-latest**
   run-id synthesizes — earlier ones breadcrumb and decline; (c) workpad-less dirs spanning
@@ -833,7 +833,7 @@ so the floor is buildable on the cloud tier without the agent's cooperation.
 
 `scripts/build-experiment-records.py` (issue #431) is the **join** that makes the operator's
 experiment program measurable: it assembles one line per merged PR into the tracked
-`.devflow/learnings/experiment-records.jsonl`, joining what a run **spent** (the efficiency records
+`.prflow/learnings/experiment-records.jsonl`, joining what a run **spent** (the efficiency records
 above) to whether its PR came out **clean** (the review outcome). It is a **reader** of every
 historical store shape — python3 stdlib plus `gh`/`git` subprocesses (the `DEVFLOW_GH` env-read
 pattern, no probe; native `git` subprocess per the #295 Windows rule) — and runs on the
@@ -846,7 +846,7 @@ carried into the Step 9 status report as a blocker note and never blocks the ret
 **union** of two sources, keyed by `(slug, run-id)` with **branch-wins** precedence so a run present
 in both contributes exactly one cost row: the durable **telemetry branch** (enumerated via
 `git ls-tree`/`git show`, where every run now persists) unioned with any **legacy tracked
-`.devflow/logs/efficiency/`** in the working tree (the read-only archive a consumer repo may still
+`.prflow/logs/efficiency/`** in the working tree (the read-only archive a consumer repo may still
 carry from before the branch existed — no history is lost, no manual migration needed). The
 orchestrator (`skills/retrospective-weekly/SKILL.md`) **fetches the telemetry branch before the
 reader runs**; when the branch does not exist yet (a not-yet-upgraded repo), the fetch is a harmless
@@ -892,7 +892,7 @@ joined fields:
   every path — `unavailable` stays `unavailable`, and **no code path coerces an unestablished count to
   `0`** (the repo's unknown-is-not-zero contract, end to end).
 - **`config_fingerprint`** — from the efficiency record's `config_fingerprint` when present, else
-  recomputed from `git show <merge_sha>:.devflow/config.json` (records predating the field);
+  recomputed from `git show <merge_sha>:.prflow/config.json` (records predating the field);
   `provenance.config_fingerprint` marks the source (`efficiency-record` / `merge-commit-config` /
   `absent`, plus the unestablished tags below). When a PR's runs carry **disagreeing** fingerprints
   (its runs straddled a config change), the record-level value is `null` with source
@@ -960,7 +960,7 @@ cannot rewrite history opportunistically. Derived run records use `phases: "unav
 same absent/null inputs.
 
 After the stamping code lands, maintainers should refresh old writers, upgrade consumer vendored
-`devflow_version` pins, let in-flight writes drain, and invalidate diverged local telemetry refs
+`prflow_version` pins, let in-flight writes drain, and invalidate diverged local telemetry refs
 that could retain pre-migration snapshots. Then run `scripts/backfill-telemetry-unavailable.sh`.
 It rewrites absent/null iter blocks and only present `telemetry[].phases: null` entries in run
 records, using the shared telemetry-branch CAS/push path. It is intentionally re-runnable: a second
@@ -1007,13 +1007,13 @@ applied-fix derivation unchanged.
 
 **`source` field.** Every record carries `source` — `"review"` for standalone `/prflow:review`,
 `"review-and-fix"` (the default when absent) for the fix loop. Both write into the same
-`.devflow/logs/efficiency/` store, so `source` (not the filename) is what a cross-run analyzer uses
+`.prflow/logs/efficiency/` store, so `source` (not the filename) is what a cross-run analyzer uses
 to segment by originating skill. (The two skills key the filename differently — review-and-fix by
 `<run-id>` for its `--persist` backstop's idempotency, standalone review by timestamp — but since
 `source` is the segmentation key, the filename scheme is free to differ.)
 
 **Live progress comment + read-only cloud.** In PR mode (and when
-`devflow_review.live_progress_comment_enabled` is `true`, the default), `/prflow:review` authors a
+`prflow_review.live_progress_comment_enabled` is `true`, the default), `/prflow:review` authors a
 `devflow:review-progress` comment incrementally — a blueprint of the phases, then
 per-phase results and each Phase-3 agent's findings as they land, finalizing with the verdict, the
 full report, and the telemetry summary + effectiveness trace. One such comment is seeded **per review
@@ -1025,8 +1025,8 @@ cloud `review` profile is read-only for the tree but grants `gh api` / `gh pr co
 edits are permitted there; the per-run record **file** write is gated to writable (local/IDE) runs —
 under the read-only cloud profile the trace renders into the comment only, and no file/tree write or
 `git` is attempted. The two flags compose independently:
-`devflow_review.live_progress_comment_enabled` gates the live comment, and
-`devflow_review_and_fix.efficiency_telemetry_enabled` gates the embedded telemetry/trace + record.
+`prflow_review.live_progress_comment_enabled` gates the live comment, and
+`prflow_review_and_fix.efficiency_telemetry_enabled` gates the embedded telemetry/trace + record.
 One combination has no output surface: telemetry **on** with the live comment **off** in a read-only
 cloud run — the record file is gated out of cloud and the comment is disabled, so there is nowhere to
 put the trace. The skill emits a one-line `::warning::` in that case rather than silently
@@ -1036,10 +1036,10 @@ the record file.)
 ## Verification single-flight telemetry (issue #528)
 
 The single-flight verification coordinator (`scripts/verification-flight.py`) emits its own
-per-event JSON records under `.devflow/logs/verification-flight/` (the default; a caller may
+per-event JSON records under `.prflow/logs/verification-flight/` (the default; a caller may
 redirect them with `--logs-dir`). These are **local** records in the effectiveness-record
 family. They are **not** relayed to the telemetry branch by the current plumbing: the trusted
-relay (`scripts/collect-staged-telemetry.sh`) harvests only the `.devflow/tmp/telemetry-stage-*/`
+relay (`scripts/collect-staged-telemetry.sh`) harvests only the `.prflow/tmp/telemetry-stage-*/`
 staging roots the read-only reviewer stages, and the two workflows that actually run the
 coordinator (`devflow-implement.yml`, `devflow.yml`) carry no collect/upload step — so a caller
 that wants these records relayed must write them into a staging root (via `--logs-dir`) that a

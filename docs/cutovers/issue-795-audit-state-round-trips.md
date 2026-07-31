@@ -172,7 +172,7 @@ introduced or modified is `python3`-headed, and `lib/capability-profiles.json`, 
 allowlist literals and `lib/review-profile.tokens` are byte-identical after the change.
 
 **No shipping skew.** Both halves — `scripts/` and `skills/` — reach a consumer repo through the
-single `devflow_version` vendor fetch, so there is no `install.sh` workflow half and no
+single `prflow_version` vendor fetch, so there is no `install.sh` workflow half and no
 two-artifact skew of the #502/#455 class.
 
 ## Coupled sites edited in the same change

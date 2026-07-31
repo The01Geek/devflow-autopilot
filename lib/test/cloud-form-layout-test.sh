@@ -12,7 +12,7 @@
 #   * source-repo — the source-repository workflow layout (skill at
 #     skills/implement/, helper at the repo-root scripts/);
 #   * consumer    — a freshly installed consumer layout (both vendored under
-#     .devflow/vendor/devflow/).
+#     .prflow/vendor/prflow/).
 #
 # Each layout is exercised in TWO runtime states — a checkout path containing a
 # space, and a shallow detached checkout — so both properties are represented
@@ -37,7 +37,7 @@
 # executes the layout's vendored-literal helper path, in both a spaced and a
 # shallow detached checkout. That containing directory differs per layout: it is
 # the checkout root for source-repo, and the vendored prefix
-# .devflow/vendor/devflow/ for consumer (whose skill base is five components
+# .prflow/vendor/prflow/ for consumer (whose skill base is five components
 # below the checkout root). What it does NOT by itself prove is that the real
 # shipped tree still has that relative offset; a relocation of the real skills/
 # or scripts/ would leave these fixtures green. The `real shipped layout` block
@@ -160,7 +160,7 @@ _exercise() {
 # many path components below the directory that also contains scripts/, which is
 # what makes ../../scripts resolve to that sibling scripts/ dir. For the
 # source-repo layout that containing directory is the checkout root; for the
-# consumer layout it is .devflow/vendor/devflow/. Only the source-repo reading
+# consumer layout it is .prflow/vendor/prflow/. Only the source-repo reading
 # is checked against the real tree, in the block below.
 SKILL_DEPTH=2
 
@@ -168,9 +168,9 @@ SKILL_DEPTH=2
 _exercise source-repo "skills/implement" "scripts/echo-anchor.sh" spaces
 _exercise source-repo "skills/implement" "scripts/echo-anchor.sh" shallow-detached
 
-# consumer: both vendored under .devflow/vendor/devflow/.
-_exercise consumer ".devflow/vendor/devflow/skills/implement" ".devflow/vendor/devflow/scripts/echo-anchor.sh" spaces
-_exercise consumer ".devflow/vendor/devflow/skills/implement" ".devflow/vendor/devflow/scripts/echo-anchor.sh" shallow-detached
+# consumer: both vendored under .prflow/vendor/prflow/.
+_exercise consumer ".prflow/vendor/prflow/skills/implement" ".prflow/vendor/prflow/scripts/echo-anchor.sh" spaces
+_exercise consumer ".prflow/vendor/prflow/skills/implement" ".prflow/vendor/prflow/scripts/echo-anchor.sh" shallow-detached
 
 # --- real shipped layout -----------------------------------------------------
 # The fixtures above are mock trees, so on their own they would stay green
@@ -180,7 +180,7 @@ _exercise consumer ".devflow/vendor/devflow/skills/implement" ".devflow/vendor/d
 # dir must exist at that root — i.e. the repo root is the directory that holds
 # both, which is the source-repo reading of the relative offset the fixtures
 # encode. The consumer layout is that same tree copied wholesale under
-# .devflow/vendor/devflow/ by install.sh, which carries the offset along with
+# .prflow/vendor/prflow/ by install.sh, which carries the offset along with
 # it; nothing here checks that copy.
 _REPO_ROOT="$(cd "$_SCRIPT_DIR/../.." && pwd -P)"
 if [ ! -d "$_REPO_ROOT/.git" ] && [ ! -f "$_REPO_ROOT/.git" ]; then

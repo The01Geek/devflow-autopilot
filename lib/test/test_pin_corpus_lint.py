@@ -2441,7 +2441,7 @@ class AdjudicationStateTests(unittest.TestCase):
         )
         historical = (
             root
-            / ".devflow/logs/pin-corpus-adjudication-changes/historical/adjudication-delta.tsv"
+            / ".prflow/logs/pin-corpus-adjudication-changes/historical/adjudication-delta.tsv"
         )
         historical.parent.mkdir(parents=True)
         historical.write_text(self._bundle_manifest(), encoding="utf-8")
@@ -2451,7 +2451,7 @@ class AdjudicationStateTests(unittest.TestCase):
         ).stdout.strip()
         current = (
             root
-            / ".devflow/logs/pin-corpus-adjudication-changes/current/adjudication-delta.tsv"
+            / ".prflow/logs/pin-corpus-adjudication-changes/current/adjudication-delta.tsv"
         )
         current.parent.mkdir(parents=True)
         current.write_text(self._bundle_manifest(), encoding="utf-8")
@@ -2484,8 +2484,8 @@ class AdjudicationStateTests(unittest.TestCase):
             return invoke
 
         for label, path in (
-            ("dot id", ".devflow/logs/pin-corpus-adjudication-changes/./adjudication-delta.tsv"),
-            ("dotdot id", ".devflow/logs/pin-corpus-adjudication-changes/../adjudication-delta.tsv"),
+            ("dot id", ".prflow/logs/pin-corpus-adjudication-changes/./adjudication-delta.tsv"),
+            ("dotdot id", ".prflow/logs/pin-corpus-adjudication-changes/../adjudication-delta.tsv"),
         ):
             with self.subTest(case=label):
                 with self.assertRaisesRegex(self.mod.InfrastructureError, "unsafe bundle ID"):
@@ -2538,7 +2538,7 @@ class AdjudicationStateTests(unittest.TestCase):
 
 class AdjudicationChangeScanTests(unittest.TestCase):
     MIGRATION_PATH = (
-        ".devflow/logs/pin-corpus-adjudication-changes/"
+        ".prflow/logs/pin-corpus-adjudication-changes/"
         "2026-07-26-pr-849/migration.tsv"
     )
 
@@ -2694,7 +2694,7 @@ class AdjudicationChangeScanTests(unittest.TestCase):
             table.write_text(current_table, encoding="utf-8")
             self._write_bundle(
                 root,
-                ".devflow/logs/pin-corpus-adjudication-changes/change-1/"
+                ".prflow/logs/pin-corpus-adjudication-changes/change-1/"
                 "adjudication-delta.tsv",
                 manifest,
             )
@@ -2707,7 +2707,7 @@ class AdjudicationChangeScanTests(unittest.TestCase):
             table.write_text(current_table, encoding="utf-8")
             self._write_bundle(
                 root,
-                ".devflow/logs/pin-corpus-adjudication-changes/change-1/"
+                ".prflow/logs/pin-corpus-adjudication-changes/change-1/"
                 "adjudication-delta.tsv",
                 manifest.replace("old rationale", "older rationale"),
             )
@@ -2731,7 +2731,7 @@ class AdjudicationChangeScanTests(unittest.TestCase):
             )
             self._write_bundle(
                 root,
-                ".devflow/logs/pin-corpus-adjudication-changes/change-1/"
+                ".prflow/logs/pin-corpus-adjudication-changes/change-1/"
                 "adjudication-delta.tsv",
                 (
                     "adjudication_key\tbase_state\tcurrent_state\n"
@@ -2848,20 +2848,20 @@ class RetiredPinRevivalTests(unittest.TestCase):
 
     def _write_retirement_manifests(self, root):
         manifests = {
-            ".devflow/logs/residual-prose-retirement-manifest.tsv": (
+            ".prflow/logs/residual-prose-retirement-manifest.tsv": (
                 "source_file\thelper\tassertion_name\tliteral\tresolved_target\t"
                 "target_defaulted\tsurface\tdisposition\trationale\n"
                 '"lib/test/old.sh"\tassert_pin_unique\t"old"\t'
                 f'"""{self.LITERAL}"""\t"docs/x.md"\tfalse\tReview\t'
                 "RETIRE_PROSE\tretired prose\n"
             ),
-            ".devflow/logs/residual-required-copy-retirement-manifest.tsv": (
+            ".prflow/logs/residual-required-copy-retirement-manifest.tsv": (
                 "source_file\thelper\tassertion_name\tliteral\tresolved_target\t"
                 "target_defaulted\tdisposition\trationale\n"
                 '"lib/test/kept.sh"\tassert_pin_unique\t"kept"\t'
                 '"""NOT RETIRED"""\t"docs/x.md"\tfalse\tRETAIN_BOUNDARY\tkept\n'
             ),
-            ".devflow/logs/red-on-removal-retirement-manifest.tsv": (
+            ".prflow/logs/red-on-removal-retirement-manifest.tsv": (
                 "source_file\thelper\tassertion_name\tliteral\tresolved_target\t"
                 "target_defaulted\tdisposition\tcall_sha256\n"
                 '"lib/test/converted.sh"\tassert_pin_red_on_removal\t"converted"\t'
@@ -2924,7 +2924,7 @@ class RetiredPinRevivalTests(unittest.TestCase):
     ):
         bundle = (
             root
-            / ".devflow/logs/pin-corpus-adjudication-changes/revive-machine-sentinel"
+            / ".prflow/logs/pin-corpus-adjudication-changes/revive-machine-sentinel"
         )
         bundle.mkdir(parents=True, exist_ok=True)
         if include_delta:
@@ -3148,7 +3148,7 @@ class RetiredPinRevivalTests(unittest.TestCase):
 
     def test_historical_retirement_manifests_are_immutable_regular_blobs(self):
         mutations = ("committed edit", "dirty edit", "symlink")
-        relative = ".devflow/logs/residual-prose-retirement-manifest.tsv"
+        relative = ".prflow/logs/residual-prose-retirement-manifest.tsv"
         for mutation in mutations:
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
@@ -3232,10 +3232,10 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             "lib/test/pin-corpus-lint.py",
             "lib/test/test_pin_corpus_lint.py",
             "lib/test/pin-corpus-adjudications.tsv",
-            ".devflow/logs/residual-prose-retirement-manifest.tsv",
-            ".devflow/logs/residual-required-copy-retirement-manifest.tsv",
-            ".devflow/logs/red-on-removal-retirement-manifest.tsv",
-            ".devflow/logs/mutation-pin-corpus-inventory.tsv",
+            ".prflow/logs/residual-prose-retirement-manifest.tsv",
+            ".prflow/logs/residual-required-copy-retirement-manifest.tsv",
+            ".prflow/logs/red-on-removal-retirement-manifest.tsv",
+            ".prflow/logs/mutation-pin-corpus-inventory.tsv",
             "scripts/workflow-flight-recorder-registry.json",
         ):
             source = REPO_ROOT / relative
@@ -4058,7 +4058,7 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             )
             bundle = (
                 root
-                / ".devflow/logs/pin-corpus-adjudication-changes"
+                / ".prflow/logs/pin-corpus-adjudication-changes"
                 / "retired-prose-snapshot-test"
             )
             bundle.mkdir(parents=True)
@@ -4240,7 +4240,7 @@ class RetiredMutationHelperBanTests(unittest.TestCase):
             *sorted(self.mod.AUDITED_PIN_SOURCES),
             "lib/test/module-harness.sh",
             "lib/test/pin-corpus-lint.py",
-            ".devflow/logs/mutation-pin-corpus-inventory.tsv",
+            ".prflow/logs/mutation-pin-corpus-inventory.tsv",
             "scripts/workflow-flight-recorder-registry.json",
         ):
             source = REPO_ROOT / relative
@@ -4326,7 +4326,7 @@ class RetiredMutationHelperBanTests(unittest.TestCase):
                 root = Path(td)
                 self._repo(root)
                 inventory = (
-                    root / ".devflow/logs/mutation-pin-corpus-inventory.tsv"
+                    root / ".prflow/logs/mutation-pin-corpus-inventory.tsv"
                 )
                 if case == "missing":
                     inventory.unlink()
@@ -4753,6 +4753,368 @@ class PinRoutingLadder948Tests(unittest.TestCase):
             self.assertEqual(1, len(findings))
             self.assertIn("resolves into prose", findings[0])
             self.assertNotIn("no program consumer reads it", findings[0])
+
+
+class SanctionedRenameComparison1002Tests(unittest.TestCase):
+    """Issue #1002: a site that is its own merge-base self, respelled, is not a
+    changed site — and that exemption cannot absolve anything else.
+
+    The fix corrects a COMPARISON. ``scan_changed_sources`` resolves the
+    merge-base source image against current-tree path spellings, so across a
+    branch that renames the state directory ``old_effective == new_effective``
+    was measuring path spelling rather than pin identity and reported every pin
+    under that directory as re-pointed. Each test below names the property that
+    keeps this a correction rather than an amnesty, and every negative control
+    asserts a FINDING — the direction a weakened filter would lose.
+
+    The map is the repository's own shipped ``lib/rename-map.json``, copied into
+    each fixture rather than restated here, so a change to the shipped frozen
+    block is felt by these tests instead of being shadowed by a private copy.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load_linter()
+        cls.map_text = (REPO_ROOT / "lib/rename-map.json").read_text(
+            encoding="utf-8"
+        )
+
+    SOURCE_PATH = "lib/test/a.sh"
+
+    def _repo(self, td, *, with_map=True):
+        root = Path(td)
+        if with_map:
+            (root / "lib").mkdir(parents=True, exist_ok=True)
+            (root / "lib/rename-map.json").write_text(
+                self.map_text, encoding="utf-8"
+            )
+        return root
+
+    @staticmethod
+    def _pin(literal, target, *, name="pin", marker=""):
+        return (
+            f'F="$LIB/../{target}"\n'
+            f"assert_pin_unique \"{name}\" '{literal}' \"$F\""
+            + (f"  {marker}" if marker else "")
+            + "\n"
+        )
+
+    def _scan(self, root, base, head):
+        return self.mod.scan_changed_sources(
+            {self.SOURCE_PATH: head},
+            {self.SOURCE_PATH: base},
+            one_file_diff(self.SOURCE_PATH, base, head),
+            repo_root=root,
+        )
+
+    # ── The exemption itself ───────────────────────────────────────────────
+    def test_a_rename_only_respelling_is_not_a_changed_site(self):
+        """Both halves of a pin — its target path and its literal — respelled by
+        the sanctioned rename, and nothing else."""
+        cases = (
+            (
+                ".devflow/prompt-extensions/review.md",
+                ".prflow/prompt-extensions/review.md",
+                "a sentence that did not change at all",
+                "a sentence that did not change at all",
+            ),
+            (
+                "docs/x.md",
+                "docs/x.md",
+                "config-get.sh .devflow_review.verdict_severity_threshold critical",
+                "config-get.sh .prflow_review.verdict_severity_threshold critical",
+            ),
+            (
+                "docs/x.md",
+                "docs/x.md",
+                ".devflow/vendor/devflow/scripts/apply-labels.sh",
+                ".prflow/vendor/prflow/scripts/apply-labels.sh",
+            ),
+        )
+        for base_target, head_target, base_literal, head_literal in cases:
+            with self.subTest(base_literal), tempfile.TemporaryDirectory() as td:
+                root = self._repo(td)
+                base = self._pin(base_literal, base_target)
+                head = self._pin(head_literal, head_target)
+                self.assertEqual([], self._scan(root, base, head))
+                # RED control on the SAME input: with no map to establish the
+                # rename, the site is a candidate again. This is what proves the
+                # exemption cleared it, and that an absent map fails closed.
+                bare = self._repo(td + "-nomap", with_map=False)
+                bare.mkdir(parents=True, exist_ok=True)
+                try:
+                    self.assertEqual(1, len(self._scan(bare, base, head)))
+                finally:
+                    shutil.rmtree(bare, ignore_errors=True)
+
+    # ── The load-bearing negative control ──────────────────────────────────
+    def test_a_rename_plus_any_other_edit_is_not_exempt(self):
+        """Exact-tuple equality: the rename never carries a second edit through.
+
+        Every row respells the target by the sanctioned rename AND changes one
+        further element of the effective tuple. Each must still be reported.
+        """
+        base_target = ".devflow/prompt-extensions/review.md"
+        head_target = ".prflow/prompt-extensions/review.md"
+        literal = "the operative sentence"
+        marker = (
+            "# structural-pin-ok: cross-file-phase-contract -- "
+            "a declaration the base site did not carry"
+        )
+        cases = {
+            "literal edited": self._pin("the operative sentences", head_target),
+            "literal widened": self._pin(literal + " naming", head_target),
+            "declaration added": self._pin(literal, head_target, marker=marker),
+            "target repointed elsewhere": self._pin(
+                literal, ".prflow/prompt-extensions/implement.md"
+            ),
+            "helper changed": (
+                f'F="$LIB/../{head_target}"\n'
+                f"grep -qF '{literal}' \"$F\"\n"
+            ),
+        }
+        for label, head in cases.items():
+            with self.subTest(label), tempfile.TemporaryDirectory() as td:
+                root = self._repo(td)
+                base = self._pin(literal, base_target)
+                self.assertEqual(1, len(self._scan(root, base, head)), label)
+
+    # ── The frozen block ───────────────────────────────────────────────────
+    def test_a_frozen_name_is_never_mapped(self):
+        """A name the map freezes must not be rewritten into an exemption.
+
+        Without the frozen-first alternation a bare ``devflow`` rule would map
+        the frozen ``workflows.devflow`` key and silently absolve a real change
+        to it — the exact hazard this ordering exists to stop. Every row is a
+        genuine ``devflow -> prflow`` edit to a frozen name, and every row must
+        be REPORTED.
+        """
+        cases = {
+            "frozen config key, dotted": (
+                "reads .workflows.devflow from the config",
+                "reads .workflows.prflow from the config",
+            ),
+            "frozen config key, JSON object position": (
+                '"workflows": {"devflow": true}',
+                '"workflows": {"prflow": true}',
+            ),
+            "frozen child key, hyphenated": (
+                "reads .workflows.devflow-review",
+                "reads .workflows.prflow-review",
+            ),
+            "frozen workflow filename": (
+                ".github/workflows/devflow.yml",
+                ".github/workflows/prflow.yml",
+            ),
+            "frozen identifier": (
+                "the devflow-marketplace entry",
+                "the prflow-marketplace entry",
+            ),
+            "frozen module-pin glob": (
+                "devflow_module_pin_unique is the helper",
+                "prflow_module_pin_unique is the helper",
+            ),
+            "frozen label": ("the DevFlow label", "the PrFlow label"),
+            "frozen env var": ("DEVFLOW_GH selects the binary", "PRFLOW_GH selects the binary"),
+            "frozen subagent namespace": (
+                'dispatches "devflow:requesting-code-review"',
+                'dispatches "prflow:requesting-code-review"',
+            ),
+            "frozen workpad marker": (
+                "<!-- devflow:workpad -->",
+                "<!-- prflow:workpad -->",
+            ),
+        }
+        for label, (base_literal, head_literal) in cases.items():
+            with self.subTest(label), tempfile.TemporaryDirectory() as td:
+                root = self._repo(td)
+                base = self._pin(base_literal, "docs/x.md")
+                head = self._pin(head_literal, "docs/x.md")
+                self.assertEqual(1, len(self._scan(root, base, head)), label)
+
+    # ── One for one ────────────────────────────────────────────────────────
+    def test_one_base_site_exempts_at_most_one_candidate(self):
+        """The same discipline ``_deleted_pin_literals`` applies to moves: a
+        duplicated pin still presents its duplicate for adjudication."""
+        with tempfile.TemporaryDirectory() as td:
+            root = self._repo(td)
+            literal = "the operative sentence"
+            base = self._pin(literal, ".devflow/prompt-extensions/review.md")
+            head = (
+                'F="$LIB/../.prflow/prompt-extensions/review.md"\n'
+                f"assert_pin_unique \"pin\" '{literal}' \"$F\"\n"
+                f"assert_pin_unique \"pin\" '{literal}' \"$F\"\n"
+            )
+            self.assertEqual(1, len(self._scan(root, base, head)))
+            # Two base sites exempt both, which is the boundary of the rule
+            # rather than a second behaviour.
+            base_two = base + self._pin(
+                literal, ".devflow/prompt-extensions/review.md"
+            )
+            self.assertEqual([], self._scan(root, base_two, head))
+
+    # ── One direction only ─────────────────────────────────────────────────
+    def test_the_exemption_is_one_directional(self):
+        """A HEAD site still spelled ``.devflow`` is never exempted by a
+        ``.prflow`` twin at the merge base: the rename cannot be run backwards.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = self._repo(td)
+            literal = "the operative sentence"
+            base = self._pin(literal, ".prflow/prompt-extensions/review.md")
+            head = self._pin(literal, ".devflow/prompt-extensions/review.md")
+            self.assertEqual(1, len(self._scan(root, base, head)))
+            # The same pair in the sanctioned direction IS exempt, so the row
+            # above fails for its direction and not for some unrelated reason.
+            self.assertEqual([], self._scan(root, head, base))
+
+    # ── The map loader ─────────────────────────────────────────────────────
+    def test_an_unusable_map_exempts_nothing_and_says_so(self):
+        """Fail-closed: every way the map can be unusable withdraws the whole
+        exemption, and only an ABSENT map is silent."""
+        literal = "the operative sentence"
+        base = self._pin(literal, ".devflow/prompt-extensions/review.md")
+        head = self._pin(literal, ".prflow/prompt-extensions/review.md")
+        cases = {
+            "absent": (None, False),
+            "not json": ("{not json", True),
+            "root not an object": ("[]", True),
+            "no frozen block": ('{"paths": {}, "config_keys": {"a": "b"}}', True),
+            "frozen field wrong type": (
+                json.dumps(
+                    {
+                        "frozen": {
+                            "config_keys": "workflows.devflow",
+                            "identifiers": [],
+                            "workflow_filenames": [],
+                        },
+                        "paths": {},
+                        "config_keys": {"a": "b"},
+                    }
+                ),
+                True,
+            ),
+            "paths entry incomplete": (
+                json.dumps(
+                    {
+                        "frozen": {
+                            "config_keys": [],
+                            "identifiers": [],
+                            "workflow_filenames": [],
+                        },
+                        "paths": {
+                            "state_dir": {"superseded": ".devflow"},
+                            "vendor_dir": {
+                                "superseded": ".devflow/vendor/devflow",
+                                "current": ".prflow/vendor/prflow",
+                            },
+                            "scratch_dirs": [],
+                        },
+                        "config_keys": {"devflow": "prflow"},
+                    }
+                ),
+                True,
+            ),
+        }
+        for label, (text, expect_breadcrumb) in cases.items():
+            with self.subTest(label), tempfile.TemporaryDirectory() as td:
+                root = self._repo(td, with_map=False)
+                if text is not None:
+                    (root / "lib").mkdir(parents=True, exist_ok=True)
+                    (root / "lib/rename-map.json").write_text(
+                        text, encoding="utf-8"
+                    )
+                stderr = io.StringIO()
+                with mock.patch.object(sys, "stderr", stderr):
+                    findings = self._scan(root, base, head)
+                self.assertEqual(1, len(findings), label)
+                self.assertEqual(
+                    expect_breadcrumb,
+                    "MUTATION-ROUTING-RENAME-MAP-UNAVAILABLE" in stderr.getvalue(),
+                    label,
+                )
+
+    def test_the_frozen_alternation_is_load_bearing_on_its_own(self):
+        """Isolate the frozen guard from the qualified-key rule.
+
+        Against the SHIPPED map the two protections overlap on every frozen name
+        — `devflow` is qualified-only *and* each frozen name is listed — so
+        deleting either one alone leaves the other holding, and no
+        shipped-map case can tell them apart. That redundancy is worth having and
+        is not worth mistaking for coverage: it makes a shipped-map test unable
+        to fail when the frozen alternation is removed.
+
+        This drives the guard where it is the SOLE protection, using the map
+        shape that reaches it: a map whose ``frozen.config_keys`` is empty makes
+        ``devflow`` an unqualified rule, and then only the frozen
+        ``workflow_filenames`` entry stops ``devflow.yml`` becoming
+        ``prflow.yml``.
+        """
+        document = json.loads(self.map_text)
+        document["frozen"]["config_keys"] = []
+        substitute = self.mod._compiled_rename_substitution(json.dumps(document))
+        self.assertIsNotNone(substitute)
+        # The unqualified rule is genuinely live in this shape — the control
+        # that proves the row below is decided by the frozen entry.
+        self.assertEqual('"prflow": true', substitute('"devflow": true'))
+        for frozen in (
+            "devflow.yml",
+            "devflow-implement.yml",
+            ".github/workflows/devflow-runner.yml",
+            "devflow-marketplace",
+            "devflow_module_pin_unique",
+        ):
+            self.assertEqual(frozen, substitute(frozen), frozen)
+
+    def test_the_shipped_map_maps_the_rename_and_freezes_the_frozen_block(self):
+        """The substitution derived from the SHIPPED map, driven directly.
+
+        The site-level tests above can only observe the substitution through a
+        whole scan; this one pins its answers, so a regression names the input
+        that moved instead of surfacing as a changed finding count.
+        """
+        substitute = self.mod._compiled_rename_substitution(self.map_text)
+        self.assertIsNotNone(substitute)
+        for before, after in (
+            (".devflow/logs/x.tsv", ".prflow/logs/x.tsv"),
+            (
+                ".devflow/vendor/devflow/scripts/x.sh",
+                ".prflow/vendor/prflow/scripts/x.sh",
+            ),
+            (".devflow-scratch/a", ".prflow-scratch/a"),
+            (".devflow-tmp/a", ".prflow-tmp/a"),
+            (".devflow.allowed_tools", ".prflow.allowed_tools"),
+            (
+                ".devflow_review_and_fix.fix_severity_threshold",
+                ".prflow_review_and_fix.fix_severity_threshold",
+            ),
+            ("devflow_implement.allowed_tools", "prflow_implement.allowed_tools"),
+            ("devflow_runner.allowed_tools", "prflow_runner.allowed_tools"),
+            ("devflow_retrospective.x", "prflow_retrospective.x"),
+            ("devflow_version", "prflow_version"),
+        ):
+            self.assertEqual(after, substitute(before), before)
+        for frozen in (
+            "workflows.devflow",
+            "workflows.devflow-review",
+            '"workflows": {"devflow": true}',
+            "devflow-marketplace",
+            "devflow-telemetry",
+            "DevFlow",
+            "lib + python tests",
+            "devflow_module_pin_unique",
+            "devflow.yml",
+            "devflow-implement.yml",
+            "devflow-runner.yml",
+            "devflow-review.yml",
+            "telemetry-push.yml",
+            '"devflow:requesting-code-review"',
+            "<!-- devflow:workpad -->",
+            "DEVFLOW_GH",
+            "/devflow:implement",
+            ".prflow/prompt-extensions/review.md",
+        ):
+            self.assertEqual(frozen, substitute(frozen), frozen)
 
 
 class BundleTargetInspection956Tests(unittest.TestCase):

@@ -107,11 +107,11 @@ fi
 # it. Probe by WRITING, not by `-w`: a read-only filesystem and a restrictive ACL both
 # pass `-w` while the redirect still fails, and the redirect is the operation whose
 # outcome this warning stands in for.
-if ! ( : > "$TARGET/.devflow-mtpe-probe" ) 2>/dev/null; then
+if ! ( : > "$TARGET/.prflow-mtpe-probe" ) 2>/dev/null; then
     printf '%s\n' "::warning::devflow trusted prompt-extension closure not populated: the target directory '$TARGET' is not writable; the reviewing agent runs with no extension text"
     exit 0
 fi
-rm -f "$TARGET/.devflow-mtpe-probe" 2>/dev/null || true
+rm -f "$TARGET/.prflow-mtpe-probe" 2>/dev/null || true
 
 # Does FETCH_HEAD resolve at all? Established once, because it is the operand that
 # separates "absent at the base ref" (silent) from "the read failed" (warned), and it
@@ -133,7 +133,7 @@ for name in "${NAMES[@]}"; do
             ;;
     esac
 
-    src=".devflow/prompt-extensions/${name}.md"
+    src=".prflow/prompt-extensions/${name}.md"
     dest="$TARGET/${name}.md"
 
     # A TREE at this path is not an extension. `git show` exits 0 on one and prints a

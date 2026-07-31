@@ -95,7 +95,7 @@ Permitted shapes (review tier) — **each with its own evidence status**, becaus
 four do not rest on the same evidence and a single "probe-proven" heading over all of
 them read as though they did (issue #871):
 
-- the **Write tool** into `.devflow/tmp/**` (granted in the review profile) —
+- the **Write tool** into `.prflow/tmp/**` (granted in the review profile) —
   **PERMITTED, run 29111394360** (probe shape 9). This is the *orchestrator* grant; the two
   `PENDING` **dispatched-subagent** `Write` entries further down this file (issue #858,
   review and implement tiers) are a separate measurement and do not qualify it.
@@ -168,7 +168,7 @@ recorded verdicts:
 | `Bash(cd:*)` | DENIED | Row confounded by an independently-denied `>` redirect — **unproven**, kept for a redirect-free re-probe, pinned absent in `run.sh`. |
 | `Write(/tmp/**)` | DENIED | Genuine out-of-workspace denial. |
 | `Bash(scripts/*.sh:*)` (trailing-extension glob, issue #412) | DENIED — run **29135163829** (PR #413) | Even with the glob granted, `scripts/config-get.sh …` was refused (same DENIED as the ungranted control) → the trailing-extension glob does **not** match a repo-root leading token; the implement profile keeps the enumerated `*/<basename>.sh` helper globs; **no migration to `scripts/*.sh`**. |
-| `Write(.devflow/tmp/**)` | PERMITTED | Landed as a grant from the probe's **first run, 29111394360**. |
+| `Write(.prflow/tmp/**)` | PERMITTED | Landed as a grant from the probe's **first run, 29111394360**. |
 | Shape 18 — `if VAR=$(granted-helper …)` condition-substitution (issue #857) | PERMITTED — run **30310938175** (review `probe` job, 2026-07-27) | The `if`/`elif` command-substitution condition shape is cloud-permitted → **retired desk-lint rule R5** (issue #869). Does not re-permit the shape in `skills/review/**` (the seed is already helper-extracted). |
 
 Positive-control note (issue #477): the review verdict counts a
@@ -181,7 +181,7 @@ differently and are unaffected.
 
 `load-prompt-extension.sh` is granted **directory-agnostically** — as
 `Bash(*/load-prompt-extension.sh:*)` — on the `review` and `command` profiles, and
-**by vendored literal only** — `Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*)` —
+**by vendored literal only** — `Bash(.prflow/vendor/prflow/scripts/load-prompt-extension.sh:*)` —
 on the `implement` profile (the `implement` profile carries no `*/` wildcard for it).
 The Phase-3 final-pass reviewer dispatch (`skills/review/phases/phase-3-agents.md`)
 **supplies the reviewer the vendored literal** as an already-resolved leading-token
@@ -254,7 +254,7 @@ things about them (issue #871):
 in that workflow's `Resolve allowed-tools` step comment — is likewise unrecorded**, and
 takes the same remedy. Both locations count, because verdicts are recorded in both places:
 shape 18's PERMITTED is annotated on its own row, while shape 15's DENIED and shape 9's
-`Write(.devflow/tmp/**)` PERMITTED live in the step comment. A predicate keyed on the
+`Write(.prflow/tmp/**)` PERMITTED live in the step comment. A predicate keyed on the
 row annotation alone would classify those latter two as unrecorded and contradict this
 file's own evidence table. It is written as a predicate over the rows rather than a transcription of
 today's row numbers, precisely so it cannot go stale when a row is added or a dispatch
@@ -266,20 +266,20 @@ on no profile, so the run is not an acceptance criterion of the change that adde
 this note). Until then, a refusal of the dispatched vendored-literal command is
 handled by the Phase-3 fail-closed refusal path, never assumed impossible.
 
-### Dispatched-subagent `Write` into `.devflow/tmp/**` — review tier — PENDING the first PR-triggered run (issue #858)
+### Dispatched-subagent `Write` into `.prflow/tmp/**` — review tier — PENDING the first PR-triggered run (issue #858)
 
 `.github/workflows/matcher-probe.yml` carries a **`subagent-write-review-probe`** job
-that measures whether a **dispatched subagent's** `Write` into `.devflow/tmp/**`
+that measures whether a **dispatched subagent's** `Write` into `.prflow/tmp/**`
 succeeds under the review tier's **generated baseline joined with the `probe` job's own
 standing candidate extras** — not the shipped review profile alone, which is why the
-record reproduces the resolved literal verbatim rather than describing it. `Write(.devflow/tmp/**)` is granted for
-the **orchestrator** (the `Write(.devflow/tmp/**)` grant row in the review-tier evidence table above, PERMITTED from run `29111394360`; the probe exercises it as shape 9), but a grant proven
+record reproduces the resolved literal verbatim rather than describing it. `Write(.prflow/tmp/**)` is granted for
+the **orchestrator** (the `Write(.prflow/tmp/**)` grant row in the review-tier evidence table above, PERMITTED from run `29111394360`; the probe exercises it as shape 9), but a grant proven
 for the dispatcher is `unestablished` for the **dispatchee** — CLAUDE.md's "Unknown is
 not zero". The job is **dedicated** (not a shape row in the `probe` job, whose session
-already writes to `.devflow/tmp/probe-09.txt`): its prompt instructs **no orchestrator
+already writes to `.prflow/tmp/probe-09.txt`): its prompt instructs **no orchestrator
 write at all**, so a `Write` record in its execution file has exactly one *expected*
 author. That single-authorship is a **prompt-level** guarantee, not a technical
-restriction — the composed allowlist grants `Write(.devflow/tmp/**)` to the whole
+restriction — the composed allowlist grants `Write(.prflow/tmp/**)` to the whole
 session, so the orchestrator retains the capability and simply is not asked to use it.
 The helper does not rest on the guarantee alone: where the execution file records parent
 chains at all, a parent-less (orchestrator-issued) `Write` naming the same file is
@@ -390,7 +390,7 @@ enforced on the implement profile at all, because their status there is
 unmeasured** — the recorded implement rows carry no entry for a leading assignment,
 a `/tmp` redirect, or an interpreter head. The contrary evidence that *does* exist
 is not a permission: the PR #694 run reported a **blocked stdout redirect even into
-the working-directory `.devflow/tmp`**, and the interpreter head is denied per issue
+the working-directory `.prflow/tmp`**, and the interpreter head is denied per issue
 #789. Neither of those forms is stated as permitted on the implement tier; they are
 simply not carried as an enforced desk rule there.
 
@@ -502,7 +502,7 @@ direct leading token so the *same* command works on the local and cloud tiers. H
 the probe come back DENIED, the cloud tier would have kept the full-suite default
 and those tiers would have stayed local-only.
 
-### Dispatched-subagent `Write` into `.devflow/tmp/**` — implement tier — PENDING the first PR-triggered run (issue #858)
+### Dispatched-subagent `Write` into `.prflow/tmp/**` — implement tier — PENDING the first PR-triggered run (issue #858)
 
 `matcher-probe.yml` also carries a **`subagent-write-implement-probe`** job that measures
 the same dispatched-subagent `Write` fact on the **implement** tier — because a shape
@@ -510,7 +510,7 @@ proven on the review tier is unproven here (the two are separately-probed allowl
 is the structural twin of the review-tier job above: it **consumes** the resolved
 implement literal from the `implement-probe` job via `needs:` (never a second `IMPLEMENT=`
 assignment), appends `Task,Agent` in its own hand-written `--allowed-tools`, dispatches one
-built-in `general-purpose` subagent that writes `.devflow/tmp/subwrite-implement.txt`
+built-in `general-purpose` subagent that writes `.prflow/tmp/subwrite-implement.txt`
 (the orchestrator writes nothing), and derives the three-outcome verdict with the same
 `scripts/subagent-write-probe-verdict.py --tier implement`.
 
@@ -563,7 +563,7 @@ grant** — the review engine is shared.
 `lib/test/run.sh`'s #484 head guard deliberately **over-approximates** that runtime
 surface. It drives `extract-command-heads.py` in an **`implement-block` parse
 mode** that reads **ONLY** the baked `--allowed-tools` block — never the whole file
-or `.devflow/config.json`, so a `Bash(...)` cited in a YAML comment is **not** a
+or `.prflow/config.json`, so a `Bash(...)` cited in a YAML comment is **not** a
 grant; it fails **closed** on an absent/malformed block. It runs over all fenced
 source in:
 
@@ -680,7 +680,7 @@ literals.
 A bundled helper that a `/prflow:implement` fence invokes — the §4.0.5-class
 case, e.g. `scripts/discover-deferral-manifests.py` — is granted by adding its
 vendored-literal token
-`Bash(.devflow/vendor/devflow/scripts/<helper>:*)` (the **row-I2-proven** explicit
+`Bash(.prflow/vendor/prflow/scripts/<helper>:*)` (the **row-I2-proven** explicit
 leading-token form) to the `implement` profile in `lib/capability-profiles.json`
 and regenerating. That **one edit** rewrites:
 
@@ -728,7 +728,7 @@ cloud runs.
 
 ### Config-supplied helper grants and the repository rename (issue #928, deferred half)
 
-`devflow_implement.allowed_tools` is not a generated literal — the `config` job
+`prflow_implement.allowed_tools` is not a generated literal — the `config` job
 extracts it with `jq` and splices it verbatim onto `devflow-implement.yml`'s baked
 `--allowed-tools`. Two path shapes reach it, both **measured emissions** rather than
 design choices: cloud implement run **30183387509** (issue #802) recorded 43
@@ -737,7 +737,7 @@ permission denials in which the engine invoked bundled helpers as
 `scripts/<helper>` (repo-root-relative), because `.claude-plugin/marketplace.json`
 declares `"source": "./"`, so `$CLAUDE_SKILL_DIR` resolves to `<workspace>/skills/<name>`
 and the portable anchor's `/../../scripts/` lands at the repository root, never in the
-granted `.devflow/vendor/devflow/scripts/` subtree. Both shapes were granted in
+granted `.prflow/vendor/prflow/scripts/` subtree. Both shapes were granted in
 response, for each of the 25 helpers.
 
 **The workspace-absolute literal embeds the repository name twice.** A rename moves
@@ -759,7 +759,7 @@ before citing them:
 
 | Grant form | Probe status |
 | --- | --- |
-| `Bash(.devflow/vendor/devflow/scripts/<helper>:*)` — vendored literal | **PERMITTED**, implement-tier **row I2**, leading-token position |
+| `Bash(.prflow/vendor/prflow/scripts/<helper>:*)` — vendored literal | **PERMITTED**, implement-tier **row I2**, leading-token position |
 | `Bash(<workspace-absolute>/scripts/<helper>:*)` | **Unmeasured.** No implement-tier row exercises it. The review tier's absolute-path row (shape 13) is **unrecorded**. |
 | `Bash(scripts/<helper>:*)` — repo-root-relative, explicit exact path | **Unmeasured.** No row at either tier grants the exact path and exercises it. Review shape 15 measured the *glob* `Bash(scripts/*.sh:*)` as DENIED (run 29135163829); review shape 14 is the *ungranted* control. Neither measures an explicit exact-path repo-root grant. |
 
@@ -775,7 +775,7 @@ exercised as a leading token; until such a dispatch is recorded, treat both as
 ### The install.sh-vs-vendor-fetch skew warning
 
 The **workflow grants** ship to consumers via `install.sh` **file-copy**, while the
-**skill rework** ships via the `devflow_version` **vendor fetch**. These are **two
+**skill rework** ships via the `prflow_version` **vendor fetch**. These are **two
 independently-updated artifacts** whose skew silently **re-denies the applies**, so
 **the two halves must be upgraded together** (docs: `docs/install.md`,
 `docs/DEVFLOW_SYSTEM_OVERVIEW.md`).
@@ -829,7 +829,7 @@ that one by hand.
 | Arm | Denied shape | Permitted alternative (the join key is the arm id) |
 | --- | --- | --- |
 | `R1` | a leading `VAR=value` assignment or env-prefix (`M=x cmd`) | capture a command's output with `VAR=$(cmd)`, or pass the value as an argument |
-| `R3-tmp` | a `>`/`>>` redirect targeting `/tmp` | author the file with the Write tool under `.devflow/tmp/`, or stream through a pipe into `tee` |
+| `R3-tmp` | a `>`/`>>` redirect targeting `/tmp` | author the file with the Write tool under `.prflow/tmp/`, or stream through a pipe into `tee` |
 | `R4` | an interpreter head (`python3/python/node`) | invoke the helper directly by its granted path as the command's **leading token** |
 
 **Excluded arms (a runtime deny is terminal, so denying a permitted shape costs the

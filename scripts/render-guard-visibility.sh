@@ -58,7 +58,7 @@
 # describe-skip-title.sh, whose only namer WAS the deleted workflow. An earlier commit on
 # this branch deleted those three as unreachable; that was reverted, because unreachable in
 # THIS tree is not unreachable from an already-installed consumer copy — install.sh re-stamps
-# devflow_version, so a consumer re-running the installer keeps their installed
+# prflow_version, so a consumer re-running the installer keeps their installed
 # devflow-review.yml while vendoring a plugin that would be missing the helpers it calls.
 # The rule is uniform: everything downstream of the withheld tier stays shipped.
 
@@ -94,8 +94,8 @@ echo "- guard fired: **${GUARD_FIRED}**"
 # entry-count are read as two separate signals, not inferred from one empty string.
 #
 # Confirmatory-review finding (issue #908 review, iteration 3, Critical/security): the
-# counts store lives under .devflow/tmp — the SAME directory the review-tier profile
-# grants Write(.devflow/tmp/**) against — so unlike a hardcoded producer, this input is
+# counts store lives under .prflow/tmp — the SAME directory the review-tier profile
+# grants Write(.prflow/tmp/**) against — so unlike a hardcoded producer, this input is
 # NOT trusted, and (unlike DENIED_COMMANDS_JSON below) it was rendered here with NO
 # neutralization at all: `to_entries | map("\(.key)=\(.value)")` echoes an arbitrary
 # key/value verbatim. Demonstrated by direct execution: a counts object

@@ -31,8 +31,8 @@ runnable jq the same way the `.sh` helper tier does (issue #253, the agent-tier
 sibling of #247). `DEVFLOW_JQ` is not exported to agent shells, so the wrapper
 must be invoked by path.
 
-All scratch files live under `.devflow/tmp/` (gitignored). Learnings files
-(`.devflow/learnings/`) are tracked and committed via the state PR.
+All scratch files live under `.prflow/tmp/` (gitignored). Learnings files
+(`.prflow/learnings/`) are tracked and committed via the state PR.
 
 **GitHub autolink hygiene** (any text you compose that lands on a GitHub surface — issue/PR titles, the state-PR report comment, body content you assemble): never put a bare `#` immediately before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link to issue/PR 2, which misleads readers. For an ordinal, count, or list position, spell it out ("item 2", "step 3"), never `#2`. Genuine references like `#123` stay as-is.
 
@@ -46,7 +46,7 @@ All scratch files live under `.devflow/tmp/` (gitignored). Learnings files
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh retrospective-weekly
 ```
 
-If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
+If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.prflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
 
 ## Procedure
 
@@ -80,8 +80,8 @@ If not on `main`, run `git checkout main`.
 Prepare the scratch directory (`$LIB` below is the textual notation from the top of this skill — expand it when composing commands, do not assign a shell variable). This also removes prior-run scratch (`result-*.json`, `pr-*.context.json`, `overrides-prefiling.json`) so a run starts clean and can never read another run's stale bundle, output, or overrides snapshot:
 
 ```bash
-mkdir -p .devflow/tmp
-rm -f .devflow/tmp/new-entries.jsonl
+mkdir -p .prflow/tmp
+rm -f .prflow/tmp/new-entries.jsonl
 # Remove prior-run scratch. `find … -delete` (not a bare `rm -f <glob>`)
 # is shell- and OS-agnostic: it is a safe no-op when no pattern or only some
 # patterns match, whereas under zsh an unmatched glob is a fatal `no matches found`
@@ -96,7 +96,7 @@ rm -f .devflow/tmp/new-entries.jsonl
 # Relying instead on Step 6's truncating redirects to overwrite them makes the
 # guarantee a property of one call site rather than of this cleanup, so a moved or
 # short-circuited write silently reintroduces stale state.
-find .devflow/tmp -maxdepth 1 -type f \( -name 'result-*.json' -o -name 'pr-*.context.json' -o -name 'overrides-prefiling.json' -o -name 'patterns.json' -o -name 'patterns-full.json' -o -name 'patterns.stderr' \) -delete 2>/dev/null
+find .prflow/tmp -maxdepth 1 -type f \( -name 'result-*.json' -o -name 'pr-*.context.json' -o -name 'overrides-prefiling.json' -o -name 'patterns.json' -o -name 'patterns-full.json' -o -name 'patterns.stderr' \) -delete 2>/dev/null
 ```
 
 ---
@@ -106,7 +106,7 @@ find .devflow/tmp -maxdepth 1 -type f \( -name 'result-*.json' -o -name 'pr-*.co
 Fetch the list of unprocessed watched-author PRs merged in the last 7 days:
 
 ```bash
-bash $LIB/scan.sh > .devflow/tmp/scan.json
+bash $LIB/scan.sh > .prflow/tmp/scan.json
 ```
 
 **Ad-hoc / backfill / test runs.** To run the loop against a specific set of
@@ -114,7 +114,7 @@ PRs instead of the rolling 7-day window — e.g. backfilling old PRs, re-running
 after a fix, or testing the pipeline — pass `--prs`:
 
 ```bash
-bash $LIB/scan.sh --prs 774,786,772,789 > .devflow/tmp/scan.json
+bash $LIB/scan.sh --prs 774,786,772,789 > .prflow/tmp/scan.json
 ```
 
 `--prs` skips the GitHub search **and** the already-processed filter (you named
@@ -126,7 +126,7 @@ use `--prs` for the scheduled weekly run.
 the output array is empty:
 
 ```bash
-$LIB/../scripts/run-jq.sh 'length == 0' .devflow/tmp/scan.json
+$LIB/../scripts/run-jq.sh 'length == 0' .prflow/tmp/scan.json
 ```
 
 → `true`: report **"Nothing to process — no unprocessed watched-author PRs
@@ -155,7 +155,7 @@ CTX=$(bash $LIB/fetch-pr-context.sh "$number")
 prs_scanned=$((prs_scanned + 1))
 ```
 
-`fetch-pr-context.sh` writes the bundle to `.devflow/tmp/pr-<n>.context.json`
+`fetch-pr-context.sh` writes the bundle to `.prflow/tmp/pr-<n>.context.json`
 and **echoes that file path** to stdout — so `$CTX` is the path, not the
 bundle content.
 
@@ -173,7 +173,7 @@ Emit a clean entry (every retrospected PR is an `implementation` PR now — the
 old audit-kind path is retired along with autonomous intervention PRs):
 
 ```bash
-$LIB/../scripts/run-jq.sh -c -f $LIB/clean-entry.jq < "$CTX" >> .devflow/tmp/new-entries.jsonl
+$LIB/../scripts/run-jq.sh -c -f $LIB/clean-entry.jq < "$CTX" >> .prflow/tmp/new-entries.jsonl
 ```
 
 Increment `clean_count`.
@@ -207,7 +207,7 @@ one-line run-report record — costing **zero** LLM dispatches. Do **not** add i
 SKIP_REASON=$(printf '%s' "$DISP" | $LIB/../scripts/run-jq.sh -r '.reason')
 # argjson-ok: pr -- scalar PR number.
 $LIB/../scripts/run-jq.sh -cn --argjson pr "$number" --arg reason "$SKIP_REASON" \
-  '{kind:"skip", pr:$pr, reason:$reason}' >> .devflow/tmp/new-entries.jsonl
+  '{kind:"skip", pr:$pr, reason:$reason}' >> .prflow/tmp/new-entries.jsonl
 skip_records+=("PR #$number skipped (mechanical, no DevFlow provenance): $SKIP_REASON")
 skipped_count=$((skipped_count + 1))
 ```
@@ -237,7 +237,7 @@ each). Each subagent prompt:
 > Your context bundle path is: `<path>`
 >
 > Consumer prompt-extension handoff: your extension file for this skill is at the
-> absolute path `<REPO_ROOT>/.devflow/prompt-extensions/retrospective.md`. Read it
+> absolute path `<REPO_ROOT>/.prflow/prompt-extensions/retrospective.md`. Read it
 > with your file-read tool and honor any content as instructions appended to the
 > retrospective skill's own prompt. If the file is absent or empty, treat it as a
 > no-op and report nothing about it; if it is present but you cannot read it, report
@@ -267,10 +267,10 @@ Wait for all dispatched subagents to finish before continuing.
 **Collecting results:** Each subagent's final message is its JSON object.
 Subagent output can contain quotes, backticks, newlines, and `$` — never
 interpolate it inline into a shell command. **Write each subagent's raw result
-to a temp file with the Write tool** (e.g. `.devflow/tmp/result-<n>.json`), then
+to a temp file with the Write tool** (e.g. `.prflow/tmp/result-<n>.json`), then
 operate on the file. For each result:
 
-1. Attempt to parse it: `$LIB/../scripts/run-jq.sh -c . < .devflow/tmp/result-<n>.json`
+1. Attempt to parse it: `$LIB/../scripts/run-jq.sh -c . < .prflow/tmp/result-<n>.json`
 2. **A Stage A defined skip (issue #626) is recognized by the presence of a
    top-level `"skip"` key ONLY** — never by matching substrings of any error text
    (agent-authored free text is data, never a discriminator). A `"skip"`-keyed
@@ -278,7 +278,7 @@ operate on the file. For each result:
    on the bundle's `workpad_final_status` (a mechanical field, not the skip text):
    - **`Cancelled`** → a **permanently-terminal** skip → append a marker entry so
      the PR is seen as handled next run:
-     `$LIB/../scripts/run-jq.sh -cn --argjson pr <n> --arg reason "<the skip .reason>" '{kind:"skip", pr:$pr, reason:$reason}' >> .devflow/tmp/new-entries.jsonl` # argjson-ok: pr -- scalar PR number
+     `$LIB/../scripts/run-jq.sh -cn --argjson pr <n> --arg reason "<the skip .reason>" '{kind:"skip", pr:$pr, reason:$reason}' >> .prflow/tmp/new-entries.jsonl` # argjson-ok: pr -- scalar PR number
    - an **interim** state (`Setup`/`Discovering`/…/`Documenting`) → a **transient**
      skip → append **no** marker, so the PR stays unprocessed and is re-scanned
      while it remains inside the 7-day merge lookback.
@@ -300,12 +300,12 @@ operate on the file. For each result:
 4. If still malformed (or still `"error"`-keyed) after one retry, record a blocker:
    `"PR #<n>: retrospective analysis failed"` and skip that PR.
 5. If valid (a real retrospective entry, no `"skip"`/`"error"` key), append:
-   `$LIB/../scripts/run-jq.sh -c . < .devflow/tmp/result-<n>.json >> .devflow/tmp/new-entries.jsonl`
+   `$LIB/../scripts/run-jq.sh -c . < .prflow/tmp/result-<n>.json >> .prflow/tmp/new-entries.jsonl`
 6. **Relay a child-reported unreadable extension (issue #834).** If the parsed
    object carries an `extension_unreadable` key (the by-path handoff found the
    consumer extension present but unreadable), surface it in the run report by
    appending a one-line record naming the child skill and the reported value —
-   `skip_records+=("Stage A PR #<n>: consumer prompt extension for retrospective present but unreadable: $($LIB/../scripts/run-jq.sh -r '.extension_unreadable' < .devflow/tmp/result-<n>.json)")` — so the operator sees the extension could not be honored. This never fails the PR's analysis: the entry (extra key and all) is still appended in step 5.
+   `skip_records+=("Stage A PR #<n>: consumer prompt extension for retrospective present but unreadable: $($LIB/../scripts/run-jq.sh -r '.extension_unreadable' < .prflow/tmp/result-<n>.json)")` — so the operator sees the extension could not be honored. This never fails the PR's analysis: the entry (extra key and all) is still appended in step 5.
 
 ---
 
@@ -316,8 +316,8 @@ entries for the same `pr`+`kind` are replaced):
 
 ```bash
 bash $LIB/materialize-retrospectives.sh \
-  .devflow/tmp/new-entries.jsonl \
-  .devflow/learnings/retrospectives.jsonl
+  .prflow/tmp/new-entries.jsonl \
+  .prflow/learnings/retrospectives.jsonl
 ```
 
 The script prints `"materialized: appended N, replaced M"` to stdout.
@@ -343,7 +343,7 @@ unreconciled state is what broke the loop).
 # run on stale, unreconciled state. That is the #788 defect itself (patterns stay
 # `filed` forever after their issue closed, and the loop files nothing), so the
 # guard is what makes the fail-closed claim above true.
-bash $LIB/pattern-state.sh run .devflow/learnings/overrides.json || {
+bash $LIB/pattern-state.sh run .prflow/learnings/overrides.json || {
   echo "::error::retrospective Step 6: the lifecycle reconcile failed — aborting BEFORE pattern derivation (deriving from unreconciled state is the #788 defect this step exists to prevent)" >&2
   exit 1
 }
@@ -353,17 +353,17 @@ bash $LIB/pattern-state.sh run .devflow/learnings/overrides.json || {
 # status stays the script's own. The capture is also echoed to the console
 # so the ::warning:: still reaches the CI log.
 bash $LIB/actionable-patterns.sh \
-  .devflow/learnings/retrospectives.jsonl \
-  .devflow/learnings/overrides.json \
-  > .devflow/tmp/patterns.json 2> .devflow/tmp/patterns.stderr || {
+  .prflow/learnings/retrospectives.jsonl \
+  .prflow/learnings/overrides.json \
+  > .prflow/tmp/patterns.json 2> .prflow/tmp/patterns.stderr || {
   # Guarded for the same reason the reconcile above is: `>` truncates before the
   # script runs, so an unguarded non-zero exit leaves an EMPTY patterns.json and
   # Step 8 proceeds to file nothing — failing open toward "quiet week".
   echo "::error::retrospective Step 6: actionable-pattern derivation failed — aborting rather than proceeding with an empty pattern set (which would report a quiet week)" >&2
-  cat .devflow/tmp/patterns.stderr >&2 || true
+  cat .prflow/tmp/patterns.stderr >&2 || true
   exit 1
 }
-cat .devflow/tmp/patterns.stderr >&2 || true
+cat .prflow/tmp/patterns.stderr >&2 || true
 # Snapshot the post-reconcile, PRE-FILING overrides file for Step 9's won't-fix
 # re-raise read. It lives here, not in Step 8c, because Step 8 is skipped
 # wholesale when nothing is actionable — and Step 9 reads this path
@@ -376,18 +376,18 @@ cat .devflow/tmp/patterns.stderr >&2 || true
 # whether the snapshot is unreadable, so any surviving file — a stale one from an
 # earlier run — silently satisfies that test and the won't-fix re-raise section is
 # rendered from state this run never took.
-rm -f .devflow/tmp/overrides-prefiling.json
-cp .devflow/learnings/overrides.json .devflow/tmp/overrides-prefiling.json || {
+rm -f .prflow/tmp/overrides-prefiling.json
+cp .prflow/learnings/overrides.json .prflow/tmp/overrides-prefiling.json || {
   echo "::error::retrospective Step 6: could not snapshot the pre-filing overrides file — aborting rather than letting Step 9 render its won't-fix re-raise section from a stale or absent snapshot" >&2
   exit 1
 }
 # The UNFILTERED whole-pattern view (every lifecycle state, below-threshold and
 # suppressed included) for the run report; --full drops the actionable filters.
 bash $LIB/actionable-patterns.sh \
-  .devflow/learnings/retrospectives.jsonl \
-  .devflow/learnings/overrides.json \
+  .prflow/learnings/retrospectives.jsonl \
+  .prflow/learnings/overrides.json \
   --full \
-  > .devflow/tmp/patterns-full.json || {
+  > .prflow/tmp/patterns-full.json || {
   echo "::error::retrospective Step 6: the unfiltered (--full) pattern derivation failed — aborting; the report's pattern section is rendered from this file" >&2
   exit 1
 }
@@ -402,8 +402,8 @@ Print a summary line to the console, for example:
 Partition `patterns.json` into two lists:
 
 ```bash
-to_act=$($LIB/../scripts/run-jq.sh '[.[] | select(.cooldown_active == false)]' .devflow/tmp/patterns.json)
-cooldown_skipped=$($LIB/../scripts/run-jq.sh '[.[] | select(.cooldown_active == true) | .tag]' .devflow/tmp/patterns.json)
+to_act=$($LIB/../scripts/run-jq.sh '[.[] | select(.cooldown_active == false)]' .prflow/tmp/patterns.json)
+cooldown_skipped=$($LIB/../scripts/run-jq.sh '[.[] | select(.cooldown_active == true) | .tag]' .prflow/tmp/patterns.json)
 ```
 
 Record `cooldown_skipped` tags for the final report.
@@ -433,7 +433,7 @@ PRs from the breadcrumb and re-run with `--prs` once the cause is resolved.
 
 Before the reader runs, **fetch the telemetry branch** (issue #441) into its local ref so
 `build-experiment-records.py` can union each run's durable record off that branch with any
-legacy tracked `.devflow/logs/`. Best-effort: on a fresh repo the branch does not exist yet
+legacy tracked `.prflow/logs/`. Best-effort: on a fresh repo the branch does not exist yet
 (nothing has persisted to it) and the fetch is a harmless no-op — the reader then reads the
 legacy archive alone; the retrospective is never blocked by a missing telemetry branch.
 
@@ -475,13 +475,13 @@ legacy archive alone; the retrospective is never blocked by a missing telemetry 
 TELEMETRY_BRANCH=$(devflow_telemetry_branch) || TELEMETRY_BRANCH=""
 [ -n "$TELEMETRY_BRANCH" ] || TELEMETRY_BRANCH=devflow-telemetry
 git fetch origin "${TELEMETRY_BRANCH}:${TELEMETRY_BRANCH}" 2>/dev/null || \
-  echo "retrospective-weekly: could not fetch telemetry branch '${TELEMETRY_BRANCH}' (absent on a fresh repo, offline, or the local ref has commits the remote lacks) — the experiment-record reader unions whatever local '${TELEMETRY_BRANCH}' ref exists (if any) with any legacy tracked .devflow/logs/" >&2
+  echo "retrospective-weekly: could not fetch telemetry branch '${TELEMETRY_BRANCH}' (absent on a fresh repo, offline, or the local ref has commits the remote lacks) — the experiment-record reader unions whatever local '${TELEMETRY_BRANCH}' ref exists (if any) with any legacy tracked .prflow/logs/" >&2
 python3 $LIB/../scripts/build-experiment-records.py || \
   echo "retrospective-weekly: build-experiment-records.py exited non-zero (rc=$?) — one or more PRs are MISSING from the experiment store (see its stderr for which, and whether they failed to assemble or had an unestablished merge state); records that did assemble were still written" >&2
 ```
 
 The assembler is idempotent (one line per merged PR, keyed by PR number) and incremental
-(it processes merged PRs absent from `.devflow/learnings/experiment-records.jsonl` plus
+(it processes merged PRs absent from `.prflow/learnings/experiment-records.jsonl` plus
 any passed via `--prs`, never a full-history sweep), so re-running is safe and cheap. It
 runs on the **local/interactive retrospective tier only** — it is never invoked from a
 workflow. See `docs/efficiency-trace.md` for the store schema and the abandoned-run bias.
@@ -492,7 +492,7 @@ workflow. See `docs/efficiency-trace.md` for the store schema and the abandoned-
 
 **Open the state PR now, before Stage B**, so that the learnings files are
 committed onto their own branch. This captures the unstaged changes Steps 5–6
-wrote to `.devflow/learnings/` before any issue is filed, so this run's
+wrote to `.prflow/learnings/` before any issue is filed, so this run's
 retrospective data survives even if Stage B or the filing step fails partway.
 
 Ensure you are on `main`:
@@ -502,8 +502,8 @@ git checkout main
 ```
 
 The working tree now has the updated
-`.devflow/learnings/retrospectives.jsonl` and, normally, a modified
-`.devflow/learnings/overrides.json`. That overrides diff is **this** run's output,
+`.prflow/learnings/retrospectives.jsonl` and, normally, a modified
+`.prflow/learnings/overrides.json`. That overrides diff is **this** run's output,
 not carry-over: Step 6's reconcile rewrites the file unconditionally, so an
 unexpected-looking diff there is the reconcile normalizing entries (schema
 migration, refreshed `state_reason` and lifecycle states) — and it may additionally
@@ -523,8 +523,8 @@ STATE_PR=$(bash $LIB/open-state-pr.sh)
 - Creates/reuses branch `devflow/learnings-<YYYY-MM-DD>` from `--base`
   (`main` by default), so the PR diff is just the learnings files even if the
   operator was on a feature branch.
-- Stages any learnings files that exist (`.devflow/learnings/retrospectives.jsonl`
-  and, if present, `.devflow/learnings/overrides.json`).
+- Stages any learnings files that exist (`.prflow/learnings/retrospectives.jsonl`
+  and, if present, `.prflow/learnings/overrides.json`).
 - Commits and pushes (force-with-lease if the remote branch exists).
 - Opens or updates the PR against `main`.
 - **Prints the PR number** to stdout.
@@ -591,19 +591,19 @@ written — before any other field is read off the pattern object:**
 
 1. **`SLUG`** — `$LIB/../scripts/run-jq.sh -r .slug <<< "$pattern"`. The **one**
    sanctioned herestring over the enriched object. It is not the only place `SLUG`
-   exists on disk — `.devflow/tmp/patterns.json`, written back in Step 6, carries
+   exists on disk — `.prflow/tmp/patterns.json`, written back in Step 6, carries
    `.slug` on every record — but selecting *this* iteration's record out of that file
    needs the very key we are deriving, and `$pattern` is the element already in hand.
    The exception is scoped to this one scalar and licenses no second read.
-2. **Write** that pattern's object to `.devflow/tmp/pattern-${SLUG}.json` with the
+2. **Write** that pattern's object to `.prflow/tmp/pattern-${SLUG}.json` with the
    **Write tool**.
-3. **`TAG`** (`$LIB/../scripts/run-jq.sh -r .tag ".devflow/tmp/pattern-${SLUG}.json"`)
+3. **`TAG`** (`$LIB/../scripts/run-jq.sh -r .tag ".prflow/tmp/pattern-${SLUG}.json"`)
    and **`CATEGORY`**
-   (`$LIB/../scripts/run-jq.sh -r .category ".devflow/tmp/pattern-${SLUG}.json"` — the
+   (`$LIB/../scripts/run-jq.sh -r .category ".prflow/tmp/pattern-${SLUG}.json"` — the
    attribution category the opaque filing key belongs to, issue #891). Now that the
    file exists these come **from it**: a second and third herestring over the whole
    enriched object is exactly what the rule above forbids.
-4. Record also the **absolute path** `.devflow/tmp/pattern-${SLUG}.json` (Step 8b
+4. Record also the **absolute path** `.prflow/tmp/pattern-${SLUG}.json` (Step 8b
    hands that path to the subagent, matching the bundle-path handoff).
 
 Stage B no longer fetches a bundle for *every* occurrence PR of a pattern — an
@@ -631,17 +631,17 @@ source $LIB/audit-bundle-selection.sh || {
 # cap, a coerced object/boolean/multi-array, a non-numeric string, 3.5, and an
 # EMPTY resolver output (a read failure) — printing an `::error::` and exiting
 # non-zero, which the `|| exit 1` propagates so no pattern is judged on a bad cap.
-AUDIT_BUNDLE_CAP_RAW="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.audit_bundle_cap' 10)"
+AUDIT_BUNDLE_CAP_RAW="$(bash $LIB/../scripts/config-get.sh '.prflow_retrospective.audit_bundle_cap' 10)"
 AUDIT_BUNDLE_CAP="$(devflow_validate_audit_bundle_cap "$AUDIT_BUNDLE_CAP_RAW")" || exit 1
 # REPO_ROOT is loop-INVARIANT, so resolve it once here rather than re-forking `git`
 # per pattern. `|| pwd` is the repo's #295 fallback: unguarded, a git-absent or
 # not-a-work-tree host leaves it EMPTY and every bundle path below becomes the
-# absolute `/.devflow/tmp/pr-N.context.json` — a phantom path handed to Stage B.
+# absolute `/.prflow/tmp/pr-N.context.json` — a phantom path handed to Stage B.
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ```
 
 Then, for each `pattern` in `to_act` — with `SLUG`/`TAG`/`CATEGORY` and the
-`.devflow/tmp/pattern-${SLUG}.json` file already derived and written above —
+`.prflow/tmp/pattern-${SLUG}.json` file already derived and written above —
 select the most-recent-N occurrence PRs and fetch only their bundles, tracking **three distinct
 quantities** — *selected* (the post-cap set size), *delivered* (the bundles Stage B
 actually receives, after excluding any that failed to fetch), and *total*
@@ -663,7 +663,7 @@ dispatch=1
 # expected`, rc 2 — aborting the run mid-loop under `set -e`. Unknown is not zero,
 # so an unestablished TOTAL is recorded and the truncation entry is skipped rather
 # than fabricated from a laundered 0.
-TOTAL="$($LIB/../scripts/run-jq.sh -r '(.occurrence_count // (.occurrences // [] | length)) // 0' ".devflow/tmp/pattern-${SLUG}.json" 2>/dev/null || true)"
+TOTAL="$($LIB/../scripts/run-jq.sh -r '(.occurrence_count // (.occurrences // [] | length)) // 0' ".prflow/tmp/pattern-${SLUG}.json" 2>/dev/null || true)"
 case "$TOTAL" in
     ''|*[!0-9]*)
         blockers+=("Pattern ${SLUG}: the occurrence total could not be established (got '${TOTAL}') — truncation reporting skipped for this pattern")
@@ -684,7 +684,7 @@ SELECTED_PRS="$(devflow_select_audit_bundles "$AUDIT_BUNDLE_CAP" "$pattern")" ||
 selected=0; delivered=0; bundle_paths=()
 for n in $SELECTED_PRS; do
     selected=$((selected + 1))
-    BUNDLE="$REPO_ROOT/.devflow/tmp/pr-${n}.context.json"
+    BUNDLE="$REPO_ROOT/.prflow/tmp/pr-${n}.context.json"
     # fetch-pr-context.sh runs under `set -euo pipefail` and exits non-zero WITHOUT
     # writing a bundle when a gh call fails (auth, rate limit, a deleted PR). The
     # pre-existing `[ -s … ] ||` short-circuit means an already-present bundle is
@@ -777,10 +777,10 @@ Stage B re-derive a root cause from metadata alone. No worktree is created or pa
 > `<total>` total occurrences. The pattern metadata's `occurrences[]` below remains
 > the **authoritative full list** of occurrence PRs.
 >
-> Pattern metadata is on disk at the absolute path `<REPO_ROOT>/.devflow/tmp/pattern-<slug>.json` — read it with your file-read tool. It is handed to you by path, not inlined, because the enriched object carries every occurrence's free text (issue #893).
+> Pattern metadata is on disk at the absolute path `<REPO_ROOT>/.prflow/tmp/pattern-<slug>.json` — read it with your file-read tool. It is handed to you by path, not inlined, because the enriched object carries every occurrence's free text (issue #893).
 >
 > Consumer prompt-extension handoff: your extension file for this skill is at the
-> absolute path `<REPO_ROOT>/.devflow/prompt-extensions/retrospective-audit.md`.
+> absolute path `<REPO_ROOT>/.prflow/prompt-extensions/retrospective-audit.md`.
 > Read it with your file-read tool and honor any content as instructions appended
 > to the retrospective-audit skill's own prompt. If the file is absent or empty,
 > treat it as a no-op and report nothing about it; if it is present but you cannot
@@ -819,9 +819,9 @@ human-applied label cannot consume the loop's budget and a loop-filed issue whos
 best-effort label failed still counts:
 
 ```bash
-MAX_PER_RUN="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.max_issues_per_run' 3)"
-MAX_OPEN="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.max_open_issues' 10)"
-MAX_PER_CAT="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.max_open_per_category' 2)"
+MAX_PER_RUN="$(bash $LIB/../scripts/config-get.sh '.prflow_retrospective.max_issues_per_run' 3)"
+MAX_OPEN="$(bash $LIB/../scripts/config-get.sh '.prflow_retrospective.max_open_issues' 10)"
+MAX_PER_CAT="$(bash $LIB/../scripts/config-get.sh '.prflow_retrospective.max_open_per_category' 2)"
 # Validate the caps HERE, once, before any pattern is judged. config-get.sh coerces
 # whatever JSON the key holds into a string — an object arrives as `[object Object]`,
 # `false` as `false` — so a single config typo makes devflow_filing_cap_verdict return
@@ -831,15 +831,15 @@ MAX_PER_CAT="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.max_op
 # back-pressure. Aborting and naming the offending key is preferable to a broken
 # config reading as a deliberately throttled week.
 case "$MAX_PER_RUN" in
-  ''|*[!0-9]*) echo "::error::retrospective Step 8c: .devflow_retrospective.max_issues_per_run is not a count (got '$MAX_PER_RUN') — aborting rather than withholding every pattern behind an invalid-operand verdict that would read as back-pressure" >&2
+  ''|*[!0-9]*) echo "::error::retrospective Step 8c: .prflow_retrospective.max_issues_per_run is not a count (got '$MAX_PER_RUN') — aborting rather than withholding every pattern behind an invalid-operand verdict that would read as back-pressure" >&2
      exit 1 ;;
 esac
 case "$MAX_OPEN" in
-  ''|*[!0-9]*) echo "::error::retrospective Step 8c: .devflow_retrospective.max_open_issues is not a count (got '$MAX_OPEN') — aborting rather than withholding every pattern behind an invalid-operand verdict that would read as back-pressure" >&2
+  ''|*[!0-9]*) echo "::error::retrospective Step 8c: .prflow_retrospective.max_open_issues is not a count (got '$MAX_OPEN') — aborting rather than withholding every pattern behind an invalid-operand verdict that would read as back-pressure" >&2
      exit 1 ;;
 esac
 case "$MAX_PER_CAT" in
-  ''|*[!0-9]*) echo "::error::retrospective Step 8c: .devflow_retrospective.max_open_per_category is not a count (got '$MAX_PER_CAT') — aborting rather than withholding every pattern behind an invalid-operand verdict that would read as back-pressure" >&2
+  ''|*[!0-9]*) echo "::error::retrospective Step 8c: .prflow_retrospective.max_open_per_category is not a count (got '$MAX_PER_CAT') — aborting rather than withholding every pattern behind an invalid-operand verdict that would read as back-pressure" >&2
      exit 1 ;;
 esac
 # Both cap comparands come from `lib/filing-decisions.sh`, which the suite drives
@@ -877,7 +877,7 @@ count to `0`: `devflow_filing_cap_verdict` reads the empty operand as
 `invalid-operand` and withholds, whereas a laundered `0` would report an empty
 backlog and file straight past both caps.
 
-The pre-filing overrides snapshot Step 9 reads (`.devflow/tmp/overrides-prefiling.json`)
+The pre-filing overrides snapshot Step 9 reads (`.prflow/tmp/overrides-prefiling.json`)
 is taken in **Step 6**, not here. It must exist on *every* run: Step 8 is skipped
 wholesale when nothing is actionable, so taking it here would leave Step 9 reading
 an absent file on exactly the quiet runs this loop exists to make diagnosable —
@@ -890,7 +890,7 @@ unbound `$STATUS` expands empty (never `"regressed"`), so the bypass would be de
 runtime; an empty `$STATUS` is a WIRING failure, not a non-regressed pattern:
 
 ```bash
-STATUS="$($LIB/../scripts/run-jq.sh -r --arg t "$TAG" '.[] | select((.tag // .slug) == $t) | .status' .devflow/tmp/patterns.json)"
+STATUS="$($LIB/../scripts/run-jq.sh -r --arg t "$TAG" '.[] | select((.tag // .slug) == $t) | .status' .prflow/tmp/patterns.json)"
 case "$STATUS" in
   dismissed|regressed|declined|filed|fixed|open) : ;;
   *) echo "::error::retrospective Step 8c: could not bind a lifecycle status for pattern '$TAG' (got '$STATUS') — refusing to file on an unestablished status, which would silently disable the regressed bypass" >&2
@@ -899,7 +899,7 @@ esac
 ```
 
 **Dispatch on the Stage B result's SHAPE (issue #893).** Write the subagent's raw
-result to `.devflow/tmp/result-${SLUG}.json` with the **Write tool** first (it can
+result to `.prflow/tmp/result-${SLUG}.json` with the **Write tool** first (it can
 contain quotes, backticks, newlines, and `$` — never interpolate it inline into a
 shell command). Then:
 
@@ -939,11 +939,11 @@ if [ ! -x "$LIB/../scripts/run-jq.sh" ]; then
 
 # Relay a child-reported unreadable consumer extension (issue #834) — informational,
 # never blocks filing, and read on every non-anchor shape.
-elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tmp/result-${SLUG}.json" >/dev/null 2>&1; then
+elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".prflow/tmp/result-${SLUG}.json" >/dev/null 2>&1; then
     # ── Findings-array path (issue #893): select-findings owns the selection ──
-    EXT_UNREADABLE="$($LIB/../scripts/run-jq.sh -r '.extension_unreadable // empty' < ".devflow/tmp/result-${SLUG}.json")"
+    EXT_UNREADABLE="$($LIB/../scripts/run-jq.sh -r '.extension_unreadable // empty' < ".prflow/tmp/result-${SLUG}.json")"
     [ -n "$EXT_UNREADABLE" ] && echo "::warning::retrospective Stage B (pattern ${SLUG}): consumer prompt extension for retrospective-audit present but unreadable: ${EXT_UNREADABLE}" >&2
-    if [ "$($LIB/../scripts/run-jq.sh -r '.findings | length' < ".devflow/tmp/result-${SLUG}.json")" -eq 0 ]; then
+    if [ "$($LIB/../scripts/run-jq.sh -r '.findings | length' < ".prflow/tmp/result-${SLUG}.json")" -eq 0 ]; then
         # Empty findings array: file nothing, record a per-pattern report LINE —
         # distinct from the malformed blocker (this pattern was well-formed; Stage B
         # simply found no distinct sub-pattern worth its own issue).
@@ -954,7 +954,7 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tm
         # array on stdout. A NON-ZERO exit is a withhold-everything condition (cap
         # owner unsourceable, or overrides absent/unreadable/unmigrated) — it prints
         # nothing and names the cause on its own ::error:: channel.
-        $LIB/../scripts/run-jq.sh -c '.findings' < ".devflow/tmp/result-${SLUG}.json" > ".devflow/tmp/findings-${SLUG}.json"
+        $LIB/../scripts/run-jq.sh -c '.findings' < ".prflow/tmp/result-${SLUG}.json" > ".prflow/tmp/findings-${SLUG}.json"
         # GUARD the source. An unsourceable select-findings.sh leaves
         # devflow_select_findings undefined, and the `else` arm below would then
         # misattribute that to the helper's own withhold-everything condition — a cause
@@ -969,30 +969,30 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tm
             blockers+=("Pattern ${SLUG}: could not source lib/select-findings.sh (missing, unreadable, or a syntax error) — nothing filed for this pattern")
         elif TO_FILE="$(devflow_select_findings \
                 --category "$CATEGORY" \
-                --findings-file ".devflow/tmp/findings-${SLUG}.json" \
-                --overrides .devflow/learnings/overrides.json \
+                --findings-file ".prflow/tmp/findings-${SLUG}.json" \
+                --overrides .prflow/learnings/overrides.json \
                 --status "$STATUS" \
                 --filed-this-run "$filed_this_run" \
                 --max-per-run "$MAX_PER_RUN" \
                 --max-per-cat "$MAX_PER_CAT" \
                 --max-open "$MAX_OPEN" \
-                --withheld-file ".devflow/tmp/withheld-${SLUG}.json" \
-                --dropped-file ".devflow/tmp/dropped-${SLUG}.json")"; then
+                --withheld-file ".prflow/tmp/withheld-${SLUG}.json" \
+                --dropped-file ".prflow/tmp/dropped-${SLUG}.json")"; then
             # Fold each cap-withheld finding into `withheld` so Step 9 reports it under
             # "withheld by a filing cap", exactly as the legacy path does.
-            if [ -s ".devflow/tmp/withheld-${SLUG}.json" ]; then
+            if [ -s ".prflow/tmp/withheld-${SLUG}.json" ]; then
                 while IFS= read -r _wh; do
                     [ -n "$_wh" ] && withheld+=("$_wh")
-                done < <($LIB/../scripts/run-jq.sh -c '.[]' < ".devflow/tmp/withheld-${SLUG}.json")
+                done < <($LIB/../scripts/run-jq.sh -c '.[]' < ".prflow/tmp/withheld-${SLUG}.json")
             fi
             # Fold a truncation record into `skip_records` — the same report channel the
             # empty-findings case uses — so the run names the pattern and the count that
             # Stage B returned but this selection dropped. The file holds an empty array
             # when nothing was dropped, so this emits nothing on the ordinary path.
-            if [ -s ".devflow/tmp/dropped-${SLUG}.json" ]; then
+            if [ -s ".prflow/tmp/dropped-${SLUG}.json" ]; then
                 while IFS= read -r _dr; do
                     [ -n "$_dr" ] && skip_records+=("Pattern ${SLUG}: Stage B returned $($LIB/../scripts/run-jq.sh -r '.total' <<< "$_dr") findings — kept the top 3 by evidence-PR count, dropped $($LIB/../scripts/run-jq.sh -r '.dropped' <<< "$_dr")")
-                done < <($LIB/../scripts/run-jq.sh -c '.[]' < ".devflow/tmp/dropped-${SLUG}.json")
+                done < <($LIB/../scripts/run-jq.sh -c '.[]' < ".prflow/tmp/dropped-${SLUG}.json")
             fi
             FINDINGS_N="$(printf '%s' "$TO_FILE" | $LIB/../scripts/run-jq.sh 'length')"
             # Every per-finding DROP inside devflow_select_findings (absent/empty
@@ -1007,8 +1007,8 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tm
             # `[]` when nothing was dropped/withheld — so both files are always
             # non-empty (2 bytes) and `[ ! -s … ]` is always false. Test ARRAY
             # EMPTINESS BY CONTENT via run-jq.sh's length count, not by file size.
-            _WH_N="$($LIB/../scripts/run-jq.sh 'length' < ".devflow/tmp/withheld-${SLUG}.json" 2>/dev/null || echo 0)"
-            _DR_N="$($LIB/../scripts/run-jq.sh 'length' < ".devflow/tmp/dropped-${SLUG}.json" 2>/dev/null || echo 0)"
+            _WH_N="$($LIB/../scripts/run-jq.sh 'length' < ".prflow/tmp/withheld-${SLUG}.json" 2>/dev/null || echo 0)"
+            _DR_N="$($LIB/../scripts/run-jq.sh 'length' < ".prflow/tmp/dropped-${SLUG}.json" 2>/dev/null || echo 0)"
             if [ "${FINDINGS_N:-0}" -eq 0 ] && [ "${_WH_N:-0}" -eq 0 ] && [ "${_DR_N:-0}" -eq 0 ]; then
                 skip_records+=("Pattern ${SLUG}: select-findings.sh selected 0 findings to file (no cap withhold, no top-three truncation) — every returned finding was individually dropped; see its stderr breadcrumbs for which check")
             fi
@@ -1020,9 +1020,9 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tm
                 # BOTH --tag and --slug (they share the [A-Za-z0-9_-]+ grammar the key
                 # already satisfies), with the attribution --category alongside.
                 KEY="$(printf '%s' "$TO_FILE" | $LIB/../scripts/run-jq.sh -r ".[$_fi].key")"
-                printf '%s' "$TO_FILE" | $LIB/../scripts/run-jq.sh -r ".[$_fi].body"  > ".devflow/tmp/issue-body-${KEY}.md"
+                printf '%s' "$TO_FILE" | $LIB/../scripts/run-jq.sh -r ".[$_fi].body"  > ".prflow/tmp/issue-body-${KEY}.md"
                 F_TITLE="$(printf '%s' "$TO_FILE" | $LIB/../scripts/run-jq.sh -r ".[$_fi].title")"
-                if ISSUE_URL="$(bash $LIB/meta-issue.sh --tag "$KEY" --slug "$KEY" --category "$CATEGORY" --title "$F_TITLE" --body-file ".devflow/tmp/issue-body-${KEY}.md" --overrides .devflow/learnings/overrides.json)"; then
+                if ISSUE_URL="$(bash $LIB/meta-issue.sh --tag "$KEY" --slug "$KEY" --category "$CATEGORY" --title "$F_TITLE" --body-file ".prflow/tmp/issue-body-${KEY}.md" --overrides .prflow/learnings/overrides.json)"; then
                     intervention_issues+=("$($LIB/../scripts/run-jq.sh -nc --arg key "$KEY" --arg cat "$CATEGORY" --arg url "$ISSUE_URL" '{key:$key,category:$cat,url:$url}')")
                     filed_this_run=$((filed_this_run + 1))
                     _pattern_filed=1
@@ -1044,8 +1044,8 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tm
             # tag. When a cap held back EVERY finding of this pattern, add one
             # coarse-tag entry so the pattern row still renders `withheld_by`, exactly
             # as the legacy path's single per-pattern entry does.
-            if [ "${_pattern_filed:-0}" -ne 1 ] && [ -s ".devflow/tmp/withheld-${SLUG}.json" ]; then
-                _FIRST_CAP="$($LIB/../scripts/run-jq.sh -r '.[0].cap // empty' < ".devflow/tmp/withheld-${SLUG}.json")"
+            if [ "${_pattern_filed:-0}" -ne 1 ] && [ -s ".prflow/tmp/withheld-${SLUG}.json" ]; then
+                _FIRST_CAP="$($LIB/../scripts/run-jq.sh -r '.[0].cap // empty' < ".prflow/tmp/withheld-${SLUG}.json")"
                 [ -n "$_FIRST_CAP" ] && withheld+=("$($LIB/../scripts/run-jq.sh -nc --arg tag "$SLUG" --arg cap "$_FIRST_CAP" '{tag:$tag,cap:$cap}')")
             fi
         else
@@ -1067,29 +1067,29 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tm
         fi
     fi
 
-elif $LIB/../scripts/run-jq.sh -e '.title and .body' < ".devflow/tmp/result-${SLUG}.json" >/dev/null 2>&1; then
+elif $LIB/../scripts/run-jq.sh -e '.title and .body' < ".prflow/tmp/result-${SLUG}.json" >/dev/null 2>&1; then
     # ── Legacy title/body coexistence path: bare category key, cap-checked ────
-    EXT_UNREADABLE="$($LIB/../scripts/run-jq.sh -r '.extension_unreadable // empty' < ".devflow/tmp/result-${SLUG}.json")"
+    EXT_UNREADABLE="$($LIB/../scripts/run-jq.sh -r '.extension_unreadable // empty' < ".prflow/tmp/result-${SLUG}.json")"
     [ -n "$EXT_UNREADABLE" ] && echo "::warning::retrospective Stage B (pattern ${SLUG}): consumer prompt extension for retrospective-audit present but unreadable: ${EXT_UNREADABLE}" >&2
     source $LIB/filing-decisions.sh || {
       echo "::error::retrospective: lib/filing-decisions.sh could not be sourced — the filing decisions have no owner; aborting rather than silently withholding" >&2
       exit 1
     }
-    PER_CAT="$(devflow_open_filed_for_category .devflow/learnings/overrides.json "$CATEGORY")"
+    PER_CAT="$(devflow_open_filed_for_category .prflow/learnings/overrides.json "$CATEGORY")"
     case "$PER_CAT" in
       ''|*[!0-9]*) echo "::error::retrospective Step 8c: could not derive the per-category filed count for category '$CATEGORY' (got '$PER_CAT') — the overrides file is missing, unreadable, or malformed; aborting rather than withholding every pattern behind an invalid-operand verdict that would read as back-pressure" >&2
            exit 1 ;;
     esac
-    OPEN_TOTAL="$(devflow_open_filed_total .devflow/learnings/overrides.json)"
+    OPEN_TOTAL="$(devflow_open_filed_total .prflow/learnings/overrides.json)"
     case "$OPEN_TOTAL" in
       ''|*[!0-9]*) echo "::error::retrospective Step 8c: could not derive the total filed count (got '$OPEN_TOTAL') — the overrides file is missing, unreadable, or malformed; aborting rather than withholding every pattern behind an invalid-operand verdict that would read as back-pressure" >&2
            exit 1 ;;
     esac
     VERDICT="$(devflow_filing_cap_verdict "$STATUS" "$filed_this_run" "$MAX_PER_RUN" "$PER_CAT" "$MAX_PER_CAT" "$OPEN_TOTAL" "$MAX_OPEN")"
     if [ "$VERDICT" = file ]; then
-        $LIB/../scripts/run-jq.sh -r '.body' < ".devflow/tmp/result-${SLUG}.json" > ".devflow/tmp/issue-body-${SLUG}.md"
-        TITLE="$($LIB/../scripts/run-jq.sh -r '.title' < ".devflow/tmp/result-${SLUG}.json")"
-        if ISSUE_URL="$(bash $LIB/meta-issue.sh --tag "$SLUG" --slug "$SLUG" --category "$CATEGORY" --title "$TITLE" --body-file ".devflow/tmp/issue-body-${SLUG}.md" --overrides .devflow/learnings/overrides.json)"; then
+        $LIB/../scripts/run-jq.sh -r '.body' < ".prflow/tmp/result-${SLUG}.json" > ".prflow/tmp/issue-body-${SLUG}.md"
+        TITLE="$($LIB/../scripts/run-jq.sh -r '.title' < ".prflow/tmp/result-${SLUG}.json")"
+        if ISSUE_URL="$(bash $LIB/meta-issue.sh --tag "$SLUG" --slug "$SLUG" --category "$CATEGORY" --title "$TITLE" --body-file ".prflow/tmp/issue-body-${SLUG}.md" --overrides .prflow/learnings/overrides.json)"; then
             intervention_issues+=("$($LIB/../scripts/run-jq.sh -nc --arg key "$SLUG" --arg cat "$CATEGORY" --arg url "$ISSUE_URL" '{key:$key,category:$cat,url:$url}')")
             filed_this_run=$((filed_this_run + 1)); filed_slugs+=("$SLUG")
         else
@@ -1114,7 +1114,7 @@ continues to the next pattern; the pattern is absent from `intervention_issues`.
 **Do not** post `/prflow:implement` (or any auto-trigger comment) on a filed
 issue — filed issues await human triage.
 
-(`meta-issue.sh` mutates `.devflow/learnings/overrides.json` in your `main`
+(`meta-issue.sh` mutates `.prflow/learnings/overrides.json` in your `main`
 checkout's working tree. That happens **after** the Step 7 state PR was opened,
 so the new lifecycle record lands in next week's state PR — see § Notes for the optional
 follow-up commit if you want it in this run's PR.)
@@ -1131,7 +1131,7 @@ suppressed and below-threshold ones — so `render-report.sh` shows the whole
 picture, not just the actionable subset that produced an intervention:
 
 ```bash
-ANALYZED_JSON="$($LIB/../scripts/run-jq.sh -sc '[.[] | select(.verdict == "imperfect" or .verdict == "blocked") | {pr, verdict, summary}]' .devflow/tmp/new-entries.jsonl)"
+ANALYZED_JSON="$($LIB/../scripts/run-jq.sh -sc '[.[] | select(.verdict == "imperfect" or .verdict == "blocked") | {pr, verdict, summary}]' .prflow/tmp/new-entries.jsonl)"
 # The report's `.patterns` is the UNFILTERED whole-pattern view (patterns-full.json),
 # not the filtered actionable list, so the report surfaces suppressed/below-threshold
 # patterns instead of reading like a quiet week (issue #788).
@@ -1145,15 +1145,15 @@ source $LIB/filing-decisions.sh || {
 }
 FILED_SLUGS_JSON="$(printf '%s\n' "${filed_slugs[@]:-}" | $LIB/../scripts/run-jq.sh -sRc 'split("\n") | map(select(. != ""))')"
 WITHHELD_JSON="$(printf '%s\n' "${withheld[@]:-}" | $LIB/../scripts/run-jq.sh -sc 'map(select(. != null))')"
-PATTERNS_JSON="$(devflow_annotate_patterns .devflow/tmp/patterns-full.json "$FILED_SLUGS_JSON" "$WITHHELD_JSON")"
-RECURRING_TARGETS_JSON="$(bash $LIB/recurring-targets.sh .devflow/learnings/retrospectives.jsonl)"
+PATTERNS_JSON="$(devflow_annotate_patterns .prflow/tmp/patterns-full.json "$FILED_SLUGS_JSON" "$WITHHELD_JSON")"
+RECURRING_TARGETS_JSON="$(bash $LIB/recurring-targets.sh .prflow/learnings/retrospectives.jsonl)"
 
 # The liveness line actionable-patterns.sh wrote to stderr in Step 6, and the
 # won't-fix patterns this run re-raised — the two remaining report sections
 # (issue #788). Both come from the same tested helper; both are empty on a run
 # that produced neither, and render-report.sh then omits their sections.
-LIVENESS_WARNING="$(devflow_liveness_warning .devflow/tmp/patterns.stderr)"
-DECLINED_REFILED_JSON="$(devflow_declined_refiled .devflow/tmp/overrides-prefiling.json "$FILED_SLUGS_JSON")"
+LIVENESS_WARNING="$(devflow_liveness_warning .prflow/tmp/patterns.stderr)"
+DECLINED_REFILED_JSON="$(devflow_declined_refiled .prflow/tmp/overrides-prefiling.json "$FILED_SLUGS_JSON")"
 
 # Truncation entries (issue #894): the {tag, delivered, total, selected} objects
 # Step 8a appended for every pattern the audit_bundle_cap (or a fetch failure)
@@ -1171,8 +1171,8 @@ TRUNCATIONS_JSON="$(printf '%s\n' "${truncations[@]:-}" | $LIB/../scripts/run-jq
 # string — rendered `unavailable`, never laundered to 0. devflow_open_filed_total
 # prints NOTHING (not 0) when unestablished, which is exactly that empty string;
 # neither operand is :?-guarded, because empty is a valid "unavailable" state here.
-FILING_QUEUE_OPEN="$(devflow_open_filed_total .devflow/learnings/overrides.json)"
-FILING_QUEUE_MAX="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.max_open_issues' 10)"
+FILING_QUEUE_OPEN="$(devflow_open_filed_total .prflow/learnings/overrides.json)"
+FILING_QUEUE_MAX="$(bash $LIB/../scripts/config-get.sh '.prflow_retrospective.max_open_issues' 10)"
 ```
 
 `recurring-targets.sh` groups every accumulated entry's
@@ -1194,7 +1194,7 @@ trap 'rm -rf "$_SUMMARY_TMP"' EXIT
 # three are upstream producer output, valid JSON ([] at minimum) on success — an empty
 # string means that producer failed, so fail loud rather than emit analyzed/patterns:null.
 : "${ANALYZED_JSON:?devflow retrospective Step 9: ANALYZED_JSON is empty — upstream Stage-A analysis failed}"
-: "${PATTERNS_JSON:?devflow retrospective Step 9: PATTERNS_JSON is empty — devflow_annotate_patterns printed nothing over .devflow/tmp/patterns-full.json (missing, empty, or unreadable)}"
+: "${PATTERNS_JSON:?devflow retrospective Step 9: PATTERNS_JSON is empty — devflow_annotate_patterns printed nothing over .prflow/tmp/patterns-full.json (missing, empty, or unreadable)}"
 : "${RECURRING_TARGETS_JSON:?devflow retrospective Step 9: RECURRING_TARGETS_JSON is empty — recurring-targets.sh failed}"
 # Same fail-loud property for the two #788 operands: both helpers print at
 # minimum `[]` on success, so an empty string is producer failure, not "nothing
@@ -1280,15 +1280,15 @@ Render the report markdown and post it as a comment on the state PR:
 
 ```bash
 source $LIB/render-report.sh
-devflow_render_report "$SUMMARY_JSON" > .devflow/tmp/report.md
-bash $LIB/post-status.sh --pr "$STATE_PR" --report-file .devflow/tmp/report.md
+devflow_render_report "$SUMMARY_JSON" > .prflow/tmp/report.md
+bash $LIB/post-status.sh --pr "$STATE_PR" --report-file .prflow/tmp/report.md
 ```
 
 ---
 
 ### Step 10 — Report to the user
 
-Print the rendered report (`cat .devflow/tmp/report.md`) to the console.
+Print the rendered report (`cat .prflow/tmp/report.md`) to the console.
 
 Then list each item that needs human action:
 
@@ -1315,7 +1315,7 @@ after reviewing.
 
 ## § Notes
 
-- **Clean working tree required.** The loop modifies `.devflow/learnings/`
+- **Clean working tree required.** The loop modifies `.prflow/learnings/`
   in-place on `main`'s working tree; starting dirty risks mixing pre-existing
   changes into the state PR commit.
 - **State PR before Stage B.** Opening the state PR (Step 7) before Stage B is
@@ -1330,17 +1330,17 @@ after reviewing.
   `meta-issue.sh` under an opaque `<category>-<subslug>` key. No worktrees, no
   commits, no PRs — the loop proposes; a human implements.
 - **Overrides after Stage B.** `meta-issue.sh` records each filed pattern's
-  lifecycle entry in `.devflow/learnings/overrides.json` in your `main` working tree
+  lifecycle entry in `.prflow/learnings/overrides.json` in your `main` working tree
   **after** the Step 7 state PR was opened, so the change lands in next week's
   state PR automatically. If you want it in *this* run's PR, after Step 8 push a
   follow-up commit onto the same `devflow/learnings-<date>` branch:
 
   ```bash
-  if ! git diff --quiet HEAD -- .devflow/learnings/overrides.json 2>/dev/null; then
+  if ! git diff --quiet HEAD -- .prflow/learnings/overrides.json 2>/dev/null; then
       LB="devflow/learnings-$(date -u +%F)"
       git fetch origin "$LB"
       git checkout "$LB"
-      git add .devflow/learnings/overrides.json
+      git add .prflow/learnings/overrides.json
       git commit -m "chore(devflow): add overrides from Stage B filed issues"
       git push --force-with-lease origin "$LB"
       git checkout main
@@ -1365,7 +1365,7 @@ after reviewing.
   `--base` (defaults to `main`), `--dry-run`; prints the PR number
   to stdout.
 - **`fetch-pr-context.sh` return value:** echoes the bundle *file path* to
-  stdout; the bundle content is on disk at `.devflow/tmp/pr-<n>.context.json`.
+  stdout; the bundle content is on disk at `.prflow/tmp/pr-<n>.context.json`.
 - **`cheap-gate.jq` invocation:** reads from stdin (the bundle content, not
   the path) — use `$LIB/../scripts/run-jq.sh -c -f $LIB/cheap-gate.jq < "$CTX"` where `$CTX` is
   the path.

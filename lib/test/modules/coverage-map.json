@@ -59,6 +59,10 @@
       "note": "#561 capability-profile manifest generator; the capability-profiles module drives its --check over the generated workflow regions.",
       "owner": "capability-profiles"
     },
+    "lib/generate-env-freeze-advisory.py": {
+      "note": "issue #1004 Tier 3: renders the frozen out-of-repo DEVFLOW_* advisory region from lib/rename-map.json and re-runs the two-arm criterion over the tree (--audit)",
+      "owner": "tier1-rename-migration"
+    },
     "lib/generate-plugin-identity.py": {
       "note": "issue #927 name-agnostic plugin identity: compiles the baked discriminator regions",
       "owner": "unmodularized"
@@ -127,6 +131,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "lib/resolve-state-dir.sh": {
+      "note": "issue #1002 state-directory transitional read-through (shell half of the coupled pair)",
+      "owner": "tier1-rename-migration"
+    },
     "lib/scan.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -138,6 +146,10 @@
     "lib/slugify.jq": {
       "note": "issue #891 shared slugify module (compute-patterns.jq + compose-filing-key.sh include it)",
       "owner": "retrospective-lifecycle"
+    },
+    "lib/state_dir.py": {
+      "note": "issue #1002 state-directory transitional read-through (python half of the coupled pair)",
+      "owner": "tier1-rename-migration"
     },
     "lib/telemetry-branch.sh": {
       "note": "",
@@ -376,6 +388,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/migrate-consumer-tier1.sh": {
+      "note": "issue #1002 all-or-nothing consumer Tier 1 migration",
+      "owner": "tier1-rename-migration"
+    },
     "scripts/normalize-verdicts.py": {
       "note": "#556 helper unit tests: lib/test/normalize-verdicts-test.py driven by run.sh (T-1/T-3/T-6)",
       "owner": "unmodularized"
@@ -601,6 +617,7 @@
     "lib/capability-profiles.json",
     "lib/intervention-surfaces.md",
     "lib/plugin-identity.json",
+    "lib/rename-map.json",
     "lib/review-profile.tokens",
     "lib/subagent-dispatch-sites.json",
     "scripts/devflow-cloud-writer-contract.json",
@@ -614,6 +631,14 @@
     "100": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "1002": {
+      "note": "",
+      "owner": "tier1-rename-migration"
+    },
+    "1004": {
+      "note": "",
+      "owner": "tier1-rename-migration"
     },
     "103": {
       "note": "",
@@ -1852,7 +1877,7 @@
       "owner": "unmodularized"
     },
     "928": {
-      "note": "Inline run.sh assertions for the deferred half of issue #928: devflow-implement.yml re-anchors the hosted-runner workspace prefix in devflow_implement.allowed_tools onto the live $GITHUB_WORKSPACE before splicing it into --allowed-tools. The assertions drive the jq program EXTRACTED FROM THE WORKFLOW so they cannot drift from the shipped expression, and cover: byte-equivalence with the untransformed join at the current workspace (the no-op-today property), full re-anchoring with no stale prefix left after a rename, non-rewriting of out-of-workspace absolute and repo-relative grants, the ^Bash( anchor, and the empty-$GITHUB_WORKSPACE identity branch. Sits beside the pre-existing #928 matcher-probe EXTRAS mirror; unmodularized like the rest of the cloud-allowlist block.",
+      "note": "Inline run.sh assertions for the deferred half of issue #928: devflow-implement.yml re-anchors the hosted-runner workspace prefix in prflow_implement.allowed_tools onto the live $GITHUB_WORKSPACE before splicing it into --allowed-tools. The assertions drive the jq program EXTRACTED FROM THE WORKFLOW so they cannot drift from the shipped expression, and cover: byte-equivalence with the untransformed join at the current workspace (the no-op-today property), full re-anchoring with no stale prefix left after a rename, non-rewriting of out-of-workspace absolute and repo-relative grants, the ^Bash( anchor, and the empty-$GITHUB_WORKSPACE identity branch. Sits beside the pre-existing #928 matcher-probe EXTRAS mirror; unmodularized like the rest of the cloud-allowlist block.",
       "owner": "unmodularized"
     },
     "936": {

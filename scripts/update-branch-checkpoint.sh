@@ -87,7 +87,7 @@ CONFIG_GET="$_self_dir/config-get.sh"
 # fail toward "off" — the pre-feature status quo — never toward a surprise merge).
 # The `|| true` is deliberate here: if the resolver hard-fails, the base_branch read
 # below fails the same way and stops the run (UNVERIFIED) before any fetch or merge.
-enabled="$("$CONFIG_GET" .devflow_implement.update_branch_checkpoints "" 2>/dev/null || true)"
+enabled="$("$CONFIG_GET" .prflow_implement.update_branch_checkpoints "" 2>/dev/null || true)"
 if [ "$enabled" = "false" ]; then
   emit "DISABLED"
   exit 0
@@ -105,7 +105,7 @@ fi
 #
 # UNTRACKED files are deliberately NOT pre-checked here (PR #451 review, deferred with
 # reason). A blanket "any untracked file → refuse" guard would reject nearly every real run
-# (build artifacts, .devflow/tmp/ markers, editor scratch), and a *targeted* collision
+# (build artifacts, .prflow/tmp/ markers, editor scratch), and a *targeted* collision
 # predicate would have to re-derive git's own merge-overwrite semantics — the guard-drift
 # class this repo bans (CLAUDE.md "Adding a guard…"; the accepted-input set of a hand-rolled
 # predicate is never an exact match for the consumer's). git already owns that contract: an
@@ -124,7 +124,7 @@ if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; th
 fi
 
 # (3) Derive the base branch. A read that FAILS (config-get.sh rc≠0 — corrupt
-# .devflow/config.json, missing python3) is UNVERIFIED, never a silent fallback:
+# .prflow/config.json, missing python3) is UNVERIFIED, never a silent fallback:
 # falling back to main on a hard failure would merge-and-push the WRONG base on any
 # repo whose real base_branch is not main — a fail-open direction the file's other
 # guards rule out. config-get's own stderr passes through (fd 1 is already rebound),

@@ -443,7 +443,7 @@ def _tokenize(statement: str) -> list[str]:
 
 
 def _normalize(token: str) -> str:
-    token = _ANCHOR.sub(".devflow/vendor/devflow/", token)
+    token = _ANCHOR.sub(".prflow/vendor/prflow/", token)
     return token.strip("'\"")
 
 
@@ -512,7 +512,7 @@ def _collect(text: str, heads: list[list[str]]) -> None:
 # A cloud-reached ```bash fenced command that invokes a bundled helper must place
 # that helper's vendored path as the command's FIRST executable token. The
 # portable `${CLAUDE_SKILL_DIR:-…}/../../scripts/x` source anchor normalizes to the
-# vendored literal `.devflow/vendor/devflow/scripts/x` (see `_ANCHOR`/`_normalize`),
+# vendored literal `.prflow/vendor/prflow/scripts/x` (see `_ANCHOR`/`_normalize`),
 # so the sanctioned source form passes as its own cloud-emission equivalent — no
 # duplicate cloud fence, so the #275 portability contract holds. Every OTHER form that still names a bundled helper in
 # command position is a boundary escape and is classified: a malformed/unexpanded
@@ -530,7 +530,7 @@ def _collect(text: str, heads: list[list[str]]) -> None:
 # the bundled-helper path shape below), classifying a token structurally; the
 # per-profile membership decisions stay with the caller.
 
-_VENDORED_LEADING = ".devflow/vendor/devflow/"
+_VENDORED_LEADING = ".prflow/vendor/prflow/"
 
 # A command-position token whose final path component is `scripts/<name>` or
 # `lib/<name>` with a helper extension. Matched against the NORMALIZED token, so

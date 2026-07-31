@@ -31,7 +31,7 @@ Scope, and what is deliberately NOT flagged:
   every other reader uses. Alias namespaces are accepted for config keys and for
   comment triggers; they are not accepted here, because that is precisely the
   distinction this guard exists to hold.
-* `agents/` definitions themselves, and the `.devflow/` machine corpora (frozen
+* `agents/` definitions themselves, and the `.prflow/` machine corpora (frozen
   census snapshots, append-only learnings) are excluded: the corpora quote historical
   ids on purpose and re-keying them would rewrite recorded history.
 
@@ -84,7 +84,7 @@ _QUALIFIED = re.compile(r"\b([a-z0-9][a-z0-9-]*):([a-z0-9][a-z0-9-]*)\b")
 
 #: Prompt surfaces this guard audits.
 _SKILLS_PREFIX = "skills/"
-_EXTENSION_RE = re.compile(r"\.devflow/prompt-extensions/[^/]+\.md")
+_EXTENSION_RE = re.compile(r"\.prflow/prompt-extensions/[^/]+\.md")
 
 
 def is_audited(path: str) -> bool:

@@ -19,12 +19,12 @@ and that is all. workspace_state coverage is derived from explicit source-event
 results, never analyzer-time inspection (so no git/subprocess).
 
 Output is local and gitignored under owner-only 0700 directories and 0600 files
-under .devflow/tmp/verification-baselines/. Artifacts carry created_at,
+under .prflow/tmp/verification-baselines/. Artifacts carry created_at,
 source_snapshot_hash, and expires_at; --cleanup deletes baseline and
 manual-review artifacts without touching native sources. Raw transcript text,
 tool input, stdout/stderr, secrets, redacted displays, and source paths never
 enter model prompts, errors, logs, telemetry, workflow artifacts, PR comments,
-or tracked .devflow/logs/**. The report cites source-event IDs only.
+or tracked .prflow/logs/**. The report cites source-event IDs only.
 
 Sibling helpers in workflow_flight_recorder are re-implemented locally rather
 than imported (`_atomic_write` literally; the recorder's timestamp helpers via
@@ -453,10 +453,10 @@ SECRET_URL = re.compile(r"(https?://)" + _URL_USER + r":" + _URL_PASS + r"@")
 # secret_affected=False — the same untested-sibling shape as the URL class.
 BEARER_TOKEN = re.compile(r"(Bearer\s+)((?:" + _ESC_CHUNK + r"|" + _DQ_CHUNK + r"|" + _SQ_CHUNK + r"|[A-Za-z0-9._\-+/=])+)", re.IGNORECASE)
 
-DEFAULT_MANIFESTS_DIR = ".devflow/tmp/workflow-manifests"
-DEFAULT_BUNDLES_DIR = ".devflow/tmp/workflow-runs"
+DEFAULT_MANIFESTS_DIR = ".prflow/tmp/workflow-manifests"
+DEFAULT_BUNDLES_DIR = ".prflow/tmp/workflow-runs"
 DEFAULT_REGISTRY = "scripts/workflow-flight-recorder-registry.json"
-DEFAULT_OUT_DIR = ".devflow/tmp/verification-baselines"
+DEFAULT_OUT_DIR = ".prflow/tmp/verification-baselines"
 DEFAULT_CLOUD_SNAPSHOT = None
 DEFAULT_MAX_SOURCE_BYTES = 64 * 1024 * 1024  # 64 MiB per source; breach -> skipped reason.
 DEFAULT_TTL_SECONDS = 30 * 24 * 3600  # expires_at = created_at + 30d
@@ -1400,7 +1400,7 @@ def _subdict(doc: dict, key: str) -> dict:
 
 def _host_profile_from_manifest(doc: dict) -> dict | None:
     profile: dict[str, Any] = {}
-    for key in ("provider", "devflow_version", "claude_code_version"):
+    for key in ("provider", "prflow_version", "claude_code_version"):
         v = doc.get(key)
         # The recorder (capture_prompt_manifest) writes these as {"value","source"}
         # dicts, NOT bare strings — reading them as `str` silently dropped all
@@ -2788,7 +2788,7 @@ def stratify(launches: list[VerificationProcessLaunch], rows: list[EligibleLifec
             "effort": None,  # not extracted in Wave 1
             "output_style": None,  # not extracted in Wave 1
             "prompt_fingerprint": None,  # not extracted in Wave 1
-            "devflow_version": hp.get("devflow_version"),
+            "prflow_version": hp.get("prflow_version"),
             "claude_action_version": hp.get("claude_code_version"),
             "provider": hp.get("provider"),
         }

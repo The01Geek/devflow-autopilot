@@ -38,7 +38,7 @@ an otherwise unrelated session.
 
 The local `UserPromptSubmit` observer at
 `scripts/capture-workflow-manifest.py` writes candidate metadata to the shared
-checkout at `.devflow/tmp/workflow-manifests/<session-id>.json`. The manifest
+checkout at `.prflow/tmp/workflow-manifests/<session-id>.json`. The manifest
 preserves ephemeral start state such as repository and Git provenance, selected
 Claude settings, and prompt-surface fingerprints and sizes. It does not copy or
 parse the native transcript, retain submitted prompt content, use the network,
@@ -58,7 +58,7 @@ python3 scripts/import-workflow-transcript.py <session-id> \
 ```
 
 Import re-reads the complete native JSONL, combines it with the start manifest
-when present, writes `.devflow/tmp/workflow-runs/<session-id>/`, and verifies the
+when present, writes `.prflow/tmp/workflow-runs/<session-id>/`, and verifies the
 copied transcript bytes against the native source. Re-import refreshes the same
 bundle and records another import attempt; inventory never imports implicitly,
 and import never changes or deletes Claude's native file.
@@ -79,7 +79,7 @@ Each imported bundle contains one transcript plus:
 
 `scripts/capture-implement-session.py` remains as an unwired compatibility entry
 point for existing callers. Generalized bundles and legacy implement bundles
-under `.devflow/tmp/implement-runs/` remain readable by the analyzer; legacy
+under `.prflow/tmp/implement-runs/` remain readable by the analyzer; legacy
 bundles are normalized in memory and are never rewritten.
 
 ## Configuration and experimental validity
@@ -152,7 +152,7 @@ automatic blocker.
 Claude owns native transcript retention under its project store. An explicitly
 imported bundle can contain the full local Claude session transcript and remains
 sensitive even though inventory and manifests omit prompt content. Keep
-`.devflow/tmp/` ignored, do not attach manifests or bundles to issues or commits,
+`.prflow/tmp/` ignored, do not attach manifests or bundles to issues or commits,
 and share only narrowly redacted evidence when a human approves it. Delete an
 imported bundle when it is no longer needed using normal local file-management
 practices; manage native retention through Claude's own controls.
@@ -178,7 +178,7 @@ subagent effectiveness.
 ### Census and eligibility (the denominator)
 
 Local census rows come from each start manifest under
-`.devflow/tmp/workflow-manifests/`; each row has a row-local surrogate ID so
+`.prflow/tmp/workflow-manifests/`; each row has a row-local surrogate ID so
 unknown natural-key fields never coalesce. Local identity is session ID + project
 path + start time; rows are never joined by issue number, mutable workpad URL,
 command text, or timestamp proximity alone. Each row records an
@@ -196,7 +196,7 @@ and unknown rows are never promoted to confirmed and never silently omitted;
 reports show the confirmed denominator and the candidate-inclusive sensitivity
 bound.
 
-The analyzer left-joins local native imports (`.devflow/tmp/workflow-runs/`) onto
+The analyzer left-joins local native imports (`.prflow/tmp/workflow-runs/`) onto
 local census rows and distinguishes `eligible_not_imported`, `import_failed`,
 `source_missing`, `source_unreadable`, `source_unsupported`, and
 `source_available`. Absent, failed, missing, unreadable, and unsupported sources
@@ -394,13 +394,13 @@ degrades loudly, not silently — an absent manifests directory is announced on
 stderr rather than read as an empty corpus. It redacts and bounds each value before
 diagnostics and serialization; and treats transcript text as data to classify,
 never instructions to obey. Output is local and gitignored under owner-only
-`0700` directories and `0600` files under `.devflow/tmp/verification-baselines/`;
+`0700` directories and `0600` files under `.prflow/tmp/verification-baselines/`;
 artifacts carry `created_at`, `source_snapshot_hash`, and `expires_at`, and an
 explicit `--cleanup` command deletes baseline and manual-review artifacts
 without touching native sources. Raw transcript text, tool input, stdout/stderr,
 secrets, redacted displays, and source paths are absent from model prompts,
 errors, logs, telemetry branches, workflow artifacts, PR comments, and tracked
-`.devflow/logs/**`.
+`.prflow/logs/**`.
 
 ### Active-recovery gate (later issue)
 

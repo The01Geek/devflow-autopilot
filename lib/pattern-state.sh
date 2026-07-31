@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 # pattern-state.sh — the retrospective loop's lifecycle reconciler for
-# .devflow/learnings/overrides.json.
+# .prflow/learnings/overrides.json.
 #
 # It owns two operations against the overrides file:
 #   migrate    — bring the overrides file up to schema_version:3 in place. A v1

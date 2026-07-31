@@ -1,12 +1,12 @@
 # Per-subagent model & effort overrides for the review engine
 
-**Config block:** `devflow_review.agent_overrides` in `.devflow/config.json`
+**Config block:** `prflow_review.agent_overrides` in `.prflow/config.json`
 **Resolver:** `scripts/resolve-review-overrides.py` (reads via `scripts/config-get.sh`)
 **Applied by:** `skills/review/SKILL.md` (the shared review engine)
 
 The shared `/prflow:review` engine fans out to up to nine subagents across Phases 1, 1.5, 2,
 and 3. By default every one inherits the orchestrator's model and the session effort. The
-`devflow_review.agent_overrides` block lets operators tune each subagent's `model` and `effort`
+`prflow_review.agent_overrides` block lets operators tune each subagent's `model` and `effort`
 individually — turning the effectiveness telemetry in [efficiency-trace.md](efficiency-trace.md)
 into an actionable lever.
 
@@ -28,11 +28,11 @@ the `prflow:` namespace. Their `agent_overrides` keys were renamed accordingly:
 | `pr-review-toolkit:type-design-analyzer` | `prflow:type-design-analyzer` |
 | `pr-review-toolkit:pr-test-analyzer` | `prflow:pr-test-analyzer` |
 
-If your `.devflow/config.json` keys `agent_overrides` on any old identifier, rename it to the new
+If your `.prflow/config.json` keys `agent_overrides` on any old identifier, rename it to the new
 one. A stale old key does **not** abort a run, but it silently stops applying: the engine only ever
 dispatches the new `prflow:` identifier, so the resolver only ever reads the new key — it never
 reads (and therefore never warns about) a stale `pr-review-toolkit:` key. Renaming is the only way
-to make the override take effect again. (If you validate `.devflow/config.json` against
+to make the override take effect again. (If you validate `.prflow/config.json` against
 `config.schema.json`, the stale key is rejected outright by `additionalProperties: false`.) The
 `devflow:checklist-*` keys are unchanged.
 
@@ -81,7 +81,7 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
 
 ```jsonc
 {
-  "devflow_review": {
+  "prflow_review": {
     "agent_overrides": {
       "default": { "effort": "high" },
       "prflow:checklist-deduper": { "model": "claude-sonnet-5", "effort": "medium" },
@@ -92,12 +92,12 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
 ```
 
 > **The transitional `devflow:` namespace still validates.** The plugin was renamed
-> `devflow` → `prflow`, and `.devflow/config.schema.json` declares a key for **every**
+> `devflow` → `prflow`, and `.prflow/config.schema.json` declares a key for **every**
 > accepted namespace, so a config committed before the rename keeps validating and keeps
 > resolving: `"devflow:code-reviewer": { "model": "claude-opus-5" }` and
 > `devflow:requesting-code-review` are honored exactly like their `prflow:` spellings.
 > `prflow:` is the canonical form and is what new configs should use — the shipped
-> `.devflow/config.example.json` seeds it — but there is no deadline to migrate and no
+> `.prflow/config.example.json` seeds it — but there is no deadline to migrate and no
 > behavioral difference. Either spelling is an **own entry** for that subagent, so it
 > shadows `default` exactly like the canonical one. If a config somehow carries *both*
 > spellings for the same subagent, the **canonical `prflow:` key wins** — precedence is
@@ -141,7 +141,7 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
 
 ## This repo's `code-reviewer` application — baseline, revert trigger, deferred repricing (issue #425)
 
-PRFlow's own tracked `.devflow/config.json` sets
+PRFlow's own tracked `.prflow/config.json` sets
 `"prflow:code-reviewer": { "model": "claude-opus-5", "effort": "low", "iterations": "first-only" }`.
 The `iterations` scoping was added on the evidence of replay study **R2** (2026-07-11): on this repo's
 overwhelmingly `engine_self_modifying` diffs, `prflow:code-reviewer` measured **6.7% unique-effective**
@@ -221,12 +221,12 @@ late ones) with no measured loss.
 ## Version-skew safety of the `iterations` key (both directions)
 
 The `iterations` key was added additively (issue #425); it is safe across a version skew between a
-consumer's vendored resolver/schema and its `.devflow/config.json`, in **both** directions:
+consumer's vendored resolver/schema and its `.prflow/config.json`, in **both** directions:
 
 - **Old resolver, new config.** A resolver vendored before the key existed reads only `model`/`effort`
   and simply ignores an `iterations` entry key — so a config that carries `iterations` degrades to
   today's behavior (the agent participates on every iteration). No error, no abort.
-- **New config, stale schema.** If you validate `.devflow/config.json` against a `config.schema.json`
+- **New config, stale schema.** If you validate `.prflow/config.json` against a `config.schema.json`
   that predates the key, `additionalProperties: false` on each override entry **rejects** the unknown
   `iterations` key outright. The fix is to ship the schema version that declares it — the key requires
   the schema that ships it. (An unvalidated config is unaffected; validation is opt-in.)
@@ -266,7 +266,7 @@ as keeping subagents in the foreground (and, since issue #812, no longer resting
 documentation alone — a `background-tasks-probe` job in `.github/workflows/matcher-probe.yml`
 observed the variable's effect inside `claude-code-action`; the dated verdict, its run identifiers,
 and its re-probe caveat are recorded once, in
-[`DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md)'s `devflow_implement.stall_backstop`
+[`DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md)'s `prflow_implement.stall_backstop`
 bullet); and each engine root states the requirement behaviorally, so
 it holds on runtimes with no equivalent switch. The workflow variable is the floor, not the only
 lever: the corresponding **per-dispatch** parameter (`run_in_background: false` on this runner) is
@@ -290,7 +290,7 @@ Each dispatched review agent's effort decision carries an **application point** 
 | Application point | Meaning |
 |---|---|
 | `agent-definition` | The resolved per-agent effort was composed into a **proven** process-start agent-definition seam (an applied arm). This arm exists **only if** an empirical cloud-action seam spike proves the seam is reachable — see below; it is **not** shipped today. |
-| `process-start-session` | The section-level session effort (`devflow.effort` / `devflow_implement.effort` / `devflow_runner.effort`) composed into `--effort` at process start — session-wide, inherited by all subagents, capability-gated by `providers.*.effort_supported` (#313). Not per-agent. |
+| `process-start-session` | The section-level session effort (`devflow.effort` / `prflow_implement.effort` / `prflow_runner.effort`) composed into `--effort` at process start — session-wide, inherited by all subagents, capability-gated by `providers.*.effort_supported` (#313). Not per-agent. |
 | `session-fallback` | A resolved **per-agent** effort override the tier **cannot apply** (or a capability-restricted one). The override is not emitted; the agent inherits the session effort; the resolver reports the fallback with a reason. |
 | `session-inheritance` | A dispatched agent with **no** per-agent effort override — it simply inherits the session effort. All-null effort block, no fallback reason. |
 
@@ -299,7 +299,7 @@ Per execution tier:
 | Tier / dispatch context | Per-agent effort application point | Per-agent effort applied? |
 |---|---|---|
 | **Cloud** review — fresh `claude-code-action` process per run | `session-fallback` (see spike note) | **No** — the process-start `--agents` effort seam is **hypothesized but unproven**; the only `--agents` usage in `.github/` is the [seam probe](agents-seam-probe.md) itself (`.github/workflows/agents-seam-probe.yml`), which is authored but not yet dispatched to a `SEAM_PROVEN` verdict, so until it proves the seam the cloud per-agent row is honest fallback identical to local. |
-| **Cloud/local session effort** — `devflow.effort` / `devflow_implement.effort` / `devflow_runner.effort` | `process-start-session` | Session-wide, not per-agent — capability-gated by `effort_supported` (#313). |
+| **Cloud/local session effort** — `devflow.effort` / `prflow_implement.effort` / `prflow_runner.effort` | `process-start-session` | Session-wide, not per-agent — capability-gated by `effort_supported` (#313). |
 | **Local** review — already-running interactive session dispatching via the Agent tool | `session-fallback` | **No** — the Agent tool carries `model` but no effort, and no per-dispatch `--agents` injection exists; the run reports the limitation and effective fallback with a reason. |
 
 On any `session-fallback` arm the resolved per-agent effort is **not** applied; the subagent inherits
@@ -338,8 +338,8 @@ default, and a caller that knows the provider capability passes it in.
 > resolution is **entry-level**, a `default`-supplied Haiku *is* covered — an agent with no entry of
 > its own resolves to the `default` entry, so the guard sees that Haiku id, exactly as the dispatch
 > would. The one uncovered case is the **global** `claude_model` (or a per-section
-> `devflow_runner.claude_model`) being a Haiku id while the agent's resolved entry carries `effort`
-> but **no** `model`: the resolver reads only `.devflow_review.agent_overrides.*`, so it cannot see
+> `prflow_runner.claude_model`) being a Haiku id while the agent's resolved entry carries `effort`
+> but **no** `model`: the resolver reads only `.prflow_review.agent_overrides.*`, so it cannot see
 > that session model and classifies the fallback as the benign `::notice::` rather than a capability
 > `::warning::`. **The outcome message stays honest either way** — both arms report the effort as NOT
 > applied and the agent as inheriting the session effort; only the *cause* bucket is imprecise.

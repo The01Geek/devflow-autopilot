@@ -28,7 +28,7 @@ HELPERS = (
     "_ra_conflict_red_under",
 )
 RETAINED_BOUNDARY_IDENTITIES = frozenset()
-EXPECTED_SOURCE_COUNT = 15
+EXPECTED_SOURCE_COUNT = 16
 NON_UTF8_SHELL_FIXTURES = frozenset(
     {"lib/test/fixtures/ghapi-repo-path/adversarial-nonutf8.sh"}
 )
@@ -211,7 +211,7 @@ def _audited_sources(repo_root: Path) -> tuple[str, ...]:
 # worker: this bound costs roughly 90MB of peak RSS over one sized to the
 # audited set alone, for the same 13 within-census hits on the tree as it stood
 # at that run. Past-time snapshot of that run.
-_SOURCE_PARSE_CACHE_SIZE = 48
+_SOURCE_PARSE_CACHE_SIZE = 56
 
 
 @functools.lru_cache(maxsize=_SOURCE_PARSE_CACHE_SIZE)

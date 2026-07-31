@@ -49,7 +49,7 @@ claude /prflow:init   # launches Claude Code and scaffolds your config
 /prflow:implement <issue_number>
 ```
 
-The local tier runs **with zero configuration** — every value already has a built-in default. `/prflow:init` is recommended: it keeps the plugin auto-updated and writes a `.devflow/config.json` you can tweak. See **[Installing & updating](docs/install.md)** for the full options (the zero-dependency install, PyYAML, the cloud tier) and [Requirements](#requirements) for the handful of tools it expects on your PATH.
+The local tier runs **with zero configuration** — every value already has a built-in default. `/prflow:init` is recommended: it keeps the plugin auto-updated and writes a `.prflow/config.json` you can tweak. See **[Installing & updating](docs/install.md)** for the full options (the zero-dependency install, PyYAML, the cloud tier) and [Requirements](#requirements) for the handful of tools it expects on your PATH.
 
 ## Why PRFlow
 
@@ -153,7 +153,7 @@ gated by an actor-authorization check. An outside fork contributor cannot self-t
 and re-running the installer deliberately leaves them alone. To remove them, run
 `install.sh --apply --remove-withheld-review-tier`, which deletes
 `.github/workflows/devflow-review.yml`, `devflow-runner.yml` and `telemetry-push.yml` and
-sets `workflows["devflow-review"]` to `false` in `.devflow/config.json`. Then remove the
+sets `workflows["devflow-review"]` to `false` in `.prflow/config.json`. Then remove the
 `Devflow Review` context from any branch protection rule or ruleset that requires it —
 no installer can do that step for you, and skipping it wedges every later pull request
 behind a required check nothing will report. Full procedure and rationale:
@@ -171,7 +171,7 @@ behind a required check nothing will report. Full procedure and rationale:
 | `/prflow:docs-sync-internal` · `-sync-external` · `-release-notes` | Update internal docs, align external docs, generate release notes |
 | `/prflow:docs-verify <topic>` · `-bootstrap-internal` · `-bootstrap-external` | Verify one topic; stand up internal/external docs from scratch |
 | `/prflow:create-issue` | Rough idea → well-structured GitHub issue |
-| `/prflow:init` | One-time setup: scaffold `.devflow/config.json` + refresh the schema |
+| `/prflow:init` | One-time setup: scaffold `.prflow/config.json` + refresh the schema |
 | `/prflow:retrospective-weekly` | The weekly self-improvement loop ([details](#the-self-improving-loop)) |
 
 **Agents** (`agents/`): the review-engine trio `checklist-generator`, `checklist-deduper`, and `checklist-verifier` build, dedupe, and verify the review engine's verification checklist; the `/prflow:implement` `code-explorer` and `code-architect` handle discovery and planning; and the five `pr-review-toolkit` reviewers (`code-reviewer`, `comment-analyzer`, `pr-test-analyzer`, `silent-failure-hunter`, `type-design-analyzer`) run the deep-dive review passes.
@@ -182,9 +182,9 @@ behind a required check nothing will report. Full procedure and rationale:
 
 ## Project configuration
 
-The local tier needs **no config** — every value has a built-in default. To customize, run `/prflow:init` to scaffold `.devflow/config.json` from PRFlow's shipped template (it never clobbers a config you've filled in) and refresh `.devflow/config.schema.json` (your editor reads it for autocomplete + field descriptions).
+The local tier needs **no config** — every value has a built-in default. To customize, run `/prflow:init` to scaffold `.prflow/config.json` from PRFlow's shipped template (it never clobbers a config you've filled in) and refresh `.prflow/config.schema.json` (your editor reads it for autocomplete + field descriptions).
 
-Common keys the skills read: documentation paths (`docs.internal`, `docs.external`, `docs.release_notes_file`, `docs.changelog_file`, `docs.labels`), the workpad marker (`devflow.workpad_marker`), the bot allowlist (`devflow.allowed_bots`), the review base (`base_branch`), retrospective settings (`devflow_retrospective.*`), and — cloud tier only — runtime provisioning (`setup.*`) and the plugin ref (`devflow_version`). Full reference: **[System overview §17](docs/DEVFLOW_SYSTEM_OVERVIEW.md#17-configuration-reference)**.
+Common keys the skills read: documentation paths (`docs.internal`, `docs.external`, `docs.release_notes_file`, `docs.changelog_file`, `docs.labels`), the workpad marker (`devflow.workpad_marker`), the bot allowlist (`devflow.allowed_bots`), the review base (`base_branch`), retrospective settings (`prflow_retrospective.*`), and — cloud tier only — runtime provisioning (`setup.*`) and the plugin ref (`prflow_version`). Full reference: **[System overview §17](docs/DEVFLOW_SYSTEM_OVERVIEW.md#17-configuration-reference)**.
 
 ## The self-improving loop
 
@@ -215,7 +215,7 @@ agents/           # 10 subagents: checklist-generator/-deduper/-verifier + code-
 scripts/          # Python + shell CLIs (workpad.py, config-get.sh, match-deferrals.py, …)
 lib/              # retrospective-loop helpers (*.sh, *.jq), preflight.sh, test/
 .github/          # optional cloud tier: workflows + composite actions (incl. vendor-plugin)
-.devflow/         # config.example.json + config.schema.json (+ learnings/, logs/)
+.prflow/         # config.example.json + config.schema.json (+ learnings/, logs/)
 install.sh        # one-command cloud-tier install/update (thin by default; DEVFLOW_VENDOR=1 to commit the plugin)
 ```
 

@@ -349,7 +349,7 @@ assert_pin_red_under "mutation" 'shared literal' 's/x/y/' "$LIB/a.md"
             root = Path(raw)
             (root / "lib/test").mkdir(parents=True)
             (root / "docs").mkdir()
-            (root / ".devflow/logs").mkdir(parents=True)
+            (root / ".prflow/logs").mkdir(parents=True)
             (root / "skills/x").mkdir(parents=True)
             source = root / "lib/test/run.sh"
             source.write_text(
@@ -361,7 +361,7 @@ assert_pin_red_on_removal "docs count" 'literal docs' "$MAXI_SKILL"
                 encoding="utf-8",
             )
             (root / "skills/x/SKILL.md").write_text("literal [one]\n", encoding="utf-8")
-            (root / ".devflow/logs/history.txt").write_text(
+            (root / ".prflow/logs/history.txt").write_text(
                 "literal [one]\n", encoding="utf-8"
             )
             (root / "skills/x/OTHER.md").write_text("literal docs\n", encoding="utf-8")
@@ -372,7 +372,7 @@ assert_pin_red_on_removal "docs count" 'literal docs' "$MAXI_SKILL"
                     [
                         "lib/test/run.sh",
                         "skills/x/SKILL.md",
-                        ".devflow/logs/history.txt",
+                        ".prflow/logs/history.txt",
                         "skills/x/OTHER.md",
                         "docs/copy.md",
                     ]
@@ -418,7 +418,7 @@ assert_pin_red_on_removal "docs count" 'literal docs' "$MAXI_SKILL"
             self.assertEqual(2, int(rows[1]["counted_occurrences"]))
             self.assertEqual(
                 [
-                    ".devflow/logs/history.txt",
+                    ".prflow/logs/history.txt",
                     "lib/test/run.sh",
                     "skills/x/SKILL.md",
                 ],
@@ -629,7 +629,7 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
 
     def test_frozen_inventory_matches_its_recorded_revision(self):
         repo_root = HERE.parent.parent
-        inventory = repo_root / ".devflow/logs/pin-corpus-inventory.tsv"
+        inventory = repo_root / ".prflow/logs/pin-corpus-inventory.tsv"
         raw_lines = inventory.read_text(encoding="utf-8").splitlines()
         metadata = {}
         for line in raw_lines:
@@ -639,9 +639,14 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
         revision = metadata["revision"]
         self.assertRegex(revision, r"^[0-9a-f]{40}$")
         self.assertIn(f"--revision {revision}", metadata["producing-command"])
+        # The census is frozen at a revision that predates the .devflow/ ->
+        # .prflow/ state-directory rename (issue #1002), which moved every record
+        # with its directory and rewrote none of their bytes.  Project the
+        # snapshot's recorded exclusion header onto the current spelling rather
+        # than editing the frozen record, which would falsify it.
         self.assertEqual(
             self.mod.COUNTED_EXCLUSION_HEADER,
-            metadata["counted-file-exclusions"],
+            metadata["counted-file-exclusions"].replace(".devflow/", ".prflow/"),
         )
         self.assertEqual(";".join(self.mod.DEFAULT_SOURCES), metadata["in-scope"])
         self.assertEqual(
@@ -739,7 +744,7 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
                     "inventory.tsv",
                 ),
                 [
-                    "the shipped .devflow/logs/pin-corpus-inventory.tsv is not a",
+                    "the shipped .prflow/logs/pin-corpus-inventory.tsv is not a",
                     "faithful regeneration of its own recorded revision.",
                     "Refresh the census with the two-commit inventory-free protocol",
                     "in CONTRIBUTING.md; never hand-edit the census.",
@@ -776,7 +781,7 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
                     "working-tree-inventory.tsv",
                 ),
                 [
-                    "the shipped .devflow/logs/pin-corpus-inventory.tsv disagrees",
+                    "the shipped .prflow/logs/pin-corpus-inventory.tsv disagrees",
                     "with lib/test/pin-corpus-adjudications.tsv as it stands in the",
                     "working tree. Refresh the census with the two-commit",
                     "inventory-free protocol in CONTRIBUTING.md; never hand-edit",
@@ -928,7 +933,7 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
         this test, not a future maintainer, would notice.
         """
         repo_root = HERE.parent.parent
-        inventory = repo_root / ".devflow/logs/pin-corpus-inventory.tsv"
+        inventory = repo_root / ".prflow/logs/pin-corpus-inventory.tsv"
         raw_lines = inventory.read_text(encoding="utf-8").splitlines()
         metadata = {}
         for line in raw_lines:

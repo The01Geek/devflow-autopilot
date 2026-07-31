@@ -61,7 +61,7 @@
 #   * DEVFLOW_PROMPT_EXTENSION_ROOT, when set and non-empty (issue #874) — the
 #     variable names the extension directory outright, so the composed path is
 #     "${DEVFLOW_PROMPT_EXTENSION_ROOT}/<SKILL_NAME>.md" with no
-#     '.devflow/prompt-extensions/' segment appended. Top precedence, and inert both
+#     '.prflow/prompt-extensions/' segment appended. Top precedence, and inert both
 #     when unset and when set to the empty string, per the DEVFLOW_GH / DEVFLOW_JQ /
 #     DEVFLOW_BASH convention. This branch writes a stderr breadcrumb naming the
 #     directory it resolved. The repo-root branch adds no stderr of its OWN beyond the
@@ -70,16 +70,16 @@
 #     byte-identical output. (Scoped to the BRANCH: the present-but-undeliverable and
 #     argument-validation diagnostics further down are shared by both branches and are
 #     likewise unchanged.)
-#   * otherwise, .devflow/prompt-extensions/ anchored to the git repo root
+#   * otherwise, .prflow/prompt-extensions/ anchored to the git repo root
 #     (git rev-parse --show-toplevel, falling back to pwd when not in a git tree —
 #     mirroring lib/config-source.sh; issue #295). Anchoring to the root means a
 #     skill invoked from any subdirectory of the repo still loads the consumer's
 #     committed extension, instead of silently missing it. (Limitation:
 #     --show-toplevel returns the NEAREST git root, so a nested submodule/inner repo
-#     or a monorepo whose .devflow/ is not at the git root is not covered —
+#     or a monorepo whose .prflow/ is not at the git root is not covered —
 #     consistent with config-source.sh.) This is the ONLY branch that anchors on the
 #     repo root, which the issue-#295 repo-root-reader enumerations in
-#     .devflow/config.schema.json and scripts/emit-git-env.sh record.
+#     .prflow/config.schema.json and scripts/emit-git-env.sh record.
 #
 # When the file is absent — or present but empty — this prints nothing and exits 0
 # (the no-op path), so a skill that calls this behaves exactly as before unless the
@@ -135,6 +135,27 @@
 #      silently drop the consumer's customization
 
 set -euo pipefail
+
+# State-directory resolution (issue #1002): canonical .prflow/, with the LOUD
+# transitional fallback to a superseded .devflow/ when only that one is present.
+# Guarded source (the lib/resolve-jq.sh discipline): a partially-copied deployment
+# degrades to the canonical name with a breadcrumb instead of aborting under `set -e`.
+# Self-directory anchor. `dirname` is NOT one of the tools lib/preflight.sh
+# guarantees, and under `set -e` its failing command substitution aborts the read
+# before a caller default is emitted — so this uses the dirname-free spelling of
+# the anchor, which is also one of the shapes lib/test/cloud_writer_deps.py can
+# prove (a variable assigned by a `case` cannot be resolved by that scanner, so an
+# edge built from one reads as a repo-root escape). `cd`/`pwd` are bash builtins.
+_LPE_SELF_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd)"
+# shellcheck source=../lib/resolve-state-dir.sh
+if [ -f "$_LPE_SELF_DIR/../lib/resolve-state-dir.sh" ] \
+   && . "$_LPE_SELF_DIR/../lib/resolve-state-dir.sh" \
+   && type prflow_state_dir >/dev/null 2>&1; then
+  :
+else
+  echo "prflow: resolve-state-dir.sh not found in ../lib relative to ${BASH_SOURCE[0]} — using the canonical .prflow/ with no transitional fallback" >&2
+  prflow_state_dir() { printf '%s' "${1:-}/.prflow"; }
+fi
 
 # Resolve whether an HTML comment block is OPEN at the end of a line, by walking the
 # line's markers in order and keeping the LAST one that fired. Presence of '-->' is not
@@ -271,7 +292,7 @@ esac
 
 # Select the extension directory. DEVFLOW_PROMPT_EXTENSION_ROOT names that directory
 # OUTRIGHT — the composed path is "${DEVFLOW_PROMPT_EXTENSION_ROOT}/${skill}.md", with
-# no '.devflow/prompt-extensions/' segment appended — so a caller can point this reader
+# no '.prflow/prompt-extensions/' segment appended — so a caller can point this reader
 # at a closure that lives nowhere near a repo (issue #874: the cloud review tier
 # materializes the base ref's extensions into $RUNNER_TEMP, because its own checkout is
 # the pull request's and those bytes become the reviewing agent's appended prompt).
@@ -296,7 +317,7 @@ else
     # consumer's extension. Mirror lib/config-source.sh's discovery expression.
     # git rev-parse prints nothing and exits non-zero outside a git tree; the trailing
     # `|| _devflow_root=""` keeps that assignment set -e-safe. Then fall back to cwd, with a
-    # breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located.
+    # breadcrumb only when NEITHER a git root NOR a .prflow/ dir can be located.
     _devflow_root="$(git rev-parse --show-toplevel 2>/dev/null)" || _devflow_root=""
     if [ -z "$_devflow_root" ]; then
         _devflow_root="$(pwd)"
@@ -305,13 +326,17 @@ else
         # tree". Don't assert "not in a git repo"; report that the root could not be
         # resolved and surface git's own stderr (re-run on this rare path only; `|| true`
         # keeps it set -e-safe).
-        if [ ! -d "${_devflow_root}/.devflow" ]; then
+        # Probe BOTH names: a consumer who has not run /prflow:init yet carries only
+        # the superseded directory, and naming a path they were never told to create
+        # would misdirect them. The state-dir resolver picks which one is used and
+        # breadcrumbs the superseded one itself.
+        if [ ! -d "${_devflow_root}/.prflow" ] && [ ! -d "${_devflow_root}/.devflow" ]; then
             _git_err="$(git rev-parse --show-toplevel 2>&1 >/dev/null)" || true
-            echo "load-prompt-extension.sh: could not resolve a git repo root${_git_err:+ (git: ${_git_err})} and no .devflow/ at '${_devflow_root}'; no extension loaded" >&2
+            echo "load-prompt-extension.sh: could not resolve a git repo root${_git_err:+ (git: ${_git_err})} and no .prflow/ at '${_devflow_root}'; no extension loaded" >&2
         fi
     fi
 
-    ext_dir="${_devflow_root}/.devflow/prompt-extensions"
+    ext_dir="$(prflow_state_dir "${_devflow_root}")/prompt-extensions"
 fi
 
 # Composed once, after the branch: each arm selects only the DIRECTORY, so the

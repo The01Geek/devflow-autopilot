@@ -1,6 +1,6 @@
 name: 'Vendor DevFlow plugin'
 description: |
-  Materialize the DevFlow plugin into `.devflow/vendor/devflow/` at runtime, so
+  Materialize the DevFlow plugin into `.prflow/vendor/prflow/` at runtime, so
   the cloud-tier workflows find their helper scripts at the literal workspace
   path without the plugin tree having to be committed into the repo. Runs the
   committed → self → fetch algorithm in vendor-slice.sh (the single source of
@@ -12,7 +12,7 @@ inputs:
     description: |
       Git ref (tag, branch, or commit SHA) to fetch the plugin from on the fetch
       branch — i.e. a thin consumer that committed no plugin. Sourced from
-      `.devflow/config.json` `devflow_version`. Ignored on the committed and self
+      `.prflow/config.json` `prflow_version`. Ignored on the committed and self
       branches. The fetch branch fails loud when this is empty rather than
       tracking mutable `main`.
     required: false

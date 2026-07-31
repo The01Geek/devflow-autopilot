@@ -4,6 +4,61 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.29.2] — 2026-07-31
+
+### Changed
+### Added
+
+- A **"do not rename" inventory** for the consumer-facing `DEVFLOW_*` variables, secrets and
+  environment overrides that the DevFlow → PRFlow rename deliberately left alone (issue #1004).
+  These live outside your repository — in GitHub's settings and in your shell profile — and
+  nothing PRFlow ships reads a `PRFLOW_*` equivalent, so renaming one does not move a setting,
+  it removes it. Most remove it *silently*: an unresolvable GitHub variable is indistinguishable
+  from one you deliberately never set, so every gate takes its "not configured" arm and the run
+  goes green under a degraded identity. The advisory names each identifier, where you set it,
+  and exactly what renaming it does — including that renaming `DEVFLOW_RUNNER` silently relocates
+  every job to a GitHub-hosted runner while that job still carries your App private key and
+  provider API key in its environment. It lives in `docs/cloud-setup.md` ("Why these settings are
+  still called `DEVFLOW_*`"), with a pointer from `docs/install.md`.
+- `install.sh` now emits a matching advisory NOTICE when it upgrades an **existing** installation
+  — the population that already has these names configured. A first-time install stays silent.
+
+### Internal
+
+- The frozen population is recorded machine-readably as `frozen.env_identifiers` in
+  `lib/rename-map.json`, alongside the two-arm criterion that selects it and the two names
+  adjudicated out of it (`DEVFLOW_PROMPT_EXTENSION_ROOT`, `DEVFLOW_CONFIG_FILE`) with the
+  deciding arm for each. `lib/generate-env-freeze-advisory.py` renders the advisory region from
+  that block and re-runs the criterion over the tree, so a workflow that starts reading a new
+  `vars.DEVFLOW_*` name — or a recorded name whose read side goes away — fails the suite until
+  it is adjudicated.
+
+## [2.29.1] — 2026-07-31
+
+### Changed
+Correct stale self-referential claims left in comments by the Tier 1 `devflow` -> `prflow` rename (#1002 / PR #1005).
+
+`lib/rename-map.json` is the single source of truth for the rename, and its own `_comment` named two reader files that have never existed — `lib/rename_map.py` and `lib/rename-map.sh`. There is no shared loader helper: every reader parses the map itself (`scripts/config-get.sh`, `scripts/scaffold-config.sh`, `scripts/migrate-consumer-tier1.sh`, and `lib/test/pin-corpus-lint.py`), while `lib/resolve-state-dir.sh` and `lib/state_dir.py` deliberately mirror the `paths.state_dir` literals instead of reading them. The comment now says so.
+
+Five sibling comments introduced or rewritten by the same change are corrected alongside it: `scripts/scaffold-config.sh` attributed the config-key migration's skip conditions to an unusable `jq` when they are an absent rename map or a missing `python3` (and the anti-graft guard cannot cover the `jq` path at all, because an unusable `jq` skips the whole backfill); `scripts/migrate-consumer-tier1.sh` cited a deleted identifier as the case its key-rule lookahead rejects, and credited the lookbehind with protecting two frozen shapes that no rewrite rule can match in the first place; `install.sh` named the pre-rename config key in a comment whose scanner probes both spellings, left the same scanner's malformed-shape enumeration naming only the superseded block, and — after the mechanical path swap — illustrated a `devflow` substring hazard with an example string that no longer contains that substring; and `lib/test/pin-corpus-lint.py` documented a `None` return on a helper that only ever raises.
+
+Comment-only: no executable behaviour, machine-consumed contract, or test assertion changes.
+
+## [2.29.0] — 2026-07-31
+
+### Changed
+Rename everything PRFlow ships into a consumer repository from `devflow` to `prflow`, and make `/prflow:init` migrate an existing repository as a single atomic unit (#1002).
+
+The plugin has been `prflow` for several releases, but everything it *shipped into a consumer repository* still carried the old brand at the structural layer. That is now migrated: the `.devflow/` state directory becomes `.prflow/`, the vendored plugin path `.devflow/vendor/devflow/` becomes `.prflow/vendor/prflow/`, the seven brand-named top-level config keys (`devflow`, `devflow_implement`, `devflow_runner`, `devflow_review`, `devflow_review_and_fix`, `devflow_retrospective`, `devflow_version`) become their `prflow_*` equivalents, the shipped workflow bodies name the new paths and keys, and the `.gitignore` rules follow the directory.
+
+**The migration is all-or-nothing.** The shipped workflows invoke bundled helpers at the vendored path as repo-relative leading tokens and the cloud allowlist grants are per-literal-path, so a half-moved tree is not merely broken — it is silently *denied*, and the run ends with no verdict. `scripts/migrate-consumer-tier1.sh` therefore plans, validates every precondition for all four members, stages every new byte, and only then commits behind a rollback journal. A single unsatisfiable member refuses the whole set and leaves the repository byte-identical. `/prflow:init` runs it before the scaffolder, and `install.sh` runs it first inside its one apply path, where the shipped-workflow copy loop now shares its fate.
+
+**Detection where a migration has not happened yet.** `scripts/config-get.sh` gained a superseded-key probe that distinguishes a genuinely absent key from one a consumer deliberately set to `""`, `false`, `0` or `null` — a distinction the resolver structurally could not make before — and breadcrumbs only on the first. The two shipped workflow `config` jobs gained a per-family fail-loud guard, because the trigger-time channel reads config through inline `jq` and never through the resolver, so no breadcrumb could reach it. `scripts/scaffold-config.sh` migrates the config keys behind a fail-closed shipped-workflow freshness gate, reports the version pin without gating on it, names any retained workflow no installer run can refresh, and its deep-merge backfill will not graft a `prflow_*` key while its `devflow_*` counterpart is still present.
+
+**The state directory has a transitional read-through, and the config keys deliberately do not.** `/prflow:init` registers the marketplace with `autoUpdate: true`, so a consumer's plugin can update ahead of any migration run; without a fallback the next update would resolve an absent config and silently revert every defaulted read. Readers therefore resolve `.prflow/` first and fall back to `.devflow/` only when it alone is present, breadcrumbing the remedy every time. The key-level rule from #988 is unchanged — no read-through there, because a silent key fallback makes the migration unobservable and therefore permanent.
+
+Unchanged, and deliberately so: `devflow-marketplace`, the `workflows.devflow` / `workflows.devflow-review` config sub-keys, every `.github/workflows/` filename, the `DevFlow` provenance label, the `devflow-telemetry` branch, the `<!-- devflow:* -->` comment markers, the `DEVFLOW_*` environment variables, the `devflow_module_pin_*` harness functions, and the byte-contents of `learnings/*.jsonl` and `logs/*.tsv` — those files move with the directory but are never rewritten. The label, branch and marker rulings are tracked in #1003; the environment-variable advisory report in #1004.
+
 ## [2.28.18] — 2026-07-31
 
 ### Changed

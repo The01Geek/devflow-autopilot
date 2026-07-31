@@ -7,8 +7,8 @@ include "slugify";
 #
 # Invocation (note the `-L <dir holding slugify.jq>`, required for the include):
 #   jq -s -L lib -f lib/compute-patterns.jq \
-#      --slurpfile overrides .devflow/learnings/overrides.json \
-#      .devflow/learnings/retrospectives.jsonl
+#      --slurpfile overrides .prflow/learnings/overrides.json \
+#      .prflow/learnings/retrospectives.jsonl
 #
 # Inputs:
 #   stdin: array of retrospective entries (kind: "implementation" | "audit"),

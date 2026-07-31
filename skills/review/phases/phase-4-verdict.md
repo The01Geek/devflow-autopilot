@@ -25,11 +25,11 @@ Pipe the JSON to the matcher via stdin (the `review` allowed-tools profile in `c
 ```bash
 printf '%s' "$FINDINGS_JSON" | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/match-deferrals.py \
     --pr $PR_NUMBER \
-    --diff ".devflow/tmp/review/<slug>/<run-id>/diff.patch" \
+    --diff ".prflow/tmp/review/<slug>/<run-id>/diff.patch" \
     --findings -
 ```
 
-Capture the matcher's stdout (the JSON report described below). When invoked from /prflow:implement Phase 3.3 via /prflow:review-and-fix (which DOES have the Write tool), the file form `--findings .devflow/tmp/review/<slug>/<run-id>/findings.json` is equally supported — pick whichever the surrounding profile permits.
+Capture the matcher's stdout (the JSON report described below). When invoked from /prflow:implement Phase 3.3 via /prflow:review-and-fix (which DOES have the Write tool), the file form `--findings .prflow/tmp/review/<slug>/<run-id>/findings.json` is equally supported — pick whichever the surrounding profile permits.
 
 The matcher always exits 0 when it ran (any result, including no block found). Read the output JSON:
 
@@ -144,7 +144,7 @@ A finding the cap covers is **outside** the Phase 4.2 carve-out — it is not a 
 
 If no finding matches, add the line `over-grade annotation: no finding flagged` to the report so a clean scan is visible rather than ambiguous with a skipped step.
 
-The full **flag-and-record** gate — which *requires* a recorded `severity-calibrated` technical evaluation before a flagged finding may drive a shadow-promotion, and which still never auto-demotes — lives in `/prflow:review-and-fix` Step 2.6, because the fix loop has a fixer to record that evaluation. Standalone review is **advisory by construction**: do not port the gate's recording requirement here, and never let the annotation change what 4.2 computes. A consumer repo may sharpen these shapes **and the cap's inertness keying** via the review prompt extension of **whichever engine root is running** — `.devflow/prompt-extensions/review.md` on standalone `/prflow:review`, and `.devflow/prompt-extensions/review-and-fix.md` on `/prflow:review-and-fix` and on `/prflow:implement` Phase 3's inline pass (which drives review-and-fix) — so a consumer's steer is not silently ignored on the paths that auto-fix. The extension never makes the *advisory annotation* change the verdict.
+The full **flag-and-record** gate — which *requires* a recorded `severity-calibrated` technical evaluation before a flagged finding may drive a shadow-promotion, and which still never auto-demotes — lives in `/prflow:review-and-fix` Step 2.6, because the fix loop has a fixer to record that evaluation. Standalone review is **advisory by construction**: do not port the gate's recording requirement here, and never let the annotation change what 4.2 computes. A consumer repo may sharpen these shapes **and the cap's inertness keying** via the review prompt extension of **whichever engine root is running** — `.prflow/prompt-extensions/review.md` on standalone `/prflow:review`, and `.prflow/prompt-extensions/review-and-fix.md` on `/prflow:review-and-fix` and on `/prflow:implement` Phase 3's inline pass (which drives review-and-fix) — so a consumer's steer is not silently ignored on the paths that auto-fix. The extension never makes the *advisory annotation* change the verdict.
 
 ### 4.1.6 Pre-verdict truthfulness sweep (promote-only; over every finding regardless of severity chip, plus an intra-diff contradiction scan over the diff itself)
 
@@ -167,7 +167,7 @@ If the sweep demonstrates no falsehood, add the line `truthfulness sweep: no fin
 
 ### 4.2 Determine verdict
 
-**Resolve the verdict-severity threshold once, before applying the rules.** Read `devflow_review.verdict_severity_threshold` (default `critical`) via the same portable skill-dir-anchored, no-`bash`-prefix `config-get.sh` invocation the live-progress-comment gate uses. `config-get.sh` reads the value but does **not** validate the enum — it coerces any JSON value to a string — so validate the enum **inline** and fall back to the default `critical` on a resolver failure (rc≠0) or any value outside the enum, with a **specific breadcrumb naming the key and the fallback value** (never aborting the review):
+**Resolve the verdict-severity threshold once, before applying the rules.** Read `prflow_review.verdict_severity_threshold` (default `critical`) via the same portable skill-dir-anchored, no-`bash`-prefix `config-get.sh` invocation the live-progress-comment gate uses. `config-get.sh` reads the value but does **not** validate the enum — it coerces any JSON value to a string — so validate the enum **inline** and fall back to the default `critical` on a resolver failure (rc≠0) or any value outside the enum, with a **specific breadcrumb naming the key and the fallback value** (never aborting the review):
 
 ```bash
 # A missing key returns the default `critical` silently (verdict computation stays
@@ -176,13 +176,13 @@ If the sweep demonstrates no falsehood, add the line `truthfulness sweep: no fin
 # variable would misreport a failure as a bad enum): `if !` reads config-get's OWN exit
 # status directly (rc≠0 surfaces its stderr); the value validation is a separate `case` on
 # the value alone. Both fall back to the default, each with its own DISTINCT breadcrumb.
-if ! VERDICT_THRESHOLD=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review.verdict_severity_threshold critical); then
-  echo "::warning::devflow review: could not read .devflow_review.verdict_severity_threshold (config-get.sh rc≠0 — malformed config.json or missing python3?); using default 'critical'" >&2
+if ! VERDICT_THRESHOLD=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .prflow_review.verdict_severity_threshold critical); then
+  echo "::warning::devflow review: could not read .prflow_review.verdict_severity_threshold (config-get.sh rc≠0 — malformed config.json or missing python3?); using default 'critical'" >&2
   VERDICT_THRESHOLD=critical
 fi
 case "$VERDICT_THRESHOLD" in
   critical|important|suggestion) : ;;
-  *) echo "::warning::devflow review: .devflow_review.verdict_severity_threshold value '$VERDICT_THRESHOLD' is not one of critical/important/suggestion; using default 'critical'" >&2
+  *) echo "::warning::devflow review: .prflow_review.verdict_severity_threshold value '$VERDICT_THRESHOLD' is not one of critical/important/suggestion; using default 'critical'" >&2
      VERDICT_THRESHOLD=critical ;;
 esac
 ```
@@ -212,11 +212,11 @@ Output the full report to the user.
 
 ### 4.5 Run telemetry + effectiveness trace
 
-This step is gated by `devflow_review_and_fix.efficiency_telemetry_enabled` (read via `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review_and_fix.efficiency_telemetry_enabled true`; the flag is shared with `/prflow:review-and-fix`). When `false`, skip this step entirely — no telemetry, no trace, no record. It is **independent** of the live-comment flag: either can be on while the other is off.
+This step is gated by `prflow_review_and_fix.efficiency_telemetry_enabled` (read via `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .prflow_review_and_fix.efficiency_telemetry_enabled true`; the flag is shared with `/prflow:review-and-fix`). When `false`, skip this step entirely — no telemetry, no trace, no record. It is **independent** of the live-comment flag: either can be on while the other is off.
 
-When enabled, assemble a **single workpad-shaped object** for this run from state the engine already produced and write it to `.devflow/tmp/review/<slug>/<run-id>/iter-1.json` (run-scoped, the same `<run-id>` Phase 0.2 resolved). The `telemetry` key is mandatory: when no phase figures were established, emit the literal JSON string `"unavailable"`, never a missing key or `null`. This scratch write is what `efficiency-trace.sh --mode trace` reads back; landing in gitignored `.devflow/tmp/` (like Phase 0.2's `diff.patch`), it is **not** a tree write and is permitted under the read-only cloud `review` profile — only the durable `--persist` write to the telemetry branch (issue #441) is gated to writable runs.
+When enabled, assemble a **single workpad-shaped object** for this run from state the engine already produced and write it to `.prflow/tmp/review/<slug>/<run-id>/iter-1.json` (run-scoped, the same `<run-id>` Phase 0.2 resolved). The `telemetry` key is mandatory: when no phase figures were established, emit the literal JSON string `"unavailable"`, never a missing key or `null`. This scratch write is what `efficiency-trace.sh --mode trace` reads back; landing in gitignored `.prflow/tmp/` (like Phase 0.2's `diff.patch`), it is **not** a tree write and is permitted under the read-only cloud `review` profile — only the durable `--persist` write to the telemetry branch (issue #441) is gated to writable runs.
 
-**Author it with an allow-listed command** — the read-only cloud `review` profile grants the execution-verified jq wrapper `Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*)` (invoke it as the leading token by path so a shim-shadowed Windows/WSL host resolves a runnable jq; bare `Bash(jq:*)` is also granted but skips that resolution), plus `Bash(printf:*)` and `Bash(tee:*)`. Build the object with `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -n` (or `printf '%s'`, or the `tee <file> <<'EOF'` heredoc Phase 0.3.5 sanctions — never a `cat`-headed heredoc, which the *Cloud command-shape discipline* classifies as denied) and `>`-redirect it, e.g. `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -n --argjson findings '…' '{iter:1, source:"review", …}' > .devflow/tmp/review/<slug>/<run-id>/iter-1.json`. The `>` redirect of a granted head is permitted (the denied redirect class is `/tmp`-targeted and `cat`-heredoc writes, never an in-workspace redirect of a granted head); an ungranted head is silently denied and the trace has no input.
+**Author it with an allow-listed command** — the read-only cloud `review` profile grants the execution-verified jq wrapper `Bash(.prflow/vendor/prflow/scripts/run-jq.sh:*)` (invoke it as the leading token by path so a shim-shadowed Windows/WSL host resolves a runnable jq; bare `Bash(jq:*)` is also granted but skips that resolution), plus `Bash(printf:*)` and `Bash(tee:*)`. Build the object with `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -n` (or `printf '%s'`, or the `tee <file> <<'EOF'` heredoc Phase 0.3.5 sanctions — never a `cat`-headed heredoc, which the *Cloud command-shape discipline* classifies as denied) and `>`-redirect it, e.g. `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -n --argjson findings '…' '{iter:1, source:"review", …}' > .prflow/tmp/review/<slug>/<run-id>/iter-1.json`. The `>` redirect of a granted head is permitted (the denied redirect class is `/tmp`-targeted and `cat`-heredoc writes, never an in-workspace redirect of a granted head); an ungranted head is silently denied and the trace has no input.
 
 ```json
 {
@@ -235,15 +235,15 @@ When enabled, assemble a **single workpad-shaped object** for this run from stat
 Then render the trace and (on a writable run) persist the record, reusing the **same hardened invocation** `/prflow:review-and-fix`'s Loop Exit uses (direct invocation — no `bash` prefix; rc/stderr `::warning::` breadcrumbs; remove-on-rc≠0):
 
 ```bash
-WORKPAD_DIR=$(printf '%s' ".devflow/tmp/review/<slug>/<run-id>")   # run-scoped: read THIS run's iter-1.json. Capture form: a bare VAR="…" assignment is a probe-denied shape (.github/workflows/matcher-probe.yml); the matcher descends into $(…).
+WORKPAD_DIR=$(printf '%s' ".prflow/tmp/review/<slug>/<run-id>")   # run-scoped: read THIS run's iter-1.json. Capture form: a bare VAR="…" assignment is a probe-denied shape (.github/workflows/matcher-probe.yml); the matcher descends into $(…).
 # Trace (renders to chat / the live comment; reads only):
 # Three-way, mirroring /prflow:review-and-fix's Loop Exit. `if !` reads the helper's OWN
 # exit status — never a captured rc read in a later statement (a cross-statement-variable-
 # stripping inline-bash runner would leave it empty): rc≠0 is a failure; rc=0-but-empty
 # stdout (e.g. telemetry flag off, or zero readable workpads) is a benign no-trace —
 # surface it but append nothing, never a blank trace section:
-if ! TELEM="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>.devflow/tmp/review/<slug>/<run-id>/rv-et.err)"; then
-  echo "::warning::review effectiveness trace unavailable (rc≠0): $(cat .devflow/tmp/review/<slug>/<run-id>/rv-et.err 2>/dev/null)"; TELEM=""
+if ! TELEM="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>.prflow/tmp/review/<slug>/<run-id>/rv-et.err)"; then
+  echo "::warning::review effectiveness trace unavailable (rc≠0): $(cat .prflow/tmp/review/<slug>/<run-id>/rv-et.err 2>/dev/null)"; TELEM=""
 elif [ -z "$TELEM" ]; then
   echo "::warning::review effectiveness trace rendered empty (rc=0, no output — telemetry disabled or no readable workpads); omitting the trace section"
 fi

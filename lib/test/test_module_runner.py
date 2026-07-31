@@ -553,7 +553,7 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("could not source", result.stderr)
         self.assertFalse(self.marker.exists())
-        self.assertFalse((self.root / ".devflow/tmp/test-module-logs").exists())
+        self.assertFalse((self.root / ".prflow/tmp/test-module-logs").exists())
 
     def test_harness_missing_contract_function_fails_closed(self) -> None:
         # Outcome check, not just source rc: a harness copy that sources
@@ -576,7 +576,7 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("selector error: unknown test module 'unknown'", result.stderr)
         self.assertFalse(self.marker.exists())
-        self.assertFalse((self.root / ".devflow/tmp/test-module-logs").exists())
+        self.assertFalse((self.root / ".prflow/tmp/test-module-logs").exists())
 
     def test_help_and_argument_errors_are_explicit(self) -> None:
         help_result = self._run_args("--help")
@@ -2000,7 +2000,7 @@ class ModuleRunnerTests(unittest.TestCase):
             (scratch / "skills/create-issue").symlink_to(ROOT / "skills/create-issue")
             (scratch / "skills/review-and-fix").symlink_to(ROOT / "skills/review-and-fix")
             (scratch / "docs").symlink_to(ROOT / "docs")
-            (scratch / ".devflow").symlink_to(ROOT / ".devflow")
+            (scratch / ".prflow").symlink_to(ROOT / ".prflow")
             (scratch / "CLAUDE.md").symlink_to(ROOT / "CLAUDE.md")
             (scratch / "lib/test/modules").symlink_to(ROOT / "lib/test/modules")
             # implement: real SKILL.md, real phases EXCEPT one emptied member.

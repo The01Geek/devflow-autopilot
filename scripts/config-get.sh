@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
-# Read a value from .devflow/config.json — DevFlow's single config resolver.
+# Read a value from .prflow/config.json — DevFlow's single config resolver.
 #
 # Usage: config-get.sh KEY [DEFAULT] [CONFIG_FILE]
-#   KEY          dot-path like .docs.internal or .devflow.workpad_marker
+#   KEY          dot-path like .docs.internal or .prflow.workpad_marker
 #                (leading dot optional). Arbitrary nesting depth supported —
 #                the path is split on dots and walked through nested objects.
 #   DEFAULT      printed if key is absent or value is empty/null. Pass an
 #                empty string ("") to explicitly request empty-on-missing.
-#   CONFIG_FILE  when omitted, defaults to the repo-root .devflow/config.json
+#   CONFIG_FILE  when omitted, defaults to the repo-root .prflow/config.json
 #                (git rev-parse --show-toplevel, falling back to pwd); a NON-EMPTY
 #                explicit value is honored verbatim (an explicit empty string still
 #                selects the root-anchored default) (issue #295)
 #
 # SHARED REPO-ROOT CONFIG CONTRACT (issue #295, supersedes the #275 cwd-relative
 # contract): this resolver and scripts/workpad.py's in-process marker read both
-# resolve the DEFAULT `.devflow/config.json` anchored to the git repo root
+# resolve the DEFAULT `.prflow/config.json` anchored to the git repo root
 # (`git rev-parse --show-toplevel`, falling back to `pwd`), NOT relative to the
 # current working directory — mirroring lib/config-source.sh. So a skill invoked
-# from any subdirectory of the repo loads the consumer's root `.devflow/config.json`
+# from any subdirectory of the repo loads the consumer's root `.prflow/config.json`
 # exactly as if invoked from the root; when cwd already IS the root the resolution
 # is byte-for-byte unchanged. Keep the two readers in lockstep: they must resolve
 # the same file for the same cwd. A NON-EMPTY explicit CONFIG_FILE (3rd arg) is
@@ -31,8 +31,8 @@
 #
 # Known limitation: `git rev-parse --show-toplevel` returns the NEAREST git root, so
 # a nested git submodule/inner repo resolves to that inner root, and a monorepo whose
-# `.devflow/` is deliberately not at the git root is not covered — consistent with
-# config-source.sh; a walk-up-to-nearest-`.devflow/` resolver was declined for this fix.
+# `.prflow/` is deliberately not at the git root is not covered — consistent with
+# config-source.sh; a walk-up-to-nearest-`.prflow/` resolver was declined for this fix.
 #
 # Parses with python3, which is a hard DevFlow prerequisite (lib/preflight.sh
 # requires python3 >= 3.11; the whole scripts/*.py surface depends on it) and so
@@ -48,6 +48,29 @@
 
 set -euo pipefail
 
+# State-directory resolution (issue #1002): the canonical directory is .prflow/,
+# with a LOUD transitional fallback to a superseded .devflow/ when only that one
+# is present. Sourced rather than reimplemented so this resolver and every other
+# shell reader answer identically; a partially-copied deployment without the
+# sibling falls back to the canonical name with a breadcrumb rather than aborting
+# under `set -e` (the same guarded-source discipline lib/resolve-jq.sh uses).
+# Self-directory anchor. `dirname` is NOT one of the tools lib/preflight.sh
+# guarantees, and under `set -e` its failing command substitution aborts the read
+# before a caller default is emitted — so this uses the dirname-free spelling of
+# the anchor, which is also one of the shapes lib/test/cloud_writer_deps.py can
+# prove (a variable assigned by a `case` cannot be resolved by that scanner, so an
+# edge built from one reads as a repo-root escape). `cd`/`pwd` are bash builtins.
+_CONFIG_GET_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd)"
+# shellcheck source=../lib/resolve-state-dir.sh
+if [ -f "$_CONFIG_GET_DIR/../lib/resolve-state-dir.sh" ] \
+   && . "$_CONFIG_GET_DIR/../lib/resolve-state-dir.sh" \
+   && type prflow_state_dir >/dev/null 2>&1; then
+    :
+else
+    echo "config-get.sh: resolve-state-dir.sh not found or not sourceable from ../lib — using the canonical .prflow/ with no transitional fallback" >&2
+    prflow_state_dir() { printf '%s' "${1:-}/.prflow"; }
+fi
+
 key="${1:-}"
 has_default=0
 if [ $# -ge 2 ]; then
@@ -56,7 +79,7 @@ if [ $# -ge 2 ]; then
 fi
 # Anchor the DEFAULT config path to the git repo root (issue #295) — mirroring
 # lib/config-source.sh (`git rev-parse --show-toplevel 2>/dev/null || pwd`) — so a
-# skill invoked from a subdirectory reads the consumer's ROOT .devflow/config.json
+# skill invoked from a subdirectory reads the consumer's ROOT .prflow/config.json
 # instead of silently missing it. A NON-EMPTY explicit CONFIG_FILE (3rd arg) is
 # honored verbatim (an explicit empty 3rd arg still selects the default — see the
 # gate below); root anchoring applies only to the default. Each invocation forks
@@ -71,8 +94,8 @@ if [ -n "${3:-}" ]; then
 else
     # git rev-parse prints nothing and exits non-zero outside a git tree; the trailing
     # `|| _devflow_root=""` keeps that assignment set -e-safe. Then fall back to cwd, with
-    # a breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located — the
-    # silent-drop class this fix closes. (A git root with no .devflow/ is the normal
+    # a breadcrumb only when NEITHER a git root NOR a .prflow/ dir can be located — the
+    # silent-drop class this fix closes. (A git root with no .prflow/ is the normal
     # unconfigured local case and stays silent; the caller then applies its own default.)
     _devflow_root="$(git rev-parse --show-toplevel 2>/dev/null)" || _devflow_root=""
     if [ -z "$_devflow_root" ]; then
@@ -83,12 +106,16 @@ else
         # resolved and surface git's own stderr (the one string naming the real
         # cause) instead of discarding it. Re-run on this rare breadcrumb path only;
         # `|| true` keeps it set -e-safe.
-        if [ ! -d "${_devflow_root}/.devflow" ]; then
+        # Probe BOTH names: a consumer who has not run /prflow:init yet has only
+        # the superseded directory, and reporting "no .prflow/" at them would name
+        # a path they were never told to create. The state-dir resolver decides
+        # which one is actually used (and breadcrumbs the superseded one itself).
+        if [ ! -d "${_devflow_root}/.prflow" ] && [ ! -d "${_devflow_root}/.devflow" ]; then
             _git_err="$(git rev-parse --show-toplevel 2>&1 >/dev/null)" || true
-            echo "config-get.sh: could not resolve a git repo root${_git_err:+ (git: ${_git_err})} and no .devflow/ at '${_devflow_root}'; using cwd fallback and defaults" >&2
+            echo "config-get.sh: could not resolve a git repo root${_git_err:+ (git: ${_git_err})} and no .prflow/ at '${_devflow_root}'; using cwd fallback and defaults" >&2
         fi
     fi
-    config_file="${_devflow_root}/.devflow/config.json"
+    config_file="$(prflow_state_dir "$_devflow_root")/config.json"
 fi
 
 if [ -z "$key" ]; then
@@ -96,7 +123,76 @@ if [ -z "$key" ]; then
     exit 2
 fi
 
+# Superseded-key probe (issues #988, #1002). Fires ONLY on the miss path, so the
+# hot path forks nothing extra. It answers a question the main read structurally
+# cannot: that read collapses {absent, null, present-and-empty} onto one empty
+# stdout, and a breadcrumb sited there would fire on a key a consumer has
+# deliberately set to "". The probe re-reads the config and distinguishes them,
+# emitting only for a genuinely ABSENT new key whose superseded counterpart is
+# PRESENT.
+#
+# It maps the FIRST dot-path segment only, so `.prflow_implement.stall_backstop`
+# probes `.devflow_implement.stall_backstop` and no deeper segment is rewritten.
+# The map comes from lib/rename-map.json — the single source — never from a
+# literal copy here. Best-effort throughout: an unreadable map or config makes
+# the probe a silent no-op, because a diagnostic must never be able to break the
+# read it is diagnosing.
+probe_superseded_key() {
+    local map_file hit
+    map_file="$_CONFIG_GET_DIR/../lib/rename-map.json"
+    [ -f "$map_file" ] || return 0
+    command -v python3 >/dev/null 2>&1 || return 0
+    hit="$(PRFLOW_KEY="${key#.}" PRFLOW_CONFIG="$config_file" PRFLOW_MAP="$map_file" python3 -c '
+import json, os, sys
+
+
+def load(path):
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+try:
+    data = load(os.environ["PRFLOW_CONFIG"])
+    renames = load(os.environ["PRFLOW_MAP"])["config_keys"]
+except Exception:
+    sys.exit(0)
+if not isinstance(data, dict) or not isinstance(renames, dict):
+    sys.exit(0)
+# current -> superseded, so a requested NEW key can name its OLD counterpart.
+superseded_of = {new: old for old, new in renames.items()}
+parts = os.environ["PRFLOW_KEY"].split(".")
+if not parts or parts[0] not in superseded_of:
+    sys.exit(0)
+
+
+def present(root, path):
+    cur = root
+    for part in path:
+        if not isinstance(cur, dict) or part not in cur:
+            return False
+        cur = cur[part]
+    return True
+
+
+# A new key that is PRESENT — including one holding null, "" , false or 0 — is a
+# deliberate consumer value, not an un-migrated config. Only a genuinely absent
+# one earns the breadcrumb.
+if present(data, parts):
+    sys.exit(0)
+old = [superseded_of[parts[0]]] + parts[1:]
+if not present(data, old):
+    sys.exit(0)
+sys.stdout.write("." + ".".join(old))
+' 2>/dev/null)" || return 0
+    [ -n "$hit" ] || return 0
+    # Worded for BOTH miss paths: this fires above the default-emitting branch and
+    # above the exit-1 branch, so it must not promise a default that a no-default
+    # call never gets.
+    echo "config-get.sh: '.${key#.}' is absent from $config_file but its superseded counterpart '$hit' is present — run /prflow:init to migrate the config keys; until then this read resolves as if the key were unset." >&2
+}
+
 emit_default_or_fail() {
+    probe_superseded_key
     if [ "$has_default" -eq 1 ]; then
         printf '%s\n' "$default"
         exit 0

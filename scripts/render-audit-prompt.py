@@ -15,7 +15,7 @@ Contract (issue #600):
 
 - Reads no run *state* and writes no file, and takes no stdin. The reads are the
   committed template file; the consumer extension — for consumer-dimension
-  forwarding — ``.devflow/prompt-extensions/create-issue.md``, resolved
+  forwarding — ``.prflow/prompt-extensions/create-issue.md``, resolved
   from the git repo root per the #295 SHARED REPO-ROOT CONFIG CONTRACT (a native
   ``git`` subprocess, cwd fallback; never a ``.sh`` exec — the #275 constraint);
   in ``dispatch-instructions`` mode only (issue #709) — the run's canonical
@@ -110,6 +110,22 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+# State-directory resolution (issue #1002): canonical .prflow/, with the LOUD
+# transitional fallback to a superseded .devflow/ when only that one is present.
+# lib/ sits beside scripts/ in both the source repo and a vendored
+# .prflow/vendor/prflow/ tree, so this import path holds on every tier. A copy
+# missing the sibling degrades to the canonical name with no fallback rather than
+# failing the read (the same posture the plugin_identity import takes).
+try:
+    # `__file__` is absent when this module is read and exec'd rather than imported
+    # (the #343 gate exercise does exactly that), so the path insert degrades with the
+    # import instead of raising ahead of a gate that must fail fast.
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+    from state_dir import resolve_state_dir as _resolve_state_dir
+except Exception:  # pragma: no cover - partial-copy / exec'd-source arm
+    def _resolve_state_dir(repo_root, stream=None):
+        return str(Path(repo_root) / ".prflow")
 
 STATUS_PREFIX = "render-status:"
 END_MARKER = "render-end:"
@@ -236,21 +252,21 @@ def _repo_root() -> str | None:
 def _default_extension_path() -> Path:
     root = _repo_root()
     if root is not None:
-        return Path(root) / ".devflow" / "prompt-extensions" / "create-issue.md"
+        return Path(_resolve_state_dir(root)) / "prompt-extensions" / "create-issue.md"
     cwd = Path.cwd()
-    # Breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located —
+    # Breadcrumb only when NEITHER a git root NOR a .prflow/ dir can be located —
     # the silent-drop class the #295 reader-set contract closes (mirrors
     # match-deferrals.py's _default_config_path). git can exit non-zero while
     # genuinely INSIDE a repo (safe.directory / dubious-ownership), or be absent,
     # so don't assert "not in a git repo" — report that the root could not be
     # resolved.
-    if not (cwd / ".devflow").is_dir():
+    if not (cwd / ".prflow").is_dir() and not (cwd / ".devflow").is_dir():
         sys.stderr.write(
             f"render-audit-prompt.py: could not resolve a git repo root and no "
-            f".devflow/ at {str(cwd)!r}; falling back to a cwd-anchored default "
+            f".prflow/ at {str(cwd)!r}; falling back to a cwd-anchored default "
             f"prompt-extension path\n"
         )
-    return cwd / ".devflow" / "prompt-extensions" / "create-issue.md"
+    return Path(_resolve_state_dir(str(cwd))) / "prompt-extensions" / "create-issue.md"
 
 
 # --------------------------------------------------------------------------
@@ -906,7 +922,7 @@ def _emit_dispatch_pointer(rendered: str) -> None:
     The caller selects this line by its `dispatch-pointer:` PREFIX, never as "the
     stderr output": `_default_extension_path()` runs unconditionally before the
     mode branch and emits its own breadcrumb on a fully successful run in a cwd
-    with neither a git root nor a `.devflow/`, so stderr can legitimately carry
+    with neither a git root nor a `.prflow/`, so stderr can legitimately carry
     two lines and a positional read would take that breadcrumb as the auditor
     prompt.
 
@@ -1011,7 +1027,7 @@ def _one_line(text: str) -> str:
 
 # Which file a declaration defect is attributable to. The breadcrumb must name the
 # file at fault: the generic arm parses THIS repo's committed template, the consumer
-# arm parses a third-party `.devflow/prompt-extensions/create-issue.md`, and an
+# arm parses a third-party `.prflow/prompt-extensions/create-issue.md`, and an
 # operator who cannot tell the two apart debugs the wrong file.
 _SOURCE_TEMPLATE = "template"
 _SOURCE_CONSUMER = "consumer extension"

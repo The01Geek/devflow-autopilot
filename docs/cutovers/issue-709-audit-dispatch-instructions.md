@@ -113,14 +113,14 @@ None. `/prflow:create-issue` runs on the local/interactive tier only (no `GITHUB
 `.github/workflows/` `TOOLS=`/`--allowed-tools` grant is involved and `lib/capability-profiles.json`
 is untouched. The mechanism introduces no new host binary: hashing reuses the state owner's existing
 `git hash-object --stdin --no-filters` path, and the generator is reached by in-process import, not
-by a subprocess or a `.sh` exec (the #275 constraint). It adds no `.devflow/config.json` key — the
+by a subprocess or a `.sh` exec (the #275 constraint). It adds no `.prflow/config.json` key — the
 enforcement is always-on and a consumer cannot disable it.
 
 ## Shipping coupling
 
 None. Every changed artifact — the state owner, the renderer, the skill references, the template —
-reaches a consumer repo through the **single `devflow_version` vendor fetch** (`scripts/` and
-`skills/` vendor together under `.devflow/vendor/devflow/`). No `install.sh` workflow half is
+reaches a consumer repo through the **single `prflow_version` vendor fetch** (`scripts/` and
+`skills/` vendor together under `.prflow/vendor/prflow/`). No `install.sh` workflow half is
 involved, so there is no two-artifact install skew of the #502/#455 class.
 
 ## Mutation evidence

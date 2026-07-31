@@ -74,7 +74,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import reception_identity as ri  # noqa: E402
 
 SCHEMA_VERSION = 1
-SESSION_DIRNAME = os.path.join(".devflow", "tmp", "reception-sessions")
+SESSION_DIRNAME = os.path.join(".prflow", "tmp", "reception-sessions")
 POINTER_NAME = "current-session.json"
 GIT = os.environ.get("DEVFLOW_GIT") or "git"
 
@@ -246,11 +246,11 @@ def _read_json_object(path: Path) -> "tuple[dict | None, str | None]":
 def _repo_root(args) -> str:
     """Resolve the repository root for the DEFAULT session-dir path.
 
-    CLAUDE.md's SHARED REPO-ROOT CONFIG CONTRACT (#295): a `.devflow/` default
+    CLAUDE.md's SHARED REPO-ROOT CONFIG CONTRACT (#295): a `.prflow/` default
     path anchors on the git repo ROOT — resolved through a native `git` subprocess
     (Windows-safe, like the `gh` callers; never a `.sh` exec) — falling back to the
     cwd when there is no git root. A cwd-anchored default composes
-    `<subdir>/.devflow/...` for a run started from a subdirectory, which the
+    `<subdir>/.prflow/...` for a run started from a subdirectory, which the
     root-anchored ignore rule cannot match, so the helper refuses with an
     ignore-rule breadcrumb whose remedy would not fix it.
 
@@ -344,8 +344,8 @@ def _session_dir(args) -> Path:
     while the writes resolve their `Path` against the PROCESS cwd. A relative
     `--session-dir` (or `--repo-root`) therefore made the guard answer about one
     path while the write landed on another — the guard passing on an ignored
-    `<root>/.devflow/...` while the artifacts were created at
-    `<cwd>/.devflow/...`, untracked and NOT ignored, which is exactly the
+    `<root>/.prflow/...` while the artifacts were created at
+    `<cwd>/.prflow/...`, untracked and NOT ignored, which is exactly the
     self-invalidating identity the precondition exists to prevent (and, in the
     mirror case, a `session_dir_not_ignored` refusal naming a remedy already
     present). Resolving relative paths against the repo root — the same base the
@@ -413,7 +413,7 @@ def cmd_record(args) -> int:
         return _fail("ignore_check_failed:git-could-not-resolve-ignore-state")
     if ignored is False:
         return _fail(
-            "session_dir_not_ignored:add-'/.devflow/*'-or-'.devflow/tmp/'-to-.gitignore"
+            "session_dir_not_ignored:add-'/.prflow/*'-or-'.prflow/tmp/'-to-.gitignore"
         )
 
     created_at = _now_iso()
@@ -597,7 +597,7 @@ def cmd_append_disposition(args) -> int:
         return _fail("ignore_check_failed:git-could-not-resolve-ignore-state")
     if ignored is False:
         return _fail(
-            "session_dir_not_ignored:add-'/.devflow/*'-or-'.devflow/tmp/'-to-.gitignore"
+            "session_dir_not_ignored:add-'/.prflow/*'-or-'.prflow/tmp/'-to-.gitignore"
         )
 
     record, reason = _read_json_object(findings_path)
@@ -647,7 +647,7 @@ def build_parser() -> argparse.ArgumentParser:
     def add_common(p):
         p.add_argument("--session-dir", default=None,
                        help="Override the session artifact directory (default: "
-                            "<repo>/.devflow/tmp/reception-sessions).")
+                            "<repo>/.prflow/tmp/reception-sessions).")
         p.add_argument("--repo-root", default=None,
                        help="Repository root to derive from (default: the git "
                             "repository root, falling back to the cwd when git "
