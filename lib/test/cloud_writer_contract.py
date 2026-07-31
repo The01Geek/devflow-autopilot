@@ -251,6 +251,20 @@ REQUIRED_HELPER_HEADS = {
         ".prflow/vendor/prflow/scripts/resolve-review-overrides.py",
         ".prflow/vendor/prflow/scripts/apply-labels.sh",
         ".prflow/vendor/prflow/scripts/ensure-label.sh",
+        # NOT listed here: Phase 4.0's GitHub-native blocked-by dependency stamp
+        # (scripts/apply-issue-dependencies.py, issue #1011). It IS granted in the
+        # current `implement` profile (lib/capability-profiles.json + the generated
+        # devflow-cloud-writer-contract.json helper heads), so a current-workflow
+        # consumer runs it. But this list is the REQUIRED SUBSET every SUPPORTED
+        # consumer workflow must grant, including the one frozen at
+        # `LEGACY_PROFILE_BASELINE`, which predates the helper and cannot grant it —
+        # so registering a brand-new head here breaks the AC19 pairing-2 invariant
+        # (the #703 test: an N-1 workflow paired with the current plugin must still
+        # validate cleanly; the frozen grants report HEAD_ABSENT for exactly this
+        # path). It becomes required when the baseline advances past the release
+        # that ships it — the identical deferral scripts/resolve-existing-pr.sh
+        # already carries above. Issue #1011's acceptance criterion that named this
+        # list predates the legacy baseline and could not honour that invariant.
         ".prflow/vendor/prflow/scripts/stale-prose-lint.py",
         ".prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh",
         ".prflow/vendor/prflow/scripts/match-lint-adjudications.py",

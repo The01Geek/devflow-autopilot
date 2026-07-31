@@ -1450,6 +1450,15 @@ assert_eq "#docs-verify: write-mode reference carries exactly one start and one 
 # ci749_field's per-field rows: named individually so a dropped member is attributable.
 unset -v CI_DV
 
+# issue #1011: Step 4 registers declared `## Dependencies` prerequisites as GitHub-native
+# blocked-by dependencies as a new best-effort sub-step (5b) — the command's leading token is
+# the helper path with just the created issue's number, immediately after the 5a `PRFlow`
+# label stamp, on the successful-creation path, continuing regardless of the outcome.
+assert_eq "#1011 ci: Step 4 stamps native blocked-by deps via apply-issue-dependencies.py (leading-token, issue-number arg)" "yes" \
+  "$(grep -qF 'scripts/apply-issue-dependencies.py <issue_number>' "$CI_REF_STEP4" && echo yes || echo no)"  # raw-guard-ok: routing-dispatch-contract: the cloud-emitted leading-token helper-invocation shape
+assert_eq "#1011 ci: the dependency sub-step (5b) sits after the 5a PRFlow label stamp" "yes" \
+  "$(awk '/^5a\./{a=NR} /apply-issue-dependencies\.py/{d=NR} END{print (a>0 && d>a)?"yes":"no"}' "$CI_REF_STEP4")"  # raw-guard-ok: routing-dispatch-contract: post-creation ordering — the dep stamp follows the label stamp
+
 # Complete normal cleanup explicitly so a removal or marker failure changes the
 # module status. EXIT remains a fallback for earlier returns and shell errors.
 if ! _ci_cleanup; then
