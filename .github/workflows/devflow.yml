@@ -576,7 +576,7 @@ jobs:
       # same set as devflow-runner.yml's review mint). This is the manual
       # `/devflow:review` twin of the auto-review runner: the review identity is
       # DevFlow-Reviewer, structurally distinct from the primary
-      # `devflow-autopilot` App that authors PRs, so Phase 4.4's
+      # `prflow-implementer` App that authors PRs, so Phase 4.4's
       # `gh pr review --request-changes`/`--approve` is not a forbidden
       # self-review (issue #300). Gated on the DEVFLOW_REVIEWER_APP_ID VARIABLE
       # AND on the command being exactly `/prflow:review` (the trailing space

@@ -1724,8 +1724,38 @@ NOTICE_LINE="$(grep -A2 'Notice — duplicate ignored' "$LIB/../.github/workflow
 # inspecting anything. Assert we actually captured the notice first.
 assert_eq "di: notice test captured the notice body (no vacuous pass)" "1" \
   "$(grep -c 'already in progress' <<< "$NOTICE_LINE")"
-assert_eq "di: duplicate notice contains no /devflow: phrase" "0" \
-  "$(grep -c '/devflow:' <<< "$NOTICE_LINE")"
+# Scanned over EVERY declared command namespace, not just the transitional one.
+# devflow-implement.yml fires on BOTH `/prflow:implement` and `/devflow:implement`,
+# so a guard spelling only `/devflow:` gives zero assurance for `/prflow:` — a
+# canonical-namespace phrase could leak into the notice and re-fire the workflow
+# with this check still green. Derived from the declared plugin identity rather
+# than hardcoded, and built with bash builtins because it SELECTS what gets
+# scanned: a missing non-preflight PATH tool would silently empty the set and
+# pass by inspecting nothing.
+DI_CMD_NS=""
+while IFS= read -r _di_ns; do
+  case "$_di_ns" in
+    "" ) : ;;
+    *) DI_CMD_NS="$DI_CMD_NS $_di_ns" ;;
+  esac
+done <<EOF
+$(python3 "$LIB/plugin_identity.py" --plugin-names 2>/dev/null || true)
+EOF
+assert_eq "di: the scanned command-namespace set is non-empty (guard is not vacuous)" \
+  "yes" "$(case "$DI_CMD_NS" in *[!\ ]*) echo yes ;; *) echo no ;; esac)"
+for _di_ns in $DI_CMD_NS; do
+  assert_eq "di: duplicate notice contains no /$_di_ns: phrase" "0" \
+    "$(grep -c "/$_di_ns:" <<< "$NOTICE_LINE")"
+done
+# PLANTED-DEFECT CONTROL: each namespace's check must actually RED on the leak it
+# claims to catch, so the control first asserts the mutation really changed the body.
+for _di_ns in $DI_CMD_NS; do
+  _DI_PLANTED="${NOTICE_LINE/NOTE=/NOTE=see \/$_di_ns:implement }"
+  assert_eq "di: CONTROL — the planted /$_di_ns: mutation really changed the notice body" \
+    "no" "$([ "$_DI_PLANTED" = "$NOTICE_LINE" ] && echo yes || echo no)"
+  assert_eq "di: CONTROL — a planted /$_di_ns: phrase turns the duplicate-notice check RED" \
+    "yes" "$([ "$(grep -c "/$_di_ns:" <<< "$_DI_PLANTED")" -gt 0 ] && echo yes || echo no)"
+done
 assert_eq "di: duplicate notice contains no @claude" "0" \
   "$(grep -c '@claude' <<< "$NOTICE_LINE")"
 

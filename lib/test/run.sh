@@ -14914,12 +14914,17 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # then-current floor drop to 399. Do not read that drop as dead code — deleting these helpers
 # would break every consumer that upgrades. It stops there deliberately — the tranche was
 # scoped in advance to a measured set of low-risk sections, and what follows was not in it.
-# The floor has since RISEN to 410: the plugin rename added dual-namespace acceptance
+# The floor has RISEN twice since: the plugin rename added dual-namespace acceptance
 # coverage to both trigger helpers (canonical-input arms plus wildcard negative controls),
-# since every pre-existing fixture fed only the transitional alias form.
+# since every pre-existing fixture fed only the transitional alias form; and the
+# duplicate-notice self-trigger guard was widened from the single hardcoded `/devflow:`
+# to every declared command namespace, with a planted-defect control per namespace.
+# The floor literal on the call below is equality-checked against this module's
+# `minimum_assertions` in scripts/workflow-flight-recorder-registry.json — change both
+# together, or test_module_runner.py's tranche test goes RED.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 410; then
+  "review-trigger-helpers" 416; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
@@ -15938,8 +15943,36 @@ assert_eq "app-token: suppression-notice pin captured the notice body (no vacuou
 # renamed/inlined — pin that exactly one NOTE= body line exists in the step.
 assert_eq "app-token: suppression notice carries exactly one NOTE= body line" "1" \
   "$(grep -c 'NOTE=' <<< "$RS_NOTICE")"
-assert_eq "app-token: suppression notice contains no /devflow: phrase in its NOTE body" "0" \
-  "$(grep 'NOTE=' <<< "$RS_NOTICE" | grep -c '/devflow:' || true)"
+# Scanned over EVERY declared command namespace, not just the transitional one.
+# devflow.yml carries triggers in both namespaces, so a guard spelling only
+# `/devflow:` gives zero assurance for `/prflow:` — a canonical-namespace phrase
+# could leak into the notice and self-trigger with the check still green. The set
+# is DERIVED ($SUITE_CMD_NS, built above from the declared plugin identity), so it
+# follows a namespace addition automatically and does not go vacuous when the
+# transitional namespace is eventually retired.
+# NON-VACUITY, asserted LOCALLY rather than borrowed: $SUITE_CMD_NS is built far
+# upstream in the partition-invariant section, and today its `exit 1` fail-closed
+# arm happens to run earlier in the same linear script. That is an accident of
+# ordering, not a contract — hoisting either block, or moving this one into a
+# module, would leave both loops below iterating over an empty set and passing by
+# inspecting nothing. Assert emptiness here, at the point of use, exactly as the
+# devflow-implement duplicate-notice mirror does for its own DI_CMD_NS.
+assert_eq "app-token: the scanned command-namespace set is non-empty (guard is not vacuous)" \
+  "yes" "$(case "$SUITE_CMD_NS" in *[!\ ]*) echo yes ;; *) echo no ;; esac)"
+for _rs_ns in $SUITE_CMD_NS; do
+  assert_eq "app-token: suppression notice contains no /$_rs_ns: phrase in its NOTE body" "0" \
+    "$(grep 'NOTE=' <<< "$RS_NOTICE" | grep -c "/$_rs_ns:" || true)"
+done
+# PLANTED-DEFECT CONTROL: each namespace's check must actually RED on the leak it
+# claims to catch. A green row over an expression that can no longer match proves
+# nothing, so the control first asserts the mutation really changed the body.
+for _rs_ns in $SUITE_CMD_NS; do
+  _RS_PLANTED="${RS_NOTICE/NOTE=/NOTE=see \/$_rs_ns:review }"
+  assert_eq "app-token: CONTROL — the planted /$_rs_ns: mutation really changed the notice body" \
+    "no" "$([ "$_RS_PLANTED" = "$RS_NOTICE" ] && echo yes || echo no)"
+  assert_eq "app-token: CONTROL — a planted /$_rs_ns: phrase turns the suppression-notice check RED" \
+    "yes" "$([ "$(grep 'NOTE=' <<< "$_RS_PLANTED" | grep -c "/$_rs_ns:" || true)" -gt 0 ] && echo yes || echo no)"
+done
 # Scoped to the NOTE= body line: the step's own de-trigger rationale comment
 # legitimately names `@claude` in prose.
 assert_eq "app-token: suppression notice contains no @claude in its NOTE body" "0" \
@@ -30358,7 +30391,8 @@ printf 'Also pinned: DEVFLOW_REF=v3.1.4 for the payload.\n' > "$VPD/docs/late-ar
 printf '# Changelog\n\nPreamble.\n\n## [3.1.4] - 2026-07-03\n\n### Fixed\n- old (#1)\n' > "$VPD/CHANGELOG.md"
 printf -- '---\nbump: patch\ntype: Fixed\n---\n\n- Bumped. (#953)\n' > "$VPD/.changeset/a.md"
 python3 "$CS_SCRIPT" --root "$VPD" --date 2026-07-30 \
-  --emit-entry-to "$VPD/notes.out" --emit-write-set-to "$VPD/ws.out" >/dev/null 2>&1
+  --emit-entry-to "$VPD/notes.out" --emit-write-set-to "$VPD/ws.out" \
+  --emit-bump-to "$VPD/bump.out" >/dev/null 2>&1
 assert_eq "#953 bump: the manifest moved to 3.1.5" "3.1.5" "$(cs_ver "$VPD")"
 assert_eq "#953 bump: the URL pin moved in the same run" "1" \
   "$(grep -cF 'githubusercontent.com/o/r/v3.1.5/' "$VPD/docs/install.md")"
@@ -30383,6 +30417,11 @@ assert_eq "#953 bump: --emit-entry-to writes the assembled entry heading (the Re
   "$(grep -cF '## [3.1.5]' "$VPD/notes.out")"
 assert_eq "#953 bump: --emit-entry-to carries the changeset prose into that body" "1" \
   "$(grep -cF 'Bumped.' "$VPD/notes.out")"
+# #970: the release decision reads the bump kind from HERE — the value this run already
+# computed as the single highest pending bump — never re-inferred downstream from a version
+# diff. This set is patch-only, so the side channel must say `patch`.
+assert_eq "#970 bump: --emit-bump-to reports the computed highest bump (patch-only set)" "patch" \
+  "$(cat "$VPD/bump.out")"
 # Side channels are opt-in: without the flags nothing extra is written (the unit tests above
 # call the consolidator without them, and the repo must never gain stray output files).
 rm -rf "$VPD"
@@ -30391,7 +30430,37 @@ printf '# Changelog\n\nPreamble.\n\n## [3.1.4] - 2026-07-03\n' > "$VPD/CHANGELOG
 printf -- '---\nbump: patch\n---\n\n- Bumped. (#953)\n' > "$VPD/.changeset/a.md"
 python3 "$CS_SCRIPT" --root "$VPD" --date 2026-07-30 >/dev/null 2>&1
 assert_eq "#953 bump: the side channels are opt-in (no stray files without the flags)" "yes" \
-  "$([ ! -e "$VPD/notes.out" ] && [ ! -e "$VPD/ws.out" ] && echo yes || echo no)"
+  "$([ ! -e "$VPD/notes.out" ] && [ ! -e "$VPD/ws.out" ] && [ ! -e "$VPD/bump.out" ] &&
+     echo yes || echo no)"
+rm -rf "$VPD"
+
+# #970: --emit-bump-to reports the HIGHEST of a mixed pending set, matching the version the
+# same run computes. Without this the patch-only case above would pass for a helper that
+# simply echoed a constant, and the announcement decision would silently drop a feature
+# release whenever a patch changeset merged alongside it.
+VPD="$(vp_repo)"
+printf '# Changelog\n\nPreamble.\n\n## [3.1.4] - 2026-07-03\n' > "$VPD/CHANGELOG.md"
+printf -- '---\nbump: patch\n---\n\n- A fix. (#970)\n' > "$VPD/.changeset/a.md"
+printf -- '---\nbump: minor\n---\n\n- A feature. (#970)\n' > "$VPD/.changeset/b.md"
+python3 "$CS_SCRIPT" --root "$VPD" --date 2026-07-30 --emit-bump-to "$VPD/bump.out" >/dev/null 2>&1
+assert_eq "#970 bump: a patch alongside a minor reports minor, not patch" "minor" "$(cat "$VPD/bump.out")"
+assert_eq "#970 bump: and the reported kind is the one the version actually moved by" "3.2.0" "$(cs_ver "$VPD")"
+rm -rf "$VPD"
+# ...and a major dominates a minor, so the ranking is exercised at both steps.
+VPD="$(vp_repo)"
+printf '# Changelog\n\nPreamble.\n\n## [3.1.4] - 2026-07-03\n' > "$VPD/CHANGELOG.md"
+printf -- '---\nbump: minor\n---\n\n- A feature. (#970)\n' > "$VPD/.changeset/a.md"
+printf -- '---\nbump: major\n---\n\n- A break. (#970)\n' > "$VPD/.changeset/b.md"
+python3 "$CS_SCRIPT" --root "$VPD" --date 2026-07-30 --emit-bump-to "$VPD/bump.out" >/dev/null 2>&1
+assert_eq "#970 bump: a minor alongside a major reports major" "major" "$(cat "$VPD/bump.out")"
+rm -rf "$VPD"
+# A run with NOTHING pending writes no bump kind at all: "no bump happened" must stay
+# distinguishable from "a patch bump happened", or the workflow could relay a stale answer.
+VPD="$(vp_repo)"
+printf '# Changelog\n\nPreamble.\n\n## [3.1.4] - 2026-07-03\n' > "$VPD/CHANGELOG.md"
+python3 "$CS_SCRIPT" --root "$VPD" --date 2026-07-30 --emit-bump-to "$VPD/bump.out" >/dev/null 2>&1
+assert_eq "#970 bump: a no-op run leaves the bump-kind channel ABSENT, never defaulted" "yes" \
+  "$([ ! -e "$VPD/bump.out" ] && echo yes || echo no)"
 rm -rf "$VPD"
 
 # A pin-rewrite fault must abort BEFORE any write, preserving the consolidator's
@@ -30525,13 +30594,13 @@ PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" PR953_PUSH_FAILS=1 DEVFLOW_GH="$PR
 assert_eq "#953 publish-release: tag push failure — exit 1, no Release attempted" "yes" \
   "$([ "$VP_RC" -eq 1 ] && [ "$(grep -c '^gh ' "$PRD/log")" -eq 0 ] && echo yes || echo no)"
 
-# Arm 6: the Release POST fails → loud, naming the stale releases/latest consequence.
+# Arm 6: the Release POST fails → loud, naming the docs-page consequence.
 : > "$PRD/log"; : > "$PRD/state"
 PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" PR953_RELEASE_POST_FAILS=1 DEVFLOW_GH="$PRD/bin/gh" \
   PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 --repo o/r >"$PRD/out" 2>&1; VP_RC=$?
 assert_eq "#953 publish-release: Release POST failure — exit 1" "1" "$VP_RC"
-assert_eq "#953 publish-release: Release POST failure — the diagnostic names the stale releases/latest link" "1" \
-  "$(grep -cF 'releases/latest' "$PRD/out")"
+assert_eq "#953 publish-release: Release POST failure — the diagnostic names the missing-release consequence" "1" \
+  "$(grep -cF 'Releases page the install docs cite is now missing this release' "$PRD/out")"
 
 # Arm 7: input validation — a malformed version never reaches git.
 for vp_bad in "" "2.26" "2.26.3.1" "v2.26.3" "2..3" "abc"; do
@@ -30602,6 +30671,82 @@ assert_eq "#953 publish-release: no --repo and no GITHUB_REPOSITORY exits 2 befo
   "$(PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" GITHUB_REPOSITORY='' DEVFLOW_GH="$PRD/bin/gh" \
      PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 >/dev/null 2>&1
      [ "$?" -eq 2 ] && [ "$(grep -c '^gh ' "$PRD/log")" -eq 0 ] && echo yes || echo no)"
+
+# ── Arm 12: `--release minor-major`, the CONDITIONAL selection (issue #970). ─────────
+# Publishing a Release emails every watcher subscribed to Releases, and a bump lands on
+# every changeset-carrying merge, so only a minor/major bump is announced. The tag is
+# unconditional in EVERY arm below — that is what keeps the pinned install URLs resolving
+# and reproducibility unchanged; only the announcement is conditional.
+#
+# Driven as a MATRIX over one fixed command shape, so a condition that always took the same
+# branch would fail here rather than pass vacuously: the arms must differ from each other.
+for vp_bk in patch minor major; do
+  : > "$PRD/log"; rm -f "$PRD/state"
+  PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" DEVFLOW_GH="$PRD/bin/gh" \
+    PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 --repo o/r \
+    --release minor-major --bump "$vp_bk" >"$PRD/out" 2>&1; VP_RC=$?
+  # Whatever the bump, the annotated tag is created and pushed — never conditional.
+  assert_eq "#970 publish-release: a $vp_bk bump is still tagged and pushed (pins keep resolving)" "yes" \
+    "$([ "$VP_RC" -eq 0 ] &&
+       [ "$(grep -cF 'git tag -a v9.9.9' "$PRD/log")" -eq 1 ] &&
+       [ "$(grep -cF 'git push origin refs/tags/v9.9.9' "$PRD/log")" -eq 1 ] && echo yes || echo no)"
+  case "$vp_bk" in
+    patch)
+      assert_eq "#970 publish-release: a patch bump publishes NO Release (no gh call at all)" "0" \
+        "$(grep -c '^gh ' "$PRD/log")"
+      assert_eq "#970 publish-release: the patch arm says why it is quiet" "1" \
+        "$(grep -c '::notice::patch bump' "$PRD/out")" ;;
+    *)
+      assert_eq "#970 publish-release: a $vp_bk bump DOES publish its Release" "1" \
+        "$(grep -cF 'api --method POST repos/o/r/releases' "$PRD/log")"
+      assert_eq "#970 publish-release: the $vp_bk arm names the bump kind it acted on" "1" \
+        "$(grep -c "::notice::$vp_bk bump" "$PRD/out")" ;;
+  esac
+done
+
+# Arm 12b: NEGATIVE CONTROL for the mode itself — the same `--bump patch` under the default
+# `--release always` still publishes. Without this, a helper that had simply stopped
+# publishing altogether would satisfy the patch arm above.
+: > "$PRD/log"; rm -f "$PRD/state"
+PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" DEVFLOW_GH="$PRD/bin/gh" \
+  PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 --repo o/r --bump patch >"$PRD/out" 2>&1; VP_RC=$?
+assert_eq "#970 publish-release: --bump patch under the default mode still publishes (the mode is what decides)" "yes" \
+  "$([ "$VP_RC" -eq 0 ] && [ "$(grep -cF 'api --method POST repos/o/r/releases' "$PRD/log")" -eq 1 ] &&
+     echo yes || echo no)"
+
+# Arm 13: UNKNOWN IS NOT PATCH. Under `minor-major` an unestablished bump kind (the
+# consolidator's side channel produced nothing) must not be collapsed onto the quiet arm —
+# that would silently suppress an announcement nobody chose to suppress. The tag is already
+# pushed, so the helper fails loud and leaves a re-run able to publish idempotently.
+: > "$PRD/log"; rm -f "$PRD/state"
+PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" DEVFLOW_GH="$PRD/bin/gh" \
+  PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 --repo o/r --release minor-major >"$PRD/out" 2>&1; VP_RC=$?
+assert_eq "#970 publish-release: an unestablished bump kind fails closed (exit 1), never silently as patch" "1" "$VP_RC"
+assert_eq "#970 publish-release: it still tagged first, and published nothing" "yes" \
+  "$([ "$(grep -cF 'git tag -a v9.9.9' "$PRD/log")" -eq 1 ] &&
+     [ "$(grep -c '^gh ' "$PRD/log")" -eq 0 ] && echo yes || echo no)"
+assert_eq "#970 publish-release: the diagnostic names the side channel to check" "1" \
+  "$(grep -cF -- '--emit-bump-to' "$PRD/out")"
+# An empty --bump under a mode that does not consult it is NOT a fault.
+: > "$PRD/log"; rm -f "$PRD/state"
+PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" DEVFLOW_GH="$PRD/bin/gh" \
+  PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 --repo o/r --release never >/dev/null 2>&1
+assert_eq "#970 publish-release: an absent --bump is only a fault where the mode reads it" "0" "$?"
+
+# Arm 14: input validation for the new operand — a MALFORMED --bump is a caller bug, so it is
+# rejected before anything happens (distinct from the absent case above, which is an
+# unestablished measurement handled after the tag exists).
+for vp_bad in "PATCH" "patch " "1" "minor,major" "release"; do
+  : > "$PRD/log"; : > "$PRD/state"
+  PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" DEVFLOW_GH="$PRD/bin/gh" \
+    PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 --repo o/r --release minor-major \
+    --bump "$vp_bad" >/dev/null 2>&1; VP_RC=$?
+  assert_eq "#970 publish-release: rejects the malformed bump '$vp_bad' (exit 2, no git call)" "yes" \
+    "$([ "$VP_RC" -eq 2 ] && [ ! -s "$PRD/log" ] && echo yes || echo no)"
+done
+assert_eq "#970 publish-release: --release still rejects an unknown mode now that a third exists" "2" \
+  "$(PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" DEVFLOW_GH="$PRD/bin/gh" PATH="$PRD/bin:$PATH" \
+     "$PR953" --version 1.2.3 --repo o/r --release minor >/dev/null 2>&1; echo $?)"
 rm -rf "$PRD"
 
 # ── Workflow wiring: the coupled sites this suite cannot reach by execution. ─────────
@@ -30627,6 +30772,24 @@ assert_eq "#953 workflow fails closed on a consolidator write that was not stage
 # run would tag whatever main already points at.
 assert_eq "#953 workflow gates the tag step on the bump having been pushed" "1" \
   "$(printf '%s\n' "$VP_WF" | grep -cF "steps.consolidate.outputs.pushed == 'true'")"
+# #970: the conditional-Release wiring. Three coupled halves, none of which the arms above
+# can reach by execution — the helper's `minor-major` selection is inert unless the workflow
+# actually selects that mode AND actually feeds it the consolidator's own bump kind. Asking
+# the consolidator is what makes this the COMPUTED highest pending bump rather than something
+# re-inferred downstream from a version diff.
+assert_eq "#970 workflow asks the consolidator for the highest pending bump kind" "1" \
+  "$(printf '%s\n' "$VP_WF" | grep -cF -- '--emit-bump-to "$BUMP_KIND_FILE"')"
+assert_eq "#970 workflow selects the conditional-Release mode and feeds it that bump kind" "1" \
+  "$(printf '%s\n' "$VP_WF" | grep -cF -- '--release minor-major --bump "$BUMP_KIND"')"
+assert_eq "#970 workflow relays the bump kind to the tag step through a step output" "1" \
+  "$(printf '%s\n' "$VP_WF" | grep -cF 'BUMP_KIND: ${{ steps.consolidate.outputs.bump }}')"
+# The relay's producer half: an output the consolidate step never writes reads as empty, and
+# the helper then fails closed. Read with the `read` BUILTIN — a value that decides an emitted
+# result must not be derived through a non-preflight PATH tool (never `cat`/`head`).
+assert_eq "#970 workflow reads that side channel with a bash builtin, never a PATH tool" "1" \
+  "$(printf '%s\n' "$VP_WF" | grep -cF 'read -r bump_kind < "$BUMP_KIND_FILE"')"
+assert_eq "#970 workflow publishes the bump kind as a step output" "1" \
+  "$(printf '%s\n' "$VP_WF" | grep -cF 'echo "bump=$bump_kind"')"
 
 # ── The consolidate step's own shell, EXTRACTED from the YAML and DRIVEN. ────────────
 # The tag version must be derived on its own assignment statement, BEFORE the push. Inside
@@ -30665,6 +30828,12 @@ case "$*" in
       case "$prev" in
         --emit-entry-to)     printf 'notes body\n' > "$a" ;;
         --emit-write-set-to) printf 'CHANGELOG.md\n' > "$a" ;;
+        # The #970 bump-kind side channel. VPWF_NO_BUMP=1 makes the stub write
+        # NOTHING here, reproducing the real consolidator's own no-op-ish shapes
+        # (an older consolidator that does not know the flag, or a write that
+        # failed) — the case the workflow must relay as an EMPTY bump, never a
+        # defaulted one.
+        --emit-bump-to)      [ "${VPWF_NO_BUMP:-0}" = "1" ] || printf '%s\n' "${VPWF_BUMP-minor}" > "$a" ;;
       esac
       prev="$a"
     done
@@ -30686,6 +30855,20 @@ assert_eq "#953 workflow drive: the happy path exits 0 and reports pushed=true" 
   "$([ "$VP_RC" -eq 0 ] && [ "$(grep -cx 'pushed=true' "$VP_WFD/out")" -eq 1 ] && echo yes || echo no)"
 assert_eq "#953 workflow drive: the happy path publishes the derived version, not an empty one" "1" \
   "$(grep -cx 'version=7.7.7' "$VP_WFD/out")"
+# #970 PRODUCER HALF, driven rather than grep-pinned. The consumer half (the helper's
+# minor-major arm) is exercised above; this is the relay that feeds it. Until this arm
+# existed the `read -r bump_kind < "$BUMP_KIND_FILE"` branch ran ZERO times in the suite
+# and nothing checked the emitted `bump=` line, so a regression that dropped the
+# --emit-bump-to flag, read the wrong file, stopped writing the `bump=` output, or
+# defaulted the value would pass every grep pin it did not touch.
+# TWO DECLARED RESIDUALS these arms do NOT cover, stated rather than implied:
+#   * dropping the `-s` guard is behaviour-inert — the `|| true` already absorbs the
+#     failed redirect and leaves bump_kind empty, so `bump=` is empty either way;
+#   * switching the builtin to `cat` is indistinguishable while `cat` is on PATH. That
+#     half stays the source-shape pin above ("reads that side channel with a bash
+#     builtin"); the execution arms only diverge on a host where `cat` is missing.
+assert_eq "#970 workflow drive: the happy path relays the consolidator's own bump kind" "1" \
+  "$(grep -cx 'bump=minor' "$VP_WFD/out")"
 # The ordering that makes the fault survivable: derive BEFORE the irreversible push.
 assert_eq "#953 workflow drive: --print-version is called before the push, not after it" "yes" \
   "$([ "$(grep -n -- '--print-version' "$VP_WFD/log" | head -1 | cut -d: -f1)" \
@@ -30714,6 +30897,24 @@ assert_eq "#953 workflow drive: an EMPTY derived version fails the step and push
     [ "$(grep -cx 'pushed=true' "$VP_WFD/out")" -eq 0 ] && echo yes || echo no)"
 assert_eq "#953 workflow drive: the empty-version error names the untaggable bump it refused" "1" \
   "$(grep -c 'refusing to push an untaggable bump' "$VP_WFD/stepout")"
+
+# Arm D (#970): the bump side channel is ABSENT — the consolidator wrote no bump file at
+# all. The step must still push (an absent side channel is not a reason to withhold the
+# version bump) and must emit `bump=` EMPTY, so publish-release.sh fails loud on an
+# undecidable release rather than silently suppressing — or silently publishing — an
+# announcement. A default here would be the worst outcome: `patch` would suppress a real
+# minor Release, `minor` would email every watcher on every patch merge.
+: > "$VP_WFD/log"; : > "$VP_WFD/out"
+VPWF_LOG="$VP_WFD/log" VPWF_NO_BUMP=1 RUNNER_TEMP="$VP_WFD/tmp" GITHUB_OUTPUT="$VP_WFD/out" \
+  PATH="$VP_WFD/bin:$PATH" bash "$VP_WFD/consolidate.sh" >/dev/null 2>&1; VP_RC=$?
+# NON-VACUITY FIRST: without this the two assertions below would both hold on a step that
+# aborted before ever reaching the output block — passing by inspecting nothing.
+assert_eq "#970 workflow drive: an absent bump side channel still pushes the bump (arm reached the output block)" "yes" \
+  "$([ "$VP_RC" -eq 0 ] && [ "$(grep -cx 'pushed=true' "$VP_WFD/out")" -eq 1 ] && echo yes || echo no)"
+assert_eq "#970 workflow drive: an absent bump side channel emits bump= EMPTY, never a default" "1" \
+  "$(grep -cx 'bump=' "$VP_WFD/out")"
+assert_eq "#970 workflow drive: an absent bump side channel emits no non-empty bump= line" "0" \
+  "$(grep -cE '^bump=.+$' "$VP_WFD/out")"
 rm -rf "$VP_WFD"
 
 # ────────────────────────────────────────────────────────────────────────────

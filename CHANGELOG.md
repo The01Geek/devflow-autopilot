@@ -4,6 +4,24 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.28.6] — 2026-07-31
+
+### Changed
+- Version bumps now publish a GitHub Release only for `minor` and `major` bumps; a `patch` bump still gets its annotated tag. Publishing a Release emails every watcher subscribed to Releases, and patch merges were landing several times a day. Tagging is unchanged, so pinned install URLs keep resolving and reproducibility is unaffected — only the announcement is conditional. `scripts/consolidate-changesets.py` gained an `--emit-bump-to` side channel reporting the computed highest pending bump, and `scripts/publish-release.sh` gained a `--release minor-major` mode plus `--bump`; an unestablished bump kind fails loud rather than being read as `patch`. The install docs no longer link `releases/latest` (which names the newest *Release*, not the newest tag). (#970)
+
+## [2.28.5] — 2026-07-31
+
+### Fixed
+- **Renamed the PR-authoring GitHub App reference to its current slug.** The App
+  was renamed `devflow-autopilot` → `prflow-implementer` (`PRFlow (Implementer)`;
+  the app id is unchanged at `3102164`) and the old slug now 404s, so every
+  workflow comment, setup instruction, and architecture note naming it pointed at
+  an identity a reader could not look up. The `DEVFLOW_APP_ID` variable and
+  secret names are deliberately unchanged — they are configuration identifiers,
+  not App identity — as are the workspace-path grants in `.devflow/config.json`
+  (repo-name, re-anchored onto the live `$GITHUB_WORKSPACE`) and the dated
+  `CHANGELOG.md` records.
+
 ## [2.28.4] — 2026-07-31
 
 ### Fixed
