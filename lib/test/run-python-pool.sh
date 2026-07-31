@@ -55,9 +55,13 @@ TEST_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 # sourced cleanly but no longer defines the shared pool entry points would otherwise leave
 # this driver running nothing and reporting `0 passed, 0 failed` — a shard that recombines
 # as green while its whole population silently vanished.
+#
+# `declare -F`, not `type`: `type` is satisfied by any PATH executable, alias or builtin of
+# the same name, so a same-named binary on PATH could mask an undefined harness function and
+# wave this gate through. Only a shell FUNCTION can be what the sourced harness defined.
 for _fn in devflow_python_suite_pool_open devflow_python_suite_pool_join record_fail \
   devflow_render_test_summary devflow_render_failure_recap devflow_tally_is_derivable; do
-  type "$_fn" >/dev/null 2>&1 || {
+  declare -F "$_fn" >/dev/null 2>&1 || {
     printf 'run-python-pool.sh: harness did not define %s\n' "$_fn" >&2
     exit 2
   }

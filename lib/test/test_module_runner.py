@@ -2099,10 +2099,10 @@ POOLED_SUITES = (
     "test_module_runner.py",
     "test_python_scripts.py",
 )
-# One member of the real pool invocation, as it is spelled in module-harness.sh. Held
-# as a constant because two tests below assert opposite things about it (present in the
-# harness, absent from the extracted module) and a literal typed twice can be corrected
-# in only one place.
+# One member of the real pool invocation, as it is spelled in module-harness.sh. Held as a
+# constant because test_repository_registry_maps_the_extracted_recorder_module asserts
+# opposite things about it — present in the harness, absent from the extracted module — and
+# a literal typed twice can be corrected in only one of its two places.
 POOL_TRIPLE_LITERAL = '"$_pp_dir/test_module_runner.py" single-verdict'
 SERIAL_BY_EXCLUSION_SUITES = (
     "test_module_harness.py",
