@@ -441,6 +441,53 @@ class ModuleRunnerTests(unittest.TestCase):
             )
             self.assertTrue(list(Path(log_dir).iterdir()))
 
+    def test_issue_audit_state_module_runs_green_through_the_real_runner(self) -> None:
+        """The issue-audit-state module's fixtures need the real runner environment.
+
+        Every fixture in that module allocates a throwaway git repository through
+        `git_sandbox`, which lives in `lib/test/module-harness.sh` rather than in
+        `lib/test/run.sh`. The full suite exercises the module only through the
+        harness boundary, so this is the execution that proves the FOCUSED runner's
+        environment contract (LIB, RESULTS_FILE, assert_eq, sourced harness) also
+        satisfies it. The expected tally is read from the registry — never restated
+        as a second literal here, which would be one more site to reconcile whenever
+        the module's assertion count moves.
+        """
+        registry = json.loads(
+            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        floor = registry["test_modules"]["issue-audit-state"]["minimum_assertions"]
+        environment = os.environ.copy()
+        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+        with tempfile.TemporaryDirectory() as log_dir:
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(RUNNER_SOURCE),
+                    "--log-dir",
+                    log_dir,
+                    "issue-audit-state",
+                ],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(
+                result.returncode,
+                0,
+                result.stdout[-4000:] + result.stderr[-4000:],
+            )
+            self.assertIn(
+                f"Module issue-audit-state: {floor} passed, 0 failed",
+                result.stdout,
+            )
+            self.assertTrue(list(Path(log_dir).iterdir()))
+
     def test_relative_registry_and_log_dir_resolve_against_repo_root(self) -> None:
         custom_dir = self.root / "custom"
         custom_dir.mkdir()
