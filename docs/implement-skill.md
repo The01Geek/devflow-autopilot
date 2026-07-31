@@ -471,7 +471,7 @@ Layer-3 `--persist` backstop can only recover what was *written* — so the real
 per-iteration `iter-<N>.json` emit is a **non-optional obligation on every iteration, however the loop
 was executed**: whether `review-and-fix` ran as a `Skill` invocation or was **hand-run via direct
 `Agent` dispatch** on a degraded path, the record is still written, and always **with the Write tool,
-never a shell `>` redirect** the cloud sandbox denies into `.prflow/tmp`. A cloud `claude-code-action`
+never a shell `> .prflow/tmp/…` redirect** the cloud sandbox denies. A cloud `claude-code-action`
 permission/sandbox denial is **not** the local-tier permission classifier and is **not** license to
 leave the instrumented loop and hand-run the engine — on the implement job `Skill`, `Agent`, `Write`,
 `efficiency-trace.sh`, `workpad.py`, and `config-get.sh` are all allowlisted, so the loop is navigable,

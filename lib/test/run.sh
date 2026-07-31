@@ -17377,7 +17377,7 @@ assert_eq "#458 helper: full closure — exits 0 (every target displaced)" "0" "
 hsh_mk_ws "$HSH_TMP/b/ws"
 hsh_mk_trusted "$HSH_TMP/b/tr" \
   lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
-  lib/resolve-jq.sh lib/resolve-bin.sh lib/telemetry-branch.sh \
+  lib/resolve-jq.sh lib/resolve-bin.sh lib/telemetry-branch.sh lib/resolve-state-dir.sh \
   scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py
 WORKSPACE_ROOT="$HSH_TMP/b/ws" TRUSTED_DIR="$HSH_TMP/b/tr" bash "$HSH" >/dev/null 2>&1
 hsh_b_rc=$?
@@ -17396,7 +17396,7 @@ hsh_mk_ws "$HSH_TMP/c/ws"
 hsh_mk_trusted "$HSH_TMP/c/tr" \
   lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
   lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh \
-  scripts/config-get.sh scripts/config_fingerprint.py
+  lib/resolve-state-dir.sh scripts/config-get.sh scripts/config_fingerprint.py
 WORKSPACE_ROOT="$HSH_TMP/c/ws" TRUSTED_DIR="$HSH_TMP/c/tr" bash "$HSH" >/dev/null 2>&1
 assert_eq "#458 helper: exec-dep missing — the entry KEEPS its trusted body (no neutralization)" "TRUSTED-BODY-implement-stop-guard.sh" \
   "$(cat "$HSH_TMP/c/ws/lib/implement-stop-guard.sh")"
@@ -17490,7 +17490,7 @@ hsh_mk_ws "$HSH_TMP/p2/ws"
 hsh_mk_trusted "$HSH_TMP/p2/tr" \
   lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
   lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh \
-  scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py
+  lib/resolve-state-dir.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py
 WORKSPACE_ROOT="$HSH_TMP/p2/ws" TRUSTED_DIR="$HSH_TMP/p2/tr" bash "$HSH" >/dev/null 2>&1
 hsh_p2_rc=$?
 assert_eq "#460 helper: a lone entry with no trusted copy (libs present, non-neutralized arm) is stubbed" "1" \

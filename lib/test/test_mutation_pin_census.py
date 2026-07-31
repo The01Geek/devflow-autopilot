@@ -49,6 +49,7 @@ AUDITED = (
     "lib/test/modules/experiment-records.sh",
     "lib/test/modules/efficiency-trace-telemetry.sh",
     "lib/test/modules/issue-audit-state.sh",
+    "lib/test/modules/tier1-rename-migration.sh",
 )
 DEFINITIONS = ""
 

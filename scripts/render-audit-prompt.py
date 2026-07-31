@@ -117,10 +117,13 @@ from pathlib import Path
 # .prflow/vendor/prflow/ tree, so this import path holds on every tier. A copy
 # missing the sibling degrades to the canonical name with no fallback rather than
 # failing the read (the same posture the plugin_identity import takes).
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 try:
+    # `__file__` is absent when this module is read and exec'd rather than imported
+    # (the #343 gate exercise does exactly that), so the path insert degrades with the
+    # import instead of raising ahead of a gate that must fail fast.
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
     from state_dir import resolve_state_dir as _resolve_state_dir
-except Exception:  # pragma: no cover - partial-copy arm
+except Exception:  # pragma: no cover - partial-copy / exec'd-source arm
     def _resolve_state_dir(repo_root, stream=None):
         return str(Path(repo_root) / ".prflow")
 
