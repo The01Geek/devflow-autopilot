@@ -402,6 +402,23 @@ devflow_run_focused_python_test \
 rm -f "$_HPG_RESIDUAL_PROSE_OUT"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#985 opt-in suite wall-clock profiler (profile-suite.py)"
+# ────────────────────────────────────────────────────────────────────────────
+# The profiler is an opt-in maintainer diagnostic — lib/test/run.sh never invokes it —
+# so nothing in the suite exercised its parsing/attribution layer until issue #985. Its
+# focused unit tests are self-contained: the three regexes, the feed/close attribution
+# ledger, the report's malformed-input degrade contract and the signal-status
+# translation all run over synthetic fixtures plus one real short-lived child process.
+# Shared runner, for the reasons stated in the #527 block above.
+_HPG_PROFILE_SUITE_OUT="$(mktemp "$_hpg_tmp_root/profile-suite-unit.XXXXXX")" || {
+  printf 'could not allocate the #985 profile-suite unit-test capture\n' >&2
+  return 1
+}
+devflow_run_focused_python_test "#985 suite profiler: focused Python tests pass" \
+  "$LIB/test/test_profile_suite.py" "$_HPG_PROFILE_SUITE_OUT"
+rm -f "$_HPG_PROFILE_SUITE_OUT"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "issue #591: coverage-map ratchet guard"
 # ────────────────────────────────────────────────────────────────────────────
 # Live-tree ratchet: the guard enumerates git-tracked depth-1 lib/scripts units

@@ -2222,6 +2222,7 @@ MODULE_DRIVEN_SUITES = (
     "test_coverage_map_guard.py",
     "test_pin_corpus_classifier.py",
     "test_pin_corpus_lint.py",
+    "test_profile_suite.py",
     "test_red_on_removal_retirement_manifest.py",
     "test_residual_prose_retirement_manifest.py",
     "test_workflow_flight_recorder.py",
