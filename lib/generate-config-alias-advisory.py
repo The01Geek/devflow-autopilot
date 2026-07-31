@@ -38,14 +38,69 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
-# The superseded provenance-label literal, matched case-insensitively against a label
-# value. The alias namespace `devflow:` covers the override keys and the workpad marker.
-SUPERSEDED_TOKEN = "devflow"
+# `lib/rename-map.json` is the SINGLE SOURCE for the devflow→prflow rename (CLAUDE.md), so
+# the superseded spellings this advisory looks for are DERIVED from it rather than carried
+# as literal copies — the same single-source discipline the env-half sibling
+# (lib/generate-env-freeze-advisory.py) follows. The map sits next to this helper in lib/.
+MAP_REL = Path(__file__).resolve().parent / "rename-map.json"
+
+# Fallbacks used ONLY when the map cannot be read (a degraded/partial deployment): the
+# advisory is best-effort and must never break a scaffold over a missing or corrupt map.
+# A map that IS present always wins, so these copies never cause drift when the map changes.
+_FALLBACK_TOKEN = "devflow"
+_FALLBACK_BLOCKS = {"prflow": "devflow", "prflow_review": "devflow_review"}
 
 
 class InputError(Exception):
     """The config could not be read or is not an object. Routed to exit 2, not 0."""
+
+
+class Vocab:
+    """The superseded spellings to look for, derived from lib/rename-map.json.
+
+    - ``token``: the superseded product name, lowercased (from the map's `provenance-label`
+      identifier — `DevFlow` → `devflow`). One token serves every substring test: the
+      workpad marker, the provenance-label values, and the `<token>:` override namespace.
+    - ``blocks``: canonical → superseded top-level block names (from the map's `config_keys`),
+      so a block is located whether or not this consumer's Tier-1 key migration has run.
+    """
+
+    def __init__(self, token: str, blocks: dict[str, str]):
+        self.token = token
+        self.blocks = blocks
+
+    @property
+    def override_prefix(self) -> str:
+        return f"{self.token}:"
+
+
+def load_vocab() -> Vocab:
+    token = _FALLBACK_TOKEN
+    blocks = dict(_FALLBACK_BLOCKS)
+    try:
+        data = json.loads(MAP_REL.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return Vocab(token, blocks)
+    if not isinstance(data, dict):
+        return Vocab(token, blocks)
+    for row in data.get("identifiers") or []:
+        if isinstance(row, dict) and row.get("id") == "provenance-label":
+            superseded = row.get("superseded")
+            if isinstance(superseded, str) and superseded.strip():
+                token = superseded.lower()
+            break
+    config_keys = data.get("config_keys")
+    if isinstance(config_keys, dict):
+        derived = {
+            current: superseded
+            for superseded, current in config_keys.items()
+            if isinstance(superseded, str) and isinstance(current, str)
+        }
+        # Keep only the two blocks this advisory probes; ignore the rest of the map.
+        blocks = {c: derived[c] for c in ("prflow", "prflow_review") if c in derived} or blocks
+    return Vocab(token, blocks)
 
 
 def load_config(path: str) -> dict:
@@ -63,16 +118,16 @@ def load_config(path: str) -> dict:
     return data
 
 
-def _nested_object(cfg: dict, *keys: str) -> dict | None:
-    """Return cfg[k] for the first key whose value is a JSON object, else None.
+def _nested_object(cfg: dict, canonical: str, blocks: dict[str, str]) -> dict | None:
+    """Return the `canonical` block (or its superseded-spelled twin) when it is an object.
 
     Both the canonical (`prflow*`) and superseded (`devflow*`) top-level spellings are
     probed, because a consumer whose Tier-1 migration has not run yet still keys its blocks
     under the superseded name. Every access is type-guarded — a scalar, array, or missing
     block simply contributes nothing, never a crash.
     """
-    for key in keys:
-        value = cfg.get(key)
+    for key in (canonical, blocks.get(canonical, "")):
+        value = cfg.get(key) if key else None
         if isinstance(value, dict):
             return value
     return None
@@ -85,7 +140,7 @@ def _string(container: dict | None, key: str) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def detect(cfg: dict) -> list[str]:
+def detect(cfg: dict, vocab: Vocab) -> list[str]:
     """Derive one advisory line per superseded-alias category actually present.
 
     Returns the list of category lines (empty when nothing is superseded).
@@ -93,11 +148,11 @@ def detect(cfg: dict) -> list[str]:
     lines: list[str] = []
 
     # 1. agent_overrides namespace — keys spelled `devflow:<agent>`.
-    review = _nested_object(cfg, "prflow_review", "devflow_review")
-    overrides = review.get("agent_overrides") if isinstance(review, dict) else None
+    review = _nested_object(cfg, "prflow_review", vocab.blocks)
+    overrides = review.get("agent_overrides") if review else None
     if isinstance(overrides, dict):
         alias_keys = sorted(
-            k for k in overrides if isinstance(k, str) and k.startswith("devflow:")
+            k for k in overrides if isinstance(k, str) and k.startswith(vocab.override_prefix)
         )
         if alias_keys:
             lines.append(
@@ -108,9 +163,9 @@ def detect(cfg: dict) -> list[str]:
             )
 
     # 2. workpad marker — a `devflow`-spelled marker string.
-    top = _nested_object(cfg, "prflow", "devflow")
+    top = _nested_object(cfg, "prflow", vocab.blocks)
     marker = _string(top, "workpad_marker")
-    if marker is not None and SUPERSEDED_TOKEN in marker.lower():
+    if marker is not None and vocab.token in marker.lower():
         lines.append(
             f"the workpad marker — `{marker}` (readers dual-map either namespace, so "
             "workpads written under it still resolve)"
@@ -119,8 +174,8 @@ def detect(cfg: dict) -> list[str]:
     # 3. provenance labels — `docs.labels` / `deferred.labels` naming `DevFlow`.
     label_hits: list[str] = []
     for block, key in (("docs", "labels"), ("deferred", "labels")):
-        value = _string(cfg.get(block) if isinstance(cfg.get(block), dict) else None, key)
-        if value is not None and SUPERSEDED_TOKEN in value.lower():
+        value = _string(cfg.get(block), key)
+        if value is not None and vocab.token in value.lower():
             label_hits.append(f"`{block}.labels` = `{value}`")
     if label_hits:
         lines.append(
@@ -169,7 +224,7 @@ def main(argv=None) -> int:
         print(f"config-alias-advisory: {exc}", file=sys.stderr)
         return 2
 
-    lines = detect(cfg)
+    lines = detect(cfg, load_vocab())
     if not lines:
         # Silent when nothing is actionable — no consumer-facing output.
         return 0
