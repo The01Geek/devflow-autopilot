@@ -260,7 +260,9 @@ DEVFLOW_REF=<newer-ref> bash devflow-install.sh --apply      # make the changes
 
 A **first-time** install still applies immediately, so the one-liner above is unchanged; `--dry-run` forces the preview there too if you want to see an adoption before any file exists. `DEVFLOW_DRY_RUN=1` / `DEVFLOW_APPLY=1` select the same modes for a `curl | bash` invocation that cannot pass a flag. The preview is not a second implementation of the plan — it runs the real install into a sandbox copy of your own tree and diffs it, so anything `--apply` would do, the preview already did to a copy.
 
-The diff covers `.claude-plugin/`, `.github/`, `.prflow/` and `.claude/plugins/` — every path the installer writes, including the recursive removal of a stale pre-relocation `.claude/plugins/devflow` tree. **One documented exclusion:** under `DEVFLOW_VENDOR=1` the vendored plugin tree under `.prflow/vendor/` is thousands of files, so its churn is reported as a single plan line rather than as a diff body. Your own `.claude/` files (settings, skills, hooks) are neither written nor diffed.
+The diff covers `.claude-plugin/`, `.github/`, `.prflow/`, `.claude/plugins/` and your repository-root `.gitignore` — every path the installer writes, including the recursive removal of a stale pre-relocation `.claude/plugins/devflow` tree. **One documented exclusion:** under `DEVFLOW_VENDOR=1` the vendored plugin tree under `.prflow/vendor/` is thousands of files, so its churn is reported as a single plan line rather than as a diff body. Your own `.claude/` files (settings, skills, hooks) are neither written nor diffed.
+
+The sandbox holds those paths and nothing else, so the language auto-detection step reads your **real** tree for its marker files (`package.json`, `composer.json`, `docker-compose.yml`, …) and previews the `config.json` merge it would actually perform. That read is the only thing the preview does outside the sandbox — every byte it writes still lands in the throwaway copy.
 
 **Your hand-edits survive.** Every artifact the installer owns — the local `marketplace.json`, the two workflows, the three composite actions — is recorded in `.prflow/install-manifest.json` with the sha256 of the bytes the installer wrote. Commit that file; it is what lets the next upgrade tell an untouched artifact from one you edited:
 
@@ -294,6 +296,16 @@ To finish healing an artifact you never edited, do either of these and re-run �
 - **delete it** and let the installer write its own copy — the next run sees `create`.
 
 Merge a sidecar by hand instead and the result still differs from the shipped bytes, so it stays `unverified` and is offered again next run — that is the same deliberate rule as an edit made *with* a manifest: the installer never adopts your bytes as its own provenance. Note also that a healing run does not tidy up: the old `<path>.prflow-new` is left where it is, so delete it yourself once you are done with it. Nothing is at risk either way — what a missing manifest costs you is sidecars to resolve, never overwritten bytes.
+
+**Sidecars are gitignored, so leaving one in place is safe.** A sidecar is an untracked file (or a whole untracked directory, for a preserved composite action) sitting inside your own `.github/`, which a later `git add -A` would otherwise sweep into an unrelated commit. So the installer appends one block to your repository-root `.gitignore`:
+
+```gitignore
+# PRFlow install.sh: preserved-artifact sidecars (never commit these)
+*.prflow-new
+*.devflow-new
+```
+
+Your own content is never rewritten — the block is appended once and re-runs are byte-identical no-ops, a rule you already carry is not duplicated, and the superseded `*.devflow-new` spelling is covered because sidecars written before the `.devflow` → `.prflow` rename are still on disk. If your `.gitignore` is not a regular file the installer says so and carries on rather than touching it. This is a standing rule, not a cleanup: keeping your own version of an artifact means leaving its sidecar there indefinitely.
 
 #### Upgrade note: a superseded App slug in `devflow.allowed_bots` is reported, and `/prflow:init` corrects it
 

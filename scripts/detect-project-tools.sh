@@ -41,9 +41,17 @@
 # here too, as fast feedback; the runner's copy is the authoritative boundary.
 # Keep presets to mainstream toolchains and review the config.json before commit.
 #
-# Usage: detect-project-tools.sh [TARGET_REPO_ROOT]
-#   TARGET_REPO_ROOT  repo to scan + whose .prflow/config.json to update
-#                     (default: git toplevel, else cwd)
+# Usage: detect-project-tools.sh [TARGET_REPO_ROOT] [SCAN_ROOT]
+#   TARGET_REPO_ROOT  repo whose .prflow/config.json is updated — the only tree this
+#                     script WRITES to (default: git toplevel, else cwd)
+#   SCAN_ROOT         tree searched for the language marker files and lockfiles
+#                     (default, and on an empty value: TARGET_REPO_ROOT). Read-only.
+#                     The two differ only for install.sh's dry-run preview, which
+#                     writes into a sandbox copy of the consumer subtrees but must
+#                     detect against the real repository — the sandbox carries no
+#                     package.json / composer.json / docker-compose*, so a preview
+#                     scanning it would report "no known language markers detected"
+#                     and understate what --apply merges into config.json (issue #971).
 #
 # Exit codes: always 0 (best-effort). Non-fatal conditions log and skip.
 set -euo pipefail
@@ -82,6 +90,13 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PRESETS="$SELF_DIR/../.prflow/tool-presets.json"
 
 TARGET_ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+# The scan root is a READ-ONLY input: it reaches marker_present, find_node_lockfile and
+# the composer.json probe below, and nothing else. CONFIG — the one path this script
+# writes — is derived from TARGET_ROOT, so pointing the scan at another tree can never
+# move the write (issue #971). An empty value selects TARGET_ROOT, so the single-argument
+# form every caller but install.sh's preview uses is byte-for-byte unchanged.
+SCAN_ROOT="${2:-}"
+[ -n "$SCAN_ROOT" ] || SCAN_ROOT="$TARGET_ROOT"
 CONFIG="$(prflow_state_dir "$TARGET_ROOT")/config.json"
 
 # Best-effort guards — never abort the surrounding scaffold.
@@ -105,7 +120,7 @@ fi
 # positive and the walk stays fast. `-name` accepts globs (e.g. *.csproj).
 marker_present() {
   local marker="$1" hit
-  hit=$(find "$TARGET_ROOT" -maxdepth 3 \
+  hit=$(find "$SCAN_ROOT" -maxdepth 3 \
           \( -name node_modules -o -name .git -o -name vendor -o -name target \
              -o -name dist -o -name build -o -name .venv \) -prune \
           -o -name "$marker" -print -quit 2>/dev/null || true)
@@ -153,18 +168,20 @@ ACTIVE_JSON=$(printf '%s\n' "${ACTIVE[@]}" | "$DEVFLOW_JQ" -R . | "$DEVFLOW_JQ" 
 # When several subdirectories match the same manager, `-print -quit` returns
 # whichever the filesystem yields first — the feature targets a single co-located
 # bundle, so this is deterministic per checkout but not "nearest to root". Prints
-# the path relative to TARGET_ROOT, or nothing when no lockfile exists.
+# the path relative to SCAN_ROOT — the tree it searches — or nothing when no lockfile
+# exists. The result is a RELATIVE path that becomes setup.node_working_directory, so it
+# stays meaningful in the target repo even when the scan root is a different tree.
 find_node_lockfile() {
   local lf hit
   for lf in pnpm-lock.yaml yarn.lock package-lock.json npm-shrinkwrap.json; do
-    [ -f "$TARGET_ROOT/$lf" ] && { printf '%s' "$lf"; return; }
+    [ -f "$SCAN_ROOT/$lf" ] && { printf '%s' "$lf"; return; }
   done
   for lf in pnpm-lock.yaml yarn.lock package-lock.json npm-shrinkwrap.json; do
-    hit=$(find "$TARGET_ROOT" -maxdepth 3 \
+    hit=$(find "$SCAN_ROOT" -maxdepth 3 \
             \( -name node_modules -o -name .git -o -name vendor -o -name target \
                -o -name dist -o -name build -o -name .venv \) -prune \
             -o -name "$lf" -print -quit 2>/dev/null || true)
-    [ -n "$hit" ] && { printf '%s' "${hit#"$TARGET_ROOT"/}"; return; }
+    [ -n "$hit" ] && { printf '%s' "${hit#"$SCAN_ROOT"/}"; return; }
   done
   # No lockfile anywhere: return success with empty output (the bare-npm-install
   # case). Without this, the loop's final failed `[ -n "$hit" ]` would make the
@@ -200,7 +217,7 @@ if printf '%s\n' "${ACTIVE[@]}" | grep -qx node; then
   EXTRA_INSTALL_JSON=$("$DEVFLOW_JQ" -n --arg c "$NODE_INSTALL" '[$c]')
 fi
 # composer install populates vendor/ so phpunit/phpstan/php-cs-fixer can run.
-if printf '%s\n' "${ACTIVE[@]}" | grep -qx php && [ -f "$TARGET_ROOT/composer.json" ]; then
+if printf '%s\n' "${ACTIVE[@]}" | grep -qx php && [ -f "$SCAN_ROOT/composer.json" ]; then
   EXTRA_INSTALL_JSON=$(printf '%s' "$EXTRA_INSTALL_JSON" \
     | "$DEVFLOW_JQ" -c '. + ["composer install --no-interaction --prefer-dist --no-progress"]')
 fi
