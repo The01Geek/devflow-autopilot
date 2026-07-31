@@ -96,8 +96,23 @@ SOFT_KEYWORDS = re.compile(
 )
 
 
-def dependency_numbers(body: str) -> list[str]:
-    """Return unique declared dependency numbers in source order."""
+def _scan_dependencies(body: str, *, section_only: bool, emit_soft: bool) -> list[str]:
+    """Shared single-definition scanner for declared dependency numbers.
+
+    This is the ONE definition of the declared-dependency vocabulary: the
+    ``## Dependencies`` section boundary (every ``#N`` on a line under that
+    heading, regardless of keyword) and the out-of-section declaration keywords.
+    Both public entry points route through here — `dependency_section_numbers`
+    with ``section_only=True`` (the section limb alone, no out-of-section sweep and
+    no breadcrumb) and `dependency_numbers` with ``section_only=False`` (both
+    limbs, with the SOFT_KEYWORDS observability breadcrumb) — so the section
+    vocabulary has a single source and cannot drift between the two.
+
+    Numbers are returned unique in source order. When ``emit_soft`` is False no
+    stderr is written at all, so a caller (the apply-issue-dependencies helper)
+    that imports the section-only entry point never leaks a ``preflight.py:``
+    breadcrumb into its own caller-facing output.
+    """
     found: list[str] = []
 
     def add(number: str) -> None:
@@ -115,6 +130,8 @@ def dependency_numbers(body: str) -> list[str]:
             for number in ISSUE_REF.findall(line):
                 add(number)
             continue
+        if section_only:
+            continue
         # Accumulate every declaration match on the line (no early `break`): a
         # line can carry more than one declaration — `depends on #1, blocked by
         # #2` names both (issue #547 Important #2).
@@ -125,7 +142,7 @@ def dependency_numbers(body: str) -> list[str]:
         for span in spans:
             for number in ISSUE_REF.findall(span):
                 add(number)
-        if not spans and SOFT_KEYWORDS.search(line):
+        if emit_soft and not spans and SOFT_KEYWORDS.search(line):
             for number in dict.fromkeys(ISSUE_REF.findall(line)):
                 print(
                     f"preflight.py: unrecognized dependency-flavoured reference to "
@@ -135,6 +152,28 @@ def dependency_numbers(body: str) -> list[str]:
                     file=sys.stderr,
                 )
     return found
+
+
+def dependency_section_numbers(body: str) -> list[str]:
+    """Return unique numbers declared INSIDE a ``## Dependencies`` section only.
+
+    Section-scoped extraction (issue #1011): the mutating GitHub-native
+    dependency stamp consumes only the section the issue template reserves for
+    cross-issue ordering — deliberately narrower than `dependency_numbers`, which
+    also honours out-of-section declaration keywords because a false positive in
+    the reversible implement gate costs only a human override, whereas a
+    registered dependency is a persistent relationship. Emits no stderr of its own.
+    """
+    return _scan_dependencies(body, section_only=True, emit_soft=False)
+
+
+def dependency_numbers(body: str) -> list[str]:
+    """Return unique declared dependency numbers in source order.
+
+    In-section results are derived from the same single-definition scanner that
+    backs `dependency_section_numbers`, so the section vocabulary has one source.
+    """
+    return _scan_dependencies(body, section_only=False, emit_soft=True)
 
 
 def _gh_issue_view(number: object, field: str) -> str:

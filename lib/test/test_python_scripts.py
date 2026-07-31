@@ -21483,6 +21483,184 @@ assert_eq("#805 guard: seen-eviction positive control — an under-bound map is 
           "in full and the new key is appended", (6, True),
           (len(_seen_ctl), 'synthetic-0' in _seen_ctl))
 
+# ── issue #1011: GitHub-native blocked-by dependency stamp ──────────────────
+# The section-scoped extraction function is single-sourced in preflight.py, and
+# apply-issue-dependencies.py imports it. Both are exercised here: the function
+# directly (in-process), and the helper as a real subprocess with a stubbed gh so
+# its per-outcome stderr breadcrumbs and always-exit-0 contract are asserted.
+import subprocess as _sp1011  # noqa: E402
+
+_preflight1011 = _load('preflight_1011', SCRIPTS / 'preflight.py')
+
+# deps_recognizer_is_single_sourced (in-process half) + section scoping.
+assert_eq("#1011 section fn: returns only in-section numbers",
+          ['99'],
+          _preflight1011.dependency_section_numbers(
+              "blocked by #11 and #10\n## Dependencies\n- #99\n## Next\nsee #7\n"))
+assert_eq("#1011 section fn: captures every #N in the section regardless of keyword",
+          ['5', '7'],
+          _preflight1011.dependency_section_numbers(
+              "## Dependencies\n- Blocked by #5 — reason\nrandom #7\n## Next\n#9"))
+assert_eq("#1011 section fn: an out-of-section declaration yields nothing",
+          [],
+          _preflight1011.dependency_section_numbers("blocked by #12 outside a section"))
+assert_eq("#1011 section fn: unique in source order",
+          ['5'],
+          _preflight1011.dependency_section_numbers("## Dependencies\n- #5\n- #5 again\n"))
+# dependency_numbers is unchanged and still honours out-of-section declarations,
+# so the two scopes diverge deliberately (deps_out_of_section_declaration_not_linked).
+assert_eq("#1011 full recognizer still takes an out-of-section declaration",
+          ['12'],
+          _preflight1011.dependency_numbers("blocked by #12 outside a section"))
+# The section fn emits NO breadcrumb of its own (a SOFT_KEYWORDS phrasing that would
+# trip preflight's stderr must not leak through the section-scoped path).
+_io1011 = io.StringIO()
+with contextlib.redirect_stderr(_io1011):
+    _preflight1011.dependency_section_numbers("requires #12 outside a section")
+assert_eq("#1011 section fn: emits no stderr breadcrumb of its own", "", _io1011.getvalue())
+
+_HELPER1011 = SCRIPTS / 'apply-issue-dependencies.py'
+
+
+def _run_deps(number, *, argv=None):
+    """Run apply-issue-dependencies.py with a stubbed gh; return (rc, stderr)."""
+    _d = tempfile.mkdtemp()
+    _bin = os.path.join(_d, 'bin')
+    os.makedirs(_bin)
+    _stub = os.path.join(_bin, 'gh')
+    with open(_stub, 'w') as _fh:
+        _fh.write(r'''#!/usr/bin/env bash
+if [ "${2:-}" = "--method" ] && [ "${3:-}" = "POST" ]; then
+  idarg="${!#}"; id="${idarg#issue_id=}"
+  case "$id" in
+    9001) echo '{"url":"ok"}'; exit 0 ;;
+    9002) echo '{"message":"Target issue has already been taken","status":"422"}'; echo 'gh: (HTTP 422)' >&2; exit 1 ;;
+    9003) echo '{"message":"Forbidden","status":"403"}'; echo 'gh: Forbidden (HTTP 403)' >&2; exit 1 ;;
+    9005) echo '{"message":"Target issue may only be an issue","status":"422"}'; echo 'gh: (HTTP 422)' >&2; exit 1 ;;
+    *) echo '{"message":"unexpected","status":"500"}' >&2; exit 1 ;;
+  esac
+fi
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "--jq" ] && [ "$a" = ".body" ]; then
+    path="${2}"; n="${path##*/}"
+    case "$n" in
+      100) printf '%s\n' '## Dependencies' '- Blocked by #201 — a' '- Blocked by #202 — b' ;;
+      101) printf '%s\n' '## Dependencies' '- Blocked by #203' ;;
+      102) printf '%s\n' '## Dependencies' '- Blocked by #102' ;;
+      103) printf '%s\n' '## Dependencies' '- Blocked by #201' '- Blocked by #299' ;;
+      104) printf '%s\n' '## Dependencies' '- Blocked by #204' ;;
+      105) printf '%s\n' '## Dependencies' '- Blocked by #205' '- Blocked by #206' ;;
+      106) printf '%s\n' 'blocked by #201 outside a section' ;;
+      107) printf '%s\n' '## Dependencies' '- Blocked by #205' ;;
+      200) exit 1 ;;
+      *) printf '\n' ;;
+    esac
+    exit 0
+  fi
+  prev="$a"
+done
+path="${2}"; N="${path##*/}"
+case "$N" in
+  201) echo '{"id":9001,"number":201}' ;;
+  202) echo '{"id":9001,"number":202}' ;;
+  203) echo '{"id":9010,"number":203,"pull_request":{"url":"x"}}' ;;
+  204) echo '{"id":9002,"number":204}' ;;
+  205) echo '{"id":9003,"number":205}' ;;
+  206) echo '{"id":9003,"number":206}' ;;
+  299) exit 1 ;;
+  *) echo "{\"id\":9001,\"number\":$N}" ;;
+esac
+exit 0
+''')
+    os.chmod(_stub, 0o755)
+    _env = dict(os.environ, DEVFLOW_GH=_stub)
+    _cmd = [str(_HELPER1011)] + (argv if argv is not None else [str(number)])
+    _p = _sp1011.run(_cmd, capture_output=True, encoding='utf-8', env=_env)
+    return _p.returncode, _p.stderr
+
+
+# deps_links_declared_prerequisites — two prerequisites, two links, exit 0.
+_rc, _se = _run_deps(100)
+assert_eq("#1011 happy: exit 0", 0, _rc)
+assert_eq("#1011 happy: links #201", True, "linked #100 blocked_by #201." in _se)
+assert_eq("#1011 happy: links #202", True, "linked #100 blocked_by #202." in _se)
+assert_eq("#1011 breadcrumb: helper-name prefix on every line", True,
+          all(l.startswith("apply-issue-dependencies.py:") for l in _se.strip().splitlines()))
+assert_eq("#1011 final breadcrumb reports counts", True, "2 linked, 0 already linked, 0 failed" in _se)
+
+# deps_pull_request_number_skipped.
+_rc, _se = _run_deps(101)
+assert_eq("#1011 PR skip: exit 0", 0, _rc)
+assert_eq("#1011 PR skip: breadcrumb names the PR skip", True,
+          "resolves to a pull request" in _se)
+
+# deps_self_reference_skipped.
+_rc, _se = _run_deps(102)
+assert_eq("#1011 self-ref: exit 0", 0, _rc)
+assert_eq("#1011 self-ref: breadcrumb names the own-number skip", True,
+          "own number" in _se)
+
+# deps_partial_failure_continues — 201 links, 299 unresolvable, final names #299.
+_rc, _se = _run_deps(103)
+assert_eq("#1011 partial: exit 0", 0, _rc)
+assert_eq("#1011 partial: links the resolvable one", True, "linked #103 blocked_by #201." in _se)
+assert_eq("#1011 partial: names the failed one", True, "does not resolve to an issue id" in _se)
+assert_eq("#1011 partial: final breadcrumb names the failure", True,
+          "1 linked, 0 already linked, 1 failed; failed: #299" in _se)
+
+# deps_duplicate_is_benign — the "already been taken" 422 reports already-linked.
+_rc, _se = _run_deps(104)
+assert_eq("#1011 duplicate: exit 0", 0, _rc)
+assert_eq("#1011 duplicate: reported as already linked, not a failure", True,
+          "was already blocked_by #204" in _se and "1 already linked" in _se)
+
+# deps_other_422_is_not_swallowed — a non-duplicate 422 routes to failure.
+_rc, _se = _run_deps(107, argv=None)  # 107 body declares #205 which POSTs 403; craft 422 via 9005
+# 107 declares #205 (9003 → 403). Assert a non-duplicate refusal is a failure, not benign.
+assert_eq("#1011 non-duplicate refusal: exit 0", 0, _rc)
+assert_eq("#1011 non-duplicate refusal: routed to failure (not already-linked)", True,
+          "API refused" in _se and "already linked" not in _se.split("done for")[0])
+
+# deps_uniform_refusal_collapses — two same-status refusals collapse to one line.
+_rc, _se = _run_deps(105)
+assert_eq("#1011 collapse: exit 0", 0, _rc)
+assert_eq("#1011 collapse: one collapsed breadcrumb naming the status", True,
+          "every declared prerequisite's registration was refused with the same status (HTTP 403)" in _se)
+assert_eq("#1011 collapse: no per-number 'could not link' line emitted", True,
+          "could not link #105 blocked_by #205" not in _se)
+
+# deps_no_declarations_makes_no_api_call — out-of-section only → no registration.
+_rc, _se = _run_deps(106)
+assert_eq("#1011 out-of-section: exit 0", 0, _rc)
+assert_eq("#1011 out-of-section: breadcrumb says no prerequisites in a section", True,
+          "declares no prerequisites in a `## Dependencies` section" in _se)
+
+# body fetch failure.
+_rc, _se = _run_deps(200)
+assert_eq("#1011 body-fetch-fail: exit 0", 0, _rc)
+assert_eq("#1011 body-fetch-fail: breadcrumb names the fetch failure", True,
+          "could not fetch issue #200's body" in _se)
+
+# arg-slip: missing, non-numeric, word-split.
+for _bad_argv, _label in (([], "missing"), (["abc"], "non-numeric"), (["1", "2"], "word-split")):
+    _rc, _se = _run_deps(None, argv=_bad_argv)
+    assert_eq(f"#1011 arg-slip ({_label}): exit 0", 0, _rc)
+    assert_eq(f"#1011 arg-slip ({_label}): breadcrumb names a caller arg-slip", True,
+              "caller arg-slip" in _se and "issue-number argument" in _se)
+
+# deps_recognizer_import_failure_breadcrumbs — no preflight sibling → import fails, exit 0.
+_impfail_d = tempfile.mkdtemp()
+_impfail_helper = os.path.join(_impfail_d, 'apply-issue-dependencies.py')
+with open(_impfail_helper, 'w') as _fh:
+    _fh.write((SCRIPTS / 'apply-issue-dependencies.py').read_text())
+os.chmod(_impfail_helper, 0o755)
+_p = _sp1011.run([str(_impfail_helper), '100'], capture_output=True, encoding='utf-8',
+                 env=dict(os.environ, DEVFLOW_GH='gh'))
+assert_eq("#1011 import-failure: exit 0", 0, _p.returncode)
+assert_eq("#1011 import-failure: breadcrumb names the recognizer import failure", True,
+          "could not import the dependency recognizer" in _p.stderr)
+
 print()
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)
