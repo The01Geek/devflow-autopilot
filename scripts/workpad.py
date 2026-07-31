@@ -473,11 +473,13 @@ def _is_recognized_status_word(word: str) -> bool:
 def cmd_status(args):
     """Print the workpad Status as `CLASS GLYPH WORD` (e.g. 'interim 🚀 Reviewing').
 
-    CLASS is 'terminal' for a Complete (🎉), Blocked (👎), Failed (💥), or
-    Cancelled (🛑) status, else 'interim'. The glyph and classification come from
-    `_status_glyph` — the same
-    single source of truth the update path uses — so no caller re-parses the
-    glyph vocabulary ad hoc. Exit codes let a caller fail closed:
+    CLASS names the terminal end so a non-`Complete` terminal status is
+    distinguishable from a completed one (issue #1025): 'complete' (🎉),
+    'blocked' (👎), 'failed' (💥), 'cancelled' (🛑), else 'interim' for an
+    in-progress glyph. The glyph comes from `_status_glyph` and the class from
+    `_status_class` — the same single source of truth the update path uses — so
+    no caller re-parses the glyph vocabulary ad hoc. Exit codes let a caller fail
+    closed:
       0  status printed
       2  no workpad comment exists for this issue (scanned OK, none matched)
       1  the workpad exists but its Status line is missing/empty, OR the Status
@@ -528,7 +530,7 @@ def cmd_status(args):
         )
         sys.exit(1)
     glyph = _status_glyph(word)
-    cls = 'terminal' if glyph in ('🎉', '👎', '💥', '🛑') else 'interim'
+    cls = _status_class(glyph)
     print(f"{cls} {glyph} {word}")
 
 
@@ -1646,6 +1648,29 @@ def _status_glyph(status: str) -> str:
     if s.startswith('cancelled'):
         return '🛑'
     return '🚀'
+
+
+# The status *class* vocabulary emitted by `workpad.py status` (issue #1025).
+# Historically every terminal glyph collapsed to the single token 'terminal',
+# which made 👎 Blocked indistinguishable from 🎉 Complete to the only code that
+# reads the workpad (the cloud stall backstop) — so a blocked run concluded the
+# job `success`. The class now names WHICH terminal end it is, so the backstop
+# can conclude a non-complete terminal status non-`success` while keeping 🎉
+# Complete green and 🛑 Cancelled a cancel. An in-progress glyph is 'interim'.
+# `stall-backstop-decide.sh` and `lib/implement-stop-guard.sh` are the coupled
+# consumers of these tokens (edited together).
+_STATUS_CLASS_BY_GLYPH = {
+    '🎉': 'complete',
+    '👎': 'blocked',
+    '💥': 'failed',
+    '🛑': 'cancelled',
+    '🚀': 'interim',
+}
+
+
+def _status_class(glyph: str) -> str:
+    """Map a Status glyph to its `workpad.py status` class token (issue #1025)."""
+    return _STATUS_CLASS_BY_GLYPH.get(glyph, 'interim')
 
 
 # The canonical ## Progress top-level phase labels, in order — the single

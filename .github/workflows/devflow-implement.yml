@@ -1704,6 +1704,18 @@ jobs:
           if [ "$DECISION" = "noop" ]; then
             exit 0
           fi
+          # fail-blocked (issue #1025): the run ended at a terminal workpad
+          # Status that is NOT 🎉 Complete (👎 Blocked or 💥 Failed). Conclude the
+          # job non-`success` so `gh run list` plus this annotation tell a blocked
+          # run from a completed one WITHOUT opening the workpad. The annotation
+          # names the issue number AND the workpad Status (STATUS_OUT carries the
+          # glyph+word). No comment is posted — the workpad already carries the
+          # blocked/failed reflection — and no flip_to_failed: its CLASS=interim
+          # guard makes it a no-op on a terminal status, so 👎/💥 stay truthful.
+          if [ "$DECISION" = "fail-blocked" ]; then
+            echo "::error::stall backstop: issue #${ISSUE_NUMBER} — this run ended at a terminal workpad Status of '${STATUS_OUT}', which is not 🎉 Complete. Concluding the job non-success so a blocked/failed run (one that produced no branch/PR, or blocked mid-lifecycle) is visible in gh run list without opening the workpad (issue #1025). The workpad Status is left unchanged."
+            exit 1
+          fi
           # resume keeps the job green (the new run takes over); every other
           # decision fails the job loud.
           FAIL=1

@@ -180,10 +180,17 @@ for marker in ${MARKERS[@]+"${MARKERS[@]}"}; do
   case "$status_rc" in
     0)
       read -r status_class _ status_word <<<"$status_out"
-      if [ "$status_class" = "terminal" ]; then
-        heal_marker "$marker" "$issue" "workpad Status is terminal ($status_word)"
-        continue
-      fi
+      # Any terminal-family class heals the marker — the run has reached a
+      # decided end. Since issue #1025 `workpad.py status` names each terminal
+      # glyph (complete/blocked/failed/cancelled) instead of collapsing them to
+      # `terminal`; the bare `terminal` token is retained as a legacy alias so an
+      # un-upgraded workpad.py still heals here. Only 'interim' blocks.
+      case "$status_class" in
+        complete|blocked|failed|cancelled|terminal)
+          heal_marker "$marker" "$issue" "workpad Status is terminal ($status_word)"
+          continue
+          ;;
+      esac
       if [ "$status_class" != "interim" ]; then
         breadcrumb "issue #$issue: workpad.py status printed an unrecognized class '$status_class' — keeping marker, allowing stop (fail open)"
         continue
