@@ -791,13 +791,15 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
         """Write the adjudication table the working-tree comparison regenerates from.
 
         The census is a FROZEN snapshot: its rows are the sites the recorded
-        revision had, and each adjudication key is a sha256 of that site's
-        literal. The adjudication table tracks the WORKING tree. So the moment a
-        source literal changes -- a reworded pinned sentence, a project rename --
-        the very same adjudication is re-keyed and the two key sets stop lining
-        up, with no adjudication having drifted at all. That lag is by design
-        (CLAUDE.md: the census is a frozen snapshot, so an absent row means
-        unanswered, never "no"), and it must not be reported as drift.
+        revision had, and a site that resolves a literal is keyed by a sha256 of
+        that literal (a literal-less site falls back to a ``site:``-prefixed hash
+        of its assertion identity, which a reword does not disturb). The
+        adjudication table tracks the WORKING tree. So the moment a pinned literal
+        changes -- a reworded sentence, a project rename -- the very same
+        adjudication is re-keyed and the two key sets stop lining up, with no
+        adjudication having drifted at all. That lag is by design (CLAUDE.md: the
+        census is a frozen snapshot, so an absent row means unanswered, never
+        "no"), and it must not be reported as drift.
 
         Swapping the working-tree table in wholesale conflates the two: the
         classifier fails closed on a table row the recorded revision has no site
@@ -818,9 +820,22 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
 
         def parse(path):
             lines = path.read_text(encoding="utf-8").splitlines()
-            return lines[0], {
-                line.split("\t", 1)[0]: line for line in lines[1:] if line
-            }
+            rows = {}
+            for line in lines[1:]:
+                if not line:
+                    continue
+                key = line.split("\t", 1)[0]
+                # Last-wins would let a duplicated, conflicting adjudication for a
+                # census key reconcile to whichever copy came last and byte-compare
+                # as "no drift", and would under-report the key counts. Fail closed.
+                self.assertNotIn(
+                    key,
+                    rows,
+                    f"{path} carries {key} more than once, so its adjudication is "
+                    "ambiguous; de-duplicate the table before regenerating",
+                )
+                rows[key] = line
+            return lines[0], rows
 
         archived_header, archived_rows = parse(archived_table)
         working_header, working_rows = parse(working_table)
@@ -942,9 +957,18 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
             working_source = repo_root / "lib/test/pin-corpus-adjudications.tsv"
             working_lines = working_source.read_text(encoding="utf-8").splitlines()
             target = next(
-                index
-                for index, line in enumerate(working_lines[1:], start=1)
-                if line and line.split("\t", 1)[0] in frozen_keys
+                (
+                    index
+                    for index, line in enumerate(working_lines[1:], start=1)
+                    if line and line.split("\t", 1)[0] in frozen_keys
+                ),
+                None,
+            )
+            self.assertIsNotNone(
+                target,
+                "no working-tree adjudication key is also carried by the recorded "
+                "revision's table, so there is no shared key to mutate and this "
+                "control cannot prove the comparison fires",
             )
             key, bucket, rationale = working_lines[target].split("\t")
             self.assertNotEqual(sentinel, rationale)

@@ -14,7 +14,7 @@ type: Fixed
   with the drifting row and column named instead of a whole-file diff; a companion mutation
   control drives the same reconcile-then-regenerate path with one working-tree rationale changed
   each run, so the comparison cannot be satisfied vacuously. Only keys the two files share are
-  compared: an adjudication key is a hash of its site's literal, so rewording a pinned literal
-  re-keys the same adjudication, and the census — a frozen snapshot whose lag is fail-closed by
-  design — is not thereby stale. The two-commit inventory-free protocol itself is unchanged.
+  compared: a site that resolves a literal is keyed by a hash of that literal, so rewording a
+  pinned literal re-keys the same adjudication, and the census — a frozen snapshot whose lag is
+  fail-closed by design — is not thereby stale. The two-commit inventory-free protocol itself is unchanged.
   (#967)

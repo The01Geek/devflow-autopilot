@@ -342,9 +342,10 @@ Changing an adjudicated cell — a `bucket_final` or a rationale — for a key t
 carries is RED, so a rationale correction is a census refresh, not a one-file edit.
 
 What that comparison deliberately does **not** treat as drift is a key set that has moved.
-An adjudication key is a hash of its site's literal, so rewording a pinned sentence re-keys
-the same adjudication, and the census — a frozen snapshot — keeps the old key until it is next
-refreshed. That lag is the designed, fail-closed behaviour (an absent census row reads as
+A site that resolves a literal is keyed by a hash of that literal, so rewording a pinned
+sentence re-keys the same adjudication, and the census — a frozen snapshot — keeps the old key
+until it is next refreshed. (A literal-less site is keyed by its assertion identity instead,
+which a reword leaves alone.) That lag is the designed, fail-closed behaviour (an absent census row reads as
 *unanswered*, never as *no*), so only keys the two files share are compared; a key that exists
 on one side alone is counted and reported in the failure message rather than being read as a
 disagreement. A census refresh therefore remains driven by the two-commit protocol, not
