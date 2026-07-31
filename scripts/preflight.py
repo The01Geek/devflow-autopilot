@@ -96,22 +96,23 @@ SOFT_KEYWORDS = re.compile(
 )
 
 
-def _scan_dependencies(body: str, *, section_only: bool, emit_soft: bool) -> list[str]:
+def _scan_dependencies(body: str, *, section_only: bool) -> list[str]:
     """Shared single-definition scanner for declared dependency numbers.
 
     This is the ONE definition of the declared-dependency vocabulary: the
     ``## Dependencies`` section boundary (every ``#N`` on a line under that
     heading, regardless of keyword) and the out-of-section declaration keywords.
     Both public entry points route through here — `dependency_section_numbers`
-    with ``section_only=True`` (the section limb alone, no out-of-section sweep and
-    no breadcrumb) and `dependency_numbers` with ``section_only=False`` (both
-    limbs, with the SOFT_KEYWORDS observability breadcrumb) — so the section
-    vocabulary has a single source and cannot drift between the two.
+    with ``section_only=True`` (the section limb alone) and `dependency_numbers`
+    with ``section_only=False`` (both limbs, plus the SOFT_KEYWORDS observability
+    breadcrumb) — so the section vocabulary has a single source and cannot drift
+    between the two.
 
-    Numbers are returned unique in source order. When ``emit_soft`` is False no
-    stderr is written at all, so a caller (the apply-issue-dependencies helper)
-    that imports the section-only entry point never leaks a ``preflight.py:``
-    breadcrumb into its own caller-facing output.
+    Numbers are returned unique in source order. When ``section_only`` is True the
+    out-of-section sweep (the only path that writes stderr) is never reached, so a
+    caller (the apply-issue-dependencies helper) that imports the section-only
+    entry point never leaks a ``preflight.py:`` breadcrumb into its own
+    caller-facing output.
     """
     found: list[str] = []
 
@@ -142,7 +143,7 @@ def _scan_dependencies(body: str, *, section_only: bool, emit_soft: bool) -> lis
         for span in spans:
             for number in ISSUE_REF.findall(span):
                 add(number)
-        if emit_soft and not spans and SOFT_KEYWORDS.search(line):
+        if not spans and SOFT_KEYWORDS.search(line):
             for number in dict.fromkeys(ISSUE_REF.findall(line)):
                 print(
                     f"preflight.py: unrecognized dependency-flavoured reference to "
@@ -164,7 +165,7 @@ def dependency_section_numbers(body: str) -> list[str]:
     the reversible implement gate costs only a human override, whereas a
     registered dependency is a persistent relationship. Emits no stderr of its own.
     """
-    return _scan_dependencies(body, section_only=True, emit_soft=False)
+    return _scan_dependencies(body, section_only=True)
 
 
 def dependency_numbers(body: str) -> list[str]:
@@ -173,7 +174,7 @@ def dependency_numbers(body: str) -> list[str]:
     In-section results are derived from the same single-definition scanner that
     backs `dependency_section_numbers`, so the section vocabulary has one source.
     """
-    return _scan_dependencies(body, section_only=False, emit_soft=True)
+    return _scan_dependencies(body, section_only=False)
 
 
 def _gh_issue_view(number: object, field: str) -> str:

@@ -197,7 +197,10 @@ def main(argv: list[str]) -> int:
     # produces) breadcrumbs that it is a caller arg-slip — NOT a harness denial —
     # and exits 0, so a refusal stays the ONLY silent outcome.
     number = argv[0] if len(argv) == 1 else ""
-    if not number or not number.isdigit():
+    # isascii()-guarded, matching the repo's hardened numeric idiom
+    # (build-experiment-records.py / workpad.py): a bare isdigit() accepts
+    # non-ASCII digit codepoints, which are not valid GitHub issue numbers.
+    if not number or not (number.isascii() and number.isdigit()):
         _err(
             f"missing or non-numeric issue-number argument (args: {argv}); no "
             f"dependency registered. This is NOT a harness denial — it is a caller "
