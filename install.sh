@@ -738,9 +738,9 @@ os.replace(tmp, path)
 # rather than a consumer file that merely happens to share the name. This has to be a
 # specific pattern, not the substring "devflow": `telemetry-push.yml` is a perfectly
 # ordinary name for a workflow a consumer owns, and such a file mentioning the string
-# anywhere — a `.prflow/**` path filter, a comment, a step that touches the config —
-# would satisfy a substring test and be deleted with a reassuring "removed withheld
-# review-tier workflow" line. The opt-in flag is not consent to delete a file DevFlow
+# anywhere — a `.github/workflows/devflow*.yml` path filter, a comment, a step reading
+# the frozen `workflows.devflow` key — would satisfy a substring test and be deleted
+# with a reassuring "removed withheld review-tier workflow" line. The opt-in flag is not consent to delete a file DevFlow
 # never wrote.
 #
 # Each arm carries TWO alternatives so a consumer who lightly edited their installed
@@ -904,7 +904,9 @@ devflow_report_superseded_identifiers() {
 # The same detect-and-route split, applied to `.prflow/config.json`. The GitHub App that
 # authors PRFlow's PRs was renamed `devflow-autopilot` -> `prflow-implementer` (the app id
 # behind DEVFLOW_APP_ID is unchanged), so a consumer who added the old slug to
-# `devflow.allowed_bots` now carries an entry that matches no live identity:
+# `prflow.allowed_bots` — or, on a consumer whose Tier-1 migration has not run yet, to
+# `devflow.allowed_bots`; the scanner below probes both and reports whichever it found —
+# now carries an entry that matches no live identity:
 # scripts/authorize-actor.sh compares logins for EQUALITY, so the stale slug authorizes
 # nothing and the implement/review stall-backstop resume comment is declined by the very
 # gate it re-enters — a green run that never resumes.
@@ -921,7 +923,8 @@ devflow_report_superseded_identifiers() {
 # Format: whitespace-separated `stale=current` pairs.
 DEVFLOW_STALE_BOT_LOGINS='devflow-autopilot=prflow-implementer'
 # Best-effort over a file a human hand-edits: EVERY unexpected shape (unreadable, not JSON,
-# a non-object root, `devflow` or `allowed_bots` of the wrong type, a valid-falsy empty
+# a non-object root, neither `prflow` nor `devflow` an object, `allowed_bots` of the
+# wrong type, a valid-falsy empty
 # string) leaves stdout empty and exits 0, so the caller reports nothing and the install
 # proceeds. It never writes.
 DEVFLOW_CONFIG_SCAN_PY='
