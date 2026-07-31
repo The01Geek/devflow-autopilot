@@ -15932,8 +15932,27 @@ assert_eq "app-token: suppression-notice pin captured the notice body (no vacuou
 # renamed/inlined — pin that exactly one NOTE= body line exists in the step.
 assert_eq "app-token: suppression notice carries exactly one NOTE= body line" "1" \
   "$(grep -c 'NOTE=' <<< "$RS_NOTICE")"
-assert_eq "app-token: suppression notice contains no /devflow: phrase in its NOTE body" "0" \
-  "$(grep 'NOTE=' <<< "$RS_NOTICE" | grep -c '/devflow:' || true)"
+# Scanned over EVERY declared command namespace, not just the transitional one.
+# devflow.yml carries triggers in both namespaces, so a guard spelling only
+# `/devflow:` gives zero assurance for `/prflow:` — a canonical-namespace phrase
+# could leak into the notice and self-trigger with the check still green. The set
+# is DERIVED ($SUITE_CMD_NS, built above from the declared plugin identity), so it
+# follows a namespace addition automatically and does not go vacuous when the
+# transitional namespace is eventually retired.
+for _rs_ns in $SUITE_CMD_NS; do
+  assert_eq "app-token: suppression notice contains no /$_rs_ns: phrase in its NOTE body" "0" \
+    "$(grep 'NOTE=' <<< "$RS_NOTICE" | grep -c "/$_rs_ns:" || true)"
+done
+# PLANTED-DEFECT CONTROL: each namespace's check must actually RED on the leak it
+# claims to catch. A green row over an expression that can no longer match proves
+# nothing, so the control first asserts the mutation really changed the body.
+for _rs_ns in $SUITE_CMD_NS; do
+  _RS_PLANTED="${RS_NOTICE/NOTE=/NOTE=see \/$_rs_ns:review }"
+  assert_eq "app-token: CONTROL — the planted /$_rs_ns: mutation really changed the notice body" \
+    "no" "$([ "$_RS_PLANTED" = "$RS_NOTICE" ] && echo yes || echo no)"
+  assert_eq "app-token: CONTROL — a planted /$_rs_ns: phrase turns the suppression-notice check RED" \
+    "yes" "$([ "$(grep 'NOTE=' <<< "$_RS_PLANTED" | grep -c "/$_rs_ns:" || true)" -gt 0 ] && echo yes || echo no)"
+done
 # Scoped to the NOTE= body line: the step's own de-trigger rationale comment
 # legitimately names `@claude` in prose.
 assert_eq "app-token: suppression notice contains no @claude in its NOTE body" "0" \
