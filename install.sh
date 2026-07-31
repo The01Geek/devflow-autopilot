@@ -379,12 +379,16 @@ devflow_gitignore_carries() {
 }
 
 manage_sidecar_gitignore() {
-  local gi=.gitignore pat block=""
-  # A .gitignore that is not a regular file (a directory, a dangling symlink) is the
-  # consumer's business and appending to it would either fail under `set -e` or write
-  # somewhere unintended. Report the rule they need and carry on — the installer's
-  # whole upgrade layer is best-effort about the consumer's own files.
-  if [ -e "$gi" ] && [ ! -f "$gi" ]; then
+  local gi=.gitignore pat block="" append_err
+  # A .gitignore that is not a regular file is the consumer's business, and this function
+  # refuses rather than guessing. TWO shapes reach that refusal and the second is the one
+  # a plain `[ -f ]` test misses: a DIRECTORY (or a symlink to one), where `[ -e ]` is
+  # true and `[ -f ]` false; and a DANGLING symlink, where BOTH are false because `-e`
+  # follows the link — so the append would create the link's target, writing a file the
+  # consumer never asked for at a path that need not even be inside the repository.
+  # Report the rule they need and carry on; the whole upgrade layer is best-effort about
+  # the consumer's own files.
+  if { [ -e "$gi" ] && [ ! -f "$gi" ]; } || { [ -L "$gi" ] && [ ! -e "$gi" ]; }; then
     log "warning: $gi exists but is not a regular file, so the preserved-artifact sidecar ignore rules were not added; add '*.prflow-new' by hand so an upgrade's sidecars are never committed."
     return 0
   fi
@@ -404,10 +408,15 @@ manage_sidecar_gitignore() {
   else
     block="$DEVFLOW_SIDECAR_IGNORE_HEADER"$'\n'"$block"
   fi
-  if printf '%s' "$block" >> "$gi" 2>/dev/null; then
+  # stderr is captured (`2>&1` BEFORE the append, so fd 2 is the substitution's pipe when
+  # the append redirection is attempted) and surfaced in the warning, the same way
+  # scaffold-config.sh's rewrite_config_if_changed reports a failed `mv`: a read-only
+  # filesystem, ENOSPC and an immutable file are different remedies, and a bare "could
+  # not append" names none of them. The failure never aborts this best-effort scaffold.
+  if append_err="$(printf '%s' "$block" 2>&1 >> "$gi")"; then
     log "ignored preserved-artifact sidecars in $gi (an upgrade writes <path>.prflow-new beside a file it preserves, and an untracked sidecar is one 'git add -A' away from an unrelated commit)"
   else
-    log "warning: could not append the preserved-artifact sidecar ignore rules to $gi; add '*.prflow-new' by hand so an upgrade's sidecars are never committed."
+    log "warning: could not append the preserved-artifact sidecar ignore rules to $gi${append_err:+ ($append_err)}; add '*.prflow-new' by hand so an upgrade's sidecars are never committed."
   fi
 }
 
@@ -1233,9 +1242,17 @@ devflow_build_preview() {
   # The repository-root .gitignore: manage_sidecar_gitignore appends to it, so the sandbox
   # needs the consumer's real bytes for the diff to show what the append would do to THEIR
   # file (an absent one is simply absent here, which is what the apply path would see).
-  # Copied only when it is a regular file, mirroring the guard in that function.
-  if [ -f "$real/.gitignore" ]; then
-    cp "$real/.gitignore" "$prev/.gitignore"
+  #
+  # The SHAPE is mirrored, not just the bytes, because that function refuses a .gitignore
+  # that is not a regular file. Copy a regular file (or a symlink AS a symlink, so a
+  # dangling one stays dangling) and reproduce a directory as an empty directory —
+  # otherwise the sandbox would have no .gitignore at all, the sandbox apply would create
+  # one, and the preview would report an `ADD .gitignore` the real apply then declines.
+  # A preview that OVERstates is the mirror image of the defect issue #971 fixes.
+  if [ -d "$real/.gitignore" ] && [ ! -L "$real/.gitignore" ]; then
+    mkdir -p "$prev/.gitignore"
+  elif [ -e "$real/.gitignore" ] || [ -L "$real/.gitignore" ]; then
+    cp -P "$real/.gitignore" "$prev/.gitignore"
   fi
 }
 

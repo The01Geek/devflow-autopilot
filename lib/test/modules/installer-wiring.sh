@@ -1911,6 +1911,25 @@ mkdir -p "$IU_C22G/.gitignore"
 IU_O22G="$(_iu_run "$IU_C22G")" && IU_RC22G=0 || IU_RC22G=$?
 assert_eq "installer-upgrade #970: a .gitignore that is a DIRECTORY warns naming the rule, leaves it a directory, and never aborts the install" "0 yes yes yes" \
   "$IU_RC22G $(_iu_out_has "$IU_O22G" 'exists but is not a regular file') $([ -d "$IU_C22G/.gitignore" ] && echo yes || echo no) $(_iu_out_has "$IU_O22G" 'done (from')"
+# The shape a plain `[ -f ]` refusal MISSES. A dangling symlink is neither `-e` nor `-f`,
+# so an unguarded append would CREATE the link's target — a file the consumer never asked
+# for, at a path that need not be inside the repository. The link target is planted
+# outside the consumer tree precisely so a regression is visible as a stray file there.
+IU_C22I="$(_iu_consumer sidecar-gitignore-dangling)"
+IU_T22I="$_iw_tmp_root/sidecar-dangling-target"
+rm -f "$IU_T22I"
+ln -s "$IU_T22I" "$IU_C22I/.gitignore"
+IU_O22I="$(_iu_run "$IU_C22I")" && IU_RC22I=0 || IU_RC22I=$?
+assert_eq "installer-upgrade #970: a .gitignore that is a DANGLING SYMLINK is refused too, and the link's target is never created" "0 yes no yes" \
+  "$IU_RC22I $(_iu_out_has "$IU_O22I" 'exists but is not a regular file') $([ -e "$IU_T22I" ] && echo yes || echo no) $(_iu_out_has "$IU_O22I" 'done (from')"
+# Preview/apply agreement for the refused shapes: the sandbox mirrors the SHAPE, so the
+# dry run does not advertise an `ADD .gitignore` the apply would decline. Overstating is
+# the mirror image of the understated preview #971 fixes.
+IU_C22J="$(_iu_consumer sidecar-preview-nonregular)"
+mkdir -p "$IU_C22J/.gitignore"
+IU_O22J="$(_iu_run "$IU_C22J" --dry-run)"
+assert_eq "installer-upgrade #970: the dry run over a non-regular .gitignore reports the same refusal and advertises no ADD it could not perform" "yes no" \
+  "$(_iu_out_has "$IU_O22J" 'exists but is not a regular file') $(_iu_out_matches "$IU_O22J" '^ADD +\.gitignore ')"
 
 # The append is a write, so the dry run has to SHOW it and still perform none of it.
 IU_C22H="$(_iu_consumer sidecar-preview)"
