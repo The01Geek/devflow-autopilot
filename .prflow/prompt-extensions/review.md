@@ -45,7 +45,9 @@ issue workpad or PR body to read), so the gate is a no-op there.
 
 1. The **linked issue** — in an in-run enforcement (implement Phase 3) that is the run's own
    issue; in PR-mode that is the PR's `closingIssuesReferences` — carries a
-   `<!-- prflow:workpad -->` comment whose body **contains** the marker literal
+   `<!-- prflow:workpad -->` comment — or one carrying the superseded `<!-- devflow:workpad -->`
+   spelling, since issue #1003 renamed the marker namespace and rewrote no existing body — whose
+   body **contains** the marker literal
    `Writing-skills evidence:`. Fetch the issue's comments through the granted `gh` read path (the
    workpad lives on the linked issue, not the PR thread — the established `lib/fetch-pr-context.sh`
    contract; resolve `closingIssuesReferences` first, then fetch that issue's comments).
@@ -67,7 +69,7 @@ DevFlow-repo policy: a second marker gate on the **same shared review-engine sur
 
 **Input population (stated explicitly).** The clause reads the two durable per-PR surfaces the `Verification evidence:` marker is recorded on — the **linked issue's workpad** and the **PR description** — the same surfaces the `Writing-skills evidence:` gate already fetches (the workpad via `lib/fetch-pr-context.sh` from the linked issue thread; no new fetch channel is required). The marker is recorded on the **local/interactive tier only** (cloud runs verify in-env under issue #405 and carry no capture obligation), so the clause must classify each PR by tier and act only on local/interactive ones — otherwise it is a guard that reads as armed and can never fire.
 
-**Tier discriminator (per PR).** Classify from the workpad `## Progress` section: a workpad carrying any `<!-- prflow:checkpoint gha:… -->` row is a **cloud** run (those checkpoints are stamped cloud-only — `skills/implement/phases/phase-1-setup.md`, `skills/implement/SKILL.md`); a workpad with no such row is a **local/interactive** run. The advisory clause acts only on the local/interactive classification.
+**Tier discriminator (per PR).** Classify from the workpad `## Progress` section: a workpad carrying any `<!-- prflow:checkpoint gha:… -->` row — or the superseded `<!-- devflow:checkpoint gha:… -->` spelling, which a pre-rename run stamped — is a **cloud** run (those checkpoints are stamped cloud-only — `skills/implement/phases/phase-1-setup.md`, `skills/implement/SKILL.md`); a workpad with no such row is a **local/interactive** run. The advisory clause acts only on the local/interactive classification.
 
 **Behavior, by classification:**
 

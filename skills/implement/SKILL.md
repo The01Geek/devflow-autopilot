@@ -101,7 +101,7 @@ Throughout the run you maintain exactly **one** marker-tagged comment on the Git
 TRIGGER_COMMENT_ID=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -r '.comment.id // empty' "$GITHUB_EVENT_PATH" 2>/dev/null || true)
 if [ -z "$TRIGGER_COMMENT_ID" ]; then
   TRIGGER_COMMENT_ID=$(gh api "repos/{owner}/{repo}/issues/$ISSUE_NUMBER/comments?per_page=100" \
-    --jq 'map(select((.body | contains("/prflow:implement")) and (.body | contains("prflow:workpad") | not))) | last | .id' 2>/dev/null || true)
+    --jq 'map(select((.body | contains("/prflow:implement")) and ((.body | test("(pr|dev)flow:workpad")) | not))) | last | .id' 2>/dev/null || true)
 fi
 if [ -n "$TRIGGER_COMMENT_ID" ] && [ -z "${TRIGGER_COMMENT_ID//[0-9]/}" ]; then
   # The second test is what makes a non-id capture inert: parameter expansion
