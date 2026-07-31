@@ -892,13 +892,13 @@ devflow_report_superseded_identifiers() {
   [ -n "$DEVFLOW_SUPERSEDED_MARKETPLACES$DEVFLOW_SUPERSEDED_PLUGIN_SPECS" ] || return 0
   [ -f .claude/settings.json ] || return 0
   devflow_resolve_python || {
-    log "warning: no working python3 — could not check .claude/settings.json for superseded DevFlow registrations; run /devflow:init to migrate them."
+    log "warning: no working python3 — could not check .claude/settings.json for superseded DevFlow registrations; run /prflow:init to migrate them."
     return 0
   }
   hits="$("$DEVFLOW_PY" -c "$DEVFLOW_SETTINGS_SCAN_PY" .claude/settings.json \
       "$DEVFLOW_SUPERSEDED_MARKETPLACES" "$DEVFLOW_SUPERSEDED_PLUGIN_SPECS" 2>/dev/null || printf '')"
   [ -n "$hits" ] || return 0
-  log "NOTICE: .claude/settings.json still registers superseded DevFlow identifiers ($hits). This installer never writes that file — run /devflow:init, whose scripts/provision-local-settings.sh removes the superseded registrations and adds the current one."
+  log "NOTICE: .claude/settings.json still registers superseded DevFlow identifiers ($hits). This installer never writes that file — run /prflow:init, whose scripts/provision-local-settings.sh removes the superseded registrations and adds the current one."
 }
 
 # The same detect-and-route split, applied to `.devflow/config.json`. The GitHub App that
@@ -965,13 +965,13 @@ devflow_report_stale_config_identifiers() {
   [ -n "$DEVFLOW_STALE_BOT_LOGINS" ] || return 0
   [ -f .devflow/config.json ] || return 0
   devflow_resolve_python || {
-    log "warning: no working python3 — could not check .devflow/config.json for superseded PRFlow identifiers; run /devflow:init to correct them."
+    log "warning: no working python3 — could not check .devflow/config.json for superseded PRFlow identifiers; run /prflow:init to correct them."
     return 0
   }
   hits="$("$DEVFLOW_PY" -c "$DEVFLOW_CONFIG_SCAN_PY" .devflow/config.json \
       "$DEVFLOW_STALE_BOT_LOGINS" 2>/dev/null || printf '')"
   [ -n "$hits" ] || return 0
-  log "NOTICE: .devflow/config.json still names superseded PRFlow identifiers ($hits). This installer never rewrites that file for this — run /devflow:init, which corrects them in place, preserves your other values, and reports the diff to review before you commit."
+  log "NOTICE: .devflow/config.json still names superseded PRFlow identifiers ($hits). This installer never rewrites that file for this — run /prflow:init, which corrects them in place, preserves your other values, and reports the diff to review before you commit."
 }
 
 # ── The dry-run preview ─────────────────────────────────────────────────────
@@ -1138,7 +1138,7 @@ devflow_apply_all() (
     {
       "name": "$DEVFLOW_PLUGIN_CANONICAL",
       "source": "./.devflow/vendor/devflow",
-      "description": "End-to-end dev workflow: /devflow:implement, /devflow:review + /devflow:review-and-fix, the /devflow:docs suite, /devflow:create-issue, plus the retrospective loop.",
+      "description": "End-to-end dev workflow: /prflow:implement, /prflow:review + /prflow:review-and-fix, the /prflow:docs suite, /prflow:create-issue, plus the retrospective loop.",
       "author": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
       "homepage": "https://github.com/The01Geek/prflow",
       "category": "development"

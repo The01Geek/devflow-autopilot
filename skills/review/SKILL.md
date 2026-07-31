@@ -12,7 +12,7 @@ You are the review engine orchestrator. Run a four-phase review and present an A
 
 **Every later PR-mode predicate and every `gh` command reads `$PR_NUMBER` — never the raw `$ARGUMENTS` string.** An extended argument string fails an is-a-PR-number test, which silently disables the phases gated on it, and interpolating it into a command line leaks the flag tokens into that command.
 
-**The cloud comment tier is unchanged and out of scope.** `scripts/resolve-command-trigger.sh` synthesizes a two-token `command=/devflow:<cmd> <n>`, so a `--issue N` typed into a trigger comment is discarded before this skill runs and that path keeps today's derivation. Widening the trigger grammar is out of scope.
+**The cloud comment tier is unchanged and out of scope.** `scripts/resolve-command-trigger.sh` synthesizes a two-token `command=/prflow:<cmd> <n>`, so a `--issue N` typed into a trigger comment is discarded before this skill runs and that path keeps today's derivation. Widening the trigger grammar is out of scope.
 
 **Engine sharing.** Phases 0 through 4.3 are executed verbatim by `/prflow:review-and-fix` (which wraps them in a fix loop and skips Phase 4.4 — its report goes to chat only). When modifying engine behavior here — Phase 3 agent prompts, Phase 1 batching, Phase 0.5 classification, Phase 4 verdict criteria — verify `/prflow:review-and-fix` still produces the same findings; that's where divergence has historically slipped in. Its SKILL.md keeps no paraphrase of these phases, so changes here propagate automatically as long as the file is reachable at `**/devflow/skills/review/SKILL.md`.
 

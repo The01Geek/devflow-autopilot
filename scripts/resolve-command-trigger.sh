@@ -5,7 +5,8 @@
 # pr-description) should run, which one, and on which issue/PR number.
 #
 # devflow.yml's command path runs claude-code-action in AGENT mode with an
-# explicit synthesised `/devflow:<cmd> <n>` prompt. Agent mode needs no
+# explicit synthesised `/prflow:<cmd> <n>` prompt (the detector emits the
+# canonical /prflow: form regardless of which namespace the user typed). Agent mode needs no
 # `@claude` phrase, so this never collides with Anthropic's stock claude.yml
 # (TAG mode, keyed on `@claude`). Agent mode runs for ANY actor, so this script
 # is the cost/authorization gate — same contract as resolve-implement-trigger.sh.
@@ -18,7 +19,7 @@
 #               TRIGGER_TEXT, CONTEXT_NUMBER
 # Output (stdout; caller appends to $GITHUB_OUTPUT, tests assert directly):
 #   should_run=true|false
-#   command=/devflow:<cmd> <n>|""
+#   command=/prflow:<cmd> <n>|""
 set -euo pipefail
 
 emit() { printf '%s=%s\n' "$1" "$2"; }

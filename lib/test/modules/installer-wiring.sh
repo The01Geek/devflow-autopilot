@@ -1099,7 +1099,7 @@ IU_O11="$(IU_INSTALL_BIN="$IU_P11/install.sh" _iu_run "$IU_C11" --apply)"
 assert_eq "installer-upgrade identity: a superseded registration in .claude/settings.json is REPORTED and the file left byte-for-byte unchanged (install.sh never writes it)" "yes yes yes" \
   "$(_iu_out_has "$IU_O11" 'still registers superseded DevFlow identifiers') $(_iu_out_has "$IU_O11" 'enabledPlugins[devflow@devflow-marketplace]') $([ "$IU_SET11_BEFORE" = "$(_iu_digest "$IU_C11/.claude/settings.json")" ] && echo yes || echo no)"
 assert_eq "installer-upgrade identity: the report routes the consumer to the ONE owner of that migration rather than duplicating it" "yes" \
-  "$(_iu_out_has "$IU_O11" 'run /devflow:init, whose scripts/provision-local-settings.sh removes the superseded registrations')"
+  "$(_iu_out_has "$IU_O11" 'run /prflow:init, whose scripts/provision-local-settings.sh removes the superseded registrations')"
 assert_eq "installer-upgrade identity: the marketplace manifest the installer OWNS is migrated to the new canonical pair" "fixture-market-two fixture-plugin-two" \
   "$(python3 -c '
 import json, sys
@@ -1140,7 +1140,7 @@ rm -rf "$IU_P11"
 # The PR-authoring App was renamed, and the config scaffolder is add-only — it can backfill
 # a key but never rename a VALUE — so a consumer's `devflow.allowed_bots` keeps naming an
 # App slug that authorizes nothing. The installer must REPORT that and route to
-# /devflow:init, and must not write the file itself.
+# /prflow:init, and must not write the file itself.
 #
 # Driven end to end over a real fixture consumer first (the routing + the never-writes
 # invariant can only be established by an actual before/after), then at the FUNCTION level
@@ -1177,7 +1177,7 @@ assert_eq "installer-upgrade stale-config: a superseded App slug in devflow.allo
 assert_eq "installer-upgrade stale-config: the fixture really did carry the stale slug before the run (the invariant above is not comparing two absent values)" "claude,devflow-autopilot,dependabot" \
   "$IU_CFG11C_BEFORE"
 assert_eq "installer-upgrade stale-config: the report routes to the ONE owner of the correction rather than growing a second copy of it" "yes" \
-  "$(_iu_out_has "$IU_O11C" 'run /devflow:init, which corrects them in place')"
+  "$(_iu_out_has "$IU_O11C" 'run /prflow:init, which corrects them in place')"
 # MISS arm over its own consumer: the scaffolded default names no superseded slug, so the
 # report stays silent. Reusing the consumer above would make this vacuous.
 IU_C11D="$(_iu_consumer clean-config)"
@@ -1256,7 +1256,7 @@ printf '{"devflow": {"allowed_bots": "devflow-autopilot"}}' > "$IU_C11C/.devflow
 IU_O11F="$( cd "$IU_C11C" && export PATH="$IU_NOPY:$PATH" && DEVFLOW_SELFTEST=1 . "$IU_INSTALL" \
     && devflow_report_stale_config_identifiers 2>&1 )"
 assert_eq "installer stale-config: with no working python3 the check says it could not run and names the remedy, rather than passing silently" "yes yes" \
-  "$(_iu_out_has "$IU_O11F" 'could not check .devflow/config.json for superseded PRFlow identifiers') $(_iu_out_has "$IU_O11F" 'run /devflow:init to correct them')"
+  "$(_iu_out_has "$IU_O11F" 'could not check .devflow/config.json for superseded PRFlow identifiers') $(_iu_out_has "$IU_O11F" 'run /prflow:init to correct them')"
 
 # ── Scenario 12 (#959): the documented python3-absent FAIL-SAFE, driven end to end.
 # This is the arm the original 11 scenarios could not reach, because every one of them
