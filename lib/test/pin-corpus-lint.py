@@ -3902,6 +3902,307 @@ def _normalized_revival_authorization(site, repo_root):
     )
 
 
+# ── The sanctioned-rename site comparison (issue #1002) ───────────────────────
+#
+# WHY THIS EXISTS, and why it is a CORRECTNESS FIX rather than a relaxation.
+#
+# ``scan_changed_sources`` decides whether a pin site CHANGED by comparing the
+# site extracted from the merge-base source image against the site extracted from
+# the HEAD image. Both extractions resolve their target paths against the CURRENT
+# repository root, so a merge-base image is resolved with current-tree path
+# spellings. Across a branch that renames the state directory, that comparison
+# asks the wrong question: the merge base spells a pin's target
+# ``.devflow/prompt-extensions/review.md`` and HEAD spells it
+# ``.prflow/prompt-extensions/review.md``, and those are ONE FILE that ``git mv``
+# moved -- so ``old_effective == new_effective`` was measuring path spelling, not
+# pin identity, and reported every such pin as re-pointed. This completes, one
+# layer up, the same current-first / superseded-fallback rule
+# ``_revision_state_dir_path`` states for revision-side blob reads: a path is
+# resolved to the ASSET it names at the revision it is read from, not to the
+# spelling that revision happened to use.
+#
+# It cannot absolve a substantive edit, by construction, on three counts:
+#
+#   1. EXACT TUPLE. A candidate is dropped only when its whole effective tuple
+#      -- family, helper, literal, target path, bundle members, declaration and
+#      declaration error -- equals a merge-base site's tuple after the rename is
+#      applied. Any other difference, however small, leaves the site in the
+#      candidate set and it routes through the entire policy unchanged:
+#      retirement, revival authorization, prose resolution, the issue-948 ladder
+#      and the declaration grammar all run exactly as before on everything that
+#      survives this filter. The filter adds no verdict; it only withdraws the
+#      claim that a pure respelling is a change.
+#   2. ONE-DIRECTIONAL. The mapping is applied to the MERGE-BASE side only, and
+#      only superseded -> current. A HEAD-side site still spelled ``.devflow``
+#      can never be matched by a ``.prflow`` twin at the base, so the rename
+#      cannot be run backwards to launder a site into the exemption.
+#   3. ONE FOR ONE. Each merge-base site exempts at most one candidate -- the
+#      same discipline ``_deleted_pin_literals`` already applies to moves -- so
+#      duplicating a pin still presents the duplicate for adjudication.
+#
+# The mapping is read from ``lib/rename-map.json``, the repository's single source
+# of truth for this rename, and is never a literal copy of it here. That file's
+# ``frozen`` block enumerates the names the rename must NOT touch, and those are
+# compiled into the same alternation AHEAD of the rename rules so a frozen name is
+# consumed verbatim and no rename rule can reach inside it. That ordering is
+# load-bearing: without it, a bare ``devflow`` rule would rewrite the frozen
+# ``workflows.devflow`` key and silently exempt a real change to it.
+_RENAME_MAP_PATH = "lib/rename-map.json"
+# Characters that continue a token. A rename rule fires only at a token boundary,
+# so ``devflow_module_pin_unique`` and ``.devflow-scratch`` are never reached by
+# the shorter ``devflow`` / ``.devflow`` rules even before the frozen guards run.
+_RENAME_TOKEN_CHARS = "A-Za-z0-9_"
+_RENAME_KEY_LEFT = "(?<![%s-])" % _RENAME_TOKEN_CHARS
+_RENAME_PATH_LEFT = "(?<![%s])" % _RENAME_TOKEN_CHARS
+_RENAME_RIGHT = "(?![%s-])" % _RENAME_TOKEN_CHARS
+# Two guards the map states as PROSE rather than as data, in its own
+# ``frozen._comment``: "Out of THIS issue's scope and tracked separately: the
+# DEVFLOW_* environment variables (#1004) and the <!-- devflow:* --> comment
+# markers". The env-var prefix needs no pattern -- every rename rule is
+# case-sensitive and lower-case, so ``DEVFLOW_GH`` is unreachable. The marker and
+# agent-override namespace does need one, because ``devflow:`` ends at a
+# non-token character that the boundary rule alone would accept.
+_RENAME_STRUCTURAL_FROZEN = ("devflow:",)
+
+
+def _rename_frozen_pattern(literal):
+    """Compile one ``frozen`` entry, honouring the map's single ``*`` glob form."""
+    if literal.endswith("*"):
+        return re.escape(literal[:-1]) + "[%s]*" % _RENAME_TOKEN_CHARS
+    return re.escape(literal)
+
+
+def _rename_pair(entry, label):
+    """Return the (superseded, current) pair of one ``paths`` entry."""
+    if (
+        not isinstance(entry, dict)
+        or not isinstance(entry.get("superseded"), str)
+        or not isinstance(entry.get("current"), str)
+        or not entry["superseded"]
+        or not entry["current"]
+    ):
+        raise ValueError(f"rename map has an invalid {label} entry")
+    return entry["superseded"], entry["current"]
+
+
+def _build_rename_substitution(document):
+    """Return a ``str -> str`` superseded-to-current substitution, or ``None``.
+
+    ``None`` means the map could not be established, which withdraws every
+    exemption -- the fail-closed direction, identical to the pre-fix behaviour.
+    """
+    if not isinstance(document, dict):
+        raise ValueError("rename map root is not an object")
+    frozen = document.get("frozen")
+    if not isinstance(frozen, dict):
+        raise ValueError("rename map has no frozen block")
+    frozen_literals = []
+    for field in ("config_keys", "identifiers", "workflow_filenames"):
+        values = frozen.get(field)
+        if not isinstance(values, list) or not all(
+            isinstance(value, str) and value for value in values
+        ):
+            raise ValueError(f"rename map has an invalid frozen.{field}")
+        frozen_literals.extend(values)
+    frozen_literals.extend(_RENAME_STRUCTURAL_FROZEN)
+    paths = document.get("paths")
+    if not isinstance(paths, dict):
+        raise ValueError("rename map has no paths block")
+    path_rules = [
+        _rename_pair(paths.get("state_dir"), "paths.state_dir"),
+        _rename_pair(paths.get("vendor_dir"), "paths.vendor_dir"),
+    ]
+    scratch = paths.get("scratch_dirs")
+    if not isinstance(scratch, list):
+        raise ValueError("rename map has an invalid paths.scratch_dirs")
+    for index, entry in enumerate(scratch):
+        path_rules.append(_rename_pair(entry, f"paths.scratch_dirs[{index}]"))
+    config_keys = document.get("config_keys")
+    if not isinstance(config_keys, dict) or not config_keys:
+        raise ValueError("rename map has an invalid config_keys block")
+    # A renamed key that is also the LAST SEGMENT of a frozen key path is
+    # ambiguous when it appears unqualified: `devflow` is the renamed top-level
+    # key AND the child of the frozen `workflows.devflow`, and a bare
+    # `"devflow":` in a JSON object carries no parent to tell them apart. Such a
+    # rule is therefore accepted only in TOP-LEVEL dotted position (`.devflow`),
+    # where the leading dot supplies the missing context. Deriving the set from
+    # the map's own frozen.config_keys keeps this a property of the map rather
+    # than a literal guard that would rot when the frozen list changes.
+    ambiguous_keys = {
+        value.rsplit(".", 1)[-1] for value in frozen["config_keys"]
+    }
+    key_rules = []
+    for superseded, current in config_keys.items():
+        if (
+            not isinstance(superseded, str)
+            or not isinstance(current, str)
+            or not superseded
+            or not current
+        ):
+            raise ValueError("rename map has an invalid config_keys entry")
+        if superseded in ambiguous_keys:
+            key_rules.append((superseded, current, "qualified-key"))
+        else:
+            key_rules.append((superseded, current, "key"))
+    # Frozen first so a frozen name is consumed verbatim; then longest literal
+    # first so `.devflow/vendor/devflow` and `devflow_review_and_fix` win over the
+    # shorter rules whose prefix they share.
+    alternatives = []
+    replacements = {}
+    ordered = [
+        (literal, None, "frozen")
+        for literal in sorted(frozen_literals, key=len, reverse=True)
+    ]
+    ordered.extend(
+        sorted(
+            [(old, new, "path") for old, new in path_rules] + key_rules,
+            key=lambda rule: len(rule[0]),
+            reverse=True,
+        )
+    )
+    for index, (literal, replacement, kind) in enumerate(ordered):
+        name = f"rn{index}"
+        if kind == "frozen":
+            body = _RENAME_KEY_LEFT + _rename_frozen_pattern(literal)
+        elif kind == "path":
+            body = _RENAME_PATH_LEFT + re.escape(literal) + _RENAME_RIGHT
+        elif kind == "qualified-key":
+            body = (
+                _RENAME_KEY_LEFT + r"\." + re.escape(literal) + _RENAME_RIGHT
+            )
+            replacement = "." + replacement
+        else:
+            body = _RENAME_KEY_LEFT + re.escape(literal) + _RENAME_RIGHT
+        alternatives.append(f"(?P<{name}>{body})")
+        replacements[name] = replacement
+    pattern = re.compile("|".join(alternatives))
+
+    def substitute(value):
+        if not isinstance(value, str) or not value:
+            return value
+
+        def _one(match):
+            replacement = replacements.get(match.lastgroup)
+            # A frozen alternative carries no replacement and is re-emitted
+            # exactly as matched, which also consumes it so no later rule sees it.
+            return match.group(0) if replacement is None else replacement
+
+        return pattern.sub(_one, value)
+
+    return substitute
+
+
+@functools.lru_cache(maxsize=4)
+def _compiled_rename_substitution(document_text):
+    """Compile one rename-map DOCUMENT into a substitution, or ``None``.
+
+    Memoized on the presented bytes and on nothing else — not on a repository
+    root and not on filesystem state — which is the memo contract
+    ``lib/test/test_pin_corpus_lint.py``'s module docstring states for every
+    cache in this file: a hit returns a value derived from exactly what the
+    caller presented, so two repositories in one process cannot answer for each
+    other, and a map edited between two scans is observed rather than cached.
+    """
+    try:
+        document = json.loads(document_text)
+    except json.JSONDecodeError as exc:
+        sys.stderr.write(
+            "MUTATION-ROUTING-RENAME-MAP-UNAVAILABLE\t"
+            f"{_RENAME_MAP_PATH}: {type(exc).__name__}\n"
+        )
+        return None
+    try:
+        return _build_rename_substitution(document)
+    except (ValueError, re.error) as exc:
+        sys.stderr.write(
+            "MUTATION-ROUTING-RENAME-MAP-UNAVAILABLE\t"
+            f"{_RENAME_MAP_PATH}: {exc}\n"
+        )
+        return None
+
+
+def _rename_substitution(repo_root):
+    """The substitution declared by ``repo_root``'s map, or ``None``.
+
+    An ABSENT map is the ordinary state of a repository with no rename in flight
+    and is silent; an unreadable or malformed one earns a breadcrumb. Both return
+    ``None``, which exempts nothing — the fail-closed direction, identical to the
+    behaviour before this comparison fix existed.
+    """
+    try:
+        document_text = (Path(repo_root) / _RENAME_MAP_PATH).read_text(
+            encoding="utf-8"
+        )
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeDecodeError) as exc:
+        sys.stderr.write(
+            "MUTATION-ROUTING-RENAME-MAP-UNAVAILABLE\t"
+            f"{_RENAME_MAP_PATH}: {type(exc).__name__}\n"
+        )
+        return None
+    return _compiled_rename_substitution(document_text)
+
+
+def _site_effective(site):
+    """The identity a changed-site comparison is actually about."""
+    return (
+        site.family,
+        site.helper,
+        site.literal,
+        site.target_path,
+        site.target_members,
+        site.declaration,
+        site.declaration_error,
+    )
+
+
+def _rename_normalized_effective(site, substitute):
+    """``_site_effective`` with the sanctioned rename applied to every path- and
+    literal-bearing member. Called on the MERGE-BASE side only."""
+    return (
+        site.family,
+        site.helper,
+        substitute(site.literal),
+        substitute(site.target_path),
+        None
+        if site.target_members is None
+        else tuple(substitute(member) for member in site.target_members),
+        site.declaration,
+        site.declaration_error,
+    )
+
+
+def _drop_rename_only_candidates(candidates, base_sites_by_path, repo_root):
+    """Withdraw candidates that are their own merge-base selves, respelled.
+
+    See the section header above for why this is a comparison fix and not an
+    amnesty. Everything it keeps reaches the unchanged policy path.
+    """
+    if not candidates:
+        return candidates
+    substitute = _rename_substitution(str(repo_root))
+    if substitute is None:
+        return candidates
+    available = {}
+    for source_path, sites in base_sites_by_path.items():
+        counts = available.setdefault(source_path, {})
+        for site in sites:
+            key = _rename_normalized_effective(site, substitute)
+            counts[key] = counts.get(key, 0) + 1
+    kept = []
+    for site in candidates:
+        counts = available.get(site.source_path)
+        # The HEAD side is compared VERBATIM -- never mapped -- which is what
+        # makes the exemption one-directional.
+        key = _site_effective(site)
+        if counts is not None and counts.get(key):
+            counts[key] -= 1
+            continue
+        kept.append(site)
+    return kept
+
+
 def scan_changed_sources(
     current_sources,
     base_sources,
@@ -3927,6 +4228,11 @@ def scan_changed_sources(
     revival_authorizations = frozenset(revival_authorizations)
     patches = parse_unified_diff(difftext)
     new_candidates = []
+    # Merge-base sites, keyed by the path a candidate will carry, for the
+    # sanctioned-rename comparison below. Collected here rather than re-extracted
+    # later because ``extract_guard_sites`` over a multi-megabyte source is the
+    # expensive step of this scan and the loop already has the answer.
+    base_sites_by_path = {}
     for patch in patches:
         old_sites = []
         new_sites = []
@@ -3934,6 +4240,8 @@ def scan_changed_sources(
             old_sites = extract_guard_sites(
                 base_sources[patch.old_path], patch.old_path, repo_root
             )
+            if patch.new_path is not None:
+                base_sites_by_path.setdefault(patch.new_path, []).extend(old_sites)
         if patch.new_path in current_sources:
             new_sites = extract_guard_sites(
                 current_sources[patch.new_path], patch.new_path, repo_root
@@ -3987,28 +4295,23 @@ def scan_changed_sources(
                 if occurrence >= len(new_group):
                     continue
                 new_site = new_group[occurrence]
-                old_effective = (
-                    old_site.family,
-                    old_site.helper,
-                    old_site.literal,
-                    old_site.target_path,
-                    old_site.target_members,
-                    old_site.declaration,
-                    old_site.declaration_error,
-                )
-                new_effective = (
-                    new_site.family,
-                    new_site.helper,
-                    new_site.literal,
-                    new_site.target_path,
-                    new_site.target_members,
-                    new_site.declaration,
-                    new_site.declaration_error,
-                )
+                # One definition of "the same site", shared with the
+                # sanctioned-rename comparison below. Two hand-written copies of
+                # this tuple would be a coupled pair: a field added to one and
+                # not the other would let the two disagree about what changed.
+                old_effective = _site_effective(old_site)
+                new_effective = _site_effective(new_site)
                 if old_effective == new_effective:
                     continue
                 if not _site_changed(new_site, patch.added_lines):
                     new_candidates.append(new_site)
+
+    # A site whose merge-base self differs only by the sanctioned rename was never
+    # re-pointed and never re-authored, so it is not a changed site. This runs
+    # before any policy arm: it decides POPULATION, not verdicts.
+    new_candidates = _drop_rename_only_candidates(
+        new_candidates, base_sites_by_path, repo_root
+    )
 
     normalized_revivals = {}
     for site in new_candidates:
