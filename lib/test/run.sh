@@ -49707,7 +49707,12 @@ assert_eq "python-pool: run-python-pool.sh exists and is executable" "yes" \
 # stubbed pool — records exactly one FAIL, so a non-zero join= is proof the body ran).
 _pps_selector_probe() {  # selector-value ('' = unset) -> "open=N join=N"
   (
-    _pps_rec="$(mktemp)"; _pps_res="$(mktemp)"; : > "$_pps_rec"; : > "$_pps_res"
+    # Explicit templates, the convention this file and run-python-pool.sh already use:
+    # a bare `mktemp` is accepted by the BSD/macOS build here (verified, rc 0) but the
+    # template costs nothing and removes the portability question entirely.
+    _pps_rec="$(mktemp "${TMPDIR:-/tmp}/devflow-pps-rec.XXXXXX")"
+    _pps_res="$(mktemp "${TMPDIR:-/tmp}/devflow-pps-res.XXXXXX")"
+    : > "$_pps_rec"; : > "$_pps_res"
     RESULTS_FILE="$_pps_res"
     if [ -n "$1" ]; then DEVFLOW_SKIP_PYTHON_POOL="$1"; else unset DEVFLOW_SKIP_PYTHON_POOL; fi
     # Shadowed for this subshell only; resolved at call time by the entry points.
@@ -49746,7 +49751,7 @@ unset -f _pps_selector_probe
 # captures and stubbing devflow_pool_join.
 _pps_reconcile_probe() {  # summary  lines -> "pass=N fail=N"
   (
-    _pps_res="$(mktemp)"; : > "$_pps_res"
+    _pps_res="$(mktemp "${TMPDIR:-/tmp}/devflow-pps-reconcile.XXXXXX")"; : > "$_pps_res"
     RESULTS_FILE="$_pps_res"
     unset DEVFLOW_SKIP_PYTHON_POOL
     devflow_pool_join() { :; }
@@ -49802,23 +49807,47 @@ if [ -n "$PPS_SB" ] && [ -d "$PPS_SB" ]; then
     "$(printf '%s' "$PPS_MISSING_OUT" | grep -qF 'harness did not define devflow_python_suite_pool_open' && echo yes || echo no)"
   assert_eq "python-pool driver: the missing-function arm renders NO summary line (nothing for shard-tally to accept)" "yes" \
     "$(printf '%s' "$PPS_MISSING_OUT" | grep -qE '^[0-9]+ passed, [0-9]+ failed' && echo no || echo yes)"
-  # The gate names SIX functions, and the probe above can only ever exercise the two the
-  # harness provides — the four summary.sh-provided names cannot be absent while the
-  # fixture copies the real file, so deleting one of those four from the gate's list
-  # would stay green. Cover the other half of the list by making the fixture's
-  # summary.sh a stub that omits one, which is what makes the gate's coverage
-  # non-vacuous for the whole set rather than for two of six.
-  _pps_stub_harness 'devflow_python_suite_pool_open() { :; }
-devflow_python_suite_pool_join() { printf "PASS\n" >> "$RESULTS_FILE"; }'
-  {
-    printf '%s\n' 'devflow_render_test_summary() { printf "%s passed, %s failed\n" "$1" "$2"; }'
-    printf '%s\n' 'devflow_render_failure_recap() { :; }'
-    printf '%s\n' '# devflow_tally_is_derivable deliberately absent'
-  } > "$PPS_SB/lib/test/summary.sh"
-  PPS_NOSUM_OUT="$(bash "$PPS_SB/lib/test/run-python-pool.sh" 2>&1)"; PPS_NOSUM_RC=$?
-  assert_eq "python-pool driver: a summary.sh missing a gated function ALSO fails closed (rc 2)" "2" "$PPS_NOSUM_RC"
-  assert_eq "python-pool driver: that refusal names the summary.sh-provided function, not a pool entry point" "yes" \
-    "$(printf '%s' "$PPS_NOSUM_OUT" | grep -qF 'harness did not define devflow_tally_is_derivable' && echo yes || echo no)"
+  # The gate names SIX functions, and the probe above exercises only ONE of them: the
+  # fixture defines the other five, so deleting any of those five from the gate's list
+  # would stay green. Close that by omitting EACH name in turn — the gated set is
+  # derived from three provided by module-harness.sh (the two pool entry points and
+  # record_fail) and three by summary.sh (the renderers and the derivability
+  # predicate) — and asserting the refusal both fails closed AND names the one that is
+  # missing. Anything the gate would let through is collected by name, so the failure
+  # message says WHICH function is unprotected rather than only that something is.
+  PPS_GATE_UNCAUGHT=""
+  PPS_GATE_SEEN=0
+  for _pps_omit in devflow_python_suite_pool_open devflow_python_suite_pool_join record_fail \
+    devflow_render_test_summary devflow_render_failure_recap devflow_tally_is_derivable; do
+    PPS_GATE_SEEN=$((PPS_GATE_SEEN + 1))
+    : > "$PPS_SB/lib/test/module-harness.sh"
+    : > "$PPS_SB/lib/test/summary.sh"
+    for _pps_def in \
+      'record_fail|module-harness|record_fail() { printf "%s\n" "$1" >> "$RESULTS_FILE.names"; }' \
+      'devflow_python_suite_pool_open|module-harness|devflow_python_suite_pool_open() { :; }' \
+      'devflow_python_suite_pool_join|module-harness|devflow_python_suite_pool_join() { printf "PASS\n" >> "$RESULTS_FILE"; }' \
+      'devflow_render_test_summary|summary|devflow_render_test_summary() { printf "%s passed, %s failed\n" "$1" "$2"; }' \
+      'devflow_render_failure_recap|summary|devflow_render_failure_recap() { :; }' \
+      'devflow_tally_is_derivable|summary|devflow_tally_is_derivable() { case "${1-}" in ""|*[!0-9]*) return 1 ;; esac; return 0; }'; do
+      _pps_dname="${_pps_def%%|*}"; _pps_rest="${_pps_def#*|}"
+      _pps_dfile="${_pps_rest%%|*}"; _pps_dbody="${_pps_rest#*|}"
+      [ "$_pps_dname" = "$_pps_omit" ] && continue
+      case "$_pps_dfile" in
+        module-harness) printf '%s\n' "$_pps_dbody" >> "$PPS_SB/lib/test/module-harness.sh" ;;
+        *)              printf '%s\n' "$_pps_dbody" >> "$PPS_SB/lib/test/summary.sh" ;;
+      esac
+    done
+    PPS_GATE_OUT="$(bash "$PPS_SB/lib/test/run-python-pool.sh" 2>&1)"; PPS_GATE_RC=$?
+    case "$PPS_GATE_RC:$PPS_GATE_OUT" in
+      "2:"*"harness did not define $_pps_omit"*) : ;;
+      *) PPS_GATE_UNCAUGHT="$PPS_GATE_UNCAUGHT $_pps_omit" ;;
+    esac
+  done
+  assert_eq "python-pool driver: EVERY gated function is individually protected (omitting any one fails closed and names it)" \
+    "" "$PPS_GATE_UNCAUGHT"
+  # The loop's own non-vacuity: a mistyped list or an early `break` would leave the
+  # assertion above trivially empty while protecting nothing.
+  assert_eq "python-pool driver: the gate probe really exercised every name in the gated set" "6" "$PPS_GATE_SEEN"
   cp "$LIB/test/summary.sh" "$PPS_SB/lib/test/summary.sh"
 
   # (2) POSITIVE CONTROL on the same fixture: a harness that does record verdicts
@@ -49971,7 +50000,9 @@ if [ -n "$PPS_TDIR" ] && [ -d "$PPS_TDIR" ]; then
 fi
 unset PPS_RUNSHARD PPS_DRIVER PPS_TALLY PPS_SB PPS_DSB PPS_TDIR PPS_MISSING_OUT PPS_MISSING_RC \
   PPS_OK_OUT PPS_OK_RC PPS_ZERO_OUT PPS_ZERO_RC PPS_UNDER_OUT PPS_UNDER_RC \
-  PPS_UNDERF_OUT PPS_UNDERF_RC PPS_REAL_GREP PPS_NOSUM_OUT PPS_NOSUM_RC \
+  PPS_UNDERF_OUT PPS_UNDERF_RC PPS_REAL_GREP \
+  PPS_GATE_UNCAUGHT PPS_GATE_SEEN PPS_GATE_OUT PPS_GATE_RC \
+  _pps_omit _pps_def _pps_dname _pps_rest _pps_dfile _pps_dbody \
   PPS_PP_INVOKED PPS_MONO_INVOKED PPS_MOD_INVOKED _pps_callee
 # ────────────────────────────────────────────────────────────────────────────
 
