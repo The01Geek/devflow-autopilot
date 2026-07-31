@@ -14914,17 +14914,19 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # then-current floor drop to 399. Do not read that drop as dead code — deleting these helpers
 # would break every consumer that upgrades. It stops there deliberately — the tranche was
 # scoped in advance to a measured set of low-risk sections, and what follows was not in it.
-# The floor has RISEN twice since: the plugin rename added dual-namespace acceptance
+# The floor has RISEN since: the plugin rename added dual-namespace acceptance
 # coverage to both trigger helpers (canonical-input arms plus wildcard negative controls),
-# since every pre-existing fixture fed only the transitional alias form; and the
+# since every pre-existing fixture fed only the transitional alias form; the
 # duplicate-notice self-trigger guard was widened from the single hardcoded `/devflow:`
-# to every declared command namespace, with a planted-defect control per namespace.
+# to every declared command namespace, with a planted-defect control per namespace; and
+# issue #989 added the dedupe-review-command.sh (Candidate C) unit suite — the named
+# assertions, the malformed-response matrix, and the workflow-wiring pins.
 # The floor literal on the call below is equality-checked against this module's
 # `minimum_assertions` in scripts/workflow-flight-recorder-registry.json — change both
 # together, or test_module_runner.py's tranche test goes RED.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 416; then
+  "review-trigger-helpers" 453; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
@@ -15934,49 +15936,50 @@ assert_eq "app-token: devflow.yml review_dedupe job output maps steps.guard.outp
 # The suppression NOTICE must carry no DevFlow trigger phrase: under the App
 # token this comment fires a REAL issue_comment event (GITHUB_TOKEN comments
 # are suppressed by GitHub), so a trigger substring would re-enter the gate
-# and loop. Mirrors the devflow-implement duplicate-notice pin, including the
-# anti-vacuity capture check.
-RS_NOTICE="$(mint_blk 'Notice — manual review suppressed' "$WF/devflow.yml")"
-assert_eq "app-token: suppression-notice pin captured the notice body (no vacuous pass)" "1" \
-  "$(grep -c 'already running for this commit' <<< "$RS_NOTICE")"
-# The NOTE=-scoped absence pins below are vacuous if the body variable is
-# renamed/inlined — pin that exactly one NOTE= body line exists in the step.
-assert_eq "app-token: suppression notice carries exactly one NOTE= body line" "1" \
-  "$(grep -c 'NOTE=' <<< "$RS_NOTICE")"
-# Scanned over EVERY declared command namespace, not just the transitional one.
-# devflow.yml carries triggers in both namespaces, so a guard spelling only
-# `/devflow:` gives zero assurance for `/prflow:` — a canonical-namespace phrase
-# could leak into the notice and self-trigger with the check still green. The set
-# is DERIVED ($SUITE_CMD_NS, built above from the declared plugin identity), so it
-# follows a namespace addition automatically and does not go vacuous when the
-# transitional namespace is eventually retired.
-# NON-VACUITY, asserted LOCALLY rather than borrowed: $SUITE_CMD_NS is built far
-# upstream in the partition-invariant section, and today its `exit 1` fail-closed
-# arm happens to run earlier in the same linear script. That is an accident of
-# ordering, not a contract — hoisting either block, or moving this one into a
-# module, would leave both loops below iterating over an empty set and passing by
-# inspecting nothing. Assert emptiness here, at the point of use, exactly as the
-# devflow-implement duplicate-notice mirror does for its own DI_CMD_NS.
+# and loop.
+#
+# Issue #989 moved the notice TEXT out of an inline workflow `NOTE=` assignment
+# into the bundled helper (MODE=notice), so the trigger-token guarantee is now
+# asserted against the helper's PRODUCED message for EVERY cause — a rewording
+# that kept an inline literal while changing the produced text could no longer
+# pass a grep over the literal. Anti-vacuity: each cause's notice is captured and
+# an expected substring is asserted present, so an empty/absent notice fails.
+RS_HELPER="$LIB/../scripts/dedupe-review-command.sh"
+assert_eq "app-token: helper notice(legacy) carries the legacy 'already running' text (no vacuous pass)" "1" \
+  "$(MODE=notice CAUSE=legacy-check-run HEAD=deadbeef1234 bash "$RS_HELPER" | grep -c 'already running for this commit')"
+assert_eq "app-token: helper notice(inflight-review) carries the in-progress text (no vacuous pass)" "1" \
+  "$(MODE=notice CAUSE=inflight-review HEAD=deadbeef1234 bash "$RS_HELPER" | grep -c 'already in progress')"
+# Capture ALL three cause notices once, then scan the produced text over EVERY
+# declared command namespace: no notice arm may carry a command token in any
+# namespace (it would self-trigger under the App token). The set is DERIVED
+# ($SUITE_CMD_NS, built above from the declared plugin identity), so it follows a
+# namespace addition automatically and does not go vacuous when the transitional
+# namespace is eventually retired.
+RS_NOTICE_ALL="$(for _rs_c in legacy-check-run legacy-workflow-run inflight-review; do MODE=notice CAUSE="$_rs_c" HEAD=deadbeef1234 bash "$RS_HELPER"; done)"
+# NON-VACUITY, asserted LOCALLY rather than borrowed (see the DI_CMD_NS mirror):
+# $SUITE_CMD_NS is built far upstream, so assert emptiness here, at the point of use.
 assert_eq "app-token: the scanned command-namespace set is non-empty (guard is not vacuous)" \
   "yes" "$(case "$SUITE_CMD_NS" in *[!\ ]*) echo yes ;; *) echo no ;; esac)"
+# Anti-vacuity for the capture itself: RS_NOTICE_ALL must be non-empty (a broken
+# helper invocation must not pass the absence loops below by inspecting nothing).
+assert_eq "app-token: the helper notice capture is non-empty (absence loops are not vacuous)" \
+  "yes" "$(case "$RS_NOTICE_ALL" in *[!\ ]*) echo yes ;; *) echo no ;; esac)"
 for _rs_ns in $SUITE_CMD_NS; do
-  assert_eq "app-token: suppression notice contains no /$_rs_ns: phrase in its NOTE body" "0" \
-    "$(grep 'NOTE=' <<< "$RS_NOTICE" | grep -c "/$_rs_ns:" || true)"
+  assert_eq "app-token: helper notices contain no /$_rs_ns: command phrase" "0" \
+    "$(grep -c "/$_rs_ns:" <<< "$RS_NOTICE_ALL" || true)"
 done
 # PLANTED-DEFECT CONTROL: each namespace's check must actually RED on the leak it
-# claims to catch. A green row over an expression that can no longer match proves
-# nothing, so the control first asserts the mutation really changed the body.
+# claims to catch. Inject a namespace phrase into a copy of the produced notices
+# and confirm the grep catches it.
 for _rs_ns in $SUITE_CMD_NS; do
-  _RS_PLANTED="${RS_NOTICE/NOTE=/NOTE=see \/$_rs_ns:review }"
+  _RS_PLANTED="$RS_NOTICE_ALL"$'\n'"see /$_rs_ns:review"
   assert_eq "app-token: CONTROL — the planted /$_rs_ns: mutation really changed the notice body" \
-    "no" "$([ "$_RS_PLANTED" = "$RS_NOTICE" ] && echo yes || echo no)"
-  assert_eq "app-token: CONTROL — a planted /$_rs_ns: phrase turns the suppression-notice check RED" \
-    "yes" "$([ "$(grep 'NOTE=' <<< "$_RS_PLANTED" | grep -c "/$_rs_ns:" || true)" -gt 0 ] && echo yes || echo no)"
+    "no" "$([ "$_RS_PLANTED" = "$RS_NOTICE_ALL" ] && echo yes || echo no)"
+  assert_eq "app-token: CONTROL — a planted /$_rs_ns: phrase turns the helper-notice check RED" \
+    "yes" "$([ "$(grep -c "/$_rs_ns:" <<< "$_RS_PLANTED" || true)" -gt 0 ] && echo yes || echo no)"
 done
-# Scoped to the NOTE= body line: the step's own de-trigger rationale comment
-# legitimately names `@claude` in prose.
-assert_eq "app-token: suppression notice contains no @claude in its NOTE body" "0" \
-  "$(grep 'NOTE=' <<< "$RS_NOTICE" | grep -c '@claude' || true)"
+assert_eq "app-token: helper notices contain no @claude token" "0" \
+  "$(grep -c '@claude' <<< "$RS_NOTICE_ALL" || true)"
 # The notice step deliberately has no continue-on-error; its best-effort
 # contract rests entirely on the `if ! err=` guard around the single gh call
 # plus the specific breadcrumb. Dropping the guard would turn a transient

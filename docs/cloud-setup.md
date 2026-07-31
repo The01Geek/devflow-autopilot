@@ -36,6 +36,20 @@ on a pull request; `devflow.yml`'s `gate` job authorizes the actor through
 `scripts/authorize-actor.sh`, and the review runs. **An outside fork contributor cannot
 self-trigger a PRFlow review — a repository collaborator must post the comment.**
 
+**Duplicate `/prflow:review` commands are deduped (issue #989).** A second standalone
+`/prflow:review` on a pull request while a review of the same commit is already in flight is
+**suppressed** — the second run's `command` job is skipped and a notice naming the reason is
+posted — so one head receives one review rather than several billed engine runs and duplicate
+verdicts. `devflow.yml`'s `review_dedupe` job detects the in-flight review from the review
+engine's own seeded live progress comment (`devflow:review-progress`, `🚀 Reviewing`,
+bot-authored, fresh) via the bundled `scripts/dedupe-review-command.sh` helper. It **fails
+open** in every failure direction (a missed suppression only reproduces a recoverable
+double-comment; a wrong one would swallow a review you asked for), never suppresses a
+`/prflow:review-and-fix` or a `devflow:review-backstop` auto-resume, and does nothing when
+`devflow_review.live_progress_comment_enabled` is off (no seeded comment → present-day
+behavior). This repair reaches your repository on upgrade, because `install.sh` copies
+`devflow.yml`. Full behavior: [`workflow-triggers.md`](workflow-triggers.md).
+
 **If you already installed the tier, you keep it.** `install.sh`'s
 `prune_stale_devflow_workflows()` is deliberately not extended, so re-running the installer
 leaves the three files in place and your auto-review keeps working. That continues to hold

@@ -1879,6 +1879,207 @@ assert_eq "di: same stall-backstop-audit marker literal exists in the workflow (
 rm -rf "$DI_STUB"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "dedupe-review-command.sh (Candidate C — issue #989)"
+# ────────────────────────────────────────────────────────────────────────────
+# The command path's duplicate check: suppress a redundant standalone
+# /prflow:review when a review of the same PR is already IN FLIGHT, detected from
+# the review engine's seeded live progress comment (devflow:review-progress,
+# 🚀 Reviewing, bot-authored, fresh). The gh comments query is stubbed via
+# DEVFLOW_GH; DRC_COMMENTS feeds the comment set and DRC_GH_RC simulates a query
+# failure. DEDUPE_NOW_EPOCH fixes "now" so the liveness age-bound is deterministic
+# (the fixture updated_at 2001-09-09T01:45:40Z is epoch 999999940, 60s before the
+# fixed now 1000000000; the "frozen" fixture is years old).
+DRC="$LIB/../scripts/dedupe-review-command.sh"
+DRC_STUB="$(mktemp -d)"
+cat > "$DRC_STUB/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"api --paginate"*)
+    [ -n "${DRC_ARGS_REC:-}" ] && echo "$*" >> "$DRC_ARGS_REC"
+    [ -n "${DRC_GH_RC:-}" ] && exit "$DRC_GH_RC"
+    printf '%s' "${DRC_COMMENTS-[]}" ;;
+  *) echo "" ;;
+esac
+STUB
+chmod +x "$DRC_STUB/gh"
+# Fixed clock + a fresh in-flight comment body the review engine really seeds.
+DRC_NOW=1000000000
+DRC_FRESH='2001-09-09T01:45:40Z'
+DRC_INFLIGHT='[{"body":"<!-- devflow:review-progress run=555-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"},"updated_at":"'"$DRC_FRESH"'"}]'
+# detect helper: RUN_ID=999 is THIS run (so run=555 comments are peers, run=999 is
+# self). stderr is NOT swallowed here, so a caller can capture the breadcrumb with
+# its own `2>FILE`; `$(...)` still captures stdout only.
+drc() { env DEVFLOW_GH="$DRC_STUB/gh" REPO=o/r RUN_ID=999 DEDUPE_NOW_EPOCH="$DRC_NOW" \
+  DRC_COMMENTS="$1" PR="${2:-42}" "${@:3}" bash "$DRC"; }
+
+# suppresses-the-redundant-case — an in-flight bot review-progress comment on THIS
+# PR, fresh, authored by a peer run → suppress.
+assert_eq "drc: suppresses-the-redundant-case (in-flight review on this PR)" "suppress=true" \
+  "$(drc "$DRC_INFLIGHT")"
+
+# does-not-suppress-the-legitimate-case — no in-flight comment at all (the boundary
+# the fail-open contract protects: a re-request when nothing is running).
+assert_eq "drc: does-not-suppress-the-legitimate-case (no in-flight comment)" "suppress=false" \
+  "$(drc '[]')"
+
+# does-not-suppress-on-a-frozen-progress-comment (open question 1) — a killed run
+# leaves 🚀 Reviewing frozen; its updated_at is stale, so liveness fails → no suppress.
+DRC_FROZEN='[{"body":"<!-- devflow:review-progress run=555-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"},"updated_at":"2000-01-01T00:00:00Z"}]'
+assert_eq "drc: does-not-suppress-on-a-frozen-progress-comment (stale updated_at)" "suppress=false" \
+  "$(drc "$DRC_FROZEN")"
+
+# author check (open question 3) — a forged marker from a non-bot (user.type
+# "User") is NOT trusted → no suppress, even though it is fresh and marker-carrying.
+DRC_FORGED='[{"body":"<!-- devflow:review-progress run=555-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"User"},"updated_at":"'"$DRC_FRESH"'"}]'
+assert_eq "drc: forged (non-bot) progress marker is not trusted → no suppress" "suppress=false" \
+  "$(drc "$DRC_FORGED")"
+
+# self-exclusion — a review-progress comment keyed to THIS run (run=999) is this
+# run's own comment and must not suppress (the Candidate-C analogue of the
+# implement path's self-only case).
+DRC_SELF='[{"body":"<!-- devflow:review-progress run=999-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"},"updated_at":"'"$DRC_FRESH"'"}]'
+assert_eq "drc: self run-keyed progress comment → no suppress" "suppress=false" \
+  "$(drc "$DRC_SELF")"
+
+# terminal review — a bot progress comment already flipped past 🚀 Reviewing is a
+# COMPLETED review, not an in-flight one → no suppress.
+DRC_TERMINAL='[{"body":"<!-- devflow:review-progress run=555-1 -->\n**Status:** 🎉 APPROVE","user":{"type":"Bot"},"updated_at":"'"$DRC_FRESH"'"}]'
+assert_eq "drc: terminal (past 🚀 Reviewing) progress comment → no suppress" "suppress=false" \
+  "$(drc "$DRC_TERMINAL")"
+
+# does-not-suppress-a-backstop-resume — the fixture is built from the body
+# scripts/post-review-backstop-comment.sh REALLY writes (the transitional
+# /devflow:review token + the devflow:review-backstop marker), asserting no
+# suppression EVEN WITH an active in-flight peer present. Fails first because no
+# marker predicate exists today; the fixture is the producer's own body so a
+# predicate reading the canonical token would pass the test yet fail in production.
+DRC_BACKSTOP_BODY="$(printf '/devflow:review\n<!-- devflow:review-backstop head=abcdef0 attempt=2 -->\n')"
+assert_eq "drc: does-not-suppress-a-backstop-resume (marker body, active peer present)" "suppress=false" \
+  "$(env DEVFLOW_GH="$DRC_STUB/gh" REPO=o/r RUN_ID=999 DEDUPE_NOW_EPOCH="$DRC_NOW" \
+      DRC_COMMENTS="$DRC_INFLIGHT" PR=42 TRIGGER_BODY="$DRC_BACKSTOP_BODY" bash "$DRC" 2>/dev/null)"
+
+# fails-open-when-jq-is-unresolvable — DEVFLOW_JQ at a non-existent binary → exit 0,
+# no suppress, and a breadcrumb NAMING the unresolved resolver (not an empty decision).
+DRC_JQ_ERR="$(mktemp)"
+assert_eq "drc: fails-open-when-jq-is-unresolvable (no suppress)" "suppress=false" \
+  "$(env DEVFLOW_GH="$DRC_STUB/gh" REPO=o/r RUN_ID=999 DEDUPE_NOW_EPOCH="$DRC_NOW" \
+      DRC_COMMENTS="$DRC_INFLIGHT" PR=42 DEVFLOW_JQ=/nonexistent/jq-binary bash "$DRC" 2>"$DRC_JQ_ERR")"
+assert_eq "drc: jq-unresolvable emits a jq-naming breadcrumb (not an empty decision)" "1" \
+  "$(grep -c 'could not resolve jq' "$DRC_JQ_ERR")"
+rm -f "$DRC_JQ_ERR"
+
+# ── fails-open-on-every-degraded-arm: the malformed-response matrix (issue #989).
+# Each row asserts suppress=false AND its own specific breadcrumb.
+# (a) non-zero query exit.
+DRC_A_ERR="$(mktemp)"
+assert_eq "drc: matrix — query failure → no suppress" "suppress=false" \
+  "$(env DEVFLOW_GH="$DRC_STUB/gh" REPO=o/r RUN_ID=999 DEDUPE_NOW_EPOCH="$DRC_NOW" \
+      DRC_GH_RC=1 PR=42 bash "$DRC" 2>"$DRC_A_ERR")"
+assert_eq "drc: matrix — query failure breadcrumb" "1" \
+  "$(grep -c 'comments query failed' "$DRC_A_ERR")"
+rm -f "$DRC_A_ERR"
+# (b) empty stdout (a --paginate over an empty body prints nothing).
+DRC_B_ERR="$(mktemp)"
+assert_eq "drc: matrix — empty response → no suppress" "suppress=false" \
+  "$(drc '' 42 2>"$DRC_B_ERR")"
+assert_eq "drc: matrix — empty-response breadcrumb" "1" \
+  "$(grep -c 'empty response' "$DRC_B_ERR")"
+rm -f "$DRC_B_ERR"
+# (c) stdout that is not valid JSON.
+DRC_C_ERR="$(mktemp)"
+assert_eq "drc: matrix — not-valid-JSON → no suppress" "suppress=false" \
+  "$(drc 'not-json{' 42 2>"$DRC_C_ERR")"
+assert_eq "drc: matrix — not-valid-JSON breadcrumb" "1" \
+  "$(grep -c 'could not parse the comments response' "$DRC_C_ERR")"
+rm -f "$DRC_C_ERR"
+# (d) valid JSON that is not an array.
+DRC_D_ERR="$(mktemp)"
+assert_eq "drc: matrix — not-a-JSON-array → no suppress" "suppress=false" \
+  "$(drc '{"message":"Not Found"}' 42 2>"$DRC_D_ERR")"
+assert_eq "drc: matrix — not-a-JSON-array breadcrumb" "1" \
+  "$(grep -c 'was not a JSON array' "$DRC_D_ERR")"
+rm -f "$DRC_D_ERR"
+# (e) an in-flight candidate whose updated_at is null (liveness cannot be
+#     established) → not counted, its own breadcrumb, no suppress.
+DRC_E_ERR="$(mktemp)"
+DRC_NULLDATE='[{"body":"<!-- devflow:review-progress run=555-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"},"updated_at":null}]'
+assert_eq "drc: matrix — null updated_at candidate → no suppress" "suppress=false" \
+  "$(drc "$DRC_NULLDATE" 42 2>"$DRC_E_ERR")"
+assert_eq "drc: matrix — null updated_at breadcrumb (liveness could not be established)" "1" \
+  "$(grep -c 'unparseable updated_at' "$DRC_E_ERR")"
+rm -f "$DRC_E_ERR"
+# (f) a comment entry missing the fields the check reads entirely (an ordinary
+#     conversation comment) → simply no match, no suppress.
+assert_eq "drc: matrix — unrelated conversation comment → no suppress" "suppress=false" \
+  "$(drc '[{"body":"looks good to me","user":{"type":"User"},"updated_at":"'"$DRC_FRESH"'"}]')"
+# (g) unresolved/invalid thread key → no suppress + its own breadcrumb.
+DRC_G_ERR="$(mktemp)"
+assert_eq "drc: matrix — invalid PR thread key → no suppress" "suppress=false" \
+  "$(drc "$DRC_INFLIGHT" notnum 2>"$DRC_G_ERR")"
+assert_eq "drc: matrix — invalid PR thread key breadcrumb" "1" \
+  "$(grep -c 'PR thread number unresolved/invalid' "$DRC_G_ERR")"
+rm -f "$DRC_G_ERR"
+
+# the query is scoped to THIS PR's comments endpoint (a different thread's
+# in-flight review is simply not in this PR's comment set). Record the argv.
+DRC_REC="$(mktemp)"
+env DEVFLOW_GH="$DRC_STUB/gh" REPO=o/r RUN_ID=999 DEDUPE_NOW_EPOCH="$DRC_NOW" \
+  DRC_COMMENTS='[]' PR=42 DRC_ARGS_REC="$DRC_REC" bash "$DRC" >/dev/null 2>&1
+assert_eq "drc: comments query is scoped to this PR's issues/<n>/comments endpoint" "1" \
+  "$(grep -c -- 'repos/o/r/issues/42/comments' "$DRC_REC")"
+rm -f "$DRC_REC"
+
+# ── notice mode: composition lives in the helper (not an inline workflow NOTE=),
+# so the produced message is what the trigger-token guard drives. Anti-vacuity +
+# per-cause text (the trigger-token absence itself is driven in lib/test/run.sh
+# over the DERIVED command-namespace set).
+assert_eq "drc: notice(legacy-check-run) names the Devflow Review check (consumer's real action)" "1" \
+  "$(env MODE=notice CAUSE=legacy-check-run HEAD=abcdef1234 bash "$DRC" | grep -c 'already running for this commit')"
+assert_eq "drc: notice(inflight-review) states an in-progress review (the new cause's own reason)" "1" \
+  "$(env MODE=notice CAUSE=inflight-review HEAD=abcdef1234 bash "$DRC" | grep -c 'already in progress')"
+assert_eq "drc: notice(unknown cause) emits an empty notice + a breadcrumb (fail-open)" "notice=" \
+  "$(env MODE=notice CAUSE=bogus HEAD=abcdef1234 bash "$DRC" 2>/dev/null)"
+
+# Coupled cross-file invariants (issue #989): the marker literals the helper keys
+# on MUST match the review engine's seed template and the backstop producer.
+RSKILL="$LIB/../skills/review/SKILL.md"
+assert_eq "drc: helper's review-progress marker matches skills/review/SKILL.md's seed" "true" \
+  "$(grep -q "PROGRESS_MARKER='<!-- devflow:review-progress'" "$DRC" \
+     && grep -q '<!-- devflow:review-progress' "$RSKILL" && echo true || echo false)"
+assert_eq "drc: helper's 🚀 Reviewing status matches the seed template" "true" \
+  "$(grep -q "INFLIGHT_STATUS='🚀 Reviewing'" "$DRC" \
+     && grep -q '🚀 Reviewing' "$RSKILL" && echo true || echo false)"
+DRC_BACKSTOP="$LIB/../scripts/request-review-backstop.sh"
+assert_eq "drc: helper's review-backstop marker matches the backstop producer" "true" \
+  "$(grep -q "BACKSTOP_MARKER='<!-- devflow:review-backstop'" "$DRC" \
+     && grep -q 'devflow:review-backstop' "$DRC_BACKSTOP" && echo true || echo false)"
+
+# ── workflow wiring (structural): the guard invokes the helper at the VENDORED
+# path, GUARDS the invocation so a non-zero exit fails open, emits the deciding
+# cause, and the notice step composes via the helper (not an inline literal).
+RDWF="$LIB/../.github/workflows/devflow.yml"
+assert_eq "drc: guard invokes the helper at its vendored path" "1" \
+  "$(grep -cF 'CC_HELPER=.devflow/vendor/devflow/scripts/dedupe-review-command.sh' "$RDWF")"
+assert_eq "drc: guard checks the helper is executable before invoking (fail-open on absence)" "1" \
+  "$(grep -cF 'if [ ! -x "$CC_HELPER" ]; then' "$RDWF")"
+assert_eq "drc: guard invocation is wrapped so a non-zero exit routes to fail-open" "1" \
+  "$(grep -cF 'elif ! CC_OUT="$(MODE=detect' "$RDWF")"
+assert_eq "drc: guard emits the deciding cause into GITHUB_OUTPUT" "1" \
+  "$(grep -cF 'echo "cause=$CAUSE" >> "$GITHUB_OUTPUT"' "$RDWF")"
+assert_eq "drc: notice step composes via the helper at its vendored path (MODE=notice)" "1" \
+  "$(grep -cF 'NOTICE_HELPER=.devflow/vendor/devflow/scripts/dedupe-review-command.sh' "$RDWF")"
+assert_eq "drc: notice step drives the helper in notice mode with the decided cause" "1" \
+  "$(grep -cF 'MODE=notice CAUSE="$CAUSE" HEAD="$HEAD" bash "$NOTICE_HELPER"' "$RDWF")"
+# Both legacy signals are retained byte-for-byte (issue #989 AC): the Devflow
+# Review check-run query and the devflow-review.yml workflow-run query both survive.
+assert_eq "drc: legacy Signal 1 (Devflow Review check-run query) retained" "1" \
+  "$(grep -cF 'select(.name=="Devflow Review"' "$RDWF")"
+assert_eq "drc: legacy Signal 2 (devflow-review.yml workflow-run query) retained" "1" \
+  "$(grep -cF -- '--workflow devflow-review.yml' "$RDWF")"
+
+rm -rf "$DRC_STUB"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "authorize-actor.sh (allowed_users filter)"
 # ────────────────────────────────────────────────────────────────────────────
 AUTH="$LIB/../scripts/authorize-actor.sh"

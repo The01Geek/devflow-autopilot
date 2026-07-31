@@ -10,7 +10,10 @@
 # in-flight run (wrong run), and `cancel-in-progress: false` QUEUES the duplicate
 # so it eventually runs (not ignored). GitHub has no "skip if already running"
 # primitive, so we detect duplicates ourselves here and set `duplicate=true`,
-# which the workflow uses to skip the billable job and post a brief notice.
+# which the workflow uses to skip the billable job and post a brief notice. This
+# is repository doctrine covering BOTH duplicate-command paths — this implement
+# path and the /prflow:review command path (scripts/dedupe-review-command.sh,
+# issue #989) — so both are gate-stage checks rather than concurrency groups.
 #
 # How "same thread" is identified: devflow-implement.yml sets a `run-name`
 # embedding the issue/PR number the command was posted on (CONTEXT_NUMBER). We
