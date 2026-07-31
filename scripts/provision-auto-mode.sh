@@ -20,7 +20,7 @@
 # CONSENT: ~/.claude/settings.json affects ALL of the user's projects, not just this
 # repo, so this helper never edits it without explicit consent. The DEFAULT (no
 # --apply) prints the exact one-line setting for the user to add themselves and
-# writes NOTHING. --apply performs the write, and /devflow:init passes it only after
+# writes NOTHING. --apply performs the write, and /prflow:init passes it only after
 # the user explicitly opts in.
 #
 # Merge discipline mirrors provision-local-settings.sh: additive, non-clobbering
@@ -139,7 +139,7 @@ if [ "$APPLY" -ne 1 ]; then
   printf '    %s\n' "$SETTING_LINE"
   log "(selectable only — it is never turned on for you, and plan/model/admin gates still apply.)"
   log "If you have deliberately set it to \"0\" to disable auto mode, leave that as-is — don't add this line."
-  log "Or, to have /devflow:init add it for you, re-run with explicit consent: provision-auto-mode.sh --apply"
+  log "Or, to have /prflow:init add it for you, re-run with explicit consent: provision-auto-mode.sh --apply"
   exit 0
 fi
 
@@ -158,7 +158,7 @@ fi
 SETTINGS_DIR="$(dirname "$SETTINGS")"
 
 if ! "$DEVFLOW_JQ" --version >/dev/null 2>&1; then
-  warn "no usable jq (missing or not executable); cannot provision $SETTINGS (install jq, or set DEVFLOW_JQ to a working jq/jq.exe, then re-run /devflow:init)."
+  warn "no usable jq (missing or not executable); cannot provision $SETTINGS (install jq, or set DEVFLOW_JQ to a working jq/jq.exe, then re-run /prflow:init)."
   exit 2
 fi
 
@@ -184,7 +184,7 @@ if [ -f "$SETTINGS" ]; then
   fi
   if [ -s "$SETTINGS" ] && grep -q '[^[:space:]]' "$SETTINGS"; then
     if ! EXISTING="$("$DEVFLOW_JQ" . "$SETTINGS" 2>/dev/null)"; then
-      warn "existing $SETTINGS is not valid JSON; left it unchanged and provisioned nothing (fix or remove it, then re-run /devflow:init)."
+      warn "existing $SETTINGS is not valid JSON; left it unchanged and provisioned nothing (fix or remove it, then re-run /prflow:init)."
       exit 2
     fi
   fi
@@ -234,7 +234,7 @@ if ! BAD_SHAPE="$(printf '%s' "$EXISTING" | "$DEVFLOW_JQ" -r --argjson defaults 
   exit 2
 fi
 if [ -n "$BAD_SHAPE" ]; then
-  warn "existing $SETTINGS is malformed for provisioning ($BAD_SHAPE); left it unchanged and provisioned nothing (fix or remove it, then re-run /devflow:init)."
+  warn "existing $SETTINGS is malformed for provisioning ($BAD_SHAPE); left it unchanged and provisioned nothing (fix or remove it, then re-run /prflow:init)."
   exit 2
 fi
 

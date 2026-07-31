@@ -4,7 +4,7 @@
 # provision-local-settings.sh — provision a consumer repo's PROJECT
 # .claude/settings.json with DevFlow's local/interactive-tier conveniences.
 #
-# Invoked ONLY from the /devflow:init skill flow — never from scaffold-config.sh
+# Invoked ONLY from the /prflow:init skill flow — never from scaffold-config.sh
 # or install.sh. The cloud (CI) tier runs under claude-code-action with its own
 # deterministic allowlist profile and consumes neither a local marketplace
 # install nor a local permission mode, so a settings file there is pointless;
@@ -61,7 +61,7 @@ SETTINGS_DIR="$TARGET_ROOT/.claude"
 SETTINGS="$SETTINGS_DIR/settings.json"
 
 if ! "$DEVFLOW_JQ" --version >/dev/null 2>&1; then
-  warn "no usable jq (missing or not executable); cannot provision $SETTINGS (install jq, or set DEVFLOW_JQ to a working jq/jq.exe, then re-run /devflow:init)."
+  warn "no usable jq (missing or not executable); cannot provision $SETTINGS (install jq, or set DEVFLOW_JQ to a working jq/jq.exe, then re-run /prflow:init)."
   exit 2
 fi
 
@@ -130,7 +130,7 @@ if [ -f "$SETTINGS" ]; then
   fi
   if [ -s "$SETTINGS" ] && grep -q '[^[:space:]]' "$SETTINGS"; then
     if ! EXISTING="$("$DEVFLOW_JQ" . "$SETTINGS" 2>/dev/null)"; then
-      warn "existing $SETTINGS is not valid JSON; left it unchanged and provisioned nothing (fix or remove it, then re-run /devflow:init)."
+      warn "existing $SETTINGS is not valid JSON; left it unchanged and provisioned nothing (fix or remove it, then re-run /prflow:init)."
       exit 2
     fi
   fi
@@ -190,7 +190,7 @@ if ! BAD_SHAPE="$(printf '%s' "$EXISTING" | "$DEVFLOW_JQ" -r --argjson defaults 
   exit 2
 fi
 if [ -n "$BAD_SHAPE" ]; then
-  warn "existing $SETTINGS is malformed for provisioning ($BAD_SHAPE); left it unchanged and provisioned nothing (fix or remove it, then re-run /devflow:init)."
+  warn "existing $SETTINGS is malformed for provisioning ($BAD_SHAPE); left it unchanged and provisioned nothing (fix or remove it, then re-run /prflow:init)."
   exit 2
 fi
 
