@@ -51,11 +51,11 @@
       "default": {
         "effort": "high"
       },
-      "devflow:checklist-deduper": {
+      "prflow:checklist-deduper": {
         "model": "claude-sonnet-5",
         "effort": "medium"
       },
-      "devflow:code-reviewer": {
+      "prflow:code-reviewer": {
         "model": "claude-opus-5",
         "effort": "high",
         "iterations": "first-only"

@@ -11,7 +11,7 @@ kind: growth
 
 ## Justification
 
-- Issue #628 closes a calibration failure mode in the two `/devflow:implement`
+- Issue #628 closes a calibration failure mode in the two `/prflow:implement`
   discovery/planning subagents: both bodies mandate confident, decisive output yet grant
   no arithmetic or reliable-counting channel, so a volunteered measurement class (a word
   count, a size total, budget arithmetic) ships with mandated confidence and no calibration
@@ -31,7 +31,7 @@ kind: growth
   scoping clause after its line-numbers mandate stating that `file:line` precision is for the
   ephemeral in-context analysis while committed documentation references bare paths and symbol
   names (line numbers rot). Both paragraphs are repo-agnostic — the agents ship into consumer
-  repos through the plugin vendor channel — so they carry no DevFlow-internal paths. The
+  repos through the plugin vendor channel — so they carry no PRFlow-internal paths. The
   explorer's larger delta is the extra scoping sentence it alone carries.
 - **`skills/implement/phases/phase-2-implement.md` (+1637 bytes).** §2.2 Path B gains one
   re-derivation paragraph directly after the blueprint-hold line: the orchestrator

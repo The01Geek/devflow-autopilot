@@ -109,7 +109,7 @@ records the property unestablished by construction rather than consuming the gen
 
 ## Grants and probes
 
-None. `/devflow:create-issue` runs on the local/interactive tier only (no `GITHUB_ACTIONS`), so no
+None. `/prflow:create-issue` runs on the local/interactive tier only (no `GITHUB_ACTIONS`), so no
 `.github/workflows/` `TOOLS=`/`--allowed-tools` grant is involved and `lib/capability-profiles.json`
 is untouched. The mechanism introduces no new host binary: hashing reuses the state owner's existing
 `git hash-object --stdin --no-filters` path, and the generator is reached by in-process import, not

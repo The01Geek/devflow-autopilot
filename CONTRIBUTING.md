@@ -1,14 +1,14 @@
-# Contributing to DevFlow
+# Contributing to PRFlow
 
-Thanks for your interest in improving DevFlow! This guide covers the basics.
+Thanks for your interest in improving PRFlow! This guide covers the basics.
 
 ## Repository layout
 
-DevFlow is a single Claude Code plugin published at the repository root:
+PRFlow is a single Claude Code plugin published at the repository root:
 
 ```
 .claude-plugin/   plugin.json + marketplace.json (manifests)
-skills/           the /devflow:implement, /devflow:review, /devflow:docs, … skills (SKILL.md each)
+skills/           the /prflow:implement, /prflow:review, /prflow:docs, … skills (SKILL.md each)
 agents/           subagent definitions
 lib/              shell + jq helpers for the retrospective loop, plus lib/test/
 scripts/          Python + shell CLIs (workpad.py, config-get.sh, …)
@@ -23,7 +23,7 @@ docs/             cloud-setup guide and other docs
 
 Run `bash lib/preflight.sh` to verify your environment.
 
-**Windows (stock Python): resolving `python3`.** A stock Windows Python install (python.org / `winget install python`) puts Python on PATH as `python` and the `py -3` launcher — there is **no `python3`**, so every DevFlow helper and the agent-typed `python3 <path>` calls fail. When `python3` is absent but a `>=3.11` Python is reachable as `python` or `py -3`, run the consent-gated provisioner to install a small `python3` shim onto your PATH:
+**Windows (stock Python): resolving `python3`.** A stock Windows Python install (python.org / `winget install python`) puts Python on PATH as `python` and the `py -3` launcher — there is **no `python3`**, so every PRFlow helper and the agent-typed `python3 <path>` calls fail. When `python3` is absent but a `>=3.11` Python is reachable as `python` or `py -3`, run the consent-gated provisioner to install a small `python3` shim onto your PATH:
 
 ```bash
 bash scripts/provision-python3-shim.sh --apply
@@ -82,7 +82,7 @@ tree is committed, so do not re-run the complete suite mid-iteration just to
 clear it. When the complete suite does run and fails, read its terminal
 `Failure recap` from the captured output rather than relaunching it. The operative statement of this
 policy for agent runs lives in the prompt extensions under
-`.devflow/prompt-extensions/`; the cloud `/devflow:implement` in-env gate
+`.devflow/prompt-extensions/`; the cloud `/prflow:implement` in-env gate
 (issue #405) is untouched by it.
 
 Each module is also executed by the full suite through the fail-closed
@@ -285,22 +285,23 @@ are read by nobody but the agent. The third (`291(AC4)`, the
 1** instead — same retention, different reason and a coupled copy-removal
 requirement. Do not generalize one `#291` pin's arm to the others.
 
-**Current state — arm 2 is proven reachable and its population is non-empty (issue
-#946 step 2).** Arm 2 selected nothing until #885, because every census row was
+**Current state — arm 2 is proven reachable and its population is empty (issue #946
+step 3).** Arm 2 selected nothing until #885, because every census row was
 adjudicated `boundary`. #885's re-adjudication pass walked every mechanically
 prose-bucketed site, confirmed per site whether any tool or consumer reads the pinned
 literal, and moved the ones nothing reads into `prose-sole-copy` — and the sweep that
 immediately followed retired exactly those pins. **A retired site's row goes with it**
 (a stale `literal:` key makes the classifier error), which drained the population back
-to boundary-only. #946 then refilled it: step 1 brought
-`lib/test/modules/review-and-fix-contract.sh`'s wrapper-routed pins into the corpus, and
-step 2's re-adjudication moved the sites nothing reads into `prose-sole-copy`, so arm 2
-selects a real population *today*, awaiting the step-3 sweep that will retire it and
-drain it again. Read the authorization record for either pass in history — the census as
-of the re-adjudication commit, plus the `pin-corpus-adjudication-changes` bundles, which
-name every key that moved and every key that went. Expect the same shape every time: a
-prose-bucketed population exists only between a re-adjudication and the sweep it
-authorizes.
+to boundary-only. #946 then refilled and drained it again: step 1 brought
+`lib/test/modules/review-and-fix-contract.sh`'s wrapper-routed pins into the corpus,
+step 2's re-adjudication moved the 28 sites nothing reads into `prose-sole-copy`, and
+step 3's sweep retired exactly those 28 pins with their rows. So arm 2 selects nothing
+*today*, and a fresh selection needs a fresh re-adjudication pass — not because the arm
+is unreachable, but because nothing currently sits in a prose bucket. Read the
+authorization record for either pass in history — the census as of the re-adjudication
+commit, plus the `pin-corpus-adjudication-changes` bundles, which name every key that
+moved and every key that went. Expect the same shape every time: a prose-bucketed
+population exists only between a re-adjudication and the sweep it authorizes.
 
 Arm 2's condition reads the *recorded* `bucket_final` rather than an in-the-moment
 judgment about who reads the prose, because the record is what a later reader can audit
@@ -310,10 +311,9 @@ cannot drift ahead of an authorization.
 `lib/test/test_residual_prose_retirement_manifest.py` is arm 2's coupled site: it holds
 the shipped census to the legal bucket set, and holds every prose-bucketed row to arm
 2's own precondition — a `counted_occurrences` matching its bucket, and an explicit
-maintainer rationale rather than the classifier's mechanical fallback. With #946 step 2's
-population in the census, that per-row half now ranges over a non-empty set and is live
-coverage of arm 2's precondition; it reverts to constraining only the *next*
-re-adjudication once the step-3 sweep drains the population again.
+maintainer rationale rather than the classifier's mechanical fallback. With #946 step 3's
+sweep having drained the population, that per-row half again ranges over an empty set and
+constrains only the *next* re-adjudication; the bucket-set half stays live over every row.
 
 One limit on that population is worth knowing before you read a missing row as
 permission. A site adjudicated `boundary` in the #885 or #946 pass was adjudicated **on
@@ -322,7 +322,8 @@ home — so re-litigating one needs an evidence argument, not a fresh opinion. T
 census's other former blind spot is closed: pins routed through the module-private
 wrapper `lib/test/modules/review-and-fix-contract.sh`'s `_raf_pin_unique` used to sit
 outside `PIN_CORPUS_SOURCES` and so outside the corpus entirely, with arm 0 governing
-them; #946 step 1 brought that module in, and step 2 adjudicated all 44 of its sites.
+them; #946 step 1 brought that module in, step 2 adjudicated all 44 of its sites, and
+step 3 retired the 28 of them nothing reads.
 
 Refresh the census with a two-commit, inventory-free snapshot protocol: preserve the
 prior snapshot in history; delete the inventory in the source/retirement commit;
@@ -427,7 +428,7 @@ the emitted `conflict-path`/`conflict-sibling` paths is an ordinary hand-merge, 
 `--list` that cannot run — or that emits no `artifact`/`conflict-class` lines — means
 needs-human-reconciliation and stop, never a guessed hand-merge.
 
-Autonomous `/devflow:implement`, `/devflow:review-and-fix`, and `/devflow:receiving-code-review`
+Autonomous `/prflow:implement`, `/prflow:review-and-fix`, and `/prflow:receiving-code-review`
 runs apply this automatically: the rule lives, byte-identical, in the three
 `.devflow/prompt-extensions/` files, and each skill's in-run conflict arm carries a generic
 pointer to it. Adding a new artifact row therefore extends the conflict rule with no prompt
@@ -600,7 +601,7 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
   that: it invokes the helper identically on every tier. When you **add a new skill**, copy this step verbatim (substituting the
   new skill's directory name) so it inherits the convention, **and** add the new skill's
   name plus a one-line hint to the prompt-extension scaffold list in
-  `scripts/scaffold-config.sh` — `/devflow:init` scaffolds one inert
+  `scripts/scaffold-config.sh` — `/prflow:init` scaffolds one inert
   `<skill-name>.md.example` per skill, so a new skill needs a matching example. Two
   coverage tests in `lib/test/run.sh` enforce both halves: one enumerates every
   `skills/*/SKILL.md` and fails if a skill omits the standardized step, and the
@@ -609,7 +610,7 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
 - **A skill loads the extensions its behavior draws on — usually one, sometimes more
   (issue #620).** The step above is a floor, not a cap: a skill that applies *another*
   skill's principles without invoking that skill loads that skill's extension too, so the
-  policy follows the behavior rather than the invocation. `/devflow:review-and-fix` is the
+  policy follows the behavior rather than the invocation. `/prflow:review-and-fix` is the
   instance — its preamble loads `review-and-fix` and then `receiving-code-review`, because
   the fix loop applies those principles without ever invoking that skill. When you add or
   change a skill, ask which other skills' principles it applies un-invoked. The rule and
@@ -646,7 +647,7 @@ resolve the portable `${CLAUDE_SKILL_DIR:-…}` anchor at runtime.
 
 ### Versioning (changesets)
 
-DevFlow versions itself with changesets so concurrent PRs never collide on the `version` line
+PRFlow versions itself with changesets so concurrent PRs never collide on the `version` line
 or the top of `CHANGELOG.md`. Each PR adds a `.changeset/*.md`; when it merges to `main`, the
 `version-consolidate` GitHub Action (`.github/workflows/version-consolidate.yml`),
 running `scripts/consolidate-changesets.py`, bumps

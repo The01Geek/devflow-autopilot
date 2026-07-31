@@ -36,7 +36,7 @@ kind: growth
   canonical source rather than adding a new pin + mirror. It is homed at the selection step (not the
   conflict-gated "Conflict check" paragraph, which would no-op on a drift defect that contradicts no
   existing rule, and not § 1, which routes nowhere) so it fires on every proposal. The prose ships
-  to consumer repos with the skill, so it is repo-agnostic (no DevFlow-internal paths, no
+  to consumer repos with the skill, so it is repo-agnostic (no PRFlow-internal paths, no
   `lib/test/run.sh`, no `CLAUDE.md`-specific references). The obligation belongs at this execution
   home — the point where the fix shape is actually chosen — rather than in a doc.
 - Neither addition is relocatable to a progressively-loaded reference: the `CLAUDE.md` policy is

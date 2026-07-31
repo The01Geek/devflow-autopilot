@@ -1,6 +1,6 @@
 ---
 name: code-explorer
-description: DevFlow's implement-phase discovery agent. Deeply analyzes existing codebase features by tracing execution paths, mapping architecture layers, understanding patterns and abstractions, and documenting dependencies to inform new development
+description: PRFlow's implement-phase discovery agent. Deeply analyzes existing codebase features by tracing execution paths, mapping architecture layers, understanding patterns and abstractions, and documenting dependencies to inform new development
 tools: Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch
 model: sonnet
 color: yellow
@@ -8,7 +8,7 @@ color: yellow
 
 <!-- Vendored from Anthropic's `feature-dev` plugin (anthropics/claude-plugins-official),
      licensed under the Apache License, Version 2.0 — full text at
-     LICENSES/feature-dev-LICENSE. This file has been MODIFIED by DevFlow.
+     LICENSES/feature-dev-LICENSE. This file has been MODIFIED by PRFlow.
      Third-party component index: LICENSES/README.md. -->
 
 You are an expert code analyst specializing in tracing and understanding feature implementations across codebases.

@@ -1,4 +1,4 @@
-# The `/devflow:review-and-fix` shadow review pass
+# The `/prflow:review-and-fix` shadow review pass
 
 **Skill:** `skills/review-and-fix/references/shadow-review.md` (Step 2.6 *Shadow review*),
 `skills/review-and-fix/references/loop-exit.md` (the Loop Exit *Coverage → Shadow agreement*
@@ -14,7 +14,7 @@ Existence-only pin findings use the canonical protected-asset classification doc
 
 ## What the shadow pass is, and why it exists
 
-`/devflow:review-and-fix` wraps `/devflow:review`'s four-phase engine in a fix loop. The loop runs
+`/prflow:review-and-fix` wraps `/prflow:review`'s four-phase engine in a fix loop. The loop runs
 up to a configurable number of iterations — `devflow_review_and_fix.max_iterations` (default 5),
 resolved once at loop start — before exiting with its latest verdict; the shadow pass below is not
 counted toward that cap. Which findings the loop routes to the fixer is itself configurable via
@@ -39,7 +39,7 @@ iteration 1, regardless of that iteration's verdict (including REJECT) — feedi
 findings into iteration 2; non-`engine_self_modifying` PRs keep the convergence-time trigger only.
 The early pass reuses the same blinded fan-out and is itself uncounted toward the iteration cap (a
 promoted iteration 2 it spawns counts, like any promotion). This mirrors what
-experienced users already do manually — run `/devflow:review <PR>` after `/devflow:review-and-fix`
+experienced users already do manually — run `/prflow:review <PR>` after `/prflow:review-and-fix`
 — and folds that independent re-review into the loop so a disagreement feeds one more iteration
 instead of being left for the human to discover. It directly targets the empirically-observed
 "a manual review finds things the fix loop missed" pattern.
@@ -49,7 +49,7 @@ instead of being left for the human to discover. It directly targets the empiric
 The natural-looking implementation — dispatch one `general-purpose` subagent and tell it to "run
 the whole engine in your fresh context" — **does not work**, and the failure is silent.
 
-`/devflow:review`'s engine *fans out to subagents*: Phase 1, Phase 1.5, and Phase 3 dispatch
+`/prflow:review`'s engine *fans out to subagents*: Phase 1, Phase 1.5, and Phase 3 dispatch
 reviewer/verifier subagents, and Phase 2 dispatches for its agent-path checklist items. But a
 **subagent cannot dispatch its own subagents** — nested `Agent`/`Task` dispatch is unsupported by
 the harness. This is **structural, not a permissions gap**: granting the `Agent` tool to the
@@ -62,13 +62,13 @@ the loop's own answer is the exact false-convergence the step exists to prevent.
 cause fixed under issue #57.
 
 **The fix: the PARENT orchestrator runs the shadow fan-out itself.** The parent *can* dispatch
-subagents, so it re-runs `/devflow:review`'s Phases 0 through 4.3 inline — `Glob` for
+subagents, so it re-runs `/prflow:review`'s Phases 0 through 4.3 inline — `Glob` for
 `**/devflow/skills/review/SKILL.md`, `Read` it in full, walk its gated phase references under `phases/` (re-deriving bundle identity and clearing each reference's boundary contract at every entry — a shadow entry is a phase entry), and run every
 Phase-3 reviewer normally. (Reading the engine as an inline procedure, rather than invoking it via
 the `Skill` tool, is deliberate: `Skill` would run the engine end-to-end including Phase 4.4's
 GitHub post, and the loop is silent on GitHub by design. The shadow stops before Phase 4.4.)
 Because it reuses Phase 3.1's launch list and per-agent prompts verbatim, the shadow exercises the
-**same reviewer set** a standalone `/devflow:review` would on this diff.
+**same reviewer set** a standalone `/prflow:review` would on this diff.
 
 ## The dirty-tree backstop: review agents never mutate the working tree
 
@@ -76,7 +76,7 @@ The fan-out the parent runs (and the shadow re-runs verbatim) dispatches advisor
 diff. Those agents must be **read-only with respect to the working tree** — a reviewer that edits a
 tracked file, runs a live half-revert and forgets to restore it, or stages a change leaves the
 orchestrator's tree silently corrupted, which can flip the orchestrator's *own* `assert_pin_unique`
-checks to a phantom RED (the failure observed in the `/devflow:implement 186` run). Two coupled
+checks to a phantom RED (the failure observed in the `/prflow:implement 186` run). Two coupled
 layers close that hole.
 
 **The contract.** Every Phase 3 reviewer covered by this dirty-tree contract must never modify
@@ -118,9 +118,9 @@ snapshot read loops consume the bare orig-path continuation rather than mis-pars
 **disables** the backstop for that dispatch (it never restores off an empty baseline, which would
 authorize `git checkout` against the orchestrator's own live edits), and a failed after-snapshot is
 surfaced as a *distinct* breadcrumb rather than misattributed as an agent mutation. In the read-only
-`/devflow:review` profile the agents are **contractually read-only** and normally leave matching
-snapshots; the backstop still detects a contract violation and also earns its keep in the write-enabled `/devflow:review-and-fix` and
-`/devflow:implement` tiers — including the shadow pass, which re-runs these phases verbatim.
+`/prflow:review` profile the agents are **contractually read-only** and normally leave matching
+snapshots; the backstop still detects a contract violation and also earns its keep in the write-enabled `/prflow:review-and-fix` and
+`/prflow:implement` tiers — including the shadow pass, which re-runs these phases verbatim.
 
 **Residuals it does NOT auto-restore.** (1) A **true rename/copy** (status `R`/`C`) — undoing a
 staged rename safely needs index surgery, so it is *surfaced* (named in a breadcrumb) and left for
@@ -139,7 +139,7 @@ for. This is the **inverse** of the loop's normal iter-N≥2 fix-delta handoff:
 
 - The shadow does **not** run the fix-delta handoff and does **not** pass `prior_phase3_findings` /
   `prior_checklist` / `fix_files` into any shadow phase.
-- The shadow does **not** prepend `/devflow:review`'s Phase 3.1 "Prior-findings context (fix-loop
+- The shadow does **not** prepend `/prflow:review`'s Phase 3.1 "Prior-findings context (fix-loop
   callers only)" block to any reviewer prompt, and passes `"none"` for the general-purpose
   final-pass reviewer's "Prior-iteration findings (already considered, look for new)" line. That
   "already considered" handoff is correct for a normal fix iteration but **defeats the shadow's
@@ -160,7 +160,7 @@ exit successfully with empty output, and the readable run-cached changed-file li
 extension path. That limitation now defines what the check is *for*. Where the dispatching
 environment materializes prompt extensions from a trusted base ref before the review begins — as the
 cloud review tier does since issue #874 — provenance is enforced structurally and these checks add
-nothing. They remain the sole provenance control for the `/devflow:review-and-fix` tier, which checks
+nothing. They remain the sole provenance control for the `/prflow:review-and-fix` tier, which checks
 out the PR head in its Step 0.5 and is knowingly left unprotected, so read them as covering that tier
 only, never as covering the structural boundary. The control stays advisory: the extension is still
 loaded when either check fails or either operand cannot be established, but the local-status,
@@ -208,20 +208,26 @@ A degraded pass must **never** clear a PR with a clean verdict. The guard is the
   classification (the shadow re-runs Phases 0–4.3, producing its own `diff_profile` — a post-fix
   diff can legitimately flip `has_new_types` or the test predicate, so validate against *that*,
   not the loop's last-iter profile):
-  - the four **always-on** agents — `devflow:code-reviewer`,
-    `devflow:silent-failure-hunter`, `devflow:comment-analyzer`,
-    `devflow:requesting-code-review` — unconditionally; **plus**
-  - `devflow:type-design-analyzer` iff `has_new_types` is true, and
-    `devflow:pr-test-analyzer` iff the test-relevance predicate matches, per
-    `/devflow:review`'s Phase 3.1 gates.
+  - the four **always-on** agents — `prflow:code-reviewer`,
+    `prflow:silent-failure-hunter`, `prflow:comment-analyzer`,
+    `prflow:requesting-code-review` — unconditionally; **plus**
+  - `prflow:type-design-analyzer` iff `has_new_types` is true, and
+    `prflow:pr-test-analyzer` iff the test-relevance predicate matches, per
+    `/prflow:review`'s Phase 3.1 gates.
+
+  Match a roster member by the agent it names, not by the namespace prefix it is spelled with:
+  the pre-rename `devflow:code-reviewer` / `devflow:requesting-code-review` spellings are still
+  accepted `agent_overrides` keys and denote the same always-on reviewers as their canonical
+  `prflow:` forms, so an override written either way reprices the same roster member and neither
+  spelling changes who is expected to return.
 - **`engine_self_modifying` adds and removes nothing here.** That flag is a checklist-only
   override — it forces the full checklist but no Phase 3 agent; the four always-on agents are
   roster members on every profile and the two structural-applicability gates decide the rest —
   so the expected roster is still "four always-on + each analyzer whose gate is true." Do not
   force the analyzers into the expected roster on an engine-self-modifying diff; that would
   manufacture a phantom shortfall.
-- **`devflow:requesting-code-review` is an always-on shadow-roster member.** The final-pass
-  reviewer is a first-party DevFlow skill, so it is always present wherever DevFlow runs — there is
+- **`prflow:requesting-code-review` is an always-on shadow-roster member.** The final-pass
+  reviewer is a first-party PRFlow skill, so it is always present wherever PRFlow runs — there is
   no companion-plugin-unavailable fall-back to apply. It is an always-on roster member, so a shadow
   pass that dispatched only the other three always-on reviewers (or whose final-pass result was lost)
   is a coverage shortfall like any other. The shadow never declares full coverage on a three-of-four
@@ -334,7 +340,7 @@ will not re-review itself. The ordinary shadow-promotion arm carries unresolved 
 the sweep-at-cap arm carries unresolved non-Critical siblings at or above `$FIX_THRESHOLD` (which can
 include Suggestion when that threshold is configured). They surface only in chat and the report's
 arm-specific section: `## Unresolved Shadow Findings` for an ordinary shadow promotion, or
-`## Unresolved Parked-Class Sweep Findings` for sweep-at-cap. A wrapping orchestrator (e.g. `/devflow:implement`) that
+`## Unresolved Parked-Class Sweep Findings` for sweep-at-cap. A wrapping orchestrator (e.g. `/prflow:implement`) that
 chooses to *fix* those findings must re-establish independent coverage by re-running the loop once
 over the fix delta; it must not resolve them with an unreviewed final commit. Otherwise the very edit
 that answers the shadow ships with no independent eyes on it — the gap this contract closes.
@@ -352,7 +358,7 @@ Two structural reasons the gap persists:
 - **It is one sample, not a different reviewer population.** The shadow re-runs the *same* engine
   and the *same* reviewer roster the loop already used; blinding the prompts removes the
   *already-considered* bias but not the reviewers' shared blind spots. A genuinely independent
-  standalone `/devflow:review` — a separate session, separate accumulated context — samples the
+  standalone `/prflow:review` — a separate session, separate accumulated context — samples the
   space differently and routinely finds things a single in-loop re-sample does not.
 - **The shadow runs against the loop's own accumulated context.** The parent orchestrator that runs
   the fan-out still carries the iter history; only the per-reviewer prompts are blind. That residual
@@ -360,13 +366,13 @@ Two structural reasons the gap persists:
 
 **Evidence.** On PR #58 (issue #57) itself — the PR that made the shadow pass parent-orchestrated and
 fail-closed — the in-loop shadow agreed with full coverage, yet a subsequent standalone
-`/devflow:review` run surfaced several hardening items the in-loop shadow had not caught (none Critical;
+`/prflow:review` run surfaced several hardening items the in-loop shadow had not caught (none Critical;
 they became the follow-up tracked in issue #61). That is the calibration in a single data point:
 "shadow agreed, full coverage" meant the in-loop re-sample found nothing new, **not** that the PR
 was exhaustively reviewed.
 
 The practical consequence: a clean shadow result is a real signal that the loop converged honestly,
-but the human gate — and, for a formal merge signal, a separate `/devflow:review <PR>` run — remains
+but the human gate — and, for a formal merge signal, a separate `/prflow:review <PR>` run — remains
 the exhaustiveness check. A clean shadow *raises confidence* in that gate's outcome; it is never a
 criterion for *waiving* it. Treat the separate independent review as the default, not as something a
 clean shadow makes optional.
@@ -376,7 +382,7 @@ clean shadow makes optional.
 The generic calibration above has a sharpest edge, and it is the one this loop keeps getting wrong:
 **when the diff is `engine_self_modifying` and what it modifies is the review engine's own
 coverage-, gate-, or shadow-pass logic, a clean in-loop shadow is the *least* trustworthy clean
-shadow there is — never read it as sufficient, and require a separate standalone `/devflow:review`
+shadow there is — never read it as sufficient, and require a separate standalone `/prflow:review`
 before merge.** The "shared blind spot" of the two bullets above is not a constant here; it is
 maximal precisely on this diff shape, because the reviewers are being asked to audit the very
 gate/coverage logic the change is rewriting, using a roster that shares whatever blind spot the new
@@ -388,7 +394,7 @@ defects a clean shadow is structurally weakest at catching, because catching the
 This is not hypothetical and not a one-off:
 
 - **PR #62 (issue #61), the hardening spec for the shadow-coverage invariants themselves.** The
-  in-loop shadow reported clean; a subsequent standalone `/devflow:review` returned **REJECT** on a
+  in-loop shadow reported clean; a subsequent standalone `/prflow:review` returned **REJECT** on a
   Critical fail-open — the roster too-narrow tripwire keyed on the wrong persisted signal (it
   compared `diff_profile`, which never stored the test-relevance predicate, so a narrowed
   `pr-test-analyzer` gate read `coverage: "full"` over a shrunken roster). It took twelve substantive
@@ -406,7 +412,7 @@ This is not hypothetical and not a one-off:
 
 So the rule, stated operationally: **a clean in-loop shadow does not clear an `engine_self_modifying`
 diff that touches review/coverage/gate logic for merge — schedule the separate standalone
-`/devflow:review` and resolve its findings first.** The standalone review is mandatory here, not
+`/prflow:review` and resolve its findings first.** The standalone review is mandatory here, not
 "default but waivable on a clean shadow." (This narrows nothing for ordinary product-code diffs,
 where the shared-blind-spot risk is lower and the standalone review remains the *recommended*
 default rather than a hard pre-merge gate — see the Counterfactual note this calibration was
@@ -450,7 +456,7 @@ suite/CI time no matter whether the loop that produced the diff was driven by th
   vacuous-whole-file-presence guard against a non-SKILL target is out of scope.
 - **Sentinel-completeness signal.** The park-calibration gate (Step 2.6) records a mandatory
   `## Devflow Reflection` bullet on every run — a re-grade routing or the gate-clean sentinel.
-  `lib/test/run.sh` pins that sentinel contract, and the `/devflow:review-and-fix` Loop-Exit machinery
+  `lib/test/run.sh` pins that sentinel contract, and the `/prflow:review-and-fix` Loop-Exit machinery
   now treats an APPROVE-family conclusion with **no** sentinel/re-grade bullet as *non-convergence* (the
   gate did not run to completion). Combined with the explicit firing-site handoffs at Decide outcome 1
   and the Step 4.5 early-exit, a manually-driven loop can no longer reach an APPROVE-family verdict while
@@ -484,13 +490,13 @@ green.
 The calibration above is about the loop grading a finding **too low** (a real defect parked as a note that a later standalone review re-raises). That is one direction; the loop can also grade a finding **too high**, and the engine defends both directions with a matched pair of gates in `skills/review-and-fix/references/shadow-review.md` that share one root idea — *never trust an emitted severity without a recorded technical evaluation against the finding's observable fail-direction and impact*:
 
 - **Under-grade — the park-calibration gate**, on the **approve** path (before a Decide outcome-1 / Step 4.5 early-exit conclusion). It re-reads parked findings against the under-grade shapes and **promotes** any it catches back through Step 2.5 → Step 3, so a substantive finding cannot ride out as a note.
-- **Over-grade — the over-grade calibration gate**, on the **promote** path (before a Decide outcome-2 promotion fires on an emitted `Critical`/`Important` shadow finding). It **flags** a suspected over-grade against the *observable* over-grade shapes — whose **single definition** lives in the shared engine (`/devflow:review` SKILL.md Phase 4.1.5, *Over-grade advisory annotation*), consumed by both skills rather than forked: a defect that fails closed or that the suite catches RED, a diagnostic-or-cosmetic-only finding with no behavioral fail-direction, and an uncorroborated single-source `Critical`/`Important` from an empirical over-grader (`silent-failure-hunter` / `pr-test-analyzer`) — and, crucially, a defect that fails **open** never matches the first shape no matter that its limitation is documented or its trigger input contrived, because "documented" and "contrived" are disclosure facts, not severity facts — so the loop does not spend a full extra engine pass (a promoted iteration plus a re-shadow) on an unexamined label.
+- **Over-grade — the over-grade calibration gate**, on the **promote** path (before a Decide outcome-2 promotion fires on an emitted `Critical`/`Important` shadow finding). It **flags** a suspected over-grade against the *observable* over-grade shapes — whose **single definition** lives in the shared engine (`/prflow:review` SKILL.md Phase 4.1.5, *Over-grade advisory annotation*), consumed by both skills rather than forked: a defect that fails closed or that the suite catches RED, a diagnostic-or-cosmetic-only finding with no behavioral fail-direction, and an uncorroborated single-source `Critical`/`Important` from an empirical over-grader (`silent-failure-hunter` / `pr-test-analyzer`) — and, crucially, a defect that fails **open** never matches the first shape no matter that its limitation is documented or its trigger input contrived, because "documented" and "contrived" are disclosure facts, not severity facts — so the loop does not spend a full extra engine pass (a promoted iteration plus a re-shadow) on an unexamined label.
 
-**Standalone `/devflow:review` annotates, but never demotes (issue #195).** The over-grade shapes are defined once in the shared engine (Phase 4.1.5), so standalone `/devflow:review` — which runs the same Phases 0–4.3 but has **no fixer** to record a `severity-calibrated` evaluation — applies the same shapes as an **advisory annotation only**: it appends a "suspected over-grade: shape *n* — observable fail-direction is *X*" note to the matching finding's line in its report and **leaves the verdict computation untouched** — with one deterministic exception (the behavior-inert prose cap, below). For the advisory-annotation shapes the annotation never demotes a finding, never alters its severity, and never clears or downgrades a REJECT — a flagged `Critical` still drives REJECT. Its sole guarantee is to let a human reading a bare standalone-review REJECT distinguish a genuine blocker from a diminishing-returns over-grade without re-deriving the calibration. The full **flag-and-record** gate (recorded evaluation required, non-convergence enforcement) remains fix-loop-only, because only the loop has a fixer to record the evaluation.
+**Standalone `/prflow:review` annotates, but never demotes (issue #195).** The over-grade shapes are defined once in the shared engine (Phase 4.1.5), so standalone `/prflow:review` — which runs the same Phases 0–4.3 but has **no fixer** to record a `severity-calibrated` evaluation — applies the same shapes as an **advisory annotation only**: it appends a "suspected over-grade: shape *n* — observable fail-direction is *X*" note to the matching finding's line in its report and **leaves the verdict computation untouched** — with one deterministic exception (the behavior-inert prose cap, below). For the advisory-annotation shapes the annotation never demotes a finding, never alters its severity, and never clears or downgrades a REJECT — a flagged `Critical` still drives REJECT. Its sole guarantee is to let a human reading a bare standalone-review REJECT distinguish a genuine blocker from a diminishing-returns over-grade without re-deriving the calibration. The full **flag-and-record** gate (recorded evaluation required, non-convergence enforcement) remains fix-loop-only, because only the loop has a fixer to record the evaluation.
 
-**One deterministic exception — the behavior-inert prose cap.** Shape 2's behavior-inert sub-case is a *classification* rule, not an advisory annotation: a finding whose sole observable impact is the prose itself, on prose that cannot change what the program does, is deterministically capped at Suggestion/Minor and does **not** drive a Phase 4.2 REJECT, regardless of the grade a review agent assigned — and **whether the diff touched the line is not part of the keying**, so a stale ordinal count in a `lib/test/run.sh` comment is graded on the inertness of its surface rather than on whether this diff happened to touch it. The limbs still decide each such finding and they fail closed when inertness cannot be established — `run.sh` also carries tool-read comments (`# structural-pin-ok:`, `# raw-guard-ok:`, `# tree-walk-ok:`) that limb one excludes. **Phase 4.1.5 is the authoritative definition of behavior-inertness — its two limbs are not restated here.** This does not reopen the #195 lenient-verdict hole, because the cap decides the *inertness of the surface* from its stated consumers under 4.1.5's two limbs, never the merits or severity of the finding: a finding carrying any behavioral fail-direction is graded by that fail-direction and is never capped. Standalone `/devflow:review` applies the cap as a classification; `/devflow:review-and-fix`'s Step 2.6 honors it by recording the required `severity-calibrated` evaluation deterministically (evidence = the deterministic behavior-inert prose cap), so a capped finding cannot drive a Decide-outcome-2 promotion.
+**One deterministic exception — the behavior-inert prose cap.** Shape 2's behavior-inert sub-case is a *classification* rule, not an advisory annotation: a finding whose sole observable impact is the prose itself, on prose that cannot change what the program does, is deterministically capped at Suggestion/Minor and does **not** drive a Phase 4.2 REJECT, regardless of the grade a review agent assigned — and **whether the diff touched the line is not part of the keying**, so a stale ordinal count in a `lib/test/run.sh` comment is graded on the inertness of its surface rather than on whether this diff happened to touch it. The limbs still decide each such finding and they fail closed when inertness cannot be established — `run.sh` also carries tool-read comments (`# structural-pin-ok:`, `# raw-guard-ok:`, `# tree-walk-ok:`) that limb one excludes. **Phase 4.1.5 is the authoritative definition of behavior-inertness — its two limbs are not restated here.** This does not reopen the #195 lenient-verdict hole, because the cap decides the *inertness of the surface* from its stated consumers under 4.1.5's two limbs, never the merits or severity of the finding: a finding carrying any behavioral fail-direction is graded by that fail-direction and is never capped. Standalone `/prflow:review` applies the cap as a classification; `/prflow:review-and-fix`'s Step 2.6 honors it by recording the required `severity-calibrated` evaluation deterministically (evidence = the deterministic behavior-inert prose cap), so a capped finding cannot drive a Decide-outcome-2 promotion.
 
-**The truthfulness partner — the pre-verdict truthfulness sweep (Phase 4.1.6).** The behavior-inert prose cap governs an inaccurate line on prose that cannot change what the program does, diff-touched or not (≤ Suggestion, and so no REJECT at the default `critical` threshold); its partner over prose that *can* change behavior is the **truthfulness sweep**. Shape 2 explicitly **excludes** a false-against-HEAD diff-added/modified doc line, comment, example, or command-form from the cosmetic-wording class — that is a truthfulness defect (a `documented_falsehood`), not a demotable Suggestion — and the sweep enforces it: after the over-grade scan and before the verdict, it runs over **every** Phase-3 finding **regardless of severity chip** (it does *not* inherit the over-grade scan's Critical/Important/Major scope, because a mis-filed falsehood lands at Suggestion). It is **promote-only** — for a finding whose subject is a diff-added/modified artifact, a claim **demonstrated** false against HEAD is routed into the Phase 4.2 self-contradicting-diff carve-out (REJECT) independent of the producing agent's framing and chip — unless the prose is behavior-inert, which the cap covers and the carve-out's scope excludes — while an inconclusive check leaves the finding exactly as filed; it never demotes, downgrades, or clears anything, and a clean pass emits a visible `truthfulness sweep: no finding promoted` line. The sweep also carries a **diff-scan input** — an *intra-diff contradiction scan* that, independent of any finding, cross-products the diff's added absolute claims (a universal — "every", "never", "is caught by the same rule") against its added-or-retained limitation notes about the **same symbol** and files a contradicting pair as a non-demotable `documented_falsehood`; this closes the PR #340 case where a diff published an absolute claim while retaining a contradicting limitation and no agent flagged it, so a per-finding sweep had nothing to iterate over. Like the cap, it is single-sourced in Phase 4.1.5/4.1.6 and inherited by both `/devflow:review` and `/devflow:review-and-fix` through the shared engine. This is the same promote-only asymmetry as the under-grade gate: the engine promotes on demonstrated evidence, never auto-demotes on suspicion.
+**The truthfulness partner — the pre-verdict truthfulness sweep (Phase 4.1.6).** The behavior-inert prose cap governs an inaccurate line on prose that cannot change what the program does, diff-touched or not (≤ Suggestion, and so no REJECT at the default `critical` threshold); its partner over prose that *can* change behavior is the **truthfulness sweep**. Shape 2 explicitly **excludes** a false-against-HEAD diff-added/modified doc line, comment, example, or command-form from the cosmetic-wording class — that is a truthfulness defect (a `documented_falsehood`), not a demotable Suggestion — and the sweep enforces it: after the over-grade scan and before the verdict, it runs over **every** Phase-3 finding **regardless of severity chip** (it does *not* inherit the over-grade scan's Critical/Important/Major scope, because a mis-filed falsehood lands at Suggestion). It is **promote-only** — for a finding whose subject is a diff-added/modified artifact, a claim **demonstrated** false against HEAD is routed into the Phase 4.2 self-contradicting-diff carve-out (REJECT) independent of the producing agent's framing and chip — unless the prose is behavior-inert, which the cap covers and the carve-out's scope excludes — while an inconclusive check leaves the finding exactly as filed; it never demotes, downgrades, or clears anything, and a clean pass emits a visible `truthfulness sweep: no finding promoted` line. The sweep also carries a **diff-scan input** — an *intra-diff contradiction scan* that, independent of any finding, cross-products the diff's added absolute claims (a universal — "every", "never", "is caught by the same rule") against its added-or-retained limitation notes about the **same symbol** and files a contradicting pair as a non-demotable `documented_falsehood`; this closes the PR #340 case where a diff published an absolute claim while retaining a contradicting limitation and no agent flagged it, so a per-finding sweep had nothing to iterate over. Like the cap, it is single-sourced in Phase 4.1.5/4.1.6 and inherited by both `/prflow:review` and `/prflow:review-and-fix` through the shared engine. This is the same promote-only asymmetry as the under-grade gate: the engine promotes on demonstrated evidence, never auto-demotes on suspicion.
 
 The two gates are deliberately **asymmetric in action but symmetric in intent**. The under-grade gate *promotes*; the over-grade gate **flags and requires a recorded technical evaluation — it never auto-demotes** (the deterministic behavior-inert prose cap above is not a counterexample: it supplies the required recorded evaluation deterministically from the cap's stated properties, rather than from a re-judgment of the finding's merits — so it never auto-demotes an unexamined *suspected* grade), because silently demoting a wrongly-suspected over-grade would re-open the lenient-verdict hole the rest of the engine exists to close. The shared mechanism that makes both auditable is **recording the per-finding technical evaluation as evidence**: the over-grade gate's required artifact is a structured `fix_decisions` entry (`decision: "severity-calibrated"`, citing the observable fail-direction/impact and the calibrated grade), and a flagged promote-path finding with no such recorded evaluation is treated as **non-convergence** at Loop Exit — so a run that skipped the calibration discipline is detectable by the absence of the evidence rather than dependent on actor diligence. This mechanizes the `receiving-code-review` **symmetric-severity-calibration principle** (a genuine finding can be over-graded; calibrate severity against observable fail-direction/impact in both directions): the principle *states* the discipline engine-agnostically, the gate *enforces* it.
 
@@ -500,19 +506,19 @@ Empirically (issue #155 / PR #156), a high-verbosity reviewer — `silent-failur
 
 The shadow pass audits the **whole diff** at **convergence** (and, on an `engine_self_modifying` PR, also once after iteration 1 via the early trigger). That leaves one gap it cannot close cheaply: a regression introduced by **a fix itself**, in the iteration that produced it. A fix is new code; it can ship a fresh `unverified-assumption` / #62/#98 instance — a guard whose accepted-input set is **wider than its downstream consumer's contract**, so it fails open exactly where it claims to fail closed. Caught only by a whole-diff shadow pass, such a regression forces the shadow to *promote* a costly extra iteration (PR #153 took three iterations for one issue because iterations 1–2 each re-introduced a weaker-contract guard in their own fix). **Step 3.5** front-loads that detection: after each iteration's fix commit — **every iteration, unconditionally** — the parent dispatches a **blinded subagent** that re-reviews **only that iteration's cumulative fix delta** (`git diff <iter_fix_base>..HEAD`, the iteration's first-fix parent through HEAD, so an inner re-fix can't split the fix across separately-reviewed commits) plus the consumer code it touches, with the loop's prior findings/fix decisions/fixer reasoning withheld — the same blinding model as the shadow's per-reviewer prompts. **"Every iteration, unconditionally" means the gate is not gated on the verdict — it does not manufacture a delta where none exists:** an iteration in which **Step 3 applied no fixes** has no fix delta, so the gate, and every check it carries, **skips** for that iteration and the loop proceeds to Step 4. Its three checks are the #62/#98 operand-contract check (the fix's guard accepted-input set must be a *subset* of its consumer's contract — see the **share-the-contract / parse-don't-validate** principle in `receiving-code-review`), an adversarial input-shape matrix, and the **added-assertion attribution check**. The third asks, of **each assertion the fix delta adds**, whether the assertion *as reported* singles out the regression its own name and description claim it catches — reporting three outcomes: an assertion that would **not change state under the named regression**, one that would **change state under a cause other than** it (typically because the change it depends on destroys the anchor it keys on rather than the behavior it names), and one whose **reported identity does not distinguish it from a sibling arm**, so a result is not attributable to one. An added assertion whose target cannot be read is reported **unestablished**, never clean, and the dispatch scope admits a bounded read of each added assertion's target for that check alone. A new Critical/Important gate finding from the first two checks first passes the over-grade calibration gate (flag + recorded `severity-calibrated` evaluation, never auto-demote), and a re-affirmed one routes back into the same iteration's fix step (capped at 2 inner attempts, then promoted to a cap-counting iteration; at the cap it rides into the shadow's whole-diff audit and a `## Devflow Reflection` bullet). An added-assertion finding is not severity-routed: the assertion is corrected in the same iteration as a swept sibling, or recorded through the item 5 pushback flow, and that disposition **inherits** the same 2-attempt cap, cap-counting promotion, and at-cap shadow carry — so the terminate-under-the-cap guarantee holds for every check the gate carries. Like the shadow, the gate and its inner attempts do **not** count toward `max_iterations`, and a gate-subagent failure gets one bounded re-dispatch before the loop records `fix-delta not verified` and proceeds (a deterministic delta-base failure gets a distinct breadcrumb, no retry). The Step 2.6 shadow pass and the post-shadow edit gate are **unchanged** by Step 3.5.
 
-## Non-blocking severity-aware exit in `/devflow:implement` (issue #159)
+## Non-blocking severity-aware exit in `/prflow:implement` (issue #159)
 
-`/devflow:implement`'s Phase 3.3 used to treat `APPROVE WITH UNRESOLVED SHADOW FINDINGS` (and a non-clean bounded re-review) as a hard **Blocked** stop — aborting the whole lifecycle after the "two consecutive non-clean passes" of the capped run plus its one bounded re-review. That was too aggressive: it discarded a review-ready PR over findings that, after over-grade calibration, are frequently advisory. Phase 3.3 is now **severity-aware**: only a *genuine unresolved Critical* (or an unparseable/ungradeable verdict, fail-closed) takes the Blocked path; a residual of only advisory / Suggestion / `severity-calibrated`-down / deferrable-Important findings **soft-proceeds** — surfaced durably (workpad `### ⚠️ Action required` reflections, and the PR body where a deferrals manifest exists) while the run continues to Phase 4. The PR ships review-ready, not auto-merged; the human merger decides. This preserves the human gate without throwing away completed work over diminishing-returns nits.
+`/prflow:implement`'s Phase 3.3 used to treat `APPROVE WITH UNRESOLVED SHADOW FINDINGS` (and a non-clean bounded re-review) as a hard **Blocked** stop — aborting the whole lifecycle after the "two consecutive non-clean passes" of the capped run plus its one bounded re-review. That was too aggressive: it discarded a review-ready PR over findings that, after over-grade calibration, are frequently advisory. Phase 3.3 is now **severity-aware**: only a *genuine unresolved Critical* (or an unparseable/ungradeable verdict, fail-closed) takes the Blocked path; a residual of only advisory / Suggestion / `severity-calibrated`-down / deferrable-Important findings **soft-proceeds** — surfaced durably (workpad `### ⚠️ Action required` reflections, and the PR body where a deferrals manifest exists) while the run continues to Phase 4. The PR ships review-ready, not auto-merged; the human merger decides. This preserves the human gate without throwing away completed work over diminishing-returns nits.
 
 ### The completeness critic and the mechanism-scoped re-sweep (issue #167)
 
-PR #164 converged to a clean in-loop self-APPROVE, and a later standalone `/devflow:review` flagged two Important findings the loop had missed — both the recurring high-risk classes this section is about: a **vacuous or incomplete audit**, and a **stale comment after a mechanism change**. Two mechanical checks now target them directly. Both are calibrated, not catch-all — read the guarantee-scope paragraphs below for exactly what each does and does not assert.
+PR #164 converged to a clean in-loop self-APPROVE, and a later standalone `/prflow:review` flagged two Important findings the loop had missed — each a recurring high-risk class this section is about: a **vacuous or incomplete audit**, and a **stale comment after a mechanism change**. Two mechanical checks now target them directly. Each is calibrated, not catch-all — read the guarantee-scope paragraphs below for exactly what each does and does not assert.
 
-**The completeness critic (shared engine — the Phase 3 reference under `skills/review/phases/`, step 3.1.5).** When Phase 0.5 classifies the diff as `detect_all_audit` — it adds or changes a scanner / audit / coverage-invariant that *enumerates a population* and *asserts a completeness property* over it — Phase 3.1.5 forces a completeness-critic pass. The pass re-enumerates the audit's target population **by a signal other than the audit's own pattern** and emits a finding for any member of that independent enumeration the audit does not cover. It lives in the shared Phases 0–4.3, so standalone `/devflow:review` and the `/devflow:review-and-fix` fix loop both apply it. It is the engine's answer to the circular-completeness trap: a "detect-all" claim cannot be self-certified by the audit making it — the PR #62 too-narrow tripwire and the PR #154 vacuous drift-guard were both this shape, certified clean by their own output.
+**The completeness critic (shared engine — the Phase 3 reference under `skills/review/phases/`, step 3.1.5).** When Phase 0.5 classifies the diff as `detect_all_audit` — it adds or changes a scanner / audit / coverage-invariant that *enumerates a population* and *asserts a completeness property* over it — Phase 3.1.5 forces a completeness-critic pass. The pass re-enumerates the audit's target population **by a signal other than the audit's own pattern** and emits a finding for any member of that independent enumeration the audit does not cover. It lives in the shared Phases 0–4.3, so standalone `/prflow:review` and the `/prflow:review-and-fix` fix loop both apply it. It is the engine's answer to the circular-completeness trap: a "detect-all" claim cannot be self-certified by the audit making it — the PR #62 too-narrow tripwire and the PR #154 vacuous drift-guard were both this shape, certified clean by their own output.
 
 *Guarantee scope.* The critic catches an audit that is **not a superset of a genuinely independent enumeration**. **It does not prove the audit is exhaustive:** the independent enumeration is itself reviewer judgment and can share a blind spot with the audit. A clean critic result means "the audit covers everything a second, structurally different enumeration found," not "nothing is uncovered." Like a clean shadow above, it **narrows** the circular-completeness gap; it does not close it.
 
-**The mechanism-scoped self-authored-claim re-sweep (fix loop — `skills/review-and-fix/references/fixing.md` Step 3).** After a fix changes a mechanism (a guard, predicate, exclusion, or helper that comments describe), the fix loop re-runs the `devflow:comment-analyzer` agent over **every** comment describing that mechanism — located by the mechanism's identifiers across the touched files, not limited to the fix's own diff hunks — and treats a comment that still describes the pre-change mechanism as a finding. It **reuses the existing comment-analyzer (no new agent)** and lives only in the fix loop, since standalone review applies no fixes — so the shared engine carries no paraphrase of it.
+**The mechanism-scoped self-authored-claim re-sweep (fix loop — `skills/review-and-fix/references/fixing.md` Step 3).** After a fix changes a mechanism (a guard, predicate, exclusion, or helper that comments describe), the fix loop re-runs the `prflow:comment-analyzer` agent over **every** comment describing that mechanism — located by the mechanism's identifiers across the touched files, not limited to the fix's own diff hunks — and treats a comment that still describes the pre-change mechanism as a finding. It **reuses the existing comment-analyzer (no new agent)** and lives only in the fix loop, since standalone review applies no fixes — so the shared engine carries no paraphrase of it.
 
 *Guarantee scope.* The re-sweep covers comments describing the **changed** mechanism within the **touched** files. **It is not a repo-wide comment audit:** it does not catch drift in files the fix never touched, nor a claim that names no shared identifier. It closes the "spot-checked the fix's own hunks and missed a stale comment elsewhere in the same file" gap — nothing wider.
 
@@ -524,7 +530,7 @@ PR #164 converged to a clean in-loop self-APPROVE, and a later standalone `/devf
 
 A shadow re-raise of an already-parked finding used to re-litigate the parking on **severity alone** — the park-calibration gate declared a last-iteration re-raise mis-graded *at any severity*, and an earlier-iteration parked finding the engine did not re-emit slipped into Decide outcome 2 as "new" and promoted at Important or above. Either arm re-parks the finding on the same rationale in the promoted iteration, the loop re-shadows, and the cycle can repeat until the iteration cap absorbs it — burning promoted iterations (each a full re-shadow) and `APPROVE WITH UNRESOLVED SHADOW FINDINGS` noise on findings the shadow merely *corroborated*. Severity comparison cannot separate corroboration (the shadow independently reached the same parking-worthy judgment on the same evidence) from escalation (the shadow saw something new); only comparing the **evidence** on both sides can.
 
-The fix, in the Park-calibration gate (fix-loop only — the shared `/devflow:review` engine is untouched), grades below-verdict-threshold shadow re-raises on evidence:
+The fix, in the Park-calibration gate (fix-loop only — the shared `/prflow:review` engine is untouched), grades below-verdict-threshold shadow re-raises on evidence:
 
 - **Precedence.** The scoped sweep-sibling carve-out is evaluated **first**, byte-unchanged; a re-raise it claims never enters the evidence classification. (The carve-out covers the current convergence's registered siblings; a sibling parked at a *prior* convergence flows to the evidence classification.)
 - **Scope boundary.** Only re-raises **below** `devflow_review.verdict_severity_threshold` are graded on evidence. A re-raise at or above the threshold drives the blinded shadow's own Phase 4.2 verdict to REJECT, and shadow-REJECT handling is deliberately untouched — such re-raises promote today and keep promoting. The self-contradicting-diff REJECT class keeps today's path at any severity too. The three under-grade shapes (a fail-open guard or coverage hole, an overclaiming breadcrumb/error, and a deferral the matcher will not honor) remain unconditional mis-grade triggers whatever the evidence relation.
@@ -541,7 +547,7 @@ The shadow pass roughly **doubles** the cost of a converging run — one full en
 not lead to fixes when it agrees. This is why the `step_2_6` telemetry now carries a full-engine-pass
 magnitude (tens of agent calls and a Phase-1+1.5+2+3's worth of tokens) rather than the single call
 the old single-subagent design logged; `step_2_6` aggregates the whole parent-run Phases 0–4.3
-fan-out. The cost is intentional: it matches the manual `/devflow:review`-after-fix workflow
+fan-out. The cost is intentional: it matches the manual `/prflow:review`-after-fix workflow
 experienced users already pay (net-zero for them, now mechanical), and it buys a credible audit
 rather than a self-check that re-derives the loop's own answer.
 

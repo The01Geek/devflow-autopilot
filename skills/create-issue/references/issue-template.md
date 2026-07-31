@@ -1,7 +1,7 @@
 # GitHub Issue Template & Quality Guide
 
 Reference for drafting and posting a well-structured GitHub issue. The calling skill
-(`/devflow:create-issue`) has already gathered documentation findings and **resolved every
+(`/prflow:create-issue`) has already gathered documentation findings and **resolved every
 in-scope decision with the user**. Draft the issue **from that context**, doing only
 targeted verification reads where a specific claim needs confirming. Do not re-explore
 the whole codebase; the findings are your map.
@@ -52,7 +52,7 @@ Blocked by #N — <one-line reason it must land first>
 ```
 
 Both the `## Dependencies` heading and the `Blocked by #N` phrasing are exactly the forms
-`/devflow:implement` early Phase 1 dependency preflight recognizes as a declared sequencing dependency, so the
+`/prflow:implement` early Phase 1 dependency preflight recognizes as a declared sequencing dependency, so the
 existing implement gate consumes this section with **no recognizer change** — it blocks an
 implement run while any listed prerequisite is still open (and fails closed on an
 unresolvable reference). Omit the section entirely when no prerequisite is open — exactly as
@@ -312,7 +312,7 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
   command already granted on the consuming tier (the repo's declared test/lint commands in
   `devflow_implement.allowed_tools`) or be phrased as a **code-reading obligation citing the
   producer code** — never a run-this-ungranted-helper AC that would send a consumer repo's cloud
-  `/devflow:implement` run Blocked for a probe the drafter could have run locally.
+  `/prflow:implement` run Blocked for a probe the drafter could have run locally.
 - **Every universal quantifier the body asserts about the system under change is grounded,
   or it does not ship.** A universal quantifier — "never", "always", "each", "every", "all",
   "cannot" — asserted anywhere outside `## 🚫 Blocked` (in Desired Behavior, an

@@ -19,7 +19,7 @@ a `.claude/worktrees/` checkout under `push.default=upstream`.
 prose that governs how loop runs consume the loaded text — reference resolution, non-binding
 interactive directives, and the supersession-authority guard.
 
-This extension is now **mandatory prompt surface**: it loads on every `/devflow:review-and-fix`
+This extension is now **mandatory prompt surface**: it loads on every `/prflow:review-and-fix`
 entry that goes through the skill preamble — the standalone loop, the implement Phase 3 inline
 run, and the Step 2.6 shadow entry. The documented Skill-denied fallback, where Phase 3 reads the
 engine straight from the tree, bypasses the preamble and is unchanged by this issue. The vendored

@@ -1,13 +1,13 @@
 # Third-party components
 
-DevFlow itself is MIT-licensed (see [`LICENSE`](../LICENSE), © 2026 Daniel Radman). It also
+PRFlow itself is MIT-licensed (see [`LICENSE`](../LICENSE), © 2026 Daniel Radman). It also
 redistributes the files listed below, which were authored by others and remain under their own
 upstream licenses. The full upstream license texts are retained verbatim in this directory.
 
-**Every file listed here has been modified by DevFlow relative to its upstream version.** This
+**Every file listed here has been modified by PRFlow relative to its upstream version.** This
 statement is the Apache License 2.0 §4(b) change notice for the Apache-licensed files below; each
-of those files additionally carries its own in-file notice. DevFlow's first-party SPDX header (the
-`2026 Daniel Radman` line carried by DevFlow-authored source) is deliberately **not** applied over
+of those files additionally carries its own in-file notice. PRFlow's first-party SPDX header (the
+`2026 Daniel Radman` line carried by PRFlow-authored source) is deliberately **not** applied over
 this third-party content.
 
 These files are redistributed in two ways: the plugin is published from the repository root
@@ -23,7 +23,7 @@ Upstream carries no per-file copyright notices and ships no `NOTICE` file, so §
 impose no retained content; the holder is named here instead, since the Apache appendix boilerplate
 in the license texts is unfilled.
 
-| DevFlow path | Upstream project | Upstream license text |
+| PRFlow path | Upstream project | Upstream license text |
 |---|---|---|
 | `agents/code-architect.md` | [`feature-dev`](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/feature-dev) | [`feature-dev-LICENSE`](feature-dev-LICENSE) |
 | `agents/code-explorer.md` | [`feature-dev`](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/feature-dev) | [`feature-dev-LICENSE`](feature-dev-LICENSE) |
@@ -42,7 +42,7 @@ for its own upstream project.
 
 Copyright © 2025 Jesse Vincent. Licensed under the MIT License.
 
-| DevFlow path | Upstream project | Upstream license text |
+| PRFlow path | Upstream project | Upstream license text |
 |---|---|---|
 | `skills/receiving-code-review/SKILL.md` | [`superpowers`](https://github.com/obra/superpowers) | [`superpowers-LICENSE`](superpowers-LICENSE) |
 | `skills/requesting-code-review/SKILL.md` | [`superpowers`](https://github.com/obra/superpowers) | [`superpowers-LICENSE`](superpowers-LICENSE) |

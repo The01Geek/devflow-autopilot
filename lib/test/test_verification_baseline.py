@@ -255,7 +255,16 @@ class RegistryAndCensusTests(_TmpDirTestCase):
     def test_registry_has_review_and_cloud_mappings(self) -> None:
         reg = wfr.load_registry(REGISTRY)
         self.assertIn("review", reg)
-        self.assertEqual(reg["review"].user_commands, ("/devflow:review", "/review"))
+        # The recorder matches a user command by EXACT membership, so this stays an
+        # exact-tuple pin rather than a containment check. Both namespaced forms are
+        # required and neither is redundant: the canonical one is what a live run
+        # emits after the plugin rename, and the alias one is what every already-
+        # recorded transcript carries — dropping either silently stops the recorder
+        # matching that population, with no error and no missing-workflow signal.
+        self.assertEqual(
+            reg["review"].user_commands,
+            ("/prflow:review", "/devflow:review", "/review"),
+        )
         cm = load_cloud_mappings(REGISTRY)
         self.assertTrue(any("\x1fclaude" in k for k in cm))
         self.assertEqual(cm[".github/workflows/devflow-implement.yml\x1fclaude"]["consumer"], "implement")
@@ -602,7 +611,7 @@ class SamplingReportOutputTests(_TmpDirTestCase):
             "snapshot_hash": "h",
             "query_time": "2026-07-16T01:00:00Z",
             "pagination_complete": True,
-            "repository": "The01Geek/devflow-autopilot",
+            "repository": "The01Geek/prflow",
             "rows": [
                 {"workflow_file": ".github/workflows/devflow-implement.yml", "job": "claude", "run_id": 1, "run_attempt": 1, "started_at": "2026-07-16T01:00:00Z", "completed_at": "2026-07-16T02:00:00Z", "conclusion": "success", "status": "completed"},
                 {"workflow_file": ".github/workflows/devflow-implement.yml", "job": "gate", "run_id": 1, "run_attempt": 1, "started_at": "2026-07-16T01:00:00Z", "conclusion": "success", "status": "completed"},
@@ -645,7 +654,7 @@ class ExportSnapshotTests(unittest.TestCase):
         spec.loader.exec_module(export_census)
         runs = [{"id": 7, "path": ".github/workflows/devflow-implement.yml", "name": "DevFlow Implement", "run_attempt": 1, "created_at": "2026-07-16T01:00:00Z", "run_started_at": "2026-07-16T01:00:05Z", "conclusion": "success", "status": "completed", "html_url": "u"}]
         jobs_by_run = {7: [{"name": "claude", "started_at": "2026-07-16T01:00:10Z", "completed_at": "2026-07-16T02:00:00Z", "conclusion": "success", "status": "completed", "html_url": "u"}]}
-        snap = export_census.build_snapshot("The01Geek/devflow-autopilot", [".github/workflows/devflow-implement.yml"], "2026-07-01", "2026-08-01", runs, jobs_by_run, "2026-07-16T03:00:00Z", True)
+        snap = export_census.build_snapshot("The01Geek/prflow", [".github/workflows/devflow-implement.yml"], "2026-07-01", "2026-08-01", runs, jobs_by_run, "2026-07-16T03:00:00Z", True)
         # Write to a temp file and read back through the analyzer's reader.
         tmp = ROOT / ".devflow/tmp/vb-snap-test.json"
         tmp.parent.mkdir(parents=True, exist_ok=True)

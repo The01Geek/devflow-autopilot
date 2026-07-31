@@ -3845,14 +3845,14 @@ finally:
 # agent_overrides property keys (minus `default`). A tenth subagent added to the
 # schema but not here (or vice versa) breaks config/dispatch/telemetry alignment.
 #
-# Compared over the CANONICAL namespace rather than over KNOWN_AGENTS directly.
-# KNOWN_AGENTS is `every accepted plugin namespace x every leaf`, so declaring a
-# plugin alias in lib/plugin-identity.json legitimately widens it, while the
-# schema declares only the canonical-namespaced keys. Equating the two would make
-# this guard fail on any declared alias — an alias-list assumption, not a drift
-# signal. The property actually under guard is the LEAF set, and pinning it
-# through the canonical namespace keeps it exactly: a leaf added on one side and
-# not the other still breaks this, on any alias configuration.
+# Compared over EVERY accepted namespace, not just the canonical one. The schema
+# enumerates a key per accepted namespace under `additionalProperties: false`, so
+# a consumer's already-committed alias-namespaced override keeps validating across
+# a plugin rename — the frozen-key guarantee. The expectation is DERIVED from the
+# declared namespaces (never a hand-listed alias set), so it stays a drift signal
+# rather than an alias-list assumption: the property actually under guard is the
+# LEAF set, and a leaf added on one side and not the other still breaks this on
+# any alias configuration.
 _schema_path = SCRIPTS.parent / '.devflow' / 'config.schema.json'
 with open(_schema_path) as _sf:
     _schema = json.load(_sf)
@@ -3861,8 +3861,9 @@ _schema_keys = set(
 )
 with open(SCRIPTS.parent / '.claude-plugin' / 'plugin.json') as _pjf:
     _CANON_NS = json.load(_pjf)["name"] + ":"
-assert_eq("schema agent_overrides keys == the canonical-namespaced leaves + 'default'",
-          {_CANON_NS + _leaf for _leaf in _rro.AGENT_LEAVES} | {"default"}, _schema_keys)
+assert_eq("schema agent_overrides keys == every accepted namespace x the leaves + 'default'",
+          {_ns + _leaf for _ns in _rro.AGENT_NAMESPACES for _leaf in _rro.AGENT_LEAVES}
+          | {"default"}, _schema_keys)
 # …and the canonical namespace really is one the resolver accepts, so the guard
 # above is comparing against a live roster rather than a string it made up.
 assert_eq("resolve: the canonical namespace is an accepted agent namespace",
@@ -3905,7 +3906,7 @@ with open(_example_cfg_path) as _ecf:
 assert_eq("#425 config.example.json: code-reviewer override carries iterations first-only",
           "first-only",
           _example_cfg["devflow_review"]["agent_overrides"]
-          ["devflow:code-reviewer"].get("iterations"))
+          ["prflow:code-reviewer"].get("iterations"))
 
 # Migration: the documented schema-rejection of a stale externally-namespaced override key
 # (PR #143 review, Major #1 + Minor #1). CHANGELOG/migration-doc prose promise that a stale
@@ -3943,27 +3944,38 @@ _example_ao = (
 assert_eq("#141 migration: no stale pre-rename override key survives in config.example.json",
           [], [k for k in _PRT_OLD_KEYS if k in _example_ao])
 
-# The published roster still carries the nine canonical telemetry ids, spelled out
-# in full so the guard is a real list and not a re-derivation of the code it checks.
-# It is asserted as a SUBSET, not as equality: KNOWN_AGENTS is `every accepted
-# plugin namespace x every leaf`, so a declared plugin alias widens it by design.
-# The exact-roster half is pinned separately below, alias-agnostically.
-_NINE_CANONICAL = ("devflow:checklist-generator", "devflow:checklist-deduper",
-                   "devflow:checklist-verifier", "devflow:code-reviewer",
-                   "devflow:silent-failure-hunter",
-                   "devflow:comment-analyzer",
-                   "devflow:type-design-analyzer",
-                   "devflow:pr-test-analyzer",
-                   "devflow:requesting-code-review")
-assert_eq("resolve: KNOWN_AGENTS carries the nine canonical review-engine identifiers",
-          [], [_a for _a in _NINE_CANONICAL if _a not in _rro.KNOWN_AGENTS])
-# Exactness, without assuming an alias configuration: the roster is precisely the
-# cross product of the accepted namespaces and the leaves — nothing extra slips in.
+# The published KNOWN_AGENTS roster is the nine review-engine LEAVES crossed with every
+# declared plugin namespace. The roster identity worth pinning is the leaf set (a tenth
+# subagent, or a dropped one, is the regression); the namespace set is owned by
+# lib/plugin-identity.json and asserted as the crossing rather than re-spelled here, so a
+# plugin rename does not have to re-pin this literal. The leaf list is spelled out in full
+# so the guard is a real list and not a re-derivation of the code it checks.
+_NINE_LEAVES = ("checklist-generator", "checklist-deduper", "checklist-verifier",
+                "code-reviewer", "silent-failure-hunter", "comment-analyzer",
+                "type-design-analyzer", "pr-test-analyzer", "requesting-code-review")
+assert_eq("resolve: KNOWN_AGENTS is the nine review-engine leaves",
+          _NINE_LEAVES, _rro.AGENT_LEAVES)
+# Exactness, alias-agnostically: the roster is precisely the cross product of the accepted
+# namespaces and the leaves — nothing extra slips in. Order is the crossing order
+# (namespace-major), which is what resolve-review-overrides.py builds.
+assert_eq("resolve: KNOWN_AGENTS is every declared namespace crossed with the nine leaves",
+          tuple(ns + leaf for ns in _rro.AGENT_NAMESPACES for leaf in _NINE_LEAVES),
+          _rro.KNOWN_AGENTS)
 assert_eq("resolve: KNOWN_AGENTS is exactly the accepted namespaces x the leaves",
           {_ns + _leaf for _ns in _rro.AGENT_NAMESPACES for _leaf in _rro.AGENT_LEAVES},
           set(_rro.KNOWN_AGENTS))
 assert_eq("resolve: KNOWN_AGENTS carries no duplicate ids",
           len(_rro.KNOWN_AGENTS), len(set(_rro.KNOWN_AGENTS)))
+# The alias namespace is load-bearing: a consumer's committed `devflow:` override must keep
+# resolving across the rename (the frozen-key contract), and the canonical one must resolve.
+# Asserted as a SUBSET of the roster, since an accepted alias widens KNOWN_AGENTS by design.
+_NINE_ALIASED = tuple("devflow:" + _leaf for _leaf in _NINE_LEAVES)
+assert_eq("resolve: KNOWN_AGENTS still carries the nine alias-namespaced review-engine ids",
+          [], [_a for _a in _NINE_ALIASED if _a not in _rro.KNOWN_AGENTS])
+assert_eq("resolve: the canonical and alias namespaced code-reviewer ids are both known",
+          [True, True],
+          ["prflow:code-reviewer" in _rro.KNOWN_AGENTS,
+           "devflow:code-reviewer" in _rro.KNOWN_AGENTS])
 
 # Migration guard (#141): the old code-reviewer override key (the pre-rename, externally
 # namespaced form) was renamed into the devflow: namespace. docs/review-agent-overrides.md

@@ -4,7 +4,7 @@
 `steps.claude.outputs.execution_file` actually carries, produced by the re-runnable
 probe jobs in [`.github/workflows/matcher-probe.yml`](../.github/workflows/matcher-probe.yml)
 (issue #437). It exists to settle — with evidence, not recollection — the question the
-repo had asserted as settled fact: *can the token/wall-clock cost half of DevFlow's
+repo had asserted as settled fact: *can the token/wall-clock cost half of PRFlow's
 telemetry be reconstructed from the harness's own output, without the agent's
 cooperation?* See [`docs/efficiency-trace.md`](efficiency-trace.md) for why that
 question is load-bearing.
@@ -124,7 +124,7 @@ Cost is carried **directly**, which the issue did not even ask for: `costUSD`,
   does not rely on it holding.
 
 **What this settles.** The cloud harness already emits, with **zero agent cooperation**,
-every variable DevFlow's telemetry currently depends on the agent to volunteer: per-message
+every variable PRFlow's telemetry currently depends on the agent to volunteer: per-message
 tokens, wall-clock, the subagent dispatch roster, and denials. (Per-*phase* attribution is a
 downstream derivation this record does **not** establish — see "What it does NOT settle"
 below.) An agent-independent (class-(c)) cost floor is therefore **buildable on the cloud

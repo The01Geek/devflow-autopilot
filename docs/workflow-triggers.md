@@ -1,7 +1,7 @@
-# DevFlow workflow trigger surface
+# PRFlow workflow trigger surface
 
-How the DevFlow GitHub workflows decide *when* to run, *which* one runs, and how
-duplicate `/devflow:implement` commands are collapsed. The codebase is the
+How the PRFlow GitHub workflows decide *when* to run, *which* one runs, and how
+duplicate `/prflow:implement` commands are collapsed. The codebase is the
 source of truth — this doc records the *why*.
 
 ## Withheld from this release: the automatic pull-request-triggered review tier
@@ -16,27 +16,27 @@ installation receives none of `.github/workflows/devflow-review.yml`,
 `secrets: inherit`, checked out the pull-request head, and carried no actor-authorization
 gate. Two open defects describe the consequences and neither is close to landing:
 
-- [**#930**](https://github.com/The01Geek/devflow-autopilot/issues/930) — the `precheck` job
+- [**#930**](https://github.com/The01Geek/prflow/issues/930) — the `precheck` job
   performs a bare `actions/checkout`, which under the `pull_request` trigger resolves the
   pull request's merge ref. The config that decides whether a review runs at all therefore
   comes from the pull request under review, so "it defaults to off" is not a mitigation.
-- [**#920**](https://github.com/The01Geek/devflow-autopilot/issues/920) — blocked on #930.
+- [**#920**](https://github.com/The01Geek/prflow/issues/920) — blocked on #930.
   It is unknown whether the collaborator-permission API call succeeds under `precheck`'s
   `pull-requests: read` token, and a fork `pull_request` event receives a read-only
   `GITHUB_TOKEN` regardless of the `permissions:` block, so the job cannot post the required
   check and the context goes unreported.
 
-**The supported review path is `/devflow:review` by comment**, and this change does not edit it. A
-repository collaborator with write, admin or maintain permission comments `/devflow:review`
+**The supported review path is `/prflow:review` by comment**, and this change does not edit it. A
+repository collaborator with write, admin or maintain permission comments `/prflow:review`
 on a pull request; `devflow.yml`'s `gate` job authorizes the actor through
 `scripts/authorize-actor.sh`, and the review runs. **An outside fork contributor cannot
-self-trigger a DevFlow review — a repository collaborator must post the comment.**
+self-trigger a PRFlow review — a repository collaborator must post the comment.**
 
 **If you already installed the tier, you keep it.** `install.sh`'s
 `prune_stale_devflow_workflows()` is deliberately not extended, so re-running the installer
 leaves the three files in place and your auto-review keeps working. That continues to hold
 across a plugin upgrade only because **every helper those workflows call is still shipped**
-even though nothing in DevFlow's own tree reaches them any more: `install.sh` re-stamps
+even though nothing in PRFlow's own tree reaches them any more: `install.sh` re-stamps
 `devflow_version` to the installed commit, so re-running the installer keeps your workflow
 files while vendoring a newer plugin, and a helper deleted as "unreachable" would go missing
 underneath them — `finalize_check` fails **closed** when `derive-review-verdict.sh` is absent,
@@ -73,19 +73,29 @@ restore.
 
 | Workflow | Commands | Listens on |
 |---|---|---|
-| `devflow.yml` (light path) | `/devflow:review`, `/devflow:review-and-fix`, `/devflow:pr-description` | `issue_comment[created]`, `pull_request_review_comment[created]`, `pull_request_review[submitted]` |
-| `devflow-implement.yml` (heavy path) | `/devflow:implement` | `issue_comment[created]` |
+| `devflow.yml` (light path) | `/prflow:review`, `/prflow:review-and-fix`, `/prflow:pr-description` | `issue_comment[created]`, `pull_request_review_comment[created]`, `pull_request_review[submitted]` |
+| `devflow-implement.yml` (heavy path) | `/prflow:implement` | `issue_comment[created]` |
 | `devflow-review.yml` **(withheld — see above; not shipped, still live in repositories that installed it)** | automated review | PR lifecycle + `check_run[rerequested]` + `workflow_run`/`check_suite` `[completed]` + `status` (CI-completion re-trigger for deferred reviews — `status` covers legacy commit-status-only CI, filtered to a green state; see the preconditions note in `DEVFLOW_SYSTEM_OVERVIEW.md` §14; the `workflow_run` `workflows:` list must name **every** first-party workflow that runs on PR events — the review waits on all of them but re-fires only on a listed one's completion, so a gating workflow omitted from the list can strand a deferred review, issue #579) |
+
+**Both command namespaces are accepted in a comment.** The plugin was renamed
+`devflow` → `prflow`, and each gate `if:` matches the transitional `/devflow:`
+spelling alongside the canonical `/prflow:` one — so a comment reading
+`/devflow:implement 42` fires exactly the same workflow as `/prflow:implement 42`.
+The detected token is normalized to the canonical `/prflow:` form before any
+consumer compares it. This dual acceptance is specific to the **cloud
+comment-trigger** path: **local** slash commands are namespaced by the plugin
+name, so `/devflow:*` does not resolve in Claude Code any more and only
+`/prflow:*` does.
 
 Both command listeners run `claude-code-action` in **agent mode** with a
 synthesised prompt, so they need no `@claude` phrase. Every gate `if:` branch
-also negates `@claude` and (for the light path) `/devflow:implement`, so a given
+also negates `@claude` and (for the light path) `/prflow:implement`, so a given
 comment routes to exactly one listener and never collides with Anthropic's stock
 `claude.yml`. This is the *partition invariant*, enforced by tests in
 `lib/test/run.sh`.
 
 **The heavy path is issues-only.** Unlike the light path — which is intentionally
-PR-aware (`/devflow:review` / `/devflow:pr-description` act on a PR) —
+PR-aware (`/prflow:review` / `/prflow:pr-description` act on a PR) —
 `devflow-implement.yml` listens **only** on `issue_comment[created]` and never on
 the PR-only review events. Because a PR comment is *also* an `issue_comment` in
 GitHub's API, the gate `if:` additionally requires
@@ -93,7 +103,7 @@ GitHub's API, the gate `if:` additionally requires
 re-checks via an `IS_PULL_REQUEST` signal and declines before authorization — so a
 comment on a pull request never starts an implement run, whatever its body text.
 This is what stops the weekly retrospective's audit-report comment (which quotes
-the literal `/devflow:implement` phrase in prose) from self-triggering on the
+the literal `/prflow:implement` phrase in prose) from self-triggering on the
 state PR.
 
 ## Automated review (`devflow-review.yml`): trigger + preconditions policy
@@ -102,7 +112,7 @@ state PR.
 > section describes the tier as it behaves in a repository that installed it before the
 > withholding. A fresh installation has no such workflow.
 
-The automated reviewer runs `/devflow:review` as a **required** status check on a
+The automated reviewer runs `/prflow:review` as a **required** status check on a
 PR. Its trigger policy (issue #304):
 
 - **First review — exactly once per PR.** The first review auto-triggers on
@@ -206,7 +216,7 @@ point operators here.
 
 ## Triggers fire on real comments only — never on descriptions
 
-A `/devflow:*` phrase placed in an **issue or PR description (body or title)**
+A `/prflow:*` phrase placed in an **issue or PR description (body or title)**
 must never start a run — only a genuine comment or review can. This is why
 neither command workflow listens on the `issues` event, and why each gate's
 `TRIGGER_TEXT` is sourced solely from `github.event.comment.body` /
@@ -220,11 +230,11 @@ The partition tests assert all of this: no `issues:` event, no
 `contains(github.event.issue.body|title, …)` in any gate, and no `issue.body` in
 `TRIGGER_TEXT`.
 
-## DevFlow's own workpad comment can't self-trigger `/devflow:implement`
+## PRFlow's own workpad comment can't self-trigger `/prflow:implement`
 
-The `/devflow:implement` orchestrator maintains one marker-tagged **workpad**
+The `/prflow:implement` orchestrator maintains one marker-tagged **workpad**
 comment per issue (see `scripts/workpad.py`), and that comment quotes the literal
-phrase `/devflow:implement` (e.g. its seeded `/devflow:implement run started`
+phrase `/prflow:implement` (e.g. its seeded `/prflow:implement run started`
 note). Because the comment is posted by an allowed bot, it would otherwise re-enter
 the gate as a fresh `issue_comment[created]` event and fire a duplicate run on its
 own thread.
@@ -254,7 +264,7 @@ that runs *before* authorization and number resolution: it declines any
 
 ## Startup lifecycle: "resumed" means an earlier execution, not the normal handoff
 
-The cloud `/devflow:implement` path has two stages — a lean `gate` job that posts
+The cloud `/prflow:implement` path has two stages — a lean `gate` job that posts
 the workpad the moment a command is authorized, and a heavy `claude` job that boots
 and enters Phase 1 minutes later. The normal same-run handoff from `gate` to
 `claude` is **not** a resume, and (since issue #537) the workpad no longer labels it
@@ -264,10 +274,10 @@ workpad's **live status**:
 
 - **`agent initialized; Phase 1 workpad hydrated`** — the ordinary first run (the
   gate created the workpad this run). No "resumed" claim.
-- **`/devflow:implement run resumed; Phase 1 workpad hydrated`** — the gate adopted
+- **`/prflow:implement run resumed; Phase 1 workpad hydrated`** — the gate adopted
   an **interim** (still-in-progress) workpad from an earlier execution (a re-trigger
   or a stall-backstop auto-resume). This is the only case that says "resumed".
-- **`/devflow:implement new run initialized from terminal workpad; …`** — the
+- **`/prflow:implement new run initialized from terminal workpad; …`** — the
   adopted workpad was already terminal (🎉/👎/💥/🛑); a fresh run starts from it.
 - **`agent initialized; workpad provenance unavailable; …`** — the handoff record
   was missing/malformed (e.g. a partially-upgraded consumer); the run continues
@@ -280,17 +290,17 @@ before the action), `agent entered Phase 1 setup; workpad triage passed`, and th
 hydration event above — so startup latency is attributable from the workpad alone.
 Local runs read no cloud handoff record and select wording from live status only.
 
-## A light `/devflow:*` command fires only when *issued*, never when *quoted*
+## A light `/prflow:*` command fires only when *issued*, never when *quoted*
 
-The light command path (`/devflow:review`, `/devflow:review-and-fix`,
-`/devflow:pr-description`) is intentionally **PR-aware** — a PR comment is also an
+The light command path (`/prflow:review`, `/prflow:review-and-fix`,
+`/prflow:pr-description`) is intentionally **PR-aware** — a PR comment is also an
 `issue_comment` in GitHub's API, and these commands act on a PR — so unlike the
 issues-only heavy path it *retains* PR-comment and PR-review triggering by design.
 Removing that surface would break the primary use case. The bug it must avoid is
 different: a command **quoted in prose** (a human review that says "as
-`/devflow:review` flagged…", DevFlow's own review narrative, an un-markered report
+`/prflow:review` flagged…", PRFlow's own review narrative, an un-markered report
 body) must not be mistaken for the command being *issued*. A quoted
-`/devflow:review` inside a PR **review** body was the reported self-trigger vector.
+`/prflow:review` inside a PR **review** body was the reported self-trigger vector.
 
 Two mechanisms close this, both living in `scripts/resolve-command-trigger.sh`
 (the authoritative gate; the workflow `gate` `if:` stays a coarse `contains()`
@@ -301,14 +311,14 @@ pre-filter):
    leading spaces (never a tab, never four-plus, so an *indented* code block never
    qualifies), it is **not** inside a fenced (triple-backtick / `~~~`) code block,
    and the remainder of the line is at most an optional `#`-prefixed number plus
-   trailing whitespace. So `/devflow:review`, `/devflow:review 42`, and
-   `/devflow:review #42` fire (alone on their line, even inside a longer body);
-   `please run /devflow:review`, a `> /devflow:review` blockquote, an indented or
-   fenced `/devflow:review`, and `I ran /devflow:review earlier` do **not**. The
+   trailing whitespace. So `/prflow:review`, `/prflow:review 42`, and
+   `/prflow:review #42` fire (alone on their line, even inside a longer body);
+   `please run /prflow:review`, a `> /prflow:review` blockquote, an indented or
+   fenced `/prflow:review`, and `I ran /prflow:review earlier` do **not**. The
    scan is a small **markdown-aware line scanner** (`scripts/detect-standalone-command.sh`,
    POSIX `awk`, ERE only) that tracks fenced-block state, skips indented-code
    lines, and applies the anchored own-line match most-specific-first
-   (`/devflow:review-and-fix` outranks `/devflow:review`). It is deliberately
+   (`/prflow:review-and-fix` outranks `/prflow:review`). It is deliberately
    **fail-closed on an unbalanced fence**: after an unclosed opening fence every
    following line reads as code and fires nothing — matching how GitHub itself
    renders an unbalanced fence, and the safe direction for a self-trigger fix. It
@@ -319,16 +329,16 @@ pre-filter):
 
 2. **Self-marker guard (defense-in-depth).** Mirrored from
    `resolve-implement-trigger.sh`, the resolver additionally declines — *before*
-   authorization — any body that carries a DevFlow self-comment marker: the
+   authorization — any body that carries a PRFlow self-comment marker: the
    run-keyed review-progress marker **prefix** `<!-- devflow:review-progress` (the
    review engine's live progress comment, whose narrative naturally quotes
-   `/devflow:review` — see `scripts/derive-review-verdict.sh`) or the workpad
+   `/prflow:review` — see `scripts/derive-review-verdict.sh`) or the workpad
    marker `<!-- devflow:workpad -->`. Each is a literal **substring** match, and
    the effective markers **default to those built-in values internally**, so the
    guard protects a repo with no extra workflow wiring. Note this guard alone was
    insufficient for the reported vector — the PR-review body carried no marker —
    which is why anchoring is the necessary core and the marker guard is retained
-   only for DevFlow's own progress comment.
+   only for PRFlow's own progress comment.
 
 Because anchoring operates on the resolver's `TRIGGER_TEXT` input, it is
 **surface-agnostic**: the workflow's existing
@@ -337,10 +347,10 @@ wiring already routes the PR-review body in, so no new surface wiring is added.
 
 > **Landed (issue #321):** the `review_dedupe` job in `devflow.yml` now routes
 > through the **same** `detect-standalone-command.sh` detector (not its own
-> `case` substring), so a quoted/documented `/devflow:review` mention neither
+> `case` substring), so a quoted/documented `/prflow:review` mention neither
 > dedupes nor posts a "manual review suppressed" notice and the two matchers are
 > a single source of truth that cannot drift. Because that change edits a file
-> under `.github/workflows/`, it needed a `workflows`-scoped push the DevFlow
+> under `.github/workflows/`, it needed a `workflows`-scoped push the PRFlow
 > bot's installation token lacks, so it landed via a human/PAT in the #321
 > follow-up rather than in the bot-authored PR that shipped the resolver
 > anchoring here.
@@ -350,7 +360,7 @@ wiring already routes the PR-review body in, so no new surface wiring is added.
 > a separate issue. This section covers only the markdown-aware anchoring and the
 > self-marker guard.
 
-## A `/devflow:implement` run posts exactly one comment — the workpad
+## A `/prflow:implement` run posts exactly one comment — the workpad
 
 A run maintains a **single** GitHub comment, the marker-tagged *workpad*
 (`scripts/workpad.py`). It is both the immediate "job started" acknowledgment
@@ -364,9 +374,9 @@ not raw ISO-8601.
 - **`track_progress: false`** on the `claude-code-action` step in
   `.github/workflows/devflow-implement.yml` disables the action's *own*
   progress comment, so the workpad is the only comment a run posts. (The
-  light `/devflow:review` · `/devflow:pr-description` listener in `devflow.yml`
-  keeps `track_progress` as-is. `/devflow:pr-description` has no workpad;
-  `/devflow:review` in PR mode now authors its own live progress comment —
+  light `/prflow:review` · `/prflow:pr-description` listener in `devflow.yml`
+  keeps `track_progress` as-is. `/prflow:pr-description` has no workpad;
+  `/prflow:review` in PR mode now authors its own live progress comment —
   see below.)
 - The workpad is created **as early as possible**, before the requester waits
   on any runtime. In a cloud run the **`gate` job** creates a lean workpad
@@ -419,9 +429,9 @@ turns a reintroduced `$GITHUB_REPOSITORY` interpolation in a `gh api` path
 argument RED at the desk, everywhere outside the Actions-only
 `.github/workflows/` and `.github/actions/` surfaces.
 
-## A PR-mode `/devflow:review` posts one live progress comment
+## A PR-mode `/prflow:review` posts one live progress comment
 
-Standalone `/devflow:review` (the light listener in `devflow.yml`, and the
+Standalone `/prflow:review` (the light listener in `devflow.yml`, and the
 automated `devflow-review.yml` reviewer) is the review-side analogue of the
 implement workpad. In **PR mode**, and when
 `devflow_review.live_progress_comment_enabled` is `true` (the default), the
@@ -476,10 +486,10 @@ phase boundary; Phase 4.5 finalizes it).
   **no-verdict auto-resume backstop** (`devflow_review.stall_backstop`, issue
   #408) then re-runs it without a human — when a cloud review ends with no
   verdict for the head, `finalize_check` posts a capped App-token-authored
-  `/devflow:review` re-trigger (default `max_resume_attempts: 2` per head),
+  `/prflow:review` re-trigger (default `max_resume_attempts: 2` per head),
   degrading to exactly the dead-end flip when the cap is exhausted, the backstop
   is disabled, or no App token is configured. A cancelled run is excluded from
-  auto-resume on every DevFlow backstop (issue #498) — a cancel is a decided
+  auto-resume on every PRFlow backstop (issue #498) — a cancel is a decided
   ending, not a benign timing stall — so neither this review backstop nor the
   implement-tier one keys its resume decision on a cancelled run's stall
   signature; the review tier's exclusion is already correct at source (the
@@ -509,9 +519,9 @@ phase boundary; Phase 4.5 finalizes it).
   the embedded telemetry/trace. Comment writes are best-effort — a failure is
   logged and the review continues to its verdict.
 
-## Duplicate `/devflow:implement` runs are ignored per thread
+## Duplicate `/prflow:implement` runs are ignored per thread
 
-A second `/devflow:implement` for an issue/PR while a run for it is already in
+A second `/prflow:implement` for an issue/PR while a run for it is already in
 flight is **ignored** — the new command does not start a second `claude` job,
 and the in-progress run is left untouched. A command for a *different* issue
 runs in parallel as normal.
@@ -537,13 +547,13 @@ itself, in `scripts/dedupe-implement-run.sh`:
   a rare redundant run.
 
 When a duplicate is ignored, the gate posts a brief notice on the thread.
-**Critical:** that notice contains no DevFlow trigger phrase (no `/devflow:…`,
+**Critical:** that notice contains no PRFlow trigger phrase (no `/prflow:…`,
 no `@claude`) — the bot's own comment is itself an `issue_comment[created]`
 event, and a trigger phrase in it would re-enter the gate and could loop.
 
 ### Boundary
 
 Dedupe keys on the issue/PR *thread the command was posted on* (the run-name
-number), not on an explicit `/devflow:implement <n>` cross-posted to a different
+number), not on an explicit `/prflow:implement <n>` cross-posted to a different
 thread. The dominant duplicate case — the same command repeated on one thread —
 is fully covered.

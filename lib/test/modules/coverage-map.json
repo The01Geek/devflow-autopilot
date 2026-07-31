@@ -1863,6 +1863,10 @@
       "note": "The installer provenance fail-safe: an unestablished digest must never read as an absent file. Wholly owned by the installer-wiring module, which drives the real install.sh end-to-end over fixture consumer repositories — the python3-present-but-unrunnable upgrade, the digest-error-on-a-present-artifact arms, the negative control that reintroduces the collapse and clobbers, the absent-still-creates positive controls, the manifest shape matrix and the withheld-tier config-disabler arms.",
       "owner": "installer-wiring"
     },
+    "967": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "97": {
       "note": "",
       "owner": "unmodularized"

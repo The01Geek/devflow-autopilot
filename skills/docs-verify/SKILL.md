@@ -27,7 +27,7 @@ If the invocation fails because the helper path does not exist (`No such file`, 
 Grammar: `[--report-only] [--search-space <pathspec>] <topic…>`.
 
 - **Default (no flag) — write mode:** verify docs and **make file changes** to bring them into line with the code (the behavior described throughout this skill).
-- **`--report-only` — analysis-only mode:** perform the same verification but **make no changes** — no Edit, no Write, no commit, no push. Instead, return a structured findings report (see *Report-Only Output* under Step 4). Used by `/devflow:create-issue` to inform a new issue without writing to a protected branch.
+- **`--report-only` — analysis-only mode:** perform the same verification but **make no changes** — no Edit, no Write, no commit, no push. Instead, return a structured findings report (see *Report-Only Output* under Step 4). Used by `/prflow:create-issue` to inform a new issue without writing to a protected branch.
 - **`--search-space <pathspec>` — the search-space operand (report-only mode):** the population this run surveys, in place of this skill's defaults. Steps 1 and 2 both read it. When it is **not** supplied, behavior is unchanged: Step 1 searches `[[INTERNAL_DOC_LOCATION]]` and Step 2 searches the whole tracked tree.
 
 ### Breadth bound (report-only mode)
@@ -224,7 +224,7 @@ Before completing (write mode), verify you have:
 
 ## **Success Criteria**
 
-**`--report-only` mode:** success = an accurate findings report returned as text and an unchanged working tree (no files created or edited). This mode is typically a **sub-step of another skill (e.g. `/devflow:create-issue`)** — when you finish, hand the report back to the calling flow and let it continue. Do **not** announce overall task completion or stop the larger task; the "Task Complete" criteria below are for standalone write-mode runs only.
+**`--report-only` mode:** success = an accurate findings report returned as text and an unchanged working tree (no files created or edited). This mode is typically a **sub-step of another skill (e.g. `/prflow:create-issue`)** — when you finish, hand the report back to the calling flow and let it continue. Do **not** announce overall task completion or stop the larger task; the "Task Complete" criteria below are for standalone write-mode runs only.
 
 ✅ **Write mode — Task Complete When:**
 1. Documentation accurately reflects current code implementation

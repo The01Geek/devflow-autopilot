@@ -36,7 +36,7 @@ recorded: a ceiling set exactly at the measurement makes the next one-sentence e
 ### Why the growth was taken
 
 Issue #655 requires a generalized regenerate-on-conflict rule, stated **byte-identically** in its
-own top-level section of all three DevFlow prompt extensions (`implement.md`,
+own top-level section of all three PRFlow prompt extensions (`implement.md`,
 `review-and-fix.md`, `receiving-code-review.md`). Since issue #620 **two** of those three —
 `review-and-fix.md` and `receiving-code-review.md` — sit on this bundle's always-loaded surface,
 so the rule lands on the initial load twice. The measured cost is +952 words on the initial load and,
@@ -72,7 +72,7 @@ The rule names one command: `python3 lib/test/regenerate-artifacts.py --list`. T
 entry point, not an artifact-specific command, and naming it is unavoidable — a rule that named no
 entry point could not be executed. What the rule hardcodes nowhere is any **artifact** path or any
 **per-artifact** regeneration command: both are read from `--list` at runtime, which is the property
-that keeps the rule and the registry from drifting. These three extensions are DevFlow-repo-scoped
+that keeps the rule and the registry from drifting. These three extensions are PRFlow-repo-scoped
 consumer config and are never vendored to a third party, so the reference leaks to no consumer; the
 three in-run arm pointers, which *do* ship, name no helper at all.
 

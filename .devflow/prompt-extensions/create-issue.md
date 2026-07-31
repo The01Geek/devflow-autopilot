@@ -92,7 +92,7 @@ is an unexamined premise.
    runs on every consumer's every run to catch a rare defect is a permanent tax paid by everyone;
    prefer a design that fires on the population that can actually exhibit the defect. And treat the
    merge-gating judge's economics as frozen: `agent_overrides` model/effort values reach the
-   standalone `/devflow:review` that gates every PR before merge, so a draft must not cheapen that
+   standalone `/prflow:review` that gates every PR before merge, so a draft must not cheapen that
    reviewer as a side effect of tuning something else (#425).
 
 ## No-options gate — self-referential count scan (this repo)

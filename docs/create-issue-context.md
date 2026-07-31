@@ -1,7 +1,7 @@
-# `/devflow:create-issue` runtime main-thread context: determination + eval
+# `/prflow:create-issue` runtime main-thread context: determination + eval
 
 This document is the single source of truth (SSOT, per issue #762) for **how the
-`/devflow:create-issue` orchestrator spends runtime main-thread context**, and for
+`/prflow:create-issue` orchestrator spends runtime main-thread context**, and for
 the behavioral instrument that measures it. `CLAUDE.md`'s create-issue bullet and
 `docs/DEVFLOW_SYSTEM_OVERVIEW.md` §11 carry one-line pointers here, not copies.
 
@@ -30,7 +30,7 @@ rather than by cross-referencing a budget doc #766 removed, and it does not reus
 "budget" name.
 
 **`attributionSkill` bounds the main thread only.** A run is bounded by
-`attributionSkill == "devflow:create-issue"` on `type == "assistant"` records, with
+`attributionSkill == "prflow:create-issue"` on `type == "assistant"` records, with
 `isSidechain` records excluded. Dispatched subagents (the docs-verify peers, the
 fresh-context auditor) are **not** so attributed, so the measured figures are the
 orchestrator's own context — they deliberately exclude subagent cost, which isolates
@@ -351,7 +351,7 @@ the re-run comparable:
 
 - **Corpus root:** the maintainer machine's `~/.claude*/projects/**/*.jsonl` transcripts
   (the same root `scripts/inventory-workflow-transcripts.py` walks).
-- **Selection predicate:** transcripts containing a `/devflow:create-issue` invocation whose
+- **Selection predicate:** transcripts containing a `/prflow:create-issue` invocation whose
   run reached Step 3.6, restricted to a contiguous post-merge date window; take a window
   large enough to yield a run count of the same order as the before column's 57.
 - **Metric definitions:** identical to the before table's row labels — a "state-owner shell

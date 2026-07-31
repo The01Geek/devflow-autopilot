@@ -60,7 +60,8 @@ Candidate rule. A section is a candidate when it contains **both**:
     prompt uses to point a child at the skill body it must read and follow). The
     leading `../` is required: a plain `skills/<slug>/SKILL.md` file-path *citation*
     — which peppers the engine's cross-references — is not a dispatch reference; or
-  * an *invoke-a-skill* phrase — a `devflow:<slug>` / `/devflow:<slug>` occurrence
+  * an *invoke-a-skill* phrase — a `<namespace>:<slug>` / `/<namespace>:<slug>`
+    occurrence (the namespace alternation is derived; see `_DEVFLOW_REF`)
     the literal phrase `invoke the` immediately precedes (within
     `_INVOKE_WINDOW` characters, case-insensitive). The phrase (not the bare word
     `invoke`) is required so a cross-reference like "when invoked by `/devflow:x`"
@@ -75,7 +76,7 @@ The complement the candidate rule excludes, and the escape that remains:
   `subagent_type: devflow:code-reviewer`) — an agent definition loads no consumer
   extension, so it is outside the protected set;
 * a dispatch naming a non-DevFlow skill such as `superpowers:writing-skills` — its
-  reference has no `devflow:` prefix and no `skills/<slug>/SKILL.md` path, so it
+  reference carries no declared-namespace prefix and no `skills/<slug>/SKILL.md` path, so it
   never resolves to a `skills/` directory;
 * a section containing a token but no skill reference, or a skill reference but no
   token, or the two in two *different* sections — the conjunction is section-scoped;
@@ -142,6 +143,27 @@ except Exception as _exc:  # a SyntaxError in the sibling must fail here,
         f"lint-subagent-extension-handoff: the shared population reader {_POP_PATH} "
         f"could not be loaded ({_exc.__class__.__name__}: {_exc}); refusing to audit"
     ) from _exc
+
+# The single identity source for the accepted plugin namespaces, loaded with the
+# same by-path idiom and the same fail-at-LOAD contract. See `_DEVFLOW_REF` for why
+# this guard must not carry a hardcoded namespace.
+_IDENTITY_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "plugin_identity.py"
+)
+_identity_spec = importlib.util.spec_from_file_location("plugin_identity", _IDENTITY_PATH)
+if _identity_spec is None or _identity_spec.loader is None:
+    raise SystemExit(
+        f"lint-subagent-extension-handoff: the plugin-identity reader {_IDENTITY_PATH} "
+        "is not an importable source file; refusing to audit"
+    )
+_identity = importlib.util.module_from_spec(_identity_spec)
+try:
+    _identity_spec.loader.exec_module(_identity)
+except Exception as _exc:
+    raise SystemExit(
+        f"lint-subagent-extension-handoff: the plugin-identity reader {_IDENTITY_PATH} "
+        f"could not be loaded ({_exc.__class__.__name__}: {_exc}); refusing to audit"
+    ) from _exc
 _REQUIRED_POP_ATTRS = (
     "EnumerationError", "enumerate_population", "read_source",
     "add_population_arguments", "resolve_root", "LS_FILES_INDEX",
@@ -173,11 +195,29 @@ DISPATCH_TOKENS_CASE = (
 )
 
 #: The two dispatch-shaped DevFlow skill-reference forms. The path form captures the
-#: directory before `/SKILL.md`; the invoke form captures a `devflow:<slug>` the phrase
-#: `invoke the` immediately precedes (a bare cross-reference is deliberately excluded).
-_DEVFLOW_REF = re.compile(r"/?devflow:([a-z0-9][a-z0-9-]*)")
+#: directory before `/SKILL.md`; the invoke form captures a `<namespace>:<slug>` the
+#: phrase `invoke the` immediately precedes (a bare cross-reference is deliberately
+#: excluded).
+#:
+#: The namespace alternation is DERIVED from the declared plugin identity, never
+#: spelled here. This guard reads prompt prose to decide whether a dispatch is
+#: registered, so a hardcoded namespace would make it FAIL OPEN the moment the
+#: plugin is renamed and the prose moves with it: every reference would stop
+#: matching, no candidate section would be flagged, and the census would report a
+#: clean audit over prose it could no longer see. Deriving it means a rename widens
+#: the guard instead of blinding it.
+_NAMESPACE_ALT = "|".join(
+    re.escape(ns.rstrip(":")) for ns in _identity.agent_namespaces()
+)
+if not _NAMESPACE_ALT:
+    raise SystemExit(
+        "lint-subagent-extension-handoff: the declared plugin-namespace set resolved "
+        "empty, so no skill reference could ever match and the audit would report a "
+        "vacuous pass; refusing to audit"
+    )
+_DEVFLOW_REF = re.compile(rf"/?(?:{_NAMESPACE_ALT}):([a-z0-9][a-z0-9-]*)")
 _SKILL_PATH_REF = re.compile(r"\.\./([a-z0-9][a-z0-9-]*)/SKILL\.md")
-#: The invoke-a-skill phrase that must precede a `devflow:<slug>` occurrence, and how
+#: The invoke-a-skill phrase that must precede a `<namespace>:<slug>` occurrence, and how
 #: far back from the occurrence it may sit, for the occurrence to count as a reference.
 _INVOKE_PHRASE = "invoke the"
 _INVOKE_WINDOW = 25
@@ -284,7 +324,7 @@ def _skills_refs(root: Path, content: str) -> set[str]:
     """Return the set of slugs referenced in `content` that resolve under `skills/`.
 
     Only the two dispatch-shaped forms count: an anchor-relative `.../<slug>/SKILL.md`
-    path, and a `devflow:<slug>` the phrase `invoke the` precedes within `_INVOKE_WINDOW`
+    path, and a `<namespace>:<slug>` the phrase `invoke the` precedes within `_INVOKE_WINDOW`
     characters. A bare cross-reference (`see /devflow:review`) is not a reference form.
     """
     slugs: set[str] = set()
