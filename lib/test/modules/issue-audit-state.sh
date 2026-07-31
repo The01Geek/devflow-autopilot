@@ -2060,9 +2060,15 @@ if [ -d "$DB_SB" ]; then
   assert_eq "#562 draft_binding_cli_rows: an UNBOUND run's readers fall back to the caller --draft-file (S#7)" \
     "1" "$(grep -c '^UNBOUND BODY$' "$DB_SB/.du-body" 2>/dev/null)"
   # The real-worktree row runs only when `git worktree add` is available on the host.
-  if [ -s "$DB_SB/.db-wt" ]; then
+  # `TMP_`-named because the haystack is this run's captured CLI output, not repository
+  # source — the name is how pin-corpus-lint.py's runtime-scratch carve-out is declared,
+  # so the grep below is read as the executable assertion it is rather than as a
+  # source-presence pin. (In lib/test/run.sh the site was diff-unchanged and so never
+  # reached that classifier; moving it here is what first put the question.)
+  TMP_DB_WT="$DB_SB/.db-wt"
+  if [ -s "$TMP_DB_WT" ]; then
     assert_eq "#562 draft_binding_cli_rows: a REAL linked worktree binds its own toplevel and the query round-trips" \
-      "yes" "$(grep -qF 'tier=worktree-root' "$DB_SB/.db-wt" && echo yes || echo no)"
+      "yes" "$(grep -qF 'tier=worktree-root' "$TMP_DB_WT" && echo yes || echo no)"
   fi
   git -C "$DB_SB" worktree remove -f ../wt562 > /dev/null 2>&1 || true
   rm -rf "$DB_SB" "$DB_SB/../wt562"
