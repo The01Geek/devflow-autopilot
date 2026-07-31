@@ -1,0 +1,61 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-31T05:00:00Z",
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": "intentional"
+  },
+  "checklist": [],
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:pr-test-analyzer",
+    "prflow:comment-analyzer",
+    "prflow:requesting-code-review"
+  ],
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": "2026-07-31T05:05:00Z",
+    "reviewed_sha": "HEAD",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "prflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "prflow:requesting-code-review"
+    ],
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "verdict": "APPROVE",
+  "notes": "Engine self-modifying (lib/preflight.sh + review-engine-adjacent). Five independent reviewers (code-reviewer, silent-failure-hunter, pr-test-analyzer, comment-analyzer, final-pass) all clean. One optional Suggestion (alternate-interpreter advisory path) determined UNREACHABLE — any alternate interpreter resolution sets missing=1, so exit-0 advisory is reachable only via a real python3, which is tested. No fixes applied; converged iteration 1.",
+  "telemetry": "unavailable"
+}
