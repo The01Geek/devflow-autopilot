@@ -18,7 +18,7 @@
     },
     "create-issue-contract": {
       "path": "lib/test/modules/create-issue-contract.sh",
-      "minimum_assertions": 215,
+      "minimum_assertions": 219,
       "description": "Focused create-issue Step 3.6 audit, state-owner cutover, authoring-discipline, and revision-delta contracts"
     },
     "capability-profiles": {
@@ -65,6 +65,11 @@
       "path": "lib/test/modules/efficiency-trace-telemetry.sh",
       "minimum_assertions": 879,
       "description": "Focused efficiency-trace and telemetry-persistence coverage: the efficiency-trace.jq/.sh per-run derivation surface with its degradation and flag-off arms, --persist and --self-check (#80), the #475 harness-side cost floor, the #381 synthesis floor with its shadow-provenance pins, #532 base-ref freshness, #441 telemetry-branch persistence, the #469 push-operand fail-closed/fetch-before-exclusion/degraded-retention contract, the #489 cross-workflow telemetry artifact relay, and the #499 unavailable-telemetry normalization matrix that shares this module's _et_show durable-blob reader"
+    },
+    "issue-audit-state": {
+      "path": "lib/test/modules/issue-audit-state.sh",
+      "minimum_assertions": 230,
+      "description": "Focused drivers for scripts/issue-audit-state.py, the create-issue Step 3.6 audit-lifecycle state owner: the restricted-PATH CLI round trip and its #889 quoted-draft-line findings, the #603 digest filter-mode rows and the stale pre-cutover event log, the query exit contract, re-init/force and foreign-nonce rows, the embed-arm emitter, creation binding, override attestation and preconditions, the next-action and user-round budgets, illegal transitions, shadow and convergence rounds, the iteration-3/4/5/6 hardening, variance and seam rows, the retry-arm deadlock matrix, the #562 draft-binding CLI rows and the #569 write-path cross-check"
     }
   },
   "workflows": {

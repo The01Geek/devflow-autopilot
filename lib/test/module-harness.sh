@@ -183,7 +183,8 @@ probe_tmp() {  # assertion-name -> prints a temp path (rc 0); on mktemp failure 
 
 # Allocate a verified-isolated temp DIRECTORY for a git-mutating test, failing the
 # SUITE (not vacuously, and NEVER in the real repo) if `mktemp -d` fails. The
-# directory twin of probe_tmp: several tests below run `git init/add/commit` — or a
+# directory twin of probe_tmp. Callers live in lib/test/run.sh and in the sourcing
+# modules under lib/test/modules/, not in this file: they run `git init/add/commit` — or a
 # helper that commits via `git -C "$root"` — inside a throwaway repo. Under this
 # harness's `set -u` WITHOUT `set -e`, a bare `DIR="$(mktemp -d)"` failure leaves DIR
 # the empty string (set, not unset, so `set -u` does not abort), and BOTH `cd "$DIR"`
@@ -210,14 +211,14 @@ probe_tmp() {  # assertion-name -> prints a temp path (rc 0); on mktemp failure 
 # call site fail closed (ENOTDIR) on its own. An unguarded site's *subsequent* assertions
 # may then go RED too (their setup didn't run) — that secondary cascade is harmless extra
 # RED, never a real-repo mutation, and is the deliberate trade for keeping each call-site
-# conversion a one-line change rather than wrapping every fixture in a guard. (`rgb_scan`
-# guards explicitly only because it also needs to branch on `git init` success and clean
-# up its dir; that extra guard is about cleanup, not safety.)
+# conversion a one-line change rather than wrapping every fixture in a guard.
+# (`rgb_scan`, in lib/test/run.sh, guards explicitly only because it also needs to branch
+# on `git init` success and clean up its dir; that extra guard is about cleanup, not safety.)
 #
 # Dependency: like assert_eq / probe_tmp, the failure path writes the FAIL via
 # `echo FAIL >> "$RESULTS_FILE"`, so callers must have RESULTS_FILE in scope — it is set
-# globally (the suite tally file) and never unset, so every call site qualifies. The AC3
-# probes deliberately override it per-call (`RESULTS_FILE=… git_sandbox …`) to divert the
+# globally (the suite tally file) and never unset, so every call site qualifies. The #161
+# AC3 probes (in lib/test/run.sh) deliberately override it per-call (`RESULTS_FILE=… git_sandbox …`) to divert the
 # intentional FAIL into an isolated file; that is the only supported reason to rebind it.
 git_sandbox() {  # assertion-name -> prints an isolated temp dir (rc 0); on mktemp -d
                  # failure records a suite FAIL, prints the breadcrumb to stderr, and
