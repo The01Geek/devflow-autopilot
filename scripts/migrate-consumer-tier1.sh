@@ -55,7 +55,14 @@ set -euo pipefail
 log() { printf 'prflow-migrate: %s\n' "$1"; }
 die() { printf 'prflow-migrate: %s\n' "$1" >&2; exit 2; }
 
-SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Pure-bash directory derivation (no `dirname`): lib/preflight.sh guarantees only
+# git/gh/jq/python3, and under `set -e` a failing command substitution here would
+# abort before the classify step could report. Same discipline lib/resolve-jq.sh
+# documents.
+case "${BASH_SOURCE[0]}" in
+  */*) SELF_DIR="${BASH_SOURCE[0]%/*}" ;;
+  *)   SELF_DIR="." ;;
+esac
 RENAME_MAP="$SELF_DIR/../lib/rename-map.json"
 
 MODE=preview

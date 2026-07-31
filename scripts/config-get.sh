@@ -54,9 +54,18 @@ set -euo pipefail
 # shell reader answer identically; a partially-copied deployment without the
 # sibling falls back to the canonical name with a breadcrumb rather than aborting
 # under `set -e` (the same guarded-source discipline lib/resolve-jq.sh uses).
+# Pure-bash directory derivation (no `dirname`): lib/preflight.sh guarantees only
+# git/gh/jq/python3, so a `dirname` here would make this reader depend on a tool that
+# can legitimately be absent — and under `set -e` its failing command substitution
+# aborts the whole read before the caller's default is ever emitted. Same discipline
+# lib/resolve-jq.sh already documents.
+case "${BASH_SOURCE[0]}" in
+  */*) _CONFIG_GET_DIR="${BASH_SOURCE[0]%/*}" ;;
+  *)   _CONFIG_GET_DIR="." ;;
+esac
 # shellcheck source=../lib/resolve-state-dir.sh
-if [ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-state-dir.sh" ] \
-   && . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-state-dir.sh" \
+if [ -f "$_CONFIG_GET_DIR/../lib/resolve-state-dir.sh" ] \
+   && . "$_CONFIG_GET_DIR/../lib/resolve-state-dir.sh" \
    && type prflow_state_dir >/dev/null 2>&1; then
     :
 else
@@ -132,7 +141,7 @@ fi
 # read it is diagnosing.
 probe_superseded_key() {
     local map_file hit
-    map_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/rename-map.json"
+    map_file="$_CONFIG_GET_DIR/../lib/rename-map.json"
     [ -f "$map_file" ] || return 0
     command -v python3 >/dev/null 2>&1 || return 0
     hit="$(PRFLOW_KEY="${key#.}" PRFLOW_CONFIG="$config_file" PRFLOW_MAP="$map_file" python3 -c '

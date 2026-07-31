@@ -52,9 +52,18 @@ set -euo pipefail
 # transitional fallback to a superseded .devflow/ when only that one is present.
 # Guarded source (the lib/resolve-jq.sh discipline): a partially-copied deployment
 # degrades to the canonical name with a breadcrumb instead of aborting under `set -e`.
+# Pure-bash directory derivation (no `dirname`): lib/preflight.sh guarantees only
+# git/gh/jq/python3, so a `dirname` here would make this reader depend on a tool that
+# can legitimately be absent — and under `set -e` its failing command substitution
+# aborts the whole read before the caller's default is ever emitted. Same discipline
+# lib/resolve-jq.sh already documents.
+case "${BASH_SOURCE[0]}" in
+  */*) _DPT_SELF_DIR="${BASH_SOURCE[0]%/*}" ;;
+  *)   _DPT_SELF_DIR="." ;;
+esac
 # shellcheck source=../lib/resolve-state-dir.sh
-if [ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-state-dir.sh" ] \
-   && . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-state-dir.sh" \
+if [ -f "$_DPT_SELF_DIR/../lib/resolve-state-dir.sh" ] \
+   && . "$_DPT_SELF_DIR/../lib/resolve-state-dir.sh" \
    && type prflow_state_dir >/dev/null 2>&1; then
   :
 else

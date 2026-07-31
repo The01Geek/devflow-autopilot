@@ -15439,6 +15439,7 @@ lib/test/modules/review-stall-backstop.sh
 lib/test/modules/review-trigger-helpers.sh
 lib/test/mutation-pin-corpus-adjudications.tsv
 lib/test/run.sh
+lib/test/test_pin_corpus_lint.py
 lib/test/test_verification_baseline.py
 scripts/build-experiment-records.py
 scripts/derive-review-preconditions.sh
