@@ -233,6 +233,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/dedupe-review-command.sh": {
+      "note": "Candidate-C /prflow:review duplicate check (issue #989): detect an in-flight review from the seeded devflow:review-progress comment, and compose the suppression notice per cause",
+      "owner": "review-trigger-helpers"
+    },
     "scripts/derive-review-preconditions.sh": {
       "note": "retained unreachable-in-tree: called only by the withheld auto-review tier's workflow, kept so an installed consumer copy still resolves it (issue #936)",
       "owner": "review-trigger-helpers"

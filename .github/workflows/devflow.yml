@@ -322,21 +322,41 @@ jobs:
           # degraded arm with its own ::warning:: breadcrumb, surfaced to the log
           # here (its stderr is not captured). The deciding value is parsed from its
           # stdout with bash builtins only (no tr/sed/grep for the decision).
+          # A /prflow:review carrying the review-backstop marker is a no-verdict
+          # auto-resume posted from inside a still-active run, and is NEVER
+          # suppressed — this OVERRIDES every signal (legacy included), so the
+          # resume always fires (issue #989). The helper applies this to its own
+          # Signal 3, but the short-circuit below skips the helper when a legacy
+          # signal already fired, so the override is applied HERE to IC/IR too.
+          # Marker literal coupled with the helper's BACKSTOP_MARKER and
+          # scripts/request-review-backstop.sh (pinned in lib/test/).
+          case "$BODY" in
+            *"<!-- devflow:review-backstop"*)
+              echo "::notice::dedupe-review: triggering /prflow:review carries the review-backstop marker (a no-verdict auto-resume); not suppressing (all signals overridden)."
+              IC=0; IR=0 ;;
+          esac
+
+          # Signal 3 (Candidate C) is only consulted when neither legacy signal
+          # fired: whenever IC/IR already decide suppression, the helper's full
+          # paginated comments fetch + jq pass would be computed and discarded
+          # (efficiency), so short-circuit it.
           CC=false
-          CC_HELPER=.devflow/vendor/devflow/scripts/dedupe-review-command.sh
-          if [ ! -x "$CC_HELPER" ]; then
-            echo "::warning::dedupe-review helper not found/executable at $CC_HELPER (has install.sh/vendor-plugin vendored the plugin at the pinned devflow_version?); Candidate-C signal skipped (fail-open — manual review proceeds)."
-          elif ! CC_OUT="$(MODE=detect REPO="$REPO" PR="$PR" RUN_ID="${GITHUB_RUN_ID:-}" TRIGGER_BODY="$BODY" bash "$CC_HELPER")"; then
-            echo "::warning::dedupe-review helper exited non-zero for PR #$PR; Candidate-C signal treated as 0 (fail-open)."
-            CC=false
-          else
-            # The helper writes exactly one `suppress=<bool>` line to stdout
-            # (breadcrumbs go to stderr, uncaptured, into the log). Parse it with a
-            # bash case — no tr/sed/grep for the deciding value.
-            case "$CC_OUT" in
-              *suppress=true*) CC=true ;;
-              *) CC=false ;;
-            esac
+          if [ "$IC" = "0" ] && [ "$IR" = "0" ]; then
+            CC_HELPER=.devflow/vendor/devflow/scripts/dedupe-review-command.sh
+            if [ ! -x "$CC_HELPER" ]; then
+              echo "::warning::dedupe-review helper not found/executable at $CC_HELPER (has install.sh/vendor-plugin vendored the plugin at the pinned devflow_version?); Candidate-C signal skipped (fail-open — manual review proceeds)."
+            elif ! CC_OUT="$(MODE=detect REPO="$REPO" PR="$PR" RUN_ID="${GITHUB_RUN_ID:-}" TRIGGER_BODY="$BODY" bash "$CC_HELPER")"; then
+              echo "::warning::dedupe-review helper exited non-zero for PR #$PR; Candidate-C signal treated as 0 (fail-open)."
+              CC=false
+            else
+              # The helper writes exactly one `suppress=<bool>` line to stdout
+              # (breadcrumbs go to stderr, uncaptured, into the log). Parse it with
+              # a bash case — no tr/sed/grep for the deciding value.
+              case "$CC_OUT" in
+                *suppress=true*) CC=true ;;
+                *) CC=false ;;
+              esac
+            fi
           fi
 
           # Select the cause that decided suppression, in precedence order. The

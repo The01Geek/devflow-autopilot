@@ -192,11 +192,9 @@ if [ -z "$comments_json" ]; then
 fi
 
 # The deciding value is computed by jq and validated by a bash regex — never by a
-# non-preflight PATH tool. `now` is jq's builtin unless a test fixes DEDUPE_NOW_EPOCH.
-now_arg="${DEDUPE_NOW_EPOCH:-}"
-jq_now='now'
-[ -n "$now_arg" ] && jq_now='$fixed_now'
-
+# non-preflight PATH tool. `now` is jq's builtin; a test fixes it by passing a
+# positive DEDUPE_NOW_EPOCH, which the program prefers over `now` — chosen ONCE
+# inside jq (a single static program), never string-spliced.
 jq_err="$(mktemp 2>/dev/null || echo /dev/null)"
 # Program emits two space-separated integers: <inflight-match count> <malformed
 # in-flight candidate count>. A candidate = a bot-authored, marker-carrying,
@@ -204,7 +202,7 @@ jq_err="$(mktemp 2>/dev/null || echo /dev/null)"
 # parses and is within the liveness window, and MALFORMED when updated_at is
 # absent/null/unparseable (so liveness cannot be established → fail open on it).
 decision="$("$DEVFLOW_JQ" -r \
-  --argjson fixed_now "${now_arg:-0}" \
+  --argjson fixed_now "${DEDUPE_NOW_EPOCH:-0}" \
   --argjson window "$window_s" \
   --arg marker "$PROGRESS_MARKER" \
   --arg status "$INFLIGHT_STATUS" \
@@ -212,11 +210,12 @@ decision="$("$DEVFLOW_JQ" -r \
   def isprogress: ((.body // "") | type == "string") and ((.body // "") | contains($marker)) and ((.body // "") | contains($status)) and ((.user.type // "") == "Bot");
   def notself: ((.body // "") | contains($runself)) | not;
   def freshdate: (.updated_at // null) | (type == "string") and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T");
-  if type != "array" then error("not-array")
+  (if $fixed_now > 0 then $fixed_now else now end) as $n
+  | if type != "array" then error("not-array")
   else
     ( [ .[] | select(isprogress) | select(notself) | select(freshdate)
-          | select( ('"$jq_now"' - (.updated_at | fromdateiso8601)) <= $window
-                    and ('"$jq_now"' - (.updated_at | fromdateiso8601)) >= 0 ) ] | length ) as $m
+          | select( ($n - (.updated_at | fromdateiso8601)) <= $window
+                    and ($n - (.updated_at | fromdateiso8601)) >= 0 ) ] | length ) as $m
     | ( [ .[] | select(isprogress) | select(notself) | select(freshdate | not) ] | length ) as $bad
     | "\($m) \($bad)"
   end' <<<"$comments_json" 2>"$jq_err")" || decision=""

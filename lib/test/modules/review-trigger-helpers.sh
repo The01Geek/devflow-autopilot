@@ -2076,6 +2076,18 @@ assert_eq "drc: legacy Signal 1 (Devflow Review check-run query) retained" "1" \
   "$(grep -cF 'select(.name=="Devflow Review"' "$RDWF")"
 assert_eq "drc: legacy Signal 2 (devflow-review.yml workflow-run query) retained" "1" \
   "$(grep -cF -- '--workflow devflow-review.yml' "$RDWF")"
+# The review-backstop marker overrides ALL signals in the guard (the helper's own
+# backstop check is short-circuited when a legacy signal fires), so the auto-resume
+# is never suppressed. The marker literal is coupled with the producer.
+assert_eq "drc: guard zeroes all signals on a review-backstop resume (never suppressed)" "1" \
+  "$(grep -cF '*"<!-- devflow:review-backstop"*)' "$RDWF")"
+assert_eq "drc: guard's review-backstop marker matches the producer (coupling holds)" "true" \
+  "$(grep -q 'devflow:review-backstop' "$RDWF" \
+     && grep -q 'devflow:review-backstop' "$LIB/../scripts/request-review-backstop.sh" && echo true || echo false)"
+# Signal 3 (Candidate C) is short-circuited when a legacy signal already decided,
+# so the helper's paginated fetch is not computed and discarded (efficiency).
+assert_eq "drc: Candidate-C helper is consulted only when both legacy signals are 0" "1" \
+  "$(grep -cF 'if [ "$IC" = "0" ] && [ "$IR" = "0" ]; then' "$RDWF")"
 
 rm -rf "$DRC_STUB"
 
