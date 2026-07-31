@@ -14914,12 +14914,17 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # then-current floor drop to 399. Do not read that drop as dead code — deleting these helpers
 # would break every consumer that upgrades. It stops there deliberately — the tranche was
 # scoped in advance to a measured set of low-risk sections, and what follows was not in it.
-# The floor has since RISEN to 410: the plugin rename added dual-namespace acceptance
+# The floor has RISEN twice since: the plugin rename added dual-namespace acceptance
 # coverage to both trigger helpers (canonical-input arms plus wildcard negative controls),
-# since every pre-existing fixture fed only the transitional alias form.
+# since every pre-existing fixture fed only the transitional alias form; and the
+# duplicate-notice self-trigger guard was widened from the single hardcoded `/devflow:`
+# to every declared command namespace, with a planted-defect control per namespace.
+# The floor literal on the call below is equality-checked against this module's
+# `minimum_assertions` in scripts/workflow-flight-recorder-registry.json — change both
+# together, or test_module_runner.py's tranche test goes RED.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 410; then
+  "review-trigger-helpers" 416; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
@@ -15938,8 +15943,36 @@ assert_eq "app-token: suppression-notice pin captured the notice body (no vacuou
 # renamed/inlined — pin that exactly one NOTE= body line exists in the step.
 assert_eq "app-token: suppression notice carries exactly one NOTE= body line" "1" \
   "$(grep -c 'NOTE=' <<< "$RS_NOTICE")"
-assert_eq "app-token: suppression notice contains no /devflow: phrase in its NOTE body" "0" \
-  "$(grep 'NOTE=' <<< "$RS_NOTICE" | grep -c '/devflow:' || true)"
+# Scanned over EVERY declared command namespace, not just the transitional one.
+# devflow.yml carries triggers in both namespaces, so a guard spelling only
+# `/devflow:` gives zero assurance for `/prflow:` — a canonical-namespace phrase
+# could leak into the notice and self-trigger with the check still green. The set
+# is DERIVED ($SUITE_CMD_NS, built above from the declared plugin identity), so it
+# follows a namespace addition automatically and does not go vacuous when the
+# transitional namespace is eventually retired.
+# NON-VACUITY, asserted LOCALLY rather than borrowed: $SUITE_CMD_NS is built far
+# upstream in the partition-invariant section, and today its `exit 1` fail-closed
+# arm happens to run earlier in the same linear script. That is an accident of
+# ordering, not a contract — hoisting either block, or moving this one into a
+# module, would leave both loops below iterating over an empty set and passing by
+# inspecting nothing. Assert emptiness here, at the point of use, exactly as the
+# devflow-implement duplicate-notice mirror does for its own DI_CMD_NS.
+assert_eq "app-token: the scanned command-namespace set is non-empty (guard is not vacuous)" \
+  "yes" "$(case "$SUITE_CMD_NS" in *[!\ ]*) echo yes ;; *) echo no ;; esac)"
+for _rs_ns in $SUITE_CMD_NS; do
+  assert_eq "app-token: suppression notice contains no /$_rs_ns: phrase in its NOTE body" "0" \
+    "$(grep 'NOTE=' <<< "$RS_NOTICE" | grep -c "/$_rs_ns:" || true)"
+done
+# PLANTED-DEFECT CONTROL: each namespace's check must actually RED on the leak it
+# claims to catch. A green row over an expression that can no longer match proves
+# nothing, so the control first asserts the mutation really changed the body.
+for _rs_ns in $SUITE_CMD_NS; do
+  _RS_PLANTED="${RS_NOTICE/NOTE=/NOTE=see \/$_rs_ns:review }"
+  assert_eq "app-token: CONTROL — the planted /$_rs_ns: mutation really changed the notice body" \
+    "no" "$([ "$_RS_PLANTED" = "$RS_NOTICE" ] && echo yes || echo no)"
+  assert_eq "app-token: CONTROL — a planted /$_rs_ns: phrase turns the suppression-notice check RED" \
+    "yes" "$([ "$(grep 'NOTE=' <<< "$_RS_PLANTED" | grep -c "/$_rs_ns:" || true)" -gt 0 ] && echo yes || echo no)"
+done
 # Scoped to the NOTE= body line: the step's own de-trigger rationale comment
 # legitimately names `@claude` in prose.
 assert_eq "app-token: suppression notice contains no @claude in its NOTE body" "0" \
