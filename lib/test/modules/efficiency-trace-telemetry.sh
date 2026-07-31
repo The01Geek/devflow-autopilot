@@ -4446,6 +4446,70 @@ assert_eq "tb(#442 Imp-1): the reader still degrades to the legacy archive (best
 rm -rf "$TB_GX_REPO"
 rm -rf "$TB_MB_REPO"
 
+# ── #1003: the UNMIGRATED-telemetry-branch detection arm ─────────────────────
+# The branch renamed devflow-telemetry -> prflow-telemetry and, unlike the state
+# directory, is NOT migrated automatically and is NOT dual-read: a repo that still
+# carries only the superseded ref is told so loudly, because the alternative is a
+# measured-looking absence that silently drops every cost row on it. That arm is
+# the second `rev-parse` probe, and its comparand (`rc_s == 0`) is reachable only
+# when the FIRST probe returned exactly 1 — so a fail-open in either probe ships
+# green. Drive all three combinations of the two refs against one fixture shape.
+tb_unmigrated_warn() {   # $1 = repo root -> yes|no
+  DEVFLOW_CONFIG_FILE="$1/no-such-config.json" python3 -c 'import importlib.util,sys
+s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+m._index_efficiency(sys.argv[2]+"/.prflow/logs/efficiency", sys.argv[2])' \
+    "$LIB/../scripts/build-experiment-records.py" "$1" 2>&1 >/dev/null \
+    | grep -qF 'is absent but the superseded' && echo yes || echo no
+}
+tb_seed_telemetry_repo() {   # $1 = repo root; seeds a committed repo + a legacy record
+  git init -q "$1"
+  git -C "$1" config user.email t@e.com; git -C "$1" config user.name t
+  git -C "$1" commit --allow-empty -qm seed
+  mkdir -p "$1/.prflow/logs/efficiency"
+  printf '{"slug":"pr-9","iterations":4}' > "$1/.prflow/logs/efficiency/pr-9-legacy.json"
+}
+
+# (a) POSITIVE: only the superseded ref exists -> the operator is warned.
+TB_UM_A="$(git_sandbox "tb unmigrated telemetry branch")"
+tb_seed_telemetry_repo "$TB_UM_A"
+git -C "$TB_UM_A" update-ref refs/heads/devflow-telemetry "$(git -C "$TB_UM_A" rev-parse HEAD)"
+assert_eq "tb(#1003): superseded-only telemetry branch is reported, never read as a measured absence" "yes" \
+  "$(tb_unmigrated_warn "$TB_UM_A")"
+# The warning has to be actionable, so it carries the exact one-shot rename.
+TB_UM_A_ERR="$(DEVFLOW_CONFIG_FILE="$TB_UM_A/no-such-config.json" python3 -c 'import importlib.util,sys
+s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+m._index_efficiency(sys.argv[2]+"/.prflow/logs/efficiency", sys.argv[2])' \
+  "$LIB/../scripts/build-experiment-records.py" "$TB_UM_A" 2>&1 >/dev/null)"
+assert_eq "tb(#1003): the unmigrated-branch warning names the rename command" "yes" \
+  "$(printf '%s' "$TB_UM_A_ERR" | grep -qF 'git push origin devflow-telemetry:prflow-telemetry' && echo yes || echo no)"
+# Detection only — the superseded branch is never read through, so the reader
+# still returns just the working-tree archive.
+TB_UM_A_OUT="$(DEVFLOW_CONFIG_FILE="$TB_UM_A/no-such-config.json" python3 -c 'import importlib.util,sys
+s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+idx=m._index_efficiency(sys.argv[2]+"/.prflow/logs/efficiency", sys.argv[2])
+print(sorted((e["run_id"],e["iterations"]) for v in idx.values() for e in v))' \
+  "$LIB/../scripts/build-experiment-records.py" "$TB_UM_A" 2>/dev/null)"
+assert_eq "tb(#1003): detection is not a read-through (superseded rows stay unread)" "[('legacy', 4)]" "$TB_UM_A_OUT"
+rm -rf "$TB_UM_A"
+
+# (b) NEGATIVE: the current ref exists too -> nothing to migrate, no warning.
+#     This is the arm that would fail open if the FIRST probe stopped returning 1
+#     for a present branch, so it is what makes (a) a measurement.
+TB_UM_B="$(git_sandbox "tb migrated telemetry branch")"
+tb_seed_telemetry_repo "$TB_UM_B"
+git -C "$TB_UM_B" update-ref refs/heads/devflow-telemetry "$(git -C "$TB_UM_B" rev-parse HEAD)"
+git -C "$TB_UM_B" update-ref refs/heads/prflow-telemetry "$(git -C "$TB_UM_B" rev-parse HEAD)"
+assert_eq "tb(#1003): a repo carrying BOTH refs is already migrated → no warning" "no" \
+  "$(tb_unmigrated_warn "$TB_UM_B")"
+rm -rf "$TB_UM_B"
+
+# (c) NEGATIVE: neither ref exists -> a genuine absence, not an unmigrated store.
+TB_UM_C="$(git_sandbox "tb no telemetry branch")"
+tb_seed_telemetry_repo "$TB_UM_C"
+assert_eq "tb(#1003): no telemetry ref at all is a genuine absence → no unmigrated warning" "no" \
+  "$(tb_unmigrated_warn "$TB_UM_C")"
+rm -rf "$TB_UM_C"
+
 # Grep pins (AC1/AC19/AC22): the SKILL mirrors + workflows + docs carry the new
 # telemetry-branch contract; a revert turns the suite RED.
 TB_RAF="$MAXI_BUNDLE"; TB_REV="$REVIEW_BUNDLE"   # #530: TB_RAF=root+references bundle
