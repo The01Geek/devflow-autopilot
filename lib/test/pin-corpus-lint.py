@@ -2877,11 +2877,23 @@ def _guard_target_variable(args, spec):
 # declaration is inspected against the member set, and the literal must be
 # present in one of the members. This weakens nothing. Membership is resolved
 # only through the closed grammar below (a builder call, an array built from
-# literal words and/or one for-loop over a path glob with an optional basename
-# skip, and whole-variable aliases of a resolved bundle); anything outside it
-# leaves the bundle unresolved and the pre-existing refusal stands, an empty
-# member set is never treated as inspected, and a literal present in no member
-# is still reported.
+# literal words and/or one for-loop — either over a path glob with an optional
+# basename skip, or over a literal STEM list whose body appends one path
+# template per stem — and whole-variable aliases of a resolved bundle, with or
+# without a trailing comment); anything outside it leaves the bundle unresolved
+# and the pre-existing refusal stands, an empty member set is never treated as
+# inspected, and a literal present in no member is still reported.
+#
+# Issue #1008 widened that grammar by two independent arms, each measured against
+# this repository's own `lib/test/run.sh` before it was written:
+#   * the STEM-loop body — the review bundle iterates a word-list variable and
+#     appends `"$LIB/../skills/review/phases/${_s}.md"` rather than the loop
+#     variable itself, so `$REVIEW_BUNDLE` resolved to nothing at all;
+#   * the COMMENT-suffixed alias — `ST_RAF="$MAXI_BUNDLE"   # …` did not resolve
+#     even though `$MAXI_BUNDLE` did, because the trailing comment is part of the
+#     assignment's right-hand side and defeated the whole-token variable match.
+# Both left typed `# structural-pin-ok:` declarations on the affected pins
+# permanently refused as uninspectable, which froze the whole logical line.
 BUNDLE_BUILDERS = frozenset({"_build_skill_bundle", "devflow_module_build_bundle"})
 _BUNDLE_ARRAY_ASSIGN_RE = re.compile(
     r"^\s*(?:local\s+)?([A-Za-z_]\w*)(\+?)=\(\s*(.*?)\s*\)\s*(?:#.*)?$"
@@ -2897,6 +2909,14 @@ _BUNDLE_CASE_SKIP_RE = re.compile(
 _BUNDLE_DEFAULT_EXPANSION_RE = re.compile(r"^\$\{(\w+):[-=](.*)\}$")
 _BUNDLE_SUFFIX_EXPANSION_RE = re.compile(r"^\$\{(\w+)%%?([^{}]*)\}$")
 _BUNDLE_GLOB_CHARS = "*?["
+# An annotated alias — `ST_RAF="$MAXI_BUNDLE"   # …`. The comment is stripped only
+# when what precedes it is itself a whole-token variable reference, so nothing that
+# merely CONTAINS a `#` is truncated (issue #1008).
+_BUNDLE_TRAILING_COMMENT_RE = re.compile(r"^(.*?)\s+#.*$")
+# One word of a stem list. Deliberately narrower than a shell word: no slash, no
+# glob character, no expansion, nothing that could change how the substituted
+# template tokenizes. A list carrying anything else resolves to None (fail closed).
+_BUNDLE_STEM_WORD_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 class BundleMemberSpec(NamedTuple):
@@ -2914,6 +2934,88 @@ def _bundle_variable_name(token_value):
         value = value[1:-1]
     match = _VARREF.match(value)
     return match.group(1) if match else None
+
+
+def _bundle_alias_name(rhs):
+    """The bundle variable an alias assignment's right-hand side names, else None.
+
+    An alias is usually annotated (``ST_RAF="$MAXI_BUNDLE"   # #530: …``), and the
+    comment is part of the right-hand side ``_ASSIGNMENT_RE`` captures. Stripping
+    it is gated on the remaining text being a whole-token variable reference, so a
+    right-hand side that merely contains a ``#`` — inside quotes, in a path, in a
+    parameter expansion — is never truncated into a false alias (issue #1008).
+    """
+    name = _bundle_variable_name(rhs)
+    if name is not None:
+        return name
+    match = _BUNDLE_TRAILING_COMMENT_RE.match(rhs)
+    if match is None:
+        return None
+    return _bundle_variable_name(match.group(1))
+
+
+def _bundle_word_list(rhs, word_vars):
+    """The literal words a whitespace-separated word-list right-hand side names.
+
+    Exactly two word shapes are modeled — a safe literal stem word and a
+    whole-token reference to an already-known word-list variable — so a list
+    carrying a glob, a command substitution, a path, or any other expansion
+    resolves to None and its loop stays unmodeled (issue #1008). ``None`` is also
+    the answer for an empty list, which must never read as "resolved to nothing".
+    """
+    value = rhs.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    words = []
+    for token in value.split():
+        reference = _VARREF.match(token)
+        if reference is not None:
+            known = word_vars.get(reference.group(1))
+            if known is None:
+                return None
+            words.extend(known)
+            continue
+        if _BUNDLE_STEM_WORD_RE.match(token) is None:
+            return None
+        words.append(token)
+    return tuple(words) or None
+
+
+def _bundle_word_vars(text):
+    """Whole-source map of {name: literal word tuple} for stem-list variables.
+
+    Like ``_extended_path_vars`` this is a final-state map read at every loop, so a
+    name that is not the SAME list everywhere cannot answer for one: a second
+    assignment — or a first one this grammar does not model — makes the name
+    ambiguous and it is dropped, rather than answering with whichever value
+    happened to be last (issue #1008).
+
+    Memoized on the presented bytes; a fresh dict is handed out so a caller cannot
+    write through the cached object.
+    """
+    return dict(_bundle_word_vars_cached(text))
+
+
+@functools.lru_cache(maxsize=_IMAGE_PARSE_CACHE_SIZE)
+def _bundle_word_vars_cached(text):
+    word_vars = {}
+    ambiguous = set()
+    for _, line in join_logical_lines(text):
+        if _BUNDLE_ARRAY_ASSIGN_RE.match(line) is not None:
+            continue  # array assignments are resolved by _bundle_arrays
+        match = _ASSIGNMENT_RE.match(line)
+        if match is None:
+            continue
+        name = match.group(1)
+        if name in ambiguous:
+            continue
+        words = _bundle_word_list(match.group(2).strip(), word_vars)
+        if words is None or name in word_vars:
+            ambiguous.add(name)
+            word_vars.pop(name, None)
+            continue
+        word_vars[name] = words
+    return tuple(word_vars.items())
 
 
 def _bundle_expansion_path(rhs, lib, path_vars):
@@ -3005,20 +3107,60 @@ def _bundle_word_specs(words, lib, path_vars):
     return tuple(specs) or None
 
 
-def _bundle_loop_member_specs(loop_var, words, body, lib, path_vars):
-    """Resolve one ``for`` loop's contribution as (appended array names, specs).
+def _bundle_loop_var_pattern(loop_var):
+    """Match every reference to the loop variable — ``${_s}`` and bare ``$_s``."""
+    escaped = re.escape(loop_var)
+    return re.compile(r"\$\{%s\}|\$%s(?![A-Za-z0-9_])" % (escaped, escaped))
 
-    ``specs`` is None when the loop body carries any statement the grammar does
-    not model, so every array it appends to is poisoned rather than silently
-    under-resolved. That direction is load-bearing: run.sh also builds bundles by
-    looping over a STEM list and appending an interpolated path
-    (``_members+=("$LIB/../skills/implement/phases/${_s}.md")``), a shape this
-    grammar does not model — reporting the appended-to array as merely "the words
-    resolved so far" would resolve those bundles to a strict SUBSET of their real
-    membership and let inspection call a literal absent that is really present.
+
+def _bundle_template_specs(value, loop_var, stems, lib, path_vars):
+    """Resolve a stem-loop append — ``_m+=("$LIB/…/${_s}.md")`` — over a stem list.
+
+    Every reference to the loop variable is replaced textually by one stem and the
+    result re-resolved through the ordinary member-word grammar, so a template
+    that is not a resolvable single path yields None and the loop stays unmodeled.
+    Stems reach the substitution already restricted to ``_BUNDLE_STEM_WORD_RE``, so
+    none of them can introduce a quote, a glob, or an expansion that would change
+    how the substituted text tokenizes (issue #1008).
+    """
+    pattern = _bundle_loop_var_pattern(loop_var)
+    if pattern.search(value) is None:
+        return None
+    specs = []
+    for stem in stems:
+        resolved = _bundle_word_specs(pattern.sub(stem, value), lib, path_vars)
+        if resolved is None or len(resolved) != 1:
+            return None
+        specs.extend(resolved)
+    return tuple(specs) or None
+
+
+def _bundle_loop_member_specs(loop_var, words, body, lib, path_vars, word_vars):
+    """Resolve one ``for`` loop's contribution as ((array name, specs), …).
+
+    An array's ``specs`` is None when the loop body carries any statement the
+    grammar does not model, so that array is poisoned rather than silently
+    under-resolved — reporting it as merely "the words resolved so far" would
+    resolve its bundle to a strict SUBSET of its real membership and let
+    inspection call a literal absent that is really present.
+
+    Two body shapes are modeled, and one loop may carry both because they are
+    decided per append statement:
+      * the loop variable appended directly (``_members+=("$_ref")``), whose
+        members are the loop's own word list — a directory glob, with the optional
+        basename skip applied;
+      * a path TEMPLATE interpolating the loop variable
+        (``_members+=("$LIB/../skills/review/phases/${_s}.md")``), whose members
+        are that template resolved once per word of a literal stem list. This is
+        how `$REVIEW_BUNDLE` is built, and leaving it unmodeled is what made two
+        of its pins permanently undeclarable (issue #1008).
+    A basename skip is not composed with a template — the skip filters an expanded
+    glob, and there is no evidence for what it should mean over a stem list — so a
+    loop carrying both leaves its templated arrays unresolved.
     """
     exclusions = []
     appended = []
+    templated = []
     unmodeled_arrays = []
     modeled = True
     for statement in body:
@@ -3034,25 +3176,49 @@ def _bundle_loop_member_specs(loop_var, words, body, lib, path_vars):
         if append is not None and append.group(2) == "+":
             if _bundle_variable_name(append.group(3)) == loop_var:
                 appended.append(append.group(1))
+            elif _bundle_loop_var_pattern(loop_var).search(append.group(3)):
+                templated.append((append.group(1), append.group(3)))
             else:
                 unmodeled_arrays.append(append.group(1))
             continue
         modeled = False
-    if not appended and not unmodeled_arrays:
-        return (), None
-    if unmodeled_arrays or not modeled:
-        return tuple(appended) + tuple(unmodeled_arrays), None
-    specs = _bundle_word_specs(words, lib, path_vars)
-    if specs is None:
-        return tuple(appended), None
-    return tuple(appended), tuple(
-        spec._replace(exclusions=tuple(exclusions)) for spec in specs
+    touched = (
+        tuple(appended)
+        + tuple(name for name, _ in templated)
+        + tuple(unmodeled_arrays)
     )
+    if not touched:
+        return ()
+    if unmodeled_arrays or not modeled:
+        return tuple((name, None) for name in touched)
+    contributions = []
+    if appended:
+        specs = _bundle_word_specs(words, lib, path_vars)
+        if specs is not None:
+            specs = tuple(
+                spec._replace(exclusions=tuple(exclusions)) for spec in specs
+            )
+        contributions.extend((name, specs) for name in appended)
+    if templated:
+        stems = None if exclusions else _bundle_word_list(words, word_vars)
+        contributions.extend(
+            (
+                name,
+                None
+                if stems is None
+                else _bundle_template_specs(
+                    value, loop_var, stems, lib, path_vars
+                ),
+            )
+            for name, value in templated
+        )
+    return tuple(contributions)
 
 
 def _bundle_arrays(text, lib, path_vars):
     """Return {array name: member specs}, mapping an unmodeled array to None."""
     lines = list(join_logical_lines(text))
+    word_vars = _bundle_word_vars(text)
     arrays = {}
     index = 0
     while index < len(lines):
@@ -3074,12 +3240,13 @@ def _bundle_arrays(text, lib, path_vars):
                     body.append(lines[index][1].strip())
                     index += 1
                 index += 1  # consume the `done`
-            names, specs = _bundle_loop_member_specs(
-                loop.group(1), loop.group(2), body, lib, path_vars
+            contributions = _bundle_loop_member_specs(
+                loop.group(1), loop.group(2), body, lib, path_vars, word_vars
             )
-            if line[:1] in {" ", "\t"}:
-                specs = None  # a nested loop's reachability is not modeled
-            for name in names:
+            nested = line[:1] in {" ", "\t"}
+            for name, specs in contributions:
+                if nested:
+                    specs = None  # a nested loop's reachability is not modeled
                 if specs is None or arrays.get(name, ()) is None:
                     arrays[name] = None
                 else:
@@ -3226,7 +3393,7 @@ def _bundle_target_specs(text, lib):
         if assign is None:
             continue
         name = assign.group(1)
-        alias = _bundle_variable_name(assign.group(2).strip())
+        alias = _bundle_alias_name(assign.group(2).strip())
         if alias is not None and alias in bundles:
             if name not in ambiguous:
                 bundles[name] = bundles[alias]
