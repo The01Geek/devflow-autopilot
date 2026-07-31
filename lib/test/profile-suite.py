@@ -25,8 +25,9 @@ WHY A LAUNCHER RATHER THAN IN-SUITE TIMING CALLS
       * no distortion of the thing being measured — no per-command DEBUG trap, no
         subshell per timing mark.
 
-    The alternative (a timing call at each of run.sh's ~141 section headers) would
-    edit 141 sites inside a file whose meta-assertions audit its own source shape,
+    The alternative (a timing call at each of run.sh's section headers — ~121 of them
+    match the banner shape below) would edit every one of those sites inside a file
+    whose meta-assertions audit its own source shape,
     for strictly worse fidelity: it could not attribute time to INDIVIDUAL
     assertions, only to sections, and several sections span thousands of lines.
 
@@ -46,7 +47,8 @@ THE THREE ATTRIBUTION AXES
                 `run_sh_blocks` on, so a per-label cost reads directly as "what would
                 extracting this block into a module move off this shard".
     assertion — the individual `PASS`/`FAIL`/`NOTE` line. The finest actionable unit;
-                `--resolve-lines` maps the expensive ones back to a run.sh line number.
+                the report maps the expensive ones back to a run.sh line number by
+                looking their names up in the source (unconditional, no flag).
 
 TIME SOURCE
     `time.monotonic()` in python3 — a hard preflight prerequisite. Deliberately NOT
@@ -58,6 +60,10 @@ USAGE
     lib/test/profile-suite.py run                      # profile the monolith shard
     lib/test/profile-suite.py run --out DIR -- CMD...  # profile an arbitrary command
     lib/test/profile-suite.py report --out DIR --top 20
+
+    POSIX-only: the child is launched with `start_new_session` + a `preexec_fn`, both
+    of which raise on Windows. Profiling is a maintainer-side diagnostic, so this is a
+    stated limitation rather than something the launcher works around.
 
     `run` writes DIR/{log.txt,events.tsv,sections.tsv,labels.tsv,assertions.tsv,
     run.json} and prints the top-N report. The child's exit status is this
@@ -279,7 +285,10 @@ def _resolve_lines(run_sh: Path, names: "list[str]") -> "dict[str, int]":
     """
     try:
         lines = run_sh.read_text(encoding="utf-8", errors="replace").split("\n")
-    except OSError:
+    except OSError as exc:
+        # Breadcrumb, not silence — matching _banner_set's identical read. Without it a
+        # column of zeroes is indistinguishable from "every name is built at runtime".
+        print(f"profile-suite: cannot read {run_sh} for line resolution: {exc}", file=sys.stderr)
         return {}
     wanted = {n: 0 for n in names}
     for idx, line in enumerate(lines, start=1):
@@ -290,19 +299,60 @@ def _resolve_lines(run_sh: Path, names: "list[str]") -> "dict[str, int]":
 
 
 def _report(out: Path, top: int, run_sh: "Path | None") -> int:
+    # `report --out DIR` exists to re-render a PRE-EXISTING directory, so a stale,
+    # truncated, or hand-edited profile is its ordinary input, not an exotic one. Every
+    # read below therefore degrades to this file's own `profile-suite: <reason>`
+    # breadcrumb + rc 2 — the same contract the missing-run.json arm already had —
+    # rather than to a raw KeyError/ValueError traceback from a half-written file.
     meta_path = out / "run.json"
     if not meta_path.is_file():
         print(f"profile-suite: no run.json in {out}", file=sys.stderr)
         return 2
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    total = meta["total_s"] or 1e-9
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        total = float(meta["total_s"]) or 1e-9
+        for key in ("exit_code", "passed", "failed", "noted", "sections", "labels"):
+            meta[key] = int(meta[key])
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        print(f"profile-suite: unreadable or malformed {meta_path}: {exc}", file=sys.stderr)
+        return 2
 
     def rows(name):
+        """Well-formed data rows of a profile TSV, skipping any the writer did not finish.
+
+        A row is kept only when it has at least the four columns every table in this
+        file writes AND its numeric columns parse. A run killed mid-write leaves one
+        short/partial trailing line; dropping it renders the rest rather than aborting
+        the whole report over the row that was being written when the process died.
+        """
         path = out / name
         if not path.is_file():
+            print(f"profile-suite: missing {path} — table omitted", file=sys.stderr)
             return []
-        body = path.read_text(encoding="utf-8").split("\n")[1:]
-        return [ln.split("\t") for ln in body if ln.strip()]
+        try:
+            body = path.read_text(encoding="utf-8").split("\n")[1:]
+        except OSError as exc:
+            print(f"profile-suite: unreadable {path}: {exc} — table omitted", file=sys.stderr)
+            return []
+        kept, dropped = [], 0
+        for ln in body:
+            if not ln.strip():
+                continue
+            cells = ln.split("\t")
+            if len(cells) < 4:
+                dropped += 1
+                continue
+            try:
+                float(cells[0])
+                if name != "assertions.tsv":
+                    int(cells[2])
+            except ValueError:
+                dropped += 1
+                continue
+            kept.append(cells)
+        if dropped:
+            print(f"profile-suite: {path}: skipped {dropped} malformed row(s)", file=sys.stderr)
+        return kept
 
     print(
         f"total {meta['total_s']:.1f}s  rc={meta['exit_code']}  "
