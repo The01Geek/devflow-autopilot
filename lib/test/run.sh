@@ -11502,7 +11502,7 @@ assert_eq "init-memory-nudge: recommends the built-in /init" "yes" \
 echo "shipped agent_overrides: deduper pins Sonnet 5 w/ effort; no Haiku override carries effort"
 # ────────────────────────────────────────────────────────────────────────────
 # The shipped checklist-deduper override pins Claude Sonnet 5 (which DOES
-# support `effort`) with effort "medium" — a cost-saving step down from the API
+# support `effort`) with effort "low" — a cost-saving step down from the API
 # default of "high"; set it explicitly to avoid unexpected latency. A
 # positive sentinel, not a bare has("effort"): a refactor that drops/renames the
 # entry, swaps the model, or strips the effort each FAIL loudly rather than
@@ -31462,6 +31462,64 @@ EOF
   assert_eq "#225 preflight: no provisioner pointer when python3 resolves (AC10)" "no" \
     "$(printf '%s' "$PF10_OUT" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
 
+  # ── #984: a working python3 >=3.11 that LACKS PyYAML → advisory demotion on the local
+  #    user tier. No prior fixture covered this population — T7/TPYPRE also lack python3, so
+  #    their non-zero exit came from the python3 arm, never from PyYAML. Here the ONLY gap is
+  #    PyYAML, so it exits 0 with a DISTINCT advisory final line carrying the stable
+  #    `PyYAML advisory` token, while the AC2 message literals ('PyYAML not found' + the
+  #    resolved-interpreter pip remedy) are preserved. ──
+  T984="$(mktemp -d)"; build_stub_bin "$T984"; make_fake_python "$T984/python3" "3.11.5" 3 11 noyaml
+  PF984_OUT="$(PATH="$T984" bash "$PREFLIGHT_SH" 2>&1)"; PF984_RC=$?
+  assert_eq "#984 preflight: PyYAML-only gap (working python3, no yaml) → exit 0 (AC1)" "0" "$PF984_RC"
+  assert_eq "#984 preflight: advisory names PyYAML not found (AC1/AC2 literal preserved)" "yes" \
+    "$(printf '%s' "$PF984_OUT" | grep -qF 'PyYAML not found' && echo yes || echo no)"
+  assert_eq "#984 preflight: AC2 remedy literal names the resolved interpreter (python3 -m pip install pyyaml)" "yes" \
+    "$(printf '%s' "$PF984_OUT" | grep -qF "'python3 -m pip install pyyaml'" && echo yes || echo no)"
+  assert_eq "#984 preflight: exit-0 advisory run emits the distinct final line carrying the stable token (AC3)" "yes" \
+    "$(printf '%s\n' "$PF984_OUT" | tail -1 | grep -qF 'PyYAML advisory' && echo yes || echo no)"
+  assert_eq "#984 preflight: advisory final line is NOT the byte-identical all-clear (AC3)" "no" \
+    "$(printf '%s\n' "$PF984_OUT" | tail -1 | grep -qxF 'devflow preflight: all dependencies present.' && echo yes || echo no)"
+  # The advisory final line must land on STDOUT (where /prflow:init reads it), not stderr —
+  # the captures above merge 2>&1, so a stdout-only capture is what pins the stream.
+  PF984_STDOUT="$(PATH="$T984" bash "$PREFLIGHT_SH" 2>/dev/null)"
+  assert_eq "#984 preflight: the advisory final line is emitted on stdout, not stderr (AC3)" \
+    "devflow preflight: required dependencies present; PyYAML advisory (see above)." \
+    "$(printf '%s\n' "$PF984_STDOUT" | tail -1)"
+  rm -rf "$T984"
+
+  # ── #984 AC4 negative control: each of git/gh/jq/python3, absent one at a time, still sets
+  #    the aggregate flag and exits non-zero — proving the demotion is scoped to the PyYAML arm,
+  #    not global. Each fixture carries a working python3+PyYAML so the removed tool is the only
+  #    gap (for the python3 row, removing it leaves no py/python alternate → the missing-python3
+  #    dead end). ──
+  for _tool984 in git gh jq python3; do
+    T984N="$(mktemp -d)"; build_stub_bin "$T984N"; make_fake_python "$T984N/python3" "3.11.5" 3 11
+    rm -f "$T984N/$_tool984"
+    PF984N_RC=0; PATH="$T984N" bash "$PREFLIGHT_SH" >/dev/null 2>&1 || PF984N_RC=$?
+    assert_eq "#984 preflight AC4: missing '$_tool984' still exits non-zero (demotion is scoped, not global)" "yes" \
+      "$([ "$PF984N_RC" -ne 0 ] && echo yes || echo no)"
+    rm -rf "$T984N"
+  done
+
+  # ── #984 precedence: a run carrying BOTH a real prerequisite gap AND a missing PyYAML must
+  #    take the hard stop, never the exit-0 advisory. The aggregate `missing` gate in
+  #    lib/preflight.sh is deliberately ordered BEFORE the `pyyaml_advisory` arm; swapping the
+  #    two exit blocks would make this fixture exit 0 and print the advisory line. Reachable
+  #    combined case: a too-old python3 (sets `missing` via the version re-check) that ALSO
+  #    lacks PyYAML (sets `pyyaml_advisory`). Neither the AC1 fixture (every tool present) nor
+  #    the AC4 loop (PyYAML present) exercises both flags at once. ──
+  T984P="$(mktemp -d)"; build_stub_bin "$T984P"; make_fake_python "$T984P/python3" "3.10.9" 3 10 noyaml
+  PF984P_OUT="$(PATH="$T984P" bash "$PREFLIGHT_SH" 2>&1)"; PF984P_RC=$?
+  assert_eq "#984 preflight precedence: both a real gap (python3 <3.11) and a missing PyYAML → hard stop wins (non-zero exit)" "yes" \
+    "$([ "$PF984P_RC" -ne 0 ] && echo yes || echo no)"
+  assert_eq "#984 preflight precedence: the combined-gap run emits BOTH diagnostics (version failure + PyYAML advisory message)" "yes" \
+    "$(printf '%s' "$PF984P_OUT" | grep -q 'Python 3.11+ required (found' && printf '%s' "$PF984P_OUT" | grep -qF 'PyYAML not found' && echo yes || echo no)"
+  assert_eq "#984 preflight precedence: the exit-0 'PyYAML advisory' token is NEVER printed on a hard-stop run" "no" \
+    "$(printf '%s' "$PF984P_OUT" | grep -qF 'PyYAML advisory' && echo yes || echo no)"
+  assert_eq "#984 preflight precedence: the hard-stop run ends on the missing-dependencies line, not the advisory line" "yes" \
+    "$(printf '%s\n' "$PF984P_OUT" | tail -1 | grep -qxF 'devflow preflight: one or more required dependencies are missing (see above).' && echo yes || echo no)"
+  rm -rf "$T984P"
+
   # ── AC6 (python3-present-but-too-old): a real python3 <3.11 takes preflight's python3 branch
   #    (NOT the resolved-alternate path) and must fail with the specific version message from the
   #    version re-check — a distinct code path from the `python`(alternate)-too-old case above. ──
@@ -49649,7 +49707,12 @@ assert_eq "python-pool: run-python-pool.sh exists and is executable" "yes" \
 # stubbed pool — records exactly one FAIL, so a non-zero join= is proof the body ran).
 _pps_selector_probe() {  # selector-value ('' = unset) -> "open=N join=N"
   (
-    _pps_rec="$(mktemp)"; _pps_res="$(mktemp)"; : > "$_pps_rec"; : > "$_pps_res"
+    # Explicit templates, the convention this file and run-python-pool.sh already use:
+    # a bare `mktemp` is accepted by the BSD/macOS build here (verified, rc 0) but the
+    # template costs nothing and removes the portability question entirely.
+    _pps_rec="$(mktemp "${TMPDIR:-/tmp}/devflow-pps-rec.XXXXXX")"
+    _pps_res="$(mktemp "${TMPDIR:-/tmp}/devflow-pps-res.XXXXXX")"
+    : > "$_pps_rec"; : > "$_pps_res"
     RESULTS_FILE="$_pps_res"
     if [ -n "$1" ]; then DEVFLOW_SKIP_PYTHON_POOL="$1"; else unset DEVFLOW_SKIP_PYTHON_POOL; fi
     # Shadowed for this subshell only; resolved at call time by the entry points.
@@ -49688,7 +49751,7 @@ unset -f _pps_selector_probe
 # captures and stubbing devflow_pool_join.
 _pps_reconcile_probe() {  # summary  lines -> "pass=N fail=N"
   (
-    _pps_res="$(mktemp)"; : > "$_pps_res"
+    _pps_res="$(mktemp "${TMPDIR:-/tmp}/devflow-pps-reconcile.XXXXXX")"; : > "$_pps_res"
     RESULTS_FILE="$_pps_res"
     unset DEVFLOW_SKIP_PYTHON_POOL
     devflow_pool_join() { :; }
@@ -49744,23 +49807,47 @@ if [ -n "$PPS_SB" ] && [ -d "$PPS_SB" ]; then
     "$(printf '%s' "$PPS_MISSING_OUT" | grep -qF 'harness did not define devflow_python_suite_pool_open' && echo yes || echo no)"
   assert_eq "python-pool driver: the missing-function arm renders NO summary line (nothing for shard-tally to accept)" "yes" \
     "$(printf '%s' "$PPS_MISSING_OUT" | grep -qE '^[0-9]+ passed, [0-9]+ failed' && echo no || echo yes)"
-  # The gate names SIX functions, and the probe above can only ever exercise the two the
-  # harness provides — the four summary.sh-provided names cannot be absent while the
-  # fixture copies the real file, so deleting one of those four from the gate's list
-  # would stay green. Cover the other half of the list by making the fixture's
-  # summary.sh a stub that omits one, which is what makes the gate's coverage
-  # non-vacuous for the whole set rather than for two of six.
-  _pps_stub_harness 'devflow_python_suite_pool_open() { :; }
-devflow_python_suite_pool_join() { printf "PASS\n" >> "$RESULTS_FILE"; }'
-  {
-    printf '%s\n' 'devflow_render_test_summary() { printf "%s passed, %s failed\n" "$1" "$2"; }'
-    printf '%s\n' 'devflow_render_failure_recap() { :; }'
-    printf '%s\n' '# devflow_tally_is_derivable deliberately absent'
-  } > "$PPS_SB/lib/test/summary.sh"
-  PPS_NOSUM_OUT="$(bash "$PPS_SB/lib/test/run-python-pool.sh" 2>&1)"; PPS_NOSUM_RC=$?
-  assert_eq "python-pool driver: a summary.sh missing a gated function ALSO fails closed (rc 2)" "2" "$PPS_NOSUM_RC"
-  assert_eq "python-pool driver: that refusal names the summary.sh-provided function, not a pool entry point" "yes" \
-    "$(printf '%s' "$PPS_NOSUM_OUT" | grep -qF 'harness did not define devflow_tally_is_derivable' && echo yes || echo no)"
+  # The gate names SIX functions, and the probe above exercises only ONE of them: the
+  # fixture defines the other five, so deleting any of those five from the gate's list
+  # would stay green. Close that by omitting EACH name in turn — the gated set is
+  # derived from three provided by module-harness.sh (the two pool entry points and
+  # record_fail) and three by summary.sh (the renderers and the derivability
+  # predicate) — and asserting the refusal both fails closed AND names the one that is
+  # missing. Anything the gate would let through is collected by name, so the failure
+  # message says WHICH function is unprotected rather than only that something is.
+  PPS_GATE_UNCAUGHT=""
+  PPS_GATE_SEEN=0
+  for _pps_omit in devflow_python_suite_pool_open devflow_python_suite_pool_join record_fail \
+    devflow_render_test_summary devflow_render_failure_recap devflow_tally_is_derivable; do
+    PPS_GATE_SEEN=$((PPS_GATE_SEEN + 1))
+    : > "$PPS_SB/lib/test/module-harness.sh"
+    : > "$PPS_SB/lib/test/summary.sh"
+    for _pps_def in \
+      'record_fail|module-harness|record_fail() { printf "%s\n" "$1" >> "$RESULTS_FILE.names"; }' \
+      'devflow_python_suite_pool_open|module-harness|devflow_python_suite_pool_open() { :; }' \
+      'devflow_python_suite_pool_join|module-harness|devflow_python_suite_pool_join() { printf "PASS\n" >> "$RESULTS_FILE"; }' \
+      'devflow_render_test_summary|summary|devflow_render_test_summary() { printf "%s passed, %s failed\n" "$1" "$2"; }' \
+      'devflow_render_failure_recap|summary|devflow_render_failure_recap() { :; }' \
+      'devflow_tally_is_derivable|summary|devflow_tally_is_derivable() { case "${1-}" in ""|*[!0-9]*) return 1 ;; esac; return 0; }'; do
+      _pps_dname="${_pps_def%%|*}"; _pps_rest="${_pps_def#*|}"
+      _pps_dfile="${_pps_rest%%|*}"; _pps_dbody="${_pps_rest#*|}"
+      [ "$_pps_dname" = "$_pps_omit" ] && continue
+      case "$_pps_dfile" in
+        module-harness) printf '%s\n' "$_pps_dbody" >> "$PPS_SB/lib/test/module-harness.sh" ;;
+        *)              printf '%s\n' "$_pps_dbody" >> "$PPS_SB/lib/test/summary.sh" ;;
+      esac
+    done
+    PPS_GATE_OUT="$(bash "$PPS_SB/lib/test/run-python-pool.sh" 2>&1)"; PPS_GATE_RC=$?
+    case "$PPS_GATE_RC:$PPS_GATE_OUT" in
+      "2:"*"harness did not define $_pps_omit"*) : ;;
+      *) PPS_GATE_UNCAUGHT="$PPS_GATE_UNCAUGHT $_pps_omit" ;;
+    esac
+  done
+  assert_eq "python-pool driver: EVERY gated function is individually protected (omitting any one fails closed and names it)" \
+    "" "$PPS_GATE_UNCAUGHT"
+  # The loop's own non-vacuity: a mistyped list or an early `break` would leave the
+  # assertion above trivially empty while protecting nothing.
+  assert_eq "python-pool driver: the gate probe really exercised every name in the gated set" "6" "$PPS_GATE_SEEN"
   cp "$LIB/test/summary.sh" "$PPS_SB/lib/test/summary.sh"
 
   # (2) POSITIVE CONTROL on the same fixture: a harness that does record verdicts
@@ -49913,7 +50000,9 @@ if [ -n "$PPS_TDIR" ] && [ -d "$PPS_TDIR" ]; then
 fi
 unset PPS_RUNSHARD PPS_DRIVER PPS_TALLY PPS_SB PPS_DSB PPS_TDIR PPS_MISSING_OUT PPS_MISSING_RC \
   PPS_OK_OUT PPS_OK_RC PPS_ZERO_OUT PPS_ZERO_RC PPS_UNDER_OUT PPS_UNDER_RC \
-  PPS_UNDERF_OUT PPS_UNDERF_RC PPS_REAL_GREP PPS_NOSUM_OUT PPS_NOSUM_RC \
+  PPS_UNDERF_OUT PPS_UNDERF_RC PPS_REAL_GREP \
+  PPS_GATE_UNCAUGHT PPS_GATE_SEEN PPS_GATE_OUT PPS_GATE_RC \
+  _pps_omit _pps_def _pps_dname _pps_rest _pps_dfile _pps_dbody \
   PPS_PP_INVOKED PPS_MONO_INVOKED PPS_MOD_INVOKED _pps_callee
 # ────────────────────────────────────────────────────────────────────────────
 

@@ -133,6 +133,38 @@ except Exception as _exc:  # pragma: no cover - import-time arm; driven by the
 KNOWN_AGENTS = tuple(ns + leaf for ns in AGENT_NAMESPACES for leaf in AGENT_LEAVES)
 
 
+def override_key_candidates(agent):
+    """Accepted `agent_overrides` key spellings for one dispatched agent id.
+
+    Returned in PRECEDENCE order. `agent_overrides` keys are namespaced by the
+    plugin id, and the schema accepts EVERY declared namespace for the same
+    subagent — the canonical one plus the pre-rename alias, "so an override
+    committed before the plugin rename keeps resolving". The engine dispatches
+    only the canonical spelling, so a key-equality lookup would read the
+    dispatched spelling and silently discard an alias-spelled entry that the
+    schema (whose `additionalProperties` stays false, and which enumerates both
+    spellings) declares valid. Every accepted spelling of the same leaf
+    therefore resolves to the same agent.
+
+    Precedence is positional and deterministic, never dict-order-dependent: the
+    dispatched id's own spelling first, then the remaining accepted namespaces
+    in lib/plugin-identity.json order (canonical plugin name first, then its
+    aliases). A config carrying two spellings for one subagent resolves to the
+    dispatched spelling; `read_raw` warns that the other is shadowed.
+
+    An id whose namespace is not an accepted one (or the unnamespaced `default`)
+    has exactly one candidate — its own key. An unrecognized namespace is never
+    treated as an alias of a known leaf.
+    """
+    for namespace in AGENT_NAMESPACES:
+        if agent.startswith(namespace):
+            leaf = agent[len(namespace):]
+            break
+    else:
+        return [agent]
+    return [agent] + [ns + leaf for ns in AGENT_NAMESPACES if ns + leaf != agent]
+
+
 def _entry_for(raw, agent, default_entry=None):
     """Precedence-selected raw entry for `agent`, with its source key.
 
@@ -140,12 +172,16 @@ def _entry_for(raw, agent, default_entry=None):
     outright — even `{}` or a non-dict — and `default` applies only to an agent
     with no entry of its own"), shared by `resolve_overrides` and
     `build_effort_observability` so `requested` can never be sourced through a
-    different precedence than `resolved`. `default_entry` lets a caller supply
+    different precedence than `resolved`. "An own entry" means an entry under
+    ANY accepted namespace spelling of this agent (see
+    `override_key_candidates`), so an alias-keyed entry shadows `default`
+    exactly like a canonically-keyed one. `default_entry` lets a caller supply
     a pre-sanitized default (resolve_overrides warns once and blanks a non-dict
     default); when omitted, the raw `default` value is returned as-is.
     """
-    if agent in raw:
-        return raw[agent], agent
+    for key in override_key_candidates(agent):
+        if key in raw:
+            return raw[key], key
     if default_entry is None:
         default_entry = raw.get("default")
     return default_entry, "default"
@@ -466,68 +502,108 @@ def _config_get(config_get, config_file, dotted_key, warnings):
 def read_raw(dispatched, config_get, config_file):
     """Read each dispatched agent's (+ default's) model/effort/iterations via config-get.sh.
 
-    Returns (raw, warnings). Reader warnings are deduplicated so a single broken
-    `config_get` path surfaces one actionable line, not one per leaf read.
+    Returns (raw, warnings), with `raw` keyed by the config key each entry was
+    actually found under — which, for an alias-spelled override, is NOT the
+    dispatched id (`_entry_for` maps it back). Reader warnings are deduplicated
+    so a single broken `config_get` path surfaces one actionable line, not one
+    per leaf read.
+
+    Each agent is probed under every accepted namespace spelling
+    (`override_key_candidates`), in precedence order; the first present entry
+    wins and the remaining spellings are probed once each ONLY to warn that a
+    duplicate is shadowed. This reader looks up by key and cannot enumerate the
+    config's keys, so a key matching no accepted spelling is invisible here —
+    the schema's closed `additionalProperties: false` allowlist is what rejects
+    one.
     """
     raw = {}
     warnings = []
     for agent in list(dispatched) + ["default"]:
-        base = f".devflow_review.agent_overrides.{agent}"
-        entry = {}
-        for field in ("model", "effort", "iterations"):
-            # Agent ids contain ':' but never '.', so they are a single
-            # dot-path segment — config-get.sh splits on '.' only.
-            value = _config_get(config_get, config_file, f"{base}.{field}", warnings)
-            if not value:
+        selected_key = None
+        for key in override_key_candidates(agent):
+            if selected_key is None:
+                selected_key = _read_entry(
+                    raw, key, config_get, config_file, warnings)
                 continue
-            # config-get.sh stringifies a non-scalar leaf: a JSON object becomes
-            # the sentinel. Forwarding that as a model id (or letting it reach the
-            # effort enum check as a misleading "not one of …") would launder an
-            # invalid shape into a bogus literal — drop it with a clear warning.
-            # (An array leaf joins to a comma string and is indistinguishable from
-            # a scalar; that narrow case is documented as unhandled.)
-            if value == _OBJECT_SENTINEL:
+            # A higher-precedence spelling already won. Probe this one once
+            # (any shape counts as present) purely to report the duplicate
+            # rather than dropping it silently.
+            duplicate = _config_get(
+                config_get, config_file,
+                f".devflow_review.agent_overrides.{key}", warnings)
+            if duplicate:
                 warnings.append(
-                    f"agent_overrides[{agent}].{field} is an object, not a "
-                    f"scalar; ignoring it for '{agent}'."
-                )
-                continue
-            entry[field] = value
-        # A present-but-empty entry ({}) is a real config state that must shadow
-        # `default` (entry-level precedence). The leaf reads can't distinguish it
-        # from an absent key, so probe the entry object itself. config-get.sh
-        # stringifies the value: a JSON object prints the sentinel
-        # "[object Object]" (the JS String({}) format coerce() preserves), a scalar/array prints its own
-        # stringification, and an absent key prints nothing. So:
-        #   - sentinel       → present object, no model/effort/iterations → {} (shadows default)
-        #   - other non-empty → a non-object entry (hand-edited config bypassing
-        #     schema validation, e.g. `"agent": "high"`) → warn and treat as
-        #     no-entry so `default` still applies; never crash.
-        #   - empty          → absent key → no entry.
-        # Only probe when no field was read — the common path stays at two reads.
-        if entry:
-            raw[agent] = entry
-        else:
-            probe = _config_get(config_get, config_file, base, warnings)
-            if probe == _OBJECT_SENTINEL:
-                raw[agent] = {}
-            elif probe:
-                # "default still applies" is meaningful for a real agent (it falls
-                # back to the default entry) but nonsensical for the `default` key
-                # itself — a malformed `default` just yields no fallback at all.
-                consequence = (
-                    "no fallback default for no-entry agents"
-                    if agent == "default"
-                    else f"no override for '{agent}'; default still applies"
-                )
-                warnings.append(
-                    f"agent_overrides[{agent}]={probe!r} is not an object; "
-                    f"ignoring it ({consequence})."
+                    f"agent_overrides[{key}] is shadowed by "
+                    f"agent_overrides[{selected_key}] for '{agent}'; the "
+                    "higher-precedence key wins and this entry is ignored."
                 )
     # Dedupe while preserving first-seen order (a missing/mispathed helper would
     # otherwise emit the same line ~2-3x per agent).
     deduped = list(dict.fromkeys(warnings))
     return raw, deduped
+
+
+def _read_entry(raw, key, config_get, config_file, warnings):
+    """Read one `agent_overrides[<key>]` entry into `raw`; return `key` if present.
+
+    Returns None when the key is absent or holds a non-object (which is warned
+    and treated as no-entry, so `default` still applies), so the caller can move
+    on to the next accepted spelling.
+    """
+    base = f".devflow_review.agent_overrides.{key}"
+    entry = {}
+    for field in ("model", "effort", "iterations"):
+        # Agent ids contain ':' but never '.', so they are a single
+        # dot-path segment — config-get.sh splits on '.' only.
+        value = _config_get(config_get, config_file, f"{base}.{field}", warnings)
+        if not value:
+            continue
+        # config-get.sh stringifies a non-scalar leaf: a JSON object becomes
+        # the sentinel. Forwarding that as a model id (or letting it reach the
+        # effort enum check as a misleading "not one of …") would launder an
+        # invalid shape into a bogus literal — drop it with a clear warning.
+        # (An array leaf joins to a comma string and is indistinguishable from
+        # a scalar; that narrow case is documented as unhandled.)
+        if value == _OBJECT_SENTINEL:
+            warnings.append(
+                f"agent_overrides[{key}].{field} is an object, not a "
+                f"scalar; ignoring it for '{key}'."
+            )
+            continue
+        entry[field] = value
+    # A present-but-empty entry ({}) is a real config state that must shadow
+    # `default` (entry-level precedence). The leaf reads can't distinguish it
+    # from an absent key, so probe the entry object itself. config-get.sh
+    # stringifies the value: a JSON object prints the sentinel
+    # "[object Object]" (the JS String({}) format coerce() preserves), a scalar/array prints its own
+    # stringification, and an absent key prints nothing. So:
+    #   - sentinel       → present object, no model/effort/iterations → {} (shadows default)
+    #   - other non-empty → a non-object entry (hand-edited config bypassing
+    #     schema validation, e.g. `"agent": "high"`) → warn and treat as
+    #     no-entry so `default` still applies; never crash.
+    #   - empty          → absent key → no entry.
+    # Only probe when no field was read — the common path stays at two reads.
+    if entry:
+        raw[key] = entry
+        return key
+    probe = _config_get(config_get, config_file, base, warnings)
+    if probe == _OBJECT_SENTINEL:
+        raw[key] = {}
+        return key
+    if probe:
+        # "default still applies" is meaningful for a real agent (it falls
+        # back to the default entry) but nonsensical for the `default` key
+        # itself — a malformed `default` just yields no fallback at all.
+        consequence = (
+            "no fallback default for no-entry agents"
+            if key == "default"
+            else f"no override for '{key}'; default still applies"
+        )
+        warnings.append(
+            f"agent_overrides[{key}]={probe!r} is not an object; "
+            f"ignoring it ({consequence})."
+        )
+    return None
 
 
 def _force_utf8_streams():

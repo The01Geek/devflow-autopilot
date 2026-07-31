@@ -98,7 +98,13 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
 > `devflow:requesting-code-review` are honored exactly like their `prflow:` spellings.
 > `prflow:` is the canonical form and is what new configs should use — the shipped
 > `.devflow/config.example.json` seeds it — but there is no deadline to migrate and no
-> behavioral difference. What is *not* accepted is a **pre-internalization** external id
+> behavioral difference. Either spelling is an **own entry** for that subagent, so it
+> shadows `default` exactly like the canonical one. If a config somehow carries *both*
+> spellings for the same subagent, the **canonical `prflow:` key wins** — precedence is
+> positional (the dispatched spelling first, then the remaining accepted namespaces in
+> `lib/plugin-identity.json` order), never dependent on which key appears first in the
+> file — and `resolve-review-overrides.py` warns that the other entry is shadowed rather
+> than dropping it silently. What is *not* accepted is a **pre-internalization** external id
 > (the `pr-review-toolkit:` / `superpowers:` forms in the migration tables above):
 > `agent_overrides` is `additionalProperties: false`, so those are rejected outright.
 
@@ -120,7 +126,7 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
 > **Claude Haiku rejects `effort`.** The `effort` parameter is supported only on Opus 4.5–4.8, Opus 5, Sonnet 4.6, and
 > Sonnet 5; Claude Haiku rejects it with **HTTP 400**. So any entry that pins a Haiku model (a
 > `claude-haiku-*` id) **must not** also carry an `effort` key. The shipped `prflow:checklist-deduper`
-> override pins Claude Sonnet 5 (which *does* support `effort`) with effort `medium`, so it is exempt;
+> override pins Claude Sonnet 5 (which *does* support `effort`) with effort `low`, so it is exempt;
 > the constraint matters if you re-pin a Haiku id there. The schema does not enforce this (it is a model-API fact, not a structural
 > one), so the constraint is documented on the `prflow:checklist-deduper` property in
 > `config.schema.json` and guarded by the shipped-example test in `lib/test/run.sh`.
