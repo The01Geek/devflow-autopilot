@@ -890,8 +890,9 @@ jobs:
           # under a non-UTF-8 runner locale while the JS tokeniser still splits on it.
           # So MODEL is validated POSITIVELY: reject a leading dash, then reject any
           # character outside the conservative model-id allowlist
-          # A-Za-z0-9 . _ / : @ [ ] -  (covers claude-*, provider/model, Z.ai
-          # bracket-suffix ids like glm-5.2[1m], and Bedrock-style colon ids) — a
+          # A-Za-z0-9 . _ / : @ [ ] -  (covers claude-*, provider/model,
+          # bracket-suffix context-window ids like name-1.2[1m], and Bedrock-style
+          # colon ids) — a
           # multibyte character is rejected in every locale because none of its bytes
           # (C locale) nor its codepoint (UTF-8 locale) is in the allowlist. EFFORT is
           # pinned to its schema enum (or empty, which drops the flag below). In the

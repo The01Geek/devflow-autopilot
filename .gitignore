@@ -63,6 +63,12 @@ venv/
 # and therefore skips on a dirty tree — took its `blocking-gate` skip on every CI run.
 # That is a gate disarmed silently by a path choice, the same failure class #671 had.
 /shard-tally-out/
+# Ad-hoc scratch files at the repo ROOT, for the same reason as the entry above: left
+# untracked AND unignored they show up in `git status --porcelain`, and the #434
+# stale-prose self-scan takes its `blocking-gate` skip on a dirty tree — a real gate
+# disarmed by stray files. Root-anchored (`/*.tmp`, not `*.tmp`) so it cannot hide a
+# nested fixture, and no tracked path matches it.
+/*.tmp
 
 # OS / editor
 .DS_Store

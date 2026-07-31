@@ -27314,8 +27314,16 @@ PKG_DESC_PJ="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["d
 PKG_DESC_MK="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["plugins"][0]["description"])' "$REPO_ROOT/.claude-plugin/marketplace.json")"
 assert_eq "#671 packaging: marketplace plugins[0].description is byte-identical to plugin.json's canonical description" \
   "$PKG_DESC_PJ" "$PKG_DESC_MK"
-assert_eq "#671 packaging: canonical plugin description is at most 160 characters" "yes" \
-  "$([ "${#PKG_DESC_PJ}" -le 160 ] && echo yes || echo no)"
+# ENFORCEMENT CONSTANT (issue #656's registered-literal rule): the ceiling is the check,
+# so it stays checked in rather than derived. Raised 160 -> 320 when the manifest was
+# aligned to the description published in the Anthropic plugin directory (306 chars),
+# which is the canonical user-facing string — the manifest has to be able to hold it, and
+# a lower ceiling would force the manifest and the listing to disagree. Kept just above
+# that length so the guard still catches unbounded growth. Deliberately a LENGTH bound and
+# not an equality pin on the published text: that would be a wording-only pin, which the
+# #375/#666/#810 rule prohibits.
+assert_eq "#671 packaging: canonical plugin description is at most 320 characters" "yes" \
+  "$([ "${#PKG_DESC_PJ}" -le 320 ] && echo yes || echo no)"
 
 # (2e) COUPLED SITE — .github/workflows/version-consolidate.yml's `git add` staging list must
 # name every file scripts/consolidate-changesets.py writes. An unstaged write is silently
