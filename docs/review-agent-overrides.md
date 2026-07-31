@@ -98,7 +98,13 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
 > `devflow:requesting-code-review` are honored exactly like their `prflow:` spellings.
 > `prflow:` is the canonical form and is what new configs should use — the shipped
 > `.devflow/config.example.json` seeds it — but there is no deadline to migrate and no
-> behavioral difference. What is *not* accepted is a **pre-internalization** external id
+> behavioral difference. Either spelling is an **own entry** for that subagent, so it
+> shadows `default` exactly like the canonical one. If a config somehow carries *both*
+> spellings for the same subagent, the **canonical `prflow:` key wins** — precedence is
+> positional (the dispatched spelling first, then the remaining accepted namespaces in
+> `lib/plugin-identity.json` order), never dependent on which key appears first in the
+> file — and `resolve-review-overrides.py` warns that the other entry is shadowed rather
+> than dropping it silently. What is *not* accepted is a **pre-internalization** external id
 > (the `pr-review-toolkit:` / `superpowers:` forms in the migration tables above):
 > `agent_overrides` is `additionalProperties: false`, so those are rejected outright.
 
