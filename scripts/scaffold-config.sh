@@ -78,15 +78,35 @@ if [ -n "${DEVFLOW_SCAFFOLD_LIB_ONLY:-}" ]; then
 fi
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# TPL_DIR is the PLUGIN'S OWN template directory, not a consumer's state directory:
+# it always carries the current name, so it takes no transitional fallback.
 TPL_DIR="$SELF_DIR/../.prflow"
 EXAMPLE="$TPL_DIR/config.example.json"
 SCHEMA="$TPL_DIR/config.schema.json"
+RENAME_MAP="$SELF_DIR/../lib/rename-map.json"
 
 [ -f "$EXAMPLE" ] || die "template not found: $EXAMPLE (is the plugin install complete?)"
 [ -f "$SCHEMA" ]  || die "template not found: $SCHEMA (is the plugin install complete?)"
 
 TARGET_ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
-DEST="$TARGET_ROOT/.prflow"
+# The CONSUMER'S state directory, resolved through the shared contract (issue
+# #1002): canonical .prflow/, falling back LOUDLY to a superseded .devflow/ when
+# only that one is present. Scaffolding a fresh .prflow/ beside an un-migrated
+# .devflow/ would be the worst outcome available here — the consumer's real values
+# would sit in one directory while every reader resolved a template-default config
+# in the other — so this scaffolder deliberately keeps working IN PLACE on whichever
+# directory the repo actually has. Relocating it is scripts/migrate-consumer-tier1.sh's
+# job, and it runs before this one.
+# shellcheck source=../lib/resolve-state-dir.sh
+if [ -f "$SELF_DIR/../lib/resolve-state-dir.sh" ] \
+   && . "$SELF_DIR/../lib/resolve-state-dir.sh" \
+   && type prflow_state_dir >/dev/null 2>&1; then
+  :
+else
+  log "resolve-state-dir.sh could not be sourced from ../lib — using the canonical .prflow/ with no transitional fallback."
+  prflow_state_dir() { printf '%s' "${1:-}/.prflow"; }
+fi
+DEST="$(prflow_state_dir "$TARGET_ROOT")"
 CONFIG="$DEST/config.json"
 
 mkdir -p "$DEST"
@@ -261,6 +281,200 @@ PE_SKILLS
   fi
 fi
 
+# ── Superseded config-key migration, and the gate that guards it ─────────────
+# (issues #988 and #1002.) The seven brand-named top-level keys are renamed in
+# place, carrying the consumer values across. This lives HERE, beside the backfill
+# it has to coordinate with, because this file is the ONE scaffolder both entry
+# points call — siting it anywhere else would let install.sh and /prflow:init drift.
+#
+# ORDER IS LOAD-BEARING: gate, then migrate, then backfill. Migrating first means
+# the new keys already hold the consumer values when the deep merge runs, so the
+# merge finds nothing absent to graft. The backfill guard further down is the belt
+# to that braces: it covers the refusal path and the path where the migration was
+# skipped because jq was unusable.
+#
+# The gate reads the two workflow files install.sh SHIPS and can therefore refresh.
+# Its permissive answer is "no superseded reads found", which is exactly what a
+# missing or failing scanner also produces, so it fails CLOSED: only a scan that
+# ran AND came back empty allows the migration. The three retained withheld-tier
+# files are deliberately OUT of the gate (install.sh cannot refresh them, so
+# blocking forever on one would be worse than reporting it) — they are reported by
+# name instead, further down.
+PRFLOW_WORKFLOW_SCAN_PY='
+import re, sys
+
+# A superseded read is either a brand-named config key or the superseded vendored
+# path / state directory. Both mean the file predates the rename and would read a
+# config this run is about to move out from under it.
+# The lookbehind keeps the FROZEN workflows.devflow / workflows["devflow-review"]
+# keys from counting as staleness -- they are never renamed.
+KEY = re.compile(r"(?<!workflows)\.devflow(?![A-Za-z])")
+BARE = re.compile(r"\bdevflow_(version|implement|runner|review_and_fix|review|retrospective)(?![A-Za-z0-9_])")
+
+stale = []
+for path in sys.argv[1:]:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except FileNotFoundError:
+        # Absent is not stale: a consumer who never installed that workflow has
+        # nothing that could read the config out of date.
+        continue
+    except Exception as exc:
+        sys.stderr.write("could not read " + path + ": " + str(exc) + "\n")
+        sys.exit(2)
+    if KEY.search(text) or BARE.search(text):
+        stale.append(path)
+if stale:
+    sys.stdout.write("\n".join(stale))
+    sys.exit(1)
+sys.exit(0)
+'
+
+# The migration itself. Plans and applies in one pass over a copy, printing one
+# report line per key it changed and per conflict it refused to resolve.
+#   exit 0  a usable result was written to $2 (which may be byte-identical)
+#   exit 2  the config or the rename map could not be read/parsed -- write nothing
+PRFLOW_MIGRATE_PY='
+import json, sys
+
+cfg_path, out_path, map_path, example_path = sys.argv[1:5]
+try:
+    with open(cfg_path, encoding="utf-8") as fh:
+        cfg = json.load(fh)
+    with open(map_path, encoding="utf-8") as fh:
+        renames = json.load(fh)["config_keys"]
+    with open(example_path, encoding="utf-8") as fh:
+        example = json.load(fh)
+except Exception as exc:
+    sys.stderr.write(str(exc) + "\n")
+    sys.exit(2)
+if not isinstance(cfg, dict) or not isinstance(renames, dict):
+    sys.stderr.write("config or rename map is not an object\n")
+    sys.exit(2)
+
+changed = []
+conflicts = []
+out = {}
+for key, value in cfg.items():
+    new = renames.get(key)
+    if new is None:
+        out[key] = value
+        continue
+    if new not in cfg:
+        # The ordinary migration: rename in place, so the block keeps its position
+        # and the consumer diff reads as a rename rather than a reshuffle.
+        out[new] = value
+        changed.append(key + " -> " + new)
+        continue
+    # Both present. The new block either still holds the shipped example default
+    # (so it was grafted by a deep merge, not authored) or it differs (so it is a
+    # deliberate consumer edit a rename must not discard).
+    if new in example and cfg[new] == example[new]:
+        changed.append(
+            key + " -> " + new + " (the existing " + new
+            + " block still held the shipped example default and was replaced)")
+        continue  # drop the superseded key; the value is written when we reach new
+    conflicts.append(key)
+    out[key] = value
+
+# Second pass for the both-present-and-example-valued case: the superseded value
+# wins, written at the position the NEW key already occupies.
+for old, new in renames.items():
+    if old in cfg and new in cfg and new in example and cfg[new] == example[new]:
+        out[new] = cfg[old]
+
+with open(out_path, "w", encoding="utf-8") as fh:
+    json.dump(out, fh, indent=2)
+    fh.write("\n")
+
+for line in changed:
+    sys.stdout.write("CHANGED\t" + line + "\n")
+for key in conflicts:
+    sys.stdout.write("CONFLICT\t" + key + "\t" + renames[key] + "\n")
+'
+
+if [ ! -f "$RENAME_MAP" ]; then
+  log "rename map not found at $RENAME_MAP; skipping the superseded config-key migration (is the plugin install complete?)."
+elif ! command -v python3 >/dev/null 2>&1; then
+  log "no working python3; skipping the superseded config-key migration and leaving $CONFIG unchanged (the backfill guard below still refuses to graft a new-name key beside a superseded one)."
+else
+  # The gate. Exactly the two filenames install.sh ships.
+  gate_out=""
+  gate_rc=0
+  gate_out="$(python3 -c "$PRFLOW_WORKFLOW_SCAN_PY" \
+      "$TARGET_ROOT/.github/workflows/devflow.yml" \
+      "$TARGET_ROOT/.github/workflows/devflow-implement.yml" 2>&1)" || gate_rc=$?
+  if [ "$gate_rc" -eq 1 ]; then
+    log "NOT migrating superseded config keys: these shipped workflow files still read the superseded names and would be left reading a config that moved out from under them — $(printf '%s' "$gate_out" | tr '\n' ' '). Run install.sh --apply to refresh them, then re-run."
+  elif [ "$gate_rc" -ne 0 ]; then
+    log "NOT migrating superseded config keys: the shipped-workflow freshness scan could not be performed${gate_out:+ ($gate_out)}. Refusing rather than reading a failed scan as a clean one."
+  else
+    MIGRATE_TMP="$(mktemp)"; MIGRATE_ERR="$(mktemp)"
+    trap 'rm -f "$MIGRATE_TMP" "$MIGRATE_ERR"' EXIT
+    mig_rc=0
+    mig_out="$(python3 -c "$PRFLOW_MIGRATE_PY" "$CONFIG" "$MIGRATE_TMP" "$RENAME_MAP" "$EXAMPLE" 2>"$MIGRATE_ERR")" || mig_rc=$?
+    if [ "$mig_rc" -ne 0 ]; then
+      mig_err="$(cat "$MIGRATE_ERR")"
+      log "superseded config-key migration could not read $CONFIG${mig_err:+ ($mig_err)}; leaving it unchanged."
+    else
+      # Report BEFORE the swap, so the lines are emitted even when the rewrite
+      # guard decides the canonical forms match and writes nothing.
+      while IFS="$(printf '\t')" read -r kind detail extra; do
+        [ -n "$kind" ] || continue
+        case "$kind" in
+          CHANGED)
+            log "migrated superseded config key in $CONFIG: $detail" ;;
+          CONFLICT)
+            log "NOT migrating $detail in $CONFIG: both it and $extra are present and $extra differs from the shipped example, so it is a deliberate edit this migration must not discard. Resolve it by hand — delete the $detail block to keep your $extra value, or delete the $extra block to have $detail migrated on the next run." ;;
+        esac
+      done <<PRFLOW_MIG_REPORT
+$mig_out
+PRFLOW_MIG_REPORT
+      rewrite_config_if_changed "$CONFIG" "$MIGRATE_TMP" \
+        "renamed superseded config keys in $CONFIG (your values carried across unchanged)." \
+        "could not compare the migrated config against $CONFIG; leaving it unchanged."
+    fi
+    rm -f "$MIGRATE_TMP" "$MIGRATE_ERR"
+    trap - EXIT
+  fi
+fi
+
+# The plugin version pin is REPORTED, never gated on. Its freshness is not
+# decidable here: the pin accepts a mutable branch name, the installed plugin tree
+# carries no .git to ask about ancestry, and install.sh fetches with --depth 1. A
+# gate on it would refuse on every real path and make the migration unreachable,
+# so this discloses instead of guessing (issue #988).
+if command -v python3 >/dev/null 2>&1 && [ -f "$CONFIG" ]; then
+  pin_value="$(PRFLOW_CFG="$CONFIG" python3 -c '
+import json, os, sys
+try:
+    with open(os.environ["PRFLOW_CFG"], encoding="utf-8") as fh:
+        data = json.load(fh)
+except Exception:
+    sys.exit(0)
+if not isinstance(data, dict):
+    sys.exit(0)
+for key in ("prflow_version", "devflow_version"):
+    if isinstance(data.get(key), str) and data[key]:
+        sys.stdout.write(key + "=" + data[key])
+        break
+' 2>/dev/null || true)"
+  if [ -n "$pin_value" ]; then
+    log "plugin version pin is $pin_value — a pin that predates this rename makes cloud runs vendor a plugin that resolves the superseded directory and key names, so those reads resolve to their defaults. Advance it to a ref that contains the rename (install.sh --apply re-stamps a SHA-shaped pin automatically; a deliberate branch or tag pin is preserved and is yours to move)."
+  fi
+fi
+
+# Report, by name, any workflow file present on disk that install.sh does not ship
+# and therefore cannot refresh. Reported on EVERY run — not only when the config
+# still carries superseded keys — so the warning does not fall silent on the run
+# after the one that made those files stale (issue #988).
+for _retained in devflow-review.yml devflow-runner.yml telemetry-push.yml; do
+  if [ -f "$TARGET_ROOT/.github/workflows/$_retained" ]; then
+    log "$_retained is present in .github/workflows/ but is NOT shipped by install.sh, so no installer run can refresh it. If it still names the superseded state directory or vendored path, its helper invocations will not resolve after the migration — update or remove it by hand."
+  fi
+done
+
 # Backfill newly-introduced keys into an EXISTING config.json. A recursive
 # deep-merge ($example * $config) adds any key present in the example but absent
 # from the repo's config — at any nesting depth (e.g. prflow_runner.provision_env)
@@ -287,9 +501,27 @@ elif ! "$DEVFLOW_JQ" -e . "$CONFIG" >/dev/null 2>&1; then
 else
   BACKFILL_TMP="$(mktemp)"; BACKFILL_ERR="$(mktemp)"
   trap 'rm -f "$BACKFILL_TMP" "$BACKFILL_ERR"' EXIT
-  if ! "$DEVFLOW_JQ" -n --slurpfile ex "$EXAMPLE" --slurpfile cfg "$CONFIG" '
+  if ! "$DEVFLOW_JQ" -n --slurpfile ex "$EXAMPLE" --slurpfile cfg "$CONFIG" \
+        --slurpfile ren "$RENAME_MAP" \
+        --argjson have_map "$([ -f "$RENAME_MAP" ] && echo true || echo false)" '
         ($cfg[0].prflow_review.agent_overrides? // {}) as $userao
+        | ($cfg[0]) as $orig
+        | (if $have_map then ($ren[0].config_keys // {}) else {} end) as $renames
         | ($ex[0] * $cfg[0])
+        # SUPERSEDED-KEY ANTI-GRAFT GUARD (issues #988, #1002). The deep merge adds
+        # any key the example has and the config lacks, so once the example carries
+        # the new names it would create every new block holding EXAMPLE DEFAULTS
+        # beside the consumers untouched superseded blocks -- readers would then
+        # resolve the new key and get defaults instead of the values that are right
+        # there. Drop any new-name key the merge grafted while its superseded
+        # counterpart is still present in the ORIGINAL config. Keying on $orig (not
+        # on the merged result) is what makes this hold on every path: the migration
+        # path (nothing left to guard), the refusal path, and the path where the
+        # migration was skipped. When jq itself is unusable the whole backfill is
+        # skipped, so no graft is possible there either.
+        | reduce ($renames | to_entries[]) as $pair (.;
+            if ($orig | has($pair.key)) and (($orig | has($pair.value)) | not)
+            then del(.[$pair.value]) else . end)
         | if (.prflow_review | type) == "object" and (.prflow_review.agent_overrides | type) == "object" then
             .prflow_review.agent_overrides |= with_entries(
               # Do NOT let the deep-merge GRAFT an effort from the example onto a

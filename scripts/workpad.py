@@ -70,6 +70,19 @@ import subprocess
 import sys
 from pathlib import Path
 
+# State-directory resolution (issue #1002): canonical .prflow/, with the LOUD
+# transitional fallback to a superseded .devflow/ when only that one is present.
+# lib/ sits beside scripts/ in both the source repo and a vendored
+# .prflow/vendor/prflow/ tree, so this import path holds on every tier. A copy
+# missing the sibling degrades to the canonical name with no fallback rather than
+# failing the read (the same posture the plugin_identity import takes).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+try:
+    from state_dir import resolve_state_dir as _resolve_state_dir
+except Exception:  # pragma: no cover - partial-copy arm
+    def _resolve_state_dir(repo_root, stream=None):
+        return str(Path(repo_root) / ".prflow")
+
 if sys.version_info < (3, 11):  # fail fast, before any PEP 604 annotation is evaluated below
     sys.stderr.write(
         "devflow: Python 3.11+ required (found %s.%s.%s). This helper requires"
@@ -262,10 +275,10 @@ def _workpad_marker(explicit=None):
     # or a monorepo whose .prflow/ is not at the git root is not covered.)
     _root = _repo_root()
     if _root is not None:
-        config_file = Path(_root) / '.prflow' / 'config.json'
+        config_file = Path(_resolve_state_dir(_root)) / 'config.json'
     else:
         cwd = Path.cwd()
-        config_file = cwd / '.prflow' / 'config.json'
+        config_file = Path(_resolve_state_dir(str(cwd))) / 'config.json'
         # Breadcrumb only when NEITHER a git root NOR a .prflow/ dir can be located —
         # the silent-drop class this fix closes. A git root with no .prflow/ is the
         # normal unconfigured case and stays silent (handled by FileNotFoundError below).
@@ -273,7 +286,7 @@ def _workpad_marker(explicit=None):
         # dubious-ownership), or be absent — not only "outside a git tree" — so don't
         # assert "not in a git repo"; report the root could not be resolved and surface
         # git's own stderr (re-run on this rare path only).
-        if not (cwd / '.prflow').is_dir():
+        if not (cwd / '.prflow').is_dir() and not (cwd / '.devflow').is_dir():
             sys.stderr.write(
                 f"workpad.py: could not resolve a git repo root"
                 f"{_git_root_error_suffix()} and no .prflow/ at {str(cwd)!r}; "

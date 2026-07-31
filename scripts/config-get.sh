@@ -48,6 +48,22 @@
 
 set -euo pipefail
 
+# State-directory resolution (issue #1002): the canonical directory is .prflow/,
+# with a LOUD transitional fallback to a superseded .devflow/ when only that one
+# is present. Sourced rather than reimplemented so this resolver and every other
+# shell reader answer identically; a partially-copied deployment without the
+# sibling falls back to the canonical name with a breadcrumb rather than aborting
+# under `set -e` (the same guarded-source discipline lib/resolve-jq.sh uses).
+# shellcheck source=../lib/resolve-state-dir.sh
+if [ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-state-dir.sh" ] \
+   && . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-state-dir.sh" \
+   && type prflow_state_dir >/dev/null 2>&1; then
+    :
+else
+    echo "config-get.sh: resolve-state-dir.sh not found or not sourceable from ../lib — using the canonical .prflow/ with no transitional fallback" >&2
+    prflow_state_dir() { printf '%s' "${1:-}/.prflow"; }
+fi
+
 key="${1:-}"
 has_default=0
 if [ $# -ge 2 ]; then
@@ -83,12 +99,16 @@ else
         # resolved and surface git's own stderr (the one string naming the real
         # cause) instead of discarding it. Re-run on this rare breadcrumb path only;
         # `|| true` keeps it set -e-safe.
-        if [ ! -d "${_devflow_root}/.prflow" ]; then
+        # Probe BOTH names: a consumer who has not run /prflow:init yet has only
+        # the superseded directory, and reporting "no .prflow/" at them would name
+        # a path they were never told to create. The state-dir resolver decides
+        # which one is actually used (and breadcrumbs the superseded one itself).
+        if [ ! -d "${_devflow_root}/.prflow" ] && [ ! -d "${_devflow_root}/.devflow" ]; then
             _git_err="$(git rev-parse --show-toplevel 2>&1 >/dev/null)" || true
             echo "config-get.sh: could not resolve a git repo root${_git_err:+ (git: ${_git_err})} and no .prflow/ at '${_devflow_root}'; using cwd fallback and defaults" >&2
         fi
     fi
-    config_file="${_devflow_root}/.prflow/config.json"
+    config_file="$(prflow_state_dir "$_devflow_root")/config.json"
 fi
 
 if [ -z "$key" ]; then
@@ -96,7 +116,76 @@ if [ -z "$key" ]; then
     exit 2
 fi
 
+# Superseded-key probe (issues #988, #1002). Fires ONLY on the miss path, so the
+# hot path forks nothing extra. It answers a question the main read structurally
+# cannot: that read collapses {absent, null, present-and-empty} onto one empty
+# stdout, and a breadcrumb sited there would fire on a key a consumer has
+# deliberately set to "". The probe re-reads the config and distinguishes them,
+# emitting only for a genuinely ABSENT new key whose superseded counterpart is
+# PRESENT.
+#
+# It maps the FIRST dot-path segment only, so `.prflow_implement.stall_backstop`
+# probes `.devflow_implement.stall_backstop` and no deeper segment is rewritten.
+# The map comes from lib/rename-map.json — the single source — never from a
+# literal copy here. Best-effort throughout: an unreadable map or config makes
+# the probe a silent no-op, because a diagnostic must never be able to break the
+# read it is diagnosing.
+probe_superseded_key() {
+    local map_file hit
+    map_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/rename-map.json"
+    [ -f "$map_file" ] || return 0
+    command -v python3 >/dev/null 2>&1 || return 0
+    hit="$(PRFLOW_KEY="${key#.}" PRFLOW_CONFIG="$config_file" PRFLOW_MAP="$map_file" python3 -c '
+import json, os, sys
+
+
+def load(path):
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+try:
+    data = load(os.environ["PRFLOW_CONFIG"])
+    renames = load(os.environ["PRFLOW_MAP"])["config_keys"]
+except Exception:
+    sys.exit(0)
+if not isinstance(data, dict) or not isinstance(renames, dict):
+    sys.exit(0)
+# current -> superseded, so a requested NEW key can name its OLD counterpart.
+superseded_of = {new: old for old, new in renames.items()}
+parts = os.environ["PRFLOW_KEY"].split(".")
+if not parts or parts[0] not in superseded_of:
+    sys.exit(0)
+
+
+def present(root, path):
+    cur = root
+    for part in path:
+        if not isinstance(cur, dict) or part not in cur:
+            return False
+        cur = cur[part]
+    return True
+
+
+# A new key that is PRESENT — including one holding null, "" , false or 0 — is a
+# deliberate consumer value, not an un-migrated config. Only a genuinely absent
+# one earns the breadcrumb.
+if present(data, parts):
+    sys.exit(0)
+old = [superseded_of[parts[0]]] + parts[1:]
+if not present(data, old):
+    sys.exit(0)
+sys.stdout.write("." + ".".join(old))
+' 2>/dev/null)" || return 0
+    [ -n "$hit" ] || return 0
+    # Worded for BOTH miss paths: this fires above the default-emitting branch and
+    # above the exit-1 branch, so it must not promise a default that a no-default
+    # call never gets.
+    echo "config-get.sh: '.${key#.}' is absent from $config_file but its superseded counterpart '$hit' is present — run /prflow:init to migrate the config keys; until then this read resolves as if the key were unset." >&2
+}
+
 emit_default_or_fail() {
+    probe_superseded_key
     if [ "$has_default" -eq 1 ]; then
         printf '%s\n' "$default"
         exit 0

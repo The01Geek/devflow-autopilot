@@ -1055,7 +1055,7 @@ sys.stdout.write("devflow-install: " + str(changed) + " file(s) would change.\n"
 # byte the apply would change. Scoped to `plugins`, never bare `.claude`: the
 # consumer's settings/skills/hooks are their own and this installer neither writes nor
 # reports them. A scope that does not exist simply contributes nothing.
-DEVFLOW_PREVIEW_SCOPES=".claude-plugin .github .prflow .claude/plugins"
+DEVFLOW_PREVIEW_SCOPES=".claude-plugin .github .prflow .devflow .claude/plugins"
 
 devflow_render_preview() {
   local real="$1" prev="$2"
@@ -1078,15 +1078,20 @@ devflow_build_preview() {
   for d in .claude-plugin .github; do
     [ -e "$real/$d" ] && cp -R "$real/$d" "$prev/$d"
   done
-  if [ -d "$real/.prflow" ]; then
-    mkdir -p "$prev/.prflow"
-    for d in "$real"/.prflow/*; do
-      [ -e "$d" ] || continue
-      case "${d##*/}" in vendor) continue ;; esac
-      cp -R "$d" "$prev/.prflow/"
-    done
-    [ -f "$real/.prflow/.gitignore" ] && cp "$real/.prflow/.gitignore" "$prev/.prflow/.gitignore"
-  fi
+  # BOTH state-directory names: an un-migrated consumer carries only the superseded
+  # one, and a preview that skipped it would render an empty (i.e. reassuring) diff
+  # for the one change with the largest blast radius.
+  for _sd in .prflow .devflow; do
+    if [ -d "$real/$_sd" ]; then
+      mkdir -p "$prev/$_sd"
+      for d in "$real"/"$_sd"/*; do
+        [ -e "$d" ] || continue
+        case "${d##*/}" in vendor) continue ;; esac
+        cp -R "$d" "$prev/$_sd/"
+      done
+      [ -f "$real/$_sd/.gitignore" ] && cp "$real/$_sd/.gitignore" "$prev/$_sd/.gitignore"
+    fi
+  done
   if [ -e "$real/.claude/plugins" ]; then
     mkdir -p "$prev/.claude"
     cp -R "$real/.claude/plugins" "$prev/.claude/plugins"
@@ -1104,7 +1109,22 @@ devflow_build_preview() {
 # always been.
 devflow_apply_all() (
   cd "$1" || die "could not enter $1"
-  local pin="$2" ref="$3" withheld
+  local pin="$2" ref="$3" withheld tier1_rc=0
+
+  # 0. The ATOMIC Tier-1 migration (issue #1002), before anything else writes.
+  #    A consumer whose tree is still the superseded layout must be relocated
+  #    WHOLE — state directory, workflow contents, marketplace source, version pin —
+  #    before the copy loop refreshes workflows or the scaffolder touches the config,
+  #    because either of those against a half-moved tree is the silently-denied state
+  #    the migration exists to prevent. The helper is a strict no-op on a tree that
+  #    is already migrated or has nothing to migrate, so this costs a fresh install
+  #    nothing. Same helper /prflow:init calls, so the two entry points cannot drift.
+  if [ -x "$SRC/scripts/migrate-consumer-tier1.sh" ]; then
+    "$SRC/scripts/migrate-consumer-tier1.sh" --apply --pin "$pin" "$PWD" || tier1_rc=$?
+  else
+    tier1_rc=2
+    log "warning: scripts/migrate-consumer-tier1.sh is missing from the source tree; the Tier 1 migration could not run."
+  fi
 
   # 1. Plugin tree. Thin by default — the vendor-plugin composite action puts it
   #    in the workspace at runtime, so it need not be committed. DEVFLOW_VENDOR=1
@@ -1178,9 +1198,18 @@ JSON
   # gives the full procedure, including the branch-protection step no installer can do.
   log "installing workflows + composite actions"
   mkdir -p .github/workflows .github/actions
+  # SHARED FATE with the Tier-1 migration above (issues #988, #1002). Ordering alone
+  # does not help: the copy loop would happily refresh both workflows and leave them
+  # reading a state directory the refused migration never moved — exactly the split
+  # the migration is all-or-nothing to prevent. So the write is CONDITIONAL on the
+  # migration having succeeded, and the skip says why.
+  if [ "$tier1_rc" -ne 0 ]; then
+    log "NOT refreshing the shipped workflow files: the Tier 1 migration did not complete (see its refusal above), and installing workflows that name the migrated layout against an un-migrated tree would leave every bundled-helper invocation unresolvable. Resolve the refusal and re-run."
+  else
   for w in devflow devflow-implement; do
     [ -f "$SRC/.github/workflows/$w.yml" ] && install_managed ".github/workflows/$w.yml" "$SRC/.github/workflows/$w.yml"
   done
+  fi
   # Drop DevFlow's superseded claude*.yml on upgrade (signature-guarded so an
   # Anthropic-owned claude.yml is never touched).
   prune_stale_devflow_workflows
@@ -1318,7 +1347,7 @@ fi
 # A first install APPLIES (the documented one-liner is unchanged and there is nothing to
 # destroy). An upgrade is DRY-RUN BY DEFAULT and needs --apply, because there is.
 DEVFLOW_INSTALL_STATE="a first-time"
-for _probe in .prflow/config.json .claude-plugin/marketplace.json \
+for _probe in .prflow/config.json .devflow/config.json .claude-plugin/marketplace.json \
               .github/workflows/devflow.yml .github/workflows/devflow-implement.yml \
               "$DEVFLOW_MANIFEST_PATH"; do
   if [ -e "$_probe" ]; then DEVFLOW_INSTALL_STATE="an existing"; break; fi

@@ -14,7 +14,20 @@ set -euo pipefail
 _DEVFLOW_REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 # Config path. Override with DEVFLOW_CONFIG_FILE (used by the test suite to
 # point at a committed fixture instead of the live repo config).
-_DEVFLOW_CONFIG="${DEVFLOW_CONFIG_FILE:-${_DEVFLOW_REPO_ROOT}/.prflow/config.json}"
+# State-directory resolution (issue #1002): canonical .prflow/, with the LOUD
+# transitional fallback to a superseded .devflow/ when only that one is present.
+# Guarded source so a partially-copied deployment degrades to the canonical name
+# with a breadcrumb rather than aborting the sourcing chain under `set -e`.
+# shellcheck source=resolve-state-dir.sh
+if [ -f "${_DEVFLOW_CONF_DIR_EARLY:=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}/resolve-state-dir.sh" ] \
+   && . "${_DEVFLOW_CONF_DIR_EARLY}/resolve-state-dir.sh" \
+   && type prflow_state_dir >/dev/null 2>&1; then
+  :
+else
+  echo "config-source.sh: resolve-state-dir.sh not found beside this file — using the canonical .prflow/ with no transitional fallback" >&2
+  prflow_state_dir() { printf '%s' "${1:-}/.prflow"; }
+fi
+_DEVFLOW_CONFIG="${DEVFLOW_CONFIG_FILE:-$(prflow_state_dir "${_DEVFLOW_REPO_ROOT}")/config.json}"
 # Locate the resolver relative to this file (lib/ → ../scripts/).
 _DEVFLOW_CONF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _DEVFLOW_CONFIG_GET="${_DEVFLOW_CONF_DIR}/../scripts/config-get.sh"

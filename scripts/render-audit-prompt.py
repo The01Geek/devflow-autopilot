@@ -111,6 +111,19 @@ import subprocess
 import sys
 from pathlib import Path
 
+# State-directory resolution (issue #1002): canonical .prflow/, with the LOUD
+# transitional fallback to a superseded .devflow/ when only that one is present.
+# lib/ sits beside scripts/ in both the source repo and a vendored
+# .prflow/vendor/prflow/ tree, so this import path holds on every tier. A copy
+# missing the sibling degrades to the canonical name with no fallback rather than
+# failing the read (the same posture the plugin_identity import takes).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+try:
+    from state_dir import resolve_state_dir as _resolve_state_dir
+except Exception:  # pragma: no cover - partial-copy arm
+    def _resolve_state_dir(repo_root, stream=None):
+        return str(Path(repo_root) / ".prflow")
+
 STATUS_PREFIX = "render-status:"
 END_MARKER = "render-end:"
 # issue #709: the dispatch-instructions render's own leading positional marker.
@@ -236,7 +249,7 @@ def _repo_root() -> str | None:
 def _default_extension_path() -> Path:
     root = _repo_root()
     if root is not None:
-        return Path(root) / ".prflow" / "prompt-extensions" / "create-issue.md"
+        return Path(_resolve_state_dir(root)) / "prompt-extensions" / "create-issue.md"
     cwd = Path.cwd()
     # Breadcrumb only when NEITHER a git root NOR a .prflow/ dir can be located —
     # the silent-drop class the #295 reader-set contract closes (mirrors
@@ -244,13 +257,13 @@ def _default_extension_path() -> Path:
     # genuinely INSIDE a repo (safe.directory / dubious-ownership), or be absent,
     # so don't assert "not in a git repo" — report that the root could not be
     # resolved.
-    if not (cwd / ".prflow").is_dir():
+    if not (cwd / ".prflow").is_dir() and not (cwd / ".devflow").is_dir():
         sys.stderr.write(
             f"render-audit-prompt.py: could not resolve a git repo root and no "
             f".prflow/ at {str(cwd)!r}; falling back to a cwd-anchored default "
             f"prompt-extension path\n"
         )
-    return cwd / ".prflow" / "prompt-extensions" / "create-issue.md"
+    return Path(_resolve_state_dir(str(cwd))) / "prompt-extensions" / "create-issue.md"
 
 
 # --------------------------------------------------------------------------

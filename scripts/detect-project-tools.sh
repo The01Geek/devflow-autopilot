@@ -48,6 +48,20 @@
 # Exit codes: always 0 (best-effort). Non-fatal conditions log and skip.
 set -euo pipefail
 
+# State-directory resolution (issue #1002): canonical .prflow/, with the LOUD
+# transitional fallback to a superseded .devflow/ when only that one is present.
+# Guarded source (the lib/resolve-jq.sh discipline): a partially-copied deployment
+# degrades to the canonical name with a breadcrumb instead of aborting under `set -e`.
+# shellcheck source=../lib/resolve-state-dir.sh
+if [ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-state-dir.sh" ] \
+   && . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-state-dir.sh" \
+   && type prflow_state_dir >/dev/null 2>&1; then
+  :
+else
+  echo "prflow: resolve-state-dir.sh not found in ../lib relative to ${BASH_SOURCE[0]} — using the canonical .prflow/ with no transitional fallback" >&2
+  prflow_state_dir() { printf '%s' "${1:-}/.prflow"; }
+fi
+
 # jq binary: resolved once via the resolver sourced from the sibling lib/ directory (issue #247);
 # best-effort — a copied/vendored deployment without lib/ falls back to bare
 # `jq` with a breadcrumb rather than aborting under set -e.
@@ -61,7 +75,7 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PRESETS="$SELF_DIR/../.prflow/tool-presets.json"
 
 TARGET_ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
-CONFIG="$TARGET_ROOT/.prflow/config.json"
+CONFIG="$(prflow_state_dir "$TARGET_ROOT")/config.json"
 
 # Best-effort guards — never abort the surrounding scaffold.
 if ! "$DEVFLOW_JQ" --version >/dev/null 2>&1; then

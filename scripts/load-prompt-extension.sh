@@ -136,6 +136,20 @@
 
 set -euo pipefail
 
+# State-directory resolution (issue #1002): canonical .prflow/, with the LOUD
+# transitional fallback to a superseded .devflow/ when only that one is present.
+# Guarded source (the lib/resolve-jq.sh discipline): a partially-copied deployment
+# degrades to the canonical name with a breadcrumb instead of aborting under `set -e`.
+# shellcheck source=../lib/resolve-state-dir.sh
+if [ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-state-dir.sh" ] \
+   && . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-state-dir.sh" \
+   && type prflow_state_dir >/dev/null 2>&1; then
+  :
+else
+  echo "prflow: resolve-state-dir.sh not found in ../lib relative to ${BASH_SOURCE[0]} — using the canonical .prflow/ with no transitional fallback" >&2
+  prflow_state_dir() { printf '%s' "${1:-}/.prflow"; }
+fi
+
 # Resolve whether an HTML comment block is OPEN at the end of a line, by walking the
 # line's markers in order and keeping the LAST one that fired. Presence of '-->' is not
 # enough: `<!-- a --> <!--` both closes and re-opens, and reading only the close leaves
@@ -305,13 +319,17 @@ else
         # tree". Don't assert "not in a git repo"; report that the root could not be
         # resolved and surface git's own stderr (re-run on this rare path only; `|| true`
         # keeps it set -e-safe).
-        if [ ! -d "${_devflow_root}/.prflow" ]; then
+        # Probe BOTH names: a consumer who has not run /prflow:init yet carries only
+        # the superseded directory, and naming a path they were never told to create
+        # would misdirect them. The state-dir resolver picks which one is used and
+        # breadcrumbs the superseded one itself.
+        if [ ! -d "${_devflow_root}/.prflow" ] && [ ! -d "${_devflow_root}/.devflow" ]; then
             _git_err="$(git rev-parse --show-toplevel 2>&1 >/dev/null)" || true
             echo "load-prompt-extension.sh: could not resolve a git repo root${_git_err:+ (git: ${_git_err})} and no .prflow/ at '${_devflow_root}'; no extension loaded" >&2
         fi
     fi
 
-    ext_dir="${_devflow_root}/.prflow/prompt-extensions"
+    ext_dir="$(prflow_state_dir "${_devflow_root}")/prompt-extensions"
 fi
 
 # Composed once, after the branch: each arm selects only the DIRECTORY, so the
