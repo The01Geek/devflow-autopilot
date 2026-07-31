@@ -37,6 +37,13 @@
 #               --apply when the pin member applies: a migrated tree against a
 #               pre-rename pin vendors a plugin that resolves the superseded
 #               layout, which is the exact skew this helper exists to prevent.
+#   --pin-from-plugin
+#               resolve that ref from THIS plugin tree's own .claude-plugin/plugin.json
+#               version, as `v<version>`. This is the one operand the scaffolder could
+#               not have: a running plugin knows its own published version, and a
+#               version that contains this migration is by construction a ref that
+#               contains the rename. Refuses (never guesses) when the manifest cannot
+#               be read. `--pin` wins when both are given.
 #   TARGET_REPO_ROOT  default: git toplevel, else cwd.
 #
 # Exit codes:
@@ -53,6 +60,7 @@ RENAME_MAP="$SELF_DIR/../lib/rename-map.json"
 
 MODE=preview
 PIN=""
+PIN_FROM_PLUGIN=0
 TARGET_ROOT=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -62,7 +70,8 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || die "--pin needs a value"
       PIN="$2"; shift ;;
     --pin=*) PIN="${1#--pin=}" ;;
-    -*) die "unknown argument $1 (accepted: --apply, --preview, --pin REF)" ;;
+    --pin-from-plugin) PIN_FROM_PLUGIN=1 ;;
+    -*) die "unknown argument $1 (accepted: --apply, --preview, --pin REF, --pin-from-plugin)" ;;
     *)
       [ -z "$TARGET_ROOT" ] || die "unexpected extra argument $1"
       TARGET_ROOT="$1" ;;
@@ -70,6 +79,40 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ -n "$TARGET_ROOT" ] || TARGET_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+# Resolve the pin from this plugin's own manifest when asked. An explicit --pin still
+# wins; a manifest that cannot be read leaves PIN empty, and the validate stage then
+# refuses the whole set rather than stamping a guess.
+if [ "$PIN_FROM_PLUGIN" = "1" ] && [ -z "$PIN" ]; then
+  PIN="$(PRFLOW_MANIFEST="$SELF_DIR/../.claude-plugin/plugin.json" python3 -c '
+import json, os, sys
+try:
+    with open(os.environ["PRFLOW_MANIFEST"], encoding="utf-8") as fh:
+        version = json.load(fh)["version"]
+except Exception:
+    sys.exit(0)
+if isinstance(version, str) and version:
+    sys.stdout.write("v" + version)
+' 2>/dev/null || true)"
+  if [ -z "$PIN" ]; then
+    log "could not read this plugin manifest version for --pin-from-plugin; the version-pin member will refuse rather than stamp a guessed ref."
+  fi
+fi
+
+# CLASSIFY IN BASH, BEFORE requiring anything. A repository with no superseded state
+# directory has nothing to migrate, and that answer must not depend on python3 or on the
+# rename map being readable: a FIRST-TIME install on a python3-less host would otherwise
+# be refused here, and install.sh's shared fate would then skip the workflow copy loop
+# for a repository that never needed migrating at all. `[ -d ]` is the whole test, and it
+# is a shell builtin.
+if [ ! -d "$TARGET_ROOT/.devflow" ]; then
+  if [ -d "$TARGET_ROOT/.prflow" ]; then
+    log "ALREADY MIGRATED $TARGET_ROOT/.prflow is present and no superseded .devflow/ remains; nothing was changed."
+  else
+    log "NOTHING TO MIGRATE no state directory at $TARGET_ROOT/.devflow or $TARGET_ROOT/.prflow — this is a first-time install, not an un-migrated consumer."
+  fi
+  exit 0
+fi
 
 [ -f "$RENAME_MAP" ] || die "rename map not found at $RENAME_MAP (is the plugin install complete?)"
 command -v python3 >/dev/null 2>&1 || die "python3 is required to migrate; nothing was changed."
@@ -270,9 +313,17 @@ for member in MEMBERS:
         elif member == "marketplace-source-rewrite":
             say("  will migrate  " + member + ": " + detail["file"])
         else:
-            say("  will migrate  " + member + ": " + detail["file"]
-                + " (devflow_version -> prflow_version"
-                + (", pin -> " + pin if pin else "") + ")")
+            # Name every key this member renames, not just the pin. The member also
+            # carries the other six top-level renames across, and a report that
+            # advertised only the pin would leave the largest part of the config diff
+            # unannounced on the one step that asks the operator to review it.
+            renamed = sorted(k for k in RENAMES if k in (cfg or {}))
+            say("  will migrate  " + member + ": " + detail["file"])
+            if renamed:
+                say("      config keys renamed: "
+                    + ", ".join(k + " -> " + RENAMES[k] for k in renamed))
+            say("      version pin: devflow_version -> prflow_version"
+                + (", value -> " + pin if pin else " (no --pin supplied)"))
     else:
         say("  not present   " + member + ": nothing in this repository carries it.")
 

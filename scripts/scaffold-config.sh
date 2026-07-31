@@ -129,10 +129,14 @@ fi
 # .gitignore. Created only when absent so an adopter's edits survive re-runs.
 GITIGNORE="$DEST/.gitignore"
 if [ ! -f "$GITIGNORE" ]; then
+  # The body names $DEST rather than a fixed '.prflow/': on an un-migrated consumer
+  # this file is written INSIDE the superseded directory, and prose naming the other
+  # one would describe a directory the reader cannot see.
   printf '%s\n' \
-    '# DevFlow ephemeral scratch (review caches, weekly-loop temp files, issue' \
-    '# drafts). Safe to delete; never commit. Everything else under .prflow/' \
-    '# (config.json, learnings/, the schema/example) is intentionally tracked.' \
+    '# PRFlow ephemeral scratch (review caches, weekly-loop temp files, issue' \
+    '# drafts). Safe to delete; never commit. Everything else under this' \
+    '# directory (config.json, learnings/, the schema/example) is intentionally' \
+    '# tracked.' \
     '/tmp/' > "$GITIGNORE"
   log "wrote $GITIGNORE (ignores ephemeral .prflow/tmp/ scratch)"
 fi
@@ -461,7 +465,12 @@ for key in ("prflow_version", "devflow_version"):
         break
 ' 2>/dev/null || true)"
   if [ -n "$pin_value" ]; then
-    log "plugin version pin is $pin_value — a pin that predates this rename makes cloud runs vendor a plugin that resolves the superseded directory and key names, so those reads resolve to their defaults. Advance it to a ref that contains the rename (install.sh --apply re-stamps a SHA-shaped pin automatically; a deliberate branch or tag pin is preserved and is yours to move)."
+    # Stated as a CONDITIONAL, never as a finding about this pin. Whether a given ref
+    # predates the rename is not decidable here (it accepts a mutable branch name, the
+    # installed plugin tree carries no .git, and the installer fetch is --depth 1), so
+    # asserting it would be a guess — and a wrong one on the common path where
+    # /prflow:init has just stamped the current plugin version.
+    log "plugin version pin is $pin_value (reported, not checked — this helper cannot decide whether a ref predates the rename). IF that ref predates it, cloud runs vendor a plugin that resolves the superseded directory and key names, so those reads resolve to their defaults; advance it to a ref that contains the rename. install.sh --apply re-stamps a SHA-shaped pin automatically, and a deliberate branch or tag pin is preserved and is yours to move."
   fi
 fi
 

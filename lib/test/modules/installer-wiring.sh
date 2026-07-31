@@ -631,8 +631,14 @@ IU_REF="0123456789abcdef0123456789abcdef01234567"
 # workflows and the shipped composite actions rather than stand-ins.
 IU_SRC="$_iw_tmp_root/src"
 mkdir -p "$IU_SRC/scripts" "$IU_SRC/lib" "$IU_SRC/.prflow" "$IU_SRC/.github/workflows" "$IU_SRC/.github/actions"
-cp "$LIB/../scripts/scaffold-config.sh" "$LIB/../scripts/detect-project-tools.sh" "$IU_SRC/scripts/"
-cp "$LIB/resolve-jq.sh" "$LIB/resolve-bin.sh" "$IU_SRC/lib/"
+cp "$LIB/../scripts/scaffold-config.sh" "$LIB/../scripts/detect-project-tools.sh" \
+   "$LIB/../scripts/migrate-consumer-tier1.sh" "$IU_SRC/scripts/"
+# rename-map.json and resolve-state-dir.sh are what the issue-#1002 migration and the
+# scaffolder's state-directory resolution read. Omitting them left these arms driving
+# the degraded no-map / no-resolver path instead of the shipped one — the same class of
+# silent fixture gap the tool-presets.json note below records.
+cp "$LIB/resolve-jq.sh" "$LIB/resolve-bin.sh" "$LIB/rename-map.json" \
+   "$LIB/resolve-state-dir.sh" "$IU_SRC/lib/"
 # tool-presets.json lives under .prflow/, which is where detect-project-tools.sh
 # resolves it from ($SELF_DIR/../.prflow/tool-presets.json). Copying it to scripts/
 # left the fixture source tree missing it, so these arms silently drove the
@@ -648,6 +654,9 @@ done
 assert_eq "installer-upgrade fixture: the offline source tree carries the shipped scaffolder, workflows and vendor-slice" "yes" \
   "$([ -f "$IU_SRC/scripts/scaffold-config.sh" ] && [ -f "$IU_SRC/.github/workflows/devflow.yml" ] \
      && [ -f "$IU_SRC/.github/actions/vendor-plugin/vendor-slice.sh" ] && echo yes || echo no)"
+assert_eq "installer-upgrade fixture: the offline source tree carries the #1002 migration helper and its rename map" "yes" \
+  "$([ -x "$IU_SRC/scripts/migrate-consumer-tier1.sh" ] && [ -f "$IU_SRC/lib/rename-map.json" ] \
+     && [ -f "$IU_SRC/lib/resolve-state-dir.sh" ] && echo yes || echo no)"
 
 _iu_consumer() {  # $1 = fixture id -> prints a fresh consumer repo root
   local d="$_iw_tmp_root/consumer-$1"
@@ -788,8 +797,8 @@ import json, sys
 p = sys.argv[1]
 d = json.load(open(p))
 d["watched_authors"] = ["consumer-chosen-bot"]
-d["devflow"] = d.get("devflow", {})
-d["devflow"]["allowed_tools"] = ["Bash(consumer-only-tool:*)"]
+d["prflow"] = d.get("prflow", {})
+d["prflow"]["allowed_tools"] = ["Bash(consumer-only-tool:*)"]
 json.dump(d, open(p, "w"), indent=2)
 ' "$IU_C3/.prflow/config.json"
 _iu_run "$IU_C3" --apply >/dev/null
@@ -797,7 +806,7 @@ assert_eq "installer-upgrade: --apply preserves hand-edited .prflow/config.json 
   "$(python3 -c '
 import json, sys
 d = json.load(open(sys.argv[1]))
-print(d["watched_authors"][0], d["devflow"]["allowed_tools"][0])
+print(d["watched_authors"][0], d["prflow"]["allowed_tools"][0])
 ' "$IU_C3/.prflow/config.json")"
 
 # ── Scenario 4: the withheld automatic-review tier. Reported always; removed only on
@@ -1153,15 +1162,30 @@ python3 -c '
 import json, sys
 p = sys.argv[1] + "/.prflow/config.json"
 d = json.load(open(p))
-d.setdefault("devflow", {})["allowed_bots"] = "claude,devflow-autopilot,dependabot"
+# Written under the CURRENT block name: this scenario is about a stale App-slug VALUE
+# (issue #987), not a stale key. Writing it under the superseded block would additionally
+# make the fixture a both-blocks-present migration case, and the non-vacuity control
+# below would then read the scaffolded default out of the other block.
+d.setdefault("prflow", {})["allowed_bots"] = "claude,devflow-autopilot,dependabot"
 json.dump(d, open(p, "w"), indent=2)
 ' "$IU_C11C"
-_iu_allowed_bots() {  # $1 = consumer root -> the devflow.allowed_bots value, or RC
+_iu_allowed_bots() {  # $1 = consumer root -> the allowed_bots VALUE, or RC
+  # Reads whichever top-level block the config actually carries. The issue-#1002 key
+  # migration moves this value from `devflow` to `prflow` without changing a byte of it,
+  # and the invariant these call sites assert is that the installer never rewrites the
+  # VALUE — so a reader hardcoded to one block name would report RC after a migration
+  # and fail an assertion about something that did not happen.
   python3 -c '
 import json, sys
 try:
     d = json.load(open(sys.argv[1] + "/.prflow/config.json"))
-    print(d["devflow"]["allowed_bots"])
+    for block in ("prflow", "devflow"):
+        section = d.get(block)
+        if isinstance(section, dict) and "allowed_bots" in section:
+            print(section["allowed_bots"])
+            break
+    else:
+        print("RC")
 except Exception:
     print("RC")
 ' "$1"
@@ -1172,8 +1196,8 @@ IU_O11C="$(_iu_run "$IU_C11C" --apply)"
 # --apply upgrade legitimately re-stamps prflow_version (step 6) on the same file, so a
 # whole-file digest would assert something the installer never promised and would go green
 # for the wrong reason if it stopped re-stamping.
-assert_eq "installer-upgrade stale-config: a superseded App slug in devflow.allowed_bots is REPORTED, names the replacement, and the value itself is left untouched" "yes yes claude,devflow-autopilot,dependabot" \
-  "$(_iu_out_has "$IU_O11C" 'still names superseded PRFlow identifiers') $(_iu_out_has "$IU_O11C" 'devflow.allowed_bots[devflow-autopilot -> prflow-implementer]') $(_iu_allowed_bots "$IU_C11C")"
+assert_eq "installer-upgrade stale-config: a superseded App slug in allowed_bots is REPORTED under the block the config actually carries, names the replacement, and the value itself is left untouched" "yes yes claude,devflow-autopilot,dependabot" \
+  "$(_iu_out_has "$IU_O11C" 'still names superseded PRFlow identifiers') $(_iu_out_has "$IU_O11C" 'prflow.allowed_bots[devflow-autopilot -> prflow-implementer]') $(_iu_allowed_bots "$IU_C11C")"
 assert_eq "installer-upgrade stale-config: the fixture really did carry the stale slug before the run (the invariant above is not comparing two absent values)" "claude,devflow-autopilot,dependabot" \
   "$IU_CFG11C_BEFORE"
 assert_eq "installer-upgrade stale-config: the report routes to the ONE owner of the correction rather than growing a second copy of it" "yes" \
@@ -1200,7 +1224,9 @@ _iu_cfg_shape() {  # $1 = literal config bytes -> the scan's stdout (empty = no 
       && "${DEVFLOW_PY:-python3}" -c "$DEVFLOW_CONFIG_SCAN_PY" .prflow/config.json \
            "$DEVFLOW_STALE_BOT_LOGINS" ) 2>/dev/null
 }
-IU_CFG_HIT='devflow.allowed_bots[devflow-autopilot -> prflow-implementer]'
+# Post-#1002 the scan names the block the config carries at scan time; an --apply run
+# migrates the seven top-level keys before the report, so that block is `prflow`.
+IU_CFG_HIT='prflow.allowed_bots[devflow-autopilot -> prflow-implementer]'
 assert_eq "installer stale-config matrix: the plain hit shape is detected (the matrix below is not vacuously silent)" "$IU_CFG_HIT" \
   "$(_iu_cfg_shape '{"prflow": {"allowed_bots": "claude,devflow-autopilot"}}')"
 assert_eq "installer stale-config matrix: a [bot]-suffixed entry with surrounding whitespace is the same login" "$IU_CFG_HIT" \

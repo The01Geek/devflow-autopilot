@@ -183,6 +183,36 @@ Each workflow also forces `bash` for its `run:` steps, so a self-hosted Windows 
 
 **Windows: the `gh`-wrapper fingerprint-mode gate (resolved, issue #690).** With a GitHub App configured (`DEVFLOW_APP_ID` set), both writer tiers run `scripts/install-gh-wrapper.sh`, whose output 5/7 used to require the token fingerprint file's POSIX mode to be exactly `600`. A native-Windows `python3` (`os.name == 'nt'`) synthesizes `st_mode`'s permission bits from the `FILE_ATTRIBUTE_READONLY` bit alone, so `600` is unreachable there and the step failed on **every** run, aborting the `claude` job before the agent started. The gate is now platform-aware: `posix` hosts are unchanged, and on an `nt` host the mode stops being a failure condition and the installer records on stderr that the owner-only guarantee could not be established, leaving access to the filesystem's ACLs. Only a **native** Windows CPython (python.org, `mingw-w64-*-python`) reports `nt`; the Cygwin-derived `msys/python` build reports `posix` and keeps the strict gate. Consistent with the "dispatch-enabled, not certified" posture above, clearing this blocker does not by itself certify the tier — run the smoke test. This ships through the `prflow_version` vendor fetch alone (no workflow file changes), so on a **thin** install re-running `install.sh` delivers nothing; on a **committed-vendor** install (`DEVFLOW_VENDOR=1`) re-running it from an updated checkout does deliver the fixed script. Full detail in [`cloud-setup.md`](cloud-setup.md#windows-posix-mode-bits-do-not-constrain-the-credential-files).
 
+## Migrating a repository set up before the PRFlow rename
+
+Repositories installed before the rename keep their state in `.devflow/`, with the vendored plugin at `.devflow/vendor/devflow/`, `devflow_*` config keys, workflow bodies naming those paths, and a `.claude-plugin/marketplace.json` `source` pointing at the old vendored directory. `/prflow:init` migrates all of that, and `install.sh` performs the same migration first inside its own apply path — both call the one helper, `scripts/migrate-consumer-tier1.sh`, so the two entry points cannot drift.
+
+**The migration is all-or-nothing, deliberately.** The shipped workflows invoke bundled helpers at the vendored path as repo-relative leading tokens, and the cloud allowlist grants are per-literal-path — so a half-moved tree is not merely broken, it is silently *denied*, and a run ends with no verdict. The helper therefore plans, validates every precondition for all four members, stages every new byte, and only then commits behind a rollback journal:
+
+| Member | What moves |
+| --- | --- |
+| state-dir-move | `.devflow/` → `.prflow/`, including `vendor/devflow/` → `vendor/prflow/`, every byte preserved |
+| workflow-content-rewrite | every `.github/workflows/*.yml` on disk that names a superseded path or config key |
+| marketplace-source-rewrite | `.claude-plugin/marketplace.json`'s local plugin `source` |
+| version-pin-advance | `devflow_version` → `prflow_version` (plus the other six top-level keys), with the pin advanced to a ref that contains the migration |
+
+A single unsatisfiable member refuses the whole set and leaves the repository **byte-identical**; the report names which member was blocked and why. Run it without `--apply` for a preview that writes nothing:
+
+```bash
+.prflow/vendor/prflow/scripts/migrate-consumer-tier1.sh              # preview: plan only, no writes
+.prflow/vendor/prflow/scripts/migrate-consumer-tier1.sh --apply --pin-from-plugin
+```
+
+Two things the migration does **not** own, and reports instead: a retained workflow `install.sh` does not ship (`devflow-review.yml`, `devflow-runner.yml`, `telemetry-push.yml`) — it is rewritten with the others, but no installer run can keep it current afterwards — and your `DEVFLOW_*` environment variables, CI secrets and organization variables, which live outside the repository entirely.
+
+### The transitional read-through, and when it goes away
+
+`/prflow:init` registers the marketplace with `autoUpdate: true`, so the **plugin** can update ahead of any migration run. To keep that from silently reverting an un-migrated repository to template defaults, every reader resolves `.prflow/` first and falls back to `.devflow/` **only** when the canonical directory is absent and the superseded one is present — writing a stderr breadcrumb naming `/prflow:init` on every such resolution. Nothing is silent: if you see that line, the repository has not been migrated.
+
+**This fallback is removed once no consumer still carries a `.devflow/` directory** — a confirmation, not a timer. It is recorded in `lib/rename-map.json` under `transitional_read_through.end_criterion`, which is the single source for it.
+
+The **config keys** deliberately have no such fallback. A silent key fallback would make the key migration unobservable and therefore permanent, so it is *detected* rather than read through: `scripts/config-get.sh` breadcrumbs when a requested key is absent and its superseded counterpart is present, and the two shipped workflows' `config` jobs fail loud on an absent key family (the trigger-time channel reads config through inline `jq` and never through the resolver, so no breadcrumb could reach it).
+
 ## Updating
 
 ### Local tier

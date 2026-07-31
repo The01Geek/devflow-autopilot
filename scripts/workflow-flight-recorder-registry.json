@@ -1,6 +1,11 @@
 {
   "schema_version": 1,
   "test_modules": {
+    "tier1-rename-migration": {
+      "path": "lib/test/modules/tier1-rename-migration.sh",
+      "minimum_assertions": 149,
+      "description": "Focused #1002 Tier 1 rename/migration contract: the rename map as the single source every site resolves against, the state-directory transitional read-through and its shell/python coupled pair, config-get.sh's superseded-key probe over the absent-versus-present-and-empty distinction and the six-shape config matrix, scaffold-config.sh's config-key migration with its fail-closed shipped-workflow freshness gate and the superseded-key anti-graft guard on the refusal and jq-unusable paths, migrate-consumer-tier1.sh's all-or-nothing atomic unit driven by per-member induced blockers asserting whole-tree byte-identity, and the workflow config-job per-family fail-loud guard"
+    },
     "retrospective-lifecycle": {
       "path": "lib/test/modules/retrospective-lifecycle.sh",
       "minimum_assertions": 300,

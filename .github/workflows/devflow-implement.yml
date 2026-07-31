@@ -92,8 +92,31 @@ jobs:
           # guard in devflow-runner.yml.
           ALLOWED_BOTS=$(echo "$CONFIG_JSON" | jq -r '.prflow.allowed_bots // empty')
           if [ "$ENABLED" = "true" ] && [ -z "$ALLOWED_BOTS" ]; then
-            echo "::error::devflow.allowed_bots is missing from .prflow/config.json (a pre-2.2.5 config may still use the old 'claude.allowed_bots' key — see CHANGELOG 2.2.5 migration)"
+            echo "::error::prflow.allowed_bots is missing from .prflow/config.json (a pre-2.2.5 config may still use the old 'claude.allowed_bots' key — see CHANGELOG 2.2.5 migration)"
             exit 1
+          fi
+          # PER-FAMILY FAIL-LOUD GUARD (issues #988, #1002). The trigger-time channel
+          # reads config through inline jq and NEVER through config-get.sh, so the
+          # resolver superseded-key breadcrumb cannot reach it — this is that
+          # breadcrumb's counterpart on the one channel it cannot see. Without it a
+          # config still on the superseded key names resolves every read below to its
+          # `// default`: the human-trigger gate silently WIDENS to everyone, the tool
+          # grants vanish to `[]`, and the effort becomes one nobody chose.
+          #
+          # FAMILY granularity, not leaf: the schema marks none of the optional leaves
+          # required, so a consumer who never set `allowed_users` or `effort` must stay
+          # unaffected. Only the absence of the whole top-level family object is an error.
+          #
+          # Same side of the enable gate as the allowed_bots guard above, so an
+          # intentionally-disabled repository is never failed.
+          if [ "$ENABLED" = "true" ]; then
+            MISSING_FAMILIES=$(echo "$CONFIG_JSON" | jq -r --arg fams "prflow prflow_implement prflow_version" '
+              if type != "object" then $fams | split(" ") | join(" ")
+              else ($fams | split(" ")) - [keys[]] | join(" ") end')
+            if [ -n "$MISSING_FAMILIES" ]; then
+              echo "::error::.prflow/config.json is missing the config key famil(ies): $MISSING_FAMILIES. If this repository still carries the superseded devflow_* names, run /prflow:init to migrate the whole Tier 1 set atomically; every read below would otherwise silently resolve to its default."
+              exit 1
+            fi
           fi
           {
             echo "enabled=$ENABLED"

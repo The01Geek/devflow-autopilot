@@ -935,8 +935,19 @@ except Exception:
     sys.exit(0)
 if not isinstance(data, dict):
     sys.exit(0)
-section = data.get("devflow")
-if not isinstance(section, dict):
+# Look under BOTH block names. Which one a consumer carries depends on whether the
+# Tier-1 migration has run, and a scanner that knew only one name would fall silent on
+# exactly half the population -- reporting "nothing stale here" about a config it never
+# looked at. The current name wins when both are somehow present.
+section = None
+block = ""
+for candidate in ("prflow", "devflow"):
+    value = data.get(candidate)
+    if isinstance(value, dict):
+        section = value
+        block = candidate
+        break
+if section is None:
     sys.exit(0)
 raw = section.get("allowed_bots")
 # A bool is an int, not a str, so `false` lands here and exits silently like any other
@@ -953,7 +964,7 @@ for e in raw.split(","):
 hits = []
 for stale, current in pairs:
     if stale in entries:
-        hits.append("devflow.allowed_bots[" + stale + " -> " + current + "]")
+        hits.append(block + ".allowed_bots[" + stale + " -> " + current + "]")
 if hits:
     sys.stdout.write(", ".join(hits))
 '
@@ -963,15 +974,23 @@ devflow_report_stale_config_identifiers() {
   # to find, so no python3 is spent. Re-read the assignment above before asserting which way
   # this falls.
   [ -n "$DEVFLOW_STALE_BOT_LOGINS" ] || return 0
-  [ -f .prflow/config.json ] || return 0
+  local cfg
+  # Whichever state directory this repository actually has: a consumer whose Tier-1
+  # migration refused still keeps its config under the superseded name, and reporting
+  # against a path that does not exist would be a silent no-op on the population that
+  # most needs the notice.
+  if [ -f .prflow/config.json ]; then cfg=.prflow/config.json
+  elif [ -f .devflow/config.json ]; then cfg=.devflow/config.json
+  else return 0
+  fi
   devflow_resolve_python || {
-    log "warning: no working python3 — could not check .prflow/config.json for superseded PRFlow identifiers; run /prflow:init to correct them."
+    log "warning: no working python3 — could not check $cfg for superseded PRFlow identifiers; run /prflow:init to correct them."
     return 0
   }
-  hits="$("$DEVFLOW_PY" -c "$DEVFLOW_CONFIG_SCAN_PY" .prflow/config.json \
+  hits="$("$DEVFLOW_PY" -c "$DEVFLOW_CONFIG_SCAN_PY" "$cfg" \
       "$DEVFLOW_STALE_BOT_LOGINS" 2>/dev/null || printf '')"
   [ -n "$hits" ] || return 0
-  log "NOTICE: .prflow/config.json still names superseded PRFlow identifiers ($hits). This installer never rewrites that file for this — run /prflow:init, which corrects them in place, preserves your other values, and reports the diff to review before you commit."
+  log "NOTICE: $cfg still names superseded PRFlow identifiers ($hits). This installer never rewrites that file for this — run /prflow:init, which corrects them in place, preserves your other values, and reports the diff to review before you commit."
 }
 
 # ── The dry-run preview ─────────────────────────────────────────────────────
@@ -1121,9 +1140,14 @@ devflow_apply_all() (
   #    nothing. Same helper /prflow:init calls, so the two entry points cannot drift.
   if [ -x "$SRC/scripts/migrate-consumer-tier1.sh" ]; then
     "$SRC/scripts/migrate-consumer-tier1.sh" --apply --pin "$pin" "$PWD" || tier1_rc=$?
-  else
+  elif [ -d .devflow ]; then
+    # Only a tree that ACTUALLY carries the superseded layout is stranded by a missing
+    # helper. Failing closed here for a repository with nothing to migrate would strand
+    # every first-time install behind a file it never needed.
     tier1_rc=2
-    log "warning: scripts/migrate-consumer-tier1.sh is missing from the source tree; the Tier 1 migration could not run."
+    log "warning: scripts/migrate-consumer-tier1.sh is missing from the source tree, and this repository still carries a superseded .devflow/ state directory; the Tier 1 migration could not run."
+  else
+    log "no superseded .devflow/ state directory here; the Tier 1 migration has nothing to do."
   fi
 
   # 1. Plugin tree. Thin by default — the vendor-plugin composite action puts it

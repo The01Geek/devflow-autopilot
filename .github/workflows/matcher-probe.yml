@@ -371,7 +371,7 @@ jobs:
               (2,  "assignment-led compound, granted head (`M=…`; printf)",   "probe-02", "/tmp/probe-02.txt"),
               (3,  "cd-led compound (`cd … && printf > f`)",                  "probe-03", "/tmp/probe-03.txt"),
               (4,  "unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor invocation",   "CLAUDE_SKILL_DIR", None),
-              (5,  "repo-relative vendored-literal helper invocation",        "vendor/devflow/scripts/load-prompt-extension.sh", None),
+              (5,  "repo-relative vendored-literal helper invocation",        "vendor/prflow/scripts/load-prompt-extension.sh", None),
               (6,  "tee heredoc write (`tee f <<'EOF'`)",                     "probe-06", "/tmp/probe-06.txt"),
               (7,  "multi-arg printf redirect (`printf '%s\\n' a b > f`)",     "probe-07", "/tmp/probe-07.txt"),
               (8,  "Write tool under `Write(/tmp/**)`",                       "probe-08", "/tmp/probe-08.txt"),

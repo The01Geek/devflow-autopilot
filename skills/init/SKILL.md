@@ -18,6 +18,37 @@ Scaffold this repo's DevFlow config files. **One command does everything — do 
 
 If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.prflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
 
+**Independently of that exit code, any helper in this run may write a `prflow: reading the superseded .devflow/ state directory` line to stderr.** It is not an error and it does not change which arm you take above — it is the transitional read-through telling you this repository has not been migrated yet. The next step is what acts on it; do not relay it separately, or the user reads the same fact several times in one run.
+
+## First: migrate a repository still on the superseded layout
+
+Repositories set up before the PRFlow rename keep their state in `.devflow/`, with the vendored plugin at `.devflow/vendor/devflow/`, `devflow_*` config keys, workflow bodies naming those paths, and a marketplace `source` pointing at the old vendored directory. **Those four move as one unit or not at all** — the shipped workflows invoke bundled helpers at the vendored path as repo-relative leading tokens and the cloud allowlist grants are per-literal-path, so a half-moved tree is not merely broken, it is *silently denied*.
+
+Run this **before** the scaffolder, so everything after it operates on the migrated tree. From the repo root:
+
+```bash
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/migrate-consumer-tier1.sh
+```
+
+That is the **preview**: it classifies the repository, plans the four members, validates every precondition, and writes nothing. Show the user its plan. Then perform the migration:
+
+```bash
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/migrate-consumer-tier1.sh --apply --pin-from-plugin
+```
+
+`--pin-from-plugin` stamps the migrated version pin from this plugin's own published version, which is by construction a ref that contains the migration. Read the helper's `prflow-migrate:` lines and respond per the matching branch:
+
+- **`NOTHING TO MIGRATE …`** — no state directory at either name. This is a first-time install, not an un-migrated consumer. Say nothing about migration and carry on; the scaffolder below creates the directory.
+- **`ALREADY MIGRATED …`** — the repository is already on the current layout. Nothing changed. Say nothing beyond that and carry on.
+- **`PREVIEW …` / `PLAN …` followed by `will migrate` lines** — relay the plan. Each line names one member of the atomic unit: the state-directory move, the workflow-content rewrite, the marketplace-source rewrite, and the version pin.
+- **`APPLIED every member of the atomic unit landed together.`** — the migration succeeded. Tell the user their state directory moved to `.prflow/`, that this is a large but purely mechanical diff, and to **review it before committing**. Name the four members.
+- **`REFUSED …`** — **nothing was migrated and the repository is byte-identical.** There is no partial-application path, so do not describe any member as "done". Relay every `blocked` line verbatim — each names one member and the precondition it failed — and relay the refusal's own remedy (it names the two operator resolutions for a both-directories-present tree, and the resume instruction for a leftover commit journal). Then **carry on with the rest of this run**: the repository is unchanged and still works through the transitional read-through, so a refusal is a report, not an init failure.
+- **`could not migrate …` lines** (which appear on the success path too) — relay each one, naming the specific file. These are items the migration deliberately does not own, chiefly a retained workflow `install.sh` does not ship and cannot refresh.
+
+Two things this step must not do. **Never invent a partial migration** — do not move the directory, edit a workflow, or rewrite the marketplace source with your file-edit tools when the helper refused; its refusal is the whole point. And **never treat a refusal as a stop**: nothing in this step may end `/prflow:init`, which is this skill's standing ethos.
+
+**Report each fact once.** The apply re-prints the same plan the preview showed, and the scaffolder further down reports the same retained unshipped workflow this step already named. Relay each distinct fact **once per run**, in whichever step surfaced it first, and say nothing when a later step merely repeats it — a report that says the same thing three times reads as three problems.
+
 ## Run
 
 ```bash
@@ -128,19 +159,29 @@ Read the scaffolder's output line and respond accordingly:
 - **`scaffolded …`** — a fresh `.prflow/config.json` was created. Every value has a working default, so it's usable as-is; tell the user they only need to edit it to customize (their editor validates against `config.schema.json`).
 - **`keeping existing …`** — they already had a `config.json`; their values were preserved. It may be followed by **`backfilled newly-added keys …`** when the upgrade added keys the example gained since their config was written (existing values and arrays untouched) — tell the user to review the small diff before committing. If only `keeping existing …` prints, the config already had every key and nothing changed.
 
+The scaffolder also emits lines about the superseded config-key names. Each has its own arm below; a run that relayed none of them would leave the user with a config that looks migrated and is not:
+
+- **`migrated superseded config key …`** (one line per key) — the `devflow_*` blocks were renamed to `prflow_*` with the values carried across. Tell the user to review that diff before committing.
+- **`NOT migrating superseded config keys: … Run install.sh --apply …`** — the migration was **refused** because a shipped workflow file on disk still reads the superseded names, and moving the config out from under it would leave it reading defaults. Relay the named file and the `install.sh --apply` remedy. The config is unchanged; nothing here fails init.
+- **`NOT migrating <key> …: both it and <key> are present …`** — a both-present conflict where the new block holds a deliberate consumer edit. Relay it with **both** operator resolutions the line names; the migration will not choose between two values a human set.
+- **`plugin version pin is …`** — an advisory, never a gate: the pin's freshness is not decidable where the scaffolder runs. Relay it whenever the pin predates the rename, together with the line's own remedy.
+- **`<file>.yml is present in .github/workflows/ but is NOT shipped by install.sh …`** — a retained workflow no installer run can refresh. Relay it **by name, once per run** — the helper emits it on every run precisely so it cannot fall silent on the run after the one that made the file stale, but if the migration step above already named that same file as one it could not migrate, this is the same fact reaching you twice and the user should read it once.
+
 ### Then: correct superseded identifiers in the existing config
 
-The scaffolder is add-only — it backfills keys and never renames a **value**, so an identifier that was correct when the config was written stays there after the thing it names is renamed. Read `.prflow/config.json` with your file-read tool and correct the one such value there is:
+The scaffolder is add-only — it backfills keys and never renames a **value**, so an identifier that was correct when the config was written stays there after the thing it names is renamed.
 
-- **`devflow.allowed_bots`** — an entry whose bare login (a trailing `[bot]` stripped, surrounding whitespace ignored) is `devflow-autopilot` must become `prflow-implementer`. That GitHub App was renamed; `scripts/authorize-actor.sh` compares logins for **equality**, so the old slug authorizes nothing. The failure is silent and lands one run later: the implement and review stall-backstops post their resume comment successfully and go green, then the gate that comment re-enters declines the App as an unknown actor, so the run never resumes.
+**Read the config the scaffolder just reported working on**, not a fixed path. Its `keeping existing <path>` / `scaffolded <path>` line names the file, and on a repository whose Tier-1 migration refused above that path is still `.devflow/config.json`. Taking this step's degrade arm because a hardcoded `.prflow/config.json` was absent would leave the stale entry in place — which is the silent one-run-later stall this step exists to prevent, reintroduced by the very guard meant to be safe. Read that file with your file-read tool and correct the one such value there is:
+
+- **`allowed_bots`, inside whichever top-level block this config actually has** — `prflow` on a migrated repository, `devflow` on one whose migration was refused above. **Do not hardcode either name.** The migration step at the top of this run renames that block, so a rule naming only `devflow` would take the degrade arm on every repository the migration just fixed — reintroducing, through a hardcoded *key*, exactly the failure the resolved-path rule above closes. An entry whose bare login (a trailing `[bot]` stripped, surrounding whitespace ignored) is `devflow-autopilot` must become `prflow-implementer`. That GitHub App was renamed; `scripts/authorize-actor.sh` compares logins for **equality**, so the old slug authorizes nothing. The failure is silent and lands one run later: the implement and review stall-backstops post their resume comment successfully and go green, then the gate that comment re-enters declines the App as an unknown actor, so the run never resumes.
 
 Apply it with your file-edit tool, and hold to all of these:
 
 - **Change nothing else.** Every other entry, its order, and the rest of the file stay byte-for-byte as they were. This is not a re-scaffold.
 - **Never duplicate.** If `prflow-implementer` is already listed, **drop** the stale entry instead of renaming it onto a collision.
-- **Idempotent.** A config with no stale entry is left untouched — report `no superseded identifiers in .prflow/config.json` and move on. Re-running must produce no second change.
-- **Report what you changed**, as a sibling of the scaffolder's own lines and in the same shape — `corrected superseded identifiers in .prflow/config.json (…)`, with the parenthetical naming which of the two edits you made: `devflow.allowed_bots: devflow-autopilot → prflow-implementer` when you renamed, or `devflow.allowed_bots: dropped devflow-autopilot, prflow-implementer already listed` when you dropped a collision. Tell the user to review that diff before committing.
-- **Degrade, never block.** If the file cannot be read, does not parse as JSON, or does not have the shape this reads (`devflow` not an object, `allowed_bots` not a string), leave it untouched, say so in one line, and carry on with the rest of the run. Nothing in this step may stop `/prflow:init` — that is this skill's standing ethos, not an exception granted here.
+- **Idempotent.** A config with no stale entry is left untouched — report `no superseded identifiers in <the config file you read>` and move on. Re-running must produce no second change.
+- **Report what you changed**, as a sibling of the scaffolder's own lines and in the same shape — `corrected superseded identifiers in <the config file you read> (…)`, with the parenthetical naming the block you actually found and which outcome you took: `<block>.allowed_bots: devflow-autopilot → prflow-implementer` when you renamed, or `<block>.allowed_bots: dropped devflow-autopilot, prflow-implementer already listed` when you dropped a collision. Name the real block (`prflow` or `devflow`); do not emit a key the file does not contain. Tell the user to review that diff before committing.
+- **Degrade, never block.** If the file cannot be read, does not parse as JSON, or does not have the shape this reads (**neither** `prflow` **nor** `devflow` present as an object, or `allowed_bots` not a string), leave it untouched, say so in one line, and carry on with the rest of the run. Nothing in this step may stop `/prflow:init` — that is this skill's standing ethos, not an exception granted here.
 
 The scaffolder also prints `devflow-detect:` lines from the language auto-detection. Read them and respond:
 
