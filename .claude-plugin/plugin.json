@@ -1,8 +1,8 @@
 {
   "name": "prflow",
   "displayName": "PRFlow",
-  "version": "2.28.4",
-  "description": "Turn a one-line request into a tested, reviewed, documented PR ready for your review: implement, review, docs, and a self-improving retrospective loop.",
+  "version": "2.28.7",
+  "description": "Turn feature requests into review-ready pull requests: issue, implementation, tests, a review-and-fix loop, and docs. Runs locally or on GitHub Actions, and is built for complex brownfield repos. Each week its retrospective reads what you actually merged and proposes improvements to your skill extensions.",
   "author": {
     "name": "Daniel Radman",
     "email": "daniel@radman.ai"

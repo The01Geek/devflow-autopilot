@@ -14,18 +14,36 @@
 # Usage:
 #   scripts/publish-release.sh --version <N.N.N> [--notes-file <path>] [--repo <owner/repo>]
 #                              [--remote <name>] [--commit <ref>] [--release <mode>]
+#                              [--bump <patch|minor|major>]
 #
-#   --release always   publish a GitHub Release for every tag (the default; see below)
-#   --release never    create the annotated tag only
+#   --release always       publish a GitHub Release for every tag (the default — a hand
+#                          re-run intends to publish the one it names)
+#   --release never        create the annotated tag only
+#   --release minor-major  publish only when --bump names a `minor` or `major` bump; a
+#                          `patch` bump is tagged and not announced. This is what
+#                          .github/workflows/version-consolidate.yml passes.
 #
-# WHY `always` IS THE DEFAULT. docs/install.md and docs/cloud-setup.md both send readers
-# to the repository's `releases/latest` page to find the current pin. That link only ever
-# names the newest *Release*, not the newest tag — so skipping Releases on patch merges
-# would leave a documented link pointing at a superseded version. The Release body is the
-# CHANGELOG entry the same run just assembled, so it costs no hand-written artifact, and
-# the notification it raises reaches only users who opted into release notifications, at
-# the same cadence as the CHANGELOG they would read anyway. To switch to minor/major-only,
-# pass `--release never` from the workflow under a bump-kind condition.
+# WHY THE WORKFLOW SELECTS `minor-major` (issue #970). Every merge carrying a changeset
+# triggers a bump, and every published Release emails every watcher subscribed to
+# "Releases" or "All Activity". Measured on 2026-07-29 that was ten Releases in one day —
+# v2.26.7 (05:52) through v2.28.3 (23:50), roughly one every two hours — which is not a
+# usable notification stream. A git tag raises no such notification, so tagging EVERY bump
+# keeps pinned install URLs resolving and reproducibility unchanged; only the announcement
+# becomes conditional.
+#
+# The coupling that made `always` the original choice is gone: the three install docs used
+# to send readers to the `releases/latest` page, which resolves to the newest *Release* and
+# would therefore name a version older than the pin those same docs carry. They now name
+# the Tags page for the current version and keep the Releases page as the feature-release
+# announcement channel, so a patch tag with no Release of its own leaves no documented link
+# naming a superseded version. The derived version pins (scripts/version_pins.py) are
+# untouched by this: they track the newest TAG, which is still every bump.
+#
+# The bump kind is not inferred from a version diff — `scripts/consolidate-changesets.py`
+# already computes the single highest pending bump and hands it over through its
+# `--emit-bump-to` side channel. An UNESTABLISHED bump kind is never collapsed onto
+# `patch`: under `minor-major` an empty --bump tags and then fails loud, because guessing
+# would silently suppress a release announcement nobody chose to suppress.
 #
 # Every step is idempotent: an existing remote tag or Release is reported and left alone,
 # so a re-run never fails on work already done. The tag-existence VERIFICATION after the
@@ -44,6 +62,7 @@ REPO="${GITHUB_REPOSITORY:-}"
 REMOTE="origin"
 COMMIT="HEAD"
 RELEASE_MODE="always"
+BUMP_KIND=""
 
 die() { printf 'publish-release.sh: %s\n' "$1" >&2; exit 2; }
 
@@ -55,6 +74,7 @@ while [ "$#" -gt 0 ]; do
     --remote)       REMOTE="${2:-}"; shift 2 ;;
     --commit)       COMMIT="${2:-}"; shift 2 ;;
     --release)      RELEASE_MODE="${2:-}"; shift 2 ;;
+    --bump)         BUMP_KIND="${2:-}"; shift 2 ;;
     *)              die "unknown argument '$1'" ;;
   esac
 done
@@ -72,8 +92,17 @@ case "$VERSION" in
 esac
 
 case "$RELEASE_MODE" in
-  always|never) : ;;
-  *) die "--release '$RELEASE_MODE' is not one of: always, never" ;;
+  always|never|minor-major) : ;;
+  *) die "--release '$RELEASE_MODE' is not one of: always, never, minor-major" ;;
+esac
+
+# A MALFORMED --bump is a caller bug and is rejected before anything happens; an ABSENT one
+# is a different event (the consolidator's side channel produced nothing) and is handled at
+# the release decision below, after the tag exists. Never conflated: one is a typo, the
+# other is an unestablished measurement.
+case "$BUMP_KIND" in
+  ''|patch|minor|major) : ;;
+  *) die "--bump '$BUMP_KIND' is not one of: patch, minor, major" ;;
 esac
 
 TAG="v$VERSION"
@@ -132,11 +161,31 @@ else
   exit 1
 fi
 
-# ── 3. The GitHub Release ───────────────────────────────────────────────────────────
-if [ "$RELEASE_MODE" = "never" ]; then
-  printf '::notice::--release never — tag %s created, no GitHub Release published.\n' "$TAG"
-  exit 0
-fi
+# ── 3. The GitHub Release decision ──────────────────────────────────────────────────
+# Reached only once the tag exists and is verified, so every arm below leaves the pinned
+# install URLs resolving; only the announcement is at stake here.
+case "$RELEASE_MODE" in
+  never)
+    printf '::notice::--release never — tag %s created, no GitHub Release published.\n' "$TAG"
+    exit 0 ;;
+  minor-major)
+    case "$BUMP_KIND" in
+      minor|major)
+        printf '::notice::%s bump — tag %s created; publishing its GitHub Release.\n' "$BUMP_KIND" "$TAG" ;;
+      patch)
+        printf '::notice::patch bump — tag %s created, no GitHub Release published. Patch ' "$TAG"
+        printf 'bumps are tagged (so pinned install URLs resolve) but not announced.\n'
+        exit 0 ;;
+      *)
+        # Unknown is not "patch". Suppressing an announcement nobody chose to suppress is a
+        # silent wrong answer; the tag is already pushed, so failing loud here costs only the
+        # Release, which a re-run republishes idempotently.
+        printf '::error::--release minor-major was selected but the bump kind is not '
+        printf 'established (--bump was empty), so whether to publish %s cannot be decided. ' "$TAG"
+        printf 'The tag is pushed; check the consolidator --emit-bump-to side channel and re-run.\n'
+        exit 1 ;;
+    esac ;;
+esac
 
 [ -n "$REPO" ] || die "--repo (or GITHUB_REPOSITORY) is required to publish a Release"
 
@@ -173,6 +222,6 @@ if "$DEVFLOW_GH" "$@" >/dev/null; then
   printf '::notice::Published GitHub Release %s (marked latest).\n' "$TAG"
 else
   printf '::error::Tag %s is pushed, but publishing its GitHub Release failed. ' "$TAG"
-  printf 'The releases/latest link the install docs cite is now stale.\n'
+  printf 'The Releases page the install docs cite is now missing this release.\n'
   exit 1
 fi

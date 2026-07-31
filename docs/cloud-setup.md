@@ -83,9 +83,9 @@ writes changes into your repository, so download it, read it, then run the file 
 read:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.28.4/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.28.7/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.28.4 bash devflow-install.sh
+DEVFLOW_REF=v2.28.7 bash devflow-install.sh
 ```
 
 Both refs are pinned to the same **release tag**, so the install is reproducible.
@@ -93,9 +93,10 @@ The URL ref fixes which *installer bytes* you review and run; `DEVFLOW_REF`
 (default `main`, and it accepts a tag, a SHA, or a branch) fixes which ref the
 installer clones its payload from — pinning the URL alone still leaves the payload
 tracking `main`. Substitute a newer tag in both places to install a newer version;
-[the Releases page](https://github.com/The01Geek/prflow/releases/latest)
-or `gh release list --repo The01Geek/prflow --limit 5` names the current
-one. Omit `DEVFLOW_REF` only if you deliberately want to track the moving `main`
+every version is tagged, so
+[the Tags page](https://github.com/The01Geek/prflow/tags) names the current
+one (feature releases are additionally announced on
+[the Releases page](https://github.com/The01Geek/prflow/releases)). Omit `DEVFLOW_REF` only if you deliberately want to track the moving `main`
 branch. Piping the download straight into `bash` also works
 (`curl -fsSL <pinned-url> | DEVFLOW_REF=<same-tag> bash`) but skips the review step,
 so it is not the recommended form. See
@@ -780,7 +781,7 @@ convention.
 (`devflow-runner.yml`) and the manual `/prflow:review` command (`devflow.yml`) —
 uses the `DevFlow-Reviewer` installation token when `vars.DEVFLOW_REVIEWER_APP_ID`
 is set, otherwise `github-actions[bot]` (`GITHUB_TOKEN`). The review path **never**
-uses the primary `devflow-autopilot` App token. Since implement authors PRs as the
+uses the primary `prflow-implementer` App token. Since implement authors PRs as the
 primary App (or `github-actions[bot]` when no App is configured), the review
 identity is structurally distinct from the author on every configured setup, so
 Phase 4.4's formal review posts instead of failing self-review. `/prflow:pr-description`

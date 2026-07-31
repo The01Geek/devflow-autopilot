@@ -133,7 +133,7 @@ on:
           `vars.DEVFLOW_REVIEWER_APP_ID != ''` — so this secret is only read
           when the reviewer App is configured. The review path deliberately
           runs under this SEPARATE identity (never the primary
-          `devflow-autopilot` App that authors PRs) so Phase 4.4's
+          `prflow-implementer` App that authors PRs) so Phase 4.4's
           `gh pr review --request-changes`/`--approve` is not a forbidden
           self-review (issue #300). Resolves via `secrets: inherit` from the
           caller (devflow-review.yml); declared here because a reusable
@@ -1274,8 +1274,9 @@ jobs:
           # under a non-UTF-8 runner locale while the JS tokeniser still splits on it.
           # So MODEL is validated POSITIVELY: reject a leading dash, then reject any
           # character outside the conservative model-id allowlist
-          # A-Za-z0-9 . _ / : @ [ ] -  (covers claude-*, provider/model, Z.ai
-          # bracket-suffix ids like glm-5.2[1m], and Bedrock-style colon ids) — a
+          # A-Za-z0-9 . _ / : @ [ ] -  (covers claude-*, provider/model,
+          # bracket-suffix context-window ids like name-1.2[1m], and Bedrock-style
+          # colon ids) — a
           # multibyte character is rejected in every locale because none of its bytes
           # (C locale) nor its codepoint (UTF-8 locale) is in the allowlist. EFFORT is
           # pinned to its schema enum (or empty, which drops the flag below). In the
@@ -2346,7 +2347,7 @@ jobs:
           # above (review posts are attributed to `DevFlow-Reviewer[bot]`, a
           # non-author identity); otherwise it is the workflow's own GITHUB_TOKEN
           # and posts show `github-actions[bot]`. Never the primary
-          # `devflow-autopilot` App token — the review path must not share the
+          # `prflow-implementer` App token — the review path must not share the
           # PR-authoring identity (issue #300).
           github_token: ${{ steps.reviewer-token.outputs.token || secrets.GITHUB_TOKEN }}
           allowed_bots: ${{ steps.extract.outputs.allowed_bots }}
