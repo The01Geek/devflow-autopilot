@@ -1824,9 +1824,10 @@ rm -rf "$IU_VSRC"
 #
 # The upgrade path's whole preservation mechanism writes DevFlow's version beside a file
 # it keeps, as `<path>.prflow-new`. That sidecar is UNTRACKED and lands inside the
-# consumer's own `.github/`, where no ignore rule covered it — so the next `git add -A`,
-# including one inside a /prflow:implement run, swept a 1400-line workflow into an
-# unrelated PR. Observed on a real consumer's first upgrade.
+# consumer's own `.github/`, which `.prflow/.gitignore` — the one ignore file the
+# installer used to manage — cannot reach, so the next `git add -A`, including one inside
+# a /prflow:implement run, swept a 1400-line workflow into an unrelated PR. Observed on a
+# real consumer's first upgrade.
 #
 # The defect is about GIT's view of the tree, so these arms are driven over fixture
 # consumers with a REAL repository rather than the `.git`-shaped directory the other
@@ -1993,8 +1994,8 @@ assert_eq "installer-upgrade #971: detect-project-tools.sh with a separate scan 
 assert_eq "installer-upgrade #971: and it writes nothing whatsoever into the scanned tree (no config, no state directory, no byte)" "yes" \
   "$([ "$IU_SNAP23F" = "$(_iu_snapshot "$IU_S23F")" ] && echo yes || echo no)"
 
-# Back-compat: the single-argument form every other caller uses still scans the tree it
-# writes to, so /prflow:init and a direct --apply are byte-for-byte what they were.
+# Back-compat: the single-argument form still scans the tree it writes to, so the
+# /prflow:init path and a direct --apply are byte-for-byte what they were.
 IU_C23G="$(_iu_consumer detect-single-arg)"
 _iu_run "$IU_C23G" >/dev/null
 printf '{ "name": "fixture" }\n' > "$IU_C23G/package.json"

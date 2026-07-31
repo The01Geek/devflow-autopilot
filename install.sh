@@ -80,10 +80,11 @@
 # scaffolder only backfills keys the example gained.
 #
 # A sidecar is UNTRACKED and lands inside your own `.github/` (or `.claude-plugin/`),
-# where nothing would otherwise stop a later `git add -A` from committing it, so the
-# installer also appends a standing ignore rule for the sidecar suffix to the repository
-# root `.gitignore` (issue #970). It has to be standing rather than a cleanup: keeping
-# your own version means leaving the sidecar in place indefinitely.
+# which `.prflow/.gitignore` cannot reach — its patterns are relative to `.prflow/`.
+# So a later `git add -A` would commit it, and the installer appends a
+# standing ignore rule for the sidecar suffix to the repository-root `.gitignore`
+# (issue #970). It has to be standing rather than a cleanup: keeping your own version
+# means leaving the sidecar in place indefinitely.
 #
 # Usage, from the root of your repo. Download-read-run is the documented form:
 # fetch this file at a PINNED ref — a release tag (vN.N.N), or a commit
@@ -342,8 +343,9 @@ manage_vendor_gitignore() {
 # When the upgrade path preserves a `modified` / `unverified` / `unreadable` artifact it
 # writes DevFlow's version beside it as `<path>.prflow-new` (see install_managed below).
 # That sidecar is UNTRACKED and sits inside the consumer's own `.github/` or
-# `.claude-plugin/`, covered by no ignore rule — so a later `git add -A`, including one
-# inside a /prflow:implement run, sweeps a whole shipped workflow into an unrelated PR.
+# `.claude-plugin/`, which the one ignore file this installer used to manage
+# (`.prflow/.gitignore`) cannot reach — so a later `git add -A`, including one inside a
+# /prflow:implement run, sweeps a whole shipped workflow into an unrelated PR.
 # The rule has to be a STANDING ignore rather than a cleanup: a consumer who deliberately
 # keeps their own version leaves the sidecar in place indefinitely, which is exactly the
 # case a "resolve it, then we tidy up" design would never reach.

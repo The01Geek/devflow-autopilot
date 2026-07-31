@@ -95,12 +95,13 @@ RENAME_MAP="$SELF_DIR/../lib/rename-map.json"
 
 TARGET_ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 # The tree the language auto-detection step SCANS (issue #971). It is threaded straight
-# through to detect-project-tools.sh and is used for NOTHING else here: every path this
-# scaffolder writes, and the workflow-freshness gate it reads, stay anchored on
-# TARGET_ROOT. An empty or omitted value selects TARGET_ROOT, which is what every caller
-# but install.sh's dry-run preview passes — that preview writes into a sandbox holding
-# only the installer's own subtrees, where detection would otherwise find no language
-# markers and preview a no-op the apply does not perform.
+# through to detect-project-tools.sh and is used for NOTHING else here: DEST (the state
+# directory this scaffolder writes) and the workflow-freshness gate it reads stay
+# anchored on TARGET_ROOT. An empty or omitted value selects TARGET_ROOT — what the
+# /prflow:init skill and install.sh's apply path both pass. Only install.sh's dry-run
+# preview passes a different one: it writes into a sandbox holding only the installer's
+# own subtrees, where detection would otherwise find no language markers and preview a
+# no-op the apply does not perform.
 SCAN_ROOT="${2:-}"
 [ -n "$SCAN_ROOT" ] || SCAN_ROOT="$TARGET_ROOT"
 # The CONSUMER'S state directory, resolved through the shared contract (issue

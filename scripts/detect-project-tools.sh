@@ -94,7 +94,8 @@ TARGET_ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 # the composer.json probe below, and nothing else. CONFIG — the one path this script
 # writes — is derived from TARGET_ROOT, so pointing the scan at another tree can never
 # move the write (issue #971). An empty value selects TARGET_ROOT, so the single-argument
-# form every caller but install.sh's preview uses is byte-for-byte unchanged.
+# form — what scaffold-config.sh passes on the /prflow:init and install.sh --apply paths,
+# and what a direct CLI invocation gets — is byte-for-byte unchanged.
 SCAN_ROOT="${2:-}"
 [ -n "$SCAN_ROOT" ] || SCAN_ROOT="$TARGET_ROOT"
 CONFIG="$(prflow_state_dir "$TARGET_ROOT")/config.json"
