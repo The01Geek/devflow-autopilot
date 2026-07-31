@@ -165,7 +165,7 @@ jobs:
             # Pinned plugin ref for the vendor-plugin fetch branch (thin installs).
             echo "prflow_version=$(echo "$CONFIG_JSON" | jq -r '.prflow_version // empty')"
             # Effective workpad marker, passed to the resolver's self-trigger guard.
-            echo "workpad_marker=$(echo "$CONFIG_JSON" | jq -r '.prflow.workpad_marker // "<!-- devflow:workpad -->"')"
+            echo "workpad_marker=$(echo "$CONFIG_JSON" | jq -r '.prflow.workpad_marker // "<!-- prflow:workpad -->"')"
           } >> "$GITHUB_OUTPUT"
           # Optional pre-installed Claude Code executable path (issue #601). For
           # self-hosted runners (typically Windows) whose OS the action's Unix-only
@@ -1656,7 +1656,13 @@ jobs:
           # lifetime-per-issue by design: once a stall episode exhausted the
           # cap, later stalls on the same issue fail loud immediately (the
           # safe, visible direction) until a human intervenes.
-          MARKER='<!-- devflow:stall-backstop-audit -->'
+          MARKER='<!-- prflow:stall-backstop-audit -->'
+          # The superseded spelling (issue #1003). The cap is LIFETIME-per-issue,
+          # so counting only the current spelling would RESET an already-exhausted
+          # issue to attempts=0 across the rename boundary and grant up to MAX
+          # extra resume runs. `grep -cxF -e A -e B` counts LINES matching either,
+          # so this is a union over comment lines, not a sum over spellings.
+          MARKER_SUPERSEDED='<!-- devflow:stall-backstop-audit -->'
           ATTEMPTS=0
           if [ "$CLASS" = "interim" ]; then
             GH_ERRF="$(mktemp 2>/dev/null || echo /dev/null)"
@@ -1665,7 +1671,7 @@ jobs:
               # emits it alone on its first line), so a human QUOTING an audit
               # comment ("> <!-- ... -->") does not inflate the attempt count
               # into a spurious fail-exhausted.
-              ATTEMPTS="$(printf '%s\n' "$COMMENT_BODIES" | tr -d '\r' | grep -cxF "$MARKER")"
+              ATTEMPTS="$(printf '%s\n' "$COMMENT_BODIES" | tr -d '\r' | grep -cxF -e "$MARKER" -e "$MARKER_SUPERSEDED")"
             else
               echo "::error::stall backstop: could not read the issue comments (gh api failed: $(tail -c 300 "$GH_ERRF" 2>/dev/null | tr '\n' ' ')); the attempt count is unknowable, so the cap cannot be enforced. This is a gh-api/transport/auth failure (e.g. an expired App token), NOT an unreadable workpad — treating as auth-failure (fail loud, no resume attempt consumed) rather than resuming unbounded (issue #287)"
               CLASS=auth-failure

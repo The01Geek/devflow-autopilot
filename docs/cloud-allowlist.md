@@ -542,7 +542,7 @@ desk). Use the granted `tr` / `sed` / `grep` instead.
 
 Consequence for the label call sites: `devflow-implement.yml`'s baked literal
 grants `apply-labels.sh` / `ensure-label.sh` explicitly, and **all four label call
-sites** — Phase 3.1's `DevFlow` provenance apply, Phase 4.0/4.0.5's
+sites** — Phase 3.1's `PRFlow` provenance apply, Phase 4.0/4.0.5's
 `deferred.labels` applies, and Phase 4.1's `Documented` apply — are reworked to
 **agent-level single-leading-token calls that read their inputs from printed tool
 output** (a shell variable does not survive into a later separate command).

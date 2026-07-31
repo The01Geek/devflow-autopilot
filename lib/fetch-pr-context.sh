@@ -90,7 +90,7 @@ fi
 # ── 5. Issue details ─────────────────────────────────────────────────────────
 ISSUE_JSON="null"
 # The workpad lives on the ISSUE (header `# DevFlow Workpad — Issue #<N>`,
-# marker `<!-- devflow:workpad -->`), authored by github-actions — NOT on the PR
+# marker `<!-- prflow:workpad -->`), authored by github-actions — NOT on the PR
 # conversation thread. Default to an empty array so the workpad/reflection parse
 # below is safe even when no linked issue was found.
 ISSUE_COMMENTS_RAW='[]'
@@ -113,30 +113,32 @@ if [ "$ISSUE_NUMBER" != "null" ]; then
         '{title: (.title // ""), body: (.body // ""), labels: ((.labels // []) | if type == "array" then map(if type == "object" then (.name // "") else . end) else [] end), comments: $comments[0]}')"
 fi
 
-# ── 5b. DevFlow provenance ────────────────────────────────────────────────────
-# pr_devflow_provenance: true iff the literal `DevFlow` label (the hardcoded
-# provenance constant the scan/classify path matches — NEVER a config key) is
-# among the PR's labels OR, when an issue resolved, among the linked issue's
-# labels. Both lists are already fetched (the PR's in LABELS_JSON, the issue's in
-# ISSUE_JSON.labels, already normalized to name strings), so no new API call.
-# The PR leg uses the same object-or-string normalization classify-pr-kind.jq
-# uses (COUPLED INVARIANT: the `DevFlow` provenance-label match — object/string
-# normalization + `any(. == "DevFlow")` — is mirrored in lib/scan.sh and
-# lib/classify-pr-kind.jq; `DevFlow` is the hardcoded provenance constant, never a
-# config key). A wrong-type or absent label list yields false (fail-closed). The
-# issue-label leg keeps provenance alive in a deployment whose PR-label applies
-# fail (scripts/apply-labels.sh is best-effort). Any jq error → false.
+# ── 5b. Provenance label ──────────────────────────────────────────────────────
+# pr_devflow_provenance (the bundle field name is frozen; the label it reads is
+# not): true iff the `PRFlow` provenance label — or its superseded `DevFlow`
+# spelling, which stays accepted so no pre-rename history is dropped (issue
+# #1003) — is among the PR's labels OR, when an issue resolved, among the linked
+# issue's labels. Both lists are already fetched (the PR's in LABELS_JSON, the
+# issue's in ISSUE_JSON.labels, already normalized to name strings), so no new
+# API call. The PR leg uses the same object-or-string normalization
+# classify-pr-kind.jq uses (COUPLED INVARIANT: the provenance-label match —
+# object/string normalization + `any(. == "PRFlow" or . == "DevFlow")` — is
+# mirrored in lib/scan.sh and lib/classify-pr-kind.jq; both spellings are
+# hardcoded provenance constants, never a config key). A wrong-type or absent
+# label list yields false (fail-closed). The issue-label leg keeps provenance
+# alive in a deployment whose PR-label applies fail (scripts/apply-labels.sh is
+# best-effort). Any jq error → false.
 # argjson-ok: pr_labels issue -- per-PR bounded operands (one PR's label list and one linked issue's JSON), never corpus-sized (issue #895)
 PR_DEVFLOW_PROVENANCE="$("$DEVFLOW_JQ" -n --argjson pr_labels "$LABELS_JSON" --argjson issue "$ISSUE_JSON" '
     def norm: (if type == "array" then map(if type == "object" then (.name // "") else . end) else [] end);
-    (($pr_labels | norm) + (($issue.labels // []) | norm)) | any(. == "DevFlow")
+    (($pr_labels | norm) + (($issue.labels // []) | norm)) | any(. == "PRFlow" or . == "DevFlow")
 ' 2>/dev/null)" || PR_DEVFLOW_PROVENANCE=""
 # Fail closed to `false` on anything that is not a bare boolean — a jq abort (the
 # `||` above leaves ""), a wrong-type/garbage emission, or an unresolvable label
 # list. `false` is the SKIP-ENABLING value for dispatch-disposition.jq, so this
 # coercion is never silent: it emits a ::warning:: breadcrumb like every sibling
 # absent path in this producer (the NoIssue/Absent/Unparsed arms below), so an
-# operator can tell "no DevFlow label" apart from "provenance could not be read".
+# operator can tell "no provenance label" apart from "provenance could not be read".
 case "$PR_DEVFLOW_PROVENANCE" in
     true|false) ;;
     *) echo "::warning::fetch-pr-context: DevFlow provenance for PR ${PR} could not be established (jq emitted '${PR_DEVFLOW_PROVENANCE}'); failing closed to false" >&2
@@ -290,7 +292,7 @@ fi
 # The workpad lives on the ISSUE thread (ISSUE_COMMENTS_RAW), not the PR
 # conversation thread — reading it from the PR thread (the old bug) left it
 # ~always empty, so the workpad signal in cheap-gate.jq was inert.
-WORKPAD_BODY="$(echo "$ISSUE_COMMENTS_RAW" | "$DEVFLOW_JQ" -r '[.[] | select((.body // "") | test("<!-- devflow:workpad -->"; "i"))] | first | .body // ""')"
+WORKPAD_BODY="$(echo "$ISSUE_COMMENTS_RAW" | "$DEVFLOW_JQ" -r '[.[] | select((.body // "") | test("<!-- (pr|dev)flow:workpad -->"; "i"))] | first | .body // ""')"
 WORKPAD_FINAL_STATUS=""
 REFLECTIONS="[]"
 # reflections_friction_count: the number of reflection bullets that force LLM
@@ -309,7 +311,7 @@ if [ "$ISSUE_NUMBER" = "null" ]; then
     echo "::warning::fetch-pr-context: no linked issue resolved for PR ${PR}; no workpad audit trail (NoIssue)" >&2
     WORKPAD_FINAL_STATUS="NoIssue"
 elif [ -z "$WORKPAD_BODY" ]; then
-    echo "::warning::fetch-pr-context: issue ${ISSUE_NUMBER} resolved for PR ${PR} but no <!-- devflow:workpad --> comment exists (Absent)" >&2
+    echo "::warning::fetch-pr-context: issue ${ISSUE_NUMBER} resolved for PR ${PR} but no <!-- prflow:workpad --> comment exists (Absent)" >&2
     WORKPAD_FINAL_STATUS="Absent"
 else
     # Extract the value after "**Status:** <glyph> <word>" / "Status: <word>".

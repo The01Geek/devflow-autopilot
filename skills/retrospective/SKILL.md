@@ -65,7 +65,7 @@ Schema of `.prflow/tmp/pr-<n>.context.json` produced by `fetch-pr-context.sh`:
 | `pr_comments` | array | PR conversation thread: `[{author,body,createdAt}]` |
 | `pr_reviews` | array | Formal reviews: `[{author,state,body,submittedAt}]` |
 | `commits` | array | `[{sha,author_login,committer_login,committed_at,message}]` |
-| `workpad_body` | string\|null | Full text of the `<!-- devflow:workpad -->` comment, read from the **issue** thread (where the workpad lives), not the PR thread |
+| `workpad_body` | string\|null | Full text of the `<!-- prflow:workpad -->` comment, read from the **issue** thread (where the workpad lives), not the PR thread |
 | `reflections` | array | The bullet lines from the workpad's `## Devflow Reflection` `<details>` block — the bot's own self-reported friction notes (`[]` when none) |
 | `review_verdicts` | array | Verdict entries in time order, drawn from the **union** of the PR conversation comments and the durable bot PR reviews: `[{verdict,createdAt,source}]` where `verdict` is APPROVE or REJECT and `source` is `pr_comment` or `pr_review`. Any verdict heading in either source qualifies (not only `/prflow:review` output). A single review round can contribute **two** entries — a stub review body and its progress comment — so entry count is not round count. |
 | `implement_summary_comment` | string\|null | The `/prflow:implement` completion summary comment body |
@@ -79,7 +79,7 @@ Schema of `.prflow/tmp/pr-<n>.context.json` produced by `fetch-pr-context.sh`:
 | `post_bot_commits` | number | Substantive commits by a human AFTER the bot's last commit — pure merge commits (`Merge branch 'main'` etc.) are not counted |
 | `ci_failures_during_pr` | number | Non-success check-runs on the head SHA |
 | `workpad_final_status` | string | Parsed Status line from the workpad, e.g. `"Complete"`, `"Blocked"`, `"Cancelled"`, or one of the three absent/corrupt sentinels `"Unparsed"` / `"Absent"` / `"NoIssue"` (issue #626). The producer always emits a non-empty value — `""` no longer appears. |
-| `pr_devflow_provenance` | boolean | True iff the literal `DevFlow` label is on the PR or the resolved linked issue — i.e. this was one of DevFlow's own runs (issue #626). Drives the workpad-absent analysis rule below. |
+| `pr_devflow_provenance` | boolean | True iff the `PRFlow` provenance label (or its superseded `DevFlow` spelling) is on the PR or the resolved linked issue — i.e. this was one of DevFlow's own runs (issue #626). Drives the workpad-absent analysis rule below. |
 | `ttm_hours` | number | Time from PR creation to merge, in decimal hours |
 | `review_reject_outstanding` | boolean | True when the chronologically-last review verdict (from either conversation comments or durable PR reviews) is REJECT |
 

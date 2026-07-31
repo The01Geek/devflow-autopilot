@@ -28,7 +28,7 @@
 #   "implementation"      -- run the full per-PR retrospective
 #   "skip"                -- not a retrospected branch (state-carrier or unrelated)
 
-(($labels // []) | map(if type == "object" then (.name // "") else . end) | any(. == "DevFlow")) as $has_devflow_label
+(($labels // []) | map(if type == "object" then (.name // "") else . end) | any(. == "PRFlow" or . == "DevFlow")) as $has_devflow_label
 | ((($closing // []) | length) > 0) as $closes_issue
 | if   ($branch | startswith("devflow/learnings-"))                  then "skip"
   elif (($impl_prefix != "") and ($branch | startswith($impl_prefix))) then (if $watched then "implementation" else "skip" end)

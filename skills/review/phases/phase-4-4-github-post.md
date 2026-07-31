@@ -1,4 +1,4 @@
-<!-- devflow:review-ref phase=4.4 file=skills/review/phases/phase-4-4-github-post.md start -->
+<!-- prflow:review-ref phase=4.4 file=skills/review/phases/phase-4-4-github-post.md start -->
 ### 4.4 Record the verdict as a formal GitHub review (PR mode only)
 
 **If — and only if — `$PR_NUMBER` is a PR number** (an actual PR, not the current branch), you MUST also submit the verdict as a formal GitHub Pull Request review, a visible merge signal.
@@ -19,7 +19,7 @@ Map the verdict to a `gh pr review` action. **What goes in `--body` depends on w
 
 - **No progress comment exists** — **`$WP` is unset**: the live comment is **off** (`live_progress_comment_enabled` false), its seed failed, or this is current-branch/non-PR mode. This now includes **cloud runs with the flag off** (the workflow no longer seeds a fallback comment), not just standalone local runs. A stub would point at a comment that does not exist and the report would live only in chat (lost entirely in a cloud run), so set `$BODY` to the full `$REPORT` from Phase 4.1 — one self-contained artifact, no dangling pointer. (It begins with its `## Verdict: {VERDICT}` line, so a standalone REJECT starts with `## Verdict: REJECT` — the exact prefix `dismiss-stale-rejections.sh` matches, so a standalone REJECT is still cleared by a later APPROVE.)
 
-where `{VERDICT}` is the actual verdict line (e.g. `APPROVE`, `APPROVE with notes`, `APPROVE WITH CAVEAT`, `REJECT`) — reflect what Phase 4.2 decided, do not template-fill literally. The `## Verdict: {VERDICT}` line is load-bearing: a cloud caller's verdict-derivation step greps for it in the **HEAD-scoped `gh pr review` body** and in **this run's run-keyed `devflow:review-progress` progress comment** (both scoped to the current HEAD SHA / run). It appears as the stub's first line AND inside the full `$REPORT`, so the grep matches either. Note the marker-less `gh pr comment` self-review fallback (below) is **not** read by such a step — the current-HEAD scoping deliberately supersedes the old un-scoped "grep every issue comment" path; when that fallback is the *only* verdict artifact (no progress comment AND `gh pr review` failed) a REJECT concludes the blocking `incomplete` (re-run needed) rather than `reject`, which still blocks the merge.
+where `{VERDICT}` is the actual verdict line (e.g. `APPROVE`, `APPROVE with notes`, `APPROVE WITH CAVEAT`, `REJECT`) — reflect what Phase 4.2 decided, do not template-fill literally. The `## Verdict: {VERDICT}` line is load-bearing: a cloud caller's verdict-derivation step greps for it in the **HEAD-scoped `gh pr review` body** and in **this run's run-keyed `prflow:review-progress` progress comment** (both scoped to the current HEAD SHA / run). It appears as the stub's first line AND inside the full `$REPORT`, so the grep matches either. Note the marker-less `gh pr comment` self-review fallback (below) is **not** read by such a step — the current-HEAD scoping deliberately supersedes the old un-scoped "grep every issue comment" path; when that fallback is the *only* verdict artifact (no progress comment AND `gh pr review` failed) a REJECT concludes the blocking `incomplete` (re-run needed) rather than `reject`, which still blocks the merge.
 
 | Verdict | Command |
 |---|---|
@@ -40,4 +40,4 @@ If `gh pr review` fails (e.g. you cannot review your own PR as the same GitHub i
 **Pass `"$PR_NUMBER"` here, never `"$ARGUMENTS"`: the quoted form reaches `dismiss-stale-rejections.sh` as a single argv element, so an extended argument string is handed over whole, matches no PR, and the stale-REJECT dismissal silently no-ops after an APPROVE — leaving the PR wedged at `CHANGES_REQUESTED`.**
 
 If it exits non-zero (token scope), say so in chat output and that the PR stays blocked until dismissed manually. **A dismissal failure never downgrades the verdict** — it stands; only merge-gate housekeeping failed.
-<!-- devflow:review-ref phase=4.4 file=skills/review/phases/phase-4-4-github-post.md end -->
+<!-- prflow:review-ref phase=4.4 file=skills/review/phases/phase-4-4-github-post.md end -->

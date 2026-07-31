@@ -4051,7 +4051,7 @@ def select_round_kind(state, canonical_path):
 # The dispatch-scope file's format marker. Versioned so a future payload shape is a
 # different marker rather than a silently-reinterpreted one, and carried as the file's
 # first line so the renderer can refuse a file that is not one of these.
-_SCOPE_MARKER = '<!-- devflow:dispatch-scope v1 -->'
+_SCOPE_MARKER = '<!-- prflow:dispatch-scope v1 -->'
 
 
 def render_dispatch_scope(basis_digest, sections, claims):

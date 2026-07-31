@@ -1872,9 +1872,17 @@ rm -f "$DI_EVT_NOBODY" "$DI_NOBODY_ERR"
 #      writes into its resume comment. Assert the exact literal is present in both.
 DI_WF="$LIB/../.github/workflows/devflow-implement.yml"
 assert_eq "di: dedupe script defines the stall-backstop-audit marker" "1" \
-  "$(grep -c "STALL_RESUME_MARKER='<!-- devflow:stall-backstop-audit -->'" "$DIR")"
+  "$(grep -c "STALL_RESUME_MARKER='<!-- prflow:stall-backstop-audit -->'" "$DIR")"
 assert_eq "di: same stall-backstop-audit marker literal exists in the workflow (coupling holds)" "true" \
-  "$(grep -q "<!-- devflow:stall-backstop-audit -->" "$DI_WF" && echo true || echo false)"
+  "$(grep -q "<!-- prflow:stall-backstop-audit -->" "$DI_WF" && echo true || echo false)"
+# #1003: the superseded spelling is a SECOND accepted literal on both sides, so a
+# resume comment posted before the rename is still recognised (a miss here makes
+# the carve-out inert and the run is deduped away as an ordinary duplicate).
+assert_eq "di(#1003): dedupe script also defines the superseded stall-backstop-audit marker" "1" \
+  "$(grep -c "STALL_RESUME_MARKER_SUPERSEDED='<!-- devflow:stall-backstop-audit -->'" "$DIR")"
+assert_eq "di(#1003): the workflow counts the superseded spelling too (lifetime cap does not reset)" "true" \
+  "$(grep -q "MARKER_SUPERSEDED='<!-- devflow:stall-backstop-audit -->'" "$DI_WF" \
+     && grep -qF -- 'grep -cxF -e "$MARKER" -e "$MARKER_SUPERSEDED"' "$DI_WF" && echo true || echo false)"
 
 rm -rf "$DI_STUB"
 
@@ -1905,12 +1913,21 @@ chmod +x "$DRC_STUB/gh"
 # Fixed clock + a fresh in-flight comment body the review engine really seeds.
 DRC_NOW=1000000000
 DRC_FRESH='2001-09-09T01:45:40Z'
-DRC_INFLIGHT='[{"body":"<!-- devflow:review-progress run=555-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"},"updated_at":"'"$DRC_FRESH"'"}]'
+# The head the seeded comment records and the head the request resolves (issue
+# #1010): detect mode is COMMIT-scoped, so every in-flight fixture below carries
+# the seed-time producer key and the default request head matches it. A fixture
+# WITHOUT that key exercises the legacy fail-open arm explicitly, further down.
+DRC_HEADSHA=aa11bb22cc33dd44ee55ff6607788990aabbccdd
+DRC_OTHERHEAD=1122334455667788990011223344556677889900
+DRC_SEEDKEY='<!-- prflow:review-seeded-head '"$DRC_HEADSHA"' -->'
+DRC_INFLIGHT='[{"body":"<!-- devflow:review-progress run=555-1 -->\n'"$DRC_SEEDKEY"'\n**Status:** 🚀 Reviewing","user":{"type":"Bot"},"updated_at":"'"$DRC_FRESH"'"}]'
 # detect helper: RUN_ID=999 is THIS run (so run=555 comments are peers, run=999 is
 # self). stderr is NOT swallowed here, so a caller can capture the breadcrumb with
-# its own `2>FILE`; `$(...)` still captures stdout only.
+# its own `2>FILE`; `$(...)` still captures stdout only. HEAD defaults to the head
+# the fixtures seed; a caller overrides it by passing `HEAD=…` in "${@:3}" (env(1)
+# applies assignments left to right, so the later one wins).
 drc() { env DEVFLOW_GH="$DRC_STUB/gh" REPO=o/r RUN_ID=999 DEDUPE_NOW_EPOCH="$DRC_NOW" \
-  DRC_COMMENTS="$1" PR="${2:-42}" "${@:3}" bash "$DRC"; }
+  HEAD="$DRC_HEADSHA" DRC_COMMENTS="$1" PR="${2:-42}" "${@:3}" bash "$DRC"; }
 
 # suppresses-the-redundant-case — an in-flight bot review-progress comment on THIS
 # PR, fresh, authored by a peer run → suppress.
@@ -1924,26 +1941,26 @@ assert_eq "drc: does-not-suppress-the-legitimate-case (no in-flight comment)" "s
 
 # does-not-suppress-on-a-frozen-progress-comment (open question 1) — a killed run
 # leaves 🚀 Reviewing frozen; its updated_at is stale, so liveness fails → no suppress.
-DRC_FROZEN='[{"body":"<!-- devflow:review-progress run=555-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"},"updated_at":"2000-01-01T00:00:00Z"}]'
+DRC_FROZEN='[{"body":"<!-- devflow:review-progress run=555-1 -->\n'"$DRC_SEEDKEY"'\n**Status:** 🚀 Reviewing","user":{"type":"Bot"},"updated_at":"2000-01-01T00:00:00Z"}]'
 assert_eq "drc: does-not-suppress-on-a-frozen-progress-comment (stale updated_at)" "suppress=false" \
   "$(drc "$DRC_FROZEN")"
 
 # author check (open question 3) — a forged marker from a non-bot (user.type
 # "User") is NOT trusted → no suppress, even though it is fresh and marker-carrying.
-DRC_FORGED='[{"body":"<!-- devflow:review-progress run=555-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"User"},"updated_at":"'"$DRC_FRESH"'"}]'
+DRC_FORGED='[{"body":"<!-- devflow:review-progress run=555-1 -->\n'"$DRC_SEEDKEY"'\n**Status:** 🚀 Reviewing","user":{"type":"User"},"updated_at":"'"$DRC_FRESH"'"}]'
 assert_eq "drc: forged (non-bot) progress marker is not trusted → no suppress" "suppress=false" \
   "$(drc "$DRC_FORGED")"
 
 # self-exclusion — a review-progress comment keyed to THIS run (run=999) is this
 # run's own comment and must not suppress (the Candidate-C analogue of the
 # implement path's self-only case).
-DRC_SELF='[{"body":"<!-- devflow:review-progress run=999-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"},"updated_at":"'"$DRC_FRESH"'"}]'
+DRC_SELF='[{"body":"<!-- devflow:review-progress run=999-1 -->\n'"$DRC_SEEDKEY"'\n**Status:** 🚀 Reviewing","user":{"type":"Bot"},"updated_at":"'"$DRC_FRESH"'"}]'
 assert_eq "drc: self run-keyed progress comment → no suppress" "suppress=false" \
   "$(drc "$DRC_SELF")"
 
 # terminal review — a bot progress comment already flipped past 🚀 Reviewing is a
 # COMPLETED review, not an in-flight one → no suppress.
-DRC_TERMINAL='[{"body":"<!-- devflow:review-progress run=555-1 -->\n**Status:** 🎉 APPROVE","user":{"type":"Bot"},"updated_at":"'"$DRC_FRESH"'"}]'
+DRC_TERMINAL='[{"body":"<!-- devflow:review-progress run=555-1 -->\n'"$DRC_SEEDKEY"'\n**Status:** 🎉 APPROVE","user":{"type":"Bot"},"updated_at":"'"$DRC_FRESH"'"}]'
 assert_eq "drc: terminal (past 🚀 Reviewing) progress comment → no suppress" "suppress=false" \
   "$(drc "$DRC_TERMINAL")"
 
@@ -1957,14 +1974,14 @@ assert_eq "drc: terminal (past 🚀 Reviewing) progress comment → no suppress"
 DRC_BACKSTOP_BODY="$(printf '/devflow:review\n<!-- devflow:review-backstop head=abcdef0 attempt=2 -->\n')"
 assert_eq "drc: does-not-suppress-a-backstop-resume (marker body, active peer present)" "suppress=false" \
   "$(env DEVFLOW_GH="$DRC_STUB/gh" REPO=o/r RUN_ID=999 DEDUPE_NOW_EPOCH="$DRC_NOW" \
-      DRC_COMMENTS="$DRC_INFLIGHT" PR=42 TRIGGER_BODY="$DRC_BACKSTOP_BODY" bash "$DRC" 2>/dev/null)"
+      HEAD="$DRC_HEADSHA" DRC_COMMENTS="$DRC_INFLIGHT" PR=42 TRIGGER_BODY="$DRC_BACKSTOP_BODY" bash "$DRC" 2>/dev/null)"
 
 # fails-open-when-jq-is-unresolvable — DEVFLOW_JQ at a non-existent binary → exit 0,
 # no suppress, and a breadcrumb NAMING the unresolved resolver (not an empty decision).
 DRC_JQ_ERR="$(mktemp)"
 assert_eq "drc: fails-open-when-jq-is-unresolvable (no suppress)" "suppress=false" \
   "$(env DEVFLOW_GH="$DRC_STUB/gh" REPO=o/r RUN_ID=999 DEDUPE_NOW_EPOCH="$DRC_NOW" \
-      DRC_COMMENTS="$DRC_INFLIGHT" PR=42 DEVFLOW_JQ=/nonexistent/jq-binary bash "$DRC" 2>"$DRC_JQ_ERR")"
+      HEAD="$DRC_HEADSHA" DRC_COMMENTS="$DRC_INFLIGHT" PR=42 DEVFLOW_JQ=/nonexistent/jq-binary bash "$DRC" 2>"$DRC_JQ_ERR")"
 assert_eq "drc: jq-unresolvable emits a jq-naming breadcrumb (not an empty decision)" "1" \
   "$(grep -c 'could not resolve jq' "$DRC_JQ_ERR")"
 rm -f "$DRC_JQ_ERR"
@@ -1975,7 +1992,7 @@ rm -f "$DRC_JQ_ERR"
 DRC_A_ERR="$(mktemp)"
 assert_eq "drc: matrix — query failure → no suppress" "suppress=false" \
   "$(env DEVFLOW_GH="$DRC_STUB/gh" REPO=o/r RUN_ID=999 DEDUPE_NOW_EPOCH="$DRC_NOW" \
-      DRC_GH_RC=1 PR=42 bash "$DRC" 2>"$DRC_A_ERR")"
+      HEAD="$DRC_HEADSHA" DRC_GH_RC=1 PR=42 bash "$DRC" 2>"$DRC_A_ERR")"
 assert_eq "drc: matrix — query failure breadcrumb" "1" \
   "$(grep -c 'comments query failed' "$DRC_A_ERR")"
 rm -f "$DRC_A_ERR"
@@ -2003,7 +2020,7 @@ rm -f "$DRC_D_ERR"
 # (e) an in-flight candidate whose updated_at is null (liveness cannot be
 #     established) → not counted, its own breadcrumb, no suppress.
 DRC_E_ERR="$(mktemp)"
-DRC_NULLDATE='[{"body":"<!-- devflow:review-progress run=555-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"},"updated_at":null}]'
+DRC_NULLDATE='[{"body":"<!-- devflow:review-progress run=555-1 -->\n'"$DRC_SEEDKEY"'\n**Status:** 🚀 Reviewing","user":{"type":"Bot"},"updated_at":null}]'
 assert_eq "drc: matrix — null updated_at candidate → no suppress" "suppress=false" \
   "$(drc "$DRC_NULLDATE" 42 2>"$DRC_E_ERR")"
 assert_eq "drc: matrix — null updated_at breadcrumb (liveness could not be established)" "1" \
@@ -2017,7 +2034,7 @@ assert_eq "drc: matrix — unrelated conversation comment → no suppress" "supp
 #      entirely (distinct from row (e)'s explicit null) → liveness cannot be
 #      established → not counted, malformed breadcrumb, no suppress.
 DRC_F2_ERR="$(mktemp)"
-DRC_NODATE='[{"body":"<!-- devflow:review-progress run=555-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"}}]'
+DRC_NODATE='[{"body":"<!-- devflow:review-progress run=555-1 -->\n'"$DRC_SEEDKEY"'\n**Status:** 🚀 Reviewing","user":{"type":"Bot"}}]'
 assert_eq "drc: matrix — candidate omitting updated_at entirely → no suppress" "suppress=false" \
   "$(drc "$DRC_NODATE" 42 2>"$DRC_F2_ERR")"
 assert_eq "drc: matrix — omitted updated_at breadcrumb (liveness could not be established)" "1" \
@@ -2031,11 +2048,95 @@ assert_eq "drc: matrix — invalid PR thread key breadcrumb" "1" \
   "$(grep -c 'PR thread number unresolved/invalid' "$DRC_G_ERR")"
 rm -f "$DRC_G_ERR"
 
+# ── COMMIT SCOPE (issue #1010). Detect mode compares the requested head against
+# the seed-time producer key the review engine stamps on its progress comment, so
+# a review of a DIFFERENT head no longer suppresses. Every arm is driven through
+# the helper's real decision; nothing here asserts source wording.
+#
+# (1) A review of a different head in flight → the request proceeds.
+DRC_OTHER_ERR="$(mktemp)"
+assert_eq "drc(#1010): in-flight review of a DIFFERENT head → no suppress" "suppress=false" \
+  "$(drc "$DRC_INFLIGHT" 42 HEAD="$DRC_OTHERHEAD" 2>"$DRC_OTHER_ERR")"
+assert_eq "drc(#1010): different-head breadcrumb names the head-scoped skip" "1" \
+  "$(grep -c 'different head' "$DRC_OTHER_ERR")"
+rm -f "$DRC_OTHER_ERR"
+
+# (2) The head comparison is EXACT, not a prefix: a requested head that is a
+#     strict prefix of the seeded head must not match (a substring containment
+#     without the closing delimiter would suppress the wrong commit).
+assert_eq "drc(#1010): a head that is a strict PREFIX of the seeded head does not match" "suppress=false" \
+  "$(drc "$DRC_INFLIGHT" 42 HEAD="${DRC_HEADSHA:0:12}" 2>/dev/null)"
+
+# (3) LEGACY / absent key (an in-flight review seeded by an older installed copy)
+#     → fail OPEN with a breadcrumb naming the absent key. This is the arm that
+#     makes the rollout safe: an upgraded workflow reading a pre-#1010 comment
+#     must not suppress on a head it cannot establish.
+DRC_KEYLESS='[{"body":"<!-- devflow:review-progress run=555-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"},"updated_at":"'"$DRC_FRESH"'"}]'
+DRC_LEGACY_ERR="$(mktemp)"
+assert_eq "drc(#1010): in-flight comment carrying NO seeded-head key → no suppress (fail open)" "suppress=false" \
+  "$(drc "$DRC_KEYLESS" 42 2>"$DRC_LEGACY_ERR")"
+assert_eq "drc(#1010): absent-key breadcrumb names the seeded-head producer key" "1" \
+  "$(grep -c 'review-seeded-head' "$DRC_LEGACY_ERR")"
+rm -f "$DRC_LEGACY_ERR"
+
+# (4) An unestablished request head is not a licence to suppress: detect mode
+#     without a usable HEAD fails open with its own breadcrumb (empty, and a
+#     non-SHA value that a bare substring compare would happily match).
+DRC_NOHEAD_ERR="$(mktemp)"
+assert_eq "drc(#1010): empty HEAD in detect mode → no suppress (fail open)" "suppress=false" \
+  "$(drc "$DRC_INFLIGHT" 42 HEAD= 2>"$DRC_NOHEAD_ERR")"
+assert_eq "drc(#1010): empty-HEAD breadcrumb names the unresolved head" "1" \
+  "$(grep -c 'HEAD' "$DRC_NOHEAD_ERR")"
+rm -f "$DRC_NOHEAD_ERR"
+assert_eq "drc(#1010): non-SHA HEAD in detect mode → no suppress (fail open)" "suppress=false" \
+  "$(drc "$DRC_INFLIGHT" 42 HEAD='not a sha' 2>/dev/null)"
+
+# (5) ACCEPTED COST 2 IS A NON-NEGOTIABLE INVARIANT (issue #1010 AC6). A
+#     /prflow:review-and-fix run sets head_override=local, so its Phase 0.2
+#     $PR_HEAD_SHA is a locally-committed, possibly UNPUSHED sha — while
+#     review_dedupe resolves the request head from the API (`headRefOid`). The
+#     seeded key therefore records the API head captured BEFORE the override, so
+#     a /prflow:review issued during that fix loop is still suppressed.
+DRC_LOCAL_UNPUSHED=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+assert_eq "drc(#1010/AC6): fix-loop comment keyed on the API head still suppresses an unpushed-local run" "suppress=true" \
+  "$(drc "$DRC_INFLIGHT" 42 2>/dev/null)"
+#     NEGATIVE CONTROL for the mechanism choice: had the seed recorded the fix
+#     loop's LOCAL head instead, the same request would stop suppressing — cost 2
+#     regressed. Assert that rejected mechanism really does fail, so the choice is
+#     covered rather than asserted.
+DRC_LOCALKEYED='[{"body":"<!-- devflow:review-progress run=555-1 -->\n<!-- prflow:review-seeded-head '"$DRC_LOCAL_UNPUSHED"' -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"},"updated_at":"'"$DRC_FRESH"'"}]'
+assert_eq "drc(#1010/AC6): CONTROL — a comment keyed on the unpushed LOCAL head would NOT suppress" "suppress=false" \
+  "$(drc "$DRC_LOCALKEYED" 42 2>/dev/null)"
+
+# (6) TEMPLATE COUPLING, driven end to end rather than compared as text: build a
+#     progress-comment body from the marker line the SHIPPED seed template in
+#     skills/review/SKILL.md carries, substituting a real head for its
+#     placeholder, and run the helper over it. A template that drops the key, or
+#     spells it differently from the helper's constant, turns this RED — and the
+#     extraction is asserted non-empty first so it can never pass vacuously.
+DRC_RSKILL="$LIB/../skills/review/SKILL.md"
+DRC_TPL_KEY="$(sed -n -E 's/^[[:space:]]*(<!--[[:space:]]+prflow:[a-z-]+)[[:space:]]+\{SEEDED_HEAD\}[[:space:]]+(-->)[[:space:]]*$/\1 '"$DRC_HEADSHA"' \2/p' "$DRC_RSKILL")"
+assert_eq "drc(#1010): the shipped seed template really carries a substitutable seeded-head line (no vacuous pass)" \
+  "yes" "$(case "$DRC_TPL_KEY" in *[!\ ]*) echo yes ;; *) echo no ;; esac)"
+DRC_TPL_BODY='[{"body":"<!-- devflow:review-progress run=555-1 -->\n'"$DRC_TPL_KEY"'\n**Status:** 🚀 Reviewing","user":{"type":"Bot"},"updated_at":"'"$DRC_FRESH"'"}]'
+assert_eq "drc(#1010): a body built from the SHIPPED seed template suppresses at the seeded head" "suppress=true" \
+  "$(drc "$DRC_TPL_BODY" 42 2>/dev/null)"
+assert_eq "drc(#1010): the same shipped-template body does NOT suppress at another head" "suppress=false" \
+  "$(drc "$DRC_TPL_BODY" 42 HEAD="$DRC_OTHERHEAD" 2>/dev/null)"
+
+# (7) The notice the commit-scoped cause composes names the commit and makes no
+#     pull-request-scope claim (driven over the PRODUCED message, per #989).
+DRC_CS_NOTICE="$(env MODE=notice CAUSE=inflight-review HEAD="$DRC_HEADSHA" bash "$DRC")"
+assert_eq "drc(#1010): the inflight-review notice names the short commit" "1" \
+  "$(grep -c "${DRC_HEADSHA:0:7}" <<< "$DRC_CS_NOTICE")"
+assert_eq "drc(#1010): the inflight-review notice makes no pull-request-scope claim" "0" \
+  "$(grep -c 'pull-request-scoped' <<< "$DRC_CS_NOTICE" || true)"
+
 # the query is scoped to THIS PR's comments endpoint (a different thread's
 # in-flight review is simply not in this PR's comment set). Record the argv.
 DRC_REC="$(mktemp)"
 env DEVFLOW_GH="$DRC_STUB/gh" REPO=o/r RUN_ID=999 DEDUPE_NOW_EPOCH="$DRC_NOW" \
-  DRC_COMMENTS='[]' PR=42 DRC_ARGS_REC="$DRC_REC" bash "$DRC" >/dev/null 2>&1
+  HEAD="$DRC_HEADSHA" DRC_COMMENTS='[]' PR=42 DRC_ARGS_REC="$DRC_REC" bash "$DRC" >/dev/null 2>&1
 assert_eq "drc: comments query is scoped to this PR's issues/<n>/comments endpoint" "1" \
   "$(grep -c -- 'repos/o/r/issues/42/comments' "$DRC_REC")"
 rm -f "$DRC_REC"
@@ -2055,15 +2156,19 @@ assert_eq "drc: notice(unknown cause) emits an empty notice + a breadcrumb (fail
 # on MUST match the review engine's seed template and the backstop producer.
 RSKILL="$LIB/../skills/review/SKILL.md"
 assert_eq "drc: helper's review-progress marker matches skills/review/SKILL.md's seed" "true" \
-  "$(grep -q "PROGRESS_MARKER='<!-- devflow:review-progress'" "$DRC" \
-     && grep -q '<!-- devflow:review-progress' "$RSKILL" && echo true || echo false)"
+  "$(grep -q "PROGRESS_MARKER='<!-- prflow:review-progress'" "$DRC" \
+     && grep -q '<!-- prflow:review-progress' "$RSKILL" && echo true || echo false)"
+assert_eq "drc(#1003): helper also keys on the superseded review-progress spelling" "true" \
+  "$(grep -q "PROGRESS_MARKER_SUPERSEDED='<!-- devflow:review-progress'" "$DRC" && echo true || echo false)"
 assert_eq "drc: helper's 🚀 Reviewing status matches the seed template" "true" \
   "$(grep -q "INFLIGHT_STATUS='🚀 Reviewing'" "$DRC" \
      && grep -q '🚀 Reviewing' "$RSKILL" && echo true || echo false)"
 DRC_BACKSTOP="$LIB/../scripts/request-review-backstop.sh"
 assert_eq "drc: helper's review-backstop marker matches the backstop producer" "true" \
-  "$(grep -q "BACKSTOP_MARKER='<!-- devflow:review-backstop'" "$DRC" \
-     && grep -q 'devflow:review-backstop' "$DRC_BACKSTOP" && echo true || echo false)"
+  "$(grep -q "BACKSTOP_MARKER='<!-- prflow:review-backstop'" "$DRC" \
+     && grep -q 'prflow:review-backstop' "$DRC_BACKSTOP" && echo true || echo false)"
+assert_eq "drc(#1003): helper also keys on the superseded review-backstop spelling" "true" \
+  "$(grep -q "BACKSTOP_MARKER_SUPERSEDED='<!-- devflow:review-backstop'" "$DRC" && echo true || echo false)"
 
 # ── workflow wiring (structural): the guard invokes the helper at the VENDORED
 # path, GUARDS the invocation so a non-zero exit fails open, emits the deciding
@@ -2091,7 +2196,7 @@ assert_eq "drc: legacy Signal 2 (devflow-review.yml workflow-run query) retained
 # backstop check is short-circuited when a legacy signal fires), so the auto-resume
 # is never suppressed. The marker literal is coupled with the producer.
 assert_eq "drc: guard zeroes all signals on a review-backstop resume (never suppressed)" "1" \
-  "$(grep -cF '*"<!-- devflow:review-backstop"*)' "$RDWF")"
+  "$(grep -cF '*"<!-- prflow:review-backstop"*|*"<!-- devflow:review-backstop"*)' "$RDWF")"
 assert_eq "drc: guard's review-backstop marker matches the producer (coupling holds)" "true" \
   "$(grep -q 'devflow:review-backstop' "$RDWF" \
      && grep -q 'devflow:review-backstop' "$LIB/../scripts/request-review-backstop.sh" && echo true || echo false)"

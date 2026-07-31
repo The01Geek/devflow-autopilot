@@ -44,7 +44,7 @@ devflow_render_report() {
     clean_count="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '.clean_count // 0')"
     analyzed_count="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '.analyzed_count // 0')"
 
-    printf '<!-- devflow:audit-report -->\n'
+    printf '<!-- prflow:audit-report -->\n'
     printf '# DevFlow Weekly Report\n\n'
     printf '**Run finished:** %s\n\n' "$ts"
 

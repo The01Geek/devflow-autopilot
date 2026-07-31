@@ -276,6 +276,33 @@ ROWS = (
             "[arm8] ",
         ),
     },
+    {
+        "name": "env-freeze-advisory-region",
+        "kind": "judgment",
+        "argv": ("python3", "lib/generate-env-freeze-advisory.py", "--check"),
+        "clean": (0,),
+        # (0, 1) deliberately, matching the plugin-identity row's reasoning: the generator
+        # exits 2 for every INPUT failure (an absent/unreadable/malformed rename map, an
+        # identifier row missing its failure mode, a lost or duplicated region banner), and
+        # leaving 2 outside the declared set is what routes those to the infrastructure
+        # state instead of a judgment item telling the agent to regenerate from a file the
+        # generator could not read or a region it could not locate.
+        "exits": (0, 1),
+        "policy": (
+            "merge lib/rename-map.json's frozen.env_identifiers block first, then rewrite "
+            "the advisory region with `python3 lib/generate-env-freeze-advisory.py`"
+        ),
+        # regenerate: the region is a pure function of the frozen block and the generator
+        # has no by-hand sibling to reconcile, so re-running the writer against the merged
+        # tree IS the answer, and the policy above names a runnable WRITE command.
+        "conflict_class": "regenerate",
+        "conflict_paths": ("docs/cloud-setup.md",),
+        # The one exit-1 path that is NOT drift: an unhandled exception exits 1 under
+        # CPython, aliasing an unchecked run onto the resolvable "regenerate me" state.
+        # Deliberately EXCLUDED: the region-differs diff, which is the genuine finding this
+        # row exists to surface — matching it would hide the drift it reports.
+        "infra_markers": ("Traceback (most recent call last)",),
+    },
 )
 
 

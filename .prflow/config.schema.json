@@ -84,7 +84,7 @@
         "workpad_marker": {
           "type": "string",
           "description": "Marker line identifying the persistent /prflow:implement workpad comment on issues. One comment per issue whose body starts with this marker.",
-          "default": "<!-- devflow:workpad -->"
+          "default": "<!-- prflow:workpad -->"
         },
         "effort": {
           "type": "string",
@@ -272,7 +272,7 @@
         },
         "live_progress_comment_enabled": {
           "type": "boolean",
-          "description": "When true, a PR-mode /prflow:review authors a live progress comment for that run (a run-keyed <!-- devflow:review-progress run=<id>-<attempt> --> comment \u2014 one per review run, so a later run posts its own rather than overwriting an earlier run's) incrementally as it works \u2014 a blueprint of the phases up front, then per-phase updates (diff classification, checklist results, each Phase-3 agent's findings as they land, the verdict), finalizing with the run-telemetry summary and effectiveness trace. When false, /prflow:review falls back to producing its report once at the end (no incremental updates). Independent of prflow_review_and_fix.efficiency_telemetry_enabled, which separately gates the embedded telemetry/trace.",
+          "description": "When true, a PR-mode /prflow:review authors a live progress comment for that run (a run-keyed <!-- prflow:review-progress run=<id>-<attempt> --> comment \u2014 one per review run, so a later run posts its own rather than overwriting an earlier run's) incrementally as it works \u2014 a blueprint of the phases up front, then per-phase updates (diff classification, checklist results, each Phase-3 agent's findings as they land, the verdict), finalizing with the run-telemetry summary and effectiveness trace. When false, /prflow:review falls back to producing its report once at the end (no incremental updates). Independent of prflow_review_and_fix.efficiency_telemetry_enabled, which separately gates the embedded telemetry/trace.",
           "default": true
         },
         "stale_prose": {
@@ -320,7 +320,7 @@
             "max_resume_attempts": {
               "type": "integer",
               "minimum": 0,
-              "description": "Hard cap on automatic review-resume attempts per head before the backstop stops firing and the run degrades to the dead-end flip. 0 disables auto-resume (detect-and-flip only). N means up to N auto-resumes per head, each carrying a distinct `<!-- devflow:review-backstop head=<sha> attempt=<n> -->` marker comment that the count is derived from. A negative or non-integer value resolves to the default 2.",
+              "description": "Hard cap on automatic review-resume attempts per head before the backstop stops firing and the run degrades to the dead-end flip. 0 disables auto-resume (detect-and-flip only). N means up to N auto-resumes per head, each carrying a distinct `<!-- prflow:review-backstop head=<sha> attempt=<n> -->` marker comment that the count is derived from. A negative or non-integer value resolves to the default 2.",
               "default": 2
             }
           }
@@ -911,7 +911,7 @@
         "git_dir_pin": {
           "type": "boolean",
           "default": false,
-          "description": "Opt in to exporting `GIT_DIR=<workspace>/.git` into the cloud job environment before the `Run Claude Code` step (issue #645). Default FALSE, and the default is the configuration that works everywhere. Enable it only on a self-hosted WINDOWS runner, where claude-code-action's `configureGitAuth` startup otherwise fails `fatal: not in a git directory` (exit 128) because it runs `git config` in the inherited working directory (issue #602). COSTS, all of which you accept by enabling it: `$GITHUB_ENV` is job-scoped and offers no removal verb, so the variable is in force for `Run Claude Code` AND every step after it, including the agent's own git operations; and any PRFlow helper that runs from a NON-ROOT working directory then resolves a `.prflow/` that does not exist, because the issue #295 repo-root readers (`config-get.sh`, `workpad.py`, `load-prompt-extension.sh` — on its fallback branch only, since issue #874 made it anchor on `DEVFLOW_PROMPT_EXTENSION_ROOT` instead whenever that variable is set and non-empty — `match-deferrals.py`, `match-lint-adjudications.py`) anchor on `git rev-parse --show-toplevel`, which under ambient GIT_DIR returns the subdirectory rather than the repository root. That failure is a SILENT MISS rather than an error, so a run with this key enabled is not a config-faithful run; the helper emits a `::warning::`-grade stderr breadcrumb on every run that exports the variable. NOT honored on the implement tier, which stages and pushes commits (ambient GIT_DIR makes a stage issued from a non-root working directory record deletions across the rest of the tree); that tier records that it ignored the key. The `configureGitAuth` benefit is INFERRED from the pinned action's upstream source and a local `git config` proxy — it has not been observed on a self-hosted Windows runner. Read at TRIGGER time from a trusted tree (the `config` job's default-branch checkout; on the review tier the base-ref config `baseprovision` materializes), so its effect is post-merge-only and a value present only in a PR-head checkout has no effect.",
+          "description": "Opt in to exporting `GIT_DIR=<workspace>/.git` into the cloud job environment before the `Run Claude Code` step (issue #645). Default FALSE, and the default is the configuration that works everywhere. Enable it only on a self-hosted WINDOWS runner, where claude-code-action's `configureGitAuth` startup is INFERRED — in the both-pins-off default — to otherwise fail `fatal: not in a git directory` (exit 128) because it runs `git config` in the inherited working directory (issue #602). COSTS, all of which you accept by enabling it: `$GITHUB_ENV` is job-scoped and offers no removal verb, so the variable is in force for `Run Claude Code` AND every step after it, including the agent's own git operations; and any PRFlow helper that runs from a NON-ROOT working directory then resolves a `.prflow/` that does not exist, because the issue #295 repo-root readers (`config-get.sh`, `workpad.py`, `load-prompt-extension.sh` — on its fallback branch only, since issue #874 made it anchor on `DEVFLOW_PROMPT_EXTENSION_ROOT` instead whenever that variable is set and non-empty — `match-deferrals.py`, `match-lint-adjudications.py`) anchor on `git rev-parse --show-toplevel`, which under ambient GIT_DIR returns the subdirectory rather than the repository root. That failure is a SILENT MISS rather than an error, so a run with this key enabled is not a config-faithful run; the helper emits a `::warning::`-grade stderr breadcrumb on every run that exports the variable. NOT honored on the implement tier, which stages and pushes commits (ambient GIT_DIR makes a stage issued from a non-root working directory record deletions across the rest of the tree); that tier records that it ignored the key. The `configureGitAuth` benefit is INFERRED from the pinned action's upstream source and a local `git config` proxy; the one datum on record is a `/prflow:implement` job that completed on a self-hosted Windows runner (maintainer-reported from a consumer's runner, 2026-07-21; not independently reproducible from this repository, and no run identifier committed, because the run belongs to a third party's repository), establishing only that `configureGitAuth` did not abort on that run — GIT_DIR was necessarily absent because the implement tier suppresses it, while GIT_WORK_TREE is INFERRED absent from the completed plugin install rather than read, with a pre-existing marketplace checkout on a persistent self-hosted runner as the named falsifier and the run's git-env step output as the evidence that would replace the inference with a direct observation. Read at TRIGGER time from a trusted tree (the `config` job's default-branch checkout; on the review tier the base-ref config `baseprovision` materializes), so its effect is post-merge-only and a value present only in a PR-head checkout has no effect.",
           "$comment": "issue #645 — decoupled from git_work_tree_pin; both default off."
         },
         "git_work_tree_pin": {
@@ -956,8 +956,8 @@
         },
         "labels": {
           "type": "string",
-          "description": "Comma-separated list of labels applied by /prflow:implement once its docs pass has run. Each entry is trimmed and empty entries are dropped, so \"DevFlow, Shipped\" applies both DevFlow and Shipped.",
-          "default": "DevFlow"
+          "description": "Comma-separated list of labels applied by /prflow:implement once its docs pass has run. Each entry is trimmed and empty entries are dropped, so \"Documented, Shipped\" applies both Documented and Shipped.",
+          "default": "Documented"
         }
       }
     },
@@ -967,8 +967,8 @@
       "properties": {
         "labels": {
           "type": "string",
-          "description": "Comma-separated list of labels applied to the follow-up issues /prflow:implement files for deferred work \u2014 both Phase 4.0 deferred-acceptance-criteria issues and Phase 4.0.5 deferred-review-finding issues. Each entry is trimmed and blank entries are dropped, so \"DevFlow, Deferred\" applies both DevFlow and Deferred, and a whitespace-only or all-separators value (e.g. \" , \") normalizes to none, applying no labels. (A literal empty string resolves to this default rather than meaning no-labels, matching how config defaults resolve; set a whitespace value to apply none.) Labels are ensured to exist and applied best-effort after the issue is created, so a label hiccup never blocks filing. This is separate from the hardcoded `DevFlow` provenance label that retrospective detection (lib/scan.sh, lib/classify-pr-kind.jq) matches literally \u2014 only deferred-issue labeling is configurable here.",
-          "default": "DevFlow,Deferred"
+          "description": "Comma-separated list of labels applied to the follow-up issues /prflow:implement files for deferred work \u2014 both Phase 4.0 deferred-acceptance-criteria issues and Phase 4.0.5 deferred-review-finding issues. Each entry is trimmed and blank entries are dropped, so \"PRFlow, Deferred\" applies both PRFlow and Deferred, and a whitespace-only or all-separators value (e.g. \" , \") normalizes to none, applying no labels. (A literal empty string resolves to this default rather than meaning no-labels, matching how config defaults resolve; set a whitespace value to apply none.) Labels are ensured to exist and applied best-effort after the issue is created, so a label hiccup never blocks filing. This is separate from the hardcoded `PRFlow` provenance label that retrospective detection (lib/scan.sh, lib/classify-pr-kind.jq) matches literally (it also still accepts the superseded `DevFlow` spelling on pre-rename artifacts) \u2014 only deferred-issue labeling is configurable here.",
+          "default": "PRFlow,Deferred"
         }
       }
     },
@@ -979,7 +979,7 @@
         "branch": {
           "type": "string",
           "description": "Name of the long-lived orphan branch PRFlow persists observability artifacts to. Auto-created on first use if absent; verified to be a telemetry store (its tip tree holds only .prflow/logs/-shaped paths) before appending, so PRFlow never commits onto a same-named branch a consumer uses for something else. A literal empty string resolves to this default (a string key \u2014 an empty branch name is never a valid selection). Keep every workflow `push:` trigger branch-filtered so a telemetry push runs no CI (PRFlow's own workflows filter `push:` to `main`; a consumer whose `on: push` is unfiltered should add a `branches-ignore` entry for this branch).",
-          "default": "devflow-telemetry"
+          "default": "prflow-telemetry"
         }
       }
     },

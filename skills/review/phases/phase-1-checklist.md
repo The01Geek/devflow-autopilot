@@ -1,4 +1,4 @@
-<!-- devflow:review-ref phase=1 file=skills/review/phases/phase-1-checklist.md start -->
+<!-- prflow:review-ref phase=1 file=skills/review/phases/phase-1-checklist.md start -->
 ## Phase 1: Verification Checklist Generation
 
 Output: `Phase 1/4: Generating verification checklist...`
@@ -163,4 +163,4 @@ Extract the JSON array from the deduper's response (look for the ```json code fe
 If the deduper agent fails or returns malformed JSON, retry once. If it fails again, fall back to manual cross-batch dedup using the **In-batch sanity dedup** rules from Phase 1.1 — do NOT block the engine on dedup failure.
 
 Output: `Deduped to {N_after} of {N_before} items.`
-<!-- devflow:review-ref phase=1 file=skills/review/phases/phase-1-checklist.md end -->
+<!-- prflow:review-ref phase=1 file=skills/review/phases/phase-1-checklist.md end -->

@@ -2877,11 +2877,23 @@ def _guard_target_variable(args, spec):
 # declaration is inspected against the member set, and the literal must be
 # present in one of the members. This weakens nothing. Membership is resolved
 # only through the closed grammar below (a builder call, an array built from
-# literal words and/or one for-loop over a path glob with an optional basename
-# skip, and whole-variable aliases of a resolved bundle); anything outside it
-# leaves the bundle unresolved and the pre-existing refusal stands, an empty
-# member set is never treated as inspected, and a literal present in no member
-# is still reported.
+# literal words and/or one for-loop — either over a path glob with an optional
+# basename skip, or over a literal STEM list whose body appends one path
+# template per stem — and whole-variable aliases of a resolved bundle, with or
+# without a trailing comment); anything outside it leaves the bundle unresolved
+# and the pre-existing refusal stands, an empty member set is never treated as
+# inspected, and a literal present in no member is still reported.
+#
+# Issue #1008 widened that grammar by two independent arms, each measured against
+# this repository's own `lib/test/run.sh` before it was written:
+#   * the STEM-loop body — the review bundle iterates a word-list variable and
+#     appends `"$LIB/../skills/review/phases/${_s}.md"` rather than the loop
+#     variable itself, so `$REVIEW_BUNDLE` resolved to nothing at all;
+#   * the COMMENT-suffixed alias — `ST_RAF="$MAXI_BUNDLE"   # …` did not resolve
+#     even though `$MAXI_BUNDLE` did, because the trailing comment is part of the
+#     assignment's right-hand side and defeated the whole-token variable match.
+# Both left typed `# structural-pin-ok:` declarations on the affected pins
+# permanently refused as uninspectable, which froze the whole logical line.
 BUNDLE_BUILDERS = frozenset({"_build_skill_bundle", "devflow_module_build_bundle"})
 _BUNDLE_ARRAY_ASSIGN_RE = re.compile(
     r"^\s*(?:local\s+)?([A-Za-z_]\w*)(\+?)=\(\s*(.*?)\s*\)\s*(?:#.*)?$"
@@ -2897,6 +2909,14 @@ _BUNDLE_CASE_SKIP_RE = re.compile(
 _BUNDLE_DEFAULT_EXPANSION_RE = re.compile(r"^\$\{(\w+):[-=](.*)\}$")
 _BUNDLE_SUFFIX_EXPANSION_RE = re.compile(r"^\$\{(\w+)%%?([^{}]*)\}$")
 _BUNDLE_GLOB_CHARS = "*?["
+# An annotated alias — `ST_RAF="$MAXI_BUNDLE"   # …`. The comment is stripped only
+# when what precedes it is itself a whole-token variable reference, so nothing that
+# merely CONTAINS a `#` is truncated (issue #1008).
+_BUNDLE_TRAILING_COMMENT_RE = re.compile(r"^(.*?)\s+#.*$")
+# One word of a stem list. Deliberately narrower than a shell word: no slash, no
+# glob character, no expansion, nothing that could change how the substituted
+# template tokenizes. A list carrying anything else resolves to None (fail closed).
+_BUNDLE_STEM_WORD_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 class BundleMemberSpec(NamedTuple):
@@ -2914,6 +2934,88 @@ def _bundle_variable_name(token_value):
         value = value[1:-1]
     match = _VARREF.match(value)
     return match.group(1) if match else None
+
+
+def _bundle_alias_name(rhs):
+    """The bundle variable an alias assignment's right-hand side names, else None.
+
+    An alias is usually annotated (``ST_RAF="$MAXI_BUNDLE"   # #530: …``), and the
+    comment is part of the right-hand side ``_ASSIGNMENT_RE`` captures. Stripping
+    it is gated on the remaining text being a whole-token variable reference, so a
+    right-hand side that merely contains a ``#`` — inside quotes, in a path, in a
+    parameter expansion — is never truncated into a false alias (issue #1008).
+    """
+    name = _bundle_variable_name(rhs)
+    if name is not None:
+        return name
+    match = _BUNDLE_TRAILING_COMMENT_RE.match(rhs)
+    if match is None:
+        return None
+    return _bundle_variable_name(match.group(1))
+
+
+def _bundle_word_list(rhs, word_vars):
+    """The literal words a whitespace-separated word-list right-hand side names.
+
+    Exactly two word shapes are modeled — a safe literal stem word and a
+    whole-token reference to an already-known word-list variable — so a list
+    carrying a glob, a command substitution, a path, or any other expansion
+    resolves to None and its loop stays unmodeled (issue #1008). ``None`` is also
+    the answer for an empty list, which must never read as "resolved to nothing".
+    """
+    value = rhs.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    words = []
+    for token in value.split():
+        reference = _VARREF.match(token)
+        if reference is not None:
+            known = word_vars.get(reference.group(1))
+            if known is None:
+                return None
+            words.extend(known)
+            continue
+        if _BUNDLE_STEM_WORD_RE.match(token) is None:
+            return None
+        words.append(token)
+    return tuple(words) or None
+
+
+def _bundle_word_vars(text):
+    """Whole-source map of {name: literal word tuple} for stem-list variables.
+
+    Like ``_extended_path_vars`` this is a final-state map read at every loop, so a
+    name that is not the SAME list everywhere cannot answer for one: a second
+    assignment — or a first one this grammar does not model — makes the name
+    ambiguous and it is dropped, rather than answering with whichever value
+    happened to be last (issue #1008).
+
+    Memoized on the presented bytes; a fresh dict is handed out so a caller cannot
+    write through the cached object.
+    """
+    return dict(_bundle_word_vars_cached(text))
+
+
+@functools.lru_cache(maxsize=_IMAGE_PARSE_CACHE_SIZE)
+def _bundle_word_vars_cached(text):
+    word_vars = {}
+    ambiguous = set()
+    for _, line in join_logical_lines(text):
+        if _BUNDLE_ARRAY_ASSIGN_RE.match(line) is not None:
+            continue  # array assignments are resolved by _bundle_arrays
+        match = _ASSIGNMENT_RE.match(line)
+        if match is None:
+            continue
+        name = match.group(1)
+        if name in ambiguous:
+            continue
+        words = _bundle_word_list(match.group(2).strip(), word_vars)
+        if words is None or name in word_vars:
+            ambiguous.add(name)
+            word_vars.pop(name, None)
+            continue
+        word_vars[name] = words
+    return tuple(word_vars.items())
 
 
 def _bundle_expansion_path(rhs, lib, path_vars):
@@ -3005,20 +3107,60 @@ def _bundle_word_specs(words, lib, path_vars):
     return tuple(specs) or None
 
 
-def _bundle_loop_member_specs(loop_var, words, body, lib, path_vars):
-    """Resolve one ``for`` loop's contribution as (appended array names, specs).
+def _bundle_loop_var_pattern(loop_var):
+    """Match every reference to the loop variable — ``${_s}`` and bare ``$_s``."""
+    escaped = re.escape(loop_var)
+    return re.compile(r"\$\{%s\}|\$%s(?![A-Za-z0-9_])" % (escaped, escaped))
 
-    ``specs`` is None when the loop body carries any statement the grammar does
-    not model, so every array it appends to is poisoned rather than silently
-    under-resolved. That direction is load-bearing: run.sh also builds bundles by
-    looping over a STEM list and appending an interpolated path
-    (``_members+=("$LIB/../skills/implement/phases/${_s}.md")``), a shape this
-    grammar does not model — reporting the appended-to array as merely "the words
-    resolved so far" would resolve those bundles to a strict SUBSET of their real
-    membership and let inspection call a literal absent that is really present.
+
+def _bundle_template_specs(value, loop_var, stems, lib, path_vars):
+    """Resolve a stem-loop append — ``_m+=("$LIB/…/${_s}.md")`` — over a stem list.
+
+    Every reference to the loop variable is replaced textually by one stem and the
+    result re-resolved through the ordinary member-word grammar, so a template
+    that is not a resolvable single path yields None and the loop stays unmodeled.
+    Stems reach the substitution already restricted to ``_BUNDLE_STEM_WORD_RE``, so
+    none of them can introduce a quote, a glob, or an expansion that would change
+    how the substituted text tokenizes (issue #1008).
+    """
+    pattern = _bundle_loop_var_pattern(loop_var)
+    if pattern.search(value) is None:
+        return None
+    specs = []
+    for stem in stems:
+        resolved = _bundle_word_specs(pattern.sub(stem, value), lib, path_vars)
+        if resolved is None or len(resolved) != 1:
+            return None
+        specs.extend(resolved)
+    return tuple(specs) or None
+
+
+def _bundle_loop_member_specs(loop_var, words, body, lib, path_vars, word_vars):
+    """Resolve one ``for`` loop's contribution as ((array name, specs), …).
+
+    An array's ``specs`` is None when the loop body carries any statement the
+    grammar does not model, so that array is poisoned rather than silently
+    under-resolved — reporting it as merely "the words resolved so far" would
+    resolve its bundle to a strict SUBSET of its real membership and let
+    inspection call a literal absent that is really present.
+
+    Two body shapes are modeled, and one loop may carry both because they are
+    decided per append statement:
+      * the loop variable appended directly (``_members+=("$_ref")``), whose
+        members are the loop's own word list — a directory glob, with the optional
+        basename skip applied;
+      * a path TEMPLATE interpolating the loop variable
+        (``_members+=("$LIB/../skills/review/phases/${_s}.md")``), whose members
+        are that template resolved once per word of a literal stem list. This is
+        how `$REVIEW_BUNDLE` is built, and leaving it unmodeled is what made two
+        of its pins permanently undeclarable (issue #1008).
+    A basename skip is not composed with a template — the skip filters an expanded
+    glob, and there is no evidence for what it should mean over a stem list — so a
+    loop carrying both leaves its templated arrays unresolved.
     """
     exclusions = []
     appended = []
+    templated = []
     unmodeled_arrays = []
     modeled = True
     for statement in body:
@@ -3034,25 +3176,49 @@ def _bundle_loop_member_specs(loop_var, words, body, lib, path_vars):
         if append is not None and append.group(2) == "+":
             if _bundle_variable_name(append.group(3)) == loop_var:
                 appended.append(append.group(1))
+            elif _bundle_loop_var_pattern(loop_var).search(append.group(3)):
+                templated.append((append.group(1), append.group(3)))
             else:
                 unmodeled_arrays.append(append.group(1))
             continue
         modeled = False
-    if not appended and not unmodeled_arrays:
-        return (), None
-    if unmodeled_arrays or not modeled:
-        return tuple(appended) + tuple(unmodeled_arrays), None
-    specs = _bundle_word_specs(words, lib, path_vars)
-    if specs is None:
-        return tuple(appended), None
-    return tuple(appended), tuple(
-        spec._replace(exclusions=tuple(exclusions)) for spec in specs
+    touched = (
+        tuple(appended)
+        + tuple(name for name, _ in templated)
+        + tuple(unmodeled_arrays)
     )
+    if not touched:
+        return ()
+    if unmodeled_arrays or not modeled:
+        return tuple((name, None) for name in touched)
+    contributions = []
+    if appended:
+        specs = _bundle_word_specs(words, lib, path_vars)
+        if specs is not None:
+            specs = tuple(
+                spec._replace(exclusions=tuple(exclusions)) for spec in specs
+            )
+        contributions.extend((name, specs) for name in appended)
+    if templated:
+        stems = None if exclusions else _bundle_word_list(words, word_vars)
+        contributions.extend(
+            (
+                name,
+                None
+                if stems is None
+                else _bundle_template_specs(
+                    value, loop_var, stems, lib, path_vars
+                ),
+            )
+            for name, value in templated
+        )
+    return tuple(contributions)
 
 
 def _bundle_arrays(text, lib, path_vars):
     """Return {array name: member specs}, mapping an unmodeled array to None."""
     lines = list(join_logical_lines(text))
+    word_vars = _bundle_word_vars(text)
     arrays = {}
     index = 0
     while index < len(lines):
@@ -3074,12 +3240,13 @@ def _bundle_arrays(text, lib, path_vars):
                     body.append(lines[index][1].strip())
                     index += 1
                 index += 1  # consume the `done`
-            names, specs = _bundle_loop_member_specs(
-                loop.group(1), loop.group(2), body, lib, path_vars
+            contributions = _bundle_loop_member_specs(
+                loop.group(1), loop.group(2), body, lib, path_vars, word_vars
             )
-            if line[:1] in {" ", "\t"}:
-                specs = None  # a nested loop's reachability is not modeled
-            for name in names:
+            nested = line[:1] in {" ", "\t"}
+            for name, specs in contributions:
+                if nested:
+                    specs = None  # a nested loop's reachability is not modeled
                 if specs is None or arrays.get(name, ()) is None:
                     arrays[name] = None
                 else:
@@ -3226,7 +3393,7 @@ def _bundle_target_specs(text, lib):
         if assign is None:
             continue
         name = assign.group(1)
-        alias = _bundle_variable_name(assign.group(2).strip())
+        alias = _bundle_alias_name(assign.group(2).strip())
         if alias is not None and alias in bundles:
             if name not in ambiguous:
                 bundles[name] = bundles[alias]
@@ -3943,10 +4110,14 @@ def _normalized_revival_authorization(site, repo_root):
 # The mapping is read from ``lib/rename-map.json``, the repository's single source
 # of truth for this rename, and is never a literal copy of it here. That file's
 # ``frozen`` block enumerates the names the rename must NOT touch, and those are
-# compiled into the same alternation AHEAD of the rename rules so a frozen name is
-# consumed verbatim and no rename rule can reach inside it. That ordering is
-# load-bearing: without it, a bare ``devflow`` rule would rewrite the frozen
-# ``workflows.devflow`` key and silently exempt a real change to it.
+# compiled into the same alternation as the rename rules, ordered LONGEST LITERAL
+# FIRST with a frozen entry winning any tie, so a frozen name is consumed verbatim
+# and no rename rule of equal or shorter length can reach inside it. That ordering
+# is load-bearing in both directions: without the frozen precedence a bare
+# ``devflow`` rule would rewrite the frozen ``workflows.devflow`` key and silently
+# exempt a real change to it; without the longest-first precedence the frozen
+# subagent namespace ``devflow:`` would swallow the marker rule ``<!-- devflow:``
+# that narrows it, and issue #1003's marker rename would be a silent no-op.
 _RENAME_MAP_PATH = "lib/rename-map.json"
 # Characters that continue a token. A rename rule fires only at a token boundary,
 # so ``devflow_module_pin_unique`` and ``.devflow-scratch`` are never reached by
@@ -3955,14 +4126,44 @@ _RENAME_TOKEN_CHARS = "A-Za-z0-9_"
 _RENAME_KEY_LEFT = "(?<![%s-])" % _RENAME_TOKEN_CHARS
 _RENAME_PATH_LEFT = "(?<![%s])" % _RENAME_TOKEN_CHARS
 _RENAME_RIGHT = "(?![%s-])" % _RENAME_TOKEN_CHARS
-# Two guards the map states as PROSE rather than as data, in its own
-# ``frozen._comment``: "Out of THIS issue's scope and tracked separately: the
-# DEVFLOW_* environment variables (#1004) and the <!-- devflow:* --> comment
-# markers". The env-var prefix needs no pattern -- every rename rule is
-# case-sensitive and lower-case, so ``DEVFLOW_GH`` is unreachable. The marker and
-# agent-override namespace does need one, because ``devflow:`` ends at a
-# non-token character that the boundary rule alone would accept.
+# One guard the map states as PROSE rather than as data, in its own
+# ``frozen._comment``: "Out of scope and tracked separately: the DEVFLOW_*
+# environment variables (#1004)". That prefix needs no pattern of its own -- the
+# only upper-case rule is the token-matched ``DevFlow`` label, and ``DEVFLOW_GH``
+# is a different spelling entirely, so no rule reaches it.
+#
+# ``devflow:`` DOES need one, because it ends at a non-token character that the
+# boundary rule alone would accept. Issue #1003 NARROWED what it protects: the
+# comment-marker namespace moved into the map's ``identifiers`` block as the
+# longer literal ``<!-- devflow:``, which out-competes this entry under the
+# longest-literal ordering below, so what remains frozen here is the namespace
+# the rename deliberately keeps -- the subagent-override keys
+# (``"devflow:code-reviewer"``, a permanently accepted alias per the config
+# schema) and the transitional ``/devflow:<command>`` spellings.
 _RENAME_STRUCTURAL_FROZEN = ("devflow:",)
+# The map's top-level blocks this builder knows how to read, plus the blocks that
+# are documentation or are consumed elsewhere. An unrecognised top-level key is
+# REFUSED rather than ignored: a new rename channel added as data alone is
+# otherwise a silent no-op -- the map looks edited and the substitution behaves
+# identically -- which is the failure mode issue #1003 measured.
+_RENAME_MAP_KNOWN_BLOCKS = frozenset(
+    {
+        "map_version",
+        "_comment",
+        "config_keys",
+        "paths",
+        "identifiers",
+        "atomic_unit",
+        "frozen",
+        "retained_unshipped_workflows",
+        "transitional_read_through",
+    }
+)
+# The match semantics an ``identifiers`` entry may declare. ``token`` refuses to
+# fire when the next character continues the token (so ``DevFlow`` never reaches
+# ``DevFlow-layout``); ``prefix`` fires on a self-delimiting literal whose shipped
+# uses extend it (``devflow-telemetry-stage-<run>``, ``<!-- devflow:workpad -->``).
+_RENAME_IDENTIFIER_MATCHES = ("token", "prefix")
 
 
 def _rename_frozen_pattern(literal):
@@ -3986,13 +4187,22 @@ def _rename_pair(entry, label):
 
 
 def _build_rename_substitution(document):
-    """Return a ``str -> str`` superseded-to-current substitution, or ``None``.
+    """Return a ``str -> str`` superseded-to-current substitution.
 
-    ``None`` means the map could not be established, which withdraws every
-    exemption -- the fail-closed direction, identical to the pre-fix behaviour.
+    Raises ``ValueError`` when the map cannot be established. The caller
+    ``_compiled_rename_substitution`` is what turns that into ``None``, and a
+    ``None`` there withdraws every exemption -- the fail-closed direction,
+    identical to the pre-fix behaviour.
     """
     if not isinstance(document, dict):
         raise ValueError("rename map root is not an object")
+    unknown_blocks = sorted(set(document) - _RENAME_MAP_KNOWN_BLOCKS)
+    if unknown_blocks:
+        raise ValueError(
+            "rename map has an unreadable top-level block: "
+            + ", ".join(unknown_blocks)
+            + " (teach _build_rename_substitution to read it, or the edit is inert)"
+        )
     frozen = document.get("frozen")
     if not isinstance(frozen, dict):
         raise ValueError("rename map has no frozen block")
@@ -4044,21 +4254,54 @@ def _build_rename_substitution(document):
             key_rules.append((superseded, current, "qualified-key"))
         else:
             key_rules.append((superseded, current, "key"))
-    # Frozen first so a frozen name is consumed verbatim; then longest literal
-    # first so `.devflow/vendor/devflow` and `devflow_review_and_fix` win over the
-    # shorter rules whose prefix they share.
+    # The identifier channel (issue #1003): brand names that are neither a path
+    # nor a config key -- the provenance label, the telemetry branch, the comment
+    # marker namespace. Each entry declares its own match semantics, because the
+    # shipped uses disagree: the label must NOT reach `DevFlow-layout` while the
+    # branch must reach `devflow-telemetry-stage-<run>`, and no single boundary
+    # rule can serve both.
+    identifiers = document.get("identifiers")
+    if not isinstance(identifiers, list):
+        raise ValueError("rename map has an invalid identifiers block")
+    identifier_rules = []
+    for index, entry in enumerate(identifiers):
+        label = f"identifiers[{index}]"
+        superseded, current = _rename_pair(entry, label)
+        match = entry.get("match")
+        if match not in _RENAME_IDENTIFIER_MATCHES:
+            raise ValueError(f"rename map has an invalid {label} match")
+        identifier_rules.append(
+            (superseded, current, "identifier-token"
+             if match == "token" else "identifier-prefix")
+        )
+    # A rule whose superseded name is ALSO frozen is inert -- the frozen
+    # alternative consumes the match first -- and silently so. Refuse it: the
+    # measured way to get this wrong is to add the rule and forget the unfreeze.
+    rule_names = {rule[0] for rule in identifier_rules}
+    rule_names.update(old for old, _ in path_rules)
+    rule_names.update(rule[0] for rule in key_rules)
+    inert = sorted(rule_names & set(frozen_literals))
+    if inert:
+        raise ValueError(
+            "rename map both freezes and maps: "
+            + ", ".join(inert)
+            + " (a frozen name consumes the match, so the rule would never fire)"
+        )
+    # Longest literal first, so `.devflow/vendor/devflow` and
+    # `devflow_review_and_fix` win over the shorter rules whose prefix they share,
+    # and the marker namespace `<!-- devflow:` wins over the shorter frozen
+    # `devflow:` it narrows. A frozen entry wins any tie, which keeps the original
+    # guarantee intact: no rename rule can reach inside a frozen name of equal or
+    # greater length (`workflows.devflow` still beats the bare `devflow` rule).
     alternatives = []
     replacements = {}
-    ordered = [
-        (literal, None, "frozen")
-        for literal in sorted(frozen_literals, key=len, reverse=True)
-    ]
-    ordered.extend(
-        sorted(
-            [(old, new, "path") for old, new in path_rules] + key_rules,
-            key=lambda rule: len(rule[0]),
-            reverse=True,
-        )
+    ordered = sorted(
+        [(literal, None, "frozen") for literal in frozen_literals]
+        + [(old, new, "path") for old, new in path_rules]
+        + key_rules
+        + identifier_rules,
+        key=lambda rule: (len(rule[0]), rule[2] == "frozen"),
+        reverse=True,
     )
     for index, (literal, replacement, kind) in enumerate(ordered):
         name = f"rn{index}"
@@ -4071,6 +4314,10 @@ def _build_rename_substitution(document):
                 _RENAME_KEY_LEFT + r"\." + re.escape(literal) + _RENAME_RIGHT
             )
             replacement = "." + replacement
+        elif kind == "identifier-prefix":
+            # Self-delimiting on the right (`<!-- devflow:` ends at `:`,
+            # `devflow-telemetry` is extended by `-`), so no right boundary.
+            body = _RENAME_KEY_LEFT + re.escape(literal)
         else:
             body = _RENAME_KEY_LEFT + re.escape(literal) + _RENAME_RIGHT
         alternatives.append(f"(?P<{name}>{body})")

@@ -2,10 +2,10 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 # Decide whether THIS standalone `/prflow:review` command is redundant because a
-# review of the same pull request is already IN FLIGHT — Candidate C of issue
-# #989. The redundancy signal is the review engine's own seeded live progress
-# comment (`<!-- devflow:review-progress run=<id>-<attempt> -->`, body
-# `**Status:** 🚀 Reviewing`), which only the review engine authors and which
+# review of the same COMMIT is already IN FLIGHT — Candidate C of issue #989,
+# made commit-scoped by issue #1010. The redundancy signal is the review engine's
+# own seeded live progress comment (`<!-- prflow:review-progress run=<id>-<attempt> -->`,
+# body `**Status:** 🚀 Reviewing`), which only the review engine authors and which
 # exists from Phase 0.3.5, before any review work — so it detects an *in-flight*
 # review directly, the redundancy that actually costs an engine run.
 #
@@ -14,13 +14,31 @@
 #     workflow starts a run per comment), so it suppresses on unrelated
 #     conversation and, carrying no head, on a legitimate re-request after a push.
 #   - The `Reviewed HEAD` line is stamped only at Phase 4, so it identifies a
-#     COMPLETED review, never an in-flight one.
+#     COMPLETED review, never an in-flight one. Its documented meaning is "a
+#     review FINISHED at this head" and two consumers depend on that meaning
+#     (skills/review/phases/phase-0-3-6-blocker-recheck.md precondition 2, and
+#     scripts/build-experiment-records.py's REVIEWED_HEAD_RE join), so it is not
+#     the vehicle for a seed-time head and is left untouched.
 # Only the review engine writes the seeded comment, so the candidate population is
 # reviews rather than conversation, and no `run-name` / command-class matcher is
 # needed. (See docs/workflow-triggers.md and issue #989's Decision section.)
 #
-# Three accepted, deliberate costs (issue #989; cost 3 recorded on PR #993's
-# review, and NOT part of the original Candidate C decision — see
+# THE SEED-TIME HEAD KEY (issue #1010). The engine stamps a distinct, machine-only
+# producer key into the SAME comment at seed time — an HTML-comment marker
+# `<!-- prflow:review-seeded-head <sha> -->`, invisible in the rendered comment and
+# carried in the template, so every in-place rewrite re-emits it while the review
+# is in flight. The value is the PR's API `headRefOid` as resolved at Phase 0.2
+# BEFORE any caller head-override, which is the same quantity `review_dedupe`
+# resolves for the incoming request; that is what keeps accepted cost 2 below
+# intact when a /prflow:review-and-fix fix loop reviews a locally-committed,
+# unpushed head. Detect mode compares the two as an EXACT delimited match, so a
+# review of a different head no longer suppresses this request. A candidate that
+# carries no such key — an in-flight review seeded by an older installed copy —
+# fails OPEN with a breadcrumb naming the key; head-scoped suppression is never
+# assumed on a head that could not be established.
+#
+# Two accepted, deliberate costs (issue #989; the third, pull-request scope, was
+# recorded on PR #993's review and RETIRED by issue #1010 — see
 # docs/workflow-triggers.md, which carries the same list):
 #   1. Configuration-dependent: with prflow_review.live_progress_comment_enabled
 #      off there is no seeded comment, so this fails OPEN (no suppression) — the
@@ -29,14 +47,10 @@
 #   2. Cross-class: a /prflow:review-and-fix run seeds the SAME comment, so a
 #      /prflow:review issued during one is suppressed. This is correct — the
 #      review-and-fix run executes the review engine, so the suppressed review
-#      would have been redundant.
-#   3. Pull-request-scoped, NOT commit-scoped: detect mode takes no HEAD and
-#      performs no commit comparison, because the seeded comment carries only a
-#      run key at seed time (its `Reviewed HEAD:` line is stamped at Phase 4, on
-#      a review that has already finished — see below). So pushing a new commit
-#      while a review of the previous one is still in flight and then asking for
-#      a review suppresses that request; it proceeds once the in-flight review
-#      finishes (or its comment ages past the liveness window).
+#      would have been redundant. It holds for as long as the PR's remote head is
+#      the one that run seeded on; once the fix loop PUSHES, the remote head has
+#      genuinely moved and a request for that new head is a review of a commit
+#      nothing is reviewing, which the commit scope correctly lets through.
 #
 # GitHub-native `concurrency` is NOT the mechanism (shared repository doctrine —
 # see scripts/dedupe-implement-run.sh's header and docs/workflow-triggers.md):
@@ -55,12 +69,16 @@
 #     inline workflow `NOTE=` assignment, so the suite can drive the PRODUCED
 #     message (a grep over an inline literal protects the literal, not the message
 #     a rewording produces). CAUSE ∈ legacy-check-run|legacy-workflow-run|
-#     inflight-review; HEAD is the resolved head SHA (its first 7 chars are shown
-#     by the two legacy causes, which ARE head-scoped; the inflight-review cause
-#     names no commit because its suppression is pull-request-scoped).
+#     inflight-review; HEAD is the resolved head SHA, whose first 7 chars every
+#     cause shows — all three suppressions are head-scoped since issue #1010.
 #
 # Inputs (env):
 #   MODE           detect (default) | notice.
+#   HEAD           the resolved head SHA of the PR this request targets. Required
+#                  in BOTH modes since issue #1010: detect mode compares it
+#                  against the seed-time head key, and an unusable value (empty or
+#                  not a hex object name) fails OPEN with its own breadcrumb
+#                  rather than suppressing on a head it could not establish.
 #   REPO           owner/repo, for the `gh api` comments call (detect mode).
 #   PR             the pull-request / thread number to inspect (detect mode). The
 #                  workflow derives it as
@@ -70,7 +88,7 @@
 #                  this run (run=<RUN_ID>-...) is excluded, so a run can never
 #                  suppress on its own seeded comment.
 #   TRIGGER_BODY   the triggering comment's body. A `/prflow:review` carrying the
-#                  `<!-- devflow:review-backstop head=… attempt=… -->` marker is a
+#                  `<!-- prflow:review-backstop head=… attempt=… -->` marker is a
 #                  no-verdict auto-resume posted from inside a still-active run;
 #                  it is NEVER suppressed (that run's own progress comment would
 #                  otherwise read as an active peer and swallow the resume).
@@ -80,7 +98,7 @@
 #                  `🚀 Reviewing`, so a comment whose `updated_at` is older than
 #                  this bound is treated as stale/frozen, NOT in-flight (open
 #                  question 1 of issue #989).
-#   CAUSE, HEAD    notice mode only (see MODE=notice above).
+#   CAUSE          notice mode only (see MODE=notice above).
 #   DEDUPE_NOW_EPOCH  test hook: fixes "now" for the liveness bound. When unset the
 #                  jq `now` builtin is used.
 #   DEVFLOW_GH     gh executable override for tests; resolved via lib/resolve-gh.sh
@@ -109,11 +127,20 @@ emit() { printf '%s=%s\n' "$1" "$2"; }
 # The marker the review engine seeds its live progress comment with, and the
 # in-flight status line it carries until the Phase-4 terminal flip. Kept identical
 # to skills/review/SKILL.md's template (lib/test/run.sh pins the agreement).
-PROGRESS_MARKER='<!-- devflow:review-progress'
+PROGRESS_MARKER='<!-- prflow:review-progress'
+# PRFlow writes the current spelling; every artifact created before the rename carries the superseded one and no body is rewritten, so readers accept BOTH (issue #1003).
+PROGRESS_MARKER_SUPERSEDED='<!-- devflow:review-progress'
 INFLIGHT_STATUS='🚀 Reviewing'
+# The seed-time head producer key (issue #1010), kept identical to the marker line
+# skills/review/SKILL.md's progress-comment template carries. Newly minted in the
+# `prflow:` namespace: it has no pre-rename history, so there is deliberately NO
+# superseded spelling and no dual-form reader here. A pre-#1010 comment carries no
+# such key at all, which is the fail-open arm below, not a spelling question.
+SEEDED_HEAD_MARKER='<!-- prflow:review-seeded-head'
 # The marker a stall-backstop review auto-resume comment carries (kept identical
 # to the marker scripts/request-review-backstop.sh produces; pinned agreeing).
-BACKSTOP_MARKER='<!-- devflow:review-backstop'
+BACKSTOP_MARKER='<!-- prflow:review-backstop'
+BACKSTOP_MARKER_SUPERSEDED='<!-- devflow:review-backstop'
 
 mode="${MODE:-detect}"
 
@@ -130,7 +157,7 @@ if [ "$mode" = "notice" ]; then
     legacy-check-run|legacy-workflow-run)
       emit notice "ℹ️ An automated **Devflow Review** is already running for this commit (\`${head7}\`). Skipping this manual review command to avoid a duplicate review and double comments. Use the **Re-run** button on the \`Devflow Review\` check if you need to re-review." ;;
     inflight-review)
-      emit notice "ℹ️ A review of this pull request is already in progress. Skipping this duplicate review command so the pull request receives a single review. This check is pull-request-scoped, not commit-scoped, so it also skips a request made after a push while the earlier review is still running — the in-progress review will post its verdict when it finishes, and commenting again once it has completed gets you a review of the current head." ;;
+      emit notice "ℹ️ A review of this commit (\`${head7}\`) is already in progress. Skipping this duplicate review command so the commit receives a single review — the in-progress review will post its verdict when it finishes. This check is commit-scoped: a review of a different commit is never skipped, so after pushing you can ask again and the new commit gets its own review." ;;
     *)
       echo "::warning::dedupe-review notice: unknown CAUSE '${CAUSE:-}'; emitting no notice." >&2
       emit notice ""
@@ -145,7 +172,7 @@ fi
 # inside a still-active run whose own seeded comment would otherwise read as an
 # active peer. Match the marker in the triggering body (bash builtin substring).
 case "${TRIGGER_BODY:-}" in
-  *"$BACKSTOP_MARKER"*)
+  *"$BACKSTOP_MARKER"*|*"$BACKSTOP_MARKER_SUPERSEDED"*)
     echo "::notice::dedupe-review: triggering comment carries the review-backstop marker (a no-verdict auto-resume); not suppressing." >&2
     emit suppress false
     exit 0 ;;
@@ -154,6 +181,7 @@ esac
 repo="${REPO:-}"
 pr="${PR:-}"
 run_id="${RUN_ID:-}"
+head="${HEAD:-}"
 window_min="${REVIEW_INFLIGHT_MAX_AGE_MINUTES:-120}"
 
 # Fail open on a missing/invalid thread key or repo: an unresolvable operand must
@@ -175,7 +203,22 @@ if ! [[ "$window_min" =~ ^[0-9]+$ ]]; then
   emit suppress false
   exit 0
 fi
+# The requested head is the comparand the whole commit scope rests on (issue
+# #1010), so an unusable one fails OPEN rather than degrading to the old
+# pull-request scope. The shape check is a bash regex over a hex object name: it
+# rejects an empty value AND a non-SHA string whose bytes could otherwise land
+# inside the delimited match below and suppress the wrong commit.
+if ! [[ "$head" =~ ^[0-9a-fA-F]{7,64}$ ]]; then
+  echo "::warning::dedupe-review: request HEAD unresolved/not an object name ('${head}'); commit scope cannot be established — not suppressing (fail-open)." >&2
+  emit suppress false
+  exit 0
+fi
 window_s=$(( window_min * 60 ))
+# The EXACT delimited form the seeded key must carry for this request's head.
+# Composed with bash parameter expansion (never a PATH tool), and closed by the
+# marker's own ` -->` terminator so a requested head that is a strict PREFIX of
+# the seeded one cannot match.
+seed_match="$SEEDED_HEAD_MARKER $head -->"
 
 # gh binary: resolved once via the single-source resolver (execution-verified); an
 # explicit DEVFLOW_GH still wins, so test stubs are untouched. Sourced UNGUARDED —
@@ -215,28 +258,40 @@ fi
 # positive DEDUPE_NOW_EPOCH, which the program prefers over `now` — chosen ONCE
 # inside jq (a single static program), never string-spliced.
 jq_err="$(mktemp 2>/dev/null || echo /dev/null)"
-# Program emits two space-separated integers: <inflight-match count> <malformed
-# in-flight candidate count>. A candidate = a bot-authored, marker-carrying,
-# 🚀 Reviewing comment not keyed to THIS run; it is a MATCH when its updated_at
-# parses and is within the liveness window, and MALFORMED when updated_at is
-# absent/null/unparseable (so liveness cannot be established → fail open on it).
+# Program emits four space-separated integers:
+#   <same-head match> <keyless> <other-head> <malformed>
+# A candidate = a bot-authored, marker-carrying, 🚀 Reviewing comment not keyed to
+# THIS run. It is LIVE when its updated_at parses and is within the liveness
+# window, and MALFORMED when updated_at is absent/null/unparseable (so liveness
+# cannot be established → fail open on it). The live set is then partitioned three
+# ways on the seed-time head key (issue #1010), and the partition is total: every
+# live candidate lands in exactly one of same-head / keyless / other-head, so an
+# arm can never be silently dropped from the decision below.
 decision="$("$DEVFLOW_JQ" -r \
   --argjson fixed_now "${DEDUPE_NOW_EPOCH:-0}" \
   --argjson window "$window_s" \
   --arg marker "$PROGRESS_MARKER" \
+  --arg marker_superseded "$PROGRESS_MARKER_SUPERSEDED" \
   --arg status "$INFLIGHT_STATUS" \
+  --arg seedmarker "$SEEDED_HEAD_MARKER" \
+  --arg seedmatch "$seed_match" \
   --arg runself "run=${run_id}-" '
-  def isprogress: ((.body // "") | type == "string") and ((.body // "") | contains($marker)) and ((.body // "") | contains($status)) and ((.user.type // "") == "Bot");
+  def isprogress: ((.body // "") | type == "string") and (((.body // "") | contains($marker)) or ((.body // "") | contains($marker_superseded))) and ((.body // "") | contains($status)) and ((.user.type // "") == "Bot");
   def notself: ((.body // "") | contains($runself)) | not;
   def freshdate: (.updated_at // null) | (type == "string") and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T");
+  def haskey: ((.body // "") | contains($seedmarker));
+  def sameheadkey: ((.body // "") | contains($seedmatch));
   (if $fixed_now > 0 then $fixed_now else now end) as $n
   | if type != "array" then error("not-array")
   else
     ( [ .[] | select(isprogress) | select(notself) | select(freshdate)
           | select( ($n - (.updated_at | fromdateiso8601)) <= $window
-                    and ($n - (.updated_at | fromdateiso8601)) >= 0 ) ] | length ) as $m
+                    and ($n - (.updated_at | fromdateiso8601)) >= 0 ) ] ) as $live
+    | ( [ $live[] | select(haskey) | select(sameheadkey) ] | length ) as $m
+    | ( [ $live[] | select(haskey | not) ] | length ) as $keyless
+    | ( [ $live[] | select(haskey) | select(sameheadkey | not) ] | length ) as $other
     | ( [ .[] | select(isprogress) | select(notself) | select(freshdate | not) ] | length ) as $bad
-    | "\($m) \($bad)"
+    | "\($m) \($keyless) \($other) \($bad)"
   end' <<<"$comments_json" 2>"$jq_err")" || decision=""
 
 # Collapse the captured stderr to one line with a bash builtin (`$(<file)` +
@@ -252,7 +307,7 @@ jq_diag="${jq_diag_raw//$'\n'/ }"
 # An unresolvable jq (e.g. DEVFLOW_JQ pointed at a non-existent binary) or a parse
 # error leaves $decision empty / non-conforming. Name jq explicitly so an empty
 # decision is never read as "no duplicate".
-if ! [[ "$decision" =~ ^[0-9]+\ [0-9]+$ ]]; then
+if ! [[ "$decision" =~ ^[0-9]+\ [0-9]+\ [0-9]+\ [0-9]+$ ]]; then
   case "$jq_diag" in
     *not-array*)
       echo "::warning::dedupe-review: comments response was not a JSON array for PR #$pr; not suppressing (fail-open)." >&2 ;;
@@ -265,17 +320,32 @@ if ! [[ "$decision" =~ ^[0-9]+\ [0-9]+$ ]]; then
   exit 0
 fi
 
-inflight="${decision% *}"
-malformed="${decision#* }"
+# Split the four fields with parameter expansion only (never cut/awk): the values
+# below DECIDE suppression, so a missing non-preflight PATH tool must not be able
+# to empty one and have it read as "no duplicate".
+inflight="${decision%% *}"
+_rest="${decision#* }"
+keyless="${_rest%% *}"
+_rest="${_rest#* }"
+otherhead="${_rest%% *}"
+malformed="${_rest#* }"
 
 if [ "$malformed" -gt 0 ]; then
   echo "::warning::dedupe-review: $malformed in-flight review-progress comment(s) for PR #$pr carried an absent/unparseable updated_at; liveness could not be established for those — not counting them (fail-open)." >&2
 fi
 
+if [ "$keyless" -gt 0 ]; then
+  echo "::warning::dedupe-review: $keyless in-flight review-progress comment(s) for PR #$pr carry no ${SEEDED_HEAD_MARKER} … --> key (seeded by an installed copy predating issue #1010), so the commit they are reviewing could not be established — not counting them (fail-open)." >&2
+fi
+
+if [ "$otherhead" -gt 0 ] && [ "$inflight" -eq 0 ]; then
+  echo "::notice::dedupe-review: $otherhead in-flight review(s) for PR #$pr are reviewing a different head than $head; this request is a review of a commit nothing is reviewing — not suppressing." >&2
+fi
+
 if [ "$inflight" -gt 0 ]; then
-  echo "::notice::dedupe-review: $inflight in-flight review(s) already running for PR #$pr; suppressing this duplicate /prflow:review." >&2
+  echo "::notice::dedupe-review: $inflight in-flight review(s) already running for PR #$pr at head $head; suppressing this duplicate /prflow:review." >&2
   emit suppress true
 else
-  echo "::notice::dedupe-review: no in-flight review for PR #$pr; manual review proceeds." >&2
+  echo "::notice::dedupe-review: no in-flight review of PR #$pr at head $head; manual review proceeds." >&2
   emit suppress false
 fi

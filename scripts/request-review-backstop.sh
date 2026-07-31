@@ -45,7 +45,7 @@
 #   decision=<fire|no-fire>
 #   reason=<the arm that decided — each `emit` call below names its own reason>
 #   attempt=<next attempt number, only on a fire>
-#   marker=<the `<!-- devflow:review-backstop head=<sha> attempt=<n> -->` marker,
+#   marker=<the `<!-- prflow:review-backstop head=<sha> attempt=<n> -->` marker,
 #           only on a fire — the workflow embeds it in the re-trigger comment>
 # A distinct arm-naming breadcrumb is written to stderr on every path. Always
 # exits 0 (best-effort — the caller reads `decision`, not the exit code).
@@ -155,14 +155,21 @@ if [ "$APP_TOKEN_PRESENT" != "true" ]; then
 fi
 
 # 5. Count existing backstop markers for THIS head — the attempt cap. Each resume
-#    comment carries `<!-- devflow:review-backstop head=<sha> attempt=<n> -->`;
+#    comment carries `<!-- prflow:review-backstop head=<sha> attempt=<n> -->`;
 #    only markers whose head is THIS HEAD_SHA count (a foreign-head marker from an
 #    earlier commit must never inflate the count and spuriously exhaust the cap).
 #    Read via gh api REST (repo-scoped-token rule — no GraphQL porcelain) and
 #    counted with jq (robust to JSON escaping), same fail-closed posture as
 #    derive-review-verdict.sh: an unreadable count must not read as "0 attempts"
 #    and resume unbounded.
-MARKER_PREFIX="<!-- devflow:review-backstop head=${HEAD_SHA} "
+MARKER_PREFIX="<!-- prflow:review-backstop head=${HEAD_SHA} "
+# PRFlow writes the current spelling; a resume comment posted before the rename
+# carries the superseded one and no body is rewritten (issue #1003). The count is
+# the UNION of both -- counting only one spelling would RESET the cap across the
+# rename boundary and grant up to MAX extra auto-resumes for a head that had
+# already exhausted it. `select(A or B)` is a union over comments, not a sum over
+# spellings, so a single comment carrying both is still counted once.
+MARKER_PREFIX_SUPERSEDED="<!-- devflow:review-backstop head=${HEAD_SHA} "
 if ! COMMENTS_JSON=$("$DEVFLOW_GH" api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" 2>/dev/null); then
   echo "request-review-backstop: issue-comments query failed for PR #$PR_NUMBER — the attempt count is unknowable, so the cap cannot be enforced; failing closed to no-fire (never resume on an unread count)." >&2
   emit no-fire count-unreadable
@@ -170,8 +177,8 @@ fi
 # `-s`/`add` normalizes the `--paginate` shape (one array → [[...]], concatenated
 # pages → [[...],[...]]); a non-array error payload still errors in `map()`,
 # keeping the parse fail-closed rather than miscounting as 0.
-if ! ATTEMPTS=$(printf '%s' "$COMMENTS_JSON" | "$DEVFLOW_JQ" -rs --arg m "$MARKER_PREFIX" \
-      'add | map(select((.body // "") | contains($m))) | length' 2>/dev/null); then
+if ! ATTEMPTS=$(printf '%s' "$COMMENTS_JSON" | "$DEVFLOW_JQ" -rs --arg m "$MARKER_PREFIX" --arg s "$MARKER_PREFIX_SUPERSEDED" \
+      'add | map(select(((.body // "") | contains($m)) or ((.body // "") | contains($s)))) | length' 2>/dev/null); then
   echo "request-review-backstop: issue-comments JSON could not be parsed (jq failed or the comments payload was not an array) — the attempt count is unknowable; failing closed to no-fire." >&2
   emit no-fire count-unreadable
 fi
@@ -188,6 +195,6 @@ fi
 # Fire: emit the next attempt number and the marker the workflow embeds in the
 # `/devflow:review` re-trigger comment.
 NEXT=$((ATTEMPTS + 1))
-MARKER="<!-- devflow:review-backstop head=${HEAD_SHA} attempt=${NEXT} -->"
+MARKER="<!-- prflow:review-backstop head=${HEAD_SHA} attempt=${NEXT} -->"
 echo "request-review-backstop: firing backstop resume attempt $NEXT of $MAX for HEAD $HEAD_SHA on PR #$PR_NUMBER." >&2
 emit fire resume "$NEXT" "$MARKER"

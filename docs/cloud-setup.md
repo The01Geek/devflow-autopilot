@@ -37,19 +37,20 @@ on a pull request; `devflow.yml`'s `gate` job authorizes the actor through
 self-trigger a PRFlow review — a repository collaborator must post the comment.**
 
 **Duplicate `/prflow:review` commands are deduped (issue #989).** A second standalone
-`/prflow:review` on a pull request while a review of the same pull request is already in flight
+`/prflow:review` on a pull request while a review of the **same commit** is already in flight
 is **suppressed** — the second run's `command` job is skipped and a notice naming the reason is
-posted — so a pull request receives one review rather than several billed engine runs and
-duplicate verdicts. The check is **pull-request-scoped, not commit-scoped**: while a review is
-in flight the seeded progress comment carries no head to compare against, so a `/prflow:review`
-requested after pushing a new commit — with the earlier review still running — is skipped too;
-comment again once that review has posted its verdict.
+posted — so a commit receives one review rather than several billed engine runs and
+duplicate verdicts. The check is **commit-scoped** (issue #1010): the engine stamps the head it
+is reviewing into the progress comment it seeds, so a `/prflow:review` requested after pushing a
+new commit — with the review of the *previous* commit still running — proceeds and reviews the
+new head. An in-flight review seeded before this change carries no such head and is never
+suppressed against.
 `devflow.yml`'s `review_dedupe` job detects the in-flight review from the review
-engine's own seeded live progress comment (`devflow:review-progress`, `🚀 Reviewing`,
+engine's own seeded live progress comment (`prflow:review-progress`, `🚀 Reviewing`,
 bot-authored, fresh) via the bundled `scripts/dedupe-review-command.sh` helper. It **fails
 open** in every failure direction (a missed suppression only reproduces a recoverable
 double-comment; a wrong one would swallow a review you asked for), never suppresses a
-`/prflow:review-and-fix` or a `devflow:review-backstop` auto-resume, and does nothing when
+`/prflow:review-and-fix` or a `prflow:review-backstop` auto-resume, and does nothing when
 `prflow_review.live_progress_comment_enabled` is off (no seeded comment → present-day
 behavior). This repair reaches your repository on upgrade, because `install.sh` copies
 `devflow.yml`. Full behavior: [`workflow-triggers.md`](workflow-triggers.md).
@@ -101,9 +102,9 @@ writes changes into your repository, so download it, read it, then run the file 
 read:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.29.0/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.3/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.29.0 bash devflow-install.sh
+DEVFLOW_REF=v2.30.3 bash devflow-install.sh
 ```
 
 Both refs are pinned to the same **release tag**, so the install is reproducible.
@@ -261,6 +262,83 @@ one purely so a bot-authored "implement this" comment could re-trigger the
 workflow; a human `/prflow:implement <#>` comment is itself a native user event,
 so that need is gone.)
 
+## Why these settings are still called `DEVFLOW_*` — and what happens if you rename them
+
+The product was renamed DevFlow → PRFlow, and the rename stopped at the repository's own
+files: the state directory, the vendored plugin path and the config keys moved, and
+`/prflow:init` migrates all four together. The **variables, secrets and environment
+overrides below did not move**, and they are not going to move on their own.
+
+They live outside the repository — in GitHub's settings and in your shell profile — so
+nothing PRFlow ships can migrate them. More to the point, **nothing in PRFlow reads a
+`PRFLOW_*` equivalent**: every one of these names is read under its `DEVFLOW_` spelling
+and under no other. So renaming one is not a migration. It is a deletion.
+
+**It is also, in almost every case, a *silent* deletion.** GitHub has no concept of "this
+variable used to be called something else": an unresolvable `vars.X` evaluates to the
+empty string, which is exactly what a variable you deliberately never configured
+evaluates to. Every gate that reads one takes its "not configured" arm, every job
+falls back to its default, and the run goes **green** — under a degraded identity, or on
+a runner you did not choose. The advisory below therefore states, for each name, what
+renaming it actually does.
+
+If the brand inconsistency bothers you, the answer is a future PRFlow release that
+accepts both spellings — not a rename you perform yourself today.
+
+<details>
+<summary>How this list is derived (and why it is not hand-drawn)</summary>
+
+A `DEVFLOW_*` name is consumer-facing if either arm selects it: **(A1)** it appears as
+`secrets.<NAME>` or `vars.<NAME>` in a workflow `install.sh` ships, or **(A2)** it is read
+as an ambient environment variable by a shipped `install.sh` / `scripts/` / `lib/` file
+*and* is declared in a consumer-facing document. The tree defines close to two hundred
+`DEVFLOW_*` names; almost all are internal, and A2's doc-declaration clause is what keeps
+harness tuning knobs out of a list whose whole value is that every row on it matters.
+
+The criterion is machine-run, not transcribed: `lib/rename-map.json`'s
+`frozen.env_identifiers` block records the population and the two names adjudicated out of
+it, `lib/generate-env-freeze-advisory.py` renders the table below from that block, and the
+test suite re-runs both arms over the tree on every run. A workflow that starts reading a
+new `vars.DEVFLOW_*` name — or a name here whose read side goes away — turns the suite red
+until someone adjudicates it.
+
+</details>
+
+<!-- prflow-env-freeze:begin freeze_version=1 sha256=0b7a110238d560064dd11ee440f2dda07a1b859eee559eda14b3b1e558c59738 (generated by lib/generate-env-freeze-advisory.py -- do not hand-edit; source: lib/rename-map.json frozen.env_identifiers) -->
+> **These names are frozen. Do not rename them.** PRFlow reads each one under its `DEVFLOW_` spelling and under no other spelling — there is no `PRFLOW_*` equivalent anywhere in the plugin. Renaming one of these does not move a setting; it removes it.
+
+**The two GitHub App pairs fail asymmetrically.** The asymmetry inverts what a careful consumer would guess. Rename the SECRET alone and the mint step fails loudly — you find out immediately. Rename the VARIABLE alone and nothing fails: the mint is gated on `vars.<NAME> != ''`, an unresolvable name reads exactly like `deliberately not configured`, so every job falls back to `steps.app-token.outputs.token \|\| secrets.GITHUB_TOKEN` and the run goes GREEN under a degraded identity. Rename BOTH — the natural thing to do, since they are one setting in the consumer's head — and the variable's silent skip gates off the secret's loud guard, so the loud half never runs. The safe rename order is therefore the one nobody would guess, which is the reason this block exists.
+
+#### Set in GitHub — repository or organization settings
+
+You set these under **Settings → Secrets and variables → Actions**. PRFlow can only read them.
+
+| Identifier | Where you set it | Renaming it fails | What renaming it does |
+|---|---|---|---|
+| `DEVFLOW_APP_ID` | repository or organization variable — GitHub → Settings → Secrets and variables → Actions → Variables | silent | Silent feature loss, the largest blast radius here. Every mint gate reads `vars.DEVFLOW_APP_ID != ''`, so an unresolvable name turns every gate false and every consumer falls back to `steps.app-token.outputs.token \|\| secrets.GITHUB_TOKEN`. The run stays green. What breaks is all downstream and none of it names the cause: pushes touching `.github/workflows/` are rejected with `refusing to allow a GitHub App to create or update workflow ... without workflows permission` (which reads as a missing App permission, and the App permission is fine); the credential refresher still reports `credential refresher started (detached)` while its empty-input arm writes `cannot mint` into a redirected log nobody reads, so long implement runs die on an expired token with no trace; and PR authorship and review attribution move to `github-actions[bot]`, which does not satisfy a branch-protection required-approval rule. |
+| `DEVFLOW_APP_PRIVATE_KEY` | repository secret — GitHub → Settings → Secrets and variables → Actions → Secrets | loud, but only while its paired variable still resolves | The mint step fails loudly with an unusable private key — provided `vars.DEVFLOW_APP_ID` still resolves and the step therefore runs at all. Rename the variable as well and the gate is already false, the mint never executes, and this loud guard is gated off: see `pair_asymmetry`. |
+| `DEVFLOW_REVIEWER_APP_ID` | repository variable — GitHub → Settings → Secrets and variables → Actions → Variables | silent | Silent identity reversion. This is the GATING half of the reviewer pair: unresolvable, the reviewer mint is skipped exactly as if you had chosen not to configure a reviewer App, and review attribution falls back to the default token. Nothing reports it, and a branch-protection rule that requires an approval from a non-`github-actions[bot]` identity silently stops being satisfiable. |
+| `DEVFLOW_REVIEWER_PRIVATE_KEY` | repository secret — GitHub → Settings → Secrets and variables → Actions → Secrets | loud, but only while its paired variable still resolves | The reviewer mint fails loudly with an unusable private key — provided `vars.DEVFLOW_REVIEWER_APP_ID` still resolves. Rename the variable too and the gate is false, the mint is skipped, and the loud guard never runs: see `pair_asymmetry`. |
+| `DEVFLOW_PROVIDER_API_KEY` | repository secret — GitHub → Settings → Secrets and variables → Actions → Secrets | loud on the provider path; unread otherwise | If a config section sets `provider`, the run refuses with an `::error::` naming DEVFLOW_PROVIDER_API_KEY — the one cloud row that fails loudly on its own. If no section routes through a third-party provider the secret is never read, so a rename is invisible until the day you opt into provider routing, at which point the error names a secret you believe you have set. |
+| `DEVFLOW_RUNNER` | repository or organization variable — GitHub → Settings → Secrets and variables → Actions → Variables | silent **⚠ highest severity** | SILENT RUNNER RELOCATION, and the highest-severity outcome in this table. Unresolvable, the expression takes its `\|\| 'ubuntu-latest'` arm and EVERY job silently moves to a GitHub-hosted runner. That same job carries `secrets.DEVFLOW_APP_PRIVATE_KEY` and `secrets.DEVFLOW_PROVIDER_API_KEY` in its environment — so a consumer who self-hosts for network isolation or compliance has their GitHub App private key and their model-provider API key executed OUTSIDE the boundary they chose self-hosting for. Nothing errors, no job fails, and no log line names the cause; the only visible difference is the runner label in a page nobody re-reads after setup. Note the contrast with a MIS-SET value: a `DEVFLOW_RUNNER` that begins `[` but is not valid JSON fails loud at evaluation time. It is the name going missing, not the value being wrong, that is silent. |
+
+#### Set on your machine — shell profile or install one-liner
+
+You set these in your own environment. Every one resolves through a `${NAME:-…}`-style default, so a name that stops resolving is byte-identical to one that was never set.
+
+| Identifier | Where you set it | Renaming it fails | What renaming it does |
+|---|---|---|---|
+| `DEVFLOW_BASH` | environment variable — your shell profile, or the invocation that launches the runner | silent | Silent reversion to whichever bash the host happens to select. On a healthy POSIX-bash host that is a no-op, so the rename looks successful; on the Windows host the override existed for, the shell helpers go back to running under whatever the launcher picks, and the preflight remedy naming WSL/Git Bash/MSYS2 bash returns. |
+| `DEVFLOW_GH` | environment variable — your shell profile | silent | Silent PATH reversion, and the worst kind of silent: on a host where the probe already finds a working `gh` the rename changes nothing observable, so the consumer concludes it worked. On the Windows/WSL host the override existed for, it silently restores the shadowing-`gh` bug the override was added to route around — a present-but-unrunnable `gh` shim is selected again, and every `gh` call degrades to its best-effort empty-result path. |
+| `DEVFLOW_JQ` | environment variable — your shell profile | silent | Silent PATH reversion, identical in shape to DEVFLOW_GH: a no-op on a host whose probe already resolves a working `jq`, so the rename appears to have worked, and a silent return of the shadowed-binary problem on the host that needed the override. |
+| `DEVFLOW_REF` | environment variable (install-time) — the install one-liner — `DEVFLOW_REF=<tag> bash devflow-install.sh` | silent | Silent un-pin. Unresolvable, install.sh takes its `:-main` default and clones mutable `main` instead of the tag you named. The install succeeds, reports a version, and stamps `prflow_version` — with a ref you did not choose. A consumer pinning a known-good release to avoid an upgrade gets the upgrade, and the only evidence is the version the installer echoes. *Dual role:* Also an INTERNAL input: `.github/actions/vendor-plugin/action.yml` assigns DEVFLOW_REF for vendor-slice.sh's fetch branch, sourced from the consumer's `prflow_version`. That internal producer never reaches install.sh, so the name is consumer-facing here and internal there. It is not purely one or the other. |
+| `DEVFLOW_VENDOR` | environment variable (install-time) — the install one-liner — `DEVFLOW_VENDOR=1 bash devflow-install.sh` | silent | Silent mode reversion to a thin install. The plugin tree stops being committed and is fetched at runtime instead, which is the opposite of what a consumer who set this wanted — typically an air-gapped or supply-chain-pinned repository. The installer says `thin install: the plugin is fetched at runtime`, which is a truthful line that reads as normal output rather than as a setting having been lost. |
+| `DEVFLOW_DRY_RUN` | environment variable (install-time) — the install one-liner — `DEVFLOW_DRY_RUN=1 bash devflow-install.sh` | silent, and the only row that WRITES as a result | The only name here whose rename causes a WRITE. On a FIRST-TIME install the default mode is apply, so the preview you explicitly asked for silently becomes an apply and the installer writes to your repository. (On an existing install the default is already preview, so there the rename is a silent no-op.) The equivalent flag `--dry-run` is unaffected — an unknown flag is rejected outright, which is exactly the loudness the environment channel lacks. |
+| `DEVFLOW_APPLY` | environment variable (install-time) — the install one-liner — `DEVFLOW_APPLY=1 bash devflow-install.sh` | silent | Silent no-write on an upgrade. An existing install defaults to preview, so the upgrade you believe you applied only previewed: the repository is unchanged and keeps running the previous workflows and the previous pin. The run exits 0 and its last line is the ordinary dry-run notice. The equivalent `--apply` flag is unaffected. |
+
+Not on this list and wondering why: `DEVFLOW_PROMPT_EXTENSION_ROOT` is written by the automated review workflow and never set by you, and `DEVFLOW_CONFIG_FILE` is an internal seam that has never been published as a consumer setting. Both are recorded with their reasoning in `lib/rename-map.json`.
+<!-- prflow-env-freeze:end -->
+
 ## Choosing the runner (`DEVFLOW_RUNNER`)
 
 By default every job in the two consumer-shipped workflows (`devflow.yml`,
@@ -370,8 +448,9 @@ these variables were introduced.
 
 **Why they are opt-in and separate.** An earlier release set both variables
 unconditionally, so the action's `configureGitAuth` startup would resolve the
-repository on a self-hosted Windows runner (otherwise it aborts
-`fatal: not in a git directory`, exit 128, before the agent does any work). But
+repository on a self-hosted Windows runner (otherwise — **inferred**, and only in
+the both-pins-off default — it aborts `fatal: not in a git directory`, exit 128,
+before the agent does any work; see the evidence label below the table). But
 `GIT_WORK_TREE` also reaches the Claude Code CLI subprocess that installs plugins,
 where it makes `git clone` refuse an existing working tree — so **every** cloud run
 died at plugin install with `fatal: working tree '<path>' already exists.`,
@@ -383,21 +462,43 @@ set is closed by construction:
 
 | `git_dir_pin` | `git_work_tree_pin` | `configureGitAuth` | Plugin install | `git rev-parse --show-toplevel` from a subdirectory |
 | --- | --- | --- | --- | --- |
-| `false` | `false` (**the default**) | fails on self-hosted Windows | succeeds | repository root |
+| `false` | `false` (**the default**) | **inferred** fail — one completed self-hosted-Windows run contradicts it, pending the git-env evidence named below | succeeds | repository root |
 | `true` | `false` | succeeds | succeeds | **the subdirectory** — see the silent-miss hazard below |
 | `false` | `true` | succeeds | **fails** unless your marketplace list is local-only | repository root |
 | `true` | `true` | succeeds | **fails** unless your marketplace list is local-only | repository root |
 
 The `configureGitAuth` column is **inferred** from the pinned action's upstream
-source plus a local `git config` proxy — **no cell of it has been observed on a
-self-hosted Windows runner**. The other two columns are measured. Treat the
-`git_dir_pin`-on path as **unverified on Windows**.
+source plus a local `git config` proxy, with one exception now on record. A
+`/prflow:implement` job has completed on a self-hosted Windows runner
+(maintainer-reported from a consumer's runner, 2026-07-21; not independently
+reproducible from this repository, and no run identifier is committed here —
+the run belongs to a third party's repository and no reader here could resolve
+it). What that establishes is narrow and certain: `configureGitAuth` did not
+abort on that run. The consumer had set `git_dir_pin` and `git_work_tree_pin`
+alike to `true`, yet neither variable was in force. `GIT_DIR` was **necessarily
+absent** — `scripts/emit-git-env.sh` suppresses the assignment on the implement
+tier regardless of the configured value, and `git_dir_pin` is not honored on
+that tier at all. `GIT_WORK_TREE` is **inferred** absent rather than read: the
+run's plugin install completed, and this table records as measured that an
+exported `GIT_WORK_TREE` fails that install unless the marketplace list is
+local-only, so the completed install is *consistent with* the variable having
+been absent — which is weaker than asserting it was. That inference carries a
+**named falsifier**: the plugin-install measurement was taken on this
+repository's own **ephemeral** hosted runners, where the marketplace is cloned
+fresh on every run, while the observation comes from a **persistent
+self-hosted** runner, where a pre-existing marketplace checkout could make the
+clone a no-op so the documented failure would never fire — a completed run with
+`GIT_WORK_TREE` exported is therefore not excluded. The evidence that would
+replace the inference with a direct observation is the run's **git-env step
+output**, which has not been read. The plugin-install and working-tree-resolution
+columns are measured. Treat the `git_dir_pin`-on path as **unverified on
+Windows**.
 
 **`git_work_tree_pin` serves a narrow population: adopters whose composed
 marketplace list is local-only.** Such a run never performs the remote clone the
-variable breaks, so for them it fixes `configureGitAuth` while keeping working-tree
-resolution correct — the one combination that avoids the `git_dir_pin` relocation
-hazard entirely. **Enabling it outside that population reproduces the outage above.**
+variable breaks, so for them it is **inferred** to fix `configureGitAuth` while
+keeping working-tree resolution correct — the one combination that avoids the
+`git_dir_pin` relocation hazard entirely. **Enabling it outside that population reproduces the outage above.**
 
 **`git_dir_pin` is not honored on the implement tier.** That tier stages and pushes
 commits, and ambient `GIT_DIR` makes a stage issued from a non-root working
@@ -497,8 +598,10 @@ self-hosted runner is single-tenant by its own trust model. Narrowing them is tr
 separately.
 
 Clearing this blocker does **not** by itself make the tier usable — see the
-`setup.git_dir_pin` / `setup.git_work_tree_pin` table above for the next expected
-blocker, and note that `git_dir_pin` is not honored on the implement tier.
+`setup.git_dir_pin` / `setup.git_work_tree_pin` table above for the next
+**inferred** blocker (one completed self-hosted-Windows run now contradicts that
+inference; the evidence label beside the table states what it does and does not
+establish), and note that `git_dir_pin` is not honored on the implement tier.
 
 ### Dispatch-enabled, not certified — run a smoke test first
 
@@ -589,7 +692,7 @@ silent fall-back to `GITHUB_TOKEN`. Named exceptions to the App identity: the
 `Devflow Review` check-run (emitted by the Actions runner from the job `name:`,
 not token-authored — it can never be App-authored), and the `/prflow:implement`
 workpad comment, which is *created* on `GITHUB_TOKEN` by the gate job (detection
-is marker-based — `<!-- devflow:workpad -->` — never author-based, so the
+is marker-based — `<!-- prflow:workpad -->` — never author-based, so the
 claude-job fallback creation running under the App token is harmless). The
 stale-rejection housekeeping runs inside the review agent, so it uses whichever
 token the runner holds (the downscoped DevFlow-Reviewer token when configured — its
@@ -1116,7 +1219,7 @@ gate behavior.
 By default the automated reviewer is **read-only** — it inspects the diff but
 cannot compile, lint, or test it, so a build-dependent claim (e.g. "does
 `npx webpack` still compile after this change?") can only be flagged, not
-verified. (Read-only still covers the live per-run `<!-- devflow:review-progress
+verified. (Read-only still covers the live per-run `<!-- prflow:review-progress
 run=<id>-<attempt> -->` progress comment: the `review` tool profile allow-lists `workpad.py`,
 `config-get.sh`, `load-prompt-extension.sh`, and `efficiency-trace.sh` because those only
 edit the PR comment via `gh`, read config, read the run's state, or `cat` a consumer-owned

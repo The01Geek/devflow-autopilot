@@ -144,7 +144,7 @@ EOF
 [{"state":"COMMENTED","submitted_at":"2026-07-09T10:00:00Z","commit_id":"headsha431","body":"## Verdict: APPROVE with notes (ok)\n\nreport"}]
 EOF
   cat > "$EXP/comments1.json" <<'EOF'
-[{"id":1,"created_at":"2026-07-09T10:00:00Z","body":"<!-- devflow:review-progress run=1 -->\n**Reviewed HEAD:** headsha431\n\n## Verdict: APPROVE with notes\n\n## Code Review Findings\n\n### 🔴 Critical\n1. crit\n\n### 🟠 Important / Major\n1. imp one\n2. imp two\n\n### 🟡 Suggestion / Minor\n1. nit\n"}]
+[{"id":1,"created_at":"2026-07-09T10:00:00Z","body":"<!-- devflow:review-progress run=1 -->\n<!-- prflow:review-seeded-head seededsha431 -->\n**Reviewed HEAD:** headsha431\n\n## Verdict: APPROVE with notes\n\n## Code Review Findings\n\n### 🔴 Critical\n1. crit\n\n### 🟠 Important / Major\n1. imp one\n2. imp two\n\n### 🟡 Suggestion / Minor\n1. nit\n"},{"id":2,"created_at":"2026-07-09T11:00:00Z","body":"<!-- devflow:review-progress run=2 -->\n<!-- prflow:review-seeded-head headsha431 -->\n**Reviewed HEAD:** decoyhead431\n\n## Verdict: REJECT\n\n## Code Review Findings\n\n### 🟠 Important / Major\n1. decoy only\n"}]
 EOF
   cat > "$EXP/checkruns1.json" <<'EOF'
 {"check_runs":[{"id":55,"name":"Devflow Review","output":{"summary":"verdict on PR\n\npermission_denials_count: unavailable"}}]}
@@ -157,6 +157,14 @@ EOF
   assert_eq "#431 T1: full-join verdict (shape-matched PR review)" "APPROVE with notes" "$(exp_field "$ST1" 431 verdict)"
   assert_eq "#431 T1: verdict provenance is pr-review" "pr-review" "$(exp_field "$ST1" 431 provenance.verdict)"
   assert_eq "#431 T1: Important-finding count joined via Reviewed HEAD == commit_id" "2" "$(exp_field "$ST1" 431 important_finding_count)"
+  # AC4 of issue #1010: progress comments now ALSO carry the seed-time head key
+  # `<!-- prflow:review-seeded-head <sha> -->`. The comment set above is a DECOY
+  # pair — the real one records the review commit on its `Reviewed HEAD:` line
+  # while carrying a different seeded head, and the decoy inverts that, carrying
+  # the review commit on its SEEDED key and a different `Reviewed HEAD:`. A join
+  # that confused the two keys would pick the decoy and report 1 Important
+  # finding; the `Reviewed HEAD` join is unchanged, so it still reports 2.
+  assert_eq "#431 T1(#1010): the seed-time head key does not capture the Reviewed HEAD join (decoy ignored)" "2" "$(exp_field "$ST1" 431 important_finding_count)"
   assert_eq "#431 T1: denial count carried verbatim from the summary path" "unavailable" "$(exp_field "$ST1" 431 permission_denials_count)"
   assert_eq "#431 T1: denial provenance is check-run-summary" "check-run-summary" "$(exp_field "$ST1" 431 provenance.permission_denials_count)"
   assert_eq "#431 T1: efficiency provenance found" "found" "$(exp_field "$ST1" 431 provenance.efficiency)"

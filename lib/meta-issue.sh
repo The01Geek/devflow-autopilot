@@ -111,10 +111,12 @@ esac
 . "$HERE/resolve-gh.sh"
 : "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
 
-# The reserved DevFlow provenance label plus a fixed Retrospective marker stamped
+# The reserved PRFlow provenance label plus a fixed Retrospective marker stamped
 # on every filed issue. Both are hardcoded constants — no config key controls
-# them (DevFlow is the scan/classify provenance string; Retrospective marks the
-# loop's own filings). Application is best-effort and never aborts the filing.
+# them (PRFlow is the scan/classify provenance string, whose superseded DevFlow
+# spelling stays selectable on already-labelled history but is never stamped on
+# new filings; Retrospective marks the loop's own filings). Application is
+# best-effort and never aborts the filing.
 _apply_labels() {  # $1 = issue number
     local _num="$1" _lbl
     [[ "$DRY_RUN" -eq 1 ]] && return 0
@@ -124,10 +126,10 @@ _apply_labels() {  # $1 = issue number
     # but a label we could not even attempt should say why.
     case "$_num" in
         ''|*[!0-9]*)
-            echo "::warning::meta-issue: could not derive a numeric issue number (got: '${_num}') — DevFlow/Retrospective labels NOT applied" >&2
+            echo "::warning::meta-issue: could not derive a numeric issue number (got: '${_num}') — PRFlow/Retrospective labels NOT applied" >&2
             return 0 ;;
     esac
-    for _lbl in DevFlow Retrospective; do
+    for _lbl in PRFlow Retrospective; do
         DEVFLOW_GH="$DEVFLOW_GH" "$HERE/../scripts/ensure-label.sh" "$_lbl" || true
     done
     # Apply via the shared REST label-apply helper (POST .../issues/{n}/labels),
@@ -135,7 +137,7 @@ _apply_labels() {  # $1 = issue number
     # the repo via org-scoped GraphQL and fail under a repo-scoped token. The helper
     # is best-effort (always exits 0) and leaves its own specific stderr breadcrumb
     # naming the target + labels on failure, mirroring ensure-label.sh's discipline.
-    DEVFLOW_GH="$DEVFLOW_GH" "$HERE/../scripts/apply-labels.sh" "$_num" DevFlow Retrospective || true
+    DEVFLOW_GH="$DEVFLOW_GH" "$HERE/../scripts/apply-labels.sh" "$_num" PRFlow Retrospective || true
 }
 
 # ── Step 1: de-dupe — find or create the issue ──────────────────────────────

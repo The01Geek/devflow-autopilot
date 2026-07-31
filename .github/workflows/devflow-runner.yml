@@ -926,9 +926,9 @@ jobs:
               # mode: it writes NO new telemetry-branch records and does NO push (the push
               # operand DEVFLOW_TELEMETRY_PUSH is deliberately unset here, so #469 AC5 fails
               # closed to staging). A best-effort fetch-before-exclusion step may fast-forward
-              # the LOCAL devflow-telemetry ref to mirror already-published remote records (a
+              # the LOCAL prflow-telemetry ref to mirror already-published remote records (a
               # read — no record append, no push), leaving the tracked tree read-only and the
-              # REMOTE devflow-telemetry ref untouched by this job. Landing the staged artifacts
+              # REMOTE prflow-telemetry ref untouched by this job. Landing the staged artifacts
               # on the branch is the job of the trusted telemetry-push relay (telemetry-push.yml,
               # issue #489): this job uploads them as a workflow artifact (the "Upload staged
               # telemetry artifacts" step below) and the workflow_run-triggered relay downloads,
@@ -2843,7 +2843,7 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          dest="${RUNNER_TEMP:-/tmp}/devflow-telemetry-artifact"
+          dest="${RUNNER_TEMP:-/tmp}/prflow-telemetry-artifact"
           # The collection logic lives in a suite-tested helper (best-effort; the trusted pusher
           # re-validates every entry all-or-nothing, so a collection miss cannot reach the branch).
           # Capture the helper's stdout AND its exit status in the SAME statement (the `_collect_rc`
@@ -2886,7 +2886,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           # A stable, run-scoped name the trusted pusher downloads by run id via `workflow_run`.
-          name: devflow-telemetry-stage-${{ github.run_id }}-${{ github.run_attempt }}
+          name: prflow-telemetry-stage-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.collect_telemetry.outputs.path }}
           # LOAD-BEARING: the entire collected tree lives under the DOT-prefixed `.prflow/`,
           # and actions/upload-artifact@v4 EXCLUDES hidden files by default (include-hidden-files

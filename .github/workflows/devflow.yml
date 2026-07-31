@@ -186,14 +186,17 @@ jobs:
   # review the user explicitly asked for. This is the opposite failure
   # direction from that tier's fail-closed gates, by design.
   #
-  # SCOPE — the two legacy signals above are HEAD-scoped; Signal 3 (issue #989,
-  # the one that fires in this tree) is PULL-REQUEST-scoped. The seeded
-  # review-progress comment it reads carries only a run key at seed time (its
-  # `Reviewed HEAD:` line is stamped at Phase 4, when the review has already
-  # finished), so no commit key exists to filter on while a review is in flight.
-  # Consequence, an accepted cost: pushing a new commit while a review of the
-  # previous one is still running and then asking for a review suppresses that
-  # request. Do not describe this job as "same commit" deduping.
+  # SCOPE — all three signals are HEAD-scoped. The two legacy signals above key on
+  # the resolved head directly; Signal 3 (issue #989, the one that fires in this
+  # tree) became commit-scoped in issue #1010, when the review engine started
+  # stamping a seed-time head key — `<!-- prflow:review-seeded-head <sha> -->` —
+  # into the progress comment it seeds at Phase 0.3.5. That key is DISTINCT from
+  # the comment's `Reviewed HEAD:` line, which is stamped at Phase 4 and means "a
+  # review FINISHED at this head"; two consumers depend on that meaning, so it was
+  # not reused. The head this job resolves is passed into the helper's detect mode
+  # and compared against the seeded key, so a review of a DIFFERENT head does not
+  # suppress this request. An in-flight comment carrying no such key (an older
+  # installed copy) fails OPEN. Describe this job as commit-scoped deduping.
   #
   # Only `/devflow:review` is deduped — NOT `/devflow:review-and-fix` (that
   # auto-applies fixes and has no automated equivalent), and not the
@@ -340,7 +343,7 @@ jobs:
 
           # Signal 3 (Candidate C, issue #989): an IN-FLIGHT review of THIS PR,
           # detected from the review engine's seeded live progress comment
-          # (`devflow:review-progress`, `🚀 Reviewing`, bot-authored, fresh). This
+          # (`prflow:review-progress`, `🚀 Reviewing`, bot-authored, fresh). This
           # is the signal that fires in THIS tree (Signals 1/2 target the withheld
           # auto-review tier and only fire for a consumer whose installed copy
           # predates the withholding). The branch-selecting decision lives in a
@@ -362,8 +365,12 @@ jobs:
           # signal already fired, so the override is applied HERE to IC/IR too.
           # Marker literal coupled with the helper's BACKSTOP_MARKER and
           # scripts/request-review-backstop.sh (pinned in lib/test/).
+          # BOTH marker spellings are matched (issue #1003): a resume comment
+          # posted before the rename carries the superseded one, and this arm
+          # fails OPEN in the wrong direction -- a miss lets ordinary dedupe
+          # SUPPRESS the auto-resume, so the dead review is never resumed.
           case "$BODY" in
-            *"<!-- devflow:review-backstop"*)
+            *"<!-- prflow:review-backstop"*|*"<!-- devflow:review-backstop"*)
               echo "::notice::dedupe-review: triggering /prflow:review carries the review-backstop marker (a no-verdict auto-resume); not suppressing (all signals overridden)."
               IC=0; IR=0 ;;
           esac
@@ -377,7 +384,7 @@ jobs:
             CC_HELPER=.prflow/vendor/prflow/scripts/dedupe-review-command.sh
             if [ ! -x "$CC_HELPER" ]; then
               echo "::warning::dedupe-review helper not found/executable at $CC_HELPER (has install.sh/vendor-plugin vendored the plugin at the pinned prflow_version?); Candidate-C signal skipped (fail-open — manual review proceeds)."
-            elif ! CC_OUT="$(MODE=detect REPO="$REPO" PR="$PR" RUN_ID="${GITHUB_RUN_ID:-}" TRIGGER_BODY="$BODY" bash "$CC_HELPER")"; then
+            elif ! CC_OUT="$(MODE=detect REPO="$REPO" PR="$PR" HEAD="$HEAD" RUN_ID="${GITHUB_RUN_ID:-}" TRIGGER_BODY="$BODY" bash "$CC_HELPER")"; then
               echo "::warning::dedupe-review helper exited non-zero for PR #$PR; Candidate-C signal treated as 0 (fail-open)."
               CC=false
             else
@@ -1434,7 +1441,7 @@ jobs:
 
       # Dead-run review-progress flip (issue #356). A comment-triggered
       # /devflow:review or /devflow:review-and-fix seeds a run-keyed
-      # devflow:review-progress comment; if the run ends non-success the agent
+      # prflow:review-progress comment; if the run ends non-success the agent
       # never flips it out of the interim 🚀 Reviewing state. This always() step
       # does the workflow-level flip on the same three non-success arms
       # devflow-review.yml's finalize_check covers — job failure, cancellation,
@@ -1454,7 +1461,7 @@ jobs:
           ENGINE_ERROR: ${{ steps.engine.outputs.is_error }}
         run: |
           set -euo pipefail
-          FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
+          FLIP_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
           FLIP_HELPER=.prflow/vendor/prflow/scripts/flip-review-progress-failed.sh
           [ -f "$FLIP_HELPER" ] || FLIP_HELPER=scripts/flip-review-progress-failed.sh
           if [ -z "${CONTEXT_NUMBER:-}" ]; then

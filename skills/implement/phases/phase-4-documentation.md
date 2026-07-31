@@ -248,7 +248,7 @@ Failure mode: if `gh issue create` fails for a particular file-group, that group
 
 The fence above recorded the filed issue numbers in the workpad **and printed them** (`filed deferred-finding issues=[...]`) — that print is load-bearing, not decoration, and it deliberately lives **inside** the filing fence: `FILED_NUMBERS` is a shell variable, and a shell variable **does not survive into a later separate command** on the cloud runner (the same rule that forces the label list to be printed). Reading it from a *later* fence would always see it empty, print `[]`, and lead you to conclude "nothing was filed" on a run that filed issues — labelling none of them. Read the printed list from that tool result; it is the only channel that carries the numbers to the agent-level label calls below.
 
-Then apply the configured `deferred.labels` to each filed issue — the **same** resolve/normalize idiom as Phase 4.0 (default `DevFlow,Deferred`; empty/whitespace → none). `file-deferrals.py` itself stays out of config-reading (config is resolver territory — read through `config-get.sh`, not re-parsed ad hoc); the skill owns labeling, best-effort and post-filing, so a label hiccup never unwinds an already-filed issue.
+Then apply the configured `deferred.labels` to each filed issue — the **same** resolve/normalize idiom as Phase 4.0 (default `PRFlow,Deferred`; empty/whitespace → none). `file-deferrals.py` itself stays out of config-reading (config is resolver territory — read through `config-get.sh`, not re-parsed ad hoc); the skill owns labeling, best-effort and post-filing, so a label hiccup never unwinds an already-filed issue.
 
 **Cloud-emission discipline (label helpers): iterate at the agent level, never in a shell loop or a capture — identical to Phase 4.0, see the *Cloud command-shape discipline* section in `skills/implement/SKILL.md`.** The cloud implement matcher denies a `for`/piped-`while read` loop wrapping a label helper and a `VAR="$(label-helper …)"` capture (implement-tier probe rows I4/I5/I6). The `config-get` capture below rests on the same **inference** Phase 4.0 records (the matcher descends into a non-label `$(…)`) — unproven on this tier, which is why the read below fails **closed** on no output. First resolve and **print** the clean label list (printing lets you read the value for the per-issue calls, since a shell variable does not survive into a later separate command on the cloud runner):
 
@@ -257,7 +257,7 @@ Then apply the configured `deferred.labels` to each filed issue — the **same**
 # statement) and is exempt from set -e; the default arg covers the SOFT paths (missing
 # file / unset key → exit 0), only the HARD path (rc≠0 — corrupt config.json / missing
 # python3) leaves DEFERRED_LABELS empty AND a breadcrumb.
-if ! DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then
+if ! DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .deferred.labels PRFlow,Deferred); then
     DEFERRED_LABELS=""
     "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc≠0 — corrupt config.json or python3 missing); deferred review-finding issues filed WITHOUT labels."
 fi

@@ -1227,8 +1227,8 @@ for _ci614_ref in $CI614_REFS; do
     assert_eq "#614 T2: $_ci614_ref has a marker id mapped in ci614_marker_id" "mapped" "unmapped-stem"
     continue
   fi
-  _ci614_start="<!-- devflow:create-issue-ref step=$_ci614_id file=skills/create-issue/references/$_ci614_ref.md start -->"
-  _ci614_end="<!-- devflow:create-issue-ref step=$_ci614_id file=skills/create-issue/references/$_ci614_ref.md end -->"
+  _ci614_start="<!-- prflow:create-issue-ref step=$_ci614_id file=skills/create-issue/references/$_ci614_ref.md start -->"
+  _ci614_end="<!-- prflow:create-issue-ref step=$_ci614_id file=skills/create-issue/references/$_ci614_ref.md end -->"
   assert_eq "#614 T2: $_ci614_ref.md first line is its own start marker" "yes" \
     "$([ "$(head -n 1 "$_ci614_p")" = "$_ci614_start" ] && echo yes || echo no)"
   assert_eq "#614 T2: $_ci614_ref.md last line is its own end marker" "yes" \
@@ -1238,7 +1238,7 @@ for _ci614_ref in $CI614_REFS; do
   # A marker naming a DIFFERENT reference, pasted anywhere in the body, is one of the shapes
   # the root's degrade rule enumerates — the first/last-line checks above cannot see it.
   assert_eq "#614 T2: $_ci614_ref.md carries no marker naming a foreign reference path" "0" \
-    "$(grep -F 'devflow:create-issue-ref' "$_ci614_p" | grep -vcF "file=skills/create-issue/references/$_ci614_ref.md" || true)"
+    "$(grep -F 'prflow:create-issue-ref' "$_ci614_p" | grep -vcF "file=skills/create-issue/references/$_ci614_ref.md" || true)"
   # The routing table's marker-contract column byte-matches the id this file carries.
   assert_eq "#614 T2: the routing row for $_ci614_ref.md states marker id \`step=$_ci614_id\`" "1" \
     "$(grep -F "references/$_ci614_ref.md\` |" "$CI_SKILL" | grep -cF "\`step=$_ci614_id\`")"
@@ -1398,11 +1398,11 @@ assert_eq "#docs-verify: the write-mode reference exists" \
 # First line is the start marker naming this file's own path; last line the matching end.
 # A MISSING-FILE sentinel keeps a deleted reference RED rather than comparing two empties.
 assert_eq "#docs-verify: write-mode reference opens with its own start boundary marker" \
-  "<!-- devflow:docs-verify-ref mode=write file=$CI_DV_WRITE_REF_REL start -->" \
+  "<!-- prflow:docs-verify-ref mode=write file=$CI_DV_WRITE_REF_REL start -->" \
   "$([ -f "$CI_DV_WRITE_REF" ] && head -n 1 "$CI_DV_WRITE_REF" || echo MISSING-FILE)"  # structural-pin-ok: cross-file-phase-contract -- the loading agent validates this exact marker before accepting the reference
 
 assert_eq "#docs-verify: write-mode reference closes with its own end boundary marker" \
-  "<!-- devflow:docs-verify-ref mode=write file=$CI_DV_WRITE_REF_REL end -->" \
+  "<!-- prflow:docs-verify-ref mode=write file=$CI_DV_WRITE_REF_REL end -->" \
   "$([ -f "$CI_DV_WRITE_REF" ] && tail -n 1 "$CI_DV_WRITE_REF" || echo MISSING-FILE)"  # structural-pin-ok: cross-file-phase-contract -- the loading agent validates this exact marker before accepting the reference
 
 # Exactly one of each marker: a duplicated pair would let a truncated read satisfy the gate.
@@ -1452,11 +1452,11 @@ unset -v CI_DV
 
 # issue #1011: Step 4 registers declared `## Dependencies` prerequisites as GitHub-native
 # blocked-by dependencies as a new best-effort sub-step (5b) — the command's leading token is
-# the helper path with just the created issue's number, immediately after the 5a `DevFlow`
+# the helper path with just the created issue's number, immediately after the 5a `PRFlow`
 # label stamp, on the successful-creation path, continuing regardless of the outcome.
 assert_eq "#1011 ci: Step 4 stamps native blocked-by deps via apply-issue-dependencies.py (leading-token, issue-number arg)" "yes" \
   "$(grep -qF 'scripts/apply-issue-dependencies.py <issue_number>' "$CI_REF_STEP4" && echo yes || echo no)"  # raw-guard-ok: routing-dispatch-contract: the cloud-emitted leading-token helper-invocation shape
-assert_eq "#1011 ci: the dependency sub-step (5b) sits after the 5a DevFlow label stamp" "yes" \
+assert_eq "#1011 ci: the dependency sub-step (5b) sits after the 5a PRFlow label stamp" "yes" \
   "$(awk '/^5a\./{a=NR} /apply-issue-dependencies\.py/{d=NR} END{print (a>0 && d>a)?"yes":"no"}' "$CI_REF_STEP4")"  # raw-guard-ok: routing-dispatch-contract: post-creation ordering — the dep stamp follows the label stamp
 
 # Complete normal cleanup explicitly so a removal or marker failure changes the

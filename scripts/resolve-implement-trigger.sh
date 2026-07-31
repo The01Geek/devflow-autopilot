@@ -24,7 +24,7 @@
 #   SELF_COMMENT_MARKER  the repo's effective workpad marker. When TRIGGER_TEXT
 #                   contains it (literal substring), the comment is one DevFlow
 #                   posted itself (the workpad), so we decline — a self-trigger
-#                   guard. Defaults to '<!-- devflow:workpad -->' when unset/empty
+#                   guard. Defaults to '<!-- prflow:workpad -->' when unset/empty
 #                   (matching scripts/workpad.py's own fallback).
 #   IS_PULL_REQUEST 'true' when the triggering thread is a pull request (the
 #                   caller wires it from `github.event.issue.pull_request != null`).
@@ -50,7 +50,17 @@ text="${TRIGGER_TEXT:-}"
 context_number="${CONTEXT_NUMBER:-}"
 # Effective workpad marker; defaults to workpad.py's own fallback so the guard
 # protects repos with no config just the same.
-marker="${SELF_COMMENT_MARKER:-<!-- devflow:workpad -->}"
+marker="${SELF_COMMENT_MARKER:-<!-- prflow:workpad -->}"
+# PRFlow writes the current spelling; every artifact created before the rename carries the superseded one and no body is rewritten, so readers accept BOTH (issue #1003). A self-trigger guard that stops recognising a pre-rename workpad
+# marker fails OPEN — the guard silently no-ops and the comment re-triggers a
+# duplicate cloud run — so the superseded spelling is matched too. It is
+# derived from `marker` rather than hardcoded, so a consumer-customised marker
+# outside the namespace still yields exactly one literal to match.
+case "$marker" in
+  '<!-- prflow:'*) marker_superseded="<!-- devflow:${marker#<!-- prflow:}" ;;
+  '<!-- devflow:'*) marker_superseded="<!-- prflow:${marker#<!-- devflow:}" ;;
+  *) marker_superseded="$marker" ;;
+esac
 # Pull-request context signal; anything other than the literal 'true' (including
 # unset/empty) is treated as an issue thread, so a repo that doesn't wire it
 # behaves exactly as before.
@@ -68,7 +78,7 @@ is_pull_request="${IS_PULL_REQUEST:-}"
 # regex-special chars matches literally.
 if [ -n "$marker" ]; then
   case "$text" in
-    *"$marker"*)
+    *"$marker"*|*"$marker_superseded"*)
       echo "::warning::/devflow:implement trigger came from a Devflow-authored comment (workpad marker present); skipping (self-trigger guard)." >&2
       emit should_run false
       emit number ""

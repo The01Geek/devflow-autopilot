@@ -1,7 +1,7 @@
 name: Telemetry push (trusted relay)
 
 # Issue #489: land the read-only auto-review tier's STAGED observability artifacts onto the
-# `devflow-telemetry` branch. The auto-review job (devflow-runner.yml's `review` profile) runs
+# `prflow-telemetry` branch. The auto-review job (devflow-runner.yml's `review` profile) runs
 # on the PR HEAD with `contents: read`, so it cannot push — it uploads its staged records as a
 # workflow artifact (devflow-runner.yml's "Upload staged telemetry artifacts" step) and stops.
 #
@@ -114,7 +114,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: devflow-telemetry-stage-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          name: prflow-telemetry-stage-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/telemetry-dl

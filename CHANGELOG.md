@@ -4,6 +4,139 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.3] — 2026-07-31
+
+### Changed
+Correct the provenance-label prose the Tier 2 rename left stale, and cover the current spelling (#1003, follow-up to PR #1016).
+
+`docs/DEVFLOW_SYSTEM_OVERVIEW.md` stated that the retrospective bundle's `pr_devflow_provenance` boolean is "`true` iff the literal `DevFlow` label" is on the PR or the resolved linked issue — on a line the Tier 2 rename itself modified, while that same change made the producer match `PRFlow` **or** `DevFlow`. A `PRFlow`-only PR, which is what every post-rename run produces, therefore contradicted the documented rule. The clause now reads "`true` iff the `PRFlow` provenance label (or its superseded `DevFlow` spelling)", and the same reconciliation is applied to the describing prose that sat beside already-renamed commands: Phase 3.1's provenance-apply prose and its success-breadcrumb example (`apply-labels.sh PRFlow` emits `'PRFlow'`), `/prflow:create-issue`'s stamp step and its root invariant, the `deferred.labels` bullets, the `meta-issue.sh` label pair (it stamps `PRFlow` + `Retrospective`), the two `DevFlow,Deferred` default mentions that disagreed with the `PRFlow,Deferred` default their own adjacent fence passes, and the `fetch-pr-context.sh` / `meta-issue.sh` comment blocks that still stated the single-spelling rule. Product-name prose, the `DevFlow` App name, the frozen `pr_devflow_provenance` field name and the code-coupled `# DevFlow Workpad` heading are deliberately untouched — none is a label-value claim.
+
+Two coverage gaps found in the same review are closed. `build-experiment-records.py`'s unmigrated-telemetry-branch detection — the arm that warns when `prflow-telemetry` is absent while the superseded `devflow-telemetry` branch is still present — had no test at all, so a fail-open in its second `rev-parse` comparand would have shipped green; it now has a fixture repo per ref combination, asserting the warning fires with its one-shot rename command, that detection is not a read-through, and that neither the already-migrated nor the genuinely-absent repo warns. Separately, no fixture anywhere exercised the **current** spelling: `lib/scan.sh`, `lib/classify-pr-kind.jq` and `lib/fetch-pr-context.sh` were covered only by their superseded twins, so the `PRFlow` literals and the `prflow:workpad` marker — the spelling every post-rename artifact carries — would have survived a typo such as `PrFlow`. Positive coverage now drives both label shapes on both provenance legs, the current workpad marker, and a mis-cased near-miss negative control on each surface.
+
+## [2.30.2] — 2026-07-31
+
+### Changed
+- **`review_dedupe` is now commit-scoped, not pull-request-scoped.** A `/prflow:review`
+  requested while a review of a *different* head is in flight now proceeds instead of being
+  suppressed, so pushing a commit mid-review and asking for a review no longer makes you wait
+  for the earlier review to finish. The review engine stamps the head it is reviewing into the
+  live progress comment it seeds at Phase 0.3.5, as a new machine-only producer key —
+  `<!-- prflow:review-seeded-head <sha> -->` — carried in the comment template so every
+  in-place rewrite re-emits it. The key is deliberately distinct from that comment's
+  `Reviewed HEAD:` line, whose meaning ("a review *finished* at this head") two consumers
+  depend on and which is unchanged. The value recorded is the PR's API `headRefOid` captured
+  before any caller head-override, so a `/prflow:review` issued during a
+  `/prflow:review-and-fix` fix loop — whose head is a locally-committed, possibly unpushed
+  SHA — is still suppressed. An in-flight review seeded by an installed copy predating this
+  change carries no such key and fails **open** with a breadcrumb naming it, so an upgraded
+  workflow never suppresses on a head it could not establish. The suppression notice now names
+  the commit and states commit scope. (#1010)
+
+## [2.30.1] — 2026-07-31
+
+### Fixed
+- **Corrected the `configureGitAuth` evidence label on the Windows git-env pins.** `docs/cloud-setup.md`,
+  `docs/install.md` and `.prflow/config.schema.json` no longer state that no cell of the `configureGitAuth`
+  column has been observed on a self-hosted Windows runner. Each now records the one datum on record — a
+  `/prflow:implement` job that completed on such a runner (maintainer-reported from a consumer's runner,
+  2026-07-21; not independently reproducible here, no run identifier committed) — at the precision it
+  supports: `GIT_DIR` certainly absent because the implement tier suppresses it, `GIT_WORK_TREE` only
+  *inferred* absent from the completed plugin install, with a pre-existing marketplace checkout on a
+  persistent self-hosted runner named as the falsifier and the run's git-env step output named as the
+  evidence that would settle it. The both-pins-off default row records that contradicting observation
+  instead of a flat *fails*, and the abort claim is scoped to that row and marked inferred at all three
+  sites. Schema edit is confined to description text — no key, type or default changes. (#699)
+- **Stated the full rejection disjunction in `scripts/install-gh-wrapper.sh`'s multi-line-capture comment.**
+  The comment gave one rejection mechanism as though it were the only one; it now names both routes a
+  polluted capture is rejected along, and records the one shape that legitimately passes on the measured
+  mode value alone. Comment-only change — no executable line differs. (#699)
+
+## [2.30.0] — 2026-07-31
+
+### Changed
+### Changed
+
+- **PRFlow rename Tier 2 (issue #1003)** — the three consumer-visible brand identifiers move,
+  and every reader of a pre-rename artifact keeps resolving it.
+  - The **provenance label** new runs stamp is now `PRFlow`. Every selector accepts **both**
+    `PRFlow` and the superseded `DevFlow` (`lib/scan.sh`, `lib/classify-pr-kind.jq`,
+    `lib/fetch-pr-context.sh`), so no retrospective history is dropped. The API-side filter
+    now uses a single `--search "… label:PRFlow,DevFlow"` qualifier — `gh pr list --label A
+    --label B` is an **AND** and would have returned zero candidates silently.
+  - The **telemetry branch** default is now `prflow-telemetry`. Records already published on
+    `devflow-telemetry` are not migrated automatically; the unmigrated state is *detected*
+    with a breadcrumb naming the one-line `git push origin devflow-telemetry:prflow-telemetry`
+    migration (see `docs/efficiency-trace.md`).
+  - **Comment markers** newly written carry `<!-- prflow:… -->`. No existing issue or PR body
+    is rewritten. Readers of persisted GitHub artifacts accept both spellings **per record**,
+    so a workpad mutated in place across the rename boundary still discharges its pre-rename
+    `deferred-filed` records and binds its pre-rename `scope-decision pr=pending` ones.
+    In-tree reference boundaries (`*-ref`) and the in-run `dispatch-scope` file-format marker
+    are renamed in place with no dual form.
+  - `deferred.labels` defaults to `PRFlow,Deferred`.
+
+### Fixed
+
+- `scripts/match-lint-adjudications.py`'s adjudication-sentinel tamper guard now counts the
+  **union** of both marker spellings. Counting each spelling independently would have let one
+  genuine new-form section sit beside one attacker-quoted old-form section, read as `1` and
+  `1`, raise no tamper flag, and honor the forged window. The review engine's producer-side
+  neutralization list names both spellings to match.
+- Every fail-open marker reader is fixed rather than documented: both trigger resolvers, the
+  `#989` review-backstop dedupe override, the stall-backstop lifetime attempt counter and the
+  review-backstop per-head attempt counter now match or count both spellings — a marker miss
+  in any of them was a duplicate-run or suppressed-resume bug, not a cosmetic gap.
+- `.prflow/config.schema.json`'s `docs.labels` default was `DevFlow`, disagreeing with the
+  shipped example config, the live config and the resolver default; it is now `Documented`.
+
+### Added
+
+- `lib/rename-map.json` gains a top-level `identifiers` rename channel with per-entry match
+  semantics (`token` / `prefix`), and `lib/test/pin-corpus-lint.py` compiles it. The alternation
+  is ordered longest-literal-first with frozen entries winning ties, and the builder now refuses
+  a name that is both frozen and mapped, an unrecognised top-level block, and an identifier
+  entry with no declared match — three edits that were previously silent no-ops.
+
+## [2.29.2] — 2026-07-31
+
+### Changed
+### Added
+
+- A **"do not rename" inventory** for the consumer-facing `DEVFLOW_*` variables, secrets and
+  environment overrides that the DevFlow → PRFlow rename deliberately left alone (issue #1004).
+  These live outside your repository — in GitHub's settings and in your shell profile — and
+  nothing PRFlow ships reads a `PRFLOW_*` equivalent, so renaming one does not move a setting,
+  it removes it. Most remove it *silently*: an unresolvable GitHub variable is indistinguishable
+  from one you deliberately never set, so every gate takes its "not configured" arm and the run
+  goes green under a degraded identity. The advisory names each identifier, where you set it,
+  and exactly what renaming it does — including that renaming `DEVFLOW_RUNNER` silently relocates
+  every job to a GitHub-hosted runner while that job still carries your App private key and
+  provider API key in its environment. It lives in `docs/cloud-setup.md` ("Why these settings are
+  still called `DEVFLOW_*`"), with a pointer from `docs/install.md`.
+- `install.sh` now emits a matching advisory NOTICE when it upgrades an **existing** installation
+  — the population that already has these names configured. A first-time install stays silent.
+
+### Internal
+
+- The frozen population is recorded machine-readably as `frozen.env_identifiers` in
+  `lib/rename-map.json`, alongside the two-arm criterion that selects it and the two names
+  adjudicated out of it (`DEVFLOW_PROMPT_EXTENSION_ROOT`, `DEVFLOW_CONFIG_FILE`) with the
+  deciding arm for each. `lib/generate-env-freeze-advisory.py` renders the advisory region from
+  that block and re-runs the criterion over the tree, so a workflow that starts reading a new
+  `vars.DEVFLOW_*` name — or a recorded name whose read side goes away — fails the suite until
+  it is adjudicated.
+
+## [2.29.1] — 2026-07-31
+
+### Changed
+Correct stale self-referential claims left in comments by the Tier 1 `devflow` -> `prflow` rename (#1002 / PR #1005).
+
+`lib/rename-map.json` is the single source of truth for the rename, and its own `_comment` named two reader files that have never existed — `lib/rename_map.py` and `lib/rename-map.sh`. There is no shared loader helper: every reader parses the map itself (`scripts/config-get.sh`, `scripts/scaffold-config.sh`, `scripts/migrate-consumer-tier1.sh`, and `lib/test/pin-corpus-lint.py`), while `lib/resolve-state-dir.sh` and `lib/state_dir.py` deliberately mirror the `paths.state_dir` literals instead of reading them. The comment now says so.
+
+Five sibling comments introduced or rewritten by the same change are corrected alongside it: `scripts/scaffold-config.sh` attributed the config-key migration's skip conditions to an unusable `jq` when they are an absent rename map or a missing `python3` (and the anti-graft guard cannot cover the `jq` path at all, because an unusable `jq` skips the whole backfill); `scripts/migrate-consumer-tier1.sh` cited a deleted identifier as the case its key-rule lookahead rejects, and credited the lookbehind with protecting two frozen shapes that no rewrite rule can match in the first place; `install.sh` named the pre-rename config key in a comment whose scanner probes both spellings, left the same scanner's malformed-shape enumeration naming only the superseded block, and — after the mechanical path swap — illustrated a `devflow` substring hazard with an example string that no longer contains that substring; and `lib/test/pin-corpus-lint.py` documented a `None` return on a helper that only ever raises.
+
+Comment-only: no executable behaviour, machine-consumed contract, or test assertion changes.
+
 ## [2.29.0] — 2026-07-31
 
 ### Changed

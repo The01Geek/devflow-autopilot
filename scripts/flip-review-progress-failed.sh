@@ -5,7 +5,7 @@
 #
 # Best-effort backstop (issue #356): when a review-engine run dies — the job
 # fails, is cancelled, or the runner is lost before the agent can act — flip
-# THIS run's `devflow:review-progress` comment from the interim `🚀 Reviewing`
+# THIS run's `prflow:review-progress` comment from the interim `🚀 Reviewing`
 # state to the terminal `❌ Review failed` state so its Status stops lying. This
 # is the workflow-level mirror of the agent-side fatal-abort rule in
 # skills/review/SKILL.md (the "Fatal review abort after seeding" clause); the
@@ -27,7 +27,7 @@
 #     🚀 (interim) — anything else (a written verdict, an agent-side
 #     `❌ Review failed`, any terminal glyph) is treated as terminal and left
 #     untouched (fail closed to no flip).
-#   - The run-keyed marker (`<!-- devflow:review-progress run=<id>-<attempt> -->`)
+#   - The run-keyed marker (`<!-- prflow:review-progress run=<id>-<attempt> -->`)
 #     matches ONLY the current run's comment, so an earlier run's comment is
 #     never modified.
 #
@@ -138,7 +138,7 @@ if [ "$ID_RC" -eq 2 ] && [ -n "$WP_ERR" ] && [ -s "$WP_ERR" ]; then
   _wp_err_cleanup
   exit 0
 elif [ "$ID_RC" -eq 2 ]; then
-  echo "flip-review-progress-failed: no devflow:review-progress comment for PR #${PR} (marker '${MARKER}', workpad.py id rc=2 — scanned cleanly, none present) — comment-absent no-op" >&2
+  echo "flip-review-progress-failed: no prflow:review-progress comment for PR #${PR} (marker '${MARKER}', workpad.py id rc=2 — scanned cleanly, none present) — comment-absent no-op" >&2
   _wp_err_cleanup
   exit 0
 elif [ "$ID_RC" -ne 0 ] || [ -z "$CID" ]; then

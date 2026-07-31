@@ -153,9 +153,13 @@ def say(line):
 # ---------------------------------------------------------------- rewrite rules
 # The same closed rule set the repository-side rename used. Each carries explicit
 # negative context so a FROZEN identifier is never rewritten: the lookbehind on
-# `workflows` protects workflows.devflow / workflows["devflow-review"], and the
-# lookahead on the key rule rejects longer identifiers such as
-# devflow_review_run_count and the devflow_module_pin_* harness functions.
+# `workflows` protects the frozen workflows.devflow key, and the lookahead on the
+# key rule rejects a longer identifier that merely STARTS with one of the six
+# brand-named suffixes (devflow_review_thing, say). Two other frozen shapes need
+# no guard because no rule can match them at all: workflows["devflow-review"]
+# carries no literal `.devflow` for DIR_RE and does not close the quote right
+# after devflow for BARE_RE, and the devflow_module_pin_* harness functions fall
+# outside the closed alternation in KEY_RE.
 KEY_RE = re.compile(r"\bdevflow_(version|implement|runner|review_and_fix|review|retrospective)(?![A-Za-z0-9_])")
 DIR_RE = re.compile(r"(?<!workflows)\.devflow(?![A-Za-z])")
 VENDOR_RE = re.compile(re.escape(VENDOR["superseded"]))

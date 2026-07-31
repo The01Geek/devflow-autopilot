@@ -37,16 +37,29 @@ context_number="${CONTEXT_NUMBER:-}"
 # narrative naturally quotes `/devflow:review`).
 #
 # The effective markers default to their built-in values (the run-keyed
-# review-progress marker PREFIX `<!-- devflow:review-progress`, matching
-# scripts/derive-review-verdict.sh's `<!-- devflow:review-progress run=<id>- -->`
-# shape, and the workpad marker `<!-- devflow:workpad -->`, matching
+# review-progress marker PREFIX `<!-- prflow:review-progress`, matching
+# scripts/derive-review-verdict.sh's `<!-- prflow:review-progress run=<id>- -->`
+# shape, and the workpad marker `<!-- prflow:workpad -->`, matching
 # scripts/workpad.py's own fallback), so the guard protects a repo with no extra
 # workflow wiring. Each is a literal substring match (`case`, not a regex), so a
 # marker customized with regex-special characters still matches literally and a
 # marker quoted/embedded anywhere in the body is still caught.
-review_progress_marker="${SELF_REVIEW_PROGRESS_MARKER:-<!-- devflow:review-progress}"
-workpad_marker="${SELF_WORKPAD_MARKER:-<!-- devflow:workpad -->}"
-for marker in "$review_progress_marker" "$workpad_marker"; do
+review_progress_marker="${SELF_REVIEW_PROGRESS_MARKER:-<!-- prflow:review-progress}"
+workpad_marker="${SELF_WORKPAD_MARKER:-<!-- prflow:workpad -->}"
+# PRFlow writes the current spelling; every artifact created before the rename carries the superseded one and no body is rewritten, so readers accept BOTH (issue #1003). A self-trigger guard that stops recognising a pre-rename marker fails
+# OPEN — it silently no-ops and the Devflow-authored comment re-triggers a
+# duplicate run — so each effective marker contributes its other-namespace twin
+# too. The twin is DERIVED from the effective value, so a consumer-customised
+# marker outside the namespace contributes only itself.
+_ns_twin() {
+  case "$1" in
+    '<!-- prflow:'*) printf '%s\n' "<!-- devflow:${1#<!-- prflow:}" ;;
+    '<!-- devflow:'*) printf '%s\n' "<!-- prflow:${1#<!-- devflow:}" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+for marker in "$review_progress_marker" "$(_ns_twin "$review_progress_marker")" \
+              "$workpad_marker" "$(_ns_twin "$workpad_marker")"; do
   [ -n "$marker" ] || continue
   case "$text" in
     *"$marker"*)
