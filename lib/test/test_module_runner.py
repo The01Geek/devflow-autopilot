@@ -51,9 +51,12 @@ MONOLITH_HELPER_RE = re.compile(
 # comment, are not false positives.
 MODULE_SKIP_CALL_RE = re.compile(r"^[ \t]*skip(?:[ \t]|$)", re.MULTILINE)
 
-# The three fixture helpers issue #695 promoted from lib/test/run.sh into
-# lib/test/module-harness.sh. Exactly one definition of each must exist tree-wide.
-PROMOTED_HARNESS_HELPERS = ("mint_blk", "probe_tmp", "probe_assert")
+# The fixture helpers promoted from lib/test/run.sh into lib/test/module-harness.sh —
+# `mint_blk` / `probe_tmp` / `probe_assert` by issue #695, `git_sandbox` alongside the
+# issue-audit-state extraction. Exactly one definition of each must exist tree-wide.
+# A promotion that does not extend this tuple leaves its own helper unguarded, which is
+# why the tuple is edited in the same change as the promotion.
+PROMOTED_HARNESS_HELPERS = ("mint_blk", "probe_tmp", "probe_assert", "git_sandbox")
 
 
 class ModuleRunnerTests(unittest.TestCase):
@@ -437,6 +440,53 @@ class ModuleRunnerTests(unittest.TestCase):
             )
             self.assertIn(
                 f"Module review-and-fix-contract: {floor} passed, 0 failed",
+                result.stdout,
+            )
+            self.assertTrue(list(Path(log_dir).iterdir()))
+
+    def test_issue_audit_state_module_runs_green_through_the_real_runner(self) -> None:
+        """The issue-audit-state module's fixtures need the real runner environment.
+
+        Every fixture in that module allocates a throwaway git repository through
+        `git_sandbox`, which lives in `lib/test/module-harness.sh` rather than in
+        `lib/test/run.sh`. The full suite exercises the module only through the
+        harness boundary, so this is the execution that proves the FOCUSED runner's
+        environment contract (LIB, RESULTS_FILE, assert_eq, sourced harness) also
+        satisfies it. The expected tally is read from the registry — never restated
+        as a second literal here, which would be one more site to reconcile whenever
+        the module's assertion count moves.
+        """
+        registry = json.loads(
+            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        floor = registry["test_modules"]["issue-audit-state"]["minimum_assertions"]
+        environment = os.environ.copy()
+        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+        with tempfile.TemporaryDirectory() as log_dir:
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(RUNNER_SOURCE),
+                    "--log-dir",
+                    log_dir,
+                    "issue-audit-state",
+                ],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(
+                result.returncode,
+                0,
+                result.stdout[-4000:] + result.stderr[-4000:],
+            )
+            self.assertIn(
+                f"Module issue-audit-state: {floor} passed, 0 failed",
                 result.stdout,
             )
             self.assertTrue(list(Path(log_dir).iterdir()))
@@ -1456,8 +1506,9 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertIn("clearing inherited DEVFLOW_GH", result.stderr)
 
     def test_promoted_fixture_helpers_are_defined_only_in_the_module_harness(self) -> None:
-        # Issue #695: mint_blk / probe_tmp / probe_assert were PROMOTED out of the
-        # monolith, not copied — uses of all three stay in lib/test/run.sh, so a second
+        # Issue #695: mint_blk / probe_tmp / probe_assert — joined later by git_sandbox —
+        # were PROMOTED out of the monolith, not copied; uses stay in lib/test/run.sh
+        # (git_sandbox's are its retained #161 AC3 block), so a second
         # copy would be an uncoupled mirror of load-bearing logic (an exact use count is
         # deliberately not stated here: it rots on the next edit to either file). Each
         # must have exactly one definition tree-wide, in

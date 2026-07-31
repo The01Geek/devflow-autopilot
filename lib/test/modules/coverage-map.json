@@ -356,8 +356,8 @@
     },
     "scripts/issue-audit-state.py": {
       "focused_test": "lib/test/test_python_scripts.py",
-      "note": "",
-      "owner": "unmodularized"
+      "note": "create-issue Step 3.6 audit-lifecycle state owner; the shell-level CLI drivers live in the issue-audit-state module, the pure-function coverage in the focused Python test named above",
+      "owner": "issue-audit-state"
     },
     "scripts/load-prompt-extension.sh": {
       "note": "",
@@ -1337,7 +1337,7 @@
     },
     "546": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "create-issue-contract"
     },
     "547": {
       "note": "",
@@ -1393,7 +1393,7 @@
     },
     "562": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "issue-audit-state"
     },
     "563": {
       "note": "",
@@ -1445,7 +1445,7 @@
     },
     "603": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "create-issue-contract"
     },
     "609": {
       "note": "",
@@ -1457,7 +1457,7 @@
     },
     "611": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "create-issue-contract"
     },
     "613": {
       "note": "",
@@ -1592,8 +1592,8 @@
       "owner": "create-issue-contract"
     },
     "709": {
-      "note": "partially extracted: the module carries the #709 contract pins while the state-owner rows stay in the unmodularized #546 block",
-      "owner": "unmodularized"
+      "note": "split across two modules: create-issue-contract carries the #709 contract pins, issue-audit-state carries the state-owner rows. A single owner string can name only one, and --fix picks the alphabetically first carrier; route a state-owner change by the files entry for scripts/issue-audit-state.py",
+      "owner": "create-issue-contract"
     },
     "711": {
       "note": "",
@@ -1633,7 +1633,7 @@
     },
     "743": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "issue-audit-state"
     },
     "745": {
       "note": "",
@@ -1805,7 +1805,7 @@
     },
     "889": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "issue-audit-state"
     },
     "890": {
       "note": "",
