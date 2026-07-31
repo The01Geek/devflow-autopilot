@@ -1588,7 +1588,7 @@
       "owner": "create-issue-contract"
     },
     "709": {
-      "note": "partially extracted: the module carries the #709 contract pins while the state-owner rows stay in the unmodularized #546 block",
+      "note": "split across two modules: create-issue-contract carries the #709 contract pins, issue-audit-state carries the state-owner rows. A single owner string can name only one, and --fix picks the alphabetically first carrier; route a state-owner change by the files entry for scripts/issue-audit-state.py",
       "owner": "create-issue-contract"
     },
     "711": {

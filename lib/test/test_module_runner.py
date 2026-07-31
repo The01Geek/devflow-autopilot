@@ -51,9 +51,12 @@ MONOLITH_HELPER_RE = re.compile(
 # comment, are not false positives.
 MODULE_SKIP_CALL_RE = re.compile(r"^[ \t]*skip(?:[ \t]|$)", re.MULTILINE)
 
-# The three fixture helpers issue #695 promoted from lib/test/run.sh into
-# lib/test/module-harness.sh. Exactly one definition of each must exist tree-wide.
-PROMOTED_HARNESS_HELPERS = ("mint_blk", "probe_tmp", "probe_assert")
+# The fixture helpers promoted from lib/test/run.sh into lib/test/module-harness.sh —
+# `mint_blk` / `probe_tmp` / `probe_assert` by issue #695, `git_sandbox` alongside the
+# issue-audit-state extraction. Exactly one definition of each must exist tree-wide.
+# A promotion that does not extend this tuple leaves its own helper unguarded, which is
+# why the tuple is edited in the same change as the promotion.
+PROMOTED_HARNESS_HELPERS = ("mint_blk", "probe_tmp", "probe_assert", "git_sandbox")
 
 
 class ModuleRunnerTests(unittest.TestCase):
@@ -1503,8 +1506,9 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertIn("clearing inherited DEVFLOW_GH", result.stderr)
 
     def test_promoted_fixture_helpers_are_defined_only_in_the_module_harness(self) -> None:
-        # Issue #695: mint_blk / probe_tmp / probe_assert were PROMOTED out of the
-        # monolith, not copied — uses of all three stay in lib/test/run.sh, so a second
+        # Issue #695: mint_blk / probe_tmp / probe_assert — joined later by git_sandbox —
+        # were PROMOTED out of the monolith, not copied; uses stay in lib/test/run.sh
+        # (git_sandbox's are its retained #161 AC3 block), so a second
         # copy would be an uncoupled mirror of load-bearing logic (an exact use count is
         # deliberately not stated here: it rots on the next edit to either file). Each
         # must have exactly one definition tree-wide, in
