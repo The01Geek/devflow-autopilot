@@ -591,23 +591,36 @@ the `review_dedupe` job in `devflow.yml`.
   `/prflow:review` carrying the `prflow:review-backstop` marker — the manual path's
   no-verdict auto-resume, posted from inside a still-active run — is **never**
   suppressed, so the resume still fires.
-- **Three accepted, deliberate costs.** With `prflow_review.live_progress_comment_enabled`
+- **Commit scope, via a seed-time head key (issue #1010).** The suppression is
+  **commit-scoped**: a review requested while a review of a *different* head is in
+  flight proceeds. The engine stamps the head into the comment it seeds at Phase
+  0.3.5, as its own machine-only producer key — the HTML-comment marker
+  `<!-- prflow:review-seeded-head <sha> -->`, carried in the progress-comment
+  template so every in-place rewrite re-emits it, and invisible in the rendered
+  comment. It is deliberately **not** the comment's `Reviewed HEAD:` line, whose
+  documented meaning is "a review *finished* at this head" and on which two
+  consumers depend (Phase 0.3.6's blocker-recheck precondition 2, and
+  `scripts/build-experiment-records.py`'s verdict↔finding-count join): stamping
+  that line at seed time would make every in-flight comment present as a completed
+  review to both. The value recorded is the PR's **API `headRefOid` as Phase 0.2
+  resolved it, before any caller head-override** — the same quantity `review_dedupe`
+  resolves for the incoming request, which is what keeps the second accepted cost
+  below intact when a fix loop is reviewing a locally-committed, unpushed head.
+  `MODE=detect` receives that head and requires an **exact** delimited match; an
+  in-flight comment carrying **no** such key — one seeded by an installed copy
+  predating this change — fails **open** with a breadcrumb naming the absent key,
+  because a head that cannot be established is never grounds for suppression.
+- **Two accepted, deliberate costs.** With `prflow_review.live_progress_comment_enabled`
   off there is no seeded comment, so nothing is suppressed (present-day behavior);
-  a `/prflow:review` issued during a `/prflow:review-and-fix` run *is* suppressed,
-  because that run executes the review engine and the suppressed review would have
-  been redundant; and the check is **pull-request-scoped, not commit-scoped** — the
-  helper's detect mode takes no head and compares no commits, because the seeded
-  comment carries only a run key while the review is in flight (its `Reviewed HEAD:`
-  line is stamped at Phase 4, on a review that has already *finished*, so no commit
-  key exists to filter on). A `/prflow:review` requested after pushing a new commit,
-  with the review of the previous commit still running, is therefore suppressed as
-  well; it proceeds once that review posts its verdict, or once its comment ages
-  past the liveness window. The first two costs were part of the Candidate C
-  decision; this third one was **found during PR #993's review**, after that
-  decision — it is recorded here so it can be re-decided rather than assumed
-  accepted, and the alternative (stamping the head into the *seeded* comment so
-  detect mode could filter on it) is a change to the review engine's seed template
-  and a new producer-key contract, not a rewording.
+  and a `/prflow:review` issued during a `/prflow:review-and-fix` run *is*
+  suppressed, because that run executes the review engine and the suppressed review
+  would have been redundant. The second holds while the PR's remote head is the one
+  that run seeded on — once the fix loop *pushes*, the remote head has genuinely
+  moved and a request naming the new head is a review of a commit nothing is
+  reviewing, which the commit scope above correctly lets through. Both were part of
+  the Candidate C decision. A third cost — pull-request rather than commit scope —
+  was found during PR #993's review and **retired by issue #1010**, which added the
+  seed-time head key above.
 - **Fails open in every direction.** A missing/unresolvable operand, a query error,
   an unparseable response, an unresolvable `jq`, or an absent/mis-vendored helper
   all yield *no suppression* with a specific breadcrumb — a missed suppression only

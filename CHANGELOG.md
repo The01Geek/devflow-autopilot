@@ -4,6 +4,44 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.2] — 2026-07-31
+
+### Changed
+- **`review_dedupe` is now commit-scoped, not pull-request-scoped.** A `/prflow:review`
+  requested while a review of a *different* head is in flight now proceeds instead of being
+  suppressed, so pushing a commit mid-review and asking for a review no longer makes you wait
+  for the earlier review to finish. The review engine stamps the head it is reviewing into the
+  live progress comment it seeds at Phase 0.3.5, as a new machine-only producer key —
+  `<!-- prflow:review-seeded-head <sha> -->` — carried in the comment template so every
+  in-place rewrite re-emits it. The key is deliberately distinct from that comment's
+  `Reviewed HEAD:` line, whose meaning ("a review *finished* at this head") two consumers
+  depend on and which is unchanged. The value recorded is the PR's API `headRefOid` captured
+  before any caller head-override, so a `/prflow:review` issued during a
+  `/prflow:review-and-fix` fix loop — whose head is a locally-committed, possibly unpushed
+  SHA — is still suppressed. An in-flight review seeded by an installed copy predating this
+  change carries no such key and fails **open** with a breadcrumb naming it, so an upgraded
+  workflow never suppresses on a head it could not establish. The suppression notice now names
+  the commit and states commit scope. (#1010)
+
+## [2.30.1] — 2026-07-31
+
+### Fixed
+- **Corrected the `configureGitAuth` evidence label on the Windows git-env pins.** `docs/cloud-setup.md`,
+  `docs/install.md` and `.prflow/config.schema.json` no longer state that no cell of the `configureGitAuth`
+  column has been observed on a self-hosted Windows runner. Each now records the one datum on record — a
+  `/prflow:implement` job that completed on such a runner (maintainer-reported from a consumer's runner,
+  2026-07-21; not independently reproducible here, no run identifier committed) — at the precision it
+  supports: `GIT_DIR` certainly absent because the implement tier suppresses it, `GIT_WORK_TREE` only
+  *inferred* absent from the completed plugin install, with a pre-existing marketplace checkout on a
+  persistent self-hosted runner named as the falsifier and the run's git-env step output named as the
+  evidence that would settle it. The both-pins-off default row records that contradicting observation
+  instead of a flat *fails*, and the abort claim is scoped to that row and marked inferred at all three
+  sites. Schema edit is confined to description text — no key, type or default changes. (#699)
+- **Stated the full rejection disjunction in `scripts/install-gh-wrapper.sh`'s multi-line-capture comment.**
+  The comment gave one rejection mechanism as though it were the only one; it now names both routes a
+  polluted capture is rejected along, and records the one shape that legitimately passes on the measured
+  mode value alone. Comment-only change — no executable line differs. (#699)
+
 ## [2.30.0] — 2026-07-31
 
 ### Changed

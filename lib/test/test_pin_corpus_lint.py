@@ -5492,10 +5492,14 @@ class BundleTargetInspection956Tests(unittest.TestCase):
             )
 
     def test_an_unmodeled_loop_append_leaves_the_bundle_unresolved(self):
-        # run.sh also builds bundles by looping over a STEM list and appending an
-        # interpolated path. Resolving that array to "the words modeled so far"
-        # would yield a strict SUBSET of the real membership and could report a
-        # present literal as absent, so the shape must poison the bundle instead.
+        # A loop body that appends neither the loop variable nor a template
+        # interpolating it contributes members this grammar cannot enumerate.
+        # Resolving that array to "the words modeled so far" would yield a strict
+        # SUBSET of the real membership and could report a present literal as
+        # absent, so the shape must poison the bundle instead. (The interpolated
+        # stem-list shape this test once covered IS modeled since issue #1008 —
+        # BundleStemLoopAndAliasResolution1008Tests carries it, with its own
+        # negative controls.)
         with tempfile.TemporaryDirectory() as td:
             root = self._tree(td)
             build = (
@@ -5504,7 +5508,7 @@ class BundleTargetInspection956Tests(unittest.TestCase):
                 'STEMS="fixing"\n'
                 '_members=("$SKILL")\n'
                 "for _s in $STEMS; do\n"
-                '  _members+=("$ROOT/skills/demo/references/${_s}.md")\n'
+                '  _members+=("$ROOT/skills/demo/references/fixing.md")\n'
                 "done\n"
                 'devflow_module_build_bundle "demo" "$BUNDLE" "${_members[@]}"\n'
             )
@@ -5569,6 +5573,251 @@ class BundleTargetInspection956Tests(unittest.TestCase):
                     }
                 ),
             )
+
+
+class BundleStemLoopAndAliasResolution1008Tests(unittest.TestCase):
+    """Issue #1008: the two independent reasons a bundle variable still failed to
+    resolve after issue #956, each measured against ``lib/test/run.sh`` first.
+
+    Cause A — the stem-loop build body. ``$REVIEW_BUNDLE`` iterates a word-list
+    variable and appends a path TEMPLATE per stem rather than the loop variable
+    itself, so it resolved to nothing while the two array-built bundles beside it
+    resolved to 9 and 10 members. Cause B — a comment-suffixed alias
+    (``ST_RAF="$MAXI_BUNDLE"   # …``) did not resolve even when its source bundle
+    did, because the comment is part of the right-hand side.
+
+    Either one left a ``# structural-pin-ok:`` declaration on the affected pin
+    refused as uninspectable, which froze the whole logical line. The positive
+    tests prove the unfreeze; the negative controls prove the widening is
+    resolution, not amnesty — an unmodeled stem list, an unresolvable template, a
+    reassigned list, a basename skip over a template, an unmodeled body statement
+    and a hash that is not a trailing comment all keep the refusal.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load_linter()
+
+    MARKER = (
+        "# structural-pin-ok: cross-file-phase-contract -- "
+        "the sentence spells a contract the split surfaces share"
+    )
+    LITERAL = "the reviewer re-derives bundle identity on every entry"
+    ORPHAN_LITERAL = "this phase file is named by no stem in the list"
+
+    # The shape `lib/test/run.sh` really uses for the review bundle: two literal
+    # word lists composed into a third, an array seeded with the root, and a loop
+    # that appends one interpolated path per stem.
+    STEM_BUILD = (
+        'ROOT="${DEVFLOW_MODULE_ROOT:-${LIB%/lib}}"\n'
+        'SKILL="$ROOT/skills/demo/SKILL.md"\n'
+        'DEFAULT_STEMS="alpha"\n'
+        'GATED_STEMS="beta"\n'
+        'STEMS="$DEFAULT_STEMS $GATED_STEMS"\n'
+        '_members=("$SKILL")\n'
+        "for _s in $STEMS; do\n"
+        '  _members+=("$ROOT/skills/demo/phases/${_s}.md")\n'
+        "done\n"
+        'devflow_module_build_bundle "demo" "$BUNDLE" "${_members[@]}"\n'
+    )
+
+    def _tree(self, td, *, literal=None):
+        """Write the demo skill tree; return its repository root.
+
+        ``orphan.md`` sits in the same directory as the two stem-named phase
+        files and is named by no stem, so it is the exactness control: content
+        that lives only there can never satisfy a bundle pin.
+        """
+        root = Path(td)
+        phases = root / "skills/demo/phases"
+        phases.mkdir(parents=True, exist_ok=True)
+        (root / "skills/demo/SKILL.md").write_text(
+            "# Demo\n\nThe root carries no contract.\n", encoding="utf-8"
+        )
+        (phases / "alpha.md").write_text("# Alpha\n\nsetup only\n", encoding="utf-8")
+        (phases / "beta.md").write_text(
+            "# Beta\n\nStep two: %s.\n" % (literal or self.LITERAL), encoding="utf-8"
+        )
+        (phases / "orphan.md").write_text(
+            "# Orphan\n\n%s.\n" % self.ORPHAN_LITERAL, encoding="utf-8"
+        )
+        return root
+
+    def _members(self, root, source):
+        return self.mod.resolve_bundle_targets(source, str(root / "lib"))
+
+    def _pin(self, literal=None, target="$BUNDLE"):
+        return (
+            'devflow_module_pin_unique "demo contract" '
+            f"'{literal or self.LITERAL}' \"{target}\"  {self.MARKER}\n"
+        )
+
+    def _site(self, root, source):
+        sites = [
+            site
+            for site in self.mod.extract_guard_sites(
+                source, "lib/test/mod.sh", str(root)
+            )
+            if site.helper
+        ]
+        self.assertEqual(1, len(sites), sites)
+        return sites[0]
+
+    def _error(self, root, source):
+        return self.mod._typed_pin_inspection_error(self._site(root, source), str(root))
+
+    # ── Cause A: the unfreeze ──────────────────────────────────────────────
+    def test_a_stem_loop_bundle_resolves_to_root_plus_one_member_per_stem(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            self.assertEqual(
+                [
+                    str(root / "skills/demo/SKILL.md"),
+                    str(root / "skills/demo/phases/alpha.md"),
+                    str(root / "skills/demo/phases/beta.md"),
+                ],
+                list(self._members(root, self.STEM_BUILD)["BUNDLE"]),
+                "membership is the stem list composed across BOTH word-list "
+                "variables, in list order, and nothing else in the directory",
+            )
+
+    def test_typed_declaration_on_a_stem_loop_bundle_is_inspectable(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            site = self._site(root, self.STEM_BUILD + self._pin())
+            self.assertIsNone(site.target_path)
+            self.assertEqual(3, len(site.target_members))
+            self.assertIsNone(self.mod._typed_pin_inspection_error(site, str(root)))
+
+    def test_a_bare_loop_variable_reference_in_the_template_resolves_too(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            build = self.STEM_BUILD.replace(
+                'phases/${_s}.md', 'phases/$_s.md'
+            )
+            self.assertEqual(3, len(self._members(root, build)["BUNDLE"]))
+
+    # ── Cause A: the negative controls ─────────────────────────────────────
+    def test_a_phase_file_no_stem_names_is_not_a_member(self):
+        # The sharp form of the exactness claim: the loop enumerates the STEM
+        # LIST, never the directory, so a sibling file is outside the bundle.
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            self.assertEqual(
+                "typed structural declaration literal cannot be inspected "
+                "(absent from target)",
+                self._error(
+                    root, self.STEM_BUILD + self._pin(literal=self.ORPHAN_LITERAL)
+                ),
+            )
+
+    def test_an_unmodeled_stem_list_leaves_the_bundle_unresolved(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            for unmodeled in (
+                'STEMS="$(cat stems.txt)"',   # command substitution
+                'STEMS="$ROOT/skills/demo/phases/alpha.md"',  # a path, not a stem
+                'STEMS="alpha* beta"',        # a glob word
+                'STEMS="$UNKNOWN_LIST"',      # an unmodeled word-list variable
+                'STEMS=""',                   # empty is never "resolved to nothing"
+            ):
+                build = self.STEM_BUILD.replace(
+                    'STEMS="$DEFAULT_STEMS $GATED_STEMS"', unmodeled
+                )
+                with self.subTest(unmodeled):
+                    self.assertNotIn("BUNDLE", self._members(root, build))
+                    self.assertEqual(
+                        "typed structural declaration target cannot be inspected",
+                        self._error(root, build + self._pin()),
+                    )
+
+    def test_a_reassigned_stem_list_leaves_the_bundle_unresolved(self):
+        # The word-list map is a whole-source final state read at every loop, so a
+        # name that is not the same list everywhere cannot answer for one.
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            build = self.STEM_BUILD.replace(
+                'devflow_module_build_bundle',
+                'STEMS="alpha"\ndevflow_module_build_bundle',
+            )
+            self.assertNotIn("BUNDLE", self._members(root, build))
+
+    def test_a_template_that_does_not_resolve_leaves_the_bundle_unresolved(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            build = self.STEM_BUILD.replace(
+                '"$ROOT/skills/demo/phases/${_s}.md"',
+                '"$UNKNOWN_ROOT/skills/demo/phases/${_s}.md"',
+            )
+            self.assertNotIn("BUNDLE", self._members(root, build))
+
+    def test_a_basename_skip_is_not_composed_with_a_template(self):
+        # The skip filters an EXPANDED GLOB; there is no evidence for what it
+        # should mean over a stem list, so the loop stays unresolved rather than
+        # resolving to a set the filter may not really describe.
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            build = self.STEM_BUILD.replace(
+                '  _members+=("$ROOT/skills/demo/phases/${_s}.md")\n',
+                '  case "${_s##*/}" in alpha) continue ;; esac\n'
+                '  _members+=("$ROOT/skills/demo/phases/${_s}.md")\n',
+            )
+            self.assertNotIn("BUNDLE", self._members(root, build))
+
+    def test_an_unmodeled_statement_in_a_stem_loop_body_still_poisons(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            build = self.STEM_BUILD.replace(
+                '  _members+=("$ROOT/skills/demo/phases/${_s}.md")\n',
+                '  printf "%s\\n" "$_s"\n'
+                '  _members+=("$ROOT/skills/demo/phases/${_s}.md")\n',
+            )
+            self.assertNotIn("BUNDLE", self._members(root, build))
+
+    def test_a_missing_templated_member_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            (root / "skills/demo/phases/beta.md").unlink()
+            self.assertEqual(
+                "typed structural declaration target cannot be inspected "
+                "(FileNotFoundError)",
+                self._error(root, self.STEM_BUILD + self._pin()),
+            )
+
+    # ── Cause B: the comment-suffixed alias ────────────────────────────────
+    def test_a_comment_suffixed_alias_resolves_to_its_source_bundle(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            source = self.STEM_BUILD + 'ALIAS="$BUNDLE"   # #1008: annotated alias\n'
+            resolved = self._members(root, source)
+            self.assertEqual(list(resolved["BUNDLE"]), list(resolved["ALIAS"]))
+
+    def test_a_pin_on_a_comment_suffixed_alias_is_inspectable(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            source = (
+                self.STEM_BUILD
+                + 'ALIAS="$BUNDLE"   # #1008: annotated alias\n'
+                + self._pin(target="$ALIAS")
+            )
+            self.assertIsNone(self._error(root, source))
+
+    def test_a_hash_that_is_not_a_trailing_comment_is_not_a_false_alias(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            for rhs in (
+                '"$UNRELATED"   # this comment names $BUNDLE',
+                '"one two # $BUNDLE"',
+                '"$BUNDLE.md"',
+            ):
+                source = self.STEM_BUILD + f"ALIAS={rhs}\n"
+                with self.subTest(rhs):
+                    self.assertNotIn(
+                        "ALIAS",
+                        self._members(root, source),
+                        "only a whole-token variable reference before the "
+                        "comment may be read as an alias",
+                    )
 
 
 if __name__ == "__main__":
