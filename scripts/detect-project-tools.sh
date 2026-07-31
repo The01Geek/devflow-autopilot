@@ -52,15 +52,13 @@ set -euo pipefail
 # transitional fallback to a superseded .devflow/ when only that one is present.
 # Guarded source (the lib/resolve-jq.sh discipline): a partially-copied deployment
 # degrades to the canonical name with a breadcrumb instead of aborting under `set -e`.
-# Pure-bash directory derivation (no `dirname`): lib/preflight.sh guarantees only
-# git/gh/jq/python3, so a `dirname` here would make this reader depend on a tool that
-# can legitimately be absent — and under `set -e` its failing command substitution
-# aborts the whole read before the caller's default is ever emitted. Same discipline
-# lib/resolve-jq.sh already documents.
-case "${BASH_SOURCE[0]}" in
-  */*) _DPT_SELF_DIR="${BASH_SOURCE[0]%/*}" ;;
-  *)   _DPT_SELF_DIR="." ;;
-esac
+# Self-directory anchor. `dirname` is NOT one of the tools lib/preflight.sh
+# guarantees, and under `set -e` its failing command substitution aborts the read
+# before a caller default is emitted — so this uses the dirname-free spelling of
+# the anchor, which is also one of the shapes lib/test/cloud_writer_deps.py can
+# prove (a variable assigned by a `case` cannot be resolved by that scanner, so an
+# edge built from one reads as a repo-root escape). `cd`/`pwd` are bash builtins.
+_DPT_SELF_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd)"
 # shellcheck source=../lib/resolve-state-dir.sh
 if [ -f "$_DPT_SELF_DIR/../lib/resolve-state-dir.sh" ] \
    && . "$_DPT_SELF_DIR/../lib/resolve-state-dir.sh" \

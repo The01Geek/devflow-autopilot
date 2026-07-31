@@ -54,15 +54,13 @@ set -euo pipefail
 # shell reader answer identically; a partially-copied deployment without the
 # sibling falls back to the canonical name with a breadcrumb rather than aborting
 # under `set -e` (the same guarded-source discipline lib/resolve-jq.sh uses).
-# Pure-bash directory derivation (no `dirname`): lib/preflight.sh guarantees only
-# git/gh/jq/python3, so a `dirname` here would make this reader depend on a tool that
-# can legitimately be absent — and under `set -e` its failing command substitution
-# aborts the whole read before the caller's default is ever emitted. Same discipline
-# lib/resolve-jq.sh already documents.
-case "${BASH_SOURCE[0]}" in
-  */*) _CONFIG_GET_DIR="${BASH_SOURCE[0]%/*}" ;;
-  *)   _CONFIG_GET_DIR="." ;;
-esac
+# Self-directory anchor. `dirname` is NOT one of the tools lib/preflight.sh
+# guarantees, and under `set -e` its failing command substitution aborts the read
+# before a caller default is emitted — so this uses the dirname-free spelling of
+# the anchor, which is also one of the shapes lib/test/cloud_writer_deps.py can
+# prove (a variable assigned by a `case` cannot be resolved by that scanner, so an
+# edge built from one reads as a repo-root escape). `cd`/`pwd` are bash builtins.
+_CONFIG_GET_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd)"
 # shellcheck source=../lib/resolve-state-dir.sh
 if [ -f "$_CONFIG_GET_DIR/../lib/resolve-state-dir.sh" ] \
    && . "$_CONFIG_GET_DIR/../lib/resolve-state-dir.sh" \
