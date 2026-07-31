@@ -1,6 +1,6 @@
 ---
 name: review-and-fix
-description: Use when you need findings on a PR or current branch to be auto-applied, not just reported.
+description: Use when the user wants problems in a pull request or the current branch both found AND corrected — "review my changes and fix what's wrong", "clean up whatever the review turns up", "address the review feedback on this branch", "tidy this PR up before merge", "find and fix the issues here". Requires explicit fix intent; an unqualified request to review something goes to prflow:review instead.
 argument-hint: "[pr-number] [--push-each-iteration] [--issue N]"
 ---
 
