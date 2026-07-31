@@ -16,7 +16,7 @@
 # the runner's own EXIT handling. Do not source this module directly in a runner's
 # top-level shell without restoring the trap.
 #
-# WHAT THIS MODULE OWNS. The four subjects of issue #1002's Tier 1 migration:
+# WHAT THIS MODULE OWNS. The subjects of issue #1002's Tier 1 migration:
 #   lib/rename-map.json                 the single source of the rename map
 #   lib/resolve-state-dir.sh + lib/state_dir.py
 #                                       the state-directory contract (a coupled pair)

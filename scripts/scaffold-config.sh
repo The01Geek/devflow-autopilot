@@ -294,8 +294,10 @@ fi
 # ORDER IS LOAD-BEARING: gate, then migrate, then backfill. Migrating first means
 # the new keys already hold the consumer values when the deep merge runs, so the
 # merge finds nothing absent to graft. The backfill guard further down is the belt
-# to that braces: it covers the refusal path and the path where the migration was
-# skipped because jq was unusable.
+# to that braces: it covers the refusal path and the two paths where the migration
+# was skipped for want of its own inputs — an absent rename map, or no working
+# python3. It does NOT cover an unusable jq, because that skips the whole backfill
+# below and there is then no graft to guard against (restated at the guard itself).
 #
 # The gate reads the two workflow files install.sh SHIPS and can therefore refresh.
 # Its permissive answer is "no superseded reads found", which is exactly what a

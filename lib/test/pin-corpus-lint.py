@@ -3986,10 +3986,12 @@ def _rename_pair(entry, label):
 
 
 def _build_rename_substitution(document):
-    """Return a ``str -> str`` superseded-to-current substitution, or ``None``.
+    """Return a ``str -> str`` superseded-to-current substitution.
 
-    ``None`` means the map could not be established, which withdraws every
-    exemption -- the fail-closed direction, identical to the pre-fix behaviour.
+    Raises ``ValueError`` when the map cannot be established. The caller
+    ``_compiled_rename_substitution`` is what turns that into ``None``, and a
+    ``None`` there withdraws every exemption -- the fail-closed direction,
+    identical to the pre-fix behaviour.
     """
     if not isinstance(document, dict):
         raise ValueError("rename map root is not an object")
