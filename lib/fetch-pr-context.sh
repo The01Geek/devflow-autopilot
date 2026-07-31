@@ -113,19 +113,21 @@ if [ "$ISSUE_NUMBER" != "null" ]; then
         '{title: (.title // ""), body: (.body // ""), labels: ((.labels // []) | if type == "array" then map(if type == "object" then (.name // "") else . end) else [] end), comments: $comments[0]}')"
 fi
 
-# ── 5b. DevFlow provenance ────────────────────────────────────────────────────
-# pr_devflow_provenance: true iff the literal `DevFlow` label (the hardcoded
-# provenance constant the scan/classify path matches — NEVER a config key) is
-# among the PR's labels OR, when an issue resolved, among the linked issue's
-# labels. Both lists are already fetched (the PR's in LABELS_JSON, the issue's in
-# ISSUE_JSON.labels, already normalized to name strings), so no new API call.
-# The PR leg uses the same object-or-string normalization classify-pr-kind.jq
-# uses (COUPLED INVARIANT: the `DevFlow` provenance-label match — object/string
-# normalization + `any(. == "DevFlow")` — is mirrored in lib/scan.sh and
-# lib/classify-pr-kind.jq; `DevFlow` is the hardcoded provenance constant, never a
-# config key). A wrong-type or absent label list yields false (fail-closed). The
-# issue-label leg keeps provenance alive in a deployment whose PR-label applies
-# fail (scripts/apply-labels.sh is best-effort). Any jq error → false.
+# ── 5b. Provenance label ──────────────────────────────────────────────────────
+# pr_devflow_provenance (the bundle field name is frozen; the label it reads is
+# not): true iff the `PRFlow` provenance label — or its superseded `DevFlow`
+# spelling, which stays accepted so no pre-rename history is dropped (issue
+# #1003) — is among the PR's labels OR, when an issue resolved, among the linked
+# issue's labels. Both lists are already fetched (the PR's in LABELS_JSON, the
+# issue's in ISSUE_JSON.labels, already normalized to name strings), so no new
+# API call. The PR leg uses the same object-or-string normalization
+# classify-pr-kind.jq uses (COUPLED INVARIANT: the provenance-label match —
+# object/string normalization + `any(. == "PRFlow" or . == "DevFlow")` — is
+# mirrored in lib/scan.sh and lib/classify-pr-kind.jq; both spellings are
+# hardcoded provenance constants, never a config key). A wrong-type or absent
+# label list yields false (fail-closed). The issue-label leg keeps provenance
+# alive in a deployment whose PR-label applies fail (scripts/apply-labels.sh is
+# best-effort). Any jq error → false.
 # argjson-ok: pr_labels issue -- per-PR bounded operands (one PR's label list and one linked issue's JSON), never corpus-sized (issue #895)
 PR_DEVFLOW_PROVENANCE="$("$DEVFLOW_JQ" -n --argjson pr_labels "$LABELS_JSON" --argjson issue "$ISSUE_JSON" '
     def norm: (if type == "array" then map(if type == "object" then (.name // "") else . end) else [] end);
@@ -136,7 +138,7 @@ PR_DEVFLOW_PROVENANCE="$("$DEVFLOW_JQ" -n --argjson pr_labels "$LABELS_JSON" --a
 # list. `false` is the SKIP-ENABLING value for dispatch-disposition.jq, so this
 # coercion is never silent: it emits a ::warning:: breadcrumb like every sibling
 # absent path in this producer (the NoIssue/Absent/Unparsed arms below), so an
-# operator can tell "no DevFlow label" apart from "provenance could not be read".
+# operator can tell "no provenance label" apart from "provenance could not be read".
 case "$PR_DEVFLOW_PROVENANCE" in
     true|false) ;;
     *) echo "::warning::fetch-pr-context: DevFlow provenance for PR ${PR} could not be established (jq emitted '${PR_DEVFLOW_PROVENANCE}'); failing closed to false" >&2
