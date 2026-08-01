@@ -15647,6 +15647,17 @@ echo "#936 — surviving references to the withheld devflow-review.yml"
 # Re-scoping someone else's guard was out of scope here, so the stale tense is recorded as a
 # known exception rather than silently fixed or silently ignored.
 #
+# Stated reference, lib/test/pin-corpus-lint.py: the filename appears there as a FROZEN LITERAL
+# of the rename map, never as a workflow this repo runs. lib/rename-map.json lists it under
+# frozen.workflow_filenames, and the rename-substitution builder's ordering comment names it as
+# the concrete case its longest-first-with-frozen-winning-ties rule has to get right: the frozen
+# `devflow-review.yml` must out-compete the shorter `devflow-review` config-key rule issue #1041
+# added when it unfroze the two `workflows.*` sub-keys, or a pin literal naming the withheld
+# workflow would be respelled and silently exempted from the #810 gate as a sanctioned rename.
+# Two sibling paths already carry the same literal for the same reason and are already listed:
+# lib/rename-map.json, which holds the frozen entry, and lib/test/test_pin_corpus_lint.py, which
+# asserts the substitution leaves it unchanged.
+#
 # Stated reference, lib/test/modules/installer-wiring.sh: a fixture consumer repository that
 # RETAINS the withheld tier. Those arms exist precisely because a consumer that installed the
 # tier before it was withheld keeps it, and the installer must report it, leave it alone by
@@ -15683,6 +15694,7 @@ lib/test/modules/review-stall-backstop.inventory.md
 lib/test/modules/review-stall-backstop.sh
 lib/test/modules/review-trigger-helpers.sh
 lib/test/mutation-pin-corpus-adjudications.tsv
+lib/test/pin-corpus-lint.py
 lib/test/run.sh
 lib/test/test_pin_corpus_lint.py
 lib/test/test_verification_baseline.py
