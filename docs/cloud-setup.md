@@ -102,9 +102,9 @@ writes changes into your repository, so download it, read it, then run the file 
 read:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.17/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.19/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.30.17 bash devflow-install.sh
+DEVFLOW_REF=v2.30.19 bash devflow-install.sh
 ```
 
 Both refs are pinned to the same **release tag**, so the install is reproducible.
@@ -1245,6 +1245,7 @@ the execution path — invoked by their **direct leading-token** form (the
   change, or defer that verification to after merge.
 
 (This repo's own `.prflow/config.json` grants `Bash(lib/test/run.sh:*)`,
+`Bash(lib/test/run-parallel.sh:*)`, `Bash(lib/test/run-module.sh:*)`,
 `Bash(lib/preflight.sh:*)`, and `Bash(shellcheck:*)` under both keys for exactly
 this reason.) See [`implement-skill.md`](implement-skill.md) for the Phase 3.4
 gate behavior.

@@ -201,6 +201,56 @@ recorded with a `--note`; only a *silent* stale enumeration is the defect.
 
 **Phase 2.4** splits the "no automated test" verification by one question — *does this text enter a model's context as instruction?* Human-read prose keeps the adversarial dry-trace; prose that becomes an agent's prompt (an injected block, a composed prompt, a `SKILL.md`/`phases/*.md` command block) gets a `writing-skills` subagent RED/GREEN micro-test with a no-guidance control, because a dry-trace cannot catch a prompt-prose defect — the text reads perfectly while steering the model wrong. The trigger is what the text *becomes*, never where the file lives (a block in a script or workflow YAML that becomes a prompt still takes the micro-test).
 
+## The final full-suite gate: the parallel coordinator (issue #1086)
+
+Focused modules are the iteration default; the *final* gate before a completion or PR-ready
+claim is `lib/test/run-parallel.sh`. It runs the same tested partition CI shards — its launch
+population comes from `lib/test/run-shard.sh --list-shards`, so it is derived rather than
+copied — concurrently **inside the current checkout**, and recombines it through the existing
+`lib/test/shard-tally.py` tally protocol. `lib/test/run.sh` is unchanged and remains the serial
+primitive: the `monolith` shard runs it, and the documented uncovered-surface fallback still
+names it.
+
+**Why it is a bare token.** The cloud permission matcher refuses caller-side environment
+assignments, redirects, pipelines, interpreter prefixes and background syntax even when the
+command head is granted (issues #363/#401/#455). Every one of those lives *inside* the
+coordinator — the per-shard `TMPDIR` and tally exports, the log capture, the background
+launches, the capacity arithmetic, the aggregation — so the cloud tiers invoke exactly
+`lib/test/run-parallel.sh` with nothing around it, granted through
+`prflow_implement.allowed_tools` and `prflow.allowed_tools`. Those grants resolve from
+the **default branch at trigger time**, so the grant is inert on the PR that adds it
+(`docs/cloud-setup.md` states the general rule) — until it lands on the default branch
+the cloud tier's final gate stays `lib/test/run.sh`, and a coordinator invocation that
+produces no output at all there is a denial, not an empty result. The local/interactive tier reaches
+the same coordinator through the `DEVFLOW_BASH` invocation-layer selector `CLAUDE.md`
+documents, because on that tier the shell that *runs* a `.sh` helper is chosen at the
+invocation boundary.
+
+**Retained logs, not truncated ones.** The aggregate is compact by design — bounded by the
+`DETAIL_CAP` constant `lib/test/run-parallel.sh` passes to `shard-tally.py combine`, per
+detail class, with the omitted count announced — because its other reader is a model's
+context window. Nothing is lost: every shard's complete captured log is retained under the run
+root the coordinator prints, which is the artifact a failing gate is diagnosed from and the one
+the local `Verification evidence:` marker records. That also removes the pre-#1086 caller-side
+`> .prflow/tmp/verification-<N>.log 2>&1` capture: the coordinator retains the launch itself.
+
+**Same-checkout isolation.** Each shard gets a private tally directory under a *fresh* run root and a private
+`TMPDIR` allocated outside the checkout (a shard's `mktemp -d` fixtures must not land
+inside a git working tree), and aggregation is handed this run's explicit tally paths rather than
+a `--scan` of the shared parent — so a stale sibling run's tally can never satisfy the current
+invocation's missing-shard floor. Concurrency is bounded by one `python3`-derived process
+budget (capped at eight, overridable with `DEVFLOW_SUITE_PROCESS_BUDGET`, failing closed to a
+serial-but-complete width 1), out of which the nested Python pool's width is **reserved**
+rather than added, so the real process count matches the scheduler's.
+
+**Same-checkout concurrency is a new exposure, not a proven-safe one.** CI has only ever run these shards in separate checkouts on separate runners. The coordinator isolates each shard's `TMPDIR` and tally directory, but not repo-relative writes a shard's own assertions may make, and its whole purpose is to produce the CPU saturation under which a load-sensitive assertion's slack budget is tested. This repository keeps **no known-flake set**, so a red coordinator result that a serial `lib/test/run.sh` does not reproduce is a defect to diagnose — in the assertion's isolation or its slack budget — never something to re-run and hope on. The coordinator's own header states this beside the code.
+
+**Single-runner agent timing is not multi-runner CI timing.** CI isolates each shard on its own
+runner; here they share one host's CPU, memory, checkout and process namespace. The
+coordinator's `real` time is therefore the slowest shard *under contention with its siblings*,
+and CI's per-shard step durations are not a prediction of it. Any migration decision that rests
+on speed rests on a same-host measurement of both commands, never on CI's numbers.
+
 ## Changed-contract sweep (2.3.0) and the post-merge re-sweep
 
 The skill spells out the three checks (predicate variants, sibling call sites, fixtures/assertions).

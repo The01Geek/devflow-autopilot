@@ -50,6 +50,7 @@ AUDITED = (
     "lib/test/modules/efficiency-trace-telemetry.sh",
     "lib/test/modules/issue-audit-state.sh",
     "lib/test/modules/tier1-rename-migration.sh",
+    "lib/test/modules/parallel-suite-runner.sh",
 )
 DEFINITIONS = ""
 

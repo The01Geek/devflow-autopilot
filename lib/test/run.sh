@@ -15134,7 +15134,7 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # together, or test_module_runner.py's tranche test goes RED.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 538; then
+  "review-trigger-helpers" 552; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
@@ -40939,6 +40939,15 @@ fi
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
   "create-issue-contract" 221; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
+  exit 1
+fi
+
+# parallel full-suite coordinator coverage (issue #1086). The registry and this
+# full-suite call share the same lower-bound contract; test_module_runner.py parses
+# this operand and rejects any coupling drift.
+if ! devflow_run_full_suite_module "$LIB/test/modules/parallel-suite-runner.sh" \
+  "parallel-suite-runner" 97; then
+  printf 'ERROR: parallel-suite-runner boundary could not record its result\n'
   exit 1
 fi
 
