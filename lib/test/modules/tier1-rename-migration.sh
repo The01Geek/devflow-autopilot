@@ -1268,9 +1268,9 @@ assert_eq "#1028 self-trigger guard: and so is a post-rename workpad" "yes" \
 assert_eq "#1028 self-trigger guard: an ordinary human comment is NOT declined by it" "no" \
   "$(_t1_v_guard '<!-- prflow:workpad -->' 'please run the implement command on 7')"
 
-# — SCAFFOLDER INTEGRATION. Both entry points (install.sh --apply and the init skill) call
-#   this one scaffolder, so a single home covers the cloud-only consumer that never runs
-#   the local-tier init skill (the #1004 constraint). —
+# — SCAFFOLDER INTEGRATION. install.sh --apply and the init skill each call this one
+#   scaffolder, so siting the pass here also reaches a consumer running the cloud tier
+#   alone, which never invokes the local-tier init skill (the #1004 constraint). —
 _t1_r="$(_t1_scaffold_root '{"prflow":{"workpad_marker":"<!-- devflow:workpad -->","allowed_bots":"devflow-autopilot"},"prflow_review":{"agent_overrides":{"devflow:code-reviewer":{"model":"mine"}}},"deferred":{"labels":"DevFlow,Deferred"},"docs":{"labels":"DevFlow"},"workflows":{"devflow":false,"devflow-review":false}}')"
 _t1_out="$("$T1_SCAFFOLD" "$_t1_r" 2>&1)"
 assert_eq "#1028 scaffold integration: the value migration runs end-to-end and says so" "yes" \

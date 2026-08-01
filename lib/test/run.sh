@@ -10801,17 +10801,22 @@ SC_MIG="$(mktemp -d)"; mkdir -p "$SC_MIG/.prflow"
 # any Haiku override, not just the deduper — a regression that hard-coded the
 # deduper key would otherwise pass green), plus a non-Haiku override whose
 # effort must be left untouched.
-printf '%s' '{"prflow_review":{"agent_overrides":{"default":{"effort":"medium"},"devflow:checklist-deduper":{"model":"claude-haiku-4-5-20251001","effort":"low"},"devflow:checklist-generator":{"model":"claude-haiku-4-5-20251001","effort":"high"},"devflow:code-reviewer":{"model":"claude-opus-4-8","effort":"high"}}}}' \
+# The override keys carry the CURRENT `prflow:` spelling on purpose (issue #1028):
+# the scaffolder now renames a `devflow:`-spelled key, so a superseded-spelling
+# fixture here would silently make these Haiku assertions read an absent key and
+# probe nothing. The rename itself is covered by the tier1-rename-migration module;
+# these blocks stay about the Haiku cleanup, the graft guard and their robustness.
+printf '%s' '{"prflow_review":{"agent_overrides":{"default":{"effort":"medium"},"prflow:checklist-deduper":{"model":"claude-haiku-4-5-20251001","effort":"low"},"prflow:checklist-generator":{"model":"claude-haiku-4-5-20251001","effort":"high"},"prflow:code-reviewer":{"model":"claude-opus-4-8","effort":"high"}}}}' \
   > "$SC_MIG/.prflow/config.json"
 SC_MIG_OUT="$(bash "$SC" "$SC_MIG" 2>&1)"
 assert_eq "scaffold-migration: Haiku deduper effort stripped" \
-  "false" "$(jq '.prflow_review.agent_overrides["devflow:checklist-deduper"] | has("effort")' "$SC_MIG/.prflow/config.json")"
+  "false" "$(jq '.prflow_review.agent_overrides["prflow:checklist-deduper"] | has("effort")' "$SC_MIG/.prflow/config.json")"
 assert_eq "scaffold-migration: Haiku deduper model preserved" \
-  "claude-haiku-4-5-20251001" "$(jq -r '.prflow_review.agent_overrides["devflow:checklist-deduper"].model' "$SC_MIG/.prflow/config.json")"
+  "claude-haiku-4-5-20251001" "$(jq -r '.prflow_review.agent_overrides["prflow:checklist-deduper"].model' "$SC_MIG/.prflow/config.json")"
 assert_eq "scaffold-migration: second Haiku-pinned entry (non-deduper) also stripped" \
-  "false" "$(jq '.prflow_review.agent_overrides["devflow:checklist-generator"] | has("effort")' "$SC_MIG/.prflow/config.json")"
+  "false" "$(jq '.prflow_review.agent_overrides["prflow:checklist-generator"] | has("effort")' "$SC_MIG/.prflow/config.json")"
 assert_eq "scaffold-migration: non-Haiku override effort left untouched" \
-  "high" "$(jq -r '.prflow_review.agent_overrides["devflow:code-reviewer"].effort' "$SC_MIG/.prflow/config.json")"
+  "high" "$(jq -r '.prflow_review.agent_overrides["prflow:code-reviewer"].effort' "$SC_MIG/.prflow/config.json")"
 # The model-less `default` entry must survive: `(.value.model // "")` yields ""
 # which fails the Haiku predicate, so its effort is kept. Asserted on the FIRST
 # run directly (not just via the idempotent no-op below, which would pass even
@@ -10894,14 +10899,14 @@ rm -rf "$SC_DR_BAD"
 #     cleanup). Start from a COMPLETE example-derived config so the ONLY thing the
 #     backfill could change is the grafted effort — making this a precise probe.
 SC_GRAFT="$(mktemp -d)"; mkdir -p "$SC_GRAFT/.prflow"
-jq '.prflow_review.agent_overrides["devflow:checklist-deduper"] = {"model":"claude-haiku-4-5-20251001"}' \
+jq '.prflow_review.agent_overrides["prflow:checklist-deduper"] = {"model":"claude-haiku-4-5-20251001"}' \
   "$TPL_DIR/config.example.json" > "$SC_GRAFT/.prflow/config.json"
 SC_GRAFT_BEFORE="$(cat "$SC_GRAFT/.prflow/config.json")"
 SC_GRAFT_OUT="$(bash "$SC" "$SC_GRAFT" 2>&1)"
 assert_eq "scaffold-graft-guard: backfill does NOT graft effort onto a Haiku deduper" \
-  "false" "$(jq '.prflow_review.agent_overrides["devflow:checklist-deduper"] | has("effort")' "$SC_GRAFT/.prflow/config.json")"
+  "false" "$(jq '.prflow_review.agent_overrides["prflow:checklist-deduper"] | has("effort")' "$SC_GRAFT/.prflow/config.json")"
 assert_eq "scaffold-graft-guard: Haiku deduper model preserved" \
-  "claude-haiku-4-5-20251001" "$(jq -r '.prflow_review.agent_overrides["devflow:checklist-deduper"].model' "$SC_GRAFT/.prflow/config.json")"
+  "claude-haiku-4-5-20251001" "$(jq -r '.prflow_review.agent_overrides["prflow:checklist-deduper"].model' "$SC_GRAFT/.prflow/config.json")"
 assert_eq "scaffold-graft-guard: re-scaffold is a byte-identical quiet no-op" \
   "$SC_GRAFT_BEFORE" "$(cat "$SC_GRAFT/.prflow/config.json")"
 assert_eq "scaffold-graft-guard: quiet no-op emits neither backfill nor cleanup log" "yes" \
@@ -10918,7 +10923,7 @@ rm -rf "$SC_GRAFT"
 #     SURVIVED the backfill into the cleanup. Start from a COMPLETE example-derived
 #     config so the backfill is otherwise a byte-identical no-op.
 SC_PRESERVE="$(mktemp -d)"; mkdir -p "$SC_PRESERVE/.prflow"
-jq '.prflow_review.agent_overrides["devflow:checklist-deduper"] = {"model":"claude-haiku-4-5-20251001","effort":"low"}' \
+jq '.prflow_review.agent_overrides["prflow:checklist-deduper"] = {"model":"claude-haiku-4-5-20251001","effort":"low"}' \
   "$TPL_DIR/config.example.json" > "$SC_PRESERVE/.prflow/config.json"
 SC_PRESERVE_OUT="$(bash "$SC" "$SC_PRESERVE" 2>&1)"
 # The discriminator: the cleanup log fires ⇒ the user's effort survived the backfill
@@ -10930,9 +10935,9 @@ assert_eq "scaffold-graft-guard: user's OWN Haiku effort survives backfill and i
 assert_eq "scaffold-graft-guard: preserve-branch sees no backfill rewrite (graft-guard touched nothing)" \
   "no" "$(printf '%s' "$SC_PRESERVE_OUT" | grep -q 'backfilled newly-added keys' && echo yes || echo no)"
 assert_eq "scaffold-graft-guard: preserve-branch effort ultimately removed" \
-  "false" "$(jq '.prflow_review.agent_overrides["devflow:checklist-deduper"] | has("effort")' "$SC_PRESERVE/.prflow/config.json")"
+  "false" "$(jq '.prflow_review.agent_overrides["prflow:checklist-deduper"] | has("effort")' "$SC_PRESERVE/.prflow/config.json")"
 assert_eq "scaffold-graft-guard: preserve-branch Haiku model kept through both passes" \
-  "claude-haiku-4-5-20251001" "$(jq -r '.prflow_review.agent_overrides["devflow:checklist-deduper"].model' "$SC_PRESERVE/.prflow/config.json")"
+  "claude-haiku-4-5-20251001" "$(jq -r '.prflow_review.agent_overrides["prflow:checklist-deduper"].model' "$SC_PRESERVE/.prflow/config.json")"
 rm -rf "$SC_PRESERVE"
 
 # 6f. Robustness: a non-string `model` on ONE agent_overrides entry must not
@@ -10945,16 +10950,16 @@ rm -rf "$SC_PRESERVE"
 #     complete example-derived config with a valid Haiku+effort entry AND a
 #     non-string-model entry.
 SC_BADMODEL="$(mktemp -d)"; mkdir -p "$SC_BADMODEL/.prflow"
-jq '.prflow_review.agent_overrides["devflow:checklist-generator"] = {"model":"claude-haiku-4-5-20251001","effort":"high"}
-    | .prflow_review.agent_overrides["devflow:checklist-verifier"] = {"model":{"oops":true},"effort":"low"}' \
+jq '.prflow_review.agent_overrides["prflow:checklist-generator"] = {"model":"claude-haiku-4-5-20251001","effort":"high"}
+    | .prflow_review.agent_overrides["prflow:checklist-verifier"] = {"model":{"oops":true},"effort":"low"}' \
   "$TPL_DIR/config.example.json" > "$SC_BADMODEL/.prflow/config.json"
 bash "$SC" "$SC_BADMODEL" >/dev/null 2>&1; SC_BADMODEL_RC=$?
 assert_eq "scaffold-robustness: non-string model entry does not abort the scaffold (exit 0)" \
   "0" "$SC_BADMODEL_RC"
 assert_eq "scaffold-robustness: valid Haiku sibling still has its effort stripped despite a non-string-model entry" \
-  "false" "$(jq '.prflow_review.agent_overrides["devflow:checklist-generator"] | has("effort")' "$SC_BADMODEL/.prflow/config.json")"
+  "false" "$(jq '.prflow_review.agent_overrides["prflow:checklist-generator"] | has("effort")' "$SC_BADMODEL/.prflow/config.json")"
 assert_eq "scaffold-robustness: the non-string-model entry is left untouched (unmatched, did not detonate the filter)" \
-  "low" "$(jq -r '.prflow_review.agent_overrides["devflow:checklist-verifier"].effort' "$SC_BADMODEL/.prflow/config.json")"
+  "low" "$(jq -r '.prflow_review.agent_overrides["prflow:checklist-verifier"].effort' "$SC_BADMODEL/.prflow/config.json")"
 rm -rf "$SC_BADMODEL"
 
 # 6g. Unit-test the rewrite_config_if_changed helper in ISOLATION, sourced via the

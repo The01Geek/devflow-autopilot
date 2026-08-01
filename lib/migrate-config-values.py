@@ -59,7 +59,7 @@ spelling, keeping the first occurrence's position.
 IDEMPOTENT. A second run finds nothing superseded and writes an identical file.
 
 VALID-FALSY SAFE. The config is carried through structurally — every key and value the
-four rules above do not name is written back exactly as read — so a deliberate `false`,
+rules above do not name is written back exactly as read — so a deliberate `false`,
 `0` or `""` keeps its meaning and is never coerced onto a default (issue #312).
 
 REPORT PROTOCOL (stdout, tab-separated; the caller renders each record as a log line):
