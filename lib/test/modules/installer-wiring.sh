@@ -845,7 +845,7 @@ assert_eq "installer-upgrade: the default report names the opt-in flag rather th
   "$(_iu_out_has "$IU_O4" 're-run with --remove-withheld-review-tier')"
 IU_O4B="$(_iu_run "$IU_C4" --apply --remove-withheld-review-tier)"
 assert_eq "installer-upgrade: the opt-in deletes the three withheld workflows and turns the review config key off" "0 false" \
-  "$(_iu_count_withheld "$IU_C4") $(python3 -c 'import json,sys;print(json.dumps(json.load(open(sys.argv[1])).get("workflows",{}).get("devflow-review")))' "$IU_C4/.prflow/config.json")"
+  "$(_iu_count_withheld "$IU_C4") $(python3 -c 'import json,sys;print(json.dumps(json.load(open(sys.argv[1])).get("workflows",{}).get("prflow-review")))' "$IU_C4/.prflow/config.json")"
 assert_eq "installer-upgrade: the removal states the branch-protection step no installer can perform" "yes" \
   "$(printf '%s' "$IU_O4B" | grep -qF "branch protection rule" && echo yes || echo no)"
 # Signature guard: a same-named workflow that is NOT DevFlow's is never deleted.
@@ -1570,7 +1570,7 @@ python3 -c '
 import json, sys
 p = sys.argv[1]
 d = json.load(open(p))
-d["workflows"] = dict(d.get("workflows") or {}, **{"devflow-review": False})
+d["workflows"] = dict(d.get("workflows") or {}, **{"prflow-review": False})
 json.dump(d, open(p, "w"), indent=2)
 ' "$IU_C17B/.prflow/config.json"
 IU_O17B="$(_iu_run "$IU_C17B" --apply --remove-withheld-review-tier)"
@@ -1639,12 +1639,12 @@ python3 -c '
 import json, sys
 p = sys.argv[1]
 d = json.load(open(p))
-d["workflows"] = dict(d.get("workflows") or {}, **{"devflow-review": True})
+d["workflows"] = dict(d.get("workflows") or {}, **{"prflow-review": True})
 json.dump(d, open(p, "w"), indent=2)
 ' "$IU_C19/.prflow/config.json"
 IU_O19="$(_iu_run "$IU_C19" --apply --remove-withheld-review-tier)"
 assert_eq "installer-upgrade #959: the opt-in really does flip a true review key to false" "False" \
-  "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["workflows"]["devflow-review"])' "$IU_C19/.prflow/config.json")"
+  "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["workflows"]["prflow-review"])' "$IU_C19/.prflow/config.json")"
 assert_eq "installer-upgrade #959: the config key is turned off BEFORE the workflow files are deleted (the only self-healing order)" "config-first" \
   "$(printf '%s\n' "$IU_O19" | python3 -c '
 import sys
@@ -1673,7 +1673,7 @@ python3 -c '
 import json, sys
 p = sys.argv[1]
 d = json.load(open(p))
-d["workflows"] = dict(d.get("workflows") or {}, **{"devflow-review": False})
+d["workflows"] = dict(d.get("workflows") or {}, **{"prflow-review": False})
 json.dump(d, open(p, "w"), indent=2)
 ' "$IU_C19B/.prflow/config.json"
 _iu_run "$IU_C19B" --apply --remove-withheld-review-tier >/dev/null

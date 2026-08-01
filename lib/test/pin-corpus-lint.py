@@ -4287,6 +4287,7 @@ _RENAME_MAP_KNOWN_BLOCKS = frozenset(
         "map_version",
         "_comment",
         "config_keys",
+        "workflows_config_keys",
         "paths",
         "identifiers",
         "atomic_unit",
@@ -4389,6 +4390,29 @@ def _build_rename_substitution(document):
         if superseded in ambiguous_keys:
             key_rules.append((superseded, current, "qualified-key"))
         else:
+            key_rules.append((superseded, current, "key"))
+    # The nested workflows.* sub-keys (issue #1041). They are ordinary key renames
+    # once unfrozen -- a bare `devflow`/`devflow-review` token respelled to
+    # `prflow`/`prflow-review` -- so a respelled pin is a sanctioned rename, not new
+    # authorship. `devflow -> prflow` is already a top-level config_keys rule (the
+    # workflows child renames to the same current spelling), so only the entries not
+    # already carried are added; the frozen `devflow-review.yml` workflow filename
+    # still out-competes the shorter `devflow-review` rule under longest-first.
+    workflows_keys = document.get("workflows_config_keys")
+    if workflows_keys is not None:
+        if not isinstance(workflows_keys, dict):
+            raise ValueError("rename map has an invalid workflows_config_keys block")
+        existing = {rule[0] for rule in key_rules}
+        for superseded, current in workflows_keys.items():
+            if (
+                not isinstance(superseded, str)
+                or not isinstance(current, str)
+                or not superseded
+                or not current
+            ):
+                raise ValueError("rename map has an invalid workflows_config_keys entry")
+            if superseded in existing:
+                continue
             key_rules.append((superseded, current, "key"))
     # The identifier channel (issue #1003): brand names that are neither a path
     # nor a config key -- the provenance label, the telemetry branch, the comment

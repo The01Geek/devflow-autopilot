@@ -74,6 +74,7 @@
   ],
 
   "frozen": {
+    "config_keys": [],
     "identifiers": [
       "devflow-marketplace",
       "devflow_module_pin_*",

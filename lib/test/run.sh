@@ -13666,18 +13666,18 @@ assert_eq "#446: template Dependencies vocabulary matches the extracted prefligh
   "$(grep -qF '## Dependencies' "$CI446_TMPL" && grep -qF 'Blocked by #N' "$CI446_TMPL" && grep -qF 'DEPENDENCY_HEADING' "$LIB/../scripts/preflight.py" && grep -qF 'blocked by' "$LIB/../scripts/preflight.py" && echo yes || echo no)"  # raw-guard-ok: compound coupled producer/consumer vocabulary check across template + helper
 # AC(offer gate) — the two-condition gate: body-level condition + tier condition via config-get.sh
 # leading-token then python3/jq fallback, bash-builtin compare; and the never-silent withheld reason.
-assert_pin_unique "#446: offer gate reads workflows.devflow via config-get.sh as the leading token" \
-  'scripts/config-get.sh .workflows.devflow false' "$CI446_SKILL"
+assert_pin_unique "#446: offer gate reads workflows.prflow via config-get.sh as the leading token" \
+  'scripts/config-get.sh .workflows.prflow false' "$CI446_SKILL"
 assert_pin_unique "#446: offer gate compares to literal true with bash builtins only (no tr/sed)" \
   'never `tr`/`sed` lowering, which fails **open**' "$CI446_SKILL"
 # Pin the SKILL's DOCUMENTED python3/jq fallback one-liners themselves, so a typo introduced
 # into the SKILL fallback text (the ONLY read path on the local tier when config-get.sh is
 # classifier-denied) turns RED — the fallback-agreement block below drives a hand-copy of
 # these shapes, so without these pins a SKILL-side drift from that copy would be uncaught.
-assert_pin_unique "#446: SKILL documents the type-tolerant python3 fallback read of workflows.devflow (lowercases only booleans, top-level-tolerant, mirrors config-get)" \
-  "w=d.get('workflows') if isinstance(d,dict) else None; v=w['devflow'] if (isinstance(w,dict) and 'devflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))" "$CI446_SKILL"
-assert_pin_unique "#446: SKILL documents the type-tolerant jq fallback read of workflows.devflow (repo-root anchored, string-truthy, top-level-tolerant)" \
-  "jq -r 'if (type==\"object\") and ((.workflows|type)==\"object\") then (.workflows.devflow // false) else false end' \"\$ROOT/.prflow/config.json\"" "$CI446_SKILL"
+assert_pin_unique "#446: SKILL documents the type-tolerant python3 fallback read of workflows.prflow (lowercases only booleans, top-level-tolerant, mirrors config-get)" \
+  "w=d.get('workflows') if isinstance(d,dict) else None; v=w['prflow'] if (isinstance(w,dict) and 'prflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))" "$CI446_SKILL"
+assert_pin_unique "#446: SKILL documents the type-tolerant jq fallback read of workflows.prflow (repo-root anchored, string-truthy, top-level-tolerant)" \
+  "jq -r 'if (type==\"object\") and ((.workflows|type)==\"object\") then (.workflows.prflow // false) else false end' \"\$ROOT/.prflow/config.json\"" "$CI446_SKILL"
 # A boolean-only fallback (== true / is True) would diverge from config-get.sh AND the cloud gate
 # on a string "true" value (both accept it as enabled). Pin the clause forbidding the narrowing so
 # a revert to a boolean-only test turns RED.
@@ -13724,9 +13724,9 @@ assert_eq "#446: create-issue removed the unconditional-offer source literal" "y
 # reason-selection rests on — is asserted below; file-absent is
 # handled by the SKILL's [ -f ] guard, pinned above).
 CG446="$LIB/../scripts/config-get.sh"
-CG446_FALSE="$(probe_tmp "#446 cfg explicit-false")";  printf '%s' '{"workflows":{"devflow":false}}' > "$CG446_FALSE"
+CG446_FALSE="$(probe_tmp "#446 cfg explicit-false")";  printf '%s' '{"workflows":{"prflow":false}}' > "$CG446_FALSE"
 CG446_ABSENT="$(probe_tmp "#446 cfg absent-key")";     printf '%s' '{}' > "$CG446_ABSENT"
-CG446_TRUE="$(probe_tmp "#446 cfg explicit-true")";    printf '%s' '{"workflows":{"devflow":true}}' > "$CG446_TRUE"
+CG446_TRUE="$(probe_tmp "#446 cfg explicit-true")";    printf '%s' '{"workflows":{"prflow":true}}' > "$CG446_TRUE"
 # Wrong-type `workflows` (an array, not an object): config-get.sh walks the path, hits a non-dict
 # at `devflow`, and returns the `false` default exit 0 — i.e. a wrong-type shape reads as
 # tier-disabled/unconfigured, NOT unreadable. The type-tolerant fallbacks must agree (Finding 2:
@@ -13740,39 +13740,39 @@ CG446_WRONGTYPE="$(probe_tmp "#446 cfg wrong-type")";  printf '%s' '{"workflows"
 CG446_TOPARR="$(probe_tmp "#446 cfg top-level-array")";   printf '%s' '[]' > "$CG446_TOPARR"
 CG446_TOPSCAL="$(probe_tmp "#446 cfg top-level-scalar")"; printf '%s' '"oops"' > "$CG446_TOPSCAL"
 # String-valued devflow: "true" — schema-invalid but human-corruptible. config-get.sh stringifies
-# the value ("true") and the authoritative cloud gate reads `.workflows.devflow // false` then
+# the value ("true") and the authoritative cloud gate reads `.workflows.prflow // false` then
 # string-compares to "true", so BOTH treat a string "true" as ENABLED. The fallbacks must agree
 # (a boolean-only fallback would diverge — withhold + mislabel "tier disabled" — on exactly the
 # local tier where the fallback is the only read path).
-CG446_STRTRUE="$(probe_tmp "#446 cfg string-true")";   printf '%s' '{"workflows":{"devflow":"true"}}' > "$CG446_STRTRUE"
+CG446_STRTRUE="$(probe_tmp "#446 cfg string-true")";   printf '%s' '{"workflows":{"prflow":"true"}}' > "$CG446_STRTRUE"
 # Capitalized string "True": config-get.sh and the cloud gate are CASE-SENSITIVE against literal
 # "true", so "True" reads NOT enabled — the fallbacks must agree (a `.lower()` on the whole value
 # would case-fold "True"->"true" and fire an offer the resolver + gate treat as disabled).
-CG446_STRCAP="$(probe_tmp "#446 cfg string-True-cap")"; printf '%s' '{"workflows":{"devflow":"True"}}' > "$CG446_STRCAP"
+CG446_STRCAP="$(probe_tmp "#446 cfg string-True-cap")"; printf '%s' '{"workflows":{"prflow":"True"}}' > "$CG446_STRCAP"
 assert_eq "#446 offer-gate: explicit false reads not-true (offer withheld)" "false" \
-  "$(bash "$CG446" .workflows.devflow false "$CG446_FALSE")"
+  "$(bash "$CG446" .workflows.prflow false "$CG446_FALSE")"
 assert_eq "#446 offer-gate: absent key reads the false default (offer withheld)" "false" \
-  "$(bash "$CG446" .workflows.devflow false "$CG446_ABSENT")"
+  "$(bash "$CG446" .workflows.prflow false "$CG446_ABSENT")"
 assert_eq "#446 offer-gate: explicit true reads true (offer presented)" "true" \
-  "$(bash "$CG446" .workflows.devflow false "$CG446_TRUE")"
+  "$(bash "$CG446" .workflows.prflow false "$CG446_TRUE")"
 assert_eq "#446 offer-gate: wrong-type workflows reads the false default (tier-disabled, not unreadable)" "false" \
-  "$(bash "$CG446" .workflows.devflow false "$CG446_WRONGTYPE")"
+  "$(bash "$CG446" .workflows.prflow false "$CG446_WRONGTYPE")"
 assert_eq "#446 offer-gate: top-level array config reads the false default (tier-disabled, not unreadable)" "false" \
-  "$(bash "$CG446" .workflows.devflow false "$CG446_TOPARR")"
+  "$(bash "$CG446" .workflows.prflow false "$CG446_TOPARR")"
 assert_eq "#446 offer-gate: top-level scalar config reads the false default (tier-disabled, not unreadable)" "false" \
-  "$(bash "$CG446" .workflows.devflow false "$CG446_TOPSCAL")"
+  "$(bash "$CG446" .workflows.prflow false "$CG446_TOPSCAL")"
 # The genuinely-unreadable arm (Suggestion 1): the *config unreadable* reason-selection rests on one
 # executable property — config-get.sh EXITS NON-ZERO on malformed JSON and never fail-open-prints
 # the caller default. Assert both halves on a malformed fixture (stderr carries the parse message;
 # stdout must carry no value at all).
 CG446_BAD="$(probe_tmp "#446 cfg malformed-json")"; printf '%s' '{not json' > "$CG446_BAD"
-cg446_bad_out="$(bash "$CG446" .workflows.devflow false "$CG446_BAD" 2>/dev/null)" && cg446_bad_rc=0 || cg446_bad_rc=$?
+cg446_bad_out="$(bash "$CG446" .workflows.prflow false "$CG446_BAD" 2>/dev/null)" && cg446_bad_rc=0 || cg446_bad_rc=$?
 assert_eq "#446 offer-gate: config-get exits non-zero on malformed JSON (unreadable, never fail-open default)" "yes" \
   "$([ "$cg446_bad_rc" -ne 0 ] && [ -z "$cg446_bad_out" ] && echo yes || echo no)"
 assert_eq "#446 offer-gate: string 'true' reads true (enabled, matching the cloud gate)" "true" \
-  "$(bash "$CG446" .workflows.devflow false "$CG446_STRTRUE")"
+  "$(bash "$CG446" .workflows.prflow false "$CG446_STRTRUE")"
 assert_eq "#446 offer-gate: capitalized 'True' reads verbatim (NOT enabled — case-sensitive, matching config-get/gate)" "True" \
-  "$(bash "$CG446" .workflows.devflow false "$CG446_STRCAP")"
+  "$(bash "$CG446" .workflows.prflow false "$CG446_STRCAP")"
 # Fallback-agreement (obligation, pr-test-analyzer + fix-delta-gate hardening): the SKILL documents
 # a type-tolerant python3 and jq fallback read for when config-get.sh is classifier-denied. Drive
 # BOTH documented fallback shapes over the fixtures — INCLUDING the wrong-type and top-level
@@ -13783,9 +13783,9 @@ assert_eq "#446 offer-gate: capitalized 'True' reads verbatim (NOT enabled — c
 # reason, on exactly the local tier where the fallback is the only read path) turns RED here. The
 # forms are STRING-TRUTHY, mirroring config-get.sh and the cloud gate (never boolean-only — see the
 # pin at the top of this block): the python form mirrors the SKILL's
-# `w=d.get('workflows') if isinstance(d,dict) else None; v=w['devflow'] if (isinstance(w,dict) and
-# 'devflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))`; the jq form
-# mirrors `if (type=="object") and ((.workflows|type)=="object") then (.workflows.devflow // false)
+# `w=d.get('workflows') if isinstance(d,dict) else None; v=w['prflow'] if (isinstance(w,dict) and
+# 'prflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))`; the jq form
+# mirrors `if (type=="object") and ((.workflows|type)=="object") then (.workflows.prflow // false)
 # else false end` — which is why the string "true" fixture must read enabled below. Both are
 # fed the fixture path in place of the repo-root-anchored `"$ROOT/.prflow/config.json"` the SKILL
 # one-liners read (both SKILL forms read the path as their last argument, so the substitution
@@ -13799,9 +13799,9 @@ assert_eq "#446 offer-gate: capitalized 'True' reads verbatim (NOT enabled — c
 for cg446_case in "false:$CG446_FALSE" "false:$CG446_ABSENT" "true:$CG446_TRUE" "false:$CG446_WRONGTYPE" "false:$CG446_TOPARR" "false:$CG446_TOPSCAL" "true:$CG446_STRTRUE" "True:$CG446_STRCAP"; do
   cg446_want="${cg446_case%%:*}"; cg446_file="${cg446_case#*:}"
   assert_eq "#446 offer-gate: python3 fallback shape agrees with config-get ($cg446_want)" "$cg446_want" \
-    "$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); w=d.get('workflows') if isinstance(d,dict) else None; v=w['devflow'] if (isinstance(w,dict) and 'devflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))" "$cg446_file")"
+    "$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); w=d.get('workflows') if isinstance(d,dict) else None; v=w['prflow'] if (isinstance(w,dict) and 'prflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))" "$cg446_file")"
   assert_eq "#446 offer-gate: jq fallback shape agrees with config-get ($cg446_want)" "$cg446_want" \
-    "$(jq -r 'if (type=="object") and ((.workflows|type)=="object") then (.workflows.devflow // false) else false end' "$cg446_file")"
+    "$(jq -r 'if (type=="object") and ((.workflows|type)=="object") then (.workflows.prflow // false) else false end' "$cg446_file")"
 done
 rm -f "$CG446_FALSE" "$CG446_ABSENT" "$CG446_TRUE" "$CG446_WRONGTYPE" "$CG446_TOPARR" "$CG446_TOPSCAL" "$CG446_STRTRUE" "$CG446_STRCAP" "$CG446_BAD"
 

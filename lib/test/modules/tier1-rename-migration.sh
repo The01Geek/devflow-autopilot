@@ -161,12 +161,21 @@ print(p["superseded"], p["current"])' "$T1_MAP" 2>/dev/null)"
 assert_eq "#1002 the map declares the vendored-path rename at both levels" \
   ".devflow/vendor/devflow .prflow/vendor/prflow" "$_t1_vendor"
 
-# The FROZEN set is declared in the map so a later sweep cannot widen it silently.
-assert_eq "#1002 the map freezes the two workflows.* config sub-keys" "yes" \
+# #1041: the two workflows.* sub-keys are NO LONGER frozen — they migrate behind the
+# scaffold freshness gate via the map's workflows_config_keys section. frozen.config_keys
+# is now empty (it still exists so the enumerated frozen set has a home), and the two
+# renames live in workflows_config_keys.
+assert_eq "#1041 the map no longer freezes the workflows.* config sub-keys" "yes" \
   "$(python3 -c '
 import json,sys
 f=json.load(open(sys.argv[1]))["frozen"]["config_keys"]
-print("yes" if set(f)=={"workflows.devflow","workflows.devflow-review"} else "no:"+",".join(f))' "$T1_MAP" 2>/dev/null)"
+print("yes" if f==[] else "no:"+",".join(f))' "$T1_MAP" 2>/dev/null)"
+assert_eq "#1041 the map declares the two workflows.* renames in workflows_config_keys" \
+  "devflow->prflow devflow-review->prflow-review" \
+  "$(python3 -c '
+import json,sys
+w=json.load(open(sys.argv[1]))["workflows_config_keys"]
+print(" ".join(f"{k}->{v}" for k,v in w.items()))' "$T1_MAP" 2>/dev/null)"
 
 assert_eq "#1002 the map declares a four-member atomic unit" "4" \
   "$(python3 -c '
@@ -193,21 +202,21 @@ bad=[k for k in props if k.startswith("devflow")]
 print(",".join(bad) if bad else "none")' "$_t1_f" "$( [ "$_t1_label" = "config.schema.json" ] && echo schema || echo plain )" 2>/dev/null)"
 done
 
-# The FROZEN counter-control: the workflows block still declares exactly the two
-# brand-named sub-keys. Renaming these is the single most damaging edit available in
-# this change (`.workflows.devflow // false` silently disables everything), so the
-# purity assertion above must not be read as licence to sweep them.
-assert_eq "#1002 FROZEN: config.schema.json still declares workflows.{devflow,devflow-review}" \
-  "devflow devflow-review" \
+# #1041: the workflows block now declares the RENAMED sub-keys. Renaming these was the
+# single most damaging edit available (`.workflows.devflow // false` silently disables
+# everything), which is why they moved only behind the fail-closed freshness gate and in
+# lockstep with the shipped workflows' inline jq — never as a bare sweep.
+assert_eq "#1041 config.schema.json declares the renamed workflows.{prflow,prflow-review}" \
+  "prflow prflow-review" \
   "$(python3 -c '
 import json,sys
 print(" ".join(json.load(open(sys.argv[1]))["properties"]["workflows"]["properties"]))' "$T1_SCHEMA" 2>/dev/null)"
 
-assert_eq "#1002 FROZEN: config.example.json still carries the workflows.devflow toggle" "yes" \
+assert_eq "#1041 config.example.json carries the renamed workflows.prflow toggle" "yes" \
   "$(python3 -c '
 import json,sys
 w=json.load(open(sys.argv[1])).get("workflows",{})
-print("yes" if "devflow" in w and "devflow-review" in w else "no")' "$T1_EXAMPLE" 2>/dev/null)"
+print("yes" if "prflow" in w and "prflow-review" in w and "devflow" not in w else "no")' "$T1_EXAMPLE" 2>/dev/null)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#1002 C. state-directory resolution and its LOUD transitional fallback"
@@ -1276,29 +1285,21 @@ assert_eq "#1028 wrong-typed frozen block: exit 0, the rename still applies, no 
   '0|"<!-- prflow:workpad -->"|no' \
   "$_t1_v_rc|$(_t1_v_get prflow.workpad_marker)|$(_t1_has "$_t1_v_rec" 'ADVISORY')"
 
-# — THE RESIDUAL NOTICE. What genuinely remains after Axis 2 is the frozen workflows.*
-#   toggles plus a POINTER to the separate environment freeze — derived from this
-#   consumer config, never a static list. —
+# — THE RESIDUAL NOTICE IS RETIRED (#1041). With the workflows.* sub-keys no longer
+#   frozen (frozen.config_keys is now empty), the value pass has no frozen config key to
+#   report, so it emits NO residual advisory. The DEVFLOW_* environment freeze reminder is
+#   owned canonically by lib/generate-env-freeze-advisory.py (single source), not restated
+#   by this pass. The value pass STILL leaves the workflows.* keys untouched — their
+#   migration is the scaffold freshness gate's job, exercised in the scaffold-integration
+#   block below. —
 _t1_v_run '{"workflows":{"devflow":true,"devflow-review":false}}'
-assert_eq "#1028 residual notice: both frozen toggle keys present -> both are named" "yes yes" \
-  "$(_t1_has "$_t1_v_rec" 'ADVISORY') $(_t1_has "$_t1_v_rec" 'workflows.devflow-review')"
-_t1_v_run '{"workflows":{"devflow":false}}'
-assert_eq "#1028 residual notice: DERIVED — only the frozen key this config carries is named" "yes no" \
-  "$(_t1_has "$_t1_v_rec" 'workflows.devflow') $(_t1_has "$_t1_v_rec" 'workflows.devflow-review')"
-_t1_v_run '{"prflow":{"workpad_marker":"<!-- prflow:workpad -->"}}'
-assert_eq "#1028 residual notice: a config carrying no frozen key draws NO notice at all" "no" \
+assert_eq "#1041 residual notice retired: the value pass emits no ADVISORY for the workflows.* keys" "no" \
   "$(_t1_has "$_t1_v_rec" 'ADVISORY')"
-# It POINTS at the environment-freeze renderer and must not become a second copy of that
-# inventory. The negative control is read FROM the inventory, so it cannot rot.
-_t1_v_envrow="$(python3 -c '
-import json, sys
-rows = json.load(open(sys.argv[1]))["frozen"]["env_identifiers"]["identifiers"]
-print(rows[0]["name"] if rows else "")' "$T1_MAP" 2>/dev/null)"
-_t1_v_run '{"workflows":{"devflow":true}}'
-assert_eq "#1028 residual notice: it warns that the DEVFLOW_* ENVIRONMENT identifiers must not be hand-renamed" "yes" \
-  "$(_t1_has "$_t1_v_rec" 'ENVIRONMENT identifiers')"
-assert_eq "#1028 residual notice: it points at the env-freeze renderer instead of restating a row of it" "yes no" \
-  "$(_t1_has "$_t1_v_rec" 'generate-env-freeze-advisory.py') $(_t1_has "$_t1_v_rec" "$_t1_v_envrow")"
+assert_eq "#1041 residual notice retired: and leaves the workflows.* keys byte-identical (gate territory, not this pass)" \
+  '{"devflow": true, "devflow-review": false}' "$(_t1_v_get workflows)"
+_t1_v_run '{"prflow":{"workpad_marker":"<!-- prflow:workpad -->"}}'
+assert_eq "#1041 residual notice retired: a config carrying no superseded value draws no notice" "no" \
+  "$(_t1_has "$_t1_v_rec" 'ADVISORY')"
 
 # — SELF-TRIGGER GUARD. Renaming the configured marker must not stop the guard matching a
 #   PRE-rename workpad: it derives the superseded spelling from the configured one, and a
@@ -1334,8 +1335,12 @@ ao = d["prflow_review"]["agent_overrides"]
 print(d["prflow"]["workpad_marker"],
       ",".join(sorted(k for k in ao if k.endswith("code-reviewer"))),
       d["deferred"]["labels"], d["docs"]["labels"])' "$_t1_r/.prflow/config.json" 2>/dev/null)"
-assert_eq "#1028 scaffold integration: the frozen toggles and the bot login survive the whole scaffold" \
-  '{"devflow": false, "devflow-review": false}|devflow-autopilot' \
+# #1041: the workflows.* toggles now MIGRATE through the same scaffold (fresh shipped
+# workflows read .workflows.prflow, so the freshness gate passes), carrying their
+# valid-falsy `false` values across verbatim — never coerced to a default. The bot login
+# still survives untouched.
+assert_eq "#1041 scaffold integration: the workflows.* toggles migrate (false preserved) and the bot login survives" \
+  '{"prflow": false, "prflow-review": false}|devflow-autopilot' \
   "$(python3 -c '
 import json, sys
 d = json.load(open(sys.argv[1]))
