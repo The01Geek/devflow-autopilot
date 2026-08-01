@@ -61,6 +61,34 @@ verbatim; the observed schema places untrusted content in value positions, not k
 > but it is why "no consumer ships yet" is a statement about this field, not about the
 > repository's rendering of denial text in general.
 >
+> **Precondition discharge (issue #1064).** The first *live* reader of the denied-command
+> text now ships: `scripts/build-denial-record.sh` consumes `extract-execution-shape.sh`'s
+> `permission_denials_commands` and persists the (scrubbed) command text into each run's
+> efficiency record on the `prflow-telemetry` branch, wired into the `Persist … (backstop)`
+> step of both live tiers (`devflow-implement.yml`, `devflow.yml`). That extractor gates
+> every field on a `type: "result"` event, so on an execution file that never emitted one —
+> a stall, timeout or crash, which is precisely what the `always()` persist step exists for
+> — it reports `unavailable` even when the denied commands are present in streamed message
+> events. `build-denial-record.sh` therefore recovers the commands from the denial objects
+> directly in that case only, at the same field preference and the same 500-char/40-entry
+> bounds, and the recovered value re-enters the same assembly, so it is scrubbed by the
+> same blocklist on the same fail-closed path. The shared extractor's own `$has_result`
+> contract is unchanged. Because this reader
+> writes to a **durable, committed** branch — strictly worse than a 7-day artifact — the
+> `#805` precondition is discharged by **the scrub plus a documented off switch together**,
+> not by the length/count bounds (which were always there): (1) every command string is run
+> through the shared credential blocklist `scripts/scrub-credentials.sh` before persistence
+> and the record records `scrub.blocklist_incomplete: true` (the scrub is a blocklist, so it
+> is disclosed as incomplete — never claimed as redaction); and (2) the text field is gated
+> by the new `.prflow.execution_denial_commands_enabled` key. **The first reader ships
+> DEFAULT-ON:** the key defaults to `true`, so an upgrading repository begins persisting
+> scrubbed denied-command text without opting in — set `.prflow.execution_denial_commands_enabled`
+> to `false` to disable it (the count and denied `tool_name` are always persisted and are
+> **not** gated by that key, carrying no credential risk). Any *rendering* of the field still
+> routes through `scripts/render-guard-visibility.sh`'s `::`/backtick neutralization; the
+> scrub is a persistence-side control, the neutralizer a rendering-side one, and the two are
+> independent.
+>
 > **The field's three values — `unknown` is never `0`.** It emits `unavailable` when the
 > extraction was not established: the execution file itself is unavailable, no
 > `permission_denials` array is present, **or** a non-empty denials array yields no

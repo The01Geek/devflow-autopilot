@@ -150,6 +150,22 @@ if ! BLOCK=$("$DEVFLOW_JQ" -rs --arg header "$_HEADER" '
     def trunc($s):
       ($s | tostring) as $t
       | if ($t | length) > 200 then ($t[0:200] + "…(truncated)") else $t end;
+    # Denial-line bound (issue #1064 D1/AC1). The old 200-char trunc() applied to the
+    # STRINGIFIED tool_input envelope, so for a Bash denial the budget was spent on the
+    # JSON envelope before any command text was reached and the ungranted head — usually
+    # in the tail of a long pipeline — was cut off, leaving the surfaced line unable to
+    # identify what was refused. Route chosen: WIDEN the bound for the denial line and
+    # prefer .tool_input.command specifically, rather than reuse extract-execution-shape.sh
+    # here — this script is the step-summary RENDERER, not the shape extractor, so widening
+    # its own render keeps one code path while the denial RECORD (scripts/build-denial-
+    # record.sh) is what un-strands extract-execution-shape.sh onto the live tier. 500 is an
+    # enforcement constant pinned in lib/test/run.sh, matching the extract-execution-shape.sh
+    # per-command cap; it stays finite (an unbounded step-summary field is its own hazard).
+    # NOTE: no ASCII apostrophes in this comment — it sits inside a bash single-quoted jq
+    # program, where one would terminate the string (SC1011/SC1073).
+    def trunccmd($s):
+      ($s | tostring) as $t
+      | if ($t | length) > 500 then ($t[0:500] + "…(truncated)") else $t end;
     # Null-safe field render: `//` would collapse a legitimate `false`/absent
     # is_error to the fallback (jq treats false as empty for `//`), so a plain
     # explicit null check is used instead of `.field // "n/a"`.
@@ -198,7 +214,10 @@ if ! BLOCK=$("$DEVFLOW_JQ" -rs --arg header "$_HEADER" '
           # contradicting or absent result-event count.
           (if $dcount > 0 then
              ("\($dcount) permission denial(s) with detail:"),
-             ($denials[] | "- `\(.tool_name // "unknown")`: \(trunc(.tool_input // ""))")
+             # Prefer the denied .command (or a nested .tool_input.command) at the wider
+             # bound; fall back to the stringified envelope only when no command field
+             # exists (issue #1064 D1/AC1).
+             ($denials[] | "- `\(.tool_name // "unknown")`: \(trunccmd((.tool_input?.command? // .command? // .tool_input) // ""))")
            elif $count == null then
              "Permission-denial count unavailable — no permission_denials_count in the result event and no permission_denials array found."
            elif $count == 0 then

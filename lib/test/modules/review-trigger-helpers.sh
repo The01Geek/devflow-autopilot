@@ -909,8 +909,11 @@ echo "surface-execution-diagnostics.sh (#329 execution-diagnostics surfacer: run
 SED="$LIB/../scripts/surface-execution-diagnostics.sh"
 SED_TMP="$(mktemp -d)"
 # populated: result object carrying the run summary AND a permission_denials array
-# with per-denial tool_name + tool_input (the tool_input long enough to truncate).
-LONG_INPUT="$(printf 'x%.0s' $(seq 1 300))"
+# with per-denial tool_name + tool_input (the tool_input long enough to truncate at the
+# post-#1064 denial-line bound of 500 — the old 200-char bound was raised so the
+# ungranted head of a long pipeline is not cut off; a 300-char input no longer truncates,
+# so this fixture is 600 to still exercise the truncation arm at the new bound).
+LONG_INPUT="$(printf 'x%.0s' $(seq 1 600))"
 printf '%s' "$(printf '{"type":"result","is_error":false,"num_turns":12,"duration_ms":34567,"total_cost_usd":0.42,"permission_denials_count":2,"permission_denials":[{"tool_name":"Bash","tool_input":"%s"},{"tool_name":"Write","tool_input":"file.txt"}]}' "$LONG_INPUT")" > "$SED_TMP/populated.json"
 # count-only: run summary with permission_denials_count but NO permission_denials array
 printf '%s' '{"type":"result","is_error":true,"num_turns":3,"duration_ms":100,"total_cost_usd":0.01,"permission_denials_count":7}' > "$SED_TMP/count_only.json"
@@ -1287,7 +1290,16 @@ PY
   } > "$SCRUB_EXEC"
   SCRUB_GH_OUT="$SCRUB_DIR/gh_output"
   : > "$SCRUB_GH_OUT"
+  # TRUSTED-SOURCE ladder (issue #1064 W3). The step now resolves the scrub pair ONLY
+  # from a trusted source — rank 1 is the base-ref copy baseprovision materializes into
+  # RUNNER_TEMP, rank 2 the vendored copy gated on vendor_source==fetch — and never from
+  # the PR-head workspace. Stand in for rank 1 with a dir holding both real helpers, so
+  # these behavioral arms keep driving the actual scrub rather than the fail-closed arm.
+  SCRUB_TRUSTED="$SCRUB_DIR/trusted"
+  mkdir -p "$SCRUB_TRUSTED"
+  cp "$LIB/../scripts/scrub-transcript.sh" "$LIB/../scripts/scrub-credentials.sh" "$SCRUB_TRUSTED/"
   EXECUTION_FILE="$SCRUB_EXEC" RUNNER_TEMP="$SCRUB_DIR" GITHUB_OUTPUT="$SCRUB_GH_OUT" \
+    SCRUB_HELPER_DIR="$SCRUB_TRUSTED" \
     bash "$SCRUB_STEP" > "$SCRUB_DIR/log" 2>&1 || true
   SCRUB_OUT="$SCRUB_DIR/claude-execution-scrubbed.json"
   # item 4 + existing shapes: every credential redacted, no raw secret survives.
@@ -1306,8 +1318,12 @@ PY
   # item 2: caveat header prepended into the artifact + best-effort warning emitted.
   assert_eq "#409 scrub: caveat header prepended into the artifact (item 2)" "yes" \
     "$(grep -qF 'DEVFLOW SCRUB CAVEAT' "$SCRUB_OUT" 2>/dev/null && echo yes || echo no)"
+  # The scrub now runs through the shared scripts/scrub-transcript.sh helper (issue
+  # #1064 D4), which names the redacted SHAPES explicitly rather than "four credential
+  # shapes"; pin the stable warning prefix so the incomplete-blocklist disclosure stays
+  # asserted without re-pinning the exact shape count.
   assert_eq "#409 scrub: incomplete-blocklist warning emitted (item 2)" "yes" \
-    "$(grep -qF 'best-effort blocklist covering four credential shapes' "$SCRUB_DIR/log" 2>/dev/null && echo yes || echo no)"
+    "$(grep -qF 'best-effort blocklist covering' "$SCRUB_DIR/log" 2>/dev/null && echo yes || echo no)"
   # item 3: non-empty output advertises a path=.
   assert_eq "#409 scrub: non-empty scrub advertises path= (item 3)" "yes" \
     "$(grep -qF 'path=' "$SCRUB_GH_OUT" 2>/dev/null && echo yes || echo no)"
@@ -1317,6 +1333,7 @@ PY
   SCRUB_GH_OUT2="$SCRUB_DIR/gh_output2"
   : > "$SCRUB_GH_OUT2"
   EXECUTION_FILE="$SCRUB_EMPTY_EXEC" RUNNER_TEMP="$SCRUB_DIR" GITHUB_OUTPUT="$SCRUB_GH_OUT2" \
+    SCRUB_HELPER_DIR="$SCRUB_TRUSTED" \
     bash "$SCRUB_STEP" > "$SCRUB_DIR/log2" 2>&1 || true
   assert_eq "#409 scrub: empty output advertises NO path= (item 3)" "no" \
     "$(grep -qF 'path=' "$SCRUB_GH_OUT2" 2>/dev/null && echo yes || echo no)"
@@ -1338,18 +1355,44 @@ PY
   SCRUB_GH_OUT3="$SCRUB_DIR/gh_output3"
   : > "$SCRUB_GH_OUT3"
   ( PATH="$MV_BIN:$PATH" EXECUTION_FILE="$SCRUB_EXEC" RUNNER_TEMP="$SCRUB_DIR" GITHUB_OUTPUT="$SCRUB_GH_OUT3" \
+      SCRUB_HELPER_DIR="$SCRUB_TRUSTED" \
       bash "$SCRUB_STEP" ) > "$SCRUB_DIR/log3" 2>&1 || true
   assert_eq "#409 scrub: caveat-write failure advertises NO path= (fail-closed, item 2)" "no" \
     "$(grep -qF 'path=' "$SCRUB_GH_OUT3" 2>/dev/null && echo yes || echo no)"
   assert_eq "#409 scrub: caveat-write failure emits its fail-closed breadcrumb (item 2)" "yes" \
     "$(grep -qF 'caveat-header write failed' "$SCRUB_DIR/log3" 2>/dev/null && echo yes || echo no)"
   rm -rf "$MV_BIN"
+  # ── #1064 W3: the TRUSTED-SOURCE ladder. This job checks out the PR HEAD, so a
+  # credential scrub read from the workspace is a scrub the PR controls. With NEITHER
+  # rank satisfied (no baseprovision dir, vendor_source != fetch) the step must upload
+  # NOTHING and warn naming the rule — even though a perfectly good PR-head copy exists
+  # at scripts/scrub-transcript.sh, which is exactly the copy that must not be consulted.
+  # The positive control is every arm above (rank 1 supplied), so this assertion can fail.
+  SCRUB_GH_OUT_W3="$SCRUB_DIR/gh_output_w3"
+  : > "$SCRUB_GH_OUT_W3"
+  # Run from the REPO ROOT deliberately, where the PR-head copies (scripts/scrub-*.sh,
+  # and a committed .prflow/vendor/prflow/ if present) really do exist — so this asserts
+  # the ladder REFUSES a reachable workspace copy. Running it from a scratch cwd would
+  # pass vacuously against the pre-#1064-W3 code, which fell back to `scripts/`.
+  EXECUTION_FILE="$SCRUB_EXEC" RUNNER_TEMP="$SCRUB_DIR" \
+    GITHUB_OUTPUT="$SCRUB_GH_OUT_W3" SCRUB_HELPER_DIR='' VENDOR_SOURCE=committed \
+    bash "$SCRUB_STEP" > "$SCRUB_DIR/logw3" 2>&1 || true
+  assert_eq "#1064 W3: no trusted scrub source → advertises NO path= (fail-closed)" "no" \
+    "$(grep -qF 'path=' "$SCRUB_GH_OUT_W3" 2>/dev/null && echo yes || echo no)"
+  assert_eq "#1064 W3: no trusted scrub source → warns naming the trusted-source rule" "yes" \
+    "$(grep -qF 'not found at any TRUSTED source' "$SCRUB_DIR/logw3" 2>/dev/null && echo yes || echo no)"
+  assert_eq "#1064 W3: the fail-closed warning states the PR-head copy is not consulted" "yes" \
+    "$(grep -qF 'PR-head checkout' "$SCRUB_DIR/logw3" 2>/dev/null && echo yes || echo no)"
+  # vendor_source=committed must NOT qualify as rank 2 (only a fresh `fetch` clone does).
+  assert_eq "#1064 W3: vendor_source=committed does not satisfy rank 2" "no" \
+    "$(grep -qF 'runtime-fetched vendored copy' "$SCRUB_DIR/logw3" 2>/dev/null && echo yes || echo no)"
   # absent-execution-file arm: the if: gate guarantees a non-empty output name but not
   # that the file exists, so the `[ ! -f "$EXECUTION_FILE" ]` early-exit is reachable —
   # it emits a notice and no path= (#409 review, Suggestion).
   SCRUB_GH_OUT4="$SCRUB_DIR/gh_output4"
   : > "$SCRUB_GH_OUT4"
   EXECUTION_FILE="$SCRUB_DIR/does-not-exist.json" RUNNER_TEMP="$SCRUB_DIR" GITHUB_OUTPUT="$SCRUB_GH_OUT4" \
+    SCRUB_HELPER_DIR="$SCRUB_TRUSTED" \
     bash "$SCRUB_STEP" > "$SCRUB_DIR/log4" 2>&1 || true
   assert_eq "#409 scrub: absent execution file advertises NO path=" "no" \
     "$(grep -qF 'path=' "$SCRUB_GH_OUT4" 2>/dev/null && echo yes || echo no)"
@@ -1364,6 +1407,7 @@ PY
   SCRUB_GH_OUT5="$SCRUB_DIR/gh_output5"
   : > "$SCRUB_GH_OUT5"
   ( PATH="$SED_BIN:$PATH" EXECUTION_FILE="$SCRUB_EXEC" RUNNER_TEMP="$SCRUB_DIR" GITHUB_OUTPUT="$SCRUB_GH_OUT5" \
+      SCRUB_HELPER_DIR="$SCRUB_TRUSTED" \
       bash "$SCRUB_STEP" ) > "$SCRUB_DIR/log5" 2>&1 || true
   assert_eq "#409 scrub: sed-failure advertises NO path= (fail-closed)" "no" \
     "$(grep -qF 'path=' "$SCRUB_GH_OUT5" 2>/dev/null && echo yes || echo no)"

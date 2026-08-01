@@ -53,7 +53,7 @@
     },
     "review-trigger-helpers": {
       "path": "lib/test/modules/review-trigger-helpers.sh",
-      "minimum_assertions": 534,
+      "minimum_assertions": 538,
       "description": "Focused review and implement trigger-helper contracts: derive-review-verdict.sh and derive-review-preconditions.sh (both RETAINED and still covered after issue #936 withheld the auto PR-triggered review tier — their workflow caller is gone but an installed consumer copy still resolves them, so the helpers ship and their sections stay live), parse-engine-error.sh, surface-execution-diagnostics.sh (#329) with its workflow wiring (#331), the execution-transcript artifact config key and scrub/gate hardening (#409), resolve-implement-trigger.sh, dedupe-implement-run.sh, authorize-actor.sh, detect-standalone-command.sh and resolve-command-trigger.sh"
     },
     "review-stall-backstop": {
@@ -68,7 +68,7 @@
     },
     "efficiency-trace-telemetry": {
       "path": "lib/test/modules/efficiency-trace-telemetry.sh",
-      "minimum_assertions": 884,
+      "minimum_assertions": 902,
       "description": "Focused efficiency-trace and telemetry-persistence coverage: the efficiency-trace.jq/.sh per-run derivation surface with its degradation and flag-off arms, --persist and --self-check (#80), the #475 harness-side cost floor, the #381 synthesis floor with its shadow-provenance pins, #532 base-ref freshness, #441 telemetry-branch persistence, the #469 push-operand fail-closed/fetch-before-exclusion/degraded-retention contract, the #489 cross-workflow telemetry artifact relay, and the #499 unavailable-telemetry normalization matrix that shares this module's _et_show durable-blob reader"
     },
     "issue-audit-state": {
