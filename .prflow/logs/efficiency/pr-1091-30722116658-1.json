@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1091",
+  "generated_at": "2026-08-01T22:56:05Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.17",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.9884695000000003,
+    "tokens": {
+      "input_tokens": 39,
+      "output_tokens": 17576,
+      "cache_read_input_tokens": 3172289,
+      "cache_creation_input_tokens": 196273,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 39,
+        "outputTokens": 17576,
+        "cacheReadInputTokens": 3172289,
+        "cacheCreationInputTokens": 196273,
+        "webSearchRequests": 0,
+        "costUSD": 3.9884695000000003,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 27,
+    "duration_ms": 288012
+  },
+  "permission_denials": {
+    "count": 1,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "cd /home/runner/work/prflow/prflow; echo \"=== AUDITED_PIN_SOURCES count in pin-corpus-lint ===\"; git show HEAD:lib/test/pin-corpus-lint.py | sed -n '/AUDITED_PIN_SOURCES = frozenset/,/^)/p' | grep -c '\"lib/test/modules/'; echo \"=== mutation-pin-census: what EXPECTED_SOURCE_COUNT counts ===\"; git show HEAD:lib/test/mutation-pin-census.py | grep -n -B3 -A3 EXPECTED_SOURCE_COUNT | head -40"
+    ],
+    "total": 1,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
