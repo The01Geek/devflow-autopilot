@@ -11,7 +11,8 @@
 #   matched        an active bot-authored Reviewing comment has EXPECTED_MARKER
 #   foreign        an active bot-authored Reviewing comment has a different marker identity
 #   absent         no active bot-authored Reviewing progress comment exists
-#   unestablished  inputs, GitHub response, jq, or API access were unusable
+#   unestablished  inputs, local diagnostic setup, GitHub response, jq, or API
+#                  access were unusable
 #
 # `matched` wins over `foreign` if both are present. Only callers decide how to
 # surface the result; in particular, `foreign` is evidence of a possible marker

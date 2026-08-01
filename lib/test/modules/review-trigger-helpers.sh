@@ -2735,6 +2735,17 @@ S1054_DIAG_ERR="$(S1054_COMMENTS='[]' DEVFLOW_GH="$S1054_GH" DEVFLOW_JQ="$S1054_
 assert_eq "diagnose #1054: absent emits no possible-mismatch warning" "0" \
   "$(grep -cF 'possible review-progress marker mismatch' <<<"$S1054_DIAG_ERR" || true)"
 
+# Diagnosis must observe the still-active exact marker before the flip makes it
+# terminal. Otherwise an unrelated active marker can produce a false foreign
+# warning after the current-run comment was successfully found and flipped.
+S1054_ORDER="$(python3 - "$RDWF" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+print(text.index("# review-progress marker diagnosis BEGIN") < text.index('bash "$FLIP_HELPER"'))
+PY
+)"
+assert_eq "diagnose #1054: workflow diagnoses before mutating the exact-marker comment" "True" "$S1054_ORDER"
+
 # The dispatcher owns the command predicate that workflow shell must not inline.
 # It invokes diagnosis for canonical review commands and stays silent for every
 # other command while preserving the best-effort exit contract.
@@ -2802,8 +2813,10 @@ assert_eq "diagnose #1054: non-review command never invokes diagnosis" "0" \
 assert_eq "diagnose #1054: non-review command emits no possible-mismatch warning" "0" \
   "$(grep -cF 'possible review-progress marker mismatch' <<<"$S1054_WF_ERR" || true)"
 S1054_WF_RC=0
-s1054_run_wf_block '/prflow:review 7' '' 9 >/dev/null 2>&1 || S1054_WF_RC=$?
+S1054_WF_ERR="$(s1054_run_wf_block '/prflow:review 7' '' 9 2>&1 >/dev/null)" || S1054_WF_RC=$?
 assert_eq "diagnose #1054: diagnosis helper failure leaves workflow block exit status unchanged" "0" "$S1054_WF_RC"
+assert_eq "diagnose #1054: unexpected helper failure emits an observable dispatcher notice" "1" \
+  "$(grep -cF 'diagnosis helper exited 9' <<<"$S1054_WF_ERR" || true)"
 cp "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/diagnose-review-progress-marker.sh" \
   "$S1054_WF_ROOT/scripts/diagnose-review-progress-marker.sh"
 cp "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/run-review-progress-diagnosis.sh" \

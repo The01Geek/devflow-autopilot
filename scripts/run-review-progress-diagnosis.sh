@@ -35,5 +35,9 @@ if [ ! -r "$DIAG_HELPER" ]; then
   exit 0
 fi
 
-bash "$DIAG_HELPER" "$REPO" "$PR_NUMBER" "$EXPECTED_MARKER" >/dev/null || true
+bash "$DIAG_HELPER" "$REPO" "$PR_NUMBER" "$EXPECTED_MARKER" >/dev/null
+DIAG_RC=$?
+if [ "$DIAG_RC" -ne 0 ]; then
+  echo "::notice::flip review-progress: diagnosis helper exited $DIAG_RC unexpectedly; marker diagnosis was not established" >&2
+fi
 exit 0
