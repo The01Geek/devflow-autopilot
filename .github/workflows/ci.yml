@@ -390,16 +390,25 @@ jobs:
   # somehow made would use GITHUB_TOKEN and be swallowed by the recursion guard.
   # The fix-loop command is the opposite on both counts — it mints the App token
   # and pushes with it, outside the recursion guard — so widening this payload
-  # would re-run CI, re-post, and loop without bound. lib/test/modules/review-trigger-helpers.sh
-  # drives the composed body through the real standalone-command detector; that
-  # assertion is the structural brake on exactly that edit.
+  # would re-run CI, re-post, and loop without bound. The review-trigger-helpers
+  # test module drives the composed body through the real standalone-command
+  # detector; that assertion is the structural brake on exactly that edit.
   #
-  # NAMED FOR ITS SKIPPED STATE. scripts/summarize-ci-checks.sh renders every job's
-  # name and conclusion into the engine-ground-truth block of every review prompt,
-  # and this job reads `skipped` on most runs — draft pull requests, fork pull
-  # requests, pushes to main. In a repo whose governing rule is that a skip is never
-  # laundered into a pass, the name has to make a skipped row self-evidently a
-  # notification that was not sent rather than a verification that did not run.
+  # NAMED FOR ITS SKIPPED STATE. The CI-signal summarizer that composes the review
+  # engine's injected engine-ground-truth block renders every job's name and
+  # conclusion into it, and this job reads `skipped` on most runs — draft pull
+  # requests, fork pull requests, pushes to main. In a repo whose governing rule is
+  # that a skip is never laundered into a pass, the name has to make a skipped row
+  # self-evidently a notification that was not sent rather than a verification that
+  # did not run.
+  #
+  # EDITING THIS COMMENT BLOCK: do not name a `<something>.sh` helper here unless
+  # you mean it. The #312 endpoint-permission lint attributes every such basename it
+  # finds in a job's lines — comments included — to that job's permission
+  # requirement, and a comment block sitting ABOVE a job key parses as part of the
+  # PREVIOUS job. Naming the summarizer here required `checks`/`actions` of the lint
+  # job, which calls neither. It fails closed (RED), so the suite catches it, but the
+  # diagnosis lands two jobs away from the edit.
   auto_review_trigger:
     name: auto-review notification (not a check; skipped = not sent)
     needs: [test, lint]
@@ -425,14 +434,26 @@ jobs:
       github.actor != 'dependabot[bot]' &&
       vars.DEVFLOW_APP_ID != ''
     runs-on: ubuntu-latest
-    # Job-scoped and read-only. `pull-requests: write` is deliberately NOT added at
-    # workflow level: that would widen `shard`, `test`, and `lint`, which run
-    # arbitrary pull-request code. It is also unnecessary — an App installation
-    # token ignores the job's `permissions:` block entirely, so the mint's
-    # `permission-*` inputs below are the sole least-privilege enforcement on it,
-    # and this block governs only the built-in GITHUB_TOKEN the checkout uses.
+    # JOB-SCOPED, never workflow-level. Raising `pull-requests: write` to the file's
+    # top-level block would widen `shard`, `test`, and `lint`, which run arbitrary
+    # pull-request code; declared here it reaches this job alone.
+    #
+    # It is declared even though the POST does not use it. The comment is written
+    # with the minted App installation token, whose scope comes from the mint's
+    # `permission-*` inputs and ignores this block entirely — so these keys are not
+    # what authorizes the call. They are here because the repo's own #312
+    # endpoint-permission lint requires a job to declare the permission for every
+    # `gh api` endpoint family it or its helpers invoke, and this job invokes the
+    # issues-comments family. Declaring it is also the honest fallback posture: if
+    # the mint were ever removed the step would still work.
+    #
+    # The grant is safe in a job that checks out pull-request code because the
+    # built-in GITHUB_TOKEN never reaches that code — the checkout persists no
+    # credential, and no step interpolates the token into the environment. Only
+    # GH_TOKEN, the already-downscoped App token, is in the helper's environment.
     permissions:
       contents: read
+      pull-requests: write
     steps:
       # A checkout, taken deliberately over the smaller checkout-less shape. The
       # post-or-skip decision is a branch selection over a user-visible outcome, and

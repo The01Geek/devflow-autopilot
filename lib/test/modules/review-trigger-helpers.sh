@@ -3051,16 +3051,11 @@ assert_eq "pcrt: an unusable head SHA → nothing is posted, with its own warnin
 
 rm -rf "$PCRT_SB"
 
-# --- coupled-invariant pins (ci.yml ↔ this helper) --------------------------
-# The job's eligibility guards are GitHub-evaluated and therefore unreachable by
-# the suite; what IS assertable is that the two guards whose loss is silent are
-# still present. The head-repo comparison is the fork gate and it is the security
-# property of the job — it must exclude fork pull requests BEFORE any credential
-# is minted, so its removal would be invisible until a fork ran.
-PCRT_WF_CI="$LIB/../.github/workflows/ci.yml"
-devflow_module_pin_unique "pcrt: ci.yml gates the trigger job on the head repo being this repo (the fork gate)" \
-  'github.event.pull_request.head.repo.full_name == github.repository' "$PCRT_WF_CI"
-# Both, not just `test`: `lint` is not downstream of `test`, so gating on `test`
-# alone would request a review of a head whose ruff/shellcheck run was red.
-devflow_module_pin_unique "pcrt: ci.yml gates the trigger job on BOTH the test and lint jobs" \
-  'needs: [test, lint]' "$PCRT_WF_CI"
+# DELIBERATELY NOT COVERED, and the absence is the decision (the issue-#843 rule).
+# The calling job's eligibility guards — the fork gate, the draft test, the two
+# `needs.*.result` tests — are GitHub-evaluated expressions. No tool or consumer in
+# this repository reads them, the suite cannot evaluate one, and a source-presence
+# pin over them would be exactly the wording-only pin #375/#666/#810 prohibit. The
+# compensating control is the review pass that reads the workflow, not a pin. What
+# IS covered here is everything a program does read: the payload the detector parses
+# and the post-or-skip arms.
