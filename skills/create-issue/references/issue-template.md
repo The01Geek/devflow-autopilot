@@ -158,17 +158,17 @@ data-less authoring context.
 
 **Unstated mechanism dependencies are a premise class too.** The verification above attaches
 to premises the issue **states as fact**. But a designed mechanism can *rely on* an in-repo
-behavior — a helper's exit code, a resolver's output shape, a gate's semantics — that the body
+behavior — a helper's exit code, a resolver's output shape, a gate's semantics, or the mere
+existence of a renderer mode, state field, subcommand, or config key it names — that the body
 never asserts as a claim, so the claim-driven loop has nothing to verify (issue #446's
 config-unreadable arm rested on `config-get.sh`'s malformed-input non-zero exit without ever
-asserting it as a claim). Enumerate the draft's **own mechanism dependencies** — the in-repo
-behaviors the designed mechanism relies on but never states — and resolve each with a **cited
-probe** (a "Verified:" bullet citing observed output) or an **implementer-obligation AC** (subject
-to the obligation-arm execution-tier constraint in the Acceptance Criteria guidance above: a
-command already granted in `prflow_implement.allowed_tools`, or a code-reading obligation citing
-the producer — never an ungranted-helper run). This is the **in-repo sibling of the
-relied-on-third-party-behavior class** above — same discipline, extended to unstated in-repo
-reliances; it adds no duplicate premise class.
+asserting it as a claim). Enumerate the draft's **own mechanism dependencies** and, for each,
+determine existence first, then route — the rule's single home, with its outcome set, its route
+mapping, and its grounding, is **Step 3.5's item 4** (`skills/create-issue/references/step-3-5-steelman.md`);
+where that reference is unavailable to you, an undetermined dependency records **not established** and
+takes its implementer-obligation route. This is the
+**in-repo sibling of the relied-on-third-party-behavior class** above — same discipline, extended
+to unstated in-repo reliances; it adds no duplicate premise class.
 
 **Occurrence counts and coupled-site lists are a premise class too.** A *count* of in-repo
 occurrences ("fixed at both call sites", "the ten coupled invariants") or a *list* of mirror
@@ -314,7 +314,13 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
   command already granted on the consuming tier (the repo's declared test/lint commands in
   `prflow_implement.allowed_tools`) or be phrased as a **code-reading obligation citing the
   producer code** — never a run-this-ungranted-helper AC that would send a consumer repo's cloud
-  `/prflow:implement` run Blocked for a probe the drafter could have run locally.
+  `/prflow:implement` run Blocked for a probe the drafter could have run locally. **Two further
+  obligation forms name work for the implementer rather than a drafting-time probe by the
+  drafter** — an obligation to *add* a capability as new work, and an obligation to *establish*
+  whether a capability exists — both routed by the existence-determination rule whose single home is Step 3.5's item 4
+  (`skills/create-issue/references/step-3-5-steelman.md`). **This constraint reaches them on the
+  same terms as any other obligation:** it governs whatever in-repo command their discharge names,
+  and an obligation whose discharge names none is unaffected by it.
 - **Every universal quantifier the body asserts about the system under change is grounded,
   or it does not ship.** A universal quantifier — "never", "always", "each", "every", "all",
   "cannot" — asserted anywhere outside `## 🚫 Blocked` (in Desired Behavior, an
@@ -545,7 +551,7 @@ incomplete issues.
 - [ ] No AC forbids a surface (a path, a file class, a tier) that another AC's discharge must touch — the ACs are mutually consistent
 - [ ] An AC establishing a trust/integrity boundary over executable artifacts defines the protected set over the transitive source/exec/import closure of its entry points, or states the residual unprotected surface explicitly
 - [ ] A Testing Strategy that enumerates an input-shape/case matrix for a convention-governed surface carries the full convention matrix (or an explicit named-and-justified narrowing) and a `governing conventions consulted:` discharge line bounded to `CLAUDE.md`, `CONTRIBUTING.md`, and the configured internal-docs path
-- [ ] The draft's own unstated mechanism dependencies (relied-on in-repo helper/resolver/gate behaviors it never asserts as claims) are each resolved with a cited probe or an implementer-obligation AC
+- [ ] The draft's own unstated mechanism dependencies (relied-on in-repo helper/resolver/gate behaviors, and existence-shaped reliances, it never asserts as claims) each have their existence determined first and are then routed per Step 3.5's item 4 (`skills/create-issue/references/step-3-5-steelman.md`), an undetermined one recording **not established** and taking its implementer-obligation route
 - [ ] Every in-repo occurrence count or coupled-site list is grounded by an executed whitespace-normalized search (cited as a "Verified:" bullet with the command and its hit list) where the tier grants one, else by the specific evidence records consulted record-by-record — never assembled from recall
 - [ ] Every "Verified:" bullet carries a self-contained re-derivation handle — the repository path in backticks plus the sentence quoted verbatim from it, or the exact command whose output grounded the claim — so an implementing run can re-check the premise mechanically rather than re-investigating it
 - [ ] A premise verified as "the code does X" was read with its enclosing gates/conditionals and their defaults on the path to X, and any claim that holds only under a non-default configuration states that precondition inside the claim

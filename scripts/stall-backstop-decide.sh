@@ -17,13 +17,24 @@
 #             string "false" disables the backstop; every other value (empty,
 #             "true", an unrecognized string) resolves to enabled — the safe,
 #             honest-failure direction the issue mandates.
-#   CLASS     The workpad status class from `workpad.py status`:
-#               terminal      — 🎉 Complete / 👎 Blocked / 💥 Failed / 🛑
-#                               Cancelled (a decided end; no resume. 💥 Failed
-#                               is written by the workflow's own dead-run flip,
-#                               issue #356, and 🛑 Cancelled by its cancelled-run
-#                               flip, issue #498, so a re-triggered run reads
-#                               terminal -> noop here)
+#   CLASS     The workpad status class from `workpad.py status`. Since issue
+#             #1025 each terminal glyph has its OWN token (the old collapse to a
+#             single `terminal` made 👎 Blocked indistinguishable from 🎉
+#             Complete, so a blocked run concluded `success`):
+#               complete      — 🎉 Complete (the healthy end; -> noop, green)
+#               blocked       — 👎 Blocked (a decided non-success end; issue
+#                               #1025 -> fail-blocked, concludes the job non-
+#                               `success`. No resume.)
+#               failed        — 💥 Failed (written by the workflow's own dead-run
+#                               flip, issue #356; also a non-success end ->
+#                               fail-blocked)
+#               cancelled     — 🛑 Cancelled (written by the cancelled-run flip,
+#                               issue #498; a STALE read on a non-cancelled job
+#                               stays noop — never converted to a failure, AC4)
+#               terminal      — the LEGACY collapsed token an un-upgraded
+#                               workpad.py emits; kept as a backward-compatible
+#                               alias -> noop, so an upgrade skew fails toward the
+#                               old green-on-terminal behavior
 #               interim       — 🚀 any in-progress phase (a stall)
 #               unreadable    — no workpad, or its Status could not be parsed
 #               auth-failure  — a gh-api / transport / auth error (e.g. an
@@ -50,7 +61,12 @@
 #
 # Prints exactly one decision token to stdout and exits 0:
 #   skip             backstop disabled            → do nothing, job stays green
-#   noop             terminal status              → do nothing (healthy end)
+#   noop             complete/cancelled/legacy-terminal → do nothing (healthy or
+#                    non-failure end; job stays green)
+#   fail-blocked     blocked/failed terminal      → conclude the job non-`success`
+#                    (issue #1025) so a run that produced no branch/PR is visible
+#                    in `gh run list`; NO resume, NO workpad re-flip (👎/💥 are
+#                    already truthful terminal statuses)
 #   resume           interim + ATTEMPTS < MAX     → audit comment + re-dispatch
 #   fail-exhausted   interim + ATTEMPTS >= MAX     → comment + fail the job
 #                    (includes MAX=0: 0 >= 0)
@@ -82,15 +98,21 @@ fi
 # a stall. Only the exact string "cancelled" selects this path; every other value
 # (absent, empty, "success", "failure", any other token) falls through to the
 # existing decision table byte-identical — so an un-upgraded caller (four args,
-# or a non-cancelled job status) never suppresses a resume. The mapping (six
-# rows, complete by construction — the unknown-class fold closes the class
-# space): terminal → noop; interim → flip-cancelled (the workflow flips the
+# or a non-cancelled job status) never suppresses a resume. The mapping (complete
+# by construction — the unknown-class fold closes the class space): any decided
+# terminal class (complete/blocked/failed/cancelled, or the legacy `terminal`
+# token — issue #1025) → noop; interim → flip-cancelled (the workflow flips the
 # workpad to 🛑 Cancelled); unreadable/auth-failure/unknown → skip-cancelled
 # (log + green, no fail-loud diagnostic on a cancel). The master switch above
 # already returned `skip` for ENABLED=false, so it wins before this path.
 if [ "$job_status" = "cancelled" ]; then
   case "$cls" in
-    terminal)
+    complete|blocked|failed|cancelled|terminal)
+      # Any decided terminal end (issue #1025's widened vocabulary, or the
+      # legacy collapsed 'terminal' token) on a cancelled job is a noop — the
+      # run's own `cancelled` conclusion in the Actions UI is the record, and a
+      # decided end is not re-flipped. Byte-identical to the pre-#1025 terminal
+      # -> noop arm; the new tokens simply join it.
       echo noop
       ;;
     interim)
@@ -113,8 +135,24 @@ fi
 [[ "$max" =~ ^[0-9]+$ ]] || max=2
 
 case "$cls" in
-  terminal)
+  complete|cancelled|terminal)
+    # 🎉 Complete concludes the job `success` (green — the healthy end). A STALE
+    # 🛑 Cancelled read here means job.status is NOT cancelled (the cancel path
+    # above did not fire) but the workpad still reads Cancelled from a prior
+    # attempt — issue #1025 AC4 forbids converting that to a failure, so it stays
+    # noop. 'terminal' is the legacy collapsed token an un-upgraded workpad.py
+    # emits (issue #1025 widened the vocabulary); it too stays noop, so an
+    # upgrade skew fails toward the old green-on-terminal behavior.
     echo noop
+    ;;
+  blocked|failed)
+    # A terminal end that is NOT 🎉 Complete and NOT a cancel (issue #1025): 👎
+    # Blocked or 💥 Failed. These conclude the job non-`success` so a run that
+    # produced no branch/PR is visible in `gh run list` without opening the
+    # workpad. No resume — this is a decided end, not a stall (no collision with
+    # the interim resume arm). The workflow does NOT re-flip the workpad here:
+    # its flip_to_failed guard is CLASS=interim, so 👎/💥 are left truthful.
+    echo fail-blocked
     ;;
   interim)
     if [ "$attempts" -ge "$max" ]; then
