@@ -1157,7 +1157,7 @@ workflow YAML:
   (e.g. `Bash(make:*)`), and are **appended** to PRFlow's base list — they add,
   never replace.
 - These keys are **independent**, one per execution path:
-  `devflow.allowed_tools` → light `/prflow:*` command path (`devflow.yml`);
+  `prflow.allowed_tools` → light `/prflow:*` command path (`devflow.yml`);
   `prflow_implement.allowed_tools` → `/prflow:implement` (`devflow-implement.yml`).
   None inherits another's extras, so list every tool you want for a given path
   under that path's key. The automated reviewer's build tools live in a third
@@ -1183,7 +1183,7 @@ the execution path — invoked by their **direct leading-token** form (the
 `bash <path>` wrapper is deny-floored and can never be granted). So:
 
 - List your project's test/lint commands under **`prflow_implement.allowed_tools`**
-  (the `/prflow:implement` path) **and** under **`devflow.allowed_tools`** (the
+  (the `/prflow:implement` path) **and** under **`prflow.allowed_tools`** (the
   `/prflow:*` command path, including `/prflow:review-and-fix`):
 
   ```json
@@ -1203,7 +1203,7 @@ the execution path — invoked by their **direct leading-token** form (the
 
 - **A grant a PR ships is post-merge-only — never rely on a grant that same PR
   adds.** A grant added to `prflow_implement.allowed_tools` (and equally to
-  `devflow.allowed_tools`, which this same section instructs populating) inside a PR
+  `prflow.allowed_tools`, which this same section instructs populating) inside a PR
   takes effect only after that PR merges, because the workflows resolve grants at trigger time from the default branch — never from the PR's own head.
   So a criterion that must run a *newly*-granted command cannot verify in-env
   during that PR's own implementing run; grant the command in a prior (merged)
