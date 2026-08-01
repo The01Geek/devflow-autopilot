@@ -2,8 +2,8 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 # seed-review-progress.sh PR_NUMBER MARKER BODY_FILE — find-or-create the review
-# engine's per-run live-progress comment, and print exactly one token line naming
-# the outcome (issue #857).
+# engine's per-run live-progress comment, and print an outcome line plus the
+# authoritative marker on success (issues #857, #1054).
 #
 # WHY A HELPER, not an inline fence (issue #857): the review engine's old seed was a
 # `case` + `if`/`elif` compound in skills/review/SKILL.md carrying three screens
@@ -17,16 +17,17 @@
 # invocation the matcher permits, and lets lib/test/run.sh drive every screen as
 # ordinary shell (the same pattern as classify-id-exit.sh / describe-denial-count.sh).
 #
-# CONTRACT — exactly one stdout token line per reachable path, closed set, no silent
-# path (a fence that prints NOTHING is therefore a harness refusal the caller routes
-# to its fallback arm, never read as a create authorization):
+# CONTRACT — exactly one outcome line per reachable path, plus a MARKER line after
+# each successful outcome. The vocabulary is closed and has no silent path (a fence
+# that prints NOTHING is therefore a harness refusal the caller routes to its
+# fallback arm, never read as a create authorization):
 #
 #   stdout                              exit  meaning
-#   RESUME <comment-id>                 0     this run's comment already exists (cmd_id exit 0)
-#   CREATED <comment-id>                0     clean absence confirmed; comment created
+#   RESUME <comment-id> + MARKER <...>  0     this run's comment already exists (cmd_id exit 0)
+#   CREATED <comment-id> + MARKER <...> 0     clean absence confirmed; comment created
 #   SKIP not-numeric                    3     S1 refused a non-numeric PR number
-#   SKIP bad-marker                     3     the run-keyed marker was empty (an empty --marker
-#                                             would defeat S3's stderr-emptiness discriminator)
+#   SKIP no-run-key                     3     neither a usable GitHub run id nor the local
+#                                             fallback marker slot was available
 #   SKIP workpad-unreadable-script-dir  3     this helper's own directory could not be resolved,
 #                                             so the workpad.py path cannot be derived
 #   SKIP workpad-unreadable-file        3     S2 found workpad.py missing or unreadable
@@ -82,6 +83,17 @@ PR_NUMBER="${1:-}"
 MARKER="${2:-}"
 BODY_FILE="${3:-}"
 
+# Cloud ownership (issue #1054): when GitHub supplies a non-blank run id, derive
+# the marker here, at the helper boundary. The caller's positional marker remains
+# the local-mode fallback only. Parameter substitution is a bash builtin, so a
+# stripped PATH cannot turn a whitespace-only id into an authoritative key.
+RUN_ID="${GITHUB_RUN_ID:-}"
+RUN_ID_NONSPACE="${RUN_ID//[[:space:]]/}"
+if [ -n "$RUN_ID_NONSPACE" ]; then
+  RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT:-1}"
+  MARKER="<!-- prflow:review-progress run=${RUN_ID}-${RUN_ATTEMPT} -->"
+fi
+
 # The workpad.py this helper drives lives beside it in scripts/. S2 screens THIS path.
 # Check the directory resolution itself rather than appending to whatever it produced: an
 # unreadable parent dir (or a runner that does not populate BASH_SOURCE) makes the
@@ -112,8 +124,8 @@ esac
 # SKIP api-error-id-failed — fail-closed, but the live comment is lost with no explanation. Guard
 # the assumption at the boundary rather than leaving it latent.
 if [ -z "$MARKER" ]; then
-  echo "devflow review-seed: the run-keyed marker is empty — refusing the id call (an empty --marker lets a config breadcrumb reach stderr and defeat the exit-2 emptiness discriminator)" >&2
-  echo "SKIP bad-marker"
+  echo "devflow review-seed: no usable GitHub run id and no fallback marker were supplied — refusing the id call (an empty --marker lets a config breadcrumb reach stderr and defeat the exit-2 emptiness discriminator)" >&2
+  echo "SKIP no-run-key"
   exit 3
 fi
 
@@ -138,7 +150,8 @@ if [ -z "$ERRF" ]; then
   echo "SKIP api-error-scratch-file"
   exit 3
 fi
-trap 'rm -f "$ERRF"' EXIT
+NORMALIZED_BODY=""
+trap 'rm -f "$ERRF" "${NORMALIZED_BODY:-}"' EXIT
 
 # Branch on the id call's OWN exit status inline. A captured rc read in a LATER
 # statement is dropped by some inline-bash runners (issue #284) — but this helper runs
@@ -155,11 +168,36 @@ if WP="$("$WORKPAD_PY" id "$PR_NUMBER" --marker "$MARKER" 2>"$ERRF")"; then
     exit 3
   fi
   echo "RESUME $WP"
+  echo "MARKER $MARKER"
   exit 0
 elif [ "$?" -eq 2 ] && [ ! -s "$ERRF" ]; then
   # exit 2 AND silent ⇒ cmd_id's clean absence. This run's first write: create it. The
-  # marker is the body file's first line, so `create` needs no --marker.
-  if WP="$("$WORKPAD_PY" create "$PR_NUMBER" "$BODY_FILE" 2>>"$ERRF")"; then
+  # helper owns the marker/body agreement: prepend the authoritative marker and
+  # remove a caller-authored current or superseded marker from line one. Preserve
+  # every other line verbatim (apart from normalizing a missing final newline).
+  NORMALIZED_BODY="$(mktemp 2>/dev/null)" || NORMALIZED_BODY=""
+  NORMALIZATION_OK=true
+  if [ -z "$NORMALIZED_BODY" ]; then
+    echo "could not create a scratch file for the normalized review-progress body" >> "$ERRF"
+    NORMALIZATION_OK=false
+  elif ! {
+    printf '%s\n' "$MARKER"
+    FIRST_LINE=true
+    while IFS= read -r BODY_LINE || [ -n "$BODY_LINE" ]; do
+      if [ "$FIRST_LINE" = true ]; then
+        FIRST_LINE=false
+        case "$BODY_LINE" in
+          '<!-- prflow:review-progress run='*|'<!-- devflow:review-progress run='*) continue ;;
+        esac
+      fi
+      printf '%s\n' "$BODY_LINE"
+    done < "$BODY_FILE"
+  } > "$NORMALIZED_BODY"; then
+    echo "could not normalize the review-progress body at '$BODY_FILE'" >> "$ERRF"
+    NORMALIZATION_OK=false
+  fi
+  if [ "$NORMALIZATION_OK" = true ] \
+     && WP="$("$WORKPAD_PY" create "$PR_NUMBER" "$NORMALIZED_BODY" 2>>"$ERRF")"; then
     # Same non-empty validation as the RESUME arm above.
     if [ -z "$WP" ]; then
       echo "devflow review-seed: workpad.py create exited 0 but printed no comment id: $(cat "$ERRF" 2>/dev/null)" >&2
@@ -167,6 +205,7 @@ elif [ "$?" -eq 2 ] && [ ! -s "$ERRF" ]; then
       exit 3
     fi
     echo "CREATED $WP"
+    echo "MARKER $MARKER"
     exit 0
   fi
   # Fold the captured stderr into the breadcrumb (the inline seed this helper replaced
@@ -174,7 +213,7 @@ elif [ "$?" -eq 2 ] && [ ! -s "$ERRF" ]; then
   # undiagnosable missing-comment failure issue #857 exists to eliminate. `cat` is used
   # for a COSMETIC diagnostic only — no arm was selected by it, and its absence empties
   # the clause rather than changing an outcome (the non-preflight-PATH-tool rule).
-  echo "devflow review-seed: workpad.py create failed after a confirmed clean absence: $(cat "$ERRF" 2>/dev/null)" >&2
+  echo "devflow review-seed: body normalization or workpad.py create failed after a confirmed clean absence: $(cat "$ERRF" 2>/dev/null)" >&2
   echo "SKIP api-error-create-failed"
   exit 3
 else

@@ -1498,6 +1498,8 @@ jobs:
           CONTEXT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
           CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
           ENGINE_ERROR: ${{ steps.engine.outputs.is_error }}
+          COMMAND: ${{ needs.gate.outputs.command }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           FLIP_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
@@ -1519,6 +1521,23 @@ jobs:
           else
             echo "::warning::flip review-progress: flip-review-progress-failed.sh absent at $FLIP_HELPER; review-progress comment not flipped to '❌ Review failed'"
           fi
+          # review-progress marker diagnosis BEGIN
+          # Diagnosis is deliberately narrower than the flip. Only canonical
+          # review commands seed this comment, and the result never changes the
+          # step's exit status. The helper owns the four-arm decision and its
+          # annotations, keeping branch-selected messages out of workflow shell.
+          case "${COMMAND:-}" in
+            "/prflow:review "*|"/prflow:review-and-fix "*)
+              DIAG_HELPER=.prflow/vendor/prflow/scripts/diagnose-review-progress-marker.sh
+              [ -f "$DIAG_HELPER" ] || DIAG_HELPER=scripts/diagnose-review-progress-marker.sh
+              if [ -f "$DIAG_HELPER" ]; then
+                bash "$DIAG_HELPER" "$REPO" "$CONTEXT_NUMBER" "$FLIP_MARKER" >/dev/null || true
+              else
+                echo "::notice::flip review-progress: could not establish marker diagnosis because the helper is absent at $DIAG_HELPER"
+              fi
+              ;;
+          esac
+          # review-progress marker diagnosis END
 
       # ── No-verdict auto-resume backstop for the manual /prflow:review path
       # (issue #408). The review-side sibling of the devflow-review.yml
