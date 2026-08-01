@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.12] — 2026-08-01
+
+### Changed
+- **Renamed the `workflows.devflow` / `workflows.devflow-review` config sub-keys to `workflows.prflow` / `workflows.prflow-review`** (Tier 4 of the consumer-facing `devflow` → `prflow` rename). These were the last two `devflow`-spelled config keys a consumer sees. They migrate automatically behind the existing fail-closed scaffold **freshness gate**: a consumer whose shipped workflow files still read the superseded spelling is never silently disabled — the migration refuses, leaves the config byte-identical, and names `install.sh --apply` as the remedy, so the config key and the workflow read always move together. A deliberate `false` toggle is carried across verbatim, never coerced to a default. (#1041)
+
 ## [2.30.11] — 2026-08-01
 
 ### Fixed
