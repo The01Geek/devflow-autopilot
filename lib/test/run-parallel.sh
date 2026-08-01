@@ -188,29 +188,33 @@ _shard_cost() { # shard-name -> slots this shard occupies
 # workers) rather than to the shard shell alone.
 set -m
 
-RUNNING_PIDS=""
-RUNNING_COSTS=""
-RUNNING_NAMES=""
+# One list of `<pid>:<cost>:<shard>` triples rather than three positionally-coupled
+# lists: a shard name is `[a-z0-9-]` by the validation above, so `:` cannot occur in a
+# field, and keeping the three values in one record removes the index-alignment the
+# separate lists had to maintain by hand.
+RUNNING=""
 USED_SLOTS=0
 LAUNCHING=0
 PENDING_SIGNAL=""
 SIGNAL_HANDLED=0
 
 _terminate_launched() { # signal
-  local sig="$1" pid
-  for pid in $RUNNING_PIDS; do
+  local sig="$1" rec pid
+  for rec in $RUNNING; do
+    pid="${rec%%:*}"
     # Signal the GROUP first (the shard plus its descendants), then the leader, so a
     # shell without a usable group still receives it.
     kill -s "$sig" -- "-$pid" 2>/dev/null || :
     kill -s "$sig" "$pid" 2>/dev/null || :
   done
-  for pid in $RUNNING_PIDS; do
+  for rec in $RUNNING; do
+    pid="${rec%%:*}"
     kill -s KILL -- "-$pid" 2>/dev/null || :
     kill -s KILL "$pid" 2>/dev/null || :
     # Reap, so the coordinator never exits leaving its children unwaited.
     wait "$pid" 2>/dev/null || :
   done
-  RUNNING_PIDS=""
+  RUNNING=""
 }
 
 _on_signal() { # signal
@@ -234,15 +238,15 @@ trap '_on_signal HUP' HUP
 trap '_on_signal INT' INT
 trap '_on_signal TERM' TERM
 
-_reap_finished() { # collect any exited children, freeing their slots
-  local pid cost name i=0
-  local keep_pids="" keep_costs="" keep_names=""
-  for pid in $RUNNING_PIDS; do
-    i=$((i + 1))
-    cost="$(_nth_field "$RUNNING_COSTS" "$i")"
-    name="$(_nth_field "$RUNNING_NAMES" "$i")"
+# Reap every child that has already exited, freeing its slots and recording a non-zero
+# status against its shard name. A still-live child is kept in the registry, so a signal
+# arriving later still reaches it.
+_reap_finished() {
+  local rec pid cost name keep=""
+  for rec in $RUNNING; do
+    pid="${rec%%:*}"; cost="${rec#*:}"; cost="${cost%%:*}"; name="${rec##*:}"
     if kill -0 "$pid" 2>/dev/null; then
-      keep_pids="$keep_pids $pid"; keep_costs="$keep_costs $cost"; keep_names="$keep_names $name"
+      keep="$keep $rec"
     else
       if wait "$pid"; then :; else
         SHARD_RCS="$SHARD_RCS $name=$?"
@@ -250,16 +254,7 @@ _reap_finished() { # collect any exited children, freeing their slots
       USED_SLOTS=$((USED_SLOTS - cost))
     fi
   done
-  RUNNING_PIDS="$keep_pids"; RUNNING_COSTS="$keep_costs"; RUNNING_NAMES="$keep_names"
-}
-
-_nth_field() { # list index (1-based)
-  local n=0 f
-  for f in $1; do
-    n=$((n + 1))
-    if [ "$n" -eq "$2" ]; then printf '%s\n' "$f"; return 0; fi
-  done
-  return 1
+  RUNNING="$keep"
 }
 
 SHARD_RCS=""
@@ -310,9 +305,7 @@ for shard in $SHARDS; do
     exec bash "$DISPATCHER" "$shard" > "$shard_log" 2>&1
   ) &
   launched_pid=$!
-  RUNNING_PIDS="$RUNNING_PIDS $launched_pid"
-  RUNNING_COSTS="$RUNNING_COSTS $cost"
-  RUNNING_NAMES="$RUNNING_NAMES $shard"
+  RUNNING="$RUNNING $launched_pid:$cost:$shard"
   USED_SLOTS=$((USED_SLOTS + cost))
   LAUNCHING=0
   [ -z "$PENDING_SIGNAL" ] || _on_signal "$PENDING_SIGNAL"
@@ -321,15 +314,13 @@ done
 
 # Wait for the COMPLETE launched population PID by PID (portable: no `wait -n`), so
 # aggregation never reads a tally a shard is still writing.
-for_index=0
-for pid in $RUNNING_PIDS; do
-  for_index=$((for_index + 1))
-  name="$(_nth_field "$RUNNING_NAMES" "$for_index")"
+for rec in $RUNNING; do
+  pid="${rec%%:*}"; name="${rec##*:}"
   if wait "$pid"; then :; else
     SHARD_RCS="$SHARD_RCS $name=$?"
   fi
 done
-RUNNING_PIDS=""
+RUNNING=""
 
 # ── Aggregate ────────────────────────────────────────────────────────────────
 # Explicit per-shard tally paths derived from the population this run launched —
