@@ -4,9 +4,10 @@
 # diagnose-review-progress-marker.sh REPO PR_NUMBER EXPECTED_MARKER
 #
 # Best-effort diagnosis for the dead-run review-progress flip (issue #1054).
-# The flip remains authoritative and unchanged: this helper only explains why an
-# exact-marker lookup may have missed. It prints exactly one outcome and always
-# exits zero:
+# The flip remains authoritative and unchanged. This helper confirms whether
+# the expected marker exists after that flip; when it does not, it diagnoses
+# whether an active foreign marker suggests a possible mismatch. It prints
+# exactly one outcome and always exits zero:
 #
 #   matched        a bot-authored progress comment has EXPECTED_MARKER
 #   foreign        an active bot-authored Reviewing comment has a different marker identity
