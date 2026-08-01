@@ -83,8 +83,18 @@ if ! COUNT_TOOLS=$("$DEVFLOW_JQ" -rs '
        | select(type == "object")] | unique) as $denials
     | (last(.. | objects | select(.type? == "result"))) as $r
     | ($denials | length) as $dcount
-    | (if ($r != null) and ($r.permission_denials_count != null)
-       then (if $dcount > $r.permission_denials_count then $dcount else $r.permission_denials_count end)
+    # CLAUDE.md records that permission_denials_count "publishes a digit string", so the
+    # count carrier can be a NUMBER or a digit STRING. Normalize a digit string to a number
+    # before the reconciliation (a non-digit string — the literal "unavailable" — or a null
+    # normalizes to null, which correctly falls to the gathered length / "unavailable"). Not
+    # normalizing would order number-below-string in the `>` comparison and carry a string
+    # count downstream, where _denials_from_eff reads it as unestablished — the safe
+    # direction, but it defeats a real positive count (issue #1064 review).
+    | (if $r == null then null
+       else ($r.permission_denials_count
+             | if type == "string" then (tonumber? // null) else . end) end) as $rc
+    | (if $rc != null
+       then (if $dcount > $rc then $dcount else $rc end)
        elif $dcount > 0 then $dcount
        else null end) as $count
     | ([$denials[] | (.tool_name? // empty) | select(type == "string")] | unique) as $tools

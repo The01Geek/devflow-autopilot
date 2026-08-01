@@ -15302,6 +15302,12 @@ assert_eq "denial record: genuine zero → count 0, commands_state zero (not una
   "0|zero" \
   "$(printf '%s' "$REC_ZERO" | "$DEVFLOW_JQ" -r '"\(.count)|\(.commands_state)"')"
 
+# ── #1064 review: a digit-STRING permission_denials_count carrier (a documented shape)
+# normalizes to a number, not downgraded to 'unavailable'.
+"$DEVFLOW_JQ" -n '{type:"result",permission_denials_count:"3",is_error:false}' > "$DEN_TMP/strcount.json"
+assert_eq "denial record: digit-string count carrier normalized to number (not unavailable)" \
+  "3" "$(bash "$BDR" "$DEN_TMP/strcount.json" true | "$DEVFLOW_JQ" -r '.count')"
+
 # ── AC2: unparseable file → count 'unavailable' (never 0), never a fabricated record.
 printf 'not json at all {[' > "$DEN_TMP/garbage.json"
 REC_BAD="$(bash "$BDR" "$DEN_TMP/garbage.json" true)"
