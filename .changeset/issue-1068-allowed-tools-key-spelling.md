@@ -13,7 +13,10 @@ type: Fixed
   `allowed_tools` grant instruction now names the live key, including the remedy an
   implement run writes into its workpad on the `Blocked` path; the system overview's §17
   configuration reference — the table `README.md` links as the full key inventory — is
-  swept with it, so its rows no longer imply a `devflow` object the schema does not define.
+  swept with it, so each row naming a key the workflows actually resolve under `prflow`
+  now spells it that way. Its `devflow.provider` row is deliberately left as it was: the
+  light command path passes the section name `devflow` to the provider resolver, so that
+  spelling is live and respelling it would point readers at a key nothing reads.
   Historical records and test fixtures keep the old spelling, as do the identifiers frozen
   in `lib/rename-map.json`. Instructions naming other superseded `devflow.<key>` leaves
   survive elsewhere in the tree and are untouched by this change. None of the corrected
