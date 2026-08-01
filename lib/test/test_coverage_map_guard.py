@@ -721,8 +721,13 @@ class LabelDerivationTest(unittest.TestCase):
         self.assertIn("561", module_labels["capability-profiles"])
         self.assertIn("619", module_labels["regenerate-artifacts"])
         self.assertGreaterEqual(len(module_labels["create-issue-contract"]), 15)
+        # Exact, so adding a labelled assertion to installer-wiring.sh lands here too --
+        # that coupling is the point. `1041` joined when the Tier 4 rename's withheld-tier
+        # regression (the review toggle disabled under whichever spelling the config
+        # carries) took its coverage in this module, alongside tier1-rename-migration
+        # which carries the same label for the config-key migration itself.
         self.assertEqual(
-            {"487", "491", "533", "544", "599", "690", "959", "970", "971", "1002"},
+            {"487", "491", "533", "544", "599", "690", "959", "970", "971", "1002", "1041"},
             module_labels["installer-wiring"],
         )
 
