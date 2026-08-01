@@ -1085,25 +1085,57 @@ def _positive_env_float(name, default):
     return val if val > 0 else default
 
 
-def _read_sentinel_pid(sentinel):
-    """The pid recorded in the sentinel as a decimal string, or the literal
-    `unestablished` for any of the five unreadable shapes — file-read failure, empty file,
-    whitespace-only content, non-decimal text, content exceeding 64 bytes. Staleness is
-    decided by mtime alone, so an unestablished pid never changes the acquire/refuse/break
-    decision; it only shapes the breadcrumb. A trailing newline is stripped, so a pid
-    written with one renders as the pid.
-    """
+# The sentinel body is `<pid> <owner-nonce>`, capped so a reader never pulls an unbounded
+# file into memory and so a body longer than the cap is DETECTABLE rather than truncated
+# into something that parses.
+_SENTINEL_MAX_BYTES = 64
+_SENTINEL_OWNER_HEX = 32  # os.urandom(16).hex()
+
+
+def _read_sentinel_body(sentinel):
+    """The sentinel's raw bytes, or None when the read failed. Raises nothing."""
     try:
         with open(sentinel, 'rb') as fh:
-            data = fh.read(65)  # 65 so a body exceeding 64 bytes is detectable
+            # +1 so a body exceeding the cap is detectable rather than silently truncated.
+            return fh.read(_SENTINEL_MAX_BYTES + 1)
     except OSError:
-        return 'unestablished'
-    if len(data) > 64:
-        return 'unestablished'
-    text = data.decode('utf-8', 'replace').strip()
-    if not re.fullmatch(r'[0-9]+', text):
-        return 'unestablished'
-    return text
+        return None
+
+
+def _parse_sentinel_body(data):
+    """`(pid, owner)` parsed from a sentinel body, each None when unestablished.
+
+    The two fields are established INDEPENDENTLY and neither is inferred from the other.
+    A body that is absent, empty, whitespace-only, or longer than `_SENTINEL_MAX_BYTES`
+    yields `(None, None)`. A body carrying only a decimal pid — the shape a hand-planted
+    sentinel produces, and the shape every writer produced before the owner nonce existed —
+    yields that pid with `owner=None`, so such a sentinel can never be mistaken for one
+    THIS process owns: `None` is the unestablished reading, and `__exit__` compares the
+    owner for equality against a 32-hex-digit nonce it generated, which `None` never
+    matches. The owner is shape-checked rather than merely non-empty, so a truncated or
+    garbled field reads unestablished instead of being compared as data.
+    """
+    if data is None or len(data) > _SENTINEL_MAX_BYTES:
+        return None, None
+    fields = data.decode('utf-8', 'replace').split()
+    if not fields:
+        return None, None
+    pid = fields[0] if re.fullmatch(r'[0-9]+', fields[0]) else None
+    owner = None
+    if len(fields) > 1 and re.fullmatch(rf'[0-9a-f]{{{_SENTINEL_OWNER_HEX}}}', fields[1]):
+        owner = fields[1]
+    return pid, owner
+
+
+def _read_sentinel_pid(sentinel):
+    """The pid recorded in the sentinel as a decimal string, or the literal
+    `unestablished` when it cannot be established (see `_parse_sentinel_body`). Staleness
+    is decided by mtime alone, so an unestablished pid never changes the
+    acquire/refuse/break decision; it only shapes the breadcrumb. Surrounding whitespace
+    is ignored, so a pid written with a trailing newline renders as the pid.
+    """
+    pid, _ = _parse_sentinel_body(_read_sentinel_body(sentinel))
+    return pid if pid is not None else 'unestablished'
 
 
 def _replace_with_retry(src, dst, *, attempts=5, delay=0.02):
@@ -1142,10 +1174,16 @@ class _StateSection:
     fixed, on two grounds. First, occupancy is a sub-second load-modify-save of one small
     JSON document — the section holds no network call, no subprocess, and no stdin read
     (main() hoists stdin above the section precisely so a handler cannot block on fd 0
-    while holding it). Second, the `(st_dev, st_ino)` token recorded at acquire bounds the
-    blast radius on the way out: __exit__ unlinks only a sentinel that is still the one
-    this section created, so a holder whose sentinel was age-broken releases nothing and
-    cannot strip the breaker's exclusion — it breadcrumbs instead. Raising the bound by
+    while holding it). Second, the owner NONCE written into the sentinel bounds the blast
+    radius on the way out: __exit__ unlinks only a sentinel whose recorded owner is still
+    the nonce this section wrote, so a holder whose sentinel was age-broken releases
+    nothing and cannot strip the breaker's exclusion — it breadcrumbs instead. That second
+    ground previously rested on the sentinel's `(st_dev, st_ino)`, which does NOT support
+    it: the breaker unlinks our inode and creates its own file at the same path, and an
+    inode-reusing filesystem may hand it the identity we recorded, so the identity check
+    could match a file we do not own and unlink a live holder's sentinel. The nonce is
+    generated per acquisition and never reissued by the kernel, so it answers the question
+    the identity check only appeared to. Raising the bound by
     adding a heartbeat (a keepalive touch, or a refresh on a long operation) is a DESIGN
     CHANGE with its own failure modes, not a bug fix; do not introduce one without
     deciding that trade deliberately. The relation `stale_after_s < acquire_window_s` is
@@ -1163,7 +1201,9 @@ class _StateSection:
         self._acquire_window_s = _positive_env_float(
             _IAS_ACQUIRE_WINDOW_ENV, acquire_window_s)
         self._stale_after_s = _positive_env_float(_IAS_STALE_AFTER_ENV, stale_after_s)
-        self._token = None  # (st_dev, st_ino) recorded at acquire
+        # The owner nonce written into the sentinel, set only once an acquisition fully
+        # succeeded. None means this section holds nothing and must release nothing.
+        self._token = None
 
     def _persist_error(self, detail):
         return StateError(f'could not persist state to {self._state_path}: {detail}')
@@ -1190,16 +1230,22 @@ class _StateSection:
                 f'{self._sentinel}: {exc}') from exc
         try:
             try:
-                st = os.fstat(fd)
-                self._token = (st.st_dev, st.st_ino)
-                os.write(fd, str(os.getpid()).encode('ascii'))
+                # A fresh unforgeable nonce per successful acquisition, written INTO the
+                # sentinel so ownership can be re-established from content at release. The
+                # pid stays first and unchanged — it is the breadcrumb operand, and a
+                # hand-planted bare-pid sentinel must keep parsing as one.
+                owner = os.urandom(_SENTINEL_OWNER_HEX // 2).hex()
+                os.write(fd, f'{os.getpid()} {owner}'.encode('ascii'))
             finally:
                 os.close(fd)
+            self._token = owner
         except OSError as exc:
-            # An OSError after the exclusive create succeeded (an ENOSPC on the pid write,
-            # an fstat failure) must still route as a cannot-persist StateError, not escape
-            # as a raw traceback that breaks the mutation contract. Best-effort unlink the
-            # partial sentinel so it does not block later acquires until it ages out.
+            # An OSError after the exclusive create succeeded (an ENOSPC on the body write,
+            # an entropy or close failure) must still route as a cannot-persist StateError,
+            # not escape as a raw traceback that breaks the mutation contract. `self._token`
+            # is assigned only after the write and close both succeed, so a section that
+            # failed here owns nothing and releases nothing. Best-effort unlink the partial
+            # sentinel so it does not block later acquires until it ages out.
             try:
                 os.unlink(self._sentinel)
             except OSError:
@@ -1282,16 +1328,30 @@ class _StateSection:
         # unlink never replaces an in-flight exception (the section's own outcome and its
         # routed `could not persist state to ` breadcrumb stand), and the release failure
         # is reported beside it. Returning False never suppresses that exception.
+        #
+        # Ownership is decided by the owner NONCE this section wrote into the sentinel, and
+        # deliberately NOT by the sentinel's `(st_dev, st_ino)`. An identity check is
+        # forgeable by the kernel: after an age break the breaker unlinks our inode and
+        # O_EXCL-creates its own file at the same path, and on an inode-reusing filesystem
+        # (ext4 and friends) it may be handed the SAME `(st_dev, st_ino)` we recorded at
+        # acquire — so an identity comparison would match and this section would unlink the
+        # LIVE holder's sentinel, precisely the outcome the check exists to prevent. A
+        # 128-bit nonce is not reissued by the kernel, so content equality answers "is this
+        # still the file I created?" where identity equality only answers "does this file
+        # occupy the slot mine did?".
+        if self._token is None:
+            return False  # never acquired — this section owns nothing to release
         try:
-            st = os.stat(self._sentinel)
+            with open(self._sentinel, 'rb') as fh:
+                body = fh.read(_SENTINEL_MAX_BYTES + 1)
         except FileNotFoundError:
             return False  # already gone (age-broken by another process) — clean exit
         except OSError as exc2:
             sys.stderr.write(
-                f'issue-audit-state.py: could not stat the audit-state sentinel '
+                f'issue-audit-state.py: could not read the audit-state sentinel '
                 f'{self._sentinel} on release: {exc2}\n')
             return False
-        if self._token is not None and (st.st_dev, st.st_ino) == self._token:
+        if _parse_sentinel_body(body)[1] == self._token:
             try:
                 os.unlink(self._sentinel)
             except OSError as exc2:

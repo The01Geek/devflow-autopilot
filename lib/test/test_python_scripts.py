@@ -7241,17 +7241,23 @@ with tempfile.TemporaryDirectory() as _td:
     finally:
         issue_audit_state.os.open = _orig_open
 
-# release_does_not_unlink_a_foreign_sentinel: when the live sentinel's identity no longer
-# matches the token this section recorded at acquire (an age-break by another process
-# replaced it), release leaves the file in place and breadcrumbs. Driven by forcing the
-# recorded ownership token to a value the live stat cannot match — deterministic, unlike an
-# unlink+recreate whose freed inode a filesystem may immediately reuse.
+# release_does_not_unlink_a_foreign_sentinel: when the live sentinel's recorded owner no
+# longer matches the nonce this section wrote at acquire (an age-break by another process
+# replaced it), release leaves the file in place and breadcrumbs. This is the smallest-scale
+# unit form, driven by forcing the recorded token; the REAL condition — a breaker holding
+# the same inode identity — is driven deterministically by the inode_reuse rows further
+# down, which this row deliberately no longer stands in for. (Its earlier note called
+# unlink+recreate non-deterministic "whose freed inode a filesystem may immediately reuse"
+# and side-stepped it; that reuse was not a test-only inconvenience but the defect itself,
+# so the avoidance is what kept it unobserved.) The forced value is a well-SHAPED foreign
+# nonce, not a sentinel type like `(-1, -1)`: a wrong-typed token would compare unequal for
+# the wrong reason and pass even if the owner comparison were removed.
 with tempfile.TemporaryDirectory() as _td:
     _R = Path(_td)
     _sent = _ias1040_sentinel(_R)
     _sec = issue_audit_state._StateSection('s', root=_R)
     _sec.__enter__()
-    _sec._token = (-1, -1)                 # the file at _sent is now "not ours"
+    _sec._token = 'f' * 32                 # the file at _sent is now "not ours"
     _, _err = _ias1040_capture_stderr(lambda: _sec.__exit__(None, None, None))
     assert_eq("#1040 release_does_not_unlink_a_foreign_sentinel: the foreign file is left "
               "in place", True, os.path.exists(_sent))
@@ -7662,10 +7668,12 @@ with tempfile.TemporaryDirectory() as _td:
 
 
 # _try_create's post-open failure path: an OSError raised AFTER the exclusive create
-# succeeded (an ENOSPC on the pid write, a failing fstat). Untested before — the arm both
-# unlinks the partial sentinel and converts the error into the cannot-persist vocabulary,
-# and deleting either half left the suite green while a crashed create would have parked a
-# sentinel nothing could distinguish from a live holder until it aged out.
+# succeeded. Every syscall the arm can now fail on is driven — the entropy draw for the
+# owner nonce, the body write, and the close — because the arm does two things (unlink the
+# partial sentinel, and convert the error into the cannot-persist vocabulary) and deleting
+# either half left the suite green while a crashed create parked a sentinel nothing could
+# distinguish from a live holder until it aged out. `close` is the arm reached from the
+# inner `finally`, which is the one an eye-check most easily reads as uncovered.
 class _OsShim1040:
     """The real `os`, with exactly one attribute replaced by a raising stub."""
 
@@ -7680,7 +7688,7 @@ class _OsShim1040:
         return getattr(os, name)
 
 
-for _failing1040 in ('fstat', 'write'):
+for _failing1040 in ('urandom', 'write', 'close'):
     with tempfile.TemporaryDirectory() as _td:
         _R = Path(_td)
         _sentinel1040 = _ias1040_sentinel(_R)
@@ -7707,6 +7715,127 @@ for _failing1040 in ('fstat', 'write'):
         assert_eq(f"#1040 try_create_post_open_failure (os.{_failing1040}): ... and the "
                   f"partial sentinel is unlinked, so it cannot block later acquires until "
                   f"it ages out", False, os.path.exists(_sentinel1040))
+
+
+# ── issue #1040 (re-review): release ownership is CONTENT, not inode identity ──────
+# `_parse_sentinel_body` establishes the two fields independently. The owner is
+# shape-checked, so a truncated or garbled field reads unestablished (None) rather than
+# being compared as data — and None is what makes a foreign or pre-nonce sentinel
+# unadoptable, since __exit__ compares for equality against a nonce it generated.
+for _body1040, _want1040 in (
+        (b'4242', ('4242', None)),
+        (b'4242 ' + b'a' * 32, ('4242', 'a' * 32)),
+        (b'4242 ' + b'a' * 32 + b'\n', ('4242', 'a' * 32)),
+        (b'  4242  ', ('4242', None)),
+        (b'4242 ' + b'a' * 31, ('4242', None)),
+        (b'4242 ' + b'a' * 33, ('4242', None)),
+        (b'4242 ' + b'g' * 32, ('4242', None)),
+        (b'4242 ' + b'A' * 32, ('4242', None)),
+        (b'nope ' + b'a' * 32, (None, 'a' * 32)),
+        (b'', (None, None)),
+        (b'   ', (None, None)),
+        (None, (None, None)),
+        (b'4' * (64 + 1), (None, None)),
+):
+    assert_eq(f"#1040 sentinel_body: {_body1040!r} parses as {_want1040}",
+              _want1040, issue_audit_state._parse_sentinel_body(_body1040))
+
+# The inode-reuse defeat. A contending writer age-breaks this section's sentinel (unlink of
+# inode N) and O_EXCL-creates its own; on an inode-reusing filesystem the kernel may hand it
+# the SAME (st_dev, st_ino) recorded at acquire, and an identity-based release check then
+# unlinks the LIVE holder's sentinel. The simulation below is the LIMITING case of that and
+# is deterministic rather than probabilistic: rather than unlinking and hoping the kernel
+# recycles the inode number, the breaker's body is written IN PLACE, so the identity is
+# GUARANTEED to equal the one observed at acquire while the recorded owner is another
+# holder's. That is exactly the state __exit__ faces under real reuse, with the luck taken
+# out — and it is RED against an (st_dev, st_ino) check by construction.
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    _sent1040 = _ias1040_sentinel(_R)
+    _sec1040 = issue_audit_state._StateSection('s', root=_R)
+    _sec1040.__enter__()
+    _st = os.stat(_sent1040)
+    _ident_before1040 = (_st.st_dev, _st.st_ino)
+    _breaker_body1040 = b'99999 ' + b'b' * 32
+    with open(_sent1040, 'r+b') as _fh1040:
+        _fh1040.seek(0)
+        _fh1040.truncate()
+        _fh1040.write(_breaker_body1040)
+    _st = os.stat(_sent1040)
+    assert_eq("#1040 inode_reuse: the simulated breaker really holds the SAME "
+              "(st_dev, st_ino) recorded at acquire — the row is not vacuous",
+              _ident_before1040, (_st.st_dev, _st.st_ino))
+    _errbuf1040 = io.StringIO()
+    with contextlib.redirect_stderr(_errbuf1040):
+        _sec1040.__exit__(None, None, None)
+    assert_eq("#1040 inode_reuse: __exit__ does NOT unlink a live holder's sentinel that "
+              "occupies the recorded inode identity", True, os.path.exists(_sent1040))
+    # Read defensively: on the failing side of this row the file is GONE, and an
+    # unguarded read_bytes() would abort the whole test file with a FileNotFoundError,
+    # masking every later row instead of reporting two clean failures here.
+    _survived1040 = (Path(_sent1040).read_bytes()
+                     if os.path.exists(_sent1040) else None)
+    assert_eq("#1040 inode_reuse: ... and the surviving bytes are the BREAKER's",
+              _breaker_body1040, _survived1040)
+    assert_eq("#1040 inode_reuse: ... and the release breadcrumbs that this section's own "
+              "sentinel was broken, rather than exiting silently", True,
+              'was broken by another process' in _errbuf1040.getvalue())
+
+# Positive control: an untouched sentinel — still carrying THIS section's nonce — IS
+# released. Without this the row above would also pass if __exit__ never unlinked anything.
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    _sent1040 = _ias1040_sentinel(_R)
+    _sec1040 = issue_audit_state._StateSection('s', root=_R)
+    _sec1040.__enter__()
+    assert_eq("#1040 inode_reuse control: the section really acquired", True,
+              os.path.exists(_sent1040))
+    _sec1040.__exit__(None, None, None)
+    assert_eq("#1040 inode_reuse control: an untouched sentinel IS released on exit",
+              False, os.path.exists(_sent1040))
+
+# A bare-pid sentinel — what a hand-planted fixture writes, and what every writer wrote
+# before the owner nonce existed — has NO established owner and is therefore never adopted
+# as ours. Fail-closed in the right direction: leaving a foreign sentinel costs one
+# stale-break window, whereas unlinking one strips a live holder's exclusion.
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    _sent1040 = _ias1040_sentinel(_R)
+    _sec1040 = issue_audit_state._StateSection('s', root=_R)
+    _sec1040.__enter__()
+    with open(_sent1040, 'r+b') as _fh1040:
+        _fh1040.seek(0)
+        _fh1040.truncate()
+        _fh1040.write(b'4242')
+    with contextlib.redirect_stderr(io.StringIO()):
+        _sec1040.__exit__(None, None, None)
+    assert_eq("#1040 inode_reuse: a bare-pid sentinel (owner unestablished) is NOT adopted "
+              "as this section's own", True, os.path.exists(_sent1040))
+
+# The acquire path really does record an owner, and it is not a constant across sections —
+# so the equality above is a real discriminator rather than two Nones comparing equal.
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    _sent1040 = _ias1040_sentinel(_R)
+    _sec1040 = issue_audit_state._StateSection('s', root=_R)
+    _sec1040.__enter__()
+    _owner_a1040 = issue_audit_state._parse_sentinel_body(
+        Path(_sent1040).read_bytes())[1]
+    _sec1040.__exit__(None, None, None)
+    _sec_b1040 = issue_audit_state._StateSection('s', root=_R)
+    _sec_b1040.__enter__()
+    _owner_b1040 = issue_audit_state._parse_sentinel_body(
+        Path(_sent1040).read_bytes())[1]
+    _sec_b1040.__exit__(None, None, None)
+    assert_eq("#1040 owner_nonce: an acquisition records an established owner", True,
+              _owner_a1040 is not None and len(_owner_a1040) == 32)
+    assert_eq("#1040 owner_nonce: two acquisitions record DIFFERENT owners (the token is "
+              "not a constant the kernel or a peer could reproduce)", False,
+              _owner_a1040 == _owner_b1040)
+    assert_eq("#1040 owner_nonce: the pid stays the FIRST field, so the stale-break "
+              "breadcrumb still names it", str(os.getpid()),
+              issue_audit_state._parse_sentinel_body(
+                  f'{os.getpid()} {"a" * 32}'.encode('ascii'))[0])
 
 # stdin_is_read_before_acquire: main() reads stdin BEFORE entering the section. Proven at
 # the source level (an executable-order pin): _read_stdin_once precedes the _StateSection
@@ -15438,6 +15567,68 @@ if os.name != 'nt':
                   'Traceback (most recent call last)' in _got.stderr)
 
     _with_run704(_row1040_e2e)
+
+
+# ── issue #1040 (re-review): the document-integrity claim, OBSERVED not argued ─────────
+# The headline guarantee — a state document reflecting one writer entirely and then the
+# next, never an interleaving — was established only by decomposing the mechanism
+# (exclusive-create sentinel + per-writer temp path) and reasoning about it. The inode-reuse
+# finding showed that style of argument can miss a real interleaving, so several REAL
+# processes now mutate the same slug at once and the RESULT is checked.
+#
+# Each writer records a DISTINCT claim key, which is what gives the whole-write property a
+# directly observable consequence: `record-claim-baseline` is a read-modify-write of one
+# `claims{}` map, so a writer whose load happened before a peer's save and whose own save
+# happened after it DROPS that peer's key. Unserialized, that loss is the expected outcome;
+# serialized, all N keys survive.
+#
+# Deterministic by construction, not by timing: the assertions are on the FINAL document,
+# and every one of them holds whether or not the writers actually overlapped in time. The
+# test therefore cannot flake on a slow or a fast host — a run where the processes happened
+# to serialize themselves still passes, it just proves less that time round. Nothing here
+# waits on an interleaving occurring, and no bound is tightened to force one.
+if os.name != 'nt':
+    def _row1040_stress(r):
+        r.write('anchor.md', 'alpha\n')
+        r.commit('A: add anchor')
+        _n1040 = 6
+        _procs1040 = [
+            _subprocess.Popen(
+                [sys.executable, _IAS603, 'record-claim-baseline', r.slug,
+                 '--claim-key', f'p{_i}', '--claim-class', 'location',
+                 '--path', 'anchor.md', '--nonce', r.nonce],
+                cwd=r.tmp, stdout=_subprocess.PIPE, stderr=_subprocess.PIPE, text=True)
+            for _i in range(_n1040)]
+        # communicate() before returncode: waiting first can deadlock a child that fills a
+        # pipe buffer, and this is the kind of fixture bug that reads as a concurrency
+        # failure in the feature under test.
+        _io1040 = [p.communicate(timeout=300) for p in _procs1040]
+        _codes1040 = [p.returncode for p in _procs1040]
+
+        assert_eq("#1040 stress: every concurrent writer exited 0 (the shipped acquire "
+                  "window is far above what N short mutations need)",
+                  [0] * _n1040, _codes1040)
+        assert_eq("#1040 stress: no writer emitted a Python traceback", [],
+                  [_e for _o, _e in _io1040
+                   if 'Traceback (most recent call last)' in _e])
+
+        _final1040 = r('query-claim-baselines', r.slug, nonce=True)
+        assert_eq("#1040 stress: the final document still loads and VALIDATES — a torn "
+                  "write is rejected by _validate, so a readable answer here is the "
+                  "integrity claim holding", 0, _final1040.returncode)
+        _keys1040 = sorted(_field704(_l, 'claim=')
+                           for _l in _final1040.stdout.splitlines() if 'claim=' in _l)
+        assert_eq("#1040 stress: every concurrent writer's claim survived — no "
+                  "read-modify-write was lost to an interleaving",
+                  [f'p{_i}' for _i in range(_n1040)], _keys1040)
+
+        _tmpdir1040 = Path(r.tmp, '.prflow', 'tmp')
+        assert_eq("#1040 stress: no sentinel leaked once every writer released", [],
+                  sorted(_tmpdir1040.glob('*.lock')))
+        assert_eq("#1040 stress: no per-writer temp file leaked", [],
+                  sorted(_tmpdir1040.glob('*.json.tmp')))
+
+    _with_run704(_row1040_stress)
 
 
 # ── issue #709: steering-absence establishment ────────────────────────────────
