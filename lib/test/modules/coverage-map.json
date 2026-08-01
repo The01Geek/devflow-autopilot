@@ -59,8 +59,8 @@
       "note": "#561 capability-profile manifest generator; the capability-profiles module drives its --check over the generated workflow regions.",
       "owner": "capability-profiles"
     },
-    "lib/generate-config-alias-advisory.py": {
-      "note": "issue #1028 config-side accepted-alias advisory: derives which superseded `devflow` spellings a consumer config still carries (override namespace, workpad marker, provenance labels) and renders the report-only notice; never mutates the config",
+    "lib/migrate-config-values.py": {
+      "note": "issue #1028 Axis 2: renames the superseded `devflow` spellings a consumer config carries in its VALUES and nested keys (agent_overrides namespace, workpad marker, provenance-label values), refuses a both-present key it cannot resolve, and reports what deliberately stays frozen",
       "owner": "tier1-rename-migration"
     },
     "lib/generate-env-freeze-advisory.py": {
