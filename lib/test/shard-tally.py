@@ -16,7 +16,9 @@ This helper is the transport-and-recombine layer:
 
   combine  — read every shard's tally directory, SUM the counts, and render the
              same `N passed, M failed[, K skipped]` summary the single job printed,
-             followed by one line per skipped check and a failure recap. Preserves
+             followed by the skip itemization and a failure recap — one line per
+             entry by default, or the first `--detail-cap` entries of each class
+             plus an omitted count when a caller asks for compact output. Preserves
              the skip population and its per-check detail exactly (issue #456: a
              skipped check is never laundered into a clean pass). Exits non-zero if
              any shard failed, any shard exited non-zero, any tally is missing or
@@ -243,6 +245,24 @@ def cmd_extract(args: argparse.Namespace) -> int:
     return 0 if failed == 0 and rc == 0 else 1
 
 
+def _render_detail(lines: list[str], prefix: str, cap: int) -> None:
+    """Print `lines` under `prefix`, emitting at most `cap` of them.
+
+    `cap` 0 means uncapped — the pre-cap rendering, which is what CI's aggregator
+    job takes, so its output is unchanged. A positive cap bounds ONE detail class:
+    the caller renders each class through its own call, so the cap is per-class
+    rather than a shared budget. The omitted count is printed rather than dropped —
+    a truncated tail that announced nothing would read exactly like a short one,
+    and the full population is still in the retained per-shard logs.
+    """
+    shown = lines if cap <= 0 else lines[:cap]
+    for entry in shown:
+        print(f"{prefix}{entry}")
+    omitted = len(lines) - len(shown)
+    if omitted > 0:
+        print(f"{prefix}({omitted} omitted — the full list is in the retained shard logs)")
+
+
 def _collect_dirs(args: argparse.Namespace) -> list[Path]:
     dirs: list[Path] = [Path(d) for d in args.dirs]
     if args.scan:
@@ -335,8 +355,9 @@ def cmd_combine(args: argparse.Namespace) -> int:
         print(f"{total_pass} passed, {total_fail} failed")
     else:
         print(f"{total_pass} passed, {total_fail} failed, {total_skip} skipped")
-        for sk in all_skips:
-            print(f"  SKIP  {sk}")
+        # The announced tally above is the FULL count; only the itemization below is
+        # capped, so the #456 disagreement check keeps comparing full populations.
+        _render_detail(all_skips, "  SKIP  ", args.detail_cap)
     # The announced skip tally and the itemized lines must agree (issue #456).
     if skip_disagreement:
         print(
@@ -349,8 +370,7 @@ def cmd_combine(args: argparse.Namespace) -> int:
     if total_fail > 0:
         print()
         print("Failure recap:")
-        for nm in all_names:
-            print(f"  - {nm}")
+        _render_detail(all_names, "  - ", args.detail_cap)
 
     print()
     print(f"shard-tally combine: {len(shard_names)} shard(s): {', '.join(shard_names)}")
@@ -395,6 +415,17 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         required=True,
         help="fail closed unless at least this many shard tallies are present",
+    )
+    # Optional, defaulting to uncapped, unlike --expect: omitting it disables no guard.
+    # It bounds only how much DETAIL is RENDERED; the counts, the pass/fail decision and
+    # the #456 skip-disagreement check all keep reading the full populations, so a caller
+    # cannot weaken the gate by capping. `lib/test/run-parallel.sh` passes 20 to keep an
+    # agent's final-gate output compact; CI's aggregator omits it and renders everything.
+    co.add_argument(
+        "--detail-cap",
+        type=int,
+        default=0,
+        help="render at most N entries per detail class (0 = uncapped)",
     )
     co.set_defaults(func=cmd_combine)
 

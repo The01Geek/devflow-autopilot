@@ -40935,6 +40935,15 @@ if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" 
   exit 1
 fi
 
+# parallel full-suite coordinator coverage (issue #1086). The registry and this
+# full-suite call share the same lower-bound contract; test_module_runner.py parses
+# this operand and rejects any coupling drift.
+if ! devflow_run_full_suite_module "$LIB/test/modules/parallel-suite-runner.sh" \
+  "parallel-suite-runner" 70; then
+  printf 'ERROR: parallel-suite-runner boundary could not record its result\n'
+  exit 1
+fi
+
 if ! devflow_run_full_suite_module "$LIB/test/modules/workflow-flight-recorder.sh" \
   "workflow-flight-recorder" 68; then
   printf 'ERROR: workflow-flight-recorder boundary could not record its result\n'
