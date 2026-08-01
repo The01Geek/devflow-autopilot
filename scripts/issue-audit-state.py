@@ -7947,17 +7947,15 @@ def cmd_record_claim_baseline(args):
                           f'by its re-executed full-domain search result; pipe it with '
                           f'--domain-stdin')
         # The domain search result was read from stdin, hoisted into main() above the
-        # section (issue #1040). A mid-read OSError the hoist captured must name its real
-        # cause here rather than be laundered into the domain-class-empty-domain refusal
-        # below (which would hand downstream triage a trusted "empty search" token for a
-        # condition that never occurred). This site never carried the fd-0-closed guard, so
-        # a closed fd 0 leaves args._stdin_data None and falls through to
-        # domain-class-empty-domain (a clean named breadcrumb where an in-handler bare read
-        # would have crashed with an AttributeError) — a deliberate, minor improvement.
-        if args._stdin_error is not None:
-            _fail(prefix, 'could not read the domain search result from stdin: '
-                          f'{args._stdin_error}')
-        data = args._stdin_data
+        # section (issue #1040), and consumed through the SHARED guard so that BOTH
+        # unreadable conditions — a closed fd 0 and a mid-read OSError — name their own
+        # cause. Neither may reach the domain-class-empty-domain refusal below: that
+        # breadcrumb asserts "a search that emitted nothing", a positive claim about a
+        # search that actually ran, so emitting it when stdin was never attached (or the
+        # read failed part-way) hands downstream triage a trusted token for a condition
+        # that never occurred — the never-attempted misattribution this module refuses to
+        # make elsewhere. Reading `args._stdin_data` bare here is what produced it.
+        data = _stdin_bytes_or_fail(args, prefix, 'the domain search result')
         if not data:
             _fail(prefix, 'domain-class-empty-domain: --domain-stdin produced no bytes; a '
                           'search that emitted nothing cannot identify a baseline')
@@ -8064,10 +8062,20 @@ def cmd_check_claim_staleness(args):
         keys = sorted(claims)
     # The domain search result was read from stdin, hoisted into main() above dispatch
     # (issue #1040). check-claim-staleness is read-only (no section), but the read still
-    # moves to main() so no handler touches sys.stdin. _read_stdin_once reads only when
-    # --domain-stdin is selected, so args._stdin_data is None otherwise — equivalent to the
-    # former `... if args.domain_stdin else None`.
-    domain = args._stdin_data
+    # moves to main() so no handler touches sys.stdin. It goes through the SHARED guard
+    # rather than reading `args._stdin_data` bare, because on this subcommand a swallowed
+    # read failure is invisible by construction: the laundered value is None, which is the
+    # SAME value the intentional "no --domain-stdin" case produces, so a domain search that
+    # never ran is indistinguishable from one that was never asked for, and every claim is
+    # then scored against `domain=None` and printed as a decided staleness verdict. Reading
+    # it bare also made this the one stdin consumer QUIETER than before the hoist (a
+    # mid-read OSError used to propagate). `_read_stdin_once` reads only when
+    # --domain-stdin is selected, so with the flag absent all three fields hold their
+    # defaults and this returns None — equivalent to the former
+    # `... if args.domain_stdin else None`. Exiting non-zero here is in contract: this
+    # subcommand is neither a query nor a mutation and already exits non-zero on a
+    # caller-contract error (see the module docstring's check-claim-staleness carve-out).
+    domain = _stdin_bytes_or_fail(args, prefix, 'the domain search result')
     # Memoized across the loop: a path cited by several location claims is hashed once.
     cache = {}
     for key in keys:
@@ -8116,14 +8124,13 @@ def cmd_record_finding_evidence(args):
     doc = _load_for_mutation(prefix, args.slug, args.nonce)
     observed = None
     if args.observed_stdin:
-        # Read from stdin, hoisted into main() above the section (issue #1040). A mid-read
-        # OSError the hoist captured must name its real cause rather than surface as a
-        # NoneType decode crash below that discards it. This site never carried the
-        # fd-0-closed guard, so a closed fd 0 still leaves args._stdin_data None and the
-        # decode below raises the same AttributeError the former bare sys.stdin read did.
-        if args._stdin_error is not None:
-            _fail(prefix, f'could not read the observed output from stdin: {args._stdin_error}')
-        raw = args._stdin_data
+        # Read from stdin, hoisted into main() above the section (issue #1040), and
+        # consumed through the SHARED guard so a mid-read OSError and a closed fd 0 alike
+        # name their own cause. Neither may reach the decode below as None: the OSError
+        # would surface as a NoneType AttributeError that discards the real errno, and the
+        # closed fd 0 did exactly that before this routing. An empty read is a different
+        # thing entirely and still reaches the decode (see the note below it).
+        raw = _stdin_bytes_or_fail(args, prefix, 'the observed output')
         # An empty read is NOT refused: issue #704 requires evidence that is absent or
         # incomplete to be RECORDED `incomplete` (never verified), which is what
         # `evidence_completeness` does with an empty `observed`. Refusing would record no

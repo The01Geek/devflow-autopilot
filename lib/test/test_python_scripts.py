@@ -7415,6 +7415,30 @@ assert_eq("#1040 _selects_stdin: record-finding-evidence reads only with --obser
 assert_eq("#1040 _selects_stdin: an unrelated command selects no stdin", False,
           issue_audit_state._selects_stdin(_ns(cmd='query-summary')))
 
+# The FALSE branch of every flag-gated selector. Before this only record-claim-baseline had
+# one, so an inverted condition (`not getattr(...)`) on any of the other five passed the
+# suite: each TRUE row above stays green under inversion only if some row also pins the
+# unset flag, and none did. Both unset shapes are driven, because `_selects_stdin` reads
+# every flag through `getattr(args, flag, False)` and the two reach that default by
+# different routes — the flag present and False (the parser's own `store_true` default),
+# and the attribute ABSENT entirely (a sibling subcommand's Namespace, which is what
+# main() hands it when the flag belongs to a different parser). A True row accompanies each
+# pair as the positive control, so an always-False regression cannot pass the block.
+for _cmd1040, _flag1040 in (('record-revision', 'stdin_digest'),
+                            ('record-adjudication', 'ledger_stdin'),
+                            ('record-coverage', 'coverage_stdin'),
+                            ('record-claim-baseline', 'domain_stdin'),
+                            ('check-claim-staleness', 'domain_stdin'),
+                            ('record-finding-evidence', 'observed_stdin')):
+    assert_eq(f"#1040 _selects_stdin: {_cmd1040} with --{_flag1040} present-but-False "
+              f"selects no stdin", False,
+              issue_audit_state._selects_stdin(_ns(**{'cmd': _cmd1040, _flag1040: False})))
+    assert_eq(f"#1040 _selects_stdin: {_cmd1040} with {_flag1040} ABSENT selects no stdin",
+              False, issue_audit_state._selects_stdin(_ns(cmd=_cmd1040)))
+    assert_eq(f"#1040 _selects_stdin: {_cmd1040} with {_flag1040} set DOES select stdin "
+              f"(positive control — the two rows above are not vacuously False)", True,
+              issue_audit_state._selects_stdin(_ns(**{'cmd': _cmd1040, _flag1040: True})))
+
 # stdin_hoist_preserves_the_absent_stdin_guard: with sys.stdin None and a stdin-selecting
 # command, _read_stdin_once records the closed-fd condition and _stdin_bytes_or_fail raises
 # the SAME named breadcrumb (a SystemExit via _fail) — never an AttributeError traceback.
@@ -7441,6 +7465,248 @@ try:
               in _sysexit['msg'])
 finally:
     sys.stdin = _orig_stdin
+
+
+# ── the MID-READ OSError arm (issue #1040 review) ──────────────────────────────────
+# `_stdin_error` is written by `_read_stdin_once` and read by the shared guard, but the only
+# arm any row drove was the closed-fd-0 one above: deleting `_read_stdin_once`'s
+# `except OSError` clause, or the guard's `_stdin_error` check, left the suite green. This
+# is the EIO/EPIPE shape — fd 0 is attached and the read fails part way — which is a
+# different condition from an absent fd 0 and must not be laundered into it.
+class _RaisingStdin1040:
+    class _Buf:
+        @staticmethod
+        def read():
+            raise OSError(5, 'Input/output error')
+
+    buffer = _Buf()
+
+
+_orig_stdin = sys.stdin
+try:
+    sys.stdin = _RaisingStdin1040()
+    _err1040 = _ns(cmd='check-claim-staleness', domain_stdin=True)
+    issue_audit_state._read_stdin_once(_err1040)
+    assert_eq("#1040 stdin_read_error: a mid-read OSError is recorded on args", True,
+              isinstance(_err1040._stdin_error, OSError))
+    assert_eq("#1040 stdin_read_error: ... and is NOT collapsed onto the closed-fd-0 "
+              "condition (they are different diagnoses)", False, _err1040._stdin_missing)
+    assert_eq("#1040 stdin_read_error: ... and no partial payload is presented as a value",
+              None, _err1040._stdin_data)
+finally:
+    sys.stdin = _orig_stdin
+
+_errbuf1040 = io.StringIO()
+_raised1040 = False
+try:
+    with contextlib.redirect_stderr(_errbuf1040):
+        issue_audit_state._stdin_bytes_or_fail(_err1040, 'check-claim-staleness',
+                                               'the domain search result')
+except SystemExit:
+    _raised1040 = True
+assert_eq("#1040 stdin_read_error: the shared guard fails closed (SystemExit) on a recorded "
+          "read error", True, _raised1040)
+assert_eq("#1040 stdin_read_error: ... naming the real errno rather than an absent-or-empty "
+          "claim about the payload", True,
+          'could not read the domain search result from stdin' in _errbuf1040.getvalue()
+          and 'Input/output error' in _errbuf1040.getvalue())
+
+
+def _drive1040(fn, args, root):
+    """Run a handler with args._stdin_* pre-populated, as main()'s hoist would leave them.
+
+    Returns (ending, stderr, stdout). `ending` is a STRING rather than a raised/not-raised
+    boolean so a row distinguishes a named refusal from an incidental crash: before the
+    routing fix two of these sites ended `AttributeError`, which a truthy "did it raise"
+    assertion would have accepted as a pass.
+    """
+    _orig_root = issue_audit_state._repo_root
+    _out, _err = io.StringIO(), io.StringIO()
+    try:
+        issue_audit_state._repo_root = lambda: root
+        with contextlib.redirect_stdout(_out), contextlib.redirect_stderr(_err):
+            try:
+                fn(args)
+                ending = 'returned'
+            except SystemExit as _e:
+                ending = f'SystemExit({_e.code})'
+            except Exception as _e:  # noqa: BLE001 - the ending is the assertion operand
+                ending = type(_e).__name__
+    finally:
+        issue_audit_state._repo_root = _orig_root
+    return ending, _err.getvalue(), _out.getvalue()
+
+
+_IOERR1040 = OSError(5, 'Input/output error')
+
+# cmd_check_claim_staleness — the silent swallow (review Must-fix). A read failure produced
+# `domain = None`, which is the SAME value the intentional no---domain-stdin case produces,
+# so the handler scored every claim against a search that never ran and printed a DECIDED
+# staleness line at exit 0. Nothing downstream could tell that from a real answer.
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    _doc1040 = _state([])
+    _doc1040['claims'] = {'k': {'claim_class': 'count', 'revision': 'r1',
+                                'identity': 'ID1'}}
+    issue_audit_state.save_state(_doc1040, 's', root=_R)
+
+    _end, _err, _out = _drive1040(
+        issue_audit_state.cmd_check_claim_staleness,
+        _ns(cmd='check-claim-staleness', slug='s', nonce='n0', claim_key='k',
+            domain_stdin=True, _stdin_data=None, _stdin_missing=False,
+            _stdin_error=_IOERR1040), _R)
+    assert_eq("#1040 staleness_read_error: a mid-read OSError exits non-zero, never a "
+              "decided staleness line at exit 0", 'SystemExit(1)', _end)
+    assert_eq("#1040 staleness_read_error: ... naming the read failure and its errno", True,
+              'could not read the domain search result from stdin' in _err
+              and 'Input/output error' in _err)
+    assert_eq("#1040 staleness_read_error: ... and NO staleness verdict is printed", '', _out)
+
+    _end, _err, _out = _drive1040(
+        issue_audit_state.cmd_check_claim_staleness,
+        _ns(cmd='check-claim-staleness', slug='s', nonce='n0', claim_key='k',
+            domain_stdin=True, _stdin_data=None, _stdin_missing=True,
+            _stdin_error=None), _R)
+    assert_eq("#1040 staleness_closed_fd: a closed fd 0 exits non-zero", 'SystemExit(1)', _end)
+    assert_eq("#1040 staleness_closed_fd: ... naming the absent stdin", True,
+              'no stdin is attached (fd 0 is closed)' in _err)
+    assert_eq("#1040 staleness_closed_fd: ... and NO staleness verdict is printed", '', _out)
+
+    # Positive control: with the flag absent the handler still answers normally, so the two
+    # rows above lock out a failure rather than the feature. `_read_stdin_once` never reads
+    # in this shape, so all three fields hold their defaults exactly as main() leaves them.
+    _end, _err, _out = _drive1040(
+        issue_audit_state.cmd_check_claim_staleness,
+        _ns(cmd='check-claim-staleness', slug='s', nonce='n0', claim_key='k',
+            domain_stdin=False, _stdin_data=None, _stdin_missing=False,
+            _stdin_error=None), _R)
+    assert_eq("#1040 staleness_no_flag: without --domain-stdin the handler answers normally",
+              'returned', _end)
+    assert_eq("#1040 staleness_no_flag: ... printing its decided staleness line", True,
+              _out.startswith('claim=k class=count state='))
+
+    # cmd_record_claim_baseline — the false diagnosis (review Should-fix). A closed fd 0 fell
+    # through to `domain-class-empty-domain: --domain-stdin produced no bytes; a search that
+    # emitted nothing cannot identify a baseline`, which ASSERTS that a search ran and
+    # returned nothing. Both halves are pinned: the right breadcrumb appears AND the wrong
+    # one does not, since the fix would be worthless if it merely added a second line.
+    _end, _err, _out = _drive1040(
+        issue_audit_state.cmd_record_claim_baseline,
+        _ns(cmd='record-claim-baseline', slug='s', nonce='n0', claim_key='k2',
+            claim_class='count', path=[], domain_stdin=True, _stdin_data=None,
+            _stdin_missing=True, _stdin_error=None), _R)
+    assert_eq("#1040 baseline_closed_fd: a closed fd 0 exits non-zero", 'SystemExit(1)', _end)
+    assert_eq("#1040 baseline_closed_fd: ... naming the absent stdin", True,
+              'no stdin is attached (fd 0 is closed)' in _err)
+    assert_eq("#1040 baseline_closed_fd: ... and NOT as an empty search result, which would "
+              "assert a search that never ran", False, 'domain-class-empty-domain' in _err)
+
+    # ... while a genuinely EMPTY read still earns the empty-domain refusal: the fix
+    # separates "never attached" from "attached and returned nothing", so this row proves
+    # the second diagnosis survives rather than being swallowed by the first.
+    _end, _err, _out = _drive1040(
+        issue_audit_state.cmd_record_claim_baseline,
+        _ns(cmd='record-claim-baseline', slug='s', nonce='n0', claim_key='k2',
+            claim_class='count', path=[], domain_stdin=True, _stdin_data=b'',
+            _stdin_missing=False, _stdin_error=None), _R)
+    assert_eq("#1040 baseline_empty_read: an attached-but-empty stdin still exits non-zero",
+              'SystemExit(1)', _end)
+    assert_eq("#1040 baseline_empty_read: ... and KEEPS the empty-domain diagnosis", True,
+              'domain-class-empty-domain' in _err)
+
+    _end, _err, _out = _drive1040(
+        issue_audit_state.cmd_record_claim_baseline,
+        _ns(cmd='record-claim-baseline', slug='s', nonce='n0', claim_key='k2',
+            claim_class='count', path=[], domain_stdin=True, _stdin_data=None,
+            _stdin_missing=False, _stdin_error=_IOERR1040), _R)
+    assert_eq("#1040 baseline_read_error: a mid-read OSError exits non-zero", 'SystemExit(1)',
+              _end)
+    assert_eq("#1040 baseline_read_error: ... naming the errno, not the empty-domain claim",
+              True, 'Input/output error' in _err
+              and 'domain-class-empty-domain' not in _err)
+
+    # cmd_record_finding_evidence — the third consumer. A closed fd 0 reached `raw.decode`
+    # as None and died with a bare AttributeError, which names nothing and discards the
+    # condition. The ending is compared as a STRING so this row cannot be satisfied by the
+    # crash it exists to remove.
+    def _ev1040(**kw):
+        base = dict(cmd='record-finding-evidence', slug='s', nonce='n0', round=1,
+                    finding_id=1, observed_stdin=True, locator='src/x.py:1',
+                    command='grep -c x', baseline_revision=None, baseline_identity=None,
+                    _stdin_data=None, _stdin_missing=False, _stdin_error=None)
+        base.update(kw)
+        return _ns(**base)
+
+    _end, _err, _out = _drive1040(issue_audit_state.cmd_record_finding_evidence,
+                                  _ev1040(_stdin_missing=True), _R)
+    assert_eq("#1040 evidence_closed_fd: a closed fd 0 is a named refusal, NOT the bare "
+              "AttributeError the decode used to raise", 'SystemExit(1)', _end)
+    assert_eq("#1040 evidence_closed_fd: ... naming the absent stdin", True,
+              'no stdin is attached (fd 0 is closed)' in _err)
+
+    _end, _err, _out = _drive1040(issue_audit_state.cmd_record_finding_evidence,
+                                  _ev1040(_stdin_error=_IOERR1040), _R)
+    assert_eq("#1040 evidence_read_error: a mid-read OSError is a named refusal",
+              'SystemExit(1)', _end)
+    assert_eq("#1040 evidence_read_error: ... naming the errno", True,
+              'could not read the observed output from stdin' in _err
+              and 'Input/output error' in _err)
+
+    # Positive control for BOTH evidence rows: an attached, EMPTY stdin is still recorded
+    # (issue #704 requires absent/incomplete evidence to be RECORDED incomplete, never
+    # refused), so the two refusals above are not a blanket "any falsy payload fails".
+    _end, _err, _out = _drive1040(issue_audit_state.cmd_record_finding_evidence,
+                                  _ev1040(_stdin_data=b''), _R)
+    assert_eq("#1040 evidence_empty_read: an attached-but-empty stdin is still RECORDED, "
+              "not refused", 'returned', _end)
+
+
+# _try_create's post-open failure path: an OSError raised AFTER the exclusive create
+# succeeded (an ENOSPC on the pid write, a failing fstat). Untested before — the arm both
+# unlinks the partial sentinel and converts the error into the cannot-persist vocabulary,
+# and deleting either half left the suite green while a crashed create would have parked a
+# sentinel nothing could distinguish from a live holder until it aged out.
+class _OsShim1040:
+    """The real `os`, with exactly one attribute replaced by a raising stub."""
+
+    def __init__(self, fail_on):
+        self._fail_on = fail_on
+
+    def __getattr__(self, name):
+        if name == self._fail_on:
+            def _raise(*_a, **_k):
+                raise OSError(28, 'No space left on device')
+            return _raise
+        return getattr(os, name)
+
+
+for _failing1040 in ('fstat', 'write'):
+    with tempfile.TemporaryDirectory() as _td:
+        _R = Path(_td)
+        _sentinel1040 = _ias1040_sentinel(_R)
+        os.makedirs(os.path.dirname(_sentinel1040), exist_ok=True)
+        _sec1040 = issue_audit_state._StateSection('s', root=_R)
+        _ending1040, _msg1040 = 'returned', ''
+        _orig_os1040 = issue_audit_state.os
+        try:
+            issue_audit_state.os = _OsShim1040(_failing1040)
+            try:
+                _sec1040._try_create()
+            except issue_audit_state.StateError as _e:
+                _ending1040, _msg1040 = 'StateError', str(_e)
+            except Exception as _e:  # noqa: BLE001 - the ending is the assertion operand
+                _ending1040 = type(_e).__name__
+        finally:
+            issue_audit_state.os = _orig_os1040
+        assert_eq(f"#1040 try_create_post_open_failure (os.{_failing1040}): an OSError after "
+                  f"the exclusive create routes as a cannot-persist StateError, never a raw "
+                  f"traceback", 'StateError', _ending1040)
+        assert_eq(f"#1040 try_create_post_open_failure (os.{_failing1040}): ... carrying the "
+                  f"could-not-persist prefix the mutation contract routes on", True,
+                  _msg1040.startswith('could not persist state to '))
+        assert_eq(f"#1040 try_create_post_open_failure (os.{_failing1040}): ... and the "
+                  f"partial sentinel is unlinked, so it cannot block later acquires until "
+                  f"it ages out", False, os.path.exists(_sentinel1040))
 
 # stdin_is_read_before_acquire: main() reads stdin BEFORE entering the section. Proven at
 # the source level (an executable-order pin): _read_stdin_once precedes the _StateSection
@@ -15119,6 +15385,59 @@ def _row704_30(r):
 
 
 _with_run704(_row704_30)
+
+
+# ── issue #1040 (review): the stdin consumers refuse a genuinely CLOSED fd 0 ──────────
+# End-to-end through the REAL CLI with fd 0 actually closed, rather than fabricating
+# `_stdin_missing` on a Namespace. This is the row that proves the whole chain rather than
+# one link of it: a real closed fd 0 makes CPython bind `sys.stdin` to None, which is what
+# `_read_stdin_once` tests for, which is what the shared guard reads. `0<&-` is required —
+# `/dev/null` and `subprocess.DEVNULL` both hand the process an OPEN descriptor at EOF,
+# which is the empty-read case these three handlers treat differently and correctly.
+# POSIX-only (the redirection is `sh` syntax); the in-process rows above cover Windows.
+if os.name != 'nt':
+    def _row1040_e2e(r):
+        def _closed_fd0(*argv):
+            return _subprocess.run(
+                ['sh', '-c', 'exec "$@" 0<&-', 'sh', sys.executable, _IAS603, *argv,
+                 '--nonce', r.nonce],
+                cwd=r.tmp, capture_output=True, text=True)
+
+        r.write('anchor.md', 'alpha\n')
+        r.commit('A: add anchor')
+        _fix = r.baseline('c1', 'count', domain='hit-a\nhit-b\n')
+        assert_eq("#1040-e2e fixture: the count baseline records (guards the staleness row "
+                  "below against passing on an absent claim)", 0, _fix.returncode)
+
+        _got = _closed_fd0('check-claim-staleness', r.slug, '--claim-key', 'c1',
+                           '--domain-stdin')
+        assert_eq("#1040-e2e: check-claim-staleness with fd 0 CLOSED exits non-zero, never "
+                  "a decided staleness line at exit 0", 1, _got.returncode)
+        assert_eq("#1040-e2e: ... naming the absent stdin", True,
+                  'no stdin is attached (fd 0 is closed)' in _got.stderr)
+        assert_eq("#1040-e2e: ... and printing NO staleness verdict", '', _got.stdout)
+
+        _got = _closed_fd0('record-claim-baseline', r.slug, '--claim-key', 'c2',
+                           '--claim-class', 'count', '--domain-stdin')
+        assert_eq("#1040-e2e: record-claim-baseline with fd 0 CLOSED exits non-zero",
+                  1, _got.returncode)
+        assert_eq("#1040-e2e: ... naming the absent stdin, and NOT diagnosing it as an "
+                  "empty search result (which asserts a search that never ran)",
+                  (True, False),
+                  ('no stdin is attached (fd 0 is closed)' in _got.stderr,
+                   'domain-class-empty-domain' in _got.stderr))
+
+        _got = _closed_fd0('record-finding-evidence', r.slug, '--round', '1',
+                           '--finding-id', '1', '--observed-stdin')
+        assert_eq("#1040-e2e: record-finding-evidence with fd 0 CLOSED exits non-zero",
+                  1, _got.returncode)
+        assert_eq("#1040-e2e: ... naming the absent stdin", True,
+                  'no stdin is attached (fd 0 is closed)' in _got.stderr)
+        assert_eq("#1040-e2e: ... with NO Python traceback reaching the operator (the bare "
+                  "AttributeError the None decode used to raise)", False,
+                  'Traceback (most recent call last)' in _got.stderr)
+
+    _with_run704(_row1040_e2e)
 
 
 # ── issue #709: steering-absence establishment ────────────────────────────────
