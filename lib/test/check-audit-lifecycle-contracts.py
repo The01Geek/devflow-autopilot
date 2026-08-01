@@ -43,6 +43,8 @@ reconciliation named on stderr otherwise.
 from __future__ import annotations
 
 import argparse
+import ast
+import builtins
 import contextlib
 import importlib.util
 import inspect
@@ -172,6 +174,213 @@ def _subparser_of(parser, name):
         if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
             return action.choices.get(name)
     return None
+
+
+# The builtins a call may name and still be provably unable to reach a module-level
+# save_state — every builtin function, type, and exception (`len`, `print`, `sorted`,
+# `SystemExit`, `ValueError`, …). `getattr` is safe in its BARE-name value form
+# `getattr(x, y)`; the dangerous form `getattr(x, y)()` is a Call-as-callee, caught by the
+# indirect-dispatch arm below regardless.
+_SAFE_BUILTIN_CALLS = frozenset(dir(builtins))
+
+
+def _module_level_names(tree):
+    """(functions_by_name, safe_leaf_names) for the module. `functions_by_name` are the
+    function defs the walk FOLLOWS — every module-level def PLUS every nested/closure helper
+    they define, indexed by name, so a bare-name call to a helper the source statically
+    carries is followed (proving whether it reaches save_state) rather than flagged
+    unresolvable. `safe_leaf_names` are names a call may reference and still reach no
+    followable function by name — imported names and module-level class names (a class
+    instantiation cannot BE the `save_state` function, e.g. `StateError(...)`). A name collision across scopes
+    over-approximates by keeping one body; that only ever follows MORE, which is the
+    fail-closed direction for an unreachability proof.
+    """
+    functions = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            functions[node.name] = node
+    safe = set(_SAFE_BUILTIN_CALLS)
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            safe.add(node.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                safe.add((alias.asname or alias.name).split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                safe.add(alias.asname or alias.name)
+    return functions, safe
+
+
+def check_readonly_complement(module, registered, report):
+    """Every read-only-classified subcommand's handler must be UNABLE to reach `save_state`
+    through the transitive call graph of module-level functions — not merely have it absent
+    from the handler's own source text (issue #1040). A source-text-only check would pass a
+    handler that reaches save_state one hop away through a helper, the fail-open shape this
+    exists to prevent.
+
+    The walk's closed set is module-level functions; its complement is named and handled,
+    never left silent. A call target the walk cannot resolve to a module-level function — a
+    bare-name alias/closure/nested helper, or an indirect dispatch through a table or
+    getattr — makes the check FAIL CLOSED for that subcommand, reporting the unresolvable
+    call site rather than reporting clean. An attribute/method call reaches no module-level
+    function by name (module-level functions are called as bare names), so it cannot be
+    `save_state` and is safe. A read-only-classified handler is proved safe only when every
+    call on its transitive path resolved.
+    """
+    # Analyze the PASSED module's own source (not IAS directly), so a fixture module drives
+    # this check exactly like check_emitting_complement — the positive controls in the test
+    # suite load a crafted module and expect a Refusal.
+    try:
+        source = inspect.getsource(module)
+    except (OSError, TypeError) as exc:
+        raise Refusal(f"readonly-complement: could not read the module source of "
+                      f"{getattr(module, '__name__', module)!r}: {exc}") from exc
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        raise Refusal(f"readonly-complement: could not parse the module source: "
+                      f"{exc}") from exc
+    functions, safe = _module_level_names(tree)
+
+    parser = module.build_parser()
+    name_to_handler = {}
+    for action in parser._actions:  # noqa: SLF001
+        if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+            for name, sub in action.choices.items():
+                fn = sub._defaults.get("func")  # noqa: SLF001
+                name_to_handler[name] = getattr(fn, "__name__", None)
+
+    predicate = module._is_read_only  # noqa: SLF001
+    readonly = sorted(n for n in registered if predicate(n))
+    if not readonly:
+        raise Refusal("readonly-complement: the read-only predicate selected NO registered "
+                      "subcommand, so the critical section would wrap every command and this "
+                      "complement check would be vacuous")
+
+    # Module-level constants (name -> value node), so a read-only handler that dispatches
+    # over a module-level TABLE of producers (query-boundary's `for _, produce in
+    # _BOUNDARY_PRODUCERS: produce(...)`) is RESOLVED through the constant rather than
+    # failed closed: name-reachability propagates through the constant's value into the
+    # producer lambdas and the module functions they name.
+    constants = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name):
+                    constants[tgt.id] = node.value
+
+    def _targets_name(target, name):
+        """True iff an assignment/for target binds `name` (a Name, or a Tuple/List of
+        them)."""
+        if isinstance(target, ast.Name):
+            return target.id == name
+        if isinstance(target, (ast.Tuple, ast.List)):
+            return any(_targets_name(el, name) for el in target.elts)
+        return False
+
+    def _local_call_resolvable(node, name):
+        """A bare-name call to a LOCAL `name` is resolvable only when `name` is bound within
+        `node` from a source that references a module-level function or constant — then the
+        call target is reached through name-propagation over that source (query-boundary's
+        `for _, produce in _BOUNDARY_PRODUCERS` binds `produce` from a module constant). A
+        name bound only from a getattr()/subscript/opaque source, or not bound at all (a
+        parameter or callback), is unresolvable and fails the subcommand closed.
+        """
+        for sub in ast.walk(node):
+            srcs = []
+            if isinstance(sub, ast.For) and _targets_name(sub.target, name):
+                srcs.append(sub.iter)
+            elif isinstance(sub, ast.Assign) and any(
+                    _targets_name(t, name) for t in sub.targets):
+                srcs.append(sub.value)
+            elif isinstance(sub, ast.comprehension) and _targets_name(sub.target, name):
+                srcs.append(sub.iter)
+            for src in srcs:
+                for ref in ast.walk(src):
+                    if isinstance(ref, ast.Name) and (
+                            ref.id in functions or ref.id in constants):
+                        return True
+        return False
+
+    def _analyze_node(node):
+        """(module-level names referenced in Load context, has-computed-callee,
+        [unresolvable local-call names]) in node's whole subtree — nested defs and lambdas
+        included, so a helper or a producer lambda is not a blind spot. A computed callee
+        (getattr(...)() / table[key]()) and a bare-name call to an unresolvable local
+        (a getattr-aliased callable) are the two shapes the name walk cannot resolve.
+        """
+        names = set()
+        has_computed = False
+        unresolvable = []
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load):
+                if sub.id in functions or sub.id in constants:
+                    names.add(sub.id)
+            elif isinstance(sub, ast.Call):
+                fn = sub.func
+                if isinstance(fn, ast.Name):
+                    nm = fn.id
+                    if (nm != "save_state" and nm not in functions
+                            and nm not in constants and nm not in safe
+                            and not _local_call_resolvable(node, nm)):
+                        unresolvable.append(nm)
+                elif not isinstance(fn, ast.Attribute):
+                    has_computed = True
+        return names, has_computed, unresolvable
+
+    def analyze(subcmd, handler):
+        # Transitive name-reachability over module-level functions AND constants. A read-only
+        # handler is proved safe only when `save_state` is unreachable by name AND no
+        # reachable function contains a computed (unresolvable) callee. This is sound by
+        # name — a handler that reaches save_state through any bare-name path (a call, a
+        # callback passed by name, a nested def, or a producer table) names it and is
+        # caught; the one residue the name walk cannot see, a getattr('save_state')()
+        # string dispatch, is caught by the computed-callee arm.
+        seen = set()
+        queue = [handler]
+        while queue:
+            nm = queue.pop()
+            if nm in seen:
+                continue
+            seen.add(nm)
+            node = functions.get(nm)
+            is_func = node is not None
+            if node is None:
+                node = constants.get(nm)
+            if node is None:
+                continue
+            names, has_computed, unresolvable = _analyze_node(node)
+            if is_func and has_computed:
+                raise Refusal(
+                    f"readonly-complement: read-only subcommand {subcmd!r} reaches an "
+                    f"indirect dispatch (a computed callee) in {nm!r}; the walk cannot "
+                    "prove that path does not reach save_state — fail closed")
+            if is_func and unresolvable:
+                raise Refusal(
+                    f"readonly-complement: read-only subcommand {subcmd!r} makes an "
+                    f"unresolvable call {unresolvable[0]!r}() in {nm!r} (a local bound from "
+                    "no module-level function or constant — a getattr alias, a closure, or a "
+                    "callback); a read-only handler is proved safe only when every call "
+                    "resolves")
+            if "save_state" in names:
+                raise Refusal(
+                    f"readonly-complement: read-only subcommand {subcmd!r} reaches "
+                    f"save_state (through {nm}); the read-only predicate has misclassified "
+                    "a mutating subcommand as read-only")
+            queue.extend(names - seen)
+
+    for name in readonly:
+        handler = name_to_handler.get(name)
+        if handler is None or handler not in functions:
+            raise Refusal(
+                f"readonly-complement: read-only subcommand {name!r} maps to handler "
+                f"{handler!r}, which is not a module-level function — the walk cannot begin, "
+                "so the classification is unproven")
+        analyze(name, handler)
+
+    report.append(f"readonly-complement: all {len(readonly)} read-only subcommands proved "
+                  "unable to reach save_state through the module-level call graph")
 
 
 def check_readbacks(module, registered, report):
@@ -435,6 +644,7 @@ def main():
         module = _load_module()
         registered = module.registered_subcommands()
         check_readbacks(module, registered, report)
+        check_readonly_complement(module, registered, report)
         check_emitting_complement(module, registered, report)
         check_round_defaulted(module, registered, report)
         check_next_action_routing_totality(module, report)

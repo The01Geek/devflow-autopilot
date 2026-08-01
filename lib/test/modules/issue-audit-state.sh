@@ -2196,3 +2196,63 @@ if [ -d "$WP_SB" ]; then
     "0" "$(sed -n 1p "$WP_SB/.wp-embed-rc" 2>/dev/null)"
   rm -rf "$WP_SB"
 fi
+
+# ── issue #1040: write-serialization sentinel at the process boundary ──────────────
+# The shell-level assertions on the section's process boundary — the exit code and stderr
+# breadcrumb the orchestrator routes on — driven with sub-second DEVFLOW_IAS_* overrides so
+# the section's timing behavior is exercised in milliseconds rather than at the shipped
+# 30s/45s bounds. Contention is created deterministically (the test plants the sentinel
+# itself), never by racing two writers.
+SL_SB="$(git_sandbox '#1040 cli_stale_break_exit_and_breadcrumb')"
+(
+  cd "$SL_SB" || exit 1
+  mkdir -p .prflow/tmp
+  # (1) stale break: plant a sentinel, age it past a sub-second stale_after_s, then run a
+  #     real mutation. It must break the stale sentinel, proceed, and exit 0.
+  printf '4242' > .prflow/tmp/issue-audit-state-s.json.lock
+  sleep 0.2
+  DEVFLOW_IAS_STALE_AFTER_S=0.05 DEVFLOW_IAS_ACQUIRE_WINDOW_S=0.5 \
+    python3 "$IAS" init s > .sl-out 2> .sl-err
+  printf '%s' "$?" > .sl-rc
+  # (2) contention refusal: a FRESH sentinel with INVERTED bounds (window < stale) is never
+  #     broken, so acquisition exhausts the window → exit non-zero, no state persisted, and
+  #     the could-not-persist breadcrumb (the routing class the skill already carries).
+  printf '9999' > .prflow/tmp/issue-audit-state-s3.json.lock
+  DEVFLOW_IAS_ACQUIRE_WINDOW_S=0.2 DEVFLOW_IAS_STALE_AFTER_S=30 \
+    python3 "$IAS" init s3 > .sl3-out 2> .sl3-err
+  printf '%s' "$?" > .sl3-rc
+  # the refused mutation left no state file for s3
+  [ -f .prflow/tmp/issue-audit-state-s3.json ] && printf 'yes' > .sl3-state || printf 'no' > .sl3-state
+) || true
+assert_eq "#1040 cli_stale_break_exit_and_breadcrumb: the mutation breaks the stale sentinel and exits 0" \
+  "0" "$(cat "$SL_SB/.sl-rc" 2>/dev/null)"
+assert_eq "#1040 cli_stale_break_exit_and_breadcrumb: stderr carries the stale-break breadcrumb" \
+  "1" "$(grep -c 'broke a stale audit-state sentinel' "$SL_SB/.sl-err" 2>/dev/null)"
+assert_eq "#1040 cli_stale_break_exit_and_breadcrumb: the breadcrumb names the recorded pid" \
+  "1" "$(grep -c '4242' "$SL_SB/.sl-err" 2>/dev/null)"
+assert_eq "#1040 cli_contention_refusal: inverted bounds over a fresh sentinel exit non-zero (1)" \
+  "1" "$(cat "$SL_SB/.sl3-rc" 2>/dev/null)"
+assert_eq "#1040 cli_contention_refusal: the refusal names could-not-persist-state" \
+  "1" "$(grep -c 'could not persist state' "$SL_SB/.sl3-err" 2>/dev/null)"
+assert_eq "#1040 cli_contention_refusal: the refused mutation persisted no state file" \
+  "no" "$(cat "$SL_SB/.sl3-state" 2>/dev/null)"
+rm -rf "$SL_SB"
+
+# readers_are_not_serialized (process boundary): a read-only subcommand acquires no
+# sentinel, so a query-* invoked WHILE a sentinel is held for the same slug still exits 0
+# (the AC: "a query-* invocation issued while a sentinel is held exits 0 with its decided
+# answer line"). Plant a fresh sentinel and confirm query-nonce (read-only) is unaffected.
+RO_SB="$(git_sandbox '#1040 readers_are_not_serialized_while_held')"
+(
+  cd "$RO_SB" || exit 1
+  python3 "$IAS" init s >/dev/null 2>&1
+  mkdir -p .prflow/tmp
+  printf '4242' > .prflow/tmp/issue-audit-state-s.json.lock
+  python3 "$IAS" query-nonce s > .ro-out 2> .ro-err
+  printf '%s' "$?" > .ro-rc
+) || true
+assert_eq "#1040 readers_are_not_serialized: query-nonce exits 0 while a sentinel is held" \
+  "0" "$(cat "$RO_SB/.ro-rc" 2>/dev/null)"
+assert_eq "#1040 readers_are_not_serialized: the held sentinel is left untouched by the reader" \
+  "1" "$( [ -f "$RO_SB/.prflow/tmp/issue-audit-state-s.json.lock" ] && echo 1 || echo 0 )"
+rm -rf "$RO_SB"
