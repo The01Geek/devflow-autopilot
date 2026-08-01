@@ -1819,3 +1819,262 @@ IU_O21C="$(IU_SRC_OVERRIDE="$IU_VSRC" IU_VENDOR=1 _iu_run "$IU_C21B" --apply)"
 assert_eq "installer-upgrade #959: upgrading thin→vendored un-ignores .prflow/vendor and keeps the other ignore entries" "no yes yes" \
   "$(_iu_has_line "$IU_C21B/.prflow/.gitignore" '/vendor/') $(_iu_has_line "$IU_C21B/.prflow/.gitignore" '/tmp/') $(_iu_out_has "$IU_O21C" 'un-ignored .prflow/vendor/')"
 rm -rf "$IU_VSRC"
+
+# ── Scenario 22 (#970): the preserved-artifact sidecars must not be committable.
+#
+# The upgrade path's whole preservation mechanism writes DevFlow's version beside a file
+# it keeps, as `<path>.prflow-new`. That sidecar is UNTRACKED and lands inside the
+# consumer's own `.github/`, which `.prflow/.gitignore` — the one ignore file the
+# installer used to manage — cannot reach, so the next `git add -A`, including one inside
+# a /prflow:implement run, swept a 1400-line workflow into an unrelated PR. Observed on a
+# real consumer's first upgrade.
+#
+# The defect is about GIT's view of the tree, so these arms are driven over fixture
+# consumers with a REAL repository rather than the `.git`-shaped directory the other
+# scenarios use, and the load-bearing assertion runs the actual `git add -A` and reads
+# the resulting index. A grep for the pattern in `.gitignore` would prove only that a
+# line was written, not that git honours it against a DIRECTORY sidecar.
+_iu_git_consumer() {  # $1 = fixture id -> a fresh consumer repo with a real .git
+  local d="$_iw_tmp_root/consumer-$1"
+  rm -rf "$d"; mkdir -p "$d"
+  git -c init.defaultBranch=main -C "$d" init -q >/dev/null 2>&1
+  printf '%s' "$d"
+}
+_iu_staged_sidecars() {  # $1 = repo -> the sidecar paths a `git add -A` would commit
+  git -C "$1" add -A >/dev/null 2>&1
+  git -C "$1" ls-files --cached 2>/dev/null | grep -F -- '.prflow-new' || true
+}
+
+IU_C22="$(_iu_consumer sidecar-ignore)"
+IU_O22="$(_iu_run "$IU_C22")"
+assert_eq "installer-upgrade #970: an install writes the preserved-artifact sidecar ignore rules into the repository-root .gitignore, and says so" "yes yes yes" \
+  "$(_iu_has_line "$IU_C22/.gitignore" '*.prflow-new') $(_iu_has_line "$IU_C22/.gitignore" '*.devflow-new') $(_iu_out_has "$IU_O22" 'ignored preserved-artifact sidecars in .gitignore')"
+
+# THE DEFECT. A file sidecar and a DIRECTORY sidecar (a preserved composite action is
+# copied with `cp -R` to a whole tree), then the exact operation that committed them.
+IU_C22B="$(_iu_git_consumer sidecar-git)"
+_iu_run "$IU_C22B" >/dev/null
+printf '\n# CONSUMER-LOCAL-EDIT-MARKER\n' >> "$IU_C22B/.github/workflows/devflow.yml"
+printf '\n# COMPOSITE-ACTION-LOCAL-EDIT\n' >> "$IU_C22B/.github/actions/vendor-plugin/vendor-slice.sh"
+_iu_run "$IU_C22B" --apply >/dev/null
+assert_eq "installer-upgrade #970: the upgrade really did leave both sidecar shapes behind (precondition — a file and a whole directory)" "yes yes" \
+  "$([ -f "$IU_C22B/.github/workflows/devflow.yml.prflow-new" ] && echo yes || echo no) $([ -d "$IU_C22B/.github/actions/vendor-plugin.prflow-new" ] && echo yes || echo no)"
+assert_eq "installer-upgrade #970: a subsequent 'git add -A' stages NEITHER sidecar — not the file, and not one path inside the directory" "" \
+  "$(_iu_staged_sidecars "$IU_C22B")"
+
+# NEGATIVE CONTROL: strip the managed block and the same recipe must stage them, so the
+# arm above measures the ignore rule rather than the absence of any sidecar.
+IU_C22C="$(_iu_git_consumer sidecar-git-control)"
+_iu_run "$IU_C22C" >/dev/null
+printf '\n# CONSUMER-LOCAL-EDIT-MARKER\n' >> "$IU_C22C/.github/workflows/devflow.yml"
+printf '\n# COMPOSITE-ACTION-LOCAL-EDIT\n' >> "$IU_C22C/.github/actions/vendor-plugin/vendor-slice.sh"
+_iu_run "$IU_C22C" --apply >/dev/null
+python3 -c '
+import sys
+p = sys.argv[1]
+keep = [l for l in open(p, encoding="utf-8").read().splitlines(keepends=True)
+        if "prflow-new" not in l and "devflow-new" not in l]
+open(p, "w", encoding="utf-8").writelines(keep)
+' "$IU_C22C/.gitignore"
+IU_STAGED22C="$(_iu_staged_sidecars "$IU_C22C")"
+assert_eq "installer-upgrade #970 NEGATIVE CONTROL: with the ignore rules removed the SAME 'git add -A' does stage both sidecars (so the arm above is not vacuous)" "yes yes" \
+  "$(_iu_out_has "$IU_STAGED22C" '.github/workflows/devflow.yml.prflow-new') $(_iu_out_has "$IU_STAGED22C" '.github/actions/vendor-plugin.prflow-new/')"
+
+# A consumer .gitignore whose last line carries no trailing newline: appending straight
+# onto it would silently rewrite that pattern into `dist*.prflow-new`.
+IU_C22D="$(_iu_consumer sidecar-no-newline)"
+printf 'node_modules/\ndist' > "$IU_C22D/.gitignore"
+_iu_run "$IU_C22D" >/dev/null
+assert_eq "installer-upgrade #970: a .gitignore whose last line has no trailing newline keeps that pattern intact and still gains the rules" "yes yes yes" \
+  "$(_iu_has_line "$IU_C22D/.gitignore" 'dist') $(_iu_has_line "$IU_C22D/.gitignore" 'node_modules/') $(_iu_has_line "$IU_C22D/.gitignore" '*.prflow-new')"
+
+# Idempotent: a consumer who never resolves a sidecar re-runs the installer for years.
+IU_C22E="$(_iu_consumer sidecar-idempotent)"
+_iu_run "$IU_C22E" >/dev/null
+IU_GI22E="$(_iu_digest "$IU_C22E/.gitignore")"
+_iu_run "$IU_C22E" --apply >/dev/null
+assert_eq "installer-upgrade #970: re-applying leaves .gitignore byte-identical, with exactly one copy of each rule" "yes 1 1" \
+  "$([ "$IU_GI22E" = "$(_iu_digest "$IU_C22E/.gitignore")" ] && echo yes || echo no) $(grep -cxF '*.prflow-new' "$IU_C22E/.gitignore") $(grep -cxF '*.devflow-new' "$IU_C22E/.gitignore")"
+
+# A consumer who already ignores the current suffix keeps their own line — only the
+# missing rule is appended, and their pattern is not duplicated.
+IU_C22F="$(_iu_consumer sidecar-consumer-rule)"
+printf '*.prflow-new\n' > "$IU_C22F/.gitignore"
+_iu_run "$IU_C22F" >/dev/null
+assert_eq "installer-upgrade #970: a rule the consumer already carries is not duplicated, and only the missing one is appended" "1 1" \
+  "$(grep -cxF '*.prflow-new' "$IU_C22F/.gitignore") $(grep -cxF '*.devflow-new' "$IU_C22F/.gitignore")"
+# The same claim, in the ONE shape whose detection depends on devflow_gitignore_carries'
+# final-line arm (`|| [ -n "$line" ]`): the rule is the LAST line AND carries no trailing
+# newline. `read` returns non-zero on such a line while still assigning it, so without that
+# arm the loop body never sees it, the rule reads as absent, and the block is appended a
+# second time. The fixture above cannot show this — its rule is newline-terminated — and
+# the no-trailing-newline fixture above cannot either, because its unterminated last line
+# is not a sidecar pattern. Both are needed; only this one is discriminating.
+IU_C22M="$(_iu_consumer sidecar-unterminated-rule)"
+printf 'node_modules/\n*.prflow-new' > "$IU_C22M/.gitignore"
+_iu_run "$IU_C22M" >/dev/null
+assert_eq "installer-upgrade #970: a rule the consumer carries as an UNTERMINATED last line is still seen, so it is never appended a second time" "1 1 yes" \
+  "$(grep -cxF '*.prflow-new' "$IU_C22M/.gitignore") $(grep -cxF '*.devflow-new' "$IU_C22M/.gitignore") $(_iu_has_line "$IU_C22M/.gitignore" 'node_modules/')"
+
+# A .gitignore that is not a regular file is the consumer's business: report the rule
+# they need and carry on, never abort and never write into whatever it is.
+IU_C22G="$(_iu_consumer sidecar-gitignore-dir)"
+mkdir -p "$IU_C22G/.gitignore"
+IU_O22G="$(_iu_run "$IU_C22G")" && IU_RC22G=0 || IU_RC22G=$?
+assert_eq "installer-upgrade #970: a .gitignore that is a DIRECTORY warns naming the rule, leaves it a directory, and never aborts the install" "0 yes yes yes" \
+  "$IU_RC22G $(_iu_out_has "$IU_O22G" 'is a symlink or is not a regular file') $([ -d "$IU_C22G/.gitignore" ] && echo yes || echo no) $(_iu_out_has "$IU_O22G" 'done (from')"
+# The shape a plain `[ -f ]` refusal MISSES. A dangling symlink is neither `-e` nor `-f`,
+# so an unguarded append would CREATE the link's target — a file the consumer never asked
+# for, at a path that need not be inside the repository. The link target is planted
+# outside the consumer tree precisely so a regression is visible as a stray file there.
+IU_C22I="$(_iu_consumer sidecar-gitignore-dangling)"
+IU_T22I="$_iw_tmp_root/sidecar-dangling-target"
+rm -f "$IU_T22I"
+ln -s "$IU_T22I" "$IU_C22I/.gitignore"
+IU_O22I="$(_iu_run "$IU_C22I")" && IU_RC22I=0 || IU_RC22I=$?
+assert_eq "installer-upgrade #970: a .gitignore that is a DANGLING SYMLINK is refused too, and the link's target is never created" "0 yes no yes" \
+  "$IU_RC22I $(_iu_out_has "$IU_O22I" 'is a symlink or is not a regular file') $([ -e "$IU_T22I" ] && echo yes || echo no) $(_iu_out_has "$IU_O22I" 'done (from')"
+# ── The LIVE symlink: the shape an `-e`/`-f` pair structurally CANNOT see, because both
+# of those tests follow the link. For a link to a regular file `-e` is true AND `-f` is
+# true, so a guard built from them alone lets the commonest link shape through and the
+# append writes to the link's TARGET — which an absolute link puts outside the repository
+# entirely. Only `[ -L ]` answers this, and it now runs first and unconditionally.
+# Planted with an ABSOLUTE target holding known bytes, so "did not write outside the tree"
+# is asserted as a byte comparison on that outside file rather than inferred from a log.
+IU_C22K="$(_iu_consumer sidecar-gitignore-live-symlink)"
+IU_T22K="$_iw_tmp_root/sidecar-live-target"
+printf 'A CONSUMER FILE THAT LIVES OUTSIDE THE REPOSITORY\n' > "$IU_T22K"
+IU_D22K="$(_iu_digest "$IU_T22K")"
+ln -s "$IU_T22K" "$IU_C22K/.gitignore"
+IU_O22K="$(_iu_run "$IU_C22K")" && IU_RC22K=0 || IU_RC22K=$?
+assert_eq "installer-upgrade #970: a LIVE symlink .gitignore is refused, and the file it points at OUTSIDE the repository is byte-identical afterwards" "0 yes yes yes" \
+  "$IU_RC22K $(_iu_out_has "$IU_O22K" 'is a symlink or is not a regular file') $([ "$IU_D22K" = "$(_iu_digest "$IU_T22K")" ] && echo yes || echo no) $(_iu_out_has "$IU_O22K" 'done (from')"
+# The PREVIEW half of that same shape, which is why it is worse than a local mishap: the
+# sandbox copy is made with `cp -P`, so an absolute-target link resolves to the SAME real
+# file, a sandbox write would mutate it, and the renderer would show NO diff at all because
+# both sides read one file — a silent breach of "the preview writes only into the throwaway
+# copy". Assert the outside file survives a dry run untouched, and that the run reports the
+# refusal rather than any phantom .gitignore change.
+IU_O22L="$(_iu_run "$IU_C22K" --dry-run)"
+assert_eq "installer-upgrade #970: a dry run over that same live symlink also leaves the outside file byte-identical, and renders no phantom .gitignore change" "yes yes no" \
+  "$([ "$IU_D22K" = "$(_iu_digest "$IU_T22K")" ] && echo yes || echo no) $(_iu_out_has "$IU_O22L" 'is a symlink or is not a regular file') $(_iu_out_matches "$IU_O22L" '^(ADD|MODIFY|DELETE) +\.gitignore')"
+# Preview/apply agreement for the refused shapes: the sandbox mirrors the SHAPE, so the
+# dry run does not advertise an `ADD .gitignore` the apply would decline. Overstating is
+# the mirror image of the understated preview #971 fixes.
+IU_C22J="$(_iu_consumer sidecar-preview-nonregular)"
+mkdir -p "$IU_C22J/.gitignore"
+IU_O22J="$(_iu_run "$IU_C22J" --dry-run)"
+assert_eq "installer-upgrade #970: the dry run over a non-regular .gitignore reports the same refusal and advertises no ADD it could not perform" "yes no" \
+  "$(_iu_out_has "$IU_O22J" 'is a symlink or is not a regular file') $(_iu_out_matches "$IU_O22J" '^ADD +\.gitignore ')"
+
+# The append is a write, so the dry run has to SHOW it and still perform none of it.
+IU_C22H="$(_iu_consumer sidecar-preview)"
+printf 'node_modules/\n' > "$IU_C22H/.gitignore"
+IU_SNAP22H="$(_iu_snapshot "$IU_C22H")"
+IU_O22H="$(_iu_run "$IU_C22H" --dry-run)"
+assert_eq "installer-upgrade #970: the dry run renders the .gitignore append as a diff and still writes nothing" "yes yes yes" \
+  "$(_iu_out_matches "$IU_O22H" '^MODIFY \.gitignore$') $(_iu_out_has "$IU_O22H" '+*.prflow-new') $([ "$IU_SNAP22H" = "$(_iu_snapshot "$IU_C22H")" ] && echo yes || echo no)"
+
+# ── The append-FAILURE branch. Every fixture above has a writable .gitignore, so only the
+# success `log` ever ran: the branch selection, the captured-cause interpolation and the
+# by-hand breadcrumb all shipped untested, and an inverted branch or a broken capture would
+# have stayed green.
+#
+# Induced by calling the function with a working directory that no longer exists, so the
+# relative `>>` fails with ENOENT. Deterministic and ROOT-IMMUNE — the same requirement the
+# manifest-write-failure arm above satisfies by making its target a directory, and a chmod
+# would not (root writes through it, turning this arm red on a root host rather than
+# proving anything). A directory is not available as the inducer here, because the guard
+# now refuses one before the append is ever reached; hence the function-level drive.
+IU_C22N="$_iw_tmp_root/sidecar-append-fail"
+rm -rf "$IU_C22N"; mkdir -p "$IU_C22N/gone"
+# shellcheck disable=SC1090  # sources install.sh at runtime under DEVFLOW_SELFTEST
+IU_O22N="$( cd "$IU_C22N/gone" && rmdir "$IU_C22N/gone" \
+  && DEVFLOW_SELFTEST=1 . "$IU_INSTALL" && manage_sidecar_gitignore 2>&1 )" && IU_RC22N=0 || IU_RC22N=$?
+assert_eq "installer-upgrade #970: an append that FAILS takes the warning branch instead of reporting success, and still returns 0 (best-effort, never aborts the install)" "0 yes no" \
+  "$IU_RC22N $(_iu_out_has "$IU_O22N" 'could not append the preserved-artifact sidecar ignore rules') $(_iu_out_has "$IU_O22N" 'ignored preserved-artifact sidecars in')"
+assert_eq "installer-upgrade #970: and that warning carries the captured CAUSE plus the by-hand remedy, rather than a bare could-not-append" "yes yes" \
+  "$(_iu_out_matches "$IU_O22N" 'could not append the preserved-artifact sidecar ignore rules to \.gitignore \(.+\)') $(_iu_out_has "$IU_O22N" "Add '*.prflow-new' and '*.devflow-new' to your ignore rules by hand")"
+
+# ── Scenario 23 (#971): the preview must not UNDERSTATE what --apply writes.
+#
+# The dry run copies the installer's own subtrees into its sandbox and then runs the real
+# apply against that. Language auto-detection scanned that sandbox, so it saw no
+# package.json / composer.json / docker-compose* and
+# reported "no known language markers detected", while the same step under --apply saw
+# the real tree and merged that project's toolchain into config.json. Observed on a real
+# consumer, where both outcomes happened to be no-ops only because its config already
+# covered its languages.
+#
+# The fix hands detection a separate READ-ONLY scan root, so these arms assert the two
+# runs agree AND that the preview still wrote nothing — a preview that mutated the real
+# tree would be a worse defect than the one being fixed.
+_iu_plant_markers() {  # $1 = repo root -> the three markers the real consumer carried
+  printf '{ "name": "fixture" }\n' > "$1/package.json"
+  printf '{ "name": "vendor/fixture" }\n' > "$1/composer.json"
+  printf 'services: {}\n' > "$1/docker-compose.yml"
+}
+_iu_detect_line() {  # $1 = captured installer output -> its language-detection verdict
+  printf '%s\n' "$1" | grep -E 'devflow-detect: (detected: [a-z ]+ —|no known language markers)' | head -1
+}
+
+IU_C23A="$(_iu_consumer detect-preview)"; IU_C23B="$(_iu_consumer detect-apply)"
+for _iu_c23 in "$IU_C23A" "$IU_C23B"; do
+  _iu_run "$_iu_c23" >/dev/null          # install first, while the tree has no markers
+  _iu_plant_markers "$_iu_c23"           # then the project gains its languages
+done
+IU_SNAP23="$(_iu_snapshot "$IU_C23A")"
+IU_O23A="$(_iu_run "$IU_C23A" --dry-run)"
+IU_O23B="$(_iu_run "$IU_C23B" --apply)"
+assert_eq "installer-upgrade #971: the dry run reports the SAME language detection the apply performs, rather than an understated no-op" \
+  "$(_iu_detect_line "$IU_O23B")" "$(_iu_detect_line "$IU_O23A")"
+assert_eq "installer-upgrade #971: and that shared verdict actually names the detected languages, so the arm above cannot be satisfied by two empty reports" "yes no" \
+  "$(_iu_out_matches "$IU_O23A" 'devflow-detect: detected: docker node php —') $(_iu_out_has "$IU_O23A" 'no known language markers detected')"
+assert_eq "installer-upgrade #971: the config.json the detection would rewrite appears in the dry-run diff, with the merged tool entries in its body" "yes yes" \
+  "$(_iu_out_matches "$IU_O23A" '^MODIFY \.prflow/config\.json$') $(_iu_out_matches "$IU_O23A" '^\+.*Bash\(npm:\*\)')"
+assert_eq "installer-upgrade #971: the dry run that scanned the real tree still wrote nothing to it" "yes" \
+  "$([ "$IU_SNAP23" = "$(_iu_snapshot "$IU_C23A")" ] && echo yes || echo no)"
+
+# NEGATIVE CONTROL: an installer copy whose preview call drops the scan-root argument
+# reproduces the understated report, so the arms above measure that plumbing.
+IU_MUT23="$(probe_tmp 'installer-upgrade #971 scan-root control setup')"
+python3 -c '
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+body = open(src, encoding="utf-8").read()
+call = "devflow_apply_all \"$PREVIEW\" \"$PIN\" \"$REF\" \"$PWD\""
+if call not in body:
+    sys.exit("mutation target not found: the preview scan-root argument")
+open(dst, "w", encoding="utf-8").write(
+    body.replace(call, "devflow_apply_all \"$PREVIEW\" \"$PIN\" \"$REF\"", 1))
+' "$IU_INSTALL" "$IU_MUT23" || printf 'devflow-test: #971 scan-root control mutation FAILED to apply\n'
+assert_eq "installer-upgrade #971 NEGATIVE CONTROL: the control copy really does drop the preview's scan-root argument" "no" \
+  "$(_iu_has "$IU_MUT23" 'devflow_apply_all "$PREVIEW" "$PIN" "$REF" "$PWD"')"
+IU_O23E="$(IU_INSTALL_BIN="$IU_MUT23" _iu_run "$IU_C23A" --dry-run)"
+assert_eq "installer-upgrade #971 NEGATIVE CONTROL: without the scan root the preview reports no language markers at all (the understated preview the fix removes)" "yes no" \
+  "$(_iu_out_has "$IU_O23E" 'no known language markers detected') $(_iu_out_matches "$IU_O23E" 'devflow-detect: detected: docker node php —')"
+rm -f "$IU_MUT23"
+
+# The scan root is READ-ONLY, asserted at the detector's own executable surface: pointing
+# it at another tree moves the search and nothing else — every write still lands in the
+# target repo's config.
+IU_C23F="$(_iu_consumer detect-target)"
+_iu_run "$IU_C23F" >/dev/null
+IU_S23F="$_iw_tmp_root/detect-scan-only"
+rm -rf "$IU_S23F"; mkdir -p "$IU_S23F"
+printf '{ "name": "fixture" }\n' > "$IU_S23F/package.json"
+IU_SNAP23F="$(_iu_snapshot "$IU_S23F")"
+IU_O23F="$(bash "$LIB/../scripts/detect-project-tools.sh" "$IU_C23F" "$IU_S23F" 2>&1)"
+assert_eq "installer-upgrade #971: detect-project-tools.sh with a separate scan root merges the SCANNED tree's toolchain into the TARGET repo's config" "yes yes" \
+  "$(_iu_out_matches "$IU_O23F" 'devflow-detect: detected: node —') $(_iu_has "$IU_C23F/.prflow/config.json" 'Bash(npm:*)')"
+assert_eq "installer-upgrade #971: and it writes nothing whatsoever into the scanned tree (no config, no state directory, no byte)" "yes" \
+  "$([ "$IU_SNAP23F" = "$(_iu_snapshot "$IU_S23F")" ] && echo yes || echo no)"
+
+# Back-compat: the single-argument form still scans the tree it writes to, so the
+# /prflow:init path and a direct --apply are byte-for-byte what they were.
+IU_C23G="$(_iu_consumer detect-single-arg)"
+_iu_run "$IU_C23G" >/dev/null
+printf '{ "name": "fixture" }\n' > "$IU_C23G/package.json"
+IU_O23G="$(bash "$LIB/../scripts/detect-project-tools.sh" "$IU_C23G" 2>&1)"
+assert_eq "installer-upgrade #971: the single-argument form still scans the repo it updates (the /prflow:init path is unchanged)" "yes yes" \
+  "$(_iu_out_matches "$IU_O23G" 'devflow-detect: detected: node —') $(_iu_has "$IU_C23G/.prflow/config.json" 'Bash(npm:*)')"
