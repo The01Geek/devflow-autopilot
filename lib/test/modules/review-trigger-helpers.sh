@@ -2867,14 +2867,22 @@ cp "$LIB/../scripts/authorize-actor.sh" "$RCT_BADDET_DIR/authorize-actor.sh"
 printf '#!/usr/bin/env bash\nprintf "number=5\\n"\n' > "$RCT_BADDET_DIR/detect-standalone-command.sh"
 chmod +x "$RCT_BADDET_DIR/detect-standalone-command.sh"
 RCT_BADDET_ERR="$(mktemp)"
-OUT="$(PATH="$RCT_STUB:$PATH" ACTOR='devflow-bot' ALLOWED_BOTS='devflow-bot' \
+RCT_BADDET_OUT="$(mktemp)"
+RCT_BADDET_RC=0
+PATH="$RCT_STUB:$PATH" ACTOR='devflow-bot' ALLOWED_BOTS='devflow-bot' \
   REPO='o/r' GH_TOKEN='x' CONTEXT_NUMBER='99' \
-  TRIGGER_TEXT='/devflow:review' bash "$RCT_BADDET_DIR/resolve-command-trigger.sh" 2>"$RCT_BADDET_ERR")"
+  TRIGGER_TEXT='/devflow:review' bash "$RCT_BADDET_DIR/resolve-command-trigger.sh" \
+  >"$RCT_BADDET_OUT" 2>"$RCT_BADDET_ERR" || RCT_BADDET_RC=$?
+# The contract-violation path is the fail-closed broken-install arm (`exit 0`),
+# so pin rc explicitly — a non-zero exit here would matter to the caller, exactly
+# the raw-abort mode the parse rewrite eliminates.
+assert_eq "rct #1046: detector emitting no command= line → the decline exits 0, never a raw abort" \
+  "0" "$RCT_BADDET_RC"
 assert_eq "rct #1046: detector emitting no command= line → should_run=false (fail-closed)" \
-  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+  "should_run=false" "$(grep '^should_run=' "$RCT_BADDET_OUT")"
 assert_eq "rct #1046: detector emitting no command= line → a distinct output-contract ::warning::" \
   "1" "$(grep -c "emitted no 'command=' line" "$RCT_BADDET_ERR")"
-rm -rf "$RCT_BADDET_DIR"; rm -f "$RCT_BADDET_ERR"
+rm -rf "$RCT_BADDET_DIR"; rm -f "$RCT_BADDET_ERR" "$RCT_BADDET_OUT"
 
 rm -rf "$RCT_STUB"
 

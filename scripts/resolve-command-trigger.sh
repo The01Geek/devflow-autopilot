@@ -103,8 +103,8 @@ fi
 # substitution under `set -euo pipefail`, an absent `sed` exits 127 and aborts
 # the resolver outright: NEITHER `should_run=` line is emitted, the caller
 # appends nothing to $GITHUB_OUTPUT, and the downstream read is empty rather
-# than a definite `false` — the one raw-abort mode the `if !` guard above
-# exists to avoid, here in a trigger gate. Builtins cannot be absent, so this
+# than a definite `false` — the same raw-abort failure class the `if !` guard
+# above guards against, here in a trigger gate. Builtins cannot be absent, so this
 # parse always resolves and always reaches one of the emits below. Mirrors the
 # sibling resolve-implement-trigger.sh (issue #1032/#1042).
 cmd=""
