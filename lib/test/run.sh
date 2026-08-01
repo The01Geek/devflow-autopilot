@@ -28535,17 +28535,25 @@ WP266_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflo
 assert_eq "#266 workpad.py status: Reviewing -> 'interim 🚀 Reviewing'" "interim 🚀 Reviewing" "$WP266_OUT"
 # #1056 — behavioral negative: `workpad.py status` must NEVER emit the bare legacy
 # `terminal` class for ANY recognized status. The positive per-glyph assertions
-# above pin Complete/Blocked/Cancelled/Reviewing, but omit Failed and the other
-# interim words, so a PARTIAL re-collapse of one glyph back to `terminal` could
-# satisfy every positive and go uncaught. This drives the class token behaviorally
-# (never grepping source — issues #375/#666/#810 bar wording-only pins) over each
-# recognized status word and asserts none classifies as `terminal`.
-WP1056_TERM=""
+# above (and the #356 `Failed → 'failed 💥 Failed'` pin) cover the terminal words,
+# but the six other interim words (Setup/Discovering/Reproducing/Planning/
+# Implementing/Documenting) are never driven, so a PARTIAL re-collapse of one glyph
+# back to `terminal` could satisfy every positive and go uncaught. This drives the
+# class token behaviorally (never grepping source — issues #375/#666/#810 bar
+# wording-only pins) over EVERY recognized status word and compares the full
+# observed class sequence against the expected one. Comparing the whole sequence
+# (rather than only accumulating words that came back `terminal`) gives a POSITIVE
+# floor: an empty/errored classification for every word — the vacuous pass a
+# collect-only-`terminal` assertion would sail through — surfaces here as `<empty>`
+# in the observed sequence, so a regression in the bare-word status path fails RED
+# instead of silently gutting the guard.
+WP1056_OBSERVED=""
 for WP1056_WORD in Setup Discovering Reproducing Planning Implementing Reviewing Documenting Complete Blocked Failed Cancelled; do
   WP1056_CLS="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS="[{\"id\":1,\"body\":\"<!-- devflow:workpad -->\n**Status:** $WP1056_WORD\"}]" python3 "$WP266_PY" status 5 2>/dev/null | cut -d' ' -f1)"
-  [ "$WP1056_CLS" = "terminal" ] && WP1056_TERM="$WP1056_TERM $WP1056_WORD"
+  WP1056_OBSERVED="$WP1056_OBSERVED ${WP1056_CLS:-<empty>}"
 done
-assert_eq "#1056 workpad.py status: no recognized status classifies as the legacy bare 'terminal' token" "" "$WP1056_TERM"
+assert_eq "#1056 workpad.py status: every recognized status classifies to its expected non-terminal class (no bare 'terminal', no vacuous empty)" \
+  " interim interim interim interim interim interim interim complete blocked failed cancelled" "$WP1056_OBSERVED"
 PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
 assert_eq "#266 workpad.py status: no workpad -> exit 2" "2" "$?"
 PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\nno status line here"}]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
