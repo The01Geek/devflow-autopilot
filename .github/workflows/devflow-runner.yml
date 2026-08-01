@@ -483,6 +483,7 @@ jobs:
           # this SET rather than unset under `set -u`; the consuming step then emits
           # no assignment, which is also the working default.
           GITENV_HELPER_DIR=''
+          SCRUB_HELPER_DIR=''
           # Plugin-parity compose (issue #505) trusted-materialization state.
           # Initialized to fail-closed defaults so the fetch-failed / empty-base-ref
           # branches below (which skip the materialization in the fetch-success
@@ -609,6 +610,51 @@ jobs:
                   && [ -f "$RUNNER_TEMP/devflow-trusted-gitenv/emit-git-env.sh" ] \
                   && [ -f "$RUNNER_TEMP/devflow-trusted-gitenv/config-get.sh" ]; then
                   GITENV_HELPER_DIR="$RUNNER_TEMP/devflow-trusted-gitenv"
+                fi
+              fi
+              # Transcript scrub (issue #1064 W3): materialize the trusted base-ref
+              # scrub pair into RUNNER_TEMP, exactly like the gitenv pair above. The
+              # scrub is a CREDENTIAL-REDACTION control on a job that checks out the PR
+              # HEAD, so it must never be read from the workspace: a PR-authored no-op
+              # scrub-credentials.sh would upload the UNSCRUBBED execution file, which
+              # carries the `AUTHORIZATION: basic <base64>` header actions/checkout
+              # persists. Before #1064 this logic was inline in this workflow (base-ref
+              # controlled, therefore trusted); extracting it into a shared helper moved
+              # it into the checked-out tree, so it now needs the same trusted-source
+              # ladder filter-runner-tools.sh / resolve-extra-plugins.sh / emit-git-env.sh
+              # already follow. BOTH files must land: scrub-transcript.sh locates the
+              # blocklist as a SIBLING (`$_ST_DIR/scrub-credentials.sh`), so a
+              # half-materialized pair would make the helper take its own missing-scrubber
+              # fail-closed arm. Any failure leaves SCRUB_HELPER_DIR empty and the
+              # consuming step fails closed (uploads nothing, warns).
+              if mkdir -p "$RUNNER_TEMP/devflow-trusted-scrub" 2>/dev/null; then
+                _scrub_ok=1
+                for _s in scrub-transcript.sh scrub-credentials.sh; do
+                  _s_raw=''
+                  if _s_raw=$(git show "FETCH_HEAD:.prflow/vendor/prflow/scripts/$_s" 2>/dev/null); then
+                    :
+                  elif [ -n "${DEVFLOW_PLUGIN_NAME_ERE:-}" ] \
+                    && git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" \
+                    && _s_raw=$(git show "FETCH_HEAD:scripts/$_s" 2>/dev/null); then
+                    :
+                  else
+                    _s_raw=''
+                  fi
+                  if [ -n "$_s_raw" ]; then
+                    if printf '%s\n' "$_s_raw" > "$RUNNER_TEMP/devflow-trusted-scrub/$_s" 2>/dev/null; then
+                      chmod +x "$RUNNER_TEMP/devflow-trusted-scrub/$_s" 2>/dev/null || true
+                    else
+                      rm -f "$RUNNER_TEMP/devflow-trusted-scrub/$_s" 2>/dev/null || true
+                      _scrub_ok=0
+                    fi
+                  else
+                    _scrub_ok=0
+                  fi
+                done
+                if [ "$_scrub_ok" -eq 1 ] \
+                  && [ -f "$RUNNER_TEMP/devflow-trusted-scrub/scrub-transcript.sh" ] \
+                  && [ -f "$RUNNER_TEMP/devflow-trusted-scrub/scrub-credentials.sh" ]; then
+                  SCRUB_HELPER_DIR="$RUNNER_TEMP/devflow-trusted-scrub"
                 fi
               fi
               # Plugin-parity compose (issue #505): materialize the trusted base-ref
@@ -801,6 +847,10 @@ jobs:
             # by the fetch-success branch above; empty on a fetch failure or empty
             # base ref, which makes the consuming step fail closed.
             echo "gitenv_helper_dir=$GITENV_HELPER_DIR"
+            # Transcript scrub (issue #1064 W3) — the TRUSTED scrub helper directory
+            # materialized by the fetch-success branch above; empty on a fetch failure
+            # or empty base ref, which makes the consuming step fail closed (no upload).
+            echo "scrub_helper_dir=$SCRUB_HELPER_DIR"
           } >> "$GITHUB_OUTPUT"
           # Freeform reviewer build allowlist, read from the SAME trusted base ref
           # as provision_env above (so a PR cannot grant itself tools). Emitted as
@@ -2757,6 +2807,8 @@ jobs:
         if: always() && steps.diagnostics.outputs.transcript == 'true' && steps.claude.outputs.execution_file != ''
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          SCRUB_HELPER_DIR: ${{ steps.baseprovision.outputs.scrub_helper_dir }}
+          VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}
         run: |
           set -uo pipefail
           OUT="$RUNNER_TEMP/claude-execution-scrubbed.json"
@@ -2767,12 +2819,35 @@ jobs:
           # non-empty result, prepends the incomplete-blocklist caveat, and prints
           # `path=<OUT>` to STDOUT only when the artifact is safe to upload (nothing
           # otherwise — fail-closed). Route that one line to $GITHUB_OUTPUT.
-          ST=.prflow/vendor/prflow/scripts/scrub-transcript.sh
-          [ -f "$ST" ] || ST=scripts/scrub-transcript.sh
-          if [ -f "$ST" ]; then
+          #
+          # TRUSTED SOURCE ONLY (issue #1064 W3). This job checks out the PR HEAD, so the
+          # scrub — a credential-redaction control — is resolved in rank order, mirroring
+          # filter-runner-tools.sh / resolve-extra-plugins.sh / emit-git-env.sh:
+          #   1. SCRUB_HELPER_DIR — the pair materialized from the base ref by
+          #      baseprovision into RUNNER_TEMP (outside the PR-writable workspace);
+          #   2. the vendored copy, ONLY when vendor_source==fetch (a fresh clone of the
+          #      official repo at the pinned prflow_version — never committed/self);
+          #   3. else fail closed — upload nothing, warn naming the trusted-source rule.
+          # The PR-head checkout's own copy (committed vendor dir or scripts/) is
+          # deliberately NEVER a candidate: a PR-authored no-op scrub would upload the
+          # UNSCRUBBED execution file, which carries the `AUTHORIZATION: basic <base64>`
+          # header actions/checkout persists. A scrub the PR controls is no scrub.
+          _REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+          ST=''
+          if [ -n "${SCRUB_HELPER_DIR:-}" ] && [ -f "$SCRUB_HELPER_DIR/scrub-transcript.sh" ] \
+            && [ -f "$SCRUB_HELPER_DIR/scrub-credentials.sh" ]; then
+            ST="$SCRUB_HELPER_DIR/scrub-transcript.sh"
+            echo "transcript scrub helper source: trusted base ref (baseprovision)"
+          elif [ "${VENDOR_SOURCE:-}" = "fetch" ] \
+            && [ -f "$_REPO_ROOT/.prflow/vendor/prflow/scripts/scrub-transcript.sh" ] \
+            && [ -f "$_REPO_ROOT/.prflow/vendor/prflow/scripts/scrub-credentials.sh" ]; then
+            ST="$_REPO_ROOT/.prflow/vendor/prflow/scripts/scrub-transcript.sh"
+            echo "transcript scrub helper source: runtime-fetched vendored copy (pinned prflow_version)"
+          fi
+          if [ -n "$ST" ]; then
             bash "$ST" "$EXECUTION_FILE" "$OUT" | tee -a "$GITHUB_OUTPUT"
           else
-            echo "::warning::transcript scrub inert: $ST missing (a vendored tree pinned to an older prflow_version); NOT uploading the unscrubbed execution file (fail-closed)."
+            echo "::warning::devflow transcript scrub helper (scrub-transcript.sh + scrub-credentials.sh) not found at any TRUSTED source — neither materialized from the base ref (baseprovision) nor runtime-fetched at the pinned prflow_version (vendor_source='${VENDOR_SOURCE:-unknown}'); the PR-head checkout's own copy is deliberately not consulted, because the credential scrub must not be PR-editable. Failing closed: NOT uploading the execution transcript. Land the DevFlow re-vendor on the BASE branch (or use a thin install with a pinned prflow_version) so a trusted helper is available."
           fi
 
       - name: Upload execution transcript artifact
