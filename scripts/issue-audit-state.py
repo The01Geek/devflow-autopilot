@@ -1132,6 +1132,25 @@ class _StateSection:
     handler's `load_state` .. `save_state` runs under exclusion and the second writer's
     read happens after the first writer's write. No compare-and-swap token is needed
     because the load sits inside the section.
+
+    STATED BOUND — exclusion is heartbeat-free, so it is bounded by `stale_after_s`. The
+    holder does not refresh the sentinel's mtime while it works, so a mutation that stays
+    inside the section for longer than `stale_after_s` can have its own sentinel judged
+    abandoned and age-broken by a contending writer, and the two then overlap: the
+    guarantee this class provides is therefore "serialized up to `stale_after_s` of
+    occupancy", not unconditional mutual exclusion. That is ACCEPTED here rather than
+    fixed, on two grounds. First, occupancy is a sub-second load-modify-save of one small
+    JSON document — the section holds no network call, no subprocess, and no stdin read
+    (main() hoists stdin above the section precisely so a handler cannot block on fd 0
+    while holding it). Second, the `(st_dev, st_ino)` token recorded at acquire bounds the
+    blast radius on the way out: __exit__ unlinks only a sentinel that is still the one
+    this section created, so a holder whose sentinel was age-broken releases nothing and
+    cannot strip the breaker's exclusion — it breadcrumbs instead. Raising the bound by
+    adding a heartbeat (a keepalive touch, or a refresh on a long operation) is a DESIGN
+    CHANGE with its own failure modes, not a bug fix; do not introduce one without
+    deciding that trade deliberately. The relation `stale_after_s < acquire_window_s` is
+    the separate invariant that keeps a CRASHED writer from wedging the slug permanently;
+    see the acquire loop and docs/DEVFLOW_SYSTEM_OVERVIEW.md §11.
     """
 
     def __init__(self, slug, root=None, *, acquire_window_s=45, stale_after_s=30):
