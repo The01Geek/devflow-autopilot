@@ -262,7 +262,7 @@ A **first-time** install still applies immediately, so the one-liner above is un
 
 The diff covers `.claude-plugin/`, `.github/`, `.prflow/`, `.claude/plugins/` and your repository-root `.gitignore` — the paths the installer writes, including the recursive removal of a stale pre-relocation `.claude/plugins/devflow` tree. **One documented exclusion:** under `DEVFLOW_VENDOR=1` the vendored plugin tree under `.prflow/vendor/` is thousands of files, so its churn is reported as a single plan line rather than as a diff body. Your own `.claude/` files (settings, skills, hooks) are neither written nor diffed.
 
-The sandbox holds those paths and nothing else, so the language auto-detection step reads your **real** tree for its marker files (`package.json`, `composer.json`, `docker-compose.yml`, …) and previews the `config.json` merge it would actually perform. The preview reads your repository in several places — to build the sandbox, to render the diff, and now to detect your languages — but it writes only into the throwaway copy.
+The sandbox carries the installer's own subtrees, so the language auto-detection step reads your **real** tree for its marker files (`package.json`, `composer.json`, `docker-compose.yml`, …) and previews the `config.json` merge it would actually perform. The preview reads your repository in several places — to build the sandbox, to render the diff, and now to detect your languages — but it writes only into the throwaway copy.
 
 **Your hand-edits survive.** Every artifact the installer owns — the local `marketplace.json`, the two workflows, the three composite actions — is recorded in `.prflow/install-manifest.json` with the sha256 of the bytes the installer wrote. Commit that file; it is what lets the next upgrade tell an untouched artifact from one you edited:
 
@@ -305,7 +305,7 @@ Merge a sidecar by hand instead and the result still differs from the shipped by
 *.devflow-new
 ```
 
-Your own content is never rewritten — the block is appended once and re-runs are byte-identical no-ops, a rule you already carry is not duplicated, and the superseded `*.devflow-new` spelling is covered because sidecars written before the `.devflow` → `.prflow` rename are still on disk. If your `.gitignore` is not a regular file the installer says so and carries on rather than touching it. This is a standing rule, not a cleanup: keeping your own version of an artifact means leaving its sidecar there indefinitely.
+Your own content is never rewritten — the block is appended once and re-runs are byte-identical no-ops, a rule you already carry is not duplicated, and the superseded `*.devflow-new` spelling is covered because sidecars written before the `.devflow` → `.prflow` rename are still on disk. If your `.gitignore` is a **symlink** — or anything other than a plain file — the installer says so and carries on rather than touching it, because appending follows the link and could write outside your repository altogether; add the two patterns by hand there. This is a standing rule, not a cleanup: keeping your own version of an artifact means leaving its sidecar there indefinitely.
 
 #### Upgrade note: a superseded App slug in `devflow.allowed_bots` is reported, and `/prflow:init` corrects it
 

@@ -380,16 +380,28 @@ devflow_gitignore_carries() {
 
 manage_sidecar_gitignore() {
   local gi=.gitignore pat block="" append_err
-  # A .gitignore that is not a regular file is the consumer's business, and this function
-  # refuses rather than guessing. TWO shapes reach that refusal and the second is the one
-  # a plain `[ -f ]` test misses: a DIRECTORY (or a symlink to one), where `[ -e ]` is
-  # true and `[ -f ]` false; and a DANGLING symlink, where BOTH are false because `-e`
-  # follows the link — so the append would create the link's target, writing a file the
-  # consumer never asked for at a path that need not even be inside the repository.
-  # Report the rule they need and carry on; the whole upgrade layer is best-effort about
-  # the consumer's own files.
-  if { [ -e "$gi" ] && [ ! -f "$gi" ]; } || { [ -L "$gi" ] && [ ! -e "$gi" ]; }; then
-    log "warning: $gi exists but is not a regular file, so the preserved-artifact sidecar ignore rules were not added; add '*.prflow-new' by hand so an upgrade's sidecars are never committed."
+  # Refuse a symlink outright, and a non-regular path after it. The symlink arm is FIRST and
+  # unconditional because `>>` follows the link and writes to its TARGET, which can sit
+  # anywhere on the filesystem — outside this repository entirely. All three link shapes
+  # are unsafe and none is detectable by a `-e`/`-f` pair, because both of those tests
+  # follow the link too:
+  #   * a LIVE link to a regular file  -> `-e` true,  `-f` TRUE  -> appends to the target;
+  #   * a DANGLING link                -> `-e` false, `-f` false -> CREATES the target;
+  #   * a link to a directory          -> `-e` true,  `-f` false.
+  # An earlier form of this guard tested `{ -e && ! -f } || { -L && ! -e }` and so caught
+  # only the last two — the live link, the commonest shape, walked straight through it and
+  # wrote outside the repository. `[ -L ]` is the only test that does not dereference, so
+  # it is the only one that can answer this question.
+  #
+  # The second arm then covers the non-link non-regular shapes (a real directory). A
+  # regular file, or an absent path, is what the append below requires.
+  #
+  # Refusing a symlinked .gitignore is deliberately conservative — a link pointing INSIDE
+  # the repository would have been safe to append to — but the breadcrumb hands the
+  # consumer the exact two patterns, and no reachable input can make this function write
+  # outside the tree it was pointed at. Best-effort as ever: report and carry on.
+  if [ -L "$gi" ] || { [ -e "$gi" ] && [ ! -f "$gi" ]; }; then
+    log "warning: $gi is a symlink or is not a regular file, so the preserved-artifact sidecar ignore rules were not added (appending through a symlink can write outside this repository). Add '*.prflow-new' and '*.devflow-new' to your ignore rules by hand so an upgrade's sidecars are never committed."
     return 0
   fi
   for pat in '*.prflow-new' '*.devflow-new'; do
@@ -416,7 +428,7 @@ manage_sidecar_gitignore() {
   if append_err="$(printf '%s' "$block" 2>&1 >> "$gi")"; then
     log "ignored preserved-artifact sidecars in $gi (an upgrade writes <path>.prflow-new beside a file it preserves, and an untracked sidecar is one 'git add -A' away from an unrelated commit)"
   else
-    log "warning: could not append the preserved-artifact sidecar ignore rules to $gi${append_err:+ ($append_err)}; add '*.prflow-new' by hand so an upgrade's sidecars are never committed."
+    log "warning: could not append the preserved-artifact sidecar ignore rules to $gi${append_err:+ ($append_err)}. Add '*.prflow-new' and '*.devflow-new' to your ignore rules by hand so an upgrade's sidecars are never committed."
   fi
 }
 
@@ -1244,11 +1256,19 @@ devflow_build_preview() {
   # file (an absent one is simply absent here, which is what the apply path would see).
   #
   # The SHAPE is mirrored, not just the bytes, because that function refuses a .gitignore
-  # that is not a regular file. Copy a regular file (or a symlink AS a symlink, so a
-  # dangling one stays dangling) and reproduce a directory as an empty directory —
+  # that is not a plain regular file. Copy a regular file (or a symlink AS a symlink, with
+  # `-P`, so a link stays a link) and reproduce a directory as an empty directory —
   # otherwise the sandbox would have no .gitignore at all, the sandbox apply would create
   # one, and the preview would report an `ADD .gitignore` the real apply then declines.
   # A preview that OVERstates is the mirror image of the defect issue #971 fixes.
+  #
+  # `-P` does mean an ABSOLUTE-target link is reproduced pointing at the same real file
+  # outside the sandbox. That is inert, and the reason is the refusal above, not this copy:
+  # manage_sidecar_gitignore declines EVERY symlink, so the sandbox run reaches no write
+  # through it — and it declines for the same reason on both sides, which is exactly the
+  # preview/apply agreement this mirroring exists to produce. Dereferencing into a regular
+  # file here would break that agreement in the dangerous direction: the sandbox copy would
+  # be writable, so the preview would advertise a MODIFY the real apply refuses to perform.
   if [ -d "$real/.gitignore" ] && [ ! -L "$real/.gitignore" ]; then
     mkdir -p "$prev/.gitignore"
   elif [ -e "$real/.gitignore" ] || [ -L "$real/.gitignore" ]; then
@@ -1263,8 +1283,8 @@ devflow_build_preview() {
 # always been.
 #
 # $4 is the tree to SCAN for language markers, and it exists only because the sandbox is
-# not the repository (issue #971). The sandbox holds `.claude-plugin`, `.github`,
-# `.prflow` and `.claude/plugins` and nothing else, so detection run against it finds no
+# not the repository (issue #971). The sandbox carries the installer's own subtrees, so
+# detection run against it finds no
 # package.json / composer.json / docker-compose* and reports "no known language markers
 # detected", while the same step under `--apply` sees the real tree and merges that
 # project's toolchain into config.json — a dry run that UNDERSTATES what the apply writes.
