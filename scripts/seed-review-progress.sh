@@ -79,6 +79,36 @@
 # Usage: seed-review-progress.sh PR_NUMBER MARKER BODY_FILE
 set -uo pipefail
 
+normalize_body() {
+  local normalized_body="$1"
+  local marker="$2"
+  local body_file="$3"
+  local error_file="$4"
+
+  if [ -z "$normalized_body" ]; then
+    echo "could not create a scratch file for the normalized review-progress body" >> "$error_file"
+    return 1
+  fi
+
+  if ! {
+    printf '%s\n' "$marker"
+    local first_line=true
+    local body_line
+    while IFS= read -r body_line || [ -n "$body_line" ]; do
+      if [ "$first_line" = true ]; then
+        first_line=false
+        case "$body_line" in
+          '<!-- prflow:review-progress run='*|'<!-- devflow:review-progress run='*) continue ;;
+        esac
+      fi
+      printf '%s\n' "$body_line"
+    done < "$body_file"
+  } > "$normalized_body"; then
+    echo "could not normalize the review-progress body at '$body_file'" >> "$error_file"
+    return 1
+  fi
+}
+
 PR_NUMBER="${1:-}"
 MARKER="${2:-}"
 BODY_FILE="${3:-}"
@@ -176,27 +206,7 @@ elif [ "$?" -eq 2 ] && [ ! -s "$ERRF" ]; then
   # remove a caller-authored current or superseded marker from line one. Preserve
   # every other line verbatim (apart from normalizing a missing final newline).
   NORMALIZED_BODY="$(mktemp 2>/dev/null)" || NORMALIZED_BODY=""
-  NORMALIZATION_OK=true
-  if [ -z "$NORMALIZED_BODY" ]; then
-    echo "could not create a scratch file for the normalized review-progress body" >> "$ERRF"
-    NORMALIZATION_OK=false
-  elif ! {
-    printf '%s\n' "$MARKER"
-    FIRST_LINE=true
-    while IFS= read -r BODY_LINE || [ -n "$BODY_LINE" ]; do
-      if [ "$FIRST_LINE" = true ]; then
-        FIRST_LINE=false
-        case "$BODY_LINE" in
-          '<!-- prflow:review-progress run='*|'<!-- devflow:review-progress run='*) continue ;;
-        esac
-      fi
-      printf '%s\n' "$BODY_LINE"
-    done < "$BODY_FILE"
-  } > "$NORMALIZED_BODY"; then
-    echo "could not normalize the review-progress body at '$BODY_FILE'" >> "$ERRF"
-    NORMALIZATION_OK=false
-  fi
-  if [ "$NORMALIZATION_OK" = true ] \
+  if normalize_body "$NORMALIZED_BODY" "$MARKER" "$BODY_FILE" "$ERRF" \
      && WP="$("$WORKPAD_PY" create "$PR_NUMBER" "$NORMALIZED_BODY" 2>>"$ERRF")"; then
     # Same non-empty validation as the RESUME arm above.
     if [ -z "$WP" ]; then

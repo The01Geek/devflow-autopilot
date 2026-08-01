@@ -2497,6 +2497,14 @@ def value(flag):
     index = args.index(flag)
     return args[index + 1]
 
+def record_body(body):
+    shutil.copyfile(body, os.path.join(state, "created-body"))
+    if os.environ.get("S1054_STATEFUL") == "1":
+        with open(body, encoding="utf-8") as handle:
+            marker = handle.readline().rstrip("\n")
+        with open(os.path.join(state, "stateful-marker"), "w", encoding="utf-8") as handle:
+            handle.write(marker)
+
 if command == "id":
     marker = value("--marker")
     with open(os.path.join(state, "id-marker"), "w", encoding="utf-8") as handle:
@@ -2514,23 +2522,13 @@ if command == "id":
 
 if command == "create":
     body = args[-1]
-    shutil.copyfile(body, os.path.join(state, "created-body"))
-    if os.environ.get("S1054_STATEFUL") == "1":
-        with open(body, encoding="utf-8") as handle:
-            marker = handle.readline().rstrip("\n")
-        with open(os.path.join(state, "stateful-marker"), "w", encoding="utf-8") as handle:
-            handle.write(marker)
+    record_body(body)
     print("9002")
     raise SystemExit(0)
 
 if command == "patch":
     body = args[-1]
-    shutil.copyfile(body, os.path.join(state, "created-body"))
-    if os.environ.get("S1054_STATEFUL") == "1":
-        with open(body, encoding="utf-8") as handle:
-            marker = handle.readline().rstrip("\n")
-        with open(os.path.join(state, "stateful-marker"), "w", encoding="utf-8") as handle:
-            handle.write(marker)
+    record_body(body)
     raise SystemExit(0)
 
 raise SystemExit(2)
