@@ -1419,6 +1419,111 @@ assert_eq "hc-runid(A3): GITHUB_RUN_ID unset → a specific 'cannot be identifie
   "$(printf '%s' "$HC_RU_ERR" | grep -qF 'GITHUB_RUN_ID is unset' && echo yes || echo no)"
 rm -rf "$HC_RU"
 
+# ── #1064 AC3/W1: apply_denial_floor — the permission-denial forensics floor ──
+# This is the ONLY code that lands the denial record on the telemetry branch, and AC3
+# required it be unit-tested against the helper directly (no network, no branch push).
+# It declares that it mirrors apply_harness_floor exactly, so it is driven through the
+# same arms as the HC block above: staged (a), already-persisted read-back (b) with
+# byte-preservation, decline, re-run idempotency, malformed operand, run-id absent.
+# The ONE deliberate divergence from harness_cost is asserted too: a denial floor with
+# no efficiency record for the run-id DECLINES — it never writes a skeleton.
+DF_REC='{"count":3,"tool_names":["Bash"],"commands_state":"present","commands":["cat x > /tmp/a"],"total":1,"truncated":false,"commands_field_enabled":true,"scrub":{"applied":true,"blocklist_incomplete":true,"shapes":"s"}}'
+
+# arm (a): a record staged THIS PASS under the run-id identity gains permission_denials,
+# and a record with a DIFFERENT run-id (sorting first, like the HC fixture) is untouched.
+DF_T="$(_hc_repo "df target")"
+mkdir -p "$DF_T/.prflow/tmp/review/pr-77/959-1" "$DF_T/.prflow/tmp/review/pr-11/858-2"
+printf '%s' "$HC_ITER" > "$DF_T/.prflow/tmp/review/pr-77/959-1/iter-1.json"
+printf '%s' "$HC_ITER" > "$DF_T/.prflow/tmp/review/pr-11/858-2/iter-1.json"
+( cd "$DF_T" && GITHUB_RUN_ID=959 GITHUB_RUN_ATTEMPT=1 DEVFLOW_DENIAL_RECORD="$DF_REC" \
+    bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "df-merge(a): the record matching the run-id identity gained permission_denials" "3" \
+  "$(_et_show "$DF_T" ".prflow/logs/efficiency/pr-77-959-1.json" | jq -r '.permission_denials.count')"
+assert_eq "df-merge(a): the denial record is attached VERBATIM" "$(printf '%s' "$DF_REC" | jq -S -c .)" \
+  "$(_et_show "$DF_T" ".prflow/logs/efficiency/pr-77-959-1.json" | jq -S -c '.permission_denials')"
+assert_eq "df-merge(a): a record with a DIFFERENT run-id (sorting first) was NOT touched" "null" \
+  "$(_et_show "$DF_T" ".prflow/logs/efficiency/pr-11-858-2.json" | jq -c '.permission_denials')"
+rm -rf "$DF_T"
+
+# arm (b): a record ALREADY on the branch is read back and gains the key; everything
+# outside permission_denials stays byte-identical; a re-run is a tree-equality no-op.
+DF_M="$(_hc_repo "df merge-branch")"
+mkdir -p "$DF_M/.prflow/tmp/review/pr-5/757-1"
+printf '%s' "$HC_ITER" > "$DF_M/.prflow/tmp/review/pr-5/757-1/iter-1.json"
+( cd "$DF_M" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+DF_M_BEFORE="$(_et_show "$DF_M" ".prflow/logs/efficiency/pr-5-757-1.json")"
+assert_eq "df-merge(b): pre-floor record has no permission_denials" "null" \
+  "$(printf '%s' "$DF_M_BEFORE" | jq -c '.permission_denials')"
+( cd "$DF_M" && GITHUB_RUN_ID=757 GITHUB_RUN_ATTEMPT=1 DEVFLOW_DENIAL_RECORD="$DF_REC" \
+    bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+DF_M_AFTER="$(_et_show "$DF_M" ".prflow/logs/efficiency/pr-5-757-1.json")"
+assert_eq "df-merge(b): already-persisted record gains permission_denials via read-back" "3" \
+  "$(printf '%s' "$DF_M_AFTER" | jq -r '.permission_denials.count')"
+assert_eq "df-merge(b): everything OUTSIDE permission_denials is byte-identical to the original" "yes" \
+  "$(diff <(printf '%s' "$DF_M_AFTER" | jq 'del(.permission_denials)') <(printf '%s' "$DF_M_BEFORE" | jq .) >/dev/null 2>&1 && echo yes || echo no)"
+DF_M_BC="$(_et_branch_count "$DF_M")"
+DF_M_RERUN="$( ( cd "$DF_M" && GITHUB_RUN_ID=757 GITHUB_RUN_ATTEMPT=1 DEVFLOW_DENIAL_RECORD="$DF_REC" \
+    bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "df-merge(b): re-run over an already-attached record is a tree-equality no-op" \
+  "$DF_M_BC" "$(_et_branch_count "$DF_M")"
+assert_eq "df-merge(b): re-run emits the already-carries backstop breadcrumb" "yes" \
+  "$(printf '%s' "$DF_M_RERUN" | grep -qF 'already carries permission_denials' && echo yes || echo no)"
+rm -rf "$DF_M"
+
+# DECLINE arm — the deliberate divergence from harness_cost: no efficiency record exists
+# for this run-id, so the floor attaches nothing and writes NO skeleton (a denial record
+# with no cost record to key it has no analysis join). Fail-closed with a breadcrumb.
+DF_D="$(_hc_repo "df decline")"
+DF_D_ERR="$( ( cd "$DF_D" && GITHUB_RUN_ID=606 GITHUB_RUN_ATTEMPT=1 DEVFLOW_DENIAL_RECORD="$DF_REC" \
+    bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "df-decline: no record for the run-id → NO skeleton is written (unlike harness_cost)" "" \
+  "$(git -C "$DF_D" ls-tree -r --name-only refs/heads/prflow-telemetry 2>/dev/null | grep '\.prflow/logs/efficiency/' || true)"
+assert_eq "df-decline: emits the no-skeleton decline breadcrumb naming the run-id" "yes" \
+  "$(printf '%s' "$DF_D_ERR" | grep -qF 'no efficiency record for run-id 606-1' && echo yes || echo no)"
+rm -rf "$DF_D"
+
+# Malformed operand: 'not json' fails the jq PARSE; '[1,2]' PARSES but is not an object.
+# Both must draw the not-a-JSON-object breadcrumb and leave the record without the key —
+# the operand guard exists so a non-object never reaches `jq --argjson` (which would abort).
+for _df_bad in 'not json' '[1,2]'; do
+  DF_B="$(_hc_repo "df malformed")"
+  mkdir -p "$DF_B/.prflow/tmp/review/pr-3/363-1"
+  printf '%s' "$HC_ITER" > "$DF_B/.prflow/tmp/review/pr-3/363-1/iter-1.json"
+  DF_B_ERR="$( ( cd "$DF_B" && GITHUB_RUN_ID=363 GITHUB_RUN_ATTEMPT=1 DEVFLOW_DENIAL_RECORD="$_df_bad" \
+      bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+  assert_eq "df-malformed('$_df_bad'): record carries no permission_denials" "null" \
+    "$(_et_show "$DF_B" ".prflow/logs/efficiency/pr-3-363-1.json" | jq -c '.permission_denials')"
+  assert_eq "df-malformed('$_df_bad'): draws the 'not a JSON object' breadcrumb" "yes" \
+    "$(printf '%s' "$DF_B_ERR" | grep -qF 'not a JSON object' && echo yes || echo no)"
+  rm -rf "$DF_B"
+done
+
+# GITHUB_RUN_ID unset: a valid operand and telemetry enabled, but the run cannot be
+# identified — decline rather than attach to an arbitrary swept record.
+DF_RU="$(_hc_repo "df runid-unset")"
+mkdir -p "$DF_RU/.prflow/tmp/review/pr-4/iddir-1"
+printf '%s' "$HC_ITER" > "$DF_RU/.prflow/tmp/review/pr-4/iddir-1/iter-1.json"
+DF_RU_ERR="$( ( cd "$DF_RU" && unset GITHUB_RUN_ID; DEVFLOW_DENIAL_RECORD="$DF_REC" \
+    bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "df-runid: GITHUB_RUN_ID unset → no permission_denials attached to any swept record" "null" \
+  "$(_et_show "$DF_RU" ".prflow/logs/efficiency/pr-4-iddir-1.json" | jq -c '.permission_denials')"
+assert_eq "df-runid: GITHUB_RUN_ID unset → a specific breadcrumb (fail-closed, not silent)" "yes" \
+  "$(printf '%s' "$DF_RU_ERR" | grep -qF 'GITHUB_RUN_ID is unset' && echo yes || echo no)"
+rm -rf "$DF_RU"
+
+# Env-absent inertness: with DEVFLOW_DENIAL_RECORD unset the floor is inert AND SILENT,
+# so every pre-#1064 agent-side --persist call site is byte-identical to before.
+DF_E="$(_hc_repo "df env-absent")"
+mkdir -p "$DF_E/.prflow/tmp/review/pr-9/909-1"
+printf '%s' "$HC_ITER" > "$DF_E/.prflow/tmp/review/pr-9/909-1/iter-1.json"
+DF_E_ERR="$( ( cd "$DF_E" && GITHUB_RUN_ID=909 GITHUB_RUN_ATTEMPT=1 \
+    bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "df-inert: operand unset → the record carries no permission_denials key" "null" \
+  "$(_et_show "$DF_E" ".prflow/logs/efficiency/pr-9-909-1.json" | jq -c '.permission_denials')"
+assert_eq "df-inert: operand unset → the denial floor emits NO breadcrumb at all (silent)" "no" \
+  "$(printf '%s' "$DF_E_ERR" | grep -qF 'denial floor' && echo yes || echo no)"
+rm -rf "$DF_E"
+
 # ── A5a: two-writer union race — a stale local snapshot must NOT revert another
 # writer's harness_cost on the push-rejection re-parent (mirrors the #441
 # offline-accum fixture, with a MUTATED record path instead of a fresh one) ────
