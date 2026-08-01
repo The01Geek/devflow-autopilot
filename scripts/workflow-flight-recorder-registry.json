@@ -1,6 +1,11 @@
 {
   "schema_version": 1,
   "test_modules": {
+    "parallel-suite-runner": {
+      "path": "lib/test/modules/parallel-suite-runner.sh",
+      "minimum_assertions": 97,
+      "description": "Focused #1086 in-run parallel full-suite coordinator: the shard population derived from the dispatcher rather than copied, run-root selection with its TMPDIR fallback and its allocation refusals, the bounded process budget with its DEVFLOW_SUITE_PROCESS_BUDGET override and nested python-pool reservation, shard overlap at budget two and eight against a complete serial width one, per-shard TMPDIR and tally isolation from stale sibling runs, HUP/INT/TERM handling with a signal parked in the launch window replayed rather than swallowed and the launched population reaped, the empty/malformed/launch-failed/crashed/missing-tally/malformed-tally/nonzero/skip-inconsistent failure contract, the real-population reentrancy refusal, the per-class detail cap driven directly against shard-tally.py (its uncapped default, the exactly-at-cap boundary, a negative cap, and that capping never changes the decision) as well as through the coordinator over complete retained logs, and the bare cloud leading token with its arity and unknown-argument guards, the --help contract, and a stand-in invocation-layer bash selector for the local boundary"
+    },
     "tier1-rename-migration": {
       "path": "lib/test/modules/tier1-rename-migration.sh",
       "minimum_assertions": 191,

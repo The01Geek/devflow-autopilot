@@ -302,6 +302,8 @@ jobs:
           shellcheck --severity=warning -e SC1091 \
             lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh \
             lib/test/run-shard.sh lib/test/gate-shard-result.sh \
+            lib/test/run-parallel.sh \
+            lib/test/modules/parallel-suite-runner.sh \
             lib/test/run-python-pool.sh \
             lib/test/modules/workflow-flight-recorder.sh \
             lib/test/modules/review-and-fix-contract.sh \

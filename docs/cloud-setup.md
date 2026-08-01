@@ -1245,6 +1245,7 @@ the execution path — invoked by their **direct leading-token** form (the
   change, or defer that verification to after merge.
 
 (This repo's own `.prflow/config.json` grants `Bash(lib/test/run.sh:*)`,
+`Bash(lib/test/run-parallel.sh:*)`, `Bash(lib/test/run-module.sh:*)`,
 `Bash(lib/preflight.sh:*)`, and `Bash(shellcheck:*)` under both keys for exactly
 this reason.) See [`implement-skill.md`](implement-skill.md) for the Phase 3.4
 gate behavior.
