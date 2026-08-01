@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1024",
+  "generated_at": "2026-08-01T02:44:29Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.6",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.3083252000000005,
+    "tokens": {
+      "input_tokens": 42,
+      "output_tokens": 17709,
+      "cache_read_input_tokens": 2709712,
+      "cache_creation_input_tokens": 143218,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 42,
+        "outputTokens": 17709,
+        "cacheReadInputTokens": 2709712,
+        "cacheCreationInputTokens": 143218,
+        "webSearchRequests": 0,
+        "costUSD": 3.229971000000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 38,
+        "outputTokens": 12023,
+        "cacheReadInputTokens": 1139459,
+        "cacheCreationInputTokens": 148282,
+        "webSearchRequests": 0,
+        "costUSD": 1.0783542,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 33,
+    "duration_ms": 394785
+  }
+}
