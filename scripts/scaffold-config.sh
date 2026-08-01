@@ -461,6 +461,76 @@ PRFLOW_MIG_REPORT
   fi
 fi
 
+# ── Superseded VALUE / nested-key migration, and the residual notice (#1028) ─
+# The key migration above renames TOP-LEVEL keys and stops there, so a consumer's
+# config still spelt the superseded product name in its values and nested keys: the
+# `agent_overrides` `devflow:<leaf>` keys, the `workpad_marker` value, and the
+# `docs.labels` / `deferred.labels` provenance-label values. lib/migrate-config-values.py
+# renames those, so the config reads prflow / PRFlow throughout, and reports what
+# deliberately STAYS (the frozen `workflows.*` keys, plus a pointer to the separate
+# DEVFLOW_* environment freeze that no config migration can reach).
+#
+# It takes NO freshness gate, deliberately. The key migration needs one because the
+# trigger-time channel reads those key NAMES out of the workflow files, so a config that
+# moves ahead of a stale workflow is silently mis-read. These are values and nested keys
+# whose readers all dual-accept in both directions, so no such skew exists — including
+# resolve-implement-trigger.sh's self-trigger guard, which DERIVES the superseded marker
+# from the configured one and so keeps recognising a pre-rename workpad.
+#
+# ORDER IS LOAD-BEARING, for the same reason the key migration runs before the backfill:
+# renaming FIRST means the current-spelled entry already holds the consumer's value when
+# the deep merge runs, so the merge finds nothing absent to graft and tops the entry up
+# with the example's sibling defaults in that same run. Running this AFTER the backfill
+# instead was measured to leave the config unsettled for one extra run — the merge grafts
+# the whole example entry, this pass replaces it with the consumer's (narrower) one, and
+# the NEXT run's merge re-adds the siblings it dropped. The both-present arm still covers
+# a consumer whose config was grafted by an EARLIER run: that graft is on disk before this
+# pass starts, so the helper resolves it here rather than reporting a conflict that is not
+# one.
+#
+# Best-effort, like every other pass here: a missing python3, helper or rename map skips
+# it with a breadcrumb and leaves the config untouched. Every selection — what to rename,
+# what to refuse, what to report — is made inside python3 (a preflight-guaranteed tool),
+# never through a non-preflight PATH tool (tr/sed/wc/cut); guard-class 2.
+MIGRATE_VALUES="$SELF_DIR/../lib/migrate-config-values.py"
+if [ ! -f "$MIGRATE_VALUES" ] || [ ! -f "$RENAME_MAP" ]; then
+  log "value-migration helper or rename map not found next to the scaffolder; skipping the superseded config-value migration (is the plugin install complete?)."
+elif ! command -v python3 >/dev/null 2>&1; then
+  log "no working python3; skipping the superseded config-value migration and leaving $CONFIG unchanged."
+else
+  VALUES_TMP="$(mktemp)"; VALUES_ERR="$(mktemp)"
+  trap 'rm -f "$VALUES_TMP" "$VALUES_ERR"' EXIT
+  val_rc=0
+  val_out="$(python3 "$MIGRATE_VALUES" "$CONFIG" "$VALUES_TMP" "$RENAME_MAP" "$EXAMPLE" 2>"$VALUES_ERR")" || val_rc=$?
+  if [ "$val_rc" -ne 0 ]; then
+    val_err="$(cat "$VALUES_ERR")"
+    log "superseded config-value migration could not read $CONFIG${val_err:+ ($val_err)}; leaving it unchanged."
+  else
+    # Piped rather than fed from a heredoc: the report carries backticks and the
+    # scaffolder's other heredoc report uses an UNQUOTED delimiter, which would run
+    # them as command substitutions. A quoted delimiter cannot expand $val_out at all,
+    # so the pipe is the shape that both interpolates the report and treats it as data.
+    # The subshell is harmless here — the loop only logs and assigns nothing the caller
+    # reads back.
+    printf '%s\n' "$val_out" | while IFS="$(printf '\t')" read -r kind detail extra; do
+      [ -n "$kind" ] || continue
+      case "$kind" in
+        CHANGED)
+          log "migrated superseded config value in $CONFIG: $detail" ;;
+        CONFLICT)
+          log "NOT migrating the $detail override key in $CONFIG: both it and $extra are present and $extra is not the shipped example default, so it is a deliberate edit this migration must not discard. Resolve it by hand — delete whichever entry you do not want; both spellings resolve, and $extra is the one the engine resolves first." ;;
+        NOTE|ADVISORY)
+          log "$detail" ;;
+      esac
+    done
+    rewrite_config_if_changed "$CONFIG" "$VALUES_TMP" \
+      "renamed superseded values and nested keys in $CONFIG (every other value carried across unchanged)." \
+      "could not compare the value-migrated config against $CONFIG; leaving it unchanged."
+  fi
+  rm -f "$VALUES_TMP" "$VALUES_ERR"
+  trap - EXIT
+fi
+
 # The plugin version pin is REPORTED, never gated on. Its freshness is not
 # decidable here: the pin accepts a mutable branch name, the installed plugin tree
 # carries no .git to ask about ancestry, and install.sh fetches with --depth 1. A

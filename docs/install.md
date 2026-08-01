@@ -145,9 +145,9 @@ PowerShell's double-quote handling can split a `--note`/`--reflection` text argu
 For autonomous GitHub Actions automation, run the installer from your repo root. It is idempotent, so re-running it at a *newer* release tag is also how you update. It writes into your repository — the workflows and composite actions under `.github/`, a local `marketplace.json`, and `.prflow/` templates (config scaffold, schema, ignore file) — so those changes land in version control. **Download it, read it, then run the downloaded file:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.8/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.9/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.30.8 bash devflow-install.sh
+DEVFLOW_REF=v2.30.9 bash devflow-install.sh
 ```
 
 <a id="pinning-the-installer"></a>
@@ -166,8 +166,8 @@ Independently of either pin, `install.sh` stamps `.prflow/config.json`'s `prflow
 `curl … | bash` runs the script without giving you a chance to read it. If you accept that, still pin both refs:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.8/install.sh \
-  | DEVFLOW_REF=v2.30.8 bash
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.9/install.sh \
+  | DEVFLOW_REF=v2.30.9 bash
 ```
 
 </details>
@@ -222,6 +222,26 @@ Two things the migration does **not** own, and reports instead: a retained workf
 **This fallback is removed once no consumer still carries a `.devflow/` directory** — a confirmation, not a timer. It is recorded in `lib/rename-map.json` under `transitional_read_through.end_criterion`, which is the single source for it.
 
 The **config keys** deliberately have no such fallback. A silent key fallback would make the key migration unobservable and therefore permanent, so it is *detected* rather than read through: `scripts/config-get.sh` breadcrumbs when a requested key is absent and its superseded counterpart is present, and the two shipped workflows' `config` jobs fail loud on an absent key family (the trigger-time channel reads config through inline `jq` and never through the resolver, so no breadcrumb could reach it).
+
+### The `devflow` spellings inside your config are renamed too
+
+The key migration above renames **top-level keys**. A second pass, `lib/migrate-config-values.py`, renames the superseded spellings that live in your config's **values and nested keys**, so `.prflow/config.json` reads `prflow` / `PRFlow` throughout:
+
+| What | Becomes |
+| --- | --- |
+| `agent_overrides` keys under the `devflow:` namespace (see [`review-agent-overrides.md`](review-agent-overrides.md)) | the same leaf under `prflow:` |
+| a `workpad_marker` opening `<!-- devflow:` | the same marker opening `<!-- prflow:` |
+| a `DevFlow` entry in `docs.labels` / `deferred.labels` | `PRFlow` |
+
+Each is safe because every reader accepts both spellings in both directions — the subagent namespaces, the workpad-marker readers (including the self-trigger guard, which derives the superseded marker from whichever one you configure, so a workpad written before the rename is still recognised), and label selection, whose API-side filter already asks for both in one `label:PRFlow,DevFlow` query. Existing issues and pull requests keep whatever label they carry; only the label *applied to new artifacts* changes, so rename the GitHub label itself (which carries it across every artifact already using it) if you want them to agree.
+
+The pass runs at the end of every scaffold, so it reaches both `install.sh --apply` and `/prflow:init` — both call the one scaffolder. It is idempotent, takes no freshness gate (unlike the key migration, nothing reads these spellings out of your workflow files), preserves a deliberately-falsy value rather than coercing it onto a default, and rewrites nothing else. If you have both spellings of one `agent_overrides` key and the current-spelled entry is a real edit rather than a scaffolded default, that one key is **refused** and reported so you can delete whichever you meant to drop; everything else still migrates.
+
+Three things it deliberately leaves alone, and says so once when your config carries them:
+
+- **`workflows.devflow` / `workflows.devflow-review`** — your workflow files read those key names, and a renamed key reads as *disabled*, so renaming one here would silently switch the workflow it toggles off. They move only in a change that migrates both sides together.
+- **A `devflow`-spelled `allowed_bots` entry** — that is a real GitHub login, and renaming it breaks authorization unless the account itself was renamed.
+- **The `DEVFLOW_*` environment identifiers** — variables, secrets and shell overrides that live outside the repository, where no config migration can reach them. Nothing reads a `PRFLOW_*` equivalent, so renaming one removes the setting rather than moving it, and most fail silently. That inventory is not restated in the notice: `lib/generate-env-freeze-advisory.py` renders it from `lib/rename-map.json`'s `frozen.env_identifiers` (see also [`cloud-setup.md`](cloud-setup.md)).
 
 ## Updating
 
