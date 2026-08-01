@@ -7574,7 +7574,7 @@ with tempfile.TemporaryDirectory() as _td:
 
     # Positive control: with the flag absent the handler still answers normally, so the two
     # rows above lock out a failure rather than the feature. `_read_stdin_once` never reads
-    # in this shape, so all three fields hold their defaults exactly as main() leaves them.
+    # in this shape, so the fields it records keep the defaults main() leaves them at.
     _end, _err, _out = _drive1040(
         issue_audit_state.cmd_check_claim_staleness,
         _ns(cmd='check-claim-staleness', slug='s', nonce='n0', claim_key='k',

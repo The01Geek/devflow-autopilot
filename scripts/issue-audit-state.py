@@ -8070,8 +8070,8 @@ def cmd_check_claim_staleness(args):
     # then scored against `domain=None` and printed as a decided staleness verdict. Reading
     # it bare also made this the one stdin consumer QUIETER than before the hoist (a
     # mid-read OSError used to propagate). `_read_stdin_once` reads only when
-    # --domain-stdin is selected, so with the flag absent all three fields hold their
-    # defaults and this returns None — equivalent to the former
+    # --domain-stdin is selected, so with the flag absent the fields it records keep the
+    # defaults it set and this returns None — equivalent to the former
     # `... if args.domain_stdin else None`. Exiting non-zero here is in contract: this
     # subcommand is neither a query nor a mutation and already exits non-zero on a
     # caller-contract error (see the module docstring's check-claim-staleness carve-out).
