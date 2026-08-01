@@ -97,8 +97,11 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
 > resolving: `"devflow:code-reviewer": { "model": "claude-opus-5" }` and
 > `devflow:requesting-code-review` are honored exactly like their `prflow:` spellings.
 > `prflow:` is the canonical form and is what new configs should use — the shipped
-> `.prflow/config.example.json` seeds it — but there is no deadline to migrate and no
-> behavioral difference. Either spelling is an **own entry** for that subagent, so it
+> `.prflow/config.example.json` seeds it, and the config scaffolder renames a `devflow:`
+> key to it on the next `install.sh --apply` or `/prflow:init` (see
+> [`install.md`](install.md)). Writing the superseded spelling by hand still works and
+> there is no behavioral difference; you will just find it renamed after the next
+> scaffold. Either spelling is an **own entry** for that subagent, so it
 > shadows `default` exactly like the canonical one. If a config somehow carries *both*
 > spellings for the same subagent, the **canonical `prflow:` key wins** — precedence is
 > positional (the dispatched spelling first, then the remaining accepted namespaces in
