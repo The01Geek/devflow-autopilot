@@ -972,6 +972,52 @@ devflow_disable_review_key() {
     *) log "warning: could not turn the withheld review-tier config key off in .prflow/config.json (it is missing, malformed, or holds a non-object at that key); set it by hand."; return 1 ;;
   esac
 }
+# INSTALL-TIME HALF of the #1041 silent-disable skew guard. The trigger-time ::error::
+# baked into both shipped workflows is the AUTHORITATIVE signal — it fires on every later
+# trigger and needs no installer run to reach the operator. This warns at the moment the
+# skew is CREATED, which is the one moment somebody is actually watching output.
+#
+# Strictly READ-ONLY, and deliberately so. It never edits a workflow, never edits the
+# config, and above all never couples the workflow refresh to the config migration: the
+# freshness gate can legitimately refuse (that refusal is what keeps a stale workflow from
+# reading a migrated config), and forcing shared fate there would trade this loud, bounded
+# failure for a worse one.
+#
+# The whole judgement is made inside python3 — a hard prerequisite — rather than by
+# grepping the workflow. A missing PATH tool must not be able to decide an EMITTED
+# result, and an unresolvable python3 here simply emits nothing while the trigger-time
+# guard still reports the skew.
+DEVFLOW_ENABLE_SKEW_PY='
+import json, os, sys
+try:
+    with open(".prflow/config.json", encoding="utf-8") as fh:
+        cfg = json.load(fh)
+except Exception:
+    sys.exit(0)
+wf = cfg.get("workflows") if isinstance(cfg, dict) else None
+# has-semantics, never truthiness: a deliberate `workflows.devflow: false` is a real
+# value, and the skew is about which KEY exists, not what it holds.
+if not isinstance(wf, dict) or "prflow" in wf or "devflow" not in wf:
+    sys.exit(0)
+skewed = []
+for name in sys.argv[1:]:
+    try:
+        with open(os.path.join(".github", "workflows", name), encoding="utf-8") as fh:
+            body = fh.read()
+    except Exception:
+        continue
+    if ".workflows.prflow" in body:
+        skewed.append(name)
+if skewed:
+    sys.stdout.write(" ".join(skewed))
+'
+devflow_warn_enable_key_skew() {
+  local skewed
+  devflow_resolve_python || return 0
+  skewed="$("$DEVFLOW_PY" -c "$DEVFLOW_ENABLE_SKEW_PY" devflow.yml devflow-implement.yml 2>/dev/null)" || return 0
+  [ -n "$skewed" ] || return 0
+  log "WARNING: PARTIAL UPGRADE — these shipped workflows now read the renamed enable key workflows.prflow, but .prflow/config.json still carries only the superseded workflows.devflow: $skewed. They resolve as DISABLED and every trigger will silently do nothing. The config-key migration was refused because another shipped workflow still reads the superseded key — merge any .github/workflows/*.prflow-new sidecar left beside a hand-edited workflow, then re-run install.sh --apply so the workflow reads and the config key move together."
+}
 devflow_remove_withheld_tier() {
   local present="$1" _wt _sig _grc
   [ -n "$present" ] || return 0
@@ -1515,6 +1561,11 @@ JSON
   #    superseded identifier the add-only scaffolder above cannot correct, and route the
   #    consumer to /devflow:init, which owns that correction.
   devflow_report_stale_config_identifiers
+
+  # 10. Report (never repair) a workflow-read/config-key skew the per-file refresh above
+  #     can create when a hand-edited shipped workflow is preserved (issue #1041). Runs
+  #     LAST, so it reads the workflows and the config in their final post-run state.
+  devflow_warn_enable_key_skew
 )
 
 # When sourced by the test harness (DEVFLOW_SELFTEST=1), define the functions

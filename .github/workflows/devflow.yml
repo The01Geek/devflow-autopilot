@@ -74,6 +74,45 @@ jobs:
         run: |
           set -euo pipefail
           ENABLED=$(echo "$CONFIG_JSON" | jq -r '.workflows.prflow // false')
+          # SILENT-DISABLE SKEW GUARD (issue #1041) — the ONE guard in this step that is
+          # deliberately NOT gated on $ENABLED, because the skew it detects is exactly what
+          # forces $ENABLED false. Tier 4 renamed the enable key workflows["devflow"] ->
+          # workflows.prflow. While that spelling was FROZEN a refreshed workflow and the
+          # config key could never skew; the rename removed that guarantee, and install.sh's
+          # workflow copy loop is PER FILE over an install_managed that deliberately
+          # PRESERVES a hand-edited workflow (writing a .prflow-new sidecar beside it). So
+          # refresh one shipped workflow while the other stays hand-edited on the superseded
+          # key: scaffold-config.sh's freshness gate correctly REFUSES the config migration,
+          # and this workflow is left reading workflows.prflow against a config that still
+          # carries the superseded key. ENABLED resolves absent -> false, every trigger
+          # silently no-ops, and the per-family guard below cannot report it because that
+          # guard sits inside the enable gate this skew already forced shut.
+          #
+          # has() throughout, never `//`: a deliberate superseded-key `false` is a
+          # valid-falsy value `//` would collapse into "absent" (issue #312).
+          #
+          # EVERY mention here spells the superseded key in BRACKET form on purpose. The
+          # freshness gate in scaffold-config.sh decides staleness by searching this file for
+          # a DOTTED read of the superseded key, and it does not care whether the hit is code
+          # or a comment. A diagnostic that named the key in dotted form — anywhere, this
+          # sentence included — would mark both shipped workflows permanently stale and wedge
+          # the very migration it exists to protect. A guard must not defeat another guard;
+          # tier1-rename-migration asserts this pair still scans clean.
+          SUPERSEDED_ENABLE=$(echo "$CONFIG_JSON" | jq -r 'if (type=="object") and ((.workflows|type)=="object") and ((.workflows|has("prflow"))|not) and (.workflows|has("devflow")) then (.workflows["devflow"]|tostring) else "" end')
+          # Bash builtins select the arm — no PATH tool may decide an EMITTED result. The
+          # `true` arm mirrors the enable read's string-truthiness (a JSON true and a string
+          # "true" both read as enabled), so the ERROR fires on exactly the configs whose
+          # author intended this workflow ON and whom the rename has silenced. A superseded
+          # key holding any other value already meant "off", so its outcome still matches
+          # intent and it warrants a warning rather than a failed run.
+          case "$SUPERSEDED_ENABLE" in
+            "") : ;;
+            true)
+              echo "::error::.prflow/config.json still carries the superseded workflows[\"devflow\"] key and has no workflows.prflow, but this workflow reads workflows.prflow — so it resolves as DISABLED and every trigger silently does nothing. This is a PARTIAL upgrade: a hand-edited shipped workflow was preserved rather than refreshed, so the config-key migration was refused while this file was already refreshed. Merge any .github/workflows/*.prflow-new sidecar left beside a hand-edited workflow, then re-run install.sh --apply so the workflow read and the config key move together."
+              exit 1 ;;
+            *)
+              echo "::warning::.prflow/config.json still carries the superseded workflows[\"devflow\"] key and has no workflows.prflow. This workflow reads workflows.prflow, so it is disabled — which matches the superseded key's own value, but the key is un-migrated. Re-run install.sh --apply to migrate it." ;;
+          esac
           # `// empty` collapses a missing/null allowlist to a real empty string.
           # Fail loud only when the workflow is ENABLED — a config left on the
           # pre-2.2.5 `claude.allowed_bots` key would otherwise propagate a

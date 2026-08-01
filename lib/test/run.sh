@@ -40650,9 +40650,12 @@ rm -rf "$D487"
 # test_module_runner.py parses this operand and rejects any coupling drift.
 # Raised for issue #1041's Scenario 19g: the withheld-tier review toggle is disabled
 # under whichever spelling the config carries, asserted on the resulting CONFIG rather
-# than on the log line the earlier arms already covered.
+# than on the log line the earlier arms already covered. Raised again for Scenario 19j,
+# the partial-upgrade skew a per-file workflow refresh creates over a preserved
+# hand-edited workflow — driven end to end and joined to the shipped workflow's own
+# trigger-time guard.
 if ! devflow_run_full_suite_module "$LIB/test/modules/installer-wiring.sh" \
-  "installer-wiring" 271; then
+  "installer-wiring" 277; then
   printf 'ERROR: installer-wiring boundary could not record its result\n'
   exit 1
 fi

@@ -814,6 +814,137 @@ for _t1_wf in devflow devflow-implement; do
 done
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#1041 E3. the silent-disable skew guard, deliberately NOT gated on the enable read"
+# ────────────────────────────────────────────────────────────────────────────
+# Tier 4 renamed the ENABLE key itself. While workflows.devflow was frozen, a refreshed
+# shipped workflow and the config key could never skew; the rename removed that guarantee.
+# install.sh's workflow copy loop is PER FILE over an install_managed that deliberately
+# PRESERVES a hand-edited workflow, so refreshing one shipped workflow while the other
+# stays hand-edited on the superseded key makes scaffold-config.sh's freshness gate refuse
+# the config migration — correctly — and leaves the refreshed file reading workflows.prflow
+# against a config that still carries workflows.devflow. ENABLED resolves absent -> false
+# and every trigger silently no-ops. The per-family guard above CANNOT report that: it sits
+# inside `if [ "$ENABLED" = "true" ]`, the very gate this skew forces shut. So the guard
+# under test is computed from the config alone.
+#
+# The program is READ OUT OF THE SHIPPED WORKFLOW rather than transcribed here, so these
+# rows drive the bytes that actually run and no copy can drift away from them.
+_t1_skew_prog() {  # $1 = shipped workflow id -> that file's own guard program
+  python3 - "$LIB/../.github/workflows/$1.yml" <<'PY'
+import re, sys
+for line in open(sys.argv[1], encoding="utf-8"):
+    if "SUPERSEDED_ENABLE=" in line and "jq -r " in line:
+        found = re.search(r"jq -r '(.*)'\)\s*$", line.strip())
+        if found:
+            sys.stdout.write(found.group(1))
+        break
+PY
+}
+_t1_skew_impl="$(_t1_skew_prog devflow-implement)"
+_t1_skew_cmd="$(_t1_skew_prog devflow)"
+assert_eq "#1041 skew guard: the program is extractable from BOTH shipped workflows and is byte-identical (so the rows below drive what really runs)" "yes" \
+  "$([ -n "$_t1_skew_impl" ] && [ "$_t1_skew_impl" = "$_t1_skew_cmd" ] && echo yes || echo no)"
+_t1_skew() { printf '%s' "$1" | jq -r "$_t1_skew_impl" 2>/dev/null; }
+
+# THE REACHABLE DEFECT: superseded key present and intended ON, current key absent.
+# `true` is the error arm — the run fails loudly instead of doing nothing quietly.
+assert_eq "#1041 skew guard: superseded key true + current key absent selects the ERROR arm" \
+  "true" "$(_t1_skew '{"workflows":{"devflow":true}}')"
+# String-truthiness mirrors the enable read (`// false` then a literal `true` compare), so a
+# string "true" is just as enabled and just as silenced.
+assert_eq "#1041 skew guard: a STRING \"true\" selects the error arm too (mirrors the enable read)" \
+  "true" "$(_t1_skew '{"workflows":{"devflow":"true"}}')"
+# VALID-FALSY (issue #312): a deliberate false already meant off, so the outcome still
+# matches intent — warning arm, never a failed run. `has()` is what keeps this row
+# distinguishable from an absent key; `//` would collapse the two.
+assert_eq "#1041 skew guard: a deliberate false is reported as itself, not collapsed into absent" \
+  "false" "$(_t1_skew '{"workflows":{"devflow":false}}')"
+assert_eq "#1041 skew guard: an explicit null is likewise reported as itself (has() semantics)" \
+  "null" "$(_t1_skew '{"workflows":{"devflow":null}}')"
+# NO SKEW: the current key exists, so the enable read resolves and nothing is silenced —
+# including a migrated config that is deliberately turned OFF, which must not be failed.
+assert_eq "#1041 skew guard: current key present alongside the superseded one is silent" "" \
+  "$(_t1_skew '{"workflows":{"devflow":true,"prflow":false}}')"
+assert_eq "#1041 skew guard: a fully migrated config is silent" "" \
+  "$(_t1_skew '{"workflows":{"prflow":true}}')"
+assert_eq "#1041 skew guard: a deliberately-disabled MIGRATED config is silent (never failed)" "" \
+  "$(_t1_skew '{"workflows":{"prflow":false}}')"
+assert_eq "#1041 skew guard: neither key present is silent" "" \
+  "$(_t1_skew '{"workflows":{}}')"
+# Malformed shapes fail OPEN here on purpose: a corrupt config is the pre-existing
+# per-family guard's subject, and this one must not crash the filter or invent a verdict.
+for _t1_skewshape in '{"workflows":"all of them"}' '{"workflows":["a"]}' '{"workflows":42}' '["a"]' '"hello"' 'null' '42'; do
+  assert_eq "#1041 skew guard: a malformed shape ($_t1_skewshape) yields no verdict rather than crashing" "" \
+    "$(_t1_skew "$_t1_skewshape")"
+done
+
+# The ORDERING property that makes the guard work at all: it must sit OUTSIDE (and before)
+# the enable gate. Asserted positionally on each shipped file, because a later edit that
+# tucked it inside `if [ "$ENABLED" = "true" ]` would leave every row above still green
+# while the guard became unreachable on exactly the configs it exists to catch.
+for _t1_wf in devflow devflow-implement; do
+  assert_eq "#1041 skew guard: $_t1_wf.yml computes it BEFORE the enable gate, so the gate cannot suppress it" "outside-gate" \
+    "$(python3 - "$LIB/../.github/workflows/$_t1_wf.yml" <<'PY'
+import sys
+guard = gate = None
+for i, line in enumerate(open(sys.argv[1], encoding="utf-8")):
+    if guard is None and "SUPERSEDED_ENABLE=$(" in line:
+        guard = i
+    if gate is None and 'if [ "$ENABLED" = "true" ]; then' in line:
+        gate = i
+if guard is None or gate is None:
+    print("MISSING guard=%s gate=%s" % (guard, gate))
+else:
+    print("outside-gate" if guard < gate else "inside-or-after-gate")
+PY
+)"
+  _t1_body="$(cat "$LIB/../.github/workflows/$_t1_wf.yml" 2>/dev/null)"
+  assert_eq "#1041 skew guard: $_t1_wf.yml states the consequence and the remedy an operator can act on" "yes yes" \
+    "$(_t1_has "$_t1_body" 'resolves as DISABLED and every trigger silently does nothing') $(_t1_has "$_t1_body" 'prflow-new sidecar')"
+done
+
+# A GUARD MUST NOT DEFEAT ANOTHER GUARD. The freshness gate above decides staleness by
+# searching a shipped workflow for a DOTTED read of the superseded key, and it does not
+# distinguish code from comments. The skew guard is a diagnostic ABOUT that key, so the
+# obvious way to write it — naming the key in dotted form in the jq program, an error
+# message, or even the comment explaining this hazard — marks BOTH shipped workflows
+# permanently stale. Every consumer's config-key migration then refuses forever, which is
+# strictly worse than the silent disable the guard was added to catch. That regression was
+# made and caught here; this drives the gate's REAL scanner, read out of scaffold-config.sh
+# rather than re-expressed, over the shipped pair.
+_t1_gate_scan="$(python3 - "$LIB/../scripts/scaffold-config.sh" "$LIB/../.github/workflows/devflow.yml" "$LIB/../.github/workflows/devflow-implement.yml" <<'PY'
+import re, sys
+# Lift the gate's own KEY/BARE patterns out of the shipped scanner, so this can never
+# assert against a stale copy of the rule it is checking.
+source = open(sys.argv[1], encoding="utf-8").read()
+pats = re.findall(r"^(KEY|BARE) = re\.compile\(r\"(.*)\"\)$", source, re.M)
+if len(pats) != 2:
+    print("UNEXTRACTABLE")
+    raise SystemExit
+compiled = [re.compile(body) for _, body in pats]
+stale = []
+for path in sys.argv[2:]:
+    text = open(path, encoding="utf-8").read()
+    if any(p.search(text) for p in compiled):
+        stale.append(path.rsplit("/", 1)[-1])
+print(" ".join(stale) if stale else "clean")
+PY
+)"
+assert_eq "#1041 skew guard: both shipped workflows still scan CLEAN under the freshness gate's own patterns — a diagnostic naming the superseded key in dotted form would wedge every consumer's migration" \
+  "clean" "$_t1_gate_scan"
+# Positive control: the extraction really can report staleness, so "clean" above is a
+# measurement and not an unconditional string.
+assert_eq "#1041 skew guard: that scan DOES flag a workflow carrying a dotted superseded read (so the clean result is not vacuous)" \
+  "stale" "$(printf 'run: jq -r ".workflows.devflow // false"\n' | python3 -c '
+import re, sys
+source = open(sys.argv[1], encoding="utf-8").read()
+pats = re.findall(r"^(KEY|BARE) = re\.compile\(r\"(.*)\"\)$", source, re.M)
+compiled = [re.compile(body) for _, body in pats]
+text = sys.stdin.read()
+print("stale" if any(p.search(text) for p in compiled) else "clean")
+' "$LIB/../scripts/scaffold-config.sh")"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "#1004 J. the frozen out-of-repo DEVFLOW_* identifier inventory"
 # ────────────────────────────────────────────────────────────────────────────
 # Tier 3 records the consumer-facing DEVFLOW_* names that are NOT renamed, and derives a
