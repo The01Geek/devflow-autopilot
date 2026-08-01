@@ -826,9 +826,9 @@ devflow_report_env_identifier_freeze() {
 devflow_report_withheld_tier() {
   local present="$1"
   [ -n "$present" ] || return 0
-  log "NOTICE: this repository carries the withheld automatic-review tier ($present). It is not shipped any more (issue #936) and this installer leaves it alone by default, but it keeps running and keeps this repository exposed to issues #930 and #920 for as long as workflows[\"devflow-review\"] is true in .prflow/config.json. See docs/workflow-triggers.md."
+  log "NOTICE: this repository carries the withheld automatic-review tier ($present). It is not shipped any more (issue #936) and this installer leaves it alone by default, but it keeps running and keeps this repository exposed to issues #930 and #920 for as long as workflows[\"prflow-review\"] is true in .prflow/config.json. See docs/workflow-triggers.md."
   if [ "${REMOVE_WITHHELD:-}" = "1" ]; then
-    log "  --remove-withheld-review-tier was given: the workflow files will be deleted and workflows[\"devflow-review\"] set to false. You must ALSO remove the 'Devflow Review' context from any branch protection rule or ruleset that requires it — otherwise every later pull request wedges against a required check nothing will report. This installer cannot do that for you."
+    log "  --remove-withheld-review-tier was given: the workflow files will be deleted and workflows[\"prflow-review\"] set to false. You must ALSO remove the 'Devflow Review' context from any branch protection rule or ruleset that requires it — otherwise every later pull request wedges against a required check nothing will report. This installer cannot do that for you."
   else
     log "  To remove it, re-run with --remove-withheld-review-tier (and read step 3 of docs/workflow-triggers.md first — the branch protection context is a manual step)."
   fi
@@ -848,9 +848,9 @@ if wf is None:
     wf = {}
 if not isinstance(wf, dict):
     sys.exit(3)
-if wf.get("devflow-review") is False:
+if wf.get("prflow-review") is False:
     sys.exit(4)
-wf["devflow-review"] = False
+wf["prflow-review"] = False
 data["workflows"] = wf
 tmp = path + ".tmp"
 with open(tmp, "w", encoding="utf-8") as fh:
@@ -863,7 +863,7 @@ os.replace(tmp, path)
 # specific pattern, not the substring "devflow": `telemetry-push.yml` is a perfectly
 # ordinary name for a workflow a consumer owns, and such a file mentioning the string
 # anywhere — a `.github/workflows/devflow*.yml` path filter, a comment, a step reading
-# the frozen `workflows.devflow` key — would satisfy a substring test and be deleted
+# the `workflows.prflow` key — would satisfy a substring test and be deleted
 # with a reassuring "removed withheld review-tier workflow" line. The opt-in flag is not consent to delete a file DevFlow
 # never wrote.
 #
@@ -1381,7 +1381,7 @@ JSON
   # A repository that already installed those three files KEEPS them —
   # prune_stale_devflow_workflows() is deliberately not extended to remove them, so
   # an existing installation's auto-review keeps working (and stays exposed to #930
-  # and #920 while its `workflows["devflow-review"]` config key is true). The upgrade
+  # and #920 while its `workflows["prflow-review"]` config key is true). The upgrade
   # path SURFACES that exposure (devflow_report_withheld_tier) and removes the tier
   # only on the explicit --remove-withheld-review-tier opt-in; docs/workflow-triggers.md
   # gives the full procedure, including the branch-protection step no installer can do.

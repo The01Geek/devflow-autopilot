@@ -179,7 +179,7 @@
     "diff_byte_cap": 204800
   },
   "workflows": {
-    "devflow": true,
-    "devflow-review": false
+    "prflow": true,
+    "prflow-review": false
   }
 }

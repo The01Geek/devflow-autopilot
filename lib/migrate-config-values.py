@@ -24,11 +24,12 @@ spellings through the single `--search "label:PRFlow,DevFlow"` OR qualifier.
 
 WHAT IT MUST NOT TOUCH, and why each would break something:
 
-  - `workflows.devflow` / `workflows.devflow-review` — the shipped workflow files read
-    those key names, and `.workflows.devflow // false` means a renamed key reads as
-    "disabled" with the fail-loud guard sitting downstream of that check. Frozen; this
-    helper REPORTS them instead (the residual advisory below). They are not transcribed
-    here — the set is read from the rename map's `frozen.config_keys`.
+  - `workflows.devflow` / `workflows.devflow-review` — these ARE renamed (issue #1041,
+    `workflows.prflow` / `workflows.prflow-review`), but NOT here: their readers do not
+    dual-accept (the shipped workflows read `.workflows.prflow // false`, so a config that
+    moved ahead of a stale workflow reads as "disabled"), so they migrate only under the
+    freshness gate in `scripts/scaffold-config.sh` (`workflows_config_keys` in the rename
+    map). This ungated value pass leaves them exactly as it finds them.
   - the `DEVFLOW_*` ENVIRONMENT identifiers — they live in GitHub org/repo settings and
     shell profiles, so no config migration can reach them. The advisory POINTS at
     `lib/generate-env-freeze-advisory.py`, which owns that inventory, and deliberately

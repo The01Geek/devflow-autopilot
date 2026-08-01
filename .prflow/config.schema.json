@@ -1141,11 +1141,11 @@
       "type": "object",
       "description": "Per-workflow enable/disable toggles.",
       "properties": {
-        "devflow": {
+        "prflow": {
           "type": "boolean",
           "description": "Enable the light /prflow:* command path (devflow.yml) and /prflow:implement (devflow-implement.yml)."
         },
-        "devflow-review": {
+        "prflow-review": {
           "type": "boolean",
           "description": "Enable the automatic pull-request-triggered reviewer (devflow-review.yml). WITHHELD from this release: fresh installations no longer receive devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so setting this true in a fresh installation enables nothing. The tier remains LIVE for a repository that already installed those three files, and such a repository stays exposed to the fork-pull-request defects in issues #930 and #920 for as long as this key is true. The property is retained so existing consumer configs keep validating. The supported review path is a repository collaborator commenting /prflow:review on a pull request."
         }

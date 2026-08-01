@@ -111,7 +111,7 @@
     "audit_bundle_cap": 10
   },
   "workflows": {
-    "devflow": true,
-    "devflow-review": false
+    "prflow": true,
+    "prflow-review": false
   }
 }

@@ -12,6 +12,11 @@
     "devflow_version": "prflow_version"
   },
 
+  "workflows_config_keys": {
+    "devflow": "prflow",
+    "devflow-review": "prflow-review"
+  },
+
   "paths": {
     "state_dir": { "superseded": ".devflow", "current": ".prflow" },
     "vendor_dir": { "superseded": ".devflow/vendor/devflow", "current": ".prflow/vendor/prflow" },
@@ -69,7 +74,6 @@
   ],
 
   "frozen": {
-    "config_keys": ["workflows.devflow", "workflows.devflow-review"],
     "identifiers": [
       "devflow-marketplace",
       "devflow_module_pin_*",

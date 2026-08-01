@@ -73,7 +73,7 @@ jobs:
           CONFIG_JSON: ${{ steps.cfg.outputs.json }}
         run: |
           set -euo pipefail
-          ENABLED=$(echo "$CONFIG_JSON" | jq -r '.workflows.devflow // false')
+          ENABLED=$(echo "$CONFIG_JSON" | jq -r '.workflows.prflow // false')
           # `// empty` collapses a missing/null allowlist to a real empty string.
           # Fail loud only when the workflow is ENABLED — a config left on the
           # pre-2.2.5 `claude.allowed_bots` key would otherwise propagate a
