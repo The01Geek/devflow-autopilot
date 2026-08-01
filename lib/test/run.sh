@@ -1009,6 +1009,11 @@ assert_eq "deferred.labels: SKILL ensures each label exists before applying (age
   "$(grep -qF 'ensure-label.sh "<label>"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5); #455 reworked the piped-while loop into an agent-level single-leading-token call. #480: the label arg is QUOTED — the retired loop passed "$lbl", and dropping the quotes made a multi-word configured label (docs.labels: "Needs Docs") create the WRONG label ('Needs') while breadcrumbing SUCCESS.
 assert_eq "deferred.labels: SKILL applies labels via best-effort REST apply-labels.sh helper (agent-level per-issue call, #455)" "yes" \
   "$(grep -qF 'apply-labels.sh <filed-issue-number> "<deferred-labels>"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5); #455 reworked the for/while loop + VAR="$(…)" capture into an agent-level single-leading-token call
+# issue #1011: Phase 4.0 registers the parent as a GitHub-native blocked-by dependency of each
+# filed follow-up, immediately after the label stamp — one single-statement, leading-token,
+# per-issue helper call (the same emission discipline the label helpers carry).
+assert_eq "#1011: Phase 4.0 stamps native blocked-by deps via apply-issue-dependencies.py (agent-level per-issue leading-token call)" "yes" \
+  "$(grep -qF 'apply-issue-dependencies.py <filed-issue-number>' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: routing-dispatch-contract: the cloud-emitted leading-token helper-invocation shape the implement matcher grants; a for/while wrap or VAR="$(…)" capture is a denied shape
 # Both deferral channels must label: Phase 4.0 (no longer "add no --label") and Phase
 # 4.0.5. Require the resolution token to appear at least twice (once per channel).
 assert_eq "deferred.labels: SKILL resolves the labels in BOTH deferral channels (4.0 + 4.0.5)" "yes" \
@@ -14933,40 +14938,163 @@ DSR="$LIB/../scripts/dismiss-stale-rejections.sh"
 ( bash "$DSR" >/dev/null 2>&1 ); DSR_RC=$?
 assert_eq "no args → exit 2" "2" "$DSR_RC"
 
-# Security-critical: the review-selection filter must dismiss ONLY open
-# Devflow-report reviews — never a human --request-changes (id 2), an
-# already-dismissed one (id 3), or a null-body row (id 4).
-DSR_SEL="$(printf '%s' '[
- {"id":1,"state":"CHANGES_REQUESTED","body":"# Review Report\n## Verdict: REJECT"},
- {"id":2,"state":"CHANGES_REQUESTED","body":"please fix the typo"},
- {"id":3,"state":"DISMISSED","body":"# Review Report\n## Verdict: REJECT"},
- {"id":4,"state":"CHANGES_REQUESTED","body":null}
-]' | jq -r '.[] | select(.state=="CHANGES_REQUESTED" and ((.body // "") | startswith("# Review Report"))) | .id' | tr '\n' ',')"
-assert_eq "filter selects only open Devflow-report rejects" "1," "$DSR_SEL"
-
-DSR_STUB="/tmp/devflow-gh-stub-dsr.$$.sh"
-cat > "$DSR_STUB" <<'EOS'
+# Everything below drives the REAL script under a FAITHFUL `gh` fake: the stub
+# applies the caller's own `--jq` program to a JSON fixture, so the predicate
+# under test is the shipped filter itself. (The former selection check ran a
+# hand-copied jq filter inside this file, which could only ever assert that the
+# copy was right — it would stay green while the shipped filter regressed.)
+# Every call is appended to $DSR_LOG, so "issued no dismissals request" is an
+# observation rather than an inference from the exit status.
+DSR_SB="$(mktemp -d)"
+cat > "$DSR_SB/gh" <<'EOS'
 #!/usr/bin/env bash
-# dismissals URLs also contain "/reviews" — match the more specific arm
-# first, and give every arm a deterministic exit status.
+# Arm order is load-bearing: a dismissals URL also contains "/reviews", and a
+# reviews URL also contains "/pulls/". Exit statuses are deterministic, and the
+# three knobs DSR_LIST_RC / DSR_HEAD_RC / DSR_PUT_RC inject the three request
+# failures the caller branches on.
+filter=""; want=0
+for a in "$@"; do
+  if [ "$want" = 1 ]; then filter="$a"; want=0; continue; fi
+  [ "$a" = "--jq" ] && want=1
+done
 case "$*" in
-  *"dismissals"*)         [ "${DSR_STUB_PUT_RC:-0}" = 0 ] || { echo "HTTP 422" >&2; exit 1; }; exit 0 ;;
-  *"repo view"*)          echo "o/r"; exit 0 ;;
-  *"pulls/"*"/reviews"*)  if [ -n "${DSR_STUB_IDS:-}" ]; then echo "$DSR_STUB_IDS"; fi; exit 0 ;;
+  *"dismissals"*)
+    echo "dismiss $*" >> "$DSR_LOG"
+    [ "${DSR_PUT_RC:-0}" = 0 ] || { echo "HTTP 422 Unprocessable Entity" >&2; exit 1; }
+    exit 0 ;;
+  *"repo view"*) echo "o/r"; exit 0 ;;
+  *"/reviews"*)
+    echo "list-reviews" >> "$DSR_LOG"
+    [ "${DSR_LIST_RC:-0}" = 0 ] || { echo "HTTP 502 Bad Gateway" >&2; exit 1; }
+    jq -r "$filter" "$DSR_REVIEWS"; exit 0 ;;
+  *"/pulls/"*)
+    echo "read-head" >> "$DSR_LOG"
+    [ "${DSR_HEAD_RC:-0}" = 0 ] || { echo "HTTP 404 Not Found" >&2; exit 1; }
+    # DSR_HEAD_TEXT (when SET, empty or not) replaces the fixture read, so the
+    # empty-output and not-a-SHA boundary rows are expressible.
+    if [ -n "${DSR_HEAD_TEXT+set}" ]; then printf '%s' "$DSR_HEAD_TEXT"; exit 0; fi
+    jq -r "$filter" "$DSR_PULL"; exit 0 ;;
 esac
 exit 0
 EOS
-chmod +x "$DSR_STUB"
+chmod +x "$DSR_SB/gh"
 
-( DSR_STUB_IDS="" DEVFLOW_GH="$DSR_STUB" bash "$DSR" 123 o/r >/dev/null 2>&1 ); DSR_RC=$?
+DSR_HEAD_SHA="1111111111111111111111111111111111111111"
+DSR_OLD_SHA="0000000000000000000000000000000000000000"
+DSR_OLD2_SHA="2222222222222222222222222222222222222222"
+printf '{"head":{"sha":"%s"}}\n' "$DSR_HEAD_SHA" > "$DSR_SB/pull-head.json"
+printf '{"head":{"sha":null}}\n' > "$DSR_SB/pull-nullsha.json"
+printf '[]\n' > "$DSR_SB/rev-none.json"
+# One review recorded against a superseded commit — the case the script exists
+# for, which must keep working (the guard must not become a permanent no-op).
+cat > "$DSR_SB/rev-stale.json" <<EOS
+[{"id":11,"state":"CHANGES_REQUESTED","commit_id":"$DSR_OLD_SHA","body":"## Verdict: REJECT (stub, superseded commit)"}]
+EOS
+# One review recorded against the PR's CURRENT head — the live hazard.
+cat > "$DSR_SB/rev-current.json" <<EOS
+[{"id":12,"state":"CHANGES_REQUESTED","commit_id":"$DSR_HEAD_SHA","body":"## Verdict: REJECT (stub, current head)"}]
+EOS
+# The full selection matrix on one page: body shape x state x commit_id.
+cat > "$DSR_SB/rev-mixed.json" <<EOS
+[
+ {"id":11,"state":"CHANGES_REQUESTED","commit_id":"$DSR_OLD_SHA","body":"## Verdict: REJECT (stub, superseded commit)"},
+ {"id":12,"state":"CHANGES_REQUESTED","commit_id":"$DSR_HEAD_SHA","body":"## Verdict: REJECT (stub, current head)"},
+ {"id":13,"state":"CHANGES_REQUESTED","commit_id":null,"body":"# Review Report (legacy, no commit_id)"},
+ {"id":14,"state":"CHANGES_REQUESTED","commit_id":"$DSR_OLD_SHA","body":"please fix the typo"},
+ {"id":15,"state":"DISMISSED","commit_id":"$DSR_OLD_SHA","body":"## Verdict: REJECT (already dismissed)"},
+ {"id":16,"state":"CHANGES_REQUESTED","commit_id":"$DSR_OLD_SHA","body":null},
+ {"id":17,"state":"CHANGES_REQUESTED","commit_id":"$DSR_OLD2_SHA","body":"# Review Report (legacy, superseded commit)"}
+]
+EOS
+
+# $1 reviews fixture, $2 pull fixture, rest: stub knobs as VAR=VALUE. Per-case
+# values go through `env` because words from "$@" expansion are NOT honored as
+# assignment prefixes (POSIX recognizes only literal tokens).
+dsr_run() {
+  local rev="$1" pull="$2"; shift 2
+  : > "$DSR_SB/log"
+  DSR_ERR="$(DEVFLOW_GH="$DSR_SB/gh" DSR_LOG="$DSR_SB/log" \
+             DSR_REVIEWS="$DSR_SB/$rev" DSR_PULL="$DSR_SB/$pull" \
+             env "$@" bash "$DSR" 123 o/r 2>&1 >/dev/null)"
+  DSR_RC=$?
+}
+dsr_calls() { grep -c "$1" "$DSR_SB/log"; }
+
+dsr_run rev-none.json pull-head.json
 assert_eq "empty selection → exit 0 no-op" "0" "$DSR_RC"
+assert_eq "#1029 dismisser: with no candidate the head is never read (no added API call)" \
+  "0" "$(dsr_calls 'read-head')"
 
-( DSR_STUB_IDS="77" DSR_STUB_PUT_RC=0 DEVFLOW_GH="$DSR_STUB" bash "$DSR" 123 o/r >/dev/null 2>&1 ); DSR_RC=$?
+dsr_run rev-stale.json pull-head.json
 assert_eq "successful dismissal → exit 0" "0" "$DSR_RC"
+assert_eq "#1029 dismisser: a review recorded against a superseded commit is still dismissed" \
+  "1" "$(dsr_calls 'reviews/11/dismissals')"
 
-( DSR_STUB_IDS="77" DSR_STUB_PUT_RC=1 DEVFLOW_GH="$DSR_STUB" bash "$DSR" 123 o/r >/dev/null 2>&1 ); DSR_RC=$?
+dsr_run rev-stale.json pull-head.json DSR_PUT_RC=1
 assert_eq "dismissal failure → exit 1" "1" "$DSR_RC"
-rm -f "$DSR_STUB"
+
+# The hazard this guard closes: a concurrent pass's REJECT on the very commit
+# the caller just approved is NOT superseded, so it is refused — loudly, and
+# with an exit status distinct from a clean no-op.
+dsr_run rev-current.json pull-head.json
+assert_eq "#1029 dismisser: a REJECT on the PR's current head is refused, not dismissed" \
+  "3" "$DSR_RC"
+assert_eq "#1029 dismisser: the refused current-head review gets no dismissals request" \
+  "0" "$(dsr_calls 'dismissals')"
+assert_eq "#1029 dismisser: the current-head refusal names the head on stderr" \
+  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c "current head ($DSR_HEAD_SHA)")"
+
+# One page carrying every shape at once. The exact dismissed set is the whole
+# claim: the two superseded Devflow reports go, and nothing else does.
+dsr_run rev-mixed.json pull-head.json
+assert_eq "#1029 dismisser: mixed page — superseded stub REJECT is dismissed" \
+  "1" "$(dsr_calls 'reviews/11/dismissals')"
+assert_eq "#1029 dismisser: mixed page — current-head REJECT is not dismissed" \
+  "0" "$(dsr_calls 'reviews/12/dismissals')"
+assert_eq "#1029 dismisser: mixed page — a report with no commit_id is not dismissed" \
+  "0" "$(dsr_calls 'reviews/13/dismissals')"
+assert_eq "#1029 dismisser: mixed page — a human --request-changes is never selected" \
+  "0" "$(dsr_calls 'reviews/14/dismissals')"
+assert_eq "#1029 dismisser: mixed page — an already-DISMISSED review is never selected" \
+  "0" "$(dsr_calls 'reviews/15/dismissals')"
+assert_eq "#1029 dismisser: mixed page — a null-body row is never selected" \
+  "0" "$(dsr_calls 'reviews/16/dismissals')"
+assert_eq "#1029 dismisser: mixed page — superseded LEGACY report is dismissed" \
+  "1" "$(dsr_calls 'reviews/17/dismissals')"
+assert_eq "#1029 dismisser: mixed page issues exactly two dismissals requests" \
+  "2" "$(dsr_calls 'dismissals')"
+assert_eq "#1029 dismisser: mixed page exits 3 — something refused, nothing failed" \
+  "3" "$DSR_RC"
+assert_eq "#1029 dismisser: an absent commit_id fails closed with an attributable warning" \
+  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c 'review 13 on PR .* records no commit_id')"
+
+dsr_run rev-mixed.json pull-head.json DSR_PUT_RC=1
+assert_eq "#1029 dismisser: a real dismissal failure outranks a refusal in the exit status" \
+  "1" "$DSR_RC"
+
+# Head-read boundary rows. The head decides the selection, so an unestablished
+# one must dismiss NOTHING — never fall through to a value that compares
+# unequal to every commit_id and waves the whole page past the guard.
+dsr_run rev-mixed.json pull-head.json DSR_HEAD_RC=1
+assert_eq "#1029 dismisser: a failed head read dismisses nothing and exits 1" \
+  "1-0" "$DSR_RC-$(dsr_calls 'dismissals')"
+dsr_run rev-mixed.json pull-nullsha.json
+assert_eq "#1029 dismisser: a null head sha dismisses nothing and exits 1" \
+  "1-0" "$DSR_RC-$(dsr_calls 'dismissals')"
+dsr_run rev-mixed.json pull-head.json DSR_HEAD_TEXT=
+assert_eq "#1029 dismisser: an empty head read dismisses nothing and exits 1" \
+  "1-0" "$DSR_RC-$(dsr_calls 'dismissals')"
+dsr_run rev-mixed.json pull-head.json DSR_HEAD_TEXT=not-a-sha
+assert_eq "#1029 dismisser: a non-SHA head value dismisses nothing and exits 1" \
+  "1-0" "$DSR_RC-$(dsr_calls 'dismissals')"
+
+# A failed review list is the pre-existing exit-1 path; it must now also stop
+# BEFORE the head read, so a list outage costs one call, not two.
+dsr_run rev-mixed.json pull-head.json DSR_LIST_RC=1
+assert_eq "#1029 dismisser: a failed review list reads no head, dismisses nothing, exits 1" \
+  "1-0-0" "$DSR_RC-$(dsr_calls 'read-head')-$(dsr_calls 'dismissals')"
+
+rm -rf "$DSR_SB"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-command-trigger.sh)"
@@ -40498,7 +40626,7 @@ rm -rf "$D487"
 # registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/installer-wiring.sh" \
-  "installer-wiring" 239; then
+  "installer-wiring" 264; then
   printf 'ERROR: installer-wiring boundary could not record its result\n'
   exit 1
 fi
@@ -40532,7 +40660,7 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 219; then
+  "create-issue-contract" 221; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi

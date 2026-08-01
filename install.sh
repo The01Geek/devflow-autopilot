@@ -25,6 +25,9 @@
 #                                     that line (it commits the tree on purpose).
 #   - .prflow/vendor/prflow/        the plugin tree — ONLY with DEVFLOW_VENDOR=1
 #                                     (thin install otherwise; see below)
+#   - .gitignore                      one appended block ignoring the preserved-artifact
+#                                     sidecars the upgrade path writes (see UPGRADING);
+#                                     your own content is never rewritten
 #
 # Thin by default: the workflows materialize the plugin into the workspace at
 # RUNTIME via the vendor-plugin composite action (it clones the pinned
@@ -75,6 +78,13 @@
 #     you have look absent — the defect this ordering exists to prevent.
 # `.prflow/config.json` is never rewritten by this mechanism at all — the shared
 # scaffolder only backfills keys the example gained.
+#
+# A sidecar is UNTRACKED and lands inside your own `.github/` (or `.claude-plugin/`),
+# which `.prflow/.gitignore` cannot reach — its patterns are relative to `.prflow/`.
+# So a later `git add -A` would commit it, and the installer appends a
+# standing ignore rule for the sidecar suffix to the repository-root `.gitignore`
+# (issue #970). It has to be standing rather than a cleanup: keeping your own version
+# means leaving the sidecar in place indefinitely.
 #
 # Usage, from the root of your repo. Download-read-run is the documented form:
 # fetch this file at a PINNED ref — a release tag (vN.N.N), or a commit
@@ -325,6 +335,100 @@ manage_vendor_gitignore() {
   elif ! grep -qxF '/vendor/' "$gi"; then
     printf '/vendor/\n' >> "$gi"
     log "ignored .prflow/vendor/ (runtime-vendored plugin must not be committed by a thin install)"
+  fi
+}
+
+# Keep the preserved-artifact sidecars out of consumer commits (issue #970).
+#
+# When the upgrade path preserves a `modified` / `unverified` / `unreadable` artifact it
+# writes DevFlow's version beside it as `<path>.prflow-new` (see install_managed below).
+# That sidecar is UNTRACKED and sits inside the consumer's own `.github/` or
+# `.claude-plugin/`, which the one ignore file this installer used to manage
+# (`.prflow/.gitignore`) cannot reach — so a later `git add -A`, including one inside a
+# /prflow:implement run, sweeps a whole shipped workflow into an unrelated PR.
+# The rule has to be a STANDING ignore rather than a cleanup: a consumer who deliberately
+# keeps their own version leaves the sidecar in place indefinitely, which is exactly the
+# case a "resolve it, then we tidy up" design would never reach.
+#
+# It cannot live in .prflow/.gitignore. Patterns there are relative to .prflow/ (see
+# manage_vendor_gitignore above) and a sidecar never lands under that directory, so that
+# file is precedent for the installer managing an ignore rule at all — not a place this
+# rule could work. The repository-root .gitignore is, and the pattern is an UNANCHORED
+# basename glob: git matches it at any depth, and against a DIRECTORY as well as a file,
+# which the composite-action case needs (a preserved `.github/actions/vendor-plugin` is
+# copied with `cp -R` to a whole `vendor-plugin.prflow-new/` tree).
+#
+# The superseded `*.devflow-new` spelling is ignored alongside it. Sidecars written before
+# the .devflow -> .prflow rename are precisely the artifacts observed sitting untracked in
+# a real consumer repository, and nothing rewrites a file already on disk.
+DEVFLOW_SIDECAR_IGNORE_HEADER='# PRFlow install.sh: preserved-artifact sidecars (never commit these)'
+
+# Whether $1 already carries $2 as a whole line. Deliberately NOT `grep -qxF`: this
+# comparison DECIDES whether a line is appended, and grep is not one of the tools
+# lib/preflight.sh guarantees (CLAUDE.md's non-preflight-PATH-tool guard) — a host
+# without it would make every run append the block again. Pure bash instead. `read`
+# returns non-zero on a final line carrying no trailing newline but still assigns it,
+# so the `|| [ -n "$line" ]` arm keeps that last line inside the scan.
+devflow_gitignore_carries() {
+  local line
+  [ -f "$1" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "$line" = "$2" ]; then return 0; fi
+  done < "$1"
+  return 1
+}
+
+manage_sidecar_gitignore() {
+  local gi=.gitignore pat block="" append_err
+  # Refuse a symlink outright, and a non-regular path after it. The symlink arm is FIRST and
+  # unconditional because `>>` follows the link and writes to its TARGET, which can sit
+  # anywhere on the filesystem — outside this repository entirely. All three link shapes
+  # are unsafe and none is detectable by a `-e`/`-f` pair, because both of those tests
+  # follow the link too:
+  #   * a LIVE link to a regular file  -> `-e` true,  `-f` TRUE  -> appends to the target;
+  #   * a DANGLING link                -> `-e` false, `-f` false -> CREATES the target;
+  #   * a link to a directory          -> `-e` true,  `-f` false.
+  # An earlier form of this guard tested `{ -e && ! -f } || { -L && ! -e }` and so caught
+  # only the last two — the live link, the commonest shape, walked straight through it and
+  # wrote outside the repository. `[ -L ]` is the only test that does not dereference, so
+  # it is the only one that can answer this question.
+  #
+  # The second arm then covers the non-link non-regular shapes (a real directory). A
+  # regular file, or an absent path, is what the append below requires.
+  #
+  # Refusing a symlinked .gitignore is deliberately conservative — a link pointing INSIDE
+  # the repository would have been safe to append to — but the breadcrumb hands the
+  # consumer the exact two patterns, and no reachable input can make this function write
+  # outside the tree it was pointed at. Best-effort as ever: report and carry on.
+  if [ -L "$gi" ] || { [ -e "$gi" ] && [ ! -f "$gi" ]; }; then
+    log "warning: $gi is a symlink or is not a regular file, so the preserved-artifact sidecar ignore rules were not added (appending through a symlink can write outside this repository). Add '*.prflow-new' and '*.devflow-new' to your ignore rules by hand so an upgrade's sidecars are never committed."
+    return 0
+  fi
+  for pat in '*.prflow-new' '*.devflow-new'; do
+    if ! devflow_gitignore_carries "$gi" "$pat"; then
+      block="$block$pat"$'\n'
+    fi
+  done
+  [ -n "$block" ] || return 0
+  # A leading blank line does double duty: it separates the block from the consumer's own
+  # content, and it REPAIRS a .gitignore whose last line carries no trailing newline —
+  # appending straight onto that would silently rewrite their last pattern into
+  # `<their-pattern>*.prflow-new`. `[ -s ]` is a bash builtin, so the empty/absent case
+  # needs no external tool either.
+  if [ -s "$gi" ]; then
+    block=$'\n'"$DEVFLOW_SIDECAR_IGNORE_HEADER"$'\n'"$block"
+  else
+    block="$DEVFLOW_SIDECAR_IGNORE_HEADER"$'\n'"$block"
+  fi
+  # stderr is captured (`2>&1` BEFORE the append, so fd 2 is the substitution's pipe when
+  # the append redirection is attempted) and surfaced in the warning, the same way
+  # scaffold-config.sh's rewrite_config_if_changed reports a failed `mv`: a read-only
+  # filesystem, ENOSPC and an immutable file are different remedies, and a bare "could
+  # not append" names none of them. The failure never aborts this best-effort scaffold.
+  if append_err="$(printf '%s' "$block" 2>&1 >> "$gi")"; then
+    log "ignored preserved-artifact sidecars in $gi (an upgrade writes <path>.prflow-new beside a file it preserves, and an untracked sidecar is one 'git add -A' away from an unrelated commit)"
+  else
+    log "warning: could not append the preserved-artifact sidecar ignore rules to $gi${append_err:+ ($append_err)}. Add '*.prflow-new' and '*.devflow-new' to your ignore rules by hand so an upgrade's sidecars are never committed."
   fi
 }
 
@@ -1097,7 +1201,12 @@ sys.stdout.write("devflow-install: " + str(changed) + " file(s) would change.\n"
 # byte the apply would change. Scoped to `plugins`, never bare `.claude`: the
 # consumer's settings/skills/hooks are their own and this installer neither writes nor
 # reports them. A scope that does not exist simply contributes nothing.
-DEVFLOW_PREVIEW_SCOPES=".claude-plugin .github .prflow .devflow .claude/plugins"
+#
+# The repository-root `.gitignore` is in scope because manage_sidecar_gitignore appends to
+# it (issue #970). A write the preview does not render is a write the consumer never
+# consented to — the same class of gap issue #971 closes on the other side of this
+# function, and the reason the header's "every byte it would change" promise can stand.
+DEVFLOW_PREVIEW_SCOPES=".claude-plugin .github .prflow .devflow .claude/plugins .gitignore"
 
 devflow_render_preview() {
   local real="$1" prev="$2"
@@ -1142,6 +1251,29 @@ devflow_build_preview() {
     mkdir -p "$prev/.claude"
     cp "$real/.claude/settings.json" "$prev/.claude/settings.json"
   fi
+  # The repository-root .gitignore: manage_sidecar_gitignore appends to it, so the sandbox
+  # needs the consumer's real bytes for the diff to show what the append would do to THEIR
+  # file (an absent one is simply absent here, which is what the apply path would see).
+  #
+  # The SHAPE is mirrored, not just the bytes, because that function refuses a .gitignore
+  # that is not a plain regular file. Copy a regular file (or a symlink AS a symlink, with
+  # `-P`, so a link stays a link) and reproduce a directory as an empty directory —
+  # otherwise the sandbox would have no .gitignore at all, the sandbox apply would create
+  # one, and the preview would report an `ADD .gitignore` the real apply then declines.
+  # A preview that OVERstates is the mirror image of the defect issue #971 fixes.
+  #
+  # `-P` does mean an ABSOLUTE-target link is reproduced pointing at the same real file
+  # outside the sandbox. That is inert, and the reason is the refusal above, not this copy:
+  # manage_sidecar_gitignore declines EVERY symlink, so the sandbox run reaches no write
+  # through it — and it declines for the same reason on both sides, which is exactly the
+  # preview/apply agreement this mirroring exists to produce. Dereferencing into a regular
+  # file here would break that agreement in the dangerous direction: the sandbox copy would
+  # be writable, so the preview would advertise a MODIFY the real apply refuses to perform.
+  if [ -d "$real/.gitignore" ] && [ ! -L "$real/.gitignore" ]; then
+    mkdir -p "$prev/.gitignore"
+  elif [ -e "$real/.gitignore" ] || [ -L "$real/.gitignore" ]; then
+    cp -P "$real/.gitignore" "$prev/.gitignore"
+  fi
 }
 
 # ── The one apply path ──────────────────────────────────────────────────────
@@ -1149,9 +1281,19 @@ devflow_build_preview() {
 # against a sandbox. A SUBSHELL function, so the `cd` cannot move the resolution base
 # of anything outside it and every path below stays the repo-relative literal it has
 # always been.
+#
+# $4 is the tree to SCAN for language markers, and it exists only because the sandbox is
+# not the repository (issue #971). The sandbox carries the installer's own subtrees, so
+# detection run against it finds no
+# package.json / composer.json / docker-compose* and reports "no known language markers
+# detected", while the same step under `--apply` sees the real tree and merges that
+# project's toolchain into config.json — a dry run that UNDERSTATES what the apply writes.
+# Empty (the apply path) means "the tree being written", which is the historical
+# behaviour; the dry run passes the real repository root. Only the SCAN moves: every write
+# still lands under $1, which is what keeps a preview a preview.
 devflow_apply_all() (
   cd "$1" || die "could not enter $1"
-  local pin="$2" ref="$3" withheld tier1_rc=0
+  local pin="$2" ref="$3" scan="${4:-}" withheld tier1_rc=0
 
   # 0. The ATOMIC Tier-1 migration (issue #1002), before anything else writes.
   #    A consumer whose tree is still the superseded layout must be relocated
@@ -1282,11 +1424,21 @@ JSON
   #    user has set (it only backfills keys newly added to the example) and always
   #    refreshes config.schema.json. Templates resolve relative to the script
   #    ($SRC/.prflow), and we target the current repo root.
-  bash "$SRC/scripts/scaffold-config.sh" "$PWD"
+  #
+  #    The second argument is the language-detection SCAN root (issue #971). An empty
+  #    value selects the target root, so the apply path is byte-for-byte what it was;
+  #    the dry run hands over the real repository so its preview of the detection step
+  #    matches what the apply would write.
+  bash "$SRC/scripts/scaffold-config.sh" "$PWD" "$scan"
 
   # 5b. Gitignore the runtime-vendored tree for thin installs (and un-ignore it for
   #     DEVFLOW_VENDOR=1, which commits it). Runs after scaffold so .prflow/.gitignore exists.
   manage_vendor_gitignore
+
+  # 5c. Ignore the preserved-artifact sidecars an upgrade writes, so an untracked
+  #     `<path>.prflow-new` can never be swept into a consumer commit (issue #970).
+  #     Independent of install mode — a sidecar is written on both.
+  manage_sidecar_gitignore
 
   # 6. Pin prflow_version to the exact commit we installed from, so the runtime
   #    fetch is reproducible and never tracks mutable main. Re-running the
@@ -1416,7 +1568,11 @@ if [ "$MODE" = dry-run ]; then
   PREVIEW="$TMP/preview"
   devflow_build_preview "$PWD" "$PREVIEW"
   log "───── dry run: the plan ─────"
-  devflow_apply_all "$PREVIEW" "$PIN" "$REF"
+  # The 4th argument is the language-detection scan root (issue #971): the sandbox carries
+  # only the installer's own subtrees, so detection must read the REAL repository to
+  # preview what --apply would merge into config.json. It is a read; every write the call
+  # makes still goes to $PREVIEW.
+  devflow_apply_all "$PREVIEW" "$PIN" "$REF" "$PWD"
   log "───── dry run: the diff ─────"
   devflow_render_preview "$PWD" "$PREVIEW"
   log "DRY RUN — nothing in this repository was written. Re-run with --apply to make the changes above."

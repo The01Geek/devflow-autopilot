@@ -168,6 +168,11 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/apply-issue-dependencies.py": {
+      "focused_test": "lib/test/test_python_scripts.py",
+      "note": "",
+      "owner": "unmodularized"
+    },
     "scripts/apply-labels.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -651,6 +656,14 @@
     "1010": {
       "note": "",
       "owner": "experiment-records"
+    },
+    "1011": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1029": {
+      "note": "",
+      "owner": "unmodularized"
     },
     "103": {
       "note": "",
@@ -1913,8 +1926,12 @@
       "owner": "unmodularized"
     },
     "970": {
-      "note": "issue #970 conditional GitHub Release publication; the publish-release.sh --release minor-major matrix and the consolidator --emit-bump-to side channel are driven from the #953 block in lib/test/run.sh",
+      "note": "TWO unrelated blocks carry this label. (a) The conditional GitHub Release publication: the publish-release.sh --release minor-major matrix and the consolidator --emit-bump-to side channel, driven from the #953 block in lib/test/run.sh — that block's `#970` is a MISLABEL predating this row (issue 970 is the installer one below; the label was written after that issue already existed and is left as found rather than swept here). (b) The real issue #970 — the installer's preserved-artifact sidecar ignore rule — is Scenario 22 of the installer-wiring module, which drives a real git index over both sidecar shapes with a negative control. The label stays unmodularized because (a) keeps assertions in lib/test/run.sh",
       "owner": "unmodularized"
+    },
+    "971": {
+      "note": "issue #971: install.sh's dry-run preview must not understate what --apply writes. Language auto-detection now takes a read-only scan root separate from the tree it writes, so the preview reports the same devflow-detect verdict the apply performs while still leaving the real tree byte-identical; driven end-to-end over twin fixture consumers, with a scan-root-dropping negative control and a direct detect-project-tools.sh surface arm for the write-target direction",
+      "owner": "installer-wiring"
     },
     "984": {
       "note": "",
