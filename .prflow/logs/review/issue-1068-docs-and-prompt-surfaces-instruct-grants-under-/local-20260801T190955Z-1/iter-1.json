@@ -1,18 +1,179 @@
 {
   "iter": 1,
   "started_at": "2026-08-01T19:09:55Z",
+  "fix_commit_sha": "bc7471f0fab99cbc3285053974c634495fe5cf20",
+  "fix_files": [
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    ".changeset/issue-1068-allowed-tools-key-spelling.md"
+  ],
   "loop_role": "fix",
-  "current_step": "loop-control",
-  "current_substep": "step-1-read-engine",
+  "current_step": "3.5",
+  "current_substep": "fix-delta-gate",
   "pending_dispatch": null,
+  "sweep_defs_read": ["phase-2-implement.md"],
+  "sweep_evidence": {"status": "run"},
+  "mode": "current-branch",
+  "issue_override": 1068,
+  "pr_number": 1070,
+  "push_each_iteration": true,
   "config": {
     "max_iterations": 5,
     "fix_severity_threshold": "suggestion",
     "verdict_severity_threshold": "critical"
   },
-  "mode": "current-branch",
-  "issue_override": 1068,
-  "pr_number": 1070,
-  "push_each_iteration": true,
-  "telemetry": "unavailable"
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:pr-test-analyzer",
+    "prflow:requesting-code-review"
+  ],
+  "dispatched_effort": [
+    {"agent": "prflow:code-reviewer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "prflow:silent-failure-hunter", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "prflow:comment-analyzer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "prflow:pr-test-analyzer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "prflow:requesting-code-review", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"}
+  ],
+  "checklist_summary": {
+    "generated": 52,
+    "deduped_to": 50,
+    "lite": 9,
+    "agent": 41,
+    "passed": 48,
+    "failed": 0,
+    "inconclusive": 2,
+    "inconclusive_ids": ["VC-5", "VC-31"],
+    "inconclusive_reason": "AC5 (full suite + lints) is not dischargeable in-loop on this tier: the operator's standing rule forbids running the full lib/test/run.sh locally; CI's `lib + python tests` job is the designated full-suite gate."
+  },
+  "phase3_findings": [
+    {
+      "agent": "prflow:requesting-code-review",
+      "severity": "Important",
+      "description": "docs/DEVFLOW_SYSTEM_OVERVIEW.md:902 — the canonical §17 configuration-reference row for the light command path still read `devflow.effort` / `allowed_tools`. Both halves are dead (devflow.yml:159 reads .prflow.effort, :165 reads .prflow.allowed_tools). The issue's literal `git grep -F 'devflow.allowed_tools'` enumeration structurally could not see it because the table factors the family prefix out of the key name.",
+      "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [902, 902], "kind": "documented_falsehood"},
+      "corroboration_count": 5,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Critical",
+      "description": "The changeset's absolute claim 'Every such instruction now names the live key' was falsified by docs/DEVFLOW_SYSTEM_OVERVIEW.md:902 — a self-contradicting diff, and the prose ships verbatim into CHANGELOG.md on merge.",
+      "defect_signature": {"file": ".changeset/issue-1068-allowed-tools-key-spelling.md", "line_range": [12, 13], "kind": "documented_falsehood"},
+      "corroboration_count": 4,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "The changeset's 'no error, no breadcrumb' over-stated the silence: it is true only for a consumer whose config already carries a `prflow` family. An un-migrated consumer trips devflow.yml's MISSING_FAMILIES fail-loud guard. Commit 26bfd0aa carried the qualifier; 8ab82769's tightening pass dropped it.",
+      "defect_signature": {"file": ".changeset/issue-1068-allowed-tools-key-spelling.md", "line_range": [10, 11], "kind": "documented_falsehood"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Critical",
+      "description": "PRE-EXISTING, OUT OF SCOPE: .github/workflows/devflow.yml:925 and :1001 pass `SECTION: devflow` to the provider resolver while the two sibling workflows pass prflow_implement / prflow_runner. The schema declares prflow.provider, so a consumer's provider routing is silently ignored on the whole /prflow:* command path. Verified unchanged on origin/main, so this PR neither introduced it nor made its schema description false (the schema legitimately declares prflow.provider).",
+      "defect_signature": {"file": ".github/workflows/devflow.yml", "line_range": [925, 925], "kind": "logic_error"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Important",
+      "description": "PRE-EXISTING, OUT OF SCOPE: a residual `devflow.<other-key>` instruction class remains across the tree — including two emitted runtime remedies (devflow-runner.yml:243 `::error::devflow.allowed_bots is missing`, lib/scan.sh:227 warning), scripts/workpad.py:368's breadcrumb, .prflow/config.schema.json:313/:1136, docs/DEVFLOW_SYSTEM_OVERVIEW.md rows 898/900/901/903/904 and :808/:841, and several docs/cloud-setup.md, docs/install.md, docs/review-agent-overrides.md and docs/workflow-triggers.md sites. Outside this issue's `allowed_tools` scope.",
+      "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [243, 243], "kind": "documented_falsehood"},
+      "corroboration_count": 3,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "PRE-EXISTING, OUT OF SCOPE: lib/test/run.sh:33559-33562's #405 grant loop iterates three of the four heads CLAUDE.md's edited tier-2 bullet names — Bash(lib/test/run-module.sh:*) is absent, so dropping that grant would leave the edited sentence false with a green suite. Also lib/test/run.sh:4058's assertion LABEL still names devflow.allowed_tools while its jq reads .prflow.allowed_tools (AC2 mandates run.sh stay byte-identical, so it is correctly left).",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [33559, 33562], "kind": "test_gap"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "bc7471f0fab99cbc3285053974c634495fe5cf20"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "bc7471f0fab99cbc3285053974c634495fe5cf20"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "bc7471f0fab99cbc3285053974c634495fe5cf20"},
+    {
+      "finding_id": "F-4",
+      "decision": "deferred",
+      "source_file": ".github/workflows/devflow.yml",
+      "claim_text": "SECTION: devflow silently drops provider routing on the command path",
+      "skip_category": "out-of-scope",
+      "evidence": "git show origin/main:.github/workflows/devflow.yml reports SECTION: devflow at 925 and 1001 — unchanged by this PR; a behavior change to a trigger-time config surface, outside this docs-only issue's scope",
+      "parking_evidence": {
+        "basis": "pre-existing defect this PR's diff does not touch; fixing it is a behavior change to a security/compliance-relevant config surface and needs its own adversarial input-shape matrix",
+        "failing_input": "a consumer config setting prflow.provider, on the /prflow:* command path",
+        "source": "git show origin/main:.github/workflows/devflow.yml lines 925, 1001",
+        "finding_ref": {"iter": 1, "index": 3}
+      }
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "deferred",
+      "source_file": ".github/workflows/devflow-runner.yml",
+      "claim_text": "residual devflow.<other-key> instruction class, including two emitted runtime remedies",
+      "skip_category": "out-of-scope",
+      "evidence": "issue #1068 scopes itself to allowed_tools grant instructions; these name allowed_bots / allowed_users / workpad_marker / provider and are a distinct key family",
+      "parking_evidence": {
+        "basis": "outside the driving issue's declared allowed_tools scope; the changeset now discloses the residual class explicitly rather than implying it was swept",
+        "failing_input": "a consumer following devflow-runner.yml:243's remedy to add devflow.allowed_bots",
+        "source": ".github/workflows/devflow-runner.yml:236 reads .prflow.allowed_bots while :243 names devflow.allowed_bots",
+        "finding_ref": {"iter": 1, "index": 4}
+      }
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "deferred",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "#405 grant loop covers three of four heads; run.sh:4058 label names the dead key",
+      "skip_category": "out-of-scope",
+      "evidence": "AC2 mandates lib/test/run.sh stay byte-identical in this change, so neither can be touched here",
+      "parking_evidence": {
+        "basis": "AC2 explicitly lists lib/test/run.sh in the must-NOT-change preserve table, so any edit here would fail an acceptance criterion",
+        "failing_input": "removal of Bash(lib/test/run-module.sh:*) from either allowlist would leave CLAUDE.md's edited claim false with a green suite",
+        "source": "lib/test/run.sh:33559-33562 and :4058",
+        "finding_ref": {"iter": 1, "index": 5}
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 12,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "reference_reads": {"fix_delta": {"status": "not_verified", "outcome": "clean", "reason": null}},
+  "batched_regeneration": "run",
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 180},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 20},
+    "phase_0_6": {"calls": 0, "tokens": 0, "wall_clock_s": 10},
+    "phase_1": {"calls": 2, "tokens": 270450, "wall_clock_s": 384},
+    "phase_1_5": {"calls": 1, "tokens": 98393, "wall_clock_s": 328},
+    "phase_2": {"calls": 4, "tokens": 355892, "wall_clock_s": 167},
+    "phase_3": {"calls": 5, "tokens": 795298, "wall_clock_s": 579},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 60, "webfetches": 0},
+    "step_2_6": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 60}
+  }
 }
