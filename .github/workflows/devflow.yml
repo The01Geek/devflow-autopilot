@@ -1522,21 +1522,16 @@ jobs:
             echo "::warning::flip review-progress: flip-review-progress-failed.sh absent at $FLIP_HELPER; review-progress comment not flipped to '❌ Review failed'"
           fi
           # review-progress marker diagnosis BEGIN
-          # Diagnosis is deliberately narrower than the flip. Only canonical
-          # review commands seed this comment, and the result never changes the
-          # step's exit status. The helper owns the four-arm decision and its
-          # annotations, keeping branch-selected messages out of workflow shell.
-          case "${COMMAND:-}" in
-            "/prflow:review "*|"/prflow:review-and-fix "*)
-              DIAG_HELPER=.prflow/vendor/prflow/scripts/diagnose-review-progress-marker.sh
-              [ -f "$DIAG_HELPER" ] || DIAG_HELPER=scripts/diagnose-review-progress-marker.sh
-              if [ -f "$DIAG_HELPER" ]; then
-                bash "$DIAG_HELPER" "$REPO" "$CONTEXT_NUMBER" "$FLIP_MARKER" >/dev/null || true
-              else
-                echo "::notice::flip review-progress: could not establish marker diagnosis because the helper is absent at $DIAG_HELPER"
-              fi
-              ;;
-          esac
+          # The dispatcher owns canonical-command selection. Its sibling owns
+          # the four-arm diagnosis and annotations. Both are best-effort and
+          # leave this dead-run step's exit status unchanged.
+          DIAG_RUNNER=.prflow/vendor/prflow/scripts/run-review-progress-diagnosis.sh
+          [ -f "$DIAG_RUNNER" ] || DIAG_RUNNER=scripts/run-review-progress-diagnosis.sh
+          if [ -f "$DIAG_RUNNER" ]; then
+            bash "$DIAG_RUNNER" "$COMMAND" "$REPO" "$CONTEXT_NUMBER" "$FLIP_MARKER" || true
+          else
+            echo "::notice::flip review-progress: could not establish marker diagnosis because the dispatcher is absent at $DIAG_RUNNER"
+          fi
           # review-progress marker diagnosis END
 
       # ── No-verdict auto-resume backstop for the manual /prflow:review path

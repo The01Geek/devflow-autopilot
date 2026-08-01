@@ -2696,6 +2696,21 @@ assert_eq "diagnose #1054: no progress comment -> absent" "absent" "$(s1054_diag
 assert_eq "diagnose #1054: a non-array response -> unestablished" "unestablished" "$(s1054_diag '{}')"
 assert_eq "diagnose #1054: malformed JSON -> unestablished" "unestablished" "$(s1054_diag 'not-json')"
 assert_eq "diagnose #1054: API failure -> unestablished" "unestablished" "$(s1054_diag '[]' 1)"
+S1054_DIAG_ERR="$(S1054_COMMENTS='[]' S1054_GH_FAIL=1 DEVFLOW_GH="$S1054_GH" DEVFLOW_JQ="$S1054_JQ" \
+  S1054_STATE="$S1054_ROOT/state" bash "$S1054_DIAG" o/r 7 "$S1054_EXPECTED" 2>&1 >/dev/null)"
+assert_eq "diagnose #1054: API-failure breadcrumb preserves the resolver-routed gh cause" "1" \
+  "$(grep -cF 'HTTP 500' <<<"$S1054_DIAG_ERR")"
+S1054_BAD_JQ="$S1054_ROOT/bad-jq"
+cat > "$S1054_BAD_JQ" <<'SH'
+#!/usr/bin/env bash
+echo 'fixture jq parse failure' >&2
+exit 4
+SH
+chmod +x "$S1054_BAD_JQ"
+S1054_DIAG_ERR="$(S1054_COMMENTS='[]' DEVFLOW_GH="$S1054_GH" DEVFLOW_JQ="$S1054_BAD_JQ" \
+  S1054_STATE="$S1054_ROOT/state" bash "$S1054_DIAG" o/r 7 "$S1054_EXPECTED" 2>&1 >/dev/null)"
+assert_eq "diagnose #1054: parser-failure breadcrumb preserves the resolver-routed jq cause" "1" \
+  "$(grep -cF 'fixture jq parse failure' <<<"$S1054_DIAG_ERR")"
 S1054_DIAG_RC=0
 s1054_diag 'not-json' >/dev/null || S1054_DIAG_RC=$?
 assert_eq "diagnose #1054: unestablished diagnosis still exits zero" "0" "$S1054_DIAG_RC"
@@ -2720,16 +2735,24 @@ S1054_DIAG_ERR="$(S1054_COMMENTS='[]' DEVFLOW_GH="$S1054_GH" DEVFLOW_JQ="$S1054_
 assert_eq "diagnose #1054: absent emits no possible-mismatch warning" "0" \
   "$(grep -cF 'possible review-progress marker mismatch' <<<"$S1054_DIAG_ERR" || true)"
 
-# Workflow integration remains diagnostic-only and restricted to canonical
-# review command namespaces. Extract and execute the shipped workflow block so
-# the three command readings are driven, not inferred from source presence.
-assert_eq "diagnose #1054: workflow resolves the vendored diagnosis helper" "1" \
-  "$(grep -cF 'DIAG_HELPER=.prflow/vendor/prflow/scripts/diagnose-review-progress-marker.sh' "$RDWF")"
-assert_eq "diagnose #1054: workflow scopes diagnosis to canonical review" "1" \
-  "$(grep -cF '/prflow:review "*|"/prflow:review-and-fix "*' "$RDWF")"
-assert_eq "diagnose #1054: branch-selected possible-mismatch text lives in the helper, not workflow shell" "0" \
-  "$(grep -cF 'possible review-progress marker mismatch' "$RDWF" || true)"
+# The dispatcher owns the command predicate that workflow shell must not inline.
+# It invokes diagnosis for canonical review commands and stays silent for every
+# other command while preserving the best-effort exit contract.
+S1054_DISPATCH="$LIB/../scripts/run-review-progress-diagnosis.sh"
+: > "$S1054_ROOT/state/gh-args"
+DEVFLOW_GH="$S1054_GH" DEVFLOW_JQ="$S1054_JQ" S1054_STATE="$S1054_ROOT/state" \
+  S1054_COMMENTS='[]' bash "$S1054_DISPATCH" '/prflow:review 7' o/r 7 "$S1054_EXPECTED" >/dev/null 2>&1 || true
+assert_eq "diagnose #1054: dispatcher invokes diagnosis for a canonical review command" "1" \
+  "$(grep -cF 'api --paginate repos/o/r/issues/7/comments' "$S1054_ROOT/state/gh-args" || true)"
+: > "$S1054_ROOT/state/gh-args"
+DEVFLOW_GH="$S1054_GH" DEVFLOW_JQ="$S1054_JQ" S1054_STATE="$S1054_ROOT/state" \
+  S1054_COMMENTS='[]' bash "$S1054_DISPATCH" '/prflow:pr-description 7' o/r 7 "$S1054_EXPECTED" >/dev/null 2>&1 || true
+assert_eq "diagnose #1054: dispatcher does not invoke diagnosis for a non-review command" "0" \
+  "$(grep -c . "$S1054_ROOT/state/gh-args" || true)"
 
+# Workflow integration remains diagnostic-only and restricted to canonical
+# review command namespaces. Extract and execute the shipped workflow block
+# with the real dispatcher and a recording diagnosis sibling.
 S1054_WF_ROOT="$S1054_ROOT/workflow"
 mkdir -p "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts" "$S1054_WF_ROOT/scripts"
 S1054_WF_BLOCK="$S1054_WF_ROOT/diagnosis-block.sh"
@@ -2746,6 +2769,8 @@ with open(sys.argv[2], "w", encoding="utf-8") as handle:
     handle.write(textwrap.dedent("\n".join(block)))
     handle.write("\n")
 PY
+cp "$S1054_DISPATCH" "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/run-review-progress-diagnosis.sh"
+chmod +x "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/run-review-progress-diagnosis.sh"
 cat > "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/diagnose-review-progress-marker.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s|token=%s\n' "$*" "${GH_TOKEN:-}" >> "$S1054_WF_RECORD"
@@ -2781,7 +2806,10 @@ s1054_run_wf_block '/prflow:review 7' '' 9 >/dev/null 2>&1 || S1054_WF_RC=$?
 assert_eq "diagnose #1054: diagnosis helper failure leaves workflow block exit status unchanged" "0" "$S1054_WF_RC"
 cp "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/diagnose-review-progress-marker.sh" \
   "$S1054_WF_ROOT/scripts/diagnose-review-progress-marker.sh"
-rm -f "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/diagnose-review-progress-marker.sh"
+cp "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/run-review-progress-diagnosis.sh" \
+  "$S1054_WF_ROOT/scripts/run-review-progress-diagnosis.sh"
+rm -f "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/diagnose-review-progress-marker.sh" \
+  "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/run-review-progress-diagnosis.sh"
 : > "$S1054_WF_RECORD"
 s1054_run_wf_block '/prflow:review 7' >/dev/null
 assert_eq "diagnose #1054: absent vendored helper falls back to the repo-root helper" "1" \

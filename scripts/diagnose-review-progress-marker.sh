@@ -75,13 +75,30 @@ if ! . "$SCRIPT_DIR/../lib/resolve-jq.sh" || [ -z "${DEVFLOW_JQ:-}" ]; then
   emit_unestablished
 fi
 
-COMMENTS_JSON="$("$DEVFLOW_GH" api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" 2>/dev/null)"
+ERROR_FILE="$(mktemp 2>/dev/null)" || ERROR_FILE=""
+if [ -z "$ERROR_FILE" ]; then
+  echo "devflow review-progress diagnosis: could not create a scratch file for API/parser diagnostics" >&2
+  emit_unestablished
+fi
+trap 'rm -f "$ERROR_FILE"' EXIT
+
+error_cause() {
+  [ -s "$ERROR_FILE" ] || { printf '(cause unavailable)'; return 0; }
+  local cause
+  cause="$(<"$ERROR_FILE")"
+  cause="${cause//$'\n'/ }"
+  [ "${#cause}" -le 300 ] || cause="${cause: -300}"
+  printf '%s' "$cause"
+}
+
+COMMENTS_JSON="$("$DEVFLOW_GH" api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" 2>"$ERROR_FILE")"
 GH_RC=$?
 if [ "$GH_RC" -ne 0 ] || [ -z "$COMMENTS_JSON" ]; then
-  echo "devflow review-progress diagnosis: comments query failed or returned an empty response for PR #$PR_NUMBER" >&2
+  echo "devflow review-progress diagnosis: comments query failed or returned an empty response for PR #$PR_NUMBER. Cause: $(error_cause)" >&2
   emit_unestablished
 fi
 
+: > "$ERROR_FILE"
 DECISION="$("$DEVFLOW_JQ" -sr \
   --arg expected "$EXPECTED_MARKER" \
   --arg current '<!-- prflow:review-progress run=' \
@@ -104,10 +121,10 @@ DECISION="$("$DEVFLOW_JQ" -sr \
     | ([.[] | select(candidate) | select(owns($expected) | not)] | length) as $foreign
     | "\($matched) \($foreign)"
   end
-  ' <<<"$COMMENTS_JSON" 2>/dev/null)"
+  ' <<<"$COMMENTS_JSON" 2>"$ERROR_FILE")"
 JQ_RC=$?
 if [ "$JQ_RC" -ne 0 ] || ! [[ "$DECISION" =~ ^[0-9]+\ [0-9]+$ ]]; then
-  echo "devflow review-progress diagnosis: comments response could not be parsed as the expected array" >&2
+  echo "devflow review-progress diagnosis: comments response could not be parsed as the expected array. Cause: $(error_cause)" >&2
   emit_unestablished
 fi
 

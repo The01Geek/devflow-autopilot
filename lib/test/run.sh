@@ -1563,8 +1563,9 @@ assert_eq "#871 the helper's emitted refusal-token set equals the set the driver
   "$SRP857_EMITTED" "$SRP857_COVERED"
 # The CALL SITE's positional contract. The behavioral rows below drive the helper through
 # srp857_run, which hard-codes the argument order — so a transposed marker slot and body path in
-# the SKILL.md fence (or a drop to two args) leaves every one of them green while every cloud
-# review silently loses its live comment on a SKIP no-run-key. The head extractor pins the
+# the SKILL.md fence (or a drop to two args) leaves every one of them green while a local
+# run can reach SKIP no-run-key and a cloud clean-absence create can receive the wrong body
+# path and fail normalization/create. The head extractor pins the
 # leading token only and is insensitive to arguments, so this is the one place the fence's
 # arity and order are checked.
 # The declaration below documents WHY the site immediately under it is a typed executable

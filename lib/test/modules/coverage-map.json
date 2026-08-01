@@ -266,6 +266,10 @@
       "note": "issue #1054 four-arm mismatch diagnosis, annotations, resolver-routed API boundary, and workflow command-scope integration",
       "owner": "review-trigger-helpers"
     },
+    "scripts/run-review-progress-diagnosis.sh": {
+      "note": "issue #1054 workflow-facing canonical-command dispatcher for the four-arm marker diagnosis",
+      "owner": "review-trigger-helpers"
+    },
     "scripts/derive-review-preconditions.sh": {
       "note": "retained unreachable-in-tree: called only by the withheld auto-review tier's workflow, kept so an installed consumer copy still resolves it (issue #936)",
       "owner": "review-trigger-helpers"
