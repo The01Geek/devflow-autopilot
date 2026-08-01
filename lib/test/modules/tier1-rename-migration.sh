@@ -539,6 +539,38 @@ d=json.load(open(sys.argv[1]))
 print("yes" if "prflow" in d else "no")' "$_t1_r/.devflow/config.json" 2>/dev/null)"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#1041 E2. the workflows.* sub-keys migrate behind the SAME freshness gate"
+# ────────────────────────────────────────────────────────────────────────────
+_t1_wf_workflows() { python3 -c 'import json,sys;print(json.dumps(json.load(open(sys.argv[1]))["workflows"]))' "$1" 2>/dev/null; }
+# FRESH shipped workflows (none present -> gate passes): both sub-keys rename and the
+# deliberate valid-falsy `false`/`true` toggles are carried across verbatim (AC4, #312).
+_t1_r="$(_t1_scaffold_root '{"workflows":{"devflow":false,"devflow-review":true}}')"
+_t1_out="$("$T1_SCAFFOLD" "$_t1_r" 2>&1)"
+assert_eq "#1041 workflows migration: both sub-keys rename and the valid-falsy false/true survive" \
+  '{"prflow": false, "prflow-review": true}' "$(_t1_wf_workflows "$_t1_r/.prflow/config.json")"
+# AC2/AC3: a STALE shipped workflow whose superseded read is `.workflows.devflow` (the
+# #1041 staleness trigger, previously exempted by a `workflows` lookbehind) REFUSES the
+# migration and names install.sh --apply; the nested anti-graft guard keeps the consumer's
+# valid-falsy toggle from being shadowed by a grafted example default -- so a stale consumer
+# is never silently disabled. Asserted end-to-end on the resulting config bytes.
+_t1_r="$(_t1_scaffold_root '{"workflows":{"devflow":false,"devflow-review":true}}')"
+printf 'run: jq -r ".workflows.devflow // false"\n' > "$_t1_r/.github/workflows/devflow-implement.yml"
+_t1_out="$("$T1_SCAFFOLD" "$_t1_r" 2>&1)"
+assert_eq "#1041 gate: a workflow still reading .workflows.devflow refuses the migration" "yes" \
+  "$(_t1_has "$_t1_out" 'NOT migrating superseded config keys')"
+assert_eq "#1041 gate: the refusal names install.sh --apply as the remedy" "yes" \
+  "$(_t1_has "$_t1_out" 'install.sh --apply')"
+assert_eq "#1041 gate: the superseded workflows.* toggles survive unchanged and NO prflow* is grafted (not silently disabled)" \
+  '{"devflow": false, "devflow-review": true}' "$(_t1_wf_workflows "$_t1_r/.prflow/config.json")"
+# NEGATIVE CONTROL: the SAME config with a FRESH workflow (reads .workflows.prflow) lets
+# the migration proceed -- proving the gate is what refused above, not some other block.
+_t1_r="$(_t1_scaffold_root '{"workflows":{"devflow":false,"devflow-review":true}}')"
+printf 'run: jq -r ".workflows.prflow // false"\n' > "$_t1_r/.github/workflows/devflow-implement.yml"
+_t1_out="$("$T1_SCAFFOLD" "$_t1_r" 2>&1)"
+assert_eq "#1041 gate negative control: a fresh workflow lets the workflows.* migration proceed" \
+  '{"prflow": false, "prflow-review": true}' "$(_t1_wf_workflows "$_t1_r/.prflow/config.json")"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "#1002 F. migrate-consumer-tier1.sh: the atomic unit"
 # ────────────────────────────────────────────────────────────────────────────
 # PREVIEW writes nothing. install.sh upgrades are dry-run by default, so this is the
