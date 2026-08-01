@@ -356,3 +356,146 @@ jobs:
           # explicit, reviewable bump rather than a silent tree-wide breakage.
           python3 -m pip install --quiet 'ruff==0.15.*'
           git ls-files '*.py' | xargs -r ruff check
+
+  # Ask for a standalone review the moment CI is green on a pull request, so the
+  # review the repo already expects before merge does not wait on a human
+  # remembering to type the trigger. THIS REPO ONLY: install.sh's workflow copy
+  # loop ships devflow.yml and devflow-implement.yml and NOT this file, so no
+  # consumer repo gains an auto-trigger and the shipped documentation's standing
+  # "a collaborator comments the trigger" statement stays literally true.
+  #
+  # Deliberately NOT once-per-PR and NOT once-per-red-to-green transition: it
+  # notifies on EVERY green head, deduped only at an identical head SHA. Replayed
+  # against a real busy PR's history that is several standalone reviews in an
+  # afternoon. That cost was weighed and accepted; a reviewer's HEAD is the unit
+  # that matters, and a review of a superseded commit is worth less than the
+  # spend it saved.
+  #
+  # Deliberately NOT a `workflow_run` listener, which would have been the other
+  # obvious shape: that trigger needs a `workflows:` name list (a strandable
+  # surface — the guard that used to police it went with the withheld review tier
+  # in issue #936), it runs the DEFAULT BRANCH's copy of the workflow rather than
+  # the PR's, so a change to this job could never be exercised by the PR that
+  # makes it, and it fires for fork pull requests too, which is precisely what the
+  # head-repo gate below exists to prevent.
+  #
+  # WHY AN APP TOKEN, AND WHY THAT IS THE WHOLE MECHANISM: a comment posted with
+  # the built-in GITHUB_TOKEN does not trigger workflows (the same recursion guard
+  # this file's `on:` comment relies on for the bot's own pushes). A comment posted
+  # with a GitHub App installation token DOES. So the mint is not a convenience
+  # here — it is the only thing that makes the trigger fire at all, and it is the
+  # pattern scripts/post-review-backstop-comment.sh already uses from devflow.yml.
+  #
+  # LOOP SAFETY. The payload is the PLAIN review command and must stay that way.
+  # devflow.yml skips its `app-token` mint on a `/prflow:review ` command, so that
+  # path runs under the read-only reviewer token and pushes nothing; even a push it
+  # somehow made would use GITHUB_TOKEN and be swallowed by the recursion guard.
+  # The fix-loop command is the opposite on both counts — it mints the App token
+  # and pushes with it, outside the recursion guard — so widening this payload
+  # would re-run CI, re-post, and loop without bound. The review-trigger-helpers
+  # test module drives the composed body through the real standalone-command
+  # detector; that assertion is the structural brake on exactly that edit.
+  #
+  # NAMED FOR ITS SKIPPED STATE. The CI-signal summarizer that composes the review
+  # engine's injected engine-ground-truth block renders every job's name and
+  # conclusion into it, and this job reads `skipped` on most runs — draft pull
+  # requests, fork pull requests, pushes to main. In a repo whose governing rule is
+  # that a skip is never laundered into a pass, the name has to make a skipped row
+  # self-evidently a notification that was not sent rather than a verification that
+  # did not run.
+  #
+  # EDITING THIS COMMENT BLOCK: do not name a `<something>.sh` helper here unless
+  # you mean it. The #312 endpoint-permission lint attributes every such basename it
+  # finds in a job's lines — comments included — to that job's permission
+  # requirement, and a comment block sitting ABOVE a job key parses as part of the
+  # PREVIOUS job. Naming the summarizer here required `checks`/`actions` of the lint
+  # job, which calls neither. It fails closed (RED), so the suite catches it, but the
+  # diagnosis lands two jobs away from the edit.
+  auto_review_trigger:
+    name: auto-review notification (not a check; skipped = not sent)
+    needs: [test, lint]
+    # BOTH jobs, because `lint` is not downstream of `test` — the only `needs:`
+    # elsewhere in this file is `test: needs: [shard]`. Gating on `test` alone
+    # would ask for a review of a head whose ruff or shellcheck run was red.
+    #
+    # Every guard is GitHub-evaluated, so an ineligible run reaches no shell and,
+    # more importantly, mints no credential. The head-repo comparison is the fork
+    # gate and it is the actual security property of this job: it excludes fork
+    # pull requests BEFORE the App token is minted, rather than relying on secrets
+    # being withheld from fork runs. Dependabot branches live in this repo, so they
+    # satisfy the head-repo test and need their own exclusion. The `pull_request`
+    # test is load-bearing rather than cosmetic: this workflow also runs on pushes
+    # to main, where `github.event.pull_request` is null and the draft comparison
+    # would read as satisfied.
+    if: >-
+      needs.test.result == 'success' &&
+      needs.lint.result == 'success' &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]' &&
+      vars.DEVFLOW_APP_ID != ''
+    runs-on: ubuntu-latest
+    # JOB-SCOPED, never workflow-level. Raising `pull-requests: write` to the file's
+    # top-level block would widen `shard`, `test`, and `lint`, which run arbitrary
+    # pull-request code; declared here it reaches this job alone.
+    #
+    # It is declared even though the POST does not use it. The comment is written
+    # with the minted App installation token, whose scope comes from the mint's
+    # `permission-*` inputs and ignores this block entirely — so these keys are not
+    # what authorizes the call. They are here because the repo's own #312
+    # endpoint-permission lint requires a job to declare the permission for every
+    # `gh api` endpoint family it or its helpers invoke, and this job invokes the
+    # issues-comments family. Declaring it is also the honest fallback posture: if
+    # the mint were ever removed the step would still work.
+    #
+    # The grant is safe in a job that checks out pull-request code because the
+    # built-in GITHUB_TOKEN never reaches that code — the checkout persists no
+    # credential, and no step interpolates the token into the environment. Only
+    # GH_TOKEN, the already-downscoped App token, is in the helper's environment.
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # A checkout, taken deliberately over the smaller checkout-less shape. The
+      # post-or-skip decision is a branch selection over a user-visible outcome, and
+      # this repo's convention is that such a selection lives in a scripts/*.sh
+      # helper the suite can drive arm by arm rather than inline in YAML — which
+      # needs the helper on disk. The trade is that this checks out the pull
+      # request's own code, so a collaborator's branch controls the helper that then
+      # runs alongside a token holding `pull-requests: write`. The fork gate above
+      # bounds that to people who already have write access to this repository, and
+      # the minted token is strictly NARROWER than the access they already hold, so
+      # there is no escalation to reach for. Checking out the base ref instead would
+      # close even that, but at a cost that is not worth paying: a change to this
+      # helper could then never be exercised by the pull request that makes it.
+      # persist-credentials: false because nothing here talks to git over the
+      # network — gh authenticates from GH_TOKEN — so the checkout leaves no
+      # credential behind for later steps to inherit.
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # Downscoped to the single permission the helper needs. The issues-comments
+      # endpoints accept the Pull requests permission when the target is a pull
+      # request, which is the only target this job ever has — the same grant
+      # devflow.yml's `dedupe_app_token` uses to post on a PR. No checkout token is
+      # seeded from it (issue #357 governs PUSHING jobs; this one pushes nothing and
+      # hands its token straight to gh, like devflow.yml's `gate` and
+      # `review_dedupe` mints).
+      - name: Mint downscoped comment token
+        id: app_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+          permission-pull-requests: write
+
+      # Keyed on the pull request's HEAD sha, not the merge commit github.sha —
+      # the head is what a review reviews and what the marker must dedupe on.
+      - name: Request a review for this head
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/post-ci-review-trigger.sh
