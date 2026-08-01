@@ -73,6 +73,8 @@ import secrets
 import shlex
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 if sys.version_info < (3, 11):
@@ -1041,6 +1043,230 @@ def _is_bound_path(p):
     """
     return (isinstance(p, str) and bool(p) and os.path.isabs(p)
             and '\n' not in p and '\r' not in p)
+
+
+# ── Issue #1040: write serialization via an exclusive-create sentinel ──────────────
+# Two concurrent invocations for the same slug in one checkout must produce a state
+# document reflecting one of them entirely and then the other entirely, never a mixture.
+# The mechanism is an `os.open(O_CREAT|O_EXCL)` sentinel beside the state file (the
+# single-owner pattern scripts/verification-flight.py already uses) plus a per-writer
+# `tempfile.mkstemp` temp path in save_state. Read-only subcommands take no sentinel.
+# Every failure the section raises is phrased as a `could not persist state to <file>:`
+# StateError, so it lands in the existing cannot-persist-state routing class rather than
+# opening a fourth mutation-exit destination.
+
+# Test-only overrides so the shell-level tests drive the process boundary in
+# milliseconds. NOT CLI flags and NOT read from .prflow/config.json — the shipped path has
+# exactly one decided setting. The DEVFLOW_ prefix is the DECIDED choice (issue #1040):
+# CLAUDE.md freezes that namespace pending the #1004 Tier-3 rename, so a PRFLOW_ spelling
+# would be the one variable that ticket's sweep would miss. Both names are recorded in the
+# #1040 changeset as members #1004 must migrate.
+_IAS_ACQUIRE_WINDOW_ENV = 'DEVFLOW_IAS_ACQUIRE_WINDOW_S'
+_IAS_STALE_AFTER_ENV = 'DEVFLOW_IAS_STALE_AFTER_S'
+
+
+def _positive_env_float(name, default):
+    """The override in `name` when it holds a usable positive number, else `default`.
+
+    A value that is absent, empty, non-numeric, or non-positive alike is ignored and the
+    shipped default applies — the closed set of rejected shapes stated by the acceptance
+    criteria.
+    """
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    raw = raw.strip()
+    if not raw:
+        return default
+    try:
+        val = float(raw)
+    except ValueError:
+        return default
+    return val if val > 0 else default
+
+
+def _read_sentinel_pid(sentinel):
+    """The pid recorded in the sentinel as a decimal string, or the literal
+    `unestablished` for any of the five unreadable shapes — file-read failure, empty file,
+    whitespace-only content, non-decimal text, content exceeding 64 bytes. Staleness is
+    decided by mtime alone, so an unestablished pid never changes the acquire/refuse/break
+    decision; it only shapes the breadcrumb. A trailing newline is stripped, so a pid
+    written with one renders as the pid.
+    """
+    try:
+        with open(sentinel, 'rb') as fh:
+            data = fh.read(65)  # 65 so a body exceeding 64 bytes is detectable
+    except OSError:
+        return 'unestablished'
+    if len(data) > 64:
+        return 'unestablished'
+    text = data.decode('utf-8', 'replace').strip()
+    if not re.fullmatch(r'[0-9]+', text):
+        return 'unestablished'
+    return text
+
+
+def _replace_with_retry(src, dst, *, attempts=5, delay=0.02):
+    """`os.replace(src, dst)` with a bounded retry over `PermissionError` only.
+
+    On Windows a `MoveFileEx`-backed replace onto a path a lock-free reader currently has
+    open raises `PermissionError`; retry it briefly. Every OTHER `OSError` propagates on
+    the first attempt, unchanged, so the existing `could not persist state to ` breadcrumb
+    and its test row keep their shape. Exhausting the retries re-raises the last
+    `PermissionError` for the caller to route.
+    """
+    for i in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if i == attempts - 1:
+                raise
+            time.sleep(delay)
+
+
+class _StateSection:
+    """Serialize mutating state writes for one slug via an O_CREAT|O_EXCL sentinel.
+
+    Entered around main()'s single dispatch site for every non-read-only subcommand, so a
+    handler's `load_state` .. `save_state` runs under exclusion and the second writer's
+    read happens after the first writer's write. No compare-and-swap token is needed
+    because the load sits inside the section.
+    """
+
+    def __init__(self, slug, root=None, *, acquire_window_s=45, stale_after_s=30):
+        # Compose the sentinel FROM the resolved state path (string-concatenate '.lock',
+        # never Path.with_suffix — a slug may itself contain a dot), so a run whose git
+        # resolution degraded still locks the file it actually writes.
+        self._state_path = state_path(slug, root)
+        self._sentinel = str(self._state_path) + '.lock'
+        self._parent = os.path.dirname(self._sentinel)
+        self._acquire_window_s = _positive_env_float(
+            _IAS_ACQUIRE_WINDOW_ENV, acquire_window_s)
+        self._stale_after_s = _positive_env_float(_IAS_STALE_AFTER_ENV, stale_after_s)
+        self._token = None  # (st_dev, st_ino) recorded at acquire
+
+    def _persist_error(self, detail):
+        return StateError(f'could not persist state to {self._state_path}: {detail}')
+
+    def _try_create(self):
+        """Attempt the exclusive create once. True on success (ownership token recorded),
+        False on contention (FileExistsError) or a missing parent. A read-only filesystem
+        or permission denial raises a cannot-persist StateError immediately, since
+        retrying a condition that does not clear only converts a named failure into a
+        stall.
+        """
+        try:
+            fd = os.open(self._sentinel, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            return False
+        except FileNotFoundError:
+            # A missing parent — not the immediate-raise class. Recreate and let the
+            # bounded loop retry (should not recur, since __enter__ mkdir'd first).
+            os.makedirs(self._parent, exist_ok=True)
+            return False
+        except OSError as exc:
+            raise self._persist_error(
+                f'could not create the audit-state section sentinel '
+                f'{self._sentinel}: {exc}') from exc
+        try:
+            st = os.fstat(fd)
+            self._token = (st.st_dev, st.st_ino)
+            os.write(fd, str(os.getpid()).encode('ascii'))
+        finally:
+            os.close(fd)
+        return True
+
+    def _break_if_stale(self):
+        """When the held sentinel's mtime age exceeds stale_after_s, re-stat it and unlink
+        it only while the observed mtime is unchanged from the one judged stale, then
+        re-attempt the exclusive create EXACTLY ONCE. True iff the break-and-recreate
+        acquired the section. A changed mtime, a vanished sentinel, or a losing re-create
+        each return False → the ordinary retry loop.
+        """
+        try:
+            first = os.stat(self._sentinel)
+        except OSError:
+            return False  # vanished/unstattable — a create will win next iteration
+        age = time.time() - first.st_mtime
+        if age <= self._stale_after_s:
+            return False
+        pid = _read_sentinel_pid(self._sentinel)
+        try:
+            second = os.stat(self._sentinel)
+        except OSError:
+            return False
+        if second.st_mtime != first.st_mtime:
+            return False  # a live holder touched it between judging and unlinking
+        try:
+            os.unlink(self._sentinel)
+        except OSError as exc:
+            # Both unlink sites catch every OSError (a directory planted at the path, a
+            # permission-denied parent, a Windows sharing violation), not only
+            # FileNotFoundError. A failing break unlink returns the mutation to its
+            # ordinary retry loop.
+            sys.stderr.write(
+                f'issue-audit-state.py: could not break the stale audit-state sentinel '
+                f'{self._sentinel} (pid {pid}, age {age:.0f}s): {exc}\n')
+            return False
+        sys.stderr.write(
+            f'issue-audit-state.py: broke a stale audit-state sentinel {self._sentinel} '
+            f'(pid {pid}, age {age:.0f}s) and proceeded\n')
+        return self._try_create()
+
+    def __enter__(self):
+        # Create the parent directory BEFORE the first exclusive-create so a fresh clone,
+        # a fresh adopter checkout, and a bare test sandbox — none of which carry the
+        # ignored state tmp directory — acquire instead of raising on FileNotFoundError.
+        os.makedirs(self._parent, exist_ok=True)
+        deadline = time.monotonic() + self._acquire_window_s
+        while True:
+            if self._try_create():
+                return self
+            if self._break_if_stale():
+                return self
+            if time.monotonic() >= deadline:
+                # Under the shipped bound relation (window > stale) an abandoned sentinel is
+                # always broken strictly inside the window, so this arm is unreachable; it
+                # is the fail-closed arm for a host whose overrides invert the relation. The
+                # state file is left byte-identical (only the sentinel was ever touched).
+                pid = _read_sentinel_pid(self._sentinel)
+                raise self._persist_error(
+                    f'the audit-state section sentinel {self._sentinel} is held by pid '
+                    f'{pid} and was not released within {self._acquire_window_s:g}s')
+            time.sleep(0.02)
+
+    def __exit__(self, exc_type, exc, tb):
+        # Ownership-checked release on EVERY exit path — the mutation succeeding,
+        # save_state raising, and the handler raising. Best-effort and total: a failing
+        # unlink never replaces an in-flight exception (the section's own outcome and its
+        # routed `could not persist state to ` breadcrumb stand), and the release failure
+        # is reported beside it. Returning False never suppresses that exception.
+        try:
+            st = os.stat(self._sentinel)
+        except FileNotFoundError:
+            return False  # already gone (age-broken by another process) — clean exit
+        except OSError as exc2:
+            sys.stderr.write(
+                f'issue-audit-state.py: could not stat the audit-state sentinel '
+                f'{self._sentinel} on release: {exc2}\n')
+            return False
+        if self._token is not None and (st.st_dev, st.st_ino) == self._token:
+            try:
+                os.unlink(self._sentinel)
+            except OSError as exc2:
+                sys.stderr.write(
+                    f'issue-audit-state.py: could not unlink the audit-state sentinel '
+                    f'{self._sentinel} on release: {exc2}\n')
+        else:
+            # After an age break the file here belongs to the breaker; unlinking it by
+            # path would strip a live holder's exclusion. Leave it and breadcrumb that
+            # this section's own sentinel was broken by another process.
+            sys.stderr.write(
+                f"issue-audit-state.py: this section's own audit-state sentinel "
+                f'{self._sentinel} was broken by another process; leaving the current '
+                f'file in place\n')
+        return False
 
 
 # ── Digests ────────────────────────────────────────────────────────────────────
@@ -2414,18 +2640,34 @@ def save_state(doc, slug, root=None):
     # invalid document fails HERE, loudly, instead of persisting silently and
     # collapsing the whole file to unestablished at the next load.
     _validate(doc, slug)
-    tmp = path.with_suffix('.json.tmp')
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(json.dumps(doc, indent=2, sort_keys=True) + '\n', encoding='utf-8')
-        os.replace(tmp, path)
-    except OSError as exc:
-        # Best-effort cleanup of a partial temp file so a failed persist never leaves
-        # a stray .json.tmp in the evidence-bearing tmp directory.
+        # Per-writer temp path (issue #1040): tempfile.mkstemp gives each writer a UNIQUE
+        # temp name in the state file's own directory, so two concurrent writers never
+        # share and truncate one deterministic path. The '.json.tmp' suffix is retained so
+        # the existing #546 cleanup glob('*.json.tmp') still selects it. mkstemp sits inside
+        # this try and below the mkdir: unlike the pure path computation it replaces it
+        # touches the filesystem, so every OSError it raises (a missing parent, a read-only
+        # filesystem, a permission denial, an exhausted disk) surfaces as the same
+        # could-not-persist StateError below. mkstemp creates at 0600 and os.replace carries
+        # that mode onto the state file — the decided per-user-artifact mode on POSIX.
+        fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + '.',
+                                   suffix='.json.tmp')
         try:
-            tmp.unlink()
+            with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+                fh.write(json.dumps(doc, indent=2, sort_keys=True) + '\n')
+            # os.replace retried over PermissionError only (the Windows lock-free-reader
+            # sharing violation); every other OSError propagates on the first attempt.
+            _replace_with_retry(tmp, path)
         except OSError:
-            pass
+            # Best-effort cleanup of the partial temp file so a failed persist never leaves
+            # a stray .json.tmp in the evidence-bearing tmp directory.
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+    except OSError as exc:
         raise StateError(f'could not persist state to {path}: {exc}') from exc
     return path
 
@@ -5229,25 +5471,12 @@ def cmd_record_dispatch(args):
         except OSError as exc:
             _fail('record-dispatch', f'could not read draft file {args.draft_file}: {exc}')
     else:
-        # The sibling draft-file read above routes its failure through _fail; stdin is the
-        # same external input and gets the same treatment, or a broken fd 0 escapes as a
-        # raw traceback — breaking the mutation contract (non-zero WITH a named
-        # breadcrumb) the caller parses, and handing its stderr classification a Python
-        # traceback rather than one of this tool's own vocabulary strings.
-        #
-        # TWO distinct failures, deliberately handled separately. A CLOSED fd 0 does not
-        # raise from the read at all: CPython sets `sys.stdin = None` at startup, so the
-        # attribute access itself is what fails (AttributeError, never OSError) — an
-        # `except OSError` around the read is blind to exactly the shape the skill's shell
-        # pipelines can produce. Test the object first; keep the except for a genuine
-        # read-time error (an I/O failure part-way through a redirected file).
-        if sys.stdin is None:
-            _fail('record-dispatch', 'could not read draft bytes from stdin: no stdin is '
-                                     'attached (fd 0 is closed)')
-        try:
-            data = sys.stdin.buffer.read()
-        except OSError as exc:
-            _fail('record-dispatch', f'could not read draft bytes from stdin: {exc}')
+        # The draft bytes are read from stdin, hoisted into main() above the section (issue
+        # #1040) so this mutating handler performs no blocking sys.stdin read inside the
+        # section. `_stdin_bytes_or_fail` reproduces the former in-handler guards verbatim:
+        # a closed fd 0 and a read-time OSError each route through _fail with the same named
+        # breadcrumb (never a raw traceback that would break the mutation contract).
+        data = _stdin_bytes_or_fail(args, 'record-dispatch', 'draft bytes')
         if not data:
             _fail('record-dispatch', f'the {args.arm} arm requires the draft bytes on '
                                      'stdin; received none')
@@ -5886,7 +6115,7 @@ def cmd_record_adjudication(args):
                   '--ledger-stdin is only accepted on a REVISE adjudication with a '
                   'settled unresolved count (ledger-not-applicable); a FILE verdict and '
                   f'a REVISE + {_UNESTABLISHED!r} adjudication record no ledger')
-        ledger = _ingest_ledger(args.must_revise, unresolved)
+        ledger = _ingest_ledger(args, args.must_revise, unresolved)
     elif ledger_shape:
         _fail('record-adjudication',
               f'a REVISE adjudication with a settled unresolved count requires '
@@ -5965,13 +6194,14 @@ def cmd_record_adjudication(args):
           f'invalid={args.invalid} superseded={superseded}')
 
 
-def _read_stdin_lines(command, what, token):
-    """Read a quoted-heredoc line payload from stdin, or fail closed (issue #708).
+def _read_stdin_lines(args, command, what, token):
+    """Decode a quoted-heredoc line payload from the hoisted stdin buffer, or fail closed
+    (issue #708). The raw byte read is hoisted into main() above the section (issue #1040)
+    and consumed here via `_stdin_bytes_or_fail`, which reproduces the closed-fd and
+    read-error breadcrumbs verbatim; the undecodable and empty arms stay here.
 
-    ONE implementation of the fail-closed byte-read the line-oriented stdin transports
-    share — a closed fd (CPython sets `sys.stdin` to None, so an attribute access would
-    otherwise leak a raw traceback), a read error, an undecodable payload, and an empty
-    one. Callers supply their own `command` (for the breadcrumb prefix), the human `what`
+    ONE implementation of the fail-closed decode the line-oriented stdin transports share.
+    Callers supply their own `command` (for the breadcrumb prefix), the human `what`
     they are reading, and the `token` their triage vocabulary uses, so every named
     breadcrumb stays exactly what it was when each caller inlined this block.
 
@@ -5989,13 +6219,7 @@ def _read_stdin_lines(command, what, token):
 
     Returns the non-blank lines. Never returns on any degraded shape.
     """
-    if sys.stdin is None:
-        _fail(command, f'could not read the {what} from stdin: no stdin is attached '
-                       f'(fd 0 is closed)')
-    try:
-        data = sys.stdin.buffer.read()
-    except OSError as exc:
-        _fail(command, f'could not read the {what} from stdin: {exc}')
+    data = _stdin_bytes_or_fail(args, command, f'the {what}')
     try:
         raw = data.decode('utf-8')
     except UnicodeDecodeError as exc:
@@ -6007,7 +6231,7 @@ def _read_stdin_lines(command, what, token):
     return [ln for ln in raw.split('\n') if ln.strip()]
 
 
-def _ingest_ledger(must_revise, unresolved):
+def _ingest_ledger(args, must_revise, unresolved):
     """Read `--ledger-stdin` and build the round's ledger, or fail closed.
 
     The transport is deliberately line-oriented text, not a structured payload: the
@@ -6025,7 +6249,7 @@ def _ingest_ledger(must_revise, unresolved):
     command's own: record-revision hashes the bytes and never decodes them, so it has no
     decode step to mirror.
     """
-    lines = _read_stdin_lines('record-adjudication', 'finding ledger', 'ledger')
+    lines = _read_stdin_lines(args, 'record-adjudication', 'finding ledger', 'ledger')
     if len(lines) != must_revise:
         _fail('record-adjudication',
               f'the ledger carries {len(lines)} finding summaries but the adjudication '
@@ -6298,7 +6522,7 @@ def cmd_record_coverage(args):
         _fail('record-coverage', '--expected-keys repeats a dimension key '
                                  '(coverage-expected-duplicate); the enumeration is keyed '
                                  'and its keys are unique by construction')
-    coverage = _ingest_coverage(expected)
+    coverage = _ingest_coverage(args, expected)
     rnd['coverage'] = coverage
     # Persist the enumeration totality was checked against. The state owner cannot
     # re-derive it (it holds no template), so `--expected-keys` is an orchestrator-supplied
@@ -6321,7 +6545,7 @@ def cmd_record_coverage(args):
           f'backs_run={backs}')
 
 
-def _ingest_coverage(expected_keys):
+def _ingest_coverage(args, expected_keys):
     """Read `--coverage-stdin` and build the round's coverage list, or fail closed.
 
     One line per required dimension: ``<key> <outcome> [anchor text...]`` — the key and
@@ -6333,7 +6557,7 @@ def _ingest_coverage(expected_keys):
     DOWNGRADED to `unestablished` with its anchor dropped — never rejected (unknown is not
     zero, and the coverage record must stay total over required dimensions).
     """
-    lines = _read_stdin_lines('record-coverage', 'coverage list', 'coverage')
+    lines = _read_stdin_lines(args, 'record-coverage', 'coverage list', 'coverage')
     coverage = []
     seen = set()
     for idx, line in enumerate(lines, start=1):
@@ -6992,13 +7216,9 @@ def cmd_record_revision(args):
     # failed cannot masquerade as audited bytes.
     stdin_digest = None
     if getattr(args, 'stdin_digest', False):
-        if sys.stdin is None:
-            _fail('record-revision', 'could not read revised bytes from stdin: no stdin '
-                                     'is attached (fd 0 is closed)')
-        try:
-            data = sys.stdin.buffer.read()
-        except OSError as exc:
-            _fail('record-revision', f'could not read revised bytes from stdin: {exc}')
+        # Revised bytes read from stdin, hoisted into main() above the section (issue
+        # #1040); `_stdin_bytes_or_fail` reproduces the closed-fd and read-error breadcrumbs.
+        data = _stdin_bytes_or_fail(args, 'record-revision', 'revised bytes')
         if not data:
             _fail('record-revision', '--stdin-digest was given but no revised bytes were '
                                      'received on stdin')
@@ -7609,22 +7829,11 @@ def cmd_record_creation_attestation(args):
     if args.attestation_unavailable:
         status = 'attestation-unavailable'
     else:
-        # Fail with the named breadcrumb rather than a raw traceback: this command IS the
-        # tamper-detection surface, so a crash here would leave the run with no
-        # attestation record at all — rendering `attestation=none` ("before any creation
-        # attempt"), the never-attempted misattribution that `attestation-unavailable`
-        # exists to prevent. A closed fd 0 fails at the ATTRIBUTE access (CPython sets
-        # `sys.stdin = None`), not from the read, so it is tested separately — an
-        # `except OSError` alone is blind to it. See record-dispatch's twin.
-        if sys.stdin is None:
-            _fail('record-creation-attestation',
-                  'could not read the fetched body from stdin: no stdin is attached '
-                  '(fd 0 is closed)')
-        try:
-            data = sys.stdin.buffer.read()
-        except OSError as exc:
-            _fail('record-creation-attestation',
-                  f'could not read the fetched body from stdin: {exc}')
+        # The fetched body is read from stdin, hoisted into main() above the section (issue
+        # #1040); `_stdin_bytes_or_fail` reproduces the named closed-fd and read-error
+        # breadcrumbs verbatim rather than letting a raw traceback break the mutation
+        # contract on this tamper-detection surface (see record-dispatch's twin).
+        data = _stdin_bytes_or_fail(args, 'record-creation-attestation', 'the fetched body')
         # Empty fetched bytes are COMPARED, not laundered into unavailable: an empty
         # created body from a successful fetch is exactly the empty-bodied-issue
         # failure the posting guard exists to catch, and the recorded digest makes the
@@ -7697,7 +7906,12 @@ def cmd_record_claim_baseline(args):
             _fail(prefix, f'domain-class-no-domain: a {args.claim_class} claim is identified '
                           f'by its re-executed full-domain search result; pipe it with '
                           f'--domain-stdin')
-        data = sys.stdin.buffer.read()
+        # The domain search result was read from stdin, hoisted into main() above the
+        # section (issue #1040). This site never carried the fd-0-closed guard, so a closed
+        # fd 0 leaves args._stdin_data None and falls through to the domain-class-empty-domain
+        # refusal below (a clean named breadcrumb where an in-handler bare read would have
+        # crashed with an AttributeError) — a deliberate, minor robustness improvement.
+        data = args._stdin_data
         if not data:
             _fail(prefix, 'domain-class-empty-domain: --domain-stdin produced no bytes; a '
                           'search that emitted nothing cannot identify a baseline')
@@ -7802,7 +8016,12 @@ def cmd_check_claim_staleness(args):
             print('claims=none')
             return
         keys = sorted(claims)
-    domain = sys.stdin.buffer.read() if args.domain_stdin else None
+    # The domain search result was read from stdin, hoisted into main() above dispatch
+    # (issue #1040). check-claim-staleness is read-only (no section), but the read still
+    # moves to main() so no handler touches sys.stdin. _read_stdin_once reads only when
+    # --domain-stdin is selected, so args._stdin_data is None otherwise — equivalent to the
+    # former `... if args.domain_stdin else None`.
+    domain = args._stdin_data
     # Memoized across the loop: a path cited by several location claims is hashed once.
     cache = {}
     for key in keys:
@@ -7851,7 +8070,10 @@ def cmd_record_finding_evidence(args):
     doc = _load_for_mutation(prefix, args.slug, args.nonce)
     observed = None
     if args.observed_stdin:
-        raw = sys.stdin.buffer.read()
+        # Read from stdin, hoisted into main() above the section (issue #1040). This site
+        # never carried the fd-0-closed guard, so a closed fd 0 leaves args._stdin_data None
+        # and the decode below raises the same way the former bare sys.stdin read did.
+        raw = args._stdin_data
         # An empty read is NOT refused: issue #704 requires evidence that is absent or
         # incomplete to be RECORDED `incomplete` (never verified), which is what
         # `evidence_completeness` does with an empty `observed`. Refusing would record no
@@ -9115,9 +9337,104 @@ def registered_subcommands():
     raise AssertionError('issue-audit-state: build_parser() registered no subparsers')
 
 
+# ── Issue #1040: read-only predicate + hoisted stdin read ─────────────────────────
+# The read-only predicate decides which subcommands skip the critical section. It is the
+# existing naming rule (a name beginning `query-`) plus the two non-query read surfaces
+# already in _NEXT_CALL_EXCLUDED — it introduces no new closed set. Its complement is
+# proved fail-closed against handler source by lib/test/check-audit-lifecycle-contracts.py.
+_READONLY_EXTRA = frozenset(('emit-body', 'check-claim-staleness'))
+
+
+def _is_read_only(cmd):
+    """True iff `cmd` acquires no sentinel (issue #1040)."""
+    return cmd.startswith('query-') or cmd in _READONLY_EXTRA
+
+
+def _selects_stdin(args):
+    """Whether the parsed args select a stdin payload for this command (issue #1040).
+
+    The read is hoisted to main() above the section, so this must mirror each handler's
+    OWN arg-based read trigger exactly — a flag for the four flag-gated payloads, and the
+    arm for record-dispatch (embed/inline draft bytes) and record-creation-attestation
+    (the fetched body). The scope is larger than the four stdin flags the issue enumerated
+    (record-dispatch, record-creation-attestation, and record-finding-evidence also read
+    stdin), and the hoist covers all of them so no handler performs a sys.stdin read.
+    """
+    cmd = getattr(args, 'cmd', None)
+    if cmd == 'record-dispatch':
+        # The draft bytes are read from stdin on every arm EXCEPT the file arm (which reads
+        # `--draft-file`). The gate is the arm, not the presence of --draft-file: an
+        # embed/inline dispatch may still carry a --draft-file argument yet reads stdin.
+        return getattr(args, 'arm', None) != 'file'
+    if cmd == 'record-creation-attestation':
+        return not getattr(args, 'attestation_unavailable', False)
+    if cmd == 'record-revision':
+        return bool(getattr(args, 'stdin_digest', False))
+    if cmd == 'record-adjudication':
+        return bool(getattr(args, 'ledger_stdin', False))
+    if cmd == 'record-coverage':
+        return bool(getattr(args, 'coverage_stdin', False))
+    if cmd in ('record-claim-baseline', 'check-claim-staleness'):
+        return bool(getattr(args, 'domain_stdin', False))
+    if cmd == 'record-finding-evidence':
+        return bool(getattr(args, 'observed_stdin', False))
+    return False
+
+
+def _read_stdin_once(args):
+    """Hoist the single stdin read above main()'s dispatch and the critical section (issue
+    #1040), so no handler blocks on stdin inside the section and the section's duration is
+    bounded by one small-document read-modify-write. Records the payload (or the fd-0-closed
+    / read-error condition) on `args` for the handler to consume; reads nothing when the
+    parsed args select no payload. The existing per-handler absent-stdin guard moves with
+    the read (see `_stdin_bytes_or_fail`), so its behavior and breadcrumb are unchanged.
+    """
+    args._stdin_data = None
+    args._stdin_missing = False
+    args._stdin_error = None
+    if not _selects_stdin(args):
+        return
+    if sys.stdin is None:
+        args._stdin_missing = True
+        return
+    try:
+        args._stdin_data = sys.stdin.buffer.read()
+    except OSError as exc:
+        args._stdin_error = exc
+
+
+def _stdin_bytes_or_fail(args, command, phrase):
+    """Return the hoisted stdin bytes, reproducing the guarded sites' fd-0-closed and
+    read-error breadcrumbs verbatim (issue #1040). `phrase` is the exact wording each site
+    used after `could not read ` (`draft bytes`, `revised bytes`, `the fetched body`, `the
+    finding ledger`, `the coverage list`).
+    """
+    if args._stdin_missing:
+        _fail(command, f'could not read {phrase} from stdin: no stdin is attached '
+                       f'(fd 0 is closed)')
+    if args._stdin_error is not None:
+        _fail(command, f'could not read {phrase} from stdin: {args._stdin_error}')
+    return args._stdin_data
+
+
 def main():
     args = build_parser().parse_args()
-    ctx = args.func(args)
+    # Hoist stdin ABOVE the section (issue #1040): read any payload the parsed args select
+    # before dispatch, so a mutating handler's stdin read never blocks inside the section.
+    _read_stdin_once(args)
+    if _is_read_only(args.cmd):
+        # Read-only subcommands acquire no sentinel and are unaffected by one being held.
+        ctx = args.func(args)
+    else:
+        # Wrap the single dispatch site so the handler's load_state..save_state runs under
+        # exclusion. A section acquisition failure raises a cannot-persist StateError, which
+        # routes through _fail exactly like every other could-not-persist breadcrumb (no new
+        # mutation-exit class). __exit__ runs the ownership-checked release on every path.
+        try:
+            with _StateSection(args.slug):
+                ctx = args.func(args)
+        except StateError as exc:
+            _fail(args.cmd, str(exc))
     # issue #795 — the SINGLE `next_call=` emission site. It runs after the command's own
     # function returned, so every existing decided line stays byte-identical and first, and
     # a refusal (which raises `SystemExit` out of `_fail`) never reaches here.

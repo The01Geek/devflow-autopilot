@@ -2196,3 +2196,44 @@ if [ -d "$WP_SB" ]; then
     "0" "$(sed -n 1p "$WP_SB/.wp-embed-rc" 2>/dev/null)"
   rm -rf "$WP_SB"
 fi
+
+# ── issue #1040: write-serialization sentinel at the process boundary ──────────────
+# The shell-level assertions on the section's process boundary — the exit code and stderr
+# breadcrumb the orchestrator routes on — driven with sub-second DEVFLOW_IAS_* overrides so
+# the section's timing behavior is exercised in milliseconds rather than at the shipped
+# 30s/45s bounds. Contention is created deterministically (the test plants the sentinel
+# itself), never by racing two writers.
+SL_SB="$(git_sandbox '#1040 cli_stale_break_exit_and_breadcrumb')"
+(
+  cd "$SL_SB" || exit 1
+  mkdir -p .prflow/tmp
+  # (1) stale break: plant a sentinel, age it past a sub-second stale_after_s, then run a
+  #     real mutation. It must break the stale sentinel, proceed, and exit 0.
+  printf '4242' > .prflow/tmp/issue-audit-state-s.json.lock
+  sleep 0.2
+  DEVFLOW_IAS_STALE_AFTER_S=0.05 DEVFLOW_IAS_ACQUIRE_WINDOW_S=0.5 \
+    python3 "$IAS" init s > .sl-out 2> .sl-err
+  printf '%s' "$?" > .sl-rc
+  # (2) contention refusal: a FRESH sentinel with INVERTED bounds (window < stale) is never
+  #     broken, so acquisition exhausts the window → exit non-zero, no state persisted, and
+  #     the could-not-persist breadcrumb (the routing class the skill already carries).
+  printf '9999' > .prflow/tmp/issue-audit-state-s3.json.lock
+  DEVFLOW_IAS_ACQUIRE_WINDOW_S=0.2 DEVFLOW_IAS_STALE_AFTER_S=30 \
+    python3 "$IAS" init s3 > .sl3-out 2> .sl3-err
+  printf '%s' "$?" > .sl3-rc
+  # the refused mutation left no state file for s3
+  [ -f .prflow/tmp/issue-audit-state-s3.json ] && printf 'yes' > .sl3-state || printf 'no' > .sl3-state
+) || true
+assert_eq "#1040 cli_stale_break_exit_and_breadcrumb: the mutation breaks the stale sentinel and exits 0" \
+  "0" "$(cat "$SL_SB/.sl-rc" 2>/dev/null)"
+assert_eq "#1040 cli_stale_break_exit_and_breadcrumb: stderr carries the stale-break breadcrumb" \
+  "1" "$(grep -c 'broke a stale audit-state sentinel' "$SL_SB/.sl-err" 2>/dev/null)"
+assert_eq "#1040 cli_stale_break_exit_and_breadcrumb: the breadcrumb names the recorded pid" \
+  "1" "$(grep -c '4242' "$SL_SB/.sl-err" 2>/dev/null)"
+assert_eq "#1040 cli_contention_refusal: inverted bounds over a fresh sentinel exit non-zero (1)" \
+  "1" "$(cat "$SL_SB/.sl3-rc" 2>/dev/null)"
+assert_eq "#1040 cli_contention_refusal: the refusal names could-not-persist-state" \
+  "1" "$(grep -c 'could not persist state' "$SL_SB/.sl3-err" 2>/dev/null)"
+assert_eq "#1040 cli_contention_refusal: the refused mutation persisted no state file" \
+  "no" "$(cat "$SL_SB/.sl3-state" 2>/dev/null)"
+rm -rf "$SL_SB"

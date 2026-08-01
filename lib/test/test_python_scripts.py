@@ -6962,6 +6962,617 @@ with tempfile.TemporaryDirectory() as _td:
               "the failed persist",
               [], list((_ss_root / '.prflow' / 'tmp').glob('*.json.tmp')))
 
+# ── issue #1040: write-serialization sentinel + per-writer temp path ───────────────
+print()
+print("issue-audit-state: #1040 write-serialization (state_section + mkstemp)")
+
+import time as _time1040  # noqa: E402
+
+
+def _ias1040_sentinel(root):
+    return str(issue_audit_state.state_path('s', root=root)) + '.lock'
+
+
+def _ias1040_capture_stderr(fn):
+    _buf = io.StringIO()
+    with contextlib.redirect_stderr(_buf):
+        result = fn()
+    return result, _buf.getvalue()
+
+
+# temp_path_is_unique — a decoy at the OLD fixed temp path is NOT clobbered by save_state,
+# which now uses tempfile.mkstemp for a unique per-writer path. RED against the pre-#1040
+# save_state (path.with_suffix('.json.tmp') truncated exactly that path).
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    _tmpdir = _R / '.prflow' / 'tmp'
+    _tmpdir.mkdir(parents=True)
+    _decoy = _R / '.prflow' / 'tmp' / 'issue-audit-state-s.json.tmp'
+    _decoy.write_bytes(b'DECOY-BYTES')
+    issue_audit_state.save_state(_state([]), 's', root=_R)
+    assert_eq("#1040 temp_path_is_unique: the decoy at the old fixed temp path is untouched",
+              b'DECOY-BYTES', _decoy.read_bytes())
+    assert_eq("#1040 temp_path_is_unique: no stray .json.tmp survives a clean persist",
+              [_decoy], sorted(_tmpdir.glob('*.json.tmp')))
+    # written_bytes_load: the bytes that landed re-load and re-validate.
+    _reloaded = issue_audit_state.load_state('s', root=_R)
+    assert_eq("#1040 written_bytes_load: the persisted bytes load and validate",
+              0, len(_reloaded['rounds']))
+
+# state_file_mode_is_0600 (POSIX only): mkstemp creates 0600 and os.replace carries it.
+if os.name != 'nt':
+    with tempfile.TemporaryDirectory() as _td:
+        _R = Path(_td)
+        issue_audit_state.save_state(_state([]), 's', root=_R)
+        _mode = os.stat(issue_audit_state.state_path('s', root=_R)).st_mode & 0o777
+        assert_eq("#1040 state_file_mode_is_0600: persisted state file mode is 0600 on POSIX",
+                  0o600, _mode)
+else:
+    assert_eq("#1040 state_file_mode_is_0600: skipped on Windows (st_mode bits derive from "
+              "the read-only attribute, not the creating mode)", True, True)
+
+# mkstemp_failure_is_routed: a tempfile.mkstemp OSError surfaces as the could-not-persist
+# StateError, never a bare OSError traceback.
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    _orig_mkstemp = issue_audit_state.tempfile.mkstemp
+
+    def _boom_mkstemp(*a, **k):
+        raise PermissionError('mkstemp denied')
+
+    issue_audit_state.tempfile.mkstemp = _boom_mkstemp
+    try:
+        try:
+            issue_audit_state.save_state(_state([]), 's', root=_R)
+            assert_eq("#1040 mkstemp_failure_is_routed: raises StateError",
+                      "raised", "no exception")
+        except issue_audit_state.StateError as _e:
+            assert_eq("#1040 mkstemp_failure_is_routed: message begins could-not-persist",
+                      True, str(_e).startswith('could not persist state to '))
+    finally:
+        issue_audit_state.tempfile.mkstemp = _orig_mkstemp
+
+# replace_retry_absorbs_permission_error: os.replace raising PermissionError once then
+# succeeding lands the doc; raising every time raises could-not-persist and leaves no
+# .json.tmp.
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    _orig_replace = issue_audit_state.os.replace
+    _calls = {'n': 0}
+
+    def _flaky_replace(src, dst):
+        _calls['n'] += 1
+        if _calls['n'] == 1:
+            raise PermissionError('sharing violation')
+        return _orig_replace(src, dst)
+
+    issue_audit_state.os.replace = _flaky_replace
+    try:
+        issue_audit_state.save_state(_state([]), 's', root=_R)
+        assert_eq("#1040 replace_retry_absorbs_permission_error: one PermissionError then "
+                  "success lands the doc", 0,
+                  len(issue_audit_state.load_state('s', root=_R)['rounds']))
+        assert_eq("#1040 replace_retry_absorbs_permission_error: the retry actually re-ran "
+                  "os.replace", 2, _calls['n'])
+    finally:
+        issue_audit_state.os.replace = _orig_replace
+
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    (_R / '.prflow' / 'tmp').mkdir(parents=True)
+    _orig_replace = issue_audit_state.os.replace
+
+    def _always_fail_replace(src, dst):
+        raise PermissionError('always')
+
+    issue_audit_state.os.replace = _always_fail_replace
+    try:
+        try:
+            issue_audit_state.save_state(_state([]), 's', root=_R)
+            assert_eq("#1040 replace_retry_absorbs_permission_error (exhausted): raises "
+                      "StateError", "raised", "no exception")
+        except issue_audit_state.StateError as _e:
+            assert_eq("#1040 replace_retry_absorbs_permission_error (exhausted): could-not-"
+                      "persist breadcrumb", True,
+                      str(_e).startswith('could not persist state to '))
+        assert_eq("#1040 replace_retry_absorbs_permission_error (exhausted): no .json.tmp "
+                  "survives", [], list((_R / '.prflow' / 'tmp').glob('*.json.tmp')))
+    finally:
+        issue_audit_state.os.replace = _orig_replace
+
+# uncontended_mutation + acquires_when_state_dir_absent: a section in a BARE sandbox (no
+# .prflow/tmp) acquires, the mutation lands, and no sentinel remains.
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    with issue_audit_state._StateSection('s', root=_R):
+        issue_audit_state.save_state(_state([]), 's', root=_R)
+    assert_eq("#1040 uncontended_mutation: the mutation persisted under the section",
+              0, len(issue_audit_state.load_state('s', root=_R)['rounds']))
+    assert_eq("#1040 acquires_when_state_dir_absent + uncontended_mutation: no sentinel "
+              "remains after a clean section", False, os.path.exists(_ias1040_sentinel(_R)))
+
+# sequential_writers_both_land: two sequential sections both write; the doc holds both
+# rounds and no sentinel leaks (a leaked sentinel would refuse the second writer).
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    with issue_audit_state._StateSection('s', root=_R):
+        issue_audit_state.save_state(_state([_round(1, 'inline', None)]), 's', root=_R)
+    with issue_audit_state._StateSection('s', root=_R):
+        _d = issue_audit_state.load_state('s', root=_R)
+        _d['rounds'].append(_round(2, 'inline', None))
+        issue_audit_state.save_state(_d, 's', root=_R)
+    assert_eq("#1040 sequential_writers_both_land: both rounds are present", 2,
+              len(issue_audit_state.load_state('s', root=_R)['rounds']))
+    assert_eq("#1040 sequential_writers_both_land: no sentinel leaked", False,
+              os.path.exists(_ias1040_sentinel(_R)))
+
+# section_released_on_raise: a handler raising inside the section, and save_state raising,
+# both leave no sentinel behind.
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    try:
+        with issue_audit_state._StateSection('s', root=_R):
+            raise ValueError('handler blew up')
+    except ValueError:
+        pass
+    assert_eq("#1040 section_released_on_raise (handler raises): no sentinel remains",
+              False, os.path.exists(_ias1040_sentinel(_R)))
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    # Occupy the state path with a directory so save_state raises inside the section.
+    (_R / '.prflow' / 'tmp' / 'issue-audit-state-s.json').mkdir(parents=True)
+    try:
+        with issue_audit_state._StateSection('s', root=_R):
+            issue_audit_state.save_state(_state([]), 's', root=_R)
+    except issue_audit_state.StateError:
+        pass
+    assert_eq("#1040 section_released_on_raise (save_state raises): no sentinel remains",
+              False, os.path.exists(_ias1040_sentinel(_R)))
+
+# stale_sentinel_breaks: a sentinel back-dated past stale_after_s is broken; the section
+# acquires, the breadcrumb names the path, pid and age, and no sentinel remains.
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    (_R / '.prflow' / 'tmp').mkdir(parents=True)
+    _sent = _ias1040_sentinel(_R)
+    with open(_sent, 'w') as _fh:
+        _fh.write('4242')
+    os.utime(_sent, (_time1040.time() - 1000, _time1040.time() - 1000))
+
+    def _do_break():
+        with issue_audit_state._StateSection('s', root=_R, acquire_window_s=2,
+                                             stale_after_s=1):
+            issue_audit_state.save_state(_state([]), 's', root=_R)
+        return True
+
+    _ok, _err = _ias1040_capture_stderr(_do_break)
+    assert_eq("#1040 stale_sentinel_breaks: the mutation lands after breaking the stale "
+              "sentinel", 0, len(issue_audit_state.load_state('s', root=_R)['rounds']))
+    assert_eq("#1040 stale_sentinel_breaks: breadcrumb names the sentinel path", True,
+              _sent in _err)
+    assert_eq("#1040 stale_sentinel_breaks: breadcrumb names the recorded pid", True,
+              '4242' in _err)
+    assert_eq("#1040 stale_sentinel_breaks: breadcrumb reports the observed age", True,
+              'age ' in _err)
+    assert_eq("#1040 stale_sentinel_breaks: no sentinel remains after release", False,
+              os.path.exists(_sent))
+
+# inverted_bounds_refuse_as_unpersistable: with acquire_window_s < stale_after_s and a
+# FRESH sentinel, the section never breaks and exhausts the window → could-not-persist
+# StateError naming the sentinel + pid, and the state file is byte-identical.
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    issue_audit_state.save_state(_state([]), 's', root=_R)
+    _before = issue_audit_state.state_path('s', root=_R).read_bytes()
+    _sent = _ias1040_sentinel(_R)
+    with open(_sent, 'w') as _fh:
+        _fh.write('9999')
+    try:
+        with issue_audit_state._StateSection('s', root=_R, acquire_window_s=0.2,
+                                             stale_after_s=30):
+            issue_audit_state.save_state(_state([_round(1, 'inline', None)]), 's', root=_R)
+        assert_eq("#1040 inverted_bounds_refuse_as_unpersistable: raises StateError",
+                  "raised", "no exception")
+    except issue_audit_state.StateError as _e:
+        assert_eq("#1040 inverted_bounds_refuse_as_unpersistable: could-not-persist "
+                  "breadcrumb naming the sentinel", True,
+                  str(_e).startswith('could not persist state to ') and _sent in str(_e))
+        assert_eq("#1040 inverted_bounds_refuse_as_unpersistable: breadcrumb names the "
+                  "recorded pid", True, '9999' in str(_e))
+    os.unlink(_sent)
+    assert_eq("#1040 inverted_bounds_refuse_as_unpersistable: the state file is byte-"
+              "identical", _before, issue_audit_state.state_path('s', root=_R).read_bytes())
+
+# acquire_oserror_fails_fast: an os.open OSError that is neither FileExists nor a missing
+# parent raises StateError immediately (well under the acquire window), naming the sentinel.
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    (_R / '.prflow' / 'tmp').mkdir(parents=True)
+    _orig_open = issue_audit_state.os.open
+
+    def _denied_open(*a, **k):
+        raise PermissionError('open denied')
+
+    issue_audit_state.os.open = _denied_open
+    try:
+        _t0 = _time1040.monotonic()
+        try:
+            with issue_audit_state._StateSection('s', root=_R, acquire_window_s=30,
+                                                 stale_after_s=1):
+                pass
+            assert_eq("#1040 acquire_oserror_fails_fast: raises StateError", "raised",
+                      "no exception")
+        except issue_audit_state.StateError as _e:
+            assert_eq("#1040 acquire_oserror_fails_fast: could-not-persist breadcrumb "
+                      "naming the sentinel + error", True,
+                      str(_e).startswith('could not persist state to ')
+                      and 'open denied' in str(_e))
+        assert_eq("#1040 acquire_oserror_fails_fast: fails FAST (well under the 30s window)",
+                  True, (_time1040.monotonic() - _t0) < 5)
+    finally:
+        issue_audit_state.os.open = _orig_open
+
+# release_does_not_unlink_a_foreign_sentinel: when the live sentinel's identity no longer
+# matches the token this section recorded at acquire (an age-break by another process
+# replaced it), release leaves the file in place and breadcrumbs. Driven by forcing the
+# recorded ownership token to a value the live stat cannot match — deterministic, unlike an
+# unlink+recreate whose freed inode a filesystem may immediately reuse.
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    _sent = _ias1040_sentinel(_R)
+    _sec = issue_audit_state._StateSection('s', root=_R)
+    _sec.__enter__()
+    _sec._token = (-1, -1)                 # the file at _sent is now "not ours"
+    _, _err = _ias1040_capture_stderr(lambda: _sec.__exit__(None, None, None))
+    assert_eq("#1040 release_does_not_unlink_a_foreign_sentinel: the foreign file is left "
+              "in place", True, os.path.exists(_sent))
+    assert_eq("#1040 release_does_not_unlink_a_foreign_sentinel: breadcrumb reports the "
+              "broken-by-another-process case", True, 'broken by another process' in _err)
+    os.unlink(_sent)
+
+# unlink_failure_never_replaces_the_real_exception: os.unlink raising at the release site
+# while the handler raises leaves the handler's exception intact and breadcrumbs beside it.
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    _orig_unlink = issue_audit_state.os.unlink
+
+    def _denied_unlink(*a, **k):
+        raise PermissionError('unlink denied')
+
+    _raised = {'kind': None}
+    _err_buf = io.StringIO()
+    _sec = issue_audit_state._StateSection('s', root=_R)
+    _sec.__enter__()
+    issue_audit_state.os.unlink = _denied_unlink
+    try:
+        with contextlib.redirect_stderr(_err_buf):
+            _sec.__exit__(ValueError, ValueError('the real one'), None)
+    except Exception as _e:  # noqa: BLE001
+        _raised['kind'] = type(_e).__name__
+    finally:
+        issue_audit_state.os.unlink = _orig_unlink
+    assert_eq("#1040 unlink_failure_never_replaces_the_real_exception: __exit__ does not "
+              "raise the unlink failure (returns falsy, the real exception propagates from "
+              "the with-block)", None, _raised['kind'])
+    assert_eq("#1040 unlink_failure_never_replaces_the_real_exception: the release failure "
+              "is breadcrumbed", True,
+              'could not unlink the audit-state sentinel' in _err_buf.getvalue())
+    if os.path.exists(_ias1040_sentinel(_R)):
+        _orig_unlink(_ias1040_sentinel(_R))
+
+# stale_break_rechecks_mtime: when os.stat reports a CHANGED mtime between judging staleness
+# and unlinking, _break_if_stale performs no unlink and returns False (→ ordinary retry).
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    (_R / '.prflow' / 'tmp').mkdir(parents=True)
+    _sent = _ias1040_sentinel(_R)
+    with open(_sent, 'w') as _fh:
+        _fh.write('5555')
+    _sec = issue_audit_state._StateSection('s', root=_R, acquire_window_s=2, stale_after_s=1)
+    _orig_stat = issue_audit_state.os.stat
+    _stat_calls = {'n': 0}
+
+    class _FakeStat:
+        def __init__(self, mtime):
+            self.st_mtime = mtime
+
+    def _shifting_stat(path, *a, **k):
+        if str(path) == _sent:
+            _stat_calls['n'] += 1
+            # First stat: old (stale) mtime; second stat: a DIFFERENT mtime (a live touch).
+            return _FakeStat(1000.0 if _stat_calls['n'] == 1 else 2000.0)
+        return _orig_stat(path, *a, **k)
+
+    issue_audit_state.os.stat = _shifting_stat
+    try:
+        _broke = _sec._break_if_stale()
+    finally:
+        issue_audit_state.os.stat = _orig_stat
+    assert_eq("#1040 stale_break_rechecks_mtime: a changed mtime aborts the break", False,
+              _broke)
+    assert_eq("#1040 stale_break_rechecks_mtime: the sentinel is left in place", True,
+              os.path.exists(_sent))
+    _orig_unlink = issue_audit_state.os.unlink
+    _orig_unlink(_sent)
+
+# malformed_sentinel_pid: the five unreadable shapes all render 'unestablished'; a decimal
+# pid with a trailing newline renders as the pid (the complement control).
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    _p = Path(_td) / 'sent.lock'
+    assert_eq("#1040 malformed_sentinel_pid: file-read failure (absent) → unestablished",
+              'unestablished', issue_audit_state._read_sentinel_pid(str(_p)))
+    _p.write_bytes(b'')
+    assert_eq("#1040 malformed_sentinel_pid: empty file → unestablished",
+              'unestablished', issue_audit_state._read_sentinel_pid(str(_p)))
+    _p.write_bytes(b'   \n\t ')
+    assert_eq("#1040 malformed_sentinel_pid: whitespace-only → unestablished",
+              'unestablished', issue_audit_state._read_sentinel_pid(str(_p)))
+    _p.write_bytes(b'not-a-number')
+    assert_eq("#1040 malformed_sentinel_pid: non-decimal text → unestablished",
+              'unestablished', issue_audit_state._read_sentinel_pid(str(_p)))
+    _p.write_bytes(b'1' * 65)
+    assert_eq("#1040 malformed_sentinel_pid: content exceeding 64 bytes → unestablished",
+              'unestablished', issue_audit_state._read_sentinel_pid(str(_p)))
+    _p.write_bytes(b'12345\n')
+    assert_eq("#1040 malformed_sentinel_pid (control): a decimal pid with a trailing newline "
+              "renders as the pid", '12345', issue_audit_state._read_sentinel_pid(str(_p)))
+
+# bounds_override_ignores_unusable_values: absent/empty/non-numeric/zero/negative all yield
+# the default; a positive value overrides.
+_ENV = 'DEVFLOW_IAS_TEST_1040'
+os.environ.pop(_ENV, None)
+assert_eq("#1040 bounds_override_ignores_unusable_values: absent → default", 45.0,
+          issue_audit_state._positive_env_float(_ENV, 45.0))
+for _bad in ('', '   ', 'abc', '0', '-3', '0.0'):
+    os.environ[_ENV] = _bad
+    assert_eq(f"#1040 bounds_override_ignores_unusable_values: {_bad!r} → default", 45.0,
+              issue_audit_state._positive_env_float(_ENV, 45.0))
+os.environ[_ENV] = '0.05'
+assert_eq("#1040 bounds_override_ignores_unusable_values: a positive value overrides",
+          0.05, issue_audit_state._positive_env_float(_ENV, 45.0))
+os.environ.pop(_ENV, None)
+
+# _StateSection reads its two bounds from the test-only env vars (the mechanism the shell
+# tests drive the process boundary with).
+os.environ['DEVFLOW_IAS_ACQUIRE_WINDOW_S'] = '0.30'
+os.environ['DEVFLOW_IAS_STALE_AFTER_S'] = '0.10'
+try:
+    _sec = issue_audit_state._StateSection('s', root=Path('/tmp'))
+    assert_eq("#1040 env-override: acquire window read from DEVFLOW_IAS_ACQUIRE_WINDOW_S",
+              0.30, _sec._acquire_window_s)
+    assert_eq("#1040 env-override: stale-after read from DEVFLOW_IAS_STALE_AFTER_S",
+              0.10, _sec._stale_after_s)
+finally:
+    os.environ.pop('DEVFLOW_IAS_ACQUIRE_WINDOW_S', None)
+    os.environ.pop('DEVFLOW_IAS_STALE_AFTER_S', None)
+
+# ── stdin-hoist behavior (issue #1040) ─────────────────────────────────────────────
+# _selects_stdin mirrors each handler's own arg-based read trigger.
+def _ns(**kw):
+    return argparse.Namespace(**kw)
+
+
+assert_eq("#1040 _selects_stdin: record-dispatch inline arm reads stdin (even with a "
+          "--draft-file argument present)", True,
+          issue_audit_state._selects_stdin(_ns(cmd='record-dispatch', arm='inline',
+                                               draft_file='/x')))
+assert_eq("#1040 _selects_stdin: record-dispatch file arm reads no stdin", False,
+          issue_audit_state._selects_stdin(_ns(cmd='record-dispatch', arm='file',
+                                               draft_file='/x')))
+assert_eq("#1040 _selects_stdin: record-creation-attestation reads unless --unavailable",
+          True, issue_audit_state._selects_stdin(_ns(cmd='record-creation-attestation',
+                                                     attestation_unavailable=False)))
+assert_eq("#1040 _selects_stdin: --attestation-unavailable reads no stdin", False,
+          issue_audit_state._selects_stdin(_ns(cmd='record-creation-attestation',
+                                               attestation_unavailable=True)))
+assert_eq("#1040 _selects_stdin: record-revision reads only with --stdin-digest", True,
+          issue_audit_state._selects_stdin(_ns(cmd='record-revision', stdin_digest=True)))
+assert_eq("#1040 _selects_stdin: check-claim-staleness reads only with --domain-stdin",
+          True, issue_audit_state._selects_stdin(_ns(cmd='check-claim-staleness',
+                                                     domain_stdin=True)))
+assert_eq("#1040 _selects_stdin: an unrelated command selects no stdin", False,
+          issue_audit_state._selects_stdin(_ns(cmd='query-summary')))
+
+# stdin_hoist_preserves_the_absent_stdin_guard: with sys.stdin None and a stdin-selecting
+# command, _read_stdin_once records the closed-fd condition and _stdin_bytes_or_fail raises
+# the SAME named breadcrumb (a SystemExit via _fail) — never an AttributeError traceback.
+_orig_stdin = sys.stdin
+try:
+    sys.stdin = None
+    _a = _ns(cmd='record-dispatch', arm='inline', draft_file=None)
+    issue_audit_state._read_stdin_once(_a)
+    assert_eq("#1040 stdin_hoist_preserves_the_absent_stdin_guard: closed fd 0 is recorded",
+              True, _a._stdin_missing)
+    _sysexit = {'raised': False, 'msg': ''}
+    _errbuf = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(_errbuf):
+            issue_audit_state._stdin_bytes_or_fail(_a, 'record-dispatch', 'draft bytes')
+    except SystemExit:
+        _sysexit['raised'] = True
+        _sysexit['msg'] = _errbuf.getvalue()
+    assert_eq("#1040 stdin_hoist_preserves_the_absent_stdin_guard: _fail (SystemExit) fires",
+              True, _sysexit['raised'])
+    assert_eq("#1040 stdin_hoist_preserves_the_absent_stdin_guard: the named breadcrumb is "
+              "preserved verbatim", True,
+              'could not read draft bytes from stdin: no stdin is attached (fd 0 is closed)'
+              in _sysexit['msg'])
+finally:
+    sys.stdin = _orig_stdin
+
+# stdin_is_read_before_acquire: main() reads stdin BEFORE entering the section. Proven at
+# the source level (an executable-order pin): _read_stdin_once precedes the _StateSection
+# `with` in main().
+_ias1040_main_src = inspect.getsource(issue_audit_state.main)
+assert_eq("#1040 stdin_is_read_before_acquire: main() calls _read_stdin_once before the "
+          "_StateSection with-block", True,
+          _ias1040_main_src.index('_read_stdin_once(args)')
+          < _ias1040_main_src.index('_StateSection(args.slug)'))
+
+# readers_are_not_serialized: the read-only predicate selects every query-* plus emit-body
+# and check-claim-staleness, and NO record-* / init.
+for _ro in ('query-summary', 'query-arm', 'emit-body', 'check-claim-staleness'):
+    assert_eq(f"#1040 readers_are_not_serialized: {_ro} is read-only (no section)", True,
+              issue_audit_state._is_read_only(_ro))
+for _mut in ('init', 'record-dispatch', 'record-return', 'record-claim-baseline',
+             'write-dispatch-scope'):
+    assert_eq(f"#1040 readers_are_not_serialized: {_mut} is NOT read-only (takes section)",
+              False, issue_audit_state._is_read_only(_mut))
+
+# stdlib_only_imports: the module imports only the standard library, and neither fcntl nor
+# msvcrt.
+_ias1040_tree = ast.parse((SCRIPTS / 'issue-audit-state.py').read_text(encoding='utf-8'))
+_ias1040_imports = set()
+for _node in ast.walk(_ias1040_tree):
+    if isinstance(_node, ast.Import):
+        for _al in _node.names:
+            _ias1040_imports.add(_al.name.split('.')[0])
+    elif isinstance(_node, ast.ImportFrom) and _node.module and _node.level == 0:
+        _ias1040_imports.add(_node.module.split('.')[0])
+assert_eq("#1040 stdlib_only_imports: fcntl is not imported", False,
+          'fcntl' in _ias1040_imports)
+assert_eq("#1040 stdlib_only_imports: msvcrt is not imported", False,
+          'msvcrt' in _ias1040_imports)
+_ias1040_nonstdlib = sorted(m for m in _ias1040_imports
+                            if m not in sys.stdlib_module_names)
+assert_eq("#1040 stdlib_only_imports: no third-party imports", [], _ias1040_nonstdlib)
+
+# readonly_complement_fails_closed + readonly_predicate_fails_closed_on_unresolvable_calls:
+# drive lib/test/check-audit-lifecycle-contracts.py's new check against crafted fixture
+# modules — a query- handler reaching save_state directly, through a nested helper, through
+# an indirect getattr alias, and through a module-level producer table — and assert each is
+# reported (a Refusal), never clean; plus a clean control.
+_alc1040 = _load('_alc1040', Path(__file__).resolve().parents[2] / 'lib' / 'test'
+                 / 'check-audit-lifecycle-contracts.py')
+_ALC_COMMON = '''
+import argparse
+
+
+class StateError(Exception):
+    pass
+
+
+def save_state(doc, slug, root=None):
+    return None
+
+
+def _query_state(slug):
+    return {}
+
+
+def _is_read_only(cmd):
+    return cmd.startswith("query-") or cmd in ("emit-body", "check-claim-staleness")
+
+
+def registered_subcommands():
+    for action in build_parser()._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return frozenset(action.choices)
+    raise AssertionError("no subparsers")
+'''
+_ALC_FIXTURES = {
+    'clean': _ALC_COMMON + '''
+def cmd_query_ok(args):
+    return _query_state(args.slug)
+
+
+def build_parser():
+    p = argparse.ArgumentParser(); sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("query-ok"); s.add_argument("slug"); s.set_defaults(func=cmd_query_ok)
+    return p
+''',
+    'direct': _ALC_COMMON + '''
+def cmd_query_bad(args):
+    return save_state({}, args.slug)
+
+
+def build_parser():
+    p = argparse.ArgumentParser(); sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("query-bad"); s.add_argument("slug"); s.set_defaults(func=cmd_query_bad)
+    return p
+''',
+    'nested': _ALC_COMMON + '''
+def cmd_query_nested(args):
+    def _helper():
+        return save_state({}, args.slug)
+    return _helper()
+
+
+def build_parser():
+    p = argparse.ArgumentParser(); sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("query-nested"); s.add_argument("slug")
+    s.set_defaults(func=cmd_query_nested)
+    return p
+''',
+    'getattr': _ALC_COMMON + '''
+import sys as _sys
+
+
+def cmd_query_indirect(args):
+    fn = getattr(_sys.modules[__name__], "save_state")
+    return fn({}, args.slug)
+
+
+def build_parser():
+    p = argparse.ArgumentParser(); sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("query-indirect"); s.add_argument("slug")
+    s.set_defaults(func=cmd_query_indirect)
+    return p
+''',
+    'table': _ALC_COMMON + '''
+def _producer(s):
+    return save_state({}, s)
+
+
+_TABLE = (("a", lambda s: _producer(s)),)
+
+
+def cmd_query_table(args):
+    for _, produce in _TABLE:
+        produce(args.slug)
+
+
+def build_parser():
+    p = argparse.ArgumentParser(); sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("query-table"); s.add_argument("slug")
+    s.set_defaults(func=cmd_query_table)
+    return p
+''',
+}
+
+
+def _alc1040_run(name, source):
+    with tempfile.TemporaryDirectory() as _td:
+        _fp = Path(_td) / f'fx_{name}.py'
+        _fp.write_text(source, encoding='utf-8')
+        _spec = importlib.util.spec_from_file_location(f'_alcfx_{name}', _fp)
+        _mod = importlib.util.module_from_spec(_spec)
+        sys.modules[_spec.name] = _mod
+        _spec.loader.exec_module(_mod)
+        try:
+            _alc1040.check_readonly_complement(_mod, _mod.registered_subcommands(), [])
+            return None
+        except _alc1040.Refusal as _r:
+            return str(_r)
+
+
+assert_eq("#1040 readonly_complement (clean control): a read-only handler that never "
+          "reaches save_state is reported clean", None, _alc1040_run('clean',
+          _ALC_FIXTURES['clean']))
+assert_eq("#1040 readonly_complement_fails_closed: a query- handler calling save_state "
+          "directly is reported (Refusal), never clean", True,
+          _alc1040_run('direct', _ALC_FIXTURES['direct']) is not None)
+assert_eq("#1040 readonly_predicate_fails_closed_on_unresolvable_calls (nested helper): "
+          "reported, never clean", True,
+          _alc1040_run('nested', _ALC_FIXTURES['nested']) is not None)
+assert_eq("#1040 readonly_predicate_fails_closed_on_unresolvable_calls (getattr alias): "
+          "reported, never clean", True,
+          _alc1040_run('getattr', _ALC_FIXTURES['getattr']) is not None)
+assert_eq("#1040 readonly_predicate_fails_closed_on_unresolvable_calls (producer table): "
+          "reported, never clean", True,
+          _alc1040_run('table', _ALC_FIXTURES['table']) is not None)
+
 # (2) The attestation trailing-newline tolerance swallows a _DigestError raised by
 # the SECOND (newline-stripped) hash: the compare stays a well-defined mismatch —
 # never an unhandled exception, which would leave the run with no attestation record
@@ -6993,9 +7604,13 @@ with tempfile.TemporaryDirectory() as _td:
         try:
             with contextlib.redirect_stdout(_att_out), \
                     contextlib.redirect_stderr(io.StringIO()):
-                issue_audit_state.cmd_record_creation_attestation(
-                    argparse.Namespace(slug='s', nonce='n0',
-                                       attestation_unavailable=False))
+                # Mirror main(): the stdin read is hoisted (issue #1040), so drive
+                # _read_stdin_once before the handler to populate args._stdin_*.
+                _att_args = argparse.Namespace(
+                    cmd='record-creation-attestation', slug='s', nonce='n0',
+                    attestation_unavailable=False)
+                issue_audit_state._read_stdin_once(_att_args)
+                issue_audit_state.cmd_record_creation_attestation(_att_args)
             _att_ended = 'returned'
         except SystemExit as _e:
             _att_ended = f'SystemExit({_e.code})'
@@ -13116,7 +13731,12 @@ for _n20, _stdin20 in (
     sys.stdin = None if _stdin20 is None else _Stdin20()
     try:
         with contextlib.redirect_stderr(_err20):
-            issue_audit_state._ingest_ledger(1, 1)
+            # Mirror main(): the raw stdin read is hoisted (issue #1040) into
+            # _read_stdin_once, and _ingest_ledger consumes the buffer. Drive both, as
+            # main() does, so the closed-fd / read-error breadcrumb is still exercised.
+            _args20 = argparse.Namespace(cmd='record-adjudication', ledger_stdin=True)
+            issue_audit_state._read_stdin_once(_args20)
+            issue_audit_state._ingest_ledger(_args20, 1, 1)
         _rc20 = 'no exit'
     except SystemExit as _exc20:
         _rc20 = _exc20.code
