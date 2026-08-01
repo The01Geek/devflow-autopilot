@@ -11,8 +11,11 @@ type: Fixed
   family and followed one of those instructions got a grant that was silently ignored — no
   error, no breadcrumb, their build or test tool simply ungranted on the cloud tier. Every
   `allowed_tools` grant instruction now names the live key, including the remedy an
-  implement run writes into its workpad on the `Blocked` path and the light command path's
-  row in the system overview's configuration reference. Historical records and test fixtures
-  keep the old spelling, as do the identifiers frozen in `lib/rename-map.json`; instructions
-  naming other superseded `devflow.<key>` leaves are tracked separately. Nothing executable
-  ever read the dead spelling, so there is no runtime behavior change. (#1070)
+  implement run writes into its workpad on the `Blocked` path; the system overview's §17
+  configuration reference — the table `README.md` links as the full key inventory — is
+  swept with it, so its rows no longer imply a `devflow` object the schema does not define.
+  Historical records and test fixtures keep the old spelling, as do the identifiers frozen
+  in `lib/rename-map.json`. Instructions naming other superseded `devflow.<key>` leaves
+  survive elsewhere in the tree and are untouched by this change. None of the corrected
+  sites carried an executable read of the dead spelling, so there is no runtime behavior
+  change. (#1070)

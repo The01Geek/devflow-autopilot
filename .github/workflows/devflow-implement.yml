@@ -46,7 +46,7 @@ defaults:
 
 jobs:
   # Duplicates the config job in devflow.yml verbatim except for the
-  # `effort` source (`prflow_implement.effort` vs `devflow.effort`). A
+  # `effort` source (`prflow_implement.effort` vs `prflow.effort`). A
   # workflow_call indirection would buy nothing here — the config is
   # ~15 lines and the call would be more.
   config:
