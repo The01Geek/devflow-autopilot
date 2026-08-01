@@ -2758,65 +2758,21 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           OUT="$RUNNER_TEMP/claude-execution-scrubbed.json"
-          if [ ! -f "$EXECUTION_FILE" ]; then
-            echo "::notice::execution file absent; no transcript to preserve."
-            exit 0
-          fi
-          # Redact common credential shapes: GitHub App/installation/classic/fine-grained
-          # tokens, Anthropic keys, and Authorization headers (both the Bearer form and
-          # the base64 basic-auth form the checkout persists — `AUTHORIZATION: basic
-          # <base64(x-access-token:<token>)>`, issue #409 item 4). The header NAME is
-          # matched case-INSENSITIVELY via an explicit per-letter class — actions/checkout's
-          # git-auth-helper persists the extraheader as UPPERCASE `AUTHORIZATION:`, so a
-          # case-sensitive `Authorization` literal would miss the real persisted header and
-          # leak its base64 token. sed -E only (no GNU flags — `I` is GNU-only), so the class
-          # replaces the GNU case-insensitive flag portably. Scrub to $OUT first, then gate
-          # on non-emptiness and prepend the caveat.
-          if sed -E \
-            -e 's/gh[pousr]_[A-Za-z0-9_]{20,}/[REDACTED-GH-TOKEN]/g' \
-            -e 's/github_pat_[A-Za-z0-9_]{20,}/[REDACTED-GH-PAT]/g' \
-            -e 's/sk-ant-[A-Za-z0-9_-]{20,}/[REDACTED-ANTHROPIC-KEY]/g' \
-            -e 's/([Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn][":[:space:]]*)[Bb]earer [A-Za-z0-9._~+\/=-]+/\1Bearer [REDACTED]/g' \
-            -e 's/([Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn][":[:space:]]*)[Bb]asic [A-Za-z0-9+\/=]+/\1basic [REDACTED]/g' \
-            "$EXECUTION_FILE" > "$OUT"; then
-            # Item 3: advertise a path only when the scrubbed output is non-empty — an
-            # empty execution file scrubs to an empty $OUT, which is not worth uploading.
-            if [ -s "$OUT" ]; then
-              # Item 2: the scrub is a best-effort BLOCKLIST covering four credential
-              # shapes and is inherently incomplete for third-party shapes. State that
-              # on the log AND prepend it into the artifact itself. The caveat prepend
-              # goes through the SAME guarded write path that fails closed: a header
-              # write failure must NOT leave an unscrubbed/half-written file advertised
-              # for upload (issue #409 item 2 gotcha).
-              # One source of truth for the four redacted shapes, interpolated into both
-              # the artifact caveat and the log warning so they cannot drift. "Four shapes"
-              # counts the four comma-separated families below (GitHub tokens/PATs is one
-              # family spanning the two `gh[pousr]_`/`github_pat_` sed rules), so the five
-              # sed -E rules above map to these four named shapes.
-              SHAPES="GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
-              # DEFERRED (#409 review, Suggestion, below the `important` fix threshold):
-              # prepending this `#`-comment caveat as line 1 makes the `.json`-named
-              # artifact non-parseable JSON. Deliberate for the CURRENT human
-              # stall-diagnosis purpose (a person reads the transcript; the caveat must
-              # be the first thing they see). Revisit ONLY if an automated `jq`/JSON
-              # consumer of this artifact is introduced — then move the caveat into an
-              # upload-step annotation or a sidecar `.txt` and keep the payload valid JSON.
-              CAVEAT="# DEVFLOW SCRUB CAVEAT: best-effort blocklist redacted four credential shapes ($SHAPES). This blocklist is INCOMPLETE — other third-party credential shapes may remain. Treat this artifact as sensitive."
-              echo "::warning::transcript scrub is a best-effort blocklist covering four credential shapes ($SHAPES); it is INCOMPLETE for third-party credential shapes — treat the uploaded artifact as sensitive."
-              HDR="$OUT.hdr"
-              if { printf '%s\n' "$CAVEAT" > "$HDR" && cat "$OUT" >> "$HDR" && mv "$HDR" "$OUT"; }; then
-                echo "path=$OUT" >> "$GITHUB_OUTPUT"
-              else
-                rm -f "$HDR"
-                echo "::warning::transcript caveat-header write failed; NOT uploading the transcript (fail-closed)."
-              fi
-            else
-              echo "::notice::scrubbed transcript is empty; nothing to preserve (no upload)."
-            fi
+          # The scrub / non-empty gate / caveat-prepend / fail-closed selection lives in
+          # the shared scripts/scrub-transcript.sh helper (issue #1064 D4), so it is not
+          # triplicated inline across the three engine-invoking workflows. The helper
+          # scrubs via the shared blocklist scripts/scrub-credentials.sh, gates on a
+          # non-empty result, prepends the incomplete-blocklist caveat, and prints
+          # `path=<OUT>` to STDOUT only when the artifact is safe to upload (nothing
+          # otherwise — fail-closed). Route that one line to $GITHUB_OUTPUT.
+          ST=.prflow/vendor/prflow/scripts/scrub-transcript.sh
+          [ -f "$ST" ] || ST=scripts/scrub-transcript.sh
+          if [ -f "$ST" ]; then
+            bash "$ST" "$EXECUTION_FILE" "$OUT" | tee -a "$GITHUB_OUTPUT"
           else
-            echo "::warning::transcript scrub failed; NOT uploading the unscrubbed execution file (fail-closed)."
+            echo "::warning::transcript scrub inert: $ST missing (a vendored tree pinned to an older prflow_version); NOT uploading the unscrubbed execution file (fail-closed)."
           fi
 
       - name: Upload execution transcript artifact

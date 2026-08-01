@@ -574,6 +574,12 @@ def _efficiency_entry(record, run_id):
         # is whole-JOB cost (see `harness_cost.scope`/`workflow`), never like-for-like
         # with per-phase `telemetry`. `None` when the record carries no floor data.
         "harness_cost": record.get("harness_cost"),
+        # Permission-denial forensics floor (issue #1064 D2): pass the top-level
+        # `permission_denials` object through VERBATIM. This is the RESTORED producer for
+        # the `permission_denials_count` field whose producer half #936 removed (the
+        # deleted `Devflow Review` check-run summary line). `None` when the record carries
+        # no denial data.
+        "permission_denials": record.get("permission_denials"),
     }
 
 
@@ -915,6 +921,50 @@ def _parse_denial_summary(summary):
         if token == "unavailable" or (token.isascii() and token.isdigit()):
             return token, True
     return None, label_seen
+
+
+def _denials_from_eff(eff_runs):
+    """Resolve the permission-denial count from this PR's efficiency records (issue
+    #1064 D2) — the RESTORED durable producer for `permission_denials_count`, whose
+    forward check-run channel #936 removed. Returns (value_verbatim, source):
+
+      - (N, "efficiency-record")           when a record carries a numeric
+                                           `permission_denials.count`;
+      - ("unavailable", "efficiency-record")  when a record carries the object but its
+                                           count is the literal "unavailable" (an
+                                           unestablished measurement — NEVER coerced to 0);
+      - (None, None)                       when no record carries `permission_denials`
+                                           (the caller then falls back to the check-run
+                                           path — unknown-is-not-zero: no denial object is
+                                           NOT a measured zero).
+
+    Precedence across runs: the FIRST record carrying a numeric count wins; failing that
+    the first carrying the literal `unavailable` (so a real number always beats an
+    unestablished one). The count is carried VERBATIM — no path coerces `unavailable`
+    to 0."""
+    if not eff_runs:
+        return None, None
+    unavailable_seen = False
+    saw_object = False
+    for run in eff_runs:
+        pd = run.get("permission_denials") if isinstance(run, dict) else None
+        if not isinstance(pd, dict):
+            continue
+        saw_object = True
+        count = pd.get("count")
+        if isinstance(count, bool):
+            # A JSON bool is not a count — treat as unestablished, never as 0/1.
+            unavailable_seen = True
+        elif isinstance(count, int):
+            return count, "efficiency-record"
+        elif count == "unavailable":
+            unavailable_seen = True
+    if unavailable_seen:
+        return "unavailable", "efficiency-record"
+    if saw_object:
+        # An object with no recognizable count field is an unestablished measurement.
+        return "unavailable", "efficiency-record"
+    return None, None
 
 
 def _resolve_denials(repo, shas):
@@ -1299,7 +1349,11 @@ def build_record(repo, repo_root, eff_index, pr, retro_entry):
             "verdict taken from the progress comment because the PR-reviews call could "
             "not be established; it may predate the final reviewed HEAD")
 
-    denials, denials_source = _resolve_denials(repo, [head_sha, merge_sha])
+    # Prefer the restored efficiency-record producer (issue #1064 D2); fall back to the
+    # historical check-run channel only when no efficiency record carried a denial object.
+    denials, denials_source = _denials_from_eff(eff_runs)
+    if denials_source is None:
+        denials, denials_source = _resolve_denials(repo, [head_sha, merge_sha])
     provenance["permission_denials_count"] = denials_source
     if denials_source == "check-run-annotation":
         # The tag stays a bare, matchable token; its caveat lives here (issue #431 review).

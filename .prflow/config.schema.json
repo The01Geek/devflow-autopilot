@@ -116,6 +116,11 @@
           "default": false,
           "description": "Opt-in: upload the engine's token-scrubbed execution transcript as a 7-day run artifact. Default false; the scrub is a blocklist, so enable only if run artifacts are acceptable exposure for this repo's access model."
         },
+        "execution_denial_commands_enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Gates whether the SCRUBBED text of the engine's denied Bash commands is persisted into the run's efficiency record on the telemetry branch (prflow-telemetry) durably — a bounded, credential-scrubbed, command-only field used to diagnose which command shapes the permission matcher keeps refusing. The scrub is an INCOMPLETE blocklist (gh[pousr]_, github_pat_, sk-ant-, Authorization: Bearer/basic), so a novel credential shape can survive; enable only if scrubbed command text on a long-lived branch is acceptable for this repo's access model. Defaults to ENABLED: an upgrading repository begins persisting this field without opting in — set false to disable. Deliberately the OPPOSITE default from execution_transcript_artifact_enabled (which defaults false): that key gates the WHOLE execution transcript (prompt text, repository content, a potentially dumped environment), while this key gates only a bounded scrubbed command-only field, so the two surfaces carry different risk and different defaults — do not harmonize them. The denial COUNT and the denied tool_name are NOT gated by this key; they are always persisted (a number and a fixed-vocabulary tool identifier carry no credential risk). Read at runtime through scripts/config-get.sh against the checked-out tree, so a change is live in the same run. Read by the 'Persist review-and-fix observability artifacts (backstop)' step in each cloud-tier workflow."
+        },
         "attribute_commits_to_triggerer": {
           "type": "boolean",
           "default": false,

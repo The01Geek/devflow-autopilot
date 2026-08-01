@@ -1467,6 +1467,61 @@ jobs:
             echo "::notice::surface-execution-diagnostics.sh absent; execution diagnostics not surfaced (best-effort)."
           fi
 
+      # ── Execution-transcript artifact channel (issue #1064 D3) ──────────────
+      # Per-workflow D3 inclusion decisions (AC13), recorded here in the shipped code:
+      #   devflow-implement.yml (THIS file): INCLUDE — the longest, most expensive
+      #     autonomous runs and the tier where a silent denial most often ends a run
+      #     with nothing to show; highest forensic value, previously had none.
+      #   devflow.yml: INCLUDE — runs the same shared review engine on the surviving
+      #     manual path; a denial there is the same no-verdict failure mode (symmetry).
+      #   devflow-runner.yml: KEEP AS-IS — already has it; retained per CLAUDE.md's
+      #     withheld-tier reconstructability rule (a pre-#937 consumer still runs it).
+      #   matcher-probe.yml: EXCLUDE — already uploads a STRUCTURALLY-REDACTED shape
+      #     record purpose-built for it; a second un-redacted channel on a maintainer
+      #     probe adds exposure without a diagnosis it lacks.
+      #   agents-seam-probe.yml: EXCLUDE — single-purpose, short, maintainer-dispatched;
+      #     verdict computed deterministically; no denial-diagnosis story to preserve.
+      #   telemetry-push.yml: n/a — invokes no engine.
+      # Opt-in and DEFAULT-OFF via execution_transcript_artifact_enabled (a transcript can
+      # carry a dumped environment, so a consumer must never start publishing transcripts
+      # merely by upgrading). This is the OPPOSITE default from the D5 denial-command key,
+      # which is default-ON because it is a bounded, scrubbed, command-only field — the two
+      # are deliberately NOT harmonized. The scrub/gate/caveat/fail-closed lives in the
+      # shared scripts/scrub-transcript.sh helper (D4), not inline here.
+      - name: Scrub execution transcript for upload
+        id: scrub_transcript
+        if: always() && steps.claude.outputs.execution_file != ''
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -uo pipefail
+          CG=.prflow/vendor/prflow/scripts/config-get.sh
+          [ -f "$CG" ] || CG=scripts/config-get.sh
+          # Default-OFF: only the exact string "true" enables (builtin comparison, not a
+          # sed/grep pipeline); `|| true` guards config-get's hard-fail under set -e.
+          TRANSCRIPT="$("$CG" .prflow.execution_transcript_artifact_enabled false || true)"
+          if [ "$TRANSCRIPT" != "true" ]; then
+            echo "::notice::execution transcript artifact disabled (execution_transcript_artifact_enabled != true); nothing uploaded."
+            exit 0
+          fi
+          OUT="$RUNNER_TEMP/claude-execution-scrubbed.json"
+          ST=.prflow/vendor/prflow/scripts/scrub-transcript.sh
+          [ -f "$ST" ] || ST=scripts/scrub-transcript.sh
+          if [ -f "$ST" ]; then
+            bash "$ST" "$EXECUTION_FILE" "$OUT" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "::warning::transcript scrub inert: $ST missing (an older vendored tree); NOT uploading (fail-closed)."
+          fi
+
+      - name: Upload execution transcript artifact
+        if: always() && steps.scrub_transcript.outputs.path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-execution-transcript-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.scrub_transcript.outputs.path }}
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Persist review-and-fix observability artifacts (backstop)
         if: ${{ always() }}
         env:
@@ -1503,15 +1558,45 @@ jobs:
           else
             echo "::warning::harness cost floor inert: $FLOOR missing (a vendored tree pinned to an older prflow_version); the cost floor is skipped this run"
           fi
+          # Permission-denial forensics floor (issue #1064 D2/D5). Read the default-ON
+          # command-text gate through config-get.sh (the RUNTIME channel, live in this
+          # run), then decide enabled/disabled with a bash-builtin `case` (AC9: this
+          # SELECTION is never a sed/grep pipeline). The key defaults to TRUE — the
+          # OPPOSITE default from execution_transcript_artifact_enabled, because this
+          # key gates only a bounded, scrubbed, command-only field while that one gates
+          # the whole execution transcript (prompt text, repo content, a possible env
+          # dump); do NOT harmonize them. Documented residual (AC6): config-get.sh
+          # renders JSON `0` as `0` and coerces `""`/null/[] to the default, so `0`/`""`
+          # read as ENABLED — the accepted safe direction for a default-on key; a real
+          # JSON `false` is passed through and DOES disable. The builder scrubs the
+          # command text (shared blocklist) and fails closed; the count and tool_name
+          # are always persisted regardless of this key.
+          DENIAL_CG=.prflow/vendor/prflow/scripts/config-get.sh
+          [ -f "$DENIAL_CG" ] || DENIAL_CG=scripts/config-get.sh
+          DENIAL_ENABLED_RAW="$("$DENIAL_CG" .prflow.execution_denial_commands_enabled true || true)"
+          case "$DENIAL_ENABLED_RAW" in
+            false) DENIAL_CMDS_ENABLED=false ;;
+            *)     DENIAL_CMDS_ENABLED=true ;;
+          esac
+          DENIAL_BUILDER=.prflow/vendor/prflow/scripts/build-denial-record.sh
+          [ -f "$DENIAL_BUILDER" ] || DENIAL_BUILDER=scripts/build-denial-record.sh
+          DEVFLOW_DENIAL_RECORD=""
+          if [ -f "$DENIAL_BUILDER" ]; then
+            DEVFLOW_DENIAL_RECORD="$(bash "$DENIAL_BUILDER" "${EXECUTION_FILE:-}" "$DENIAL_CMDS_ENABLED")"
+          else
+            echo "::warning::denial forensics inert: $DENIAL_BUILDER missing (a vendored tree pinned to an older prflow_version); the denial record is skipped this run"
+          fi
           # --persist derives each run's record + durable workpad copy and writes them to
           # the dedicated telemetry branch via git plumbing, then pushes with a fetch/
           # re-parent retry loop — all inside the helper. With the floor env set it ALSO
           # merge-fills harness_cost into this run's record (or writes a minimal cost
-          # skeleton); unset, it is byte-identical to before (issue #441/#475). It never
-          # touches HEAD or the TRACKED working tree. Best-effort/exit-0.
+          # skeleton) AND the permission_denials record (issue #1064); unset, it is
+          # byte-identical to before (issue #441/#475). It never touches HEAD or the
+          # TRACKED working tree. Best-effort/exit-0.
           DEVFLOW_EXECUTION_COST="$DEVFLOW_EXECUTION_COST" \
           DEVFLOW_EXECUTION_PR="$DEVFLOW_EXECUTION_PR" \
           DEVFLOW_COMMAND_CLASS="$DEVFLOW_COMMAND_CLASS" \
+          DEVFLOW_DENIAL_RECORD="$DEVFLOW_DENIAL_RECORD" \
             bash "$HELPER" --persist
           exit 0
 

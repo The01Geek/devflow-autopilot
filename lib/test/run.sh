@@ -15252,6 +15252,147 @@ rm -f "$REACT_REC"
 rm -rf "$RT_STUB"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "denial forensics: build-denial-record.sh / scrub-credentials.sh / surface D1 (#1064)"
+# ────────────────────────────────────────────────────────────────────────────
+DEVFLOW_JQ="${DEVFLOW_JQ:-jq}"
+BDR="$LIB/../scripts/build-denial-record.sh"
+SCR="$LIB/../scripts/scrub-credentials.sh"
+SED1064="$LIB/../scripts/surface-execution-diagnostics.sh"
+DEN_TMP="$(mktemp -d)"
+# A denial fixture: one long Bash command whose ungranted head (`paste`) sits in the
+# TAIL — past 200 chars of the stringified tool_input envelope — and which carries a
+# GitHub token that must be scrubbed. permission_denials_count:1, tool_name Bash.
+_LONGCMD='NUM=x && curl -H "Authorization: Bearer ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345" https://example.com/very/long/path/that/keeps/going/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa | paste -sd, -'
+"$DEVFLOW_JQ" -n --arg c "$_LONGCMD" \
+  '{type:"result",permission_denials:[{tool_name:"Bash",tool_input:{command:$c}}],permission_denials_count:1,is_error:false}' \
+  > "$DEN_TMP/exec.json"
+
+# ── AC1: surface renders the denied COMMAND at the wider bound; the ungranted head
+# (`paste`) — past char 200 of the stringified envelope — is present in the output.
+SURF_OUT="$(bash "$SED1064" "$DEN_TMP/exec.json" 2>/dev/null)"
+assert_eq "surface D1: ungranted head 'paste' present in denial line (>200-char cmd)" \
+  "yes" "$(printf '%s' "$SURF_OUT" | grep -qF 'paste -sd, -' && echo yes || echo no)"
+
+# ── AC2/AC7: build-denial-record, key ENABLED → present, count 1, tool_names [Bash],
+# command scrubbed (token gone, ungranted head kept). commands_field_enabled true.
+REC_ON="$(bash "$BDR" "$DEN_TMP/exec.json" true)"
+assert_eq "denial record (enabled): count=1 state=present tools=Bash enabled=true" \
+  "1|present|Bash|true" \
+  "$(printf '%s' "$REC_ON" | "$DEVFLOW_JQ" -r '"\(.count)|\(.commands_state)|\(.tool_names|join(","))|\(.commands_field_enabled)"')"
+assert_eq "denial record (enabled): token scrubbed, ungranted head retained" \
+  "yes-scrubbed" \
+  "$(printf '%s' "$REC_ON" | "$DEVFLOW_JQ" -r '.commands|join(" ")' | { IFS= read -r L; case "$L" in *ghp_ABCDEF*) echo leaked ;; *paste*REDACTED*|*REDACTED*paste*) echo yes-scrubbed ;; *) echo other ;; esac; })"
+assert_eq "denial record (enabled): scrub.applied true, blocklist_incomplete true" \
+  "true|true" \
+  "$(printf '%s' "$REC_ON" | "$DEVFLOW_JQ" -r '"\(.scrub.applied)|\(.scrub.blocklist_incomplete)"')"
+
+# ── AC7: key DISABLED → count + tool_name STILL persisted; commands_state 'disabled'
+# (distinguishable from 'unavailable' and 'zero'); commands null; enabled false.
+REC_OFF="$(bash "$BDR" "$DEN_TMP/exec.json" false)"
+assert_eq "denial record (disabled): count kept, state=disabled, commands null, enabled=false" \
+  "1|disabled|null|false" \
+  "$(printf '%s' "$REC_OFF" | "$DEVFLOW_JQ" -r '"\(.count)|\(.commands_state)|\(.commands)|\(.commands_field_enabled)"')"
+assert_eq "denial record (disabled): tool_names still carried" \
+  "Bash" "$(printf '%s' "$REC_OFF" | "$DEVFLOW_JQ" -r '.tool_names|join(",")')"
+
+# ── AC2: genuine ZERO-denial run is distinguishable from unavailable.
+"$DEVFLOW_JQ" -n '{type:"result",permission_denials:[],permission_denials_count:0,is_error:false}' > "$DEN_TMP/zero.json"
+REC_ZERO="$(bash "$BDR" "$DEN_TMP/zero.json" true)"
+assert_eq "denial record: genuine zero → count 0, commands_state zero (not unavailable)" \
+  "0|zero" \
+  "$(printf '%s' "$REC_ZERO" | "$DEVFLOW_JQ" -r '"\(.count)|\(.commands_state)"')"
+
+# ── AC2: unparseable file → count 'unavailable' (never 0), never a fabricated record.
+printf 'not json at all {[' > "$DEN_TMP/garbage.json"
+REC_BAD="$(bash "$BDR" "$DEN_TMP/garbage.json" true)"
+assert_eq "denial record: unparseable file → count 'unavailable' (unknown-is-not-zero)" \
+  "unavailable" "$(printf '%s' "$REC_BAD" | "$DEVFLOW_JQ" -r '.count')"
+
+# ── AC2: absent file → NO record emitted at all (no run observed).
+REC_ABSENT="$(bash "$BDR" "$DEN_TMP/does-not-exist.json" true)"
+assert_eq "denial record: absent execution file → empty output, exit 0" \
+  "empty-0" "$([ -z "$REC_ABSENT" ] && echo "empty-$?" || echo "nonempty")"
+
+# ── AC4: scrub fails closed when sed cannot run — build emits NOTHING for a run that
+# WOULD persist command text. Shadow `sed` with a failing stub (keep the real PATH so
+# jq/bash still resolve, isolating the sed-unavailable arm specifically).
+mkdir -p "$DEN_TMP/sedbin"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$DEN_TMP/sedbin/sed"
+chmod +x "$DEN_TMP/sedbin/sed"
+REC_NOSED="$(PATH="$DEN_TMP/sedbin:$PATH" bash "$BDR" "$DEN_TMP/exec.json" true 2>/dev/null)"
+assert_eq "denial record: scrub-unavailable (sed fails) → fail-closed, no record" \
+  "empty" "$([ -z "$REC_NOSED" ] && echo empty || echo nonempty)"
+# scrub-credentials.sh itself: redacts a token, and --shapes prints the caveat.
+assert_eq "scrub-credentials: redacts a gh token" \
+  "yes" "$(printf 'x ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345 y' | bash "$SCR" | grep -qF 'REDACTED-GH-TOKEN' && echo yes || echo no)"
+assert_eq "scrub-credentials: --shapes names four shapes" \
+  "yes" "$(bash "$SCR" --shapes | grep -qF 'GitHub tokens/PATs' && echo yes || echo no)"
+
+# ── AC6: the default-on key's off-switch decision (the workflow's builtin `case`). The
+# decision is `false → off; everything else → on`. Drive config-get.sh over each shape
+# and apply the SAME case, asserting exit 0 + the enabled/disabled result. `0`/`""` are
+# documented safe-direction residuals (they read ENABLED); a real `false` DISABLES.
+DEN_CFG="$(mktemp -d)"; mkdir -p "$DEN_CFG/.prflow"
+CG1064="$LIB/../scripts/config-get.sh"
+_key_decision() {  # $1 = the JSON value literal for the key
+  printf '{"prflow":{"execution_denial_commands_enabled":%s}}' "$1" > "$DEN_CFG/.prflow/config.json"
+  local raw dec
+  raw="$(bash "$CG1064" .prflow.execution_denial_commands_enabled true "$DEN_CFG/.prflow/config.json" || true)"
+  case "$raw" in false) dec=off ;; *) dec=on ;; esac
+  printf '%s\n' "$dec"
+}
+assert_eq "denial key: explicit false → off (off switch works)" "off" "$(_key_decision false)"
+assert_eq "denial key: true → on"                               "on"  "$(_key_decision true)"
+assert_eq "denial key: 0 → on (documented safe-direction residual)"  "on" "$(_key_decision 0)"
+assert_eq "denial key: \"\" → on (documented safe-direction residual)" "on" "$(_key_decision '""')"
+
+# ── D2: build-experiment-records._denials_from_eff restores the count producer #936
+# removed — reading the telemetry record's permission_denials.count (verbatim, three-way).
+DEN_PY="$(python3 - "$LIB/../scripts/build-experiment-records.py" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ber", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+f = m._denials_from_eff
+out = []
+out.append(str(f([{"permission_denials": {"count": 5}}]) == (5, "efficiency-record")))
+out.append(str(f([{"permission_denials": {"count": "unavailable"}}]) == ("unavailable", "efficiency-record")))
+out.append(str(f([{"permission_denials": {"count": 0}}]) == (0, "efficiency-record")))
+out.append(str(f([{"harness_cost": {}}]) == (None, None)))       # no denial object → fall back
+out.append(str(f([]) == (None, None)))
+# a real number beats an unavailable in an earlier run
+out.append(str(f([{"permission_denials": {"count": "unavailable"}}, {"permission_denials": {"count": 2}}]) == (2, "efficiency-record")))
+print("|".join(out))
+PY
+)"
+assert_eq "build-experiment-records._denials_from_eff: verbatim 3-way count restore (#1064 D2)" \
+  "True|True|True|True|True|True" "$DEN_PY"
+
+# ── D4/AC8: scrub-transcript.sh arms — the transcript channel's scrub/gate/caveat/
+# fail-closed SELECTION lives in the helper, not inline. Drive each arm.
+STX="$LIB/../scripts/scrub-transcript.sh"
+printf '%s\n' 'line with ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345 token' > "$DEN_TMP/tr-in.json"
+STX_OK="$(bash "$STX" "$DEN_TMP/tr-in.json" "$DEN_TMP/tr-out.json" 2>/dev/null)"
+assert_eq "scrub-transcript: present+scrubbable → advertises path= on stdout" \
+  "yes" "$(printf '%s' "$STX_OK" | grep -q "^path=$DEN_TMP/tr-out.json\$" && echo yes || echo no)"
+assert_eq "scrub-transcript: output scrubbed (token gone) + caveat header prepended" \
+  "yes" "$([ -s "$DEN_TMP/tr-out.json" ] && ! grep -qF 'ghp_ABCDEF' "$DEN_TMP/tr-out.json" && head -1 "$DEN_TMP/tr-out.json" | grep -qF 'DEVFLOW SCRUB CAVEAT' && echo yes || echo no)"
+# absent file → no path advertised, exit 0.
+STX_ABS="$(bash "$STX" "$DEN_TMP/nope.json" "$DEN_TMP/tr-abs.json" 2>/dev/null)"
+assert_eq "scrub-transcript: absent execution file → no path advertised (fail-closed)" \
+  "empty" "$([ -z "$STX_ABS" ] && echo empty || echo nonempty)"
+# empty file → no path advertised (nothing worth uploading).
+: > "$DEN_TMP/tr-empty.json"
+STX_EMPTY="$(bash "$STX" "$DEN_TMP/tr-empty.json" "$DEN_TMP/tr-eout.json" 2>/dev/null)"
+assert_eq "scrub-transcript: empty execution file → no path advertised" \
+  "empty" "$([ -z "$STX_EMPTY" ] && echo empty || echo nonempty)"
+# scrub fails (sed stub non-zero) → no path advertised, no unscrubbed upload.
+STX_NOSED="$(PATH="$DEN_TMP/sedbin:$PATH" bash "$STX" "$DEN_TMP/tr-in.json" "$DEN_TMP/tr-fc.json" 2>/dev/null)"
+assert_eq "scrub-transcript: scrub-unavailable (sed fails) → no path advertised (fail-closed)" \
+  "empty" "$([ -z "$STX_NOSED" ] && echo empty || echo nonempty)"
+
+rm -rf "$DEN_TMP" "$DEN_CFG"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "install.sh: prune_stale_devflow_workflows"
 # ────────────────────────────────────────────────────────────────────────────
 # On upgrade, install.sh must remove DevFlow's OWN superseded claude*.yml but

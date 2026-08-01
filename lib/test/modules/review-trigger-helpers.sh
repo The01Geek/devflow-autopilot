@@ -909,8 +909,11 @@ echo "surface-execution-diagnostics.sh (#329 execution-diagnostics surfacer: run
 SED="$LIB/../scripts/surface-execution-diagnostics.sh"
 SED_TMP="$(mktemp -d)"
 # populated: result object carrying the run summary AND a permission_denials array
-# with per-denial tool_name + tool_input (the tool_input long enough to truncate).
-LONG_INPUT="$(printf 'x%.0s' $(seq 1 300))"
+# with per-denial tool_name + tool_input (the tool_input long enough to truncate at the
+# post-#1064 denial-line bound of 500 — the old 200-char bound was raised so the
+# ungranted head of a long pipeline is not cut off; a 300-char input no longer truncates,
+# so this fixture is 600 to still exercise the truncation arm at the new bound).
+LONG_INPUT="$(printf 'x%.0s' $(seq 1 600))"
 printf '%s' "$(printf '{"type":"result","is_error":false,"num_turns":12,"duration_ms":34567,"total_cost_usd":0.42,"permission_denials_count":2,"permission_denials":[{"tool_name":"Bash","tool_input":"%s"},{"tool_name":"Write","tool_input":"file.txt"}]}' "$LONG_INPUT")" > "$SED_TMP/populated.json"
 # count-only: run summary with permission_denials_count but NO permission_denials array
 printf '%s' '{"type":"result","is_error":true,"num_turns":3,"duration_ms":100,"total_cost_usd":0.01,"permission_denials_count":7}' > "$SED_TMP/count_only.json"
@@ -1306,8 +1309,12 @@ PY
   # item 2: caveat header prepended into the artifact + best-effort warning emitted.
   assert_eq "#409 scrub: caveat header prepended into the artifact (item 2)" "yes" \
     "$(grep -qF 'DEVFLOW SCRUB CAVEAT' "$SCRUB_OUT" 2>/dev/null && echo yes || echo no)"
+  # The scrub now runs through the shared scripts/scrub-transcript.sh helper (issue
+  # #1064 D4), which names the redacted SHAPES explicitly rather than "four credential
+  # shapes"; pin the stable warning prefix so the incomplete-blocklist disclosure stays
+  # asserted without re-pinning the exact shape count.
   assert_eq "#409 scrub: incomplete-blocklist warning emitted (item 2)" "yes" \
-    "$(grep -qF 'best-effort blocklist covering four credential shapes' "$SCRUB_DIR/log" 2>/dev/null && echo yes || echo no)"
+    "$(grep -qF 'best-effort blocklist covering' "$SCRUB_DIR/log" 2>/dev/null && echo yes || echo no)"
   # item 3: non-empty output advertises a path=.
   assert_eq "#409 scrub: non-empty scrub advertises path= (item 3)" "yes" \
     "$(grep -qF 'path=' "$SCRUB_GH_OUT" 2>/dev/null && echo yes || echo no)"

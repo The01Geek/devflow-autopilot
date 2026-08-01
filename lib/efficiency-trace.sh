@@ -1313,6 +1313,93 @@ apply_harness_floor() {
   return 0
 }
 
+# ── Permission-denial forensics floor (Layer 4b, issue #1064 D2) ─────────────
+# Consume DEVFLOW_DENIAL_RECORD (scripts/build-denial-record.sh's single-line JSON) and
+# land it as a distinct top-level `permission_denials` key on this run's efficiency
+# record. Mirrors apply_harness_floor exactly (same run-id identity targeting, same
+# three arms — staged record / already-persisted branch record / decline) so the two
+# floors behave identically; a denial record is NEVER a skeleton (unlike harness_cost:
+# a denial floor with no efficiency record for the run-id simply declines — the analysis
+# joins the cost record, and the count is restored from THIS key when a record exists).
+#
+# Add the denial record (add-if-absent) to an in-STAGING record file $1, via temp+mv.
+_denial_merge_staged() {
+  local file="$1" dr="$2" label="$3" jq_err
+  if "$DEVFLOW_JQ" -e 'has("permission_denials")' "$file" >/dev/null 2>&1; then
+    echo "devflow: efficiency-trace.sh --persist: denial floor: ${label} already carries permission_denials; left untouched" >&2
+    return 0
+  fi
+  if jq_err="$("$DEVFLOW_JQ" --argjson dr "$dr" '.permission_denials = $dr' "$file" 2>&1 > "$file.denialtmp")"; then
+    if mv "$file.denialtmp" "$file" 2>/dev/null; then
+      echo "devflow: efficiency-trace.sh --persist: denial floor: attached permission_denials to ${label}" >&2
+    else
+      echo "::warning::efficiency-trace.sh --persist: denial floor: could not move the merged ${label} into place; left without permission_denials" >&2
+      rm -f "$file.denialtmp" 2>/dev/null
+    fi
+  else
+    echo "::warning::efficiency-trace.sh --persist: denial floor: could not merge permission_denials into ${label} (${jq_err:-no error text}); left without permission_denials" >&2
+    rm -f "$file.denialtmp" 2>/dev/null
+  fi
+}
+
+apply_denial_floor() {
+  local root="$1" stage="$2"
+  # Unset/empty → INERT and SILENT (byte-identical to before). MUST stay first.
+  [ -n "${DEVFLOW_DENIAL_RECORD:-}" ] || return 0
+  # Gated exactly as record derivation is: set-but-gated-off draws one breadcrumb.
+  if [ "$ENABLED" != "true" ]; then
+    echo "::warning::efficiency-trace.sh --persist: denial floor: efficiency telemetry is disabled; DEVFLOW_DENIAL_RECORD supplied but not attached this run" >&2
+    return 0
+  fi
+  # Validate the operand is a JSON OBJECT — never feed an unvalidated env value to
+  # --argjson (which would abort under set -e). A malformed value → one breadcrumb, no write.
+  if ! printf '%s' "$DEVFLOW_DENIAL_RECORD" | "$DEVFLOW_JQ" -e 'type == "object"' >/dev/null 2>&1; then
+    echo "::warning::efficiency-trace.sh --persist: denial floor: DEVFLOW_DENIAL_RECORD is not a JSON object; no floor write this run" >&2
+    return 0
+  fi
+  if [ -z "${GITHUB_RUN_ID:-}" ]; then
+    echo "::warning::efficiency-trace.sh --persist: denial floor: GITHUB_RUN_ID is unset, so this run's record cannot be identified; no floor write" >&2
+    return 0
+  fi
+  local ident="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT:-1}"
+  local dr="$DEVFLOW_DENIAL_RECORD"
+  local eff_dir="${stage}/.prflow/logs/efficiency" f
+  # Merge arm (a): a record staged THIS PASS under this run-id identity.
+  if [ -d "$eff_dir" ]; then
+    for f in "$eff_dir"/*-"$ident".json; do
+      [ -e "$f" ] || continue
+      _denial_merge_staged "$f" "$dr" "staged record $(basename "$f")"
+      return 0
+    done
+  fi
+  # Merge arm (b): a record already PERSISTED on the telemetry branch for this run-id.
+  local ref rel base blob
+  ref="$(devflow_telemetry_ref)"
+  while IFS= read -r rel; do
+    case "$rel" in *-"$ident".json) ;; *) continue ;; esac
+    base="$(basename "$rel")"
+    blob="$(devflow_telemetry_show_blob "$root" "$ref" "$rel")" || continue
+    [ -n "$blob" ] || continue
+    if printf '%s' "$blob" | "$DEVFLOW_JQ" -e 'has("permission_denials")' >/dev/null 2>&1; then
+      echo "devflow: efficiency-trace.sh --persist: denial floor: record ${rel} already carries permission_denials; leaving it untouched (backstop re-run no-op)" >&2
+      return 0
+    fi
+    mkdir -p "$eff_dir" 2>/dev/null || true
+    if printf '%s' "$blob" | "$DEVFLOW_JQ" --argjson dr "$dr" '.permission_denials = $dr' > "${eff_dir}/${base}" 2>/dev/null; then
+      echo "devflow: efficiency-trace.sh --persist: denial floor: attached permission_denials to already-persisted record ${rel}" >&2
+    else
+      echo "::warning::efficiency-trace.sh --persist: denial floor: could not merge permission_denials into ${rel}; no floor write" >&2
+      rm -f "${eff_dir}/${base}" 2>/dev/null
+    fi
+    return 0
+  done < <(devflow_telemetry_list_blobs "$root" "$ref" ".prflow/logs/efficiency/")
+  # Decline arm: no record for this run-id. Unlike harness_cost there is no skeleton —
+  # a denial record without a cost record to key it has no analysis join, so decline
+  # with a breadcrumb rather than fabricate a bare record.
+  echo "::warning::efficiency-trace.sh --persist: denial floor: no efficiency record for run-id ${ident} (staged or on-branch); the denial record is not attached this run (no skeleton is written for denials — the analysis joins the cost record)" >&2
+  return 0
+}
+
 do_persist() {
   local root dir slug run_id _TELEMETRY_STAGE
   root="$(devflow_repo_root)"
@@ -1657,6 +1744,14 @@ do_persist() {
   # identical to before. Best-effort; runs after every run dir has been staged so
   # its run-id targeting sees this pass's staged record if one was derived. ────────
   apply_harness_floor "$root" "$_TELEMETRY_STAGE"
+
+  # ── Permission-denial forensics floor (issue #1064 D2): merge the assembled denial
+  # record (scripts/build-denial-record.sh, handed in via DEVFLOW_DENIAL_RECORD) into
+  # this run's staged/persisted record as a distinct top-level `permission_denials`
+  # key. Inert + silent when DEVFLOW_DENIAL_RECORD is unset, so the agent-side persist
+  # call sites are byte-identical to before. Runs after apply_harness_floor so a record
+  # this pass derived (or the branch's already-persisted one) is in place to merge onto.
+  apply_denial_floor "$root" "$_TELEMETRY_STAGE"
 
   # ── Detached write of everything staged above to the telemetry branch ──────
   # (issue #441). Replaces the former current-branch `chore:` commit: the shared
