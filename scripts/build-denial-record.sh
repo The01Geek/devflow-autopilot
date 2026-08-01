@@ -23,6 +23,15 @@
 # ALWAYS exits 0 (the best-effort backstop contract — the always() step is never
 # aborted). The caller gates the env handoff on non-empty stdout.
 #
+# ONE DOCUMENTED EXCEPTION to "the count and tool_name are always persisted" (below):
+# when the credential scrub CANNOT RUN, this helper emits NOTHING AT ALL — not a record
+# carrying only the count. AC4's fail-closed rule wins over AC5/AC7's always-on rule,
+# deliberately: the scrub-unavailable arm means `sed` could not be executed, and rather
+# than reason about which fields of a partially-derived record are still trustworthy the
+# helper declines the whole run and breadcrumbs. So read the always-on property as
+# "never gated by the CONFIG KEY", which is what AC5/AC7 are about — not as "survives a
+# fail-closed abort".
+#
 # THREE-WAY DISCIPLINE (AC2/AC7), the rule this whole issue exists to honor:
 #   - count: a number, OR the literal "unavailable" — NEVER 0 for an unestablished
 #     measurement. A genuine zero-denial run carries count 0; a run whose count could
@@ -42,6 +51,19 @@
 # `permission_denials_commands` extraction — the tested 500-char/40-entry extractor),
 # via scripts/extract-denied-command-line.sh, so this change UN-STRANDS that helper onto
 # a live tier (issue #1064 D1) instead of re-implementing the extraction.
+#
+# NO-RESULT-EVENT RECOVERY (issue #1064 B2). That extractor gates EVERY field on a
+# `type: "result"` event being present — a deliberate cross-field contract of its own,
+# pinned by run.sh #438, and NOT widened here (it is shared with matcher-probe.yml and
+# render-guard-visibility.sh). This record's COUNT, though, comes from the recursive
+# descent below, which needs no result event, so on a file whose denials arrive in
+# streamed message events the halves disagreed: a positive count beside commands_state
+# "unavailable" while the text sat right there. Those are the runs the persist step's
+# always() exists for — a stall, timeout or crash that never emitted a result event. So
+# the commands are ALSO gathered here, from the same denial objects, and used ONLY when
+# the shared extractor returns `unavailable`. Same field preference and same bounds; the
+# recovered value re-enters the identical assembly, so it takes the identical scrub and
+# fail-closed path — there is no second route to persistence.
 
 set -uo pipefail
 
@@ -80,7 +102,8 @@ fi
 if ! COUNT_TOOLS=$("$DEVFLOW_JQ" -rs '
     ([.. | objects | (.permission_denials? // empty)
        | if type == "array" then .[] else . end
-       | select(type == "object")] | unique) as $denials
+       | select(type == "object")]) as $denials_all
+    | ($denials_all | unique) as $denials
     | (last(.. | objects | select(.type? == "result"))) as $r
     | ($denials | length) as $dcount
     # CLAUDE.md records that permission_denials_count "publishes a digit string", so the
@@ -98,7 +121,29 @@ if ! COUNT_TOOLS=$("$DEVFLOW_JQ" -rs '
        elif $dcount > 0 then $dcount
        else null end) as $count
     | ([$denials[] | (.tool_name? // empty) | select(type == "string")] | unique) as $tools
-    | {count: (if $count == null then "unavailable" else $count end), tool_names: $tools}
+    # NO-RESULT-EVENT FALLBACK (issue #1064 B2). extract-execution-shape.sh gates EVERY
+    # field on a `type: "result"` event being present — a deliberate, pinned, cross-field
+    # contract of that helper (run.sh #438 locks "no-result + denials array records
+    # unavailable, not present"), so it is NOT widened here. But this record`s count comes
+    # from the recursive descent above, which needs no result event, so on a file whose
+    # denials arrive in streamed message events the two halves disagreed: a positive count
+    # beside commands_state "unavailable" while the command text sat right there. Those are
+    # exactly the runs the persist step`s always() exists for — a stall, timeout or crash
+    # that never emitted a result event. So gather the commands here too, from the SAME
+    # denial objects the count already used, and consult it ONLY when the shared extractor
+    # returned unavailable. Field preference and BOUNDS mirror that extractor exactly:
+    # .tool_input.command then .command, a 500-char per-command cap with the same suffix,
+    # a 40-entry list cap, and truncated set from the pre-cap length. NOT deduped — the
+    # extractor does not dedupe either, and total must count what was extracted.
+    # Emits null when nothing is extractable, so an honest unavailable survives.
+    | ([$denials_all[] | (.tool_input.command? // .command? // empty)
+        | select(type == "string")
+        | if (length > 500) then (.[0:500] + " …[per-command-truncated]") else . end]) as $fbcmds
+    | (if ($fbcmds | length) == 0 then null
+       else {commands: ($fbcmds[0:40]), total: ($fbcmds | length),
+             truncated: (($fbcmds | length) > 40)} end) as $fb
+    | {count: (if $count == null then "unavailable" else $count end), tool_names: $tools,
+       fallback_commands: $fb}
     | tojson
   ' "$EXEC_FILE" 2>/dev/null); then
   COUNT_TOOLS=""
@@ -107,7 +152,7 @@ if [ -z "$COUNT_TOOLS" ]; then
   # The file exists but could not be parsed for count/tool_names — an UNESTABLISHED
   # measurement, not a zero. Persist a record that says so (count unavailable) rather
   # than nothing, so a downstream reader can tell "unparseable" from "denied nothing".
-  COUNT_TOOLS='{"count":"unavailable","tool_names":[]}'
+  COUNT_TOOLS='{"count":"unavailable","tool_names":[],"fallback_commands":null}'
   echo "devflow: build-denial-record.sh: could not parse execution file for count/tool_names ('$EXEC_FILE') — recording count as unavailable" >&2
 fi
 
@@ -133,6 +178,22 @@ if [ "$COMMANDS_ENABLED" = true ]; then
   else
     # rc-nonzero / not-found → the extractor could not establish the commands.
     CMDS_JSON=unavailable
+  fi
+  # ── No-result-event fallback (issue #1064 B2) ───────────────────────────────
+  # Consulted ONLY when the shared extractor came back `unavailable`, so its tested
+  # output stays authoritative on every file it can establish. The fallback value is
+  # the SAME {commands,total,truncated} shape, so it flows into the identical
+  # assembly below — which means it takes the identical scrub path (AC4 fail-closed
+  # included): there is no second route to persistence that could bypass the
+  # blocklist. A genuine zero (`{"commands":[],...}`) is NOT `unavailable` and never
+  # reaches here, and when nothing is extractable `.fallback_commands` is null and
+  # `unavailable` stands — the three-state discipline is preserved in both directions.
+  if [ "$CMDS_JSON" = unavailable ]; then
+    _FB="$(printf '%s' "$COUNT_TOOLS" | "$DEVFLOW_JQ" -c '.fallback_commands // empty' 2>/dev/null)" || _FB=""
+    if [ -n "$_FB" ]; then
+      CMDS_JSON="$_FB"
+      echo "devflow: build-denial-record.sh: extract-execution-shape.sh could not establish the denied commands (no result event in the execution file); recovered them from the denial objects directly, at the same bounds" >&2
+    fi
   fi
 fi
 

@@ -15314,6 +15314,59 @@ assert_eq "denial record: genuine zero → count 0, commands_state zero (not una
 assert_eq "denial record: digit-string count carrier normalized to number (not unavailable)" \
   "3" "$(bash "$BDR" "$DEN_TMP/strcount.json" true | "$DEN_JQ" -r '.count')"
 
+# ── #1064 B2: the NO-RESULT-EVENT shape. Every fixture above is a {type:"result"} event,
+# which is exactly why this gap shipped green. extract-execution-shape.sh gates every
+# field on a result event being present (a deliberate contract, pinned by #438 and NOT
+# widened), while this record's count comes from a recursive descent that needs no result
+# event — so the two halves disagreed: a positive count beside commands_state
+# "unavailable" while the command text sat right there in the file. That is the shape a
+# stall/timeout/crash produces, i.e. exactly what the persist step's always() is for.
+# The POSITIVE CONTROL is the whole block above (result event present), so these can fail.
+"$DEN_JQ" -n --arg c "$_LONGCMD" \
+  '{permission_denials:[{tool_name:"Bash",tool_input:{command:$c}}]}' > "$DEN_TMP/noresult.json"
+REC_NR="$(bash "$BDR" "$DEN_TMP/noresult.json" true 2>/dev/null)"
+assert_eq "denial record (no result event): commands recovered, not left 'unavailable'" \
+  "present" "$(printf '%s' "$REC_NR" | "$DEN_JQ" -r '.commands_state')"
+assert_eq "denial record (no result event): the ungranted head survives the recovery" \
+  "yes" "$(printf '%s' "$REC_NR" | "$DEN_JQ" -r '.commands|join(" ")' | grep -qF 'paste -sd, -' && echo yes || echo no)"
+# The recovery path must reach the SAME scrub — a second route to persistence that
+# bypassed the blocklist would be a worse defect than the bug it fixes (AC4).
+assert_eq "denial record (no result event): recovered text is SCRUBBED by the shared blocklist" \
+  "yes-scrubbed" \
+  "$(printf '%s' "$REC_NR" | "$DEN_JQ" -r '.commands|join(" ")' | { IFS= read -r L; case "$L" in *ghp_ABCDEF*) echo leaked ;; *REDACTED*) echo yes-scrubbed ;; *) echo other ;; esac; })"
+assert_eq "denial record (no result event): scrub.applied records that the scrub ran" \
+  "true" "$(printf '%s' "$REC_NR" | "$DEN_JQ" -r '.scrub.applied')"
+# Three-state preserved in the other direction: denial objects that carry NO extractable
+# command are still an UNESTABLISHED extraction — never an empty list, never a zero.
+"$DEN_JQ" -n '{permission_denials:[{tool_name:"Write",tool_input:{file_path:"a",content:"b"}}]}' \
+  > "$DEN_TMP/noresult-nocmd.json"
+assert_eq "denial record (no result event): no extractable command → still 'unavailable'" \
+  "unavailable" "$(bash "$BDR" "$DEN_TMP/noresult-nocmd.json" true 2>/dev/null | "$DEN_JQ" -r '.commands_state')"
+assert_eq "denial record (no result event): no extractable command → commands stays null (not [])" \
+  "null" "$(bash "$BDR" "$DEN_TMP/noresult-nocmd.json" true 2>/dev/null | "$DEN_JQ" -c '.commands')"
+# The recovery honors the SAME bounds as extract-execution-shape.sh: a 40-entry list cap
+# with an honest `truncated`, and `total` counting what was extracted (not the capped list).
+"$DEN_JQ" -n '{permission_denials:[range(45) | {tool_name:"Bash",tool_input:{command:("echo c\(.)")}}]}' \
+  > "$DEN_TMP/noresult-many.json"
+assert_eq "denial record (no result event): 45 denials → list capped at 40, total 45, truncated true" \
+  "40|45|true" \
+  "$(bash "$BDR" "$DEN_TMP/noresult-many.json" true 2>/dev/null | "$DEN_JQ" -r '"\(.commands|length)|\(.total)|\(.truncated)"')"
+# ...and the 500-char per-command cap with the extractor's exact suffix. Needs its OWN
+# fixture: $_LONGCMD is deliberately under 500 (it exists to prove the ungranted head in
+# its TAIL survives), so reusing it here would assert the cap against an uncapped string.
+"$DEN_JQ" -n '{permission_denials:[{tool_name:"Bash",tool_input:{command:(("A"*600) + " | paste -sd, -")}}]}' \
+  > "$DEN_TMP/noresult-long.json"
+# Measure with jq's `length` (codepoints), never bash ${#var}: the suffix carries a
+# multi-byte U+2026, so ${#var} would count 527 bytes in a C locale and 525 chars in a
+# UTF-8 one — green at one desk, red on another runner.
+assert_eq "denial record (no result event): per-command 500-char cap + the extractor's suffix" \
+  "525|yes" \
+  "$(bash "$BDR" "$DEN_TMP/noresult-long.json" true 2>/dev/null | "$DEN_JQ" -r '.commands[0] | "\(length)|\(if endswith(" …[per-command-truncated]") then "yes" else "no" end)"')"
+# The key still gates the recovered text: disabled → count + tool_name kept, text absent.
+assert_eq "denial record (no result event): key disabled still suppresses the recovered text" \
+  "disabled|null" \
+  "$(bash "$BDR" "$DEN_TMP/noresult.json" false 2>/dev/null | "$DEN_JQ" -r '"\(.commands_state)|\(.commands)"')"
+
 # ── AC2: unparseable file → count 'unavailable' (never 0), never a fabricated record.
 printf 'not json at all {[' > "$DEN_TMP/garbage.json"
 REC_BAD="$(bash "$BDR" "$DEN_TMP/garbage.json" true)"
