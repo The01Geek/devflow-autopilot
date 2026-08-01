@@ -1170,11 +1170,24 @@ class _StateSection:
                 f'could not create the audit-state section sentinel '
                 f'{self._sentinel}: {exc}') from exc
         try:
-            st = os.fstat(fd)
-            self._token = (st.st_dev, st.st_ino)
-            os.write(fd, str(os.getpid()).encode('ascii'))
-        finally:
-            os.close(fd)
+            try:
+                st = os.fstat(fd)
+                self._token = (st.st_dev, st.st_ino)
+                os.write(fd, str(os.getpid()).encode('ascii'))
+            finally:
+                os.close(fd)
+        except OSError as exc:
+            # An OSError after the exclusive create succeeded (an ENOSPC on the pid write,
+            # an fstat failure) must still route as a cannot-persist StateError, not escape
+            # as a raw traceback that breaks the mutation contract. Best-effort unlink the
+            # partial sentinel so it does not block later acquires until it ages out.
+            try:
+                os.unlink(self._sentinel)
+            except OSError:
+                pass
+            raise self._persist_error(
+                f'could not initialize the audit-state section sentinel '
+                f'{self._sentinel}: {exc}') from exc
         return True
 
     def _break_if_stale(self):
@@ -1218,7 +1231,15 @@ class _StateSection:
         # Create the parent directory BEFORE the first exclusive-create so a fresh clone,
         # a fresh adopter checkout, and a bare test sandbox — none of which carry the
         # ignored state tmp directory — acquire instead of raising on FileNotFoundError.
-        os.makedirs(self._parent, exist_ok=True)
+        # An OSError here (a non-directory occupies the path, a permission-denied parent)
+        # routes as a cannot-persist StateError, not a raw traceback — the section's
+        # single-failure-vocabulary contract holds on the setup path too.
+        try:
+            os.makedirs(self._parent, exist_ok=True)
+        except OSError as exc:
+            raise self._persist_error(
+                f'could not create the audit-state section directory '
+                f'{self._parent}: {exc}') from exc
         deadline = time.monotonic() + self._acquire_window_s
         while True:
             if self._try_create():
@@ -7907,10 +7928,16 @@ def cmd_record_claim_baseline(args):
                           f'by its re-executed full-domain search result; pipe it with '
                           f'--domain-stdin')
         # The domain search result was read from stdin, hoisted into main() above the
-        # section (issue #1040). This site never carried the fd-0-closed guard, so a closed
-        # fd 0 leaves args._stdin_data None and falls through to the domain-class-empty-domain
-        # refusal below (a clean named breadcrumb where an in-handler bare read would have
-        # crashed with an AttributeError) — a deliberate, minor robustness improvement.
+        # section (issue #1040). A mid-read OSError the hoist captured must name its real
+        # cause here rather than be laundered into the domain-class-empty-domain refusal
+        # below (which would hand downstream triage a trusted "empty search" token for a
+        # condition that never occurred). This site never carried the fd-0-closed guard, so
+        # a closed fd 0 leaves args._stdin_data None and falls through to
+        # domain-class-empty-domain (a clean named breadcrumb where an in-handler bare read
+        # would have crashed with an AttributeError) — a deliberate, minor improvement.
+        if args._stdin_error is not None:
+            _fail(prefix, 'could not read the domain search result from stdin: '
+                          f'{args._stdin_error}')
         data = args._stdin_data
         if not data:
             _fail(prefix, 'domain-class-empty-domain: --domain-stdin produced no bytes; a '
@@ -8070,9 +8097,13 @@ def cmd_record_finding_evidence(args):
     doc = _load_for_mutation(prefix, args.slug, args.nonce)
     observed = None
     if args.observed_stdin:
-        # Read from stdin, hoisted into main() above the section (issue #1040). This site
-        # never carried the fd-0-closed guard, so a closed fd 0 leaves args._stdin_data None
-        # and the decode below raises the same way the former bare sys.stdin read did.
+        # Read from stdin, hoisted into main() above the section (issue #1040). A mid-read
+        # OSError the hoist captured must name its real cause rather than surface as a
+        # NoneType decode crash below that discards it. This site never carried the
+        # fd-0-closed guard, so a closed fd 0 still leaves args._stdin_data None and the
+        # decode below raises the same AttributeError the former bare sys.stdin read did.
+        if args._stdin_error is not None:
+            _fail(prefix, f'could not read the observed output from stdin: {args._stdin_error}')
         raw = args._stdin_data
         # An empty read is NOT refused: issue #704 requires evidence that is absent or
         # incomplete to be RECORDED `incomplete` (never verified), which is what

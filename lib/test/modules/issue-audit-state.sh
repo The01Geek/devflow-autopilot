@@ -2237,3 +2237,22 @@ assert_eq "#1040 cli_contention_refusal: the refusal names could-not-persist-sta
 assert_eq "#1040 cli_contention_refusal: the refused mutation persisted no state file" \
   "no" "$(cat "$SL_SB/.sl3-state" 2>/dev/null)"
 rm -rf "$SL_SB"
+
+# readers_are_not_serialized (process boundary): a read-only subcommand acquires no
+# sentinel, so a query-* invoked WHILE a sentinel is held for the same slug still exits 0
+# (the AC: "a query-* invocation issued while a sentinel is held exits 0 with its decided
+# answer line"). Plant a fresh sentinel and confirm query-nonce (read-only) is unaffected.
+RO_SB="$(git_sandbox '#1040 readers_are_not_serialized_while_held')"
+(
+  cd "$RO_SB" || exit 1
+  python3 "$IAS" init s >/dev/null 2>&1
+  mkdir -p .prflow/tmp
+  printf '4242' > .prflow/tmp/issue-audit-state-s.json.lock
+  python3 "$IAS" query-nonce s > .ro-out 2> .ro-err
+  printf '%s' "$?" > .ro-rc
+) || true
+assert_eq "#1040 readers_are_not_serialized: query-nonce exits 0 while a sentinel is held" \
+  "0" "$(cat "$RO_SB/.ro-rc" 2>/dev/null)"
+assert_eq "#1040 readers_are_not_serialized: the held sentinel is left untouched by the reader" \
+  "1" "$( [ -f "$RO_SB/.prflow/tmp/issue-audit-state-s.json.lock" ] && echo 1 || echo 0 )"
+rm -rf "$RO_SB"

@@ -191,8 +191,7 @@ def _module_level_names(tree):
     carries is followed (proving whether it reaches save_state) rather than flagged
     unresolvable. `safe_leaf_names` are names a call may reference and still reach no
     followable function by name — imported names and module-level class names (a class
-    instantiation cannot BE the `save_state` function; the two classes in this module —
-    StateError, _StateSection — reach no save_state). A name collision across scopes
+    instantiation cannot BE the `save_state` function, e.g. `StateError(...)`). A name collision across scopes
     over-approximates by keeping one body; that only ever follows MORE, which is the
     fail-closed direction for an unreachability proof.
     """

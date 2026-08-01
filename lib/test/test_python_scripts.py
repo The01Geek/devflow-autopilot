@@ -7106,6 +7106,35 @@ with tempfile.TemporaryDirectory() as _td:
     assert_eq("#1040 sequential_writers_both_land: no sentinel leaked", False,
               os.path.exists(_ias1040_sentinel(_R)))
 
+# contend_then_acquire_after_release: a FRESH (non-stale) sentinel held by "another writer"
+# that is released within the acquire window — the mutation must WAIT (FileExistsError →
+# sleep → retry) and then acquire once the plain release frees the sentinel, NOT via a
+# stale-break. Driven deterministically by a threading.Timer that unlinks the planted
+# sentinel ~60ms in, with stale_after_s large enough that no break happens. This is the
+# retry-loop's acquire-after-plain-release branch — the mechanism's whole purpose.
+import threading as _threading1040  # noqa: E402
+with tempfile.TemporaryDirectory() as _td:
+    _R = Path(_td)
+    (_R / '.prflow' / 'tmp').mkdir(parents=True)
+    _sent = _ias1040_sentinel(_R)
+    with open(_sent, 'w') as _fh:
+        _fh.write('4242')  # fresh mtime — NOT stale under stale_after_s below
+    _timer = _threading1040.Timer(0.06, lambda: os.unlink(_sent) if os.path.exists(_sent)
+                                  else None)
+    _timer.start()
+    _t0 = _time1040.monotonic()
+    with issue_audit_state._StateSection('s', root=_R, acquire_window_s=5, stale_after_s=30):
+        issue_audit_state.save_state(_state([]), 's', root=_R)
+    _waited = _time1040.monotonic() - _t0
+    _timer.cancel()
+    assert_eq("#1040 contend_then_acquire_after_release: the mutation lands after the held "
+              "sentinel is released within the window", 0,
+              len(issue_audit_state.load_state('s', root=_R)['rounds']))
+    assert_eq("#1040 contend_then_acquire_after_release: it actually WAITED for the release "
+              "(did not stale-break or fail)", True, _waited >= 0.05)
+    assert_eq("#1040 contend_then_acquire_after_release: its own sentinel is released after",
+              False, os.path.exists(_sent))
+
 # section_released_on_raise: a handler raising inside the section, and save_state raising,
 # both leave no sentinel behind.
 with tempfile.TemporaryDirectory() as _td:
@@ -7251,9 +7280,10 @@ with tempfile.TemporaryDirectory() as _td:
         _raised['kind'] = type(_e).__name__
     finally:
         issue_audit_state.os.unlink = _orig_unlink
-    assert_eq("#1040 unlink_failure_never_replaces_the_real_exception: __exit__ does not "
-              "raise the unlink failure (returns falsy, the real exception propagates from "
-              "the with-block)", None, _raised['kind'])
+    assert_eq("#1040 unlink_failure_never_replaces_the_real_exception: __exit__ swallows the "
+              "unlink failure — it returns falsy without raising, so it neither replaces nor "
+              "suppresses the in-flight exception (with-block propagation is Python semantics, "
+              "not exercised here)", None, _raised['kind'])
     assert_eq("#1040 unlink_failure_never_replaces_the_real_exception: the release failure "
               "is breadcrumbed", True,
               'could not unlink the audit-state sentinel' in _err_buf.getvalue())
@@ -7371,6 +7401,17 @@ assert_eq("#1040 _selects_stdin: record-revision reads only with --stdin-digest"
 assert_eq("#1040 _selects_stdin: check-claim-staleness reads only with --domain-stdin",
           True, issue_audit_state._selects_stdin(_ns(cmd='check-claim-staleness',
                                                      domain_stdin=True)))
+assert_eq("#1040 _selects_stdin: record-coverage reads with --coverage-stdin", True,
+          issue_audit_state._selects_stdin(_ns(cmd='record-coverage', coverage_stdin=True)))
+assert_eq("#1040 _selects_stdin: record-claim-baseline reads only with --domain-stdin",
+          True, issue_audit_state._selects_stdin(_ns(cmd='record-claim-baseline',
+                                                     domain_stdin=True)))
+assert_eq("#1040 _selects_stdin: record-claim-baseline without --domain-stdin reads no stdin",
+          False, issue_audit_state._selects_stdin(_ns(cmd='record-claim-baseline',
+                                                      domain_stdin=False)))
+assert_eq("#1040 _selects_stdin: record-finding-evidence reads only with --observed-stdin",
+          True, issue_audit_state._selects_stdin(_ns(cmd='record-finding-evidence',
+                                                     observed_stdin=True)))
 assert_eq("#1040 _selects_stdin: an unrelated command selects no stdin", False,
           issue_audit_state._selects_stdin(_ns(cmd='query-summary')))
 
