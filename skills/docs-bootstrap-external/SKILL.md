@@ -136,7 +136,7 @@ For each **Missing** or **Outdated** topic:
 
 ## **Style and Writing Standards**
 
-The customer-facing style mechanics — Tone and Voice, AP style, the Oxford-comma rule, preferred word choices, and MD formatting — live in one source, the Style Guide in `skills/docs-sync-external/SKILL.md`, reached through the portable skill-directory anchor as `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../docs-sync-external/SKILL.md`. Follow that Style Guide for those mechanics. For the audience-neutral rules, follow the shared writing standard `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../docs/writing-standard.md`. A failed load of either emits a breadcrumb naming the file and the failure kind, and you compose without it. (The one convention this skill previously carried that the Style Guide does not is *"Use fenced code blocks with proper indentation"* — keep that when bootstrapping code-bearing pages.)
+The customer-facing style mechanics — Tone and Voice, AP style, the Oxford-comma rule, preferred word choices, and MD formatting — live in one source, the Style Guide in `skills/docs-sync-external/SKILL.md`, reached through the portable skill-directory anchor as `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../docs-sync-external/SKILL.md`. Follow that Style Guide for those mechanics. For the audience-neutral rules, follow the shared writing standard `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../docs/writing-standard.md`. A failed load of either emits a breadcrumb naming the file and the failure kind, and you compose without it.
 
 ---
 

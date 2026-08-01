@@ -198,7 +198,7 @@ deferrals:
 <!-- PR_BODY_END -->
 
 **Rules:**
-- Follow the shared writing standard (`docs/writing-standard.md`, read at the top of this step) for how the prose reads — the concision and plain-opening rules this line used to state now live there.
+- Follow the shared writing standard read at the top of this step for how the prose reads — the concision and plain-opening rules this line used to state now live there.
 - Summary bullets should explain *what* and *why*, not list files.
 - Changes section groups by logical area (e.g., "Orders module", "Frontend", "Database"), not individual files.
 - Test Plan items must be concrete and actionable, not generic ("Run tests").
