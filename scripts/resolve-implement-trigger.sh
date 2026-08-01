@@ -104,6 +104,45 @@ if [ "$is_pull_request" = "true" ]; then
   exit 0
 fi
 
+# --- Standalone-command detection via the shared markdown-aware detector -----
+# Route through scripts/detect-standalone-command.sh — the SAME single scanner
+# resolve-command-trigger.sh and devflow.yml's review_dedupe use (issue #321) —
+# so /devflow:implement gets the identical fence/bareness awareness the light
+# path already has, and a THIRD matcher (which could drift) is never written
+# (issue #1032). Before this the resolver matched the token with a bare
+# `grep -oiE`, so a comment merely QUOTING the command — in prose, a `>`
+# blockquote, an indented/fenced code block — fired a full, expensive run. The
+# detector is markdown-aware and fires only on a command that is the sole content
+# of its own line, is fail-closed on an unbalanced fence, and emits
+# `command=`/`number=` on stdout. Run BEFORE authorization (mirroring
+# resolve-command-trigger.sh) so a non-triggering mention declines without a
+# collaborator-API call — the authorization logic below is unchanged, only moved
+# after this gate. Invoked via `bash` so a vendored copy that lost its executable
+# bit still runs; guarded with `if !` so a MISSING/unrunnable detector (broken
+# vendor deploy, absent awk) declines fail-closed with a DISTINCT breadcrumb
+# rather than aborting under `set -e` or being misread as "no command present".
+detector="$(dirname "$0")/detect-standalone-command.sh"
+if ! det_out="$(printf '%s' "$text" | bash "$detector")"; then
+  echo "::warning::standalone-command detector ('$detector') failed to run (missing/unrunnable, or awk unavailable); declining (fail-closed) — this is a BROKEN INSTALL, not a missing command." >&2
+  emit should_run false
+  emit number ""
+  exit 0
+fi
+cmd="$(printf '%s\n' "$det_out" | sed -n 's/^command=//p')"
+det_number="$(printf '%s\n' "$det_out" | sed -n 's/^number=//p')"
+
+# The detector recognizes every /(pr|dev)flow:* standalone command; accept ONLY
+# /prflow:implement here. A non-implement standalone command, or NO standalone
+# command at all (the token was merely quoted in prose, blockquoted, indented, or
+# fenced, or the fence was unbalanced), declines — this is the fence/bareness
+# guard the heavy path previously lacked (issue #1032).
+if [ "$cmd" != "/prflow:implement" ]; then
+  echo "::warning::No STANDALONE /devflow:implement command in trigger text (a token merely quoted in prose, blockquoted, indented, or fenced does not trigger); skipping." >&2
+  emit should_run false
+  emit number ""
+  exit 0
+fi
+
 # --- Authorization (cost control: agent mode runs for any actor) ------------
 # Shared with resolve-command-trigger.sh — see scripts/authorize-actor.sh.
 # shellcheck source=scripts/authorize-actor.sh
@@ -119,11 +158,10 @@ if [ "$authorized" != "true" ]; then
 fi
 
 # --- Target number resolution -----------------------------------------------
-# First explicit `/devflow:implement <n>` (optional leading #) wins; otherwise
-# fall back to the issue/PR the event is attached to.
-match="$(printf '%s' "$text" \
-  | grep -oiE '/(pr|dev)flow:implement[[:space:]]+#?[0-9]+' | head -n1 || true)"
-number="$(printf '%s' "$match" | grep -oE '[0-9]+' | head -n1 || true)"
+# The detector already returned the explicit number on the matched standalone
+# `/devflow:implement <n>` line (optional leading #), if any; else fall back to
+# the issue the event is attached to.
+number="$det_number"
 [ -z "$number" ] && number="$context_number"
 
 if ! [[ "$number" =~ ^[0-9]+$ ]]; then

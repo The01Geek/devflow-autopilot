@@ -1450,13 +1450,20 @@ OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' \
   STUB_PERM='write' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
 assert_eq "rit: canonical namespace with a #-prefixed number resolves" \
   "number=42" "$(echo "$OUT" | grep '^number=')"
-# Negative control: the alternation is exactly two namespaces, not a wildcard —
-# an unrelated `*flow:` prefix must resolve NO number (falls back to context).
+# Negative control: the accepted namespace alternation is exactly two, not a
+# wildcard. Under the issue #1032 tightening an unrelated `/xflow:` prefix is not
+# a recognized standalone implement command, so the resolver now DECLINES it
+# (should_run=false, empty number) rather than — as the pre-#1032 grep resolver
+# did — falling through to the context number and firing a full run on the
+# attached issue. That context-fallthrough on a foreign/quoted token WAS the
+# over-fire this issue fixes; declining it is the corrected behavior.
 OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' \
   TRIGGER_TEXT='/xflow:implement 7' CONTEXT_NUMBER='99' \
   STUB_PERM='write' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
-assert_eq "rit: an unrelated /xflow: namespace does not supply the number" \
-  "number=99" "$(echo "$OUT" | grep '^number=')"
+assert_eq "rit: an unrelated /xflow: namespace is not a standalone command → should_run=false" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: an unrelated /xflow: namespace → empty number (no context fallthrough)" \
+  "number=" "$(echo "$OUT" | grep '^number=')"
 
 # 3. Non-collaborator (gh → 'none') → blocked, no number.
 OUT="$(ACTOR='stranger' ALLOWED_BOTS='' REPO='acme/x' \
@@ -1611,6 +1618,99 @@ assert_eq "rit: issue context (IS_PULL_REQUEST=false) still runs" \
   "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
 assert_eq "rit: issue context (IS_PULL_REQUEST=false) → number" \
   "number=25" "$(echo "$OUT" | grep '^number=')"
+
+# ── issue #1032: fence/bareness guard on the HEAVY implement trigger ──────────
+# Before #1032 the resolver matched the token with a bare `grep`, so a comment
+# merely QUOTING /devflow:implement — in prose, a `>` blockquote, an indented or
+# fenced code block — fired a full, expensive run. The resolver now routes
+# through the SAME shared standalone-command detector the light path uses (issue
+# #321), so a non-standalone occurrence declines. Authorized collaborator
+# throughout (STUB_PERM=write), so every decline below is the standalone/fence
+# decision, never an authorization one.
+rit_1032() { ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' STUB_PERM='write' \
+  TRIGGER_TEXT="$1" CONTEXT_NUMBER="${2:-99}" PATH="$RIT_STUB_DIR:$PATH" bash "$RIT" 2>/dev/null; }
+
+# AC1 — non-standalone shapes DECLINE: fenced, indented, blockquote, mid-prose.
+assert_eq "rit #1032: token inside a fenced block → should_run=false" \
+  "should_run=false" "$(rit_1032 "$(printf '%s\n' 'see below' '```' '/prflow:implement 42' '```')" | grep '^should_run=')"
+assert_eq "rit #1032: token indented as a code block → should_run=false" \
+  "should_run=false" "$(rit_1032 '    /prflow:implement 42' | grep '^should_run=')"
+assert_eq "rit #1032: token in a > blockquote → should_run=false" \
+  "should_run=false" "$(rit_1032 '> /prflow:implement 42' | grep '^should_run=')"
+assert_eq "rit #1032: token mid-sentence in prose → should_run=false" \
+  "should_run=false" "$(rit_1032 'do not run /prflow:implement 42, just discussing it' | grep '^should_run=')"
+# A quoted mention must resolve NO number either — it must not fall through to the
+# context number and fire on the attached issue.
+assert_eq "rit #1032: quoted mention → empty number (no context fallthrough)" \
+  "number=" "$(rit_1032 'do not run /prflow:implement 42' | grep '^number=')"
+
+# AC4 — fail-closed on an UNBALANCED (unclosed) fence: the over-exclude direction.
+assert_eq "rit #1032: unbalanced (unclosed) fence → should_run=false" \
+  "should_run=false" "$(rit_1032 "$(printf '%s\n' '```' '/prflow:implement 42')" | grep '^should_run=')"
+
+# AC2 — standalone forms STILL fire: bare token (context fallback) and #-number.
+assert_eq "rit #1032: bare standalone token still fires" \
+  "should_run=true" "$(rit_1032 '/prflow:implement' 25 | grep '^should_run=')"
+assert_eq "rit #1032: bare token falls back to the context number" \
+  "number=25" "$(rit_1032 '/prflow:implement' 25 | grep '^number=')"
+assert_eq "rit #1032: standalone #-number resolves the explicit number" \
+  "number=7" "$(rit_1032 '/prflow:implement #7' 25 | grep '^number=')"
+
+# AC2 — the REAL auto-resume body composed by devflow-implement.yml, reproduced
+# faithfully as a fixture (leading stall-backstop-audit marker, two prose
+# paragraphs that inline-quote the vendored helper path in backticks, the token
+# alone on the final line). A regression declining this silently disables stall
+# recovery, so it is exercised end-to-end rather than paraphrased.
+RIT_RESUME_BODY="$(printf '%s\n\n' '<!-- prflow:stall-backstop-audit -->'
+printf '**DevFlow stall backstop** — this cloud run ended while the workpad Status was still in-progress (`Implementing`). Auto-resume attempt 1 of 3:\n\n'
+printf 'Resume note: invoke bundled helpers as `.prflow/vendor/prflow/scripts/…` (and `.prflow/vendor/prflow/lib/…`) with that path as the leading token.\n\n'
+printf 'Headless note: this is a headless run — ending the turn ends the process, with no re-invocation.\n\n'
+printf '/prflow:implement %s\n' 42)"
+assert_eq "rit #1032: real auto-resume body still triggers (stall recovery intact)" \
+  "should_run=true" "$(rit_1032 "$RIT_RESUME_BODY" 99 | grep '^should_run=')"
+assert_eq "rit #1032: auto-resume body resolves the token's own number" \
+  "number=42" "$(rit_1032 "$RIT_RESUME_BODY" 99 | grep '^number=')"
+
+# AC5 — the authorization and self-trigger guards are UNCHANGED under the new
+# routing: negative controls that each STILL fires. A bad token fails closed even
+# on a genuine standalone command...
+OUT="$(ACTOR='stranger' ALLOWED_BOTS='' REPO='acme/x' STUB_PERM='none' \
+  TRIGGER_TEXT='/prflow:implement 42' CONTEXT_NUMBER='99' \
+  PATH="$RIT_STUB_DIR:$PATH" bash "$RIT" 2>/dev/null)"
+assert_eq "rit #1032: non-collaborator on a standalone command still fails closed" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+# ...and a body carrying the workpad marker is still declined by the self-trigger
+# guard, which runs BEFORE detection (a standalone command in the same body does
+# not rescue it).
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' STUB_PERM='write' \
+  TRIGGER_TEXT="$(printf '%s\n' '<!-- prflow:workpad -->' '/prflow:implement 42')" CONTEXT_NUMBER='99' \
+  SELF_COMMENT_MARKER='<!-- prflow:workpad -->' \
+  PATH="$RIT_STUB_DIR:$PATH" bash "$RIT" 2>/dev/null)"
+assert_eq "rit #1032: workpad-marker body still declined (self-trigger guard intact)" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+
+# AC3 — a MISSING/unrunnable detector declines fail-closed with a DISTINCT
+# broken-install breadcrumb (mirrors resolve-command-trigger.sh's #314 guard) —
+# not a generic set -e abort, not a misdirected "no command" message. Run a
+# resolver copy from a temp dir with NO sibling detect-standalone-command.sh.
+RIT_NODET_DIR="$(mktemp -d)"; cp "$RIT" "$RIT_NODET_DIR/resolve-implement-trigger.sh"
+cp "$LIB/../scripts/authorize-actor.sh" "$RIT_NODET_DIR/authorize-actor.sh"
+RIT_NODET_ERR="$(mktemp)"
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' STUB_PERM='write' \
+  TRIGGER_TEXT='/prflow:implement 42' CONTEXT_NUMBER='99' \
+  PATH="$RIT_STUB_DIR:$PATH" bash "$RIT_NODET_DIR/resolve-implement-trigger.sh" 2>"$RIT_NODET_ERR")"
+assert_eq "rit #1032: missing detector → should_run=false (fail-closed)" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit #1032: missing detector emits a distinct broken-install ::warning::" \
+  "1" "$(grep -c '::warning::standalone-command detector' "$RIT_NODET_ERR")"
+rm -rf "$RIT_NODET_DIR"; rm -f "$RIT_NODET_ERR"
+
+# --- issue #1032: coupled-invariant pin (implement resolver ↔ shared detector) --
+# The implement resolver MUST route through the ONE shared detector (the twin of
+# the rct #314 pin below); re-inlining a `grep`/substring matcher here re-opens
+# the drift issue #321 exists to prevent.
+devflow_module_pin_unique "rit #1032: implement resolver calls the shared detect-standalone-command.sh" \
+  'detector="$(dirname "$0")/detect-standalone-command.sh"' "$RIT"
 
 rm -rf "$RIT_STUB_DIR"
 
@@ -2386,6 +2486,25 @@ assert_eq "dsc: an unrelated /xflow: namespace is NOT accepted" \
 assert_eq "dsc: a bare /flow: namespace is NOT accepted" \
   "" "$(dsc_cmd '/flow:review')"
 
+# --- issue #1032: the detector now also recognizes the HEAVY implement token,
+# so scripts/resolve-implement-trigger.sh can share this one scanner instead of a
+# second, drift-prone matcher. Both namespaces resolve, the emitted token is
+# canonical, and every fence/bareness rule the light commands get applies.
+assert_eq "dsc #1032: bare /prflow:implement fires, emits canonical" \
+  "/prflow:implement" "$(dsc_cmd '/prflow:implement')"
+assert_eq "dsc #1032: transitional /devflow:implement fires, emits canonical" \
+  "/prflow:implement" "$(dsc_cmd '/devflow:implement')"
+assert_eq "dsc #1032: /prflow:implement #42 → number 42 (# stripped)" \
+  "42" "$(dsc_num '/prflow:implement #42')"
+assert_eq "dsc #1032: implement quoted mid-prose is declined" \
+  "" "$(dsc_cmd 'do not run /prflow:implement 42 here')"
+assert_eq "dsc #1032: implement in a > blockquote is declined" \
+  "" "$(dsc_cmd '> /prflow:implement 42')"
+assert_eq "dsc #1032: implement inside a fenced block is declined" \
+  "" "$(dsc_cmd "$(printf '%s\n' '```' '/prflow:implement 42' '```')")"
+assert_eq "dsc #1032: implement after an UNBALANCED fence is declined (fail-closed)" \
+  "" "$(dsc_cmd "$(printf '%s\n' '```' '/prflow:implement 42')")"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "resolve-command-trigger.sh"
 # ────────────────────────────────────────────────────────────────────────────
@@ -2534,6 +2653,24 @@ assert_eq "rct #314: missing detector → should_run=false (fail-closed)" \
 assert_eq "rct #314: missing detector emits a distinct broken-install ::warning::" \
   "1" "$(grep -c '::warning::standalone-command detector' "$NODET_ERR")"
 rm -rf "$NODET_DIR"; rm -f "$NODET_ERR"
+
+# 12. issue #1032: a STANDALONE /prflow:implement reaching the LIGHT resolver is
+# re-excluded. The shared detector now recognizes implement (so the heavy
+# resolver scripts/resolve-implement-trigger.sh can share the one matcher), but
+# this light path must decline it — implement is the heavy devflow-implement.yml
+# path, not a light devflow.yml command. The light path's OBSERVABLE behavior is
+# unchanged from before #1032 (implement declined then too, via an empty cmd);
+# only the diagnostic differs, so a distinct ::notice:: is pinned.
+rct_run "/prflow:implement 42"
+assert_eq "rct #1032: standalone /prflow:implement re-excluded → should_run=false" \
+  "should_run=false" "$(echo "$RCT_OUT" | grep '^should_run=')"
+assert_eq "rct #1032: implement re-exclusion emits its distinct ::notice::" \
+  "1" "$(grep -c '::notice::/prflow:implement is the heavy implement path' "$RCT_ERR")"; rm -f "$RCT_ERR"
+# Sanity: a genuine standalone LIGHT command in the same resolver still fires, so
+# the re-exclusion does not over-match the light commands it must still dispatch.
+rct_run "/prflow:review 7"
+assert_eq "rct #1032: light /prflow:review unaffected by the implement re-exclusion" \
+  "should_run=true" "$(echo "$RCT_OUT" | grep '^should_run=')"; rm -f "$RCT_ERR"
 
 rm -rf "$RCT_STUB"
 

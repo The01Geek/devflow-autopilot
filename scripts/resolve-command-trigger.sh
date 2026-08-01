@@ -104,6 +104,23 @@ if [ -z "$cmd" ]; then
   exit 0
 fi
 
+# --- /devflow:implement re-exclusion (heavy path is not a light command) -----
+# The shared detector now also recognizes the heavy /devflow:implement token
+# (issue #1032, so resolve-implement-trigger.sh can share the one matcher). This
+# LIGHT resolver must re-exclude it: a standalone /prflow:implement reaching this
+# gate belongs to devflow-implement.yml, not devflow.yml's command path, and
+# dispatching it here as a light command would be wrong. The workflow `if:`
+# already excludes it upstream; this is the fail-closed resolver backstop. The
+# light path's OBSERVABLE behavior is UNCHANGED — implement declined with an empty
+# `cmd` (no ladder entry) before this change and declines here now, both
+# should_run=false — only the diagnostic differs.
+if [ "$cmd" = "/prflow:implement" ]; then
+  echo "::notice::/prflow:implement is the heavy implement path (devflow-implement.yml), not a light /devflow:* command; nothing to dispatch here." >&2
+  emit should_run false
+  emit command ""
+  exit 0
+fi
+
 # --- Authorization (cost control: agent mode runs for any actor) ------------
 # Shared with resolve-implement-trigger.sh — see scripts/authorize-actor.sh.
 # shellcheck source=scripts/authorize-actor.sh
