@@ -65,6 +65,7 @@ rules above do not name is written back exactly as read — so a deliberate `fal
 REPORT PROTOCOL (stdout, tab-separated; the caller renders each record as a log line):
   CHANGED\t<detail>                       one per applied rename
   CONFLICT\t<superseded key>\t<current key>  one per refused both-present key
+  NOTE\t<line>                            one per arm skipped for want of its inputs
   ADVISORY\t<line>                        the residual notice, already rendered
 
 EXIT CODES
@@ -152,27 +153,30 @@ def _block(cfg: dict, canonical: str, supers: dict[str, str]) -> dict | None:
     return None
 
 
-def _agent_namespaces() -> tuple[str, str] | None:
-    """(superseded, canonical) subagent-override namespace prefixes, or None.
+def _agent_namespaces() -> tuple[tuple[str, str] | None, str]:
+    """((superseded, canonical) namespace prefixes, "") — or (None, why it is unavailable).
 
     `lib/plugin-identity.json` (through `lib/plugin_identity.py`) is the single source
     for the accepted namespace set, canonical first. When it cannot be resolved — a
     partial deployment, an unreadable manifest — this arm is SKIPPED rather than guessed:
     a `devflow:`-spelled override key still resolves, so leaving it is the safe side.
+
+    The skip is NOT silent. It reaches the consumer as a `NOTE` record, because a run that
+    renamed the marker and the labels and quietly left the override keys alone reads as a
+    migration that half-worked with no reason given.
     """
     if plugin_identity is None:
-        return None
+        return None, "the plugin identity reader (lib/plugin_identity.py) is not importable"
     try:
         namespaces = plugin_identity.agent_namespaces()
     except Exception as exc:  # IdentityError, or any read failure under it
-        sys.stderr.write(f"migrate-config-values: accepted subagent namespaces unavailable ({exc})\n")
-        return None
+        return None, str(exc)
     if not isinstance(namespaces, list) or len(namespaces) < 2:
-        return None
+        return None, "the accepted namespace set does not carry a superseded spelling"
     canonical, superseded = namespaces[0], namespaces[1]
     if not (isinstance(canonical, str) and canonical and isinstance(superseded, str) and superseded):
-        return None
-    return superseded, canonical
+        return None, "the accepted namespace set is not a pair of non-empty strings"
+    return (superseded, canonical), ""
 
 
 def migrate_workpad_marker(cfg: dict, renames: dict, supers: dict[str, str]) -> list[str]:
@@ -194,16 +198,27 @@ def migrate_workpad_marker(cfg: dict, renames: dict, supers: dict[str, str]) -> 
 
 def migrate_agent_override_keys(
     cfg: dict, supers: dict[str, str], example: dict
-) -> tuple[list[str], list[tuple[str, str]]]:
-    """Rename `devflow:<leaf>` override keys to `prflow:<leaf>`, in place and in order."""
-    namespaces = _agent_namespaces()
+) -> tuple[list[str], list[tuple[str, str]], list[str]]:
+    """Rename `devflow:<leaf>` override keys to `prflow:<leaf>`, in place and in order.
+
+    Returns (changed, conflicts, notes) — `notes` carrying the one line that discloses a
+    skipped arm, so a partial deployment never produces a silently partial migration.
+    """
+    namespaces, why = _agent_namespaces()
     block = _block(cfg, "prflow_review", supers)
-    if namespaces is None or block is None:
-        return [], []
-    old_ns, new_ns = namespaces
+    if block is None:
+        return [], [], []
     overrides = block.get("agent_overrides")
     if not isinstance(overrides, dict):
-        return [], []
+        return [], [], []
+    if namespaces is None:
+        return [], [], [
+            "NOTE: the `agent_overrides` keys were left as they are — the accepted subagent"
+            f" namespaces could not be resolved ({why}), and this migration will not guess at"
+            " them. Nothing is broken: a key under the superseded namespace still resolves."
+            " Re-run after repairing the plugin install to complete the rename."
+        ]
+    old_ns, new_ns = namespaces
 
     example_block = _block(example, "prflow_review", supers) or {}
     example_overrides = example_block.get("agent_overrides")
@@ -251,7 +266,7 @@ def migrate_agent_override_keys(
             out[new_key] = value
 
     block["agent_overrides"] = out
-    return changed, conflicts
+    return changed, conflicts, []
 
 
 def migrate_label_values(cfg: dict, renames: dict) -> list[str]:
@@ -276,21 +291,24 @@ def migrate_label_values(cfg: dict, renames: dict) -> list[str]:
         if not isinstance(value, str) or old not in value:
             continue
         entries = value.split(",")
+        originals = [e.strip() for e in entries]
         kept: list[str] = []
-        seen = [e.strip() for e in entries]
+        emitted: set[str] = set()
         touched = False
         for index, entry in enumerate(entries):
-            if entry.strip() != old:
+            if originals[index] != old:
                 kept.append(entry)
+                emitted.add(originals[index])
                 continue
             touched = True
-            # A collision here is the SAME label twice, not a conflicting edit: drop the
-            # renamed entry when an earlier entry already names the current spelling,
-            # keeping the first occurrence's position.
-            if new in seen[:index]:
+            # A collision here is the SAME label twice, not a conflicting edit — so the
+            # rename never introduces a duplicate. Tested against the WHOLE original list,
+            # not just the entries already emitted, so a current-spelled entry sitting
+            # AFTER the superseded one collapses it exactly like one sitting before.
+            if new in originals or new in emitted:
                 continue
-            seen[index] = new
             kept.append(entry.replace(old, new, 1))
+            emitted.add(new)
         if not touched:
             continue
         block["labels"] = ",".join(kept)
@@ -306,7 +324,12 @@ def residual_advisory(cfg: dict, renames: dict) -> list[str]:
     of staying silent when nothing is actionable). The frozen set is read from the rename
     map, so this cannot drift from the freeze itself.
     """
-    frozen = (renames.get("frozen") or {}).get("config_keys")
+    # Every hop is type-guarded: this helper is best-effort over files a partial or
+    # hand-edited deployment can corrupt, and an uncaught traceback here would land AFTER
+    # the migrated file is written but before the caller is told to swap it in — silently
+    # discarding a migration it just reported, under a misleading "could not read" line.
+    frozen_block = renames.get("frozen")
+    frozen = frozen_block.get("config_keys") if isinstance(frozen_block, dict) else None
     if not isinstance(frozen, list):
         return []
     present = [p for p in frozen if isinstance(p, str) and p and _path_exists(cfg, p)]
@@ -369,7 +392,7 @@ def main(argv=None) -> int:
 
     supers = _superseded_top_level(renames)
     changed = migrate_workpad_marker(cfg, renames, supers)
-    override_changed, conflicts = migrate_agent_override_keys(cfg, supers, example)
+    override_changed, conflicts, notes = migrate_agent_override_keys(cfg, supers, example)
     changed.extend(override_changed)
     changed.extend(migrate_label_values(cfg, renames))
 
@@ -388,6 +411,8 @@ def main(argv=None) -> int:
         sys.stdout.write("CHANGED\t" + detail + "\n")
     for old_key, new_key in conflicts:
         sys.stdout.write("CONFLICT\t" + old_key + "\t" + new_key + "\n")
+    for line in notes:
+        sys.stdout.write("NOTE\t" + line + "\n")
     for line in residual_advisory(cfg, renames):
         sys.stdout.write("ADVISORY\t" + line + "\n")
     return 0

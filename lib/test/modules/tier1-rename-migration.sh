@@ -1122,8 +1122,16 @@ assert_eq "#1028 labels: entry-wise, not substring — a label that merely CONTA
 # A collision here is the SAME label twice, not a conflicting edit: collapse it, keeping
 # the first occurrence's position.
 _t1_v_run '{"deferred":{"labels":"PRFlow,DevFlow,Deferred"}}'
-assert_eq "#1028 labels: a rename that would duplicate an existing entry collapses instead" \
+assert_eq "#1028 labels: a rename that would duplicate an entry BEFORE it collapses instead" \
   '"PRFlow,Deferred"' "$(_t1_v_get deferred.labels)"
+# Symmetric: a current-spelled entry sitting AFTER the superseded one collapses it just the
+# same. A backward-only check would emit `Deferred,PRFlow,PRFlow` here.
+_t1_v_run '{"deferred":{"labels":"Deferred,DevFlow,PRFlow"}}'
+assert_eq "#1028 labels: a rename that would duplicate an entry AFTER it collapses too" \
+  '"Deferred,PRFlow"' "$(_t1_v_get deferred.labels)"
+_t1_v_run '{"deferred":{"labels":"DevFlow,DevFlow"}}'
+assert_eq "#1028 labels: two superseded entries collapse onto one current entry" \
+  '"PRFlow"' "$(_t1_v_get deferred.labels)"
 
 # — The both-present conflict rule, mirroring block E's top-level shape —
 _t1_v_run '{"prflow_review":{"agent_overrides":{"devflow:code-reviewer":{"model":"mine"},"prflow:code-reviewer":{"model":"theirs"}}}}'
@@ -1225,6 +1233,48 @@ _t1_v_rc=0
 python3 "$T1_VALMIG" "$_t1_v_missing/in.json" "$_t1_v_missing/o2.json" "$_t1_v_missing/no-map.json" "$T1_EXAMPLE" >/dev/null 2>&1 || _t1_v_rc=$?
 assert_eq "#1028 input failure: an unreadable rename map refuses the pass (no rename without its single source)" "2|no" \
   "$_t1_v_rc|$([ -f "$_t1_v_missing/o2.json" ] && printf 'yes' || printf 'no')"
+
+# A PARTIAL DEPLOYMENT cannot resolve the accepted subagent namespaces, so the override arm
+# is skipped — but NOT silently: a run that renamed the marker and the labels and quietly
+# left the override keys alone would read as a migration that half-worked with no reason
+# given. Simulated by staging the helper beside its lib/ siblings WITHOUT the plugin
+# manifest the identity reader needs, which is exactly what a truncated install looks like.
+_t1_v_partial="$(_t1_root)"
+mkdir -p "$_t1_v_partial/lib"
+cp "$T1_VALMIG" "$LIB/plugin_identity.py" "$LIB/plugin-identity.json" "$T1_MAP" "$_t1_v_partial/lib/"
+printf '%s' '{"prflow":{"workpad_marker":"<!-- devflow:workpad -->"},"prflow_review":{"agent_overrides":{"devflow:code-reviewer":{"model":"mine"}}},"deferred":{"labels":"DevFlow"}}' \
+  > "$_t1_v_partial/in.json"
+_t1_v_rc=0
+_t1_v_rec="$(python3 "$_t1_v_partial/lib/migrate-config-values.py" "$_t1_v_partial/in.json" \
+  "$_t1_v_partial/out.json" "$_t1_v_partial/lib/rename-map.json" "$T1_EXAMPLE" 2>/dev/null)" || _t1_v_rc=$?
+_t1_v_out="$_t1_v_partial/out.json"
+assert_eq "#1028 partial deployment: exit 0 and the other arms still migrate" \
+  '0|"<!-- prflow:workpad -->"|"PRFlow"' \
+  "$_t1_v_rc|$(_t1_v_get prflow.workpad_marker)|$(_t1_v_get deferred.labels)"
+assert_eq "#1028 partial deployment: the override key is left as it was" \
+  "devflow:code-reviewer" "$(_t1_v_keys prflow_review.agent_overrides)"
+assert_eq "#1028 partial deployment: the skipped arm is DISCLOSED, never silent" "yes yes" \
+  "$(_t1_has "$_t1_v_rec" 'NOTE') $(_t1_has "$_t1_v_rec" 'agent_overrides')"
+
+# A rename map whose `frozen` block is the wrong TYPE must not traceback: an uncaught error
+# after the migrated file is written but before the caller is told to swap it in would
+# silently discard a migration the same run just reported.
+_t1_v_badmap="$(_t1_root)/bad-map.json"
+python3 -c '
+import json, sys
+m = json.load(open(sys.argv[1]))
+m["frozen"] = "not-an-object"
+json.dump(m, open(sys.argv[2], "w"))' "$T1_MAP" "$_t1_v_badmap"
+_t1_v_badroot="$(_t1_root)"
+printf '%s' '{"prflow":{"workpad_marker":"<!-- devflow:workpad -->"},"workflows":{"devflow":true}}' \
+  > "$_t1_v_badroot/in.json"
+_t1_v_rc=0
+_t1_v_rec="$(python3 "$T1_VALMIG" "$_t1_v_badroot/in.json" "$_t1_v_badroot/out.json" \
+  "$_t1_v_badmap" "$T1_EXAMPLE" 2>/dev/null)" || _t1_v_rc=$?
+_t1_v_out="$_t1_v_badroot/out.json"
+assert_eq "#1028 wrong-typed frozen block: exit 0, the rename still applies, no residual notice" \
+  '0|"<!-- prflow:workpad -->"|no' \
+  "$_t1_v_rc|$(_t1_v_get prflow.workpad_marker)|$(_t1_has "$_t1_v_rec" 'ADVISORY')"
 
 # — THE RESIDUAL NOTICE. What genuinely remains after Axis 2 is the frozen workflows.*
 #   toggles plus a POINTER to the separate environment freeze — derived from this

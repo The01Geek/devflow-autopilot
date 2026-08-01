@@ -519,7 +519,7 @@ else
           log "migrated superseded config value in $CONFIG: $detail" ;;
         CONFLICT)
           log "NOT migrating the $detail override key in $CONFIG: both it and $extra are present and $extra is not the shipped example default, so it is a deliberate edit this migration must not discard. Resolve it by hand — delete whichever entry you do not want; both spellings resolve, and $extra is the one the engine resolves first." ;;
-        ADVISORY)
+        NOTE|ADVISORY)
           log "$detail" ;;
       esac
     done
