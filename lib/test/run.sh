@@ -24270,19 +24270,12 @@ assert_eq "#789 the focused-test exec-bit guard derived a non-empty population (
   "yes" "$([ "$_T789_N" -ge 10 ] && echo yes || echo no)"
 unset _T789_BAD _T789_N _t789_meta _t789_mode _t789_path _t789_first
 
-# ── #719 Verification-evidence marker + undefined-disjunct deletion + cloud full-suite obligation ──
-# Finding 1 (unobservable claim gate): each of the three prompt extensions must state, on the
-# local/interactive tier, that a launch that never started is OBSERVABLE as an absent capture
-# file, so the claim gate remains observable.
-# The exact marker literal `Verification evidence:` must be present on each extension (it appears
-# more than once per file — the sentence plus the workpad.py recipe — so a presence count, not a
-# uniqueness pin).
-assert_eq "#719 implement.md records the exact Verification evidence marker literal" "yes" \
-  "$([ "$(pin_count 'Verification evidence:' "$WSR_IMPL")" -ge 1 ] && echo yes || echo no)"
-assert_eq "#719 review-and-fix.md records the exact Verification evidence marker literal" "yes" \
-  "$([ "$(pin_count 'Verification evidence:' "$WSR_RAF")" -ge 1 ] && echo yes || echo no)"
-assert_eq "#719 receiving-code-review.md records the exact Verification evidence marker literal" "yes" \
-  "$([ "$(pin_count 'Verification evidence:' "$FDROOT/.prflow/prompt-extensions/receiving-code-review.md")" -ge 1 ] && echo yes || echo no)"
+# ── #719 undefined-disjunct deletion + cloud full-suite obligation ──
+# The marker-literal presence pins that used to open this block are retired (issue #1007). The
+# marker is agent-executed prompt prose no tool reads — `lib/cheap-gate.jq` states in terms that
+# it is deliberately UNWIRED (issue #730) — so under the #843/#876 recorded decision it carries no
+# automated regression coverage and its retirement owes no replacement; the compensating control
+# is the review pass that reads the prose.
 # G13 (#719): implement.md states a final full-suite obligation whose scope covers the cloud tier,
 # so the tier-agnostic guarantee is legible on the extension itself, not only via CLAUDE.md tier 2.
 # Finding 2 (undefined `or path` disjunct): the full-suite trigger carries exactly one defined
@@ -24345,15 +24338,9 @@ assert_eq "#506 Writing-skills evidence marker is present in the contract and bo
 # The advisory clause is appended to BOTH review extensions as a new `## ` section after the
 # routing-gate section, so the existing routing-gate→EOF byte-identity extract (WSR_GATE_REV /
 # WSR_GATE_RAF, asserted equal above) already proves the two copies identical over the appended
-# clause too. This block verifies the `Verification evidence:` marker literal in each copy and the
-# three behavioral clauses (cloud-silent / local-marker-absent-fires /
-# local-marker-present-silent).
-assert_eq "#730 advisory clause names the Verification evidence marker in both copies (lockstep)" \
-  "yes|yes" \
-  "$(grep -qF 'Verification evidence:' "$WSR_REV" && echo yes || echo no)|$(grep -qF 'Verification evidence:' "$WSR_RAF" && echo yes || echo no)"
-# Behavioral clause 1 — cloud-classified PR → silent.
-# Behavioral clause 2 — local/interactive PR + marker absent from both surfaces → fires one advisory.
-# Behavioral clause 3 — local/interactive PR + marker present on either surface → silent.
+# clause too. The marker-literal presence pin this block used to carry is retired (issue #1007):
+# the advisory is agent-executed prompt prose no tool reads, so under the #843/#876 recorded
+# decision its compensating control is the review pass that reads the prose, not a pin.
 # (3b) Property-based vendoring invariant (the skills-tree twin of the #139 agents/*.md loop):
 # EVERY file under the two vendored skill dirs must NOT carry the first-party `2026 Daniel Radman`
 # SPDX header (the license-preservation half) — proved mechanically over EVERY vendored file incl.
@@ -28536,8 +28523,8 @@ STUB
   # non-success (a terminal end that is not 🎉 Complete).
   sb268_run env STUB_STATUS_OUT="failed 💥 Failed"
   SB268_RC=$?
-  assert_eq "#1025 behavior: failed -> fail-blocked exit 1 (non-success), no comment" "1:no" \
-    "$SB268_RC:$([ -f "$SB268_POST" ] && echo yes || echo no)"
+  assert_eq "#1025 behavior: failed -> fail-blocked exit 1 (non-success), no comment, gh never invoked" "1:no:no" \
+    "$SB268_RC:$([ -f "$SB268_POST" ] && echo yes || echo no):$([ -f "$SB268_DIR/gh-touched" ] && echo yes || echo no)"
   # Attempt boundary: one prior audit marker under cap 2 -> resume, body says 2 of 2.
   sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_MAX=2 \
     STUB_GH_BODIES='<!-- devflow:stall-backstop-audit -->'
@@ -28680,6 +28667,27 @@ WP266_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflo
 assert_eq "#1025 workpad.py status: Cancelled -> 'cancelled 🛑 Cancelled'" "cancelled 🛑 Cancelled" "$WP266_OUT"
 WP266_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 🚀 Reviewing"}]' python3 "$WP266_PY" status 5 2>/dev/null)"
 assert_eq "#266 workpad.py status: Reviewing -> 'interim 🚀 Reviewing'" "interim 🚀 Reviewing" "$WP266_OUT"
+# #1056 — behavioral negative: `workpad.py status` must NEVER emit the bare legacy
+# `terminal` class for ANY recognized status. The positive per-glyph assertions
+# above (and the #356 `Failed → 'failed 💥 Failed'` pin) cover the terminal words,
+# but the six other interim words (Setup/Discovering/Reproducing/Planning/
+# Implementing/Documenting) are never driven, so a PARTIAL re-collapse of one glyph
+# back to `terminal` could satisfy every positive and go uncaught. This drives the
+# class token behaviorally (never grepping source — issues #375/#666/#810 bar
+# wording-only pins) over EVERY recognized status word and compares the full
+# observed class sequence against the expected one. Comparing the whole sequence
+# (rather than only accumulating words that came back `terminal`) gives a POSITIVE
+# floor: an empty/errored classification for every word — the vacuous pass a
+# collect-only-`terminal` assertion would sail through — surfaces here as `<empty>`
+# in the observed sequence, so a regression in the bare-word status path fails RED
+# instead of silently gutting the guard.
+WP1056_OBSERVED=""
+for WP1056_WORD in Setup Discovering Reproducing Planning Implementing Reviewing Documenting Complete Blocked Failed Cancelled; do
+  WP1056_CLS="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS="[{\"id\":1,\"body\":\"<!-- devflow:workpad -->\n**Status:** $WP1056_WORD\"}]" python3 "$WP266_PY" status 5 2>/dev/null | cut -d' ' -f1)"
+  WP1056_OBSERVED="$WP1056_OBSERVED ${WP1056_CLS:-<empty>}"
+done
+assert_eq "#1056 workpad.py status: every recognized status classifies to its expected non-terminal class (no bare 'terminal', no vacuous empty)" \
+  " interim interim interim interim interim interim interim complete blocked failed cancelled" "$WP1056_OBSERVED"
 PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
 assert_eq "#266 workpad.py status: no workpad -> exit 2" "2" "$?"
 PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\nno status line here"}]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
@@ -30730,14 +30738,14 @@ done
 # their routing rule cannot live in a reference — that would be unreachable).
 assert_eq "#529 AC15 pressure: the root gates 0.6 on its config key" "yes" \
   "$(grep -qF 'prflow_review.stale_prose.enabled' "$REVIEW_ROOT" && echo yes || echo no)"
-assert_eq "#529 AC15 pressure: the root gates 0.3.6 to standalone PR mode" "yes" \
-  "$(grep -qF 'standalone PR mode only' "$REVIEW_ROOT" && echo yes || echo no)"
-# The pin above CANNOT carry 0.3.6's real predicate: the under-specified row it
-# replaced ("standalone PR mode only") contains that literal verbatim, so reverting
-# the correction leaves it green. That under-specification is not cosmetic — it led a
-# blinded reviewer to conclude an ordinary standalone pass loads the blocker
-# reference, and to file a REJECT over a growth figure that does not exist. Pin the
-# replaces-Phases-1-3 fact the row was missing, which the revert deletes.
+# 0.3.6's real predicate is what the pin below carries. The under-specified row it
+# replaced named the standalone-PR-mode condition and nothing else, so a check for
+# that condition alone survives a revert of the correction. That under-specification
+# is not cosmetic — it led a blinded reviewer to conclude an ordinary standalone pass
+# loads the blocker reference, and to file a REJECT over a growth figure that does
+# not exist. Pin the replaces-Phases-1-3 fact the row was missing, which the revert
+# deletes. (The condition-only check that used to sit here is retired under issue
+# #1007: it was agent-executed prompt prose no tool reads.)
 assert_pin_unique "#529 the root's 0.3.6 row states the fast path REPLACES phases 1-3 (it is never a sum term)" \
   'replaces Phases 1–3' "$REVIEW_ROOT"
 # ── #529 AC6 boundary markers — the DESK-TIME half ───────────────────────────
@@ -33267,6 +33275,30 @@ assert_eq "#1025 isg: blocked arm names the status word in its breadcrumb" "yes"
   "$(printf '%s' "${ISG_R#*|}" | grep -qF 'is terminal (Blocked)' && echo yes || echo no)"
 assert_eq "#1025 isg: blocked workpad deletes the marker (self-heal, not a block)" "no" \
   "$([ -e "$ISG_D/.prflow/tmp/implement-active-605" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── legacy `terminal` alias: an un-upgraded consumer's workpad.py predates #1025
+# and still collapses every terminal glyph to the bare `terminal` class token. The
+# real (upgraded) workpad.py the arms above copy NEVER emits `terminal`, so the
+# guard's `case complete|blocked|failed|cancelled|terminal` alias arm is otherwise
+# unexercised (its sibling stall-backstop-decide.sh does test its own legacy arm —
+# issue #1056). A stub emitting the legacy token drives that arm directly. Proven
+# load-bearing: drop `terminal` from the guard's heal case and status_class=terminal
+# falls to the unrecognized-class arm, which KEEPS the marker — so the deletion
+# assertion below flips RED.
+ISG_D="$(isg_repo "isg: legacy terminal alias arm")"
+cat > "$ISG_D/scripts/workpad.py" <<'STUB'
+#!/usr/bin/env python3
+print("terminal 🎉 Complete")
+STUB
+chmod +x "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.prflow/tmp/implement-active-612"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidLt"}')"
+assert_eq "#1056 isg: legacy 'terminal' class -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#1056 isg: legacy 'terminal' alias arm names the status word in its breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'is terminal (Complete)' && echo yes || echo no)"
+assert_eq "#1056 isg: legacy 'terminal' class heals the marker (proves the alias arm is load-bearing)" "no" \
+  "$([ -e "$ISG_D/.prflow/tmp/implement-active-612" ] && echo yes || echo no)"
 rm -rf "$ISG_D"
 
 # terminal, but the marker cannot be removed (read-only .prflow/tmp): the guard must

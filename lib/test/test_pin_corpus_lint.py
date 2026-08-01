@@ -61,10 +61,22 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
 LINTER = HERE / "pin-corpus-lint.py"
 EXTRACTOR = HERE / "extract-command-heads.py"
+CLASSIFIER = HERE / "pin-corpus-classifier.py"
 
 
 def load_linter():
     spec = importlib.util.spec_from_file_location("pin_corpus_lint_810", LINTER)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_classifier():
+    spec = importlib.util.spec_from_file_location(
+        "pin_corpus_classifier_1057", CLASSIFIER
+    )
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     sys.modules[spec.name] = module
@@ -2831,6 +2843,7 @@ class RetiredPinRevivalTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.mod = load_linter()
+        cls.classifier = load_classifier()
         cls.literal_key = (
             "literal:" + hashlib.sha256(cls.LITERAL.encode("utf-8")).hexdigest()
         )
@@ -3338,15 +3351,25 @@ class RetiredPinRevivalTests(unittest.TestCase):
         # that lets a frozen (pre-#1002) manifest target match a current-spelling
         # live site -- a live path exercised by real manifest rows.
         root = "/repo"
-        # In-repo file target (absolute) -> repo-relative POSIX path.
+        # DERIVE the expected token FROM the classifier rather than hardcoding it,
+        # so a change to how the classifier resolves a target turns this test RED
+        # instead of leaving the two sides coincidentally in agreement (issue #1057).
+        # The classifier derives repo_root as Path(lib).parent, so a lib one level
+        # below `root` makes its repo_root equal the site-side `root`.
+        lib = "/repo/lib"
+        # In-repo file target (absolute) -> repo-relative POSIX path. Expected value
+        # is whatever _portable_target produces for the same (target, repo) pair.
+        file_target = "/repo/docs/x.md"
         self.assertEqual(
-            "docs/x.md",
-            self.mod._resolved_target_token("/repo/docs/x.md", None, None, root),
+            self.classifier._portable_target(file_target, lib),
+            self.mod._resolved_target_token(file_target, None, None, root),
         )
-        # Runtime bundle -> the /__pin_corpus_runtime__/<var> placeholder,
-        # mirroring pin-corpus-classifier.py's recover_override_names sentinel.
+        # Runtime bundle -> the /__pin_corpus_runtime__/<var> placeholder. Expected
+        # value is whatever recover_override_names emits for the same var name, so
+        # the shared sentinel prefix is asserted from ONE side, the classifier's.
+        bundle_var_source = 'assert_pin_unique "s" "L" --var "CI_BUNDLE=$(cat a b)"'
         self.assertEqual(
-            "/__pin_corpus_runtime__/CI_BUNDLE",
+            self.classifier.recover_override_names(bundle_var_source)["CI_BUNDLE"],
             self.mod._resolved_target_token(None, "CI_BUNDLE", ("a", "b"), root),
         )
         # Defaulted / out-of-repo / unresolvable -> None (fail-toward-not-matched).
@@ -3398,6 +3421,15 @@ class RetiredPinRevivalTests(unittest.TestCase):
             "non-string-target": (
                 '"""lib/test/run.sh"""\tassert_pin_unique\t"a"\t'
                 f'"""{self.LITERAL}"""\t123\tfalse\tReview\t'
+                "RETIRE_PROSE\tp\n"
+            ),
+            # Bundle-target rows carry the non-trivial target, so an invalid-JSON
+            # resolved_target cell (valid-JSON source) is the arm most likely to
+            # meet a malformed cell in practice -- it must fail CLOSED via the
+            # json.loads(row[target_index]) decode-error path (issue #1057).
+            "invalid-json-target": (
+                '"""lib/test/run.sh"""\tassert_pin_unique\t"a"\t'
+                f'"""{self.LITERAL}"""\tnot-json\tfalse\tReview\t'
                 "RETIRE_PROSE\tp\n"
             ),
         }
