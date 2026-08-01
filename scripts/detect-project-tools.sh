@@ -29,7 +29,7 @@
 # a missing jq / presets file / config logs a notice and exits 0 — never blocks
 # the scaffold.
 #
-# SECURITY: the devflow / prflow_implement allowlists written here run a PR
+# SECURITY: the prflow / prflow_implement allowlists written here run a PR
 # author's code in their respective workflows. The automated reviewer instead
 # runs PR build code only when the maintainer sets prflow_runner.provision_env
 # (read from the BASE branch's committed config, never the PR head — see
@@ -331,7 +331,7 @@ if "$DEVFLOW_JQ" --sort-keys . "$CONFIG" >/dev/null 2>&1 && ! diff -q \
     log "detected: ${ACTIVE[*]} — merged build/test tools into config.json (prflow / prflow_implement / prflow_runner) + setup."
     log "review the additions before committing; the prflow / prflow_implement entries run PR code in their respective workflows. The prflow_runner.allowed_tools entries reach the automated reviewer only when prflow_runner.provision_env is set in the base config (see config.schema.json / docs/cloud-setup.md), which also runs PR build code under a write token; the runner enforces a deny-list floor over that list."
   else
-    log "detected: ${ACTIVE[*]} — the merged config.json failed a best-effort shape check (a devflow/setup field has an unexpected type); your existing config.json is left unchanged. Fix the field types (see .prflow/config.schema.json) and re-run, or add the tool entries by hand."
+    log "detected: ${ACTIVE[*]} — the merged config.json failed a best-effort shape check (a prflow/setup field has an unexpected type); your existing config.json is left unchanged. Fix the field types (see .prflow/config.schema.json) and re-run, or add the tool entries by hand."
   fi
 else
   log "detected: ${ACTIVE[*]} — config.json already covers them; no changes."
