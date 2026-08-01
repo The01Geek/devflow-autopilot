@@ -132,7 +132,7 @@ Make output scannable using bullet points, numbered lists, and clear headings.
 **File Operations:**
 - Create or edit documentation files inside `[[INTERNAL_DOC_LOCATION]]` as needed
 - Do not create or edit documentation files outside of `[[INTERNAL_DOC_LOCATION]]`
-- Use the repository's `CLAUDE.md` for guidance on style and conventions
+- Use the repository's `CLAUDE.md` for guidance on style and conventions (this file names the consumer's own `CLAUDE.md`, so it is not removed), **and** read the shared writing standard `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/writing-standard.md` and follow it when composing the documentation prose — it covers the prose-voice rules the consumer's `CLAUDE.md` does not. A failed load emits a breadcrumb naming the file and the failure kind, and you compose without it.
 
 **Code References in Documentation:**
 - Reference source files by bare path only (e.g., `src/server.py`) — **never append line numbers** (e.g., do not write `server.py:42` or `server.py:42-57`)

@@ -146,27 +146,7 @@ Do **not** commit any files modified above. Leave committing to the caller.
 
 ## Style and Writing Standards
 
-### Tone and Voice
-- **Clear, straightforward, and informative**: Content should be professional yet accessible
-- **Clarity**: Avoid jargon and overly technical language. Use simple, direct sentences
-- **Supportive**: Include helpful context about why the change matters
-- **Neutral**: Focus on the facts, not opinions
-
-### General Writing Guidelines
-- **Audience**: Primary audience is customers
-- Use "and" instead of ampersands (&)
-- Write "percent" instead of % (unless quoting a user interface element)
-- Use complete sentences
-- Use full product name on first mention, then abbreviate naturally
-- Keep entries concise — two to three sentences maximum
-
-### Preferred Word Choices
-- **Use** instead of "utilize"
-- **Log in** (verb), **login** (noun)
-- **Set up** (verb), **setup** (noun)
-- **User interface** instead of "UI"
-- **Enter** instead of "type"
-- **Display** instead of "show"
+Release-note entries are customer-facing, so follow the one customer-facing Style Guide — Tone and Voice, AP style, the Oxford-comma rule, and preferred word choices — in `skills/docs-sync-external/SKILL.md`, reached through the portable skill-directory anchor as `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../docs-sync-external/SKILL.md`. For the audience-neutral rules, follow the shared writing standard `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/writing-standard.md`. A failed load of either emits a breadcrumb naming the file and the failure kind, and you compose without it. The release-note-specific constraint — each entry is two to three sentences — is stated under **Important Constraints** below.
 
 ---
 

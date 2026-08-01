@@ -2846,26 +2846,39 @@ class RetiredPinRevivalTests(unittest.TestCase):
             text=True,
         ).stdout.strip()
 
-    def _write_retirement_manifests(self, root):
+    def _write_retirement_manifests(
+        self,
+        root,
+        retired_source="lib/test/new.sh",
+        retired_helper="assert_pin_unique",
+    ):
+        # Every source_file/literal/resolved_target cell is encode_cell (JSON)
+        # inside a CSV cell -- the exact double-encoding pin-corpus-classifier.py
+        # writes and _strict_retirement_manifest_literals now reads for all three
+        # (issue #1006). The RETIRE_PROSE row's (source_file, helper,
+        # resolved_target) matches the revival site the tests build below
+        # (`lib/test/new.sh`, assert_pin_unique, docs/x.md), so retirement covers
+        # that site by default; a caller passes ``retired_source`` to retire the
+        # literal at a DIFFERENT site instead.
         manifests = {
             ".prflow/logs/residual-prose-retirement-manifest.tsv": (
                 "source_file\thelper\tassertion_name\tliteral\tresolved_target\t"
                 "target_defaulted\tsurface\tdisposition\trationale\n"
-                '"lib/test/old.sh"\tassert_pin_unique\t"old"\t'
-                f'"""{self.LITERAL}"""\t"docs/x.md"\tfalse\tReview\t'
+                f'"""{retired_source}"""\t{retired_helper}\t"old"\t'
+                f'"""{self.LITERAL}"""\t"""docs/x.md"""\tfalse\tReview\t'
                 "RETIRE_PROSE\tretired prose\n"
             ),
             ".prflow/logs/residual-required-copy-retirement-manifest.tsv": (
                 "source_file\thelper\tassertion_name\tliteral\tresolved_target\t"
                 "target_defaulted\tdisposition\trationale\n"
-                '"lib/test/kept.sh"\tassert_pin_unique\t"kept"\t'
-                '"""NOT RETIRED"""\t"docs/x.md"\tfalse\tRETAIN_BOUNDARY\tkept\n'
+                '"""lib/test/kept.sh"""\tassert_pin_unique\t"kept"\t'
+                '"""NOT RETIRED"""\t"""docs/x.md"""\tfalse\tRETAIN_BOUNDARY\tkept\n'
             ),
             ".prflow/logs/red-on-removal-retirement-manifest.tsv": (
                 "source_file\thelper\tassertion_name\tliteral\tresolved_target\t"
                 "target_defaulted\tdisposition\tcall_sha256\n"
-                '"lib/test/converted.sh"\tassert_pin_red_on_removal\t"converted"\t'
-                '"""NOT RETIRED EITHER"""\t"docs/x.md"\tfalse\tconvert_presence\t-\n'
+                '"""lib/test/converted.sh"""\tassert_pin_red_on_removal\t"converted"\t'
+                '"""NOT RETIRED EITHER"""\t"""docs/x.md"""\tfalse\tconvert_presence\t-\n'
             ),
         }
         for relative, text in manifests.items():
@@ -2873,7 +2886,15 @@ class RetiredPinRevivalTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
 
-    def _repo(self, root, *, base_source="", active_adjudication=True):
+    def _repo(
+        self,
+        root,
+        *,
+        base_source="",
+        active_adjudication=True,
+        retired_source="lib/test/new.sh",
+        retired_helper="assert_pin_unique",
+    ):
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
         subprocess.run(
             ["git", "config", "user.email", "test@example.com"],
@@ -2885,7 +2906,9 @@ class RetiredPinRevivalTests(unittest.TestCase):
             cwd=root,
             check=True,
         )
-        self._write_retirement_manifests(root)
+        self._write_retirement_manifests(
+            root, retired_source=retired_source, retired_helper=retired_helper
+        )
         target = root / "docs/x.md"
         target.parent.mkdir(parents=True)
         target.write_text("```text\nMACHINE SENTINEL\n```\n", encoding="utf-8")
@@ -3178,9 +3201,13 @@ class RetiredPinRevivalTests(unittest.TestCase):
             root = Path(td)
             base, _table = self._repo(root)
             retired = self.mod.load_retired_wording_literal_keys(root, base)
-            converted = (
-                "literal:"
-                + hashlib.sha256("NOT RETIRED EITHER".encode("utf-8")).hexdigest()
+            # convert_presence is not a retired disposition: the site key for the
+            # converted row must not be in the retired SITE set (issue #1006).
+            converted = self.mod._site_retirement_key(
+                "lib/test/converted.sh",
+                "assert_pin_red_on_removal",
+                "NOT RETIRED EITHER",
+                "docs/x.md",
             )
             self.assertNotIn(converted, retired)
 
@@ -3192,7 +3219,10 @@ class RetiredPinRevivalTests(unittest.TestCase):
             )
             with self.subTest(helper=helper), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
-                base, table = self._repo(root)
+                # Retire the literal at the count helper's OWN site (issue #1006:
+                # helper is part of site identity), so this exercises a count
+                # helper re-adding a literal retired AT that count-helper site.
+                base, table = self._repo(root, retired_helper=helper)
                 self._commit_revival(root, table, source=source)
                 analysis = self._analysis(root, base)
                 findings = self._scan_sources(root, base, analysis)
@@ -3206,7 +3236,7 @@ class RetiredPinRevivalTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            base, table = self._repo(root)
+            base, table = self._repo(root, retired_helper="pin_count")
             self._commit_revival(
                 root,
                 table,
@@ -3218,6 +3248,167 @@ class RetiredPinRevivalTests(unittest.TestCase):
             )
             analysis = self._analysis(root, base)
             self.assertEqual([], self._scan_sources(root, base, analysis))
+
+    def test_retirement_is_scoped_to_the_retired_site(self):
+        # Issue #1006, driven end-to-end through scan_changed_sources:
+        #  - "different-site" (AC2): the literal is retired at lib/test/old.sh, so a
+        #    fully-declared boundary pin sharing that literal at lib/test/new.sh is a
+        #    DIFFERENT site and is not swept into the retired-revival population --
+        #    it routes through the ordinary ladder and passes with NO finding. Under
+        #    the old literal-only keying this same input was reported as a
+        #    "retired wording-pin revival" with no exit, which is the bug.
+        #  - "own-site" (AC3, the negative control that distinguishes a fix from a
+        #    hole): retiring the SAME literal at lib/test/new.sh -- the pin's own
+        #    site -- still reports it, so the gate did not simply go quiet.
+        cases = (
+            ("different-site", "lib/test/old.sh", 0),
+            ("own-site", "lib/test/new.sh", 1),
+        )
+        for label, retired_source, expected in cases:
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                base, table = self._repo(root, retired_source=retired_source)
+                # A genuine, declared machine-boundary pin (docs/x.md is a fenced
+                # machine sentinel) with NO revival authorization.
+                self._commit_revival(root, table)
+                analysis = self._analysis(root, base)
+                findings = self._scan_sources(root, base, analysis)
+                self.assertEqual(expected, len(findings), findings)
+                if expected:
+                    self.assertIn("retired wording-pin", findings[0])
+
+    def test_conflicting_retain_and_retire_dispositions_resolve_per_site(self):
+        # AC4 (issue #1006): one literal recorded RETIRE_PROSE at one target and
+        # RETAIN_BOUNDARY at another (same source_file + helper) resolves to the
+        # disposition recorded for EACH site. Literal-keying collapsed both to one
+        # key and could not express this; site-keying keys on the resolved target
+        # too, so only the retire target's site key is retired.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"], cwd=root, check=True
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test User"], cwd=root, check=True
+            )
+            prose = root / ".prflow/logs/residual-prose-retirement-manifest.tsv"
+            prose.parent.mkdir(parents=True, exist_ok=True)
+            prose.write_text(
+                "source_file\thelper\tassertion_name\tliteral\tresolved_target\t"
+                "target_defaulted\tsurface\tdisposition\trationale\n"
+                '"""lib/test/run.sh"""\tassert_pin_unique\t"retire"\t'
+                f'"""{self.LITERAL}"""\t"""docs/retired.md"""\tfalse\tReview\t'
+                "RETIRE_PROSE\tprose\n"
+                '"""lib/test/run.sh"""\tassert_pin_unique\t"retain"\t'
+                f'"""{self.LITERAL}"""\t"""docs/retained.md"""\tfalse\tReview\t'
+                "RETAIN_BOUNDARY\tkept\n",
+                encoding="utf-8",
+            )
+            # The other two manifests are read too; write valid header-only files.
+            (root / ".prflow/logs/residual-required-copy-retirement-manifest.tsv").write_text(
+                "source_file\thelper\tassertion_name\tliteral\tresolved_target\t"
+                "target_defaulted\tdisposition\trationale\n",
+                encoding="utf-8",
+            )
+            (root / ".prflow/logs/red-on-removal-retirement-manifest.tsv").write_text(
+                "source_file\thelper\tassertion_name\tliteral\tresolved_target\t"
+                "target_defaulted\tdisposition\tcall_sha256\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "manifests"], cwd=root, check=True)
+            base = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=root, check=True, capture_output=True, text=True
+            ).stdout.strip()
+            retired = self.mod.load_retired_wording_literal_keys(root, base)
+            retire_key = self.mod._site_retirement_key(
+                "lib/test/run.sh", "assert_pin_unique", self.LITERAL, "docs/retired.md"
+            )
+            retain_key = self.mod._site_retirement_key(
+                "lib/test/run.sh", "assert_pin_unique", self.LITERAL, "docs/retained.md"
+            )
+            self.assertIn(retire_key, retired)
+            self.assertNotIn(retain_key, retired)
+
+    def test_resolved_target_token_matches_the_classifier_three_shapes(self):
+        # The site-side token must equal the classifier's resolved_target cell
+        # (issue #1006). Three shapes, and the .devflow/ -> .prflow/ normalization
+        # that lets a frozen (pre-#1002) manifest target match a current-spelling
+        # live site -- a live path exercised by real manifest rows.
+        root = "/repo"
+        # In-repo file target (absolute) -> repo-relative POSIX path.
+        self.assertEqual(
+            "docs/x.md",
+            self.mod._resolved_target_token("/repo/docs/x.md", None, None, root),
+        )
+        # Runtime bundle -> the /__pin_corpus_runtime__/<var> placeholder,
+        # mirroring pin-corpus-classifier.py's recover_override_names sentinel.
+        self.assertEqual(
+            "/__pin_corpus_runtime__/CI_BUNDLE",
+            self.mod._resolved_target_token(None, "CI_BUNDLE", ("a", "b"), root),
+        )
+        # Defaulted / out-of-repo / unresolvable -> None (fail-toward-not-matched).
+        self.assertIsNone(self.mod._resolved_target_token(None, None, None, root))
+        self.assertIsNone(
+            self.mod._resolved_target_token("/elsewhere/y.md", None, None, root)
+        )
+        # The state-dir rename is applied symmetrically inside _site_retirement_key,
+        # so a manifest .devflow/ target and a live .prflow/ token for one asset
+        # produce EQUAL keys; a DEVFLOW-bearing filename is left byte-identical.
+        self.assertEqual(
+            self.mod._site_retirement_key(
+                "lib/test/run.sh", "assert_pin_unique", self.LITERAL,
+                ".devflow/prompt-extensions/implement.md",
+            ),
+            self.mod._site_retirement_key(
+                "lib/test/run.sh", "assert_pin_unique", self.LITERAL,
+                ".prflow/prompt-extensions/implement.md",
+            ),
+        )
+        self.assertNotEqual(
+            self.mod._site_retirement_key(
+                "lib/test/run.sh", "h", self.LITERAL, "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+            ),
+            self.mod._site_retirement_key(
+                "lib/test/run.sh", "h", self.LITERAL, "docs/PRFLOW_SYSTEM_OVERVIEW.md",
+            ),
+        )
+
+    def test_malformed_retirement_manifest_site_fields_fail_closed(self):
+        # The new source_file/resolved_target JSON parse must fail CLOSED
+        # (InfrastructureError), matching the pre-existing literal-cell arm and
+        # the repo's adversarial-input-shape convention for frozen parsers (#1006).
+        base_header = (
+            "source_file\thelper\tassertion_name\tliteral\tresolved_target\t"
+            "target_defaulted\tsurface\tdisposition\trationale\n"
+        )
+        cases = {
+            "invalid-json-source": (
+                "not-json\tassert_pin_unique\t\"a\"\t"
+                f'"""{self.LITERAL}"""\t"""docs/x.md"""\tfalse\tReview\t'
+                "RETIRE_PROSE\tp\n"
+            ),
+            "non-string-source": (
+                "123\tassert_pin_unique\t\"a\"\t"
+                f'"""{self.LITERAL}"""\t"""docs/x.md"""\tfalse\tReview\t'
+                "RETIRE_PROSE\tp\n"
+            ),
+            "non-string-target": (
+                '"""lib/test/run.sh"""\tassert_pin_unique\t"a"\t'
+                f'"""{self.LITERAL}"""\t123\tfalse\tReview\t'
+                "RETIRE_PROSE\tp\n"
+            ),
+        }
+        prose_path = ".prflow/logs/residual-prose-retirement-manifest.tsv"
+        spec = self.mod._RETIREMENT_MANIFEST_SPECS[prose_path]
+        for label, row in cases.items():
+            with self.subTest(case=label):
+                with self.assertRaises(self.mod.InfrastructureError):
+                    self.mod._strict_retirement_manifest_literals(
+                        base_header + row, prose_path, spec
+                    )
 
 
 class StaticPinWorktreeCompositionTests(unittest.TestCase):
@@ -4024,10 +4215,19 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             self.assertIn("resolves into prose", dirty_stdout)
 
     def test_authorized_retired_revival_cannot_launder_committed_prose_target(self):
-        literal = "Step 3.6 fresh-context audit"
+        # Site-keying (issue #1006): the literal must be revived at ITS OWN retired
+        # site for the pre-948 contract to apply, so this rewrites the fixture to a
+        # literal the frozen prose manifest retires at (lib/test/run.sh,
+        # assert_pin_unique, agents/checklist-verifier.md). The literal is not a
+        # live boundary (absent from the adjudication table), so appending its
+        # deliberate-boundary row below does not duplicate an existing key. The
+        # target is committed prose, so a full authorization still cannot launder
+        # it into a machine sentinel and the revival is still reported.
+        literal = "#504 displaced-path routing."
         literal_key = (
             "literal:" + hashlib.sha256(literal.encode("utf-8")).hexdigest()
         )
+        target_rel = "agents/checklist-verifier.md"
         rationale = "the token is claimed as an executable machine sentinel"
         marker = (
             "# structural-pin-ok: machine-sentinel-provenance -- " + rationale
@@ -4036,18 +4236,20 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             root = Path(td)
             self._repo(root)
             self.assertIn(
-                literal_key,
+                self.mod._site_retirement_key(
+                    "lib/test/run.sh", "assert_pin_unique", literal, target_rel
+                ),
                 self.mod.load_retired_wording_literal_keys(root, "HEAD"),
             )
             subprocess.run(["git", "switch", "-qc", "topic"], cwd=root, check=True)
-            target = root / "docs/retired-pin-target.md"
+            target = root / target_rel
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(f"## {literal}\n", encoding="utf-8")
             source = root / "lib/test/run.sh"
             source.write_text(
                 source.read_text(encoding="utf-8")
                 + f"\nassert_pin_unique 'retired prose target' '{literal}' "
-                + f"\"$LIB/../docs/retired-pin-target.md\"  {marker}\n",
+                + f"\"$LIB/../{target_rel}\"  {marker}\n",
                 encoding="utf-8",
             )
             table = root / "lib/test/pin-corpus-adjudications.tsv"
@@ -4072,7 +4274,7 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
                 "source_path\tfamily\thelper\tliteral_key\ttarget_path\t"
                 "structural_category\tstructural_rationale\n"
                 f"lib/test/run.sh\tstatic-helper\tassert_pin_unique\t{literal_key}\t"
-                "docs/retired-pin-target.md\tmachine-sentinel-provenance\t"
+                f"{target_rel}\tmachine-sentinel-provenance\t"
                 f"{rationale}\n",
                 encoding="utf-8",
             )
@@ -4729,6 +4931,13 @@ class PinRoutingLadder948Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root, source = self._fixture(td, marker=self.MARKER)
             key = self._key()
+            # Retirement now keys on SITE identity (issue #1006): the site this
+            # fixture builds is (lib/test/a.sh, assert_pin_unique, LITERAL, TARGET).
+            # The ledger delta/current-state below still key on the literal, so both
+            # keys appear -- exactly the two-key split scan_changed_sources makes.
+            retirement_key = self.mod._site_retirement_key(
+                "lib/test/a.sh", "assert_pin_unique", self.LITERAL, self.TARGET
+            )
             state = ("boundary", self.RATIONALE)
             authorization = self.mod.RevivalAuthorization(
                 "lib/test/a.sh",
@@ -4742,7 +4951,7 @@ class PinRoutingLadder948Tests(unittest.TestCase):
             findings = self._scan(
                 root,
                 source,
-                retired_literal_keys=frozenset({key}),
+                retired_literal_keys=frozenset({retirement_key}),
                 revival_authorizations=frozenset({authorization}),
                 adjudication_delta={key: (None, state)},
                 current_adjudications={key: state},

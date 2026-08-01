@@ -2,6 +2,8 @@
 
 Output: `Phase 2/4: Discover, Plan & Implement...`
 
+**Writing standard.** Before composing this phase's first `--reflection` bullet, read the shared writing standard `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/writing-standard.md` and follow it (the always-loaded Reflection style contract absorbed those rules into this read, so the read is what keeps them present). A failed load emits a breadcrumb naming the file and the failure kind, and you compose the reflection without it.
+
 Update the workpad: `workpad.py update $ISSUE_NUMBER --status Discovering --note "entered Phase 2"`.
 
 ### 2.0 Resume-idempotency gate (runs BEFORE §2.1)

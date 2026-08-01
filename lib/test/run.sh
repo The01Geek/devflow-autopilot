@@ -31591,9 +31591,15 @@ fi
 # register its own raise, exactly as #815 intended. It is pinned rather than rendered
 # because a rendered figure would move with the file and enforce nothing. Provenance, both
 # measured deltas, and the raise rationale:
-# docs/cutovers/issue-815-deferred-ac-followups-relocate.md.
+# docs/cutovers/issue-815-deferred-ac-followups-relocate.md. Issue #1039's shared writing
+# standard adds a per-phase reflection compose-point read block to every implement phase
+# file, including this one, so the ceiling is raised again here at the post-#1039
+# measurement with NO added slack, exactly as above. That measurement is the one taken
+# AFTER #1039 relocated the standard from docs/ to lib/, which shortens this file's anchor
+# by the one byte `docs` loses to `lib` — registering the pre-relocation figure instead
+# would leave exactly one byte of slack and silently admit the next one-byte growth.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
-  "$([ "$(wc -c < "$I480_P4")" -le 99031 ] && echo yes || echo no)"
+  "$([ "$(wc -c < "$I480_P4")" -le 99365 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
 # the reference through this file's own entry-gate anchor, and degrades rather than halting
 # on a failed read — carry NO pin. Every mutation those sentences admit rewrites the one
