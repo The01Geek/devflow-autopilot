@@ -21,8 +21,13 @@
 # self-locating wherever it ships (marketplace cache, vendored plugin, or a
 # clone). The caller never has to tell us where the templates are.
 #
-# Usage: scaffold-config.sh [TARGET_REPO_ROOT]
+# Usage: scaffold-config.sh [TARGET_REPO_ROOT] [SCAN_ROOT]
 #   TARGET_REPO_ROOT  where to write .prflow/ (default: git toplevel, else cwd)
+#   SCAN_ROOT         the tree language auto-detection scans for marker files
+#                     (default, and on an empty value: TARGET_REPO_ROOT). Only
+#                     install.sh's dry-run preview passes a different one — it writes
+#                     into a sandbox but must detect against the real repository, or
+#                     the preview understates what --apply merges into config.json.
 #
 # Exit codes:
 #   0  config.json scaffolded or kept; schema refreshed
@@ -89,6 +94,16 @@ RENAME_MAP="$SELF_DIR/../lib/rename-map.json"
 [ -f "$SCHEMA" ]  || die "template not found: $SCHEMA (is the plugin install complete?)"
 
 TARGET_ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+# The tree the language auto-detection step SCANS (issue #971). It is threaded straight
+# through to detect-project-tools.sh and is used for NOTHING else here: DEST (the state
+# directory this scaffolder writes) and the workflow-freshness gate it reads stay
+# anchored on TARGET_ROOT. An empty or omitted value selects TARGET_ROOT — what the
+# /prflow:init skill and install.sh's apply path both pass. Only install.sh's dry-run
+# preview passes a different one: it writes into a sandbox holding only the installer's
+# own subtrees, where detection would otherwise find no language markers and preview a
+# no-op the apply does not perform.
+SCAN_ROOT="${2:-}"
+[ -n "$SCAN_ROOT" ] || SCAN_ROOT="$TARGET_ROOT"
 # The CONSUMER'S state directory, resolved through the shared contract (issue
 # #1002): canonical .prflow/, falling back LOUDLY to a superseded .devflow/ when
 # only that one is present. Scaffolding a fresh .prflow/ beside an un-migrated
@@ -647,7 +662,9 @@ fi
 # reach it through here, so detection can't drift between them.
 DETECT="$SELF_DIR/detect-project-tools.sh"
 if [ -x "$DETECT" ]; then
-  bash "$DETECT" "$TARGET_ROOT" || log "auto-detection step failed (non-fatal); config left as-is."
+  # SCAN_ROOT is already resolved to a non-empty value above, so the detector's own
+  # default is never the thing that decides here — one resolution site, not two.
+  bash "$DETECT" "$TARGET_ROOT" "$SCAN_ROOT" || log "auto-detection step failed (non-fatal); config left as-is."
 else
   log "detect-project-tools.sh not found next to the scaffolder; skipping language auto-detection."
 fi
