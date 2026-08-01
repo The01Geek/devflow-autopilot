@@ -40939,7 +40939,7 @@ fi
 # full-suite call share the same lower-bound contract; test_module_runner.py parses
 # this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/parallel-suite-runner.sh" \
-  "parallel-suite-runner" 70; then
+  "parallel-suite-runner" 77; then
   printf 'ERROR: parallel-suite-runner boundary could not record its result\n'
   exit 1
 fi

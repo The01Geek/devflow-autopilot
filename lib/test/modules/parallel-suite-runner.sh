@@ -52,11 +52,13 @@ S="$1"
 D="${DEVFLOW_SHARD_TALLY_DIR:?}"
 mkdir -p "$D"
 if [ -n "${SYN_TRACE:-}" ]; then
-  printf 'start %s %s\n' "$S" "$(date +%s%N)" >> "$SYN_TRACE"
+  # Keyword only, no timestamp: `date +%s%N` is GNU-only (BSD/macOS emit a literal N),
+  # and the overlap reader below counts start/end keywords, never a clock value.
+  printf 'start %s\n' "$S" >> "$SYN_TRACE"
   printf 'env %s tmpdir=%s poolwidth=%s\n' "$S" "${TMPDIR:-}" "${DEVFLOW_POOL_WIDTH:-}" >> "$SYN_TRACE"
 fi
 sleep "${SYN_SLEEP:-0.4}"
-[ -z "${SYN_TRACE:-}" ] || printf 'end %s %s\n' "$S" "$(date +%s%N)" >> "$SYN_TRACE"
+[ -z "${SYN_TRACE:-}" ] || printf 'end %s\n' "$S" >> "$SYN_TRACE"
 LOG="$D/log.txt"
 printf 'assertion noise that must not be replayed\n2 passed, 0 failed\n' > "$LOG"
 python3 "$HERE/lib/test/shard-tally.py" extract --shard "$S" --tier monolith \
@@ -116,7 +118,8 @@ assert_eq "psr population: budget 8 → clean aggregate, exit 0" "0" "$?"
 assert_eq "psr population: budget 8 → all three returned shards overlap" "3" \
   "$(psr_max_overlap "$PSR_TRACE")"
 assert_eq "psr population: the launch population is the dispatcher's returned list, not a copy" "alpha beta python-pool" \
-  "$(cd "$PSR_T1" && bash dispatch.sh --list-shards | tr '\n' ' ' | sed 's/ $//')"
+  "$(cd "$PSR_T1" && bash dispatch.sh --list-shards | { PSR_ACC=""; while IFS= read -r psr_s || [ -n "$psr_s" ]; do
+       [ -z "$psr_s" ] || PSR_ACC="${PSR_ACC:+$PSR_ACC }$psr_s"; done; printf '%s\n' "$PSR_ACC"; })"
 assert_eq "psr population: the aggregate sums every shard's tally" "yes" \
   "$(case "$(cat "$PSR_T1/out-8")" in *"6 passed, 0 failed"*) echo yes ;; *) echo no ;; esac)"
 
@@ -214,6 +217,7 @@ case "${1-}" in
       empty) exit 0 ;;
       badname) printf '%s\n' 'Bad/Name'; exit 0 ;;
       listfail) exit 3 ;;
+      dup) printf '%s\n' alpha beta alpha ;;
       *) printf '%s\n' alpha beta ;;
     esac
     exit 0 ;;
@@ -228,6 +232,14 @@ case "${SYN_MODE:-}" in
   skipdis) [ "$S" = beta ] && {
       printf 'shard\tbeta\npassed\t1\nfailed\t0\nskipped\t0\nrc\t0\n' > "$D/summary"
       printf 'a skip nothing announced\n' > "$D/skips"; : > "$D/names"; exit 0; } ;;
+  killed-after-tally) [ "$S" = beta ] && {
+      # The OOM-killer shape: the tally is complete and CLEAN, and the process then dies
+      # non-zero. Nothing in the tally records the death, so only the coordinator's own
+      # reading of the child's exit status can catch it.
+      printf '1 passed, 0 failed\n' > "$D/log.txt"
+      python3 "$HERE/lib/test/shard-tally.py" extract --shard "$S" --tier monolith \
+        --log "$D/log.txt" --rc 0 --out "$D" >/dev/null
+      exit 9; } ;;
 esac
 printf '1 passed, 0 failed\n' > "$D/log.txt"
 python3 "$HERE/lib/test/shard-tally.py" extract --shard "$S" --tier monolith \
@@ -268,6 +280,23 @@ assert_eq "psr failure: a malformed tally fails closed with a PROBLEM naming it"
 PSR_FC="$(psr_fail_case skipdis)"
 assert_eq "psr failure: a skip-detail disagreement fails the aggregate" "yes" \
   "$(case "$PSR_FC" in 1\|*"disagrees with"*) echo yes ;; *) echo no ;; esac)"
+# A shard killed AFTER writing a clean tally: the aggregate sums green and no shard is
+# missing, so the child's exit status is the ONLY surviving signal. A coordinator that
+# merely printed it would exit 0 while announcing that a shard did not complete.
+PSR_FC="$(psr_fail_case killed-after-tally)"
+assert_eq "psr failure: a shard killed after writing a clean tally still fails the aggregate" "1" \
+  "${PSR_FC%%|*}"
+assert_eq "psr failure: that shard's non-zero exit is named as the refusal reason" "yes" \
+  "$(case "$PSR_FC" in *"exited non-zero"*"beta=9"*"refusing a clean aggregate"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "psr failure: the killed shard's tally still summed green (so the exit status was the only signal)" "yes" \
+  "$(case "$PSR_FC" in *"2 passed, 0 failed"*) echo yes ;; *) echo no ;; esac)"
+# A duplicated shard name would put two processes in ONE tally directory, double-count it
+# through --expect, and silently drop whichever shard the duplicate displaced.
+PSR_FC="$(psr_fail_case dup)"
+assert_eq "psr failure: a duplicated shard name is refused before anything is launched" "yes" \
+  "$(case "$PSR_FC" in 2\|*"duplicate shard name"*alpha*) echo yes ;; *) echo no ;; esac)"
+assert_eq "psr failure: the duplicate refusal launches no shard at all" "yes" \
+  "$(case "$PSR_FC" in *"launched shard"*) echo no ;; *) echo yes ;; esac)"
 # Launch failure: a shard whose private tally/temp directories cannot be created. The
 # run root is fresh by construction, so the only honest way to reach this arm is to
 # revoke write permission on it WHILE the coordinator is mid-launch — which the launch
@@ -281,9 +310,9 @@ PSR_LF_WIN="$PSR_T3B/lf-win"
     DEVFLOW_SHARD_DISPATCHER="$PSR_T3B/dispatch.sh"
   exec bash lib/test/run-parallel.sh > "$PSR_T3B/lf-out" 2>&1 ) &
 PSR_LF_PID=$!
-while [ ! -e "$PSR_LF_WIN" ]; do :; done
-PSR_LF_ROOT="$(cd "$PSR_T3B" && for psr_d in .prflow/tmp/parallel-suite/run-*; do
-  [ -d "$psr_d" ] && printf '%s\n' "$psr_d"; done | tail -1)"
+while [ ! -e "$PSR_LF_WIN" ]; do sleep 0.01; done
+PSR_LF_ROOT="$(cd "$PSR_T3B" && PSR_LAST=""; for psr_d in .prflow/tmp/parallel-suite/run-*; do
+  [ -d "$psr_d" ] && PSR_LAST="$psr_d"; done; printf '%s\n' "$PSR_LAST")"
 chmod a-w "$PSR_T3B/$PSR_LF_ROOT/tally" "$PSR_T3B/$PSR_LF_ROOT/tmp"
 : > "$PSR_LF_WIN.release"
 wait "$PSR_LF_PID"
@@ -294,6 +323,21 @@ assert_eq "psr failure: a shard whose private directories cannot be created is n
   "$(case "$PSR_LF_OUT" in *"could not create its private tally/temp directories"*) echo yes ;; *) echo no ;; esac)"
 assert_eq "psr failure: the un-launched shard is named in the launch-failure list" "yes" \
   "$(case "$PSR_LF_OUT" in *"failed to launch"*beta*) echo yes ;; *) echo no ;; esac)"
+
+# A checkout path containing a space: the tally paths must reach `combine` as N distinct
+# arguments, not as word-split fragments that satisfy the --expect floor from garbage.
+PSR_T3C="$(mktemp -d "$PSR_ROOT/with space.XXXXXX")"
+mkdir -p "$PSR_T3C/lib/test"
+cp "$PSR_COORD" "$PSR_T3C/lib/test/run-parallel.sh"
+cp "$PSR_TALLY" "$PSR_T3C/lib/test/shard-tally.py"
+chmod +x "$PSR_T3C/lib/test/run-parallel.sh"
+psr_plant_dispatcher "$PSR_T3C"
+PSR_SPACE_OUT="$(cd "$PSR_T3C" && SYN_SHARDS="alpha beta" SYN_SLEEP=0.05 \
+  DEVFLOW_SHARD_DISPATCHER="$PSR_T3C/dispatch.sh" bash lib/test/run-parallel.sh 2>&1)"
+assert_eq "psr failure: a checkout path containing a space still aggregates cleanly" "yes" \
+  "$(case "$PSR_SPACE_OUT" in *"4 passed, 0 failed"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "psr failure: a space in the path produces no split/unreadable tally PROBLEM" "yes" \
+  "$(case "$PSR_SPACE_OUT" in *PROBLEM*) echo no ;; *) echo yes ;; esac)"
 
 # ── reentrancy ───────────────────────────────────────────────────────────────
 PSR_T4="$(psr_make_tree)"
@@ -339,7 +383,7 @@ psr_signal_case() { # signal window(pre|post) -> prints "<rc>|<alive-count>|<ack
         DEVFLOW_SHARD_DISPATCHER="$PSR_T5/dispatch.sh"
       exec bash lib/test/run-parallel.sh > "$PSR_T5/out-$sig-$window" 2>&1 ) &
     coord=$!
-    while [ ! -e "$winfile" ]; do :; done
+    while [ ! -e "$winfile" ]; do sleep 0.01; done
   else
     ( cd "$PSR_T5" || exit 1
       export SYN_PIDFILE="$pidfile" DEVFLOW_SHARD_DISPATCHER="$PSR_T5/dispatch.sh"
@@ -366,13 +410,15 @@ for psr_sig in HUP INT TERM; do
   PSR_SC="$(psr_signal_case "$psr_sig" post)"
   assert_eq "psr signal: $psr_sig after registration → exits 1, acknowledges the signal, and every launched shard is reaped" \
     "1|0|yes" "$PSR_SC"
-  # Inside the fork-to-registration window the signal must be PARKED and REPLAYED, not
-  # dropped: a coordinator that swallowed it would run the population to completion and
-  # exit 0, which is exactly what this comparison refuses. The survivor count is not the
-  # discriminator here (no child is registered yet) — the acknowledgement and the
-  # non-zero exit are.
+  # A signal delivered inside the LAUNCH WINDOW must be PARKED and REPLAYED, not dropped:
+  # a coordinator that swallowed it would run the population to completion and exit 0,
+  # which is what this comparison refuses (verified by mutation — deleting the replay
+  # line turns this assertion RED). Scope stated honestly: the seam holds the run just
+  # BEFORE the fork, so no child is registered yet and the survivor count is not a
+  # discriminator here; this proves the park-and-replay path, not the narrower
+  # between-`&`-and-`$!` instant, which no portable seam can hold open.
   PSR_SC="$(psr_signal_case "$psr_sig" pre)"
-  assert_eq "psr signal: $psr_sig inside the fork-to-registration window is replayed, not swallowed" \
+  assert_eq "psr signal: $psr_sig parked in the launch window is replayed, not swallowed" \
     "1|0|yes" "$PSR_SC"
 done
 
@@ -438,8 +484,8 @@ assert_eq "psr output: the capped failure class announces the omitted count" "ye
 assert_eq "psr output: the announced tally is the FULL count, not the capped one" "yes" \
   "$(case "$PSR_BULK" in *"0 passed, 25 failed, 25 skipped"*) echo yes ;; *) echo no ;; esac)"
 # The cap bounds what is RENDERED, never what is RETAINED.
-PSR_BULK_LOG="$(cd "$PSR_T6" && for psr_d in .prflow/tmp/parallel-suite/run-*; do
-  [ -d "$psr_d" ] && printf '%s\n' "$psr_d"; done | tail -1)/logs/alpha.log"
+PSR_BULK_LOG="$(cd "$PSR_T6" && PSR_LAST=""; for psr_d in .prflow/tmp/parallel-suite/run-*; do
+  [ -d "$psr_d" ] && PSR_LAST="$psr_d"; done; printf '%s\n' "$PSR_LAST")/logs/alpha.log"
 assert_eq "psr output: the complete synthetic log stays readable under the retained run root" "yes" \
   "$(cd "$PSR_T6" && [ -r "$PSR_BULK_LOG" ] && echo yes || echo no)"
 assert_eq "psr output: every one of the 25 skip entries survives in the retained log" "25" \

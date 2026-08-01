@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 #
+# ---8<--- help-start
 # In-run parallel full-suite coordinator for agent verification (issue #1086).
 #
 # CI already partitions this suite: `lib/test/run-shard.sh` maps a shard name to its
@@ -46,7 +47,17 @@
 #                                 read-only.
 #
 # Exit status: 0 only when the aggregate is clean. Every named failure below exits
-# non-zero with a `run-parallel:`-prefixed diagnostic naming what could not be done.
+# non-zero with a `run-parallel:`-prefixed diagnostic naming what could not be done —
+# including a shard whose process exited non-zero even when its tally reads clean.
+#
+# KNOWN EXPOSURE, stated rather than assumed away: CI has only ever run these shards in
+# SEPARATE checkouts on separate runners. Running them in one checkout under deliberate
+# CPU saturation is new, and this coordinator isolates each shard's TMPDIR and tally
+# directory but NOT repo-relative writes a shard's own assertions may make. A red result
+# here that a serial `lib/test/run.sh` does not reproduce is therefore a signal to
+# investigate the assertion's isolation or its slack budget — not something to re-run
+# and hope on (this repository keeps no known-flake set).
+# ---8<--- help-end
 
 set -u
 
@@ -70,10 +81,18 @@ die() { # message
   exit 2
 }
 
+[ "$#" -le 1 ] || die "this command takes no arguments — the agent-facing command shape is the bare invocation"
 case "${1-}" in
   '') ;;
   --help|-h)
-    sed -n '4,50p' "$0" | sed 's/^# \{0,1\}//'
+    # Delimited by sentinels rather than line numbers: a hardcoded `4,50p` range silently
+    # truncates or overspills the moment any header line is added or removed, and nothing
+    # would go red. `sed` is not preflight-guaranteed, so its absence is announced rather
+    # than printing nothing and exiting 0.
+    if ! sed -n '/^# ---8<--- help-start/,/^# ---8<--- help-end/{/---8<---/d;p;}' "$0" | sed 's/^# \{0,1\}//'; then
+      printf 'run-parallel: could not render --help (sed is unavailable); read the header of %s instead\n' "$0" >&2
+      exit 2
+    fi
     exit 0
     ;;
   *)
@@ -100,6 +119,7 @@ SHARDS="$(bash "$DISPATCHER" --list-shards)" || \
   die "shard dispatcher failed to list its shards: $DISPATCHER --list-shards"
 
 SHARD_COUNT=0
+SEEN_SHARDS=""
 for shard in $SHARDS; do
   # Validate before the name reaches a path. A malformed name is a dispatcher
   # defect, and letting it through would silently create a run-root sibling
@@ -107,6 +127,15 @@ for shard in $SHARDS; do
   case "$shard" in
     ''|*[!a-z0-9-]*|-*) die "malformed shard name from the dispatcher: '$shard'" ;;
   esac
+  # Uniqueness is the other half of that isolation argument, and its absence is
+  # silent in the dangerous direction: two shards of the same name write ONE tally
+  # directory and one log, `combine` reads that directory twice (doubling its counts
+  # and satisfying --expect from a single shard), and the shard the typo displaced
+  # never runs at all — coverage vanishes while the gate stays green.
+  case " $SEEN_SHARDS " in
+    *" $shard "*) die "duplicate shard name from the dispatcher: '$shard' — two shards would share one tally directory and a displaced shard would silently not run" ;;
+  esac
+  SEEN_SHARDS="$SEEN_SHARDS $shard"
   SHARD_COUNT=$((SHARD_COUNT + 1))
 done
 [ "$SHARD_COUNT" -gt 0 ] || \
@@ -165,6 +194,11 @@ if [ -z "$BUDGET" ]; then
     ''|*[!0-9]*) BUDGET=1 ;;
     *) [ "$BUDGET" -ge 1 ] || BUDGET=1 ;;
   esac
+  # Say so. Failing closed to width 1 is correct, but it costs the whole serial
+  # wall-clock this coordinator exists to avoid, and a silent degrade leaves the
+  # reader with no way to tell a one-core host from a broken `python3`.
+  [ "$BUDGET" -gt 1 ] || \
+    printf 'run-parallel: the python3 cpu probe established no usable count — running serially at width 1 (check that python3 resolves)\n' >&2
 fi
 [ "$BUDGET" -le "$BUDGET_CEILING" ] || BUDGET="$BUDGET_CEILING"
 
@@ -326,14 +360,19 @@ RUNNING=""
 # Explicit per-shard tally paths derived from the population this run launched —
 # never `--scan`, whose parent directory would also admit a stale sibling run's
 # tally and let it satisfy this invocation's --expect floor.
-TALLY_ARGS=""
+# An ARRAY, not a space-joined string: a checkout path containing a space (a WSL
+# `/mnt/c/Users/First Last/...` tree is a supported tier) would word-split every entry,
+# turning N real paths into more than N bogus ones — which satisfies `--expect`'s
+# missing-shard floor from garbage and leaves only the unreadable-tally guard between
+# the run and a vacuous pass.
+TALLY_ARGS=()
 EXPECTED=0
 MISSING=""
 for shard in $SHARDS; do
   case " $LAUNCH_FAILURES " in *" $shard "*) continue ;; esac
   EXPECTED=$((EXPECTED + 1))
   if [ -f "$RUN_ROOT/tally/$shard/summary" ]; then
-    TALLY_ARGS="$TALLY_ARGS $RUN_ROOT/tally/$shard"
+    TALLY_ARGS+=("$RUN_ROOT/tally/$shard")
   else
     MISSING="$MISSING $shard"
   fi
@@ -350,13 +389,19 @@ if [ -n "$MISSING" ]; then
   AGGREGATE_RC=1
 fi
 if [ -n "$SHARD_RCS" ]; then
-  printf 'run-parallel: shard process(es) exited non-zero:%s\n' "$SHARD_RCS" >&2
+  # This must SET the failure, not merely report it. A shard killed AFTER
+  # shard-tally.py wrote its tally but BEFORE run-shard.sh returned (the OOM killer
+  # on a saturated host is the reachable case) leaves a complete, clean-looking tally
+  # beside a non-zero status: `MISSING` never fires, `combine` sums a green tally, and
+  # a printed-but-inert observation would let the run exit 0 while announcing that a
+  # shard did not complete.
+  printf 'run-parallel: shard process(es) exited non-zero:%s — refusing a clean aggregate over a shard that did not complete\n' "$SHARD_RCS" >&2
+  AGGREGATE_RC=1
 fi
 
 # `--expect` is the missing-shard floor: it is the count this run actually launched,
 # so a shard that died before writing its tally cannot be silently dropped.
-# shellcheck disable=SC2086
-if ! python3 "$TALLY_HELPER" combine $TALLY_ARGS --expect "$EXPECTED" --detail-cap "$DETAIL_CAP"; then
+if ! python3 "$TALLY_HELPER" combine "${TALLY_ARGS[@]}" --expect "$EXPECTED" --detail-cap "$DETAIL_CAP"; then
   AGGREGATE_RC=1
 fi
 

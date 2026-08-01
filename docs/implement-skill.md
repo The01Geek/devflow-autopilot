@@ -238,6 +238,8 @@ budget (capped at eight, overridable with `DEVFLOW_SUITE_PROCESS_BUDGET`, failin
 serial-but-complete width 1), out of which the nested Python pool's width is **reserved**
 rather than added, so the real process count matches the scheduler's.
 
+**Same-checkout concurrency is a new exposure, not a proven-safe one.** CI has only ever run these shards in separate checkouts on separate runners. The coordinator isolates each shard's `TMPDIR` and tally directory, but not repo-relative writes a shard's own assertions may make, and its whole purpose is to produce the CPU saturation under which a load-sensitive assertion's slack budget is tested. This repository keeps **no known-flake set**, so a red coordinator result that a serial `lib/test/run.sh` does not reproduce is a defect to diagnose — in the assertion's isolation or its slack budget — never something to re-run and hope on. The coordinator's own header states this beside the code.
+
 **Single-runner agent timing is not multi-runner CI timing.** CI isolates each shard on its own
 runner; here they share one host's CPU, memory, checkout and process namespace. The
 coordinator's `real` time is therefore the slowest shard *under contention with its siblings*,
