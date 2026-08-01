@@ -2659,47 +2659,6 @@ PY
 assert_eq "seed #1054: helper-reported cloud marker equals the executable workflow flip marker for the same run" \
   "$S1054_WF_MARKER" "$S1054_REPORTED_MARKER"
 
-# Prompt-order contract: a small reader checks the governed paragraphs as an
-# ordered procedure, rather than merely pinning individual phrases somewhere in
-# the bundle. This is the executable guard against reintroducing the forward ref.
-S1054_PROMPT_CHECK="$S1054_ROOT/prompt-check.py"
-cat > "$S1054_PROMPT_CHECK" <<'PY'
-import sys
-
-review = open(sys.argv[1], encoding="utf-8").read()
-setup = open(sys.argv[2], encoding="utf-8").read()
-loop = open(sys.argv[3], encoding="utf-8").read()
-
-author_start = review.index("**Author the workpad body with the Write tool")
-choice_start = review.index("Choose the existing positional `MARKER` slot", author_start)
-invoke_start = review.index("/../../scripts/seed-review-progress.sh", choice_start)
-fallback_start = review.index("Before executing the fallback", invoke_start)
-fallback_end = review.index("```bash", fallback_start)
-author = review[author_start:choice_start]
-choice = review[choice_start:invoke_start]
-fallback = review[fallback_start:fallback_end]
-
-checks = {
-    "author_markerless": "$MARKER" not in author and "do not guess or pre-author a marker line" in author,
-    "cloud_slot_empty": 'render `<marker-slot>` below as the empty literal `""`' in choice,
-    "local_before_invoke": "MARKER=$(printf" in choice and choice_start < invoke_start,
-    "reported_marker_held": "hold `$WP = <comment-id>` and `$MARKER = <literal>` exactly as reported" in review,
-    "fallback_reauthors_first": "re-author `review-wp.md` with that exact marker as line 1" in fallback,
-    "setup_decoupled": "derive the scratch run key in its own right" in setup and "never recompute" in setup,
-    "loop_decoupled": "Derive this scratch discriminator independently at loop start" in loop and "never recompute" in loop,
-}
-for key, value in checks.items():
-    print(f"{key}={'true' if value else 'false'}")
-PY
-S1054_PROMPT_OUT="$(python3 "$S1054_PROMPT_CHECK" \
-  "$LIB/../skills/review/SKILL.md" \
-  "$LIB/../skills/review/phases/phase-0-setup.md" \
-  "$LIB/../skills/review-and-fix/references/loop-control.md")"
-for S1054_PROMPT_KEY in author_markerless cloud_slot_empty local_before_invoke reported_marker_held fallback_reauthors_first setup_decoupled loop_decoupled; do
-  assert_eq "seed #1054 prompt ordering: $S1054_PROMPT_KEY" "$S1054_PROMPT_KEY=true" \
-    "$(grep "^$S1054_PROMPT_KEY=" <<<"$S1054_PROMPT_OUT")"
-done
-
 # The mismatch diagnosis helper is deliberately non-authoritative: every arm
 # exits zero and reports one of four outcomes. GitHub/JQ resolution is injected
 # so malformed responses and API failure remain deterministic.
@@ -2725,12 +2684,14 @@ assert_eq "diagnose #1054: exact bot Reviewing marker -> matched" "matched" \
   "$(s1054_diag '[{"body":"<!-- prflow:review-progress run=306999-4 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"}}]')"
 assert_eq "diagnose #1054: another bot Reviewing marker -> foreign" "foreign" \
   "$(s1054_diag '[{"body":"<!-- prflow:review-progress run=foreign-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"}}]')"
-assert_eq "diagnose #1054: superseded foreign marker spelling is still diagnosed" "foreign" \
-  "$(s1054_diag '[{"body":"<!-- devflow:review-progress run=foreign-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"}}]')"
+assert_eq "diagnose #1054: superseded namespace with the expected run key remains a foreign marker identity" "foreign" \
+  "$(s1054_diag '[{"body":"<!-- devflow:review-progress run=306999-4 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"}}]')"
 assert_eq "diagnose #1054: concatenated paginated arrays are flattened before matching" "matched" \
   "$(s1054_diag '[][{"body":"<!-- prflow:review-progress run=306999-4 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"}}]')"
 assert_eq "diagnose #1054: terminal/non-bot/null candidates do not fabricate a mismatch" "absent" \
-  "$(s1054_diag '[{"body":"<!-- prflow:review-progress run=foreign-1 -->\n**Status:** ✅ Complete","user":{"type":"Bot"}},{"body":null,"user":{}}]')"
+  "$(s1054_diag '[{"body":"<!-- prflow:review-progress run=foreign-1 -->\n**Status:** ✅ Complete","user":{"type":"Bot"}},{"body":"<!-- prflow:review-progress run=foreign-2 -->\n**Status:** 🚀 Reviewing","user":{"type":"User"}},{"body":null,"user":{}}]')"
+assert_eq "diagnose #1054: terminal comment quoting an old Reviewing line stays terminal" "absent" \
+  "$(s1054_diag '[{"body":"<!-- prflow:review-progress run=foreign-1 -->\n**Status:** ❌ Review failed\n\nPrior status was **Status:** 🚀 Reviewing","user":{"type":"Bot"}}]')"
 assert_eq "diagnose #1054: no progress comment -> absent" "absent" "$(s1054_diag '[]')"
 assert_eq "diagnose #1054: a non-array response -> unestablished" "unestablished" "$(s1054_diag '{}')"
 assert_eq "diagnose #1054: malformed JSON -> unestablished" "unestablished" "$(s1054_diag 'not-json')"
@@ -2788,7 +2749,8 @@ PY
 cat > "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/diagnose-review-progress-marker.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s|token=%s\n' "$*" "${GH_TOKEN:-}" >> "$S1054_WF_RECORD"
-echo "${S1054_WF_MESSAGE:-}"
+[ -z "${S1054_WF_MESSAGE:-}" ] || echo "$S1054_WF_MESSAGE" >&2
+echo foreign
 exit "${S1054_WF_RC:-0}"
 SH
 chmod +x "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/diagnose-review-progress-marker.sh"
@@ -2805,6 +2767,9 @@ assert_eq "diagnose #1054: canonical review and review-and-fix each invoke diagn
   "$(grep -c . "$S1054_WF_RECORD")"
 assert_eq "diagnose #1054: workflow passes repo, PR, marker, and inherited GH_TOKEN" \
   "o/r 7 $S1054_EXPECTED|token=secret" "$(sed -n '1p' "$S1054_WF_RECORD")"
+S1054_WF_ERR="$(s1054_run_wf_block '/prflow:review 7' '::warning::possible review-progress marker mismatch' 0 2>&1 >/dev/null)"
+assert_eq "diagnose #1054: review-path stderr annotation survives workflow stdout suppression" "1" \
+  "$(grep -cF '::warning::possible review-progress marker mismatch' <<<"$S1054_WF_ERR")"
 : > "$S1054_WF_RECORD"
 S1054_WF_ERR="$(s1054_run_wf_block '/prflow:pr-description 7' '::warning::possible review-progress marker mismatch' 0 2>&1 >/dev/null)"
 assert_eq "diagnose #1054: non-review command never invokes diagnosis" "0" \

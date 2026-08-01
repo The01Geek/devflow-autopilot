@@ -9,7 +9,7 @@
 # exits zero:
 #
 #   matched        an active bot-authored Reviewing comment has EXPECTED_MARKER
-#   foreign        an active bot-authored Reviewing comment has another run key
+#   foreign        an active bot-authored Reviewing comment has a different marker identity
 #   absent         no active bot-authored Reviewing progress comment exists
 #   unestablished  inputs, GitHub response, jq, or API access were unusable
 #
@@ -26,7 +26,7 @@ EXPECTED_MARKER="${3:-}"
 emit_result() {
   case "$1" in
     foreign)
-      echo "::warning::flip review-progress: possible review-progress marker mismatch; an active Reviewing comment exists under a foreign run key" >&2 ;;
+      echo "::warning::flip review-progress: possible review-progress marker mismatch; an active Reviewing comment exists under a different marker identity" >&2 ;;
     unestablished)
       echo "::notice::flip review-progress: could not establish whether a review-progress marker mismatch exists" >&2 ;;
   esac
@@ -89,10 +89,12 @@ DECISION="$("$DEVFLOW_JQ" -sr \
   --arg status '**Status:** 🚀 Reviewing' '
   def textbody:
     (.body // "") | if type == "string" then . else "" end;
+  def statusline:
+    (textbody | split("\n") | map(select(startswith("**Status:**"))) | .[0] // "");
   def candidate:
     ((.user.type // "") == "Bot")
     and (textbody | startswith($current) or startswith($superseded))
-    and (textbody | contains($status));
+    and (statusline == $status);
   def owns($marker):
     (textbody == $marker) or (textbody | startswith($marker + "\n"));
   if any(.[]; type != "array") then error("not-array")
