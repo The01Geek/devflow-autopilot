@@ -1,0 +1,33 @@
+{
+  "iter":5,
+  "started_at":"2026-08-01T23:40:00Z",
+  "fix_commit_sha":"2408d28b",
+  "fix_files":["scripts/diagnose-review-progress-marker.sh"],
+  "loop_role":"fix",
+  "current_step":"2.6",
+  "current_substep":"run_shadow_fanout",
+  "pending_dispatch":null,
+  "sweep_defs_read":["phase-2-implement.md"],
+  "sweep_evidence":{"status":"run"},
+  "checklist":[
+    {"id":"VC-1","claim":"Cloud and local seed marker derivation","verification_mode":"agent","verdict":"PASS","evidence":"seed helper and environment-shape tests"},
+    {"id":"VC-2","claim":"Body normalization and marker token contract","verification_mode":"agent","verdict":"PASS","evidence":"create/resume and body-byte assertions"},
+    {"id":"VC-3","claim":"Prompt ownership and fallback","verification_mode":"agent","verdict":"PASS","evidence":"source review, rewrite tests, and Writing-skills trials"},
+    {"id":"VC-4","claim":"Flip-first four-arm diagnosis","verification_mode":"agent","verdict":"PASS","evidence":"591-test focused matrix"},
+    {"id":"VC-5","claim":"Workflow command scope is helper-owned and exit-neutral","verification_mode":"agent","verdict":"PASS","evidence":"real dispatcher through extracted workflow block"},
+    {"id":"VC-6","claim":"Failure and scope prose are observable and accurate","verification_mode":"agent","verdict":"PASS","evidence":"changeset and helper contract review"},
+    {"id":"VC-7","claim":"Artifacts and coverage ownership","verification_mode":"lite","verdict":"PASS","evidence":"regenerate-artifacts exit 0"}
+  ],
+  "dispatched_effort":[],
+  "phase3_dispatched":["prflow:code-reviewer","prflow:silent-failure-hunter","prflow:comment-analyzer","prflow:pr-test-analyzer","prflow:requesting-code-review"],
+  "diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
+  "phase3_findings":[{"agent":"prflow:comment-analyzer","severity":"Suggestion","description":"diagnosis header described only a missed lookup rather than successful post-flip confirmation","fix_decision":"applied"}],
+  "fix_decisions":[{"finding_id":"F-16","decision":"applied","commit":"2408d28b"}],
+  "convergence_inputs":{"fixes_applied":1,"fix_diff_lines":7,"new_corroborated_critical_count":0},
+  "cap_drops":{"count":0,"by_category":{}},
+  "parked_class_sweep":{"classes":[],"truncation":null,"dispatch":"verified"},
+  "reference_reads":{"fix_delta":{"status":"verified","outcome":"clean","reason":null}},
+  "shadow":{"ran_at":"2026-08-01T23:51:00Z","reviewed_sha":"2408d28b","verdict":"APPROVE","coverage":"full five-role roster","prompt_addenda":null,"reviewers_dispatched":["prflow:code-reviewer","prflow:silent-failure-hunter","prflow:comment-analyzer","prflow:pr-test-analyzer","prflow:requesting-code-review"],"expected_reviewers":["prflow:code-reviewer","prflow:silent-failure-hunter","prflow:comment-analyzer","prflow:pr-test-analyzer","prflow:requesting-code-review"],"reason":"final reviewer approved; test analyzer request pushed back under issue-stated nondeterministic agent-compliance boundary","checklist_skipped":null,"phase3_findings":[{"agent":"prflow:pr-test-analyzer","severity":"Important","description":"requested executable end-to-end coverage of agent marker consumption","fix_decision":"pushed_back","evidence":"Issue #1054 Testing Strategy explicitly excludes deterministic coverage of agent compliance; Writing-skills RED/GREEN trials cover the prompt behavior, while executable tests cover helper output and rewrite boundaries. Extracting a prompt-consumer state machine would test a duplicate model rather than the agent."}],"phase2_fails":[],"comparison":{"shadow_total":1,"overlap_with_iter_N":1,"new":0,"new_critical":0,"new_important":0},"promoted_to_iter_next":false},
+  "park_calibration":{"evidence_comparisons":[]},
+  "telemetry":"unavailable"
+}

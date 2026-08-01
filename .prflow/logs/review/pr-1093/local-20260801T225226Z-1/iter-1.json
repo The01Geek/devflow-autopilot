@@ -1,0 +1,72 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-01T22:52:26Z",
+  "fix_commit_sha": "befb0d3c",
+  "fix_files": [
+    "scripts/diagnose-review-progress-marker.sh",
+    "lib/test/modules/review-trigger-helpers.sh"
+  ],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": "run_shadow_fanout",
+  "pending_dispatch": {
+    "kind": "shadow_reviewer_fanout",
+    "roster": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:comment-analyzer",
+      "prflow:pr-test-analyzer",
+      "prflow:requesting-code-review"
+    ],
+    "dispatched_at": "2026-08-01T23:12:00Z"
+  },
+  "sweep_defs_read": ["phase-2-implement.md"],
+  "sweep_evidence": {"status": "run"},
+  "checklist": [
+    {"id": "VC-1", "claim": "Cloud and local seed marker derivation", "verification_mode": "agent", "verdict": "PASS", "evidence": "seed helper source plus five environment-shape tests"},
+    {"id": "VC-2", "claim": "Body line-one normalization and token contract", "verification_mode": "agent", "verdict": "PASS", "evidence": "create/resume and body-byte assertions"},
+    {"id": "VC-3", "claim": "Prompt ordering, held marker, fallback, and decoupled run keys", "verification_mode": "agent", "verdict": "PASS", "evidence": "source review, three phase-rewrite behavioral tests, and Writing-skills RED/GREEN trials"},
+    {"id": "VC-4", "claim": "Four-arm diagnosis and resolver boundary", "verification_mode": "agent", "verdict": "PASS", "evidence": "focused matrix including pagination, malformed data, terminal quoting, namespace skew, and API failure"},
+    {"id": "VC-5", "claim": "Workflow command scope, fallback, arguments, annotations, and exit neutrality", "verification_mode": "agent", "verdict": "PASS", "evidence": "extracted workflow block executed across review and non-review commands"},
+    {"id": "VC-6", "claim": "Test doubles and negative controls are non-vacuous", "verification_mode": "agent", "verdict": "PASS", "evidence": "non-bot control restored; workflow stderr channel modeled; wording-only prompt pin removed"},
+    {"id": "VC-7", "claim": "Generated artifacts, coverage ownership, and changeset", "verification_mode": "lite", "verdict": "PASS", "evidence": "regenerate-artifacts exit 0 and coverage-map guard clean"}
+  ],
+  "dispatched_effort": [],
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:pr-test-analyzer",
+    "prflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "prflow:code-reviewer", "severity": "Important", "description": "wording-only prompt-order pin", "defect_signature": {"file": "lib/test/modules/review-trigger-helpers.sh", "line_range": [2662, 2701], "kind": "wording_only_pin"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "prflow:silent-failure-hunter", "severity": "Suggestion", "description": "terminal comment quoting Reviewing could select foreign", "defect_signature": {"file": "scripts/diagnose-review-progress-marker.sh", "line_range": [92, 102], "kind": "terminal_progress_comment_with_quoted_interim_status"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "prflow:comment-analyzer", "severity": "Critical", "description": "foreign marker documentation equated namespace skew with another run key", "defect_signature": {"file": "scripts/diagnose-review-progress-marker.sh", "line_range": [12, 29], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "prflow:pr-test-analyzer", "severity": "Important", "description": "workflow fixture did not model stderr annotation channel", "defect_signature": {"file": "lib/test/modules/review-trigger-helpers.sh", "line_range": [2749, 2774], "kind": "workflow_diagnostic_stub_output_channel"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "prflow:pr-test-analyzer", "severity": "Suggestion", "description": "non-bot negative row lacked an active User-authored comment", "defect_signature": {"file": "lib/test/modules/review-trigger-helpers.sh", "line_range": [2691, 2692], "kind": "vacuous_negative_test"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "prflow:pr-test-analyzer", "severity": "Important", "description": "requested executable prompt-lifecycle state machine", "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [95, 167], "kind": "prompt_marker_lifecycle_test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "pushed_back"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "befb0d3c"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "befb0d3c"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "befb0d3c"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "befb0d3c"},
+    {"finding_id": "F-5", "decision": "applied", "commit": "befb0d3c"},
+    {"finding_id": "F-6", "decision": "pushed_back", "source_file": "skills/review/SKILL.md", "claim_text": "add a deterministic executable prompt-consumer state machine", "skip_category": "claim-quality", "evidence": "Issue #1054 explicitly excludes deterministic coverage of agent compliance; the governed path instead has Writing-skills RED/GREEN evidence plus executable helper and rewrite-loop boundaries.", "parking_evidence": {"basis": "the requested fixture would recreate a model of the prompt rather than execute the agent and would duplicate the removed wording-only pin class", "failing_input": "agent ignores the helper-reported marker", "source": "issue #1054 Testing Strategy: Not covered, stated rather than waived", "finding_ref": {"iter": 1, "index": 5}}}
+  ],
+  "convergence_inputs": {"fixes_applied": 5, "fix_diff_lines": 63, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "parked_class_sweep": {"classes": [], "truncation": null, "dispatch": "verified"},
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "clean", "reason": null}},
+  "shadow": {"ran_at": "2026-08-01T23:12:00Z", "reviewed_sha": "befb0d3c", "verdict": "findings", "coverage": "partial roster before promotion", "prompt_addenda": null, "reviewers_dispatched": ["prflow:code-reviewer", "prflow:silent-failure-hunter", "prflow:comment-analyzer"], "expected_reviewers": ["prflow:code-reviewer", "prflow:silent-failure-hunter", "prflow:comment-analyzer", "prflow:pr-test-analyzer", "prflow:requesting-code-review"], "reason": "new actionable findings promoted immediately into iteration 2", "checklist_skipped": null, "phase3_findings": [{"agent":"prflow:code-reviewer","severity":"Important","description":"workflow inlined canonical-command branch selection","fix_decision":"applied"},{"agent":"prflow:silent-failure-hunter","severity":"Medium","description":"diagnosis suppressed resolver-routed gh/jq failure causes","fix_decision":"applied"},{"agent":"prflow:silent-failure-hunter","severity":"Medium","description":"requested an executable classifier for whitespace-only GITHUB_RUN_ID","fix_decision":"pushed_back"},{"agent":"prflow:comment-analyzer","severity":"Suggestion","description":"test comment described an unreachable cloud no-run-key outcome","fix_decision":"applied"}], "phase2_fails": [], "comparison": {"shadow_total": 4, "overlap_with_iter_N": 0, "new": 4, "new_critical": 0, "new_important": 1}, "promoted_to_iter_next": true},
+  "park_calibration": {"evidence_comparisons": []},
+  "telemetry": "unavailable"
+}

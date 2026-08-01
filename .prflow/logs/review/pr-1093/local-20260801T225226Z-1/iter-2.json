@@ -1,0 +1,60 @@
+{
+  "iter": 2,
+  "started_at": "2026-08-01T23:12:00Z",
+  "fix_commit_sha": "2eb9dd3f00b3b60cec3f366cc8b28373422ba112",
+  "fix_files": [
+    ".github/workflows/devflow.yml",
+    "lib/test/modules/coverage-map.json",
+    "lib/test/modules/review-trigger-helpers.sh",
+    "lib/test/run.sh",
+    "scripts/diagnose-review-progress-marker.sh",
+    "scripts/run-review-progress-diagnosis.sh"
+  ],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": "run_shadow_fanout",
+  "pending_dispatch": {
+    "kind": "shadow_reviewer_fanout",
+    "roster": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:comment-analyzer",
+      "prflow:pr-test-analyzer",
+      "prflow:requesting-code-review"
+    ],
+    "dispatched_at": "2026-08-01T23:21:15Z"
+  },
+  "sweep_defs_read": ["phase-2-implement.md"],
+  "sweep_evidence": {"status": "run"},
+  "checklist": [
+    {"id":"VC-1","claim":"Cloud and local seed marker derivation","verification_mode":"agent","verdict":"PASS","evidence":"seed helper source plus environment-shape tests"},
+    {"id":"VC-2","claim":"Body normalization and marker token contract","verification_mode":"agent","verdict":"PASS","evidence":"create/resume and body-byte assertions"},
+    {"id":"VC-3","claim":"Prompt ownership, ordering, fallback, and run-key decoupling","verification_mode":"agent","verdict":"PASS","evidence":"source review, rewrite tests, and Writing-skills trials"},
+    {"id":"VC-4","claim":"Four-arm diagnosis and observable resolver failures","verification_mode":"agent","verdict":"PASS","evidence":"focused matrix including gh/jq cause breadcrumbs"},
+    {"id":"VC-5","claim":"Workflow command scope is helper-owned and exit-neutral","verification_mode":"agent","verdict":"PASS","evidence":"real dispatcher exercised through extracted workflow block"},
+    {"id":"VC-6","claim":"Test controls and comments accurately model reachable outcomes","verification_mode":"agent","verdict":"PASS","evidence":"non-bot control, stderr channel, and corrected no-run-key prose"},
+    {"id":"VC-7","claim":"Generated artifacts and coverage ownership","verification_mode":"lite","verdict":"PASS","evidence":"regenerate-artifacts and coverage-map guard exit 0"}
+  ],
+  "dispatched_effort": [],
+  "phase3_dispatched": ["prflow:code-reviewer","prflow:silent-failure-hunter","prflow:comment-analyzer","prflow:pr-test-analyzer","prflow:requesting-code-review"],
+  "diff_profile": {"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
+  "phase3_findings": [
+    {"agent":"prflow:code-reviewer","severity":"Important","description":"workflow inlined canonical-command branch selection","fix_decision":"applied"},
+    {"agent":"prflow:silent-failure-hunter","severity":"Medium","description":"diagnosis suppressed resolver-routed gh/jq failure causes","fix_decision":"applied"},
+    {"agent":"prflow:silent-failure-hunter","severity":"Medium","description":"requested an executable classifier for whitespace-only GITHUB_RUN_ID","fix_decision":"pushed_back"},
+    {"agent":"prflow:comment-analyzer","severity":"Suggestion","description":"test comment described an unreachable cloud no-run-key outcome","fix_decision":"applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id":"F-7","decision":"applied","commit":"2eb9dd3f"},
+    {"finding_id":"F-8","decision":"applied","commit":"2eb9dd3f"},
+    {"finding_id":"F-9","decision":"pushed_back","source_file":"skills/review/SKILL.md","claim_text":"add an executable mechanism to distinguish whitespace-only GITHUB_RUN_ID","skip_category":"claim-quality","evidence":"AC-engine assigns local/cloud ownership to the engine prompt; Writing-skills RED/GREEN trials exercise agent compliance while the helper executable boundary covers derived marker bytes.","parking_evidence":{"basis":"a second classifier would duplicate and weaken the accepted prompt-owned environment decision boundary","source":"issue #1054 AC-engine and testing strategy","finding_ref":{"iter":2,"index":2}}},
+    {"finding_id":"F-10","decision":"applied","commit":"2eb9dd3f"}
+  ],
+  "convergence_inputs": {"fixes_applied":3,"fix_diff_lines":146,"new_corroborated_critical_count":0},
+  "cap_drops": {"count":0,"by_category":{}},
+  "parked_class_sweep": {"classes":[],"truncation":null,"dispatch":"verified"},
+  "reference_reads": {"fix_delta":{"status":"verified","outcome":"clean","reason":null}},
+  "shadow": {"ran_at":"2026-08-01T23:24:00Z","reviewed_sha":"2eb9dd3f","verdict":"findings","coverage":"partial roster before promotion","prompt_addenda":null,"reviewers_dispatched":["prflow:code-reviewer","prflow:silent-failure-hunter","prflow:comment-analyzer"],"expected_reviewers":["prflow:code-reviewer","prflow:silent-failure-hunter","prflow:comment-analyzer","prflow:pr-test-analyzer","prflow:requesting-code-review"],"reason":"new actionable findings promoted immediately into iteration 3","checklist_skipped":null,"phase3_findings":[{"agent":"prflow:silent-failure-hunter","severity":"Medium","description":"post-flip diagnosis could falsely report a foreign marker","fix_decision":"applied"},{"agent":"prflow:silent-failure-hunter","severity":"Medium","description":"dispatcher silently swallowed an unexpected diagnosis-helper failure","fix_decision":"applied"},{"agent":"prflow:comment-analyzer","severity":"Important","description":"changeset overstated the helper-reached cloud scope","fix_decision":"applied"},{"agent":"prflow:comment-analyzer","severity":"Suggestion","description":"unestablished outcome header omitted scratch setup failure","fix_decision":"applied"}],"phase2_fails":[],"comparison":{"shadow_total":4,"overlap_with_iter_N":0,"new":4,"new_critical":0,"new_important":1},"promoted_to_iter_next":true},
+  "park_calibration": {"evidence_comparisons":[]},
+  "telemetry": "unavailable"
+}

@@ -1,0 +1,33 @@
+{
+  "iter":4,
+  "started_at":"2026-08-01T23:33:00Z",
+  "fix_commit_sha":"9cd8b964",
+  "fix_files":[".github/workflows/devflow.yml","lib/test/modules/review-trigger-helpers.sh","scripts/diagnose-review-progress-marker.sh"],
+  "loop_role":"fix",
+  "current_step":"2.6",
+  "current_substep":"run_shadow_fanout",
+  "pending_dispatch":{"kind":"shadow_reviewer_fanout","roster":["prflow:code-reviewer","prflow:silent-failure-hunter","prflow:comment-analyzer","prflow:pr-test-analyzer","prflow:requesting-code-review"],"dispatched_at":"2026-08-01T23:36:00Z"},
+  "sweep_defs_read":["phase-2-implement.md"],
+  "sweep_evidence":{"status":"run"},
+  "checklist":[
+    {"id":"VC-1","claim":"Cloud and local seed marker derivation","verification_mode":"agent","verdict":"PASS","evidence":"seed helper and environment-shape tests"},
+    {"id":"VC-2","claim":"Body normalization and marker token contract","verification_mode":"agent","verdict":"PASS","evidence":"create/resume and body-byte assertions"},
+    {"id":"VC-3","claim":"Prompt ownership and fallback","verification_mode":"agent","verdict":"PASS","evidence":"source review, rewrite tests, and Writing-skills trials"},
+    {"id":"VC-4","claim":"Flip-first four-arm diagnosis","verification_mode":"agent","verdict":"PASS","evidence":"591-test matrix including terminal exact marker winning over active foreign marker"},
+    {"id":"VC-5","claim":"Workflow command scope is helper-owned and exit-neutral","verification_mode":"agent","verdict":"PASS","evidence":"real dispatcher through extracted workflow block"},
+    {"id":"VC-6","claim":"Failure and scope prose are observable and accurate","verification_mode":"agent","verdict":"PASS","evidence":"reviewed changeset/helper comments and nonzero breadcrumbs"},
+    {"id":"VC-7","claim":"Artifacts and coverage ownership","verification_mode":"lite","verdict":"PASS","evidence":"regenerate-artifacts exit 0"}
+  ],
+  "dispatched_effort":[],
+  "phase3_dispatched":["prflow:code-reviewer","prflow:silent-failure-hunter","prflow:comment-analyzer","prflow:pr-test-analyzer","prflow:requesting-code-review"],
+  "diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
+  "phase3_findings":[{"agent":"prflow:code-reviewer","severity":"Important","description":"advisory diagnosis ran before the authoritative flip and could consume its cleanup window","fix_decision":"applied"}],
+  "fix_decisions":[{"finding_id":"F-15","decision":"applied","commit":"9cd8b964"}],
+  "convergence_inputs":{"fixes_applied":1,"fix_diff_lines":44,"new_corroborated_critical_count":0},
+  "cap_drops":{"count":0,"by_category":{}},
+  "parked_class_sweep":{"classes":[],"truncation":null,"dispatch":"verified"},
+  "reference_reads":{"fix_delta":{"status":"verified","outcome":"clean","reason":null}},
+  "shadow":{"ran_at":"2026-08-01T23:40:00Z","reviewed_sha":"9cd8b964","verdict":"findings","coverage":"partial roster before promotion","prompt_addenda":null,"reviewers_dispatched":["prflow:code-reviewer","prflow:silent-failure-hunter","prflow:comment-analyzer"],"expected_reviewers":["prflow:code-reviewer","prflow:silent-failure-hunter","prflow:comment-analyzer","prflow:pr-test-analyzer","prflow:requesting-code-review"],"reason":"one final wording suggestion promoted into bounded iteration 5","checklist_skipped":null,"phase3_findings":[{"agent":"prflow:comment-analyzer","severity":"Suggestion","description":"diagnosis header described only a missed lookup rather than successful post-flip confirmation","fix_decision":"applied"}],"phase2_fails":[],"comparison":{"shadow_total":1,"overlap_with_iter_N":0,"new":1,"new_critical":0,"new_important":0},"promoted_to_iter_next":true},
+  "park_calibration":{"evidence_comparisons":[]},
+  "telemetry":"unavailable"
+}
