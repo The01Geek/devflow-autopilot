@@ -24123,19 +24123,12 @@ assert_eq "#789 the focused-test exec-bit guard derived a non-empty population (
   "yes" "$([ "$_T789_N" -ge 10 ] && echo yes || echo no)"
 unset _T789_BAD _T789_N _t789_meta _t789_mode _t789_path _t789_first
 
-# ── #719 Verification-evidence marker + undefined-disjunct deletion + cloud full-suite obligation ──
-# Finding 1 (unobservable claim gate): each of the three prompt extensions must state, on the
-# local/interactive tier, that a launch that never started is OBSERVABLE as an absent capture
-# file, so the claim gate remains observable.
-# The exact marker literal `Verification evidence:` must be present on each extension (it appears
-# more than once per file — the sentence plus the workpad.py recipe — so a presence count, not a
-# uniqueness pin).
-assert_eq "#719 implement.md records the exact Verification evidence marker literal" "yes" \
-  "$([ "$(pin_count 'Verification evidence:' "$WSR_IMPL")" -ge 1 ] && echo yes || echo no)"
-assert_eq "#719 review-and-fix.md records the exact Verification evidence marker literal" "yes" \
-  "$([ "$(pin_count 'Verification evidence:' "$WSR_RAF")" -ge 1 ] && echo yes || echo no)"
-assert_eq "#719 receiving-code-review.md records the exact Verification evidence marker literal" "yes" \
-  "$([ "$(pin_count 'Verification evidence:' "$FDROOT/.prflow/prompt-extensions/receiving-code-review.md")" -ge 1 ] && echo yes || echo no)"
+# ── #719 undefined-disjunct deletion + cloud full-suite obligation ──
+# The marker-literal presence pins that used to open this block are retired (issue #1007). The
+# marker is agent-executed prompt prose no tool reads — `lib/cheap-gate.jq` states in terms that
+# it is deliberately UNWIRED (issue #730) — so under the #843/#876 recorded decision it carries no
+# automated regression coverage and its retirement owes no replacement; the compensating control
+# is the review pass that reads the prose.
 # G13 (#719): implement.md states a final full-suite obligation whose scope covers the cloud tier,
 # so the tier-agnostic guarantee is legible on the extension itself, not only via CLAUDE.md tier 2.
 # Finding 2 (undefined `or path` disjunct): the full-suite trigger carries exactly one defined
@@ -24198,15 +24191,9 @@ assert_eq "#506 Writing-skills evidence marker is present in the contract and bo
 # The advisory clause is appended to BOTH review extensions as a new `## ` section after the
 # routing-gate section, so the existing routing-gate→EOF byte-identity extract (WSR_GATE_REV /
 # WSR_GATE_RAF, asserted equal above) already proves the two copies identical over the appended
-# clause too. This block verifies the `Verification evidence:` marker literal in each copy and the
-# three behavioral clauses (cloud-silent / local-marker-absent-fires /
-# local-marker-present-silent).
-assert_eq "#730 advisory clause names the Verification evidence marker in both copies (lockstep)" \
-  "yes|yes" \
-  "$(grep -qF 'Verification evidence:' "$WSR_REV" && echo yes || echo no)|$(grep -qF 'Verification evidence:' "$WSR_RAF" && echo yes || echo no)"
-# Behavioral clause 1 — cloud-classified PR → silent.
-# Behavioral clause 2 — local/interactive PR + marker absent from both surfaces → fires one advisory.
-# Behavioral clause 3 — local/interactive PR + marker present on either surface → silent.
+# clause too. The marker-literal presence pin this block used to carry is retired (issue #1007):
+# the advisory is agent-executed prompt prose no tool reads, so under the #843/#876 recorded
+# decision its compensating control is the review pass that reads the prose, not a pin.
 # (3b) Property-based vendoring invariant (the skills-tree twin of the #139 agents/*.md loop):
 # EVERY file under the two vendored skill dirs must NOT carry the first-party `2026 Daniel Radman`
 # SPDX header (the license-preservation half) — proved mechanically over EVERY vendored file incl.
@@ -30604,14 +30591,14 @@ done
 # their routing rule cannot live in a reference — that would be unreachable).
 assert_eq "#529 AC15 pressure: the root gates 0.6 on its config key" "yes" \
   "$(grep -qF 'prflow_review.stale_prose.enabled' "$REVIEW_ROOT" && echo yes || echo no)"
-assert_eq "#529 AC15 pressure: the root gates 0.3.6 to standalone PR mode" "yes" \
-  "$(grep -qF 'standalone PR mode only' "$REVIEW_ROOT" && echo yes || echo no)"
-# The pin above CANNOT carry 0.3.6's real predicate: the under-specified row it
-# replaced ("standalone PR mode only") contains that literal verbatim, so reverting
-# the correction leaves it green. That under-specification is not cosmetic — it led a
-# blinded reviewer to conclude an ordinary standalone pass loads the blocker
-# reference, and to file a REJECT over a growth figure that does not exist. Pin the
-# replaces-Phases-1-3 fact the row was missing, which the revert deletes.
+# 0.3.6's real predicate is what the pin below carries. The under-specified row it
+# replaced named the standalone-PR-mode condition and nothing else, so a check for
+# that condition alone survives a revert of the correction. That under-specification
+# is not cosmetic — it led a blinded reviewer to conclude an ordinary standalone pass
+# loads the blocker reference, and to file a REJECT over a growth figure that does
+# not exist. Pin the replaces-Phases-1-3 fact the row was missing, which the revert
+# deletes. (The condition-only check that used to sit here is retired under issue
+# #1007: it was agent-executed prompt prose no tool reads.)
 assert_pin_unique "#529 the root's 0.3.6 row states the fast path REPLACES phases 1-3 (it is never a sum term)" \
   'replaces Phases 1–3' "$REVIEW_ROOT"
 # ── #529 AC6 boundary markers — the DESK-TIME half ───────────────────────────
