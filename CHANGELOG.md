@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.9] — 2026-08-01
+
+### Changed
+- **The config migration now renames the `devflow` spellings inside your config, not just its top-level keys.** A new pass (`lib/migrate-config-values.py`, run by `scripts/scaffold-config.sh`, which `install.sh --apply` and `/prflow:init` each call) rewrites the `agent_overrides` `devflow:<agent>` keys to `prflow:`, a `<!-- devflow:` workpad marker to `<!-- prflow:`, and a `DevFlow` entry in `docs.labels` / `deferred.labels` to `PRFlow` — so `.prflow/config.json` reads `prflow` / `PRFlow` throughout. Each is safe because every reader accepts the superseded spelling and the current one interchangeably; the label *applied to new artifacts* is what changes, so rename the GitHub label itself if you want existing issues and pull requests to agree. The pass is idempotent, needs no shipped-workflow freshness gate, keeps a deliberately-falsy value from being coerced onto a default, and matches label entries whole rather than by substring so an unrelated label merely containing the word is left alone. Where one `agent_overrides` key carries each spelling at once and the current-spelled entry holds a real edit rather than a scaffolded default, that key is refused and reported instead of clobbered. The pass leaves the frozen `workflows.devflow` / `workflows.devflow-review` toggles, `allowed_bots` GitHub logins and absolute workspace paths untouched, and says once — derived from what your config actually carries — which of those stay and why, pointing at the existing `DEVFLOW_*` environment freeze rather than restating it. (#1028)
+
 ## [2.30.8] — 2026-08-01
 
 ### Changed
