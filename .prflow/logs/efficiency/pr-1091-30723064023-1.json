@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1091",
+  "generated_at": "2026-08-01T23:29:50Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.18",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.596893449999996,
+    "tokens": {
+      "input_tokens": 2337,
+      "output_tokens": 22751,
+      "cache_read_input_tokens": 4189880,
+      "cache_creation_input_tokens": 216206,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 2337,
+        "outputTokens": 22751,
+        "cacheReadInputTokens": 4189880,
+        "cacheCreationInputTokens": 216206,
+        "webSearchRequests": 0,
+        "costUSD": 4.837459999999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 88,
+        "outputTokens": 45768,
+        "cacheReadInputTokens": 3277819,
+        "cacheCreationInputTokens": 290481,
+        "webSearchRequests": 0,
+        "costUSD": 2.75943345,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 31,
+    "duration_ms": 636634
+  },
+  "permission_denials": {
+    "count": 12,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "git fetch origin pull/1091/head 2>&1 | tail -5; git show FETCH_HEAD:lib/test/run-parallel.sh > /tmp/run-parallel.sh 2>&1; git show FETCH_HEAD:lib/test/shard-tally.py > /tmp/shard-tally.py 2>&1; wc -l /tmp/run-parallel.sh /tmp/shard-tally.py",
+      "git show FETCH_HEAD:lib/test/run-parallel.sh > /tmp/run-parallel.sh; git show FETCH_HEAD:lib/test/shard-tally.py > /tmp/shard-tally.py; wc -l /tmp/run-parallel.sh /tmp/shard-tally.py",
+      "git show FETCH_HEAD:lib/test/run-parallel.sh > /tmp/run-parallel.sh",
+      "mkdir -p /home/runner/work/prflow/prflow/.prflow/tmp/review-scratch && git show FETCH_HEAD:lib/test/run-parallel.sh > /home/runner/work/prflow/prflow/.prflow/tmp/review-scratch/run-parallel.sh && git show FETCH_HEAD:lib/test/shard-tally.py > /home/runner/work/prflow/prflow/.prflow/tmp/review-scratch/shard-tally.py && wc -l /home/runner/work/prflow/prflow/.prflow/tmp/review-scratch/*.sh /home/runner/work/prflow/prflow/.prflow/tmp/review-scratch/*.py",
+      "git show FETCH_HEAD:lib/test/run-parallel.sh > /home/runner/work/prflow/prflow/.prflow/tmp/review-scratch/run-parallel.sh",
+      "cd /home/runner/work/prflow/prflow\ngit show FETCH_HEAD:lib/test/modules/parallel-suite-runner.sh > /tmp/psr.sh\ngrep -c \"assert_eq\" /tmp/psr.sh\ngit show FETCH_HEAD:scripts/workflow-flight-recorder-registry.json | python3 -c \"import json,sys; d=json.load(sys.stdin); print(d.get('parallel-suite-runner') or [k for k in d if 'parallel' in k])\" 2>&1 | head -20",
+      "git show FETCH_HEAD:lib/test/modules/parallel-suite-runner.sh > /tmp/psr.sh 2>&1; grep -c \"assert_eq\" /tmp/psr.sh",
+      "git show FETCH_HEAD:lib/test/modules/parallel-suite-runner.sh > /tmp/psr.sh",
+      "git show FETCH_HEAD:lib/test/modules/parallel-suite-runner.sh > .prflow/tmp/psr.sh && grep -c \"assert_eq\" .prflow/tmp/psr.sh",
+      "scripts/dismiss-stale-rejections.sh 1091 2>&1; echo \"dismiss-rc=$?\"",
+      "scripts/dismiss-stale-rejections.sh 1091"
+    ],
+    "total": 12,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
