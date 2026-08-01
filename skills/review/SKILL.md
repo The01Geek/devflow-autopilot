@@ -1,6 +1,6 @@
 ---
 name: review
-description: Use when you need a code-review verdict on a PR or current branch, without auto-applying any fixes.
+description: 'Use when the user wants code assessed rather than changed — "review PR #88", "is this branch ready to merge?", "look over my changes", "any problems with this diff?", "give me a code review", "what do you think of this PR?", "sanity-check this branch", "ship it?". Applies to a pull request or the current branch when findings, a verdict, or a merge-readiness opinion is wanted. This is the default for an unqualified review request; use prflow:review-and-fix only when the user explicitly asks for the problems to be corrected.'
 argument-hint: "[pr-number] [--issue N]"
 ---
 
