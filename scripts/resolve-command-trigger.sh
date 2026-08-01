@@ -94,8 +94,43 @@ if ! det_out="$(printf '%s' "$text" | bash "$detector")"; then
   emit command ""
   exit 0
 fi
-cmd="$(printf '%s\n' "$det_out" | sed -n 's/^command=//p')"
-det_number="$(printf '%s\n' "$det_out" | sed -n 's/^number=//p')"
+# Parse the detector's two `key=value` lines with BASH BUILTINS ONLY — a
+# here-string (so the loop runs in THIS shell and the assignments survive),
+# `while IFS= read -r`, `case`, and `${var#prefix}` stripping. CLAUDE.md's
+# guard-class 2: a value that decides a SELECTION or an EMITTED result must not
+# be derived through a non-preflight PATH tool, and lib/preflight.sh guarantees
+# only git/gh/jq/python3 — NOT `sed`. Derived with `sed` inside a plain command
+# substitution under `set -euo pipefail`, an absent `sed` exits 127 and aborts
+# the resolver outright: NEITHER `should_run=` line is emitted, the caller
+# appends nothing to $GITHUB_OUTPUT, and the downstream read is empty rather
+# than a definite `false` — the same raw-abort failure class the `if !` guard
+# above guards against, here in a trigger gate. Builtins cannot be absent, so this
+# parse always resolves and always reaches one of the emits below. Mirrors the
+# sibling resolve-implement-trigger.sh (issue #1032/#1042).
+cmd=""
+det_number=""
+det_saw_command=false
+while IFS= read -r det_line || [ -n "$det_line" ]; do
+  case "$det_line" in
+    command=*) cmd="${det_line#command=}"; det_saw_command=true ;;
+    number=*)  det_number="${det_line#number=}" ;;
+  esac
+done <<< "$det_out"
+
+# The detector's output contract is BOTH lines: its two `printf`s sit in an END
+# block, which awk runs whether or not a command matched. No `command=` line at
+# all therefore means the contract was violated — a truncated or foreign stdout
+# from a tampered or half-written detector copy — which is a BROKEN INSTALL, not
+# "no command present". Decline with its own breadcrumb so an unresolvable parse
+# is never misreported as a clean no-command decline. (An absent `number=` line
+# needs no such arm: it is indistinguishable in effect from the empty value the
+# detector legitimately emits, and falls through to the context number below.)
+if [ "$det_saw_command" != true ]; then
+  echo "::warning::standalone-command detector ('$detector') emitted no 'command=' line (output-contract violation); declining (fail-closed) — this is a BROKEN INSTALL, not a missing command." >&2
+  emit should_run false
+  emit command ""
+  exit 0
+fi
 
 if [ -z "$cmd" ]; then
   echo "::warning::No STANDALONE light /devflow:* command in trigger text (a command merely quoted in prose, blockquoted, indented, or fenced does not trigger); nothing to dispatch." >&2
