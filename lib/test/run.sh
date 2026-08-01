@@ -31546,7 +31546,7 @@ fi
 # file, including this one, so the ceiling is raised again here at the post-#1039
 # measurement with NO added slack, exactly as above.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
-  "$([ "$(wc -c < "$I480_P4")" -le 99412 ] && echo yes || echo no)"
+  "$([ "$(wc -c < "$I480_P4")" -le 99366 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
 # the reference through this file's own entry-gate anchor, and degrades rather than halting
 # on a failed read — carry NO pin. Every mutation those sentences admit rewrites the one
