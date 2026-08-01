@@ -59,6 +59,10 @@
       "note": "#561 capability-profile manifest generator; the capability-profiles module drives its --check over the generated workflow regions.",
       "owner": "capability-profiles"
     },
+    "lib/migrate-config-values.py": {
+      "note": "issue #1028 Axis 2: renames the superseded `devflow` spellings a consumer config carries in its VALUES and nested keys (agent_overrides namespace, workpad marker, provenance-label values), refuses a both-present key it cannot resolve, and reports what deliberately stays frozen",
+      "owner": "tier1-rename-migration"
+    },
     "lib/generate-env-freeze-advisory.py": {
       "note": "issue #1004 Tier 3: renders the frozen out-of-repo DEVFLOW_* advisory region from lib/rename-map.json and re-runs the two-arm criterion over the tree (--audit)",
       "owner": "tier1-rename-migration"
@@ -661,6 +665,10 @@
     "1011": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "1028": {
+      "note": "",
+      "owner": "tier1-rename-migration"
     },
     "1029": {
       "note": "",
