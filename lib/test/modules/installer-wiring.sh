@@ -1650,7 +1650,7 @@ assert_eq "installer-upgrade #959: the config key is turned off BEFORE the workf
 import sys
 # Either config-half emission counts — the rc-0 flip or the rc-4 already-false report.
 # The arm under test is the ORDER of the two halves, not which branch the config edit took.
-CONFIG = ("devflow-review\"]=false", "devflow-review\"] is already false")
+CONFIG = ("prflow-review\"]=false", "prflow-review\"] is already false")
 key = files = None
 for i, line in enumerate(sys.stdin):
     if key is None and any(c in line for c in CONFIG):

@@ -595,6 +595,19 @@ fi
 for _retained in devflow-review.yml devflow-runner.yml telemetry-push.yml; do
   if [ -f "$TARGET_ROOT/.github/workflows/$_retained" ]; then
     log "$_retained is present in .github/workflows/ but is NOT shipped by install.sh, so no installer run can refresh it. If it still names the superseded state directory or vendored path, its helper invocations will not resolve after the migration — update or remove it by hand."
+    # #1041: devflow-review.yml is the ONE retained reader of a MIGRATED config
+    # sub-key — it reads `.workflows["devflow-review"] // false`. The freshness gate
+    # scans only the two SHIPPED workflows (install.sh cannot refresh a withheld file,
+    # so gating on it would block the whole config-key migration forever), so the
+    # devflow-review -> prflow-review rename is NOT coordinated with this file the way
+    # the shipped workflows are. When the migration moves the key, this retained file
+    # reads the now-absent old key as `false` and the auto-review tier silently stops.
+    # That silent disable is the exact hazard #1041 exists to prevent, so surface it
+    # LOUDLY by name rather than letting it pass — the retained file's own review-key
+    # rename is the operator's to do by hand (or remove the withheld tier outright).
+    if [ "$_retained" = "devflow-review.yml" ]; then
+      log "  ALSO: devflow-review.yml reads the workflows.devflow-review config toggle, which #1041 renamed to workflows.prflow-review. The freshness gate cannot refuse on an unshipped file, so once your config migrates to workflows.prflow-review this retained workflow reads the now-absent old key as false and its auto-review silently stops. Update devflow-review.yml to read .workflows[\"prflow-review\"], or remove the withheld tier with install.sh --remove-withheld-review-tier."
+    fi
   fi
 done
 

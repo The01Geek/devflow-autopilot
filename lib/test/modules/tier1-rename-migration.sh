@@ -570,6 +570,47 @@ _t1_out="$("$T1_SCAFFOLD" "$_t1_r" 2>&1)"
 assert_eq "#1041 gate negative control: a fresh workflow lets the workflows.* migration proceed" \
   '{"prflow": false, "prflow-review": true}' "$(_t1_wf_workflows "$_t1_r/.prflow/config.json")"
 
+# ADVERSARIAL SHAPE MATRIX for the NEW nested code path (CLAUDE.md best-effort-parser
+# discipline: the nested migrate_keys("workflows.") and its jq anti-graft twin must not
+# detonate or mangle a hand-corruptible workflows block). Fresh workflows so the gate
+# passes; every row asserts exit 0 and the correct nested outcome.
+_t1_nested_has_prflow() { python3 -c 'import json,sys
+w=json.load(open(sys.argv[1])).get("workflows")
+print("yes" if isinstance(w,dict) and "prflow" in w else "no")' "$1" 2>/dev/null; }
+# (i) non-object workflows (scalar / array / null): both guards (python isinstance, jq
+# type=="object") skip it, so it carries through with NO nested migration and NO crash.
+for _t1_wfshape in '"nope"' '[1,2]' 'null'; do
+  _t1_r="$(_t1_scaffold_root "{\"workflows\":$_t1_wfshape}")"
+  _t1_rc=0; "$T1_SCAFFOLD" "$_t1_r" >/dev/null 2>&1 || _t1_rc=$?
+  assert_eq "#1041 shape matrix: a non-object workflows ($_t1_wfshape) is exit 0 with no nested migration and no crash" \
+    "0|no" "$_t1_rc|$(_t1_nested_has_prflow "$_t1_r/.prflow/config.json")"
+done
+# (ii) ONLY one sub-key present: it migrates (false preserved) and the OTHER is backfilled
+# from the shipped example default (a new key the consumer never set) -- never grafted over
+# the migrated one, and never coercing the migrated false.
+_t1_r="$(_t1_scaffold_root '{"workflows":{"devflow":false}}')"
+"$T1_SCAFFOLD" "$_t1_r" >/dev/null 2>&1
+assert_eq "#1041 shape matrix: a single present sub-key migrates (false preserved); the other backfills from the example" \
+  '{"prflow": false, "prflow-review": false}' "$(_t1_wf_workflows "$_t1_r/.prflow/config.json")"
+# (iii) nested both-present CONFLICT (new key differs from the shipped example default): a
+# deliberate consumer edit the rename must not discard -- neither key changes, the conflict
+# is reported naming the nested path.
+_t1_r="$(_t1_scaffold_root '{"workflows":{"devflow":true,"prflow":false}}')"
+_t1_out="$("$T1_SCAFFOLD" "$_t1_r" 2>&1)"
+assert_eq "#1041 shape matrix: nested both-present differing is reported as a conflict naming workflows.devflow" "yes" \
+  "$(_t1_has "$_t1_out" 'NOT migrating workflows.devflow')"
+assert_eq "#1041 shape matrix: nested conflict keeps BOTH sub-keys unchanged (no deliberate edit discarded)" \
+  'true|false' \
+  "$(python3 -c 'import json,sys;w=json.load(open(sys.argv[1]))["workflows"];print(str(w.get("devflow")).lower()+"|"+str(w.get("prflow")).lower())' "$_t1_r/.prflow/config.json" 2>/dev/null)"
+# (iv) nested both-present EXAMPLE-VALUED graft (the migrate_keys second pass, "workflows."
+# prefix): the new key equals the shipped example default, so it was grafted, not authored --
+# the superseded value wins and is written at the new key's position.
+_t1_r="$(_t1_scaffold_root '{"workflows":{"devflow":false,"prflow":true}}')"
+_t1_out="$("$T1_SCAFFOLD" "$_t1_r" 2>&1)"
+assert_eq "#1041 shape matrix: nested example-valued graft -> the superseded value wins (prflow=false), devflow dropped" \
+  'no|false' \
+  "$(python3 -c 'import json,sys;w=json.load(open(sys.argv[1]))["workflows"];print(("yes" if "devflow" in w else "no")+"|"+str(w.get("prflow")).lower())' "$_t1_r/.prflow/config.json" 2>/dev/null)"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "#1002 F. migrate-consumer-tier1.sh: the atomic unit"
 # ────────────────────────────────────────────────────────────────────────────

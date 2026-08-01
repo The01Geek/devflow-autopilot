@@ -906,15 +906,15 @@ devflow_disable_review_key() {
     return 0   # nothing to strand
   fi
   if ! devflow_resolve_python; then
-    log "warning: no working python3 — could not set workflows[\"devflow-review\"] to false in .prflow/config.json; do it by hand."
+    log "warning: no working python3 — could not set workflows[\"prflow-review\"] to false in .prflow/config.json; do it by hand."
     return 1
   fi
   rc=0
   "$DEVFLOW_PY" -c "$DEVFLOW_DISABLE_REVIEW_PY" .prflow/config.json 2>/dev/null || rc=$?
   case "$rc" in
-    0) log "set workflows[\"devflow-review\"]=false in .prflow/config.json"; return 0 ;;
-    4) log "workflows[\"devflow-review\"] is already false in .prflow/config.json"; return 0 ;;
-    *) log "warning: could not set workflows[\"devflow-review\"] to false in .prflow/config.json (it is missing, malformed, or holds a non-object at that key); set it by hand."; return 1 ;;
+    0) log "set workflows[\"prflow-review\"]=false in .prflow/config.json"; return 0 ;;
+    4) log "workflows[\"prflow-review\"] is already false in .prflow/config.json"; return 0 ;;
+    *) log "warning: could not set workflows[\"prflow-review\"] to false in .prflow/config.json (it is missing, malformed, or holds a non-object at that key); set it by hand."; return 1 ;;
   esac
 }
 devflow_remove_withheld_tier() {
@@ -932,7 +932,7 @@ devflow_remove_withheld_tier() {
   # actually established the key as off. An invariant a comment asserts and the code does
   # not enforce is worse than no invariant: it stops the next reader from checking.
   if ! devflow_disable_review_key; then
-    log "warning: leaving the withheld review-tier workflow files in place — workflows[\"devflow-review\"] could not be turned off, and removing the files first would strand that key true with nothing left to trigger a retry. Fix the config (or resolve python3) and re-run with --remove-withheld-review-tier."
+    log "warning: leaving the withheld review-tier workflow files in place — workflows[\"prflow-review\"] could not be turned off, and removing the files first would strand that key true with nothing left to trigger a retry. Fix the config (or resolve python3) and re-run with --remove-withheld-review-tier."
     return 0
   fi
   for _wt in $present; do
