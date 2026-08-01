@@ -1,6 +1,6 @@
 ---
 name: docs-release-notes
-description: Use when a PR has customer-visible changes (new features, bug fixes, UI changes) that need a release note entry, or when finalizing a branch before merge.
+description: Use when a change needs a user-visible release-note, changelog, or changeset entry — "add a release note", "add a changeset for this", "what goes in the changelog?", "write up what shipped", "note this for the next release" — or when finalizing a branch whose customer-visible features, bug fixes, or UI changes should be announced before merge. Narrower than prflow:docs, which sweeps internal docs, external docs, and release notes together.
 ---
 > **Configuration:** Read paths from `.prflow/config.json`:
 > - Internal docs: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/`

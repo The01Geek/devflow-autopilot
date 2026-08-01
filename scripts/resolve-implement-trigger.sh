@@ -104,6 +104,79 @@ if [ "$is_pull_request" = "true" ]; then
   exit 0
 fi
 
+# --- Standalone-command detection via the shared markdown-aware detector -----
+# Route through scripts/detect-standalone-command.sh — the SAME single scanner
+# resolve-command-trigger.sh and devflow.yml's review_dedupe use (issue #321) —
+# so /devflow:implement gets the identical fence/bareness awareness the light
+# path already has, and a THIRD matcher (which could drift) is never written
+# (issue #1032). Before this the resolver matched the token with a bare
+# `grep -oiE`, so a comment merely QUOTING the command — in prose, a `>`
+# blockquote, an indented/fenced code block — fired a full, expensive run. The
+# detector is markdown-aware and fires only on a command that is the sole content
+# of its own line, is fail-closed on an unbalanced fence, and emits
+# `command=`/`number=` on stdout. Run BEFORE authorization (mirroring
+# resolve-command-trigger.sh) so a non-triggering mention declines without a
+# collaborator-API call — the authorization logic below is unchanged, only moved
+# after this gate. Invoked via `bash` so a vendored copy that lost its executable
+# bit still runs; guarded with `if !` so a MISSING/unrunnable detector (broken
+# vendor deploy, absent awk) declines fail-closed with a DISTINCT breadcrumb
+# rather than aborting under `set -e` or being misread as "no command present".
+detector="$(dirname "$0")/detect-standalone-command.sh"
+if ! det_out="$(printf '%s' "$text" | bash "$detector")"; then
+  echo "::warning::standalone-command detector ('$detector') failed to run (missing/unrunnable, or awk unavailable); declining (fail-closed) — this is a BROKEN INSTALL, not a missing command." >&2
+  emit should_run false
+  emit number ""
+  exit 0
+fi
+# Parse the detector's two `key=value` lines with BASH BUILTINS ONLY — a
+# here-string (so the loop runs in THIS shell and the assignments survive),
+# `while IFS= read -r`, `case`, and `${var#prefix}` stripping. CLAUDE.md's
+# guard-class 2: a value that decides a SELECTION or an EMITTED result must not
+# be derived through a non-preflight PATH tool, and lib/preflight.sh guarantees
+# only git/gh/jq/python3 — NOT `sed`. Derived with `sed` inside a plain command
+# substitution under `set -euo pipefail`, an absent `sed` exits 127 and aborts
+# the resolver outright: NEITHER `should_run=` line is emitted, the caller
+# appends nothing to $GITHUB_OUTPUT, and the downstream read is empty rather
+# than a definite `false` — the one raw-abort mode the `if !` guard above
+# exists to avoid, here in a trigger gate. Builtins cannot be absent, so this
+# parse always resolves and always reaches one of the emits below.
+cmd=""
+det_number=""
+det_saw_command=false
+while IFS= read -r det_line || [ -n "$det_line" ]; do
+  case "$det_line" in
+    command=*) cmd="${det_line#command=}"; det_saw_command=true ;;
+    number=*)  det_number="${det_line#number=}" ;;
+  esac
+done <<< "$det_out"
+
+# The detector's output contract is BOTH lines: its two `printf`s sit in an END
+# block, which awk runs whether or not a command matched. No `command=` line at
+# all therefore means the contract was violated — a truncated or foreign stdout
+# from a tampered or half-written detector copy — which is a BROKEN INSTALL, not
+# "no command present". Decline with its own breadcrumb so an unresolvable parse
+# is never misreported as a clean no-command decline. (An absent `number=` line
+# needs no such arm: it is indistinguishable in effect from the empty value the
+# detector legitimately emits, and falls through to the context number below.)
+if [ "$det_saw_command" != true ]; then
+  echo "::warning::standalone-command detector ('$detector') emitted no 'command=' line (output-contract violation); declining (fail-closed) — this is a BROKEN INSTALL, not a missing command." >&2
+  emit should_run false
+  emit number ""
+  exit 0
+fi
+
+# The detector recognizes every /(pr|dev)flow:* standalone command; accept ONLY
+# /prflow:implement here. A non-implement standalone command, or NO standalone
+# command at all (the token was merely quoted in prose, blockquoted, indented, or
+# fenced, or the fence was unbalanced), declines — this is the fence/bareness
+# guard the heavy path previously lacked (issue #1032).
+if [ "$cmd" != "/prflow:implement" ]; then
+  echo "::warning::No STANDALONE /devflow:implement command in trigger text (a token merely quoted in prose, blockquoted, indented, or fenced does not trigger); skipping." >&2
+  emit should_run false
+  emit number ""
+  exit 0
+fi
+
 # --- Authorization (cost control: agent mode runs for any actor) ------------
 # Shared with resolve-command-trigger.sh — see scripts/authorize-actor.sh.
 # shellcheck source=scripts/authorize-actor.sh
@@ -119,11 +192,10 @@ if [ "$authorized" != "true" ]; then
 fi
 
 # --- Target number resolution -----------------------------------------------
-# First explicit `/devflow:implement <n>` (optional leading #) wins; otherwise
-# fall back to the issue/PR the event is attached to.
-match="$(printf '%s' "$text" \
-  | grep -oiE '/(pr|dev)flow:implement[[:space:]]+#?[0-9]+' | head -n1 || true)"
-number="$(printf '%s' "$match" | grep -oE '[0-9]+' | head -n1 || true)"
+# The detector already returned the explicit number on the matched standalone
+# `/devflow:implement <n>` line (optional leading #), if any; else fall back to
+# the issue the event is attached to.
+number="$det_number"
 [ -z "$number" ] && number="$context_number"
 
 if ! [[ "$number" =~ ^[0-9]+$ ]]; then

@@ -1,6 +1,6 @@
 ---
 name: implement
-description: Use when a comment or message contains /prflow:implement (or the transitional /devflow:implement) followed by a GitHub issue number. Runs the full 4-phase lifecycle — setup, implementation, code review, and documentation.
+description: 'Use when the user wants an existing GitHub issue turned into a finished, reviewed pull request — "implement issue #123", "pick up ticket 45", "build the feature described in #7", "go fix the bug in issue #99", "start working on that issue". Triggers on any request to do the work an issue already describes, whether or not a slash command is used.'
 argument-hint: <issue-number>
 ---
 # /prflow:implement — Automated Feature Development Orchestrator

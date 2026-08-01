@@ -1,6 +1,6 @@
 ---
 name: docs-verify
-description: Use when you need to verify or update internal documentation for a specific topic, or when documentation may be outdated or missing for a feature.
+description: Use when the user asks whether the docs for one topic, feature, or subsystem are accurate — "is the auth flow documented?", "are the docs on retries still right?" — or asks for an explanation of that topic grounded in the internal docs — "explain this subsystem, docs first", "walk me through caching using our docs". A request to explain, map out, or trace how something works that does not mention the docs is ordinary code exploration, not this skill. Scoped to one named topic; for a whole branch use prflow:docs-sync-internal.
 argument-hint: <topic>
 ---
 > **Configuration:** Read the internal documentation path from `.prflow/config.json` using: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/`. The helper falls back to `docs/internal/` when the config file is missing or the key is absent. Use the result as `[[INTERNAL_DOC_LOCATION]]` throughout this skill.
