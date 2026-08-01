@@ -2794,6 +2794,88 @@ assert_eq "rct #1032: implement first → the HEAVY path fires on its own number
     TRIGGER_TEXT="$RCT_BOTH_HEAVY_FIRST" CONTEXT_NUMBER='99' \
     PATH="$RCT_STUB:$PATH" bash "$RIT" 2>/dev/null | grep '^number=')"
 
+# 13. AC3 (issue #1046, CLAUDE.md guard-class 2) — the detector's
+# `command=`/`number=` lines are parsed with BASH BUILTINS, never `sed`.
+# lib/preflight.sh guarantees git/gh/jq/python3 but NOT `sed`, and the superseded
+# `sed -n 's/^command=//p'` form ran in a plain command substitution under
+# `set -euo pipefail`: an absent `sed` exited 127 and aborted the LIGHT resolver
+# with NEITHER `should_run=` line emitted, so the caller appended nothing to
+# $GITHUB_OUTPUT and the downstream read saw empty rather than a definite `false`
+# — a silent, non-fail-closed abort in a trigger gate, the same defect PR #1042
+# fixed in the heavy sibling. Drive the resolver under a PATH that GENUINELY
+# lacks `sed`: a directory holding only the three tools this path legitimately
+# needs — `bash` (runs the detector), `awk` (inside it), `dirname` (anchors both
+# siblings). Mirrors the rit #1032 no-sed arm above.
+RCT_NOSED_DIR="$(mktemp -d)"
+for RCT_NOSED_TOOL in awk dirname; do
+  ln -s "$(command -v "$RCT_NOSED_TOOL")" "$RCT_NOSED_DIR/$RCT_NOSED_TOOL"
+done
+# `$BASH` — the interpreter running this suite — not PATH's first `bash`: the
+# sourced authorize-actor.sh uses bash-4 parameter expansion (`${la,,}`), which a
+# 3.2 /bin/bash rejects at PARSE time even on the allowed-bot path that never
+# evaluates it.
+ln -s "$BASH" "$RCT_NOSED_DIR/bash"
+# Self-check FIRST, so this arm can never go vacuously green on a fixture PATH
+# that still resolves sed.
+assert_eq "rct #1046: the no-sed fixture PATH genuinely lacks sed" "absent" \
+  "$(PATH="$RCT_NOSED_DIR" command -v sed >/dev/null 2>&1 && echo present || echo absent)"
+
+# The FIRE path is the strongest evidence the parse RESOLVED rather than merely
+# declined: should_run=true carrying the token's OWN command+number is reachable
+# only by extracting both values out of the detector's stdout. Allowed-bot actor,
+# so authorization short-circuits before gh/grep/head (all absent here too);
+# DEVFLOW_GH is an absolute path to the stub so it resolves regardless of PATH.
+RCT_NOSED_ERR="$(mktemp)"
+OUT="$(ACTOR='foo[bot]' ALLOWED_BOTS='foo' REPO='acme/x' GH_TOKEN='x' \
+  DEVFLOW_GH="$RCT_STUB/gh" \
+  TRIGGER_TEXT='/prflow:review 42' CONTEXT_NUMBER='7' \
+  PATH="$RCT_NOSED_DIR" bash "$RCT" 2>"$RCT_NOSED_ERR")"
+assert_eq "rct #1046: sed absent → a standalone light command still fires" \
+  "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rct #1046: sed absent → the token's own command+number is still extracted" \
+  "command=/prflow:review 42" "$(echo "$OUT" | grep '^command=')"
+
+# ...and the DECLINE path emits a definite verdict rather than aborting. rc 0 +
+# a `should_run=false` line is exactly what the raw `sed` abort could not produce.
+RCT_NOSED_OUT="$(mktemp)"
+: > "$RCT_NOSED_ERR"
+RCT_NOSED_RC=0
+ACTOR='foo[bot]' ALLOWED_BOTS='foo' REPO='acme/x' GH_TOKEN='x' \
+  DEVFLOW_GH="$RCT_STUB/gh" \
+  TRIGGER_TEXT='I ran /devflow:review earlier, just discussing it' CONTEXT_NUMBER='7' \
+  PATH="$RCT_NOSED_DIR" bash "$RCT" >"$RCT_NOSED_OUT" 2>"$RCT_NOSED_ERR" || RCT_NOSED_RC=$?
+assert_eq "rct #1046: sed absent → the decline exits 0, never a raw abort" \
+  "0" "$RCT_NOSED_RC"
+assert_eq "rct #1046: sed absent → a quoted mention still declines definitely" \
+  "should_run=false" "$(grep '^should_run=' "$RCT_NOSED_OUT")"
+# The breadcrumb must be the SPECIFIC no-standalone one — neither silence nor the
+# broken-install detector message (which would mean awk, not the parse, carried
+# the decline and the arm was measuring the wrong thing).
+assert_eq "rct #1046: sed absent → the decline carries its own no-standalone breadcrumb" \
+  "1" "$(grep -c '::warning::No STANDALONE light' "$RCT_NOSED_ERR")"
+rm -rf "$RCT_NOSED_DIR"; rm -f "$RCT_NOSED_ERR" "$RCT_NOSED_OUT"
+
+# 14. AC3 (issue #1046) — a detector whose stdout carries NO `command=` line
+# violates its own output contract (its END block prints both lines
+# unconditionally), so the parse cannot resolve a command at all. That is a
+# BROKEN INSTALL — a truncated or foreign stdout — not "no command present": it
+# declines fail-closed under its OWN breadcrumb rather than being misreported as
+# a clean no-command decline. Mirrors the rit #1032 bad-detector arm.
+RCT_BADDET_DIR="$(mktemp -d)"
+cp "$RCT" "$RCT_BADDET_DIR/resolve-command-trigger.sh"
+cp "$LIB/../scripts/authorize-actor.sh" "$RCT_BADDET_DIR/authorize-actor.sh"
+printf '#!/usr/bin/env bash\nprintf "number=5\\n"\n' > "$RCT_BADDET_DIR/detect-standalone-command.sh"
+chmod +x "$RCT_BADDET_DIR/detect-standalone-command.sh"
+RCT_BADDET_ERR="$(mktemp)"
+OUT="$(PATH="$RCT_STUB:$PATH" ACTOR='devflow-bot' ALLOWED_BOTS='devflow-bot' \
+  REPO='o/r' GH_TOKEN='x' CONTEXT_NUMBER='99' \
+  TRIGGER_TEXT='/devflow:review' bash "$RCT_BADDET_DIR/resolve-command-trigger.sh" 2>"$RCT_BADDET_ERR")"
+assert_eq "rct #1046: detector emitting no command= line → should_run=false (fail-closed)" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rct #1046: detector emitting no command= line → a distinct output-contract ::warning::" \
+  "1" "$(grep -c "emitted no 'command=' line" "$RCT_BADDET_ERR")"
+rm -rf "$RCT_BADDET_DIR"; rm -f "$RCT_BADDET_ERR"
+
 rm -rf "$RCT_STUB"
 
 # --- issue #314: coupled-invariant pin (resolver ↔ shared detector) ----------
