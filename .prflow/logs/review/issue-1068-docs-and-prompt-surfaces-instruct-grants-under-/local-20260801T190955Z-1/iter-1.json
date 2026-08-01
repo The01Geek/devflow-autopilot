@@ -1,0 +1,18 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-01T19:09:55Z",
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "step-1-read-engine",
+  "pending_dispatch": null,
+  "config": {
+    "max_iterations": 5,
+    "fix_severity_threshold": "suggestion",
+    "verdict_severity_threshold": "critical"
+  },
+  "mode": "current-branch",
+  "issue_override": 1068,
+  "pr_number": 1070,
+  "push_each_iteration": true,
+  "telemetry": "unavailable"
+}
