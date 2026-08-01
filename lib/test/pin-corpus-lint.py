@@ -1356,6 +1356,22 @@ class GuardSite(NamedTuple):
     # site does not poison a retained pin sharing that literal at a different site.
     resolved_target_token: str | None = None
 
+    def retirement_key(self):
+        """This site's retirement identity, or None when it has no literal.
+
+        The single place a site is turned into a retirement key (issue #1006),
+        so ``scan_changed_sources``' two loops cannot disagree about what a
+        site's identity is.
+        """
+        if self.literal is None:
+            return None
+        return _site_retirement_key(
+            self.source_path,
+            self.helper,
+            self.literal,
+            self.resolved_target_token,
+        )
+
 
 class FilePatch(NamedTuple):
     old_path: str | None
@@ -1651,29 +1667,43 @@ def _literal_adjudication_key(literal):
     return f"literal:{hashlib.sha256(literal.encode('utf-8')).hexdigest()}"
 
 
+# Coupled with pin-corpus-classifier.py's recover_override_names (which writes
+# f"/__pin_corpus_runtime__/{name}" into the manifests' resolved_target cell): the
+# two scripts share no module, so this sentinel is a coupled invariant -- change one
+# spelling and every runtime-bundle retirement key silently stops matching (#1006).
 _RUNTIME_TARGET_PREFIX = "/__pin_corpus_runtime__/"
+
+
+def _repo_relative_or_none(repo_root, target):
+    """Return TARGET as a repo-relative POSIX path, or None when it is outside
+    the repository. The one copy of the abspath/commonpath/relpath computation
+    the file otherwise repeats (see also the raising ``_relative_target_path``)."""
+    try:
+        root = os.path.abspath(repo_root)
+        absolute = os.path.abspath(target)
+        if os.path.commonpath((root, absolute)) != root:
+            return None
+    except ValueError:
+        return None
+    return os.path.relpath(absolute, root).replace(os.sep, "/")
 
 
 def _resolved_target_token(target_path, var_name, members, repo_root):
     """The classifier-equivalent resolved-target token for a guard site (#1006).
 
-    Mirrors ``pin-corpus-classifier.py``'s ``_portable_target`` (a repo-relative
-    POSIX path) and ``recover_override_names`` (the ``/__pin_corpus_runtime__/<var>``
-    bundle placeholder) so a live site's token equals the manifest's
-    ``resolved_target`` cell recorded for the same site. Returns None for a target
-    that is defaulted, outside the repository, or an unresolvable bundle -- the
-    fail-toward-not-matched direction, which routes such a site through the ordinary
-    policy rather than treating an unmatched literal as retired.
+    Matches ``pin-corpus-classifier.py``'s ``_portable_target`` for an in-repo file
+    (a repo-relative POSIX path) and ``recover_override_names`` for a runtime bundle
+    (the ``/__pin_corpus_runtime__/<var>`` placeholder), so a live site's token
+    equals the manifest's ``resolved_target`` cell for the same site. Returns None
+    for a target that is defaulted or an unresolvable bundle, AND -- unlike the
+    classifier, which keeps the raw path -- for a target OUTSIDE the repository:
+    the fail-toward-not-matched direction, which routes such a site through the
+    ordinary policy rather than treating it as retired. (No pin target in this repo
+    is out-of-repo, so the divergence is unreachable today; it is deliberately the
+    safe direction if one ever is.)
     """
     if target_path is not None:
-        try:
-            root = os.path.abspath(repo_root)
-            absolute = os.path.abspath(target_path)
-            if os.path.commonpath((root, absolute)) != root:
-                return None
-        except ValueError:
-            return None
-        return os.path.relpath(absolute, root).replace(os.sep, "/")
+        return _repo_relative_or_none(repo_root, target_path)
     if members is not None and var_name:
         return f"{_RUNTIME_TARGET_PREFIX}{var_name}"
     return None
@@ -4157,14 +4187,9 @@ def _normalized_revival_authorization(site, repo_root):
         or site.declaration_error is not None
     ):
         return None
-    repo_root = os.path.abspath(repo_root)
-    target_path = os.path.abspath(site.target_path)
-    try:
-        if os.path.commonpath((repo_root, target_path)) != repo_root:
-            return None
-    except ValueError:
+    relative_target = _repo_relative_or_none(repo_root, site.target_path)
+    if relative_target is None:
         return None
-    relative_target = os.path.relpath(target_path, repo_root).replace(os.sep, "/")
     return RevivalAuthorization(
         site.source_path,
         site.family,
@@ -4675,10 +4700,7 @@ def scan_changed_sources(
         # site's own (source_file, helper, literal, resolved_target), not the
         # literal alone, so a retained pin sharing a retired twin's literal at a
         # different site is not swept into the revival population.
-        retirement_key = _site_retirement_key(
-            site.source_path, site.helper, site.literal, site.resolved_target_token
-        )
-        if retirement_key not in retired_literal_keys:
+        if site.retirement_key() not in retired_literal_keys:
             continue
         normalized = _normalized_revival_authorization(site, repo_root)
         if normalized is None:
@@ -4702,17 +4724,8 @@ def scan_changed_sources(
             if site.literal is not None
             else None
         )
-        retirement_key = (
-            _site_retirement_key(
-                site.source_path,
-                site.helper,
-                site.literal,
-                site.resolved_target_token,
-            )
-            if site.literal is not None
-            else None
-        )
-        if retirement_key is not None and retirement_key in retired_literal_keys:
+        retirement_key = site.retirement_key()
+        if retirement_key in retired_literal_keys:
             normalized = _normalized_revival_authorization(site, repo_root)
             exact_authorization = (
                 normalized is not None and normalized in revival_authorizations
