@@ -1516,11 +1516,15 @@ jobs:
           else
             CAUSE="claude step ${CLAUDE_OUTCOME}"
           fi
+          if [ -f "$FLIP_HELPER" ]; then
+            bash "$FLIP_HELPER" "$CONTEXT_NUMBER" "$FLIP_MARKER" "$CAUSE" || true
+          else
+            echo "::warning::flip review-progress: flip-review-progress-failed.sh absent at $FLIP_HELPER; review-progress comment not flipped to '❌ Review failed'"
+          fi
           # review-progress marker diagnosis BEGIN
-          # Diagnose before mutating the current-run comment. If an older
-          # Reviewing comment also exists, the exact active marker must still
-          # be visible so `matched` wins instead of producing a false foreign
-          # warning after a successful flip.
+          # The authoritative flip runs first. Diagnosis still recognizes its
+          # exact marker after terminalization, while only active Reviewing
+          # comments under another identity can produce a mismatch warning.
           DIAG_RUNNER=.prflow/vendor/prflow/scripts/run-review-progress-diagnosis.sh
           [ -f "$DIAG_RUNNER" ] || DIAG_RUNNER=scripts/run-review-progress-diagnosis.sh
           if [ -f "$DIAG_RUNNER" ]; then
@@ -1529,11 +1533,6 @@ jobs:
             echo "::notice::flip review-progress: could not establish marker diagnosis because the dispatcher is absent at $DIAG_RUNNER"
           fi
           # review-progress marker diagnosis END
-          if [ -f "$FLIP_HELPER" ]; then
-            bash "$FLIP_HELPER" "$CONTEXT_NUMBER" "$FLIP_MARKER" "$CAUSE" || true
-          else
-            echo "::warning::flip review-progress: flip-review-progress-failed.sh absent at $FLIP_HELPER; review-progress comment not flipped to '❌ Review failed'"
-          fi
 
       # ── No-verdict auto-resume backstop for the manual /prflow:review path
       # (issue #408). The review-side sibling of the devflow-review.yml

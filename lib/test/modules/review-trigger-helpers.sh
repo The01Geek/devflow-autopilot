@@ -2692,6 +2692,8 @@ assert_eq "diagnose #1054: terminal/non-bot/null candidates do not fabricate a m
   "$(s1054_diag '[{"body":"<!-- prflow:review-progress run=foreign-1 -->\n**Status:** ✅ Complete","user":{"type":"Bot"}},{"body":"<!-- prflow:review-progress run=foreign-2 -->\n**Status:** 🚀 Reviewing","user":{"type":"User"}},{"body":null,"user":{}}]')"
 assert_eq "diagnose #1054: terminal comment quoting an old Reviewing line stays terminal" "absent" \
   "$(s1054_diag '[{"body":"<!-- prflow:review-progress run=foreign-1 -->\n**Status:** ❌ Review failed\n\nPrior status was **Status:** 🚀 Reviewing","user":{"type":"Bot"}}]')"
+assert_eq "diagnose #1054: terminal exact marker wins over an unrelated active marker after the flip" "matched" \
+  "$(s1054_diag '[{"body":"<!-- prflow:review-progress run=306999-4 -->\n**Status:** ❌ Review failed","user":{"type":"Bot"}},{"body":"<!-- prflow:review-progress run=foreign-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"}}]')"
 assert_eq "diagnose #1054: no progress comment -> absent" "absent" "$(s1054_diag '[]')"
 assert_eq "diagnose #1054: a non-array response -> unestablished" "unestablished" "$(s1054_diag '{}')"
 assert_eq "diagnose #1054: malformed JSON -> unestablished" "unestablished" "$(s1054_diag 'not-json')"
@@ -2735,16 +2737,16 @@ S1054_DIAG_ERR="$(S1054_COMMENTS='[]' DEVFLOW_GH="$S1054_GH" DEVFLOW_JQ="$S1054_
 assert_eq "diagnose #1054: absent emits no possible-mismatch warning" "0" \
   "$(grep -cF 'possible review-progress marker mismatch' <<<"$S1054_DIAG_ERR" || true)"
 
-# Diagnosis must observe the still-active exact marker before the flip makes it
-# terminal. Otherwise an unrelated active marker can produce a false foreign
-# warning after the current-run comment was successfully found and flipped.
+# The authoritative flip runs before advisory diagnosis so diagnostic latency
+# or quota use cannot consume the cleanup window. Diagnosis recognizes the
+# exact marker after terminalization, while foreign candidates stay active-only.
 S1054_ORDER="$(python3 - "$RDWF" <<'PY'
 import sys
 text = open(sys.argv[1], encoding="utf-8").read()
-print(text.index("# review-progress marker diagnosis BEGIN") < text.index('bash "$FLIP_HELPER"'))
+print(text.index('bash "$FLIP_HELPER"') < text.index("# review-progress marker diagnosis BEGIN"))
 PY
 )"
-assert_eq "diagnose #1054: workflow diagnoses before mutating the exact-marker comment" "True" "$S1054_ORDER"
+assert_eq "diagnose #1054: workflow performs the authoritative flip before advisory diagnosis" "True" "$S1054_ORDER"
 
 # The dispatcher owns the command predicate that workflow shell must not inline.
 # It invokes diagnosis for canonical review commands and stays silent for every

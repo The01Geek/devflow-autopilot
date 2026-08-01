@@ -8,9 +8,9 @@
 # exact-marker lookup may have missed. It prints exactly one outcome and always
 # exits zero:
 #
-#   matched        an active bot-authored Reviewing comment has EXPECTED_MARKER
+#   matched        a bot-authored progress comment has EXPECTED_MARKER
 #   foreign        an active bot-authored Reviewing comment has a different marker identity
-#   absent         no active bot-authored Reviewing progress comment exists
+#   absent         no exact marker or active foreign Reviewing progress comment exists
 #   unestablished  inputs, local diagnostic setup, GitHub response, jq, or API
 #                  access were unusable
 #
@@ -109,17 +109,18 @@ DECISION="$("$DEVFLOW_JQ" -sr \
     (.body // "") | if type == "string" then . else "" end;
   def statusline:
     (textbody | split("\n") | map(select(startswith("**Status:**"))) | .[0] // "");
-  def candidate:
+  def bot_progress:
     ((.user.type // "") == "Bot")
-    and (textbody | startswith($current) or startswith($superseded))
-    and (statusline == $status);
+    and (textbody | startswith($current) or startswith($superseded));
+  def active_candidate:
+    bot_progress and (statusline == $status);
   def owns($marker):
     (textbody == $marker) or (textbody | startswith($marker + "\n"));
   if any(.[]; type != "array") then error("not-array")
   else
     add
-    | ([.[] | select(candidate) | select(owns($expected))] | length) as $matched
-    | ([.[] | select(candidate) | select(owns($expected) | not)] | length) as $foreign
+    | ([.[] | select(bot_progress) | select(owns($expected))] | length) as $matched
+    | ([.[] | select(active_candidate) | select(owns($expected) | not)] | length) as $foreign
     | "\($matched) \($foreign)"
   end
   ' <<<"$COMMENTS_JSON" 2>"$ERROR_FILE")"
