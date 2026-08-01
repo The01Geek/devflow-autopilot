@@ -43,7 +43,8 @@
 #                                 positive integer fails closed to 1.
 #   DEVFLOW_SHARD_DISPATCHER      path to a shard dispatcher other than the sibling
 #                                 run-shard.sh (fixtures only).
-#   TMPDIR                        fallback run-root parent when the checkout root is
+#   TMPDIR                        parent of the per-shard scratch roots (always), and
+#                                 the fallback run-root parent when the checkout root is
 #                                 unusable (read-only, full, or name space exhausted).
 #
 # Exit status: 0 only when the aggregate is clean. Every named failure below exits
@@ -175,8 +176,21 @@ if [ -z "$RUN_ROOT" ]; then
     die "could not allocate a writable run root under $REPO_ROOT/.prflow/tmp/parallel-suite or ${TMPDIR:-/tmp}/devflow-parallel-suite (read-only, full, or name space exhausted)"
   printf 'run-parallel: checkout run root unusable; retained logs are under %s\n' "$RUN_ROOT" >&2
 fi
-mkdir -p "$RUN_ROOT/logs" "$RUN_ROOT/tally" "$RUN_ROOT/tmp" 2>/dev/null || \
+mkdir -p "$RUN_ROOT/logs" "$RUN_ROOT/tally" 2>/dev/null || \
   die "could not create the run-root layout under $RUN_ROOT"
+
+# The per-shard TMPDIRs live OUTSIDE the checkout, deliberately, even when the run root
+# is inside it. A shard's own assertions build fixture trees with `mktemp -d`, and this
+# suite has a whole class of them — the non-git-tree / bare-tree / pwd-fallback cases —
+# whose premise is that the fixture is NOT inside a git working tree. Rooting TMPDIR at
+# `$RUN_ROOT/tmp` put every such fixture inside this repository, so `git rev-parse
+# --show-toplevel` resolved from it and the fallback under test never fired: measured,
+# 129 failures across all five shards, none of them a real regression. Logs and tallies
+# stay in the run root (they are the retained artifact); only the scratch moves out.
+TEMP_BASE="$(mktemp -d "${TMPDIR:-/tmp}/devflow-parallel-tmp.XXXXXX")" || \
+  die "could not allocate a per-shard temporary root under ${TMPDIR:-/tmp}"
+_cleanup_temp_base() { [ -z "${TEMP_BASE:-}" ] || rm -rf "$TEMP_BASE"; }
+trap _cleanup_temp_base EXIT
 
 # ── Process budget ───────────────────────────────────────────────────────────
 # The budget decides a SELECTION (how much overlaps), so it is derived through the
@@ -311,7 +325,7 @@ for shard in $SHARDS; do
   done
 
   shard_tally="$RUN_ROOT/tally/$shard"
-  shard_tmp="$RUN_ROOT/tmp/$shard"
+  shard_tmp="$TEMP_BASE/$shard"
   shard_log="$RUN_ROOT/logs/$shard.log"
   if ! mkdir -p "$shard_tally" "$shard_tmp"; then
     LAUNCH_FAILURES="$LAUNCH_FAILURES $shard"
@@ -331,8 +345,10 @@ for shard in $SHARDS; do
   fi
   (
     # Each shard is its own process-group leader with a private TMPDIR and tally dir,
-    # so sibling shards sharing this checkout cannot collide on either. The nested
-    # pool width is exported only to the shard that owns the reservation.
+    # so sibling shards sharing this checkout cannot collide on either. The TMPDIR is
+    # outside the checkout (see TEMP_BASE above) so a shard's own `mktemp -d` fixtures
+    # are not inside a git working tree. The nested pool width is exported only to the
+    # shard that owns the reservation.
     export TMPDIR="$shard_tmp"
     export DEVFLOW_SHARD_TALLY_DIR="$shard_tally"
     export DEVFLOW_PARALLEL_SUITE_ACTIVE=1

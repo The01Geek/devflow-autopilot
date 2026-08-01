@@ -147,6 +147,18 @@ assert_eq "psr population: each shard is handed its own private TMPDIR" "yes" \
        esac
      done < "$PSR_TRACE"
      { [ -n "$PSR_TA" ] && [ -n "$PSR_TB" ] && [ "$PSR_TA" != "$PSR_TB" ]; } && echo yes || echo no)"
+# The per-shard TMPDIR must be OUTSIDE the checkout, not merely distinct. A shard's own
+# assertions build fixture trees with `mktemp -d`, and a whole class of this suite's
+# checks (non-git tree, bare tree, pwd fallback) is premised on the fixture NOT being
+# inside a git working tree. A TMPDIR under the run root put every such fixture inside
+# this repository and made the fallback under test unreachable — 129 failures across all
+# five shards, none of them a real regression. Assert the property, not the path shape.
+assert_eq "psr population: each shard's TMPDIR is outside the checkout (a fixture tree there is not in a git work tree)" "yes" \
+  "$(PSR_TA=""
+     while IFS= read -r l || [ -n "$l" ]; do
+       case "$l" in "env alpha "*) PSR_TA="${l#*tmpdir=}"; PSR_TA="${PSR_TA%% *}" ;; esac
+     done < "$PSR_TRACE"
+     case "$PSR_TA" in "$PSR_T1"/*) echo no ;; "") echo no ;; *) echo yes ;; esac)"
 assert_eq "psr population: the run announces the budget and the reservation it resolved" "yes" \
   "$(case "$(cat "$PSR_T1/out-8")" in *"process budget 8 (python-pool reservation 4)"*) echo yes ;; *) echo no ;; esac)"
 

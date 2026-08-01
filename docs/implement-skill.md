@@ -234,8 +234,9 @@ root the coordinator prints, which is the artifact a failing gate is diagnosed f
 the local `Verification evidence:` marker records. That also removes the pre-#1086 caller-side
 `> .prflow/tmp/verification-<N>.log 2>&1` capture: the coordinator retains the launch itself.
 
-**Same-checkout isolation.** Each shard gets a private `TMPDIR` and a private tally directory
-under a *fresh* run root, and aggregation is handed this run's explicit tally paths rather than
+**Same-checkout isolation.** Each shard gets a private tally directory under a *fresh* run root and a private
+`TMPDIR` allocated outside the checkout (a shard's `mktemp -d` fixtures must not land
+inside a git working tree), and aggregation is handed this run's explicit tally paths rather than
 a `--scan` of the shared parent — so a stale sibling run's tally can never satisfy the current
 invocation's missing-shard floor. Concurrency is bounded by one `python3`-derived process
 budget (capped at eight, overridable with `DEVFLOW_SUITE_PROCESS_BUDGET`, failing closed to a
