@@ -34,6 +34,8 @@ must be invoked by path.
 All scratch files live under `.prflow/tmp/` (gitignored). Learnings files
 (`.prflow/learnings/`) are tracked and committed via the state PR.
 
+**Writing standard (any text you compose that lands on a GitHub surface — issue/PR titles, the state-PR report comment, body content you assemble).** Before composing such text, read the shared writing standard `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/writing-standard.md` and follow it. A failed load emits a breadcrumb naming the file and the failure kind, and you compose without it.
+
 **GitHub autolink hygiene** (any text you compose that lands on a GitHub surface — issue/PR titles, the state-PR report comment, body content you assemble): never put a bare `#` immediately before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link to issue/PR 2, which misleads readers. For an ordinal, count, or list position, spell it out ("item 2", "step 3"), never `#2`. Genuine references like `#123` stay as-is.
 
 ---

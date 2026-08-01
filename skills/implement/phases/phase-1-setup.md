@@ -2,6 +2,8 @@
 
 Output: `Phase 1/4: Setup — creating the workpad and branch...`
 
+**Writing standard.** Before composing this phase's first `--reflection` bullet, read the shared writing standard `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/writing-standard.md` and follow it (the always-loaded Reflection style contract absorbed those rules into this read, so the read is what keeps them present). A failed load emits a breadcrumb naming the file and the failure kind, and you compose the reflection without it.
+
 **Ordering matters in Phase 1.** The workpad is the run's *only* GitHub comment and its "job started" acknowledgment. In a cloud run the `gate` job has already created a lean workpad before this skill starts, so 1.3 **resumes** it; in a local-tier run 1.3 creates it as the **first GitHub write** — either way before the branch (1.4). Fetch the issue (1.1) and parse its acceptance criteria (1.2) first because the workpad body mirrors them; then initialize-or-load the workpad and populate its Acceptance Criteria; then create the branch and immediately fill the workpad's `Branch` line.
 
 ### 1.1 Fetch the GitHub Issue

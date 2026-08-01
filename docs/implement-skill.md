@@ -894,6 +894,12 @@ A single `_report_failed_ticks` chokepoint in `scripts/workpad.py` writes the co
 
 ## `## Devflow Reflection`: grouped-by-kind rendering (`--reflection-kind`)
 
+**Disposition after the shared writing standard (issue #1039).** This section, and its `--reflection-kind` restatement in `docs/DEVFLOW_SYSTEM_OVERVIEW.md`, are **retained unchanged**. They document the reflection-*kind* routing — which sub-section a bullet renders under, a workpad-mechanics contract the `#126` pin requires `--reflection-kind` to appear in both files for — not the prose-*style* rules the shared writing standard (`lib/writing-standard.md`) absorbed from the implement Reflection style contract. The kind routing is unaffected by that absorption, so nothing here points at the standard.
+
+**Where the standard lives (issue #1039).** The standard sits in `lib/`, not `docs/`, because roughly nineteen skill surfaces read it while they execute — it is a shipped runtime asset that happens to be prose, and `lib/` is where this repository keeps shipped assets a skill reads (`lib/intervention-surfaces.md` is the existing precedent). Do not move it back under `docs/` as a tidy-up.
+
+**Pointer form (issue #1039).** A pointer to `lib/writing-standard.md` from a skill body, a phase file, or a reference file under a skill directory resolves the standard through the portable skill-directory anchor (`"${CLAUDE_SKILL_DIR:-…}"/../../lib/writing-standard.md`), because a bare repo-relative path does not exist in a consumer checkout where the skill is vendored. A pointer from a documentation page (such as this file) or from `CLAUDE.md`, where no skill-directory anchor resolves, uses the bare repo-relative path `lib/writing-standard.md` instead — the form those non-skill sites take.
+
 Reflection bullets are grouped by **kind** so a human triaging a PRFlow PR/issue sees the items that need follow-up separated from improvement proposals and purely informational notes, without expanding and reading a flat list. `scripts/workpad.py update` takes a `--reflection-kind {blocked|deferred|dropped-failed|improvement|issue-accuracy|note}` flag that applies to that call's `--reflection` / `--reflection-file` bullet(s); the helper — the single chokepoint every reflection flows through — owns the glyph, bold label (or none, for the glyph-only kinds), and sub-section placement, so the structure holds regardless of how the orchestrator phrases the text.
 
 | Kind | Rendered bullet | Label? | Sub-section |

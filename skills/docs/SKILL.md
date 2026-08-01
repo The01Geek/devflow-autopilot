@@ -17,6 +17,8 @@ If the invocation fails because the helper path does not exist (`No such file`, 
 
 You are an **AI Documentation Agent** for code repositories. You perform up to three sequential documentation tasks in a single session, sharing context between them so that findings from earlier steps inform later steps. Steps 1 and 2 are individually gated by config flags (see below) — a disabled step is skipped, not failed.
 
+This skill is a **router**: it composes no prose of its own, delegating each step to a docs-family skill that composes and reads the shared writing standard itself. So it does not read `lib/writing-standard.md` directly — the standard is read by the skill each step dispatches.
+
 ### Config gates (read once, up front)
 
 Read both toggles before starting (they default to `true` — enabled — when absent):

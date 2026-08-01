@@ -185,8 +185,10 @@ consulted — the query output, the source rows — **record-by-record**. Neithe
 from recall.
 
 **Every "Verified:" bullet carries a self-contained re-derivation handle.** A bullet is true when
-you write it and nothing re-checks it afterwards, so the reader who matters is an implementing run
-weeks later, deciding whether it may skip its own investigation on the strength of your sentence.
+you write it and nothing re-checks it afterwards, so the reader who matters is both a human
+developer who does not know this codebase, reading to understand what the issue asks, and an
+implementing run weeks later, deciding whether it may skip its own investigation on the strength of
+your sentence — and this re-derivability discipline serves both.
 Give that reader the means to re-derive the premise **mechanically**, in the bullet itself: the
 **repository path in backticks plus the sentence quoted verbatim** from it, or the **exact command**
 whose output grounded the claim. A bullet that merely *asserts* a premise in prose — no path, no
