@@ -374,6 +374,16 @@ wiring already routes the PR-review body in, so no new surface wiring is added.
 > matchers cannot drift. `resolve-command-trigger.sh` dispatches only the three
 > light commands via a fail-closed allowlist, so the shared detector recognizing
 > the implement token never leaks a heavy run into the light path.
+>
+> **Two standalone commands in one comment:** the detector stops at the **first**
+> standalone command, and each resolver then filters that single token against its
+> own allowlist — so the light and heavy paths are **mutually exclusive by
+> construction**. A body whose first standalone command is `/prflow:review` and
+> whose second is `/prflow:implement 42` dispatches the review and declines the
+> implement; reverse the order and the implement fires while the light path
+> declines. Exactly one path can ever dispatch, and it is the single shared
+> scanner — not the workflow `if:` filters — that makes a double-fire
+> unrepresentable.
 
 > **Out of scope (decided):** a light command posted on a plain **non-PR issue**
 > comment still resolves a number and runs; narrowing that surface is deferred to

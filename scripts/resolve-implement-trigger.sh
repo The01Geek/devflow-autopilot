@@ -128,8 +128,42 @@ if ! det_out="$(printf '%s' "$text" | bash "$detector")"; then
   emit number ""
   exit 0
 fi
-cmd="$(printf '%s\n' "$det_out" | sed -n 's/^command=//p')"
-det_number="$(printf '%s\n' "$det_out" | sed -n 's/^number=//p')"
+# Parse the detector's two `key=value` lines with BASH BUILTINS ONLY — a
+# here-string (so the loop runs in THIS shell and the assignments survive),
+# `while IFS= read -r`, `case`, and `${var#prefix}` stripping. CLAUDE.md's
+# guard-class 2: a value that decides a SELECTION or an EMITTED result must not
+# be derived through a non-preflight PATH tool, and lib/preflight.sh guarantees
+# only git/gh/jq/python3 — NOT `sed`. Derived with `sed` inside a plain command
+# substitution under `set -euo pipefail`, an absent `sed` exits 127 and aborts
+# the resolver outright: NEITHER `should_run=` line is emitted, the caller
+# appends nothing to $GITHUB_OUTPUT, and the downstream read is empty rather
+# than a definite `false` — the one raw-abort mode the `if !` guard above
+# exists to avoid, here in a trigger gate. Builtins cannot be absent, so this
+# parse always resolves and always reaches one of the emits below.
+cmd=""
+det_number=""
+det_saw_command=false
+while IFS= read -r det_line || [ -n "$det_line" ]; do
+  case "$det_line" in
+    command=*) cmd="${det_line#command=}"; det_saw_command=true ;;
+    number=*)  det_number="${det_line#number=}" ;;
+  esac
+done <<< "$det_out"
+
+# The detector's output contract is BOTH lines, unconditionally (its END block
+# prints them on every path). No `command=` line at all therefore means the
+# contract was violated — a truncated or foreign stdout from a tampered/
+# half-written detector copy — which is a BROKEN INSTALL, not "no command
+# present". Decline with its own breadcrumb so an unresolvable parse is never
+# misreported as a clean no-command decline. (An absent `number=` line needs no
+# such arm: it is indistinguishable in effect from the empty value the detector
+# legitimately emits, and falls through to the context number below.)
+if [ "$det_saw_command" != true ]; then
+  echo "::warning::standalone-command detector ('$detector') emitted no 'command=' line (output-contract violation); declining (fail-closed) — this is a BROKEN INSTALL, not a missing command." >&2
+  emit should_run false
+  emit number ""
+  exit 0
+fi
 
 # The detector recognizes every /(pr|dev)flow:* standalone command; accept ONLY
 # /prflow:implement here. A non-implement standalone command, or NO standalone

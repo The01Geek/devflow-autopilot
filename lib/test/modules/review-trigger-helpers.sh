@@ -1708,6 +1708,84 @@ assert_eq "rit #1032: missing detector emits a distinct broken-install ::warning
   "1" "$(grep -c '::warning::standalone-command detector' "$RIT_NODET_ERR")"
 rm -rf "$RIT_NODET_DIR"; rm -f "$RIT_NODET_ERR"
 
+# AC3 (CLAUDE.md guard-class 2) — the detector's `command=`/`number=` lines are
+# parsed with BASH BUILTINS, never `sed`. lib/preflight.sh guarantees git/gh/jq/
+# python3 but NOT `sed`, and the superseded `sed -n 's/^command=//p'` form ran in
+# a plain command substitution under `set -euo pipefail`: an absent `sed` exited
+# 127 and aborted the resolver with NEITHER `should_run=` line emitted, so the
+# caller appended nothing to $GITHUB_OUTPUT and the downstream read saw empty
+# rather than a definite `false` — a silent, non-fail-closed abort in a trigger
+# gate, the one raw-abort mode the `if !` detector guard above already avoids.
+# Drive the resolver under a PATH that GENUINELY lacks `sed`: a directory holding
+# only the three tools this path legitimately needs — `bash` (runs the detector),
+# `awk` (inside it), `dirname` (anchors both siblings).
+RIT_NOSED_DIR="$(mktemp -d)"
+for RIT_NOSED_TOOL in awk dirname; do
+  ln -s "$(command -v "$RIT_NOSED_TOOL")" "$RIT_NOSED_DIR/$RIT_NOSED_TOOL"
+done
+# `$BASH` — the interpreter running this suite — not PATH's first `bash`: the
+# sourced authorize-actor.sh uses bash-4 parameter expansion (`${la,,}`), which a
+# 3.2 /bin/bash rejects at PARSE time even on the allowed-bot path that never
+# evaluates it.
+ln -s "$BASH" "$RIT_NOSED_DIR/bash"
+# Self-check FIRST, so this arm can never go vacuously green on a fixture PATH
+# that still resolves sed.
+assert_eq "rit #1032: the no-sed fixture PATH genuinely lacks sed" "absent" \
+  "$(PATH="$RIT_NOSED_DIR" command -v sed >/dev/null 2>&1 && echo present || echo absent)"
+
+# The FIRE path is the strongest evidence the parse RESOLVED rather than merely
+# declined: should_run=true carrying the token's OWN number is reachable only by
+# extracting both values out of the detector's stdout. Allowed-bot actor, so
+# authorization short-circuits before gh/mktemp/grep/head (all absent here too).
+RIT_NOSED_ERR="$(mktemp)"
+OUT="$(ACTOR='foo[bot]' ALLOWED_BOTS='foo' REPO='acme/x' \
+  DEVFLOW_GH="$RIT_STUB_DIR/gh" \
+  TRIGGER_TEXT='/prflow:implement 42' CONTEXT_NUMBER='7' \
+  PATH="$RIT_NOSED_DIR" bash "$RIT" 2>"$RIT_NOSED_ERR")"
+assert_eq "rit #1032: sed absent → a standalone command still fires" \
+  "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit #1032: sed absent → the token's own number is still extracted" \
+  "number=42" "$(echo "$OUT" | grep '^number=')"
+
+# ...and the DECLINE path emits a definite verdict rather than aborting. rc 0 +
+# a `should_run=false` line is exactly what the raw `sed` abort could not produce.
+RIT_NOSED_OUT="$(mktemp)"
+: > "$RIT_NOSED_ERR"
+RIT_NOSED_RC=0
+ACTOR='foo[bot]' ALLOWED_BOTS='foo' REPO='acme/x' \
+  DEVFLOW_GH="$RIT_STUB_DIR/gh" \
+  TRIGGER_TEXT='do not run /prflow:implement 42, just discussing it' CONTEXT_NUMBER='7' \
+  PATH="$RIT_NOSED_DIR" bash "$RIT" >"$RIT_NOSED_OUT" 2>"$RIT_NOSED_ERR" || RIT_NOSED_RC=$?
+assert_eq "rit #1032: sed absent → the decline exits 0, never a raw abort" \
+  "0" "$RIT_NOSED_RC"
+assert_eq "rit #1032: sed absent → a quoted mention still declines definitely" \
+  "should_run=false" "$(grep '^should_run=' "$RIT_NOSED_OUT")"
+# The breadcrumb must be the SPECIFIC no-standalone one — neither silence nor the
+# broken-install detector message (which would mean awk, not the parse, carried
+# the decline and the arm was measuring the wrong thing).
+assert_eq "rit #1032: sed absent → the decline carries its own no-standalone breadcrumb" \
+  "1" "$(grep -c '::warning::No STANDALONE /devflow:implement command' "$RIT_NOSED_ERR")"
+rm -rf "$RIT_NOSED_DIR"; rm -f "$RIT_NOSED_ERR" "$RIT_NOSED_OUT"
+
+# AC3 — a detector whose stdout carries NO `command=` line violates its own
+# output contract (its END block prints both lines unconditionally), so the parse
+# cannot resolve a command at all. That is a BROKEN INSTALL — a truncated or
+# foreign stdout — not "no command present": it declines fail-closed under its
+# OWN breadcrumb rather than being misreported as a clean no-command decline.
+RIT_BADDET_DIR="$(mktemp -d)"
+cp "$RIT" "$RIT_BADDET_DIR/resolve-implement-trigger.sh"
+printf '#!/usr/bin/env bash\nprintf "number=5\\n"\n' > "$RIT_BADDET_DIR/detect-standalone-command.sh"
+chmod +x "$RIT_BADDET_DIR/detect-standalone-command.sh"
+RIT_BADDET_ERR="$(mktemp)"
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' STUB_PERM='write' \
+  TRIGGER_TEXT='/prflow:implement 42' CONTEXT_NUMBER='99' \
+  PATH="$RIT_STUB_DIR:$PATH" bash "$RIT_BADDET_DIR/resolve-implement-trigger.sh" 2>"$RIT_BADDET_ERR")"
+assert_eq "rit #1032: detector emitting no command= line → should_run=false (fail-closed)" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit #1032: detector emitting no command= line → a distinct output-contract ::warning::" \
+  "1" "$(grep -c "emitted no 'command=' line" "$RIT_BADDET_ERR")"
+rm -rf "$RIT_BADDET_DIR"; rm -f "$RIT_BADDET_ERR"
+
 # --- issue #1032: coupled-invariant pin (implement resolver ↔ shared detector) --
 # The implement resolver MUST route through the ONE shared detector (the twin of
 # the rct #314 pin below); re-inlining a `grep`/substring matcher here re-opens
@@ -2507,6 +2585,14 @@ assert_eq "dsc #1032: implement inside a fenced block is declined" \
   "" "$(dsc_cmd "$(printf '%s\n' '```' '/prflow:implement 42' '```')")"
 assert_eq "dsc #1032: implement after an UNBALANCED fence is declined (fail-closed)" \
   "" "$(dsc_cmd "$(printf '%s\n' '```' '/prflow:implement 42')")"
+# CRLF: GitHub delivers comment bodies with \r\n endings, and the scanner's `\r`
+# strip is command-agnostic — but it was only ever exercised on a light command.
+# Cover the HEAVY token explicitly: an unstripped `\r` would defeat the
+# end-anchored pattern and silently decline every real implement trigger.
+assert_eq "dsc #1032: CRLF-terminated /prflow:implement still fires" \
+  "/prflow:implement" "$(dsc_cmd "$(printf '/prflow:implement 42\r')")"
+assert_eq "dsc #1032: CRLF-terminated implement still yields its number" \
+  "42" "$(dsc_num "$(printf '/prflow:implement 42\r')")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "resolve-command-trigger.sh"
@@ -2681,6 +2767,32 @@ assert_eq "rct #1032: light /prflow:review-and-fix unaffected by the allowlist" 
 rct_run "/prflow:pr-description 7"
 assert_eq "rct #1032: light /prflow:pr-description unaffected by the allowlist" \
   "should_run=true" "$(echo "$RCT_OUT" | grep '^should_run=')"; rm -f "$RCT_ERR"
+
+# 12b. issue #1032: a body carrying TWO standalone commands — one light, one
+# heavy. The shared detector stops at the FIRST standalone command, and each
+# resolver filters that one token against its own allowlist, so the two paths are
+# MUTUALLY EXCLUSIVE by construction: whichever command comes first is the only
+# one that can dispatch, and the other path declines. Documented rather than
+# defended by the workflow `if:` filters, because it is the single scanner — not
+# the triggers — that makes a double-fire unrepresentable. Both orderings are
+# driven so a future "scan for every command" change cannot silently make both
+# resolvers fire on one comment.
+RCT_BOTH_LIGHT_FIRST="$(printf '%s\n' '/prflow:review' '' '/prflow:implement 42')"
+RCT_BOTH_HEAVY_FIRST="$(printf '%s\n' '/prflow:implement 42' '' '/prflow:review')"
+rct_run "$RCT_BOTH_LIGHT_FIRST"
+assert_eq "rct #1032: light command first → the LIGHT path dispatches it" \
+  "should_run=true" "$(echo "$RCT_OUT" | grep '^should_run=')"; rm -f "$RCT_ERR"
+assert_eq "rct #1032: light command first → the HEAVY path declines (no double-fire)" \
+  "should_run=false" "$(ACTOR='foo[bot]' ALLOWED_BOTS='foo' REPO='o/r' \
+    TRIGGER_TEXT="$RCT_BOTH_LIGHT_FIRST" CONTEXT_NUMBER='99' \
+    PATH="$RCT_STUB:$PATH" bash "$RIT" 2>/dev/null | grep '^should_run=')"
+rct_run "$RCT_BOTH_HEAVY_FIRST"
+assert_eq "rct #1032: implement first → the LIGHT path declines (no double-fire)" \
+  "should_run=false" "$(echo "$RCT_OUT" | grep '^should_run=')"; rm -f "$RCT_ERR"
+assert_eq "rct #1032: implement first → the HEAVY path fires on its own number" \
+  "number=42" "$(ACTOR='foo[bot]' ALLOWED_BOTS='foo' REPO='o/r' \
+    TRIGGER_TEXT="$RCT_BOTH_HEAVY_FIRST" CONTEXT_NUMBER='99' \
+    PATH="$RCT_STUB:$PATH" bash "$RIT" 2>/dev/null | grep '^number=')"
 
 rm -rf "$RCT_STUB"
 
