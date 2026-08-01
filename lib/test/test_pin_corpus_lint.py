@@ -3332,6 +3332,84 @@ class RetiredPinRevivalTests(unittest.TestCase):
             self.assertIn(retire_key, retired)
             self.assertNotIn(retain_key, retired)
 
+    def test_resolved_target_token_matches_the_classifier_three_shapes(self):
+        # The site-side token must equal the classifier's resolved_target cell
+        # (issue #1006). Three shapes, and the .devflow/ -> .prflow/ normalization
+        # that lets a frozen (pre-#1002) manifest target match a current-spelling
+        # live site -- a live path exercised by real manifest rows.
+        root = "/repo"
+        # In-repo file target (absolute) -> repo-relative POSIX path.
+        self.assertEqual(
+            "docs/x.md",
+            self.mod._resolved_target_token("/repo/docs/x.md", None, None, root),
+        )
+        # Runtime bundle -> the /__pin_corpus_runtime__/<var> placeholder,
+        # mirroring pin-corpus-classifier.py's recover_override_names sentinel.
+        self.assertEqual(
+            "/__pin_corpus_runtime__/CI_BUNDLE",
+            self.mod._resolved_target_token(None, "CI_BUNDLE", ("a", "b"), root),
+        )
+        # Defaulted / out-of-repo / unresolvable -> None (fail-toward-not-matched).
+        self.assertIsNone(self.mod._resolved_target_token(None, None, None, root))
+        self.assertIsNone(
+            self.mod._resolved_target_token("/elsewhere/y.md", None, None, root)
+        )
+        # The state-dir rename is applied symmetrically inside _site_retirement_key,
+        # so a manifest .devflow/ target and a live .prflow/ token for one asset
+        # produce EQUAL keys; a DEVFLOW-bearing filename is left byte-identical.
+        self.assertEqual(
+            self.mod._site_retirement_key(
+                "lib/test/run.sh", "assert_pin_unique", self.LITERAL,
+                ".devflow/prompt-extensions/implement.md",
+            ),
+            self.mod._site_retirement_key(
+                "lib/test/run.sh", "assert_pin_unique", self.LITERAL,
+                ".prflow/prompt-extensions/implement.md",
+            ),
+        )
+        self.assertNotEqual(
+            self.mod._site_retirement_key(
+                "lib/test/run.sh", "h", self.LITERAL, "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+            ),
+            self.mod._site_retirement_key(
+                "lib/test/run.sh", "h", self.LITERAL, "docs/PRFLOW_SYSTEM_OVERVIEW.md",
+            ),
+        )
+
+    def test_malformed_retirement_manifest_site_fields_fail_closed(self):
+        # The new source_file/resolved_target JSON parse must fail CLOSED
+        # (InfrastructureError), matching the pre-existing literal-cell arm and
+        # the repo's adversarial-input-shape convention for frozen parsers (#1006).
+        base_header = (
+            "source_file\thelper\tassertion_name\tliteral\tresolved_target\t"
+            "target_defaulted\tsurface\tdisposition\trationale\n"
+        )
+        cases = {
+            "invalid-json-source": (
+                "not-json\tassert_pin_unique\t\"a\"\t"
+                f'"""{self.LITERAL}"""\t"""docs/x.md"""\tfalse\tReview\t'
+                "RETIRE_PROSE\tp\n"
+            ),
+            "non-string-source": (
+                "123\tassert_pin_unique\t\"a\"\t"
+                f'"""{self.LITERAL}"""\t"""docs/x.md"""\tfalse\tReview\t'
+                "RETIRE_PROSE\tp\n"
+            ),
+            "non-string-target": (
+                '"""lib/test/run.sh"""\tassert_pin_unique\t"a"\t'
+                f'"""{self.LITERAL}"""\t123\tfalse\tReview\t'
+                "RETIRE_PROSE\tp\n"
+            ),
+        }
+        prose_path = ".prflow/logs/residual-prose-retirement-manifest.tsv"
+        spec = self.mod._RETIREMENT_MANIFEST_SPECS[prose_path]
+        for label, row in cases.items():
+            with self.subTest(case=label):
+                with self.assertRaises(self.mod.InfrastructureError):
+                    self.mod._strict_retirement_manifest_literals(
+                        base_header + row, prose_path, spec
+                    )
+
 
 class StaticPinWorktreeCompositionTests(unittest.TestCase):
     @classmethod
