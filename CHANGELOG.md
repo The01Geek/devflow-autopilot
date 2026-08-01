@@ -4,6 +4,14 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.7] — 2026-08-01
+
+### Changed
+Fix: an implement run that ends `👎 Blocked` (or `💥 Failed`) now concludes the cloud job non-`success` instead of green.
+
+`scripts/workpad.py status` previously collapsed all four terminal glyphs (🎉 👎 💥 🛑) to a single `terminal` class, so the cloud stall backstop could not tell a blocked run from a completed one and concluded both `success`. The status classification now names each terminal glyph with its own class (`complete`/`blocked`/`failed`/`cancelled`), and `scripts/stall-backstop-decide.sh` maps a `blocked`/`failed` terminal status to a new `fail-blocked` outcome that the `Stall backstop` step in `.github/workflows/devflow-implement.yml` acts on: it emits a `::error::` annotation naming the issue number and the workpad status and exits non-zero, so `gh run list` plus the run's own annotation distinguish a blocked run from a completed one without opening the workpad. `🎉 Complete` still concludes `success` and `🛑 Cancelled` is never converted to a failure. The workpad is left unchanged (its `👎`/`💥` status is already truthful).
+- **Step 3.5's unstated-mechanism-dependency sweep now determines whether a depended-on capability exists before selecting a discharge route.** `skills/create-issue/references/step-3-5-steelman.md` item 4 widens its enumeration prompt with an existence-shaped exemplar class (renderer mode, persisted state field, subcommand/flag, config key), and resolves each dependency by determining existence first and then routing on that determination. The full rule has one home in item 4; the three sites that restated the old discharge pair (`issue-template.md`'s premise-class paragraph, its quality-checklist row, and `docs/DEVFLOW_SYSTEM_OVERVIEW.md` §11) now carry a pointer instead of a copy, and `issue-template.md`'s Acceptance Criteria guidance paragraph — which stated the obligation-arm execution-tier constraint rather than the discharge pair — gains a pointer plus a clause naming the two obligation forms that are discharged by naming work rather than by running a probe. (#1020)
+
 ## [2.30.6] — 2026-08-01
 
 ### Changed
