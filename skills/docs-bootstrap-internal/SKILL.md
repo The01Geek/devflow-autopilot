@@ -1,6 +1,6 @@
 ---
 name: docs-bootstrap-internal
-description: Use when setting up internal documentation for the first time, when the docs directory is empty or poorly organized, or when a codebase has no structured developer documentation yet.
+description: Use when a codebase has no structured developer documentation yet and needs it built from scratch — "we have no docs at all", "set up internal docs for this repo", "the docs directory is a mess, start over", "create developer documentation for this codebase" — including an empty or disorganized docs directory or a ground-up reorganization. For incremental updates to docs that already exist, use prflow:docs-sync-internal.
 ---
 > **Configuration:** Read the internal documentation path from `.prflow/config.json` using: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/`. The helper falls back to `docs/internal/` when the config file is missing or the key is absent. Use the result as `[[INTERNAL_DOC_LOCATION]]` throughout this skill.
 

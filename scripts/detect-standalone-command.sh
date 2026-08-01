@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
-# Shared, markdown-aware detector for a STANDALONE light /devflow:* command
-# (/devflow:review, /devflow:review-and-fix, /devflow:pr-description).
+# Shared, markdown-aware detector for a STANDALONE /devflow:* command
+# (/devflow:review, /devflow:review-and-fix, /devflow:pr-description, and the
+# heavy /devflow:implement — added in issue #1032 so the implement trigger can
+# share this one scanner instead of a second, drift-prone matcher).
 #
 # A command is "standalone" only when it is the sole content of its own line:
 #   - it begins the line with at most three leading spaces (never a tab, never
@@ -13,9 +15,14 @@
 # A command merely *quoted in prose* (`please run /devflow:review`), in a `>`
 # blockquote, indented as code, or inside a fenced block does NOT qualify. This
 # is the single implementation of the anchored line scan.
-# Both scripts/resolve-command-trigger.sh (the authoritative trigger gate) and
-# the review_dedupe job in .github/workflows/devflow.yml route through it (issue
-# #321), so the two matchers are a single source of truth and cannot drift.
+# scripts/resolve-command-trigger.sh (the light-command trigger gate) and the
+# review_dedupe job in .github/workflows/devflow.yml route through it (issue
+# #321), and scripts/resolve-implement-trigger.sh routes through it for the heavy
+# implement path (issue #1032), so the trigger matchers are a single source of
+# truth and cannot drift. This detector is command-agnostic — it recognizes
+# implement alongside the light commands; a consumer that wants only a subset
+# (resolve-command-trigger.sh excludes implement; resolve-implement-trigger.sh
+# accepts only implement) filters the emitted `command=` token itself.
 #
 # Detection is deliberately FAIL-CLOSED on an unbalanced fence: after an
 # unclosed opening fence every following line is treated as code and fires
@@ -91,6 +98,7 @@ found == 0 {
   if (low ~ /^ {0,3}\/(pr|dev)flow:review-and-fix([ \t]+#?[0-9]+)?[ \t]*$/) { cmd = "/prflow:review-and-fix" }
   else if (low ~ /^ {0,3}\/(pr|dev)flow:review([ \t]+#?[0-9]+)?[ \t]*$/) { cmd = "/prflow:review" }
   else if (low ~ /^ {0,3}\/(pr|dev)flow:pr-description([ \t]+#?[0-9]+)?[ \t]*$/) { cmd = "/prflow:pr-description" }
+  else if (low ~ /^ {0,3}\/(pr|dev)flow:implement([ \t]+#?[0-9]+)?[ \t]*$/) { cmd = "/prflow:implement" }
   else next
   # Extract an explicit number from the matched line, if present. The line is
   # anchored to hold only the command + optional number, so the first digit run

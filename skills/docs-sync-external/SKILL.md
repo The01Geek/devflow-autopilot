@@ -1,6 +1,6 @@
 ---
 name: docs-sync-external
-description: Use when internal documentation has been updated and external customer-facing docs need to be aligned, or when checking for outdated, missing, or confidential content in external docs.
+description: Use when customer-facing or public documentation needs to catch up with internal docs or shipped changes — "our public docs still mention the old flag", "sync the user guide", "update the customer docs", "is anything in the external docs outdated or leaking internal detail?", "update the docs site". Narrower than prflow:docs; use prflow:docs-bootstrap-external when external docs do not exist yet.
 ---
 > **Configuration:** Read documentation paths from `.prflow/config.json`:
 > - Internal: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/`
