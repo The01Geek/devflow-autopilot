@@ -28389,8 +28389,8 @@ STUB
   # non-success (a terminal end that is not 🎉 Complete).
   sb268_run env STUB_STATUS_OUT="failed 💥 Failed"
   SB268_RC=$?
-  assert_eq "#1025 behavior: failed -> fail-blocked exit 1 (non-success), no comment" "1:no" \
-    "$SB268_RC:$([ -f "$SB268_POST" ] && echo yes || echo no)"
+  assert_eq "#1025 behavior: failed -> fail-blocked exit 1 (non-success), no comment, gh never invoked" "1:no:no" \
+    "$SB268_RC:$([ -f "$SB268_POST" ] && echo yes || echo no):$([ -f "$SB268_DIR/gh-touched" ] && echo yes || echo no)"
   # Attempt boundary: one prior audit marker under cap 2 -> resume, body says 2 of 2.
   sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_MAX=2 \
     STUB_GH_BODIES='<!-- devflow:stall-backstop-audit -->'
@@ -28533,6 +28533,19 @@ WP266_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflo
 assert_eq "#1025 workpad.py status: Cancelled -> 'cancelled 🛑 Cancelled'" "cancelled 🛑 Cancelled" "$WP266_OUT"
 WP266_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 🚀 Reviewing"}]' python3 "$WP266_PY" status 5 2>/dev/null)"
 assert_eq "#266 workpad.py status: Reviewing -> 'interim 🚀 Reviewing'" "interim 🚀 Reviewing" "$WP266_OUT"
+# #1056 — behavioral negative: `workpad.py status` must NEVER emit the bare legacy
+# `terminal` class for ANY recognized status. The positive per-glyph assertions
+# above pin Complete/Blocked/Cancelled/Reviewing, but omit Failed and the other
+# interim words, so a PARTIAL re-collapse of one glyph back to `terminal` could
+# satisfy every positive and go uncaught. This drives the class token behaviorally
+# (never grepping source — issues #375/#666/#810 bar wording-only pins) over each
+# recognized status word and asserts none classifies as `terminal`.
+WP1056_TERM=""
+for WP1056_WORD in Setup Discovering Reproducing Planning Implementing Reviewing Documenting Complete Blocked Failed Cancelled; do
+  WP1056_CLS="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS="[{\"id\":1,\"body\":\"<!-- devflow:workpad -->\n**Status:** $WP1056_WORD\"}]" python3 "$WP266_PY" status 5 2>/dev/null | cut -d' ' -f1)"
+  [ "$WP1056_CLS" = "terminal" ] && WP1056_TERM="$WP1056_TERM $WP1056_WORD"
+done
+assert_eq "#1056 workpad.py status: no recognized status classifies as the legacy bare 'terminal' token" "" "$WP1056_TERM"
 PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
 assert_eq "#266 workpad.py status: no workpad -> exit 2" "2" "$?"
 PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\nno status line here"}]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
@@ -33120,6 +33133,30 @@ assert_eq "#1025 isg: blocked arm names the status word in its breadcrumb" "yes"
   "$(printf '%s' "${ISG_R#*|}" | grep -qF 'is terminal (Blocked)' && echo yes || echo no)"
 assert_eq "#1025 isg: blocked workpad deletes the marker (self-heal, not a block)" "no" \
   "$([ -e "$ISG_D/.prflow/tmp/implement-active-605" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── legacy `terminal` alias: an un-upgraded consumer's workpad.py predates #1025
+# and still collapses every terminal glyph to the bare `terminal` class token. The
+# real (upgraded) workpad.py the arms above copy NEVER emits `terminal`, so the
+# guard's `case complete|blocked|failed|cancelled|terminal` alias arm is otherwise
+# unexercised (its sibling stall-backstop-decide.sh does test its own legacy arm —
+# issue #1056). A stub emitting the legacy token drives that arm directly. Proven
+# load-bearing: drop `terminal` from the guard's heal case and status_class=terminal
+# falls to the unrecognized-class arm, which KEEPS the marker — so the deletion
+# assertion below flips RED.
+ISG_D="$(isg_repo "isg: legacy terminal alias arm")"
+cat > "$ISG_D/scripts/workpad.py" <<'STUB'
+#!/usr/bin/env python3
+print("terminal 🎉 Complete")
+STUB
+chmod +x "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.prflow/tmp/implement-active-612"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidLt"}')"
+assert_eq "#1056 isg: legacy 'terminal' class -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#1056 isg: legacy 'terminal' alias arm names the status word in its breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'is terminal (Complete)' && echo yes || echo no)"
+assert_eq "#1056 isg: legacy 'terminal' class heals the marker (proves the alias arm is load-bearing)" "no" \
+  "$([ -e "$ISG_D/.prflow/tmp/implement-active-612" ] && echo yes || echo no)"
 rm -rf "$ISG_D"
 
 # terminal, but the marker cannot be removed (read-only .prflow/tmp): the guard must
