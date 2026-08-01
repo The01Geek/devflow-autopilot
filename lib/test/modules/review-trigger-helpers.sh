@@ -1649,10 +1649,12 @@ assert_eq "rit #1032: unbalanced (unclosed) fence → should_run=false" \
   "should_run=false" "$(rit_1032 "$(printf '%s\n' '```' '/prflow:implement 42')" | grep '^should_run=')"
 
 # AC2 — standalone forms STILL fire: bare token (context fallback) and #-number.
+# Capture once and grep twice (the file's idiom), so the resolver runs once here.
+OUT="$(rit_1032 '/prflow:implement' 25)"
 assert_eq "rit #1032: bare standalone token still fires" \
-  "should_run=true" "$(rit_1032 '/prflow:implement' 25 | grep '^should_run=')"
+  "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
 assert_eq "rit #1032: bare token falls back to the context number" \
-  "number=25" "$(rit_1032 '/prflow:implement' 25 | grep '^number=')"
+  "number=25" "$(echo "$OUT" | grep '^number=')"
 assert_eq "rit #1032: standalone #-number resolves the explicit number" \
   "number=7" "$(rit_1032 '/prflow:implement #7' 25 | grep '^number=')"
 
@@ -1666,10 +1668,11 @@ printf '**DevFlow stall backstop** — this cloud run ended while the workpad St
 printf 'Resume note: invoke bundled helpers as `.prflow/vendor/prflow/scripts/…` (and `.prflow/vendor/prflow/lib/…`) with that path as the leading token.\n\n'
 printf 'Headless note: this is a headless run — ending the turn ends the process, with no re-invocation.\n\n'
 printf '/prflow:implement %s\n' 42)"
+OUT="$(rit_1032 "$RIT_RESUME_BODY" 99)"
 assert_eq "rit #1032: real auto-resume body still triggers (stall recovery intact)" \
-  "should_run=true" "$(rit_1032 "$RIT_RESUME_BODY" 99 | grep '^should_run=')"
+  "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
 assert_eq "rit #1032: auto-resume body resolves the token's own number" \
-  "number=42" "$(rit_1032 "$RIT_RESUME_BODY" 99 | grep '^number=')"
+  "number=42" "$(echo "$OUT" | grep '^number=')"
 
 # AC5 — the authorization and self-trigger guards are UNCHANGED under the new
 # routing: negative controls that each STILL fires. A bad token fails closed even
@@ -2655,21 +2658,28 @@ assert_eq "rct #314: missing detector emits a distinct broken-install ::warning:
 rm -rf "$NODET_DIR"; rm -f "$NODET_ERR"
 
 # 12. issue #1032: a STANDALONE /prflow:implement reaching the LIGHT resolver is
-# re-excluded. The shared detector now recognizes implement (so the heavy
-# resolver scripts/resolve-implement-trigger.sh can share the one matcher), but
-# this light path must decline it — implement is the heavy devflow-implement.yml
-# path, not a light devflow.yml command. The light path's OBSERVABLE behavior is
-# unchanged from before #1032 (implement declined then too, via an empty cmd);
-# only the diagnostic differs, so a distinct ::notice:: is pinned.
+# declined by the fail-closed light-command allowlist. The shared detector now
+# recognizes implement (so the heavy resolver scripts/resolve-implement-trigger.sh
+# can share the one matcher), but this light path dispatches only the three light
+# commands — implement is the heavy devflow-implement.yml path. The light path's
+# OBSERVABLE behavior is unchanged from before #1032 (implement declined then too,
+# via an empty cmd); only the diagnostic differs, so the ::notice:: naming the
+# non-light token is pinned.
 rct_run "/prflow:implement 42"
-assert_eq "rct #1032: standalone /prflow:implement re-excluded → should_run=false" \
+assert_eq "rct #1032: standalone /prflow:implement declined by the light allowlist → should_run=false" \
   "should_run=false" "$(echo "$RCT_OUT" | grep '^should_run=')"
-assert_eq "rct #1032: implement re-exclusion emits its distinct ::notice::" \
-  "1" "$(grep -c '::notice::/prflow:implement is the heavy implement path' "$RCT_ERR")"; rm -f "$RCT_ERR"
-# Sanity: a genuine standalone LIGHT command in the same resolver still fires, so
-# the re-exclusion does not over-match the light commands it must still dispatch.
+assert_eq "rct #1032: non-light token emits its distinct ::notice::" \
+  "1" "$(grep -c "::notice::'/prflow:implement' is not a light" "$RCT_ERR")"; rm -f "$RCT_ERR"
+# Sanity: every genuine standalone LIGHT command still fires, so the allowlist
+# does not over-match the commands it must still dispatch.
 rct_run "/prflow:review 7"
-assert_eq "rct #1032: light /prflow:review unaffected by the implement re-exclusion" \
+assert_eq "rct #1032: light /prflow:review unaffected by the allowlist" \
+  "should_run=true" "$(echo "$RCT_OUT" | grep '^should_run=')"; rm -f "$RCT_ERR"
+rct_run "/prflow:review-and-fix 7"
+assert_eq "rct #1032: light /prflow:review-and-fix unaffected by the allowlist" \
+  "should_run=true" "$(echo "$RCT_OUT" | grep '^should_run=')"; rm -f "$RCT_ERR"
+rct_run "/prflow:pr-description 7"
+assert_eq "rct #1032: light /prflow:pr-description unaffected by the allowlist" \
   "should_run=true" "$(echo "$RCT_OUT" | grep '^should_run=')"; rm -f "$RCT_ERR"
 
 rm -rf "$RCT_STUB"
