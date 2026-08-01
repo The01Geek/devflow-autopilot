@@ -8,7 +8,7 @@
 # matching presets into the repo's .prflow/config.json:
 #
 #   - the build/test/lint tool patterns are added to three execution paths'
-#     allowlists: devflow.allowed_tools (command), prflow_implement.allowed_tools
+#     allowlists: prflow.allowed_tools (command), prflow_implement.allowed_tools
 #     (implement), and prflow_runner.allowed_tools (the automated reviewer). The
 #     reviewer consumes its list only when prflow_runner.provision_env is set in
 #     the trusted base config, and the runner enforces a deny-list floor over it
@@ -328,8 +328,8 @@ if "$DEVFLOW_JQ" --sort-keys . "$CONFIG" >/dev/null 2>&1 && ! diff -q \
   if config_shape_ok "$TMP"; then
     mv "$TMP" "$CONFIG"
     trap - EXIT
-    log "detected: ${ACTIVE[*]} — merged build/test tools into config.json (devflow / prflow_implement / prflow_runner) + setup."
-    log "review the additions before committing; the devflow / prflow_implement entries run PR code in their respective workflows. The prflow_runner.allowed_tools entries reach the automated reviewer only when prflow_runner.provision_env is set in the base config (see config.schema.json / docs/cloud-setup.md), which also runs PR build code under a write token; the runner enforces a deny-list floor over that list."
+    log "detected: ${ACTIVE[*]} — merged build/test tools into config.json (prflow / prflow_implement / prflow_runner) + setup."
+    log "review the additions before committing; the prflow / prflow_implement entries run PR code in their respective workflows. The prflow_runner.allowed_tools entries reach the automated reviewer only when prflow_runner.provision_env is set in the base config (see config.schema.json / docs/cloud-setup.md), which also runs PR build code under a write token; the runner enforces a deny-list floor over that list."
   else
     log "detected: ${ACTIVE[*]} — the merged config.json failed a best-effort shape check (a devflow/setup field has an unexpected type); your existing config.json is left unchanged. Fix the field types (see .prflow/config.schema.json) and re-run, or add the tool entries by hand."
   fi

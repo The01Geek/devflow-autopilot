@@ -264,7 +264,7 @@ Record a bundle entry for each of these, in addition to the generic axes:
   This sweep is repo-wide: enumeration covers the whole tracked tree for every contract sentence the draft amends, and a directory-scoped sweep does not discharge enumeration.
 - **Grant-timing bootstrap.** Record whether any proposed in-run obligation, probe, or verification command
   relies on a **trigger-time-resolved** `.prflow/config.json` change the same PR ships — a tool grant in
-  `prflow_implement.allowed_tools` or `devflow.allowed_tools`, a `prflow_version` bump, or any other key
+  `prflow_implement.allowed_tools` or `prflow.allowed_tools`, a `prflow_version` bump, or any other key
   the workflow `config` job resolves at trigger time from the default branch (`devflow-implement.yml`'s
   `config` job checks out the default-branch tip and reads config from it, so a grant a PR ships is inert
   for that PR's own implementing run — post-merge-only). Keys skills read at runtime through `config-get.sh`

@@ -167,7 +167,7 @@ jobs:
             echo "allowed_users=$(echo "$CONFIG_JSON" | jq -r '.prflow.allowed_users // "*"')"
             echo "effort=$(echo "$CONFIG_JSON" | jq -r '.prflow_implement.effort // "high"')"
             # Repo-specific extra allowlist for the implement path. Independent
-            # from devflow.yml's `devflow.allowed_tools` — the heavy path does NOT
+            # from devflow.yml's `prflow.allowed_tools` — the heavy path does NOT
             # inherit the light path's extras, so adopters list every extra tool
             # they want during /devflow:implement under `prflow_implement.allowed_tools`.
             # Emits a leading-comma string (",Bash(make:*),…") or "".
