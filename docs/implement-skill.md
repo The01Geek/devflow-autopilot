@@ -894,6 +894,8 @@ A single `_report_failed_ticks` chokepoint in `scripts/workpad.py` writes the co
 
 ## `## Devflow Reflection`: grouped-by-kind rendering (`--reflection-kind`)
 
+**Disposition after the shared writing standard (issue #1039).** This section, and its `--reflection-kind` restatement in `docs/DEVFLOW_SYSTEM_OVERVIEW.md`, are **retained unchanged**. They document the reflection-*kind* routing — which sub-section a bullet renders under, a workpad-mechanics contract the `#126` pin requires `--reflection-kind` to appear in both files for — not the prose-*style* rules the shared writing standard (`docs/writing-standard.md`) absorbed from the implement Reflection style contract. The kind routing is unaffected by that absorption, so nothing here points at the standard.
+
 Reflection bullets are grouped by **kind** so a human triaging a PRFlow PR/issue sees the items that need follow-up separated from improvement proposals and purely informational notes, without expanding and reading a flat list. `scripts/workpad.py update` takes a `--reflection-kind {blocked|deferred|dropped-failed|improvement|issue-accuracy|note}` flag that applies to that call's `--reflection` / `--reflection-file` bullet(s); the helper — the single chokepoint every reflection flows through — owns the glyph, bold label (or none, for the glyph-only kinds), and sub-section placement, so the structure holds regardless of how the orchestrator phrases the text.
 
 | Kind | Rendered bullet | Label? | Sub-section |

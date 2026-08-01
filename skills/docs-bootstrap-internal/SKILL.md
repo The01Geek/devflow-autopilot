@@ -150,6 +150,7 @@ For each category, create **1-3 seed documents** that cover the most important t
 - Must include file paths and class names from the actual code — use bare paths like `src/server.py`, never append line numbers (line numbers change as code evolves)
 - Must be useful to a developer on day one — not placeholder text
 - Follow existing documentation style and formatting in `[[INTERNAL_DOC_LOCATION]]` if any docs already exist
+- Read the shared writing standard `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../docs/writing-standard.md` and follow it when composing the seed documentation — it states who the reader is, the plain opening, one claim per sentence, evidence in its own bullet, and defining coined terms. A failed load emits a breadcrumb naming the file and the failure kind, and you compose without it.
 
 ### Step 6: Do Not Commit
 

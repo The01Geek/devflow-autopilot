@@ -200,6 +200,12 @@ one fixable thing or several. Be specific; "code quality issue" is useless.
 
 ### summary
 
+Before composing this paragraph, read the shared writing standard
+`"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../docs/writing-standard.md`
+and follow it — who the reader is, one claim per sentence, and defining coined
+terms. A failed load emits a breadcrumb naming the file and the failure kind, and
+you compose the summary without it.
+
 One dense paragraph grounded in the bundle's primary sources. Quote the
 workpad status, the `/prflow:review` verdict(s), what the human had to fix in
 `human_postbot_diff` / `commits`, and which acceptance criteria slipped (if

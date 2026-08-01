@@ -168,6 +168,8 @@ Documentation files are located in `[[INTERNAL_DOC_LOCATION]]` and organized by 
 - **Write mode (default):** Create or Edit Documentation — make real file changes to add/update documentation files.
 - **Report-only mode (`--report-only`):** Make no changes — return the findings report described in *Report-Only Output* (under Step 4).
 
+**Read the shared writing standard before composing in either mode.** Both modes compose prose: write mode composes the documentation it edits, and `--report-only` composes the findings report that `/prflow:create-issue` builds an issue body from. So read `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../docs/writing-standard.md` and follow it when composing either — who the reader is, the plain opening, one claim per sentence, evidence in its own bullet, and defining coined terms. A failed load emits a breadcrumb naming the file and the failure kind, and you compose without it.
+
 ---
 
 ## **Detailed Execution Steps**

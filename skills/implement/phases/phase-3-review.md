@@ -2,6 +2,8 @@
 
 Output: `Phase 3/4: Review & Fix — creating PR and running review...`
 
+**Writing standard (read at every reflection compose point).** Before composing any `--reflection` bullet in this phase, read the shared writing standard `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../docs/writing-standard.md` and follow its rules; the always-loaded Reflection style contract absorbed those rules into this read, so the read is what keeps them present. A failed load emits a breadcrumb naming the file and the failure kind, and you compose the reflection without it.
+
 `workpad.py update $ISSUE_NUMBER --status Reviewing`.
 
 ### 3.1 Create Draft PR

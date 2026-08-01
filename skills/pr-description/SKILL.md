@@ -91,6 +91,8 @@ The lookup is best-effort — never fail the run on a missing or unparseable man
 
 ## Step 2: Generate the PR Description
 
+**Read the shared writing standard before composing.** The PR description is change-describing prose, so read `docs/writing-standard.md` — reached through the portable skill-directory anchor as `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../docs/writing-standard.md` — and follow it when you write the summary and body below. A failed load emits a breadcrumb naming the file and the failure kind, and you compose the description without it.
+
 ### Mode A: No existing PR (or empty body)
 
 Generate a fresh description using the template below.
@@ -196,7 +198,7 @@ deferrals:
 <!-- PR_BODY_END -->
 
 **Rules:**
-- Be concise. No filler words.
+- Follow the shared writing standard (`docs/writing-standard.md`, read at the top of this step) for how the prose reads — the concision and plain-opening rules this line used to state now live there.
 - Summary bullets should explain *what* and *why*, not list files.
 - Changes section groups by logical area (e.g., "Orders module", "Frontend", "Database"), not individual files.
 - Test Plan items must be concrete and actionable, not generic ("Run tests").
