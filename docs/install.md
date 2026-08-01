@@ -239,7 +239,7 @@ The pass runs at the end of every scaffold, so it reaches both `install.sh --app
 
 Three things it deliberately leaves alone, and says so once when your config carries them:
 
-- **`workflows.devflow` / `workflows.devflow-review`** — your workflow files read those key names, and a renamed key reads as *disabled*, so renaming one here would silently switch the workflow it toggles off. They move only in a change that migrates both sides together.
+- **`workflows.devflow` / `workflows.devflow-review`** (now `workflows.prflow` / `workflows.prflow-review`) — your workflow files read those key names, and a renamed key reads as *disabled*, so a rename that moved ahead of a stale workflow would silently switch the workflow it toggles off. This value pass therefore leaves them alone; they are migrated instead by the **freshness-gated key migration** (issue #1041), which refuses to move them while any shipped workflow still reads the superseded spelling and names `install.sh --apply` as the remedy — so the config key and the workflow read only ever move together.
 - **A `devflow`-spelled `allowed_bots` entry** — that is a real GitHub login, and renaming it breaks authorization unless the account itself was renamed.
 - **The `DEVFLOW_*` environment identifiers** — variables, secrets and shell overrides that live outside the repository, where no config migration can reach them. Nothing reads a `PRFLOW_*` equivalent, so renaming one removes the setting rather than moving it, and most fail silently. That inventory is not restated in the notice: `lib/generate-env-freeze-advisory.py` renders it from `lib/rename-map.json`'s `frozen.env_identifiers` (see also [`cloud-setup.md`](cloud-setup.md)).
 
@@ -348,7 +348,7 @@ If your repository installed the automatic pull-request-triggered review tier be
 DEVFLOW_REF=<newer-ref> bash devflow-install.sh --apply --remove-withheld-review-tier
 ```
 
-That deletes the three workflow files (only when they carry a PRFlow signature — a same-named file of your own is left alone) and sets `workflows["devflow-review"]` to `false` in `.prflow/config.json`. **It cannot do the third step:** remove the `Devflow Review` context from any branch protection rule or ruleset that requires it, or every later pull request wedges against a required check nothing will report. Do that yourself, in the same change. Full background: [`workflow-triggers.md`](workflow-triggers.md).
+That deletes the three workflow files (only when they carry a PRFlow signature — a same-named file of your own is left alone) and sets `workflows["prflow-review"]` to `false` in `.prflow/config.json`. **It cannot do the third step:** remove the `Devflow Review` context from any branch protection rule or ruleset that requires it, or every later pull request wedges against a required check nothing will report. Do that yourself, in the same change. Full background: [`workflow-triggers.md`](workflow-triggers.md).
 
 #### Upgrade note: re-sync the workflow `TOOLS` grants for the Phase 0.6 stale-prose lint
 

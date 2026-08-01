@@ -845,7 +845,7 @@ assert_eq "installer-upgrade: the default report names the opt-in flag rather th
   "$(_iu_out_has "$IU_O4" 're-run with --remove-withheld-review-tier')"
 IU_O4B="$(_iu_run "$IU_C4" --apply --remove-withheld-review-tier)"
 assert_eq "installer-upgrade: the opt-in deletes the three withheld workflows and turns the review config key off" "0 false" \
-  "$(_iu_count_withheld "$IU_C4") $(python3 -c 'import json,sys;print(json.dumps(json.load(open(sys.argv[1])).get("workflows",{}).get("devflow-review")))' "$IU_C4/.prflow/config.json")"
+  "$(_iu_count_withheld "$IU_C4") $(python3 -c 'import json,sys;print(json.dumps(json.load(open(sys.argv[1])).get("workflows",{}).get("prflow-review")))' "$IU_C4/.prflow/config.json")"
 assert_eq "installer-upgrade: the removal states the branch-protection step no installer can perform" "yes" \
   "$(printf '%s' "$IU_O4B" | grep -qF "branch protection rule" && echo yes || echo no)"
 # Signature guard: a same-named workflow that is NOT DevFlow's is never deleted.
@@ -1570,7 +1570,7 @@ python3 -c '
 import json, sys
 p = sys.argv[1]
 d = json.load(open(p))
-d["workflows"] = dict(d.get("workflows") or {}, **{"devflow-review": False})
+d["workflows"] = dict(d.get("workflows") or {}, **{"prflow-review": False})
 json.dump(d, open(p, "w"), indent=2)
 ' "$IU_C17B/.prflow/config.json"
 IU_O17B="$(_iu_run "$IU_C17B" --apply --remove-withheld-review-tier)"
@@ -1639,18 +1639,18 @@ python3 -c '
 import json, sys
 p = sys.argv[1]
 d = json.load(open(p))
-d["workflows"] = dict(d.get("workflows") or {}, **{"devflow-review": True})
+d["workflows"] = dict(d.get("workflows") or {}, **{"prflow-review": True})
 json.dump(d, open(p, "w"), indent=2)
 ' "$IU_C19/.prflow/config.json"
 IU_O19="$(_iu_run "$IU_C19" --apply --remove-withheld-review-tier)"
 assert_eq "installer-upgrade #959: the opt-in really does flip a true review key to false" "False" \
-  "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["workflows"]["devflow-review"])' "$IU_C19/.prflow/config.json")"
+  "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["workflows"]["prflow-review"])' "$IU_C19/.prflow/config.json")"
 assert_eq "installer-upgrade #959: the config key is turned off BEFORE the workflow files are deleted (the only self-healing order)" "config-first" \
   "$(printf '%s\n' "$IU_O19" | python3 -c '
 import sys
 # Either config-half emission counts — the rc-0 flip or the rc-4 already-false report.
 # The arm under test is the ORDER of the two halves, not which branch the config edit took.
-CONFIG = ("devflow-review\"]=false", "devflow-review\"] is already false")
+CONFIG = ("prflow-review\"]=false", "prflow-review\"] is already false")
 key = files = None
 for i, line in enumerate(sys.stdin):
     if key is None and any(c in line for c in CONFIG):
@@ -1673,7 +1673,7 @@ python3 -c '
 import json, sys
 p = sys.argv[1]
 d = json.load(open(p))
-d["workflows"] = dict(d.get("workflows") or {}, **{"devflow-review": False})
+d["workflows"] = dict(d.get("workflows") or {}, **{"prflow-review": False})
 json.dump(d, open(p, "w"), indent=2)
 ' "$IU_C19B/.prflow/config.json"
 _iu_run "$IU_C19B" --apply --remove-withheld-review-tier >/dev/null
@@ -1733,6 +1733,188 @@ IU_O19F="$( cd "$IU_C19E" && DEVFLOW_SELFTEST=1 . "$IU_INSTALL" \
     && REMOVE_WITHHELD=1 devflow_remove_withheld_tier 'telemetry-push' 2>&1 )"
 assert_eq "installer-upgrade #959 CONTROL: a readable non-matching file still reports the no-signature judgement, not the read failure" "yes no yes" \
   "$(_iu_out_has "$IU_O19F" 'telemetry-push.yml carries no DevFlow signature') $(_iu_out_has "$IU_O19F" 'This is a read failure') $([ -f "$IU_C19E/.github/workflows/telemetry-push.yml" ] && echo yes || echo no)"
+
+# ── Scenario 19g (#1041): the review toggle is disabled under WHICHEVER SPELLING the
+# config carries, and the END STATE is asserted — not just the log line.
+#
+# The defect this locks out is a run reporting an outcome it did not achieve.
+# devflow_disable_review_key runs BEFORE scaffold-config.sh's key migration in
+# devflow_apply_all, so on a consumer that has not migrated yet, writing the CURRENT
+# spelling unconditionally leaves both keys present. The migration then resolves that
+# both-present case through its example-valued graft arm — the new key holds the shipped
+# example default `false`, so it is judged a deep-merge graft, dropped, and the superseded
+# value written through in its place. A `devflow-review: true` lands back as
+# `prflow-review: true` in the very run that logged the tier disabled, and
+# devflow_report_withheld_tier then tells the operator exposure persists for as long as
+# that key is true. Asserting the LOG alone cannot see this: the log said false.
+#
+# Driven end to end through the real installer, over both orderings the rename creates.
+_iu_review_toggle() {  # $1 = consumer root -> the surviving review toggle, both spellings
+  python3 -c '
+import json, sys
+wf = json.load(open(sys.argv[1])).get("workflows") or {}
+print("prflow-review=%s devflow-review=%s"
+      % (json.dumps(wf.get("prflow-review")), json.dumps(wf.get("devflow-review"))))
+' "$1/.prflow/config.json"
+}
+# (a) A config still on the SUPERSEDED spelling, with the toggle genuinely on.
+IU_C19G="$(_iu_consumer withheld-superseded-spelling)"
+_iu_run "$IU_C19G" >/dev/null
+for _iu_w in devflow-review devflow-runner telemetry-push; do
+  _iu_withheld_file "$_iu_w" > "$IU_C19G/.github/workflows/$_iu_w.yml"
+done
+python3 -c '
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+# An un-migrated consumer: the whole workflows block is on the superseded spelling, and
+# the review tier is ON. Both sub-keys move together in a real config, so both are set.
+d["workflows"] = {"devflow": True, "devflow-review": True}
+json.dump(d, open(p, "w"), indent=2)
+' "$IU_C19G/.prflow/config.json"
+IU_O19G="$(_iu_run "$IU_C19G" --apply --remove-withheld-review-tier)"
+assert_eq "installer-upgrade #1041: an un-migrated config ends with the review toggle actually OFF — the run's report matches the config it left behind" "prflow-review=false devflow-review=null" \
+  "$(_iu_review_toggle "$IU_C19G")"
+assert_eq "installer-upgrade #1041: and the log names the SUPERSEDED spelling it really wrote, never a key this run never touched" "yes no" \
+  "$(_iu_out_has "$IU_O19G" 'set workflows["devflow-review"]=false') $(_iu_out_has "$IU_O19G" 'set workflows["prflow-review"]=false')"
+assert_eq "installer-upgrade #1041: the three withheld workflow files are still removed on that path" "0" \
+  "$(_iu_count_withheld "$IU_C19G")"
+# (b) A config already on the CURRENT spelling takes the same path under its own name —
+# so (a) is a spelling-follows-config rule, not a blanket switch to the superseded name.
+IU_C19H="$(_iu_consumer withheld-current-spelling)"
+_iu_run "$IU_C19H" >/dev/null
+for _iu_w in devflow-review devflow-runner telemetry-push; do
+  _iu_withheld_file "$_iu_w" > "$IU_C19H/.github/workflows/$_iu_w.yml"
+done
+python3 -c '
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["workflows"] = {"prflow": True, "prflow-review": True}
+json.dump(d, open(p, "w"), indent=2)
+' "$IU_C19H/.prflow/config.json"
+IU_O19H="$(_iu_run "$IU_C19H" --apply --remove-withheld-review-tier)"
+assert_eq "installer-upgrade #1041: a migrated config also ends with the toggle actually OFF" "prflow-review=false devflow-review=null" \
+  "$(_iu_review_toggle "$IU_C19H")"
+assert_eq "installer-upgrade #1041: and names the CURRENT spelling there" "yes no" \
+  "$(_iu_out_has "$IU_O19H" 'set workflows["prflow-review"]=false') $(_iu_out_has "$IU_O19H" 'set workflows["devflow-review"]=false')"
+# (c) BOTH spellings present — the self-heal state a consumer who already ran the broken
+# build is sitting in. Disabling only one leaves the other to win the graft arm, so both
+# are turned off and the surviving key is false whichever one the migration keeps.
+IU_C19I="$(_iu_consumer withheld-both-spellings)"
+_iu_run "$IU_C19I" >/dev/null
+for _iu_w in devflow-review devflow-runner telemetry-push; do
+  _iu_withheld_file "$_iu_w" > "$IU_C19I/.github/workflows/$_iu_w.yml"
+done
+python3 -c '
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["workflows"] = {"devflow": True, "devflow-review": True, "prflow-review": False}
+json.dump(d, open(p, "w"), indent=2)
+' "$IU_C19I/.prflow/config.json"
+IU_O19I="$(_iu_run "$IU_C19I" --apply --remove-withheld-review-tier)"
+assert_eq "installer-upgrade #1041: a config carrying BOTH spellings ends with the surviving toggle off, not the superseded true value grafted back over it" "prflow-review=false devflow-review=null" \
+  "$(_iu_review_toggle "$IU_C19I")"
+assert_eq "installer-upgrade #1041: and the log names both keys it wrote" "yes" \
+  "$(_iu_out_has "$IU_O19I" 'set workflows["prflow-review"] and workflows["devflow-review"]=false')"
+
+# ── Scenario 19j (#1041): the PARTIAL-UPGRADE skew that silently disables the tier.
+#
+# The workflow copy loop is PER FILE, and install_managed deliberately PRESERVES a
+# hand-edited workflow (writing a .prflow-new sidecar beside it) — an explicitly designed-
+# for case, not an edge case. So one shipped workflow can be refreshed onto the renamed
+# enable key while the other stays hand-edited on the superseded one. scaffold-config.sh's
+# freshness gate then refuses the config migration — correctly, since a stale reader is
+# present — and the REFRESHED file is left reading workflows.prflow against a config that
+# still carries workflows.devflow. Its enable read resolves absent -> false and every
+# trigger silently does nothing.
+#
+# Before Tier 4 this was impossible: the enable key was frozen, so a refreshed workflow and
+# the config key could never skew. The freeze was doing load-bearing work.
+#
+# Driven end to end through the real installer over a fixture consumer, asserting the
+# resulting TREE — which workflow reads which key, and that the loud signal fired.
+IU_C19J="$(_iu_consumer enable-key-skew)"
+_iu_run "$IU_C19J" >/dev/null
+python3 -c '
+import json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+# The consumer hand-edits devflow.yml back onto the superseded enable key. That both
+# models a pre-rename installation carrying a local edit AND breaks the manifest digest,
+# so the next run PRESERVES this file. devflow-implement.yml is left byte-identical to
+# what the installer wrote, so its digest still matches and it IS refreshed — the exact
+# asymmetry the per-file loop produces.
+p = root / ".github/workflows/devflow.yml"
+body = p.read_text(encoding="utf-8")
+if ".workflows.prflow" not in body:
+    sys.exit("fixture precondition failed: devflow.yml does not read the renamed key")
+p.write_text(body.replace(".workflows.prflow", ".workflows.devflow")
+             + "\n# consumer hand-edit\n", encoding="utf-8")
+cfg = root / ".prflow/config.json"
+d = json.loads(cfg.read_text(encoding="utf-8"))
+d["workflows"] = {"devflow": True, "devflow-review": False}
+cfg.write_text(json.dumps(d, indent=2) + "\n", encoding="utf-8")
+' "$IU_C19J"
+IU_O19J="$(_iu_run "$IU_C19J" --apply)"
+_iu_enable_read() {  # $1 = consumer root, $2 = workflow id -> the enable key it reads
+  python3 -c '
+import re, sys
+body = open(sys.argv[1], encoding="utf-8").read()
+found = re.search(r"ENABLED=\$\(echo \"\$CONFIG_JSON\" \| jq -r .\.workflows\.([a-z-]+)", body)
+print(found.group(1) if found else "UNREADABLE")
+' "$1/.github/workflows/$2.yml"
+}
+assert_eq "installer-upgrade #1041: the per-file refresh really does produce the skew — hand-edited workflow preserved on the superseded key, untouched one refreshed onto the renamed key" "devflow prflow" \
+  "$(_iu_enable_read "$IU_C19J" devflow) $(_iu_enable_read "$IU_C19J" devflow-implement)"
+assert_eq "installer-upgrade #1041: and the freshness gate correctly refuses the config migration, leaving the config on the superseded key" "true null" \
+  "$(python3 -c '
+import json, sys
+wf = json.load(open(sys.argv[1])).get("workflows") or {}
+print("%s %s" % (json.dumps(wf.get("devflow")), json.dumps(wf.get("prflow"))))
+' "$IU_C19J/.prflow/config.json")"
+# THE ASSERTION THIS SCENARIO EXISTS FOR: the skew is announced, by name, at the moment it
+# is created. Without it the run is silent and the consumer learns only when a trigger
+# does nothing.
+assert_eq "installer-upgrade #1041: the run warns LOUDLY about the partial upgrade and names the refreshed workflow" "yes yes" \
+  "$(_iu_out_has "$IU_O19J" 'PARTIAL UPGRADE') $(_iu_out_has "$IU_O19J" 'workflows.prflow, but .prflow/config.json still carries only the superseded workflows.devflow: devflow-implement.yml')"
+assert_eq "installer-upgrade #1041: the warning states the consequence and a remedy, and never claims to have repaired anything" "yes yes no" \
+  "$(_iu_out_has "$IU_O19J" 'silently do nothing') $(_iu_out_has "$IU_O19J" 're-run install.sh --apply so the workflow reads and the config key move together') $(_iu_out_has "$IU_O19J" 'migrated superseded config key in')"
+# The install-time warning is a convenience; the SHIPPED workflow's own trigger-time guard
+# is the authoritative signal. Join the two: feed the config this run actually produced
+# into the guard program read out of the refreshed workflow, and confirm it selects the
+# error arm. This is what proves the two halves agree about the same tree.
+assert_eq "installer-upgrade #1041: the refreshed workflow's own trigger-time guard selects the ERROR arm over the config this run left behind" "true" \
+  "$(python3 -c '
+import re, sys
+for line in open(sys.argv[1], encoding="utf-8"):
+    if "SUPERSEDED_ENABLE=" in line and "jq -r " in line:
+        found = re.search(r"jq -r .(.*).\)\s*$", line.strip())
+        if found:
+            sys.stdout.write(found.group(1))
+        break
+' "$IU_C19J/.github/workflows/devflow-implement.yml" | {
+      read -r _iu_prog
+      jq -r "$_iu_prog" < "$IU_C19J/.prflow/config.json" 2>/dev/null
+    })"
+# NEGATIVE CONTROL: an ordinary upgrade with no hand-edited workflow migrates cleanly and
+# must draw no warning — otherwise the arm above would fire on every consumer and mean
+# nothing.
+IU_C19K="$(_iu_consumer enable-key-no-skew)"
+_iu_run "$IU_C19K" >/dev/null
+python3 -c '
+import json, pathlib, sys
+cfg = pathlib.Path(sys.argv[1]) / ".prflow/config.json"
+d = json.loads(cfg.read_text(encoding="utf-8"))
+d["workflows"] = {"devflow": True, "devflow-review": False}
+cfg.write_text(json.dumps(d, indent=2) + "\n", encoding="utf-8")
+' "$IU_C19K"
+IU_O19K="$(_iu_run "$IU_C19K" --apply)"
+assert_eq "installer-upgrade #1041 NEGATIVE CONTROL: with both workflows refreshed the config migrates and NO skew warning is emitted" "no true" \
+  "$(_iu_out_has "$IU_O19K" 'PARTIAL UPGRADE') $(python3 -c '
+import json, sys
+print(json.dumps((json.load(open(sys.argv[1])).get("workflows") or {}).get("prflow")))
+' "$IU_C19K/.prflow/config.json")"
 
 # ── Scenario 20 (#959 review, suggestion 3): fail-safe/warning arms that are consumer-
 # facing documented behavior but had no coverage. None of these is in the clobber-

@@ -161,12 +161,21 @@ print(p["superseded"], p["current"])' "$T1_MAP" 2>/dev/null)"
 assert_eq "#1002 the map declares the vendored-path rename at both levels" \
   ".devflow/vendor/devflow .prflow/vendor/prflow" "$_t1_vendor"
 
-# The FROZEN set is declared in the map so a later sweep cannot widen it silently.
-assert_eq "#1002 the map freezes the two workflows.* config sub-keys" "yes" \
+# #1041: the two workflows.* sub-keys are NO LONGER frozen — they migrate behind the
+# scaffold freshness gate via the map's workflows_config_keys section. frozen.config_keys
+# is now empty (it still exists so the enumerated frozen set has a home), and the two
+# renames live in workflows_config_keys.
+assert_eq "#1041 the map no longer freezes the workflows.* config sub-keys" "yes" \
   "$(python3 -c '
 import json,sys
 f=json.load(open(sys.argv[1]))["frozen"]["config_keys"]
-print("yes" if set(f)=={"workflows.devflow","workflows.devflow-review"} else "no:"+",".join(f))' "$T1_MAP" 2>/dev/null)"
+print("yes" if f==[] else "no:"+",".join(f))' "$T1_MAP" 2>/dev/null)"
+assert_eq "#1041 the map declares the two workflows.* renames in workflows_config_keys" \
+  "devflow->prflow devflow-review->prflow-review" \
+  "$(python3 -c '
+import json,sys
+w=json.load(open(sys.argv[1]))["workflows_config_keys"]
+print(" ".join(f"{k}->{v}" for k,v in w.items()))' "$T1_MAP" 2>/dev/null)"
 
 assert_eq "#1002 the map declares a four-member atomic unit" "4" \
   "$(python3 -c '
@@ -193,21 +202,21 @@ bad=[k for k in props if k.startswith("devflow")]
 print(",".join(bad) if bad else "none")' "$_t1_f" "$( [ "$_t1_label" = "config.schema.json" ] && echo schema || echo plain )" 2>/dev/null)"
 done
 
-# The FROZEN counter-control: the workflows block still declares exactly the two
-# brand-named sub-keys. Renaming these is the single most damaging edit available in
-# this change (`.workflows.devflow // false` silently disables everything), so the
-# purity assertion above must not be read as licence to sweep them.
-assert_eq "#1002 FROZEN: config.schema.json still declares workflows.{devflow,devflow-review}" \
-  "devflow devflow-review" \
+# #1041: the workflows block now declares the RENAMED sub-keys. Renaming these was the
+# single most damaging edit available (`.workflows.devflow // false` silently disables
+# everything), which is why they moved only behind the fail-closed freshness gate and in
+# lockstep with the shipped workflows' inline jq — never as a bare sweep.
+assert_eq "#1041 config.schema.json declares the renamed workflows.{prflow,prflow-review}" \
+  "prflow prflow-review" \
   "$(python3 -c '
 import json,sys
 print(" ".join(json.load(open(sys.argv[1]))["properties"]["workflows"]["properties"]))' "$T1_SCHEMA" 2>/dev/null)"
 
-assert_eq "#1002 FROZEN: config.example.json still carries the workflows.devflow toggle" "yes" \
+assert_eq "#1041 config.example.json carries the renamed workflows.prflow toggle" "yes" \
   "$(python3 -c '
 import json,sys
 w=json.load(open(sys.argv[1])).get("workflows",{})
-print("yes" if "devflow" in w and "devflow-review" in w else "no")' "$T1_EXAMPLE" 2>/dev/null)"
+print("yes" if "prflow" in w and "prflow-review" in w and "devflow" not in w else "no")' "$T1_EXAMPLE" 2>/dev/null)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#1002 C. state-directory resolution and its LOUD transitional fallback"
@@ -530,6 +539,79 @@ d=json.load(open(sys.argv[1]))
 print("yes" if "prflow" in d else "no")' "$_t1_r/.devflow/config.json" 2>/dev/null)"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#1041 E2. the workflows.* sub-keys migrate behind the SAME freshness gate"
+# ────────────────────────────────────────────────────────────────────────────
+_t1_wf_workflows() { python3 -c 'import json,sys;print(json.dumps(json.load(open(sys.argv[1]))["workflows"]))' "$1" 2>/dev/null; }
+# FRESH shipped workflows (none present -> gate passes): both sub-keys rename and the
+# deliberate valid-falsy `false`/`true` toggles are carried across verbatim (AC4, #312).
+_t1_r="$(_t1_scaffold_root '{"workflows":{"devflow":false,"devflow-review":true}}')"
+_t1_out="$("$T1_SCAFFOLD" "$_t1_r" 2>&1)"
+assert_eq "#1041 workflows migration: both sub-keys rename and the valid-falsy false/true survive" \
+  '{"prflow": false, "prflow-review": true}' "$(_t1_wf_workflows "$_t1_r/.prflow/config.json")"
+# AC2/AC3: a STALE shipped workflow whose superseded read is `.workflows.devflow` (the
+# #1041 staleness trigger, previously exempted by a `workflows` lookbehind) REFUSES the
+# migration and names install.sh --apply; the nested anti-graft guard keeps the consumer's
+# valid-falsy toggle from being shadowed by a grafted example default -- so a stale consumer
+# is never silently disabled. Asserted end-to-end on the resulting config bytes.
+_t1_r="$(_t1_scaffold_root '{"workflows":{"devflow":false,"devflow-review":true}}')"
+printf 'run: jq -r ".workflows.devflow // false"\n' > "$_t1_r/.github/workflows/devflow-implement.yml"
+_t1_out="$("$T1_SCAFFOLD" "$_t1_r" 2>&1)"
+assert_eq "#1041 gate: a workflow still reading .workflows.devflow refuses the migration" "yes" \
+  "$(_t1_has "$_t1_out" 'NOT migrating superseded config keys')"
+assert_eq "#1041 gate: the refusal names install.sh --apply as the remedy" "yes" \
+  "$(_t1_has "$_t1_out" 'install.sh --apply')"
+assert_eq "#1041 gate: the superseded workflows.* toggles survive unchanged and NO prflow* is grafted (not silently disabled)" \
+  '{"devflow": false, "devflow-review": true}' "$(_t1_wf_workflows "$_t1_r/.prflow/config.json")"
+# NEGATIVE CONTROL: the SAME config with a FRESH workflow (reads .workflows.prflow) lets
+# the migration proceed -- proving the gate is what refused above, not some other block.
+_t1_r="$(_t1_scaffold_root '{"workflows":{"devflow":false,"devflow-review":true}}')"
+printf 'run: jq -r ".workflows.prflow // false"\n' > "$_t1_r/.github/workflows/devflow-implement.yml"
+_t1_out="$("$T1_SCAFFOLD" "$_t1_r" 2>&1)"
+assert_eq "#1041 gate negative control: a fresh workflow lets the workflows.* migration proceed" \
+  '{"prflow": false, "prflow-review": true}' "$(_t1_wf_workflows "$_t1_r/.prflow/config.json")"
+
+# ADVERSARIAL SHAPE MATRIX for the NEW nested code path (CLAUDE.md best-effort-parser
+# discipline: the nested migrate_keys("workflows.") and its jq anti-graft twin must not
+# detonate or mangle a hand-corruptible workflows block). Fresh workflows so the gate
+# passes; every row asserts exit 0 and the correct nested outcome.
+_t1_nested_has_prflow() { python3 -c 'import json,sys
+w=json.load(open(sys.argv[1])).get("workflows")
+print("yes" if isinstance(w,dict) and "prflow" in w else "no")' "$1" 2>/dev/null; }
+# (i) non-object workflows (scalar / array / null): both guards (python isinstance, jq
+# type=="object") skip it, so it carries through with NO nested migration and NO crash.
+for _t1_wfshape in '"nope"' '[1,2]' 'null'; do
+  _t1_r="$(_t1_scaffold_root "{\"workflows\":$_t1_wfshape}")"
+  _t1_rc=0; "$T1_SCAFFOLD" "$_t1_r" >/dev/null 2>&1 || _t1_rc=$?
+  assert_eq "#1041 shape matrix: a non-object workflows ($_t1_wfshape) is exit 0 with no nested migration and no crash" \
+    "0|no" "$_t1_rc|$(_t1_nested_has_prflow "$_t1_r/.prflow/config.json")"
+done
+# (ii) ONLY one sub-key present: it migrates (false preserved) and the OTHER is backfilled
+# from the shipped example default (a new key the consumer never set) -- never grafted over
+# the migrated one, and never coercing the migrated false.
+_t1_r="$(_t1_scaffold_root '{"workflows":{"devflow":false}}')"
+"$T1_SCAFFOLD" "$_t1_r" >/dev/null 2>&1
+assert_eq "#1041 shape matrix: a single present sub-key migrates (false preserved); the other backfills from the example" \
+  '{"prflow": false, "prflow-review": false}' "$(_t1_wf_workflows "$_t1_r/.prflow/config.json")"
+# (iii) nested both-present CONFLICT (new key differs from the shipped example default): a
+# deliberate consumer edit the rename must not discard -- neither key changes, the conflict
+# is reported naming the nested path.
+_t1_r="$(_t1_scaffold_root '{"workflows":{"devflow":true,"prflow":false}}')"
+_t1_out="$("$T1_SCAFFOLD" "$_t1_r" 2>&1)"
+assert_eq "#1041 shape matrix: nested both-present differing is reported as a conflict naming workflows.devflow" "yes" \
+  "$(_t1_has "$_t1_out" 'NOT migrating workflows.devflow')"
+assert_eq "#1041 shape matrix: nested conflict keeps BOTH sub-keys unchanged (no deliberate edit discarded)" \
+  'true|false' \
+  "$(python3 -c 'import json,sys;w=json.load(open(sys.argv[1]))["workflows"];print(str(w.get("devflow")).lower()+"|"+str(w.get("prflow")).lower())' "$_t1_r/.prflow/config.json" 2>/dev/null)"
+# (iv) nested both-present EXAMPLE-VALUED graft (the migrate_keys second pass, "workflows."
+# prefix): the new key equals the shipped example default, so it was grafted, not authored --
+# the superseded value wins and is written at the new key's position.
+_t1_r="$(_t1_scaffold_root '{"workflows":{"devflow":false,"prflow":true}}')"
+_t1_out="$("$T1_SCAFFOLD" "$_t1_r" 2>&1)"
+assert_eq "#1041 shape matrix: nested example-valued graft -> the superseded value wins (prflow=false), devflow dropped" \
+  'no|false' \
+  "$(python3 -c 'import json,sys;w=json.load(open(sys.argv[1]))["workflows"];print(("yes" if "devflow" in w else "no")+"|"+str(w.get("prflow")).lower())' "$_t1_r/.prflow/config.json" 2>/dev/null)"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "#1002 F. migrate-consumer-tier1.sh: the atomic unit"
 # ────────────────────────────────────────────────────────────────────────────
 # PREVIEW writes nothing. install.sh upgrades are dry-run by default, so this is the
@@ -730,6 +812,137 @@ for _t1_wf in devflow devflow-implement; do
   assert_eq "#1002 family guard: $_t1_wf.yml routes the operator to /prflow:init" "yes" \
     "$(_t1_has "$_t1_body" 'run /prflow:init to migrate the whole Tier 1 set')"
 done
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#1041 E3. the silent-disable skew guard, deliberately NOT gated on the enable read"
+# ────────────────────────────────────────────────────────────────────────────
+# Tier 4 renamed the ENABLE key itself. While workflows.devflow was frozen, a refreshed
+# shipped workflow and the config key could never skew; the rename removed that guarantee.
+# install.sh's workflow copy loop is PER FILE over an install_managed that deliberately
+# PRESERVES a hand-edited workflow, so refreshing one shipped workflow while the other
+# stays hand-edited on the superseded key makes scaffold-config.sh's freshness gate refuse
+# the config migration — correctly — and leaves the refreshed file reading workflows.prflow
+# against a config that still carries workflows.devflow. ENABLED resolves absent -> false
+# and every trigger silently no-ops. The per-family guard above CANNOT report that: it sits
+# inside `if [ "$ENABLED" = "true" ]`, the very gate this skew forces shut. So the guard
+# under test is computed from the config alone.
+#
+# The program is READ OUT OF THE SHIPPED WORKFLOW rather than transcribed here, so these
+# rows drive the bytes that actually run and no copy can drift away from them.
+_t1_skew_prog() {  # $1 = shipped workflow id -> that file's own guard program
+  python3 - "$LIB/../.github/workflows/$1.yml" <<'PY'
+import re, sys
+for line in open(sys.argv[1], encoding="utf-8"):
+    if "SUPERSEDED_ENABLE=" in line and "jq -r " in line:
+        found = re.search(r"jq -r '(.*)'\)\s*$", line.strip())
+        if found:
+            sys.stdout.write(found.group(1))
+        break
+PY
+}
+_t1_skew_impl="$(_t1_skew_prog devflow-implement)"
+_t1_skew_cmd="$(_t1_skew_prog devflow)"
+assert_eq "#1041 skew guard: the program is extractable from BOTH shipped workflows and is byte-identical (so the rows below drive what really runs)" "yes" \
+  "$([ -n "$_t1_skew_impl" ] && [ "$_t1_skew_impl" = "$_t1_skew_cmd" ] && echo yes || echo no)"
+_t1_skew() { printf '%s' "$1" | jq -r "$_t1_skew_impl" 2>/dev/null; }
+
+# THE REACHABLE DEFECT: superseded key present and intended ON, current key absent.
+# `true` is the error arm — the run fails loudly instead of doing nothing quietly.
+assert_eq "#1041 skew guard: superseded key true + current key absent selects the ERROR arm" \
+  "true" "$(_t1_skew '{"workflows":{"devflow":true}}')"
+# String-truthiness mirrors the enable read (`// false` then a literal `true` compare), so a
+# string "true" is just as enabled and just as silenced.
+assert_eq "#1041 skew guard: a STRING \"true\" selects the error arm too (mirrors the enable read)" \
+  "true" "$(_t1_skew '{"workflows":{"devflow":"true"}}')"
+# VALID-FALSY (issue #312): a deliberate false already meant off, so the outcome still
+# matches intent — warning arm, never a failed run. `has()` is what keeps this row
+# distinguishable from an absent key; `//` would collapse the two.
+assert_eq "#1041 skew guard: a deliberate false is reported as itself, not collapsed into absent" \
+  "false" "$(_t1_skew '{"workflows":{"devflow":false}}')"
+assert_eq "#1041 skew guard: an explicit null is likewise reported as itself (has() semantics)" \
+  "null" "$(_t1_skew '{"workflows":{"devflow":null}}')"
+# NO SKEW: the current key exists, so the enable read resolves and nothing is silenced —
+# including a migrated config that is deliberately turned OFF, which must not be failed.
+assert_eq "#1041 skew guard: current key present alongside the superseded one is silent" "" \
+  "$(_t1_skew '{"workflows":{"devflow":true,"prflow":false}}')"
+assert_eq "#1041 skew guard: a fully migrated config is silent" "" \
+  "$(_t1_skew '{"workflows":{"prflow":true}}')"
+assert_eq "#1041 skew guard: a deliberately-disabled MIGRATED config is silent (never failed)" "" \
+  "$(_t1_skew '{"workflows":{"prflow":false}}')"
+assert_eq "#1041 skew guard: neither key present is silent" "" \
+  "$(_t1_skew '{"workflows":{}}')"
+# Malformed shapes fail OPEN here on purpose: a corrupt config is the pre-existing
+# per-family guard's subject, and this one must not crash the filter or invent a verdict.
+for _t1_skewshape in '{"workflows":"all of them"}' '{"workflows":["a"]}' '{"workflows":42}' '["a"]' '"hello"' 'null' '42'; do
+  assert_eq "#1041 skew guard: a malformed shape ($_t1_skewshape) yields no verdict rather than crashing" "" \
+    "$(_t1_skew "$_t1_skewshape")"
+done
+
+# The ORDERING property that makes the guard work at all: it must sit OUTSIDE (and before)
+# the enable gate. Asserted positionally on each shipped file, because a later edit that
+# tucked it inside `if [ "$ENABLED" = "true" ]` would leave every row above still green
+# while the guard became unreachable on exactly the configs it exists to catch.
+for _t1_wf in devflow devflow-implement; do
+  assert_eq "#1041 skew guard: $_t1_wf.yml computes it BEFORE the enable gate, so the gate cannot suppress it" "outside-gate" \
+    "$(python3 - "$LIB/../.github/workflows/$_t1_wf.yml" <<'PY'
+import sys
+guard = gate = None
+for i, line in enumerate(open(sys.argv[1], encoding="utf-8")):
+    if guard is None and "SUPERSEDED_ENABLE=$(" in line:
+        guard = i
+    if gate is None and 'if [ "$ENABLED" = "true" ]; then' in line:
+        gate = i
+if guard is None or gate is None:
+    print("MISSING guard=%s gate=%s" % (guard, gate))
+else:
+    print("outside-gate" if guard < gate else "inside-or-after-gate")
+PY
+)"
+  _t1_body="$(cat "$LIB/../.github/workflows/$_t1_wf.yml" 2>/dev/null)"
+  assert_eq "#1041 skew guard: $_t1_wf.yml states the consequence and the remedy an operator can act on" "yes yes" \
+    "$(_t1_has "$_t1_body" 'resolves as DISABLED and every trigger silently does nothing') $(_t1_has "$_t1_body" 'prflow-new sidecar')"
+done
+
+# A GUARD MUST NOT DEFEAT ANOTHER GUARD. The freshness gate above decides staleness by
+# searching a shipped workflow for a DOTTED read of the superseded key, and it does not
+# distinguish code from comments. The skew guard is a diagnostic ABOUT that key, so the
+# obvious way to write it — naming the key in dotted form in the jq program, an error
+# message, or even the comment explaining this hazard — marks BOTH shipped workflows
+# permanently stale. Every consumer's config-key migration then refuses forever, which is
+# strictly worse than the silent disable the guard was added to catch. That regression was
+# made and caught here; this drives the gate's REAL scanner, read out of scaffold-config.sh
+# rather than re-expressed, over the shipped pair.
+_t1_gate_scan="$(python3 - "$LIB/../scripts/scaffold-config.sh" "$LIB/../.github/workflows/devflow.yml" "$LIB/../.github/workflows/devflow-implement.yml" <<'PY'
+import re, sys
+# Lift the gate's own KEY/BARE patterns out of the shipped scanner, so this can never
+# assert against a stale copy of the rule it is checking.
+source = open(sys.argv[1], encoding="utf-8").read()
+pats = re.findall(r"^(KEY|BARE) = re\.compile\(r\"(.*)\"\)$", source, re.M)
+if len(pats) != 2:
+    print("UNEXTRACTABLE")
+    raise SystemExit
+compiled = [re.compile(body) for _, body in pats]
+stale = []
+for path in sys.argv[2:]:
+    text = open(path, encoding="utf-8").read()
+    if any(p.search(text) for p in compiled):
+        stale.append(path.rsplit("/", 1)[-1])
+print(" ".join(stale) if stale else "clean")
+PY
+)"
+assert_eq "#1041 skew guard: both shipped workflows still scan CLEAN under the freshness gate's own patterns — a diagnostic naming the superseded key in dotted form would wedge every consumer's migration" \
+  "clean" "$_t1_gate_scan"
+# Positive control: the extraction really can report staleness, so "clean" above is a
+# measurement and not an unconditional string.
+assert_eq "#1041 skew guard: that scan DOES flag a workflow carrying a dotted superseded read (so the clean result is not vacuous)" \
+  "stale" "$(printf 'run: jq -r ".workflows.devflow // false"\n' | python3 -c '
+import re, sys
+source = open(sys.argv[1], encoding="utf-8").read()
+pats = re.findall(r"^(KEY|BARE) = re\.compile\(r\"(.*)\"\)$", source, re.M)
+compiled = [re.compile(body) for _, body in pats]
+text = sys.stdin.read()
+print("stale" if any(p.search(text) for p in compiled) else "clean")
+' "$LIB/../scripts/scaffold-config.sh")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#1004 J. the frozen out-of-repo DEVFLOW_* identifier inventory"
@@ -1276,29 +1489,21 @@ assert_eq "#1028 wrong-typed frozen block: exit 0, the rename still applies, no 
   '0|"<!-- prflow:workpad -->"|no' \
   "$_t1_v_rc|$(_t1_v_get prflow.workpad_marker)|$(_t1_has "$_t1_v_rec" 'ADVISORY')"
 
-# — THE RESIDUAL NOTICE. What genuinely remains after Axis 2 is the frozen workflows.*
-#   toggles plus a POINTER to the separate environment freeze — derived from this
-#   consumer config, never a static list. —
+# — THE RESIDUAL NOTICE IS RETIRED (#1041). With the workflows.* sub-keys no longer
+#   frozen (frozen.config_keys is now empty), the value pass has no frozen config key to
+#   report, so it emits NO residual advisory. The DEVFLOW_* environment freeze reminder is
+#   owned canonically by lib/generate-env-freeze-advisory.py (single source), not restated
+#   by this pass. The value pass STILL leaves the workflows.* keys untouched — their
+#   migration is the scaffold freshness gate's job, exercised in the scaffold-integration
+#   block below. —
 _t1_v_run '{"workflows":{"devflow":true,"devflow-review":false}}'
-assert_eq "#1028 residual notice: both frozen toggle keys present -> both are named" "yes yes" \
-  "$(_t1_has "$_t1_v_rec" 'ADVISORY') $(_t1_has "$_t1_v_rec" 'workflows.devflow-review')"
-_t1_v_run '{"workflows":{"devflow":false}}'
-assert_eq "#1028 residual notice: DERIVED — only the frozen key this config carries is named" "yes no" \
-  "$(_t1_has "$_t1_v_rec" 'workflows.devflow') $(_t1_has "$_t1_v_rec" 'workflows.devflow-review')"
-_t1_v_run '{"prflow":{"workpad_marker":"<!-- prflow:workpad -->"}}'
-assert_eq "#1028 residual notice: a config carrying no frozen key draws NO notice at all" "no" \
+assert_eq "#1041 residual notice retired: the value pass emits no ADVISORY for the workflows.* keys" "no" \
   "$(_t1_has "$_t1_v_rec" 'ADVISORY')"
-# It POINTS at the environment-freeze renderer and must not become a second copy of that
-# inventory. The negative control is read FROM the inventory, so it cannot rot.
-_t1_v_envrow="$(python3 -c '
-import json, sys
-rows = json.load(open(sys.argv[1]))["frozen"]["env_identifiers"]["identifiers"]
-print(rows[0]["name"] if rows else "")' "$T1_MAP" 2>/dev/null)"
-_t1_v_run '{"workflows":{"devflow":true}}'
-assert_eq "#1028 residual notice: it warns that the DEVFLOW_* ENVIRONMENT identifiers must not be hand-renamed" "yes" \
-  "$(_t1_has "$_t1_v_rec" 'ENVIRONMENT identifiers')"
-assert_eq "#1028 residual notice: it points at the env-freeze renderer instead of restating a row of it" "yes no" \
-  "$(_t1_has "$_t1_v_rec" 'generate-env-freeze-advisory.py') $(_t1_has "$_t1_v_rec" "$_t1_v_envrow")"
+assert_eq "#1041 residual notice retired: and leaves the workflows.* keys byte-identical (gate territory, not this pass)" \
+  '{"devflow": true, "devflow-review": false}' "$(_t1_v_get workflows)"
+_t1_v_run '{"prflow":{"workpad_marker":"<!-- prflow:workpad -->"}}'
+assert_eq "#1041 residual notice retired: a config carrying no superseded value draws no notice" "no" \
+  "$(_t1_has "$_t1_v_rec" 'ADVISORY')"
 
 # — SELF-TRIGGER GUARD. Renaming the configured marker must not stop the guard matching a
 #   PRE-rename workpad: it derives the superseded spelling from the configured one, and a
@@ -1334,8 +1539,12 @@ ao = d["prflow_review"]["agent_overrides"]
 print(d["prflow"]["workpad_marker"],
       ",".join(sorted(k for k in ao if k.endswith("code-reviewer"))),
       d["deferred"]["labels"], d["docs"]["labels"])' "$_t1_r/.prflow/config.json" 2>/dev/null)"
-assert_eq "#1028 scaffold integration: the frozen toggles and the bot login survive the whole scaffold" \
-  '{"devflow": false, "devflow-review": false}|devflow-autopilot' \
+# #1041: the workflows.* toggles now MIGRATE through the same scaffold (fresh shipped
+# workflows read .workflows.prflow, so the freshness gate passes), carrying their
+# valid-falsy `false` values across verbatim — never coerced to a default. The bot login
+# still survives untouched.
+assert_eq "#1041 scaffold integration: the workflows.* toggles migrate (false preserved) and the bot login survives" \
+  '{"prflow": false, "prflow-review": false}|devflow-autopilot' \
   "$(python3 -c '
 import json, sys
 d = json.load(open(sys.argv[1]))

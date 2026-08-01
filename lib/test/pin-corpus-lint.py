@@ -4250,10 +4250,13 @@ def _normalized_revival_authorization(site, repo_root):
 # FIRST with a frozen entry winning any tie, so a frozen name is consumed verbatim
 # and no rename rule of equal or shorter length can reach inside it. That ordering
 # is load-bearing in both directions: without the frozen precedence a bare
-# ``devflow`` rule would rewrite the frozen ``workflows.devflow`` key and silently
-# exempt a real change to it; without the longest-first precedence the frozen
-# subagent namespace ``devflow:`` would swallow the marker rule ``<!-- devflow:``
-# that narrows it, and issue #1003's marker rename would be a silent no-op.
+# ``devflow`` rule would rewrite a frozen name (a ``.github/workflows/`` filename such
+# as ``devflow.yml``, or ``devflow-marketplace``) and silently exempt a real change to
+# it; without the longest-first precedence the frozen subagent namespace ``devflow:``
+# would swallow the marker rule ``<!-- devflow:`` that narrows it, and issue #1003's
+# marker rename would be a silent no-op. (The two ``workflows.*`` config sub-keys were
+# frozen through Tiers 1--3 but issue #1041 renamed them, so they are now ordinary key
+# rules read from ``workflows_config_keys``, not frozen literals.)
 _RENAME_MAP_PATH = "lib/rename-map.json"
 # Characters that continue a token. A rename rule fires only at a token boundary,
 # so ``devflow_module_pin_unique`` and ``.devflow-scratch`` are never reached by
@@ -4287,6 +4290,7 @@ _RENAME_MAP_KNOWN_BLOCKS = frozenset(
         "map_version",
         "_comment",
         "config_keys",
+        "workflows_config_keys",
         "paths",
         "identifiers",
         "atomic_unit",
@@ -4367,13 +4371,16 @@ def _build_rename_substitution(document):
     if not isinstance(config_keys, dict) or not config_keys:
         raise ValueError("rename map has an invalid config_keys block")
     # A renamed key that is also the LAST SEGMENT of a frozen key path is
-    # ambiguous when it appears unqualified: `devflow` is the renamed top-level
-    # key AND the child of the frozen `workflows.devflow`, and a bare
-    # `"devflow":` in a JSON object carries no parent to tell them apart. Such a
-    # rule is therefore accepted only in TOP-LEVEL dotted position (`.devflow`),
+    # ambiguous when it appears unqualified: a bare `"foo":` in a JSON object
+    # carries no parent to tell a frozen `bar.foo` child from a renamed top-level
+    # `foo`. Such a rule is accepted only in TOP-LEVEL dotted position (`.foo`),
     # where the leading dot supplies the missing context. Deriving the set from
     # the map's own frozen.config_keys keeps this a property of the map rather
-    # than a literal guard that would rot when the frozen list changes.
+    # than a literal guard that would rot when the frozen list changes. (Since
+    # issue #1041 emptied frozen.config_keys — the `workflows.devflow`/
+    # `workflows.devflow-review` pair it held is now renamed, not frozen — this set
+    # is currently empty and `devflow` is an ordinary key rule; the mechanism stays
+    # so a future frozen config-key path re-arms it automatically.)
     ambiguous_keys = {
         value.rsplit(".", 1)[-1] for value in frozen["config_keys"]
     }
@@ -4389,6 +4396,29 @@ def _build_rename_substitution(document):
         if superseded in ambiguous_keys:
             key_rules.append((superseded, current, "qualified-key"))
         else:
+            key_rules.append((superseded, current, "key"))
+    # The nested workflows.* sub-keys (issue #1041). They are ordinary key renames
+    # once unfrozen -- a bare `devflow`/`devflow-review` token respelled to
+    # `prflow`/`prflow-review` -- so a respelled pin is a sanctioned rename, not new
+    # authorship. `devflow -> prflow` is already a top-level config_keys rule (the
+    # workflows child renames to the same current spelling), so only the entries not
+    # already carried are added; the frozen `devflow-review.yml` workflow filename
+    # still out-competes the shorter `devflow-review` rule under longest-first.
+    workflows_keys = document.get("workflows_config_keys")
+    if workflows_keys is not None:
+        if not isinstance(workflows_keys, dict):
+            raise ValueError("rename map has an invalid workflows_config_keys block")
+        existing = {rule[0] for rule in key_rules}
+        for superseded, current in workflows_keys.items():
+            if (
+                not isinstance(superseded, str)
+                or not isinstance(current, str)
+                or not superseded
+                or not current
+            ):
+                raise ValueError("rename map has an invalid workflows_config_keys entry")
+            if superseded in existing:
+                continue
             key_rules.append((superseded, current, "key"))
     # The identifier channel (issue #1003): brand names that are neither a path
     # nor a config key -- the provenance label, the telemetry branch, the comment
@@ -4428,7 +4458,8 @@ def _build_rename_substitution(document):
     # and the marker namespace `<!-- devflow:` wins over the shorter frozen
     # `devflow:` it narrows. A frozen entry wins any tie, which keeps the original
     # guarantee intact: no rename rule can reach inside a frozen name of equal or
-    # greater length (`workflows.devflow` still beats the bare `devflow` rule).
+    # greater length (a frozen `.github/workflows/` filename such as `devflow.yml`
+    # still beats the bare `devflow` rule).
     alternatives = []
     replacements = {}
     ordered = sorted(

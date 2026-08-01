@@ -5039,6 +5039,19 @@ class SanctionedRenameComparison1002Tests(unittest.TestCase):
                 ".devflow/vendor/devflow/scripts/apply-labels.sh",
                 ".prflow/vendor/prflow/scripts/apply-labels.sh",
             ),
+            # The two workflows.* sub-keys, no longer frozen (issue #1041).
+            (
+                "docs/x.md",
+                "docs/x.md",
+                "reads .workflows.devflow // false",
+                "reads .workflows.prflow // false",
+            ),
+            (
+                "docs/x.md",
+                "docs/x.md",
+                "the workflows.devflow-review toggle",
+                "the workflows.prflow-review toggle",
+            ),
         )
         for base_target, head_target, base_literal, head_literal in cases:
             with self.subTest(base_literal), tempfile.TemporaryDirectory() as td:
@@ -5092,25 +5105,15 @@ class SanctionedRenameComparison1002Tests(unittest.TestCase):
     def test_a_frozen_name_is_never_mapped(self):
         """A name the map freezes must not be rewritten into an exemption.
 
-        Without the frozen-first alternation a bare ``devflow`` rule would map
-        the frozen ``workflows.devflow`` key and silently absolve a real change
-        to it — the exact hazard this ordering exists to stop. Every row is a
-        genuine ``devflow -> prflow`` edit to a frozen name, and every row must
-        be REPORTED.
+        Without the frozen-first alternation a bare ``devflow`` rule would map a
+        frozen name and silently absolve a real change to it — the exact hazard
+        this ordering exists to stop. Every row is a genuine ``devflow -> prflow``
+        edit to a frozen name, and every row must be REPORTED. (The two
+        ``workflows.*`` sub-keys were frozen through Tiers 1–3 but are now
+        renamed — issue #1041 — so their sanctioned respelling is covered by
+        ``test_a_rename_only_respelling_is_not_a_changed_site`` instead.)
         """
         cases = {
-            "frozen config key, dotted": (
-                "reads .workflows.devflow from the config",
-                "reads .workflows.prflow from the config",
-            ),
-            "frozen config key, JSON object position": (
-                '"workflows": {"devflow": true}',
-                '"workflows": {"prflow": true}',
-            ),
-            "frozen child key, hyphenated": (
-                "reads .workflows.devflow-review",
-                "reads .workflows.prflow-review",
-            ),
             "frozen workflow filename": (
                 ".github/workflows/devflow.yml",
                 ".github/workflows/prflow.yml",
@@ -5318,12 +5321,13 @@ class SanctionedRenameComparison1002Tests(unittest.TestCase):
                 "<!-- devflow:review-progress run=${GITHUB_RUN_ID} -->",
                 "<!-- prflow:review-progress run=${GITHUB_RUN_ID} -->",
             ),
+            # Issue #1041 renames the two workflows.* sub-keys (no longer frozen).
+            ("workflows.devflow", "workflows.prflow"),
+            ("workflows.devflow-review", "workflows.prflow-review"),
+            ('"workflows": {"devflow": true}', '"workflows": {"prflow": true}'),
         ):
             self.assertEqual(after, substitute(before), before)
         for frozen in (
-            "workflows.devflow",
-            "workflows.devflow-review",
-            '"workflows": {"devflow": true}',
             "devflow-marketplace",
             "lib + python tests",
             # Issue #1003 renames the LABEL `DevFlow`, and nothing else spelled

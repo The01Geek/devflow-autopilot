@@ -327,9 +327,14 @@ import re, sys
 # A superseded read is either a brand-named config key or the superseded vendored
 # path / state directory. Both mean the file predates the rename and would read a
 # config this run is about to move out from under it.
-# The lookbehind keeps the FROZEN workflows.devflow / workflows["devflow-review"]
-# keys from counting as staleness -- they are never renamed.
-KEY = re.compile(r"(?<!workflows)\.devflow(?![A-Za-z])")
+# Issue #1041 renamed the two `workflows.*` sub-keys (workflows.devflow ->
+# workflows.prflow, workflows.devflow-review -> workflows.prflow-review), so a
+# shipped workflow still reading `.workflows.devflow` now DOES count as staleness:
+# the enable read would resolve absent -> false and silently disable the workflow
+# the migrated config just re-keyed. There is therefore no `workflows` lookbehind
+# any more -- a fresh shipped workflow reads `.workflows.prflow` and carries no
+# `.devflow` at all, so it still passes clean.
+KEY = re.compile(r"\.devflow(?![A-Za-z])")
 BARE = re.compile(r"\bdevflow_(version|implement|runner|review_and_fix|review|retrospective)(?![A-Za-z0-9_])")
 
 stale = []
@@ -364,46 +369,68 @@ try:
     with open(cfg_path, encoding="utf-8") as fh:
         cfg = json.load(fh)
     with open(map_path, encoding="utf-8") as fh:
-        renames = json.load(fh)["config_keys"]
+        full_map = json.load(fh)
+        renames = full_map["config_keys"]
+        # Issue #1041: the two workflows.* sub-keys migrate behind THIS same gate.
+        # An older rename map without the section leaves the nested pass a no-op.
+        wf_renames = full_map.get("workflows_config_keys") or {}
     with open(example_path, encoding="utf-8") as fh:
         example = json.load(fh)
 except Exception as exc:
     sys.stderr.write(str(exc) + "\n")
     sys.exit(2)
-if not isinstance(cfg, dict) or not isinstance(renames, dict):
+if not isinstance(cfg, dict) or not isinstance(renames, dict) or not isinstance(wf_renames, dict):
     sys.stderr.write("config or rename map is not an object\n")
     sys.exit(2)
 
 changed = []
 conflicts = []
-out = {}
-for key, value in cfg.items():
-    new = renames.get(key)
-    if new is None:
-        out[key] = value
-        continue
-    if new not in cfg:
-        # The ordinary migration: rename in place, so the block keeps its position
-        # and the consumer diff reads as a rename rather than a reshuffle.
-        out[new] = value
-        changed.append(key + " -> " + new)
-        continue
-    # Both present. The new block either still holds the shipped example default
-    # (so it was grafted by a deep merge, not authored) or it differs (so it is a
-    # deliberate consumer edit a rename must not discard).
-    if new in example and cfg[new] == example[new]:
-        changed.append(
-            key + " -> " + new + " (the existing " + new
-            + " block still held the shipped example default and was replaced)")
-        continue  # drop the superseded key; the value is written when we reach new
-    conflicts.append(key)
-    out[key] = value
 
-# Second pass for the both-present-and-example-valued case: the superseded value
-# wins, written at the position the NEW key already occupies.
-for old, new in renames.items():
-    if old in cfg and new in cfg and new in example and cfg[new] == example[new]:
-        out[new] = cfg[old]
+
+def migrate_keys(source, renames_map, ex, prefix):
+    # Rename each superseded key to its current spelling IN PLACE, carrying the
+    # value across verbatim (so a valid-falsy false/0/"" keeps its meaning --
+    # issue #312). Returns the rebuilt block. Every key the map does not name is
+    # written back exactly as read. prefix is the report display prefix.
+    result = {}
+    for key, value in source.items():
+        new = renames_map.get(key)
+        if new is None:
+            result[key] = value
+            continue
+        if new not in source:
+            result[new] = value
+            changed.append(prefix + key + " -> " + prefix + new)
+            continue
+        # Both present: the new key either still holds the shipped example default
+        # (grafted by a deep merge, not authored) or it differs (a deliberate edit
+        # a rename must not discard).
+        if new in ex and source[new] == ex[new]:
+            changed.append(
+                prefix + key + " -> " + prefix + new + " (the existing " + prefix + new
+                + " block still held the shipped example default and was replaced)")
+            continue
+        conflicts.append((prefix + key, prefix + new))
+        result[key] = value
+    # Second pass for the both-present-and-example-valued case: the superseded
+    # value wins, written at the position the new key already occupies.
+    for old, new in renames_map.items():
+        if old in source and new in source and new in ex and source[new] == ex[new]:
+            result[new] = source[old]
+    return result
+
+
+out = migrate_keys(cfg, renames, example if isinstance(example, dict) else {}, "")
+
+# Nested workflows.* sub-key migration (issue #1041), under the SAME freshness gate
+# the caller already cleared. Only when the block is an object -- a scalar/array/
+# null workflows value carries through structurally, untouched.
+wf = out.get("workflows")
+if isinstance(wf, dict) and wf_renames:
+    ex_wf = example.get("workflows") if isinstance(example, dict) else None
+    if not isinstance(ex_wf, dict):
+        ex_wf = {}
+    out["workflows"] = migrate_keys(wf, wf_renames, ex_wf, "workflows.")
 
 with open(out_path, "w", encoding="utf-8") as fh:
     json.dump(out, fh, indent=2)
@@ -411,8 +438,8 @@ with open(out_path, "w", encoding="utf-8") as fh:
 
 for line in changed:
     sys.stdout.write("CHANGED\t" + line + "\n")
-for key in conflicts:
-    sys.stdout.write("CONFLICT\t" + key + "\t" + renames[key] + "\n")
+for old_disp, new_disp in conflicts:
+    sys.stdout.write("CONFLICT\t" + old_disp + "\t" + new_disp + "\n")
 '
 
 if [ ! -f "$RENAME_MAP" ]; then
@@ -568,6 +595,19 @@ fi
 for _retained in devflow-review.yml devflow-runner.yml telemetry-push.yml; do
   if [ -f "$TARGET_ROOT/.github/workflows/$_retained" ]; then
     log "$_retained is present in .github/workflows/ but is NOT shipped by install.sh, so no installer run can refresh it. If it still names the superseded state directory or vendored path, its helper invocations will not resolve after the migration — update or remove it by hand."
+    # #1041: devflow-review.yml is the ONE retained reader of a MIGRATED config
+    # sub-key — it reads `.workflows["devflow-review"] // false`. The freshness gate
+    # scans only the two SHIPPED workflows (install.sh cannot refresh a withheld file,
+    # so gating on it would block the whole config-key migration forever), so the
+    # devflow-review -> prflow-review rename is NOT coordinated with this file the way
+    # the shipped workflows are. When the migration moves the key, this retained file
+    # reads the now-absent old key as `false` and the auto-review tier silently stops.
+    # That silent disable is the exact hazard #1041 exists to prevent, so surface it
+    # LOUDLY by name rather than letting it pass — the retained file's own review-key
+    # rename is the operator's to do by hand (or remove the withheld tier outright).
+    if [ "$_retained" = "devflow-review.yml" ]; then
+      log "  ALSO: devflow-review.yml reads the workflows.devflow-review config toggle, which #1041 renamed to workflows.prflow-review. The freshness gate cannot refuse on an unshipped file, so once your config migrates to workflows.prflow-review this retained workflow reads the now-absent old key as false and its auto-review silently stops. Update devflow-review.yml to read .workflows[\"prflow-review\"], or remove the withheld tier with install.sh --remove-withheld-review-tier."
+    fi
   fi
 done
 
@@ -603,6 +643,7 @@ else
         ($cfg[0].prflow_review.agent_overrides? // {}) as $userao
         | ($cfg[0]) as $orig
         | (if $have_map then ($ren[0].config_keys // {}) else {} end) as $renames
+        | (if $have_map then ($ren[0].workflows_config_keys // {}) else {} end) as $wfrenames
         | ($ex[0] * $cfg[0])
         # SUPERSEDED-KEY ANTI-GRAFT GUARD (issues #988, #1002). The deep merge adds
         # any key the example has and the config lacks, so once the example carries
@@ -618,6 +659,19 @@ else
         | reduce ($renames | to_entries[]) as $pair (.;
             if ($orig | has($pair.key)) and (($orig | has($pair.value)) | not)
             then del(.[$pair.value]) else . end)
+        # NESTED workflows.* anti-graft (issue #1041). Same shape as the top-level
+        # guard, scoped to the workflows block: drop a grafted workflows.<new> the
+        # merge added while the ORIGINAL config still carries workflows.<old>, so a
+        # deliberate valid-falsy workflows.devflow:false is never shadowed by a
+        # grafted workflows.prflow:true (issue #312). Guards $orig.workflows being a
+        # non-object.
+        | if (.workflows | type) == "object" then
+            .workflows = (reduce ($wfrenames | to_entries[]) as $pair (.workflows;
+              if (($orig.workflows | type) == "object")
+                 and ($orig.workflows | has($pair.key))
+                 and (($orig.workflows | has($pair.value)) | not)
+              then del(.[$pair.value]) else . end))
+          else . end
         | if (.prflow_review | type) == "object" and (.prflow_review.agent_overrides | type) == "object" then
             .prflow_review.agent_overrides |= with_entries(
               # Do NOT let the deep-merge GRAFT an effort from the example onto a
