@@ -150,14 +150,14 @@ while IFS= read -r det_line || [ -n "$det_line" ]; do
   esac
 done <<< "$det_out"
 
-# The detector's output contract is BOTH lines, unconditionally (its END block
-# prints them on every path). No `command=` line at all therefore means the
-# contract was violated — a truncated or foreign stdout from a tampered/
-# half-written detector copy — which is a BROKEN INSTALL, not "no command
-# present". Decline with its own breadcrumb so an unresolvable parse is never
-# misreported as a clean no-command decline. (An absent `number=` line needs no
-# such arm: it is indistinguishable in effect from the empty value the detector
-# legitimately emits, and falls through to the context number below.)
+# The detector's output contract is BOTH lines: its two `printf`s sit in an END
+# block, which awk runs whether or not a command matched. No `command=` line at
+# all therefore means the contract was violated — a truncated or foreign stdout
+# from a tampered or half-written detector copy — which is a BROKEN INSTALL, not
+# "no command present". Decline with its own breadcrumb so an unresolvable parse
+# is never misreported as a clean no-command decline. (An absent `number=` line
+# needs no such arm: it is indistinguishable in effect from the empty value the
+# detector legitimately emits, and falls through to the context number below.)
 if [ "$det_saw_command" != true ]; then
   echo "::warning::standalone-command detector ('$detector') emitted no 'command=' line (output-contract violation); declining (fail-closed) — this is a BROKEN INSTALL, not a missing command." >&2
   emit should_run false

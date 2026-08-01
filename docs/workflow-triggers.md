@@ -381,9 +381,10 @@ wiring already routes the PR-review body in, so no new surface wiring is added.
 > construction**. A body whose first standalone command is `/prflow:review` and
 > whose second is `/prflow:implement 42` dispatches the review and declines the
 > implement; reverse the order and the implement fires while the light path
-> declines. Exactly one path can ever dispatch, and it is the single shared
-> scanner — not the workflow `if:` filters — that makes a double-fire
-> unrepresentable.
+> declines. Between the two resolvers — `resolve-command-trigger.sh` for the
+> light commands and `resolve-implement-trigger.sh` for the heavy one — at most
+> one dispatches, and it is the single shared scanner, not the workflow `if:`
+> filters, that makes a double-fire unrepresentable.
 
 > **Out of scope (decided):** a light command posted on a plain **non-PR issue**
 > comment still resolves a number and runs; narrowing that surface is deferred to
