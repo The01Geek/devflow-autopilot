@@ -476,9 +476,10 @@ def cmd_status(args):
     CLASS names the terminal end so a non-`Complete` terminal status is
     distinguishable from a completed one (issue #1025): 'complete' (🎉),
     'blocked' (👎), 'failed' (💥), 'cancelled' (🛑), else 'interim' for an
-    in-progress glyph. The glyph comes from `_status_glyph` and the class from
-    `_status_class` — the same single source of truth the update path uses — so
-    no caller re-parses the glyph vocabulary ad hoc. Exit codes let a caller fail
+    in-progress glyph. The glyph comes from `_status_glyph` (the same helper the
+    update path uses to render the Status line) and the class from `_status_class`
+    (read-path only) — so the glyph vocabulary has one source of truth and no
+    caller re-parses it ad hoc. Exit codes let a caller fail
     closed:
       0  status printed
       2  no workpad comment exists for this issue (scanned OK, none matched)
