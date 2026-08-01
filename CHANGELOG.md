@@ -4,6 +4,37 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.6] — 2026-08-01
+
+### Changed
+### Fixed
+
+- **`install.sh` now gitignores the preserved-artifact sidecars it writes, so an upgrade can no longer leak a shipped workflow into an unrelated commit.** When the upgrade path preserves a locally-modified, provenance-unverified or unreadable artifact it writes DevFlow's version beside it as `<path>.prflow-new`. That sidecar is untracked and lands inside the consumer's own `.github/` (or `.claude-plugin/`), which `.prflow/.gitignore` — the one ignore file the installer managed — cannot reach, so the next `git add -A`, including one inside a `/prflow:implement` run, staged it; a real consumer's first upgrade left a 1448-line and a 1762-line sidecar plus a whole sidecar directory sitting there. The installer now appends one block to the repository-root `.gitignore` (`*.prflow-new` plus the superseded `*.devflow-new` spelling, whose sidecars are the ones already on disk), as an unanchored basename pattern so git matches it at any depth and against a directory as well as a file. It is a standing rule rather than a cleanup, because keeping your own version of an artifact means leaving its sidecar in place indefinitely. The append never rewrites consumer content: a `.gitignore` whose last line carries no trailing newline keeps that pattern intact, a rule the consumer already carries is not duplicated, re-runs are byte-identical no-ops, and a `.gitignore` that is a **symlink**, or is otherwise not a plain file, is reported rather than written to. The symlink arm is unconditional and runs first, because `>>` follows the link and writes to its target: a live link appends to that target and a dangling one creates it, and neither `-e` nor `-f` can see either shape, since those tests dereference as well — `[ -L ]` is the one test that does not. An absolute link target need not be inside the repository at all. `.prflow/.gitignore` could not host the rule — patterns there are relative to `.prflow/`, where a sidecar never lands. (closes #970)
+- **The upgrade preview no longer understates what `--apply` writes.** The dry run builds a sandbox carrying the installer's own subtrees, then runs the real apply against it — so language auto-detection scanned a tree with no `package.json` / `composer.json` / `docker-compose*` and reported `no known language markers detected`, while the same step under `--apply` detected the project's toolchain and merged it into `config.json`. For a consumer whose config did not already cover its languages, the approved diff was not the whole change, against a header that promises "a unified diff of every byte it would change". `scripts/detect-project-tools.sh` and `scripts/scaffold-config.sh` now take an optional second argument — the tree to *scan*, separate from the tree they *write* — which defaults to the target root, so the `/prflow:init` path and `install.sh`'s apply path stay byte-for-byte unchanged; only `install.sh`'s dry run passes a different value, the real repository root. The scan root reaches only the marker search, the Node lockfile search and the `composer.json` probe: the one path the detector writes is still derived from the target root, so a preview still writes nothing outside its sandbox. The repository-root `.gitignore` also joined the preview's diff scope, so the sidecar rule above is previewed like every other write. (closes #971)
+
+## [2.30.5] — 2026-07-31
+
+### Changed
+### Fixed
+
+- `scripts/dismiss-stale-rejections.sh` no longer dismisses a `CHANGES_REQUESTED` review that is not
+  actually superseded (#1029). The selection filter matched only the review *body*, so a REJECT
+  recorded against the pull request's **current** head was dismissed exactly like one recorded
+  against an abandoned commit — including a REJECT another review pass had posted seconds earlier on
+  that same commit. Every candidate is now compared against the pull request's current head: a review
+  whose `commit_id` differs is dismissed as before, one whose `commit_id` equals the current head is
+  refused, and one carrying no `commit_id` is refused too (staleness cannot be shown, so the guard
+  fails closed rather than open). A head that cannot be read — the request fails, or the value is
+  empty, `null`, or not a commit SHA — dismisses nothing. The pre-existing body scoping is unchanged:
+  a human `--request-changes`, an already-dismissed review, and a null-body row are still never
+  selected. Refusals report a new exit status `3`, distinct from the clean-no-op `0` so a wedged pull
+  request cannot look like there was nothing to do; a genuine dismissal failure still reports `1`.
+
+## [2.30.4] — 2026-07-31
+
+### Added
+Declared `## Dependencies` prerequisites are now registered as GitHub-native blocked-by dependencies after issue creation. Both post-creation producers — `/prflow:create-issue` Step 4 and `/prflow:implement` Phase 4.0's deferred follow-ups — stamp them through the new best-effort helper `scripts/apply-issue-dependencies.py`, the third member of the post-creation REST-stamp family beside `ensure-label.sh`/`apply-labels.sh`. The helper fetches the created issue's body itself, derives prerequisites through a section-scoped recognizer factored out of `scripts/preflight.py` (skipping numbers that resolve to a pull request or to the issue's own number), always exits 0, never blocks or reverses creation, and breadcrumbs every outcome. A blocked DevFlow issue now shows as blocked in GitHub's own issue header, issue list, and project views without anyone reading the body (issue #1011).
+
 ## [2.30.3] — 2026-07-31
 
 ### Changed
