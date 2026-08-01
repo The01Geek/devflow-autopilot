@@ -43,8 +43,8 @@
 #                                 positive integer fails closed to 1.
 #   DEVFLOW_SHARD_DISPATCHER      path to a shard dispatcher other than the sibling
 #                                 run-shard.sh (fixtures only).
-#   TMPDIR                        fallback run-root parent when the checkout is
-#                                 read-only.
+#   TMPDIR                        fallback run-root parent when the checkout root is
+#                                 unusable (read-only, full, or name space exhausted).
 #
 # Exit status: 0 only when the aggregate is clean. Every named failure below exits
 # non-zero with a `run-parallel:`-prefixed diagnostic naming what could not be done —
@@ -81,7 +81,7 @@ die() { # message
   exit 2
 }
 
-[ "$#" -le 1 ] || die "this command takes no arguments — the agent-facing command shape is the bare invocation"
+[ "$#" -le 1 ] || die "this command takes at most one argument (--help) — the agent-facing command shape is the bare invocation"
 case "${1-}" in
   '') ;;
   --help|-h)
@@ -299,8 +299,11 @@ printf 'run-parallel: %d shard(s), process budget %d (python-pool reservation %d
 
 for shard in $SHARDS; do
   cost="$(_shard_cost "$shard")"
-  # A shard whose cost exceeds the whole budget still runs — alone. Refusing it would
-  # drop coverage, which is the one outcome this coordinator may never trade for speed.
+  # Defensive only, and deliberately kept: the reservation is bounded by the budget
+  # above, so no current input reaches this clamp. It exists so a future cost rule that
+  # exceeded the budget would still RUN the shard alone rather than deadlock the
+  # scheduler — dropping coverage is the one outcome this coordinator may never trade
+  # for speed.
   [ "$cost" -le "$BUDGET" ] || cost="$BUDGET"
   while [ "$USED_SLOTS" -gt 0 ] && [ $((USED_SLOTS + cost)) -gt "$BUDGET" ]; do
     _reap_finished

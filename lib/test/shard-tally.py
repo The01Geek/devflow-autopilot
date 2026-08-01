@@ -248,8 +248,9 @@ def cmd_extract(args: argparse.Namespace) -> int:
 def _render_detail(lines: list[str], prefix: str, cap: int) -> None:
     """Print `lines` under `prefix`, emitting at most `cap` of them.
 
-    `cap` 0 means uncapped — the pre-cap rendering, which is what CI's aggregator
-    job takes, so its output is unchanged. A positive cap bounds ONE detail class:
+    A non-positive `cap` (0, the default, or any negative) means uncapped — the
+    pre-cap rendering, which is what CI's aggregator job takes, so its output is
+    unchanged. A positive cap bounds ONE detail class:
     the caller renders each class through its own call, so the cap is per-class
     rather than a shared budget. The omitted count is printed rather than dropped —
     a truncated tail that announced nothing would read exactly like a short one,
@@ -425,7 +426,7 @@ def main(argv: list[str] | None = None) -> int:
         "--detail-cap",
         type=int,
         default=0,
-        help="render at most N entries per detail class (0 = uncapped)",
+        help="render at most N entries per detail class (0 or negative = uncapped)",
     )
     co.set_defaults(func=cmd_combine)
 

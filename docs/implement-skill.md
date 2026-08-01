@@ -217,7 +217,11 @@ command head is granted (issues #363/#401/#455). Every one of those lives *insid
 coordinator — the per-shard `TMPDIR` and tally exports, the log capture, the background
 launches, the capacity arithmetic, the aggregation — so the cloud tiers invoke exactly
 `lib/test/run-parallel.sh` with nothing around it, granted through
-`prflow_implement.allowed_tools` and `prflow.allowed_tools`. The local/interactive tier reaches
+`prflow_implement.allowed_tools` and `prflow.allowed_tools`. Those grants resolve from
+the **default branch at trigger time**, so the grant is inert on the PR that adds it
+(`docs/cloud-setup.md` states the general rule) — until it lands on the default branch
+the cloud tier's final gate stays `lib/test/run.sh`, and a coordinator invocation that
+produces no output at all there is a denial, not an empty result. The local/interactive tier reaches
 the same coordinator through the `DEVFLOW_BASH` invocation-layer selector `CLAUDE.md`
 documents, because on that tier the shell that *runs* a `.sh` helper is chosen at the
 invocation boundary.

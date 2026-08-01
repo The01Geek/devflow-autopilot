@@ -117,9 +117,15 @@ PSR_TRACE="$PSR_T1/trace-8"
 assert_eq "psr population: budget 8 → clean aggregate, exit 0" "0" "$?"
 assert_eq "psr population: budget 8 → all three returned shards overlap" "3" \
   "$(psr_max_overlap "$PSR_TRACE")"
-assert_eq "psr population: the launch population is the dispatcher's returned list, not a copy" "alpha beta python-pool" \
-  "$(cd "$PSR_T1" && bash dispatch.sh --list-shards | { PSR_ACC=""; while IFS= read -r psr_s || [ -n "$psr_s" ]; do
-       [ -z "$psr_s" ] || PSR_ACC="${PSR_ACC:+$PSR_ACC }$psr_s"; done; printf '%s\n' "$PSR_ACC"; })"
+# The population must come FROM the dispatcher: assert the coordinator's own roster line
+# for a dispatcher returning a NON-DEFAULT list, so a coordinator that carried a hardcoded
+# shard list of its own could not satisfy it.
+PSR_DERIVED="$(cd "$PSR_T1" && SYN_SHARDS="zeta eta" SYN_SLEEP=0.05 \
+  DEVFLOW_SHARD_DISPATCHER="$PSR_T1/dispatch.sh" bash lib/test/run-parallel.sh 2>&1)"
+assert_eq "psr population: the roster is the dispatcher's returned list, not a list of the coordinator's own" "yes" \
+  "$(case "$PSR_DERIVED" in *"shard roster: zeta eta"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "psr population: a dispatcher-returned name the coordinator has never heard of still launches" "yes" \
+  "$(case "$PSR_DERIVED" in *"launched shard zeta"*) echo yes ;; *) echo no ;; esac)"
 assert_eq "psr population: the aggregate sums every shard's tally" "yes" \
   "$(case "$(cat "$PSR_T1/out-8")" in *"6 passed, 0 failed"*) echo yes ;; *) echo no ;; esac)"
 
@@ -218,13 +224,14 @@ case "${1-}" in
       badname) printf '%s\n' 'Bad/Name'; exit 0 ;;
       listfail) exit 3 ;;
       dup) printf '%s\n' alpha beta alpha ;;
-      *) printf '%s\n' alpha beta ;;
+      *) if [ -n "${SYN_SERIAL:-}" ]; then printf '%s\n' alpha beta gamma; else printf '%s\n' alpha beta; fi ;;
     esac
     exit 0 ;;
 esac
 S="$1"; D="${DEVFLOW_SHARD_TALLY_DIR:?}"; mkdir -p "$D"
 case "${SYN_MODE:-}" in
   crash) [ "$S" = beta ] && { printf 'shard crashed\n' >&2; exit 7; } ;;
+  notally-zero) [ "$S" = beta ] && exit 0 ;;
   nonzero) [ "$S" = beta ] && { printf '1 passed, 1 failed\n' > "$D/log.txt"
       python3 "$HERE/lib/test/shard-tally.py" extract --shard "$S" --tier monolith \
         --log "$D/log.txt" --rc 1 --out "$D" >/dev/null; exit 1; } ;;
@@ -313,16 +320,55 @@ PSR_LF_PID=$!
 while [ ! -e "$PSR_LF_WIN" ]; do sleep 0.01; done
 PSR_LF_ROOT="$(cd "$PSR_T3B" && PSR_LAST=""; for psr_d in .prflow/tmp/parallel-suite/run-*; do
   [ -d "$psr_d" ] && PSR_LAST="$psr_d"; done; printf '%s\n' "$PSR_LAST")"
-chmod a-w "$PSR_T3B/$PSR_LF_ROOT/tally" "$PSR_T3B/$PSR_LF_ROOT/tmp"
+# Plant a regular FILE where the second shard's tally directory must go, rather than
+# revoking write permission: a chmod is unenforced for a privileged user, so under a root
+# CI container this assertion would go red for a host reason. `mkdir -p` over an existing
+# non-directory fails for every user.
+: > "$PSR_T3B/$PSR_LF_ROOT/tally/beta"
 : > "$PSR_LF_WIN.release"
 wait "$PSR_LF_PID"
 assert_eq "psr failure: a launch failure yields a nonzero aggregate" "1" "$?"
-chmod u+w "$PSR_T3B/$PSR_LF_ROOT/tally" "$PSR_T3B/$PSR_LF_ROOT/tmp"
 PSR_LF_OUT="$(cat "$PSR_T3B/lf-out")"
 assert_eq "psr failure: a shard whose private directories cannot be created is named" "yes" \
   "$(case "$PSR_LF_OUT" in *"could not create its private tally/temp directories"*) echo yes ;; *) echo no ;; esac)"
 assert_eq "psr failure: the un-launched shard is named in the launch-failure list" "yes" \
   "$(case "$PSR_LF_OUT" in *"failed to launch"*beta*) echo yes ;; *) echo no ;; esac)"
+
+# The mid-loop reaper is a SECOND, independent copy of the status-capture logic: at the
+# probed budget with two shards nothing ever queues, so every non-zero status above was
+# collected by the final wait loop instead. Width 1 with three shards forces the failing
+# shard to be reaped by the queueing loop — the exact path a broken `python3` probe
+# degrades every real run to.
+psr_fail_case_serial() { # mode -> prints "<rc>|<combined output>"
+  local mode="$1" out rc
+  out="$(cd "$PSR_T3" && SYN_MODE="$mode" SYN_SERIAL=1 DEVFLOW_SUITE_PROCESS_BUDGET=1 \
+    DEVFLOW_SHARD_DISPATCHER="$PSR_T3/dispatch.sh" bash lib/test/run-parallel.sh 2>&1)"
+  rc=$?
+  printf '%s|%s' "$rc" "$out"
+}
+PSR_FC="$(psr_fail_case_serial crash)"
+assert_eq "psr failure: at width 1 a crashed shard reaped by the queueing loop still fails the aggregate" "1" \
+  "${PSR_FC%%|*}"
+assert_eq "psr failure: the queueing loop records the crashed shard's status by name" "yes" \
+  "$(case "$PSR_FC" in *"exited non-zero"*"beta=7"*) echo yes ;; *) echo no ;; esac)"
+PSR_FC="$(psr_fail_case_serial killed-after-tally)"
+assert_eq "psr failure: at width 1 a shard killed after a clean tally still fails the aggregate" "1" \
+  "${PSR_FC%%|*}"
+assert_eq "psr failure: the queueing loop records that shard's exit status too" "yes" \
+  "$(case "$PSR_FC" in *"beta=9"*"refusing a clean aggregate"*) echo yes ;; *) echo no ;; esac)"
+
+# --expect is the missing-shard floor, and in the crash cases above two other mechanisms
+# also force rc 1. Give it a case where it is the ONLY signal: a shard that writes no
+# tally and exits ZERO — `MISSING` names it, but no non-zero status exists to catch it.
+PSR_FC="$(psr_fail_case notally-zero)"
+assert_eq "psr failure: a shard that writes no tally and exits ZERO still fails the aggregate" "1" \
+  "${PSR_FC%%|*}"
+assert_eq "psr failure: the missing-shard floor is what names it (no non-zero status exists to)" "yes" \
+  "$(case "$PSR_FC" in *"expected 2 shard tally directories but found 1"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "psr failure: that shard is reported as producing no tally" "yes" \
+  "$(case "$PSR_FC" in *"produced no tally"*beta*) echo yes ;; *) echo no ;; esac)"
+assert_eq "psr failure: no non-zero shard status is claimed for it" "yes" \
+  "$(case "$PSR_FC" in *"exited non-zero"*) echo no ;; *) echo yes ;; esac)"
 
 # A checkout path containing a space: the tally paths must reach `combine` as N distinct
 # arguments, not as word-split fragments that satisfy the --expect floor from garbage.
@@ -354,6 +400,17 @@ chmod +x "$PSR_T4/dispatch.sh"
     > "$PSR_T4/out" 2>&1 )
 assert_eq "psr reentrancy: a real-population invocation from inside a shard is refused by name" "yes" \
   "$(case "$(cat "$PSR_T4"/.prflow/tmp/parallel-suite/run-*/logs/alpha.log)" in *reentrancy*) echo yes ;; *) echo no ;; esac)"
+# The other limb of the same predicate, and the reason this module can run from inside a
+# shard at all: a FIXTURE invocation naming its own dispatcher is exempt. Widening the
+# guard to unconditional would make every assertion above unreachable, so pin the
+# carve-out rather than leaving it to a suite-wide red to reveal.
+PSR_T4B="$(psr_make_tree)"; psr_plant_dispatcher "$PSR_T4B"
+PSR_CARVE="$(cd "$PSR_T4B" && DEVFLOW_PARALLEL_SUITE_ACTIVE=1 SYN_SHARDS=alpha SYN_SLEEP=0.05 \
+  DEVFLOW_SHARD_DISPATCHER="$PSR_T4B/dispatch.sh" bash lib/test/run-parallel.sh 2>&1)"
+assert_eq "psr reentrancy: a fixture invocation naming its own dispatcher is exempt and still runs" "yes" \
+  "$(case "$PSR_CARVE" in *"2 passed, 0 failed"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "psr reentrancy: the exempt invocation is not refused" "yes" \
+  "$(case "$PSR_CARVE" in *reentrancy*) echo no ;; *) echo yes ;; esac)"
 
 # ── signal handling: before and after PID registration ───────────────────────
 PSR_T5="$(psr_make_tree)"
@@ -491,11 +548,59 @@ assert_eq "psr output: the complete synthetic log stays readable under the retai
 assert_eq "psr output: every one of the 25 skip entries survives in the retained log" "25" \
   "$(cd "$PSR_T6" && psr_count_matching "$PSR_BULK_LOG" "  SKIP  synthetic-skip-")"
 
+# ── shard-tally.py --detail-cap, driven directly ─────────────────────────────
+# The coordinator only ever exercises cap 20. CI's aggregator omits the flag entirely,
+# and "CI's output is unchanged" is the guarantee that carries the whole no-regression
+# argument for that job — so the DEFAULT is asserted here, against the helper itself.
+PSR_TD="$PSR_ROOT/tally-direct"
+mkdir -p "$PSR_TD"
+psr_plant_tally() { # dir n-entries
+  local dir="$1" n="$2" i=0
+  mkdir -p "$dir"
+  printf 'shard\tsolo\npassed\t1\nfailed\t%s\nskipped\t%s\nrc\t0\n' "$n" "$n" > "$dir/summary"
+  : > "$dir/skips"; : > "$dir/names"
+  while [ "$i" -lt "$n" ]; do
+    printf 'planted-skip-%s\n' "$i" >> "$dir/skips"
+    printf 'planted-failure-%s\n' "$i" >> "$dir/names"
+    i=$((i + 1))
+  done
+}
+psr_plant_tally "$PSR_TD/t25" 25
+PSR_UNCAPPED="$(python3 "$PSR_TALLY" combine "$PSR_TD/t25" --expect 1 2>&1)"
+assert_eq "psr cap: the DEFAULT renders every skip entry (CI's aggregator omits the flag)" "25" \
+  "$(PSR_N=0; while IFS= read -r l || [ -n "$l" ]; do case "$l" in "  SKIP  planted-skip-"*) PSR_N=$((PSR_N+1)) ;; esac; done <<PSR_EOD
+$PSR_UNCAPPED
+PSR_EOD
+printf '%s\n' "$PSR_N")"
+assert_eq "psr cap: the DEFAULT renders every failure entry" "25" \
+  "$(PSR_N=0; while IFS= read -r l || [ -n "$l" ]; do case "$l" in "  - planted-failure-"*) PSR_N=$((PSR_N+1)) ;; esac; done <<PSR_EOD
+$PSR_UNCAPPED
+PSR_EOD
+printf '%s\n' "$PSR_N")"
+assert_eq "psr cap: the DEFAULT announces no omitted count at all" "yes" \
+  "$(case "$PSR_UNCAPPED" in *omitted*) echo no ;; *) echo yes ;; esac)"
+# Exactly at the cap: no omitted line may print for a population that fits.
+psr_plant_tally "$PSR_TD/t20" 20
+PSR_ATCAP="$(python3 "$PSR_TALLY" combine "$PSR_TD/t20" --expect 1 --detail-cap 20 2>&1)"
+assert_eq "psr cap: a population exactly at the cap announces no omission" "yes" \
+  "$(case "$PSR_ATCAP" in *omitted*) echo no ;; *) echo yes ;; esac)"
+assert_eq "psr cap: a population exactly at the cap renders all of it" "20" \
+  "$(PSR_N=0; while IFS= read -r l || [ -n "$l" ]; do case "$l" in "  SKIP  planted-skip-"*) PSR_N=$((PSR_N+1)) ;; esac; done <<PSR_EOD
+$PSR_ATCAP
+PSR_EOD
+printf '%s\n' "$PSR_N")"
+# A negative cap is uncapped, matching the documented "0 or negative" contract.
+PSR_NEGCAP="$(python3 "$PSR_TALLY" combine "$PSR_TD/t25" --expect 1 --detail-cap -1 2>&1)"
+assert_eq "psr cap: a negative cap is uncapped, as documented" "yes" \
+  "$(case "$PSR_NEGCAP" in *omitted*) echo no ;; *) echo yes ;; esac)"
+# The cap must never touch the DECISION: a capped render of a failing population still
+# exits non-zero, and the announced tally is still the full one.
+python3 "$PSR_TALLY" combine "$PSR_TD/t25" --expect 1 --detail-cap 20 >/dev/null 2>&1
+assert_eq "psr cap: capping the render never turns a failing aggregate green" "1" "$?"
+
 # ── matcher shape: the bare cloud token, and the local DEVFLOW_BASH boundary ──
 assert_eq "psr shape: the coordinator is executable" "yes" \
   "$([ -x "$PSR_COORD" ] && echo yes || echo no)"
-assert_eq "psr shape: the coordinator carries an env-bash shebang (so the bare token runs)" "#!/usr/bin/env bash" \
-  "$(IFS= read -r psr_l < "$PSR_COORD"; printf '%s\n' "$psr_l")"
 PSR_T7="$(psr_make_tree)"; psr_plant_dispatcher "$PSR_T7"
 # The cloud actor's whole command is the leading token and nothing else: caller-side
 # assignment, redirect, pipeline, interpreter prefix and background syntax are each a
@@ -504,33 +609,36 @@ PSR_BARE="$(cd "$PSR_T7" && SYN_SHARDS=alpha SYN_SLEEP=0.05 \
   DEVFLOW_SHARD_DISPATCHER="$PSR_T7/dispatch.sh" ./lib/test/run-parallel.sh 2>&1)"
 assert_eq "psr shape: the bare leading-token invocation is the complete command shape" "yes" \
   "$(case "$PSR_BARE" in *"2 passed, 0 failed"*) echo yes ;; *) echo no ;; esac)"
-assert_eq "psr shape: an argument is refused (the bare form takes none)" "yes" \
-  "$(cd "$PSR_T7" && ./lib/test/run-parallel.sh --shards 2>&1 | grep -c 'unknown argument' >/dev/null && echo yes || echo no)"
-# The local tier reaches the same coordinator through the documented DEVFLOW_BASH
-# selection boundary. WSL bash, Git Bash and MSYS2 bash differ only in WHICH bash the
-# operator points at, so each is exercised as a distinctly-named selector.
-for psr_flavor in wsl-bash git-bash msys2-bash; do
-  printf '#!/usr/bin/env bash\nexec bash "$@"\n' > "$PSR_T7/$psr_flavor"
-  chmod +x "$PSR_T7/$psr_flavor"
-  PSR_SEL_OUT="$(cd "$PSR_T7" && SYN_SHARDS=alpha SYN_SLEEP=0.05 \
-    DEVFLOW_SHARD_DISPATCHER="$PSR_T7/dispatch.sh" "./$psr_flavor" lib/test/run-parallel.sh 2>&1)"
-  assert_eq "psr shape: the DEVFLOW_BASH boundary reaches the coordinator via $psr_flavor" "yes" \
-    "$(case "$PSR_SEL_OUT" in *"2 passed, 0 failed"*) echo yes ;; *) echo no ;; esac)"
-done
-# Unset and empty both select the default `bash`; an invalid selector fails loudly at
-# the invocation boundary rather than silently running nothing.
+assert_eq "psr shape: one unknown argument is refused by name" "yes" \
+  "$(cd "$PSR_T7" && case "$(./lib/test/run-parallel.sh --shards 2>&1)" in *"unknown argument"*) echo yes ;; *) echo no ;; esac)"
+# A DIFFERENT guard with a DIFFERENT message: the arity check fires before the argument
+# is ever classified, so a second argument cannot reach the unknown-argument arm above.
+assert_eq "psr shape: a second argument is refused by the arity guard, not the unknown-argument arm" "yes" \
+  "$(cd "$PSR_T7" && case "$(./lib/test/run-parallel.sh --help extra 2>&1)" in *"at most one argument"*) echo yes ;; *) echo no ;; esac)"
+# The local tier reaches the SAME coordinator through an invocation-layer bash selector
+# (this repository's `DEVFLOW_BASH` boundary). One selector stands in for WSL bash, Git
+# Bash and MSYS2 bash alike — they differ only in WHICH bash the operator points at, and
+# the coordinator reads no such variable itself, so three identically-bodied wrappers
+# would be copies of one assertion rather than distinct cases.
+printf '#!/usr/bin/env bash\nexec bash "$@"\n' > "$PSR_T7/selected-bash"
+chmod +x "$PSR_T7/selected-bash"
 PSR_SEL_OUT="$(cd "$PSR_T7" && SYN_SHARDS=alpha SYN_SLEEP=0.05 \
-  DEVFLOW_SHARD_DISPATCHER="$PSR_T7/dispatch.sh" "${DEVFLOW_BASH_UNSET_PROBE:-bash}" lib/test/run-parallel.sh 2>&1)"
-assert_eq "psr shape: an unset selector falls back to bash and still runs" "yes" \
+  DEVFLOW_SHARD_DISPATCHER="$PSR_T7/dispatch.sh" "./selected-bash" lib/test/run-parallel.sh 2>&1)"
+assert_eq "psr shape: an invocation-layer bash selector reaches the coordinator unchanged" "yes" \
   "$(case "$PSR_SEL_OUT" in *"2 passed, 0 failed"*) echo yes ;; *) echo no ;; esac)"
-PSR_EMPTY_SEL=""
-PSR_SEL_OUT="$(cd "$PSR_T7" && SYN_SHARDS=alpha SYN_SLEEP=0.05 \
-  DEVFLOW_SHARD_DISPATCHER="$PSR_T7/dispatch.sh" "${PSR_EMPTY_SEL:-bash}" lib/test/run-parallel.sh 2>&1)"
-assert_eq "psr shape: an empty selector falls back to bash and still runs" "yes" \
-  "$(case "$PSR_SEL_OUT" in *"2 passed, 0 failed"*) echo yes ;; *) echo no ;; esac)"
-( cd "$PSR_T7" && "./not-a-bash-at-all" lib/test/run-parallel.sh >/dev/null 2>&1 )
-assert_eq "psr shape: an invalid selector fails loudly rather than reporting a clean suite" "yes" \
-  "$([ "$?" -ne 0 ] && echo yes || echo no)"
+# --help is the other documented half of the command shape, and its sed filter can fail
+# OPEN (a renamed sentinel yields an empty selection and exit 0), so assert content.
+PSR_HELP="$(cd "$PSR_T7" && ./lib/test/run-parallel.sh --help 2>&1)"; PSR_HELP_RC=$?
+assert_eq "psr shape: --help exits 0" "0" "$PSR_HELP_RC"
+assert_eq "psr shape: --help renders the operative budget contract, not an empty selection" "yes" \
+  "$(case "$PSR_HELP" in *DEVFLOW_SUITE_PROCESS_BUDGET*) echo yes ;; *) echo no ;; esac)"
+assert_eq "psr shape: --help strips its own sentinel lines" "yes" \
+  "$(case "$PSR_HELP" in *'---8<---'*) echo no ;; *) echo yes ;; esac)"
+
+# An unreadable dispatcher is refused before anything is allocated.
+assert_eq "psr shape: an unreadable shard dispatcher is refused by name" "yes" \
+  "$(cd "$PSR_T7" && case "$(DEVFLOW_SHARD_DISPATCHER="$PSR_T7/no-such-dispatcher" ./lib/test/run-parallel.sh 2>&1)" in
+       *"dispatcher is not readable"*) echo yes ;; *) echo no ;; esac)"
 
 # ── run root: fallback, refusal, and exhaustion ──────────────────────────────
 # A checkout whose `.prflow` path cannot hold the run root stands in for a read-only
