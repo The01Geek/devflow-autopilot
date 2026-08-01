@@ -1734,6 +1734,91 @@ IU_O19F="$( cd "$IU_C19E" && DEVFLOW_SELFTEST=1 . "$IU_INSTALL" \
 assert_eq "installer-upgrade #959 CONTROL: a readable non-matching file still reports the no-signature judgement, not the read failure" "yes no yes" \
   "$(_iu_out_has "$IU_O19F" 'telemetry-push.yml carries no DevFlow signature') $(_iu_out_has "$IU_O19F" 'This is a read failure') $([ -f "$IU_C19E/.github/workflows/telemetry-push.yml" ] && echo yes || echo no)"
 
+# ── Scenario 19g (#1041): the review toggle is disabled under WHICHEVER SPELLING the
+# config carries, and the END STATE is asserted — not just the log line.
+#
+# The defect this locks out is a run reporting an outcome it did not achieve.
+# devflow_disable_review_key runs BEFORE scaffold-config.sh's key migration in
+# devflow_apply_all, so on a consumer that has not migrated yet, writing the CURRENT
+# spelling unconditionally leaves both keys present. The migration then resolves that
+# both-present case through its example-valued graft arm — the new key holds the shipped
+# example default `false`, so it is judged a deep-merge graft, dropped, and the superseded
+# value written through in its place. A `devflow-review: true` lands back as
+# `prflow-review: true` in the very run that logged the tier disabled, and
+# devflow_report_withheld_tier then tells the operator exposure persists for as long as
+# that key is true. Asserting the LOG alone cannot see this: the log said false.
+#
+# Driven end to end through the real installer, over both orderings the rename creates.
+_iu_review_toggle() {  # $1 = consumer root -> the surviving review toggle, both spellings
+  python3 -c '
+import json, sys
+wf = json.load(open(sys.argv[1])).get("workflows") or {}
+print("prflow-review=%s devflow-review=%s"
+      % (json.dumps(wf.get("prflow-review")), json.dumps(wf.get("devflow-review"))))
+' "$1/.prflow/config.json"
+}
+# (a) A config still on the SUPERSEDED spelling, with the toggle genuinely on.
+IU_C19G="$(_iu_consumer withheld-superseded-spelling)"
+_iu_run "$IU_C19G" >/dev/null
+for _iu_w in devflow-review devflow-runner telemetry-push; do
+  _iu_withheld_file "$_iu_w" > "$IU_C19G/.github/workflows/$_iu_w.yml"
+done
+python3 -c '
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+# An un-migrated consumer: the whole workflows block is on the superseded spelling, and
+# the review tier is ON. Both sub-keys move together in a real config, so both are set.
+d["workflows"] = {"devflow": True, "devflow-review": True}
+json.dump(d, open(p, "w"), indent=2)
+' "$IU_C19G/.prflow/config.json"
+IU_O19G="$(_iu_run "$IU_C19G" --apply --remove-withheld-review-tier)"
+assert_eq "installer-upgrade #1041: an un-migrated config ends with the review toggle actually OFF — the run's report matches the config it left behind" "prflow-review=false devflow-review=null" \
+  "$(_iu_review_toggle "$IU_C19G")"
+assert_eq "installer-upgrade #1041: and the log names the SUPERSEDED spelling it really wrote, never a key this run never touched" "yes no" \
+  "$(_iu_out_has "$IU_O19G" 'set workflows["devflow-review"]=false') $(_iu_out_has "$IU_O19G" 'set workflows["prflow-review"]=false')"
+assert_eq "installer-upgrade #1041: the three withheld workflow files are still removed on that path" "0" \
+  "$(_iu_count_withheld "$IU_C19G")"
+# (b) A config already on the CURRENT spelling takes the same path under its own name —
+# so (a) is a spelling-follows-config rule, not a blanket switch to the superseded name.
+IU_C19H="$(_iu_consumer withheld-current-spelling)"
+_iu_run "$IU_C19H" >/dev/null
+for _iu_w in devflow-review devflow-runner telemetry-push; do
+  _iu_withheld_file "$_iu_w" > "$IU_C19H/.github/workflows/$_iu_w.yml"
+done
+python3 -c '
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["workflows"] = {"prflow": True, "prflow-review": True}
+json.dump(d, open(p, "w"), indent=2)
+' "$IU_C19H/.prflow/config.json"
+IU_O19H="$(_iu_run "$IU_C19H" --apply --remove-withheld-review-tier)"
+assert_eq "installer-upgrade #1041: a migrated config also ends with the toggle actually OFF" "prflow-review=false devflow-review=null" \
+  "$(_iu_review_toggle "$IU_C19H")"
+assert_eq "installer-upgrade #1041: and names the CURRENT spelling there" "yes no" \
+  "$(_iu_out_has "$IU_O19H" 'set workflows["prflow-review"]=false') $(_iu_out_has "$IU_O19H" 'set workflows["devflow-review"]=false')"
+# (c) BOTH spellings present — the self-heal state a consumer who already ran the broken
+# build is sitting in. Disabling only one leaves the other to win the graft arm, so both
+# are turned off and the surviving key is false whichever one the migration keeps.
+IU_C19I="$(_iu_consumer withheld-both-spellings)"
+_iu_run "$IU_C19I" >/dev/null
+for _iu_w in devflow-review devflow-runner telemetry-push; do
+  _iu_withheld_file "$_iu_w" > "$IU_C19I/.github/workflows/$_iu_w.yml"
+done
+python3 -c '
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["workflows"] = {"devflow": True, "devflow-review": True, "prflow-review": False}
+json.dump(d, open(p, "w"), indent=2)
+' "$IU_C19I/.prflow/config.json"
+IU_O19I="$(_iu_run "$IU_C19I" --apply --remove-withheld-review-tier)"
+assert_eq "installer-upgrade #1041: a config carrying BOTH spellings ends with the surviving toggle off, not the superseded true value grafted back over it" "prflow-review=false devflow-review=null" \
+  "$(_iu_review_toggle "$IU_C19I")"
+assert_eq "installer-upgrade #1041: and the log names both keys it wrote" "yes" \
+  "$(_iu_out_has "$IU_O19I" 'set workflows["prflow-review"] and workflows["devflow-review"]=false')"
+
 # ── Scenario 20 (#959 review, suggestion 3): fail-safe/warning arms that are consumer-
 # facing documented behavior but had no coverage. None of these is in the clobber-
 # prevention core; they are the branches a consumer actually SEES when something is wrong.

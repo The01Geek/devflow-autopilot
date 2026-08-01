@@ -40648,8 +40648,11 @@ rm -rf "$D487"
 # file's #487/#491/#533/#544/#599/#690 installer region into a focused module). The
 # registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
+# Raised for issue #1041's Scenario 19g: the withheld-tier review toggle is disabled
+# under whichever spelling the config carries, asserted on the resulting CONFIG rather
+# than on the log line the earlier arms already covered.
 if ! devflow_run_full_suite_module "$LIB/test/modules/installer-wiring.sh" \
-  "installer-wiring" 264; then
+  "installer-wiring" 271; then
   printf 'ERROR: installer-wiring boundary could not record its result\n'
   exit 1
 fi

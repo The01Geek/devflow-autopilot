@@ -826,9 +826,13 @@ devflow_report_env_identifier_freeze() {
 devflow_report_withheld_tier() {
   local present="$1"
   [ -n "$present" ] || return 0
-  log "NOTICE: this repository carries the withheld automatic-review tier ($present). It is not shipped any more (issue #936) and this installer leaves it alone by default, but it keeps running and keeps this repository exposed to issues #930 and #920 for as long as workflows[\"prflow-review\"] is true in .prflow/config.json. See docs/workflow-triggers.md."
+  # These two lines run BEFORE the config is read, so neither can know which spelling of
+  # the review toggle this consumer carries (issue #1041 renamed it, and an un-migrated
+  # config still holds the superseded one). Both are therefore named — asserting one
+  # would point half of all readers at a key their config does not contain.
+  log "NOTICE: this repository carries the withheld automatic-review tier ($present). It is not shipped any more (issue #936) and this installer leaves it alone by default, but it keeps running and keeps this repository exposed to issues #930 and #920 for as long as the review toggle is true in .prflow/config.json — workflows[\"prflow-review\"], or workflows[\"devflow-review\"] if this repository has not migrated its config keys yet. See docs/workflow-triggers.md."
   if [ "${REMOVE_WITHHELD:-}" = "1" ]; then
-    log "  --remove-withheld-review-tier was given: the workflow files will be deleted and workflows[\"prflow-review\"] set to false. You must ALSO remove the 'Devflow Review' context from any branch protection rule or ruleset that requires it — otherwise every later pull request wedges against a required check nothing will report. This installer cannot do that for you."
+    log "  --remove-withheld-review-tier was given: the workflow files will be deleted and that review toggle set to false under whichever spelling your config carries. You must ALSO remove the 'Devflow Review' context from any branch protection rule or ruleset that requires it — otherwise every later pull request wedges against a required check nothing will report. This installer cannot do that for you."
   else
     log "  To remove it, re-run with --remove-withheld-review-tier (and read step 3 of docs/workflow-triggers.md first — the branch protection context is a manual step)."
   fi
@@ -836,6 +840,25 @@ devflow_report_withheld_tier() {
 # Turn off the config key the withheld tier reads. Best-effort and shape-guarded: a
 # config that is not a JSON object, or that has a non-object `workflows`, is left
 # untouched with a breadcrumb rather than being restructured underneath the consumer.
+#
+# SPELLING FOLLOWS THE CONFIG, NOT THIS RELEASE (issue #1041). Tier 4 renamed the key
+# `workflows.devflow-review` -> `workflows.prflow-review`, and this function runs BEFORE
+# scaffold-config.sh's key migration in devflow_apply_all. Writing the current spelling
+# unconditionally into a config that still carries the superseded one leaves BOTH keys
+# present, and the migration then resolves that both-present case through its example-
+# valued graft arm: the new key holds the shipped example default (`false`), so it is
+# judged a deep-merge graft, dropped, and the SUPERSEDED value is written through in its
+# place. A `devflow-review: true` therefore lands back as `prflow-review: true` in the
+# same run that just reported the tier disabled — the run reporting an outcome it did not
+# achieve. So: disable EVERY spelling the config actually carries, and only when it
+# carries neither fall back to the current one. Every ordering then agrees --
+#   superseded only -> that key goes false, and the migration carries the false across;
+#   current only    -> that key goes false;
+#   both present    -> both go false, so whichever the migration keeps is false;
+#   neither         -> the current spelling is created false.
+# The keys acted on are written to stdout so the caller can name them; the caller treats
+# an empty report on a success rc as unestablished rather than logging a key it cannot
+# prove was touched.
 DEVFLOW_DISABLE_REVIEW_PY='
 import json, os, sys
 path = sys.argv[1]
@@ -848,15 +871,22 @@ if wf is None:
     wf = {}
 if not isinstance(wf, dict):
     sys.exit(3)
-if wf.get("prflow-review") is False:
+# Current spelling first, so a both-present report leads with the current name.
+keys = [k for k in ("prflow-review", "devflow-review") if k in wf]
+if not keys:
+    keys = ["prflow-review"]
+if all(wf.get(k) is False for k in keys):
+    sys.stdout.write(" ".join(keys))
     sys.exit(4)
-wf["prflow-review"] = False
+for k in keys:
+    wf[k] = False
 data["workflows"] = wf
 tmp = path + ".tmp"
 with open(tmp, "w", encoding="utf-8") as fh:
     json.dump(data, fh, indent=2)
     fh.write("\n")
 os.replace(tmp, path)
+sys.stdout.write(" ".join(keys))
 '
 # The per-file signature that identifies a withheld-tier workflow as DEVFLOW'S COPY,
 # rather than a consumer file that merely happens to share the name. This has to be a
@@ -900,21 +930,46 @@ devflow_withheld_tier_signature() {
 # let the ordering comment below claim an invariant the code did not enforce: a malformed
 # config warned, returned 0, and the files were deleted anyway — landing in precisely the
 # stranded state the ordering exists to prevent.
+#
+# The log names the spelling the edit ACTUALLY touched, which is the whole point of the
+# report the helper writes to stdout: on a config that has not migrated yet that is the
+# superseded `devflow-review`, and a line naming `prflow-review` there would describe a
+# key this run never wrote. Composed with bash builtins only — no `tr`/`sed`, which
+# lib/preflight.sh does not guarantee and which would silently empty an EMITTED value.
+devflow_review_key_clause() {  # $1 = space-separated key list -> `workflows["a"] and workflows["b"]`
+  local _k _out=""
+  for _k in $1; do
+    [ -z "$_out" ] || _out="$_out and "
+    _out="${_out}workflows[\"$_k\"]"
+  done
+  printf '%s' "$_out"
+}
 devflow_disable_review_key() {
-  local rc
+  local rc keys
   if [ ! -f .prflow/config.json ]; then
     return 0   # nothing to strand
   fi
   if ! devflow_resolve_python; then
-    log "warning: no working python3 — could not set workflows[\"prflow-review\"] to false in .prflow/config.json; do it by hand."
+    # No edit happened, so no spelling is established — name both rather than assert one.
+    log "warning: no working python3 — could not turn the withheld review-tier config key off in .prflow/config.json; set workflows[\"prflow-review\"] false by hand (workflows[\"devflow-review\"] if this repository has not migrated its config keys yet)."
     return 1
   fi
   rc=0
-  "$DEVFLOW_PY" -c "$DEVFLOW_DISABLE_REVIEW_PY" .prflow/config.json 2>/dev/null || rc=$?
+  keys="$("$DEVFLOW_PY" -c "$DEVFLOW_DISABLE_REVIEW_PY" .prflow/config.json 2>/dev/null)" || rc=$?
+  # Fail closed on a success rc with no report: the rc says the key is off but nothing
+  # names which one, and this function's contract is that its 0 is provable. Returning 1
+  # lands in the self-healing interrupted state (key off, files still present) rather
+  # than the unrecoverable one, so a re-run finishes the job.
+  if [ "$rc" -eq 0 ] || [ "$rc" -eq 4 ]; then
+    if [ -z "$keys" ]; then
+      log "warning: the withheld review-tier config edit reported success but named no config key, so it cannot be confirmed; check workflows[\"prflow-review\"] in .prflow/config.json by hand."
+      return 1
+    fi
+  fi
   case "$rc" in
-    0) log "set workflows[\"prflow-review\"]=false in .prflow/config.json"; return 0 ;;
-    4) log "workflows[\"prflow-review\"] is already false in .prflow/config.json"; return 0 ;;
-    *) log "warning: could not set workflows[\"prflow-review\"] to false in .prflow/config.json (it is missing, malformed, or holds a non-object at that key); set it by hand."; return 1 ;;
+    0) log "set $(devflow_review_key_clause "$keys")=false in .prflow/config.json"; return 0 ;;
+    4) log "$(devflow_review_key_clause "$keys") is already false in .prflow/config.json"; return 0 ;;
+    *) log "warning: could not turn the withheld review-tier config key off in .prflow/config.json (it is missing, malformed, or holds a non-object at that key); set it by hand."; return 1 ;;
   esac
 }
 devflow_remove_withheld_tier() {
@@ -932,7 +987,7 @@ devflow_remove_withheld_tier() {
   # actually established the key as off. An invariant a comment asserts and the code does
   # not enforce is worse than no invariant: it stops the next reader from checking.
   if ! devflow_disable_review_key; then
-    log "warning: leaving the withheld review-tier workflow files in place — workflows[\"prflow-review\"] could not be turned off, and removing the files first would strand that key true with nothing left to trigger a retry. Fix the config (or resolve python3) and re-run with --remove-withheld-review-tier."
+    log "warning: leaving the withheld review-tier workflow files in place — the review toggle could not be turned off, and removing the files first would strand that key true with nothing left to trigger a retry. Fix the config (or resolve python3) and re-run with --remove-withheld-review-tier."
     return 0
   fi
   for _wt in $present; do
