@@ -106,6 +106,14 @@ This is what stops the weekly retrospective's audit-report comment (which quotes
 the literal `/prflow:implement` phrase in prose) from self-triggering on the
 state PR.
 
+`resolve-implement-trigger.sh` is **also markdown-aware** (issue #1032): it routes
+through the shared `scripts/detect-standalone-command.sh` detector, so on an *issue*
+comment a `/prflow:implement` token that is merely quoted in prose, blockquoted,
+indented, or inside a fenced code block does **not** trigger — only a standalone
+own-line command does. See the *"A light `/prflow:*` command fires only when
+issued, never when quoted"* section below for the shared detector's exact
+anchoring rules; the heavy path inherits them wholesale.
+
 ## Automated review (`devflow-review.yml`): trigger + preconditions policy
 
 > **Withheld from this release (issues #930 and #920) — see the section above.** This
@@ -354,6 +362,18 @@ wiring already routes the PR-review body in, so no new surface wiring is added.
 > bot's installation token lacks, so it landed via a human/PAT in the #321
 > follow-up rather than in the bot-authored PR that shipped the resolver
 > anchoring here.
+
+> **Landed (issue #1032):** the **heavy** `/prflow:implement` path now routes
+> through this **same** `detect-standalone-command.sh` detector too (the implement
+> token was added to its most-specific-first ladder), so a quoted, blockquoted,
+> indented, or fenced `/prflow:implement` occurrence — previously matched by a bare
+> `grep` in `resolve-implement-trigger.sh` that fell through to the attached
+> issue's number and fired a full run — no longer triggers. The heavy path
+> inherits the identical fence/bareness and fail-closed-on-unbalanced-fence
+> behavior described above, and the shared detector means the heavy and light
+> matchers cannot drift. `resolve-command-trigger.sh` dispatches only the three
+> light commands via a fail-closed allowlist, so the shared detector recognizing
+> the implement token never leaks a heavy run into the light path.
 
 > **Out of scope (decided):** a light command posted on a plain **non-PR issue**
 > comment still resolves a number and runs; narrowing that surface is deferred to
