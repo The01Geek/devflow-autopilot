@@ -293,7 +293,7 @@ Each dispatched review agent's effort decision carries an **application point** 
 | Application point | Meaning |
 |---|---|
 | `agent-definition` | The resolved per-agent effort was composed into a **proven** process-start agent-definition seam (an applied arm). This arm exists **only if** an empirical cloud-action seam spike proves the seam is reachable — see below; it is **not** shipped today. |
-| `process-start-session` | The section-level session effort (`devflow.effort` / `prflow_implement.effort` / `prflow_runner.effort`) composed into `--effort` at process start — session-wide, inherited by all subagents, capability-gated by `providers.*.effort_supported` (#313). Not per-agent. |
+| `process-start-session` | The section-level session effort (`prflow.effort` / `prflow_implement.effort` / `prflow_runner.effort`) composed into `--effort` at process start — session-wide, inherited by all subagents, capability-gated by `providers.*.effort_supported` (#313). Not per-agent. |
 | `session-fallback` | A resolved **per-agent** effort override the tier **cannot apply** (or a capability-restricted one). The override is not emitted; the agent inherits the session effort; the resolver reports the fallback with a reason. |
 | `session-inheritance` | A dispatched agent with **no** per-agent effort override — it simply inherits the session effort. All-null effort block, no fallback reason. |
 
@@ -302,7 +302,7 @@ Per execution tier:
 | Tier / dispatch context | Per-agent effort application point | Per-agent effort applied? |
 |---|---|---|
 | **Cloud** review — fresh `claude-code-action` process per run | `session-fallback` (see spike note) | **No** — the process-start `--agents` effort seam is **hypothesized but unproven**; the only `--agents` usage in `.github/` is the [seam probe](agents-seam-probe.md) itself (`.github/workflows/agents-seam-probe.yml`), which is authored but not yet dispatched to a `SEAM_PROVEN` verdict, so until it proves the seam the cloud per-agent row is honest fallback identical to local. |
-| **Cloud/local session effort** — `devflow.effort` / `prflow_implement.effort` / `prflow_runner.effort` | `process-start-session` | Session-wide, not per-agent — capability-gated by `effort_supported` (#313). |
+| **Cloud/local session effort** — `prflow.effort` / `prflow_implement.effort` / `prflow_runner.effort` | `process-start-session` | Session-wide, not per-agent — capability-gated by `effort_supported` (#313). |
 | **Local** review — already-running interactive session dispatching via the Agent tool | `session-fallback` | **No** — the Agent tool carries `model` but no effort, and no per-dispatch `--agents` injection exists; the run reports the limitation and effective fallback with a reason. |
 
 On any `session-fallback` arm the resolved per-agent effort is **not** applied; the subagent inherits

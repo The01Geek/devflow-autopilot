@@ -506,7 +506,7 @@ post-merge. Three cases are therefore never eligible and the gate refuses the ta
   restore. A tooling gap is not a runtime-environment gap; it takes the existing **`Blocked`** escalation
   path (human handoff), never a silent post-merge pass. (A *verification command* that is **not granted**
   in the run's allowlist — its direct-form invocation refused before it could run — takes that same
-  **`Blocked`** path, naming `prflow_implement.allowed_tools` (and `devflow.allowed_tools` for the command
+  **`Blocked`** path, naming `prflow_implement.allowed_tools` (and `prflow.allowed_tools` for the command
   path) as the exact remedy: grant the command so the run can verify in-env, then re-run. It is **never**
   deferred to a CI result — see *In-env verification is the gate* below.)
 - **Confirmation of a self-authored claim** — a criterion whose purpose is to confirm a behavioral claim
@@ -542,9 +542,9 @@ human merge** — not a channel the run reads to verify itself.
 
 The command is invoked by its **direct leading-token** form (`lib/test/run.sh`, not `bash lib/test/run.sh`
 — the `bash <path>` wrapper is deny-floored and can never be granted), which resolves because the
-suite/lint commands are granted through `prflow_implement.allowed_tools` (and `devflow.allowed_tools` for
+suite/lint commands are granted through `prflow_implement.allowed_tools` (and `prflow.allowed_tools` for
 the `/prflow:*` command path). The two keys' granted sets are **not** identical and are not
-restated here: read them from `.prflow/config.json`, which is their single source — `devflow.allowed_tools`
+restated here: read them from `.prflow/config.json`, which is their single source — `prflow.allowed_tools`
 for the command path and `prflow_implement.allowed_tools` for the implement run, the latter a superset
 carrying the additional heads a run needs in its own environment. A count or list transcribed onto this
 page is a mirror-fact that goes stale the moment either key changes and nothing reconciles it — which is
@@ -556,17 +556,17 @@ gate:
   take the **`Blocked`** path. Never `(post-merge)` it.
 - **In-env run denied** — the direct-form command is **not granted** in this run's allowlist, so it was
   refused before it could run. Take the **`Blocked`** path naming `prflow_implement.allowed_tools` (and
-  `devflow.allowed_tools` for the command path) as the remedy, then re-run. Never launder a denied
+  `prflow.allowed_tools` for the command path) as the remedy, then re-run. Never launder a denied
   verification command into a `(post-merge)` retag or a CI observation — never a silent stall, never a
   verdict resting on a CI result the run never saw.
 
 **Consumer rule.** List your repo's test/lint commands in `prflow_implement.allowed_tools` (and
-`devflow.allowed_tools` for the command path) and the run verifies them in-env; leave them ungranted and a
+`prflow.allowed_tools` for the command path) and the run verifies them in-env; leave them ungranted and a
 verification-command AC goes **`Blocked`**, its message naming `prflow_implement.allowed_tools` as the
 exact remedy. See [`cloud-setup.md`](cloud-setup.md#extending-the-tool-allowlist) for the config surface.
 
 **Grant-timing bootstrap — a grant a PR ships is post-merge-only.** A grant added to
-`prflow_implement.allowed_tools` (or `devflow.allowed_tools`) inside a PR
+`prflow_implement.allowed_tools` (or `prflow.allowed_tools`) inside a PR
 is live only after that PR merges, because the workflows resolve config grants at trigger time from the default branch, not from the PR's own head.
 So a run must not rely on a grant its own PR ships: grant the command in a prior merged change, or
 leave that verification for after merge.

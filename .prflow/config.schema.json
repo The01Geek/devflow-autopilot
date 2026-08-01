@@ -163,7 +163,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Extra --allowed-tools entries for the /prflow:implement path (devflow-implement.yml), APPENDED on top of devflow's built-in base list. The implement path does NOT inherit devflow.allowed_tools, so list every extra tool you want during implementation here. Empty/omitted \u2192 base list only.",
+          "description": "Extra --allowed-tools entries for the /prflow:implement path (devflow-implement.yml), APPENDED on top of devflow's built-in base list. The implement path does NOT inherit prflow.allowed_tools, so list every extra tool you want during implementation here. Empty/omitted \u2192 base list only.",
           "default": []
         },
         "update_branch_checkpoints": {
