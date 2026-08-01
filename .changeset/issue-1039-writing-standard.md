@@ -4,7 +4,7 @@ type: Added
 ---
 
 - **Add a shared writing standard for agent-authored content.** A new canonical page,
-  `docs/writing-standard.md`, states how the prose PRFlow's agents write should read — name the
+  `lib/writing-standard.md`, states how the prose PRFlow's agents write should read — name the
   reader, open plainly, one claim per sentence, evidence in its own bullet, and define coined
   terms — and subordinates itself to machine-consumed structure. The scattered partial standards
   in the implement Reflection style contract, the pr-description Rules block, and the three

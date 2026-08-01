@@ -201,7 +201,7 @@ one fixable thing or several. Be specific; "code quality issue" is useless.
 ### summary
 
 Before composing this paragraph, read the shared writing standard
-`"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../docs/writing-standard.md`
+`"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/writing-standard.md`
 and follow it. A failed load emits a breadcrumb naming the file and the failure
 kind, and you compose the summary without it.
 
