@@ -153,7 +153,7 @@ gated by an actor-authorization check. An outside fork contributor cannot self-t
 and re-running the installer deliberately leaves them alone. To remove them, run
 `install.sh --apply --remove-withheld-review-tier`, which deletes
 `.github/workflows/devflow-review.yml`, `devflow-runner.yml` and `telemetry-push.yml` and
-sets `workflows["devflow-review"]` to `false` in `.prflow/config.json`. Then remove the
+sets `workflows["prflow-review"]` to `false` in `.prflow/config.json`. Then remove the
 `Devflow Review` context from any branch protection rule or ruleset that requires it —
 no installer can do that step for you, and skipping it wedges every later pull request
 behind a required check nothing will report. Full procedure and rationale:

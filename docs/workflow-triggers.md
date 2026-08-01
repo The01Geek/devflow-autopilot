@@ -44,7 +44,7 @@ which would report every review `incomplete` and wedge every pull request behind
 check that never reports, while an absent `derive-review-preconditions.sh` fails **open** and
 silently drops the freshness and CI-green gates. That is why those helpers are retained rather
 than swept. It also means such a repository **remains exposed to the #930 and #920 defects for
-as long as `workflows["devflow-review"]` is `true` in its `.prflow/config.json`**.
+as long as `workflows["prflow-review"]` is `true` in its `.prflow/config.json`**.
 
 **Every upgrade surfaces that exposure.** `install.sh` detects the three files and reports them,
 naming issues #930 and #920 — it does not delete them, because in the repositories that adopted
@@ -55,7 +55,7 @@ no installer can perform:
 
 1. Delete `.github/workflows/devflow-review.yml`, `.github/workflows/devflow-runner.yml`
    and `.github/workflows/telemetry-push.yml`.
-2. Set `workflows["devflow-review"]` to `false` in `.prflow/config.json`.
+2. Set `workflows["prflow-review"]` to `false` in `.prflow/config.json`.
 3. Remove the `Devflow Review` context from any branch protection rule or ruleset that
    requires it — otherwise every subsequent pull request wedges against a required check
    that nothing will report.
