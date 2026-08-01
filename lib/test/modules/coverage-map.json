@@ -418,6 +418,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/post-ci-review-trigger.sh": {
+      "note": "ci.yml auto-review notification: the bare review-trigger payload contract and the per-SHA post-or-skip arms",
+      "owner": "review-trigger-helpers"
+    },
     "scripts/post-issue-comment.sh": {
       "note": "",
       "owner": "unmodularized"

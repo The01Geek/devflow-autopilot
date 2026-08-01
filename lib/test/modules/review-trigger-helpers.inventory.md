@@ -31,6 +31,7 @@ drift out of it silently.
 | Implement trigger | `resolve-implement-trigger.sh`, `dedupe-implement-run.sh` | implement-trigger section | trigger resolution and the single-flight dedupe of an implement run |
 | Actor authorization | `authorize-actor.sh (allowed_users filter)` | authorization section | the `allowed_users` filter's allow/deny arms and deny reasons |
 | Standalone command routing | `detect-standalone-command.sh`, `resolve-command-trigger.sh` | command-routing section | both the resolver and `review_dedupe` route through the one shared detector, and the detector extraction fails open only under an `if !` guard |
+| CI auto-review notification | *(no former section — added with `scripts/post-ci-review-trigger.sh`)* | `post-ci-review-trigger.sh` section | the composed comment body is fed through the REAL standalone-command detector and must resolve to the plain review command — the structural brake against widening the payload to the fix-loop command, whose App-token pushes escape GitHub's recursion guard — plus the per-SHA post-or-skip arms and the fail-closed unreadable-comment-list arm |
 
 The generic test harness, registry validation, module registration, full-suite
 boundary, and module-runner tests stay global so deleting this module cannot also

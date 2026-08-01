@@ -2952,3 +2952,110 @@ devflow_module_pin_unique "rct #321: review_dedupe routes through the shared det
 # reverting it to a bare `CMD=$(...)` assignment re-opens the fail-CLOSED swallow.
 devflow_module_pin_unique "rct #321: review_dedupe detector extraction fails open on a run failure (if!-guarded)" \
   'if ! CMD="$(printf '"'"'%s'"'"' "$BODY" | bash "$DETECTOR" | sed -n '"'"'s/^command=//p'"'"')"' "$RCT_WF_DEVFLOW"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "post-ci-review-trigger.sh (ci.yml auto-review notification)"
+# ────────────────────────────────────────────────────────────────────────────
+# The composed comment body is a MACHINE-CONSUMED contract, not prose: it is
+# parsed by scripts/detect-standalone-command.sh (which decides whether the
+# comment is a standalone command at all, and which one) and substring-tested by
+# devflow.yml's gate `if:`. It is therefore asserted through the REAL detector on
+# the REAL composer's output rather than by grepping the composer's source.
+# structural-pin-ok: routing-dispatch-contract -- the body is the dispatch token the
+# shared standalone-command detector and devflow.yml's trigger gate both read.
+#
+# This block is also the structural brake on ONE specific future edit. Widening
+# the payload to the fix-loop command would mint an App token and push with it,
+# and an App-token push is not covered by GitHub's recursion guard, so it would
+# re-run CI, re-post, and loop without bound. Plain review mints no App token
+# (devflow.yml skips that step on a `/prflow:review ` command) and pushes nothing.
+PCRT="$LIB/../scripts/post-ci-review-trigger.sh"
+PCRT_SHA="0123456789abcdef0123456789abcdef01234567"
+PCRT_BODY="$(MODE=compose PR=7 HEAD_SHA="$PCRT_SHA" bash "$PCRT" 2>/dev/null)"
+PCRT_DET="$(printf '%s' "$PCRT_BODY" | bash "$LIB/../scripts/detect-standalone-command.sh")"
+
+assert_eq "pcrt: the composed body resolves to the PLAIN review command through the real detector" \
+  "command=/prflow:review" "$(printf '%s\n' "$PCRT_DET" | grep '^command=')"
+assert_eq "pcrt: the composed body carries no explicit number, so the resolver targets the event's own PR" \
+  "number=" "$(printf '%s\n' "$PCRT_DET" | grep '^number=')"
+assert_eq "pcrt: the composed body mentions no @claude (the partition invariant with Anthropic's claude.yml)" \
+  "0" "$(printf '%s' "$PCRT_BODY" | grep -c '@claude')"
+assert_eq "pcrt: the composed body carries no implement token in EITHER namespace" \
+  "0" "$(printf '%s' "$PCRT_BODY" | grep -cE '/(pr|dev)flow:implement')"
+assert_eq "pcrt: the composed body carries the SHA-keyed dedupe marker" \
+  "1" "$(printf '%s' "$PCRT_BODY" | grep -cF "<!-- prflow:ci-review-trigger sha=$PCRT_SHA -->")"
+# Negative control: the assertions above would also pass on a body that is nothing
+# but the marker, so prove the detector really is reading a command line here.
+assert_eq "pcrt: negative control — the marker alone resolves to NO command" \
+  "command=" "$(printf '%s\n' "<!-- prflow:ci-review-trigger sha=$PCRT_SHA -->" \
+                 | bash "$LIB/../scripts/detect-standalone-command.sh" | grep '^command=')"
+
+# --- the post-or-skip selection, arm by arm ---------------------------------
+# The whole reason the decision lives in a helper rather than inline in ci.yml:
+# a reordered or broken arm here posts a duplicate paid review, or silently posts
+# nothing, and inline YAML could not be driven at all.
+PCRT_SB="$(mktemp -d)"
+cat > "$PCRT_SB/gh" <<'EOS'
+#!/usr/bin/env bash
+# gh stub. A POST is recorded to $PCRT_REC and honours $PCRT_POST_RC; anything
+# else is the comment-list read, which honours $PCRT_LIST_RC and serves
+# $PCRT_LIST_OUT (the ids the helper's marker filter would have matched).
+case "$*" in
+  *"--method POST"*)
+    printf '%s\n' "$*" >> "$PCRT_REC"
+    [ "${PCRT_POST_RC:-0}" = 0 ] || { echo "HTTP 403" >&2; exit 1; }
+    printf '{"id":1}\n'; exit 0 ;;
+esac
+[ "${PCRT_LIST_RC:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }
+printf '%s' "${PCRT_LIST_OUT-}"
+exit 0
+EOS
+chmod +x "$PCRT_SB/gh"
+
+# Runs the helper under the stub, leaving its stdout in $PCRT_OUT and the recorded
+# POST count in $PCRT_POSTS.
+pcrt_run() {  # $@ = extra command-prefix env assignments
+  : > "$PCRT_SB/rec"
+  PCRT_OUT="$(env PCRT_REC="$PCRT_SB/rec" DEVFLOW_GH="$PCRT_SB/gh" \
+                  PR=7 HEAD_SHA="$PCRT_SHA" "$@" bash "$PCRT" 2>/dev/null)"
+  PCRT_POSTS="$(grep -c . "$PCRT_SB/rec")"
+}
+
+pcrt_run PCRT_LIST_OUT=""
+assert_eq "pcrt: no existing marker for this head → the trigger is POSTed" \
+  "1" "$PCRT_POSTS"
+assert_eq "pcrt: a successful post is annotated as a notice naming the head" \
+  "1" "$(printf '%s\n' "$PCRT_OUT" | grep -c "^::notice::ci auto-review trigger: posted the review trigger on PR #7 for $PCRT_SHA")"
+
+pcrt_run PCRT_LIST_OUT="4242"
+assert_eq "pcrt: an existing marker for THIS head → nothing is posted (per-SHA dedupe)" \
+  "0" "$PCRT_POSTS"
+assert_eq "pcrt: the already-posted arm annotates a notice, never a warning" \
+  "1-0" "$(printf '%s\n' "$PCRT_OUT" | grep -c 'already carries a trigger comment')-$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::')"
+
+pcrt_run PCRT_LIST_RC=1
+assert_eq "pcrt: an unreadable comment list → FAIL-CLOSED, nothing is posted" \
+  "0" "$PCRT_POSTS"
+assert_eq "pcrt: the fail-closed arm warns and names the choice, so a missed review is never silent" \
+  "1" "$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::ci auto-review trigger: could not read PR #7 comments.*fail-closed')"
+
+pcrt_run PCRT_LIST_OUT="" PCRT_POST_RC=1
+assert_eq "pcrt: a POST that fails is NEVER annotated as a fired trigger (the #408 lesson)" \
+  "0-1" "$(printf '%s\n' "$PCRT_OUT" | grep -c 'posted the review trigger')-$(printf '%s\n' "$PCRT_OUT" | grep -c 'did NOT post')"
+
+# A missing/blank head SHA cannot key the marker, so dedupe would be impossible —
+# refuse rather than post an unkeyed comment on every run.
+pcrt_run HEAD_SHA=""
+assert_eq "pcrt: an unusable head SHA → nothing is posted, with its own warning" \
+  "0-1" "$PCRT_POSTS-$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::.*head SHA')"
+
+rm -rf "$PCRT_SB"
+
+# DELIBERATELY NOT COVERED, and the absence is the decision (the issue-#843 rule).
+# The calling job's eligibility guards — the fork gate, the draft test, the two
+# `needs.*.result` tests — are GitHub-evaluated expressions. No tool or consumer in
+# this repository reads them, the suite cannot evaluate one, and a source-presence
+# pin over them would be exactly the wording-only pin #375/#666/#810 prohibit. The
+# compensating control is the review pass that reads the workflow, not a pin. What
+# IS covered here is everything a program does read: the payload the detector parses
+# and the post-or-skip arms.
