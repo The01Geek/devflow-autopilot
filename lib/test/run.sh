@@ -6358,9 +6358,11 @@ run356() {  # <body-file> <args...> → prints exit code; leaves out/err/patchlo
   echo $?
 }
 
-# AC: `workpad.py status` prints `terminal 💥 Failed` exit 0 for a 💥 Failed body.
+# AC: `workpad.py status` prints `failed 💥 Failed` exit 0 for a 💥 Failed body
+# (issue #1025 widened the class vocabulary — 💥 is now the distinct `failed`
+# class rather than the collapsed `terminal`).
 _so="$(WP_BODY="$S356/failed.md" DEVFLOW_GH="$S356/gh" python3 "$WP_PY" status 888 2>/dev/null)"; _src=$?
-assert_eq "#356: workpad.py status prints 'terminal 💥 Failed' for a 💥 Failed body" "terminal 💥 Failed" "$_so"
+assert_eq "#356: workpad.py status prints 'failed 💥 Failed' for a 💥 Failed body" "failed 💥 Failed" "$_so"
 assert_eq "#356: workpad.py status exits 0 for a 💥 Failed body" "0" "$_src"
 
 # AC: update --status Failed writes 💥 Failed and does NOT trip the Complete-only gate.
@@ -15125,7 +15127,7 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # together, or test_module_runner.py's tranche test goes RED.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 482; then
+  "review-trigger-helpers" 525; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
@@ -28030,7 +28032,29 @@ echo "#266 cloud /devflow:implement stall backstop"
 DECIDE_SH266="$REPO_ROOT/scripts/stall-backstop-decide.sh"
 decide266() { bash "$DECIDE_SH266" "$@" 2>/dev/null; }
 assert_eq "#266 decide: disabled (enabled=false) -> skip" "skip" "$(decide266 false interim 0 2)"
-assert_eq "#266 decide: terminal -> noop" "noop" "$(decide266 true terminal 0 2)"
+assert_eq "#266 decide: terminal (legacy alias) -> noop" "noop" "$(decide266 true terminal 0 2)"
+# #1025 — the widened terminal vocabulary. `workpad.py status` now names each
+# terminal glyph (complete/blocked/failed/cancelled) instead of collapsing them
+# to `terminal`, so a blocked run is distinguishable from a completed one. Every
+# arm of the widened table is driven behaviorally here (AC5). RED pre-change: the
+# helper had no complete/blocked/failed/cancelled arms, so each fell through the
+# `unreadable|*` wildcard to fail-unreadable.
+assert_eq "#1025 decide: complete -> noop (🎉 stays green)" "noop" "$(decide266 true complete 0 2)"
+assert_eq "#1025 decide: blocked -> fail-blocked (non-success)" "fail-blocked" "$(decide266 true blocked 0 2)"
+assert_eq "#1025 decide: failed -> fail-blocked (non-success)" "fail-blocked" "$(decide266 true failed 0 2)"
+assert_eq "#1025 decide: cancelled (stale read, non-cancelled job) -> noop (never a failure, AC4)" "noop" "$(decide266 true cancelled 0 2)"
+# #1025 AC6 — negative control: the interim arms are UNCHANGED. An interim status
+# under the cap still selects resume, exactly as before the vocabulary widened.
+assert_eq "#1025 decide: interim under cap -> resume (interim arm unchanged, AC6)" "resume" "$(decide266 true interim 0 2)"
+# #1025 — the cap-exhausted interim arm is also unchanged (fail-exhausted != the
+# new fail-blocked): a stall at the cap is still a distinct, resume-bearing class.
+assert_eq "#1025 decide: interim at cap -> fail-exhausted (interim arm unchanged)" "fail-exhausted" "$(decide266 true interim 2 2)"
+# #1025 — the widened terminal classes also behave under a cancelled job: every
+# decided terminal end (and the legacy alias) folds to noop; only interim flips.
+assert_eq "#1025 decide: complete + cancelled -> noop" "noop" "$(decide266 true complete 0 2 cancelled)"
+assert_eq "#1025 decide: blocked + cancelled -> noop (a cancel is not a failure, AC4)" "noop" "$(decide266 true blocked 0 2 cancelled)"
+assert_eq "#1025 decide: failed + cancelled -> noop" "noop" "$(decide266 true failed 0 2 cancelled)"
+assert_eq "#1025 decide: cancelled + cancelled -> noop" "noop" "$(decide266 true cancelled 0 2 cancelled)"
 assert_eq "#266 decide: interim under cap -> resume" "resume" "$(decide266 true interim 0 2)"
 assert_eq "#266 decide: interim at cap -> fail-exhausted" "fail-exhausted" "$(decide266 true interim 2 2)"
 assert_eq "#266 decide: interim cap=0 -> fail-exhausted (no auto-resume)" "fail-exhausted" "$(decide266 true interim 0 0)"
@@ -28295,8 +28319,8 @@ STUB
     "$([ -f "$SB268_DIR/status-touched" ] && echo yes || echo no)"
   assert_eq "#268 behavior: disabled -> no comment posted" "no" \
     "$([ -f "$SB268_POST" ] && echo yes || echo no)"
-  sb268_run env STUB_STATUS_OUT="terminal 🎉 Complete"
-  assert_eq "#268 behavior: terminal -> noop exit 0, no comment" "0:no" \
+  sb268_run env STUB_STATUS_OUT="complete 🎉 Complete"
+  assert_eq "#1025 behavior: complete -> noop exit 0, no comment (🎉 stays green)" "0:no" \
     "$?:$([ -f "$SB268_POST" ] && echo yes || echo no)"
   sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing"
   SB268_RC=$?
@@ -28334,10 +28358,27 @@ STUB
   assert_eq "#268 behavior: CRLF marker line still counts (resume as attempt 2 of 2)" "0:yes" \
     "$SB268_RC:$(grep -qF 'attempt 2 of 2' "$SB268_POST" && echo yes || echo no)"
   # Terminal path is lazy: the paginated comment fetch must never run.
-  sb268_run env STUB_STATUS_OUT="terminal 👎 Blocked"
+  sb268_run env STUB_STATUS_OUT="complete 🎉 Complete"
   SB268_RC=$?
-  assert_eq "#268 behavior: terminal -> comment fetch skipped (gh never invoked)" "0:no" \
+  assert_eq "#1025 behavior: complete -> comment fetch skipped (gh never invoked)" "0:no" \
     "$SB268_RC:$([ -f "$SB268_DIR/gh-touched" ] && echo yes || echo no)"
+  # #1025 — the reported defect's fix, end to end: a run that ended 👎 Blocked
+  # now concludes the job NON-success (exit 1). The comment fetch is still skipped
+  # (blocked is not interim) and NO issue comment is posted (the workpad already
+  # carries the blocked reflection) — the visible signal is the step's ::error::
+  # annotation + the red conclusion. RED pre-change: `blocked` fell through to
+  # fail-unreadable, or (with the old vocabulary) `terminal 👎 Blocked` was noop
+  # exit 0 — the green-on-blocked bug this issue fixes.
+  sb268_run env STUB_STATUS_OUT="blocked 👎 Blocked"
+  SB268_RC=$?
+  assert_eq "#1025 behavior: blocked -> fail-blocked exit 1 (non-success), no comment, gh never invoked" "1:no:no" \
+    "$SB268_RC:$([ -f "$SB268_POST" ] && echo yes || echo no):$([ -f "$SB268_DIR/gh-touched" ] && echo yes || echo no)"
+  # #1025 — 💥 Failed reads the same distinct `failed` class and also concludes
+  # non-success (a terminal end that is not 🎉 Complete).
+  sb268_run env STUB_STATUS_OUT="failed 💥 Failed"
+  SB268_RC=$?
+  assert_eq "#1025 behavior: failed -> fail-blocked exit 1 (non-success), no comment" "1:no" \
+    "$SB268_RC:$([ -f "$SB268_POST" ] && echo yes || echo no)"
   # Attempt boundary: one prior audit marker under cap 2 -> resume, body says 2 of 2.
   sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_MAX=2 \
     STUB_GH_BODIES='<!-- devflow:stall-backstop-audit -->'
@@ -28350,9 +28391,9 @@ STUB
   SB268_RC=$?
   assert_eq "#268 behavior: quoted marker does not inflate the attempt count (still resume under cap 1)" "0" "$SB268_RC"
   # Empty config-get output (hard-failure shape): safe-direction defaults hold.
-  sb268_run env STUB_ENABLED= STUB_MAX= STUB_STATUS_OUT="terminal 🎉 Complete"
+  sb268_run env STUB_ENABLED= STUB_MAX= STUB_STATUS_OUT="complete 🎉 Complete"
   SB268_RC=$?
-  assert_eq "#268 behavior: empty config reads -> enabled + default cap (terminal still noop exit 0)" "0" "$SB268_RC"
+  assert_eq "#268 behavior: empty config reads -> enabled + default cap (complete still noop exit 0)" "0" "$SB268_RC"
   # mktemp failure: fail loud on EVERY decision arm (a resume comment that was
   # never posted must not read as green).
   sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_MKTEMP_FAIL=1
@@ -28405,7 +28446,7 @@ STUB
     "$SB268_RC:$(grep -cF '/devflow:implement ' "$SB268_POST" || true):$([ -f "$SB268_DIR/gh-touched" ] && echo yes || echo no)"
   # Only the exact string "false" disables: an unrecognized value stays enabled
   # (the status read runs).
-  sb268_run env STUB_ENABLED=False STUB_STATUS_OUT="terminal 🎉 Complete"
+  sb268_run env STUB_ENABLED=False STUB_STATUS_OUT="complete 🎉 Complete"
   SB268_RC=$?
   assert_eq "#268 behavior: unrecognized enabled value ('False') stays enabled (status read ran)" "0:yes" \
     "$SB268_RC:$([ -f "$SB268_DIR/status-touched" ] && echo yes || echo no)"
@@ -28468,12 +28509,16 @@ esac
 STUB
 chmod +x "$WP266_GHD/gh"
 WP266_PY="$REPO_ROOT/scripts/workpad.py"
+# #1025 — `workpad.py status` now names each terminal glyph with its own class
+# (complete/blocked/failed/cancelled) rather than collapsing them to `terminal`,
+# so the stall backstop can tell 👎 Blocked from 🎉 Complete. RED pre-change: the
+# output was `terminal 🎉 Complete` / `terminal 👎 Blocked` / `terminal 🛑 Cancelled`.
 WP266_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 🎉 Complete"}]' python3 "$WP266_PY" status 5 2>/dev/null)"
-assert_eq "#266 workpad.py status: Complete -> 'terminal 🎉 Complete'" "terminal 🎉 Complete" "$WP266_OUT"
+assert_eq "#1025 workpad.py status: Complete -> 'complete 🎉 Complete'" "complete 🎉 Complete" "$WP266_OUT"
 WP266_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 👎 Blocked"}]' python3 "$WP266_PY" status 5 2>/dev/null)"
-assert_eq "#266 workpad.py status: Blocked -> 'terminal 👎 Blocked'" "terminal 👎 Blocked" "$WP266_OUT"
+assert_eq "#1025 workpad.py status: Blocked -> 'blocked 👎 Blocked'" "blocked 👎 Blocked" "$WP266_OUT"
 WP266_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 🛑 Cancelled"}]' python3 "$WP266_PY" status 5 2>/dev/null)"
-assert_eq "#498 workpad.py status: Cancelled -> 'terminal 🛑 Cancelled'" "terminal 🛑 Cancelled" "$WP266_OUT"
+assert_eq "#1025 workpad.py status: Cancelled -> 'cancelled 🛑 Cancelled'" "cancelled 🛑 Cancelled" "$WP266_OUT"
 WP266_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 🚀 Reviewing"}]' python3 "$WP266_PY" status 5 2>/dev/null)"
 assert_eq "#266 workpad.py status: Reviewing -> 'interim 🚀 Reviewing'" "interim 🚀 Reviewing" "$WP266_OUT"
 PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
@@ -33032,6 +33077,31 @@ assert_eq "#362 isg: terminal arm names the status word in its breadcrumb" "yes"
   "$(printf '%s' "${ISG_R#*|}" | grep -qF 'is terminal (Complete)' && echo yes || echo no)"
 assert_eq "#362 isg: terminal workpad deletes the marker (self-heal)" "no" \
   "$([ -e "$ISG_D/.prflow/tmp/implement-active-603" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# #1025 — a 👎 Blocked workpad is a terminal end and must ALSO self-heal. Since
+# issue #1025 widened `workpad.py status`'s vocabulary, this drives the class
+# `blocked` through the guard's `case complete|blocked|failed|cancelled|terminal`
+# heal arm. RED if that arm were ever narrowed back to `complete`/`terminal`
+# only: a blocked run's stale marker would then block one stop per new session
+# instead of healing.
+cat > "$ISG_GHD/blocked.md" <<'WPMD'
+<!-- prflow:workpad -->
+# DevFlow Workpad — Issue #605
+
+**Status:** 👎 Blocked
+**Last updated:** 2026-05-15T00:00:00Z
+WPMD
+ISG_D="$(isg_repo "isg: blocked self-heal arm")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.prflow/tmp/implement-active-605"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidBk"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_605=$ISG_GHD/blocked.md")"
+assert_eq "#1025 isg: blocked (terminal) workpad -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#1025 isg: blocked arm names the status word in its breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'is terminal (Blocked)' && echo yes || echo no)"
+assert_eq "#1025 isg: blocked workpad deletes the marker (self-heal, not a block)" "no" \
+  "$([ -e "$ISG_D/.prflow/tmp/implement-active-605" ] && echo yes || echo no)"
 rm -rf "$ISG_D"
 
 # terminal, but the marker cannot be removed (read-only .prflow/tmp): the guard must
