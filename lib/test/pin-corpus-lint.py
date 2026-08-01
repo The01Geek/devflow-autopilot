@@ -1676,8 +1676,9 @@ _RUNTIME_TARGET_PREFIX = "/__pin_corpus_runtime__/"
 
 def _repo_relative_or_none(repo_root, target):
     """Return TARGET as a repo-relative POSIX path, or None when it is outside
-    the repository. The one copy of the abspath/commonpath/relpath computation
-    the file otherwise repeats (see also the raising ``_relative_target_path``)."""
+    the repository. The non-raising copy of the abspath/commonpath/relpath
+    computation the file otherwise repeats (see also the raising
+    ``_relative_target_path``)."""
     try:
         root = os.path.abspath(repo_root)
         absolute = os.path.abspath(target)
