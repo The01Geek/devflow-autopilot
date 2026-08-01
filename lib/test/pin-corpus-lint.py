@@ -1347,6 +1347,30 @@ class GuardSite(NamedTuple):
     # The resolved member files of a concatenated bundle target, set only when
     # ``target_path`` is None because the target is a runtime bundle (issue #956).
     target_members: tuple | None = None
+    # The classifier-equivalent resolved-target token (issue #1006): a repo-
+    # relative POSIX path for a file target, the ``/__pin_corpus_runtime__/<var>``
+    # placeholder for a runtime bundle, or None for a defaulted/unresolvable
+    # target -- the same three shapes ``pin-corpus-classifier.py`` writes into the
+    # retirement manifests' ``resolved_target`` column. Retirement is keyed on
+    # (source_file, helper, literal, this token) so a literal retired at one
+    # site does not poison a retained pin sharing that literal at a different site.
+    resolved_target_token: str | None = None
+
+    def retirement_key(self):
+        """This site's retirement identity, or None when it has no literal.
+
+        The single place a site is turned into a retirement key (issue #1006),
+        so ``scan_changed_sources``' two loops cannot disagree about what a
+        site's identity is.
+        """
+        if self.literal is None:
+            return None
+        return _site_retirement_key(
+            self.source_path,
+            self.helper,
+            self.literal,
+            self.resolved_target_token,
+        )
 
 
 class FilePatch(NamedTuple):
@@ -1643,6 +1667,89 @@ def _literal_adjudication_key(literal):
     return f"literal:{hashlib.sha256(literal.encode('utf-8')).hexdigest()}"
 
 
+# Coupled with pin-corpus-classifier.py's recover_override_names (which writes
+# f"/__pin_corpus_runtime__/{name}" into the manifests' resolved_target cell): the
+# two scripts share no module, so this sentinel is a coupled invariant -- change one
+# spelling and every runtime-bundle retirement key silently stops matching (#1006).
+_RUNTIME_TARGET_PREFIX = "/__pin_corpus_runtime__/"
+
+
+def _repo_relative_or_none(repo_root, target):
+    """Return TARGET as a repo-relative POSIX path, or None when it is outside
+    the repository. The one copy of the abspath/commonpath/relpath computation
+    the file otherwise repeats (see also the raising ``_relative_target_path``)."""
+    try:
+        root = os.path.abspath(repo_root)
+        absolute = os.path.abspath(target)
+        if os.path.commonpath((root, absolute)) != root:
+            return None
+    except ValueError:
+        return None
+    return os.path.relpath(absolute, root).replace(os.sep, "/")
+
+
+def _resolved_target_token(target_path, var_name, members, repo_root):
+    """The classifier-equivalent resolved-target token for a guard site (#1006).
+
+    Matches ``pin-corpus-classifier.py``'s ``_portable_target`` for an in-repo file
+    (a repo-relative POSIX path) and ``recover_override_names`` for a runtime bundle
+    (the ``/__pin_corpus_runtime__/<var>`` placeholder), so a live site's token
+    equals the manifest's ``resolved_target`` cell for the same site. Returns None
+    for a target that is defaulted or an unresolvable bundle, AND -- unlike the
+    classifier, which keeps the raw path -- for a target OUTSIDE the repository:
+    the fail-toward-not-matched direction, which routes such a site through the
+    ordinary policy rather than treating it as retired. (No pin target in this repo
+    is out-of-repo, so the divergence is unreachable today; it is deliberately the
+    safe direction if one ever is.)
+    """
+    if target_path is not None:
+        return _repo_relative_or_none(repo_root, target_path)
+    if members is not None and var_name:
+        return f"{_RUNTIME_TARGET_PREFIX}{var_name}"
+    return None
+
+
+def _normalize_retirement_target(token):
+    """Normalize a resolved-target token to the current state-directory spelling.
+
+    The frozen manifests were written before the ``.devflow/`` -> ``.prflow/``
+    rename (issue #1002) and record the superseded spelling, while a live site's
+    token carries the current one. Applied symmetrically to both sides so a
+    manifest ``.devflow/...`` target and a live ``.prflow/...`` target for one
+    asset compare equal. Only the state-directory prefix is rewritten -- never
+    arbitrary ``devflow`` tokens inside a filename -- so a frozen path like
+    ``docs/DEVFLOW_SYSTEM_OVERVIEW.md`` is left byte-identical. The #1002 rename
+    also moved the vendored plugin sub-path (``vendor/devflow`` -> ``vendor/prflow``);
+    that is deliberately NOT normalized here because no pin ``resolved_target`` is a
+    vendored path (confirmed against all three frozen manifests), and the safe
+    direction if one ever were is the loud fail-toward-not-matched of #1006.
+    """
+    if token is None:
+        return None
+    if token.startswith(_SUPERSEDED_STATE_DIR_PREFIX):
+        return _STATE_DIR_PREFIX + token[len(_SUPERSEDED_STATE_DIR_PREFIX):]
+    return token
+
+
+def _site_retirement_key(source_file, helper, literal, target_token):
+    """The retirement identity of a pin site: (source_file, helper, literal,
+    resolved target). Keyed on the same manifest fields ``RevivalAuthorization``
+    carries, so a retired literal covers only the site(s) it was retired at and a
+    retained pin sharing that literal at a different site is not swept up (#1006).
+    """
+    payload = json.dumps(
+        [
+            source_file,
+            helper or "",
+            literal,
+            _normalize_retirement_target(target_token),
+        ],
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    return f"retire-site:{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
+
+
 def _strict_retirement_manifest_literals(text, path, spec):
     header, allowed_dispositions, retired_dispositions = spec
     if "\r" in text:
@@ -1664,7 +1771,10 @@ def _strict_retirement_manifest_literals(text, path, spec):
         raise InfrastructureError(f"retirement manifest is malformed TSV: {path}: {exc}") from exc
     if not rows or tuple(rows[0]) != header:
         raise InfrastructureError(f"retirement manifest has invalid header: {path}")
+    source_file_index = header.index("source_file")
+    helper_index = header.index("helper")
     literal_index = header.index("literal")
+    target_index = header.index("resolved_target")
     disposition_index = header.index("disposition")
     retired = set()
     for number, row in enumerate(rows[1:], start=2):
@@ -1687,8 +1797,32 @@ def _strict_retirement_manifest_literals(text, path, spec):
             raise InfrastructureError(
                 f"retirement manifest literal is not a string or null: {path}:{number}"
             )
+        # source_file/resolved_target are encode_cell (JSON) values; helper is a
+        # bare cell -- the shapes pin-corpus-classifier.py wrote (issue #1006).
+        try:
+            source_file = json.loads(row[source_file_index])
+            resolved_target = json.loads(row[target_index])
+        except json.JSONDecodeError as exc:
+            raise InfrastructureError(
+                f"retirement manifest site field is invalid JSON: {path}:{number}"
+            ) from exc
+        if not isinstance(source_file, str):
+            raise InfrastructureError(
+                f"retirement manifest source_file is not a string: {path}:{number}"
+            )
+        if resolved_target is not None and not isinstance(resolved_target, str):
+            raise InfrastructureError(
+                f"retirement manifest resolved_target is not a string or null: "
+                f"{path}:{number}"
+            )
+        helper = row[helper_index]
         if disposition in retired_dispositions and literal is not None:
-            retired.add(_literal_adjudication_key(literal))
+            # Key on SITE identity, not the literal alone: a literal retired at one
+            # (source_file, helper, resolved_target) site must not poison a retained
+            # pin sharing that literal at a different site (issue #1006).
+            retired.add(
+                _site_retirement_key(source_file, helper, literal, resolved_target)
+            )
     return retired
 
 
@@ -3750,6 +3884,8 @@ def extract_python_guard_sites(text, source_path, repo_root):
                 target_path,
                 declaration,
                 error,
+                None,
+                _resolved_target_token(target_path, None, None, repo_root),
             )
         )
     return sites
@@ -3850,6 +3986,7 @@ def _raw_guard_site(
         declaration,
         error,
         members,
+        _resolved_target_token(target_abs, var_name, members, repo_root),
     )
 
 
@@ -3933,6 +4070,7 @@ def extract_guard_sites(text, source_path, repo_root):
                 args, spec, literal_vars, path_vars, lib
             )
             members = None
+            target_variable = None
             if target is None:
                 target_variable = _guard_target_variable(args, spec)
                 if target_variable is not None:
@@ -3957,6 +4095,9 @@ def extract_guard_sites(text, source_path, repo_root):
                     declaration,
                     error,
                     members,
+                    _resolved_target_token(
+                        target, target_variable, members, repo_root
+                    ),
                 )
             )
             continue
@@ -4050,14 +4191,9 @@ def _normalized_revival_authorization(site, repo_root):
         or site.declaration_error is not None
     ):
         return None
-    repo_root = os.path.abspath(repo_root)
-    target_path = os.path.abspath(site.target_path)
-    try:
-        if os.path.commonpath((repo_root, target_path)) != repo_root:
-            return None
-    except ValueError:
+    relative_target = _repo_relative_or_none(repo_root, site.target_path)
+    if relative_target is None:
         return None
-    relative_target = os.path.relpath(target_path, repo_root).replace(os.sep, "/")
     return RevivalAuthorization(
         site.source_path,
         site.family,
@@ -4564,8 +4700,11 @@ def scan_changed_sources(
     for site in new_candidates:
         if site.literal is None:
             continue
-        literal_key = _literal_adjudication_key(site.literal)
-        if literal_key not in retired_literal_keys:
+        # ``retired_literal_keys`` holds SITE keys (issue #1006): membership is the
+        # site's own (source_file, helper, literal, resolved_target), not the
+        # literal alone, so a retained pin sharing a retired twin's literal at a
+        # different site is not swept into the revival population.
+        if site.retirement_key() not in retired_literal_keys:
             continue
         normalized = _normalized_revival_authorization(site, repo_root)
         if normalized is None:
@@ -4580,12 +4719,17 @@ def scan_changed_sources(
     consumed_revivals = set()
     findings = []
     for site in new_candidates:
+        # ``literal_key`` keys the literal-scoped adjudication LEDGER (delta and
+        # current state); ``retirement_key`` keys SITE-scoped retirement (#1006).
+        # They are deliberately distinct: the ledger records a decision per literal,
+        # while retirement covers a specific site.
         literal_key = (
             _literal_adjudication_key(site.literal)
             if site.literal is not None
             else None
         )
-        if literal_key in retired_literal_keys:
+        retirement_key = site.retirement_key()
+        if retirement_key in retired_literal_keys:
             normalized = _normalized_revival_authorization(site, repo_root)
             exact_authorization = (
                 normalized is not None and normalized in revival_authorizations
@@ -4658,7 +4802,7 @@ def scan_changed_sources(
         # structural boundary) is exactly the pre-#948 prose test — a boundary
         # row alone must not make a revival valid, and both ladder steps rest on
         # such a row. So a retired literal keeps the pre-#948 behavior verbatim.
-        ladder_applies = literal_key not in retired_literal_keys
+        ladder_applies = retirement_key not in retired_literal_keys
         # Step 1: a program demonstrably reads the literal. No human needed.
         if (
             ladder_applies
