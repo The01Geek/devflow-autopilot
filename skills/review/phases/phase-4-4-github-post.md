@@ -14,7 +14,7 @@ Map the verdict to a `gh pr review` action. **What goes in `--body` depends on w
   ## Verdict: {VERDICT} — full report in PR comment
 
   > The complete review report (checklist results, findings, details) is in the
-  > Devflow Review progress comment on this PR.
+  > PRFlow Review progress comment on this PR.
   ```
 
 - **No progress comment exists** — **`$WP` is unset**: the live comment is **off** (`live_progress_comment_enabled` false), its seed failed, or this is current-branch/non-PR mode. This now includes **cloud runs with the flag off** (the workflow no longer seeds a fallback comment), not just standalone local runs. A stub would point at a comment that does not exist and the report would live only in chat (lost entirely in a cloud run), so set `$BODY` to the full `$REPORT` from Phase 4.1 — one self-contained artifact, no dangling pointer. (It begins with its `## Verdict: {VERDICT}` line, so a standalone REJECT starts with `## Verdict: REJECT` — the exact prefix `dismiss-stale-rejections.sh` matches, so a standalone REJECT is still cleared by a later APPROVE.)
