@@ -16511,7 +16511,7 @@ assert_eq "app-token: overview §15 routes the review agent's posts to DevFlow-R
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/efficiency-trace-telemetry.sh" \
-  "efficiency-trace-telemetry" 884; then
+  "efficiency-trace-telemetry" 902; then
   printf 'ERROR: efficiency-trace-telemetry boundary could not record its result\n'
   exit 1
 fi
@@ -16688,15 +16688,17 @@ assert_eq "#404 trust: old PR-head resolution loop is gone" "0" \
   "$(grep -cF '.prflow/vendor/prflow/scripts/filter-runner-tools.sh scripts/filter-runner-tools.sh' "$RUNNER" || true)"
 assert_eq "#404 trust: FLOOR_HELPER wired to baseprovision floor_helper output" "1" \
   "$(grep -cF 'FLOOR_HELPER: ${{ steps.baseprovision.outputs.floor_helper }}' "$RUNNER" || true)"
-# VENDOR_SOURCE is wired to the same fresh-fetch gate at five sites: the tools
+# VENDOR_SOURCE is wired to the same fresh-fetch gate at six sites: the tools
 # step's deny-floor (#404), the #458 harden-stop-hooks step, the #505 compose step
 # (same trusted-source rank — the compose helper's rank-2 vendored fallback), the
 # #874 baseprovision step, whose prompt-extension materialization ladder carries the
-# identical fetch-gated rank so a THIN install resolves a trusted helper at all, and
-# the #908 harden_guard step, which keys the SAME trust signal to decide whether the
+# identical fetch-gated rank so a THIN install resolves a trusted helper at all, the
+# #908 harden_guard step, which keys the SAME trust signal to decide whether the
 # vendored copy of the PreToolUse guard closure also needs hardening (a `fetch`
-# vendor tree is official-repo content this run; any other value is PR-head content).
-assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output (tools + #458 harden + #505 compose + #874 baseprovision + #908 harden_guard)" "5" \
+# vendor tree is official-repo content this run; any other value is PR-head content),
+# and the #1064 scrub_transcript step, whose credential scrub takes the same rank-2
+# fetch gate so a PR-head copy can never supply the redaction rules.
+assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output (tools + #458 harden + #505 compose + #874 baseprovision + #908 harden_guard + #1064 scrub)" "6" \
   "$(grep -cF 'VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}' "$RUNNER" || true)"
 assert_eq "#404 trust: baseprovision materializes the floor from FETCH_HEAD" "1" \
   "$(grep -cF 'FETCH_HEAD:.prflow/vendor/prflow/scripts/filter-runner-tools.sh' "$RUNNER" || true)"
@@ -16706,9 +16708,10 @@ assert_eq "#404 trust: baseprovision materializes the floor from FETCH_HEAD" "1"
 # (#295 convention: `git rev-parse --show-toplevel`, falling back to `pwd`), so a
 # bare relative `.prflow/vendor/…` candidate can't be silently missed under a
 # future `working-directory:` and flip every review to helper-absent fail-closed.
-# Two sites anchor this way: the deny-floor (#409) and the #505 compose step's
-# rank-2 vendored-helper candidate (same repo-root convention).
-assert_eq "#409 item8: deny-floor helper resolution is repo-root-anchored (#295)" "2" \
+# Three sites anchor this way: the deny-floor (#409), the #505 compose step's
+# rank-2 vendored-helper candidate, and the #1064 scrub_transcript step's rank-2
+# vendored scrub candidate (all the same repo-root convention).
+assert_eq "#409 item8: deny-floor helper resolution is repo-root-anchored (#295)" "3" \
   "$(grep -cF '_REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"' "$RUNNER" || true)"
 assert_eq "provision: empty-after-strip warns build-aware review has no tools" "1" \
   "$(grep -c 'build-aware review is enabled with NO build tools' "$RUNNER" || true)"
