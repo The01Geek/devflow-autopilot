@@ -202,6 +202,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/build-denial-record.sh": {
+      "note": "issue #1064 D2/D4: assemble the scrubbed 3-state permission-denial record (run.sh top-level)",
+      "owner": "unmodularized"
+    },
     "scripts/build-experiment-records.py": {
       "note": "",
       "owner": "unmodularized"
@@ -538,6 +542,14 @@
     },
     "scripts/schedulewakeup-probe-verdict.py": {
       "note": "",
+      "owner": "unmodularized"
+    },
+    "scripts/scrub-credentials.sh": {
+      "note": "issue #1064 D4: shared credential-shape blocklist scrub, fail-closed (run.sh top-level)",
+      "owner": "unmodularized"
+    },
+    "scripts/scrub-transcript.sh": {
+      "note": "issue #1064 D4: transcript scrub/gate/caveat/fail-closed selection (run.sh top-level)",
       "owner": "unmodularized"
     },
     "scripts/section_parse.py": {

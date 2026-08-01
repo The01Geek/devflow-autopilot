@@ -162,15 +162,18 @@ if [ "$COMMANDS_ENABLED" = true ]; then
           if [ -z "$_raw_cmds" ]; then
             COMMANDS_STATE=unavailable
           else
-            # Walk each string element, scrub it, re-encode. NUL-safe iteration via jq
-            # base64 so embedded newlines in a command do not split the loop.
-            _scrubbed_arr='[]'
+            # Walk each string element, scrub it, collect into a bash array, and build the
+            # JSON array ONCE at the end. Iterate via jq base64 so an embedded newline in a
+            # command does not split the loop. (Accumulating in the array — rather than
+            # re-parsing/re-serializing a growing JSON string with `. + [$s]` per element —
+            # keeps the loop linear rather than O(n²) in the payload.)
+            _scrubbed_cmds=()
             _scrub_ok=1
             while IFS= read -r _b64; do
               [ -n "$_b64" ] || continue
-              _cmd="$(printf '%s' "$_b64" | "$DEVFLOW_JQ" -rn --arg b "$_b64" '$b | @base64d' 2>/dev/null)" || { _scrub_ok=0; break; }
+              _cmd="$("$DEVFLOW_JQ" -rn --arg b "$_b64" '$b | @base64d' 2>/dev/null)" || { _scrub_ok=0; break; }
               if _scrubbed="$(printf '%s' "$_cmd" | "$_BDR_DIR/scrub-credentials.sh")"; then
-                _scrubbed_arr="$(printf '%s' "$_scrubbed_arr" | "$DEVFLOW_JQ" -c --arg s "$_scrubbed" '. + [$s]' 2>/dev/null)" || { _scrub_ok=0; break; }
+                _scrubbed_cmds+=("$_scrubbed")
               else
                 # scrub-credentials.sh exited non-zero (sed unavailable / failed) →
                 # fail closed for the whole record.
@@ -182,8 +185,12 @@ if [ "$COMMANDS_ENABLED" = true ]; then
               echo "devflow: build-denial-record.sh: credential scrub could not run over the denied command text — persisting NOTHING for this run (fail-closed, AC4)" >&2
               exit 0
             fi
+            # Build the scrubbed array once from the collected strings ($ARGS.positional is
+            # the empty array [] when no commands were collected, matching a genuine zero).
+            # `${arr[@]+"${arr[@]}"}` expands to nothing on an empty array without tripping
+            # set -u on older bash (a present arm with every element empty-skipped).
+            COMMANDS_ARR="$("$DEVFLOW_JQ" -cn '$ARGS.positional' --args ${_scrubbed_cmds[@]+"${_scrubbed_cmds[@]}"} 2>/dev/null)" || COMMANDS_ARR='[]'
             COMMANDS_STATE=present
-            COMMANDS_ARR="$_scrubbed_arr"
             SCRUB_APPLIED=true
             TOTAL="$(printf '%s' "$CMDS_JSON" | "$DEVFLOW_JQ" -r 'if (.total?|type)=="number" then (.total|tostring) else "0" end' 2>/dev/null)" || TOTAL=0
             TRUNCATED="$(printf '%s' "$CMDS_JSON" | "$DEVFLOW_JQ" -r 'if .truncated == true then "true" else "false" end' 2>/dev/null)" || TRUNCATED=false
