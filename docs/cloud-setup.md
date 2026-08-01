@@ -761,6 +761,41 @@ Key properties:
   "opened-by" identity are out of scope — they require a per-user credential (tracked
   separately).
 
+## Durable denial forensics — a default-ON behavior change on upgrade (issue #1064)
+
+When a cloud run emits a Bash command in a shape the permission matcher does not grant,
+the command is refused silently. Since #1064 both live tiers record a **durable** denial
+record — the count, the denied `tool_name`, and (by default) the **scrubbed text** of the
+denied command — into each run's efficiency record on the long-lived `prflow-telemetry`
+branch, so "which command shapes does the matcher keep refusing, and how often" is
+answerable across runs.
+
+**This is a genuine, durable behavior change on upgrade, and it is default-ON.** The new
+`.prflow.execution_denial_commands_enabled` key defaults to `true`, and `install.sh`
+backfills it as `true` into your `.prflow/config.json` on upgrade — so **a repository that
+upgrades begins persisting scrubbed denied-command text to its own `prflow-telemetry`
+branch without opting in.** Two things bound the exposure and one turns it off:
+
+- The command text is run through an **incomplete** credential blocklist
+  (`scripts/scrub-credentials.sh`: GitHub tokens/PATs, Anthropic keys, and both
+  Authorization header forms) before it is written, and every record discloses
+  `scrub.blocklist_incomplete: true` — a novel third-party credential shape can survive, so
+  treat the branch as sensitive.
+- The field is bounded (per-command and list caps) and command-only — never a whole
+  transcript.
+- **To disable it, set `.prflow.execution_denial_commands_enabled` to `false`** in
+  `.prflow/config.json`. It is read at runtime, so the change takes effect on the very next
+  run. The denial **count** and denied **`tool_name`** are always persisted and are *not*
+  gated by this key (a number and a fixed-vocabulary tool identifier carry no credential
+  risk). Which repositories are actually affected: only those already pushing telemetry
+  records (one with no telemetry push path is unaffected in practice — persistence is
+  best-effort and degrades silently where no credential exists).
+
+This is deliberately the **opposite** default from `execution_transcript_artifact_enabled`
+(default `false`), which gates the whole execution transcript — prompt text, repository
+content, and a potentially dumped environment. Different surfaces, different risk, different
+defaults; they are not harmonized.
+
 ## Startup-lifecycle observability & consumer version skew (issue #537)
 
 The `/prflow:implement` startup lifecycle (see `docs/workflow-triggers.md` and
