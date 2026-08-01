@@ -15254,7 +15254,13 @@ rm -rf "$RT_STUB"
 # ────────────────────────────────────────────────────────────────────────────
 echo "denial forensics: build-denial-record.sh / scrub-credentials.sh / surface D1 (#1064)"
 # ────────────────────────────────────────────────────────────────────────────
-DEVFLOW_JQ="${DEVFLOW_JQ:-jq}"
+# BLOCK-PRIVATE jq handle. Deliberately NOT an assignment to DEVFLOW_JQ: that name is the
+# resolve-bin.sh override, honored VERBATIM and never probed (the test-stub contract), and
+# run.sh sets it only as a per-command prefix. A persistent assignment here leaks into every
+# later subshell — the scv(jq.exe) fixture sources install.sh inside `( PATH=...; . install.sh )`
+# with a deliberately unrunnable `jq` and python3 omitted, so an inherited DEVFLOW_JQ=jq made
+# install.sh honor the broken stub and the jq.exe arm could not be reached.
+DEN_JQ="${DEVFLOW_JQ:-jq}"
 BDR="$LIB/../scripts/build-denial-record.sh"
 SCR="$LIB/../scripts/scrub-credentials.sh"
 SED1064="$LIB/../scripts/surface-execution-diagnostics.sh"
@@ -15263,7 +15269,7 @@ DEN_TMP="$(mktemp -d)"
 # TAIL — past 200 chars of the stringified tool_input envelope — and which carries a
 # GitHub token that must be scrubbed. permission_denials_count:1, tool_name Bash.
 _LONGCMD='NUM=x && curl -H "Authorization: Bearer ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345" https://example.com/very/long/path/that/keeps/going/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa | paste -sd, -'
-"$DEVFLOW_JQ" -n --arg c "$_LONGCMD" \
+"$DEN_JQ" -n --arg c "$_LONGCMD" \
   '{type:"result",permission_denials:[{tool_name:"Bash",tool_input:{command:$c}}],permission_denials_count:1,is_error:false}' \
   > "$DEN_TMP/exec.json"
 
@@ -15278,41 +15284,41 @@ assert_eq "surface D1: ungranted head 'paste' present in denial line (>200-char 
 REC_ON="$(bash "$BDR" "$DEN_TMP/exec.json" true)"
 assert_eq "denial record (enabled): count=1 state=present tools=Bash enabled=true" \
   "1|present|Bash|true" \
-  "$(printf '%s' "$REC_ON" | "$DEVFLOW_JQ" -r '"\(.count)|\(.commands_state)|\(.tool_names|join(","))|\(.commands_field_enabled)"')"
+  "$(printf '%s' "$REC_ON" | "$DEN_JQ" -r '"\(.count)|\(.commands_state)|\(.tool_names|join(","))|\(.commands_field_enabled)"')"
 assert_eq "denial record (enabled): token scrubbed, ungranted head retained" \
   "yes-scrubbed" \
-  "$(printf '%s' "$REC_ON" | "$DEVFLOW_JQ" -r '.commands|join(" ")' | { IFS= read -r L; case "$L" in *ghp_ABCDEF*) echo leaked ;; *paste*REDACTED*|*REDACTED*paste*) echo yes-scrubbed ;; *) echo other ;; esac; })"
+  "$(printf '%s' "$REC_ON" | "$DEN_JQ" -r '.commands|join(" ")' | { IFS= read -r L; case "$L" in *ghp_ABCDEF*) echo leaked ;; *paste*REDACTED*|*REDACTED*paste*) echo yes-scrubbed ;; *) echo other ;; esac; })"
 assert_eq "denial record (enabled): scrub.applied true, blocklist_incomplete true" \
   "true|true" \
-  "$(printf '%s' "$REC_ON" | "$DEVFLOW_JQ" -r '"\(.scrub.applied)|\(.scrub.blocklist_incomplete)"')"
+  "$(printf '%s' "$REC_ON" | "$DEN_JQ" -r '"\(.scrub.applied)|\(.scrub.blocklist_incomplete)"')"
 
 # ── AC7: key DISABLED → count + tool_name STILL persisted; commands_state 'disabled'
 # (distinguishable from 'unavailable' and 'zero'); commands null; enabled false.
 REC_OFF="$(bash "$BDR" "$DEN_TMP/exec.json" false)"
 assert_eq "denial record (disabled): count kept, state=disabled, commands null, enabled=false" \
   "1|disabled|null|false" \
-  "$(printf '%s' "$REC_OFF" | "$DEVFLOW_JQ" -r '"\(.count)|\(.commands_state)|\(.commands)|\(.commands_field_enabled)"')"
+  "$(printf '%s' "$REC_OFF" | "$DEN_JQ" -r '"\(.count)|\(.commands_state)|\(.commands)|\(.commands_field_enabled)"')"
 assert_eq "denial record (disabled): tool_names still carried" \
-  "Bash" "$(printf '%s' "$REC_OFF" | "$DEVFLOW_JQ" -r '.tool_names|join(",")')"
+  "Bash" "$(printf '%s' "$REC_OFF" | "$DEN_JQ" -r '.tool_names|join(",")')"
 
 # ── AC2: genuine ZERO-denial run is distinguishable from unavailable.
-"$DEVFLOW_JQ" -n '{type:"result",permission_denials:[],permission_denials_count:0,is_error:false}' > "$DEN_TMP/zero.json"
+"$DEN_JQ" -n '{type:"result",permission_denials:[],permission_denials_count:0,is_error:false}' > "$DEN_TMP/zero.json"
 REC_ZERO="$(bash "$BDR" "$DEN_TMP/zero.json" true)"
 assert_eq "denial record: genuine zero → count 0, commands_state zero (not unavailable)" \
   "0|zero" \
-  "$(printf '%s' "$REC_ZERO" | "$DEVFLOW_JQ" -r '"\(.count)|\(.commands_state)"')"
+  "$(printf '%s' "$REC_ZERO" | "$DEN_JQ" -r '"\(.count)|\(.commands_state)"')"
 
 # ── #1064 review: a digit-STRING permission_denials_count carrier (a documented shape)
 # normalizes to a number, not downgraded to 'unavailable'.
-"$DEVFLOW_JQ" -n '{type:"result",permission_denials_count:"3",is_error:false}' > "$DEN_TMP/strcount.json"
+"$DEN_JQ" -n '{type:"result",permission_denials_count:"3",is_error:false}' > "$DEN_TMP/strcount.json"
 assert_eq "denial record: digit-string count carrier normalized to number (not unavailable)" \
-  "3" "$(bash "$BDR" "$DEN_TMP/strcount.json" true | "$DEVFLOW_JQ" -r '.count')"
+  "3" "$(bash "$BDR" "$DEN_TMP/strcount.json" true | "$DEN_JQ" -r '.count')"
 
 # ── AC2: unparseable file → count 'unavailable' (never 0), never a fabricated record.
 printf 'not json at all {[' > "$DEN_TMP/garbage.json"
 REC_BAD="$(bash "$BDR" "$DEN_TMP/garbage.json" true)"
 assert_eq "denial record: unparseable file → count 'unavailable' (unknown-is-not-zero)" \
-  "unavailable" "$(printf '%s' "$REC_BAD" | "$DEVFLOW_JQ" -r '.count')"
+  "unavailable" "$(printf '%s' "$REC_BAD" | "$DEN_JQ" -r '.count')"
 
 # ── AC2: absent file → NO record emitted at all (no run observed).
 REC_ABSENT="$(bash "$BDR" "$DEN_TMP/does-not-exist.json" true)"
