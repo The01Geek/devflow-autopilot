@@ -288,37 +288,42 @@ fi
         # The span scanner is a hand-rolled STRING-AWARE depth counter precisely so a
         # brace inside a string VALUE cannot close the module's object early. No other
         # fixture contains one, so neutering the in_string handling leaves every other
-        # test green. Here the unbalanced `{`/`}` sit in alpha's own description: without
-        # string-awareness the `}` closes alpha's span before its floor field, the floor
-        # regex then matches nothing, and the run refuses (rc 2) instead of raising.
+        # test green.
         #
-        # Note the complementary half needs no fixture: JSON must escape a `"` inside a
-        # string, so the exact literal `"minimum_assertions"` is unrepresentable in a
-        # string value and can never be matched there.
-        # An unbalanced OPEN brace, not a close: a `}` would merely truncate alpha's span
-        # after the floor field, which the scan still resolves — so that decoy would not
-        # bite. An unmatched `{` inflates the depth instead, running the span past
-        # alpha's real closing brace into beta's object, where the floor regex then finds
-        # TWO candidates and the scan refuses. (Verified by mutation: neutering the
-        # in_string branch turns this test RED and leaves the others green.)
-        adversarial = 'guards { an unbalanced open brace'
+        # The decoy is an unbalanced OPEN brace, not a close: a `}` would merely truncate
+        # alpha's span AFTER the floor field, which the scan still resolves, so that decoy
+        # would not bite. An unmatched `{` inflates the depth instead, running the span
+        # past alpha's real closing brace into beta's object, where the floor regex then
+        # finds two candidates and the scan refuses. Verified by mutation: neutering the
+        # in_string branch turns this test RED and leaves the other twelve green.
+        #
+        # The complementary half needs no fixture: JSON must escape a `"` inside a string,
+        # so the exact literal `"minimum_assertions"` is unrepresentable in a string value
+        # and can never be matched there.
+        alpha_floor, measured = 2, 4
+        adversarial = "guards { an unbalanced open brace"
         self.write_contract(
-            alpha_floor=2, beta_floor=3, alpha_description=adversarial
+            alpha_floor=alpha_floor, beta_floor=3, alpha_description=adversarial
         )
         self.settings_path.write_text(
-            json.dumps({"alpha": {"passed": 4}}), encoding="utf-8"
+            json.dumps({"alpha": {"passed": measured}}), encoding="utf-8"
         )
 
         result = self.run_helper()
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         registry = json.loads(self.registry_path.read_text(encoding="utf-8"))
-        self.assertEqual(registry["test_modules"]["alpha"]["minimum_assertions"], 4)
+        self.assertEqual(
+            registry["test_modules"]["alpha"]["minimum_assertions"], measured
+        )
         # The decoy survives byte-for-byte: only the floor digits were rewritten.
         self.assertEqual(
             registry["test_modules"]["alpha"]["description"], adversarial
         )
-        self.assertIn('"alpha" 4; then', self.run_path.read_text(encoding="utf-8"))
+        self.assertIn(
+            f'"alpha" {measured}; then',
+            self.run_path.read_text(encoding="utf-8"),
+        )
 
     def test_two_exact_modules_both_raise_at_correct_offsets(self) -> None:
         # Every other fixture marks only alpha exact, so the sequential-offset
@@ -327,9 +332,18 @@ fi
         # recomputes the span per module because each substitution shifts later
         # offsets and can change digit width; hoisting that out of the loop, or
         # computing against the original text, would still pass every single-module test.
+        # Both measurements widen their digit run (9 -> 12, 2 -> 30), which is what makes
+        # the per-module span recomputation observable: the first substitution shifts
+        # every later offset.
+        alpha_measured, beta_measured = 12, 30
         self.write_contract(alpha_floor=9, beta_floor=2, beta_exact=True)
         self.settings_path.write_text(
-            json.dumps({"alpha": {"passed": 12}, "beta": {"passed": 30}}),
+            json.dumps(
+                {
+                    "alpha": {"passed": alpha_measured},
+                    "beta": {"passed": beta_measured},
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -337,11 +351,15 @@ fi
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         registry = json.loads(self.registry_path.read_text(encoding="utf-8"))
-        self.assertEqual(registry["test_modules"]["alpha"]["minimum_assertions"], 12)
-        self.assertEqual(registry["test_modules"]["beta"]["minimum_assertions"], 30)
+        self.assertEqual(
+            registry["test_modules"]["alpha"]["minimum_assertions"], alpha_measured
+        )
+        self.assertEqual(
+            registry["test_modules"]["beta"]["minimum_assertions"], beta_measured
+        )
         run_text = self.run_path.read_text(encoding="utf-8")
-        self.assertIn('"alpha" 12; then', run_text)
-        self.assertIn('"beta" 30; then', run_text)
+        self.assertIn(f'"alpha" {alpha_measured}; then', run_text)
+        self.assertIn(f'"beta" {beta_measured}; then', run_text)
 
     def test_desynced_coupled_floors_refuse_below_the_higher_site(self) -> None:
         # Real drift: someone hand-edits the run.sh operand, or a merge resolves only

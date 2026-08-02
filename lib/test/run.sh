@@ -41477,10 +41477,21 @@ echo "#619 batched-regeneration instruction surfaces"
 # regenerate-artifacts module is the stronger, executable guarantee — that the invocation
 # is FENCED with a granted head — but it is ADDITIVE here, not a substitute that would
 # authorize dropping a divergence check the census never adjudicated.
+# The invocation pins are spelled out per file rather than driven from the loop below:
+# a declared structural pin must name a target the #810 static scanner can OPEN, and a
+# path interpolating the loop variable is unresolvable to it (reported as "declaration
+# target cannot be inspected"). The discharge-record pin keeps the loop because it
+# carries no declaration.
+assert_pin_unique "#619 .prflow/prompt-extensions/implement.md carries the batched-regeneration invocation" \
+  'run the granted direct leading-token form once' \
+  "$LIB/../.prflow/prompt-extensions/implement.md"  # structural-pin-ok: cross-file-phase-contract -- the cloud-only config grant and the prompt invocation must stay coupled
+assert_pin_unique "#619 .prflow/prompt-extensions/review-and-fix.md carries the batched-regeneration invocation" \
+  'run the granted direct leading-token form once' \
+  "$LIB/../.prflow/prompt-extensions/review-and-fix.md"  # structural-pin-ok: cross-file-phase-contract -- the cloud-only config grant and the prompt invocation must stay coupled
+assert_pin_unique "#619 .prflow/prompt-extensions/receiving-code-review.md carries the batched-regeneration invocation" \
+  'run the granted direct leading-token form once' \
+  "$LIB/../.prflow/prompt-extensions/receiving-code-review.md"  # structural-pin-ok: cross-file-phase-contract -- the cloud-only config grant and the prompt invocation must stay coupled
 for _ra_ext in implement review-and-fix receiving-code-review; do
-  assert_pin_unique "#619 .prflow/prompt-extensions/$_ra_ext.md carries the batched-regeneration invocation" \
-    'run the granted direct leading-token form once' \
-    "$LIB/../.prflow/prompt-extensions/$_ra_ext.md"  # structural-pin-ok: cross-file-phase-contract -- the cloud-only config grant and the prompt invocation must stay coupled across all three instruction surfaces
   assert_pin_unique "#619 .prflow/prompt-extensions/$_ra_ext.md carries the batched-regeneration discharge record" \
     '`batched-regeneration: run|refused|skipped`' \
     "$LIB/../.prflow/prompt-extensions/$_ra_ext.md"

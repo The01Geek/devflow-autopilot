@@ -1601,9 +1601,14 @@ devflow_module_pin_unique "#1055 the implement conflict oracle uses the granted 
 for _ext in review-and-fix receiving-code-review; do
   devflow_module_pin_unique "#655 the conflict rule has its own section in $_ext.md" \
     "$RA_RULE_HEADING" "$RA_EXT_DIR/$_ext.md"  # runtime-pin-ok: target path interpolates the `for _ext …` loop var, unresolvable by the static meta-guard
-  devflow_module_pin_unique "#655 the conflict rule cites --list as the oracle in $_ext.md" \
-    'lib/test/regenerate-artifacts.py --list' "$RA_EXT_DIR/$_ext.md"  # runtime-pin-ok: target path interpolates the `for _ext …` loop var, unresolvable by the static meta-guard
 done
+# Spelled out per file rather than driven from the loop above: a declared structural pin
+# must name a target the #810 static scanner can open, and a loop-interpolated path is
+# unresolvable to it.
+devflow_module_pin_unique "#655 the conflict rule cites --list as the oracle in review-and-fix.md" \
+  'lib/test/regenerate-artifacts.py --list' "$RA_EXT_DIR/review-and-fix.md"  # structural-pin-ok: cross-file-phase-contract -- the cloud-only config grant and prompt invocation must stay coupled
+devflow_module_pin_unique "#655 the conflict rule cites --list as the oracle in receiving-code-review.md" \
+  'lib/test/regenerate-artifacts.py --list' "$RA_EXT_DIR/receiving-code-review.md"  # structural-pin-ok: cross-file-phase-contract -- the cloud-only config grant and prompt invocation must stay coupled
 # Byte-identity across the three copies: extract each section (heading to the next `## `)
 # and require all three to be equal. A per-file presence pin cannot catch a copy that
 # drifted in its body.
