@@ -22496,12 +22496,41 @@ assert_eq("#1077 guard: absent-classifier marker names the workspace-relative pa
 assert_eq("#1077 guard: absent-classifier marker does NOT attribute the absence to the "
           "vendor prune (issue #1077 AC5)", True,
           'prune' not in _abs_marker and 'vendor' not in _abs_marker)
+# AC4 (else branch): a disarm that is NOT a missing file — a renamed interface raising
+# AttributeError inside _matched_arms — names the ACTUAL exception type, not FileNotFoundError,
+# so a reader is not misdirected to "no lib/test" for a load-then-classify failure.
+_rig_ren = _GuardRig()
+_rig_ren.break_dependency('def _statements(c):\n    return [c]\n')
+_rig_ren.run(_payload('echo x > /tmp/f', tid='renamed-cause'))
+_ren_marker = _rig_ren.disarmed_marker() or ''
+assert_eq("#1077 guard: renamed-interface marker names the real exception (AttributeError), "
+          "not FileNotFoundError", True,
+          'AttributeError' in _ren_marker and 'FileNotFoundError' not in _ren_marker)
 # Negative control: an ARMED guard (clean classify, matched nothing) writes NO marker, so the
 # marker's presence is attributable to the disarm and not to every run.
 _rig_neg = _GuardRig()
 _rig_neg.run(_payload('echo hi', tid='armed-marker'))
 assert_eq("#1077 guard: an ARMED guard writes no disarmed-run marker (negative control)",
           None, _rig_neg.disarmed_marker())
+# STALE-MARKER CLEARING: a prior disarmed run left a marker on a persistent checkout; the next
+# ARMED run must retract it, so the signal reflects THIS run — not the fresh-rig no-op path the
+# negative control above exercises. Pre-seed the marker, then run an armed payload.
+_rig_stale = _GuardRig()
+(_rig_stale.root / '.prflow' / 'tmp').mkdir(parents=True, exist_ok=True)
+(_rig_stale.root / '.prflow' / 'tmp' / 'pretooluse-guard-disarmed').write_text(
+    'pretooluse-shape-guard DISARMED: stale from a prior run\n', encoding='utf-8')
+_rig_stale.run(_payload('echo hi', tid='stale-clear'))
+assert_eq("#1077 guard: an armed run retracts a stale disarmed-run marker from a prior run",
+          None, _rig_stale.disarmed_marker())
+# A benign EARLY-DEFER run (empty stdin → defer BEFORE classification is ever reached) must
+# ALSO retract a stale marker — the clear is up front, not only on the armed-classify tail.
+_rig_ed = _GuardRig()
+(_rig_ed.root / '.prflow' / 'tmp').mkdir(parents=True, exist_ok=True)
+(_rig_ed.root / '.prflow' / 'tmp' / 'pretooluse-guard-disarmed').write_text(
+    'pretooluse-shape-guard DISARMED: stale from a prior run\n', encoding='utf-8')
+_res_ed = _rig_ed.run(None)  # empty stdin → the `not text.strip()` early-defer path
+assert_eq("#1077 guard: a benign early-defer run also retracts a stale marker (defer, exit 0)",
+          (0, 'defer', None), (_res_ed.rc, _res_ed.decision, _rig_ed.disarmed_marker()))
 
 # ── Counter store: a best-effort parser over an agent-writable path. CLAUDE.md's
 # best-effort-parser convention extends the malformed-shape matrix to a reader of a

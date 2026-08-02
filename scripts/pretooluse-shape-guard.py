@@ -60,8 +60,9 @@ renamed interface raising inside `_matched_arms`), `_run` writes a `_DISARMED` m
 SAME path as the heartbeat (best-effort telemetry, then re-raises so main()'s
 fail-open-to-defer + stderr breadcrumb are unchanged). The marker's cause line is keyed on
 the exception ACTUALLY raised — `FileNotFoundError` from `exec_module`, NOT the unreachable
-`ImportError` spec branch — and names the workspace-relative path with no `lib/test` as the
-cause, deliberately not the vendor slice's prune.
+`ImportError` spec branch — and names the workspace-relative path
+`lib/test/extract-command-shapes.py`, giving "this tree has no lib/test" as the cause,
+deliberately not the vendor slice's prune.
 
 REPEAT BOUND. The load-bearing assumption (a per-call remediation changes behavior where
 generic refusal did not) may fail, so the guard also carries a control: a second denial
@@ -309,10 +310,21 @@ def _disarm_detail(exc: BaseException) -> str:
     absence is because the composed path is workspace-relative and the tree has no
     `lib/test/` — deliberately NOT attributed to the vendor slice's prune (issue #1077)."""
     if isinstance(exc, FileNotFoundError):
+        # exec_module RUNS the classifier, which imports extract-command-heads.py in turn, so
+        # a FileNotFoundError can originate from a transitively-imported sibling rather than
+        # the classifier file itself. Only assert the "no lib/test" cause when the missing
+        # file IS the classifier path — otherwise name the actual missing file so the marker
+        # never steers an operator to the wrong cause.
+        missing = getattr(exc, "filename", "") or ""
+        if not missing or missing.endswith("extract-command-shapes.py"):
+            return (
+                f"the shape classifier at the workspace-relative path {_SHAPES_REL} is not on "
+                f"disk (FileNotFoundError) — the composed path is workspace-relative and this "
+                f"tree has no lib/test"
+            )
         return (
-            f"the shape classifier at the workspace-relative path {_SHAPES_REL} is not on "
-            f"disk (FileNotFoundError) — the composed path is workspace-relative and this "
-            f"tree has no lib/test"
+            f"the shape classifier {_SHAPES_REL} could not be loaded — a file it imports "
+            f"({missing}) is not on disk (FileNotFoundError)"
         )
     return (
         f"the shape classifier at the workspace-relative path {_SHAPES_REL} could not be "
@@ -342,13 +354,18 @@ def _note_disarm(tmp: str | None, exc: BaseException) -> None:
 
 
 def _clear_disarm(tmp: str | None) -> None:
-    """Remove any stale disarmed-run marker on the armed path (best-effort), so the signal
-    reflects THIS run rather than a prior disarmed one on a persistent checkout."""
+    """Remove any stale disarmed-run marker (best-effort), so the signal reflects THIS run
+    rather than a prior disarmed one on a persistent checkout. Called up front on every run,
+    so every non-disarm exit retracts the marker; a run that disarms re-writes it."""
     if tmp is None:
         return
     try:
         os.remove(os.path.join(tmp, _DISARMED))
-    except OSError:
+    except Exception:  # noqa: BLE001 - telemetry on the decision path must never decide
+        # `os.remove(str)` realistically raises only OSError (FileNotFoundError included — the
+        # benign "no stale marker" case), but this call sits on the SUCCESS/decision path, so
+        # a broad catch keeps it aligned with the file's "BOOKKEEPING NEVER DECIDES" contract:
+        # no cleanup failure may propagate into main() and flip a real deny into a defer.
         pass
 
 
@@ -542,6 +559,13 @@ def _run() -> None:
         )
         tmp = None
 
+    # Clear any stale disarmed-run marker up front, so EVERY non-disarm exit (the benign
+    # early-defer paths below AND a clean armed classify) retracts a prior run's marker on a
+    # persistent checkout — a run that actually disarms re-writes it via _note_disarm. (When
+    # the heartbeat failed, tmp is None and there is nothing to clear; stderr stays the only
+    # signal, as documented.)
+    _clear_disarm(tmp)
+
     raw = sys.stdin.buffer.read()
     try:
         text = raw.decode("utf-8")
@@ -579,7 +603,6 @@ def _run() -> None:
     except BaseException as exc:  # noqa: BLE001 - telemetry write then re-raise; never decides
         _note_disarm(tmp, exc)
         raise
-    _clear_disarm(tmp)  # armed run: the marker reflects only a run that actually disarmed
     if not matched:
         _emit(_decision_object("defer", None))
         return
