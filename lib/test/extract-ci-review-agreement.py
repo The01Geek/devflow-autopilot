@@ -57,10 +57,9 @@ PORTABLE_CLAUSES = frozenset(
 HELPER_BASENAME = "post-ci-review-trigger.sh"
 
 
-def _fail(shape: str, msg: str) -> str:
+def _fail(shape: str, msg: str) -> None:
     sys.stderr.write(f"extract-ci-review-agreement: error:{shape} — {msg}\n")
     print(f"result=error:{shape}")
-    return "error"
 
 
 def _extract_snippet_yaml(md_text: str) -> tuple[str | None, str]:
