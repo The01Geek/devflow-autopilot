@@ -1,0 +1,27 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "b89cabd0a7f63e38ab6aaf7aac740256caba9710",
+  "fix_files": [
+    "docs/implement-skill.md",
+    "scripts/devflow-cloud-writer-contract.json",
+    "skills/docs-bootstrap-external/SKILL.md",
+    "skills/pr-description/SKILL.md"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "sweep_defs_read": {
+    "status": "unrecoverable",
+    "reason": "fix-commit-only synthesis: no iteration record was found for this run, and a fix commit carries no trace of which sweep definitions were read"
+  },
+  "sweep_evidence": {
+    "status": "unrecoverable",
+    "reason": "fix-commit-only synthesis: no iteration record was found for this run, and a fix commit carries no trace of the sweep outcomes"
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "unrecoverable",
+      "reason": "fix-commit-only synthesis: no iteration record was found for this run, and a fix commit carries no trace of whether the Step 3.5 fix-delta gate ran"
+    }
+  },
+  "telemetry": "unavailable"
+}
