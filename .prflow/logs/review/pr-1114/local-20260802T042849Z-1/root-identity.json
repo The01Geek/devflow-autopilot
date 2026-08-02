@@ -1,0 +1,15 @@
+{
+  "canonical_root": "skills/review/SKILL.md",
+  "root_hash": "623d10ef8fc2bcb56114b9fe73c5783398c26f33",
+  "references": {
+    "skills/review/phases/phase-0-setup.md": "6add399e5dccfdd4e1b84baa64c8a79efab21727",
+    "skills/review/phases/phase-0-3-6-blocker-recheck.md": "b75f3a00ed459fcbd496ce2bb1b1e93e6c916cc4",
+    "skills/review/phases/phase-0-6-stale-prose-lint.md": "201e5f6a2e241330fa7291d4c8dedb1107cbe468",
+    "skills/review/phases/phase-1-checklist.md": "be68734e7e6137cbe0712cea3398dd279d3a95b4",
+    "skills/review/phases/phase-2-verification.md": "871cedc24b88a688b7edfeeda3352a9a599b1ec4",
+    "skills/review/phases/phase-3-agents.md": "16dd152c95d3ab742d3c5497cc400cd556b81199",
+    "skills/review/phases/phase-4-verdict.md": "0e443cdb8eb42e6d315ba22e609adc23b868dd9b",
+    "skills/review/phases/phase-4-1-7-stale-adjudication.md": "0f1a684b53676d3f57f0547f68c88b7abf823e15",
+    "skills/review/phases/phase-4-4-github-post.md": "867354f44ece93af83e9e5181cc4fe0e77257a45"
+  }
+}

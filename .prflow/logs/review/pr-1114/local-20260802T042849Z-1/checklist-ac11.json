@@ -1,0 +1,11 @@
+{
+  "id": "VC-AC11",
+  "category": "issue_acceptance",
+  "claim": "Acceptance criterion 11 requires lib/test/run.sh to report zero failed checks over the committed tree, with every skip recorded under the #456 skip-accounting rule rather than omitted or counted as a clean pass.",
+  "claim_provenance": "generated_paraphrase",
+  "source_file": "lib/test/run.sh",
+  "verify_against": "The committed-tree output and exit status of lib/test/run.sh, including its #456 skip-accounting summary",
+  "verify_hint": "Run lib/test/run.sh against the committed tree, confirm it exits successfully with zero failed checks, and inspect the final tally to ensure every skipped check is explicitly reported according to #456 rather than absorbed into the passed count or omitted.",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:run.sh:zero-failures-skip-accounting"
+}

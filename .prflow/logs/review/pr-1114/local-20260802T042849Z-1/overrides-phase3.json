@@ -1,0 +1,1 @@
+{"devflow:code-reviewer": {"model": "claude-opus-4-8", "effort": "low", "iterations": "first-only"}, "devflow:silent-failure-hunter": {"effort": "low"}, "devflow:comment-analyzer": {"effort": "low"}, "devflow:type-design-analyzer": {"effort": "low"}, "devflow:pr-test-analyzer": {"effort": "low"}, "devflow:requesting-code-review": {"effort": "low"}}

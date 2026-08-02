@@ -1,0 +1,12 @@
+{
+  "id": "VC-23",
+  "category": "issue_acceptance",
+  "claim": "Acceptance criterion 3 requires the #593 trigger-time behavior of the repository-local implement grant to be recorded as post-merge-only rather than treated as something verified during the implementing PR's run.",
+  "claim_provenance": "generated_paraphrase",
+  "source_file": ".prflow/config.json",
+  "source_line": 32,
+  "verify_against": "The issue workpad and PR lifecycle records governing trigger-time configuration resolution",
+  "verify_hint": "Inspect the issue workpad and PR description or lifecycle evidence for an explicit post-merge record of the grant's #593 effect, and confirm no in-run verification claim says the current PR's cloud implement tier already used the newly added config token.",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:config.json:post-merge-grant-effect:32"
+}

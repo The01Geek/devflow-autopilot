@@ -1,0 +1,63 @@
+{
+  "iteration": 1,
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "phase_1_checklist",
+  "pending_dispatch": {
+    "kind": "agent",
+    "roster": [
+      "prflow:checklist-verifier:VC-1",
+      "prflow:checklist-verifier:VC-2",
+      "prflow:checklist-verifier:VC-3"
+    ],
+    "dispatched_at": "2026-08-02T04:52:00Z"
+  },
+  "max_iterations": 5,
+  "fix_severity_threshold": "suggestion",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "stale_prose": {
+    "enabled": true,
+    "severity": "important",
+    "exit_code": 0,
+    "findings": []
+  },
+  "acceptance_criteria_source": "workpad",
+  "acceptance_criteria_divergence": "none",
+  "dispatched_effort": [
+    {
+      "agent": "prflow:checklist-generator",
+      "phase": "1",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort resolved but is not applied by the review engine; session effort inherited"
+    },
+    {
+      "agent": "prflow:checklist-deduper",
+      "phase": "1.5",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "compatibility-fallback",
+      "effective": null,
+      "fallback_reason": "configured Claude-specific model override is unavailable in Codex; compatible session model and effort inherited"
+    },
+    {
+      "agent": "prflow:checklist-verifier",
+      "phase": "2",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort resolved but is not applied by the review engine; session effort inherited"
+    }
+  ],
+  "telemetry": "unavailable"
+}
