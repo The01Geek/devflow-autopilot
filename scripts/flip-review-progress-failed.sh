@@ -3,37 +3,53 @@
 # SPDX-License-Identifier: MIT
 # flip-review-progress-failed.sh <pr_number> <marker> <cause>
 #
-# Best-effort backstop (issue #356): when a review-engine run dies — the job
-# fails, is cancelled, or the runner is lost before the agent can act — flip
-# THIS run's `prflow:review-progress` comment from the interim `🚀 Reviewing`
-# state to the terminal `❌ Review failed` state so its Status stops lying. This
-# is the workflow-level mirror of the agent-side fatal-abort rule in
-# skills/review/SKILL.md (the "Fatal review abort after seeding" clause). The
-# `❌ Review failed` literal mirrors that skill. Marker ownership is split:
-# seed-review-progress.sh derives the cloud marker, the skill composes only the
-# local and helper-absent recovery forms, and the workflow rebuilds the cloud
-# form passed here. Runtime parity tests keep those cloud forms aligned.
+# Best-effort backstop (issues #356 and #1154): when a review-engine run dies —
+# the job fails, is cancelled, the runner is lost, or the step exits cleanly
+# having written no verdict at all — leave THIS run's `prflow:review-progress`
+# comment in the terminal `❌ Review failed` state so the pull request stops
+# reading as a clean pass. This is the workflow-level mirror of the agent-side
+# fatal-abort rule in skills/review/SKILL.md (the "Fatal review abort after
+# seeding" clause). The `❌ Review failed` literal mirrors that skill. Marker
+# ownership is split: seed-review-progress.sh derives the cloud marker, the
+# skill composes only the local and helper-absent recovery forms, and the
+# workflow rebuilds the cloud form passed here. Runtime parity tests keep those
+# cloud forms aligned.
+#
+# The write is an UPSERT, not an update (issue #1154). A run that dies BEFORE
+# the engine reaches its Phase 0.3.5 seed leaves no comment to flip, and the
+# pre-#1154 comment-absent no-op left that pull request with nothing at all
+# beside a green check — the same "a dead run reads as a pass" failure the flip
+# exists to end. So a confirmed CLEAN absence now creates the comment in the
+# terminal state instead of returning.
 #
 # Contract (mirrors ensure-label.sh / apply-labels.sh / post-issue-comment.sh):
-#   - ALWAYS exits 0 — a flip hiccup must never change the invoking job's or
+#   - ALWAYS exits 0 — an upsert hiccup must never change the invoking job's or
 #     step's exit code (finalize_check runs `set -euo pipefail` on a REQUIRED
 #     check; devflow.yml's step runs `always()`).
-#   - Emits exactly one stderr breadcrumb naming the arm it took — e.g. flipped,
-#     comment-absent, status-already-terminal, no-Status-line, missing-args, or
-#     read/patch-failure. Each arm names the SPECIFIC condition that fired: a
-#     failed comment lookup is reported as a read failure, never as "comment-absent",
-#     so an operator is never told the comment does not exist when the read merely
-#     failed. Only `cmd_id`'s OWN rc 2 means "comment-absent" — `python3` also exits
-#     2 when it cannot open the script, and that is screened out below.
-#   - Flips ONLY when the comment exists AND its `**Status:**` line begins with
+#   - Emits exactly one stderr breadcrumb naming the arm it took — flipped,
+#     created, status-already-terminal, no-Status-line, missing-args, or a
+#     read/patch/create failure. Each arm names the SPECIFIC condition that
+#     fired: a failed comment lookup is reported as a read failure, never as a
+#     clean absence, so an operator is never told the comment does not exist
+#     when the read merely failed; and a failed CREATE is reported as a create
+#     failure, never as a read failure. Only `cmd_id`'s OWN rc 2 means "scanned
+#     cleanly, none present" — `python3` also exits 2 when it cannot open the
+#     script, and that is screened out below.
+#   - Flips an EXISTING comment ONLY when its `**Status:**` line begins with
 #     🚀 (interim) — anything else (a written verdict, an agent-side
 #     `❌ Review failed`, any terminal glyph) is treated as terminal and left
-#     untouched (fail closed to no flip).
+#     byte-untouched, and NO second comment is created (fail closed to no
+#     write). That is also what makes the upsert idempotent across job retries:
+#     the second invocation resolves the comment the first one created, reads
+#     its terminal Status, and writes nothing.
 #   - The run-keyed marker (`<!-- prflow:review-progress run=<id>-<attempt> -->`)
 #     matches ONLY the current run's comment, so an earlier run's comment is
-#     never modified.
+#     never read or modified — on the create path too, where the marker is
+#     written as line 1 of the new body precisely so a later
+#     `workpad.py id --marker` for this run resolves it (the scan matches a body
+#     that STARTS WITH the marker).
 #
-# All GitHub access in this helper routes through workpad.py (id/body/patch),
+# All GitHub access in this helper routes through workpad.py (id/body/patch/create),
 # which honors DEVFLOW_GH. The workflow step may invoke the sibling marker-
 # diagnosis helper afterward; that separate helper reads comments through the
 # repository's gh resolver. The review comment's vocabulary is NOT workpad.py's
@@ -83,11 +99,12 @@ fi
 #    run, so a prior run's comment is never a candidate. `id`'s two failure
 #    exits mean DIFFERENT things and must not share a breadcrumb: rc 2 is a
 #    clean scan that found no comment (flag off, non-PR mode, /pr-description
-#    runs, seed failure), while rc 1 is a gh-api/parse failure that never
-#    established absence at all (rate limit, 403 token scope, 5xx). Reporting
-#    the latter as "comment-absent" would send an operator hunting for a
-#    missing comment that in fact exists — so each gets its own arm. Both are
-#    still best-effort no-ops (exit 0); only the diagnosis differs.
+#    runs, a run that died before the seed), while rc 1 is a gh-api/parse
+#    failure that never established absence at all (rate limit, 403 token scope,
+#    5xx). Only the FORMER authorizes the create arm below — creating on an
+#    unestablished absence is how a duplicate comment gets posted — so each gets
+#    its own arm. A read failure stays a best-effort no-op (exit 0); a clean
+#    absence now writes.
 #    workpad.py writes the SPECIFIC gh cause (rate limit, 403 token scope, 5xx) to
 #    its own stderr, so capture it rather than 2>/dev/null-ing it away: without the
 #    cause an operator staring at a frozen `🚀 Reviewing` comment cannot tell a
@@ -141,8 +158,42 @@ if [ "$ID_RC" -eq 2 ] && [ -n "$WP_ERR" ] && [ -s "$WP_ERR" ]; then
   _wp_err_cleanup
   exit 0
 elif [ "$ID_RC" -eq 2 ]; then
-  echo "flip-review-progress-failed: no prflow:review-progress comment for PR #${PR} (marker '${MARKER}', workpad.py id rc=2 — scanned cleanly, none present) — comment-absent no-op" >&2
+  # 1b. CONFIRMED clean absence (issue #1154): the run died before the engine's
+  #     Phase 0.3.5 seed, so there is nothing to flip. Create the comment in the
+  #     terminal state rather than returning, or the pull request carries no
+  #     trace of the dead run at all. The marker goes on line 1 — `cmd_id`'s scan
+  #     matches a body that STARTS WITH the marker, so a later lookup for this
+  #     same run (a retry of this very step) resolves the comment created here
+  #     and takes the already-terminal arm instead of creating a second one.
+  #     `--status` is deliberately NOT used: `Review failed` is not in
+  #     workpad.py's recognized vocabulary and would stamp the wrong glyph, so
+  #     the body is authored verbatim here exactly as the flip path rewrites it.
   _wp_err_cleanup
+  NEWBODY="$(mktemp 2>/dev/null)" || {
+    echo "flip-review-progress-failed: mktemp failed while composing the terminal review-progress comment for PR #${PR} — create-failure no-op; the dead run is NOT recorded on the pull request" >&2
+    exit 0
+  }
+  {
+    printf '%s\n' "$MARKER"
+    printf '# PRFlow Review — PR #%s\n\n' "$PR"
+    printf '%s\n\n' '**Status:** ❌ Review failed'
+    printf '_Review run failed: %s — %s_\n' "${CAUSE//$'\n'/ }" "$RUN_URL"
+  } > "$NEWBODY" || {
+    echo "flip-review-progress-failed: could not write the terminal review-progress body for PR #${PR} — create-failure no-op; the dead run is NOT recorded on the pull request" >&2
+    rm -f "$NEWBODY"
+    exit 0
+  }
+  # Validate the printed id rather than trusting the exit status alone: a bare
+  # success breadcrumb naming no comment is indistinguishable from a create that
+  # silently posted nothing, which is the undiagnosable state this arm exists to
+  # remove. Same non-empty check seed-review-progress.sh applies to its own
+  # create arm.
+  if NEW_CID="$(python3 "$WORKPAD" create "$PR" "$NEWBODY" 2>/dev/null)" && [ -n "$NEW_CID" ]; then
+    echo "flip-review-progress-failed: no prflow:review-progress comment for PR #${PR} (marker '${MARKER}', workpad.py id rc=2 — scanned cleanly, none present) — created comment #${NEW_CID} in the '❌ Review failed' state (${CAUSE})" >&2
+  else
+    echo "flip-review-progress-failed: no prflow:review-progress comment for PR #${PR} (marker '${MARKER}', scanned cleanly, none present) and workpad.py create failed or printed no comment id — create-failure no-op; the dead run is NOT recorded on the pull request" >&2
+  fi
+  rm -f "$NEWBODY"
   exit 0
 elif [ "$ID_RC" -ne 0 ] || [ -z "$CID" ]; then
   echo "flip-review-progress-failed: could not look up PR #${PR}'s review-progress comment (marker '${MARKER}', workpad.py id rc=${ID_RC}) — read-failure no-op; the comment's absence was NOT established. Cause: $(_wp_cause)" >&2
