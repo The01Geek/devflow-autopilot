@@ -18,10 +18,21 @@ sparse checkouts. This is the single machine-checkable session identity the
 Reception Preflight records and later consumers re-derive.
 
 Derivation is index-cached plumbing, not a hand-rolled tree walk: a temporary
-index is SEEDED from the repository's current index, `git add -A` stages every
-working-tree content change (edits, deletions, renames, and untracked non-ignored
-files) into that temporary index, and `git write-tree` prints the resulting tree
-object ID. The repository's own index is never modified (the derivation writes to
+index is SEEDED from the repository's current index and BACKDATED to a mtime of 1
+(the racy floor), `git add -A` stages every working-tree content change (edits, deletions,
+renames, and untracked non-ignored files) into that temporary index, and
+`git write-tree` prints the resulting tree object ID. The backdate is load-bearing
+for content-correctness: the seeded index carries each entry's pre-edit stat data,
+so without it `git add -A` trusts a stale-but-clean stat and never re-hashes a
+tracked file rewritten to the same size within the mtime tick the index cached — the
+tree would then carry the old blob (issue #1117). Backdating the temp index makes
+every ordinary entry "racily clean" by git's own rule (cached mtime not strictly
+older than the index), which forces git to re-read content independent of stat
+timing. Going through git's racy machinery rather than around it (e.g. an unqualified
+`add --renormalize`) is deliberate: the skip-worktree and `assume-unchanged` entries
+git deliberately does not re-stat both bypass the racy re-check, so the INDEX content
+still decides their contribution — see the skip-worktree/assume-unchanged paragraph
+below. The repository's own index is never modified (the derivation writes to
 a private `GIT_INDEX_FILE`; it does add unreferenced blob/tree objects to the
 object database, which are GC-collectable and touch no ref), and no repository
 history is read, so the cost scales with the number of changed files rather than
@@ -139,8 +150,30 @@ def derive_candidate_identity(repo_root: "str | None" = None) -> str:
         if os.path.exists(index_path):
             # Seed from the current index so skip-worktree (sparse) entries survive.
             shutil.copyfile(index_path, tmp_index)
+            # Backdate the seeded index so `git add -A` cannot trust its cached stat
+            # data (issue #1117). The copied entries carry each file's pre-edit stat;
+            # when a tracked file is rewritten to the same size within the mtime tick
+            # the index cached, a stat comparison reads it as clean and `git add -A`
+            # never re-hashes it, so the written tree carries the STALE blob. Git's
+            # own "racy index" rule re-reads the content of any entry whose cached
+            # mtime is not strictly older than the index file's mtime; backdating the
+            # index to a mtime of 1 second past the epoch makes every ordinary tracked
+            # entry racy (any real file mtime is >= 1), forcing a content re-hash
+            # independent of stat timing. A mtime of 0 would NOT work: git reads a
+            # zero index timestamp as "unset" and disables the racy check entirely
+            # (`is_racy_stat` short-circuits on `timestamp.sec == 0`), so 1 is the
+            # smallest value that actually arms the mechanism. Crucially this goes
+            # THROUGH git's racy machinery rather than around it (unlike an unqualified
+            # `add --renormalize`), so the two entry classes git deliberately does not
+            # re-stat are still honored: skip-worktree (sparse, off-disk) entries and
+            # `assume-unchanged` (CE_VALID) entries both bypass the racy re-check, so
+            # the index content continues to decide their contribution — preserving
+            # both the sparse-preservation reason for seeding and the documented
+            # CE_VALID invariance above.
+            os.utime(tmp_index, (1, 1))
         else:
-            # Absent index: start from an empty index (git creates the file).
+            # Absent index: start from an empty index (git creates the file). No
+            # seeded stat data exists, so the racy backdate above is unnecessary.
             os.remove(tmp_index)
         env = {"GIT_INDEX_FILE": tmp_index}
         # -A stages every working-tree content change: edits, deletions, renames,
