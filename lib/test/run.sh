@@ -23107,10 +23107,16 @@ for s in lines:
         continue
     if infence:
         cur.append(s)
-# Among fenced blocks, select the first that (after stripping jsonc // line
+# Among fenced blocks, collect every one that (after stripping jsonc // line
 # comments) parses to a JSON object carrying extraKnownMarketplaces — robust to a
-# `bash`/`text` fence that merely mentions the marketplace name in prose.
-doc = None
+# `bash`/`text` fence that merely mentions the marketplace name in prose. Require
+# EXACTLY ONE such block: today each doc carries a single provisioned-settings
+# fence, and demanding exactly one closes the latent false-green a "first match
+# wins" selection would open if a future edit added a second settings-like fence
+# before the canonical one (the comparison could then pass against the wrong block
+# while the intended fence drifts). Zero or more-than-one both fail LOUD (the token
+# is never "match"), so a doc-structure change surfaces here rather than masking drift.
+candidates = []
 for b in blocks:
     clean = "\n".join(l for l in b.splitlines() if not l.lstrip().startswith("//"))
     try:
@@ -23118,11 +23124,10 @@ for b in blocks:
     except Exception:
         continue
     if isinstance(cand, dict) and "extraKnownMarketplaces" in cand:
-        doc = cand
-        break
-if doc is None:
-    print("no-parseable-fence"); sys.exit(0)
-print("match" if doc == produced else "mismatch")
+        candidates.append(cand)
+if len(candidates) != 1:
+    print("expected-exactly-one-settings-fence-got-%d" % len(candidates)); sys.exit(0)
+print("match" if candidates[0] == produced else "mismatch")
 PY
 }
 assert_eq "pls: shipped defaults match the documented jsonc block in docs/install.md (#1073)" "match" \
