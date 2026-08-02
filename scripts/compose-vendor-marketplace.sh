@@ -43,11 +43,14 @@
 #               rewrite the marketplaces file so the repo-root `./` entry becomes
 #               `<vendor-root>`, emit one `::notice::` audit line. A directory's
 #               presence is NOT proof the helper set exists, so completeness is proven by
-#               the plugin manifest, not the directory. Two sub-cases warn instead of
+#               the plugin manifest, not the directory. Some sub-cases warn instead of
 #               that notice, so this arm is not unconditionally a `::notice::`: an
 #               unwritable `marketplace.json` gates the swap OFF (list left unchanged),
-#               and a combined list carrying no `./` entry composes the marketplace but
-#               splices nothing in. Both sub-cases are driven by the suite.
+#               an unwritable marketplaces file gates the notice OFF (the list was not
+#               repointed, and may be truncated), and a combined list carrying no `./`
+#               entry composes the marketplace but splices nothing in. Every write that
+#               a later annotation would vouch for is checked before it is claimed, and
+#               each sub-case is driven by the suite.
 #   degraded  — the vendored tree is absent or partial (the #505-class skew: a pinned
 #               prflow_version predating this change, or an incomplete vendor fetch).
 #               Leave the marketplaces file UNCHANGED (the run keeps resolving from the
@@ -130,7 +133,18 @@ while IFS= read -r line || [ -n "$line" ]; do
             ;;
     esac
 done < "$MK_FILE"
-printf '%s\n' "$OUT" > "$MK_FILE"
+# Same gate as the marketplace.json write above, for the same reason: this rewrite is the
+# step that actually repoints the list at the vendored root, so an UNCHECKED write lets
+# the success notice below affirm a resolution that never took effect (a `./` list wearing
+# a green ::notice::). Two distinct failure shapes reach here — the open fails outright
+# (unwritable path: the list keeps its previous contents, so the run resolves from the
+# repo-root `./`), or the open succeeds and the write is truncated part-way (full FS: the
+# list is left incomplete or empty). The annotation names both rather than promising the
+# clean fallback, which only the first shape actually delivers.
+if ! printf '%s\n' "$OUT" > "$MK_FILE"; then
+    echo "::warning::devflow compose-vendor-marketplace.sh: could not rewrite $MK_FILE (unwritable path or full/read-only FS); the job-local marketplace was composed but the marketplace list was NOT repointed at it, so the prflow plugin does not resolve from the vendored subtree. If the write was truncated part-way the list may also be incomplete."
+    exit 0
+fi
 
 if [ "$SWAPPED" -eq 1 ]; then
     echo "::notice::devflow: composed a job-local marketplace at $MK_DIR/marketplace.json; the prflow plugin now resolves from the vendored subtree ($PLUGIN_DIR), matching a consumer's resolution (issue #1049)."

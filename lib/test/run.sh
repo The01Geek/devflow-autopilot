@@ -38186,7 +38186,41 @@ assert_eq "#1049 write-failure: marketplace.json unwritable → list left UNCHAN
 assert_eq "#1049 write-failure: emits a ::warning:: and NO ::notice:: (never a broken resolution reported as clean)" "yes" \
   "$(printf '%s' "$_1049_ANN" | grep -q '::warning::' && ! printf '%s' "$_1049_ANN" | grep -q '::notice::' && echo yes || echo no)"
 rm -rf "$_1049_FX"
-# (f) baseline coupling: the helper's swap arm matches the literal `./`, but nothing
+# (f) rewrite-failure arm: complete vendor AND a `./` entry present, but the marketplaces
+# FILE itself cannot be rewritten. Sibling of (e): (e) gates on the marketplace.json write,
+# this gates on the write that actually repoints the list. Left unchecked, the run keeps
+# the repo-root `./` resolution while the success ::notice:: affirms the vendored subtree —
+# the same "non-clean path reported as clean" shape (e) guards one write earlier, and the
+# one the whole helper exists to prevent.
+#
+# FIXTURE CHOICE IS LOAD-BEARING — the read must SUCCEED and only the write fail, or the
+# test is vacuous. A path whose read also fails (a directory, a missing parent) leaves
+# SWAPPED=0, so the swap-miss ::warning:: fires and the assertion below would pass with
+# the gate REMOVED; a directory additionally aborts the helper on `set -u` (the read never
+# assigns `line`) before the write is reached. Mode 0444 is the one portable mechanism
+# that separates read from write, and root bypasses it — so prove the fixture is effective
+# rather than trusting the mode, and take an auditable skip when it is not (#456).
+_1049_FX="$(mktemp -d)"; _1049_mkvendor "$_1049_FX" complete
+_1049_ROF="$_1049_FX/mk.txt"
+printf '%s\n%s\n' 'https://github.com/anthropics/claude-plugins-official.git' './' > "$_1049_ROF"
+chmod 444 "$_1049_ROF" 2>/dev/null || true
+if [ ! -w "$_1049_ROF" ]; then
+  _1049_ANN="$( cd "$_1049_FX" && bash "$_1049_CVM" "$_1049_ROF" .prflow/vendor 2>&1 )"; _1049_RC=$?
+  _1049_LIST="$(cat "$_1049_ROF")"
+  assert_eq "#1049 rewrite-failure: unwritable marketplaces file → ::warning:: and NO ::notice:: (nothing may claim a swap that never took effect)" "yes" \
+    "$(printf '%s' "$_1049_ANN" | grep -q '::warning::' && ! printf '%s' "$_1049_ANN" | grep -q '::notice::' && echo yes || echo no)"
+  assert_eq "#1049 rewrite-failure: the list still carries the repo-root ./ the run actually resolves from" \
+    "$(printf '%s\n%s' 'https://github.com/anthropics/claude-plugins-official.git' './')" "$_1049_LIST"
+  assert_eq "#1049 rewrite-failure: helper still exits 0 (best-effort; a compose bug never breaks the credentialed run)" "0" "$_1049_RC"
+else
+  # Root (or a mode-ignoring filesystem) can write the 0444 fixture, so the write cannot be
+  # made to fail here and the arm is unreachable. Auditable skip, never a silent absence.
+  skip "#1049 rewrite-failure arm" host-capability \
+    "chmod 444 did not make the marketplaces file unwritable (running as root, or a permissive filesystem)"
+fi
+chmod 644 "$_1049_ROF" 2>/dev/null || true
+rm -rf "$_1049_FX"
+# (g) baseline coupling: the helper's swap arm matches the literal `./`, but nothing
 # above ties that to what the baked marketplaces baseline actually emits — every fixture
 # supplies its own `./`. The #505 AC4 pins lock $_505_BM byte-identical across the three
 # workflows and say nothing about whether the helper matches any line it produces, so a
