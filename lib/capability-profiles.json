@@ -1,5 +1,5 @@
 {
-  "manifest_version": 15,
+  "manifest_version": 14,
   "readme": [
     "This manifest is the single source of truth for DevFlow's cloud capability policy:",
     "which tools/commands each execution tier (review, implement, command) may run.",
@@ -195,7 +195,6 @@
       "Bash(.prflow/vendor/prflow/scripts/verification-flight.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/reception-record.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/check-completion-evidence.py:*)",
-      "Bash(.prflow/vendor/prflow/scripts/reception_identity.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/parse-acs.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/check-verified-premises.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/preflight.py:*)",
@@ -319,7 +318,6 @@
       "Bash(.prflow/vendor/prflow/scripts/verification-flight.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/reception-record.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/check-completion-evidence.py:*)",
-      "Bash(.prflow/vendor/prflow/scripts/reception_identity.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/parse-acs.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/check-verified-premises.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/branch-for-issue.py:*)",

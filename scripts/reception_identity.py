@@ -49,7 +49,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 
 # git is a hard preflight prerequisite; invoked directly like scripts/workpad.py.
@@ -160,34 +159,3 @@ def derive_candidate_identity(repo_root: "str | None" = None) -> str:
     if not tree:
         raise IdentityError("empty_tree_output")
     return tree
-
-
-def main(argv: "list[str] | None" = None) -> int:
-    """CLI surface (issue #1087): print the derived candidate identity to stdout on
-    success (exit 0), or a named IdentityError reason to stderr with no stdout on
-    failure (exit 1). The importable `derive_candidate_identity` above stays the
-    single derivation routine — this is a thin wrapper so a producer that must place
-    the identity into a verification-flight declaration can obtain it without
-    re-implementing the format. Prints ONLY the identity on success, so a caller can
-    read stdout as the value verbatim; a failed derivation prints nothing to stdout."""
-    import argparse
-    parser = argparse.ArgumentParser(
-        prog="reception_identity.py",
-        description="Print the content-based candidate identity (git tree id) of the "
-                    "current working-tree content.",
-    )
-    parser.add_argument(
-        "--repo-root", default=None,
-        help="Repository root to derive from (default: the current working directory).",
-    )
-    args = parser.parse_args(argv)
-    try:
-        sys.stdout.write(derive_candidate_identity(args.repo_root) + "\n")
-        return 0
-    except IdentityError as exc:
-        sys.stderr.write(f"reception_identity: {exc.reason}\n")
-        return 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
