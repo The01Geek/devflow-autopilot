@@ -904,7 +904,11 @@ def _write_map(path: Path, map_value) -> "str | None":
     remaining path that could leave `--fix` raising a raw traceback instead of this
     file's fail-closed-with-a-named-breadcrumb posture (a read-only map, a full disk)."""
     try:
-        path.write_text(_serialize_map(map_value), encoding="utf-8")
+        # write_bytes, NOT write_text: write_text translates `\n` to os.linesep, so on Windows
+        # it would emit CRLF and make the "canonical form" the checker asserts platform-
+        # dependent. Writing the encoded bytes pins the canonical serialization to LF on every
+        # platform, so `--fix` output is byte-identical everywhere and arm 11 accepts it.
+        path.write_bytes(_serialize_map(map_value).encode("utf-8"))
     except (OSError, UnicodeError, TypeError, ValueError) as error:
         return f"{path} could not be written ({error})"
     return None
@@ -943,7 +947,9 @@ def _run_fix(repo_root: Path) -> int:
     # None`) is treated as non-canonical so `--fix` attempts the write and `_write_map`
     # surfaces any real write failure as a breadcrumb.
     try:
-        current = map_path.read_text(encoding="utf-8")
+        # read_bytes().decode() for the same reason arm 11's read does: a CRLF on-disk map is
+        # non-canonical and must be re-canonicalized, which read_text would mask.
+        current = map_path.read_bytes().decode("utf-8")
     except (OSError, UnicodeError):
         current = None
     if changed or current is None or not _is_canonical(current, map_value):
@@ -953,7 +959,7 @@ def _run_fix(repo_root: Path) -> int:
             return 1
         print(f"[fix] repaired {MAP_REL}")
     else:
-        print(f"[fix] {MAP_REL} already satisfies the coverage-map block-ownership arm")
+        print(f"[fix] {MAP_REL} already satisfies canonical form and the block-ownership arm")
     return 0
 
 
@@ -986,7 +992,12 @@ def main(argv):
     map_raw_text, map_raw_error = None, None
     if map_error is None:
         try:
-            map_raw_text = (repo_root / MAP_REL).read_text(encoding="utf-8")
+            # read_bytes().decode(), NOT read_text(): read_text opens with universal-newline
+            # translation, so a CRLF-encoded file would decode to `\n` and compare EQUAL to the
+            # `\n` canonical form — defeating arm 11's byte-identity claim exactly on the
+            # Windows/merge-tool line-ending drift it exists to catch. Decoding the raw bytes
+            # preserves the on-disk characters (an invalid-UTF-8 payload raises and is reported).
+            map_raw_text = (repo_root / MAP_REL).read_bytes().decode("utf-8")
         except (OSError, UnicodeError) as error:
             map_raw_error = f"{repo_root / MAP_REL} unreadable ({error})"
     registry_value, registry_error = _load_json(repo_root / REGISTRY_REL)

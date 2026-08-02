@@ -1085,6 +1085,38 @@ class Arm11CanonicalFormTest(unittest.TestCase):
         found = self._arm11(self._evaluate(m, map_raw_text=compact))
         self.assertEqual(len(found), 1)
 
+    def test_crlf_line_endings_are_non_canonical_drift(self):
+        # The arm claims BYTE-identity, so a CRLF-encoded copy of an otherwise-canonical map
+        # (a Windows hand-edit or a merge tool rewriting line endings) is non-canonical. A
+        # newline-translating read would decode CRLF to `\n` and silently pass; the comparand
+        # must preserve the on-disk `\r\n`.
+        m = _map(files={})
+        crlf = guard._serialize_map(m).replace("\n", "\r\n")
+        self.assertNotEqual(crlf, guard._serialize_map(m))
+        found = self._arm11(self._evaluate(m, map_raw_text=crlf))
+        self.assertEqual(len(found), 1)
+        self.assertIn("not in canonical serialized form", found[0])
+
+    def test_main_flags_a_crlf_on_disk_map(self):
+        # End-to-end: main() must read the raw bytes (not newline-translated) so a CRLF map
+        # turns the guard RED. A read_text-based reader would pass it.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "lib/test/modules").mkdir(parents=True)
+            (root / "scripts").mkdir()
+            (root / "lib/test/run.sh").write_text("", encoding="utf-8")
+            (root / guard.REGISTRY_REL).write_text(json.dumps(_registry()), encoding="utf-8")
+            m = _map(files={}, non_code_exempt=[guard.REGISTRY_REL])
+            crlf = guard._serialize_map(m).replace("\n", "\r\n").encode("utf-8")
+            (root / guard.MAP_REL).write_bytes(crlf)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = guard.main(["coverage_map_guard.py", str(root)])
+            self.assertEqual(rc, 1)
+            self.assertIn("[arm11]", out.getvalue())
+
     def test_an_unreadable_raw_file_is_unestablished_not_a_pass(self):
         # CLAUDE.md "unknown is not zero": a read failure is reported, never laundered
         # into a clean pass.
