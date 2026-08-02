@@ -32,8 +32,10 @@
 #
 #   stdout                     exit  meaning
 #   POSTED <event>             0     the review was created for <event>
-#   FAILED <one-line error>    1     the API call was issued and refused; the captured
-#                                    error text (collapsed to one line) follows
+#   FAILED <one-line error>    1     the post pipeline failed — the API call was issued
+#                                    and refused, or (rarely) the request could not be
+#                                    composed; the captured error text (collapsed to one
+#                                    line, from whichever stage failed) follows
 #   SKIP not-numeric           3     the PR number is empty or non-numeric; no request issued
 #   SKIP unknown-event         3     the event is not one of APPROVE / REQUEST_CHANGES /
 #                                    COMMENT (INCLUDING the empty string); no request issued
@@ -112,11 +114,13 @@ fi
 
 # Build the JSON request body with jq --rawfile so arbitrary body bytes (backticks,
 # `$(`, literal quotes, newlines) reach the API unmangled, then issue exactly one POST.
-# Capture the API call's stderr (never /dev/null) so a FAILED outcome carries its cause;
-# discard stdout. The whole pipeline runs under `set -o pipefail`, so a jq failure or a
-# gh failure both surface as a non-zero pipeline status routed to the FAILED arm.
-if ERR="$("$DEVFLOW_JQ" -n --arg event "$EVENT" --rawfile body "$BODY_FILE" '{event:$event, body:$body}' \
-          | "$DEVFLOW_GH" api -X POST "repos/{owner}/{repo}/pulls/$PR_NUMBER/reviews" --input - 2>&1 1>/dev/null)"; then
+# Capture the WHOLE pipeline's stderr (never /dev/null) so a FAILED outcome carries its
+# cause whichever stage failed — the group's `2>&1 1>/dev/null` captures both jq's stderr
+# (a broken/missing DEVFLOW_JQ, an unreadable rawfile) and gh's; discard the group's
+# stdout (gh's response). Under `set -o pipefail` a jq OR a gh failure surfaces as a
+# non-zero pipeline status routed to the FAILED arm.
+if ERR="$( { "$DEVFLOW_JQ" -n --arg event "$EVENT" --rawfile body "$BODY_FILE" '{event:$event, body:$body}' \
+             | "$DEVFLOW_GH" api -X POST "repos/{owner}/{repo}/pulls/$PR_NUMBER/reviews" --input - ; } 2>&1 1>/dev/null)"; then
   echo "POSTED $EVENT"
   exit 0
 fi

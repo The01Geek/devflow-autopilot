@@ -15189,8 +15189,9 @@ PRV_SB="$(mktemp -d)"
 cat > "$PRV_SB/gh" <<'EOS'
 #!/usr/bin/env bash
 # Faithful-enough gh: only the `api -X POST .../reviews` call matters. Record the
-# arg string and the JSON request body from stdin to the call log, then honor the
-# failure knobs. The literal {owner}/{repo} path passes through verbatim — the
+# arg string to the call log ($PRV_LOG) and the JSON request body from stdin to a
+# SEPARATE body file ($PRV_SB_BODY, which the assertions read via jq), then honor
+# the failure knobs. The literal {owner}/{repo} path passes through verbatim — the
 # helper never interpolates $GITHUB_REPOSITORY (asserted separately by
 # lint-gh-api-repo-path.py).
 if [ "$1" = "api" ]; then
@@ -15207,7 +15208,7 @@ exit 0
 EOS
 chmod +x "$PRV_SB/gh"
 
-# $1 event, $2 body-file (relative to $PRV_SB), rest: stub knobs as VAR=VALUE.
+# $1 event, $2 body-file path, rest: stub knobs as VAR=VALUE.
 prv_run() {
   local ev="$1" bf="$2"; shift 2
   : > "$PRV_SB/log"
@@ -15217,6 +15218,12 @@ prv_run() {
   PRV_RC_OBS=$?
 }
 prv_posts() { grep -c '^POST ' "$PRV_SB/log"; }
+# BYTE-EXACT body comparison. jq -j (raw, NO trailing newline) writes the sent body
+# verbatim, then cmp against the source file — so the trailing-newline dimension
+# (empty vs a lone newline) is genuinely distinguished, unlike a $()-captured
+# compare, which strips ALL trailing newlines from both sides and cannot tell them
+# apart.
+prv_body_matches() { jq -j '.body' "$PRV_SB/body" > "$PRV_SB/got"; cmp -s "$PRV_SB/got" "$1" && echo yes || echo no; }
 
 printf 'plain body line\nsecond line\n' > "$PRV_SB/body-plain.md"
 printf '' > "$PRV_SB/body-empty.md"
@@ -15234,9 +15241,9 @@ for EV in APPROVE REQUEST_CHANGES COMMENT; do
   assert_eq "#1059 post-verdict: $EV issues exactly one POST" "1" "$(prv_posts)"
   assert_eq "#1059 post-verdict: $EV POST targets the reviews endpoint with the event" "1" \
     "$(grep -c "pulls/123/reviews" "$PRV_SB/log")"
-  # The body file's bytes reach the API (extracted from the composed JSON).
+  # The body file's bytes reach the API byte-exactly (extracted from the composed JSON).
   assert_eq "#1059 post-verdict: $EV sends the body-file bytes verbatim" "yes" \
-    "$([ "$(jq -r '.body' "$PRV_SB/body")" = "$(cat "$PRV_SB/body-plain.md")" ] && echo yes || echo no)"
+    "$(prv_body_matches "$PRV_SB/body-plain.md")"
   assert_eq "#1059 post-verdict: $EV sends the mapped event in the JSON" "$EV" \
     "$(jq -r '.event' "$PRV_SB/body")"
 done
@@ -15245,8 +15252,8 @@ done
 for BF in body-empty.md body-nl.md body-tricky.md body-errshape.md; do
   prv_run APPROVE "$PRV_SB/$BF"
   assert_eq "#1059 post-verdict: body $BF → POSTED, exit 0" "POSTED APPROVE-0" "$PRV_OUT-$PRV_RC_OBS"
-  assert_eq "#1059 post-verdict: body $BF reaches the API unmangled" "yes" \
-    "$([ "$(jq -r '.body' "$PRV_SB/body")" = "$(cat "$PRV_SB/$BF")" ] && echo yes || echo no)"
+  assert_eq "#1059 post-verdict: body $BF reaches the API byte-exactly" "yes" \
+    "$(prv_body_matches "$PRV_SB/$BF")"
 done
 
 # ── Error / failure path: an API refusal yields FAILED <one line>, exit 1 ──
@@ -15254,6 +15261,9 @@ prv_run APPROVE "$PRV_SB/body-plain.md" PRV_RC=1 PRV_ERR="HTTP 422 Unprocessable
 assert_eq "#1059 post-verdict: API refusal → exit 1" "1" "$PRV_RC_OBS"
 assert_eq "#1059 post-verdict: API refusal → FAILED carries the captured error" "yes" \
   "$(case "$PRV_OUT" in "FAILED HTTP 422 Unprocessable Entity") echo yes;; *) echo no;; esac)"
+# The refusal path still issued the request exactly once (the stub logs the POST
+# before honoring PRV_RC) — a regression issuing zero or two would pass otherwise.
+assert_eq "#1059 post-verdict: a refused post still issues exactly one POST" "1" "$(prv_posts)"
 # A multi-line stderr collapses to exactly ONE output line.
 prv_run APPROVE "$PRV_SB/body-plain.md" PRV_RC=1 PRV_ERR=$'line one\nline two\nline three'
 assert_eq "#1059 post-verdict: multi-line API error → exactly one output line" "1" \
@@ -15273,6 +15283,13 @@ assert_eq "#1059 post-verdict: empty API error still prints a FAILED line, exit 
 PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" PRV_SB="$PRV_SB" \
   bash "$PRV" abc APPROVE "$PRV_SB/body-plain.md" 2>/dev/null)"; PRV_RC_OBS=$?
 assert_eq "#1059 post-verdict: non-numeric PR → SKIP not-numeric, exit 3, no request" \
+  "SKIP not-numeric-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
+# The EMPTY-string PR number is the case glob's OTHER arm (''|*[!0-9]*) and the
+# omitted-argv[1] shape — exercise it so narrowing the pattern to only *[!0-9]* is caught.
+: > "$PRV_SB/log"
+PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" PRV_SB="$PRV_SB" \
+  bash "$PRV" "" APPROVE "$PRV_SB/body-plain.md" 2>/dev/null)"; PRV_RC_OBS=$?
+assert_eq "#1059 post-verdict: empty PR number → SKIP not-numeric, exit 3, no request" \
   "SKIP not-numeric-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
 # Unknown event AND the empty string both refuse (no PENDING draft can be created).
 prv_run FOO "$PRV_SB/body-plain.md"
