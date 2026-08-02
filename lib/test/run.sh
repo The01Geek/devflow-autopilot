@@ -43659,10 +43659,13 @@ PY
 # scaffold-config.sh, migrate-consumer-tier1.sh, migrate-config-values.py) moved OFF the
 # whole-file exemption, so an UNDECLARED superseded leaf inside one of them must fail RED again
 # (the regression AC2 demands), while a leaf carrying the marker with a non-empty reason is
-# exempt, and a bare/empty-reason marker does NOT exempt (else a marker with no rationale would
-# silently launder any line). Drives the WHOLE guard pipeline over a synthetic population of a
-# now-non-exempt migration path; the leaf is assembled from parts so run.sh carries no literal.
-assert_eq "#1096 guard: line-scoped superseded-key-ok marker (undeclared/marked/empty-reason)" "1 0 1" \
+# exempt, a bare/empty-reason marker does NOT exempt (else a marker with no rationale would
+# silently launder any line), and the marker text sitting inside a STRING LITERAL does NOT
+# exempt a real leaf on that same code line (the marker is matched against the quote-aware
+# comment tail, not the raw line — else the guard fails open exactly where it claims closed).
+# Drives the WHOLE guard pipeline over a synthetic population of a now-non-exempt migration
+# path; the leaf is assembled from parts so run.sh carries no literal.
+assert_eq "#1096 guard: line-scoped superseded-key-ok marker (undeclared/marked/empty/spoof)" "1 0 1 1" \
   "$(python3 - "$L1084_LINT" <<'PY'
 import importlib.util, io, sys, contextlib
 spec = importlib.util.spec_from_file_location("g", sys.argv[1])
@@ -43670,16 +43673,18 @@ g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
 LEAF = "dev" + "flow" + "_implement.stall_backstop"
 def run_main(line):
     g._pop.enumerate_population = lambda root, ff, *, ls_files_argv: ["scripts/config-get.sh"]
-    g._pop.read_source = lambda p, *, skip_nul: ("# probes ." + line, None)
+    g._pop.read_source = lambda p, *, skip_nul: (line, None)
     with contextlib.redirect_stderr(io.StringIO()):
         return g.main()
 # 1) undeclared leaf in a now-non-exempt migration file → rc 1 (AC2 regression is caught)
-r_undeclared = run_main(LEAF + " here")
+r_undeclared = run_main("# probes ." + LEAF + " here")
 # 2) same leaf declared with a non-empty reason → rc 0 (exempt)
-r_marked = run_main(LEAF + "  # superseded-key-ok: legitimate migration probe")
+r_marked = run_main("# probes ." + LEAF + "  # superseded-key-ok: legitimate migration probe")
 # 3) same leaf with a bare/empty-reason marker → rc 1 (reason must be non-empty)
-r_empty = run_main(LEAF + "  # superseded-key-ok:")
-print(r_undeclared, r_marked, r_empty)
+r_empty = run_main("# probes ." + LEAF + "  # superseded-key-ok:")
+# 4) marker text inside a STRING literal, real leaf in code on the same line → rc 1 (no spoof)
+r_spoof = run_main('bad = "# superseded-key-ok: spoof"; probe(' + LEAF + ')')
+print(r_undeclared, r_marked, r_empty, r_spoof)
 PY
 )"
 # #1096: config-get.sh's real line-135 marker is honored on the LIVE tree — the guard's own

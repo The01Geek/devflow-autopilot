@@ -62,6 +62,20 @@ for _name in ("enumerate_population", "read_source", "LS_FILES_INDEX", "Enumerat
     if not hasattr(_pop, _name):
         raise SystemExit(f"lint_population.py is missing the expected `{_name}` interface")
 
+# Reuse lint-tree-enumeration.py's quote/escape-aware `_comment_split` so the line-scoped
+# `# superseded-key-ok:` marker is matched against a line's COMMENT tail alone, never the raw
+# line (the same reuse the sibling lint-argjson-transport.py makes). A raw-line search would let
+# the literal text `# superseded-key-ok:` sitting inside a string/regex literal exempt a real
+# superseded leaf on that same code line — failing open exactly where the guard claims to fail
+# closed, and the scanned migration files are precisely where such string/regex literals live.
+# Loaded by path at LOAD time so a rename in the sibling lint fails here naming the dependency.
+_TREE_PATH = _REPO_ROOT / "lib" / "test" / "lint-tree-enumeration.py"
+_tree_spec = importlib.util.spec_from_file_location("lint_tree_enumeration", _TREE_PATH)
+_tree = importlib.util.module_from_spec(_tree_spec)
+_tree_spec.loader.exec_module(_tree)
+if not hasattr(_tree, "_comment_split"):
+    raise SystemExit(f"lint-superseded-config-keys: {_TREE_PATH} no longer provides `_comment_split`")
+
 
 def _superseded_families() -> list[str]:
     """The superseded config-family prefixes, derived from rename-map.json's config_keys keys."""
@@ -100,7 +114,9 @@ _BINARY_SUFFIXES = frozenset(
 # mirroring the repo's `# tree-walk-ok:` / `# raw-guard-ok:` / `# structural-pin-ok:` family.
 # The reason must be non-empty (at least one non-whitespace char after the colon), so a bare
 # `# superseded-key-ok:` does not silently exempt a line. Only the marked line is exempted —
-# the rest of the file is still scanned for an undeclared regression.
+# the rest of the file is still scanned for an undeclared regression. The marker is matched
+# against the line's COMMENT tail (via the shared `_comment_split` above), never the raw line,
+# so the literal text appearing inside a string/regex literal cannot spoof an exemption.
 _MARKER_RE = re.compile(r"#\s*superseded-key-ok:\s*\S")
 
 # Whole-file declared exemptions — genuinely non-scannable sites that must keep the superseded
@@ -165,9 +181,11 @@ def main() -> int:
             skipped.append(f"{path}: {skip_reason or 'unknown'}")
             continue
         for lineno, line in enumerate(text.split("\n"), 1):
-            if _MARKER_RE.search(line):
+            if _MARKER_RE.search(_tree._comment_split(line)[1]):
                 # Line-scoped exemption (issue #1096): a live migration file legitimately names
-                # a superseded leaf on this line and declares it. Only THIS line is exempt.
+                # a superseded leaf on this line and declares it. Only THIS line is exempt. The
+                # marker is tested against the COMMENT tail (quote/escape-aware via the shared
+                # `_comment_split`), so the literal text inside a string/regex cannot spoof it.
                 continue
             for m in _LEAF_RE.finditer(line):
                 if m.group(1) in _EXTENSIONS:
