@@ -1492,8 +1492,10 @@ def enumerate_subcommands(src):
     return list(dict.fromkeys(_ADD_PARSER.findall(src)))
 
 def boundary_count(name, corpus):
-    # A consumer is a BOUNDARY-matched occurrence, so `record-adjudication` never counts a
-    # `record-adjudication-render` mention as its own consumer.
+    # A consumer is a BOUNDARY-matched occurrence of the subcommand name, so a longer name that
+    # merely shares a shorter name's prefix is never counted as the shorter one's consumer. This
+    # comment deliberately names no real subcommand literal: the guard module is itself in the
+    # scanned corpus, so a literal here would be a phantom consumer masking a real orphaning.
     pat = re.compile(r'(?<![\w-])' + re.escape(name) + r'(?![\w-])')
     return sum(len(pat.findall(text)) for text in corpus.values())
 
@@ -1536,11 +1538,19 @@ def helper_adjudicated(cvp, undecidable=None):
     und = set(cvp._UNDECIDABLE_REASONS) if undecidable is None else set(undecidable)
     return _ALL_HANDLES - und
 
+def _norm(text):
+    # Mirror check-verified-premises.py's own markup/wrap robustness: a reintroduced form
+    # arrives as markdown (`**exact command**`) wrapped across lines, so strip emphasis and
+    # backticks and collapse whitespace before matching — a plain substring test would miss
+    # exactly the emphasized/wrapped shape the deleted prose actually carried.
+    return re.sub(r'\s+', ' ', text.replace('*', '').replace('`', ''))
+
 def template_forms(tmpl_text):
+    t = _norm(tmpl_text)
     forms = set()
-    if 'repository path in backticks plus the sentence quoted verbatim' in tmpl_text:
+    if _norm('repository path in backticks plus the sentence quoted verbatim') in t:
         forms.add('path-quote')
-    if 'exact command whose output grounded the claim' in tmpl_text:
+    if _norm('exact command whose output grounded the claim') in t:
         forms.add('command')
     return forms
 
@@ -1597,8 +1607,10 @@ def main():
             sys.stderr.write(f'  template forms={sorted(tf)} helper-adjudicated={sorted(adj)}\n')
             print(verdict)
         elif mode == 'guard2-command':
-            # Planted defect: reintroduce the command form to the template text.
-            planted = tmpl + '\nor the exact command whose output grounded the claim.\n'
+            # Planted defect: reintroduce the command form in its REALISTIC reverted shape —
+            # markdown-emphasized and wrapped across a line, exactly as the deleted prose carried
+            # it — so this proves the normalization above, not just a plain-substring revert.
+            planted = tmpl + '\nor the **exact command**\nwhose output grounded the claim.\n'
             verdict, _, _ = guard2(planted, cvp)
             print('caught' if verdict == 'subset-FAIL' else 'MISSED')
         elif mode == 'guard2-narrow':
