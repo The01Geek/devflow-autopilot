@@ -31,13 +31,13 @@ Map the Phase 4.2 verdict to exactly one review **event** — the closed set Git
 
 A REJECT driven by the Phase 4.2 self-contradicting-diff carve-out is a **REJECT (any form)** like any other, mapping to `REQUEST_CHANGES` via the first row above — no separate branch for it.
 
-**Write `$BODY` to a file, then post it through the helper.** The helper takes the body as a **file path** (not an inline string), so a report containing backticks, `$(`, or literal double quotes reaches the API unmangled. Write `$BODY` to `.prflow/tmp/review-verdict-body.md` with the **Write tool** (not a shell redirect — the cloud matcher denies redirect shapes), then invoke the helper as a **single leading-token statement at the repo-relative vendored literal**, with the event and the body-file path in argument position — no leading `cd`, no `VAR=value` prefix, no unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor in the leading token (any of those makes the command no longer *begin with* the granted literal and it is silently denied):
+**Write `$BODY` to a file, then post it through the helper.** The helper takes the body as a **file path** (not an inline string), so a report containing backticks, `$(`, or literal double quotes reaches the API unmangled. Write `$BODY` to `.prflow/tmp/review-verdict-body.md` with the **Write tool** (not a shell redirect — the cloud matcher denies redirect shapes), then invoke the helper as a **single leading-token statement at the repo-relative vendored literal**, with the event and the body-file path in argument position — no leading `cd`, no `VAR=value` prefix, and no unexpanded skill-directory anchor placeholder as the leading token (any of those makes the command no longer *begin with* the granted literal and it is silently denied):
 
 ```bash
 .prflow/vendor/prflow/scripts/post-review-verdict.sh "$PR_NUMBER" REQUEST_CHANGES .prflow/tmp/review-verdict-body.md
 ```
 
-Substitute the mapped event (`APPROVE` / `REQUEST_CHANGES` / `COMMENT`) for the `REQUEST_CHANGES` token above. **Pass `"$PR_NUMBER"` here, never `"$ARGUMENTS"`: the quoted form reaches the helper as a single argv element, so an extended argument string like `123 --issue 456` would be handed over whole and rejected as non-numeric.** (On the local tier, resolve the `${CLAUDE_SKILL_DIR:-…}` anchor to `scripts/post-review-verdict.sh` as the leading token; the cloud tier uses the vendored literal exactly as written.)
+Substitute the mapped event (`APPROVE` / `REQUEST_CHANGES` / `COMMENT`) for the `REQUEST_CHANGES` token above. **Pass `"$PR_NUMBER"` here, never `"$ARGUMENTS"`: the quoted form reaches the helper as a single argv element, so an extended argument string like `123 --issue 456` would be handed over whole and rejected as non-numeric.** (On the local tier, invoke `scripts/post-review-verdict.sh` as the leading token in place of the vendored path; the cloud tier uses the vendored literal exactly as written.)
 
 **Read the helper's single outcome line and route on it (the vocabulary is closed and has no silent path):**
 
@@ -56,7 +56,7 @@ Substitute the mapped event (`APPROVE` / `REQUEST_CHANGES` / `COMMENT`) for the 
 .prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh "$PR_NUMBER"
 ```
 
-**Pass `"$PR_NUMBER"` here, never `"$ARGUMENTS"`: the quoted form reaches `dismiss-stale-rejections.sh` as a single argv element, so an extended argument string is handed over whole, matches no PR, and the stale-REJECT dismissal silently no-ops after an APPROVE — leaving the PR wedged at `CHANGES_REQUESTED`.** (On the local tier, resolve the `${CLAUDE_SKILL_DIR:-…}` anchor to `scripts/dismiss-stale-rejections.sh` as the leading token.)
+**Pass `"$PR_NUMBER"` here, never `"$ARGUMENTS"`: the quoted form reaches `dismiss-stale-rejections.sh` as a single argv element, so an extended argument string is handed over whole, matches no PR, and the stale-REJECT dismissal silently no-ops after an APPROVE — leaving the PR wedged at `CHANGES_REQUESTED`.** (On the local tier, invoke `scripts/dismiss-stale-rejections.sh` as the leading token in place of the vendored path.)
 
 **Record the dismissal's exit code.** On a **`POSTED` APPROVE**, a non-zero exit is reported in chat output (token scope) and that the PR stays blocked until dismissed manually — as it is today. On a **`FAILED` / `SKIP …` / silent APPROVE**, the dismissal ran with no `POSTED` review, so write **its outcome into the fallback comment's failure record** (dismissed / non-zero exit and cause), so the whole story — the failed post, its error, the verdict, and the dismissal result — lives in one durable artifact. **A dismissal failure never downgrades the verdict** — it stands; only merge-gate housekeeping failed.
 <!-- prflow:review-ref phase=4.4 file=skills/review/phases/phase-4-4-github-post.md end -->
