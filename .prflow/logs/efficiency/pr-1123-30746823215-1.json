@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1123",
+  "generated_at": "2026-08-02T12:23:40Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.41",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 21.181690250000006,
+    "tokens": {
+      "input_tokens": 12509,
+      "output_tokens": 56709,
+      "cache_read_input_tokens": 9546979,
+      "cache_creation_input_tokens": 262647,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 12727,
+        "outputTokens": 129262,
+        "cacheReadInputTokens": 20214912,
+        "cacheCreationInputTokens": 1042274,
+        "webSearchRequests": 0,
+        "costUSD": 20.901779750000006,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 1,
+        "outputTokens": 7491,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 44678,
+        "webSearchRequests": 0,
+        "costUSD": 0.2799105,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 62,
+    "duration_ms": 1473080
+  },
+  "permission_denials": {
+    "count": 16,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=[$GITHUB_RUN_ID] ACTIONS=[$GITHUB_ACTIONS] REPO=[$GITHUB_REPOSITORY]\"",
+      "printf 'RUN_ID=[%s] ACTIONS=[%s] REPO=[%s]\\n' \"$GITHUB_RUN_ID\" \"$GITHUB_ACTIONS\" \"$GITHUB_REPOSITORY\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve \"1098\" --pr \"1123\" 2>.prflow/tmp/review/pr-1123/local-run/acs.err ; echo \"acs-rc=$?\"",
+      ".prflow/vendor/prflow/scripts/resolve-review-overrides.py \"prflow:checklist-generator\" 2>&1 ; echo \"ovr-rc=$?\"\necho \"=== slice batch 1 (files 1-10) ===\"\nawk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/review/pr-1123/local-run/diff.patch > .prflow/tmp/review/pr-1123/local-run/batch-1.patch && test -s .prflow/tmp/review/pr-1123/local-run/batch-1.patch && echo \"slice-ok: batch-1\" || echo \"slice-failed: batch-1\"\nawk -v s=11 -v e=20 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/revie …[per-command-truncated]",
+      "awk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/review/pr-1123/local-run/diff.patch > .prflow/tmp/review/pr-1123/local-run/batch-1.patch; echo \"b1-rc=$?\"; test -s .prflow/tmp/review/pr-1123/local-run/batch-1.patch && echo \"batch-1 nonempty\" || echo \"batch-1 EMPTY\"",
+      "HEAD_SHA=28f16bb242406926d90de5bf852c9f211297f63b\necho \"=== VC-11: run.sh floor operand at PR head ===\"\ngit show ${HEAD_SHA}:lib/test/run.sh | grep -nA1 'devflow_run_full_suite_module \"$LIB/test/modules/create-issue-contract.sh\"'\necho \"=== VC-12: registry min_assertions at PR head ===\"\ngit show ${HEAD_SHA}:scripts/workflow-flight-recorder-registry.json | grep -A3 '\"create-issue-contract\"'\necho \"=== VC-17: 'consumers not swept' at PR head ===\"\ngit show ${HEAD_SHA}:.prflow/prompt-extensions/create …[per-command-truncated]",
+      "for s in record-claim-baseline query-claim-baselines check-claim-staleness cmd_check_claim_staleness cmd_record_claim_baseline _validate_claims; do echo \"=== $s ===\"; git grep -n -- \"$s\" | grep -v \"diff.patch\" | head -20; done",
+      "cd /home/runner/work/prflow/prflow; for s in record-claim-baseline query-claim-baselines check-claim-staleness cmd_check_claim_staleness cmd_record_claim_baseline claim-baseline claim_baseline; do echo \"=== $s ===\"; git grep -n \"$s\" -- ':!.prflow/tmp' | head; done",
+      "for m in guard1-real guard1-orphan guard1-prefix guard1-mismatch guard2-real guard2-detector-live guard2-command guard2-narrow classify-command classify-pathquote; do\npython3 - \"$m\" \"$(pwd)\" <<'PYEOF' 2>/dev/null\nimport sys, re, subprocess, importlib.util, pathlib\nmode=sys.argv[1]; root=pathlib.Path(sys.argv[2])\ndef _load(rel,name):\n    spec=importlib.util.spec_from_file_location(name,root/rel); mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod); return mod\n_ADD=re.compile(r …[per-command-truncated]",
+      "cat > /tmp/t1098.py <<'PYEOF'\nimport importlib.util\nspec=importlib.util.spec_from_file_location('cvp','scripts/check-verified-premises.py')\nm=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\ndef cf(body):\n    s=m.parse_bullets(body)\n    if not s: return 'no-bullet'\n    h,_,_=m.classify(s[0]); return h\nprint('cmd:', cf('- **Verified:** the count is 42, per `grep -c foo a b c`\\n'))\nprint('pq:', cf('- **Verified:** `scripts/check-verified-premises.py` states — \"the tally is right\"\\ …[per-command-truncated]",
+      "cat > .prflow/tmp/t1098.py <<'PYEOF'\nimport importlib.util\nspec=importlib.util.spec_from_file_location('cvp','scripts/check-verified-premises.py')\nm=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\ndef cf(body):\n    s=m.parse_bullets(body)\n    if not s: return 'no-bullet'\n    h,_,_=m.classify(s[0]); return h\nprint('cmd:', cf('- **Verified:** the count is 42, per `grep -c foo a b c`\\n'))\nprint('pq:', cf('- **Verified:** `scripts/check-verified-premises.py` states — \"the tally is  …[per-command-truncated]",
+      "lib/test/test_python_scripts.py 2>&1 | tail -15",
+      "lib/test/test_python_scripts.py 2>/dev/null | tail -6; echo \"EXIT ${PIPESTATUS[0]}\"",
+      "lib/test/test_python_scripts.py > /dev/null 2> .prflow/tmp/pyerr.txt; echo \"rc=$?\"; tail -5 .prflow/tmp/pyerr.txt; rm -f .prflow/tmp/pyerr.txt",
+      "lib/test/test_python_scripts.py 2>&1 | grep -iE \"fail|error|traceback|passed\" | tail -15",
+      "echo \"=== independent enum via argparse --help (choices), NOT the add_parser regex ===\"\npython3 scripts/issue-audit-state.py --help 2>&1 | sed -n '/{/,/}/p' | head -5 | tr ',' '\\n' | tr -d '{} ' | grep -c '[a-z]' 2>/dev/null || echo \"help-parse-fallback\"\necho \"=== independent: count set_defaults(func=...) OR registered_subcommands() return ===\"\npython3 - <<'PY'\nimport importlib.util, pathlib\nroot = pathlib.Path('.')\nspec = importlib.util.spec_from_file_location('ias', root/'scripts/issue-audit-s …[per-command-truncated]"
+    ],
+    "total": 16,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
