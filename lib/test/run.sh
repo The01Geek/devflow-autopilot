@@ -41427,13 +41427,14 @@ echo "#619 batched-regeneration instruction surfaces"
 # pinned literal is a single unwrapped line in each file (a sentence wrapped across a
 # line break lives on no single line and this line-based pin would find nothing —
 # the issue-375 wrapped-literal hazard).
-assert_pin_unique "#1055 .prflow/prompt-extensions/implement.md uses the granted direct batched invocation" \
-  'run the granted direct leading-token form once' \
-  "$LIB/../.prflow/prompt-extensions/implement.md"  # structural-pin-ok: cross-file-phase-contract -- the cloud-only config grant and prompt invocation must stay coupled
+# The batched invocation itself is NOT pinned as a sentence. What matters is not that a
+# particular wording survives but that the invocation is a FENCED command whose head is
+# the granted direct leading-token form — an inline-backtick mention is invisible to both
+# the matcher and the head scanner, and an interpreter head is silently denied. That is an
+# executable property, asserted per extension and per section by the regenerate-artifacts
+# module's head-extraction loop, so the superseded wording pins are retired rather than
+# retargeted (issue #1055; CLAUDE.md's guard-behavior-not-prose rule).
 for _ra_ext in review-and-fix receiving-code-review; do
-  assert_pin_unique "#619 .prflow/prompt-extensions/$_ra_ext.md carries the batched-regeneration invocation" \
-    'run the granted direct leading-token form once' \
-    "$LIB/../.prflow/prompt-extensions/$_ra_ext.md"
   assert_pin_unique "#619 .prflow/prompt-extensions/$_ra_ext.md carries the batched-regeneration discharge record" \
     '`batched-regeneration: run|refused|skipped`' \
     "$LIB/../.prflow/prompt-extensions/$_ra_ext.md"

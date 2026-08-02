@@ -1567,13 +1567,13 @@ _ra_has "#655 the batched pass prints the SAME recipe string as governing policy
 # coupled prose mirror is present and identical, not that a behavior flips.
 RA_EXT_DIR="$RA_REPO/.prflow/prompt-extensions"
 RA_RULE_HEADING='## Merge conflicts in generated artifacts'
-devflow_module_pin_unique "#1055 the implement conflict oracle uses the granted direct head" \
-  'lib/test/regenerate-artifacts.py --list' "$RA_EXT_DIR/implement.md"  # structural-pin-ok: cross-file-phase-contract -- the cloud-only config grant and prompt invocation must stay coupled
+# The oracle command is not pinned as a literal here. Its guarantee — that the invocation
+# is FENCED and its head is the granted direct form — is asserted executably below by
+# running the real head extractor over each extension's section, which an inline-backtick
+# or interpreter-head regression fails and a wording change does not (issue #1055).
 for _ext in review-and-fix receiving-code-review; do
   devflow_module_pin_unique "#655 the conflict rule has its own section in $_ext.md" \
     "$RA_RULE_HEADING" "$RA_EXT_DIR/$_ext.md"  # runtime-pin-ok: target path interpolates the `for _ext …` loop var, unresolvable by the static meta-guard
-  devflow_module_pin_unique "#655 the conflict rule cites --list as the oracle in $_ext.md" \
-    'lib/test/regenerate-artifacts.py --list' "$RA_EXT_DIR/$_ext.md"  # runtime-pin-ok: target path interpolates the `for _ext …` loop var, unresolvable by the static meta-guard
 done
 # Byte-identity across the three copies: extract each section (heading to the next `## `)
 # and require all three to be equal. A per-file presence pin cannot catch a copy that
@@ -1651,15 +1651,24 @@ assert_eq "#1055 the batched helper is extracted as a direct command head" \
   'lib/test/regenerate-artifacts.py' "$RA_1055_HEADS"
 # The combined extraction above cannot tell "both sections fenced" from "one fenced, one
 # still in inline backticks" — the set collapses either way, so reverting EITHER fence
-# would leave it green. Extract each section on its own so both invocations are covered
-# independently; this is the assertion that actually holds the matcher-visibility fix.
-for _ra_1055_section in '## Batched artifact regeneration' \
-                        '## Merge conflicts in generated artifacts'; do
-  "$RA_REPO/scripts/load-prompt-extension.sh" implement --section "$_ra_1055_section" \
-    > "$_ra_tmp_root/issue-1055-section.md"
-  assert_eq "#1055 '$_ra_1055_section' fences the granted direct head" \
-    'lib/test/regenerate-artifacts.py' \
-    "$(python3 "$LIB/test/extract-command-heads.py" heads "$_ra_tmp_root/issue-1055-section.md")"
+# would leave it green. Extract every (extension, section) pair on its own instead. This
+# is the assertion that actually holds the matcher-visibility fix, and it is what replaced
+# the retired wording pins over these sentences: an inline-backtick mention yields NO head
+# and an interpreter head yields `python3`, so either regression fails here, while a
+# reworded sentence — which changes no executable property — does not.
+for _ra_1055_ext in implement review-and-fix receiving-code-review; do
+  for _ra_1055_section in '## Batched artifact regeneration' \
+                          '## Merge conflicts in generated artifacts'; do
+    "$RA_REPO/scripts/load-prompt-extension.sh" "$_ra_1055_ext" --section "$_ra_1055_section" \
+      > "$_ra_tmp_root/issue-1055-section.md"
+    assert_eq "#1055 $_ra_1055_ext.md '$_ra_1055_section' fences the granted direct head" \
+      'lib/test/regenerate-artifacts.py' \
+      "$(python3 "$LIB/test/extract-command-heads.py" heads "$_ra_tmp_root/issue-1055-section.md")"
+    python3 "$LIB/test/extract-command-shapes.py" --profile implement \
+      "$_ra_tmp_root/issue-1055-section.md" > "$_ra_tmp_root/issue-1055-section-shapes.out" 2>&1
+    assert_eq "#1055 $_ra_1055_ext.md '$_ra_1055_section' is clean under implement shape rules" \
+      "0" "$?"
+  done
 done
 RA_1055_BASE_UNGRANTED="$(python3 "$LIB/test/extract-command-heads.py" ungranted \
   "$RA_1055_PROMPT" "$RA_REPO/.github/workflows/devflow-implement.yml" implement-block)"
