@@ -32121,8 +32121,16 @@ fi
 # AFTER #1039 relocated the standard from docs/ to lib/, which shortens this file's anchor
 # by the one byte `docs` loses to `lib` — registering the pre-relocation figure instead
 # would leave exactly one byte of slack and silently admit the next one-byte growth.
+# Issue #1050 swaps checkpoint 4's clean-path evidence carrier from a free-text `--note` to the
+# keyed `--checkpoint base-update-checkpoint-4` row, and that swap cannot be routed behind a
+# conditional progressively-loaded reference: the key's `gha:`-prefix prohibition (the tier
+# discriminator would otherwise misclassify every local run as cloud) and the degrade-to-`--note`
+# fallback for a non-canonical body are both required reading on every run that reaches the clean
+# arm, so they live in the unconditional §4.3 prose. That does not fit the residual headroom the
+# post-#1039 figure left, so the ceiling is raised again here at the post-#1050 measurement with
+# NO added slack, exactly as above.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
-  "$([ "$(wc -c < "$I480_P4")" -le 99365 ] && echo yes || echo no)"
+  "$([ "$(wc -c < "$I480_P4")" -le 100707 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
 # the reference through this file's own entry-gate anchor, and degrades rather than halting
 # on a failed read — carry NO pin. Every mutation those sentences admit rewrites the one
