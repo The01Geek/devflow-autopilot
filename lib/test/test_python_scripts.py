@@ -23090,7 +23090,8 @@ try:
     # Standalone copy (validator sibling absent): a Complete with a marker fails closed
     # with the missing-evidence token, while a NON-Complete update is unaffected.
     _body_marker_only = _body_with_marker  # carries the completion marker
-    workpad._COMPLETION_VALIDATOR_ABSENT = True
+    _saved_loader = workpad._load_completion_validator
+    workpad._load_completion_validator = lambda: None
     try:
         _codeA, _oA, _eA, _patchedA = _drive_cmd_update(
             _body_marker_only, status='Complete', repo_root=_root, claim_identity="treeX")
@@ -23100,7 +23101,7 @@ try:
         _codeB, _oB, _eB, _patchedB = _drive_cmd_update(_body_marker_only, note=['still works'])
         assert_eq("#1087 standalone-copy NON-Complete update still PATCHes", True, _patchedB is not None)
     finally:
-        workpad._COMPLETION_VALIDATOR_ABSENT = False
+        workpad._load_completion_validator = _saved_loader
 finally:
     workpad._completion_evidence_verdict = lambda args, prog_content: None
 

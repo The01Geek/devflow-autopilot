@@ -2713,21 +2713,22 @@ _COMPLETION_FLIGHT_KEY_RE = re.compile(r'\A[0-9a-f]{16,}\Z')
 _COMPLETION_MARKER_RE = re.compile(
     r'<!--\s*(?:pr|dev)flow:checkpoint\s+completion-verification:([^\s]+?)\s*-->'
 )
-# Test seam: the standalone-copy arm sets this to force the "validator absent" path
-# without deleting the sibling on disk. Production leaves it None.
-_COMPLETION_VALIDATOR_ABSENT = False
+_COMPLETION_VALIDATOR_CACHE = None
 
 
 def _load_completion_validator():
-    """Lazily import the sibling `check-completion-evidence.py` module.
+    """Lazily import the sibling `check-completion-evidence.py` module, once.
 
     Returns the imported module, or None when the sibling is absent beside this
     `workpad.py` copy (the standalone-deployment closure — `lib/implement-stop-guard.sh`
     and the suite's guard sandboxes copy `workpad.py` without its evidence siblings).
     Imported by file path via importlib because the sibling's filename carries a
-    hyphen and is not importable as a module name."""
-    if _COMPLETION_VALIDATOR_ABSENT:
-        return None
+    hyphen and is not importable as a module name; the result is memoized so a
+    combined record+Complete call does not re-exec the sibling twice. Tests exercise
+    the standalone-copy arm by monkeypatching this function to return None."""
+    global _COMPLETION_VALIDATOR_CACHE
+    if _COMPLETION_VALIDATOR_CACHE is not None:
+        return _COMPLETION_VALIDATOR_CACHE
     import importlib.util
     path = Path(__file__).resolve().parent / 'check-completion-evidence.py'
     if not path.exists():
@@ -2739,27 +2740,17 @@ def _load_completion_validator():
         spec.loader.exec_module(mod)
     except Exception:  # noqa: BLE001 - an unimportable sibling fails closed to absent
         return None
+    _COMPLETION_VALIDATOR_CACHE = mod
     return mod
 
 
 def _devflow_repo_root(args=None) -> str:
     """The repository root the completion-evidence gate anchors on: an explicit
-    `--repo-root`, else the git top-level, else cwd (Windows-safe native git)."""
+    `--repo-root`, else the git top-level, else cwd. Reuses the module's #295
+    `_repo_root()` helper (the Windows-safe native-git resolver) rather than
+    re-spawning `git rev-parse`."""
     explicit = getattr(args, 'repo_root', None) if args is not None else None
-    if explicit:
-        return explicit
-    try:
-        p = subprocess.run(  # noqa: S603 - argv list, no shell
-            ['git', 'rev-parse', '--show-toplevel'],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        )
-        if p.returncode == 0:
-            top = p.stdout.decode('utf-8', 'replace').strip()
-            if top:
-                return top
-    except OSError:
-        pass
-    return os.getcwd()
+    return explicit or _repo_root() or os.getcwd()
 
 
 def _completion_marker_keys(progress_content: str) -> list[str]:

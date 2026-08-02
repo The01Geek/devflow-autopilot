@@ -227,18 +227,20 @@ def _check_rebind(obj: dict, label: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Candidate-identity re-derivation (single source of truth — the #668 routine)
 # ─────────────────────────────────────────────────────────────────────────────
-def _claim_time_identity(args) -> str:
+def _claim_time_identity(claim_identity: "str | None", repo_root: "str | None") -> str:
     """The claim-time candidate identity.
 
     Re-derived at validation time by calling the shipped preflight producer, so
     the identity format has exactly one implementation. A test/loop may pin an
-    explicit value with --claim-identity (the loop passes what it computed); any
-    other value routes through the same derivation routine.
+    explicit value (the loop passes what it computed); any other value routes
+    through the same derivation routine. Shared by every context — the loop/direct
+    `_validate` and the implement `validate_implement_completion` — so the "exactly
+    one implementation" invariant holds across all callers.
     """
-    if args.claim_identity:
-        return args.claim_identity
+    if claim_identity:
+        return claim_identity
     try:
-        return ri.derive_candidate_identity(args.repo_root or os.getcwd())
+        return ri.derive_candidate_identity(repo_root or os.getcwd())
     except ri.IdentityError as exc:
         # A derivation that cannot complete is an internal failure of the check
         # itself, not a verdict about the claim — exit 2, no verdict line.
@@ -693,7 +695,7 @@ def _validate(args) -> "tuple[str, str]":
         ledger = findings_inventory
 
     # Claim-time identity — re-derived (or pinned) — needed for the stale compare.
-    claim_identity = _claim_time_identity(args)
+    claim_identity = _claim_time_identity(args.claim_identity, args.repo_root)
 
     # 2) stale-candidate — currency of the verification record.
     _check_stale_candidate(vrecord, claim_identity)
@@ -738,13 +740,7 @@ def _validate_implement_record(rec: dict, claim_identity: str) -> "tuple[str, st
     record is a current, skip-free, passed flight whose candidate identity equals the
     final tree. `claim_identity` is the freshly-derived current-tree identity.
     """
-    # 1) missing-evidence — presence and shape of every operand the value checks read.
-    recorded_identity = rec.get("candidate_identity")
-    if not isinstance(recorded_identity, str) or not recorded_identity:
-        raise Verdict(
-            TOK_MISSING,
-            "flight record carries no candidate_identity to bind to the final tree",
-        )
+    # 1) missing-evidence — presence and shape of the terminal-summary operands.
     summary = rec.get("suite_summary")
     if not isinstance(summary, dict):
         raise Verdict(
@@ -773,26 +769,21 @@ def _validate_implement_record(rec: dict, claim_identity: str) -> "tuple[str, st
             "flight record's top-level skipped_checks is not a list (unclassifiable)",
         )
 
-    # 2) stale-candidate — the record's identity must equal the current tree.
-    if recorded_identity != claim_identity:
-        raise Verdict(
-            TOK_STALE,
-            "verification evidence predates the final candidate "
-            "(recorded flight identity differs from the current tree)",
-        )
+    # 2) missing-identity + stale-candidate — reuse the shared check (a `str` record
+    #    with no candidate_identity is TOK_MISSING; a mismatch is TOK_STALE).
+    _check_stale_candidate(rec, claim_identity)
 
-    # 3) verification-not-pass — the flight must be in the terminal `passed` STATE,
-    #    with a `passed` result and a zero exit status. Any other state (claimed,
-    #    running, failed, timed_out, cancelled, stale, incomplete) is non-pass.
+    # 3) verification-not-pass — the flight must be in the terminal `passed` STATE
+    #    (not merely a `passed` result: any other state — claimed, running, failed,
+    #    timed_out, cancelled, stale, incomplete — is non-pass), with a `passed`
+    #    result (shared check) and a zero exit status.
     state = rec.get("state")
     if state != FLIGHT_STATE_PASSED:
         raise Verdict(
             TOK_NOT_PASS,
             f"flight state is {state!r}, not {FLIGHT_STATE_PASSED!r}",
         )
-    result = rec.get("result")
-    if result not in PASS_RESULT_VALUES:
-        raise Verdict(TOK_NOT_PASS, f"flight result is {result!r}, not a pass")
+    _check_verification_pass(rec)
     if exit_status != 0:
         raise Verdict(
             TOK_NOT_PASS,
@@ -835,13 +826,7 @@ def validate_implement_completion(
     """
     try:
         rec = _require_object(record_path, "verification-flight")
-        if claim_identity:
-            fresh = claim_identity
-        else:
-            try:
-                fresh = ri.derive_candidate_identity(repo_root or os.getcwd())
-            except ri.IdentityError as exc:
-                raise _Internal(f"identity_derivation:{exc.reason}")
+        fresh = _claim_time_identity(claim_identity, repo_root)
         return _validate_implement_record(rec, fresh)
     except Verdict as v:
         return v.token, v.detail
