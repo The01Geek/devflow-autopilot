@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1130",
+  "generated_at": "2026-08-02T11:14:47Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.38",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.147164499999998,
+    "tokens": {
+      "input_tokens": 48,
+      "output_tokens": 20203,
+      "cache_read_input_tokens": 3019376,
+      "cache_creation_input_tokens": 137548,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 80,
+        "outputTokens": 38111,
+        "cacheReadInputTokens": 3874544,
+        "cacheCreationInputTokens": 278546,
+        "webSearchRequests": 0,
+        "costUSD": 5.147164499999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 28,
+    "duration_ms": 458126
+  },
+  "permission_denials": {
+    "count": 7,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"run=${GITHUB_RUN_ID:-none} attempt=${GITHUB_RUN_ATTEMPT:-none} actions=${GITHUB_ACTIONS:-none}\"",
+      "gh pr diff 1130 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1130/30745040559-1/diff.patch\nwc -l .prflow/tmp/review/pr-1130/30745040559-1/diff.patch\necho \"=== headers ===\"\ngrep -n '^diff --git' .prflow/tmp/review/pr-1130/30745040559-1/diff.patch",
+      "git fetch origin d14b5d60211cefccd0832986faf98aaf21517df9 2>/dev/null\nfor f in docs/shadow-review.md docs/DEVFLOW_SYSTEM_OVERVIEW.md skills/review/SKILL.md skills/review-and-fix/references/loop-control.md skills/review-and-fix/references/error-handling.md skills/review-and-fix/references/shadow-review.md skills/implement/phases/phase-3-review.md; do\n  n=$(git show d14b5d60211cefccd0832986faf98aaf21517df9:\"$f\" | grep -c 'devflow/skills/review/SKILL.md')\n  echo \"$n  $f\"\ndone",
+      "git show d14b5d60211cefccd0832986faf98aaf21517df9:scripts/devflow-cloud-writer-contract.json > .prflow/tmp/review/pr-1130/30745040559-1/contract.json 2>/dev/null || git show d14b5d60211cefccd0832986faf98aaf21517df9:scripts/devflow-cloud-writer-contract.json | tee .prflow/tmp/review/pr-1130/30745040559-1/contract.json >/dev/null\nfor f in skills/review/SKILL.md skills/review-and-fix/references/loop-control.md skills/review-and-fix/references/shadow-review.md skills/review-and-fix/references/error- …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nfor f in docs/shadow-review.md docs/DEVFLOW_SYSTEM_OVERVIEW.md skills/review/SKILL.md skills/review-and-fix/references/loop-control.md skills/review-and-fix/references/error-handling.md skills/review-and-fix/references/shadow-review.md skills/implement/phases/phase-3-review.md; do\n  echo \"=== $f ===\"\n  git show d14b5d60211cefccd0832986faf98aaf21517df9:$f 2>/dev/null | grep -n 'devflow/skills/review\\|Glob' || echo \"  (no Glob/devflow-glob refs)\"\ndone",
+      "cd /home/runner/work/prflow/prflow\nfor f in docs/shadow-review.md docs/DEVFLOW_SYSTEM_OVERVIEW.md skills/review/SKILL.md skills/review-and-fix/references/loop-control.md skills/review-and-fix/references/error-handling.md skills/review-and-fix/references/shadow-review.md skills/implement/phases/phase-3-review.md; do\n  echo \"=== $f ===\"\n  git show \"d14b5d60211cefccd0832986faf98aaf21517df9:$f\" | grep -n \"Glob\" || echo \"  none\"\ndone"
+    ],
+    "total": 7,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
