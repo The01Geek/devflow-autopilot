@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1123",
+  "generated_at": "2026-08-02T12:01:42Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.39",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 16.436379749999997,
+    "tokens": {
+      "input_tokens": 39,
+      "output_tokens": 22310,
+      "cache_read_input_tokens": 3166585,
+      "cache_creation_input_tokens": 190952,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 227,
+        "outputTokens": 116624,
+        "cacheReadInputTokens": 13706387,
+        "cacheCreationInputTokens": 952061,
+        "webSearchRequests": 0,
+        "costUSD": 16.436379749999997,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 29,
+    "duration_ms": 808653
+  },
+  "permission_denials": {
+    "count": 14,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "gh pr diff 1123 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1123/local-run/diff.patch\nwc -l .prflow/tmp/review/pr-1123/local-run/diff.patch\necho \"---FILES---\"\ngrep '^diff --git' .prflow/tmp/review/pr-1123/local-run/diff.patch | sed -E 's/^diff --git a\\/(.*) b\\/.*/\\1/'\necho \"---added/removed line counts per file---\"\nawk '/^diff --git/{if(f)print f, \"+\"a\" -\"d; f=$0; sub(/^diff --git a\\//,\"\",f); sub(/ b\\/.*/,\"\",f); a=0;d=0; next} /^\\+/&&!/^\\+\\+\\+/{a++}  …[per-command-truncated]",
+      "\"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/requesting-code-review}\"/../../scripts/load-prompt-extension.sh requesting-code-review 2>&1; echo \"---EXIT:$?---\"",
+      "/home/runner/work/prflow/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>&1; echo \"---EXIT:$?---\"",
+      "cd /home/runner/work/prflow/prflow; grep -n \"_ROUND_DEFAULTED\\s*=\" scripts/issue-audit-state.py; sed -n '/_ROUND_DEFAULTED = /,/)/p' scripts/issue-audit-state.py | head -20; echo \"=== diff touches _ROUND_DEFAULTED? ===\"; grep -n \"_ROUND_DEFAULTED\\|ROUND_IS_CALLER\" .prflow/tmp/review/pr-1123/local-run/diff.patch",
+      "cd /home/runner/work/prflow/prflow\necho \"=== domain-stdin / _CLAIM_CLASSES / capture_revision in non-test files ===\"\ngit grep -n \"domain[-_]stdin\\|_CLAIM_CLASSES\\|capture_revision\\|_FULL_DOMAIN\\|_STALENESS_STATES\\|location_identity\\|domain_identity\\|recompute_identity\\|_validate_claims\" -- ':!lib/test/test_python_scripts.py' ':!scripts/issue-audit-state.py' ':!.prflow/tmp' ':!CHANGELOG.md' | head -40\necho \"=== check-audit-lifecycle-contracts references ===\"\ngit grep -n \"claim\\|staleness\" -- scri …[per-command-truncated]",
+      "set -e\nTMP=$(mktemp -d)\ncd /home/runner/work/prflow/prflow\ngit apply --3way=false -p1 --directory=\"$TMP\" --include='skills/create-issue/references/*' .prflow/tmp/review/pr-1123/local-run/diff.patch 2>&1 || echo \"apply-with-directory failed, trying copy method\"\nls -R \"$TMP\" 2>/dev/null | head",
+      "cd /home/runner/work/prflow/prflow\necho \"=== A: symbols in non-test/non-source files ===\"\ngit grep -n \"domain-stdin\\|domain_stdin\\|_CLAIM_CLASSES\\|capture_revision\\|_FULL_DOMAIN\\|_STALENESS_STATES\\|location_identity\\|domain_identity\\|recompute_identity\\|_validate_claims\\|claim_staleness\" -- ':!lib/test/test_python_scripts.py' ':!scripts/issue-audit-state.py' ':!.prflow/tmp' ':!CHANGELOG.md'\necho \"=== B: check-audit-lifecycle-contracts ===\"\ngit grep -rn \"claim\" -- 'lib/test/check-audit-lifecycle- …[per-command-truncated]",
+      "TMP=$(mktemp -d); mkdir -p \"$TMP/src\"; cp -r /home/runner/work/prflow/prflow/skills \"$TMP/src/skills\"; cp -r /home/runner/work/prflow/prflow/scripts \"$TMP/src/scripts\" 2>/dev/null; cd \"$TMP/src\"; git apply -p1 /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1123/local-run/diff.patch --include='skills/create-issue/references/*' 2>&1; echo \"RC=$?\"; echo \"$TMP\" > /tmp/tmpdir.txt; echo \"dir=$TMP\"",
+      "rm -rf /tmp/pr1123 && mkdir -p /tmp/pr1123 && cp -r /home/runner/work/prflow/prflow/skills /tmp/pr1123/skills && cd /tmp/pr1123 && git apply -p1 --include='skills/create-issue/references/*' /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1123/local-run/diff.patch ; echo \"RC=$?\"",
+      "rm -rf /tmp/pr1123 && mkdir -p /tmp/pr1123 && cp -r /home/runner/work/prflow/prflow/skills /tmp/pr1123/skills && git -C /tmp/pr1123 apply -p1 --include='skills/create-issue/references/*' /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1123/local-run/diff.patch ; echo \"RC=$?\"",
+      "rm -rf /tmp/pr1123 && mkdir -p /tmp/pr1123 && cp -r /home/runner/work/prflow/prflow/skills /tmp/pr1123/skills && git -C /tmp/pr1123 apply -p1 --include='skills/create-issue/references/*' /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1123/local-run/diff.patch ; echo \"RC=$?\"",
+      "cd /home/runner/work/prflow/prflow\nfor f in skills/create-issue/references/issue-template.md skills/create-issue/references/revision-delta.md skills/create-issue/references/step-3-5-steelman.md skills/create-issue/references/step-3-6-audit.md docs/DEVFLOW_SYSTEM_OVERVIEW.md docs/implement-skill.md; do\n  echo \"=== $f ===\"\n  grep -n \"claim-baseline\\|claim-staleness\\|query-claim\\|claim baseline\\|recorded baseline\\|claim provenance\\|claim-class\\|repository baseline\" \"$f\"\ndone",
+      "cd /home/runner/work/prflow/prflow 2>/dev/null\nscripts/dismiss-stale-rejections.sh 1123 && echo \"DISMISS_OK rc=$?\" || echo \"DISMISS_rc=$?\"",
+      "scripts/dismiss-stale-rejections.sh 1123"
+    ],
+    "total": 14,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
