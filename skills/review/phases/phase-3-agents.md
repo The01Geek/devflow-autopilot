@@ -137,7 +137,7 @@ Then report the outcome as exactly one of three status tokens on its own status 
 
 **REQUIRED on the status line: `resolved-root`.** Whichever of the three tokens you emit — the refusal token included — append to the same `EXTENSION-STATUS:` line the field `resolved-root=<the directory named in the helper's ROOT-SELECTION breadcrumb, or the bare word unset>`, e.g. `EXTENSION-STATUS: loaded-empty resolved-root=/runner/temp/devflow-ext`. **Read the directory only from a line naming the root-selection breadcrumb** (the one reporting the directory selected by the extension-root variable); **any other `load-prompt-extension.sh: ` line — including the repo-root branch's `could not resolve a git repo root … no extension loaded`, which also names a directory — means `resolved-root=unset`.** Keying on the shared `load-prompt-extension.sh: ` prefix alone would report a root on exactly the failure path this field exists to expose. The field is required because the extension-directory environment variable reaches the orchestrator's own shell (hop one) and this dispatched Task's shell (hop two) independently, so `resolved-root` is what makes a hop-two propagation failure observable instead of silent.
 
-Return your findings in the standard Phase-3 output format: ### Strengths / ### Issues (grouped by Critical / Important / Suggestion) / ### Recommendations (rendered as a numbered list) / ### Assessment. Every issue MUST carry a `defect_signature` block per the contract below.
+Return your findings in the standard Phase-3 output format: ### Issues (grouped by Critical / Important / Suggestion) / ### Assessment. Every issue MUST carry a `defect_signature` block per the contract below.
 
 {paste the defect_signature paragraph above}
 ```
