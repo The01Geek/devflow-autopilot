@@ -43336,6 +43336,33 @@ PY
 fi
 # ────────────────────────────────────────────────────────────────────────────
 
+# ── #1084 superseded-config-key guard (lib/test/lint-superseded-config-keys.py) ──
+# The consumer-facing `devflow` config family was renamed to `prflow` (#1002); #1068 and
+# #1084 swept the tree of stale `devflow.<key>` leaves twice, so a one-time sweep has a known
+# recurrence rate. This guard fails RED on a newly introduced superseded leaf. It sources its
+# population from `git ls-files` (no recursive walk, #711) and carries a declared-exemption
+# list for the do-not-sweep sites. Driven here so the whole tree is re-scanned every run.
+L1084_LINT="$LIB/test/lint-superseded-config-keys.py"
+assert_eq "#1084 guard: no superseded devflow.<key> config leaf in the tree" "rc=0" \
+  "$(cd "$LIB/.." && python3 "$L1084_LINT" >/dev/null 2>&1 && echo rc=0 || echo "rc=$?")"
+# Non-vacuous detector: assert the leaf regex fires on a superseded leaf and a jq path, and
+# correctly skips the frozen forms (a bare `SECTION: devflow`, a filename extension, the
+# `/devflow:` alias) — so an accidental weakening of the pattern is caught, not just an empty
+# tree. Drives the module's own `_LEAF_RE` / `_EXTENSIONS` directly.
+assert_eq "#1084 guard: leaf detector matches superseded leaves and skips frozen forms" "T T F F F" \
+  "$(python3 - "$L1084_LINT" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("g", sys.argv[1])
+g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+def hit(line):
+    m = g._LEAF_RE.search(line)
+    return bool(m) and m.group(1) not in g._EXTENSIONS
+def t(b): return "T" if b else "F"
+print(" ".join(t(hit(x)) for x in (
+    "devflow.allowed_bots", "read `.devflow.workpad_marker`",
+    "SECTION: devflow", "devflow.yml", "/devflow:review")))
+PY
+)"
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 # SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as
