@@ -46,8 +46,12 @@
 # upgrade is DRY-RUN BY DEFAULT: the installer prints the full plan and a unified
 # diff of every byte it would change, and writes nothing until you re-run it with
 # `--apply`. This mirrors the consent-gated provisioners (`provision-auto-mode.sh`,
-# `provision-local-settings.sh`, `provision-python3-shim.sh`): no file is touched
-# without an explicit opt-in. A FIRST-TIME install (nothing of DevFlow's present)
+# `provision-python3-shim.sh`): those two print and stop until told to write.
+# (`scripts/provision-local-settings.sh` is deliberately NOT in that list — it is
+# ungated and writes the project `.claude/settings.json` immediately when
+# `/prflow:init` invokes it; that write is diff-visible in a committed file, and the
+# script's breadcrumb ends "Review the change before committing.") This installer
+# itself writes nothing without an explicit opt-in. A FIRST-TIME install (nothing of DevFlow's present)
 # still applies immediately, so the documented one-liner below is unchanged.
 #
 # Local modifications are never silently overwritten. Each artifact the installer
@@ -1110,10 +1114,12 @@ devflow_report_superseded_identifiers() {
   local hits
   # Skip entirely when NOTHING is superseded, so no python3 is spent on a repo that can
   # have no stale registration. Which way this gate falls is decided by the baked lists
-  # above, i.e. by lib/plugin-identity.json's alias lists — not by this comment: with no
-  # alias declared, as in the tree that ships this copy, both lists are empty, the gate
-  # short-circuits and the whole report is a strict no-op; declare one and the gate
-  # passes and the scan below runs. Re-read the baked assignments before asserting which.
+  # above, i.e. by lib/plugin-identity.json's alias lists — not by this comment: in the
+  # tree that ships this copy DEVFLOW_SUPERSEDED_MARKETPLACES is empty but
+  # DEVFLOW_SUPERSEDED_PLUGIN_SPECS is NOT (it carries `devflow@devflow-marketplace`), so
+  # the concatenation below is non-empty, the gate PASSES, and the scan runs — the report
+  # is live, not a no-op. It short-circuits only in a tree where BOTH lists are empty.
+  # Re-read the baked assignments before asserting which.
   [ -n "$DEVFLOW_SUPERSEDED_MARKETPLACES$DEVFLOW_SUPERSEDED_PLUGIN_SPECS" ] || return 0
   [ -f .claude/settings.json ] || return 0
   devflow_resolve_python || {

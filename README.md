@@ -49,7 +49,7 @@ claude /prflow:init   # launches Claude Code and scaffolds your config
 /prflow:implement <issue_number>
 ```
 
-The local tier runs **with zero configuration** — every value already has a built-in default. `/prflow:init` is recommended: it keeps the plugin auto-updated and writes a `.prflow/config.json` you can tweak. See **[Installing & updating](docs/install.md)** for the full options (the zero-dependency install, PyYAML, the cloud tier) and [Requirements](#requirements) for the handful of tools it expects on your PATH.
+The local tier runs **with zero configuration** — every value already has a built-in default. `/prflow:init` is recommended: it registers the marketplace so Claude Code keeps the plugin auto-updated (an unpinned registration that tracks the plugin repo's default branch) and writes a `.prflow/config.json` you can tweak. See **[Installing & updating](docs/install.md)** for the full options (the zero-dependency install, PyYAML, the cloud tier) and [Requirements](#requirements) for the handful of tools it expects on your PATH.
 
 ## Why PRFlow
 
