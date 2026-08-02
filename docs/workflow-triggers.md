@@ -171,7 +171,13 @@ permissions:
   contents: read
 jobs:
   request-review:
-    needs: [ci]   # replace `ci` with YOUR own CI job(s); gate on their success below
+    # Replace `ci` with YOUR own CI job(s). This `needs:` IS the success gate:
+    # because the `if:` below uses no status function (`always()`, `!cancelled()`,
+    # `success()`, `failure()`), GitHub skips this job unless every `needs:` job
+    # succeeded. Adding one of those functions REMOVES that implicit gate — if you
+    # do, add your own `needs.<job>.result == 'success'` clauses to the steps that
+    # mint the token and post, or a red CI run will request a review.
+    needs: [ci]
     # These five eligibility clauses are PORTABLE and are held byte-identical to
     # PRFlow's own auto_review_trigger job by a suite assertion — do not edit them.
     if: >-
@@ -229,7 +235,12 @@ jobs:
 
 - **Minimum version.** `scripts/post-ci-review-trigger.sh` first ships in
   `prflow_version` **`2.30.18`** — pin at or above it, or the absent-file guard in
-  the snippet fires and no review is requested.
+  the snippet fires and no review is requested. Note that `2.30.18` itself predates
+  the author-scoped dedupe described above: that release ignores `EXPECTED_AUTHOR`
+  and suppresses on any comment carrying the marker, so a human quoting the marker
+  still kills the request there. The snippet degrades rather than breaks — it still
+  requests reviews — but pin to a release carrying the author-scoped helper to get
+  the behavior this page describes.
 - **The minting App's bot login must be in `prflow.allowed_bots`.** The review this
   snippet requests is dispatched by `devflow.yml`'s gate, which authorizes the
   commenting actor through `scripts/authorize-actor.sh`. The comment is posted by
