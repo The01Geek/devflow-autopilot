@@ -1589,9 +1589,6 @@ def main():
             # Planted defect: enumeration count disagrees with the registry count.
             verdict, _ = guard1(names, build_corpus(), registry_count + 1)
             print('caught' if verdict == 'mismatch' else 'MISSED')
-        elif mode.startswith('guard2') or mode.startswith('classify'):
-        # (handled below)
-            pass
     if mode.startswith('guard2'):
         cvp = _load('scripts/check-verified-premises.py', 'check_verified_premises')
         tmpl = (root / 'skills/create-issue/references/issue-template.md').read_text(encoding='utf-8')
