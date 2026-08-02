@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1107",
+  "generated_at": "2026-08-02T04:36:07Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.26",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 10.704675249999994,
+    "tokens": {
+      "input_tokens": 80,
+      "output_tokens": 34455,
+      "cache_read_input_tokens": 5989682,
+      "cache_creation_input_tokens": 198848,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 225,
+        "outputTokens": 77271,
+        "cacheReadInputTokens": 9942978,
+        "cacheCreationInputTokens": 488737,
+        "webSearchRequests": 0,
+        "costUSD": 10.704675249999994,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 49,
+    "duration_ms": 683084
+  },
+  "permission_denials": {
+    "count": 25,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"/home/runner/work/prflow/prflow/skills/review\"; echo \"---PR---\"; echo \"$GITHUB_RUN_ID / $GITHUB_ACTIONS\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review 2>.prflow/tmp/review/pr-1107/30732293480-1/ext.err ; echo \"ext-rc=$?\"",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh review 2>.prflow/tmp/review/pr-1107/30732293480-1/ext.err ; echo \"ext-rc=$?\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/seed-review-progress.sh \"1107\" \"\" .prflow/tmp/review/pr-1107/30732293480-1/review-wp.md ; echo \"seed-rc=$?\"",
+      "git cat-file -t cecbc7749d863e3977a5c085bfd777b212013b83 2>&1 || (git fetch origin cecbc7749d863e3977a5c085bfd777b212013b83 2>&1 | tail -2; git cat-file -t cecbc7749d863e3977a5c085bfd777b212013b83 2>&1)",
+      "for f in scripts/config-get.sh scripts/scaffold-config.sh scripts/migrate-consumer-tier1.sh lib/migrate-config-values.py; do echo \"=== $f ===\"; git show cecbc7749d863e3977a5c085bfd777b212013b83:$f | grep -nE 'devflow(_implement|_runner|_review_and_fix|_review|_retrospective|_version)?\\.[a-z]' || echo \"(no <family>.<leaf> match)\"; done",
+      "mkdir -p .prflow/tmp && rm -f .prflow/tmp/review-dirty-tree-before .prflow/tmp/review-dirty-tree-disabled 2>/dev/null; git status --porcelain -z > .prflow/tmp/review-dirty-tree-before && git hash-object .prflow/tmp/review-dirty-tree-before",
+      "for f in scripts/scaffold-config.sh scripts/migrate-consumer-tier1.sh lib/migrate-config-values.py scripts/config-get.sh; do echo \"=== $f ===\"; git show cecbc7749d863e3977a5c085bfd777b212013b83:$f | grep -n 'superseded-key-ok\\|devflow_\\|devflow-review\\|\\.devflow' ; done",
+      "for f in scripts/scaffold-config.sh scripts/migrate-consumer-tier1.sh lib/migrate-config-values.py scripts/config-get.sh; do echo \"=== $f ===\"; git show cecbc7749d863e3977a5c085bfd777b212013b83:\"$f\" | grep -n \"superseded-key-ok\"; done",
+      "git show cecbc7749d863e3977a5c085bfd777b212013b83:scripts/scaffold-config.sh > /tmp/scaffold.sh; git show cecbc7749d863e3977a5c085bfd777b212013b83:scripts/migrate-consumer-tier1.sh > /tmp/mig.sh; git show cecbc7749d863e3977a5c085bfd777b212013b83:lib/migrate-config-values.py > /tmp/migpy.py; git show cecbc7749d863e3977a5c085bfd777b212013b83:scripts/config-get.sh > /tmp/cg.sh; git show cecbc7749d863e3977a5c085bfd777b212013b83:lib/test/lint-superseded-config-keys.py > /tmp/lint.py; echo done",
+      "git show cecbc7749d863e3977a5c085bfd777b212013b83:scripts/scaffold-config.sh > /tmp/scaffold.sh",
+      "git show cecbc7749d863e3977a5c085bfd777b212013b83:scripts/scaffold-config.sh > /tmp/scaffold.sh && echo ok",
+      "mkdir -p .prflow/tmp/rev && git show cecbc7749d863e3977a5c085bfd777b212013b83:scripts/scaffold-config.sh > .prflow/tmp/rev/scaffold.sh && git show cecbc7749d863e3977a5c085bfd777b212013b83:scripts/migrate-consumer-tier1.sh > .prflow/tmp/rev/mig.sh && git show cecbc7749d863e3977a5c085bfd777b212013b83:lib/migrate-config-values.py > .prflow/tmp/rev/migpy.py && git show cecbc7749d863e3977a5c085bfd777b212013b83:scripts/config-get.sh > .prflow/tmp/rev/cg.sh && git show cecbc7749d863e3977a5c085bfd777b21 …[per-command-truncated]",
+      "git show cecbc7749d863e3977a5c085bfd777b212013b83:scripts/scaffold-config.sh > .prflow/tmp/rev/scaffold.sh; echo ok",
+      "for f in scripts/config-get.sh scripts/scaffold-config.sh scripts/migrate-consumer-tier1.sh lib/migrate-config-values.py; do echo \"=== $f ===\"; git show cecbc7749d863e3977a5c085bfd777b212013b83:$f | grep -nE 'devflow(_implement|_runner|_review|_review_and_fix|_retrospective|_version)?\\.[a-z]' ; done",
+      "for f in scripts/config-get.sh scripts/scaffold-config.sh scripts/migrate-consumer-tier1.sh lib/migrate-config-values.py; do echo \"=== $f ===\"; git show cecbc7749d863e3977a5c085bfd777b212013b83:\"$f\" | grep -nE 'devflow(_implement|_runner|_review|_review_and_fix|_retrospective|_version)?[.][a-z]'; done",
+      "cd /tmp && for f in scripts/config-get.sh scripts/scaffold-config.sh scripts/migrate-consumer-tier1.sh lib/migrate-config-values.py; do b=$(basename \"$f\"); git -C /home/runner/work/prflow/prflow show cecbc7749d863e3977a5c085bfd777b212013b83:\"$f\" > \"/tmp/head_$b\"; done; ls /tmp/head_*",
+      "git show cecbc7749d863e3977a5c085bfd777b212013b83:scripts/config-get.sh > /tmp/head_config-get.sh; git show cecbc7749d863e3977a5c085bfd777b212013b83:scripts/scaffold-config.sh > /tmp/head_scaffold.sh; git show cecbc7749d863e3977a5c085bfd777b212013b83:scripts/migrate-consumer-tier1.sh > /tmp/head_migrate.sh; git show cecbc7749d863e3977a5c085bfd777b212013b83:lib/migrate-config-values.py > /tmp/head_mcv.py; echo done",
+      "git show cecbc7749d863e3977a5c085bfd777b212013b83:scripts/config-get.sh > /tmp/head_config-get.sh",
+      "mkdir -p .prflow/tmp/rev && git show cecbc7749d863e3977a5c085bfd777b212013b83:scripts/config-get.sh > .prflow/tmp/rev/config-get.sh",
+      "cd /home/runner/work/prflow/prflow\nfor f in scripts/config-get.sh scripts/scaffold-config.sh scripts/migrate-consumer-tier1.sh lib/migrate-config-values.py; do\n  echo \"=== $f ===\"\n  git show cecbc7749d863e3977a5c085bfd777b212013b83:$f | grep -nE '(?<![A-Za-z0-9_])' >/dev/null 2>&1\n  git show cecbc7749d863e3977a5c085bfd777b212013b83:$f | grep -naE 'devflow(_implement|_retrospective|_review|_review_and_fix|_runner|_version)?\\.[a-z]' || echo \"(no leaf-shaped matches)\"\ndone",
+      "mkdir -p .prflow/tmp/rev && git show cecbc7749d863e3977a5c085bfd777b212013b83:scripts/config-get.sh > .prflow/tmp/rev/config-get.sh && echo ok",
+      "git show cecbc7749d863e3977a5c085bfd777b212013b83:scripts/config-get.sh > rev_config-get.sh && echo ok",
+      "cd /home/runner/work/prflow/prflow\nsha=\"cecbc7749d863e3977a5c085bfd777b212013b83\"\nfor f in scripts/scaffold-config.sh scripts/migrate-consumer-tier1.sh lib/migrate-config-values.py; do\necho \"=== $f ===\"; git show $sha:$f | grep -noE 'devflow[._a-z]*' | sort -u | head -40\ndone",
+      "cd /home/runner/work/prflow/prflow\nsha=cecbc7749d863e3977a5c085bfd777b212013b83\nfor f in scripts/scaffold-config.sh scripts/migrate-consumer-tier1.sh lib/migrate-config-values.py; do\necho \"=== $f ===\"; git show $sha:$f | grep -noE 'devflow[._a-z]*' | sort -u | head -40\ndone"
+    ],
+    "total": 25,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
