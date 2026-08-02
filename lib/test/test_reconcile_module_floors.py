@@ -165,9 +165,7 @@ fi
     def test_measurement_runner_receives_a_normalized_tmpdir(self) -> None:
         self.write_contract(alpha_floor=3, beta_floor=5)
         self.settings_path.write_text(
-            json.dumps(
-                {"alpha": {"passed": 3, "require_trimmed_tmpdir": True}}
-            ),
+            json.dumps({"alpha": {"passed": 3, "require_trimmed_tmpdir": True}}),
             encoding="utf-8",
         )
 
@@ -190,7 +188,9 @@ fi
         )
         self.assertIn("DECREASE REFUSED", result.stderr)
 
-    def test_untrustworthy_measurements_are_infrastructure_and_write_nothing(self) -> None:
+    def test_untrustworthy_measurements_are_infrastructure_and_write_nothing(
+        self,
+    ) -> None:
         cases = {
             "failed process": {"passed": 4, "rc": 1},
             "failed assertion": {"passed": 3, "failed": 1},
@@ -210,7 +210,8 @@ fi
 
                 self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
                 self.assertEqual(
-                    (self.registry_path.read_bytes(), self.run_path.read_bytes()), before
+                    (self.registry_path.read_bytes(), self.run_path.read_bytes()),
+                    before,
                 )
                 self.assertIn("INFRASTRUCTURE", result.stderr)
 
