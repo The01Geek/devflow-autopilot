@@ -15213,7 +15213,7 @@ prv_run() {
   local ev="$1" bf="$2"; shift 2
   : > "$PRV_SB/log"
   PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" \
-             PRV_SB_BODY="$PRV_SB/body" PRV_SB="$PRV_SB" \
+             PRV_SB_BODY="$PRV_SB/body" \
              env "$@" bash "$PRV" 123 "$ev" "$bf" 2>/dev/null)"
   PRV_RC_OBS=$?
 }
@@ -15280,14 +15280,14 @@ assert_eq "#1059 post-verdict: empty API error still prints a FAILED line, exit 
 # Reset the log BEFORE the single run so its own POST count is the observation
 # (this case bypasses prv_run only to control argv[1]; one invocation suffices).
 : > "$PRV_SB/log"
-PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" PRV_SB="$PRV_SB" \
+PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" \
   bash "$PRV" abc APPROVE "$PRV_SB/body-plain.md" 2>/dev/null)"; PRV_RC_OBS=$?
 assert_eq "#1059 post-verdict: non-numeric PR → SKIP not-numeric, exit 3, no request" \
   "SKIP not-numeric-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
 # The EMPTY-string PR number is the case glob's OTHER arm (''|*[!0-9]*) and the
 # omitted-argv[1] shape — exercise it so narrowing the pattern to only *[!0-9]* is caught.
 : > "$PRV_SB/log"
-PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" PRV_SB="$PRV_SB" \
+PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" \
   bash "$PRV" "" APPROVE "$PRV_SB/body-plain.md" 2>/dev/null)"; PRV_RC_OBS=$?
 assert_eq "#1059 post-verdict: empty PR number → SKIP not-numeric, exit 3, no request" \
   "SKIP not-numeric-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
@@ -15317,7 +15317,7 @@ assert_eq "#1059 post-verdict: a successful post issues at most one request" "1"
 # assertion loses its subject — proving the assertion has teeth, not that the
 # suite merely stayed green. Restore is implicit (the copy is discarded).
 sed '/^[[:space:]]*echo "POSTED \$EVENT"$/d' "$PRV" > "$PRV_SB/mutant.sh"
-PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" PRV_SB="$PRV_SB" \
+PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" \
   bash "$PRV_SB/mutant.sh" 123 APPROVE "$PRV_SB/body-plain.md" 2>/dev/null)"
 assert_eq "#1059 post-verdict: guarantee-class control — removing the POSTED emit silences the outcome (control ran)" \
   "no" "$(case "$PRV_OUT" in POSTED*) echo yes;; *) echo no;; esac)"
