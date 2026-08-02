@@ -1,0 +1,80 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-02T09:00:00Z",
+  "fix_commit_sha": "649a392",
+  "fix_files": [
+    "scripts/post-ci-review-trigger.sh",
+    "lib/test/modules/review-trigger-helpers.sh",
+    "lib/test/extract-ci-review-agreement.py"
+  ],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": false
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:pr-test-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "empty-string comment login is a narrow fail-open gap in the jq coalesce",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "announce both-green is a pure silent no-op for a miswired consumer",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "app-slug<->login coupling is an undocumented in-file invariant",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "#990-4 mislabeled (stub bypasses jq head filter); every-announce-arm-exits-0 asserted on one arm only",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "649a392"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "649a392"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "649a392"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "649a392"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 40,
+    "new_corroborated_critical_count": 0
+  },
+  "verdict": "APPROVE",
+  "note": "No Critical/Important findings across code-reviewer, silent-failure-hunter, pr-test-analyzer. Four Suggestion-level fail-closed hardenings applied and verified (module 628 passed, extractor agree, shellcheck+ruff clean).",
+  "telemetry": "unavailable"
+}
