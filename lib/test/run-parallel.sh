@@ -420,7 +420,20 @@ fi
 
 # `--expect` is the missing-shard floor: it is the count this run actually launched,
 # so a shard that died before writing its tally cannot be silently dropped.
-if ! python3 "$TALLY_HELPER" combine "${TALLY_ARGS[@]}" --expect "$EXPECTED" --detail-cap "$DETAIL_CAP"; then
+#
+# The expansion is the `${arr[@]+"${arr[@]}"}` guarded form (the idiom
+# lib/implement-stop-guard.sh and scripts/build-denial-record.sh already use). TALLY_ARGS
+# is empty whenever NO shard produced a tally — every shard failed to launch, or every one
+# died before writing one — and on bash before 4.4 a bare `"${TALLY_ARGS[@]}"` under
+# `set -u` aborts as an unbound variable, replacing the named diagnostics above with a raw
+# interpreter error. The guard expands to nothing instead, so `combine` still runs against
+# an `--expect` floor it cannot meet and the failure still reaches the aggregate below.
+# This is about which diagnostic that host prints, not about the exit status — the abort
+# was already non-zero. The window where it matters is bash 4.0 through 4.3:
+# lib/test/module-harness.sh's top-level `declare -A` already needs 4.0 of every shard, and
+# 4.4 is where the bare form stopped tripping `nounset`. On 4.4+ the two forms behave
+# identically, so nothing on this repository's CI or desk tier changes.
+if ! python3 "$TALLY_HELPER" combine ${TALLY_ARGS[@]+"${TALLY_ARGS[@]}"} --expect "$EXPECTED" --detail-cap "$DETAIL_CAP"; then
   AGGREGATE_RC=1
 fi
 
