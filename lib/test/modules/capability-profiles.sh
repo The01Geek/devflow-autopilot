@@ -181,6 +181,47 @@ done
 assert_eq "#561 committed workflows are byte-identical to the generator's output" "yes" "$CAP_IDEM_MATCH"
 rm -rf "$CAP_IDEM"
 
+# ── issue #1078: no shipped capability profile grants a Bash(lib/test/...) token.
+# The seven such tokens issue #789 baked into the implement profile delivered ZERO
+# benefit in a consumer — the vendor slice prunes lib/test — while pre-authorizing any
+# consumer file that happened to collide with a PRFlow-chosen path. They are gone from
+# the shipped profile: six moved to .prflow/config.json's self-repo grant channel
+# (five focused_test targets + coverage_map_guard.py, still consumed by matcher-probe
+# row 17), test_module_harness.py dropped. This assertion reads the RESOLVED manifest —
+# the source the generated literals compile from, so `--check` (above) ties the shipped
+# literals to it — and is comment-immune (a doc comment naming a token cannot trip it),
+# so re-adding a lib/test grant to the shipped implement/review/command profile fails
+# closed HERE rather than shipping silently.
+CAP_LIBTEST_TOKENS="$(python3 - "$LIB/capability-profiles.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+groups = d["groups"]
+hits = []
+for name, spec in d["profiles"].items():
+    for tok in spec:
+        toks = groups[tok[1:]] if tok.startswith("@") else [tok]
+        hits += [f"{name}:{t}" for t in toks if "lib/test/" in t]
+print("\n".join(hits))
+PY
+)"
+assert_eq "#1078 no shipped capability profile grants a Bash(lib/test/...) token (self-repo grants live in .prflow/config.json)" "" "$CAP_LIBTEST_TOKENS"
+# Positive control: the scan above is non-vacuous — a lib/test token injected into a
+# fixture manifest's implement profile is caught (proves the assertion would fire).
+CAP_1078_POS="$(python3 - "$LIB/capability-profiles.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+d["profiles"]["implement"].append("Bash(lib/test/injected_probe.py:*)")
+groups = d["groups"]
+hits = []
+for name, spec in d["profiles"].items():
+    for tok in spec:
+        toks = groups[tok[1:]] if tok.startswith("@") else [tok]
+        hits += [f"{name}:{t}" for t in toks if "lib/test/" in t]
+print("\n".join(hits))
+PY
+)"
+assert_eq "#1078 the shipped-profile lib/test scan is non-vacuous (positive control)" "implement:Bash(lib/test/injected_probe.py:*)" "$CAP_1078_POS"
+
 # T8 — no-runtime-read: no workflow reads policy from the manifest at run
 # time. The assertion greps for the two policy-source filenames in NON-COMMENT content
 # only (comment lines — the banner comments and the maintenance comments that now name

@@ -694,6 +694,18 @@ workflow literal** to add such a grant.
 
 ### Implement-tier repo-internal test grants (issue #789)
 
+**Superseded by issue #1078 (this describes the #789-era state).** These seven tokens
+no longer ship in the `implement` profile: they delivered zero benefit in a consumer
+(the `vendor-plugin` slice prunes `lib/test`, so none can ever match a PRFlow file
+there) while pre-authorizing any consumer file that collided with a PRFlow-chosen
+path. Six moved to `.prflow/config.json`'s `prflow_implement.allowed_tools` — the
+self-repo-only grant channel (`config.example.json` ships it empty, so no consumer
+inherits it): the five `focused_test` targets, plus `coverage_map_guard.py` (still
+invoked as a direct leading token by `matcher-probe.yml`'s row 17). `test_module_harness.py`
+was **dropped** — it is not a `focused_test` target and `lib/test/run.sh` invokes it
+only via the `python3 <path>` interpreter head. The paragraphs below are the #789
+record, kept for provenance.
+
 The same one-edit flow covers a **repo-internal** helper the implement tier must
 run in-env — no vendored literal, because `lib/test/**` is not shipped to consumers
 by `install.sh`. Issue #789 added seven such direct-leading-token tokens to the

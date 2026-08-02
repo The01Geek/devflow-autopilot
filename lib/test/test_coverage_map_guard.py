@@ -69,8 +69,13 @@ class CoverageMapGuardTest(unittest.TestCase):
                 map_value,
                 registry_value,
                 executable_files=guard._git_executable(ROOT),
-                implement_tokens=guard._implement_profile_tokens(
-                    guard._load_json(ROOT / guard.PROFILES_REL)[0]
+                # Issue #1078: the focused_test grants live in the union of the manifest
+                # `implement` profile and .prflow/config.json's self-repo channel, exactly
+                # as main() resolves them — a manifest-only read here would false-flag the
+                # five moved targets.
+                implement_tokens=guard._resolve_implement_grant_tokens(
+                    guard._load_json(ROOT / guard.PROFILES_REL)[0],
+                    guard._load_json(ROOT / guard.CONFIG_REL)[0],
                 ),
             ),
             [],
@@ -280,6 +285,55 @@ class CoverageMapGuardTest(unittest.TestCase):
     def test_implement_profile_tokens_is_none_on_a_malformed_manifest(self):
         for bad in (None, [], {}, {"profiles": {}}, {"profiles": {"implement": "x"}, "groups": {}}):
             self.assertIsNone(guard._implement_profile_tokens(bad), bad)
+
+    def test_config_implement_tokens_reads_the_self_repo_grant_channel(self):
+        # Issue #1078: focused_test grants moved out of the shipped `implement` profile into
+        # .prflow/config.json's prflow_implement.allowed_tools (the self-repo channel).
+        cfg = {"prflow_implement": {"allowed_tools": [
+            "Bash(lib/test/test_python_scripts.py:*)", "Bash(shellcheck:*)"]}}
+        self.assertEqual(
+            guard._config_implement_tokens(cfg),
+            {"Bash(lib/test/test_python_scripts.py:*)", "Bash(shellcheck:*)"},
+        )
+
+    def test_config_implement_tokens_is_none_on_a_malformed_config(self):
+        for bad in (None, [], {}, {"prflow_implement": {}},
+                    {"prflow_implement": {"allowed_tools": "x"}}):
+            self.assertIsNone(guard._config_implement_tokens(bad), bad)
+
+    def test_resolve_implement_grant_tokens_unions_manifest_and_config(self):
+        # Issue #1078: arm 10 honors a grant from EITHER channel. A focused_test granted
+        # only via config (its manifest grant removed) must resolve as granted.
+        manifest = {"groups": {}, "profiles": {"implement": ["Bash(python3:*)"]}}
+        config = {"prflow_implement": {"allowed_tools": ["Bash(lib/test/test_python_scripts.py:*)"]}}
+        self.assertEqual(
+            guard._resolve_implement_grant_tokens(manifest, config),
+            {"Bash(python3:*)", "Bash(lib/test/test_python_scripts.py:*)"},
+        )
+        # None ONLY when NEITHER channel can be established — one readable channel suffices.
+        self.assertEqual(
+            guard._resolve_implement_grant_tokens(None, config),
+            {"Bash(lib/test/test_python_scripts.py:*)"},
+        )
+        self.assertIsNone(guard._resolve_implement_grant_tokens(None, None))
+
+    def test_config_only_grant_satisfies_arm10(self):
+        # The end-to-end #1078 case: a focused_test whose grant lives ONLY in the config
+        # channel passes arm 10 (no violation), proving the union closes the false-flag the
+        # manifest-only check would otherwise raise for the five moved targets.
+        tracked = ["lib/real.sh", "lib/test/test_thing.py"]
+        grant = guard._resolve_implement_grant_tokens(
+            {"groups": {}, "profiles": {"implement": ["Bash(python3:*)"]}},
+            {"prflow_implement": {"allowed_tools": ["Bash(lib/test/test_thing.py:*)"]}},
+        )
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py")}),
+            _registry(),
+            executable_files=self._EXEC,
+            implement_tokens=grant,
+        )
+        self.assertEqual(v, [])
 
     def test_unestablished_breadcrumbs_are_emitted_ONCE_over_MULTIPLE_entries(self):
         # Cardinality: with a single recorded entry, "once per run" and "once per entry" are
