@@ -1,0 +1,86 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-02T00:00:00Z",
+  "fix_commit_sha": "c2c8107",
+  "fix_files": [
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "skills/create-issue/references/step-3-5-steelman.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": true
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:pr-test-analyzer",
+    "prflow:comment-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Important",
+      "description": "Inverted description of when the stderr near-miss breadcrumb fires (docs §11 + step-3-5-steelman.md): said 'a heading the parser recognizes' when it actually fires on a near-miss (empty parse whose body mentions the criterion word).",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "Gate guards the pre-dispatch draft, not the bytes filed; a Step 4 iterate-on-feedback overwrite re-opens the hole.",
+      "fix_decision": "applied",
+      "note": "single-site scoping is mandated by AC1/AC6 and the edit-sequencing rule (re-gating is forbidden); resolved by disclosing the residual (option b) rather than re-gating"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "Assertions pin operand composition not main()'s --format json wiring; exit-code-always-0 justification unpinned.",
+      "fix_decision": "advisory",
+      "note": "AC8 fixes the four assertions as a CLOSED set; adding more would violate it — deferred as advisory"
+    },
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "Same breadcrumb wording imprecision (duplicate of comment-analyzer finding).",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "note": "corrected inverted breadcrumb wording in docs §11 and step-3-5-steelman.md (via writing-skills subagent for the skill surface)"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "note": "disclosed post-gate-edit residual in step-3-5-steelman.md; re-gating forbidden by AC1/AC6"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "advisory",
+      "note": "closed four-assertion set per AC8; extra main()-wiring/exit-code assertions not added"
+    }
+  ],
+  "shadow": {
+    "ran_at": "2026-08-02T00:30:00Z",
+    "reviewed_sha": "c2c8107",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "prflow:code-reviewer"
+    ],
+    "comparison": {
+      "shadow_total": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
