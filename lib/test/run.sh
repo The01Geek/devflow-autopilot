@@ -41376,7 +41376,7 @@ fi
 # lower-bound contract; test_module_runner.py parses this operand and rejects any
 # coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/capability-profiles.sh" \
-  "capability-profiles" 62; then
+  "capability-profiles" 65; then
   printf 'ERROR: capability-profiles boundary could not record its result\n'
   exit 1
 fi
