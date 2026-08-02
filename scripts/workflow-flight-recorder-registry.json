@@ -35,7 +35,7 @@
     },
     "capability-profiles": {
       "path": "lib/test/modules/capability-profiles.sh",
-      "minimum_assertions": 65,
+      "minimum_assertions": 68,
       "assertion_floor_policy": "exact",
       "description": "Focused #561 capability-profile manifest generator: --check clean pass, manifest and region adversarial matrices, planted-defect controls, idempotency/determinism, no-runtime-read, PR #588 hardening, and the #555 implement-tier bundled-helper grant-flow CLAUDE.md pins"
     },
@@ -76,7 +76,7 @@
     },
     "experiment-records": {
       "path": "lib/test/modules/experiment-records.sh",
-      "minimum_assertions": 138,
+      "minimum_assertions": 140,
       "assertion_floor_policy": "exact",
       "description": "Focused #431 build-experiment-records.py unified-experiment-record join: the DEVFLOW_GH-stubbed assembler driven over fixture stores with per-scenario repo roots, the joined record fields, and the config_fingerprint stamp with its partial-flag, None and canonical-hash arms"
     },

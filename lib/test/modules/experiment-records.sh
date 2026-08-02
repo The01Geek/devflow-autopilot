@@ -455,6 +455,38 @@ EOF
   assert_eq "#1030 T3h: a marker quoted below the scanned window keeps the prose source" \
     "APPROVE-pr-review" "$(exp_field "$ST3H4" 773 verdict)-$(exp_field "$ST3H4" 773 provenance.verdict)"
 
+  # Only the prflow: spelling is a marker. The devflow:review-verdict spelling can exist on
+  # no persisted artifact (the marker postdates the rename), so it must fall through to the
+  # prose arm rather than be honored as a producer stamp (issue #1030) — while #1003's dual
+  # read on the review-PROGRESS run key, which this same record still resolves either way,
+  # is untouched.
+  R3H5="$EXP/r3h5"
+  mkdir -p "$R3H5/.prflow/learnings"
+  cat > "$R3H5/.prflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":774,"merged_at":"2026-07-10T00:00:00Z","branch":"b774","merge_commit_sha":"m774"}
+EOF
+  jq -nc --arg b "<!-- devflow:review-verdict head=$EXP_M_HEAD verdict=REJECT -->"$'\n'"$EXP_CENSUS_LINE" \
+    '[{state:"CHANGES_REQUESTED",submitted_at:"2026-07-09T10:00:00Z",commit_id:"h774",body:$b}]' > "$EXP/reviews3h5.json"
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    REVIEWS_JSON="$EXP/reviews3h5.json" COMMENTS_JSON="$EXP/does-not-exist" \
+    python3 "$BXR" --repo-root "$R3H5" --prs 774 >/dev/null 2>&1
+  ST3H5="$R3H5/.prflow/learnings/experiment-records.jsonl"
+  assert_eq "#1030 T3h: the devflow:review-verdict spelling is not honored as a marker" \
+    "null-absent" "$(exp_field "$ST3H5" 774 verdict)-$(exp_field "$ST3H5" 774 provenance.verdict)"
+  R3H6="$EXP/r3h6"
+  mkdir -p "$R3H6/.prflow/learnings"
+  cat > "$R3H6/.prflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":775,"merged_at":"2026-07-10T00:00:00Z","branch":"b775","merge_commit_sha":"m775"}
+EOF
+  jq -nc --arg b '<!-- devflow:review-progress run=1 -->'$'\n'"<!-- prflow:review-verdict head=$EXP_M_HEAD verdict=REJECT -->"$'\n''**Reviewed HEAD:** h775' \
+    '[{id:9,created_at:"2026-07-09T10:00:00Z",body:$b}]' > "$EXP/comments3h6.json"
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    REVIEWS_JSON="$EXP/does-not-exist" COMMENTS_JSON="$EXP/comments3h6.json" \
+    python3 "$BXR" --repo-root "$R3H6" --prs 775 >/dev/null 2>&1
+  ST3H6="$R3H6/.prflow/learnings/experiment-records.jsonl"
+  assert_eq "#1030 T3h: the superseded review-progress run-key spelling still reaches the marker" \
+    "REJECT-progress-comment-marker" "$(exp_field "$ST3H6" 775 verdict)-$(exp_field "$ST3H6" 775 provenance.verdict)"
+
   # ── T3f2 verdict fetch-failed provenance (review Fix C) ──────────────────────
   # Both the reviews and comments API calls FAIL (rc≠0) → verdict null with
   # provenance "fetch-failed" (unestablished), distinct from a genuinely-absent one.

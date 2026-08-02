@@ -15352,7 +15352,12 @@ prv_run() {
              env "$@" bash "$PRV" 123 "$vd" "$bf" "$hd" "$pm" 2>/dev/null)"
   PRV_RC_OBS=$?
   PRV_OUT1="${PRV_OUT%%$'\n'*}"
+  prv_record
 }
+# Append every stdout line this run observed to the covered-token log the grounded-coverage
+# meta-assertion below reads. Called from prv_run and from each direct invocation, so a case
+# that bypasses prv_run to control argv still contributes.
+prv_record() { [ -z "$PRV_OUT" ] || printf '%s\n' "$PRV_OUT" >> "$PRV_SB/covered"; }
 prv_posts() { grep -c '^POST ' "$PRV_SB/log"; }
 prv_calls() { grep -c "^$1 " "$PRV_SB/log"; }
 # BYTE-EXACT comparison of the posted body's TAIL (everything after the marker line)
@@ -15436,6 +15441,7 @@ for PRNUM in abc ""; do
   : > "$PRV_SB/log"
   PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" \
     bash "$PRV" "$PRNUM" APPROVE "$PRV_SB/body-plain.md" "$PRV_HEAD" 2>/dev/null)"; PRV_RC_OBS=$?
+  prv_record
   assert_eq "#1059 post-verdict: PR number '$PRNUM' → SKIP not-numeric, exit 3, no request" \
     "SKIP not-numeric-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
 done
@@ -15560,6 +15566,36 @@ DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB
   bash "$PRV_SB/mutant2.sh" 123 APPROVE "$PRV_SB/body-plain.md" "$PRV_HEAD" >/dev/null 2>&1
 assert_eq "#1030 post-verdict: guarantee-class control — removing the marker composition empties body line 1 (control ran)" \
   "" "$(prv_line1)"
+
+# ── GROUNDED COVERAGE for the closed stdout vocabulary (issue #1030). ─────────────
+# The rows above are only as complete as the helper's arms, so derive the emitted token set
+# from the helper's OWN source and assert it equals the set those rows actually observed. A
+# hand-written "these are all the arms" claim decays silently, and the caller routes on the
+# token PREFIX, so a new arm keeps routing correctly while carrying neither a distinguishing
+# token nor a test — exactly the decay a prefix-routed vocabulary invites. Both sides are
+# computed with python3 (preflight-guaranteed) so neither can be emptied by a missing PATH
+# tool while the comparison still passes.
+cat > "$PRV_SB/token-sets.py" <<'PY1030'
+import re, sys
+# argv[1] = "emitted" | "covered"; argv[2] = the source or the observed-output log.
+text = open(sys.argv[2], encoding='utf-8').read()
+if sys.argv[1] == 'emitted':
+    # re.M is load-bearing: without it the anchors bind to the whole string and findall
+    # returns nothing, emptying this side and making the comparison vacuous. The floor row
+    # below catches that too.
+    pat = re.compile(r'^\s*echo "([A-Z]+ [a-z][a-z0-9-]*)', re.M)
+else:
+    pat = re.compile(r'^([A-Z]+ [a-z][a-z0-9-]*)', re.M)
+print(' '.join(sorted(set(pat.findall(text)))))
+PY1030
+PRV_EMITTED="$(python3 "$PRV_SB/token-sets.py" emitted "$PRV")"
+PRV_COVERED="$(python3 "$PRV_SB/token-sets.py" covered "$PRV_SB/covered")"
+# Anti-vacuity floor: a regex or fence bug that emptied EITHER side would otherwise make the
+# equality row below compare two empty sets and pass over nothing.
+assert_eq "#1030 post-verdict: the source emits at least the seven documented outcome tokens (anti-vacuity)" \
+  "yes" "$(python3 -c 'import sys; print("yes" if len(sys.argv[1].split()) >= 7 else "no")' "$PRV_EMITTED")"
+assert_eq "#1030 post-verdict: every token the source emits is driven by a test, and no test drives a token the source cannot emit" \
+  "$PRV_EMITTED" "$PRV_COVERED"
 
 rm -rf "$PRV_SB"
 
@@ -36201,7 +36237,7 @@ echo "#431 build-experiment-records.py — the unified experiment record (join)"
 # module header and its .inventory.md carry the rationale and the resulting
 # coverage-map decision; do not restate it here, so the two cannot drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/experiment-records.sh" \
-  "experiment-records" 138; then
+  "experiment-records" 140; then
   printf 'ERROR: experiment-records boundary could not record its result\n'
   exit 1
 fi
@@ -42173,7 +42209,7 @@ fi
 # lower-bound contract; test_module_runner.py parses this operand and rejects any
 # coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/capability-profiles.sh" \
-  "capability-profiles" 65; then
+  "capability-profiles" 68; then
   printf 'ERROR: capability-profiles boundary could not record its result\n'
   exit 1
 fi
