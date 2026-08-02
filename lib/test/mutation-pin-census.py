@@ -211,7 +211,16 @@ def _audited_sources(repo_root: Path) -> tuple[str, ...]:
 # worker: this bound costs roughly 90MB of peak RSS over one sized to the
 # audited set alone, for the same 13 within-census hits on the tree as it stood
 # at that run. Past-time snapshot of that run.
-_SOURCE_PARSE_CACHE_SIZE = 56
+#
+# Raised 2026-08-02 (issue #1072): the shipped-pruned-path lint's fixture corpus
+# adds nine tracked shell sources under lib/test/fixtures/shipped-pruned-path/,
+# taking the population the sweep parses from 51 to 60 — past the old bound of
+# 56, so every entry was evicted before the extraction asked for it again and
+# test_census_outer_memos_are_reused_across_builds went RED with zero hits on
+# _definition_scan, exactly as its remedy text predicts. Re-sized to 65, keeping
+# the same few-files headroom over the swept population the paragraph above
+# describes (the prior 56 stood 5 above a population of 51).
+_SOURCE_PARSE_CACHE_SIZE = 65
 
 
 @functools.lru_cache(maxsize=_SOURCE_PARSE_CACHE_SIZE)
