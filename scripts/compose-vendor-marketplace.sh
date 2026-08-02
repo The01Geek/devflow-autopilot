@@ -16,8 +16,10 @@
 # closes that gap for the cloud implement tier by composing a JOB-LOCAL marketplace
 # rooted at the vendored parent dir and rewriting the composed marketplace list to use
 # it in place of the repo-root `./` entry — WITHOUT touching the tracked
-# `.claude-plugin/marketplace.json` (constraint from issue #1049; re-pointing that file
-# reverts commit 43892fd2 and turns the #142 pin red).
+# `.claude-plugin/marketplace.json` (constraint from issue #1049: this repo is its own
+# marketplace and must keep its `source` at `./`; re-pointing that file at the vendored
+# path would diverge the tracked repo-root marketplace from the shape the repo requires,
+# so the constraint is enforced by the issue's own authoring rule, not by a suite pin).
 #
 # It does NOT edit the baked marketplace baseline literal (the three-way #505 AC4 sync
 # pin): the workflow computes the combined marketplace list from that untouched baseline
@@ -86,9 +88,14 @@ fi
 # is distinct from the vendor-slice-pruned `<vendor-root>/prflow/.claude-plugin/
 # marketplace.json`, so there is no collision.
 MK_DIR="$VENDOR_ROOT/.claude-plugin"
-mkdir -p "$MK_DIR"
+# The script runs under `set -u` but NOT `set -e`, so the write is checked explicitly:
+# if the mkdir or the marketplace.json write fails (unwritable dir, full/read-only FS),
+# the swap below would repoint the list at $VENDOR_ROOT while the marketplace.json it
+# depends on does not exist — a silently-wrong resolution wearing a green ::notice::.
+# Gate the swap + success notice on a confirmed write; otherwise warn and leave the list
+# on the repo-root `./` (never a non-clean path reported as clean).
 # Static JSON (no interpolated values) — printf, so no apostrophe/heredoc hazard.
-printf '%s\n' \
+if ! mkdir -p "$MK_DIR" 2>/dev/null || ! printf '%s\n' \
 '{' \
 '  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",' \
 '  "name": "devflow-marketplace",' \
@@ -97,7 +104,10 @@ printf '%s\n' \
 '  "plugins": [' \
 '    { "name": "prflow", "source": "./prflow" }' \
 '  ]' \
-'}' > "$MK_DIR/marketplace.json"
+'}' > "$MK_DIR/marketplace.json"; then
+    echo "::warning::devflow compose-vendor-marketplace.sh: could not write $MK_DIR/marketplace.json (unwritable dir or full/read-only FS); the prflow plugin resolves from the repo-root marketplace (./). The composed marketplace list is left unchanged."
+    exit 0
+fi
 
 # Rewrite the marketplaces file: swap the repo-root `./` entry for the vendored
 # marketplace root. Bash builtins only (while-read + case) — guard-class 2: a value

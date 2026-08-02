@@ -34,7 +34,11 @@ run-name: "DevFlow implement (issue ${{ github.event.issue.number }})"
 # flows in devflow.yml, without inflating every command's cost.
 #
 # Keep the plugin_marketplaces, plugins, and claude_args sections in sync with
-# devflow.yml so the skill surface is identical across listeners.
+# devflow.yml so the skill surface is identical across listeners. ONE deliberate
+# exception (issue #1049): the plugin_marketplaces action INPUT is consumed from the
+# implement-only `vendor_marketplace` step, which resolves the prflow plugin root to the
+# vendored subtree — do NOT "re-sync" it back to steps.plugins. The skill surface stays
+# identical; only the resolution root differs.
 
 on:
   issue_comment:
@@ -1055,8 +1059,11 @@ jobs:
       # vs-degraded branch selection lives in compose-vendor-marketplace.sh, driven by
       # lib/test/run.sh (the describe-denial-count.sh extraction convention); the outer
       # file-absent guard is the #505-class vendored-helper skew arm and names
-      # prflow_version, mirroring the compose step's HELPER guard. Best-effort: it never
-      # fails the job and never silently drops a valid resolution.
+      # prflow_version, mirroring the compose step's HELPER guard. Best-effort: the helper
+      # never hard-fails (always exits 0) and every non-clean path is audited (never a
+      # silently-wrong resolution). The step itself runs under `set -euo pipefail`, so a
+      # mktemp/output-write failure would fail loudly (never silently) — consistent with
+      # the compose step above, which likewise mktemps under set -euo.
       - name: Resolve plugin root to the vendored subtree (issue #1049)
         id: vendor_marketplace
         env:

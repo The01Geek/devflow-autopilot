@@ -37944,6 +37944,12 @@ raise SystemExit("step %s not found" % sys.argv[2])
 PY
   }
   _1049_VSTEP="$(mktemp)"; _1049_extract "$_1049_IMPL" vendor_marketplace > "$_1049_VSTEP"
+  # guard-class 2 on the STEP's own inline re-read loop (not just the helper): the step
+  # re-derives the emitted plugin_marketplaces list via a bash while-read loop and its
+  # comment claims guard-class 2, so pin that the extracted step body invokes no
+  # tr/sed/wc/cut/head to derive that emitted value.
+  assert_eq "#1049 step exec: the vendor_marketplace step derives no emitted value via tr/sed/wc/cut/head (guard-class 2)" "0" \
+    "$(grep -cE '^[[:space:]]*(tr|sed|wc|cut|head)([[:space:]]|$)' "$_1049_VSTEP")"
   _1049_vstep_run() {  # $1=cwd  $2=COMPOSED_MK → sets _1049_OUT (plugin_marketplaces heredoc value)
     local out; out="$(mktemp)"
     ( cd "$1" && COMPOSED_MK="$2" GITHUB_OUTPUT="$out" bash "$_1049_VSTEP" >/dev/null 2>&1 )
@@ -37955,6 +37961,17 @@ PY
   _1049_vstep_run "$_1049_FX" "$(printf '%s\n%s' 'https://github.com/anthropics/claude-plugins-official.git' './')"
   assert_eq "#1049 step exec: helper present → ./ resolved to the vendored marketplace root" \
     "$(printf '%s\n%s' 'https://github.com/anthropics/claude-plugins-official.git' '.prflow/vendor')" "$_1049_OUT"
+  rm -rf "$_1049_FX"
+  # helper PRESENT but vendor PARTIAL (no plugin.json) → the helper exits 0 without
+  # swapping (its internal degraded arm), the workflow's `|| echo warning` does NOT fire,
+  # and the step's re-read loop must pass the list through unchanged (repo-root ./ kept).
+  # This is a distinct end-to-end path from both cases below — the outer file-absent guard
+  # is a different branch than the helper's internal manifest-absent arm.
+  _1049_FX="$(mktemp -d)"; _1049_mkvendor "$_1049_FX" partial
+  cp "$_1049_CVM" "$_1049_FX/.prflow/vendor/prflow/scripts/compose-vendor-marketplace.sh"
+  _1049_vstep_run "$_1049_FX" "$(printf '%s\n%s' 'https://github.com/anthropics/claude-plugins-official.git' './')"
+  assert_eq "#1049 step exec: helper present + partial vendor → list passes through unchanged (repo-root ./ kept)" \
+    "$(printf '%s\n%s' 'https://github.com/anthropics/claude-plugins-official.git' './')" "$_1049_OUT"
   rm -rf "$_1049_FX"
   # helper absent (skew) → list passes through unchanged (repo-root ./ kept)
   _1049_FX="$(mktemp -d)"; mkdir -p "$_1049_FX/.prflow/vendor"
