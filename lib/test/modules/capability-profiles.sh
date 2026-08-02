@@ -192,9 +192,16 @@ rm -rf "$CAP_IDEM"
 # literals to it — and is comment-immune (a doc comment naming a token cannot trip it),
 # so re-adding a lib/test grant to the shipped implement/review/command profile fails
 # closed HERE rather than shipping silently.
-CAP_LIBTEST_TOKENS="$(python3 - "$LIB/capability-profiles.json" <<'PY'
+# One scan body, called twice, so the positive control provably exercises the EXACT
+# same profile→group expansion + lib/test filter the real assertion runs (arg 2, when
+# non-empty, injects a token into the implement profile before scanning). Two hand-synced
+# heredocs would let the control silently drift out of parity with what it certifies.
+_cap_libtest_hits() {  # $1=manifest path  $2=optional token to inject into implement profile
+  python3 - "$1" "${2:-}" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1], encoding="utf-8"))
+if len(sys.argv) > 2 and sys.argv[2]:
+    d["profiles"]["implement"].append(sys.argv[2])
 groups = d["groups"]
 hits = []
 for name, spec in d["profiles"].items():
@@ -203,23 +210,12 @@ for name, spec in d["profiles"].items():
         hits += [f"{name}:{t}" for t in toks if "lib/test/" in t]
 print("\n".join(hits))
 PY
-)"
+}
+CAP_LIBTEST_TOKENS="$(_cap_libtest_hits "$LIB/capability-profiles.json")"
 assert_eq "#1078 no shipped capability profile grants a Bash(lib/test/...) token (self-repo grants live in .prflow/config.json)" "" "$CAP_LIBTEST_TOKENS"
-# Positive control: the scan above is non-vacuous — a lib/test token injected into a
-# fixture manifest's implement profile is caught (proves the assertion would fire).
-CAP_1078_POS="$(python3 - "$LIB/capability-profiles.json" <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1], encoding="utf-8"))
-d["profiles"]["implement"].append("Bash(lib/test/injected_probe.py:*)")
-groups = d["groups"]
-hits = []
-for name, spec in d["profiles"].items():
-    for tok in spec:
-        toks = groups[tok[1:]] if tok.startswith("@") else [tok]
-        hits += [f"{name}:{t}" for t in toks if "lib/test/" in t]
-print("\n".join(hits))
-PY
-)"
+# Positive control: the scan is non-vacuous — a lib/test token injected into the
+# implement profile is caught (proves the assertion above would fire).
+CAP_1078_POS="$(_cap_libtest_hits "$LIB/capability-profiles.json" "Bash(lib/test/injected_probe.py:*)")"
 assert_eq "#1078 the shipped-profile lib/test scan is non-vacuous (positive control)" "implement:Bash(lib/test/injected_probe.py:*)" "$CAP_1078_POS"
 
 # T8 — no-runtime-read: no workflow reads policy from the manifest at run
