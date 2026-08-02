@@ -2809,8 +2809,12 @@ def _validate_flight_key(args, flight_key: str) -> None:
 
 def _completion_evidence_verdict(args, progress_content: str) -> None:
     """The terminal-gate half: re-validate the completion evidence carried by the
-    workpad's ## Progress marker at Complete time (re-deriving candidate identity so
-    edits made after the evidence was recorded are caught).
+    workpad's ## Progress marker at Complete time. When no `--claim-identity` is
+    pinned (the production path — Phase 4.3 finalizes with a plain `--status
+    Complete`), the validator re-derives the candidate identity from the current
+    tree, so edits made after the evidence was recorded are caught as `stale`. A
+    pinned `--claim-identity` (loop/test override) is honored verbatim instead, so a
+    caller that pins it deliberately opts out of the fresh re-derivation.
 
     Raises `_UpdateError` (structural — no PATCH) when the marker is absent or
     duplicated, or when its record fails the implement-completion validator. Returns
@@ -2832,7 +2836,7 @@ def _completion_evidence_verdict(args, progress_content: str) -> None:
     _validate_flight_key(args, keys[0])
 
 
-def _terminal_complete_gate(sections, args=None) -> list[str]:
+def _terminal_complete_gate(sections, args) -> list[str]:
     """Reconcile the workpad self-record on a terminal `--status Complete` write.
 
     Hard-fail (a *structural* `_UpdateError`, so `cmd_update` aborts before any
@@ -2854,12 +2858,13 @@ def _terminal_complete_gate(sections, args=None) -> list[str]:
     are caught. A missing/duplicate marker or a non-pass record is a structural
     `_UpdateError` (no PATCH), exactly like the AC hard-fail."""
     # Completion-evidence gate first: it is the strictest precondition and its
-    # failure is the one issue #1087 exists to enforce. `args is None` only in legacy
-    # direct callers of the gate; the production path always supplies it.
-    if args is not None:
-        prog_idx = _find_section(sections, 'Progress')
-        prog_content = sections[prog_idx][1] if prog_idx is not None else ''
-        _completion_evidence_verdict(args, prog_content)
+    # failure is the one issue #1087 exists to enforce. `args` is REQUIRED (never
+    # defaulted) so the gate can never be silently skipped by an argument omission —
+    # a Complete write without the evidence check would fail open on exactly the
+    # guarantee this change adds.
+    prog_idx = _find_section(sections, 'Progress')
+    prog_content = sections[prog_idx][1] if prog_idx is not None else ''
+    _completion_evidence_verdict(args, prog_content)
     ac_idx = _find_section(sections, 'Acceptance Criteria')
     if ac_idx is not None:
         ac_content = sections[ac_idx][1]
