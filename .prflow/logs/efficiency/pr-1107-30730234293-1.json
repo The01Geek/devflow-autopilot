@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1107",
+  "generated_at": "2026-08-02T04:18:07Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.23",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 23.11687825,
+    "tokens": {
+      "input_tokens": 4123,
+      "output_tokens": 84374,
+      "cache_read_input_tokens": 25355988,
+      "cache_creation_input_tokens": 251909,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 4281,
+        "outputTokens": 133423,
+        "cacheReadInputTokens": 29062979,
+        "cacheCreationInputTokens": 685400,
+        "webSearchRequests": 0,
+        "costUSD": 23.11687825,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 146,
+    "duration_ms": 3831567
+  },
+  "permission_denials": {
+    "count": 24,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"$CLAUDE_SKILL_DIR\" && ./scripts/load-prompt-extension.sh implement 2>&1 | head -50",
+      "echo \"GITHUB_ACTIONS=${GITHUB_ACTIONS:-unset}\"; python3 -c \"import json;print(list(json.load(open('lib/rename-map.json'))['config_keys'].keys()))\"",
+      "printf 'GITHUB_ACTIONS=%s\\n' \"${GITHUB_ACTIONS:-unset}\"; python3 -c \"import json;print(list(json.load(open('lib/rename-map.json'))['config_keys'].keys()))\"",
+      "mkdir -p .prflow/tmp && python3 scripts/parse-acs.py --issue 1096 > .prflow/tmp/acs-1096.md && python3 scripts/workpad.py new-body 1096 --run-link \"_(local run)_\" --no-reproduction > .prflow/tmp/wp-1096.md && python3 scripts/workpad.py create 1096 .prflow/tmp/wp-1096.md",
+      "python3 scripts/workpad.py new-body 1096 --run-link \"_(local run)_\" --no-reproduction > .prflow/tmp/wp-1096.md; python3 scripts/workpad.py create 1096 .prflow/tmp/wp-1096.md",
+      "ruff check lib/test/lint-superseded-config-keys.py 2>&1; echo \"---shellcheck---\"; shellcheck --severity=warning -e SC1091 scripts/config-get.sh 2>&1 | head; echo \"sc-exit=${PIPESTATUS[0]}\"",
+      "python3 scripts/ensure-label.sh PRFlow >/dev/null 2>&1; gh pr create --draft --base main --head issue-1096-line-scope-superseded-key-exemptions --title \"Line-scope the superseded-config-key guard's exemptions for live migration files\" --body \"Closes #1096\n\n## Summary\nLine-scopes \\`lib/test/lint-superseded-config-keys.py\\`'s exemptions for the live-migration files. Previously \\`scripts/config-get.sh\\`, \\`scripts/scaffold-config.sh\\`, \\`scripts/migrate-consumer-tier1.sh\\`, and \\`lib/migrate-config …[per-command-truncated]",
+      "bash -n lib/test/run.sh && echo \"run.sh-syntax-ok\"; python3 -m py_compile lib/test/lint-superseded-config-keys.py && echo \"py-ok\"\nL1084_LINT=\"lib/test/lint-superseded-config-keys.py\"\npython3 - \"$L1084_LINT\" <<'PY'\nimport importlib.util, io, sys, contextlib\nspec = importlib.util.spec_from_file_location(\"g\", sys.argv[1])\ng = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)\nLEAF = \"dev\" + \"flow\" + \"_implement.stall_backstop\"\ndef run_main(line):\n    g._pop.enumerate_population = lam …[per-command-truncated]",
+      "for f in lib/test/lint-superseded-config-keys.py lib/test/lint-tree-enumeration.py lib/test/lint-argjson-transport.py lib/test/lint-gh-api-repo-path.py; do python3 \"$f\" >/dev/null 2>&1; echo \"$f -> exit=$?\"; done",
+      "python3 lib/test/regenerate-artifacts.py 2>&1 | tail -20; echo \"regen-exit=${PIPESTATUS[0]}\"",
+      "lib/test/run-shard.sh --list-shards 2>&1 | head -40",
+      "lib/test/run-shard.sh --list-shards",
+      "for f in scripts/scaffold-config.sh scripts/migrate-consumer-tier1.sh lib/migrate-config-values.py; do echo \"=== $f ===\"; grep -nE 'devflow_(review_and_fix|retrospective|implement|runner|review|version|module_pin)?[._]|devflow\\.[a-z]' \"$f\" | head; done",
+      "for f in scripts/scaffold-config.sh scripts/migrate-consumer-tier1.sh lib/migrate-config-values.py; do echo \"=== $f ===\"; grep -nE 'devflow[._][a-z]' \"$f\" | head; done",
+      "cd /home/runner/work/prflow/prflow; for f in lib/migrate-config-values.py scripts/scaffold-config.sh scripts/migrate-consumer-tier1.sh scripts/config-get.sh; do echo \"== $f ==\"; grep -n \"devflow_\\|devflow\\b\\|\\.devflow\" \"$f\" | head -20; done",
+      "cd /home/runner/work/prflow/prflow; L1084_LINT=\"lib/test/lint-superseded-config-keys.py\"; python3 - \"$L1084_LINT\" <<'PY'\nimport importlib.util, io, sys, contextlib\nspec = importlib.util.spec_from_file_location(\"g\", sys.argv[1])\ng = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)\nLEAF = \"dev\" + \"flow\" + \"_implement.stall_backstop\"\ndef run_main(line):\n    g._pop.enumerate_population = lambda root, ff, *, ls_files_argv: [\"scripts/config-get.sh\"]\n    g._pop.read_source = lambda p,  …[per-command-truncated]",
+      "cat > /tmp/t1096.py <<'PY'\nimport importlib.util, io, sys, contextlib\nspec = importlib.util.spec_from_file_location(\"g\", \"lib/test/lint-superseded-config-keys.py\")\ng = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)\nLEAF = \"dev\" + \"flow\" + \"_implement.stall_backstop\"\ndef run_main(line):\n    g._pop.enumerate_population = lambda root, ff, *, ls_files_argv: [\"scripts/config-get.sh\"]\n    g._pop.read_source = lambda p, *, skip_nul: (line, None)\n    with contextlib.redirect_stderr(io …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow; mkdir -p .prflow/tmp; cat <<'PY' | python3 -\nimport importlib.util, io, sys, contextlib\nspec = importlib.util.spec_from_file_location(\"g\", \"lib/test/lint-superseded-config-keys.py\")\ng = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)\nLEAF = \"dev\" + \"flow\" + \"_implement.stall_backstop\"\ndef run_main(lines):\n    if isinstance(lines, str): lines = [lines]\n    text = \"\\n\".join(lines)\n    g._pop.enumerate_population = lambda root, ff, *, ls_files_a …[per-command-truncated]",
+      "python3 lib/test/lint-superseded-config-keys.py >/dev/null 2>&1; echo rc=$?",
+      "mkdir -p .prflow/tmp && cat > .prflow/tmp/t1096.py <<'PY'\nimport importlib.util, io, sys, contextlib\nspec = importlib.util.spec_from_file_location(\"g\", \"lib/test/lint-superseded-config-keys.py\")\ng = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)\nLEAF = \"dev\" + \"flow\" + \"_implement.stall_backstop\"\ndef run_main(lines):\n    if isinstance(lines, str): lines = [lines]\n    text = \"\\n\".join(lines)\n    g._pop.enumerate_population = lambda root, ff, *, ls_files_argv: [\"scripts/config-g …[per-command-truncated]",
+      "mkdir -p .prflow/tmp && cat > .prflow/tmp/t1096.py <<'PY'\nimport importlib.util, io, sys, contextlib\nspec = importlib.util.spec_from_file_location(\"g\", \"lib/test/lint-superseded-config-keys.py\")\ng = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)\nLEAF = \"dev\" + \"flow\" + \"_implement.stall_backstop\"\ndef run_main(lines):\n    if isinstance(lines, str): lines = [lines]\n    text = \"\\n\".join(lines)\n    g._pop.enumerate_population = lambda root, ff, *, ls_files_argv: [\"scripts/config-g …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow; TMP=$(mktemp -d); cp lib/test/lint-superseded-config-keys.py \"$TMP/\"; \n# create a fake tree lint without _comment_split by copying and renaming the def\nsed 's/def _comment_split/def _RENAMED_comment_split/' lib/test/lint-tree-enumeration.py > \"$TMP/lint-tree-enumeration.py\"\n# point the copy's _TREE_PATH at the tmp dir by faking repo root: instead run inline patch\npython3 - \"$TMP\" <<'PY'\nimport importlib.util, sys, pathlib\ntmp = pathlib.Path(sys.argv[1])\n# monk …[per-command-truncated]",
+      "python3 lib/test/regenerate-artifacts.py 2>&1 | tail -8; echo \"exit=${PIPESTATUS[0]}\"",
+      "TRIGGER_ID=$(gh api \"repos/{owner}/{repo}/issues/1096/comments?per_page=100\" --jq 'map(select((.body | contains(\"/prflow:implement\") or contains(\"/devflow:implement\")) and ((.body | test(\"(pr|dev)flow:workpad\")) | not))) | last | .id' 2>/dev/null || true); echo \"trigger=$TRIGGER_ID\"\nif [ -n \"$TRIGGER_ID\" ] && [ -z \"${TRIGGER_ID//[0-9]/}\" ]; then\n  gh api --method POST \"repos/{owner}/{repo}/issues/comments/$TRIGGER_ID/reactions\" -f content=hooray --jq '.content' 2>&1 || echo \"reaction failed (bes …[per-command-truncated]"
+    ],
+    "total": 24,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
