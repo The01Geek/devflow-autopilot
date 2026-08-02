@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1140",
+  "generated_at": "2026-08-02T12:54:01Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.43",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.2036385000000003,
+    "tokens": {
+      "input_tokens": 38,
+      "output_tokens": 15372,
+      "cache_read_input_tokens": 2357840,
+      "cache_creation_input_tokens": 120723,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 46,
+        "outputTokens": 18215,
+        "cacheReadInputTokens": 2497032,
+        "cacheCreationInputTokens": 167489,
+        "webSearchRequests": 0,
+        "costUSD": 3.2036385000000003,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 22,
+    "duration_ms": 279480
+  },
+  "permission_denials": {
+    "count": 4,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1051 --pr 1140 2>.prflow/tmp/review/pr-1140/local-run/acs.err ; echo \"acs-rc=$?\"; echo \"===ERR===\"; cat .prflow/tmp/review/pr-1140/local-run/acs.err",
+      "ls .prflow/vendor/prflow/scripts/workpad.py 2>&1 | head; echo \"---\"; scripts/workpad.py acs-resolve 1051 --pr 1140 2>&1 | head -60; echo \"acs-rc=${PIPESTATUS[0]}\"",
+      "ls .prflow/vendor/prflow/scripts/workpad.py; echo \"===\"; scripts/workpad.py acs-resolve 1051 --pr 1140",
+      "gh pr review 1140 --approve --body \"$(cat <<'EOF'\n## ✅ /prflow:review — APPROVE\n\n**PR #1140** — `docs: correct stale PreToolUse section in cloud-allowlist.md (#1051)`\nDiff classification: `engine_self_modifying` (touches `lib/test/run.sh`) → full checklist. 2 files, ~112-line diff (docs prose + one test-pin data line).\n\nThis is a documentation-accuracy correction. Every factual claim in the rewritten `docs/cloud-allowlist.md` PreToolUse section was verified against the current tree:\n\n| Claim | V …[per-command-truncated]"
+    ],
+    "total": 4,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
