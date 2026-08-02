@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1129",
+  "generated_at": "2026-08-02T11:32:38Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.38",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 14.362901750000004,
+    "tokens": {
+      "input_tokens": 83,
+      "output_tokens": 53874,
+      "cache_read_input_tokens": 7666697,
+      "cache_creation_input_tokens": 294017,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 158,
+        "outputTokens": 111430,
+        "cacheReadInputTokens": 9971369,
+        "cacheCreationInputTokens": 831917,
+        "webSearchRequests": 0,
+        "costUSD": 14.074269500000005,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 2,
+        "outputTokens": 7773,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 45875,
+        "webSearchRequests": 0,
+        "costUSD": 0.28863225000000003,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 58,
+    "duration_ms": 1188705
+  },
+  "permission_denials": {
+    "count": 9,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"RUN_ID=$GITHUB_RUN_ID ATTEMPT=$GITHUB_RUN_ATTEMPT ACTIONS=$GITHUB_ACTIONS\"; echo \"---\"; date -u +%Y%m%dT%H%M%SZ",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve \"990\" --pr \"1129\" 2>.prflow/tmp/review/pr-1129/30745248869-1/acs.err ; echo \"acs-rc=$?\"",
+      "cd /home/runner/work/prflow/prflow\nawk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/review/pr-1129/30745248869-1/diff.patch > .prflow/tmp/review/pr-1129/30745248869-1/batch-1.patch && test -s .prflow/tmp/review/pr-1129/30745248869-1/batch-1.patch && echo \"slice-ok: batch-1\" || echo \"slice-failed: batch-1\"\nawk -v s=11 -v e=20 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/review/pr-1129/30745248869-1/diff.patch > .prflow/tmp/review/pr-1129/30745248869-1/batch-2.patch && test -s .pr …[per-command-truncated]",
+      "awk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/review/pr-1129/30745248869-1/diff.patch > .prflow/tmp/review/pr-1129/30745248869-1/batch-1.patch; test -s .prflow/tmp/review/pr-1129/30745248869-1/batch-1.patch && echo \"slice-ok: batch-1\" || echo \"slice-failed: batch-1\"",
+      "awk -v s=11 -v e=20 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/review/pr-1129/30745248869-1/diff.patch > .prflow/tmp/review/pr-1129/30745248869-1/batch-2.patch; test -s .prflow/tmp/review/pr-1129/30745248869-1/batch-2.patch && echo \"slice-ok: batch-2\" || echo \"slice-failed: batch-2\"",
+      "mkdir -p .prflow/tmp\nrm -f .prflow/tmp/review-dirty-tree-before .prflow/tmp/review-dirty-tree-disabled 2>/dev/null\ngit status --porcelain -z > .prflow/tmp/review-dirty-tree-before && git hash-object .prflow/tmp/review-dirty-tree-before",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>/tmp/stderr.txt 1>/tmp/stdout.txt; echo \"EXIT=$?\"; echo \"--STDOUT--\"; wc -c /tmp/stdout.txt; echo \"--STDERR--\"; cat /tmp/stderr.txt",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 1>/tmp/o.txt 2>/tmp/e.txt; echo EXIT=$?"
+    ],
+    "total": 9,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
