@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1148",
+  "generated_at": "2026-08-02T16:43:28Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.50",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 9.488150249999997,
+    "tokens": {
+      "input_tokens": 4346,
+      "output_tokens": 17448,
+      "cache_read_input_tokens": 4709430,
+      "cache_creation_input_tokens": 214658,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 4430,
+        "outputTokens": 45022,
+        "cacheReadInputTokens": 8216203,
+        "cacheCreationInputTokens": 548381,
+        "webSearchRequests": 0,
+        "costUSD": 9.488150249999997,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 42,
+    "duration_ms": 454544
+  },
+  "permission_denials": {
+    "count": 9,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "/home/runner/work/prflow/prflow/scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review",
+      "ls -la /home/runner/work/prflow/prflow/.prflow/prompt-extensions/ 2>/dev/null; echo \"---\"; git -C /home/runner/work/prflow/prflow rev-parse HEAD",
+      "git -C /home/runner/work/prflow/prflow hash-object skills/review/SKILL.md skills/review/phases/phase-0-setup.md skills/review/phases/phase-0-3-6-blocker-recheck.md skills/review/phases/phase-0-6-stale-prose-lint.md skills/review/phases/phase-1-checklist.md skills/review/phases/phase-2-verification.md skills/review/phases/phase-3-agents.md skills/review/phases/phase-4-verdict.md skills/review/phases/phase-4-1-7-stale-adjudication.md skills/review/phases/phase-4-4-github-post.md",
+      "gh pr diff 1148 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1148/local-run/diff.patch\nwc -l .prflow/tmp/review/pr-1148/local-run/diff.patch",
+      "for m in review-trigger-helpers capability-profiles experiment-records; do echo \"=== $m ===\"; lib/test/run-module.sh $m 2>&1 | tail -4; done",
+      "scripts/post-review-verdict.sh \"1148\" \"APPROVE\" .prflow/tmp/review-verdict-body.md \"580ac851f11e152f513f223b3a5eab452f719703\" \"\""
+    ],
+    "total": 9,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
