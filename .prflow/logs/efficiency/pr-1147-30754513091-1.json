@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1147",
+  "generated_at": "2026-08-02T15:36:36Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.47",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.656968,
+    "tokens": {
+      "input_tokens": 29,
+      "output_tokens": 12700,
+      "cache_read_input_tokens": 1736284,
+      "cache_creation_input_tokens": 123158,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 47,
+        "outputTokens": 23923,
+        "cacheReadInputTokens": 2110431,
+        "cacheCreationInputTokens": 246656,
+        "webSearchRequests": 0,
+        "costUSD": 3.656968,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 18,
+    "duration_ms": 281001
+  },
+  "permission_denials": {
+    "count": 2,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none}\"; mkdir -p .prflow/tmp/review/pr-1147/${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}; gh pr diff 1147 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1147/${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}/diff.patch | head -5; echo \"===STATS===\"; git diff --stat 04c455d45828748769fbf8f38e17df9de0f5ffa4 286ec79add903c4a7fd1629332e260984f1b8bf6 2>/d …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow; for f in skills/review/phases/phase-0-setup.md skills/review/phases/phase-3-agents.md scripts/devflow-cloud-writer-contract.json; do echo \"=== $f (PR head) ===\"; git show 286ec79add903c4a7fd1629332e260984f1b8bf6:$f | sha256sum; done; echo \"=== contract new values at PR head ===\"; git show 286ec79add903c4a7fd1629332e260984f1b8bf6:scripts/devflow-cloud-writer-contract.json | grep -E 'phase-0-setup|phase-3-agents'"
+    ],
+    "total": 2,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
