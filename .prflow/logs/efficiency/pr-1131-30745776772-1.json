@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1131",
+  "generated_at": "2026-08-02T11:33:50Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.39",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.241549249999999,
+    "tokens": {
+      "input_tokens": 5297,
+      "output_tokens": 12752,
+      "cache_read_input_tokens": 1333008,
+      "cache_creation_input_tokens": 70467,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 5339,
+        "outputTokens": 37604,
+        "cacheReadInputTokens": 2118081,
+        "cacheCreationInputTokens": 312234,
+        "webSearchRequests": 0,
+        "costUSD": 4.241549249999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 18,
+    "duration_ms": 270960
+  },
+  "permission_denials": {
+    "count": 1,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "cd /home/runner/work/prflow/prflow\ncat > .prflow/tmp/review/pr-1131/local-run/report.md <<'EOF'\n## ✅ PRFlow Review — PR #1131 — APPROVE\n\n**Reviewed HEAD:** `a58cf8f00690b552e634519a1504cf8900bc1f82`\n**Diff classification:** `engine_self_modifying` (both files under `lib/test/`) → full checklist; Phase 3 roster: 4 always-on agents + `pr-test-analyzer`; `type-design-analyzer` skipped (`has_new_types` false).\n**Resolves:** #1100\n\n### Verdict: APPROVE\n\nA clean, well-scoped fix for the host-timing-de …[per-command-truncated]"
+    ],
+    "total": 1,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
