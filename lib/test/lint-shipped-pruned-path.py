@@ -223,7 +223,7 @@ _MARKER_SHELL = re.compile(r"#\s*pruned-path-ok:\s*(\S.*?)\s*$")
 _FENCE = re.compile(r"^(`{3,}|~{3,})")
 
 
-def _fence_states(text: str) -> list[bool]:
+def _fence_states(lines: list[str]) -> list[bool]:
     """Return, per line, whether that content line is inside a fenced block.
 
     A fence delimiter line itself yields False (it is the boundary, not the interior).
@@ -233,7 +233,7 @@ def _fence_states(text: str) -> list[bool]:
     """
     states: list[bool] = []
     fence_char: str | None = None
-    for line in text.split("\n"):
+    for line in lines:
         m = _FENCE.match(line)
         if m:
             char = line[0]
@@ -252,18 +252,23 @@ def _fence_states(text: str) -> list[bool]:
     return states
 
 
-def scan_text(text: str, targets: list[str]) -> list[int]:
-    """Return the 1-based line numbers referencing a prune target without a marker."""
-    states = _fence_states(text)
-    found: list[int] = []
-    for idx, line in enumerate(text.split("\n")):
-        if not any(t in line for t in targets):
+def scan_text(text: str, targets: list[str]) -> list[tuple[int, str]]:
+    """Return (1-based line number, matched target) for each unmarked reference.
+
+    The matched target is returned alongside the line so the caller never re-splits the
+    file or re-scans the targets to recover which path it matched.
+    """
+    lines = text.split("\n")
+    states = _fence_states(lines)
+    found: list[tuple[int, str]] = []
+    for idx, line in enumerate(lines):
+        hit = next((t for t in targets if t in line), None)
+        if hit is None:
             continue
-        in_fence = states[idx]
-        marker = _MARKER_SHELL if in_fence else _MARKER_HTML
+        marker = _MARKER_SHELL if states[idx] else _MARKER_HTML
         if marker.search(line):
             continue
-        found.append(idx + 1)
+        found.append((idx + 1, hit))
     return found
 
 
@@ -343,8 +348,7 @@ def main(argv: list[str] | None = None) -> int:
             skipped.append((relative, skip_reason or "unknown"))
             continue
         read_ok += 1
-        for number in scan_text(text, targets):
-            hit = next((t for t in targets if t in text.split("\n")[number - 1]), "?")
+        for number, hit in scan_text(text, targets):
             findings.append(
                 f"{relative}:{number}: references pruned path '{hit}' with no "
                 "pruned-path-ok marker"
