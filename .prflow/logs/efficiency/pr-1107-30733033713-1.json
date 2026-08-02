@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1107",
+  "generated_at": "2026-08-02T04:54:42Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.28",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.049496,
+    "tokens": {
+      "input_tokens": 38,
+      "output_tokens": 15768,
+      "cache_read_input_tokens": 2461032,
+      "cache_creation_input_tokens": 142459,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 38,
+        "outputTokens": 15768,
+        "cacheReadInputTokens": 2461032,
+        "cacheCreationInputTokens": 142459,
+        "webSearchRequests": 0,
+        "costUSD": 3.049496,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 23,
+    "duration_ms": 243660
+  },
+  "permission_denials": {
+    "count": 3,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "git status --porcelain\necho \"---ENV---\"\necho \"RUN_ID=${GITHUB_RUN_ID:-} ATTEMPT=${GITHUB_RUN_ATTEMPT:-}\"\necho \"---PRVIEW---\"\ngh pr view 1107 --json headRefName,baseRefName,baseRefOid,headRefOid,body,url,title,state 2>&1 | head -60",
+      "gh pr diff 1107 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1107/local-run/diff.patch\nwc -l .prflow/tmp/review/pr-1107/local-run/diff.patch\ngrep -c '^diff --git' .prflow/tmp/review/pr-1107/local-run/diff.patch",
+      "scripts/dismiss-stale-rejections.sh 1107 2>&1; echo \"dismiss-rc=$?\""
+    ],
+    "total": 3,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
