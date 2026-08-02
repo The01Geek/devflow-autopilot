@@ -123,5 +123,61 @@
       "iter": 5,
       "phases": "unavailable"
     }
-  ]
+  ],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.41",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 8.080741000000003,
+    "tokens": {
+      "input_tokens": 67,
+      "output_tokens": 33790,
+      "cache_read_input_tokens": 5109417,
+      "cache_creation_input_tokens": 199945,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 113,
+        "outputTokens": 52292,
+        "cacheReadInputTokens": 6136102,
+        "cacheCreationInputTokens": 472805,
+        "webSearchRequests": 0,
+        "costUSD": 8.080741000000003,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 44,
+    "duration_ms": 567309
+  },
+  "permission_denials": {
+    "count": 8,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none}\"; date -u +%Y%m%dT%H%M%SZ",
+      "printf 'RUN_ID=%s ATTEMPT=%s ACTIONS=%s\\n' \"${GITHUB_RUN_ID:-none}\" \"${GITHUB_RUN_ATTEMPT:-none}\" \"${GITHUB_ACTIONS:-none}\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/seed-review-progress.sh \"1140\" \"\" .prflow/tmp/review/pr-1140/30747172466-1/review-wp.md ; echo \"seed-rc=$?\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve \"1051\" --pr \"1140\" 2>.prflow/tmp/review/pr-1140/30747172466-1/acs.err ; echo \"acs-rc=$?\"",
+      "git grep -lF -- 'devflow-review.yml' | grep -vE '^(\\.prflow/logs/|\\.prflow/learnings/|\\.changeset/|CHANGELOG\\.md$)' | LC_ALL=C sort > .prflow/tmp/review/pr-1140/30747172466-1/actual936.txt\nsed -n '/^_936_EXPECTED=/,/^EOF/p' lib/test/run.sh | sed '1d;$d' > .prflow/tmp/review/pr-1140/30747172466-1/expected936.txt\necho \"=== diff (expected vs actual); empty means assertion passes ===\"\ndiff .prflow/tmp/review/pr-1140/30747172466-1/expected936.txt .prflow/tmp/review/pr-1140/30747172466-1/actual936.txt …[per-command-truncated]",
+      "D=.prflow/tmp/review/pr-1140/30747172466-1/diff.patch\necho \"=== forbidden phrases in ADDED (+) lines of PR diff (should be none) ===\"; grep -E '^\\+' \"$D\" | grep -E 'not yet wired|not yet authored|must land together' || echo \"NONE in added lines (good — they are only in removed lines)\"\necho; echo \"=== confirm they ARE in removed (-) lines ===\"; grep -E '^-' \"$D\" | grep -oE 'not yet wired|not yet authored|must land together'\necho; echo \"=== path:line refs in added lines ===\"; grep -E '^\\+' \"$D\" |  …[per-command-truncated]",
+      ".prflow/vendor/prflow/scripts/workpad.py patch 5157771838 .prflow/tmp/review/pr-1140/30747172466-1/review-wp.md 2>.prflow/tmp/review/pr-1140/30747172466-1/rv-patch.err ; echo \"patch-rc=$?\""
+    ],
+    "total": 8,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
 }
