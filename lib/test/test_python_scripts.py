@@ -21534,7 +21534,9 @@ assert_eq("#1105 AC4: an all-deletion changed set records no span (None, not a f
 # above stay green; here we assert the widening flipped NOTHING outside empty-claim-set —
 # each non-claim discovery reason is still discovery.
 for _label, _ans in (
-    ('no-completed-round', _793_select(_793_state(), stage=False)),
+    # issue #1103 split the old shared `no-completed-round` token: an empty state (no
+    # round dispatched at all) is the genuine cold first round, `no-round-dispatched`.
+    ('no-round-dispatched', _793_select(_793_state(), stage=False)),
     ('no-revision-after-round',
      _793_select(_793_state(rounds=[_793_round(findings=[_793_entry(1)])]))),
     ('not-file-arm',
