@@ -25256,31 +25256,6 @@ unset _WSR_BCC_REFS_OK _WSR_BCC_R _WSR_BCC_PR _WSR_BCC_PS _WSR_BCC_PLANTED_OUT _
 # that does not exist while every other pin still passes. Both sides are checked.
 assert_pin_unique "#707 review-and-fix.md carries the heading receiving-code-review.md defers to" \
   '## Focused test modules are the fix-iteration default' "$WSR_RAF"  # structural-pin-ok: cross-file-phase-contract -- producer of the exact heading the receiving-code-review extension cites
-# #707 the two coupled mirrors must state the SAME policy the extensions state — a mirror
-# that keeps the retired framing is the desync class the coupled-invariant rule exists to
-# stop, and the absence guard above only proves the old text is gone, not that the new
-# rule arrived.
-for _WSR_FOCUSED_POLICY in "$WSR_IMPL" "$WSR_RAF"; do
-  _WSR_FOCUSED_NAME="${_WSR_FOCUSED_POLICY##*/}"
-  # #789 SUPERSEDES the #707 pin that stood here. Its sentence ("Run the full suite
-  # mid-iteration only when no registered module covers the changed surface") reserved the
-  # mid-iteration full suite for surfaces no registered SHELL MODULE covered — which sent
-  # every scripts/*.py and lib/*.py change to the ~10-minute suite even where a
-  # lib/test/test_*.py covers it in a fraction of the time. The tiered rule replaces that
-  # sentence, so the pin moves with it rather than being left asserting vanished text.
-  # Tier 2's whole value is the COALESCING boundary: a one-off fix pays one full run, and
-  # only a SECOND cycle on the same uncovered surface buys a durable module. Widening
-  # "second" back to "every" re-imposes the pre-#789 per-cycle full-suite cost.
-  # AC5: the fallback set is CLOSED and each taking of it is named in a Reflection bullet.
-  # Dropping "which" turns a case-naming obligation into an unattributable one, which is
-  # what makes the coverage gap invisible to the retrospective that mines these bullets.
-  # AC10: the #434 dirty-tree skip is absorbed, NOT worked around by a second full run.
-  # AC11: the budget pointer routes diagnosis to the captured recap instead of a relaunch —
-  # the relaunch being the exact cost #789 removes.
-  # #707 the claim-gating clause is what makes the non-gated push safe: the push may land
-  # before the local run finishes, but the COMPLETION CLAIM may not.
-done
-unset _WSR_FOCUSED_POLICY _WSR_FOCUSED_NAME
 
 # #591 operative cloud command shapes: these select the allowlisted direct leading-token
 # module runner rather than the denied `bash ...` wrapper.

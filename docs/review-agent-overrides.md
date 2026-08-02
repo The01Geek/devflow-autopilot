@@ -145,7 +145,7 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
 ## This repo's `code-reviewer` application — baseline, revert trigger, deferred repricing (issue #425)
 
 PRFlow's own tracked `.prflow/config.json` sets
-`"prflow:code-reviewer": { "model": "claude-opus-5", "effort": "low", "iterations": "first-only" }`.
+`"prflow:code-reviewer": { "model": "claude-opus-4-8", "effort": "low", "iterations": "first-only" }`.
 The `iterations` scoping was added on the evidence of replay study **R2** (2026-07-11): on this repo's
 overwhelmingly `engine_self_modifying` diffs, `prflow:code-reviewer` measured **6.7% unique-effective**
 (9 of 135 dispatches), **2 sole-source applied Importants across 129 dispatches**, and — the positional
@@ -172,6 +172,13 @@ late ones) with no measured loss.
   (extended until **30 repriced dispatches**) reverts the model to `claude-opus-5`. A deterministic
   auto-revert mechanism was considered and rejected — no machinery exists to edit tracked config on a
   metric threshold, and building it is out of proportion to a one-line revert.
+- **Note on the pre-registered `from`/revert id (issue #1053).** The two `claude-opus-5` mentions in the
+  bullet above are the pre-registration's own terms and are **left verbatim**: they record what was
+  pre-registered, not what the tracked file holds. After that pre-registration was written the tracked
+  default was **reverted** to `claude-opus-4-8` (commit `cccd250c`, reverting `3f30ad3a`), which is the id
+  the sentence opening this section now states. Read the repricing plan as "reprice away from whatever
+  Opus id the tracked entry holds"; respelling the pre-registered target would falsify the experiment's
+  recorded terms, so it is not done here.
 
 ## Resolution rules
 
