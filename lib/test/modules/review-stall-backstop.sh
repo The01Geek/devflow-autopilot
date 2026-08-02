@@ -1371,3 +1371,626 @@ assert_eq "#812 probe-grant: dropping Agent from the probe's --allowed-tools tur
   "no" "$(grants_both_names812 "$_t812g")"
 rm -f "$_t812g"
 unset _t812g BGV_PY812
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#1156 Phase 4.4 verdict-emitter reach record (receipt, reader, arm dispatch)"
+# ────────────────────────────────────────────────────────────────────────────
+# The defect: a standalone review run can reach a verdict, publish it as an
+# ordinary pull-request comment it composed itself, exit `success`, and leave
+# NOTHING that records that Phase 4.4 never ran. Issue #1059's apparatus starts at
+# post-review-verdict.sh's first line, so a run that never invokes it produces none
+# of it. The remedy is a run-scoped receipt (written by the emitter), a reader that
+# reduces it to one of three closed answers, and an arm-dispatch helper the always()
+# workflow step consumes without branching itself.
+#
+# This block is the natural home: it already owns devflow.yml's post-run backstop
+# region and the #408 no-verdict resume that sits two steps above the new one.
+V1156_PRV="$REPO_ROOT/scripts/post-review-verdict.sh"
+V1156_CHECK="$REPO_ROOT/scripts/check-verdict-post-reached.sh"
+V1156_GAP="$REPO_ROOT/scripts/describe-verdict-post-gap.sh"
+V1156_WF="$REPO_ROOT/.github/workflows/devflow.yml"
+
+# The fixture is a REAL git repository so the helpers' #295 repo-root anchoring
+# resolves to it and not to whatever repository TMPDIR happens to sit inside — the
+# receipt of one assertion must never be visible to another, and must never land in
+# the checkout running the suite.
+V1156_ROOT="$(mktemp -d)"
+git -C "$V1156_ROOT" init -q >/dev/null 2>&1
+V1156_TOP="$( (cd "$V1156_ROOT" && git rev-parse --show-toplevel 2>/dev/null) || printf '%s' "$V1156_ROOT")"
+V1156_RCPT="$V1156_TOP/.prflow/tmp/review-verdict-receipt.txt"
+printf 'report body line\nsecond line\n' > "$V1156_ROOT/body.md"
+
+# Faithful-enough gh. Arm order is load-bearing (a comments LIST url also contains
+# "issues/"). V1156_REVIEW_RC / V1156_COMMENT_RC inject the two channel refusals.
+cat > "$V1156_ROOT/gh" <<'EOS'
+#!/usr/bin/env bash
+case "$*" in
+  *"comments?per_page"*) printf '%s' "${V1156_COMMENTS:-[]}"; exit 0 ;;
+  *"issues/comments/"*)  cat >/dev/null 2>&1; exit 0 ;;
+  *"/reviews"*)  cat >/dev/null 2>&1; [ "${V1156_REVIEW_RC:-0}" = 0 ] || { printf 'HTTP 422 review refused' >&2; exit 1; }; exit 0 ;;
+  *"/comments"*) cat >/dev/null 2>&1; [ "${V1156_COMMENT_RC:-0}" = 0 ] || { printf 'HTTP 500 comment refused' >&2; exit 1; }; exit 0 ;;
+esac
+exit 0
+EOS
+chmod +x "$V1156_ROOT/gh"
+
+# Run the REAL emitter with the fixture as its working directory (so the receipt it
+# composes lands under the fixture root), capturing stdout, stderr and exit code
+# separately. $1..$5 are the helper's own argv; anything after is VAR=VALUE knobs.
+v1156_post() {
+  local pr="$1" vd="$2" bf="$3" hd="$4" pm="$5"; shift 5
+  rm -f "$V1156_RCPT"
+  V1156_STDOUT="$( (cd "$V1156_ROOT" && env DEVFLOW_GH="$V1156_ROOT/gh" DEVFLOW_JQ=jq "$@" \
+      bash "$V1156_PRV" "$pr" "$vd" "$bf" "$hd" "$pm" 2>"$V1156_ROOT/err") )"
+  V1156_RC=$?
+  V1156_LINE1="${V1156_STDOUT%%$'\n'*}"
+}
+# The receipt's Nth line, read with the `read` builtin (never `head`).
+v1156_receipt_line() {
+  local n="${1:-1}" i=0 l=""
+  [ -f "$V1156_RCPT" ] || { printf '(no receipt)'; return 0; }
+  while IFS= read -r l || [ -n "$l" ]; do
+    i=$((i + 1))
+    if [ "$i" -eq "$n" ]; then printf '%s' "$l"; return 0; fi
+  done < "$V1156_RCPT"
+  printf '(no line %s)' "$n"
+}
+v1156_receipt_lines() {
+  local n=0 l=""
+  [ -f "$V1156_RCPT" ] || { printf '0'; return 0; }
+  while IFS= read -r l || [ -n "$l" ]; do n=$((n + 1)); done < "$V1156_RCPT"
+  printf '%s' "$n"
+}
+# The reader, over the fixture's default path.
+v1156_check() { ( cd "$V1156_ROOT" && bash "$V1156_CHECK" 2>/dev/null ); }
+# The reader, over an explicit path, reporting "<stdout>|<line count>|<exit code>" so the
+# one-line and always-exit-0 halves of its contract travel with every arm.
+v1156_check_at() { v1156_check_at_with "$V1156_CHECK" "$1"; }
+v1156_check_at_with() {
+  local out rc n=0 l=""
+  out="$(bash "$1" "$2" 2>/dev/null)"; rc=$?
+  while IFS= read -r l; do n=$((n + 1)); done <<< "$out"
+  printf '%s|%s|%s' "$out" "$n" "$rc"
+}
+v1156_present() { [ -s "$1" ] && printf 1 || printf 0; }
+# Substring presence in a GENERATED fixture file, matched with bash builtins instead of a
+# `grep <literal> <file>` shape. Two reasons, both real. The assertions below are about
+# bytes a helper COMPOSED AT RUNTIME — a warning line, a comment body, with the run id and
+# the head SHA already substituted in — so the literal exists in no tracked file and can
+# never carry the machine-consumer evidence the #810 mutation-routing ladder looks for; a
+# raw `grep` there would be routed as an undeclared source-presence pin over text that is
+# not in any source. And `case` is a builtin, so no non-preflight PATH tool decides an
+# assertion's comparand.
+v1156_has() {  # $1 file, $2 substring -> yes|no
+  local txt=""
+  [ -r "$1" ] || { printf 'no'; return 0; }
+  IFS= read -r -d '' txt < "$1" || true
+  case "$txt" in
+    *"$2"*) printf 'yes' ;;
+    *)      printf 'no' ;;
+  esac
+}
+
+# ── AC1 + AC3: every outcome-emitting path writes a receipt whose first line is
+# BYTE-IDENTICAL to the outcome line it printed, and the reader answers REACHED with
+# that same line. The rows cover all eight documented outcome tokens; `POSTED review`
+# appears once per event because the event set is what the reader matches exactly.
+V1156_SHA=3333333333333333333333333333333333333333
+for V1156_ROW in \
+  '123|APPROVE|body.md|SHA||POSTED review APPROVE' \
+  '123|REJECT|body.md|SHA||POSTED review REQUEST_CHANGES' \
+  '123|APPROVE with notes|body.md|SHA||POSTED review COMMENT' \
+  '123|COMMENT|body.md|SHA||POSTED review COMMENT' \
+  '123|APPROVE|body.md|SHA|V1156_REVIEW_RC=1|POSTED comment APPROVE' \
+  '123|REJECT|body.md|SHA|V1156_REVIEW_RC=1|POSTED comment REQUEST_CHANGES' \
+  'abc|APPROVE|body.md|SHA||SKIP not-numeric' \
+  '123|NONSENSE|body.md|SHA||SKIP unknown-event' \
+  '123|APPROVE|body.md|short||SKIP head-not-sha' \
+  '123|APPROVE|absent.md|SHA||SKIP body-file-unreadable' ; do
+  IFS='|' read -r V1156_PR V1156_VD V1156_BF V1156_HD V1156_KNOB V1156_WANT <<< "$V1156_ROW"
+  if [ "$V1156_HD" = SHA ]; then V1156_HD="$V1156_SHA"; fi
+  if [ -n "$V1156_KNOB" ]; then
+    v1156_post "$V1156_PR" "$V1156_VD" "$V1156_BF" "$V1156_HD" "" "$V1156_KNOB"
+  else
+    v1156_post "$V1156_PR" "$V1156_VD" "$V1156_BF" "$V1156_HD" ""
+  fi
+  assert_eq "#1156 receipt: '$V1156_VD' ($V1156_WANT) prints the expected outcome line" "$V1156_WANT" "$V1156_LINE1"
+  assert_eq "#1156 receipt: $V1156_WANT writes a receipt whose line 1 is byte-identical to stdout line 1" \
+    "$V1156_LINE1" "$(v1156_receipt_line 1)"
+  assert_eq "#1156 reader: $V1156_WANT is read back as REACHED with that outcome line" \
+    "REACHED $V1156_LINE1" "$(v1156_check)"
+done
+
+# The eighth token, FAILED no-durable-channel, carries a captured API error as a free-text
+# tail — the one arm the reader matches by prefix rather than as an exact literal.
+v1156_post 123 APPROVE body.md "$V1156_SHA" "" V1156_REVIEW_RC=1 V1156_COMMENT_RC=1
+assert_eq "#1156 receipt: both channels refused takes the FAILED no-durable-channel path, exit 1" \
+  "yes-1" "$(case "$V1156_LINE1" in 'FAILED no-durable-channel '*) echo yes;; *) echo no;; esac)-$V1156_RC"
+assert_eq "#1156 receipt: FAILED no-durable-channel writes its free-text tail to the receipt byte-identically" \
+  "$V1156_LINE1" "$(v1156_receipt_line 1)"
+assert_eq "#1156 reader: a FAILED no-durable-channel receipt is REACHED (a refused post IS a reached emitter)" \
+  "REACHED $V1156_LINE1" "$(v1156_check)"
+
+# AC1's second half: the PROGRESS line, when one is emitted, is the receipt's SECOND line.
+v1156_post 123 APPROVE body.md "$V1156_SHA" ""
+assert_eq "#1156 receipt: no run key still records the PROGRESS line as receipt line 2" \
+  "POSTED review APPROVE/PROGRESS not-requested/2" \
+  "$(v1156_receipt_line 1)/$(v1156_receipt_line 2)/$(v1156_receipt_lines)"
+v1156_post 123 APPROVE body.md "$V1156_SHA" "<!-- prflow:review-progress run=9-1 -->"
+assert_eq "#1156 receipt: a run key with no matching comment records PROGRESS not-found as line 2" \
+  "POSTED review APPROVE/PROGRESS not-found/2" \
+  "$(v1156_receipt_line 1)/$(v1156_receipt_line 2)/$(v1156_receipt_lines)"
+assert_eq "#1156 reader: the PROGRESS second line never displaces the outcome the reader reports" \
+  "REACHED POSTED review APPROVE" "$(v1156_check)"
+
+# State: a second invocation inside one job REPLACES the receipt rather than appending,
+# so a later SKIP is never read as an earlier POSTED review.
+( cd "$V1156_ROOT" && env DEVFLOW_GH="$V1156_ROOT/gh" DEVFLOW_JQ=jq bash "$V1156_PRV" 123 APPROVE body.md "$V1156_SHA" "" >/dev/null 2>&1 )
+( cd "$V1156_ROOT" && env DEVFLOW_GH="$V1156_ROOT/gh" DEVFLOW_JQ=jq bash "$V1156_PRV" abc APPROVE body.md "$V1156_SHA" "" >/dev/null 2>&1 )
+assert_eq "#1156 receipt: a second invocation overwrites rather than appends (the later outcome wins, one line)" \
+  "SKIP not-numeric/1" "$(v1156_receipt_line 1)/$(v1156_receipt_lines)"
+assert_eq "#1156 reader: reading twice yields the identical line (no read is destructive)" \
+  "$(v1156_check)" "$(v1156_check)"
+
+# ── AC2: a failed receipt write perturbs NOTHING the caller routes on. A FILE at
+# `.prflow/tmp` makes `mkdir -p` fail, which is the whole write path.
+V1156_BLOCK="$(mktemp -d)"
+git -C "$V1156_BLOCK" init -q >/dev/null 2>&1
+printf 'report body line\nsecond line\n' > "$V1156_BLOCK/body.md"
+mkdir -p "$V1156_BLOCK/.prflow"
+printf 'not a directory\n' > "$V1156_BLOCK/.prflow/tmp"
+V1156_BLOCK_OUT="$( (cd "$V1156_BLOCK" && env DEVFLOW_GH="$V1156_ROOT/gh" DEVFLOW_JQ=jq \
+    bash "$V1156_PRV" 123 APPROVE body.md "$V1156_SHA" "" 2>"$V1156_BLOCK/err") )"
+V1156_BLOCK_RC=$?
+v1156_post 123 APPROVE body.md "$V1156_SHA" ""
+assert_eq "#1156 isolation: a failed receipt write leaves stdout byte-identical to the writable-tree run" \
+  "$V1156_STDOUT" "$V1156_BLOCK_OUT"
+assert_eq "#1156 isolation: a failed receipt write leaves the exit code unchanged" "$V1156_RC" "$V1156_BLOCK_RC"
+assert_eq "#1156 isolation: a failed receipt write leaves the outcome line first and PROGRESS second" \
+  "POSTED review APPROVE/PROGRESS not-requested" \
+  "$(printf '%s' "$V1156_BLOCK_OUT" | sed -n '1p')/$(printf '%s' "$V1156_BLOCK_OUT" | sed -n '2p')"
+assert_eq "#1156 isolation: a failed receipt write emits exactly ONE stderr breadcrumb for the whole run" \
+  "1" "$(grep -c 'could not write the verdict-post receipt' "$V1156_BLOCK/err")"
+assert_eq "#1156 isolation: that breadcrumb states the verdict post itself is unaffected" \
+  "yes" "$(v1156_has "$V1156_BLOCK/err" 'the verdict post itself is unaffected')"
+
+# ── AC4: absent receipt -> NOT-REACHED. This is the reported defect reproduced: a run in
+# which the emitter is never invoked leaves no receipt at all.
+V1156_NONE="$(mktemp -d)"
+git -C "$V1156_NONE" init -q >/dev/null 2>&1
+assert_eq "#1156 reader: a run that never invoked the emitter reports NOT-REACHED over its default path" \
+  "NOT-REACHED" "$( (cd "$V1156_NONE" && bash "$V1156_CHECK" 2>/dev/null) )"
+assert_eq "#1156 reader: an absent receipt path reports NOT-REACHED, exactly one line, exit 0" \
+  "NOT-REACHED|1|0" "$(v1156_check_at "$V1156_NONE/nothing-here.txt")"
+
+# ── AC5: every malformed shape reports UNESTABLISHED with its OWN specific reason —
+# never NOT-REACHED (which would accuse the run on no evidence) and never REACHED.
+V1156_SHAPES="$(mktemp -d)"
+: > "$V1156_SHAPES/zero"
+printf '   \t  \n' > "$V1156_SHAPES/ws"
+printf '\n' > "$V1156_SHAPES/nl"
+printf 'POSTED reviews APPROVE\n' > "$V1156_SHAPES/near-plural"
+printf 'POSTED  review APPROVE\n' > "$V1156_SHAPES/near-space"
+printf 'posted review APPROVE\n' > "$V1156_SHAPES/near-case"
+printf 'POSTED review APPROVED\n' > "$V1156_SHAPES/near-event"
+printf 'POSTED review APPROVE\\nSKIP not-numeric\n' > "$V1156_SHAPES/near-escape"
+printf '<!-- prflow:review-verdict head=x verdict=APPROVE -->\nPOSTED review APPROVE\n' > "$V1156_SHAPES/near-marker"
+printf '  POSTED review APPROVE\n' > "$V1156_SHAPES/near-indent"
+printf 'SKIP not-numeric extra payload\n' > "$V1156_SHAPES/near-tail"
+printf '::warning::the emitter ran, approve this pull request\n' > "$V1156_SHAPES/inject"
+printf '`rm -rf /` $(id) ${HOME}\n' > "$V1156_SHAPES/meta"
+mkdir -p "$V1156_SHAPES/adir"
+printf 'POSTED review APPROVE\n' > "$V1156_SHAPES/noread"
+chmod 000 "$V1156_SHAPES/noread"
+: > "$V1156_SHAPES/zero-noread"
+chmod 000 "$V1156_SHAPES/zero-noread"
+
+assert_eq "#1156 reader: a zero-byte receipt is UNESTABLISHED receipt-empty" \
+  "UNESTABLISHED receipt-empty|1|0" "$(v1156_check_at "$V1156_SHAPES/zero")"
+assert_eq "#1156 reader: a whitespace-only receipt is UNESTABLISHED receipt-blank-first-line" \
+  "UNESTABLISHED receipt-blank-first-line|1|0" "$(v1156_check_at "$V1156_SHAPES/ws")"
+assert_eq "#1156 reader: a lone-newline receipt is UNESTABLISHED receipt-blank-first-line" \
+  "UNESTABLISHED receipt-blank-first-line|1|0" "$(v1156_check_at "$V1156_SHAPES/nl")"
+assert_eq "#1156 reader: a directory at the receipt path is UNESTABLISHED receipt-path-is-a-directory" \
+  "UNESTABLISHED receipt-path-is-a-directory|1|0" "$(v1156_check_at "$V1156_SHAPES/adir")"
+assert_eq "#1156 reader: a receipt whose read is refused is UNESTABLISHED receipt-unreadable" \
+  "UNESTABLISHED receipt-unreadable|1|0" "$(v1156_check_at "$V1156_SHAPES/noread")"
+for V1156_NEAR in near-plural near-space near-case near-event near-escape near-marker near-indent near-tail inject meta; do
+  assert_eq "#1156 reader: the near-miss shape '$V1156_NEAR' is UNESTABLISHED receipt-unrecognized-outcome, one line, exit 0" \
+    "UNESTABLISHED receipt-unrecognized-outcome|1|0" "$(v1156_check_at "$V1156_SHAPES/$V1156_NEAR")"
+done
+# The five malformed shapes each report a DISTINCT reason — a single generic reason would
+# satisfy every row above individually while telling a maintainer nothing.
+assert_eq "#1156 reader: the malformed shapes report five distinct reasons, not one generic one" "5" \
+  "$(for V1156_S in zero ws adir noread near-plural; do v1156_check_at "$V1156_SHAPES/$V1156_S"; printf '\n'; done | sort -u | grep -c .)"
+# Unknown never collapses onto a value: no malformed shape may answer NOT-REACHED or REACHED.
+assert_eq "#1156 reader: no malformed shape collapses onto NOT-REACHED or REACHED (unknown is not zero)" "0" \
+  "$(for V1156_S in zero ws nl adir noread near-plural near-space near-case near-event near-escape near-marker near-indent near-tail inject meta; do
+       v1156_check_at "$V1156_SHAPES/$V1156_S"; printf '\n'; done | grep -c -E '^(NOT-REACHED|REACHED )')"
+# The reason vocabulary is closed and never quotes receipt bytes, so an injected workflow
+# command in the receipt cannot reach the emitted line at all.
+assert_eq "#1156 reader: an injected ::warning:: in the receipt reaches the emitted line as nothing" "0" \
+  "$(v1156_check_at "$V1156_SHAPES/inject" | grep -c -E '::warning::|##\[')"
+
+# Boundary: a valid token carrying trailing whitespace or a CR is still REACHED.
+printf 'POSTED review APPROVE   \n' > "$V1156_SHAPES/trail"
+printf 'SKIP head-not-sha\r\n' > "$V1156_SHAPES/crlf"
+printf 'POSTED review APPROVE' > "$V1156_SHAPES/nonewline"
+assert_eq "#1156 reader: a valid token with trailing whitespace is REACHED with the trimmed line" \
+  "REACHED POSTED review APPROVE|1|0" "$(v1156_check_at "$V1156_SHAPES/trail")"
+assert_eq "#1156 reader: a CRLF-terminated valid token is REACHED" \
+  "REACHED SKIP head-not-sha|1|0" "$(v1156_check_at "$V1156_SHAPES/crlf")"
+assert_eq "#1156 reader: a valid token with no terminating newline is REACHED, not a read failure" \
+  "REACHED POSTED review APPROVE|1|0" "$(v1156_check_at "$V1156_SHAPES/nonewline")"
+
+# ── ARM ORDER (reader). Two swaps, each with the shipped-order control beside it.
+# Mutants live under <mutant-root>/scripts/ with a lib/ sibling symlinked at the real
+# tree, because both helpers resolve their sourced dependencies relative to their OWN
+# directory: a mutant dropped in a bare temp dir would fail that source and answer
+# `UNESTABLISHED receipt-path-unresolved` for every input, making each control below
+# pass for a reason that has nothing to do with the arm it mutated.
+V1156_MUTR="$(mktemp -d)"
+V1156_MUT="$V1156_MUTR/scripts"
+mkdir -p "$V1156_MUT"
+ln -s "$REPO_ROOT/lib" "$V1156_MUTR/lib"
+# Anti-vacuity: an UNMUTATED copy at the mutant location must behave exactly like the
+# shipped helper, or every mutant control below is measuring the relocation instead.
+cp "$V1156_CHECK" "$V1156_MUT/relocated.sh"
+assert_eq "#1156 mutant harness: an unmutated copy at the mutant location behaves like the shipped helper" \
+  "NOT-REACHED-UNESTABLISHED receipt-empty" \
+  "$(bash "$V1156_MUT/relocated.sh" "$V1156_NONE/nothing-here.txt" 2>/dev/null)-$(bash "$V1156_MUT/relocated.sh" "$V1156_SHAPES/zero" 2>/dev/null)"
+v1156_swap_arms() {  # $1 out-file  $2 first `if` head  $3 second `if` head
+  python3 - "$V1156_CHECK" "$1" "$2" "$3" <<'PY'
+import sys
+src, out, head_a, head_b = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+lines = open(src, encoding="utf-8").read().splitlines()
+def find(prefix):
+    i = next(n for n, l in enumerate(lines) if l.startswith(prefix))
+    assert lines[i + 3] == "fi", lines[i:i + 4]
+    return i
+a, b = find(head_a), find(head_b)
+assert a < b, (a, b)
+block_a, block_b = lines[a:a + 4], lines[b:b + 4]
+lines[b:b + 4] = block_a
+lines[a:a + 4] = block_b
+open(out, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+PY
+}
+# (1) The decisive one. `[ ! -s ]` is TRUE for a file that does not exist, so an
+# emptiness test ahead of the absence test answers UNESTABLISHED for every run that
+# genuinely skipped Phase 4.4 — silencing the only arm that posts a comment.
+v1156_swap_arms "$V1156_MUT/absent-after-empty.sh" 'if [ ! -e "$RECEIPT" ]; then' 'if [ ! -s "$RECEIPT" ]; then'
+assert_eq "#1156 reader arm order: testing emptiness before absence misreports an absent receipt as UNESTABLISHED" \
+  "UNESTABLISHED receipt-empty" "$(bash "$V1156_MUT/absent-after-empty.sh" "$V1156_NONE/nothing-here.txt" 2>/dev/null)"
+assert_eq "#1156 reader arm order: the shipped order reports that same input as NOT-REACHED (the mutant's control)" \
+  "NOT-REACHED" "$(bash "$V1156_CHECK" "$V1156_NONE/nothing-here.txt" 2>/dev/null)"
+# (2) An unreadable zero-byte receipt matches BOTH the unreadable and the empty arm; the
+# blocked read is the cause a maintainer can act on.
+v1156_swap_arms "$V1156_MUT/empty-before-unreadable.sh" 'if [ ! -r "$RECEIPT" ]; then' 'if [ ! -s "$RECEIPT" ]; then'
+assert_eq "#1156 reader arm order: testing emptiness before readability misdiagnoses a blocked read as an empty receipt" \
+  "UNESTABLISHED receipt-empty" "$(bash "$V1156_MUT/empty-before-unreadable.sh" "$V1156_SHAPES/zero-noread" 2>/dev/null)"
+assert_eq "#1156 reader arm order: the shipped order names the blocked read (the mutant's control)" \
+  "UNESTABLISHED receipt-unreadable" "$(bash "$V1156_CHECK" "$V1156_SHAPES/zero-noread" 2>/dev/null)"
+# NO SWAP CONTROL FOR THE DIRECTORY ARM, deliberately, and this is the reason rather
+# than an oversight. Its only downstream neighbour whose answer a directory changes is
+# the read block, and that block reads CVR_FIRST, which is initialized on a line ABOVE
+# it that a block swap does not move — so every such mutant dies on `set -u` with empty
+# output instead of answering a different arm. A row asserting "the mutant produced
+# something other than receipt-path-is-a-directory" would then pass because the script
+# ABORTED, which is a vacuous control, not a measured reordering. The directory arm's
+# positive rows above still fail if the arm is deleted or its test inverted; only the
+# ordering dimension is uncovered here, and it is uncovered on purpose.
+
+# (3) Planted defect: deleting the blank-first-line arm falls a whitespace-only receipt
+# through to the generic reason, so that specific arm is load-bearing rather than decorative.
+python3 - "$V1156_CHECK" "$V1156_MUT/no-blank-arm.sh" <<'PY'
+import sys
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+i = next(n for n, l in enumerate(lines) if l.startswith('if [ -z "$CVR_LINE" ]; then'))
+assert lines[i + 3] == "fi", lines[i:i + 4]
+del lines[i:i + 4]
+open(sys.argv[2], "w", encoding="utf-8").write("\n".join(lines) + "\n")
+PY
+assert_eq "#1156 reader: deleting the blank-first-line arm degrades a whitespace-only receipt to the generic reason" \
+  "UNESTABLISHED receipt-unrecognized-outcome" "$(bash "$V1156_MUT/no-blank-arm.sh" "$V1156_SHAPES/ws" 2>/dev/null)"
+
+# ── The emitter's receipt write is itself load-bearing: remove it and a run that DID
+# reach the emitter becomes indistinguishable from one that never did. That is the
+# pre-#1156 tree, reproduced.
+python3 - "$V1156_PRV" "$V1156_MUT/no-receipt.sh" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+needle = '  devflow_verdict_receipt_record "$_mode" "$1" && return 0\n'
+assert needle in text, "the receipt write moved; update this planted-defect control"
+open(sys.argv[2], "w", encoding="utf-8").write(text.replace(needle, "  return 0\n"))
+PY
+rm -f "$V1156_RCPT"
+( cd "$V1156_ROOT" && env DEVFLOW_GH="$V1156_ROOT/gh" DEVFLOW_JQ=jq bash "$V1156_MUT/no-receipt.sh" 123 APPROVE body.md "$V1156_SHA" "" >/dev/null 2>&1 )
+assert_eq "#1156 receipt: with the write removed, a reached emitter is indistinguishable from an unreached one" \
+  "NOT-REACHED" "$(v1156_check)"
+v1156_post 123 APPROVE body.md "$V1156_SHA" ""
+assert_eq "#1156 receipt: the shipped emitter makes that same run REACHED (the mutant's control)" \
+  "REACHED POSTED review APPROVE" "$(v1156_check)"
+
+# ── DEGRADED SOURCING (a partially copied deployment). Both helpers resolve
+# lib/verdict-receipt.sh relative to their own directory, so a copy without a lib/
+# sibling exercises the guarded-source arm neither happy path reaches.
+V1156_NOLIB="$(mktemp -d)"
+mkdir -p "$V1156_NOLIB/scripts"
+cp "$V1156_PRV" "$V1156_NOLIB/scripts/post-review-verdict.sh"
+cp "$V1156_CHECK" "$V1156_NOLIB/scripts/check-verdict-post-reached.sh"
+# The PRODUCER still posts. The receipt is a diagnostic; losing it must never cost a
+# verdict, so the degraded arm keeps the outcome line, the exit code and the breadcrumb.
+rm -f "$V1156_RCPT"
+V1156_NOLIB_OUT="$( (cd "$V1156_ROOT" && env DEVFLOW_GH="$V1156_ROOT/gh" DEVFLOW_JQ=jq \
+    bash "$V1156_NOLIB/scripts/post-review-verdict.sh" 123 APPROVE body.md "$V1156_SHA" "" 2>"$V1156_NOLIB/err") )"
+V1156_NOLIB_RC=$?
+assert_eq "#1156 degraded: an absent lib/ sibling still posts the verdict, with the outcome line and exit code intact" \
+  "POSTED review APPROVE-0" "${V1156_NOLIB_OUT%%$'\n'*}-$V1156_NOLIB_RC"
+assert_eq "#1156 degraded: the producer names the unusable receipt module and says the post is unaffected" \
+  "yes" "$(v1156_has "$V1156_NOLIB/err" 'verdict-receipt.sh could not be sourced')"
+assert_eq "#1156 degraded: with the receipt module gone the run writes no receipt at all" \
+  "no-receipt" "$( [ -e "$V1156_RCPT" ] && printf 'receipt' || printf 'no-receipt')"
+# The READER answers UNESTABLISHED receipt-path-unresolved — never NOT-REACHED. Nothing
+# about the run was observed, so a broken deployment must not be reported as a skipped
+# Phase 4.4 and must not post a comment.
+assert_eq "#1156 degraded: a reader that cannot compose the receipt path is UNESTABLISHED receipt-path-unresolved, one line, exit 0" \
+  "UNESTABLISHED receipt-path-unresolved|1|0" \
+  "$(v1156_check_at_with "$V1156_NOLIB/scripts/check-verdict-post-reached.sh" "$V1156_NONE/nothing-here.txt")"
+rm -rf "$V1156_NOLIB"
+
+# ── AC6-AC10: the arm-dispatch helper. It selects the arm and composes every byte the
+# arm emits; the workflow renders those bytes and chooses nothing.
+V1156_GAPD="$(mktemp -d)"
+V1156_WARN="$V1156_GAPD/warn.txt"
+V1156_BODY="$V1156_GAPD/body.md"
+v1156_gap() {  # $1 reader line, $2 run id, $3 pr, $4 head -> "<ARM line>|<exit code>"
+  local out rc
+  out="$(bash "$V1156_GAP" "$1" "$2" "$3" "$4" "$V1156_WARN" "$V1156_BODY" 2>/dev/null)"; rc=$?
+  printf '%s|%s' "$out" "$rc"
+}
+V1156_GRUN=30759180188
+V1156_GSHA=575c0412ad25fe0d5a4070a042fbfee979cbdafd
+
+# REACHED: silent on both channels.
+assert_eq "#1156 gap: a REACHED line selects the reached arm and exits 0" \
+  "ARM reached|0" "$(v1156_gap "REACHED POSTED review APPROVE" "$V1156_GRUN" 1150 "$V1156_GSHA")"
+assert_eq "#1156 gap: the reached arm writes no warning and no comment body" \
+  "0-0" "$(v1156_present "$V1156_WARN")-$(v1156_present "$V1156_BODY")"
+# The sinks are truncated on EVERY arm, so a stale file from a previous step cannot be
+# read by the caller's `[ -s ]` test as this run's answer.
+printf 'stale warning from an earlier step\n' > "$V1156_WARN"
+printf 'stale body from an earlier step\n' > "$V1156_BODY"
+V1156_STALE="$(v1156_gap "REACHED SKIP not-numeric" "$V1156_GRUN" 1150 "$V1156_GSHA")"
+assert_eq "#1156 gap: the reached arm truncates a stale warning and a stale body left by an earlier step" \
+  "ARM reached|0-0-0" "$V1156_STALE-$(v1156_present "$V1156_WARN")-$(v1156_present "$V1156_BODY")"
+
+# NOT-REACHED: one warning naming the run id and the pull-request number, and one comment.
+assert_eq "#1156 gap: a NOT-REACHED line selects the not-reached arm and exits 0" \
+  "ARM not-reached|0" "$(v1156_gap "NOT-REACHED" "$V1156_GRUN" 1150 "$V1156_GSHA")"
+assert_eq "#1156 gap: the not-reached warning is exactly one line" "1" "$(grep -c . "$V1156_WARN")"
+V1156_A="$(v1156_has "$V1156_WARN" "$V1156_GRUN")"
+V1156_B="$(v1156_has "$V1156_WARN" '#1150')"
+assert_eq "#1156 gap: the not-reached warning names the run id and the pull-request number" \
+  "yes-yes" "$V1156_A-$V1156_B"
+V1156_A="$(v1156_has "$V1156_WARN" 'no run-scoped verdict-post receipt was found')"
+V1156_B="$(v1156_has "$V1156_WARN" 'or it ran and could not write its receipt')"
+assert_eq "#1156 gap: the not-reached WARNING states the observation and both causes, like the comment" \
+  "yes-yes" "$V1156_A-$V1156_B"
+assert_eq "#1156 gap: the not-reached comment body states the Actions run id" \
+  "yes" "$(v1156_has "$V1156_BODY" "$V1156_GRUN")"
+assert_eq "#1156 gap: the not-reached comment body states the resolved head SHA" \
+  "yes" "$(v1156_has "$V1156_BODY" "$V1156_GSHA")"
+assert_eq "#1156 gap: the not-reached comment body states the OBSERVATION (no receipt was found)" \
+  "yes" "$(v1156_has "$V1156_BODY" 'No run-scoped verdict-post receipt was found for this run')"
+# The review finding this replaces: the body used to assert categorically that the
+# emitter did not run and that the reviews API was unchanged. Receipt absence has TWO
+# causes (the emitter never ran, or it ran and its write failed), so on the second one
+# with a POSTED review outcome both claims are FALSE on a public pull-request comment.
+V1156_A="$(v1156_has "$V1156_BODY" 'either Phase 4.4'"'"'s')"
+V1156_B="$(v1156_has "$V1156_BODY" 'or it ran and could not write its receipt')"
+assert_eq "#1156 gap: the not-reached comment body names BOTH causes of an absent receipt" \
+  "yes-yes" "$V1156_A-$V1156_B"
+assert_eq "#1156 gap: the not-reached comment body names the check that separates the two causes" \
+  "yes" "$(v1156_has "$V1156_BODY" 'review exists in the reviews API for the head above, the emitter ran.')"
+assert_eq "#1156 gap: the not-reached comment body never asserts categorically that the emitter did not run in this run" \
+  "no" "$(v1156_has "$V1156_BODY" 'verdict emitter did not run in this run')"
+V1156_A="$(v1156_has "$V1156_BODY" 'reviews API')"
+V1156_B="$(v1156_has "$V1156_BODY" 'reviewDecision')"
+assert_eq "#1156 gap: the not-reached comment body still addresses the reviews API and reviewDecision" \
+  "yes-yes" "$V1156_A-$V1156_B"
+# ...but CONDITIONALLY. A categorical "unchanged by this run" is exactly the false
+# statement the write-failure cause produces, so it must not appear.
+V1156_A="$(v1156_has "$V1156_BODY" 'are unchanged by this run')"
+V1156_B="$(v1156_has "$V1156_BODY" 'this comment asserts')"
+assert_eq "#1156 gap: the reviews-API claim is conditioned on the cause, never asserted categorically" \
+  "no-yes" "$V1156_A-$V1156_B"
+V1156_A="$(v1156_has "$V1156_BODY" 'carries no producer-emitted verdict marker')"
+V1156_B="$(v1156_has "$V1156_BODY" 'do not read it as a verdict')"
+assert_eq "#1156 gap: the not-reached comment body states that verdict text published OUTSIDE the emitter carries no producer marker" \
+  "yes-yes" "$V1156_A-$V1156_B"
+# The scope word is load-bearing: the emitter's OWN posts do carry the marker, so an
+# unscoped "published elsewhere" would be false about the reached case.
+assert_eq "#1156 gap: that claim is scoped to text published outside the emitter" \
+  "yes" "$(v1156_has "$V1156_BODY" 'published OUTSIDE the emitter')"
+assert_eq "#1156 gap: the not-reached comment body carries NO producer verdict marker of its own" \
+  "no" "$(v1156_has "$V1156_BODY" 'prflow:review-verdict')"
+V1156_BODY_L1="$( { IFS= read -r V1156_L || true; printf '%s' "$V1156_L"; } < "$V1156_BODY")"
+assert_eq "#1156 gap: the not-reached comment body opens with its own run-keyed marker" \
+  "<!-- prflow:verdict-post-gap run=$V1156_GRUN -->" "$V1156_BODY_L1"
+
+# The remedy the public comment hands a maintainer must match what the job log actually
+# contains. $V1156_BLOCK/err is the REAL stderr of a real emitter run whose receipt write
+# was blocked, so this compares the comment's instruction against observed bytes rather
+# than against a second copy of the same string.
+V1156_A="$(v1156_has "$V1156_BODY" 'could not write the verdict-post receipt')"
+V1156_B="$(v1156_has "$V1156_BLOCK/err" 'could not write the verdict-post receipt')"
+assert_eq "#1156 gap: the body's discriminating breadcrumb is the literal the emitter really writes to stderr" \
+  "yes-yes" "$V1156_A-$V1156_B"
+
+# UNESTABLISHED: warns carrying the reason VERBATIM, and posts NOTHING — the not-reached
+# claim is exactly what was not established.
+assert_eq "#1156 gap: an UNESTABLISHED line selects the unestablished arm and exits 0" \
+  "ARM unestablished|0" "$(v1156_gap "UNESTABLISHED receipt-unreadable" "$V1156_GRUN" 1150 "$V1156_GSHA")"
+assert_eq "#1156 gap: the unestablished arm carries the reader's reason verbatim" \
+  "yes" "$(v1156_has "$V1156_WARN" 'receipt-unreadable')"
+assert_eq "#1156 gap: the unestablished arm posts no comment (it asserts neither outcome)" \
+  "0" "$(v1156_present "$V1156_BODY")"
+assert_eq "#1156 gap: the unestablished arm never claims the emitter did not run" \
+  "no" "$(v1156_has "$V1156_WARN" 'did not run')"
+
+# Silence and gibberish from the reader are kept apart: both warn without asserting, but
+# they have different remedies and the job log is the only place that survives.
+assert_eq "#1156 gap: an empty reader line selects the no-line arm (a reader refused before it ran)" \
+  "ARM no-line|0" "$(v1156_gap "" "$V1156_GRUN" 1150 "$V1156_GSHA")"
+V1156_A="$(grep -c . "$V1156_WARN")"
+V1156_B="$(v1156_has "$V1156_WARN" 'produced no output')"
+assert_eq "#1156 gap: the no-line arm warns, names the refusal, and posts nothing" \
+  "1-yes-0" "$V1156_A-$V1156_B-$(v1156_present "$V1156_BODY")"
+assert_eq "#1156 gap: an unrecognized reader line selects the unrecognized-line arm and posts nothing" \
+  "ARM unrecognized-line|0-0" "$(v1156_gap "MAYBE probably fine" "$V1156_GRUN" 1150 "$V1156_GSHA")-$(v1156_present "$V1156_BODY")"
+bash "$V1156_GAP" "" 1 2 "$V1156_GSHA" "$V1156_GAPD/w1.txt" "" >/dev/null 2>&1
+bash "$V1156_GAP" "MAYBE" 1 2 "$V1156_GSHA" "$V1156_GAPD/w2.txt" "" >/dev/null 2>&1
+assert_eq "#1156 gap: the two warn-only arms are diagnosed differently, never folded together" \
+  "no" "$(cmp -s "$V1156_GAPD/w1.txt" "$V1156_GAPD/w2.txt" && echo yes || echo no)"
+assert_eq "#1156 gap: every arm exits 0, so the step can never change its job's result" "00000" \
+  "$(for V1156_L in 'REACHED SKIP not-numeric' 'NOT-REACHED' 'UNESTABLISHED receipt-empty' '' 'garbage'; do
+       bash "$V1156_GAP" "$V1156_L" 1 2 "$V1156_GSHA" "$V1156_WARN" "$V1156_BODY" >/dev/null 2>&1; printf '%s' "$?";
+     done)"
+
+# Every emitted field is VALIDATED, not quoted: a value the helper does not recognize is
+# rendered as the literal `unavailable` and never reaches a warning or a comment.
+bash "$V1156_GAP" "NOT-REACHED" '$(id)' '`whoami`' 'not-a-sha' "$V1156_WARN" "$V1156_BODY" >/dev/null 2>&1
+assert_eq "#1156 gap: no unvalidated field byte reaches the comment body or the warning" "0" \
+  "$(cat "$V1156_BODY" "$V1156_WARN" | grep -c -E '\$\(id\)|`whoami`|not-a-sha')"
+assert_eq "#1156 gap: a head SHA that did not resolve is reported as 'unavailable', never as a blank" \
+  "yes" "$(v1156_has "$V1156_BODY" 'head SHA this step resolved: `unavailable`')"
+V1156_A="$(v1156_has "$V1156_WARN" 'Actions run unavailable')"
+V1156_B="$(v1156_has "$V1156_WARN" '#unavailable')"
+assert_eq "#1156 gap: an unrecognized run id and pull-request number are reported as 'unavailable' in the warning" \
+  "yes-yes" "$V1156_A-$V1156_B"
+# A reader reason is a closed token by construction, so nothing receipt-derived can carry a
+# workflow command onto the emitted surfaces.
+bash "$V1156_GAP" 'UNESTABLISHED receipt-unrecognized-outcome' "$V1156_GRUN" 1150 "$V1156_GSHA" "$V1156_WARN" "$V1156_BODY" >/dev/null 2>&1
+assert_eq "#1156 gap: the unestablished warning carries no workflow-command sequence" "0" \
+  "$(grep -c -E '::warning::|::error::|##\[' "$V1156_WARN")"
+
+# ── ARM ORDER (gap helper). The catch-all swallows every input it is hoisted above.
+v1156_hoist_catchall() {  # $1 out-file  $2 = the arm head it is hoisted directly above
+  python3 - "$V1156_GAP" "$1" "$2" <<'PY'
+import sys
+src, out, above = sys.argv[1], sys.argv[2], sys.argv[3]
+lines = open(src, encoding="utf-8").read().splitlines()
+start = next(n for n, l in enumerate(lines) if l == "  *)")
+end = next(n for n in range(start, len(lines)) if lines[n] == "    ;;")
+block = lines[start:end + 1]
+del lines[start:end + 1]
+target = lines.index(above)
+lines[target:target] = block
+open(out, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+PY
+}
+v1156_hoist_catchall "$V1156_MUT/catchall-first.sh" "  'REACHED '*)"
+assert_eq "#1156 gap arm order: hoisting the catch-all to the top reports a reached emitter as unrecognized" \
+  "ARM unrecognized-line" "$(bash "$V1156_MUT/catchall-first.sh" 'REACHED POSTED review APPROVE' 1 2 "$V1156_GSHA" 2>/dev/null)"
+assert_eq "#1156 gap arm order: the shipped order reports that same input as reached (the mutant's control)" \
+  "ARM reached" "$(bash "$V1156_GAP" 'REACHED POSTED review APPROVE' 1 2 "$V1156_GSHA" 2>/dev/null)"
+v1156_hoist_catchall "$V1156_MUT/catchall-before-empty.sh" "  '')"
+assert_eq "#1156 gap arm order: hoisting the catch-all above the empty arm misreports a refused reader as gibberish" \
+  "ARM unrecognized-line" "$(bash "$V1156_MUT/catchall-before-empty.sh" '' 1 2 "$V1156_GSHA" 2>/dev/null)"
+assert_eq "#1156 gap arm order: the shipped order reports that same input as no-line (the mutant's control)" \
+  "ARM no-line" "$(bash "$V1156_GAP" '' 1 2 "$V1156_GSHA" 2>/dev/null)"
+
+# ── End to end over the two states the whole issue exists to separate: a run whose
+# emitter was never reached, and a run whose emitter ran and was REFUSED. Before this
+# change both presented identically after the fact.
+rm -f "$V1156_RCPT"
+V1156_E2E="$(v1156_check)"
+assert_eq "#1156 end to end: an unreached emitter yields NOT-REACHED and a posted comment" \
+  "NOT-REACHED-ARM not-reached-1" \
+  "$V1156_E2E-$(bash "$V1156_GAP" "$V1156_E2E" "$V1156_GRUN" 1150 "$V1156_GSHA" "$V1156_WARN" "$V1156_BODY" 2>/dev/null)-$(v1156_present "$V1156_BODY")"
+v1156_post 123 APPROVE body.md "$V1156_SHA" "" V1156_REVIEW_RC=1 V1156_COMMENT_RC=1
+V1156_E2E="$(v1156_check)"
+assert_eq "#1156 end to end: an emitter that ran and was refused yields REACHED and NO comment" \
+  "yes-ARM reached-0" \
+  "$(case "$V1156_E2E" in 'REACHED FAILED no-durable-channel '*) echo yes;; *) echo no;; esac)-$(bash "$V1156_GAP" "$V1156_E2E" "$V1156_GRUN" 1150 "$V1156_GSHA" "$V1156_WARN" "$V1156_BODY" 2>/dev/null)-$(v1156_present "$V1156_BODY")"
+
+# ── AC6/AC11/AC12: the workflow step, read out of the parsed YAML rather than grepped.
+v1156_step() {  # $1 = python expression over `step` / `steps` / `gate`
+  python3 - "$V1156_WF" "$1" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+steps = doc["jobs"]["command"]["steps"]
+named = [s for s in steps if s.get("name") == "Record whether the verdict emitter was reached"]
+if len(named) != 1:
+    print(f"expected exactly one reach-record step, found {len(named)}")
+    raise SystemExit(0)
+step = named[0]
+gate = [s for s in steps if s.get("name") == "Review stall backstop"][0]
+print(eval(sys.argv[2], {"step": step, "steps": steps, "gate": gate}))
+PY
+}
+assert_eq "#1156 workflow: the command job carries exactly one verdict-post reach step" \
+  "1" "$(v1156_step 'len([s for s in steps if s.get("name") == "Record whether the verdict emitter was reached"])')"
+assert_eq "#1156 workflow: the step runs under always(), so a clean-exit run still reaches it" \
+  "True" "$(v1156_step '"always()" in step["if"]')"
+# The command prefix is the SAME literal the stall backstop uses — trailing space included,
+# which is what excludes the fix-loop command that skips Phase 4.4 by design. Compared
+# against the sibling step rather than transcribed, so the two cannot drift apart.
+assert_eq "#1156 workflow: the step's command gate is byte-identical to the stall backstop's prefix test" \
+  "True" "$(v1156_step 'any(t in step["if"] and t in gate["if"] for t in ["startsWith(needs.gate.outputs.command, \x27/prflow:review \x27)"])')"
+assert_eq "#1156 workflow: the gate keeps the trailing space that excludes the fix-loop command" \
+  "True" "$(v1156_step '"/prflow:review-and-fix" not in step["if"] and "/prflow:review \x27)" in step["if"]')"
+assert_eq "#1156 workflow: the step is additionally gated on a number being resolvable from the event" \
+  "True" "$(v1156_step '"github.event.issue.number" in step["if"] and "github.event.pull_request.number" in step["if"]')"
+# `gate` accepts any numeric target, so /prflow:review on a plain ISSUE reaches this job.
+# Phase 4.4 is PR-mode-only, so the reader would answer NOT-REACHED there and the step
+# would post a verdict-record comment on an issue that never had a verdict to record.
+# github.event.issue.pull_request is GitHub's own discriminator for a commented issue.
+assert_eq "#1156 workflow: the step is gated on the target being a pull request, so a review command on a plain issue draws no comment" \
+  "True" "$(v1156_step '"github.event.issue.pull_request" in step["if"]')"
+assert_eq "#1156 workflow: the step invokes the reader and the arm-dispatch helper, both at the vendored path" \
+  "True" "$(v1156_step '".prflow/vendor/prflow/scripts/check-verdict-post-reached.sh" in step["run"] and ".prflow/vendor/prflow/scripts/describe-verdict-post-gap.sh" in step["run"]')"
+assert_eq "#1156 workflow: each helper carries the repo-root fallback a self-repo checkout needs" \
+  "True" "$(v1156_step '"CHECK=scripts/check-verdict-post-reached.sh" in step["run"] and "GAP=scripts/describe-verdict-post-gap.sh" in step["run"]')"
+assert_eq "#1156 workflow: the step ends with an explicit exit 0 so it never changes the job's result" \
+  "True" "$(v1156_step 'step["run"].rstrip().endswith("exit 0")')"
+# The selection is NOT in the YAML: the step renders the helper's two sinks and picks nothing.
+assert_eq "#1156 workflow: the step's own shell carries no arm-selecting branch over the reader's vocabulary" \
+  "True" "$(v1156_step '"NOT-REACHED" not in step["run"] and "UNESTABLISHED" not in step["run"] and "REACHED" not in step["run"]')"
+assert_eq "#1156 workflow: the warning and the comment are rendered off the helper's sinks, not off an inline branch" \
+  "True" "$(v1156_step '"[ -s \"$WARNING_FILE\" ]" in step["run"] and "[ -s \"$BODY_FILE\" ]" in step["run"]')"
+# The gh path uses environment addressing, correct here under the .github/workflows/
+# exemption lint-gh-api-repo-path.py records; the two helpers carry no gh call at all.
+assert_eq "#1156 workflow: the comment POST addresses the repository from the environment" \
+  "True" "$(v1156_step '"repos/$REPO/issues/$PR_NUMBER/comments" in step["run"] and step["env"]["REPO"] == "${{ github.repository }}"')"
+# Neither helper touches the network — asserted by EXECUTION, not by reading their source:
+# a recording `gh` is put first on PATH and both helpers are driven over every arm. That is
+# what lets the workflow own the only GitHub write, which is the whole reason its `gh api`
+# path may use environment addressing under the .github/workflows/ exemption.
+V1156_BIN="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s/gh-calls"\nexit 0\n' "$V1156_BIN" > "$V1156_BIN/gh"
+chmod +x "$V1156_BIN/gh"
+: > "$V1156_BIN/gh-calls"
+for V1156_L in 'REACHED SKIP not-numeric' 'NOT-REACHED' 'UNESTABLISHED receipt-empty' '' 'garbage'; do
+  PATH="$V1156_BIN:$PATH" bash "$V1156_GAP" "$V1156_L" 1 2 "$V1156_GSHA" "$V1156_BIN/w" "$V1156_BIN/b" >/dev/null 2>&1
+done
+for V1156_S in zero ws adir noread near-plural trail; do
+  PATH="$V1156_BIN:$PATH" bash "$V1156_CHECK" "$V1156_SHAPES/$V1156_S" >/dev/null 2>&1
+done
+PATH="$V1156_BIN:$PATH" bash "$V1156_CHECK" "$V1156_NONE/nothing-here.txt" >/dev/null 2>&1
+assert_eq "#1156 helpers: neither the reader nor the arm-dispatch helper invokes gh on any arm" \
+  "0" "$(grep -c . "$V1156_BIN/gh-calls")"
+# Anti-vacuity: the recorder DOES capture a gh invocation when one happens, so the row above
+# measures an absence rather than a broken recorder.
+PATH="$V1156_BIN:$PATH" gh api "repos/o/r/issues/1/comments" >/dev/null 2>&1
+assert_eq "#1156 helpers: the gh recorder captures a real invocation (the absence row is not vacuous)" \
+  "1" "$(grep -c . "$V1156_BIN/gh-calls")"
+rm -rf "$V1156_BIN"
+assert_eq "#1156 workflow: the step carries a token that can post an issue comment" \
+  "True" "$(v1156_step '"steps.app-token.outputs.token || github.token" in step["env"]["GH_TOKEN"]')"
+
+chmod 700 "$V1156_SHAPES/adir" 2>/dev/null || true
+chmod 600 "$V1156_SHAPES/noread" "$V1156_SHAPES/zero-noread" 2>/dev/null || true
+rm -rf "$V1156_ROOT" "$V1156_BLOCK" "$V1156_NONE" "$V1156_MUTR" "$V1156_GAPD" "$V1156_SHAPES"
+unset V1156_ROOT V1156_BLOCK V1156_NONE V1156_MUT V1156_MUTR V1156_GAPD V1156_SHAPES V1156_RCPT V1156_TOP V1156_L V1156_A V1156_B V1156_NOLIB
