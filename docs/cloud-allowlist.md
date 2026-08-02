@@ -34,6 +34,45 @@ A command the skill invokes but a profile omits is refused. **Evidence: PR #340 
 7 of 14 denials were the engine trying to run the test suite.** The engine ended
 runs with no verdict because heads it needed were ungranted on one path.
 
+### The injected allowed-command list — every tier, including implement (issue #1170)
+
+**Standing rule (the maintainer's):** when a command is refused by the cloud
+harness, the agent should be able to see that the permission was denied and be
+pointed at alternatives — either similar permitted commands, or a resource listing
+the complete set of allowed commands so it can pick a permitted one and retry.
+
+The refusal itself happens inside `claude-code-action`'s tool matcher, *before the
+command runs*, and nothing in this repository can change what the agent receives at
+the moment of refusal. What **is** achievable — and is the maintainer's stated
+fallback — is to put the complete allowed-command list in front of the agent
+**up front**, so a refused shape is a lookup against a list it already has rather
+than a guess.
+
+`scripts/render-grounding-block.sh` injects the **exact resolved `--allowed-tools`
+string** (section 2 of the block) plus the command-shape rules (section 3) and the
+headless-run discipline (section 4). It is rendered **once**, by that one helper, and
+prepended to the prompt on **every** tier:
+
+- **`/prflow:review`** — `devflow.yml`'s `Compose review grounding block` step.
+- **Auto-review** — `devflow-runner.yml`'s `Compose review prompt` step.
+- **`/prflow:implement`** — `devflow-implement.yml`'s `Compose implement grounding
+  block` step, in `MODE=implement`, which renders the tier-agnostic sections only
+  (the review-only CI-results and trusted-source-displacement sections are omitted,
+  and the survivors renumber 1/2/3).
+
+Every tier consumes the **same** hoisted `TOOLS='…'` step output for both
+`claude_args`'s `--allowed-tools` **and** the injected block, so the block quotes the
+exact string the run resolved by construction — there is **no second, hand-copied
+copy** of the allowed-tools text (the coupled-mirror hazard the block was built to
+avoid; `lib/test/run.sh` pins all three workflows to carry no second copy).
+
+**The limits, stated plainly.** This does **not** make a denial visible at the moment
+it happens, and it does **not** change the matcher's response — a refused command
+still produces no output and burns budget. It only gives the agent the list to check
+against, up front. Making denials visible *after* a run is the separate concern of
+issue #1064 (durable denial forensics); the two are complementary and neither
+substitutes for the other.
+
 ### The head guard
 
 `lib/test/extract-command-heads.py` (driven by `lib/test/run.sh`) extracts every
@@ -561,11 +600,14 @@ Phase 3 of `/prflow:implement` runs the review engine **inline** under
 grant** — the review engine is shared.
 
 `lib/test/run.sh`'s #484 head guard deliberately **over-approximates** that runtime
-surface. It drives `extract-command-heads.py` in an **`implement-block` parse
-mode** that reads **ONLY** the baked `--allowed-tools` block — never the whole file
-or `.prflow/config.json`, so a `Bash(...)` cited in a YAML comment is **not** a
-grant; it fails **closed** on an absent/malformed block. It runs over all fenced
-source in:
+surface. It drives `extract-command-heads.py` in the **`tools-line` parse
+mode** that reads **ONLY** the workflow's resolved `TOOLS='...'` allowlist line —
+never the whole file or `.prflow/config.json`, so a `Bash(...)` cited in a YAML
+comment is **not** a grant; it fails **closed** on an absent/duplicated line. (Since
+issue #1170 the implement region is hoisted into a `Resolve allowed-tools` step, so
+`devflow-implement.yml` carries its allowlist on a `TOOLS='...'` line exactly like
+`devflow.yml`/`devflow-runner.yml` — the former bespoke `implement-block` mode is
+retired.) It runs over all fenced source in:
 
 - `skills/implement/**`,
 - `skills/review*/**`,

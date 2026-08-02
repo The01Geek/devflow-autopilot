@@ -613,11 +613,8 @@ SANCTIONED_WILDCARD_GRANTS = {
 #
 #   tools-line           the single `TOOLS='…'` allowlist line (devflow.yml's
 #                        hoisted Resolve-allowed-tools step, devflow-runner.yml's
-#                        review case arm)
-#   allowed-tools-block  devflow-implement.yml's multi-line `--allowed-tools "…"`
-#                        argument inside the claude_args folded scalar; that file
-#                        carries NO `TOOLS='…'` line, so the line extractor
-#                        cannot read it
+#                        review case arm, and — since issue #1170 — devflow-implement.yml's
+#                        own hoisted Resolve-allowed-tools step)
 #
 # A ROOTS profile with no entry here resolves to an UNLOCATABLE region, which
 # takes the "grant source unavailable" arm. That is the load-bearing direction: a
@@ -625,7 +622,7 @@ SANCTIONED_WILDCARD_GRANTS = {
 # silently inherit the retired whole-file read, which is precisely the fail-open
 # scope limit (ii) this mapping retires.
 GRANT_REGION_EXTRACTORS = {
-    "implement": _heads.implement_allowlist_block,
+    "implement": _heads.tools_allowlist_line,
     "light-command": _heads.tools_allowlist_line,
     "review": _heads.tools_allowlist_line,
 }
@@ -663,8 +660,8 @@ def _scope_grant_region(profile, text):
         return (None, f"{extractor.__name__} refused the workflow: "
                       + (detail if detail else "refused with no reason given"))
     # SystemExit is the scopers' DECLARED refusal channel; anything else is a
-    # scoper bug (implement_allowlist_block indexes and slices, so an unusual
-    # scalar shape could raise IndexError/ValueError). Letting that escape would
+    # scoper bug (a scoper could raise IndexError/ValueError on an unusual shape).
+    # Letting that escape would
     # abort check_grant_sync entirely and take the other two profiles' reporting
     # down with it — loud, but it defeats this module's per-profile
     # continue-and-report contract. Route it to the same unavailable arm, naming
