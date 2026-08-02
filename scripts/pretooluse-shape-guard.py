@@ -55,8 +55,9 @@ uniform fail-open here.
 DISARMED-RUN SIGNAL (issue #1077). The fail-open above means an unloadable classifier
 resolves to `defer` + exit 0 — byte-identical on every PUBLISHED artifact to a run that
 fired and matched nothing, because the heartbeat says "fired" for both and stderr is
-ephemeral. So when `_load_shapes_module()` cannot be loaded, `_run` writes a `_DISARMED`
-marker on the SAME path as the heartbeat (best-effort telemetry, then re-raises so main()'s
+ephemeral. So when the classifier cannot be loaded (`_load_shapes_module`) OR exercised (a
+renamed interface raising inside `_matched_arms`), `_run` writes a `_DISARMED` marker on the
+SAME path as the heartbeat (best-effort telemetry, then re-raises so main()'s
 fail-open-to-defer + stderr breadcrumb are unchanged). The marker's cause line is keyed on
 the exception ACTUALLY raised — `FileNotFoundError` from `exec_module`, NOT the unreachable
 `ImportError` spec branch — and names the workspace-relative path with no `lib/test` as the
