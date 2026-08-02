@@ -113,5 +113,80 @@
       "iter": 1,
       "phases": "unavailable"
     }
-  ]
+  ],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.21",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 12.20322475,
+    "tokens": {
+      "input_tokens": 93,
+      "output_tokens": 43530,
+      "cache_read_input_tokens": 7832595,
+      "cache_creation_input_tokens": 225921,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 233,
+        "outputTokens": 83063,
+        "cacheReadInputTokens": 11556737,
+        "cacheCreationInputTokens": 559986,
+        "webSearchRequests": 0,
+        "costUSD": 12.20322475,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 57,
+    "duration_ms": 1034298
+  },
+  "permission_denials": {
+    "count": 27,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"run_id=$GITHUB_RUN_ID attempt=$GITHUB_RUN_ATTEMPT actions=$GITHUB_ACTIONS repo=$GITHUB_REPOSITORY\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve \"1086\" --pr \"1099\" 2>.prflow/tmp/review/pr-1099/30727279959-1/acs.err ; echo \"acs-rc=$?\"",
+      "mkdir -p .prflow/tmp\nrm -f .prflow/tmp/review-dirty-tree-before .prflow/tmp/review-dirty-tree-disabled 2>/dev/null\ngit status --porcelain -z > .prflow/tmp/review-dirty-tree-before && test -f .prflow/tmp/review-dirty-tree-before && test ! -L .prflow/tmp/review-dirty-tree-before && git hash-object .prflow/tmp/review-dirty-tree-before",
+      "bash lib/test/run-shard.sh --list-shards 2>/dev/null | grep -c python-pool; echo \"exit ok\"",
+      "lib/test/run-shard.sh --list-shards 2>/dev/null | grep python-pool",
+      "cd /home/runner/work/prflow/prflow\necho \"=== run-shard.sh --list-shards ===\"\nbash lib/test/run-shard.sh --list-shards 2>/dev/null\necho \"=== grep idiom usage elsewhere ===\"\ngrep -rn '\\[@\\]+\"\\${' lib/implement-stop-guard.sh scripts/build-denial-record.sh 2>/dev/null | head",
+      "bash lib/test/run-shard.sh --list-shards 2>/dev/null",
+      "lib/test/run-shard.sh --list-shards 2>/dev/null",
+      "bash /home/runner/work/prflow/prflow/lib/test/run-shard.sh --list-shards 2>/dev/null",
+      "cd /home/runner/work/prflow/prflow\ngit show e054bb436bdbe526b9ebd4799ee3b4350658e156:lib/test/modules/parallel-suite-runner.sh > /tmp/psr_head.sh\ngrep -n \"psr_fail_case\\|psr_make_tree\\|psr_count_matching\\|psr_pool_width_of\\|SYN_PIDFILE\\|SYN_MODE\\|_render_detail\\|DEVFLOW_SHARD_DISPATCHER\\|PSR_T5=\\|PSR_ATCAP=\" /tmp/psr_head.sh | head -60",
+      "git show e054bb436bdbe526b9ebd4799ee3b4350658e156:lib/test/modules/parallel-suite-runner.sh > /tmp/psr_head.sh; wc -l /tmp/psr_head.sh",
+      "git show e054bb436bdbe526b9ebd4799ee3b4350658e156:lib/test/modules/parallel-suite-runner.sh > /tmp/psr_head.sh",
+      "git show e054bb436bdbe526b9ebd4799ee3b4350658e156:lib/test/modules/parallel-suite-runner.sh > /home/runner/work/prflow/prflow/.prflow/tmp/psr_head.sh",
+      "git show e054bb436bdbe526b9ebd4799ee3b4350658e156:lib/test/modules/parallel-suite-runner.sh > /home/runner/work/prflow/prflow/.prflow/tmp/psr_head.sh 2>&1; echo done",
+      "cd /home/runner/work/prflow/prflow\ngit show e054bb436bdbe526b9ebd4799ee3b4350658e156:lib/test/modules/parallel-suite-runner.sh > /tmp/psr-head.sh\n# minimal driver counting assert_eq invocations\ncat > /tmp/drive.sh <<'EOF'\nLIB=\"/home/runner/work/prflow/prflow/lib\"\nRESULTS_FILE=\"/tmp/psr-results.txt\"; : > \"$RESULTS_FILE\"\nCOUNT=0\nassert_eq() { COUNT=$((COUNT+1)); printf '%s\\n' \"$1\" >> /tmp/psr-names.txt; }\n: > /tmp/psr-names.txt\n# stub out everything after sourcing? We just source and let it run.\ns …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\ngit show e054bb436bdbe526b9ebd4799ee3b4350658e156:lib/test/modules/parallel-suite-runner.sh > /tmp/psr-head.sh\nprintf '%s\\n' 'LIB=\"/home/runner/work/prflow/prflow/lib\"' 'RESULTS_FILE=\"/tmp/psr-results.txt\"' ': > \"$RESULTS_FILE\"' 'COUNT=0' 'assert_eq() { COUNT=$((COUNT+1)); }' 'source /tmp/psr-head.sh' 'echo RUNTIME_ASSERTIONS=$COUNT' > /tmp/drive.sh\ntimeout 400 bash /tmp/drive.sh 2>/tmp/psr-err.txt; echo \"rc=$?\"; tail -4 /tmp/psr-err.txt",
+      "git show e054bb436bdbe526b9ebd4799ee3b4350658e156:lib/test/modules/parallel-suite-runner.sh > /tmp/psr-head.sh",
+      "cd /home/runner/work/prflow/prflow\nmkdir -p .prflow/tmp/psr-analysis\ngit show e054bb436bdbe526b9ebd4799ee3b4350658e156:lib/test/modules/parallel-suite-runner.sh > .prflow/tmp/psr-analysis/psr-head.sh\nwc -l .prflow/tmp/psr-analysis/psr-head.sh",
+      "cd /home/runner/work/prflow/prflow\nmkdir -p .prflow/tmp/psr-analysis\ngit show e054bb436bdbe526b9ebd4799ee3b4350658e156:lib/test/modules/parallel-suite-runner.sh > .prflow/tmp/psr-analysis/psr-head.sh\n{ echo 'LIB=\"/home/runner/work/prflow/prflow/lib\"'; echo 'RESULTS_FILE=\"/home/runner/work/prflow/prflow/.prflow/tmp/psr-analysis/results.txt\"'; echo ': > \"$RESULTS_FILE\"'; echo 'COUNT=0'; echo 'assert_eq() { COUNT=$((COUNT+1)); }'; echo 'source /home/runner/work/prflow/prflow/.prflow/tmp/psr-analysi …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nmkdir -p .prflow/tmp/psr-analysis\ngit show e054bb436bdbe526b9ebd4799ee3b4350658e156:lib/test/modules/parallel-suite-runner.sh > .prflow/tmp/psr-analysis/psr-head.sh\nD=.prflow/tmp/psr-analysis/drive.sh\nprintf 'LIB=%s\\n' '\"/home/runner/work/prflow/prflow/lib\"' > \"$D\"\nprintf 'RESULTS_FILE=%s\\n' '\"/home/runner/work/prflow/prflow/.prflow/tmp/psr-analysis/results.txt\"' >> \"$D\"\nprintf ': > \"$RESULTS_FILE\"\\n' >> \"$D\"\nprintf 'COUNT=0\\n' >> \"$D\"\nprintf 'assert_eq() { COU …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nD=.prflow/tmp/psr-analysis/drive.sh\n: > \"$D\"\nprintf '%s\\n' 'LIB=\"/home/runner/work/prflow/prflow/lib\"' >> \"$D\"\nprintf '%s\\n' 'RESULTS_FILE=\"/home/runner/work/prflow/prflow/.prflow/tmp/psr-analysis/results.txt\"' >> \"$D\"\nprintf '%s\\n' ': > \"$RESULTS_FILE\"' >> \"$D\"\nprintf '%s\\n' 'COUNT=0' >> \"$D\"\nprintf '%s\\n' 'assert_eq()' >> \"$D\"\nprintf '%s\\n' 'do_count() { true; }' >> \"$D\"\ngit show 9d6bcde:lib/test/modules/module-harness.sh >/dev/null 2>&1; echo \"harness exists …[per-command-truncated]",
+      "mkdir -p .prflow/tmp/psr-analysis && git show e054bb436bdbe526b9ebd4799ee3b4350658e156:lib/test/modules/parallel-suite-runner.sh > .prflow/tmp/psr-analysis/psr-head.sh && ls -la .prflow/tmp/psr-analysis/",
+      "cd /home/runner/work/prflow/prflow\ntimeout 400 bash .prflow/tmp/psr-analysis/drive.sh 2>.prflow/tmp/psr-analysis/err.txt\necho \"rc=$?\"\necho \"=== stderr tail ===\"; tail -6 .prflow/tmp/psr-analysis/err.txt",
+      "timeout 400 bash .prflow/tmp/psr-analysis/drive.sh 2>&1 | grep -E 'RUNTIME_ASSERTIONS|Error|error|not found' | tail -20",
+      "bash .prflow/tmp/psr-analysis/drive.sh",
+      "rm -rf .prflow/tmp/psr-analysis && echo cleaned; bash --version | head -1"
+    ],
+    "total": 27,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
 }
