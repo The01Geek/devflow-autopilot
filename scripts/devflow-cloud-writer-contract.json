@@ -15,7 +15,7 @@
     "scripts/match-lint-adjudications.py": "b60a0a02981ebe72d60220a16a0bebd4ce97c3bda5f996f8e08ff0c7ce0b733a",
     "scripts/parse-acs.py": "5e8b53c20a0baf5ddbda9dd683dbc4732c50ff32a37bada688d9ea6f3a699cb4",
     "scripts/react-to-trigger.sh": "652b657c01693bb854bbdabb841ce08dd30f5f146d2b4dd25d13b9bf1d8b7802",
-    "scripts/reception_identity.py": "8710fec54cab55e707f638c395775087ed1bae59e774c7390a7fd6c8087a9bbc",
+    "scripts/reception_identity.py": "983565c531961be7d47c083feb2d34e67f261a21efda5a825f2b4b6a42924f94",
     "scripts/resolve-review-overrides.py": "cbd6eef4be589a6bb9a4adc230a016fb7f0fedc6feba687cac3617c398c8a01e",
     "scripts/run-jq.sh": "1bcf3697f7fb24a50cbc246ef42ab9503be8fef4478103da0d183dcd971ad1fd",
     "scripts/section_parse.py": "37883537db1f857d024d3185f637b28c6a4b891fc1586ee036ca2bdcd67111ed",

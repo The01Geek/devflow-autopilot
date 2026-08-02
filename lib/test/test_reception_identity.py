@@ -108,6 +108,83 @@ class IdentityContractTests(unittest.TestCase):
         r.commit_all("stage")
         self.assertEqual(derived, committed_tree(r.path))
 
+    def test_same_size_same_tick_edit_reflected(self):
+        """A same-size edit within the seeding commit's mtime tick is still reflected.
+
+        Issue #1117: derive_candidate_identity seeds its temp index from the repo's
+        index, whose entries carry pre-edit stat data. When a tracked file is rewritten
+        to the SAME size within the SAME whole-second mtime tick the index cached,
+        `git add -A` reads the entry as clean and never re-hashes it, so the derived
+        tree carries the STALE blob — two distinct working trees collide on one identity.
+
+        The race is constructed deterministically (never by timing): `core.checkStat=minimal`
+        makes git compare only whole-second mtime + size, and the file's mtime is pinned to a
+        fixed time in the PAST — cached at `git add` time and restored after the edit — so the
+        cached stat reads clean. The past mtime is load-bearing: it puts the entry's cached
+        mtime well before the derivation's freshly-created temp index, so racy-git (which
+        re-hashes a file whose cached mtime is not older than the index) does not intervene and
+        mask the bug. Fails against the pre-fix implementation, whose derived tree carries the
+        pre-edit blob.
+        """
+        past = 1609459200  # 2021-01-01 UTC — safely before the temp index git will create
+        r = self._repo()
+        git(r.path, "config", "core.checkStat", "minimal")
+        r.write("a.txt", "one\n")
+        os.utime(r.path / "a.txt", (past, past))   # cache the past mtime at `git add`
+        r.commit_all("a")
+        r.write("a.txt", "two\n")   # same 4-byte size, different content
+        os.utime(r.path / "a.txt", (past, past))   # restore it after the edit
+        # The construction is the whole point: if git does NOT read the edit as clean,
+        # the test proves nothing (it would pass against the buggy code too). Guard it —
+        # on a host that cannot reproduce the stat-clean condition, skip rather than lie.
+        porcelain = git(r.path, "-c", "core.checkStat=minimal",
+                        "status", "--porcelain").stdout
+        if porcelain.strip():
+            self.skipTest("host cannot construct the stat-clean same-tick condition")
+        derived = ri.derive_candidate_identity(str(r.path))
+        # The derived tree must carry the POST-edit blob for a.txt, not the pre-edit one.
+        want = git(r.path, "hash-object", "a.txt").stdout.strip()  # blob of worktree "two\n"
+        entry = git(r.path, "ls-tree", derived, "a.txt").stdout
+        self.assertIn(want, entry,
+                      f"derived tree carries a stale a.txt blob: {entry!r}")
+
+    def test_ineffective_backdate_refuses_instead_of_deriving(self):
+        """A backdate the filesystem did not store refuses with a named reason.
+
+        The fail-closed sibling of the test above. `os.utime` reporting success is not
+        evidence the value was stored: a coarse-granularity or clamping filesystem can
+        truncate the epoch second to 0 — the value git reads as an unset index timestamp,
+        which short-circuits `is_racy_stat` and disarms the very rule the backdate arms —
+        and a filesystem that accepts the call while keeping the creation time fails the
+        same comparison from the other side. Either one silently returns `git add -A` to
+        the stale-stat path that yields the pre-edit blob, i.e. reintroduces the #1117
+        collision with no error. A no-op `os.utime` stands in for both (the temp index
+        keeps its creation mtime), proving the read-back raises rather than deriving an
+        identity from stat data the backdate never protected.
+        """
+        r = self._repo()
+        r.write("a.txt", "one\n")
+        r.commit_all("a")
+        orig = ri.os.utime
+
+        def noop(*a, **k):
+            return None
+
+        ri.os.utime = noop
+        try:
+            with self.assertRaises(ri.IdentityError) as cm:
+                ri.derive_candidate_identity(str(r.path))
+        finally:
+            ri.os.utime = orig
+        self.assertTrue(
+            cm.exception.reason.startswith("index_backdate_ineffective:"),
+            cm.exception.reason,
+        )
+        # Negative control: with the real os.utime the same repository derives normally,
+        # so the refusal above is attributable to the ineffective backdate and not to
+        # anything else in the fixture.
+        self.assertRegex(ri.derive_candidate_identity(str(r.path)), r"^[0-9a-f]{40,64}$")
+
     def test_one_byte_change_after_unequal(self):
         r = self._repo()
         r.write("a.txt", "one\n")
