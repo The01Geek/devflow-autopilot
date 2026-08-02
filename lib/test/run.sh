@@ -43660,12 +43660,15 @@ PY
 # whole-file exemption, so an UNDECLARED superseded leaf inside one of them must fail RED again
 # (the regression AC2 demands), while a leaf carrying the marker with a non-empty reason is
 # exempt, a bare/empty-reason marker does NOT exempt (else a marker with no rationale would
-# silently launder any line), and the marker text sitting inside a STRING LITERAL does NOT
-# exempt a real leaf on that same code line (the marker is matched against the quote-aware
-# comment tail, not the raw line — else the guard fails open exactly where it claims closed).
+# silently launder any line), whitespace-only reason does NOT exempt (the `\S` anchor), the
+# marker text sitting inside a STRING LITERAL does NOT exempt a real leaf on that same code
+# line (the marker is matched against the quote-aware comment tail, not the raw line — else the
+# guard fails open exactly where it claims closed), and the marker is genuinely LINE-scoped: a
+# marker on a different line does NOT launder an undeclared leaf (the literal meaning of
+# "line-scoped", so a future regression to file-level "any marker exempts the file" fails RED).
 # Drives the WHOLE guard pipeline over a synthetic population of a now-non-exempt migration
 # path; the leaf is assembled from parts so run.sh carries no literal.
-assert_eq "#1096 guard: line-scoped superseded-key-ok marker (undeclared/marked/empty/spoof)" "1 0 1 1" \
+assert_eq "#1096 guard: line-scoped superseded-key-ok marker (undeclared/marked/empty/ws/spoof/cross-line)" "1 0 1 1 1 1" \
   "$(python3 - "$L1084_LINT" <<'PY'
 import importlib.util, io, sys, contextlib
 spec = importlib.util.spec_from_file_location("g", sys.argv[1])
@@ -43682,15 +43685,19 @@ r_undeclared = run_main("# probes ." + LEAF + " here")
 r_marked = run_main("# probes ." + LEAF + "  # superseded-key-ok: legitimate migration probe")
 # 3) same leaf with a bare/empty-reason marker → rc 1 (reason must be non-empty)
 r_empty = run_main("# probes ." + LEAF + "  # superseded-key-ok:")
-# 4) marker text inside a STRING literal, real leaf in code on the same line → rc 1 (no spoof)
+# 4) same leaf with a whitespace-only reason → rc 1 (the `\S` anchor rejects it)
+r_ws = run_main("# probes ." + LEAF + "  # superseded-key-ok:   ")
+# 5) marker text inside a STRING literal, real leaf in code on the same line → rc 1 (no spoof)
 r_spoof = run_main('bad = "# superseded-key-ok: spoof"; probe(' + LEAF + ')')
-print(r_undeclared, r_marked, r_empty, r_spoof)
+# 6) leaf on one line, marker on a DIFFERENT line → rc 1 (line-scoped, not file-scoped)
+r_crossline = run_main("# probes ." + LEAF + "\n# superseded-key-ok: on a different line")
+print(r_undeclared, r_marked, r_empty, r_ws, r_spoof, r_crossline)
 PY
 )"
-# #1096: config-get.sh's real line-135 marker is honored on the LIVE tree — the guard's own
-# clean-tree rc=0 above would still pass if config-get.sh were re-added to _EXEMPT_EXACT, so
-# assert the file is NOT whole-file exempt yet the tree stays clean (i.e. the marker, not an
-# exemption, is what keeps it green).
+# #1096: config-get.sh's real `# superseded-key-ok:` marker is honored on the LIVE tree — the
+# guard's own clean-tree rc=0 above would still pass if config-get.sh were re-added to
+# _EXEMPT_EXACT, so assert the file is NOT whole-file exempt yet the tree stays clean (i.e. the
+# marker, not an exemption, is what keeps it green).
 assert_eq "#1096 guard: migration files are line-scoped, not whole-file exempt" "not-exempt" \
   "$(python3 - "$L1084_LINT" <<'PY'
 import importlib.util, sys

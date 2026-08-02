@@ -27,14 +27,19 @@ automatically. Three things are intentionally NOT policed here:
   consumer still recognises their own key — policing it would flag the correct end state.
 * The declared-exemption sites below, which must keep the superseded spelling. These come in
   two granularities. **Whole-file** exemptions (``_EXEMPT_EXACT`` / ``_EXEMPT_PREFIXES``) cover
-  genuinely non-scannable sites — frozen records, fixtures, the rename map, and changelog /
-  changeset / doc prose — where scanning would only re-flag content that legitimately keeps the
-  old spelling. **Line-scoped** exemptions cover live executable files that are mostly scannable
-  but carry a few legitimate both-spelling lines (the migration helpers): a trailing
+  sites not worth line-by-line scanning — frozen records, fixtures, the rename map, changelog /
+  changeset / doc prose, and a few executable files whose superseded references are pervasive
+  rather than one-per-line — where scanning would only re-flag content that legitimately keeps
+  the old spelling. **Line-scoped** exemptions cover files that are mostly scannable but carry a
+  few legitimate both-spelling lines (the migration helpers): a trailing
   ``# superseded-key-ok: <non-empty reason>`` declaration marker (issue #1096, mirroring the
   repo's ``# tree-walk-ok:`` / ``# raw-guard-ok:`` / ``# structural-pin-ok:`` family) exempts
   only that one line, so the rest of the file is still scanned for an **undeclared** regression —
   the highest-blast-radius place for a dead-family read, per CLAUDE.md's half-migrated-tree note.
+  Like its sibling markers, ``# superseded-key-ok:`` is honored in **any** scanned file, not only
+  the migration helpers, and it exempts the whole **physical line** (a second, undeclared leaf
+  piled onto an already-marked line is an accepted, greppable blind spot — the same whole-line
+  granularity the sibling markers carry).
 
 Population is sourced from ``lib/test/lint_population.py``'s ``enumerate_population`` with the
 index-reading ``git ls-files`` argv (no ``--others``, no recursive tree walk) per issue #711,
