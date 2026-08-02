@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1155",
+  "generated_at": "2026-08-02T18:26:46Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.52",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 11.984053249999999,
+    "tokens": {
+      "input_tokens": 74,
+      "output_tokens": 38560,
+      "cache_read_input_tokens": 6547899,
+      "cache_creation_input_tokens": 239759,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 162,
+        "outputTokens": 76894,
+        "cacheReadInputTokens": 10076969,
+        "cacheCreationInputTokens": 659730,
+        "webSearchRequests": 0,
+        "costUSD": 11.984053249999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 45,
+    "duration_ms": 763845
+  },
+  "permission_denials": {
+    "count": 8,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "git status --porcelain; echo \"---RUNID---\"; echo \"${GITHUB_RUN_ID:-none}-${GITHUB_RUN_ATTEMPT:-1}\"",
+      "mkdir -p .prflow/tmp/review/pr-1155/30760603873-1\ngh pr diff 1155 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1155/30760603873-1/diff.patch >/dev/null\necho \"diff-rc=${PIPESTATUS[0]}\"\nwc -l .prflow/tmp/review/pr-1155/30760603873-1/diff.patch",
+      "mkdir -p .prflow/tmp/review/pr-1155/30760603873-1\n/home/runner/work/prflow/prflow/skills/review/../../scripts/seed-review-progress.sh 1155 \"\" .prflow/tmp/review/pr-1155/30760603873-1/review-wp.md ; echo \"seed-rc=$?\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1154 --pr 1155 2>.prflow/tmp/review/pr-1155/30760603873-1/acs.err ; echo \"acs-rc=$?\"",
+      "for f in docs/shadow-review.md docs/workflow-triggers.md skills/review-and-fix/references/error-handling.md skills/review-and-fix/references/loop-control.md skills/review-and-fix/references/loop-exit.md skills/review-and-fix/references/shadow-review.md; do echo \"== $f ==\"; git show c737fb17cc28778cc46c8fc4a3f10c066b187d2d:$f | grep -n \"silent on GitHub\" || echo \"  (none)\"; done",
+      "HEAD=c737fb17cc28778cc46c8fc4a3f10c066b187d2d\nfor f in docs/shadow-review.md docs/workflow-triggers.md skills/review-and-fix/references/error-handling.md skills/review-and-fix/references/loop-control.md skills/review-and-fix/references/loop-exit.md skills/review-and-fix/references/shadow-review.md; do\n  echo \"== $f ==\"\n  git show \"$HEAD:$f\" | grep -n \"silent on GitHub\" || echo \"  (none)\"\ndone",
+      ".prflow/vendor/prflow/scripts/workpad.py patch 5159697576 .prflow/tmp/review/pr-1155/30760603873-1/review-wp.md 2>.prflow/tmp/review/pr-1155/30760603873-1/rv-patch.err ; echo \"patch-rc=$?\"; cat .prflow/tmp/review/pr-1155/30760603873-1/rv-patch.err"
+    ],
+    "total": 8,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
