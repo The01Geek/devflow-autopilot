@@ -535,6 +535,24 @@ else
     WORKPAD_BODY_JSON="null"
 fi
 
+# base_update_checkpoint4_present (issue #1050): whether the Phase 4.3 pre-ready
+# base-update checkpoint recorded its evidence row. That row carries the hidden
+# keyed-checkpoint marker `<!-- prflow:checkpoint base-update-checkpoint-4 -->`
+# (or its superseded `devflow:` spelling on a pre-rename workpad). Deriving it here
+# turns the checkpoint-4 evidence obligation from prose-only into a machine-consumed
+# downstream field a consumer reads — never a substring search over the free-text
+# note. The key is deliberately OUTSIDE the `gha:` prefix the review/review-and-fix
+# tier discriminator matches, so surfacing it never reclassifies a run's tier.
+# Matched with a bash `case` builtin — NOT grep/sed — because this value is EMITTED
+# in the bundle, and CLAUDE.md bars deriving an emitted value through a non-preflight
+# PATH tool (a missing tool would silently yield the wrong answer). Fails closed to
+# false: an absent/empty workpad body has no marker.
+BASE_UPDATE_CHECKPOINT4_PRESENT=false
+case "$WORKPAD_BODY" in
+    *'<!-- prflow:checkpoint base-update-checkpoint-4 -->'*|*'<!-- devflow:checkpoint base-update-checkpoint-4 -->'*)
+        BASE_UPDATE_CHECKPOINT4_PRESENT=true ;;
+esac
+
 # implement_summary_comment: best-effort
 IMPLEMENT_SUMMARY="$(echo "$PR_COMMENTS_RAW" | "$DEVFLOW_JQ" -r '[.[] | select(.body | test("Claude finished|/implement #"; "i"))] | first | .body // ""')"
 if [ -n "$IMPLEMENT_SUMMARY" ]; then
@@ -615,7 +633,7 @@ printf '%s' "$WORKPAD_BODY_JSON"        > "$_JQ_TMP/workpad_body.json"
 printf '%s' "$REFLECTIONS"              > "$_JQ_TMP/reflections.json"
 printf '%s' "$IMPLEMENT_SUMMARY_JSON"   > "$_JQ_TMP/implement_summary_comment.json"
 
-# argjson-ok: pr additions deletions diff_truncated issue_number review_reject_outstanding review_comments_count post_bot_commits ci_failures_during_pr ci_status_unknown pr_devflow_provenance reflections_friction_count ttm_hours -- all bounded scalars (numbers/booleans), never corpus-sized; every corpus-sized operand here is routed via --slurpfile (issue #895)
+# argjson-ok: pr additions deletions diff_truncated issue_number review_reject_outstanding review_comments_count post_bot_commits ci_failures_during_pr ci_status_unknown pr_devflow_provenance reflections_friction_count base_update_checkpoint4_present ttm_hours -- all bounded scalars (numbers/booleans), never corpus-sized; every corpus-sized operand here is routed via --slurpfile (issue #895)
 "$DEVFLOW_JQ" -n \
     --argjson pr "$PR" \
     --arg kind "$KIND" \
@@ -653,6 +671,7 @@ printf '%s' "$IMPLEMENT_SUMMARY_JSON"   > "$_JQ_TMP/implement_summary_comment.js
     --arg workpad_final_status "$WORKPAD_FINAL_STATUS" \
     --argjson pr_devflow_provenance "$PR_DEVFLOW_PROVENANCE" \
     --argjson reflections_friction_count "$REFLECTION_FRICTION_COUNT" \
+    --argjson base_update_checkpoint4_present "$BASE_UPDATE_CHECKPOINT4_PRESENT" \
     --argjson ttm_hours "$TTM_HOURS" \
     '{
         pr: $pr,
@@ -683,6 +702,7 @@ printf '%s' "$IMPLEMENT_SUMMARY_JSON"   > "$_JQ_TMP/implement_summary_comment.js
         pr_devflow_provenance: $pr_devflow_provenance,
         reflections: $reflections[0],
         reflections_friction_count: $reflections_friction_count,
+        base_update_checkpoint4_present: $base_update_checkpoint4_present,
         review_verdicts: $review_verdicts[0],
         implement_summary_comment: $implement_summary_comment[0],
         signals: {
