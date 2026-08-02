@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.48] — 2026-08-02
+
+### Changed
+- **The review engine's `config_only` extension set is now recorded as a deliberate required copy, and the prompt-extension linter bindings are recorded as three separate questions rather than a contradiction.** The extension set has two homes — `skills/review/phases/phase-0-setup.md` §0.5, which produces the flag, and `skills/review/phases/phase-3-agents.md` §3.1's test-relevance predicate — and single-sourcing it is wrong rather than deferred: each file is a separately gated phase reference reached by its own read at its own phase entry, so a pointer from Phase 3 to Phase 0 would make a Phase 3 decision depend on Phase 0's text still being resident in context. `CLAUDE.md`'s permanent-exceptions population now carries that decision, and each phase reference carries an authoring note naming its counterpart so the pair stays under same-commit reconciliation. Separately, `lint-issue-body-refetch.py` now states that its `.prflow/prompt-extensions/**` mention is an out-of-population note scoped to the issue-body-refetch question — it adjudicates nothing about what a prompt extension is, so it does not conflict with the two sibling lints that bind the same path shape for the subagent-extension-handoff and dispatch-namespace questions; the two siblings point at that record instead of restating it. No behavior changes. (#1076)
+
 ## [2.30.47] — 2026-08-02
 
 ### Changed
