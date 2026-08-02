@@ -312,7 +312,7 @@
       "owner": "unmodularized"
     },
     "scripts/dismiss-stale-rejections.sh": {
-      "note": "",
+      "note": "#1030 added the prflow:review-verdict marker arm and the unselected-review count, driven over the checked-in census corpus lib/test/fixtures/review-verdict-census.json.",
       "owner": "unmodularized"
     },
     "scripts/emit-git-env.sh": {
@@ -435,7 +435,7 @@
       "owner": "unmodularized"
     },
     "scripts/post-review-verdict.sh": {
-      "note": "#1059 formal-review-verdict poster; driven directly from lib/test/run.sh's 'post-review-verdict.sh' block over the five-outcome matrix (POSTED/FAILED/SKIP) under a faithful gh+jq stub, plus the no-silent-path guarantee-class control.",
+      "note": "#1059 formal-review-verdict poster, extended by #1030 into the producer of the prflow:review-verdict marker; driven directly from lib/test/run.sh's 'post-review-verdict.sh' block over the verdict-token-to-channel matrix, the marker line-1 stamp, the comment-channel fallback, the progress-comment stamp and every SKIP/FAILED arm under a faithful gh+jq stub, plus two guarantee-class controls.",
       "owner": "unmodularized"
     },
     "scripts/preflight.py": {
@@ -703,6 +703,10 @@
       "owner": "unmodularized"
     },
     "103": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1030": {
       "note": "",
       "owner": "unmodularized"
     },

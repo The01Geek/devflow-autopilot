@@ -15171,59 +15171,155 @@ dsr_run rev-mixed.json pull-head.json DSR_LIST_RC=1
 assert_eq "#1029 dismisser: a failed review list reads no head, dismisses nothing, exits 1" \
   "1-0-0" "$DSR_RC-$(dsr_calls 'read-head')-$(dsr_calls 'dismissals')"
 
+# ── #1030: the producer marker, driven over the REAL census corpus ────────────
+# lib/test/fixtures/review-verdict-census.json holds the nine bot CHANGES_REQUESTED
+# bodies issue #1030 measured across PRs #942-#1024 (six of which matched NEITHER
+# transitional prose shape) plus the four APPROVE-form bodies from the same census.
+# Every assertion below runs the SHIPPED filter over bodies built from those recorded
+# first lines — none greps a source file for wording.
+DSR_CENSUS="$LIB/test/fixtures/review-verdict-census.json"
+# Build three review pages from the corpus: marker-stamped, unmarked, and a
+# marker-carrying APPROVE. `commit_id` is the superseded commit on every row, so the
+# #1029 staleness arms wave them through and SELECTION is the only variable.
+python3 - "$DSR_CENSUS" "$DSR_SB" "$DSR_OLD_SHA" <<'PYEOF'
+import json, sys
+census, sb, old = json.load(open(sys.argv[1])), sys.argv[2], sys.argv[3]
+marker = "<!-- prflow:review-verdict head=%s verdict=%%s -->" % old
+def body(row, verdict=None):
+    text = row["first_line"] + "\n\nfindings follow in the progress comment.\n"
+    return (marker % verdict) + "\n" + text if verdict else text
+def page(rows, verdict=None):
+    return [{"id": int(r["review_id"]), "state": "CHANGES_REQUESTED",
+             "commit_id": old, "body": body(r, verdict)} for r in rows]
+rej = census["rejects"]
+json.dump(page(rej, "REJECT"), open(sb + "/rev-census-marked.json", "w"))
+json.dump(page(rej), open(sb + "/rev-census-unmarked.json", "w"))
+# A marker whose verdict is APPROVE is NOT a dismissal candidate even on a body whose
+# prose would otherwise say nothing: the marker's verdict field is what decides.
+json.dump(page([r for r in rej if not r["dismisser_prose_match"]][:1], "APPROVE"),
+          open(sb + "/rev-marker-approve.json", "w"))
+# A human block whose body QUOTES the marker deeper in its prose (routine on a pull
+# request that touches the review engine itself) must not be selected: only line 1
+# is the producer's own stamp.
+quoted = ("Please fix this.\n\nThe contract line is:\n\n```\n"
+          + (marker % "REJECT") + "\n```\n")
+json.dump([{"id": 900, "state": "CHANGES_REQUESTED", "commit_id": old, "body": quoted}],
+          open(sb + "/rev-marker-quoted.json", "w"))
+# Counts this block asserts against, derived from the corpus rather than transcribed.
+open(sb + "/census-counts", "w").write("%d %d %d\n" % (
+    len(rej), sum(1 for r in rej if r["dismisser_prose_match"]),
+    sum(1 for r in rej if not r["dismisser_prose_match"])))
+PYEOF
+read -r DSR_CENSUS_ALL DSR_CENSUS_CONFORMING DSR_CENSUS_NONCONFORMING < "$DSR_SB/census-counts"
+
+# Every census REJECT, marker-stamped, is selected and dismissed — including the six
+# that matched no prose shape and were therefore invisible before #1030.
+dsr_run rev-census-marked.json pull-head.json
+assert_eq "#1030 dismisser: every marker-stamped census REJECT is dismissed" \
+  "$DSR_CENSUS_ALL" "$(dsr_calls 'dismissals')"
+assert_eq "#1030 dismisser: the marker-stamped census page is a clean pass (exit 0)" \
+  "0" "$DSR_RC"
+assert_eq "#1030 dismisser: no marker-stamped census row is reported unselected" \
+  "0" "$(printf '%s\n' "$DSR_ERR" | grep -c 'did not select')"
+
+# Negative control — the SAME nine bodies unmarked select exactly the historically
+# conforming subset, proving the transitional prose arms are unchanged rather than
+# widened, and that the marker arm is what moved the other six.
+dsr_run rev-census-unmarked.json pull-head.json
+assert_eq "#1030 dismisser: unmarked census page selects only the historically conforming bodies" \
+  "$DSR_CENSUS_CONFORMING" "$(dsr_calls 'dismissals')"
+# ...and the six it cannot own are COUNTED on stderr, so the run is distinguishable
+# from a clean no-op (the silent misclassification #1030 exists to end).
+assert_eq "#1030 dismisser: the unowned census REJECTs are reported, not silently dropped" \
+  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c "carries $DSR_CENSUS_NONCONFORMING outstanding CHANGES_REQUESTED review(s) this script did not select")"
+
+# A marker carrying verdict=APPROVE is never a dismissal candidate.
+dsr_run rev-marker-approve.json pull-head.json
+assert_eq "#1030 dismisser: a marker whose verdict is APPROVE is not selected" \
+  "0-0" "$(dsr_calls 'dismissals')-$DSR_RC"
+# A marker quoted inside a human's prose is not the producer's stamp.
+dsr_run rev-marker-quoted.json pull-head.json
+assert_eq "#1030 dismisser: a marker quoted in prose below line 1 is not selected" \
+  "0-0" "$(dsr_calls 'dismissals')-$DSR_RC"
+# The pre-existing no-candidate path still costs exactly one API call: an unowned
+# review must not make the head read eager.
+assert_eq "#1030 dismisser: an unowned-only page still reads no head" \
+  "0" "$(dsr_calls 'read-head')"
+
 rm -rf "$DSR_SB"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "post-review-verdict.sh"
 # ────────────────────────────────────────────────────────────────────────────
-# Issue #1059: the formal-review verdict post is a bundled helper with a CLOSED
-# outcome vocabulary. Everything below drives the REAL script under a FAITHFUL
-# `gh` fake: the stub records the POST + its stdin (the JSON request body the
-# helper composed with jq --rawfile), so "the body-file bytes reached the API"
-# and "exactly one request was issued" are OBSERVATIONS from the call log rather
-# than inferences from the exit status. jq is real (the helper's DEVFLOW_JQ). The
-# knob PRV_RC injects the API-refusal path, PRV_ERR its (possibly multi-line)
-# stderr.
+# Issues #1059 + #1030: the formal-review verdict post is a bundled helper with a
+# CLOSED outcome vocabulary that names the durable channel, and it — not the agent —
+# composes the machine-readable verdict marker. Everything below drives the REAL
+# script under a FAITHFUL `gh` fake: the stub records each call and its stdin (the
+# JSON request body the helper composed with jq --rawfile), so "the marker is line 1
+# of the posted body", "the body-file bytes reached the API" and "exactly one request
+# was issued" are OBSERVATIONS from the call log rather than inferences from the exit
+# status. jq is real (the helper's DEVFLOW_JQ). PRV_REVIEW_RC / PRV_COMMENT_RC inject
+# the two channel refusals, PRV_ERR the (possibly multi-line) stderr.
 PRV="$LIB/../scripts/post-review-verdict.sh"
 PRV_SB="$(mktemp -d)"
+PRV_HEAD="3333333333333333333333333333333333333333"
 cat > "$PRV_SB/gh" <<'EOS'
 #!/usr/bin/env bash
-# Faithful-enough gh: only the `api -X POST .../reviews` call matters. Record the
-# arg string to the call log ($PRV_LOG) and the JSON request body from stdin to a
-# SEPARATE body file ($PRV_SB_BODY, which the assertions read via jq), then honor
-# the failure knobs. The literal {owner}/{repo} path passes through verbatim — the
-# helper never interpolates $GITHUB_REPOSITORY (asserted separately by
-# lint-gh-api-repo-path.py).
+# Faithful-enough gh. Four endpoints matter and the arm order is load-bearing (a
+# comments-list URL also contains "issues/"): the reviews POST, the issue-comments
+# POST (the helper's own fallback channel), the paginated comments LIST the progress
+# stamp reads, and the comment PATCH it writes. Each records its arg string to the
+# call log ($PRV_LOG) and its JSON request body to a per-endpoint file the assertions
+# read via jq. The literal {owner}/{repo} path passes through verbatim — the helper
+# never interpolates $GITHUB_REPOSITORY (asserted separately by lint-gh-api-repo-path.py).
 if [ "$1" = "api" ]; then
-  BODY="$(cat)"
-  printf 'POST %s\n' "$*" >> "$PRV_LOG"
-  printf '%s' "$BODY" > "$PRV_SB_BODY"
-  if [ "${PRV_RC:-0}" != 0 ]; then
-    printf '%s' "${PRV_ERR:-HTTP 422 Unprocessable Entity}" >&2
-    exit 1
-  fi
-  exit 0
+  case "$*" in
+    *"comments?per_page"*)
+      printf 'LIST %s\n' "$*" >> "$PRV_LOG"
+      [ "${PRV_LIST_RC:-0}" = 0 ] || { printf 'HTTP 403 list refused' >&2; exit 1; }
+      cat "${PRV_COMMENTS:-/dev/null}"; exit 0 ;;
+    *"issues/comments/"*)
+      BODY="$(cat)"; printf 'PATCH %s\n' "$*" >> "$PRV_LOG"; printf '%s' "$BODY" > "$PRV_SB_PATCH"
+      [ "${PRV_PATCH_RC:-0}" = 0 ] || { printf 'HTTP 422 patch refused' >&2; exit 1; }
+      exit 0 ;;
+    *"/reviews"*)
+      BODY="$(cat)"; printf 'POST %s\n' "$*" >> "$PRV_LOG"; printf '%s' "$BODY" > "$PRV_SB_BODY"
+      [ "${PRV_REVIEW_RC:-0}" = 0 ] || { printf '%s' "${PRV_ERR-HTTP 422 Unprocessable Entity}" >&2; exit 1; }
+      exit 0 ;;
+    *"/comments"*)
+      BODY="$(cat)"; printf 'COMMENT %s\n' "$*" >> "$PRV_LOG"; printf '%s' "$BODY" > "$PRV_SB_CBODY"
+      [ "${PRV_COMMENT_RC:-0}" = 0 ] || { printf '%s' "${PRV_CERR-HTTP 500 comment refused}" >&2; exit 1; }
+      exit 0 ;;
+  esac
 fi
 exit 0
 EOS
 chmod +x "$PRV_SB/gh"
 
-# $1 event, $2 body-file path, rest: stub knobs as VAR=VALUE.
+# $1 verdict token, $2 body-file path, $3 head, $4 progress marker, rest: stub knobs
+# as VAR=VALUE. PRV_OUT holds every stdout line; PRV_OUT1 only the OUTCOME line, which
+# is what the caller routes on.
 prv_run() {
-  local ev="$1" bf="$2"; shift 2
+  local vd="$1" bf="$2" hd="$3" pm="$4"; shift 4
   : > "$PRV_SB/log"
   PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" \
-             PRV_SB_BODY="$PRV_SB/body" \
-             env "$@" bash "$PRV" 123 "$ev" "$bf" 2>/dev/null)"
+             PRV_SB_BODY="$PRV_SB/body" PRV_SB_CBODY="$PRV_SB/cbody" PRV_SB_PATCH="$PRV_SB/patch" \
+             env "$@" bash "$PRV" 123 "$vd" "$bf" "$hd" "$pm" 2>/dev/null)"
   PRV_RC_OBS=$?
+  PRV_OUT1="${PRV_OUT%%$'\n'*}"
 }
 prv_posts() { grep -c '^POST ' "$PRV_SB/log"; }
-# BYTE-EXACT body comparison. jq -j (raw, NO trailing newline) writes the sent body
-# verbatim, then cmp against the source file — so the trailing-newline dimension
-# (empty vs a lone newline) is genuinely distinguished, unlike a $()-captured
-# compare, which strips ALL trailing newlines from both sides and cannot tell them
-# apart.
-prv_body_matches() { jq -j '.body' "$PRV_SB/body" > "$PRV_SB/got"; cmp -s "$PRV_SB/got" "$1" && echo yes || echo no; }
+prv_calls() { grep -c "^$1 " "$PRV_SB/log"; }
+# BYTE-EXACT comparison of the posted body's TAIL (everything after the marker line)
+# against the source file. jq -j (raw, NO trailing newline) writes the sent body
+# verbatim, then cmp against the source — so the trailing-newline dimension (empty vs
+# a lone newline) is genuinely distinguished, unlike a $()-captured compare, which
+# strips ALL trailing newlines from both sides and cannot tell them apart.
+prv_tail_matches() {
+  jq -j '.body | sub("^[^\n]*\n"; "")' "${2:-$PRV_SB/body}" > "$PRV_SB/got"
+  cmp -s "$PRV_SB/got" "$1" && echo yes || echo no
+}
+prv_line1() { jq -r '.body | split("\n")[0]' "${1:-$PRV_SB/body}"; }
 
 printf 'plain body line\nsecond line\n' > "$PRV_SB/body-plain.md"
 printf '' > "$PRV_SB/body-empty.md"
@@ -15233,94 +15329,192 @@ printf '\n' > "$PRV_SB/body-nl.md"
 printf '## Verdict: APPROVE\ntricky: `bt` $(cmd) "q" end\n' > "$PRV_SB/body-tricky.md"
 # A body whose first bytes LOOK like a gh error blob: posted verbatim, not interpreted.
 printf 'HTTP 422 Unprocessable Entity\nnot really an error\n' > "$PRV_SB/body-errshape.md"
+# A body already carrying the marker on line 1 (a re-post) and one merely QUOTING the
+# marker deeper in its prose (a finding citing this contract).
+printf '<!-- prflow:review-verdict head=%s verdict=APPROVE -->\nreal report line\n' "$PRV_HEAD" > "$PRV_SB/body-premarked.md"
+printf 'report line\n\n```\n<!-- prflow:review-verdict head=%s verdict=APPROVE -->\n```\n' "$PRV_HEAD" > "$PRV_SB/body-quoting.md"
 
-# ── Happy path: each of the three events posts once and reports POSTED <event> ──
-for EV in APPROVE REQUEST_CHANGES COMMENT; do
-  prv_run "$EV" "$PRV_SB/body-plain.md"
-  assert_eq "#1059 post-verdict: $EV → POSTED $EV, exit 0" "POSTED $EV-0" "$PRV_OUT-$PRV_RC_OBS"
-  assert_eq "#1059 post-verdict: $EV issues exactly one POST" "1" "$(prv_posts)"
-  assert_eq "#1059 post-verdict: $EV POST targets the reviews endpoint with the event" "1" \
-    "$(grep -c "pulls/123/reviews" "$PRV_SB/log")"
-  # The body file's bytes reach the API byte-exactly (extracted from the composed JSON).
-  assert_eq "#1059 post-verdict: $EV sends the body-file bytes verbatim" "yes" \
-    "$(prv_body_matches "$PRV_SB/body-plain.md")"
-  assert_eq "#1059 post-verdict: $EV sends the mapped event in the JSON" "$EV" \
-    "$(jq -r '.event' "$PRV_SB/body")"
+# ── Verdict token → channel + marker verdict. The five Phase 4.2 verdict tokens, ──
+# ── then the three REST-event spellings #1059 shipped (still accepted).          ──
+# Each row: "<token>|<expected event>|<expected marker verdict>".
+for ROW in \
+  'REJECT|REQUEST_CHANGES|REJECT' \
+  'REJECT (self-contradicting diff)|REQUEST_CHANGES|REJECT' \
+  'APPROVE|APPROVE|APPROVE' \
+  'APPROVE with notes|COMMENT|APPROVE' \
+  'APPROVE WITH CAVEAT|COMMENT|APPROVE' \
+  'APPROVE WITH ADVISORY NOTES|COMMENT|APPROVE' \
+  'REQUEST_CHANGES|REQUEST_CHANGES|REJECT' \
+  'COMMENT|COMMENT|APPROVE' ; do
+  PRV_TOK="${ROW%%|*}"; PRV_REST="${ROW#*|}"
+  PRV_WANT_EV="${PRV_REST%%|*}"; PRV_WANT_VD="${PRV_REST#*|}"
+  prv_run "$PRV_TOK" "$PRV_SB/body-plain.md" "$PRV_HEAD" ""
+  assert_eq "#1030 post-verdict: '$PRV_TOK' → POSTED review $PRV_WANT_EV, exit 0" \
+    "POSTED review $PRV_WANT_EV-0" "$PRV_OUT1-$PRV_RC_OBS"
+  assert_eq "#1030 post-verdict: '$PRV_TOK' issues exactly one review POST at the reviews endpoint" \
+    "1-1" "$(prv_posts)-$(grep -c 'pulls/123/reviews' "$PRV_SB/log")"
+  assert_eq "#1030 post-verdict: '$PRV_TOK' sends the mapped event in the JSON" \
+    "$PRV_WANT_EV" "$(jq -r '.event' "$PRV_SB/body")"
+  # The marker is composed by the HELPER and is byte-exactly line 1 of the posted body.
+  assert_eq "#1030 post-verdict: '$PRV_TOK' stamps the normalized marker as body line 1" \
+    "<!-- prflow:review-verdict head=$PRV_HEAD verdict=$PRV_WANT_VD -->" "$(prv_line1)"
+  # ...and everything after it is the body file, byte for byte.
+  assert_eq "#1030 post-verdict: '$PRV_TOK' sends the body-file bytes verbatim below the marker" \
+    "yes" "$(prv_tail_matches "$PRV_SB/body-plain.md")"
 done
 
 # ── Boundary bodies: empty, single-newline, tricky, error-shaped — all verbatim ──
 for BF in body-empty.md body-nl.md body-tricky.md body-errshape.md; do
-  prv_run APPROVE "$PRV_SB/$BF"
-  assert_eq "#1059 post-verdict: body $BF → POSTED, exit 0" "POSTED APPROVE-0" "$PRV_OUT-$PRV_RC_OBS"
-  assert_eq "#1059 post-verdict: body $BF reaches the API byte-exactly" "yes" \
-    "$(prv_body_matches "$PRV_SB/$BF")"
+  prv_run APPROVE "$PRV_SB/$BF" "$PRV_HEAD" ""
+  assert_eq "#1059 post-verdict: body $BF → POSTED review, exit 0" \
+    "POSTED review APPROVE-0" "$PRV_OUT1-$PRV_RC_OBS"
+  assert_eq "#1030 post-verdict: body $BF reaches the API byte-exactly below the marker" \
+    "yes" "$(prv_tail_matches "$PRV_SB/$BF")"
 done
 
-# ── Error / failure path: an API refusal yields FAILED <one line>, exit 1 ──
-prv_run APPROVE "$PRV_SB/body-plain.md" PRV_RC=1 PRV_ERR="HTTP 422 Unprocessable Entity"
-assert_eq "#1059 post-verdict: API refusal → exit 1" "1" "$PRV_RC_OBS"
-assert_eq "#1059 post-verdict: API refusal → FAILED carries the captured error" "yes" \
-  "$(case "$PRV_OUT" in "FAILED HTTP 422 Unprocessable Entity") echo yes;; *) echo no;; esac)"
-# The refusal path still issued the request exactly once (the stub logs the POST
-# before honoring PRV_RC) — a regression issuing zero or two would pass otherwise.
-assert_eq "#1059 post-verdict: a refused post still issues exactly one POST" "1" "$(prv_posts)"
-# A multi-line stderr collapses to exactly ONE output line.
-prv_run APPROVE "$PRV_SB/body-plain.md" PRV_RC=1 PRV_ERR=$'line one\nline two\nline three'
-assert_eq "#1059 post-verdict: multi-line API error → exactly one output line" "1" \
-  "$(printf '%s\n' "$PRV_OUT" | grep -c .)"
-assert_eq "#1059 post-verdict: multi-line API error is collapsed onto the FAILED line" "yes" \
-  "$(case "$PRV_OUT" in "FAILED line one line two line three") echo yes;; *) echo no;; esac)"
-# An EMPTY stderr still yields a FAILED line (never a bare non-zero exit).
-prv_run APPROVE "$PRV_SB/body-plain.md" PRV_RC=1 PRV_ERR=""
-assert_eq "#1059 post-verdict: empty API error still prints a FAILED line, exit 1" "yes-1" \
-  "$(case "$PRV_OUT" in "FAILED "*) echo yes;; *) echo no;; esac)-$PRV_RC_OBS"
+# ── Idempotency of the stamp: a body already marked on line 1 is not double-stamped, ──
+# ── while a marker QUOTED in prose is preserved and the producer's own stays line 1. ──
+prv_run REJECT "$PRV_SB/body-premarked.md" "$PRV_HEAD" ""
+assert_eq "#1030 post-verdict: a pre-marked line 1 is replaced, never double-stamped" \
+  "<!-- prflow:review-verdict head=$PRV_HEAD verdict=REJECT -->-1" \
+  "$(prv_line1)-$(jq -r '.body' "$PRV_SB/body" | grep -c 'prflow:review-verdict')"
+prv_run REJECT "$PRV_SB/body-quoting.md" "$PRV_HEAD" ""
+assert_eq "#1030 post-verdict: a marker quoted in prose is preserved and the producer's own is line 1" \
+  "<!-- prflow:review-verdict head=$PRV_HEAD verdict=REJECT -->-2" \
+  "$(prv_line1)-$(jq -r '.body' "$PRV_SB/body" | grep -c 'prflow:review-verdict')"
+assert_eq "#1030 post-verdict: a quoting body still reaches the API byte-exactly below the marker" \
+  "yes" "$(prv_tail_matches "$PRV_SB/body-quoting.md")"
 
 # ── Adversarial / malformed input: every SKIP issues NO request ──
-# Non-numeric PR (drive the helper directly to control argv[1]).
-# Reset the log BEFORE the single run so its own POST count is the observation
-# (this case bypasses prv_run only to control argv[1]; one invocation suffices).
-: > "$PRV_SB/log"
-PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" \
-  bash "$PRV" abc APPROVE "$PRV_SB/body-plain.md" 2>/dev/null)"; PRV_RC_OBS=$?
-assert_eq "#1059 post-verdict: non-numeric PR → SKIP not-numeric, exit 3, no request" \
-  "SKIP not-numeric-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
-# The EMPTY-string PR number is the case glob's OTHER arm (''|*[!0-9]*) and the
-# omitted-argv[1] shape — exercise it so narrowing the pattern to only *[!0-9]* is caught.
-: > "$PRV_SB/log"
-PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" \
-  bash "$PRV" "" APPROVE "$PRV_SB/body-plain.md" 2>/dev/null)"; PRV_RC_OBS=$?
-assert_eq "#1059 post-verdict: empty PR number → SKIP not-numeric, exit 3, no request" \
-  "SKIP not-numeric-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
-# Unknown event AND the empty string both refuse (no PENDING draft can be created).
-prv_run FOO "$PRV_SB/body-plain.md"
-assert_eq "#1059 post-verdict: unknown event → SKIP unknown-event, exit 3, no request" \
-  "SKIP unknown-event-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
-prv_run "" "$PRV_SB/body-plain.md"
-assert_eq "#1059 post-verdict: EMPTY event → SKIP unknown-event, exit 3, no request" \
-  "SKIP unknown-event-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
+# Non-numeric and empty PR numbers (drive the helper directly to control argv[1]).
+for PRNUM in abc ""; do
+  : > "$PRV_SB/log"
+  PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" \
+    bash "$PRV" "$PRNUM" APPROVE "$PRV_SB/body-plain.md" "$PRV_HEAD" 2>/dev/null)"; PRV_RC_OBS=$?
+  assert_eq "#1059 post-verdict: PR number '$PRNUM' → SKIP not-numeric, exit 3, no request" \
+    "SKIP not-numeric-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
+done
+# A verdict token outside the enum, and the empty string, both refuse (no PENDING
+# draft can be created). `APPROVED` is the near-miss the REST-state vocabulary invites.
+for TOK in FOO APPROVED REJECTED "" " "; do
+  prv_run "$TOK" "$PRV_SB/body-plain.md" "$PRV_HEAD" ""
+  assert_eq "#1030 post-verdict: verdict token '$TOK' → SKIP unknown-event, exit 3, no request" \
+    "SKIP unknown-event-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
+done
+# A head that is not exactly 40 hex characters refuses rather than stamping a marker
+# whose head= field could never compare equal to a real commit_id.
+for HD in "" abc 333333333333333333333333333333333333333 33333333333333333333333333333333333333333 "3333333333333333333333333333333333333zzz"; do
+  prv_run APPROVE "$PRV_SB/body-plain.md" "$HD" ""
+  assert_eq "#1030 post-verdict: head '$HD' → SKIP head-not-sha, exit 3, no request" \
+    "SKIP head-not-sha-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
+done
+# Upper-case hex is a valid object name and must NOT be refused.
+prv_run APPROVE "$PRV_SB/body-plain.md" "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" ""
+assert_eq "#1030 post-verdict: an upper-case 40-hex head is accepted" \
+  "POSTED review APPROVE-0" "$PRV_OUT1-$PRV_RC_OBS"
 # Absent and unreadable body files both refuse.
-prv_run APPROVE "$PRV_SB/does-not-exist.md"
+prv_run APPROVE "$PRV_SB/does-not-exist.md" "$PRV_HEAD" ""
 assert_eq "#1059 post-verdict: absent body file → SKIP body-file-unreadable, exit 3, no request" \
   "SKIP body-file-unreadable-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
 touch "$PRV_SB/body-noperm.md"; chmod 000 "$PRV_SB/body-noperm.md"
-prv_run APPROVE "$PRV_SB/body-noperm.md"
+prv_run APPROVE "$PRV_SB/body-noperm.md" "$PRV_HEAD" ""
 assert_eq "#1059 post-verdict: unreadable body file → SKIP body-file-unreadable, exit 3, no request" \
   "SKIP body-file-unreadable-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
 chmod 644 "$PRV_SB/body-noperm.md"
 
-# ── State / idempotency: at most one POST per invocation on every reachable path ──
-prv_run APPROVE "$PRV_SB/body-plain.md"
-assert_eq "#1059 post-verdict: a successful post issues at most one request" "1" "$(prv_posts)"
+# ── Channel failure: the review POST is refused, the comment channel carries it ──
+prv_run REJECT "$PRV_SB/body-plain.md" "$PRV_HEAD" "" PRV_REVIEW_RC=1 PRV_ERR="HTTP 422 Unprocessable Entity"
+assert_eq "#1030 post-verdict: a refused review POST falls back to the comment channel, exit 0" \
+  "POSTED comment REQUEST_CHANGES-0" "$PRV_OUT1-$PRV_RC_OBS"
+assert_eq "#1030 post-verdict: the fallback issues exactly one review POST and one comment POST" \
+  "1-1" "$(prv_posts)-$(prv_calls COMMENT)"
+assert_eq "#1030 post-verdict: the fallback comment carries the SAME producer marker as line 1" \
+  "<!-- prflow:review-verdict head=$PRV_HEAD verdict=REJECT -->" "$(prv_line1 "$PRV_SB/cbody")"
+assert_eq "#1030 post-verdict: the fallback comment carries the body-file bytes verbatim" \
+  "yes" "$(prv_tail_matches "$PRV_SB/body-plain.md" "$PRV_SB/cbody")"
+# Both channels refused → the distinct no-durable-channel token and a non-zero exit.
+prv_run REJECT "$PRV_SB/body-plain.md" "$PRV_HEAD" "" PRV_REVIEW_RC=1 PRV_COMMENT_RC=1 \
+  PRV_ERR="HTTP 422 Unprocessable Entity" PRV_CERR="HTTP 500 comment refused"
+assert_eq "#1030 post-verdict: both channels refused → FAILED no-durable-channel, exit 1" \
+  "yes-1" "$(case "$PRV_OUT1" in "FAILED no-durable-channel "*) echo yes;; *) echo no;; esac)-$PRV_RC_OBS"
+assert_eq "#1030 post-verdict: the no-durable-channel line names BOTH captured causes" \
+  "1-1" "$(printf '%s\n' "$PRV_OUT1" | grep -c 'review: HTTP 422')-$(printf '%s\n' "$PRV_OUT1" | grep -c 'comment: HTTP 500')"
+# A multi-line stderr collapses onto exactly ONE outcome line.
+prv_run REJECT "$PRV_SB/body-plain.md" "$PRV_HEAD" "" PRV_REVIEW_RC=1 PRV_COMMENT_RC=1 \
+  PRV_ERR=$'line one\nline two\nline three' PRV_CERR=$'c one\nc two'
+assert_eq "#1059 post-verdict: a multi-line API error collapses onto one outcome line" \
+  "1" "$(printf '%s\n' "$PRV_OUT1" | grep -c .)"
+assert_eq "#1059 post-verdict: the collapsed line carries every captured stderr line" \
+  "1" "$(printf '%s\n' "$PRV_OUT1" | grep -c 'review: line one line two line three | comment: c one c two')"
+# EMPTY stderr from both channels still yields the FAILED line (never a bare exit).
+prv_run REJECT "$PRV_SB/body-plain.md" "$PRV_HEAD" "" PRV_REVIEW_RC=1 PRV_COMMENT_RC=1 PRV_ERR="" PRV_CERR=""
+assert_eq "#1059 post-verdict: empty API errors still print a FAILED line, exit 1" \
+  "1-1" "$(printf '%s\n' "$PRV_OUT1" | grep -c 'no error output')-$PRV_RC_OBS"
+
+# ── The run-keyed progress comment carries the SAME marker on the line AFTER its ──
+# ── run key, so seed-review-progress.sh's reported literal stays byte-unchanged.  ──
+PRV_PM='<!-- prflow:review-progress run=99-1 -->'
+export PRV_COMMENTS="$PRV_SB/comments.json"
+jq -n --arg m "$PRV_PM" \
+  '[{id:11,body:"an unrelated conversation comment"},
+    {id:22,body:($m+"\n## Verdict: REJECT\nReviewed HEAD: deadbeef\n")}]' > "$PRV_SB/comments.json"
+prv_run REJECT "$PRV_SB/body-plain.md" "$PRV_HEAD" "$PRV_PM" PRV_COMMENTS="$PRV_SB/comments.json"
+assert_eq "#1030 post-verdict: a supplied run key stamps the progress comment and reports it" \
+  "POSTED review REQUEST_CHANGES/PROGRESS stamped 22" "$(printf '%s' "$PRV_OUT" | tr '\n' '/')"
+assert_eq "#1030 post-verdict: the progress rewrite keeps the run key on line 1" \
+  "$PRV_PM" "$(jq -r '.body | split("\n")[0]' "$PRV_SB/patch")"
+assert_eq "#1030 post-verdict: the progress rewrite puts the marker on line 2" \
+  "<!-- prflow:review-verdict head=$PRV_HEAD verdict=REJECT -->" "$(jq -r '.body | split("\n")[1]' "$PRV_SB/patch")"
+assert_eq "#1030 post-verdict: the progress rewrite preserves every other line verbatim" \
+  "## Verdict: REJECT/Reviewed HEAD: deadbeef/" "$(jq -r '.body | split("\n")[2:] | join("/")' "$PRV_SB/patch")"
+# A second post for the same run replaces the marker rather than accumulating one.
+jq -r '.body' "$PRV_SB/patch" > "$PRV_SB/stamped-body.txt"
+jq -n --rawfile b "$PRV_SB/stamped-body.txt" '[{id:22,body:$b}]' > "$PRV_SB/comments.json"
+prv_run APPROVE "$PRV_SB/body-plain.md" "$PRV_HEAD" "$PRV_PM" PRV_COMMENTS="$PRV_SB/comments.json"
+assert_eq "#1030 post-verdict: re-stamping the progress comment leaves exactly one marker" \
+  "1-<!-- prflow:review-verdict head=$PRV_HEAD verdict=APPROVE -->" \
+  "$(jq -r '.body' "$PRV_SB/patch" | grep -c 'prflow:review-verdict')-$(jq -r '.body | split("\n")[1]' "$PRV_SB/patch")"
+# Absent run key, no matching comment, a failed list and a failed patch each get their
+# own PROGRESS token — and NONE of them moves the outcome line or the exit code.
+prv_run APPROVE "$PRV_SB/body-plain.md" "$PRV_HEAD" ""
+assert_eq "#1030 post-verdict: no run key → PROGRESS not-requested, outcome and exit unchanged" \
+  "POSTED review APPROVE/PROGRESS not-requested/-0" "$(printf '%s\n' "$PRV_OUT" | tr '\n' '/')-$PRV_RC_OBS"
+jq -n '[{id:11,body:"an unrelated conversation comment"}]' > "$PRV_SB/comments.json"
+prv_run APPROVE "$PRV_SB/body-plain.md" "$PRV_HEAD" "$PRV_PM" PRV_COMMENTS="$PRV_SB/comments.json"
+assert_eq "#1030 post-verdict: no comment carries the run key → PROGRESS not-found, exit 0" \
+  "PROGRESS not-found-0" "$(printf '%s\n' "$PRV_OUT" | tail -1)-$PRV_RC_OBS"
+prv_run APPROVE "$PRV_SB/body-plain.md" "$PRV_HEAD" "$PRV_PM" PRV_COMMENTS="$PRV_SB/comments.json" PRV_LIST_RC=1
+assert_eq "#1030 post-verdict: a failed comments list → PROGRESS failed, exit 0" \
+  "PROGRESS failed HTTP 403 list refused-0" "$(printf '%s\n' "$PRV_OUT" | tail -1)-$PRV_RC_OBS"
+jq -n --arg m "$PRV_PM" '[{id:22,body:($m+"\nx\n")}]' > "$PRV_SB/comments.json"
+prv_run APPROVE "$PRV_SB/body-plain.md" "$PRV_HEAD" "$PRV_PM" PRV_COMMENTS="$PRV_SB/comments.json" PRV_PATCH_RC=1
+assert_eq "#1030 post-verdict: a failed progress patch → PROGRESS failed, outcome and exit unchanged" \
+  "POSTED review APPROVE-PROGRESS failed HTTP 422 patch refused-0" \
+  "$PRV_OUT1-$(printf '%s\n' "$PRV_OUT" | tail -1)-$PRV_RC_OBS"
+# A non-string body in the comments page must not abort the lookup filter.
+jq -n --arg m "$PRV_PM" '[{id:9,body:123},{id:22,body:($m+"\nx\n")}]' > "$PRV_SB/comments.json"
+prv_run APPROVE "$PRV_SB/body-plain.md" "$PRV_HEAD" "$PRV_PM" PRV_COMMENTS="$PRV_SB/comments.json"
+assert_eq "#1030 post-verdict: a non-string comment body is skipped, not fatal" \
+  "PROGRESS stamped 22" "$(printf '%s\n' "$PRV_OUT" | tail -1)"
+unset PRV_COMMENTS
 
 # ── Guarantee-class control (the "no outcome path is silent" coverage claim). ──
 # Remove the POSTED emission from a COPY of the helper and confirm the happy-path
 # assertion loses its subject — proving the assertion has teeth, not that the
 # suite merely stayed green. Restore is implicit (the copy is discarded).
-sed '/^[[:space:]]*echo "POSTED \$EVENT"$/d' "$PRV" > "$PRV_SB/mutant.sh"
+sed '/^[[:space:]]*echo "POSTED review \$EVENT"$/d' "$PRV" > "$PRV_SB/mutant.sh"
 PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" \
-  bash "$PRV_SB/mutant.sh" 123 APPROVE "$PRV_SB/body-plain.md" 2>/dev/null)"
+  bash "$PRV_SB/mutant.sh" 123 APPROVE "$PRV_SB/body-plain.md" "$PRV_HEAD" 2>/dev/null)"
 assert_eq "#1059 post-verdict: guarantee-class control — removing the POSTED emit silences the outcome (control ran)" \
   "no" "$(case "$PRV_OUT" in POSTED*) echo yes;; *) echo no;; esac)"
+# Second control: remove the marker prepend and confirm the line-1 assertion loses its
+# subject, so "the helper stamps the marker" is a measured claim, not a green suite.
+sed 's|^MARKER="<!-- prflow:review-verdict head=\$HEAD_SHA verdict=\$MARKER_VERDICT -->"$|MARKER=""|' "$PRV" > "$PRV_SB/mutant2.sh"
+: > "$PRV_SB/log"
+DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" \
+  bash "$PRV_SB/mutant2.sh" 123 APPROVE "$PRV_SB/body-plain.md" "$PRV_HEAD" >/dev/null 2>&1
+assert_eq "#1030 post-verdict: guarantee-class control — removing the marker composition empties body line 1 (control ran)" \
+  "" "$(prv_line1)"
 
 rm -rf "$PRV_SB"
 
