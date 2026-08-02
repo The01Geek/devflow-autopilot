@@ -309,6 +309,26 @@ REQUIRED_HELPER_HEADS = {
     ],
 }
 
+# ── Protected import-closure sources (issue #1087) ──────────────────────────────
+# Repo-relative `scripts/` sources the cloud writer's trust boundary reaches by
+# Python IMPORT closure rather than as a granted vendored leading token, so they
+# cannot enter through REQUIRED_HELPER_HEADS (whose members must be granted heads,
+# and whose additions break the AC19 frozen-baseline pairing invariant). This table
+# feeds manifest_file_paths() directly so their bytes are hashed in the runtime
+# trust manifest and any mutation is a HASH_MISMATCH:
+#   * workpad.py's terminal `--status Complete` evidence gate lazily imports
+#     check-completion-evidence.py, which imports reception_identity.py (the
+#     candidate-identity producer the gate re-derives against);
+#   * workpad.py also imports section_parse.py (a pre-existing, previously unpinned
+#     import sibling, pinned in the same pass).
+# These are repo-relative (`scripts/...`), not vendored leading tokens: they are
+# hashed, never granted.
+PROTECTED_IMPORT_SOURCES = (
+    "scripts/check-completion-evidence.py",
+    "scripts/reception_identity.py",
+    "scripts/section_parse.py",
+)
+
 
 def reachable_skills(root=None):
     """Transitive closure of skills reachable via DISPATCH_EDGES.
@@ -1171,6 +1191,8 @@ def manifest_file_paths():
     for heads in REQUIRED_HELPER_HEADS.values():
         for token in heads:
             paths.add(_helper_source_path(token))
+    # issue #1087: import-closure sources hashed but not granted.
+    paths.update(PROTECTED_IMPORT_SOURCES)
     return sorted(paths)
 
 

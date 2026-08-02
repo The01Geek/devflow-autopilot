@@ -31,3 +31,7 @@ lib/test/fixtures/ghapi-repo-path/adversarial-crlf.txt   -text
 # "Binary files differ" instead; the working-tree bytes the scanner reads are
 # untouched, so the encoding fixture still does its job.
 lib/test/fixtures/ghapi-repo-path/adversarial-nonutf8.sh -text -diff
+
+# issue #1072: the shipped-pruned-path lint's NUL fixture must keep its NUL byte so the
+# read_source skip path is exercised — mark it binary so no text normalization strips it.
+lib/test/fixtures/shipped-pruned-path/skills/nul.md -text -diff
