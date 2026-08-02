@@ -4012,7 +4012,7 @@ _shipped_cfg_path = SCRIPTS.parent / '.prflow' / 'config.json'
 with open(_shipped_cfg_path) as _scf:
     _shipped_cfg = json.load(_scf)
 _shipped_cr = (
-    _shipped_cfg["prflow_review"]["agent_overrides"]["devflow:code-reviewer"]
+    _shipped_cfg["prflow_review"]["agent_overrides"]["prflow:code-reviewer"]
 )
 assert_eq("#425 config.json: code-reviewer override is model+effort+iterations exactly",
           {"model": "claude-opus-4-8", "effort": "low", "iterations": "first-only"},
