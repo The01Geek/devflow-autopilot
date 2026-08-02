@@ -1452,6 +1452,23 @@ v1156_check_at() {
   printf '%s|%s|%s' "$out" "$n" "$rc"
 }
 v1156_present() { [ -s "$1" ] && printf 1 || printf 0; }
+# Substring presence in a GENERATED fixture file, matched with bash builtins instead of a
+# `grep <literal> <file>` shape. Two reasons, both real. The assertions below are about
+# bytes a helper COMPOSED AT RUNTIME — a warning line, a comment body, with the run id and
+# the head SHA already substituted in — so the literal exists in no tracked file and can
+# never carry the machine-consumer evidence the #810 mutation-routing ladder looks for; a
+# raw `grep` there would be routed as an undeclared source-presence pin over text that is
+# not in any source. And `case` is a builtin, so no non-preflight PATH tool decides an
+# assertion's comparand.
+v1156_has() {  # $1 file, $2 substring -> yes|no
+  local txt=""
+  [ -r "$1" ] || { printf 'no'; return 0; }
+  IFS= read -r -d '' txt < "$1" || true
+  case "$txt" in
+    *"$2"*) printf 'yes' ;;
+    *)      printf 'no' ;;
+  esac
+}
 
 # ── AC1 + AC3: every outcome-emitting path writes a receipt whose first line is
 # BYTE-IDENTICAL to the outcome line it printed, and the reader answers REACHED with
@@ -1534,7 +1551,7 @@ assert_eq "#1156 isolation: a failed receipt write leaves the outcome line first
 assert_eq "#1156 isolation: a failed receipt write emits exactly ONE stderr breadcrumb for the whole run" \
   "1" "$(grep -c 'could not write the verdict-post receipt' "$V1156_BLOCK/err")"
 assert_eq "#1156 isolation: that breadcrumb states the verdict post itself is unaffected" \
-  "yes" "$(grep -qF 'the verdict post itself is unaffected' "$V1156_BLOCK/err" && echo yes || echo no)"
+  "yes" "$(v1156_has "$V1156_BLOCK/err" 'the verdict post itself is unaffected')"
 
 # ── AC4: absent receipt -> NOT-REACHED. This is the reported defect reproduced: a run in
 # which the emitter is never invoked leaves no receipt at all.
@@ -1714,26 +1731,26 @@ assert_eq "#1156 gap: the reached arm truncates a stale warning and a stale body
 assert_eq "#1156 gap: a NOT-REACHED line selects the not-reached arm and exits 0" \
   "ARM not-reached|0" "$(v1156_gap "NOT-REACHED" "$V1156_GRUN" 1150 "$V1156_GSHA")"
 assert_eq "#1156 gap: the not-reached warning is exactly one line" "1" "$(grep -c . "$V1156_WARN")"
-V1156_A="$(grep -qF "$V1156_GRUN" "$V1156_WARN" && echo yes || echo no)"
-V1156_B="$(grep -qF '#1150' "$V1156_WARN" && echo yes || echo no)"
+V1156_A="$(v1156_has "$V1156_WARN" "$V1156_GRUN")"
+V1156_B="$(v1156_has "$V1156_WARN" '#1150')"
 assert_eq "#1156 gap: the not-reached warning names the run id and the pull-request number" \
   "yes-yes" "$V1156_A-$V1156_B"
 assert_eq "#1156 gap: the not-reached comment body states the Actions run id" \
-  "yes" "$(grep -qF "$V1156_GRUN" "$V1156_BODY" && echo yes || echo no)"
+  "yes" "$(v1156_has "$V1156_BODY" "$V1156_GRUN")"
 assert_eq "#1156 gap: the not-reached comment body states the resolved head SHA" \
-  "yes" "$(grep -qF "$V1156_GSHA" "$V1156_BODY" && echo yes || echo no)"
+  "yes" "$(v1156_has "$V1156_BODY" "$V1156_GSHA")"
 assert_eq "#1156 gap: the not-reached comment body states that the verdict emitter did not run" \
-  "yes" "$(grep -qF 'verdict emitter did not run in this run' "$V1156_BODY" && echo yes || echo no)"
-V1156_A="$(grep -qF 'reviews API' "$V1156_BODY" && echo yes || echo no)"
-V1156_B="$(grep -qF 'reviewDecision' "$V1156_BODY" && echo yes || echo no)"
+  "yes" "$(v1156_has "$V1156_BODY" 'verdict emitter did not run in this run')"
+V1156_A="$(v1156_has "$V1156_BODY" 'reviews API')"
+V1156_B="$(v1156_has "$V1156_BODY" 'reviewDecision')"
 assert_eq "#1156 gap: the not-reached comment body states the reviews API and reviewDecision are unchanged" \
   "yes-yes" "$V1156_A-$V1156_B"
-V1156_A="$(grep -qF 'carries no producer-emitted verdict marker' "$V1156_BODY" && echo yes || echo no)"
-V1156_B="$(grep -qF 'do not read it as a verdict' "$V1156_BODY" && echo yes || echo no)"
+V1156_A="$(v1156_has "$V1156_BODY" 'carries no producer-emitted verdict marker')"
+V1156_B="$(v1156_has "$V1156_BODY" 'do not read it as a verdict')"
 assert_eq "#1156 gap: the not-reached comment body states that verdict text published elsewhere carries no producer marker" \
   "yes-yes" "$V1156_A-$V1156_B"
 assert_eq "#1156 gap: the not-reached comment body carries NO producer verdict marker of its own" \
-  "0" "$(grep -c 'prflow:review-verdict' "$V1156_BODY")"
+  "no" "$(v1156_has "$V1156_BODY" 'prflow:review-verdict')"
 V1156_BODY_L1="$( { IFS= read -r V1156_L || true; printf '%s' "$V1156_L"; } < "$V1156_BODY")"
 assert_eq "#1156 gap: the not-reached comment body opens with its own run-keyed marker" \
   "<!-- prflow:verdict-post-gap run=$V1156_GRUN -->" "$V1156_BODY_L1"
@@ -1743,18 +1760,18 @@ assert_eq "#1156 gap: the not-reached comment body opens with its own run-keyed 
 assert_eq "#1156 gap: an UNESTABLISHED line selects the unestablished arm and exits 0" \
   "ARM unestablished|0" "$(v1156_gap "UNESTABLISHED receipt-unreadable" "$V1156_GRUN" 1150 "$V1156_GSHA")"
 assert_eq "#1156 gap: the unestablished arm carries the reader's reason verbatim" \
-  "yes" "$(grep -qF 'receipt-unreadable' "$V1156_WARN" && echo yes || echo no)"
+  "yes" "$(v1156_has "$V1156_WARN" 'receipt-unreadable')"
 assert_eq "#1156 gap: the unestablished arm posts no comment (it asserts neither outcome)" \
   "0" "$(v1156_present "$V1156_BODY")"
 assert_eq "#1156 gap: the unestablished arm never claims the emitter did not run" \
-  "0" "$(grep -c 'did not run' "$V1156_WARN")"
+  "no" "$(v1156_has "$V1156_WARN" 'did not run')"
 
 # Silence and gibberish from the reader are kept apart: both warn without asserting, but
 # they have different remedies and the job log is the only place that survives.
 assert_eq "#1156 gap: an empty reader line selects the no-line arm (a reader refused before it ran)" \
   "ARM no-line|0" "$(v1156_gap "" "$V1156_GRUN" 1150 "$V1156_GSHA")"
 V1156_A="$(grep -c . "$V1156_WARN")"
-V1156_B="$(grep -qF 'produced no output' "$V1156_WARN" && echo yes || echo no)"
+V1156_B="$(v1156_has "$V1156_WARN" 'produced no output')"
 assert_eq "#1156 gap: the no-line arm warns, names the refusal, and posts nothing" \
   "1-yes-0" "$V1156_A-$V1156_B-$(v1156_present "$V1156_BODY")"
 assert_eq "#1156 gap: an unrecognized reader line selects the unrecognized-line arm and posts nothing" \
@@ -1774,9 +1791,9 @@ bash "$V1156_GAP" "NOT-REACHED" '$(id)' '`whoami`' 'not-a-sha' "$V1156_WARN" "$V
 assert_eq "#1156 gap: no unvalidated field byte reaches the comment body or the warning" "0" \
   "$(cat "$V1156_BODY" "$V1156_WARN" | grep -c -E '\$\(id\)|`whoami`|not-a-sha')"
 assert_eq "#1156 gap: a head SHA that did not resolve is reported as 'unavailable', never as a blank" \
-  "yes" "$(grep -qF 'head SHA this step resolved: `unavailable`' "$V1156_BODY" && echo yes || echo no)"
-V1156_A="$(grep -qF 'Actions run unavailable' "$V1156_WARN" && echo yes || echo no)"
-V1156_B="$(grep -qF '#unavailable' "$V1156_WARN" && echo yes || echo no)"
+  "yes" "$(v1156_has "$V1156_BODY" 'head SHA this step resolved: `unavailable`')"
+V1156_A="$(v1156_has "$V1156_WARN" 'Actions run unavailable')"
+V1156_B="$(v1156_has "$V1156_WARN" '#unavailable')"
 assert_eq "#1156 gap: an unrecognized run id and pull-request number are reported as 'unavailable' in the warning" \
   "yes-yes" "$V1156_A-$V1156_B"
 # A reader reason is a closed token by construction, so nothing receipt-derived can carry a
