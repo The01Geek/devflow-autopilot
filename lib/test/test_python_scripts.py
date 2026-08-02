@@ -4012,7 +4012,7 @@ _shipped_cfg_path = SCRIPTS.parent / '.prflow' / 'config.json'
 with open(_shipped_cfg_path) as _scf:
     _shipped_cfg = json.load(_scf)
 _shipped_cr = (
-    _shipped_cfg["prflow_review"]["agent_overrides"]["devflow:code-reviewer"]
+    _shipped_cfg["prflow_review"]["agent_overrides"]["prflow:code-reviewer"]
 )
 assert_eq("#425 config.json: code-reviewer override is model+effort+iterations exactly",
           {"model": "claude-opus-4-8", "effort": "low", "iterations": "first-only"},
@@ -12889,6 +12889,51 @@ with tempfile.TemporaryDirectory() as _dm_sym:
 _IAS603 = str(SCRIPTS / 'issue-audit-state.py')
 
 
+def _stage_bytes(run, path):
+    """Record the staged write for a draft file's CURRENT bytes (issue #1104).
+
+    A fresh file-arm `record-dispatch` refuses bytes that are not recoverable from the
+    run's recorded byte history, so establishing that history is a PRECONDITION of a
+    file-arm fixture — the same class of setup as the harness's own `init`, not an
+    assertion. The artifact is content-addressed with the digest inside the `.staged.md`
+    suffix, the property `record-staged-write` and the byte-history reader key on (not
+    the `issue-draft-<slug>.<nonce>.<digest>.staged.md` shape `resolve_staged_path`
+    produces). The recipe lives here rather than in each harness so no
+    `record-dispatch`-driving harness drifts on the artifact name or the digest form.
+
+    Every step is checked and a failure RAISES, the same discipline `_Run603._field`
+    applies to its own setup calls: an unestablished precondition would otherwise surface
+    as a crowd of unrelated fixtures refusing with `file-arm-requires-staged-write`,
+    attributed to their own subjects and to no line naming staging.
+
+    `run` is any harness exposing `.tmp`, `.slug` and the `(*argv, nonce=…)` call shape.
+    Returns the artifact path, so a caller that must keep the next round's kind selection
+    cold can retire it once the dispatch it enabled has run.
+    """
+    src = Path(path) if os.path.isabs(str(path)) else Path(run.tmp, path)
+    if not src.exists():
+        raise AssertionError(
+            f'#1104 harness: _stage_bytes({run.slug}) found no draft at {src} — the '
+            'byte-history precondition cannot be established for a file-arm dispatch')
+    data = src.read_bytes()
+    _h = _subprocess.run(['git', 'hash-object', '--stdin', '--no-filters'],
+                         input=data, capture_output=True)
+    dig = _h.stdout.decode().strip()
+    if _h.returncode != 0 or not dig:
+        raise AssertionError(
+            f'#1104 harness: _stage_bytes({run.slug}) could not digest {src} '
+            f'(rc={_h.returncode}); stderr={_h.stderr.decode()!r}')
+    art = Path(run.tmp, f'staged-{run.slug}.{dig}.staged.md')
+    art.write_bytes(data)
+    _r = run('record-staged-write', run.slug, '--path', str(art), '--digest', dig,
+             nonce=True)
+    if _r.returncode != 0:
+        raise AssertionError(
+            f'#1104 harness: _stage_bytes({run.slug}) failed to record the staged write '
+            f'(rc={_r.returncode}); stderr={_r.stderr!r}')
+    return art
+
+
 def _entry603(eid, summary, status='unresolved', **kw):
     e = {'id': eid, 'summary': summary, 'status': status,
          'ingested_status': kw.pop('ingested_status', 'unresolved')}
@@ -12929,12 +12974,39 @@ class _Run603:
                 f'(rc={proc.returncode}); stdout={proc.stdout!r} stderr={proc.stderr!r}')
         return proc.stdout.split(token, 1)[1].split()[0].strip()
 
-    def __call__(self, *argv, stdin=None, nonce=False):
+    def __call__(self, *argv, stdin=None, nonce=False, autostage=True):
+        # issue #1104: a fresh file-arm dispatch now requires the dispatched bytes in the
+        # byte history. Establishing it here keeps a fixture whose subject is NOT that
+        # guarantee expressing only its own subject; the rows that DO grade the guarantee
+        # pass `autostage=False` and drive the raw CLI. The arm is read as the VALUE
+        # following `--arm`, never as a bare membership test over argv — a path or a
+        # marker token spelled `file` would otherwise acquire the staging side effect.
+        art = None
+        if (autostage and argv and argv[0] == 'record-dispatch'
+                and '--arm' in argv and '--draft-file' in argv
+                and argv[argv.index('--arm') + 1] == 'file'):
+            art = _stage_bytes(self, argv[argv.index('--draft-file') + 1])
         args = [sys.executable, _IAS603, *argv]
         if nonce:
             args += ['--nonce', self.nonce]
-        return _subprocess.run(args, cwd=self.tmp, input=stdin, capture_output=True,
-                          text=True)
+        out = _subprocess.run(args, cwd=self.tmp, input=stdin, capture_output=True,
+                              text=True)
+        if art is not None:
+            # Retire the artifact once it has done its job. Retained, it would let the
+            # NEXT round's kind selection reconstruct these bytes and answer `targeted`,
+            # silently re-aiming a downstream fixture whose subject is the ledger, the
+            # budgets, or convergence — none of which is the round kind. The rows that
+            # grade a scoped round's reachability stage explicitly and keep theirs.
+            #
+            # DISCLOSED CONSEQUENCE: this leaves a `staged_paths` record naming a file
+            # that no longer exists, and it pins the revise-then-open-round fixtures to a
+            # state a real post-#1104 run does not reach — such a run keeps its artifact,
+            # so the tool selects `targeted` and refuses a hardcoded `--kind discovery`
+            # with `kind-mismatch`. That combined flow is covered on its own by the #793
+            # kind-mismatch row; what this deletion buys is that a fixture whose subject
+            # is something else does not have to be re-graded to keep expressing it.
+            art.unlink(missing_ok=True)
+        return out
 
     def open_round(self, n, verdict='REVISE', findings=1):
         Path(self.tmp, 'd.md').write_text(f'draft {n}\n', encoding='utf-8')
@@ -19803,8 +19875,17 @@ class _Run795:
         return Path(self.tmp, '.prflow/tmp', f'issue-audit-state-{self.slug}.json').read_bytes()
 
     def open_round(self, n=1):
-        return self('record-dispatch', '--kind', 'discovery', self.slug, '--round', str(n), '--arm', 'file',
-                    '--draft-file', 'd.md', nonce=True)
+        # issue #1104: a fresh file-arm dispatch requires the dispatched bytes in the
+        # run's byte history, so establish it through the shared recipe — this harness's
+        # subject is the #795 block this harness serves, not the staged-write guarantee.
+        # The artifact is retired once the dispatch it enabled has run, so the next
+        # round's kind selection stays cold exactly as these rows assume.
+        art = _stage_bytes(self, 'd.md')
+        out = self('record-dispatch', '--kind', 'discovery', self.slug, '--round', str(n),
+                   '--arm', 'file', '--draft-file', 'd.md', nonce=True)
+        if art is not None:
+            art.unlink(missing_ok=True)
+        return out
 
 
 def _with795(fn):
@@ -21450,18 +21531,24 @@ def _793_targeted_run():
     run = _Run603(td, slug='s793t')
     draft = Path(td, 'd.md')
     draft.write_text('# T\n\n## A\n\nold\n', encoding='utf-8')
-    # Round 1: a cold discovery round that finds one defect.
+    # Stage the round-1 bytes into the byte history FIRST — the shipped order, and the
+    # order issue #1104's dispatch guard now requires. Staging after the dispatch (with
+    # the harness's own autostage filling the gap) would leave a first history entry
+    # naming a retired artifact, which the precondition assertion below would then be
+    # grading instead of the real one.
+    base = str(Path(td, '.prflow', 'tmp', f'issue-draft-{run.slug}.N.staged.md'))
+    _d1, _p1, _ = _sdw_stage(base, b'# T\n\n## A\n\nold\n')
+    run('record-staged-write', run.slug, '--path', _p1, '--digest', _d1, nonce=True)
+    # Round 1: a cold discovery round that finds one defect. `autostage=False` because the
+    # staged write is already recorded above, and a second one would duplicate the entry.
     dig = run._field(run('record-dispatch', '--kind', 'discovery', run.slug, '--round', '1',
-                         '--arm', 'file', '--draft-file', 'd.md', nonce=True),
+                         '--arm', 'file', '--draft-file', 'd.md', nonce=True,
+                         autostage=False),
                      'digest=', 'record-dispatch')
     run('record-return', run.slug, '--round', '1', '--verdict', 'REVISE',
         '--findings-count', '1', '--carriage-object-id', dig, nonce=True)
     run.adjudicate(1, 'REVISE', must=1, unresolved='1',
                    ledger='unresolved: the AC omits its operand\n')
-    # Stage the round-1 bytes into the byte history, then revise the draft.
-    base = str(Path(td, '.prflow', 'tmp', f'issue-draft-{run.slug}.N.staged.md'))
-    _d1, _p1, _ = _sdw_stage(base, b'# T\n\n## A\n\nold\n')
-    run('record-staged-write', run.slug, '--path', _p1, '--digest', _d1, nonce=True)
     draft.write_text('# T\n\n## A\n\nrevised\n', encoding='utf-8')
     run('record-revision', run.slug, '--after-round', '1', '--stdin-digest',
         stdin='# T\n\n## A\n\nrevised\n', nonce=True)
@@ -22149,6 +22236,289 @@ assert_eq("#793/AC18: ... and the established result is PERSISTED on the round, 
           "later reader sees the verified regeneration rather than re-inferring it",
           'established', (_doc7['rounds'][1].get('steering') or {}).get('state'))
 
+print()
+print("issue-audit-state: the file-arm staged-write guarantee at dispatch (issue #1104)")
+
+# The refusal exists because `select_round_kind`'s condition 3 reconstructs a round's
+# dispatch bytes from the recorded byte history, and a missing operand degrades the
+# selection SILENTLY (to `discovery`) rather than aborting. Every row below is driven
+# through the real CLI: the observable contract is the exit code, the named stderr
+# breadcrumb, and whether the round reached the persisted state.
+
+_1104_DRAFT = '# T\n\n## A\n\nbody\n'
+# Every scratch run below is rooted here and the root is removed at the end of the block,
+# so a clean run leaves no temp tree behind. This deliberately diverges from the file's
+# `with tempfile.TemporaryDirectory()` idiom — these runs outlive a single `with` body —
+# and the divergence costs a leaked tree on the path where a row raises before the rmtree.
+_1104_ROOT = tempfile.mkdtemp()
+
+
+def _1104_state(run):
+    """The run's persisted state document (the harness's `init` has always written it)."""
+    p = Path(run.tmp, '.prflow', 'tmp', f'issue-audit-state-{run.slug}.json')
+    return json.loads(p.read_text(encoding='utf-8'))
+
+
+def _1104_run(slug):
+    """A scratch run with a canonical draft on disk and an EMPTY byte history."""
+    td = str(Path(_1104_ROOT, slug))
+    os.makedirs(td, exist_ok=True)
+    run = _Run603(td, slug=slug)
+    Path(td, 'd.md').write_text(_1104_DRAFT, encoding='utf-8')
+    return run
+
+
+def _1104_stage(run):
+    """Record the staged write for the draft bytes, as the shipped call sequence does."""
+    base = str(Path(run.tmp, '.prflow', 'tmp',
+                    f'issue-draft-{run.slug}.{run.nonce}.staged.md'))
+    dig, path, _ = _sdw_stage(base, _1104_DRAFT.encode())
+    run('record-staged-write', run.slug, '--path', path, '--digest', dig, nonce=True)
+
+
+def _1104_dispatch(run, arm='file'):
+    argv = ['record-dispatch', '--kind', 'discovery', run.slug, '--round', '1',
+            '--arm', arm]
+    if arm == 'file':
+        argv += ['--draft-file', 'd.md']
+        # `autostage=False`: these rows GRADE the guarantee, so the harness must not
+        # establish the very precondition under test.
+        return run(*argv, nonce=True, autostage=False)
+    if arm == 'embed':
+        # The embed arm names the entry cause the tool answered; `write-failed` is the
+        # one this guarantee's own scoping argument turns on — the canonical write did
+        # not land, so there is no staging artifact to require.
+        argv += ['--marker', 'write-failed']
+    return run(*argv, stdin=_1104_DRAFT, nonce=True)
+
+
+# --- AC1: the refusal itself, and that it wrote no state ------------------------------
+
+_1104_a = _1104_run('s1104a')
+_1104_ra = _1104_dispatch(_1104_a)
+assert_eq("#1104: a fresh file-arm dispatch whose draft bytes are absent from the byte "
+          "history is REFUSED with the named breadcrumb",
+          (True, True),
+          (_1104_ra.returncode != 0,
+           'file-arm-requires-staged-write' in _1104_ra.stderr))
+
+assert_eq("#1104: ... and the refusal wrote no round, so the round stays dispatchable",
+          [], _1104_state(_1104_a).get('rounds'))
+
+# --- AC4: the breadcrumb names the REMEDY, read off the executable boundary ------------
+
+assert_eq("#1104: the breadcrumb names the remedy — recording the staged write for these "
+          "bytes — rather than only naming the fault",
+          (True, True),
+          ('record-staged-write' in _1104_ra.stderr,
+           'staged write' in _1104_ra.stderr))
+
+# --- AC2: the refusal is scoped to the file arm ----------------------------------------
+
+_1104_e = _1104_run('s1104e')
+_1104_re = _1104_dispatch(_1104_e, arm='embed')
+assert_eq("#1104: an embed dispatch is accepted with NO byte history — that arm is "
+          "entered precisely because the canonical write did not land",
+          (0, True), (_1104_re.returncode, 'arm=embed' in _1104_re.stdout))
+
+_1104_i = _1104_run('s1104i')
+_1104_ri = _1104_dispatch(_1104_i, arm='inline')
+assert_eq("#1104: an inline dispatch is accepted with NO byte history, for the same "
+          "reason",
+          (0, True), (_1104_ri.returncode, 'arm=inline' in _1104_ri.stdout))
+
+# --- AC3 + AC5: the recorded history admits the dispatch, and the retry is re-runnable --
+# One fixture grades both: the IDENTICAL invocation that was refused above succeeds once
+# the staged write is recorded, which is the re-runnability claim stated as a sequence.
+
+_1104_b = _1104_run('s1104b')
+_1104_before = _1104_dispatch(_1104_b)
+_1104_stage(_1104_b)
+_1104_after = _1104_dispatch(_1104_b)
+assert_eq("#1104: the IDENTICAL record-dispatch invocation that was refused succeeds "
+          "after the caller records the staged write for those bytes",
+          (True, 0, True),
+          (_1104_before.returncode != 0, _1104_after.returncode,
+           'arm=file' in _1104_after.stdout))
+
+assert_eq("#1104: ... and the accepted dispatch records the round with the same digest "
+          "the byte history holds, so behavior past the guard is unchanged",
+          (1, True),
+          (len(_1104_state(_1104_b)['rounds']),
+           _1104_state(_1104_b)['rounds'][0]['attempts'][-1]['digest']
+           == _1104_state(_1104_b)['staged_paths'][0]['digest']))
+
+# --- AC6: a retry re-dispatching an ALREADY-OPEN round is unaffected -------------------
+# The draft bytes are CHANGED between the open round and the retry, so the retry's own
+# digest is absent from the history: a refusal that was not scoped to a fresh dispatch
+# would refuse exactly the re-dispatch the tool itself prescribed.
+
+_1104_c = _1104_run('s1104c')
+_1104_stage(_1104_c)
+_1104_d1 = _1104_dispatch(_1104_c)
+_1104_rr = _1104_c('record-return', _1104_c.slug, '--round', '1', '--findings-count', '0',
+                   nonce=True)
+_1104_pending = (_1104_state(_1104_c)['rounds'][0].get('pending'))
+Path(_1104_c.tmp, 'd.md').write_text('# T\n\n## A\n\nCHANGED\n', encoding='utf-8')
+_1104_d1b = _1104_dispatch(_1104_c)
+assert_eq("#1104: a retry re-dispatching an open round is accepted even though its own "
+          "bytes are absent from the byte history",
+          ('dispatch-retry-same-arm', 0, True),
+          (_1104_pending, _1104_d1b.returncode, 'arm=file' in _1104_d1b.stdout))
+
+# --- AC8 part 1: the unrecoverable state is no longer REACHABLE for a recorded round ----
+# This is the half that is genuinely new. The row below it (part 2) drives the happy path
+# and would pass against the pre-change tool too — it is a regression guard, not evidence.
+# What the guard adds is that the OTHER state cannot be recorded at all: the only way a
+# file-arm round enters `rounds` is past the refusal, so on a run whose bytes were never
+# staged condition 3 has no recorded round to fail over.
+
+_1104_u = _1104_run('s1104u')
+_1104_ru = _1104_dispatch(_1104_u)
+_1104_uk = _1104_u('query-round-kind', _1104_u.slug, '--draft-file',
+                   str(Path(_1104_u.tmp, 'd.md')), nonce=True)
+assert_eq("#1104: an unstaged file-arm dispatch records no round, so the selection can "
+          "never answer dispatch-bytes-unrecoverable over it — the refusal is what makes "
+          "that state unreachable rather than merely unlikely",
+          (True, [], 0, True, False),
+          (_1104_ru.returncode != 0, _1104_state(_1104_u).get('rounds'),
+           _1104_uk.returncode,
+           'reason=no-completed-round' in _1104_uk.stdout,
+           'dispatch-bytes-unrecoverable' in _1104_uk.stdout))
+
+# --- AC8 part 2: with the history present, condition 3 no longer fails ------------------
+# Driven through the real CLI end to end: dispatch, return, adjudicate, revise, then ask
+# the tool for the next round's kind. The measured `dispatch-bytes-unrecoverable` reason
+# is what this issue exists to remove from that answer.
+
+_1104_k = _1104_run('s1104k')
+_1104_stage(_1104_k)
+_1104_kd = _1104_dispatch(_1104_k)
+_1104_kdig = _1104_kd.stdout.split('digest=', 1)[1].split()[0]
+_1104_k('record-return', _1104_k.slug, '--round', '1', '--verdict', 'REVISE',
+        '--findings-count', '1', '--carriage-object-id', _1104_kdig, nonce=True)
+_1104_k.adjudicate(1, 'REVISE', must=1, unresolved='1',
+                   ledger='unresolved: the AC omits its operand\n')
+Path(_1104_k.tmp, 'd.md').write_text('# T\n\n## A\n\nrevised\n', encoding='utf-8')
+_1104_k('record-revision', _1104_k.slug, '--after-round', '1', '--stdin-digest',
+        stdin='# T\n\n## A\n\nrevised\n', nonce=True)
+_1104_kind = _1104_k('query-round-kind', _1104_k.slug, '--draft-file',
+                     str(Path(_1104_k.tmp, 'd.md')), nonce=True)
+assert_eq("#1104: with the byte history the guarantee now enforces, the selection no "
+          "longer answers dispatch-bytes-unrecoverable for a file-arm round",
+          (0, False, True),
+          (_1104_kind.returncode,
+           'dispatch-bytes-unrecoverable' in _1104_kind.stdout,
+           'kind=targeted reason=targeted-eligible' in _1104_kind.stdout))
+
+# --- adversarial `staged_paths` shapes: every one still REFUSES ------------------------
+# The state file is hand-editable, so the history reader is driven over the malformed
+# shapes it must survive. None may raise, and none may silently admit the dispatch.
+
+def _1104_shape_row(slug, record):
+    run = _1104_run(slug)
+    st = _1104_state(run)
+    st['staged_paths'] = [record]
+    Path(run.tmp, '.prflow', 'tmp',
+         f'issue-audit-state-{run.slug}.json').write_text(json.dumps(st),
+                                                          encoding='utf-8')
+    r = _1104_dispatch(run)
+    return (r.returncode != 0, 'file-arm-requires-staged-write' in r.stderr,
+            'Traceback' not in r.stderr, _1104_state(run).get('rounds'))
+
+
+_1104_real_digest = _m793.hash_bytes(_1104_DRAFT.encode())
+_1104_lying = Path(_1104_ROOT, 'lying-artifact.md')
+_1104_lying.write_text('# T\n\n## A\n\nDIFFERENT BYTES\n', encoding='utf-8')
+
+# These are the shapes `_reconstruct_dispatch_bytes` must survive without raising; each
+# key names its own defect. The last two are the discriminating pair — both go GREEN under
+# a naive digest-membership predicate and RED under the shipped reader, which is the mutant
+# the guard's own rationale rejects.
+_1104_shapes = {
+    'digest-absent': {'path': 'x.md'},
+    'digest-wrong-type': {'path': 'x.md', 'digest': 40},
+    'path-names-a-missing-file': {'path': '/nonexistent/artifact.md',
+                                  'digest': _1104_real_digest},
+    'digest-disagrees-with-bytes': {'path': str(_1104_lying),
+                                    'digest': _1104_real_digest},
+    # A path carrying an embedded NUL raises ValueError out of `Path.read_bytes` BEFORE
+    # any syscall, so it is not an OSError and the reader must catch it explicitly — on a
+    # mutation command whose own contract forbids a raw traceback.
+    'path-carrying-an-embedded-nul': {'path': '/tmp/a\x00b.md',
+                                      'digest': _1104_real_digest},
+}
+
+for _i, (_name, _rec) in enumerate(_1104_shapes.items()):
+    assert_eq(f"#1104: a staged_paths record that is {_name} still REFUSES the "
+              "file-arm dispatch — never a raise, never a silent accept",
+              (True, True, True, []), _1104_shape_row(f's1104x{_i}', _rec))
+
+# A record that is not an object at all is refused one layer EARLIER, by the state file's
+# own shape validation, so this row grades the refusal and the absence of a traceback
+# without claiming the dispatch-site breadcrumb it never reaches.
+_1104_nonobj = _1104_shape_row('s1104xnonobj', 'a string, not a record')
+assert_eq("#1104: a staged_paths record that is not an object is refused by the "
+          "state-shape validation before the dispatch site, still without a raise",
+          (True, True, []), (_1104_nonobj[0], _1104_nonobj[2], _1104_nonobj[3]))
+
+# --- a LIVE history entry for the wrong bytes: the realistic multi-round miss -----------
+# The adversarial rows above are all unusable records. This is the production shape: a
+# perfectly valid, still-resolvable artifact for an EARLIER byte state, with the bytes this
+# dispatch actually audits absent. It is what pins the guard to THIS dispatch's digest
+# rather than to "the history is non-empty".
+
+_1104_w = _1104_run('s1104w')
+_1104_stage(_1104_w)
+Path(_1104_w.tmp, 'd.md').write_text('# T\n\n## A\n\nSECOND STATE\n', encoding='utf-8')
+_1104_rw = _1104_dispatch(_1104_w)
+assert_eq("#1104: a history holding a live artifact for an EARLIER byte state does not "
+          "admit a dispatch of different bytes — the lookup is keyed on this dispatch's "
+          "own digest, not on the history being non-empty",
+          (True, True, [], 1),
+          (_1104_rw.returncode != 0,
+           'file-arm-requires-staged-write' in _1104_rw.stderr,
+           _1104_state(_1104_w).get('rounds'),
+           len(_1104_state(_1104_w)['staged_paths'])))
+
+# --- ordering: the refusal precedes the funding gate ------------------------------------
+# Both refuse a fresh dispatch, so which one answers is a placement fact, not a detail: an
+# unfunded round with no history must name the staged-write remedy the caller can act on
+# rather than a budget it cannot. Round 2 here is unfunded (the automatic budget is spent
+# by round 1's non-REVISE close) AND unstaged.
+
+_1104_o = _1104_run('s1104o')
+_1104_stage(_1104_o)
+_1104_od = _1104_dispatch(_1104_o)
+_1104_odig = _1104_od.stdout.split('digest=', 1)[1].split()[0]
+_1104_o('record-return', _1104_o.slug, '--round', '1', '--verdict', 'FILE',
+        '--findings-count', '0', '--carriage-object-id', _1104_odig, nonce=True)
+Path(_1104_o.tmp, 'd.md').write_text('# T\n\n## A\n\nUNSTAGED\n', encoding='utf-8')
+_1104_o2 = _1104_o('record-dispatch', '--kind', 'discovery', _1104_o.slug, '--round', '2',
+                   '--arm', 'file', '--draft-file', 'd.md', nonce=True, autostage=False)
+assert_eq("#1104: an unfunded AND unstaged round is refused by the staged-write guard, "
+          "not the funding gate — the caller is handed the remedy it can act on",
+          (True, True, False),
+          (_1104_o2.returncode != 0,
+           'file-arm-requires-staged-write' in _1104_o2.stderr,
+           'not funded' in _1104_o2.stderr))
+
+# --- idempotency: a replayed staged write leaves one entry and one accepted dispatch ---
+
+_1104_id = _1104_run('s1104id')
+_1104_stage(_1104_id)
+_1104_stage(_1104_id)
+_1104_idd = _1104_dispatch(_1104_id)
+assert_eq("#1104: recording the same staged write twice leaves ONE history entry and "
+          "still admits exactly one dispatch",
+          (1, 0, 1),
+          (len(_1104_state(_1104_id)['staged_paths']), _1104_idd.returncode,
+           len(_1104_state(_1104_id)['rounds'])))
+
+import shutil as _shutil1104  # noqa: E402
+
+_shutil1104.rmtree(_1104_ROOT, ignore_errors=True)
+
 # ══════════════════════════════════════════════════════════════════════════════
 # scripts/pretooluse-shape-guard.py — the review-tier PreToolUse shape guard (#805)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -22236,6 +22606,11 @@ class _GuardRig:
 
     def heartbeat_exists(self):
         return (self.root / '.prflow' / 'tmp' / 'pretooluse-guard-fired').exists()
+
+    def disarmed_marker(self):
+        """The disarmed-run marker's text (issue #1077), or None when it was not written."""
+        f = self.root / '.prflow' / 'tmp' / 'pretooluse-guard-disarmed'
+        return f.read_text(encoding='utf-8') if f.exists() else None
 
     def store_names(self):
         d = self.root / '.prflow' / 'tmp'
@@ -22479,6 +22854,90 @@ for _dname, _prepare in [
 # no such breadcrumb, so the assertions above are attributable to the disarming.
 assert_eq("#805 guard: an ARMED guard emits no failed-open breadcrumb (stderr control)",
           '', _GuardRig().run(_payload('echo x > /tmp/f', tid='armed')).stderr)
+
+# ── DISARMED-RUN PUBLISHED SIGNAL (issue #1077). stderr is ephemeral and the heartbeat says
+# "fired" for a disarmed run exactly as for a clean no-match run, so the disarm is invisible
+# in every PUBLISHED artifact. The guard now also writes a `pretooluse-guard-disarmed` marker
+# on the SAME path as the heartbeat, so a reader can tell "fired but could not classify" from
+# "fired and matched nothing" — WITHOUT the fail-open decision changing (defer, exit 0).
+for _dname, _prepare in [
+    ('syntax-error dependency', lambda r: r.break_dependency('def (:\n')),
+    ('bash-stubbed dependency', lambda r: r.break_dependency('#!/usr/bin/env bash\nexit 0\n')),
+    ('renamed classify_arms', lambda r: r.break_dependency('def _statements(c):\n    return [c]\n')),
+    ('absent dependency', lambda r: r.remove_dependency()),
+]:
+    _rig_m = _GuardRig()
+    _prepare(_rig_m)
+    _res_m = _rig_m.run(_payload('echo x > /tmp/f', tid='marker'))
+    # AC1: the fail-open decision is UNCHANGED (defer, exit 0) even as the signal is added.
+    assert_eq(f"#1077 guard: disarmed ({_dname}) still defers, exit 0 (fail-open unchanged)",
+              (0, 'defer'), (_res_m.rc, _res_m.decision))
+    # AC1/AC2: the distinguishing signal is published on the heartbeat path, so a run that
+    # disarmed before ever reaching the classifier cannot fail to emit it.
+    _marker = _rig_m.disarmed_marker()
+    assert_eq(f"#1077 guard: disarmed ({_dname}) writes the disarmed-run marker beside the "
+              f"heartbeat", True, _marker is not None and 'DISARMED' in _marker)
+# AC4/AC5: for the ABSENT classifier the marker's cause is keyed on the exception ACTUALLY
+# raised (FileNotFoundError from exec_module, NOT ImportError), names the workspace-relative
+# path with no lib/test, and NEVER attributes the absence to the vendor prune.
+_rig_abs = _GuardRig()
+_rig_abs.remove_dependency()
+_rig_abs.run(_payload('echo x > /tmp/f', tid='absent-cause'))
+_abs_marker = _rig_abs.disarmed_marker() or ''
+assert_eq("#1077 guard: absent-classifier marker names FileNotFoundError (the real "
+          "exception, not ImportError)", True,
+          'FileNotFoundError' in _abs_marker and 'ImportError' not in _abs_marker)
+assert_eq("#1077 guard: absent-classifier marker names the workspace-relative path and the "
+          "missing lib/test as the cause", True,
+          'workspace-relative' in _abs_marker and 'lib/test' in _abs_marker)
+assert_eq("#1077 guard: absent-classifier marker does NOT attribute the absence to the "
+          "vendor prune (issue #1077 AC5)", True,
+          'prune' not in _abs_marker and 'vendor' not in _abs_marker)
+# AC4 (else branch): a disarm that is NOT a missing file — a renamed interface raising
+# AttributeError inside _matched_arms — names the ACTUAL exception type, not FileNotFoundError,
+# so a reader is not misdirected to "no lib/test" for a load-then-classify failure.
+_rig_ren = _GuardRig()
+_rig_ren.break_dependency('def _statements(c):\n    return [c]\n')
+_rig_ren.run(_payload('echo x > /tmp/f', tid='renamed-cause'))
+_ren_marker = _rig_ren.disarmed_marker() or ''
+assert_eq("#1077 guard: renamed-interface marker names the real exception (AttributeError), "
+          "not FileNotFoundError", True,
+          'AttributeError' in _ren_marker and 'FileNotFoundError' not in _ren_marker)
+# AC5 (transitive branch): a FileNotFoundError from a file the classifier IMPORTS (heads.py
+# missing while extract-command-shapes.py is present) must name the actual missing file, NOT
+# falsely claim "this tree has no lib/test" — the mis-attribution the transitive branch fixes.
+_rig_tr = _GuardRig()
+(_rig_tr.root / 'lib' / 'test' / 'extract-command-heads.py').unlink()
+_rig_tr.run(_payload('echo x > /tmp/f', tid='transitive-cause'))
+_tr_marker = _rig_tr.disarmed_marker() or ''
+assert_eq("#1077 guard: a transitive-import FileNotFoundError names the imported file, not a "
+          "false 'no lib/test'", True,
+          'extract-command-heads.py' in _tr_marker and 'this tree has no lib/test' not in _tr_marker)
+# Negative control: an ARMED guard (clean classify, matched nothing) writes NO marker, so the
+# marker's presence is attributable to the disarm and not to every run.
+_rig_neg = _GuardRig()
+_rig_neg.run(_payload('echo hi', tid='armed-marker'))
+assert_eq("#1077 guard: an ARMED guard writes no disarmed-run marker (negative control)",
+          None, _rig_neg.disarmed_marker())
+# STALE-MARKER CLEARING: a prior disarmed run left a marker on a persistent checkout; the next
+# ARMED run must retract it, so the signal reflects THIS run — not the fresh-rig no-op path the
+# negative control above exercises. Pre-seed the marker, then run an armed payload.
+_rig_stale = _GuardRig()
+(_rig_stale.root / '.prflow' / 'tmp').mkdir(parents=True, exist_ok=True)
+(_rig_stale.root / '.prflow' / 'tmp' / 'pretooluse-guard-disarmed').write_text(
+    'pretooluse-shape-guard DISARMED: stale from a prior run\n', encoding='utf-8')
+_rig_stale.run(_payload('echo hi', tid='stale-clear'))
+assert_eq("#1077 guard: an armed run retracts a stale disarmed-run marker from a prior run",
+          None, _rig_stale.disarmed_marker())
+# A benign EARLY-DEFER run (empty stdin → defer BEFORE classification is ever reached) must
+# ALSO retract a stale marker — the clear is up front, not only on the armed-classify tail.
+_rig_ed = _GuardRig()
+(_rig_ed.root / '.prflow' / 'tmp').mkdir(parents=True, exist_ok=True)
+(_rig_ed.root / '.prflow' / 'tmp' / 'pretooluse-guard-disarmed').write_text(
+    'pretooluse-shape-guard DISARMED: stale from a prior run\n', encoding='utf-8')
+_res_ed = _rig_ed.run(None)  # empty stdin → the `not text.strip()` early-defer path
+assert_eq("#1077 guard: a benign early-defer run also retracts a stale marker (defer, exit 0)",
+          (0, 'defer', None), (_res_ed.rc, _res_ed.decision, _rig_ed.disarmed_marker()))
 
 # ── Counter store: a best-effort parser over an agent-writable path. CLAUDE.md's
 # best-effort-parser convention extends the malformed-shape matrix to a reader of a

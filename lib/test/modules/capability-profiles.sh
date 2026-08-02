@@ -181,6 +181,49 @@ done
 assert_eq "#561 committed workflows are byte-identical to the generator's output" "yes" "$CAP_IDEM_MATCH"
 rm -rf "$CAP_IDEM"
 
+# ── issue #1078: no shipped capability profile grants a Bash(lib/test/...) token.
+# The seven such tokens issue #789 baked into the implement profile delivered ZERO
+# benefit in a consumer — the vendor slice prunes lib/test — while pre-authorizing any
+# consumer file that happened to collide with a PRFlow-chosen path. They are gone from
+# the shipped profile: the focused_test targets and coverage_map_guard.py moved to
+# .prflow/config.json's self-repo grant channel (coverage_map_guard.py is still consumed
+# by matcher-probe's executable-.py-as-direct-leading-token probe shape),
+# test_module_harness.py dropped. This assertion reads the RESOLVED manifest —
+# the source the generated literals compile from, so `--check` (above) ties the shipped
+# literals to it — and is comment-immune (a doc comment naming a token cannot trip it),
+# so re-adding a lib/test grant to the shipped implement/review/command profile fails
+# closed HERE rather than shipping silently.
+# One scan body, called twice, so the positive control provably exercises the EXACT
+# same profile→group expansion + lib/test filter the real assertion runs (arg 2, when
+# non-empty, injects a token into the implement profile before scanning). Two hand-synced
+# heredocs would let the control silently drift out of parity with what it certifies.
+_cap_libtest_hits() {  # $1=manifest path  $2=optional token to inject into implement profile
+  python3 - "$1" "${2:-}" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+if len(sys.argv) > 2 and sys.argv[2]:
+    d["profiles"]["implement"].append(sys.argv[2])
+groups = d["groups"]
+hits = []
+for name, spec in d["profiles"].items():
+    for tok in spec:
+        toks = groups[tok[1:]] if tok.startswith("@") else [tok]
+        hits += [f"{name}:{t}" for t in toks if "lib/test/" in t]
+print("\n".join(hits))
+PY
+}
+CAP_LIBTEST_TOKENS="$(_cap_libtest_hits "$LIB/capability-profiles.json")"; CAP_LIBTEST_RC=$?
+# Fail-closed: a python3 crash (malformed manifest, absent interpreter) yields EMPTY stdout,
+# which would silently satisfy the `""` assertion below — the exact fail-open a "no token"
+# scan must not have. Assert the scan actually ran (exit 0) so an empty result means "scanned,
+# none found", not "never scanned". (The positive control just below is the second guard.)
+assert_eq "#1078 the shipped-profile lib/test scan actually ran (python3 exit 0, not a crashed empty scan)" "0" "$CAP_LIBTEST_RC"
+assert_eq "#1078 no shipped capability profile grants a Bash(lib/test/...) token (self-repo grants live in .prflow/config.json)" "" "$CAP_LIBTEST_TOKENS"
+# Positive control: the scan is non-vacuous — a lib/test token injected into the
+# implement profile is caught (proves the assertion above would fire).
+CAP_1078_POS="$(_cap_libtest_hits "$LIB/capability-profiles.json" "Bash(lib/test/injected_probe.py:*)")"
+assert_eq "#1078 the shipped-profile lib/test scan is non-vacuous (positive control)" "implement:Bash(lib/test/injected_probe.py:*)" "$CAP_1078_POS"
+
 # T8 — no-runtime-read: no workflow reads policy from the manifest at run
 # time. The assertion greps for the two policy-source filenames in NON-COMMENT content
 # only (comment lines — the banner comments and the maintenance comments that now name
