@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1130",
+  "generated_at": "2026-08-02T09:50:38Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.36",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.805875249999999,
+    "tokens": {
+      "input_tokens": 58,
+      "output_tokens": 20184,
+      "cache_read_input_tokens": 3976170,
+      "cache_creation_input_tokens": 147842,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 94,
+        "outputTokens": 33913,
+        "cacheReadInputTokens": 4851658,
+        "cacheCreationInputTokens": 316375,
+        "webSearchRequests": 0,
+        "costUSD": 5.805875249999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 36,
+    "duration_ms": 415992
+  },
+  "permission_denials": {
+    "count": 5,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "git status --porcelain; echo \"---BASE---\"; scripts/config-get.sh .base_branch main 2>/dev/null || echo main",
+      "wc -l .prflow/tmp/review/pr-1130/local/diff.patch; echo \"---stat---\"; git -c color.ui=never diff e556e4cff4805cb443039642e813f4f0eb3806ef..b2bf2701c2e73ac1d065eb79e96b2e9d9c69371b --stat 2>/dev/null | tail -20",
+      "for f in skills/review/SKILL.md skills/implement/phases/phase-3-review.md skills/review-and-fix/references/error-handling.md skills/review-and-fix/references/loop-control.md skills/review-and-fix/references/shadow-review.md; do\n  actual=$(sha256sum \"$f\" | cut -d' ' -f1)\n  pinned=$(jq -r --arg k \"$f\" '.. | objects | select(has($k)) | .[$k]' scripts/devflow-cloud-writer-contract.json 2>/dev/null | head -1)\n  if [ \"$actual\" = \"$pinned\" ]; then echo \"OK  $f\"; else echo \"MISMATCH $f actual=$actual pi …[per-command-truncated]",
+      "for f in skills/implement/phases/phase-3-review.md skills/review-and-fix/references/error-handling.md skills/review-and-fix/references/loop-control.md skills/review-and-fix/references/shadow-review.md skills/review/SKILL.md; do printf '%s %s\\n' \"$(git hash-object \"$f\")\" \"$f\"; done",
+      "cat > .prflow/tmp/review/pr-1130/local/verdict.md <<'EOF'\n## 🔴 REJECT — changes requested\n\n**PR #1130 — fix: resolve the review-engine bundle across all layouts (#1085)**\nReviewed HEAD: `b2bf2701c2e73ac1d065eb79e96b2e9d9c69371b`\n\nThe core change is sound and nearly complete: the ordered, repo-root-anchored candidate list (repo-root `skills/review` → `.prflow/vendor/prflow/skills/review` → superseded `.devflow/vendor/devflow/skills/review`) is stated consistently across all describing sites, the  …[per-command-truncated]"
+    ],
+    "total": 5,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
