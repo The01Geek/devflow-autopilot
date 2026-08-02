@@ -4323,6 +4323,15 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             self.assertIn("resolves into prose", stdout)
 
     def test_worktree_target_snapshot_detects_byte_mode_and_path_races(self):
+        # The `path` mutation recreates with DIFFERENT content on purpose. An
+        # unlink+recreate with byte-identical content that reuses the inode within
+        # one coarse timer tick is indistinguishable from no change (and harmless —
+        # the analyzed bytes are unchanged), so `_worktree_path_identity` does not
+        # guard it by design; see its docstring. Asserting it here would be a
+        # property the host's filesystem/clock does not guarantee (green on a slow
+        # host, red on a fast one). A different-content recreate is a real path race
+        # that the payload compare catches deterministically on every host, with no
+        # sleep-to-cross-a-tick timing dependence.
         for mutation in ("bytes", "mode", "path"):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
@@ -4337,7 +4346,7 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
                     target.chmod(0o755)
                 else:
                     target.unlink()
-                    target.write_text("TOKEN\n", encoding="utf-8")
+                    target.write_text("REPLACED\n", encoding="utf-8")
                 with self.assertRaisesRegex(
                     self.mod.InfrastructureError,
                     "changed during worktree analysis",

@@ -5393,6 +5393,28 @@ def _committed_target_loader(repo_root, revision, git_runner):
 
 
 def _worktree_path_identity(repo_root, relative):
+    """Return a per-component identity tuple for a typed target's worktree path.
+
+    Each parent directory and the leaf file contribute
+    ``(st_dev, st_ino, st_mode, st_size, st_mtime_ns, st_ctime_ns)``. Paired with
+    the payload compare in ``_worktree_target_snapshot``/the loader's ``verify()``,
+    this detects a target that is rewritten (payload or ``st_size``), chmod-ed
+    (``st_mode``), moved onto a different inode (``st_ino``/``st_dev``), or touched
+    across a timer tick (``st_mtime_ns``/``st_ctime_ns``) while it is under analysis.
+
+    **By-design limitation.** One shape is not discriminable from these fields: an
+    unlink-and-recreate that (a) reuses the same inode and (b) completes within one
+    coarse-timestamp tick — Linux stamps inode times from
+    ``ktime_get_coarse_real_ts64()``, which advances once per jiffy, so operations
+    landing in the same tick share a byte-identical ``st_mtime_ns``/``st_ctime_ns`` —
+    with byte-identical content. On such a host (e.g. ext4, which reuses inodes)
+    every field of the tuple matches before and after. This is accepted rather than
+    guarded because such a replacement is harmless: the payload the loader cached is
+    identical to the bytes now present, so the analysis is still valid. The payload
+    compare — not this identity tuple — is the guarantee that the analyzed bytes are
+    the bytes on disk; any recreate with *different* content changes ``st_size`` or
+    the payload and is caught regardless.
+    """
     root = Path(repo_root)
     current = root
     identities = []
