@@ -4,6 +4,21 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.31] — 2026-08-02
+
+### Changed
+- **Trimmed unconsumed output-format sections from the Phase-3 review agents.** The review
+  agents mandated output sections the engine never consumes — `Positive Findings`
+  (`comment-analyzer`), `Positive Observations` (`pr-test-analyzer`), and `### Strengths` /
+  `### Recommendations` (the vendored `requesting-code-review` final-pass template) — that were
+  authored on every dispatch and discarded. Removing them shortens reviewer returns across every
+  `/prflow:review-and-fix` iteration and both shadow fan-outs, lowering orchestrator context
+  pressure and the compaction risk it drives. Each agent's severity rubric, finding machinery,
+  clean-run evidence, and the template's `### Assessment` verdict are untouched. The read-only
+  working-tree policy is normalized to one identical `## Working-tree policy (read-only, advisory)`
+  heading across all five first-party review agents, and the final-pass dispatch fence now names
+  the sections the template actually defines. (#1080)
+
 ## [2.30.30] — 2026-08-02
 
 ### Fixed
