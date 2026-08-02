@@ -247,7 +247,7 @@ Three things it deliberately leaves alone, and says so once when your config car
 
 ### Local tier
 
-Running `/prflow:init` provisions your repo's project `.claude/settings.json` so Claude Code keeps the plugin updated — it registers `devflow-marketplace` under `extraKnownMarketplaces` with `autoUpdate: true` and enables the plugin under `enabledPlugins`, additively and without clobbering anything you already set (re-running is a no-op once the keys exist). Review the change before committing. The provisioned block looks like:
+Running `/prflow:init` provisions your repo's project `.claude/settings.json` so Claude Code keeps the plugin updated — it registers `devflow-marketplace` under `extraKnownMarketplaces` with `autoUpdate: true` and enables the plugin under `enabledPlugins`, additively and without clobbering anything you already set (re-running is a no-op once the keys exist). **This write is not gated** — there is no separate opt-in step; `/prflow:init` performs it directly, in the same run you type the command, into a committed project file collaborators inherit. **The registration carries no version pin** — no `ref`, `tag`, `sha`, nor `version` — so the plugin auto-updates from the marketplace repo's default branch (`autoUpdate: true`), which means a change on that branch changes what runs in your editor. Review the change before committing. The provisioned block looks like:
 
 ```jsonc
 {
