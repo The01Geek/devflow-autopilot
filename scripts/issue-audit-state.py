@@ -4239,38 +4239,58 @@ def _reconstruct_dispatch_bytes(state, digest):
     return None
 
 
-def _sections(text):
-    """The draft's `## ` sections as an ordered `{heading: body}` mapping (issue #793).
+def _section_tokens(text):
+    """Yield `(key, start_line, end_line, body_lines)` per `## ` section (issues #793/#1105).
 
-    Content before the first `## ` heading is collected under the sentinel key
-    `(preamble)`, so an edit to the title or the opening lines is a changed section rather
-    than an invisible one — an edit the delta cannot see is an edit the scoped auditor is
-    never pointed at.
+    The single section scan `_sections` and `_section_line_spans` both derive from, so the
+    occurrence-disambiguation keying and the `(preamble)` sentinel live in ONE place — a
+    changed-section key resolves to the same section for the body map AND the span map,
+    rather than by copy-paste fidelity between two parsers that must agree.
+
+    Content before the first `## ` heading is collected under the sentinel key `(preamble)`,
+    so an edit to the title or the opening lines is a changed section rather than an
+    invisible one. Duplicate `## ` headings are ORDINARY in a hand-written draft
+    (`## Notes`, `## Context`); keying on the heading alone let a later occurrence overwrite
+    an earlier one, so an edit confined to the FIRST of two same-named sections disappeared
+    from the delta entirely — producing a NARROWER scope that points the auditor away from
+    the change, the opposite of this mechanism's fail-toward-the-expensive-kind direction.
+    Disambiguate by occurrence so every section is its own comparand.
+
+    `start_line`/`end_line` are 1-based inclusive and span the section INCLUDING its heading
+    line (issue #1105 — an empty leading section clamps to `(start, start)`, the safe
+    over-approximation); `body_lines` EXCLUDES the heading line, which is what `_sections`
+    joins into the body string.
     """
-    out = {}
-    heading = '(preamble)'
-    buf = []
+    lines = text.splitlines()
+    n = len(lines)
     seen = {}
 
     def _key(h):
-        # Duplicate `## ` headings are ORDINARY in a hand-written draft (`## Notes`,
-        # `## Context`). Keying on the heading alone let a later occurrence overwrite an
-        # earlier one, so an edit confined to the FIRST of two same-named sections
-        # disappeared from the delta entirely — producing a NARROWER scope that points the
-        # auditor away from the change, the opposite of this mechanism's fail-toward-the-
-        # expensive-kind direction. Disambiguate by occurrence so every section is its own
-        # comparand.
         seen[h] = seen.get(h, 0) + 1
         return h if seen[h] == 1 else f'{h} #{seen[h]}'
 
-    for line in text.splitlines():
-        if line.startswith('## '):
-            out[_key(heading)] = '\n'.join(buf)
-            heading, buf = line.strip(), []
+    heading = '(preamble)'
+    start = 1          # 1-based line of the section's first line
+    body = []
+    for i in range(n):
+        if lines[i].startswith('## '):
+            end = i if i >= start else start   # the line before this heading (1-based)
+            yield _key(heading), start, end, body
+            heading, body = lines[i].strip(), []
+            start = i + 1
         else:
-            buf.append(line)
-    out[_key(heading)] = '\n'.join(buf)
-    return out
+            body.append(lines[i])
+    end = n if n >= start else start
+    yield _key(heading), start, end, body
+
+
+def _sections(text):
+    """The draft's `## ` sections as an ordered `{heading: body}` mapping (issue #793).
+
+    Derived from the shared `_section_tokens` scan, so its keying stays lockstep with
+    `_section_line_spans` by construction rather than by hand.
+    """
+    return {key: '\n'.join(body) for key, _s, _e, body in _section_tokens(text)}
 
 
 def _changed_sections(before, after):
@@ -4298,35 +4318,13 @@ def _changed_sections(before, after):
 def _section_line_spans(text):
     """Each `## ` section's 1-based inclusive draft-line span, keyed as `_sections` keys.
 
-    The line-number companion to `_sections` (issue #1105). The scope-escape proxy needs a
-    draft-line span for a scoped round, but the changed-section set names headings, not
-    lines, so a changed heading is mapped back to the lines it occupies here. Keys are
-    disambiguated by occurrence with the same rule `_sections` uses (`H`, then `H #2`, …),
-    so a changed-section key resolves to the same section on both sides. An empty leading
-    section (a draft that opens with `## `) is clamped to a non-inverted `(start, start)`
-    rather than emitted inverted — this over-approximates by at most the heading line, the
-    safe direction for a scope span.
+    The line-number companion to `_sections` (issue #1105), derived from the same shared
+    `_section_tokens` scan so a changed-section key resolves to the same section on both
+    sides by construction. The scope-escape proxy needs a draft-line span for a scoped
+    round, but the changed-section set names headings, not lines, so a changed heading is
+    mapped back to the lines it occupies here.
     """
-    lines = text.splitlines()
-    n = len(lines)
-    spans = {}
-    seen = {}
-
-    def _key(h):
-        seen[h] = seen.get(h, 0) + 1
-        return h if seen[h] == 1 else f'{h} #{seen[h]}'
-
-    heading = '(preamble)'
-    start = 1
-    for i in range(n):
-        if lines[i].startswith('## '):
-            end = i if i >= start else start   # the line before this heading (1-based)
-            spans[_key(heading)] = (start, end)
-            heading = lines[i].strip()
-            start = i + 1
-    end = n if n >= start else start
-    spans[_key(heading)] = (start, end)
-    return spans
+    return {key: (start, end) for key, start, end, _body in _section_tokens(text)}
 
 
 def _scope_draft_lines(after_bytes, changed_sections):
