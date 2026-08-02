@@ -81,6 +81,8 @@ SWEEP_ROOT="$(git rev-parse --show-toplevel)"
 AUTHORITY_OID="$(git hash-object "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/rename-map.json)"
 ```
 
+**Validate that captured object ID before you use it.** `AUTHORITY_OID` must be a **non-empty, 40-character, lowercase hexadecimal** object ID before any enumeration, any ledger write, and any candidate content read. Anything else — empty (the skill-base anchor mis-resolved, or the map is absent), short, or non-hex — is **a missing rename authority**: stop as incomplete under *Incomplete handling* below. Validate it **here**, because the per-batch re-pin check only compares for equality and an empty capture compares equal to a later empty re-hash — an unvalidated empty value would match in every batch and run the preserve-by-default predicate with no protected-literal authority behind it.
+
 The map is the **protected-literal authority**: every superseded/frozen literal it names (compatibility identifiers, environment names, workflow filenames, marketplace identities, accepted command aliases) is a context the sweep must **not** touch. Prose classification is a *separate* judgement you apply on top of it — you never widen the map.
 
 **Enumerate the candidate population — three NUL-delimited Git queries, merged and de-duplicated as raw path records.** Use exactly these three, and keep every path record NUL-delimited (never convert to newline-delimited text, which corrupts any pathname containing a newline byte):
@@ -93,13 +95,15 @@ git ls-files --others --ignored --exclude-standard -z # ignored paths
 
 Merge the three NUL streams and de-duplicate the **raw** pathname records (a path can appear in more than one stream). Because a legal Git pathname may contain any byte except NUL — including newlines and non-UTF-8 bytes — carry each record as its raw bytes; when you must store or compare one, base64-encode the raw bytes (see the ledger below) so nothing is lost.
 
+**Observe that the enumeration actually succeeded — a partial result is never the population.** Each of the three queries must **exit 0**, and each non-empty stream's final record must be **NUL-terminated** (a stream ending mid-record is truncated, not finished). Any failure of either check — **including one arm failing while the other two succeed** — is the **enumeration failure** incomplete stop of *Incomplete handling* below, taken **before** writing the manifest and **before** reading any candidate's contents. Never take a non-zero exit, a truncated stream, or a surviving subset of the three arms as the full candidate population.
+
 **Path-exclusion set (the complete list).** Exclude from semantic inspection and replacement, and never read: `.git/`, `.prflow/`, `.devflow/` (managed PRFlow state and its superseded form), plugin-managed vendor trees (`.prflow/vendor/`, `.devflow/vendor/`), any path that resolves **outside** `SWEEP_ROOT`, and any **external symlink target** (a symlink whose resolved target leaves the repository root). This is the whole exclusion set. The sweep's own controlled ledger writes under `.prflow/tmp/init-rename-sweep/` are **exempt** from the `.prflow/` semantic-write exclusion — they are the only writes the sweep makes there.
 
 ### Durable, bounded progress state (written before any content read)
 
 Before reading a single candidate's contents, write the durable ledger under `.prflow/tmp/init-rename-sweep/` so the sweep survives a context compaction and resumes from disk, never from memory. Two versioned JSON shapes:
 
-- **`manifest.json`** — records a schema version, the repository root (`SWEEP_ROOT`), the rename-authority object ID (`AUTHORITY_OID`), the ordered page list, the current page cursor, and the aggregate totals (candidates enumerated, changed, unchanged, ambiguous, skipped).
+- **`manifest.json`** — records a schema version, the repository root (`SWEEP_ROOT`), the rename-authority object ID (`AUTHORITY_OID`), the ordered page list, the current page cursor, and the aggregate totals (candidates enumerated, changed, unchanged, ambiguous, skipped, unreadable, unsupported).
 - **Page JSON** (`page-0001.json`, …) — each page records at most **100** candidate records and stays under **64 KiB** of encoded JSON. Each record stores the **base64-encoded raw pathname bytes** plus a per-path status (`pending` / `changed` / `unchanged` / `ambiguous` / `skipped` / `unreadable` / `unsupported`). Base64 round-trips every legal Git pathname byte without loss — that is why paths are stored encoded, never as decoded text.
 
 Use preflight-required `python3` for the base64 pathname encoding (no repository helper is added; this is inline model-driven work). File **contents** are never copied into the ledger — only the path records and their status.
@@ -108,8 +112,8 @@ Use preflight-required `python3` for the base64 pathname encoding (no repository
 
 Process candidates **one per mutation batch**. Each batch loads **only** the manifest, the current bounded page, and the rename authority — it never reloads the complete candidate population:
 
-1. **Re-pin check.** Re-hash the installed-plugin `lib/rename-map.json` with `git hash-object` and require equality with the `AUTHORITY_OID` stored in the manifest. A mismatch (the plugin updated mid-sweep) **stops the sweep as incomplete before mutating another candidate** — never proceed on a changed authority.
-2. **Handle one candidate.** Read the current page's next `pending` candidate (skip any already recorded `changed`/`unchanged`/…). Read its contents; classify each `DevFlow` occurrence with the semantic predicate below.
+1. **Re-pin check.** Re-hash the installed-plugin `lib/rename-map.json` with `git hash-object` and require equality with the `AUTHORITY_OID` stored in the manifest. A mismatch (the plugin updated mid-sweep) **stops the sweep as incomplete before mutating another candidate** — never proceed on a changed authority. A **missing or empty recomputed value**, and a **missing or empty stored value**, are each treated as a **mismatch**, never as a match — bare equality would let two empty values agree.
+2. **Handle one candidate.** Read the current page's next `pending` candidate (skip any already recorded `changed`/`unchanged`/…). Read its contents; classify each `DevFlow` occurrence with the semantic predicate below. A candidate you **cannot read** — permissions, a path that vanished after enumeration, any read error — is recorded `unreadable`; one whose bytes are **not text** (binary/non-text) is recorded `unsupported`. In both cases leave the file **untouched**, record that status, and advance to the next candidate: these are per-path skips, not stops.
 3. **Record and advance.** Record that candidate's result in the page, update the manifest totals, and advance the cursor **before** continuing to the next candidate.
 
 ### The semantic predicate (positive test, preserve-by-default)
@@ -132,15 +136,19 @@ A **staging, verification, or replacement failure leaves the original target's b
 
 ### Incomplete handling (fail closed, never guess, init continues)
 
-Any of these produces an **incomplete** result: an enumeration failure, an unreadable candidate, an unsupported file type (binary/non-text), a staging failure, a staged-byte verification mismatch, an atomic-replacement failure, a missing rename authority, an authority-object-ID mismatch, a malformed or oversized (page-limit-violating) progress ledger, and a repository-root mismatch (the manifest's `SWEEP_ROOT` differs from the current root). On any of them: **stop further sweep mutations, leave the current target's original bytes unchanged, record the incomplete reason in the ledger, report it, and let the rest of init continue.** An incomplete result is never reported as clean.
+Any of these produces an **incomplete** result: an enumeration failure, a staging failure, a staged-byte verification mismatch, an atomic-replacement failure, a missing rename authority, an authority-object-ID mismatch, a malformed or oversized (page-limit-violating) progress ledger, and a repository-root mismatch (the manifest's `SWEEP_ROOT` differs from the current root). On any of them: **stop further sweep mutations, leave the current target's original bytes unchanged, record the incomplete reason in the ledger, report it, and let the rest of init continue.** An incomplete result is never reported as clean.
+
+**Two conditions are deliberately NOT on that list: an unreadable candidate and an unsupported (binary/non-text) file type.** They are **per-path skips** — recorded `unreadable`/`unsupported` in step 2 above, with the sweep continuing — and this is a decision, not an omission. The candidate population includes git-ignored paths, so it holds ignored binaries in essentially every real repository; a sweep that stopped at the first one would report incomplete almost everywhere and never reach the prose it exists to repair. What keeps that honest is the reporting rule below: those skipped paths are always surfaced, never silently dropped.
 
 ### Result reporting
 
 - **Complete + changed** — name the changed files and ask the user to **review the diff** before committing.
-- **Complete + clean** — report that no replaceable stale `DevFlow` branding was found.
+- **Complete + clean** — report that no replaceable stale `DevFlow` branding was found **in the candidates that were inspected**.
 - **Incomplete** — report the incomplete reason (from the ledger). **Never** report an incomplete sweep as clean.
 
 **Surface any recorded ambiguous occurrences on the complete arms.** An occurrence the predicate left unchanged as *ambiguous* is preserved by design, but it is **recorded in the result** — so on a **complete** sweep (changed or clean) that recorded a non-zero ambiguous count, name those files/mentions and invite the user to review them by hand. A clean sweep that recorded only ambiguous occurrences is still reported as clean (nothing was replaceable), but it does not silently swallow them.
+
+**Surface any recorded `unreadable`/`unsupported` candidates on the complete arms as well.** **Complete** means every candidate reached a recorded status — **not** that every candidate was read. So a **complete** sweep (changed or clean) whose ledger recorded a non-zero `unreadable` or `unsupported` count **reports those counts and names those paths**, saying plainly that those files were **not inspected**, exactly as the ambiguous rule above surfaces its own. A complete result that leaves them unmentioned is not a clean report.
 
 Whatever the result, the rest of `/prflow:init` continues after it.
 
