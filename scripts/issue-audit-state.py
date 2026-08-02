@@ -2476,12 +2476,15 @@ def _validate(doc, slug):
         if rkind is not None and rkind not in _ROUND_KINDS:
             raise StateError(f'round {num} names a round kind outside the canonical '
                              f'set: {rkind!r} (expected one of {sorted(_ROUND_KINDS)})')
-        # issue #1103 — the round-kind selecting reason, guarded here exactly as `kind` is
-        # and for the same reason: readers (the census join, the accepted-discovery
-        # breadcrumb's own predicate) branch on it against a closed set, so a
-        # PRESENT-but-unrecognized value must fail closed at the read boundary rather than
-        # reaching them. An ABSENT reason is legal — a pre-#1103 round carries none and its
-        # readers report UNESTABLISHED — so only a present, off-vocabulary value raises.
+        # issue #1103 — the round-kind selecting reason, guarded here as fail-closed
+        # write/read-boundary hygiene symmetric with `kind`: an off-vocabulary reason must
+        # not persist through the state owner's own mutation loads. (Unlike `kind`, whose
+        # downstream reader collapses the whole state on an unrecognized value, the eval's
+        # `read_state` deliberately surfaces an unrecognized reason verbatim and names THIS
+        # boundary as the one that refuses it — so this guard is the enforcement, not a
+        # second reader re-checking.) An ABSENT reason is legal — a pre-#1103 round carries
+        # none and its readers report UNESTABLISHED — so only a present, off-vocabulary
+        # value raises.
         rkr = rnd.get('kind_reason')
         if rkr is not None and rkr not in _ROUND_KIND_REASONS:
             raise StateError(f'round {num} names a round-kind reason outside the '
@@ -6039,7 +6042,7 @@ def cmd_record_return(args):
         if arm == 'file':
             _remedy = ('re-run record-return supplying --carriage-object-id with the '
                        'object id of the draft the auditor actually audited '
-                       '(git hash-object <draft>)')
+                       '(git hash-object --no-filters <draft>)')
             _supplied = f'--carriage-object-id {args.carriage_object_id!r}'
         else:
             _remedy = ('re-run record-return supplying --carriage-sentinel-open / '
@@ -6054,7 +6057,7 @@ def cmd_record_return(args):
                 f'classified no-parseable-verdict (carriage-absent) — the verdict is not '
                 f'a bad parse, the proof that the auditor read the dispatched bytes is '
                 f'missing. Remedy: {_remedy}. Supplied: {_supplied}.\n')
-        else:
+        elif carriage_cause == _CARRIAGE_MISMATCH:
             # `_recorded` (the recorded comparand) is composed only here, on the mismatch
             # arm that actually renders it — the absent arm never references it.
             if arm == 'file':
@@ -7407,8 +7410,10 @@ def _steering_established(rnd):
 # from a genuine disagreement (mismatched evidence) and both apart from an unparseable
 # auditor return. `None` accompanies `ok=True`; `'not-applicable'` accompanies the inline
 # arm, which carries no auditor-quoted evidence to be absent or wrong.
+# The closed cause set, enumerated so a reader can grep one symbol for the whole domain.
 _CARRIAGE_ABSENT = 'absent'
 _CARRIAGE_MISMATCH = 'mismatch'
+_CARRIAGE_NOT_APPLICABLE = 'not-applicable'
 
 
 def _carriage_ok(attempt, args):
@@ -7438,7 +7443,7 @@ def _carriage_ok(attempt, args):
         return True, None
     # The inline arm carries no auditor-quoted evidence: the orchestrator handed the
     # bytes to the auditor in its own context, so there is no carriage to prove.
-    return True, 'not-applicable'
+    return True, _CARRIAGE_NOT_APPLICABLE
 
 
 def cmd_record_revision(args):

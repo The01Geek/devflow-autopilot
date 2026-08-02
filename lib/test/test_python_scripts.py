@@ -22250,6 +22250,12 @@ assert_eq("#793/AC18: ... and the established result is PERSISTED on the round, 
           "later reader sees the verified regeneration rather than re-inferring it",
           'established', (_doc7['rounds'][1].get('steering') or {}).get('state'))
 
+# issue #1103: the TARGETED round records its selecting reason durably too — read back
+# from the same persisted scoped round, closing the "a dispatch of each kind" wording
+# (the discovery arms are covered by the CLI rows below).
+assert_eq("#1103: a targeted dispatch records kind_reason=targeted-eligible on the round",
+          'targeted-eligible', _doc7['rounds'][1].get('kind_reason'))
+
 print()
 print("issue-audit-state: carriage cause + durable round-kind reason (issue #1103)")
 
@@ -22359,6 +22365,52 @@ with tempfile.TemporaryDirectory() as _t_sec:
               (len(_bc_lines), 'FORGED' not in ''.join(
                   ln for ln in _p_sec.stderr.splitlines()
                   if ln.startswith('issue-audit-state.py record-return: FORGED'))))
+
+# The EMBED-arm breadcrumb renders its own remedy/comparand (sentinels, not an object id),
+# so it gets its own executable-boundary coverage — absent AND mismatched sentinels — rather
+# than resting on the file-arm rows above.
+
+def _1103_open_embed(tmp):
+    """A run with round 1 dispatched on the embed arm, awaiting its return.
+
+    Returns (run, sentinel_open, sentinel_close) — the tool-generated sentinel pair the
+    carriage check compares against.
+    """
+    run = _Run603(tmp)
+    d = run('record-dispatch', '--kind', 'discovery', run.slug, '--round', '1',
+            '--arm', 'embed', '--marker', 'digest-unrecorded', stdin='draft body\n',
+            nonce=True)
+    if d.returncode != 0 or 'sentinel_open=' not in d.stdout:
+        raise AssertionError(f'#1103 harness: embed dispatch failed rc={d.returncode} '
+                             f'stderr={d.stderr!r}')
+    _so = d.stdout.split('sentinel_open=', 1)[1].split()[0]
+    _sc = d.stdout.split('sentinel_close=', 1)[1].split()[0]
+    return run, _so, _sc
+
+
+with tempfile.TemporaryDirectory() as _t_eab, tempfile.TemporaryDirectory() as _t_emm:
+    _run_eab, _so_ab, _sc_ab = _1103_open_embed(_t_eab)
+    _p_eab = _run_eab('record-return', _run_eab.slug, '--round', '1', '--verdict', 'FILE',
+                      nonce=True)   # no sentinels: absent
+    _run_emm, _so_mm, _sc_mm = _1103_open_embed(_t_emm)
+    _p_emm = _run_emm('record-return', _run_emm.slug, '--round', '1', '--verdict', 'FILE',
+                      '--carriage-sentinel-open', _so_mm,
+                      '--carriage-sentinel-close', 'AUDIT-WRONG-CLOSE', nonce=True)  # mismatch
+    assert_eq("#1103: the embed-arm absent-carriage breadcrumb names the sentinel remedy, "
+              "exit 0, stdout contract line unchanged",
+              (0, True, True, 'classification=no-parseable-verdict outcome=pending '
+                              'steering=unestablished steering_reason=none'),
+              (_p_eab.returncode,
+               'carriage-absent' in _p_eab.stderr,
+               '--carriage-sentinel-open' in _p_eab.stderr
+               and 'exact sentinel pair' in _p_eab.stderr,
+               _p_eab.stdout.splitlines()[0]))
+    assert_eq("#1103: the embed-arm mismatch breadcrumb renders the recorded sentinels as "
+              "the expected comparand, exit 0",
+              (0, True, True),
+              (_p_emm.returncode,
+               'carriage-mismatch' in _p_emm.stderr,
+               _so_mm in _p_emm.stderr))
 
 # ── the durable round-kind reason, recorded by record-dispatch ─────────────────────────
 
