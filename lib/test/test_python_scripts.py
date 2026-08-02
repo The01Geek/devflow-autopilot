@@ -2353,6 +2353,48 @@ assert_eq("render_md: test plan appended after blank line", True,
               [{'text': 'a', 'ticked': False, 'post_merge': False}],
               [{'text': 'b', 'ticked': False, 'post_merge': False}]))
 
+# ── issue #1111: the operand properties the /prflow:create-issue drafting-time
+# acceptance-criteria gate rests on. The gate reads the emptiness of the
+# `acceptance_criteria` array — NOT the exit code, the stderr breadcrumb, or the
+# `--format md` sentinel. These four assertions (Testing Strategy Move 3, the
+# closed set) pin the operand properties that choice depends on; they pin
+# behavior parse-acs.py already has, so they cannot fail RED first — their
+# purpose is forward, turning a later fail-open simplification of the gate red.
+# Assertion 1 — happy path: a canonical section with `- [ ]` rows yields a
+# non-empty array (length 2).
+_AC_GATE_CANONICAL = "## Acceptance Criteria\n- [ ] one\n- [ ] two\n"
+assert_eq("#1111 gate operand: canonical section yields 2 criteria", 2,
+          len(parse_acs._parse_checkboxes(
+              parse_acs.extract_section(_AC_GATE_CANONICAL, 'Acceptance Criteria'))))
+# Assertion 2 — the real captured #1068 excerpt (bold `**AC1 — …**` paragraphs,
+# no checkbox rows) yields 0, from a checked-in file rather than an imitation.
+_AC_GATE_1068 = (Path(__file__).resolve().parents[2]
+                 / 'lib' / 'test' / 'fixtures'
+                 / 'issue-1068-acceptance-criteria.md').read_text(encoding='utf-8')
+assert_eq("#1111 gate operand: real #1068 excerpt yields 0 criteria", 0,
+          len(parse_acs._parse_checkboxes(
+              parse_acs.extract_section(_AC_GATE_1068, 'Acceptance Criteria'))))
+# Assertion 3 — the standing proof that an empty parse can be ENTIRELY silent:
+# criteria under a heading the parser does not match yield 0 criteria AND
+# _warn_near_miss writes 0 bytes, so only the array distinguishes this from the
+# happy path (the breadcrumb is unusable as the gate operand).
+_AC_GATE_NONMATCH = "## Success Criteria\n- [ ] one\n- [ ] two\n"
+assert_eq("#1111 gate operand: non-matching heading yields 0 criteria", 0,
+          len(parse_acs._parse_checkboxes(
+              parse_acs.extract_section(_AC_GATE_NONMATCH, 'Acceptance Criteria'))))
+_AC_GATE_NEARMISS = io.StringIO()
+with contextlib.redirect_stderr(_AC_GATE_NEARMISS):
+    parse_acs._warn_near_miss([], _AC_GATE_NONMATCH, 'Acceptance Criteria', 'acceptance')
+assert_eq("#1111 gate operand: near-miss breadcrumb is silent under a non-matching "
+          "heading (breadcrumb unusable as the gate operand)", 0,
+          len(_AC_GATE_NEARMISS.getvalue()))
+# Assertion 4 — the sentinel is unusable as the operand: a body with a test-plan
+# item but no acceptance criteria renders rows, not the sentinel.
+assert_eq("#1111 gate operand: sentinel not emitted when only a test-plan item "
+          "is present (sentinel unusable as the gate operand)", True,
+          parse_acs._render_md([], [{'text': 't', 'ticked': False, 'post_merge': False}])
+          != '_(none provided in issue body)_')
+
 # ── the documented mid-string `(post-merge)` residual (#781 review) ────────────
 # `_render_md_line`'s comment states the writer and the reader deliberately do NOT
 # share a predicate: the writer suppresses the append on CONTAINMENT, the reader
