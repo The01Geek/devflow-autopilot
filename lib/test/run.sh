@@ -22791,19 +22791,17 @@ assert_eq "pls: {} → enabledPlugins added" "true" \
 #    bash BUILTINS, never `grep` (a non-preflight PATH tool). On a host without
 #    grep the old `[ -s ] && grep -q '[^[:space:]]'` came back false, the file
 #    was treated as blank, and the merge clobbered every user key while reporting
-#    success. Build a restricted PATH holding everything the provisioner needs
-#    EXCEPT grep (per the #1081 audit note, reuse _mk_restricted) and drive the
-#    classification rows twice — once with grep resolvable, once without — which
-#    must reach the SAME row and identical file bytes. A shim that merely renamed
-#    grep would not reproduce the defect (the defect is the 127 a MISSING binary
-#    produces), so grep is genuinely absent from this PATH.
+#    success. Drive the classification rows twice — once with grep resolvable,
+#    once with grep producing a missing-binary status — which must reach the SAME
+#    row and identical file bytes.
 # A grep whose body exits 127 — the sanctioned fixture (issue #1081 Potential
 # Gotchas): the defect is the NON-ZERO STATUS a missing binary produces, so the
 # shim reproduces it exactly (`grep -q …` → 127 → the old guard's `&&` false →
 # file mis-treated as blank), while keeping every other tool (dirname/jq/python3)
-# resolvable so the script reaches its classification. A fully-restricted PATH is
-# brittle here — a tool the script needs but the list omits fails the run for the
-# wrong reason (dirname was the trap). Prepend the shim dir so it shadows the real
+# resolvable so the script reaches its classification. A fully-restricted PATH
+# (the #1081 audit note's `_mk_restricted` suggestion) is brittle here — a tool
+# the script needs but the list omits fails the run for the wrong reason (dirname
+# was the trap in an earlier draft). Prepend the shim dir so it shadows the real
 # grep; the SCRIPT's own grep call is what must be gone, and it is.
 PLS_NG_BIN="$(mktemp -d)"
 printf '#!/usr/bin/env bash\nexit 127\n' > "$PLS_NG_BIN/grep"; chmod +x "$PLS_NG_BIN/grep"
@@ -23397,11 +23395,12 @@ assert_eq "pam: gate Anthropic-direct, no --apply → file NOT created (AC6)" "n
 #    project provisioner, sharper blast radius (writes ~/.claude/settings.json,
 #    outside any repo/diff/git-checkout). The blankness classification must use
 #    bash builtins so a missing grep cannot make it clobber the user's file. The
-#    restricted PATH additionally carries `tr` and `dirname`: is_truthy normalises
-#    through tr (a tr-less PATH skips the write before the merge, masking the
-#    defect) and the resolve-jq.sh source line needs dirname. CLAUDE_CODE_USE_BEDROCK=1
-#    is exported for this whole block, so --apply reaches the merge. Every arm
-#    passes an EXPLICIT scratch target — never the default ~/.claude/settings.json.
+#    grep-127 shim only shadows grep; the rest of $PATH is intact, so is_truthy's
+#    `tr` and the resolve-jq.sh source line's `dirname` still resolve (a tr-less
+#    PATH would skip the write at the provider gate, masking the defect).
+#    CLAUDE_CODE_USE_BEDROCK=1 is exported for this whole block, so --apply reaches
+#    the merge. Every arm passes an EXPLICIT scratch target — never the default
+#    ~/.claude/settings.json.
 # grep-127 shim, same rationale as the pls block above (issue #1081 Gotchas).
 PAM_NG_BIN="$(mktemp -d)"
 printf '#!/usr/bin/env bash\nexit 127\n' > "$PAM_NG_BIN/grep"; chmod +x "$PAM_NG_BIN/grep"
