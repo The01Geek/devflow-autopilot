@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1123",
+  "generated_at": "2026-08-02T11:35:00Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.38",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 17.109892500000004,
+    "tokens": {
+      "input_tokens": 2765,
+      "output_tokens": 24215,
+      "cache_read_input_tokens": 3135543,
+      "cache_creation_input_tokens": 133575,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 2997,
+        "outputTokens": 116705,
+        "cacheReadInputTokens": 16374590,
+        "cacheCreationInputTokens": 878253,
+        "webSearchRequests": 0,
+        "costUSD": 17.109892500000004,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 32,
+    "duration_ms": 1183303
+  },
+  "permission_denials": {
+    "count": 29,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-<none>} ATTEMPT=${GITHUB_RUN_ATTEMPT:-<none>} ACTIONS=${GITHUB_ACTIONS:-<none>}\"",
+      "gh pr diff 1123 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1123/local-review/diff.patch\nwc -l .prflow/tmp/review/pr-1123/local-review/diff.patch\necho \"=== changed files ===\"\ngrep '^diff --git' .prflow/tmp/review/pr-1123/local-review/diff.patch\necho \"=== per-file added/removed ===\"\ngh pr view 1123 --json files --jq '.files[] | \"\\(.path)  +\\(.additions) -\\(.deletions)\"'",
+      "for f in scripts/issue-audit-state.py lib/test/test_python_scripts.py skills/create-issue/references/step-3-6-audit.md skills/create-issue/references/issue-template.md skills/create-issue/references/revision-delta.md skills/create-issue/references/step-3-5-steelman.md docs/DEVFLOW_SYSTEM_OVERVIEW.md; do echo \"=== $f ===\"; grep -nE \"record-claim-baseline|query-claim-baselines|check-claim-staleness|claim-baseline|domain-stdin|domain_stdin|_CLAIM_CLASSES|_FULL_DOMAIN_CLASSES|_validate_claims|locati …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow; for f in scripts/issue-audit-state.py lib/test/test_python_scripts.py skills/create-issue/references/step-3-6-audit.md skills/create-issue/references/issue-template.md skills/create-issue/references/revision-delta.md skills/create-issue/references/step-3-5-steelman.md docs/DEVFLOW_SYSTEM_OVERVIEW.md; do echo \"=== $f ===\"; grep -nE \"record-claim-baseline|query-claim-baselines|check-claim-staleness|claim-baseline|domain-stdin|domain_stdin|_CLAIM_CLASSES|_FULL_DO …[per-command-truncated]",
+      "TMP=$(mktemp -d) && git stash list >/dev/null 2>&1; git apply --check .prflow/tmp/review/pr-1123/local-review/diff.patch 2>&1 && echo \"APPLIES CLEAN\" || echo \"APPLY CHECK FAILED\"",
+      "cp scripts/issue-audit-state.py /tmp/ias-base.py && git apply .prflow/tmp/review/pr-1123/local-review/diff.patch && echo APPLIED",
+      "for sym in capture_revision anchor_measured_path _repo_root location_identity _CLAIM_CLASSES _STALENESS_STATES _FULL_DOMAIN_CLASSES check-claim-staleness record-claim-baseline query-claim-baselines cmd_check_claim_staleness cmd_record_claim_baseline domain_stdin _validate_claims; do echo \"=== $sym ===\"; grep -rn \"$sym\" scripts/ skills/ lib/ --include=*.py --include=*.sh --include=*.md 2>/dev/null | grep -v \"lib/test/\" | head -5; done",
+      "for sym in capture_revision anchor_measured_path _repo_root location_identity _CLAIM_CLASSES _STALENESS_STATES check-claim-staleness record-claim-baseline query-claim-baselines cmd_record_claim_baseline domain_stdin _validate_claims claims; do echo \"=== ${sym} ===\"; grep -rn \"${sym}\" scripts/ skills/ lib/ --include=\"*.py\" --include=\"*.sh\" --include=\"*.md\" 2>/dev/null | grep -v \"lib/test/\" | head -4; done",
+      "mkdir -p /tmp/postcheck && git apply --directory=. -3 .prflow/tmp/review/pr-1123/local-review/diff.patch 2>&1 | head; echo \"---rc $?\"",
+      "git log --oneline -1 && echo \"---applying patch check---\" && git apply --check .prflow/tmp/review/pr-1123/local-review/diff.patch 2>&1 | head -20 && echo \"apply-check-rc=$?\"",
+      "git apply --check .prflow/tmp/review/pr-1123/local-review/diff.patch 2>&1 | head; echo \"rc=${PIPESTATUS[0]}\"",
+      "git apply --check /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1123/local-review/diff.patch",
+      "cp -r skills/create-issue/references /tmp/refs_base 2>/dev/null\ntmp=$(mktemp -d)\ngit stash list >/dev/null 2>&1\n# apply patch in-memory to a worktree copy\ngit apply --check .prflow/tmp/review/pr-1123/local-review/diff.patch 2>&1 | head; echo \"apply-check rc=$?\"",
+      "git apply --check .prflow/tmp/review/pr-1123/local-review/diff.patch && echo \"APPLIES CLEAN\"",
+      "d=$(mktemp -d); git archive HEAD | tar -x -C \"$d\"; cp .prflow/tmp/review/pr-1123/local-review/diff.patch \"$d/p.patch\"; ( cd \"$d\" && git init -q . >/dev/null 2>&1; git apply p.patch 2>&1 | head; echo \"rc=${PIPESTATUS[0]}\"; echo '=== residual claim-baseline refs in modified prose after apply ==='; grep -rn \"record-claim-baseline\\|query-claim-baselines\\|check-claim-staleness\" docs/DEVFLOW_SYSTEM_OVERVIEW.md docs/implement-skill.md .prflow/prompt-extensions/create-issue.md skills/create-issue/refere …[per-command-truncated]",
+      "d=$(mktemp -d)\ngit archive HEAD | tar -x -C \"$d\"\ncp .prflow/tmp/review/pr-1123/local-review/diff.patch \"$d/p.patch\"\ncd \"$d\"\ngit apply p.patch\necho \"apply-rc=$?\"\necho '=== residual removed-subcommand refs in modified prose after apply ==='\ngrep -rn \"record-claim-baseline\\|query-claim-baselines\\|check-claim-staleness\" docs/DEVFLOW_SYSTEM_OVERVIEW.md docs/implement-skill.md .prflow/prompt-extensions/create-issue.md skills/create-issue/references/ 2>/dev/null\necho '=== done ==='",
+      "rm -rf /tmp/pr1123 && mkdir -p /tmp/pr1123 && git archive HEAD --format=tar -o /tmp/pr1123/head.tar",
+      "mkdir -p /tmp/pr1123x",
+      "D=$(mktemp -d); export D; git archive HEAD | tar -x -C \"$D\"; git apply --directory=\"$D\" .prflow/tmp/review/pr-1123/local-review/diff.patch; echo \"apply-rc=$?\"",
+      "git archive HEAD --prefix=pr1123chk/ | tar -x -C .prflow/tmp/",
+      "/home/runner/work/prflow/prflow/scripts/load-prompt-extension.sh requesting-code-review",
+      "/home/runner/work/prflow/prflow/scripts/load-prompt-extension.sh requesting-code-review",
+      "git apply --check .prflow/tmp/review/pr-1123/local-review/diff.patch 2>&1 | head; echo \"check-rc=$?\"",
+      "git apply --check .prflow/tmp/review/pr-1123/local-review/diff.patch; echo \"check-rc=$?\"",
+      "git apply --check .prflow/tmp/review/pr-1123/local-review/diff.patch && echo APPLIES_CLEAN",
+      "git apply --check .prflow/tmp/review/pr-1123/local-review/diff.patch",
+      "python3 - <<'PY'\nimport re, subprocess, pathlib\nroot=pathlib.Path('.')\nsrc=(root/'scripts/issue-audit-state.py').read_text()\n_ADD=re.compile(r\"sub\\.add_parser\\(\\s*['\\\"]([a-z0-9][a-z0-9-]*)['\\\"]\", re.DOTALL)\nnames=list(dict.fromkeys(_ADD.findall(src)))\nproc=subprocess.run(['git','ls-files','skills','scripts','lib'],capture_output=True,text=True)\ncorpus={}\nfor rel in proc.stdout.split():\n    if rel=='scripts/issue-audit-state.py': continue\n    try: corpus[rel]=(root/rel).read_text(errors='replace' …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nscripts/dismiss-stale-rejections.sh 1123 2>&1 && echo \"DISMISS_OK rc=$?\" || echo \"DISMISS_rc=$?\"",
+      "scripts/dismiss-stale-rejections.sh 1123"
+    ],
+    "total": 29,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
