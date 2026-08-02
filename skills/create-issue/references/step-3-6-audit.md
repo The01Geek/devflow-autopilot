@@ -97,6 +97,14 @@ python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports 
 
 A bullet the helper reports as `handle=none` carries no re-derivation handle, so the implementing run cannot re-check it mechanically — rewrite it to carry its path-and-quotation or its command before dispatching. A `state=refuted` bullet has already drifted since you wrote it — re-derive that claim now rather than auditing a draft that asserts it. Best-effort like every arm in this skill: a refused or unavailable invocation (any exit other than 0 or 2, or no `VERIFIED_PREMISES` line at all) is recorded and **never blocks issue creation**, and it never gates the dispatch below. `skills/create-issue/references/step-3-5-steelman.md` states the obligation and the routing; this is its execution point.
 
+**Run the acceptance-criteria parseability gate on the same landed bytes (Step 3.5's obligation, executed here).** Immediately after the verified-premise handle check, run the shipped parser over the same canonical draft — the run's first landed canonical draft, the single gate site (Step 4's presentation write and iterate-on-feedback overwrite are not gate sites):
+
+```bash
+python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/parse-acs.py --body-file "<bound-root>/.prflow/tmp/issue-draft-<slug>.md" --format json
+```
+
+Read the `acceptance_criteria` array from that JSON output — the only usable operand (the exit code, the stderr breadcrumb, and the `--format md` sentinel are each unusable, for the observed reasons `skills/create-issue/references/step-3-5-steelman.md` records). When the array is **non-empty**, the gate passes; proceed. When it is **empty**, do not dispatch and do not present: rewrite the criterion rows into the shape the parser reads and re-run this command on the rewritten bytes through the ordinary revision machinery, bounded at **three** consecutive empty re-runs, after which stop and surface the failure to the user per Step 3.5. When the parser **cannot run** (an unreadable helper, a non-zero exit, a denied invocation, or unparseable stdout), emit an in-chat breadcrumb naming the failure kind and proceed to presentation — this arm never blocks issue creation. `skills/create-issue/references/step-3-5-steelman.md` states the obligation and what to do with each result; this is its execution point.
+
 **Bind the draft root here, once the write is confirmed landed (issue #569) — query first, bind only if unbound.** Immediately after you confirm the pre-dispatch write landed, read `query-draft-binding "<slug>" --nonce "<nonce>"` and branch on its answer:
 
 - It answers a **real absolute root** — the run is already bound. **Skip the fence**, take that `bound=` root as the binding, and proceed.
