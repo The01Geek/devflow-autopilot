@@ -149,6 +149,16 @@ _ROUND_KIND_REASONS = (
     # one failing-condition token per `targeted` condition, plus the delta arms and the
     # no-round precondition. Deliberately count-free: a comment stating how many there are
     # rots on the next edit that adds one.
+    #
+    # issue #1103 — the no-round precondition is TWO materially different facts that shared
+    # `no-completed-round` before: `no-round-dispatched` is the genuine cold FIRST round
+    # (nothing has been dispatched yet — the legitimate reason a run's first round is a
+    # whole-draft one, so `record-dispatch` announces NO fall-off for it), while
+    # `no-completed-round` now names only the fall-off case (a round WAS dispatched but
+    # never completed, so the next round pays for a cold audit a completed round would have
+    # made cheaper). Splitting them is what lets the durable record — and the
+    # accepted-discovery breadcrumb — tell a first round apart from a lost one.
+    'no-round-dispatched',
     'no-completed-round',
     'no-revision-after-round',
     'not-file-arm',
@@ -157,6 +167,12 @@ _ROUND_KIND_REASONS = (
     'empty-delta',
     'delta-error',
 )
+# issue #1103 — the ONE discovery reason that is NOT a fall-off: the genuine cold first
+# round. `record-dispatch` announces the expensive whole-draft path for every OTHER
+# discovery reason (each names a `targeted` precondition that failed) and stays silent for
+# this one, so the accepted-`discovery` breadcrumb marks a round that could have been
+# cheaper, never a first round that never could.
+_DISCOVERY_FIRST_ROUND_REASON = 'no-round-dispatched'
 # issue #793: the closed per-claim verdict set a `targeted` round's auditor returns —
 # exactly two members, complete by construction. Anything else (a missing claim, an
 # off-set value) is recorded `not-addressed`: only a positively-returned `addressed`
@@ -2460,6 +2476,20 @@ def _validate(doc, slug):
         if rkind is not None and rkind not in _ROUND_KINDS:
             raise StateError(f'round {num} names a round kind outside the canonical '
                              f'set: {rkind!r} (expected one of {sorted(_ROUND_KINDS)})')
+        # issue #1103 — the round-kind selecting reason, guarded here as fail-closed
+        # write/read-boundary hygiene symmetric with `kind`: an off-vocabulary reason must
+        # not persist through the state owner's own mutation loads. (Unlike `kind`, whose
+        # downstream reader collapses the whole state on an unrecognized value, the eval's
+        # `read_state` deliberately surfaces an unrecognized reason verbatim and names THIS
+        # boundary as the one that refuses it — so this guard is the enforcement, not a
+        # second reader re-checking.) An ABSENT reason is legal — a pre-#1103 round carries
+        # none and its readers report UNESTABLISHED — so only a present, off-vocabulary
+        # value raises.
+        rkr = rnd.get('kind_reason')
+        if rkr is not None and rkr not in _ROUND_KIND_REASONS:
+            raise StateError(f'round {num} names a round-kind reason outside the '
+                             f'canonical set: {rkr!r} (expected one of '
+                             f'{sorted(_ROUND_KIND_REASONS)})')
         # The derived scope a targeted round was dispatched under. `claim_ids` is the sole
         # operand `_ingest_targeted_verdicts` reads, so a wrong-typed one would silently
         # ingest nothing and report every claim addressed.
@@ -4360,6 +4390,13 @@ def select_round_kind(state, canonical_path):
 
     last = last_completed(state) if state is not None else None
     if last is None:
+        # issue #1103 — split the old shared `no-completed-round` token into its two
+        # materially different facts. `no-round-dispatched` is the genuine cold first
+        # round (no round has been dispatched at all); `no-completed-round` is the
+        # fall-off (a round WAS dispatched but never returned an outcome). The two are the
+        # same kind but not the same fact, and the durable reason field records which.
+        if state is None or not state.get('rounds'):
+            return _answer('discovery', 'no-round-dispatched')
         return _answer('discovery', 'no-completed-round')
     if not _revision_postdates(state, last):
         return _answer('discovery', 'no-revision-after-round')
@@ -5876,6 +5913,17 @@ def cmd_record_dispatch(args):
                # defaults it to `discovery` — the whole-draft treatment those rounds
                # actually had.
                'kind': _checked_kind(args.kind),
+               # issue #1103: the reason the kind was selected, recorded per round beside
+               # `kind` for exactly the reason `kind` is — a later reader must not
+               # re-derive it from inputs (a revision, the byte history) that have since
+               # moved, and the census that joins rounds to kinds must be able to say WHY
+               # a cold round was cold rather than inferring it from a replay. Validated
+               # against the closed vocabulary at the write boundary, the same guard
+               # `kind` gets. A round record written before #1103 carries none, and every
+               # reader reports its reason as UNESTABLISHED (never a guessed value) — the
+               # additive-field-under-the-unchanged-schema-version precedent, so a
+               # pre-change state file still loads.
+               'kind_reason': _checked_kind_reason(_kind_answer['reason']),
                # The derived scope a targeted round was dispatched under, for the audit
                # trail. `None` on a discovery round.
                'scope': ({'basis_digest': _kind_answer['basis_digest'],
@@ -5883,6 +5931,23 @@ def cmd_record_dispatch(args):
                           'claim_ids': [c for c, _ in _kind_answer['claims']]}
                          if args.kind == 'targeted' else None)}
         doc['rounds'].append(rnd)
+        # issue #1103 — close the cross-check asymmetry. `_cross_check_kind` refuses a
+        # caller that declares `targeted` over a fallen-back `discovery` selection, but
+        # silently accepts a caller that declares the cold `discovery` one. Falling back to
+        # the cold kind is CORRECT behaviour (refusing it would break every run that
+        # legitimately cannot take a scoped round), so this stays a breadcrumb, never a
+        # refusal — but the expensive whole-draft path announces itself at the moment it is
+        # paid for rather than only in a later census. It fires for every discovery reason
+        # EXCEPT the genuine first round (`no-round-dispatched`), so a run's legitimately
+        # cold first round is silent while a fall-off is named.
+        if (args.kind == 'discovery'
+                and _kind_answer['reason'] != _DISCOVERY_FIRST_ROUND_REASON):
+            sys.stderr.write(
+                f'issue-audit-state.py record-dispatch: round {args.round} opened a '
+                f'discovery (whole-draft) round because the tool selected discovery, '
+                f'reason {_kind_answer["reason"]!r} (accepted-discovery-fallback) — the '
+                f'cheaper targeted round was not eligible; this whole-draft audit is the '
+                f'expensive path.\n')
     elif rnd.get('outcome') is not None:
         _fail('record-dispatch', f'round {args.round} is already closed with outcome '
                                  f'{rnd["outcome"]!r}; a dispatch cannot reopen it')
@@ -5953,9 +6018,60 @@ def cmd_record_return(args):
                                f'{rnd["outcome"]!r}; a duplicate return is illegal')
     attempt = rnd['attempts'][-1]
     arm = attempt['arm']
-    carriage_ok = _carriage_ok(attempt, args)
+    carriage_ok, carriage_cause = _carriage_ok(attempt, args)
     verdict = args.verdict
     cls = classify_return(arm, verdict, args.verdict is not None, carriage_ok)
+
+    # issue #1103 — name the carriage cause on stderr, BESIDE the closed stdout contract
+    # line (never inside it — that line has whole-line comparands, the #611 precedent this
+    # follows), and only when carriage actually DROVE the classification: a parseable,
+    # non-DRAFT-UNREADABLE verdict that classified `no-parseable-verdict` because the
+    # carriage evidence was absent or mismatched. That predicate excludes the two returns
+    # this breadcrumb must NOT claim carriage for — an absent/off-set verdict line (an
+    # unparseable auditor return, which fails the `has_verdict_line`/`_VERDICTS` guards
+    # first) and a `DRAFT-UNREADABLE` return (which carries no carriage by construction) —
+    # so the three causes are distinguishable from each other. The stdout line and the
+    # exit code are untouched: this writes only to stderr and changes no control flow.
+    if (cls == 'no-parseable-verdict' and verdict in _VERDICTS
+            and verdict != 'DRAFT-UNREADABLE' and not carriage_ok):
+        # The remedy names the file-arm object id specifically (the create-issue dispatch
+        # path); the embed arm's evidence is the sentinel pair, so its remedy names that.
+        # Every caller-supplied value is rendered with `!r` so a newline or control byte
+        # in it becomes an escaped literal INSIDE this one line and cannot forge a second
+        # breadcrumb line (issue #1103 security row).
+        if arm == 'file':
+            _remedy = ('re-run record-return supplying --carriage-object-id with the '
+                       'object id of the draft the auditor actually audited '
+                       '(git hash-object --no-filters <draft>)')
+            _supplied = f'--carriage-object-id {args.carriage_object_id!r}'
+        else:
+            _remedy = ('re-run record-return supplying --carriage-sentinel-open / '
+                       '--carriage-sentinel-close quoting the exact sentinel pair the '
+                       'dispatch embedded around the draft')
+            _supplied = (f'--carriage-sentinel-open {args.carriage_sentinel_open!r} '
+                         f'--carriage-sentinel-close {args.carriage_sentinel_close!r}')
+        if carriage_cause == _CARRIAGE_ABSENT:
+            sys.stderr.write(
+                f'issue-audit-state.py record-return: round {rnd["round"]} returned a '
+                f'parseable {verdict} verdict but NO carriage evidence, so it was '
+                f'classified no-parseable-verdict (carriage-absent) — the verdict is not '
+                f'a bad parse, the proof that the auditor read the dispatched bytes is '
+                f'missing. Remedy: {_remedy}. Supplied: {_supplied}.\n')
+        elif carriage_cause == _CARRIAGE_MISMATCH:
+            # `_recorded` (the recorded comparand) is composed only here, on the mismatch
+            # arm that actually renders it — the absent arm never references it.
+            if arm == 'file':
+                _recorded = f'the recorded dispatch digest {attempt["digest"]!r}'
+            else:
+                _recorded = (f'the recorded sentinels {attempt.get("sentinel_open")!r} / '
+                             f'{attempt.get("sentinel_close")!r}')
+            sys.stderr.write(
+                f'issue-audit-state.py record-return: round {rnd["round"]} returned a '
+                f'parseable {verdict} verdict whose carriage evidence DISAGREES with the '
+                f'recorded dispatch, so it was classified no-parseable-verdict '
+                f'(carriage-mismatch) — the auditor quoted evidence for different bytes '
+                f'than this round dispatched. Remedy: {_remedy}. Supplied: {_supplied}; '
+                f'expected {_recorded}.\n')
 
     # `pending` is ONE field holding at most one next action, not a set of mutually-exclusive
     # booleans. Three separate flags let the persisted state hold a genuine contradiction
@@ -7287,22 +7403,47 @@ def _steering_established(rnd):
     return isinstance(rec, dict) and rec.get('state') == 'established'
 
 
+# issue #1103 — the carriage causes `_carriage_ok` distinguishes. The `ok` boolean is
+# unchanged for `classify_return` (which still collapses both failure causes to the same
+# fail-closed `no-parseable-verdict`); the CAUSE is what `cmd_record_return` renders as a
+# distinct stderr breadcrumb, so an operand slip (absent evidence) is diagnosable apart
+# from a genuine disagreement (mismatched evidence) and both apart from an unparseable
+# auditor return. `None` accompanies `ok=True`; `'not-applicable'` accompanies the inline
+# arm, which carries no auditor-quoted evidence to be absent or wrong.
+# The closed cause set, enumerated so a reader can grep one symbol for the whole domain.
+_CARRIAGE_ABSENT = 'absent'
+_CARRIAGE_MISMATCH = 'mismatch'
+_CARRIAGE_NOT_APPLICABLE = 'not-applicable'
+
+
 def _carriage_ok(attempt, args):
     """Compare the auditor's quoted carriage evidence against recorded values.
 
-    Absent evidence is treated exactly like mismatched evidence — fail closed on
+    Returns `(ok, cause)`. `ok` is the fail-closed boolean `classify_return` consumes;
+    absent evidence is treated exactly like mismatched evidence THERE — fail closed on
     missing evidence, so an auditor that quotes nothing cannot pass off an unproven
-    verdict as a proven one.
+    verdict as a proven one. `cause` (issue #1103) preserves WHICH of the two produced a
+    failure so `cmd_record_return` can render them as distinct breadcrumbs: `'absent'`
+    when the evidence was not supplied, `'mismatch'` when it was supplied but disagreed
+    with the recorded dispatch value, `None` when `ok`, and `'not-applicable'` on the
+    inline arm (no carriage exists to prove).
     """
     if attempt['arm'] == 'file':
-        return bool(args.carriage_object_id) and args.carriage_object_id == attempt['digest']
+        if not args.carriage_object_id:
+            return False, _CARRIAGE_ABSENT
+        if args.carriage_object_id != attempt['digest']:
+            return False, _CARRIAGE_MISMATCH
+        return True, None
     if attempt['arm'] == 'embed':
-        return (bool(args.carriage_sentinel_open) and bool(args.carriage_sentinel_close)
-                and args.carriage_sentinel_open == attempt['sentinel_open']
-                and args.carriage_sentinel_close == attempt['sentinel_close'])
+        if not (args.carriage_sentinel_open and args.carriage_sentinel_close):
+            return False, _CARRIAGE_ABSENT
+        if (args.carriage_sentinel_open != attempt['sentinel_open']
+                or args.carriage_sentinel_close != attempt['sentinel_close']):
+            return False, _CARRIAGE_MISMATCH
+        return True, None
     # The inline arm carries no auditor-quoted evidence: the orchestrator handed the
     # bytes to the auditor in its own context, so there is no carriage to prove.
-    return True
+    return True, _CARRIAGE_NOT_APPLICABLE
 
 
 def cmd_record_revision(args):
