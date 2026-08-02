@@ -22,8 +22,11 @@
 # ARMS (closed; the ARM token is the machine-readable answer, the files are the bytes):
 #
 #   ARM reached            the emitter ran. Silent: no warning, no comment.
-#   ARM not-reached        the emitter provably did not run. One warning naming the run
-#                          id and the pull-request number, and ONE cause-naming comment.
+#   ARM not-reached        NO RECEIPT WAS FOUND. One warning naming the run id and the
+#                          pull-request number, and ONE comment naming both causes that
+#                          produce an absent receipt and the check that separates them.
+#                          It does NOT assert that the emitter did not run — see the
+#                          body's own comment block below for why that would be false.
 #   ARM unestablished      the reader could not settle the question. One warning
 #                          carrying the reader's reason VERBATIM. No comment — the
 #                          not-reached claim is exactly what was not established.
@@ -99,30 +102,45 @@ _dvg_write() {
 _dvg_reset "$WARNING_FILE"
 _dvg_reset "$BODY_FILE"
 
-# The comment body's fixed tail, as a single-quoted literal so no byte of it is
-# expanded by the shell. It is emitted with `printf` — a BUILTIN — and never through
-# `cat`, which lib/preflight.sh does not guarantee: a host without it would post a
-# truncated body, and the body IS the emitted result this whole step exists to produce.
-_DVG_BODY_TAIL='Phase 4.4'"'"'s verdict emitter did not run in this run, so it left no run-scoped receipt
-of an outcome. That is a different state from a verdict post that was issued and
-refused, which would have left a receipt naming the refusal.
+# THIS ARM STATES WHAT WAS OBSERVED, NOT WHAT WAS INFERRED. The reader answers
+# NOT-REACHED on receipt ABSENCE, and absence has TWO causes: the emitter never ran, or
+# it ran and its best-effort receipt write failed (post-review-verdict.sh's own KNOWN
+# RESIDUAL). A body asserting "the emitter did not run" would therefore publish a false
+# statement on a pull request whenever the second cause applies with a `POSTED review`
+# outcome — a formal review sitting in the reviews API while a public comment says the
+# API is unchanged. That is CLAUDE.md's "unknown is not zero" rule one level down: the
+# reader correctly refuses to collapse *unreadable* onto NOT-REACHED, so the comment
+# must not then collapse *write-failed* onto "did not run". It names the observation,
+# both causes, and the one check that separates them.
+#
+# The tail is a single-quoted literal so no byte of it is expanded by the shell, and it
+# is emitted with `printf` — a BUILTIN — never through `cat`, which lib/preflight.sh
+# does not guarantee: a host without it would post a truncated body, and the body IS
+# the emitted result this whole step exists to produce.
+_DVG_BODY_TAIL='No run-scoped verdict-post receipt was found for this run: either Phase 4.4'"'"'s
+verdict emitter did not run, or it ran and could not write its receipt (look for a
+`could not write the verdict-post receipt` breadcrumb in the job log). If a formal
+review exists in the reviews API for the head above, the emitter ran.
 
-Because the emitter did not run, the reviews API and `reviewDecision` for this pull
-request are unchanged by this run.
+Those two causes differ in what they imply here, which is why this comment asserts
+neither. If the emitter did not run, it recorded no verdict anywhere and this run left
+the reviews API and `reviewDecision` untouched. If it ran but could not write its
+receipt, whatever it posted stands and this comment says nothing about it. Reading the
+reviews API for the head above is what tells them apart.
 
-Any verdict text this run published elsewhere — a plain pull-request comment, for
-example — carries no producer-emitted verdict marker, and the verdict-derivation
+Any verdict text this run published OUTSIDE the emitter — a plain pull-request comment,
+for example — carries no producer-emitted verdict marker, and the verdict-derivation
 consumers do not read it as a verdict.
 
 This comment is a record of that gap. It is not a verdict, and it neither approves nor
 rejects this pull request.'
 
 # The comment body. Its first line is a marker so the record is greppable, and it
-# carries NO producer verdict marker — the whole point of the comment is that this run
-# produced no verdict. The three validated fields are substituted by printf.
+# carries NO producer verdict marker — this run reached no verdict this step can see.
+# The three validated fields are substituted by printf.
 _dvg_body() {
   printf '<!-- prflow:verdict-post-gap run=%s -->\n' "$RUN_ID"
-  printf '**PRFlow review: the verdict emitter did not run in this run.**\n\n'
+  printf '**PRFlow review: no verdict-post receipt was found for this run.**\n\n'
   printf -- '- Actions run id: `%s`\n' "$RUN_ID"
   printf -- '- Pull-request head SHA this step resolved: `%s`\n\n' "$HEAD_SHA"
   printf '%s\n' "$_DVG_BODY_TAIL"
@@ -133,7 +151,7 @@ case "$READER_LINE" in
     printf 'ARM %s\n' reached
     ;;
   'NOT-REACHED')
-    _dvg_write "$WARNING_FILE" "PRFlow review: Phase 4.4's verdict emitter did not run in Actions run $RUN_ID for pull request #$PR_NUMBER; the reviews API and reviewDecision are unchanged by this run"
+    _dvg_write "$WARNING_FILE" "PRFlow review: no run-scoped verdict-post receipt was found for Actions run $RUN_ID on pull request #$PR_NUMBER — either Phase 4.4's verdict emitter did not run, or it ran and could not write its receipt; the posted comment names the check that tells them apart"
     if [ -n "$BODY_FILE" ]; then
       ( _dvg_body > "$BODY_FILE" ) 2>/dev/null || true
     fi

@@ -15,7 +15,15 @@
 #
 #   REACHED <outcome line>    the emitter ran; <outcome line> is its own closed-vocabulary
 #                             outcome, whitespace-trimmed at the right
-#   NOT-REACHED               no receipt exists, so the emitter did not run in this run
+#   NOT-REACHED               NO RECEIPT EXISTS. That is the observation, and it has two
+#                             causes: the emitter did not run, or it ran and its
+#                             best-effort receipt write failed (post-review-verdict.sh's
+#                             own KNOWN RESIDUAL, whose only other trace is a
+#                             `could not write the verdict-post receipt` stderr
+#                             breadcrumb in the job log). A consumer that turns this
+#                             token into a public statement must name both causes rather
+#                             than assert the first — scripts/describe-verdict-post-gap.sh
+#                             is the consumer that does.
 #   UNESTABLISHED <reason>    the question could not be settled; <reason> is one closed
 #                             token from the list below
 #

@@ -193,10 +193,17 @@ _PRV_RECEIPT_WARNED=0
 # so — and what makes a second invocation inside one job REPLACE the earlier round
 # rather than accumulate behind it.
 #
-# KNOWN RESIDUAL, stated rather than papered over: when the write itself fails, the run
-# leaves no receipt and is therefore indistinguishable afterwards from one that never
-# reached this helper at all. The breadcrumb below is the only signal that separates
-# them, and it lives in the job log rather than on the pull request.
+# KNOWN RESIDUAL, stated with its real blast radius rather than papered over: when the
+# write itself fails, the run leaves no receipt, so scripts/check-verdict-post-reached.sh
+# answers NOT-REACHED for a run that DID reach this helper — and the workflow step that
+# consumes that answer POSTS A PUBLIC PULL-REQUEST COMMENT. The consequence is therefore
+# not merely an indistinguishable internal state: on this residual with a `POSTED review`
+# outcome, a comment about a missing verdict record appears on a pull request that has a
+# formal review sitting in the reviews API for that head. That is why the comment names
+# both causes and asserts neither, and why it points at the breadcrumb below — which is
+# the ONLY signal separating them, and lives in the job log, not on the pull request.
+# Anything that changes this breadcrumb's wording changes the instruction that comment
+# gives a maintainer; the focused module asserts the two are the same literal.
 _prv_say() {
   echo "$1"
   local _mode=add

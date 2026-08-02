@@ -1694,7 +1694,24 @@ jobs:
       # Gated on the SAME `startsWith(needs.gate.outputs.command, '/prflow:review ')`
       # test the stall backstop above uses — the trailing space is load-bearing,
       # excluding `/prflow:review-and-fix`, which skips Phase 4.4 by design —
-      # plus a resolvable number on the event.
+      # plus a resolvable number on the event that is KNOWN TO BE A PULL REQUEST.
+      #
+      # The PR-ness term is load-bearing, not belt-and-braces. `gate` does not
+      # require a pull request: resolve-command-trigger.sh accepts any numeric
+      # target, so `/prflow:review` commented on a plain ISSUE by an authorized
+      # actor resolves should_run=true with that issue's number. Phase 4.4 is
+      # PR-mode-only by design, so its emitter never runs there and the reader
+      # would answer NOT-REACHED — posting a verdict-record comment on an issue
+      # that never had a verdict to record. `github.event.issue.pull_request` is
+      # GitHub's own discriminator (present only when the commented issue IS a
+      # pull request); the two PR-scoped events carry a pull_request number
+      # directly. No API call, so there is no unknown state to fall back from.
+      #
+      # Residual, shared with the stall backstop above and unchanged by this
+      # step: PR_NUMBER comes from the EVENT, not from an explicit number in the
+      # command, so `/prflow:review 1150` typed on some other pull request
+      # records against the pull request it was typed on. The PR-ness gate
+      # narrows the worst version of that (an issue) out entirely.
       #
       # THE STEP SELECTS NOTHING. check-verdict-post-reached.sh reduces the
       # run-scoped receipt to one line; describe-verdict-post-gap.sh picks the
@@ -1705,7 +1722,7 @@ jobs:
       # not by a grep-pin on YAML. `exit 0` on every path: an always() record
       # must never change the job's pass and never change its fail.
       - name: Record whether the verdict emitter was reached
-        if: ${{ always() && startsWith(needs.gate.outputs.command, '/prflow:review ') && (github.event.issue.number || github.event.pull_request.number) }}
+        if: ${{ always() && startsWith(needs.gate.outputs.command, '/prflow:review ') && (github.event.issue.pull_request || github.event.pull_request.number) && (github.event.issue.number || github.event.pull_request.number) }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           REPO: ${{ github.repository }}
@@ -1721,9 +1738,10 @@ jobs:
             exit 0
           fi
           # The head SHA is a REPORTED field, never a gate: a failed lookup must
-          # not suppress the record. The `|| true` is load-bearing even without
-          # errexit here, because an assignment-position failure would otherwise
-          # be the step's last status.
+          # not suppress the record. This step runs without errexit and ends in an
+          # explicit `exit 0`, so the `|| true` changes no exit status — it is
+          # here so the shape stays correct if either of those ever changes, and
+          # so a reader is not left wondering whether the failure was handled.
           HEAD_SHA=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha 2>/dev/null || true)
           LINE=$(bash "$CHECK" || true)
           WARNING_FILE="$RUNNER_TEMP/verdict-post-gap-warning.txt"
