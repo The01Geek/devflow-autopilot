@@ -25,7 +25,16 @@ automatically. Three things are intentionally NOT policed here:
 * The ``workflows["devflow-review"]`` sub-key, DELIBERATELY dual-named across the tree
   (``install.sh``'s both-spelling pattern, mirrored into the schema by #1084) so an unmigrated
   consumer still recognises their own key — policing it would flag the correct end state.
-* The declared-exemption sites below, which must keep the superseded spelling.
+* The declared-exemption sites below, which must keep the superseded spelling. These come in
+  two granularities. **Whole-file** exemptions (``_EXEMPT_EXACT`` / ``_EXEMPT_PREFIXES``) cover
+  genuinely non-scannable sites — frozen records, fixtures, the rename map, and changelog /
+  changeset / doc prose — where scanning would only re-flag content that legitimately keeps the
+  old spelling. **Line-scoped** exemptions cover live executable files that are mostly scannable
+  but carry a few legitimate both-spelling lines (the migration helpers): a trailing
+  ``# superseded-key-ok: <non-empty reason>`` declaration marker (issue #1096, mirroring the
+  repo's ``# tree-walk-ok:`` / ``# raw-guard-ok:`` / ``# structural-pin-ok:`` family) exempts
+  only that one line, so the rest of the file is still scanned for an **undeclared** regression —
+  the highest-blast-radius place for a dead-family read, per CLAUDE.md's half-migrated-tree note.
 
 Population is sourced from ``lib/test/lint_population.py``'s ``enumerate_population`` with the
 index-reading ``git ls-files`` argv (no ``--others``, no recursive tree walk) per issue #711,
@@ -86,8 +95,19 @@ _BINARY_SUFFIXES = frozenset(
     ".png .jpg .jpeg .gif .ico .bin .woff .woff2 .ttf .otf .pdf .zip .gz .tar .webp".split()
 )
 
-# Declared exemptions — sites that must keep the superseded spelling. Path prefixes (dirs)
-# and exact paths. Edited together with the do-not-sweep list in issue #1084 / CLAUDE.md.
+# Line-scoped exemption marker (issue #1096): a live migration file that legitimately names a
+# superseded leaf on one line carries a trailing `# superseded-key-ok: <reason>` declaration,
+# mirroring the repo's `# tree-walk-ok:` / `# raw-guard-ok:` / `# structural-pin-ok:` family.
+# The reason must be non-empty (at least one non-whitespace char after the colon), so a bare
+# `# superseded-key-ok:` does not silently exempt a line. Only the marked line is exempted —
+# the rest of the file is still scanned for an undeclared regression.
+_MARKER_RE = re.compile(r"#\s*superseded-key-ok:\s*\S")
+
+# Whole-file declared exemptions — genuinely non-scannable sites that must keep the superseded
+# spelling (frozen records, fixtures, the rename map, changelog / changeset / doc prose). Live
+# migration files that are mostly scannable use the line-scoped `# superseded-key-ok:` marker
+# above instead (issue #1096). Path prefixes (dirs) and exact paths. Edited together with the
+# do-not-sweep list in issue #1084 / CLAUDE.md.
 _EXEMPT_PREFIXES = (
     ".changeset/",                 # changelog prose describing a fix legitimately names the old key
     ".prflow/learnings/",          # frozen append-only retrospective records (rewriting falsifies them)
@@ -102,10 +122,10 @@ _EXEMPT_EXACT = frozenset(
         "docs/external/release-notes.md",   # past-dated historical record (past-time snapshot exemption)
         "CHANGELOG.md",                     # historical changelog entries
         "lib/rename-map.json",              # the single source of truth for the rename itself
-        "lib/migrate-config-values.py",     # migration helper docstring naming the rename inputs
-        "scripts/scaffold-config.sh",       # live config-key migration regex
-        "scripts/migrate-consumer-tier1.sh",  # live migration regex
-        "scripts/config-get.sh",            # superseded-key probe (distinguishes absent from empty)
+        # Live migration files (lib/migrate-config-values.py, scripts/scaffold-config.sh,
+        # scripts/migrate-consumer-tier1.sh, scripts/config-get.sh) moved to LINE-scoped
+        # `# superseded-key-ok:` markers (issue #1096) — they are scannable, so a whole-file
+        # exemption would hide an undeclared dead-family read in exactly the highest-risk place.
         "lib/test/modules/installer-wiring.sh",   # migration-semantics comment + workflow-filename fixtures
         "lib/test/pin-corpus-lint.py",      # builds the rename substitution from the map
         "lib/test/test_pin_corpus_lint.py",       # its fixtures carry the superseded spelling
@@ -145,6 +165,10 @@ def main() -> int:
             skipped.append(f"{path}: {skip_reason or 'unknown'}")
             continue
         for lineno, line in enumerate(text.split("\n"), 1):
+            if _MARKER_RE.search(line):
+                # Line-scoped exemption (issue #1096): a live migration file legitimately names
+                # a superseded leaf on this line and declares it. Only THIS line is exempt.
+                continue
             for m in _LEAF_RE.finditer(line):
                 if m.group(1) in _EXTENSIONS:
                     continue
