@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1119",
+  "generated_at": "2026-08-02T07:51:25Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.32",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.899104500000001,
+    "tokens": {
+      "input_tokens": 33,
+      "output_tokens": 19482,
+      "cache_read_input_tokens": 2229232,
+      "cache_creation_input_tokens": 161380,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 69,
+        "outputTokens": 41826,
+        "cacheReadInputTokens": 3319394,
+        "cacheCreationInputTokens": 414118,
+        "webSearchRequests": 0,
+        "costUSD": 5.899104500000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 23,
+    "duration_ms": 436860
+  },
+  "permission_denials": {
+    "count": 2,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "gh pr diff 1119 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1119/diff.patch 2>/dev/null || { mkdir -p .prflow/tmp/review/pr-1119 && gh pr diff 1119 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1119/diff.patch; }\nwc -l .prflow/tmp/review/pr-1119/diff.patch\necho \"---files---\"\ngrep '^diff --git' .prflow/tmp/review/pr-1119/diff.patch | sed -E 's#^diff --git a/(.*) b/.*#\\1#'",
+      "cat > .prflow/tmp/review/pr-1119/verdict.md <<'EOF'\n## PRFlow Review — PR #1119 (issue #1087)\n\n**Verdict: ✅ APPROVE** (no blocking findings; a few non-blocking recommendations below)\n\n**Reviewed HEAD:** `0c95370df7f885b4256d3f1f1ed1bac21637231a`\n**Diff classification:** `engine_self_modifying` → full checklist; Phase-3 roster: `code-reviewer`, `silent-failure-hunter`, `pr-test-analyzer` (type-design gated out — no new types).\n**Test evidence (CI, this commit):** `lib + python tests` **success**; …[per-command-truncated]"
+    ],
+    "total": 2,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
