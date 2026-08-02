@@ -3129,8 +3129,14 @@ assert_eq "#1154 upsert: the created body names the cause" "yes" \
   "$(grep -qF 'the run wrote no verdict' "$S1154_STATE/created-body" && echo yes || echo no)"
 assert_eq "#1154 upsert: the created body carries no interim 🚀 status" "yes" \
   "$(grep -qF '🚀' "$S1154_STATE/created-body" && echo no || echo yes)"
-assert_eq "#1154 upsert: the create arm breadcrumb reports 'created', not a no-op" "yes" \
-  "$(grep -qF 'created comment #4242' "$S1154_STATE/err" && ! grep -qi 'no-op' "$S1154_STATE/err" && echo yes || echo no)"
+# The breadcrumb must ATTRIBUTE the write: extract the comment id it names and
+# compare it to the one the fixture gh stub minted, rather than asserting the
+# rendered sentence is present. A create that posted nothing could still print a
+# cheerful line; only the id ties the breadcrumb to the comment that exists.
+assert_eq "#1154 upsert: the create arm breadcrumb names the comment id that was actually minted" "4242" \
+  "$(sed -n 's/.*created comment #\([0-9][0-9]*\).*/\1/p' "$S1154_STATE/err")"
+assert_eq "#1154 upsert: the create arm is no longer reported as a no-op" "yes" \
+  "$(grep -qi 'no-op' "$S1154_STATE/err" && echo no || echo yes)"
 # Exactly ONE breadcrumb per invocation — a second line means two arms fired.
 assert_eq "#1154 upsert: the create arm emits exactly one stderr breadcrumb" "1" \
   "$(grep -c '^flip-review-progress-failed:' "$S1154_STATE/err" || true)"
@@ -3224,8 +3230,10 @@ printf '%s\n' "$S1154_MARK" '**Status:** 🚀 Reviewing' '**Status:** 🎉 Revie
 s1154_seed "$S1154_ROOT/two-status.md"
 assert_eq "#1154 upsert: a body with two Status lines flips the first and creates nothing" "1/0" \
   "$(s1154_run 55 "$S1154_MARK" 'job died' >/dev/null; s1154_writes)"
-assert_eq "#1154 upsert: the second Status line survives the flip verbatim" "yes" \
-  "$(grep -qF '**Status:** 🎉 Review complete' "$S1154_STATE/patched-body" && echo yes || echo no)"
+assert_eq "#1154 upsert: the FIRST Status line is the one that was rewritten" "**Status:** ❌ Review failed" \
+  "$(grep '^\*\*Status:\*\*' "$S1154_STATE/patched-body" | sed -n '1p')"
+assert_eq "#1154 upsert: the second Status line survives the flip verbatim" "**Status:** 🎉 Review complete" \
+  "$(grep '^\*\*Status:\*\*' "$S1154_STATE/patched-body" | sed -n '2p')"
 # A Status line inside a fenced block is still the first Status the parser sees.
 # It must fail CLOSED (treat the body as terminal), never guess.
 printf '%s\n' "$S1154_MARK" '```' '**Status:** ❌ Review failed' '```' '' '**Status:** 🚀 Reviewing' \
