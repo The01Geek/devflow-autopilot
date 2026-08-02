@@ -157,12 +157,12 @@ fi
         registry = json.loads(self.registry_path.read_text(encoding="utf-8"))
         self.assertEqual(registry["test_modules"]["alpha"]["minimum_assertions"], 4)
         self.assertEqual(registry["test_modules"]["beta"]["minimum_assertions"], 3)
-        # structural-pin-ok: generated-artifact-identity -- not a prose pin: this is the
-        # post-image of the coupled run.sh floor site the reconciler WRITES, so the
-        # literal is the generated artifact's own shape. Asserting the raised operand
-        # landed in run.sh is the only thing distinguishing a real coupled raise from one
-        # that updated the registry alone.
-        self.assertIn('"alpha" 4; then', self.run_path.read_text(encoding="utf-8"))
+        # Asserting the raised operand reached run.sh is the only thing separating a real
+        # coupled raise from one that moved the registry alone.
+        self.assertIn(
+            '"alpha" 4; then',
+            self.run_path.read_text(encoding="utf-8"),
+        )  # structural-pin-ok: generated-artifact-identity -- the post-image of the coupled run.sh floor site the reconciler writes, so the literal is the generated artifact's own shape, not prose
 
     def test_measured_increase_changes_only_the_selected_numeric_tokens(self) -> None:
         self.write_contract(alpha_floor=2, beta_floor=3)
