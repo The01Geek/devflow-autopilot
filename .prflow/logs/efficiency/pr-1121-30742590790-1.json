@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1121",
+  "generated_at": "2026-08-02T10:04:59Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.36",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.051315000000002,
+    "tokens": {
+      "input_tokens": 44,
+      "output_tokens": 19119,
+      "cache_read_input_tokens": 2982886,
+      "cache_creation_input_tokens": 154368,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 102,
+        "outputTokens": 49207,
+        "cacheReadInputTokens": 4720325,
+        "cacheCreationInputTokens": 461054,
+        "webSearchRequests": 0,
+        "costUSD": 7.051315000000002,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 28,
+    "duration_ms": 435419
+  },
+  "permission_denials": {
+    "count": 3,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "gh pr diff 1121 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1121/local-run/diff.patch\nwc -l .prflow/tmp/review/pr-1121/local-run/diff.patch\necho \"=== per-file churn ===\"\ngrep -E '^diff --git' .prflow/tmp/review/pr-1121/local-run/diff.patch",
+      "cat > .prflow/tmp/review/pr-1121/local-run/verdict.md <<'EOF'\n## 🚀 PRFlow Review — PR #1121 — ✅ APPROVE\n\n**Reviewed HEAD:** `f412b1ba1ce069e3bd7bd46d40e2f1d46c83a068`\n**Issue:** #1105 — scoped audit rounds re-check resolved claims + record the draft-line span\n**Diff profile:** engine_self_modifying (full checklist; type-design-analyzer gated off — no new types; pr-test-analyzer on).\n**Test evidence (CI ground truth for this commit):** all checks `success` — `lib + python tests`, `lint (shellchec …[per-command-truncated]"
+    ],
+    "total": 3,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
