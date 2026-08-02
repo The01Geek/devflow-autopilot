@@ -27392,6 +27392,22 @@ assert_pin_unique "#271 coupled: phase-4-documentation.md deferrals merge invoke
 R313_IMPL="$(region_lines "$IMPL_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
 R313_RUNNER="$(region_lines "$RUNNER_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
 R313_LIGHT="$(region_lines "$LIGHT_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
+# --- AC2 (issue #1084): the provider resolver reads `$cfg[$section].provider`, so
+# each provider step's `SECTION:` env must name the config family that workflow's
+# own config reads use. devflow.yml set `SECTION: devflow` while the schema declares
+# `prflow.provider` and /prflow:init scaffolds only `prflow`, so a configured
+# provider was silently ignored on the entire /prflow:* command path. Assert each
+# workflow's SECTION matches its family and that the superseded `devflow` spelling
+# never reappears at a resolver call site.
+# structural-pin-ok: routing-dispatch-contract -- the SECTION literal selects which
+# config family the single-sourced resolver reads; a wrong value silently routes to
+# an unread section, so this is a typed routing boundary, not documentation prose.
+assert_eq "#1084 SECTION: devflow.yml provider steps name the prflow family (not the dead devflow spelling)" "2 0" \
+  "$(grep -cE '^[[:space:]]*SECTION:[[:space:]]*prflow$' "$LIGHT_WF") $(grep -cE '^[[:space:]]*SECTION:[[:space:]]*devflow$' "$LIGHT_WF")"
+assert_eq "#1084 SECTION: devflow-runner.yml provider steps name the prflow_runner family" "2 0" \
+  "$(grep -cE '^[[:space:]]*SECTION:[[:space:]]*prflow_runner$' "$RUNNER_WF") $(grep -cE '^[[:space:]]*SECTION:[[:space:]]*devflow$' "$RUNNER_WF")"
+assert_eq "#1084 SECTION: devflow-implement.yml provider steps name the prflow_implement family" "2 0" \
+  "$(grep -cE '^[[:space:]]*SECTION:[[:space:]]*prflow_implement$' "$IMPL_WF") $(grep -cE '^[[:space:]]*SECTION:[[:space:]]*devflow$' "$IMPL_WF")"
 # Non-empty guard: a renamed/removed sentinel would extract "" and make the
 # identity asserts vacuously PASS ("" == "") — assert extraction found a program.
 assert_eq "#313 resolver: program extracted from devflow-implement.yml is non-empty (sentinels intact)" "yes" \

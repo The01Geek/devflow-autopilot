@@ -922,7 +922,7 @@ jobs:
         id: provider
         env:
           CONFIG_JSON: ${{ steps.cfg.outputs.json }}
-          SECTION: devflow
+          SECTION: prflow
         run: |
           set -euo pipefail
           # devflow-provider-resolver BEGIN (single-sourced; keep byte-identical across the three cloud workflows — lib/test/run.sh pins it)
@@ -998,7 +998,7 @@ jobs:
           TIMEOUT_MS: ${{ steps.provider.outputs.timeout_ms }}
           PROVIDER: ${{ steps.provider.outputs.provider }}
           PROVIDER_API_KEY: ${{ secrets.DEVFLOW_PROVIDER_API_KEY }}
-          SECTION: devflow
+          SECTION: prflow
         run: |
           set -euo pipefail
           if [ -z "$PROVIDER_API_KEY" ]; then
