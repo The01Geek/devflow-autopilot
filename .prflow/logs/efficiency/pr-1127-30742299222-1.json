@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1127",
+  "generated_at": "2026-08-02T09:51:13Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.36",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.7136165000000005,
+    "tokens": {
+      "input_tokens": 47,
+      "output_tokens": 20565,
+      "cache_read_input_tokens": 3446122,
+      "cache_creation_input_tokens": 111689,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 87,
+        "outputTokens": 38790,
+        "cacheReadInputTokens": 4580333,
+        "cacheCreationInputTokens": 325509,
+        "webSearchRequests": 0,
+        "costUSD": 5.7136165000000005,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 29,
+    "duration_ms": 443021
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "cd /home/runner/work/prflow/prflow\nfor f in install.sh CLAUDE.md docs/install.md docs/cloud-setup.md docs/DEVFLOW_SYSTEM_OVERVIEW.md README.md skills/init/SKILL.md; do\n  git show e86351c:\"$f\" 2>/dev/null | grep -niE 'consent-gated (provision-local|provisioners.*local)|provision-local-settings.*consent|widen.*allowlist.*provision-local|provision-local.*widen' | sed \"s|^|$f: |\"\ndone\necho \"=== check the specific CLAUDE.md consent list line on head ===\"\ngit show e86351c:CLAUDE.md | grep -n 'provisio …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nH=e86351c209d61c7601ee7c3e7446bb62f1d6ed7f\ngit show $H:CLAUDE.md | grep -niE 'provision-local-settings'\necho \"--- init SKILL head ---\"\ngit show $H:skills/init/SKILL.md | grep -niE 'ungated|consent-gated|--apply' | head",
+      "for f in docs/install.md docs/cloud-setup.md; do echo \"== $f ==\"; git show e86351c209d61c7601ee7c3e7446bb62f1d6ed7f:$f | grep -c 'extraKnownMarketplaces'; done",
+      "cd /home/runner/work/prflow/prflow\nscripts/dismiss-stale-rejections.sh 1127 && echo \"DISMISS-OK rc=$?\"",
+      "cd /home/runner/work/prflow/prflow\nscripts/dismiss-stale-rejections.sh 1127"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
