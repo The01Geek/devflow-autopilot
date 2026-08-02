@@ -584,6 +584,50 @@ class CoverageMapGuardTest(unittest.TestCase):
             self.assertIn("lib/planted.sh", out.getvalue())
             self.assertIn("[arm1]", out.getvalue())
 
+    def _min_guardable_tree(self, root):
+        # A minimal git tree main() can run over cleanly (no arm-1/2/9 noise): the two
+        # required JSON inputs present, no depth-1 lib/scripts code unit to list.
+        (root / "lib" / "test" / "modules").mkdir(parents=True)
+        (root / "scripts").mkdir()
+        (root / "lib" / "test" / "modules" / "coverage-map.json").write_text(
+            json.dumps(_map(files={})), encoding="utf-8"
+        )
+        (root / "scripts" / "workflow-flight-recorder-registry.json").write_text(
+            json.dumps(_registry()), encoding="utf-8"
+        )
+        subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+
+    def test_cli_main_surfaces_a_present_but_malformed_grant_channel(self):
+        # issue #1078: main() must surface a present-but-unparseable capability-profiles.json
+        # / .prflow/config.json rather than discarding the _load_json error half (which would
+        # misdirect arm10's "add the token to the config channel" remedy at an unusable file).
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._min_guardable_tree(root)
+            (root / "lib" / "capability-profiles.json").write_text("{ not json", encoding="utf-8")
+            (root / ".prflow").mkdir()
+            (root / ".prflow" / "config.json").write_text("{ not json", encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                guard.main(["coverage_map_guard.py", str(root)])
+            text = out.getvalue()
+            self.assertEqual(text.count("its cloud implement grant tokens were not read"), 2, text)
+            self.assertIn("capability-profiles.json", text)
+            self.assertIn("config.json", text)
+
+    def test_cli_main_is_silent_on_a_legitimately_absent_grant_channel(self):
+        # The exists()-gate: an absent optional file (a consumer/fixture that ships neither
+        # file) must NOT produce a spurious breadcrumb — the union already fails closed.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._min_guardable_tree(root)  # no capability-profiles.json, no .prflow/config.json
+            subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                guard.main(["coverage_map_guard.py", str(root)])
+            self.assertNotIn("its cloud implement grant tokens were not read", out.getvalue())
+
     # ── main() fail-closed git branch: git ls-files failing → rc 1 + the named
     # breadcrumb (the only advertised fail-closed arm without a positive control).
     # Point main() at a non-existent directory under a fresh tempdir so `git -C <path>`

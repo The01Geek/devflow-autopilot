@@ -185,9 +185,10 @@ rm -rf "$CAP_IDEM"
 # The seven such tokens issue #789 baked into the implement profile delivered ZERO
 # benefit in a consumer — the vendor slice prunes lib/test — while pre-authorizing any
 # consumer file that happened to collide with a PRFlow-chosen path. They are gone from
-# the shipped profile: six moved to .prflow/config.json's self-repo grant channel
-# (five focused_test targets + coverage_map_guard.py, still consumed by matcher-probe
-# row 17), test_module_harness.py dropped. This assertion reads the RESOLVED manifest —
+# the shipped profile: the focused_test targets and coverage_map_guard.py moved to
+# .prflow/config.json's self-repo grant channel (coverage_map_guard.py is still consumed
+# by matcher-probe's executable-.py-as-direct-leading-token probe shape),
+# test_module_harness.py dropped. This assertion reads the RESOLVED manifest —
 # the source the generated literals compile from, so `--check` (above) ties the shipped
 # literals to it — and is comment-immune (a doc comment naming a token cannot trip it),
 # so re-adding a lib/test grant to the shipped implement/review/command profile fails
