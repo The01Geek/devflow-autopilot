@@ -23076,8 +23076,8 @@ rm -rf "$PLS_WC"
 # is an executable assertion rather than a prose pin. RED by adding a key to
 # $DEFAULTS without editing the fences (or vice versa). The extractor strips
 # blockquote `> ` prefixes (the cloud-setup.md block lives in a blockquote) and
-# `//` line comments (jsonc) before parsing, and selects the fenced block that
-# contains `devflow-marketplace`.
+# `//` line comments (jsonc) before parsing, and selects the first fenced block
+# that parses to a JSON object carrying `extraKnownMarketplaces`.
 PLS_DOC="$(mktemp -d)"
 bash "$PLS" "$PLS_DOC" >/dev/null 2>&1
 pls_doc_cmp() {
@@ -23112,8 +23112,6 @@ for s in lines:
 # `bash`/`text` fence that merely mentions the marketplace name in prose.
 doc = None
 for b in blocks:
-    if "extraKnownMarketplaces" not in b:
-        continue
     clean = "\n".join(l for l in b.splitlines() if not l.lstrip().startswith("//"))
     try:
         cand = json.loads(clean)
