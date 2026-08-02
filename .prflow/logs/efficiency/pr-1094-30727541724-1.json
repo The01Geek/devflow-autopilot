@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1094",
+  "generated_at": "2026-08-02T01:54:22Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.21",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 10.763213249999998,
+    "tokens": {
+      "input_tokens": 60,
+      "output_tokens": 29660,
+      "cache_read_input_tokens": 5044168,
+      "cache_creation_input_tokens": 221403,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 184,
+        "outputTokens": 60930,
+        "cacheReadInputTokens": 9631239,
+        "cacheCreationInputTokens": 574906,
+        "webSearchRequests": 0,
+        "costUSD": 10.763213249999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 42,
+    "duration_ms": 633254
+  },
+  "permission_denials": {
+    "count": 8,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-<none>} ATTEMPT=${GITHUB_RUN_ATTEMPT:-<none>} ACTIONS=${GITHUB_ACTIONS:-<none>}\"; git status --porcelain; echo \"---branch---\"; git branch --show-current",
+      "gh pr diff 1094 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1094/30727541724-1/diff.patch | tail -5; echo \"pipe-rc=${PIPESTATUS[0]}\"; echo \"---size---\"; wc -l .prflow/tmp/review/pr-1094/30727541724-1/diff.patch",
+      "cd /home/runner/work/prflow/prflow\nfor f in devflow.yml devflow-implement.yml devflow-runner.yml; do\necho \"===== $f =====\"\ngit show e888722135248b7f67a527f471ba3a671ba1b447:.github/workflows/$f | grep -n \"SECTION:\\|provider-resolver\\|cfg\\[\\$section\\]\\|\\.provider\\|no provider\\|::error::\" \ndone",
+      "cd /home/runner/work/prflow/prflow\nfor f in devflow.yml devflow-implement.yml devflow-runner.yml; do\necho \"===== $f =====\"\ngit show e888722135248b7f67a527f471ba3a671ba1b447:.github/workflows/$f | grep -n 'SECTION:\\|provider-resolver\\|section\\|provider\\|::error::' | head -60\ndone",
+      "cd /home/runner/work/prflow/prflow\nmkdir -p .prflow/tmp/rev\nfor f in devflow.yml devflow-implement.yml devflow-runner.yml; do\n  git show e888722135248b7f67a527f471ba3a671ba1b447:.github/workflows/$f > .prflow/tmp/rev/$f\ndone\necho done",
+      "cd /home/runner/work/prflow/prflow; mkdir -p .prflow/tmp/rev; git show e888722135248b7f67a527f471ba3a671ba1b447:.github/workflows/devflow.yml > .prflow/tmp/rev/devflow.yml; git show e888722135248b7f67a527f471ba3a671ba1b447:.github/workflows/devflow-implement.yml > .prflow/tmp/rev/devflow-implement.yml; git show e888722135248b7f67a527f471ba3a671ba1b447:.github/workflows/devflow-runner.yml > .prflow/tmp/rev/devflow-runner.yml; git show e888722135248b7f67a527f471ba3a671ba1b447:.prflow/config.schema …[per-command-truncated]",
+      "mkdir -p .prflow/tmp/rev && git show e888722135248b7f67a527f471ba3a671ba1b447:.github/workflows/devflow.yml > .prflow/tmp/rev/devflow.yml && echo ok",
+      "cd /home/runner/work/prflow/prflow\n# Search head tree for superseded config-leaf pattern devflow(_family)?.<leaf>, excluding known exempt dirs\ngit grep -nE '(^|[^A-Za-z0-9_])(devflow_review_and_fix|devflow_retrospective|devflow_implement|devflow_runner|devflow_review|devflow_version|devflow)\\.[a-z][a-z0-9_]*' e888722135248b7f67a527f471ba3a671ba1b447 -- . \\\n  ':!.changeset/' ':!.prflow/learnings/' ':!.prflow/logs/' ':!lib/test/fixtures/' ':!install.sh' ':!docs/install.md' ':!docs/external/release …[per-command-truncated]"
+    ],
+    "total": 8,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
