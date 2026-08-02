@@ -22506,6 +22506,16 @@ _ren_marker = _rig_ren.disarmed_marker() or ''
 assert_eq("#1077 guard: renamed-interface marker names the real exception (AttributeError), "
           "not FileNotFoundError", True,
           'AttributeError' in _ren_marker and 'FileNotFoundError' not in _ren_marker)
+# AC5 (transitive branch): a FileNotFoundError from a file the classifier IMPORTS (heads.py
+# missing while extract-command-shapes.py is present) must name the actual missing file, NOT
+# falsely claim "this tree has no lib/test" — the mis-attribution the transitive branch fixes.
+_rig_tr = _GuardRig()
+(_rig_tr.root / 'lib' / 'test' / 'extract-command-heads.py').unlink()
+_rig_tr.run(_payload('echo x > /tmp/f', tid='transitive-cause'))
+_tr_marker = _rig_tr.disarmed_marker() or ''
+assert_eq("#1077 guard: a transitive-import FileNotFoundError names the imported file, not a "
+          "false 'no lib/test'", True,
+          'extract-command-heads.py' in _tr_marker and 'this tree has no lib/test' not in _tr_marker)
 # Negative control: an ARMED guard (clean classify, matched nothing) writes NO marker, so the
 # marker's presence is attributable to the disarm and not to every run.
 _rig_neg = _GuardRig()
