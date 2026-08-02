@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1148",
+  "generated_at": "2026-08-02T17:13:52Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.51",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 14.631709750000004,
+    "tokens": {
+      "input_tokens": 5875,
+      "output_tokens": 55269,
+      "cache_read_input_tokens": 10598044,
+      "cache_creation_input_tokens": 189954,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 5980,
+        "outputTokens": 91234,
+        "cacheReadInputTokens": 14639002,
+        "cacheCreationInputTokens": 686261,
+        "webSearchRequests": 0,
+        "costUSD": 14.631709750000004,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 67,
+    "duration_ms": 992842
+  },
+  "permission_denials": {
+    "count": 9,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "git status --porcelain; echo \"---RUNENV---\"; echo \"run_id=${GITHUB_RUN_ID:-EMPTY} attempt=${GITHUB_RUN_ATTEMPT:-EMPTY} actions=${GITHUB_ACTIONS:-EMPTY}\"",
+      ".prflow/vendor/prflow/scripts/workpad.py patch 5159399153 .prflow/tmp/review/pr-1148/30757755543-1/review-wp.md 2>.prflow/tmp/review/pr-1148/30757755543-1/rv-patch.err || echo \"patch-rc=$? $(cat .prflow/tmp/review/pr-1148/30757755543-1/rv-patch.err)\"",
+      ".prflow/vendor/prflow/scripts/workpad.py patch 5159399153 .prflow/tmp/review/pr-1148/30757755543-1/review-wp.md 2>.prflow/tmp/review/pr-1148/30757755543-1/rv-patch.err; echo \"patch-rc=$?\"",
+      "cd /home/runner/work/prflow/prflow\nM='<!-- prflow:review-verdict head=516c3b15f5198bba6039cb4d12973be3b9704de3 verdict=REJECT -->'\n# Simulate a CRLF body line1 as GitHub delivers it\nprintf '%s\\r\\ncontent line2\\r\\n' \"$M\" > .prflow/tmp/crlf-body.txt\necho \"=== dismiss jq (no rtrim), CRLF body ===\"\njq -Rrs '(. ) as $b | ($b | split(\"\\n\") | (.[0] // \"\")) | test(\"^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=REJECT -->$\")' .prflow/tmp/crlf-body.txt\necho \"=== fetch-pr-context jq (with rtrim) …[per-command-truncated]",
+      "bash .prflow/tmp/mktest.sh",
+      "printf 'PROOF bash [[ =~ ]]: '; L=$(jq -rn '\"<!-- prflow:review-verdict head=516c3b15f5198bba6039cb4d12973be3b9704de3 verdict=REJECT -->\\r\"'); RE='^<!-- prflow:review-verdict head=([0-9a-fA-F]{40}) verdict=(APPROVE|REJECT) -->$'; if [[ \"$L\" =~ $RE ]]; then echo MATCH; else echo NO-MATCH; fi",
+      "L=$(jq -rn '\"<!-- prflow:review-verdict head=516c3b15f5198bba6039cb4d12973be3b9704de3 verdict=REJECT -->\\r\"'); RE='^<!-- prflow:review-verdict head=([0-9a-fA-F]{40}) verdict=(APPROVE|REJECT) -->$'; [[ \"$L\" =~ $RE ]] && echo \"bash-regex=MATCH\" || echo \"bash-regex=NO-MATCH\"",
+      "gh api \"repos/The01Geek/prflow/pulls/1148/reviews/4839274855\" > .prflow/tmp/rev.json; python3 -c \"import json; b=json.load(open('.prflow/tmp/rev.json'))['body']; print('has_CR=', '\\r' in b); print('first_line_repr=', repr(b.split(chr(10))[0][:70]))\""
+    ],
+    "total": 9,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
