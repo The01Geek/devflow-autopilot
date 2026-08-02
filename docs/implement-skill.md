@@ -68,8 +68,7 @@ bullet against the tree the run will build on.
 
 The drafting side of the same fix is in `/prflow:create-issue`: `skills/create-issue/references/issue-template.md`
 now requires every `Verified:` bullet to carry a self-contained re-derivation handle — the repository
-path in backticks plus the sentence quoted verbatim, or the exact command whose output grounded the
-claim — with a matching drafting-checklist row. `skills/create-issue/references/step-3-5-steelman.md`
+path in backticks plus the sentence quoted verbatim from it — with a matching drafting-checklist row. `skills/create-issue/references/step-3-5-steelman.md`
 states the obligation, and `skills/create-issue/references/step-3-6-audit.md`'s pre-dispatch canonical
 write is where it executes (the first anchor at which the canonical draft file exists). A
 `handle=none` bullet is rewritten before the user sees the draft; a `state=refuted` bullet is
