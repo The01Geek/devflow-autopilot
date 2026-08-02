@@ -43346,21 +43346,24 @@ L1084_LINT="$LIB/test/lint-superseded-config-keys.py"
 assert_eq "#1084 guard: no superseded devflow.<key> config leaf in the tree" "rc=0" \
   "$(cd "$LIB/.." && python3 "$L1084_LINT" >/dev/null 2>&1 && echo rc=0 || echo "rc=$?")"
 # Non-vacuous detector: assert the leaf regex fires on a superseded leaf and a jq path, and
-# correctly skips the frozen forms (a bare `SECTION: devflow`, a filename extension, the
-# `/devflow:` alias) — so an accidental weakening of the pattern is caught, not just an empty
-# tree. Drives the module's own `_LEAF_RE` / `_EXTENSIONS` directly.
+# correctly skips the frozen forms (a bare `SECTION:` family word with no leaf, a filename
+# extension, the `/`-alias colon form) — so an accidental weakening of the pattern is caught,
+# not just an empty tree. Drives the module's own `_LEAF_RE` / `_EXTENSIONS` directly. The
+# superseded family word is ASSEMBLED FROM PARTS so no literal superseded leaf appears in this
+# file's own source — otherwise this fixture would be a candidate the guard flags in run.sh.
 assert_eq "#1084 guard: leaf detector matches superseded leaves and skips frozen forms" "T T F F F" \
   "$(python3 - "$L1084_LINT" <<'PY'
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("g", sys.argv[1])
 g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+F = "dev" + "flow"  # assembled so this file carries no literal superseded leaf
 def hit(line):
     m = g._LEAF_RE.search(line)
     return bool(m) and m.group(1) not in g._EXTENSIONS
 def t(b): return "T" if b else "F"
 print(" ".join(t(hit(x)) for x in (
-    "devflow.allowed_bots", "read `.devflow.workpad_marker`",
-    "SECTION: devflow", "devflow.yml", "/devflow:review")))
+    F + ".allowed_bots", "read `." + F + ".workpad_marker`",
+    "SECTION: " + F, F + ".yml", "/" + F + ":review")))
 PY
 )"
 # #1084 AC5: the sweep must not touch any FROZEN identifier. Verified against a

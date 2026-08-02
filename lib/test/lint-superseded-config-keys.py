@@ -1,56 +1,82 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
-"""Fail RED on a newly introduced superseded ``devflow.<key>`` config leaf (issue #1084).
+"""Fail RED on a newly introduced superseded config-key leaf (issue #1084).
 
-Issue #1002 Tier 1 renamed the consumer-facing config family ``devflow`` -> ``prflow``
-and ``lib/rename-map.json``'s ``frozen.config_keys`` is now empty, so *every*
-``devflow.<key>`` config-leaf reference is superseded. #1068 and #1084 swept the tree
-twice; this guard is the recurrence backstop those sweeps' acceptance criteria demanded,
-so a third accidental introduction turns the suite RED at the desk instead of shipping a
-message whose live reader reads ``prflow.<key>`` while the message names the dead spelling.
+Issue #1002 Tier 1 renamed the consumer-facing config families ``devflow`` /
+``devflow_implement`` / ``devflow_runner`` / ``devflow_review`` / ``devflow_review_and_fix``
+/ ``devflow_retrospective`` / ``devflow_version`` -> their ``prflow*`` spellings, and
+``lib/rename-map.json``'s ``frozen.config_keys`` is now empty, so *every* ``<family>.<key>``
+config-leaf reference under a superseded family is superseded. #1068 and #1084 swept the tree
+twice; this guard is the recurrence backstop those sweeps' acceptance criteria demanded, so a
+third accidental introduction turns the suite RED at the desk instead of shipping a message
+whose live reader reads the ``prflow`` family while the message names the dead spelling.
 
-Scope — deliberately the ``devflow.<key>`` DOT family only. That is the recurring defect
-class (an instruction, comment, or emitted remedy naming ``devflow.allowed_bots`` /
-``devflow.provider`` / ``devflow.workpad_marker`` / … while the reader beside it reads the
-``prflow`` family). Three things are intentionally NOT policed here:
+Vocabulary is DERIVED from ``lib/rename-map.json``'s ``config_keys`` (the single source of
+truth for the rename) rather than hand-transcribed, mirroring the issue's own re-derivation
+regex ``devflow(_family)?\\.<leaf>`` — so a later family rename recorded in the map is covered
+automatically. Three things are intentionally NOT policed here:
 
-* The ``devflow`` FILENAME / ``devflow_<family>`` underscore / ``DEVFLOW_*`` env / ``/devflow:``
-  alias / ``devflow:<agent>`` namespace forms — all frozen (``lib/rename-map.json``). The
-  DOT-plus-lowercase-leaf pattern below cannot match any of them (they carry no ``devflow.``
-  followed by a config-key leaf), and a small extension allow-list drops ``devflow.yml`` etc.
-* The ``workflows["devflow-review"]`` sub-key, which is DELIBERATELY dual-named across the
-  tree (``install.sh``'s both-spelling pattern, mirrored into the schema by #1084) so an
-  unmigrated consumer still recognises their own key — policing it would flag the correct
-  end state.
+* The ``devflow`` FILENAME / ``DEVFLOW_*`` env / ``/devflow:`` alias / ``devflow:<agent>``
+  namespace / frozen ``devflow_module_pin_*`` / internal ``devflow_*`` shell-function forms —
+  all frozen. The DOT-plus-lowercase-leaf pattern cannot match any of them (none carries a
+  superseded family immediately followed by ``.`` and a config-key leaf), and a small
+  extension allow-list drops the ``devflow.yml`` filename shape.
+* The ``workflows["devflow-review"]`` sub-key, DELIBERATELY dual-named across the tree
+  (``install.sh``'s both-spelling pattern, mirrored into the schema by #1084) so an unmigrated
+  consumer still recognises their own key — policing it would flag the correct end state.
 * The declared-exemption sites below, which must keep the superseded spelling.
 
-Population is sourced from ``git ls-files -z`` (the index, no ``--others``, no recursive
-tree walk) per issue #711, so a sibling worktree under ``.claude/worktrees/`` cannot inflate
-the count and desk vs. CI stay byte-identical.
+Population is sourced from ``lib/test/lint_population.py``'s ``enumerate_population`` with the
+index-reading ``git ls-files`` argv (no ``--others``, no recursive tree walk) per issue #711,
+so a sibling worktree under ``.claude/worktrees/`` cannot inflate the count and desk vs. CI
+stay byte-identical.
 """
 from __future__ import annotations
 
+import importlib.util
+import json
 import re
-import subprocess
 import sys
+from pathlib import Path
 
-# A superseded config leaf: ``devflow`` + ``.`` + a lowercase config-key identifier,
-# preceded by a non-identifier char so ``.devflow.allowed_bots`` (a jq path) matches while
-# ``some_devflow.x`` does not, and ``devflow-review.yml`` (hyphen before the dot's owner) is
-# never reached. The leaf is captured so the extension allow-list can drop filename forms.
-_LEAF_RE = re.compile(r"(?<![A-Za-z0-9_])devflow\.([a-z][a-z0-9_]*)")
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_RENAME_MAP = _REPO_ROOT / "lib" / "rename-map.json"
 
-# Leaves that are file extensions, not config keys — ``devflow.yml`` / ``devflow.sh`` / …
-# are filenames (the workflow filenames are frozen) and never config-leaf references.
+# Reuse the shared git-ls-files population + reader the sibling #711 lints use (issue #724),
+# loaded by path exactly as lint-gh-api-repo-path.py does.
+_POP_PATH = _REPO_ROOT / "lib" / "test" / "lint_population.py"
+_pop_spec = importlib.util.spec_from_file_location("lint_population", _POP_PATH)
+_pop = importlib.util.module_from_spec(_pop_spec)
+_pop_spec.loader.exec_module(_pop)
+for _name in ("enumerate_population", "read_source", "LS_FILES_INDEX", "EnumerationError"):
+    if not hasattr(_pop, _name):
+        raise SystemExit(f"lint_population.py is missing the expected `{_name}` interface")
+
+
+def _superseded_families() -> list[str]:
+    """The superseded config-family prefixes, derived from rename-map.json's config_keys keys."""
+    families = list(json.loads(_RENAME_MAP.read_text(encoding="utf-8"))["config_keys"].keys())
+    # Longest first so the regex alternation prefers `devflow_review_and_fix` over `devflow`.
+    return sorted(families, key=len, reverse=True)
+
+
+# A superseded config leaf: a superseded family + `.` + a lowercase config-key identifier,
+# preceded by a non-identifier char so `.devflow_review.x` (a jq path) matches while
+# `some_devflow.x` does not.
+_LEAF_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:" + "|".join(re.escape(f) for f in _superseded_families()) + r")\.([a-z][a-z0-9_]*)"
+)
+
+# Leaves that are file extensions, not config keys — `devflow.yml` / `devflow.sh` / … are
+# filenames (the workflow filenames are frozen), never config-leaf references.
 _EXTENSIONS = frozenset(
     "yml yaml sh py json jq md tsv jsonl txt toml lock cfg ini example "
     "tokens gitignore mjs js ts png svg html".split()
 )
 
 # Declared exemptions — sites that must keep the superseded spelling. Path prefixes (dirs)
-# and exact paths, each with the reason it is exempt. Edited together with the do-not-sweep
-# list in issue #1084 / CLAUDE.md's rename gotchas.
+# and exact paths. Edited together with the do-not-sweep list in issue #1084 / CLAUDE.md.
 _EXEMPT_PREFIXES = (
     ".changeset/",                 # changelog prose describing a fix legitimately names the old key
     ".prflow/learnings/",          # frozen append-only retrospective records (rewriting falsifies them)
@@ -78,16 +104,6 @@ _EXEMPT_EXACT = frozenset(
 )
 
 
-def _tracked_files() -> list[str]:
-    out = subprocess.run(
-        ["git", "ls-files", "-z"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    return [p for p in out.split("\0") if p]
-
-
 def _exempt(path: str) -> bool:
     if path in _EXEMPT_EXACT:
         return True
@@ -95,27 +111,32 @@ def _exempt(path: str) -> bool:
 
 
 def main() -> int:
+    try:
+        population = _pop.enumerate_population(
+            _REPO_ROOT, None, ls_files_argv=_pop.LS_FILES_INDEX
+        )
+    except _pop.EnumerationError as exc:
+        sys.stderr.write(f"lint-superseded-config-keys: {exc}\n")
+        return 2
+
     offenders: list[str] = []
-    for path in _tracked_files():
+    for path in population:
         if _exempt(path):
             continue
-        try:
-            with open(path, "r", encoding="utf-8") as fh:
-                lines = fh.readlines()
-        except (OSError, UnicodeDecodeError):
-            continue  # binary or unreadable: not a text config-leaf reference
-        for lineno, line in enumerate(lines, 1):
+        text, skip_reason = _pop.read_source(_REPO_ROOT / path, skip_nul=True)
+        if text is None:
+            continue  # binary/unreadable: not a text config-leaf reference
+        for lineno, line in enumerate(text.split("\n"), 1):
             for m in _LEAF_RE.finditer(line):
-                leaf = m.group(1)
-                if leaf in _EXTENSIONS:
+                if m.group(1) in _EXTENSIONS:
                     continue
-                offenders.append(f"{path}:{lineno}: devflow.{leaf}")
+                offenders.append(f"{path}:{lineno}: {m.group(0)}")
 
     if offenders:
         sys.stderr.write(
-            "lint-superseded-config-keys: superseded `devflow.<key>` config leaf found "
-            "(the family was renamed to `prflow` by issue #1002; rename to `prflow.<key>`, "
-            "or add a declared exemption if this site must keep the superseded spelling):\n"
+            "lint-superseded-config-keys: superseded config-key leaf found "
+            "(the family was renamed by issue #1002; rename to the `prflow*` family, or add a "
+            "declared exemption if this site must keep the superseded spelling):\n"
         )
         for o in offenders:
             sys.stderr.write(f"  {o}\n")
