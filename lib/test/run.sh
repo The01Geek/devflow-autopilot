@@ -20382,6 +20382,366 @@ assert_eq "#874 drift guard positive control: the planted name is what the extra
   "not-a-protected-name" "$MTE_DRIFT_PC_REACH"
 rm -rf "$MTE_DRIFT_TMP" "$MTE_DRIFT_DIR"
 
+# ── #1075: the COMMAND tier's trusted prompt-extension closure ────────────────
+# devflow.yml's `command` job is the only reachable shipped path that runs the
+# review engine in a consumer, and `/prflow:review-and-fix`'s Step 0.5 branch sync
+# moves the working tree to the PULL REQUEST head before that engine loads `review`
+# and before Phase 3.1 loads `requesting-code-review` — so a repo-root read there
+# would append PR-author-editable bytes to the prompt of the agent that reviews,
+# fixes and pushes the PR. The `promptext` step closes that by materializing the
+# protected extensions from the PR's trusted base ref into a $RUNNER_TEMP closure.
+# Everything below drives the REAL extracted step against fixture repositories: the
+# security property is not "the step exists" but "every failure arm still leaves the
+# loader pointed at an EMPTY closure rather than back at the working tree."
+PXC_WF="$LIB/../.github/workflows/devflow.yml"
+PXC_STEP=$(mktemp)
+# No `set -e` prelude is added: the step deliberately omits it (an unexpected
+# non-zero must degrade to the empty closure, never deny the command path), so
+# injecting one here would drive a different program than the one that ships.
+python3 - "$PXC_WF" >"$PXC_STEP" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+for job in doc["jobs"].values():
+    for s in job.get("steps", []):
+        if s.get("id") == "promptext" and "run" in s:
+            sys.stdout.write("#!/usr/bin/env bash\n" + s["run"])
+            raise SystemExit
+raise SystemExit("promptext step not found")
+PY
+PXC_ROOT="$(mktemp -d)"
+PXC_PROTECTED="pr-description receiving-code-review requesting-code-review review review-and-fix"
+# Base ref fixture: `review.md` carries NO trailing newline on purpose — the closure
+# must reproduce the base-ref bytes exactly, and the sibling write shape used
+# elsewhere in the runner would silently add one.
+mkdir -p "$PXC_ROOT/base/.prflow/prompt-extensions"
+printf 'REVIEW EXT NO TRAILING NEWLINE' > "$PXC_ROOT/base/.prflow/prompt-extensions/review.md"
+printf 'PRDESC\n' > "$PXC_ROOT/base/.prflow/prompt-extensions/pr-description.md"
+git -C "$PXC_ROOT/base" init -q -b main >/dev/null 2>&1
+git -C "$PXC_ROOT/base" add -A >/dev/null 2>&1
+git -C "$PXC_ROOT/base" -c user.email=t@e -c user.name=t commit -qm base >/dev/null 2>&1
+# $1=label $2=gh mode (ok|fail) $3=helper present (yes|no) $4=loader (new|old)
+# $5=CMD $6=step script → sets PXC_W (work dir), PXC_LOG.
+pxc_run() {
+  PXC_W="$PXC_ROOT/w-$1"
+  rm -rf "$PXC_W"
+  mkdir -p "$PXC_W/rt" "$PXC_W/bin" "$PXC_W/.prflow/vendor/prflow/scripts"
+  git -C "$PXC_W" init -q -b main >/dev/null 2>&1
+  git -C "$PXC_W" remote add origin "file://$PXC_ROOT/base"
+  [ "$3" = yes ] && cp "$LIB/../scripts/materialize-trusted-prompt-extensions.sh" \
+    "$PXC_W/.prflow/vendor/prflow/scripts/"
+  if [ "$4" = new ]; then
+    cp "$LIB/../scripts/load-prompt-extension.sh" "$PXC_W/.prflow/vendor/prflow/scripts/"
+  else
+    printf '#!/usr/bin/env bash\ncat "$1"\n' \
+      > "$PXC_W/.prflow/vendor/prflow/scripts/load-prompt-extension.sh"
+  fi
+  # `gh pr view … baseRefName` is the only gh call the step makes.
+  printf '#!/usr/bin/env bash\nif [ "$GHMODE" = ok ]; then echo main; else exit 1; fi\n' \
+    > "$PXC_W/bin/gh"
+  chmod +x "$PXC_W/bin/gh"
+  PXC_LOG=$(mktemp)
+  ( cd "$PXC_W" && PATH="$PXC_W/bin:$PATH" GHMODE="$2" RUNNER_TEMP="$PXC_W/rt" \
+      GITHUB_ENV="$PXC_W/genv" CMD="$5" REPO=o/r GH_TOKEN=x \
+      DEVFLOW_PROTECTED_PROMPT_EXTENSIONS="$PXC_PROTECTED" \
+      bash "$6" ) >"$PXC_LOG" 2>&1
+}
+# Did the step publish the closure into the job environment? This is the property
+# every failure arm must preserve; without it the loader takes its repo-root branch.
+pxc_exported() {
+  grep -c '^DEVFLOW_PROMPT_EXTENSION_ROOT=' "$PXC_W/genv" 2>/dev/null || true
+}
+pxc_closure() { ls "$PXC_W/rt/devflow-trusted-prompt-ext" 2>/dev/null | sort | tr '\n' ' '; }
+pxc_msg() { grep -c "$1" "$PXC_LOG" 2>/dev/null || true; }
+
+# (A) HAPPY PATH: the closure is populated from the base ref, byte-for-byte.
+pxc_run happy ok yes new "/prflow:review-and-fix 42" "$PXC_STEP"
+assert_eq "#1075 promptext(happy): the base-ref extensions land in the closure" \
+  "pr-description.md review.md " "$(pxc_closure)"
+assert_eq "#1075 promptext(happy): DEVFLOW_PROMPT_EXTENSION_ROOT is exported" "1" "$(pxc_exported)"
+# Byte identity end-to-end: proves the call site wired --base-ref/--target to the
+# fetched base ref, not merely that the helper was executed.
+assert_eq "#1075 promptext(happy): the materialized file is byte-identical to the base ref" "same" \
+  "$(cmp -s "$PXC_ROOT/base/.prflow/prompt-extensions/review.md" \
+      "$PXC_W/rt/devflow-trusted-prompt-ext/review.md" && echo same || echo differs)"
+assert_eq "#1075 promptext(happy): no not-populated warning on the clean path" "0" \
+  "$(pxc_msg 'closure not populated')"
+# The skew probe must stay silent for a current loader, or its warning is noise on
+# every run and stops meaning anything on the run that needs it.
+assert_eq "#1075 promptext(happy): no skew warning for a loader that honors the variable" "0" \
+  "$(pxc_msg 'predates issue #874')"
+
+# (B) The base branch cannot be resolved (gh fails, or the number names an issue).
+pxc_run ghfail fail yes new "/prflow:review-and-fix 42" "$PXC_STEP"
+assert_eq "#1075 promptext(unresolvable base): the closure stays EMPTY" "" "$(pxc_closure)"
+assert_eq "#1075 promptext(unresolvable base): the export still happens (fail closed, not open)" \
+  "1" "$(pxc_exported)"
+assert_eq "#1075 promptext(unresolvable base): the warning names the base-branch cause" "1" \
+  "$(pxc_msg 'base branch of #42 could not be resolved')"
+
+# (C) The command carried no number at all — the operand the base ref is derived from.
+pxc_run nonum ok yes new "/prflow:pr-description" "$PXC_STEP"
+assert_eq "#1075 promptext(no number): the closure stays EMPTY" "" "$(pxc_closure)"
+assert_eq "#1075 promptext(no number): the export still happens" "1" "$(pxc_exported)"
+assert_eq "#1075 promptext(no number): the warning names the missing-number cause" "1" \
+  "$(pxc_msg 'carried no issue or pull-request number')"
+
+# (D) The materialization helper is absent (a pinned prflow_version predating it).
+pxc_run nohelper ok no new "/prflow:review 42" "$PXC_STEP"
+assert_eq "#1075 promptext(no helper): the closure stays EMPTY" "" "$(pxc_closure)"
+assert_eq "#1075 promptext(no helper): the export still happens" "1" "$(pxc_exported)"
+assert_eq "#1075 promptext(no helper): the warning names the helper cause, not the base ref" "1" \
+  "$(pxc_msg 'materialize-trusted-prompt-extensions.sh was not found')"
+
+# (E) SKEW PROBE. This tier cannot truncate the workspace copies the way the
+# read-only runner does — it is write-capable, so a truncation would dirty the tree
+# Step 0.5's `gh pr checkout` requires clean and would be committed by the fix loop.
+# The probe is the whole replacement for that belt, so a regression that dropped it
+# would restore a SILENT fail-open on exactly the consumers it is for.
+pxc_run skew ok yes old "/prflow:review-and-fix 42" "$PXC_STEP"
+assert_eq "#1075 promptext(skew): an old vendored loader is reported loudly" "1" \
+  "$(pxc_msg 'predates issue #874')"
+assert_eq "#1075 promptext(skew): the closure is still populated for a current loader elsewhere" \
+  "pr-description.md review.md " "$(pxc_closure)"
+
+# (F) MUTATION: the protected-set expansion at the call site must stay UNQUOTED.
+# Quoting collapses the five names into ONE argv entry, so no protected name is
+# materialized under its own filename — silent, because the helper's traversal guard
+# passes and it exits 0 with an unusable closure. Driven on a COPY of the extracted
+# step, never the working tree.
+PXC_MUT=$(mktemp)
+# `[[:space:]]`, not the GNU-only `\s` — on BSD/macOS sed `\s` is literal, so the
+# mutation would silently not apply and the "actually applied" row below fails LOUDLY.
+sed 's/^\([[:space:]]*\)\$DEVFLOW_PROTECTED_PROMPT_EXTENSIONS /\1"$DEVFLOW_PROTECTED_PROMPT_EXTENSIONS" /' \
+  "$PXC_STEP" > "$PXC_MUT"
+assert_eq "#1075 promptext(mutation): the quote mutation actually applied" "applied" \
+  "$(cmp -s "$PXC_STEP" "$PXC_MUT" && echo none || echo applied)"
+pxc_run quoted ok yes new "/prflow:review-and-fix 42" "$PXC_MUT"
+assert_eq "#1075 promptext(mutation): quoting the protected set materializes no protected name" "no" \
+  "$([ -f "$PXC_W/rt/devflow-trusted-prompt-ext/review.md" ] && echo yes || echo no)"
+rm -f "$PXC_MUT"
+
+# (G) THE FETCH-FAILURE RESET IS THE SECURITY LINCHPIN, and it needs its own pin.
+# When `gh pr view` SUCCEEDS but `git fetch` FAILS, the arm sets a reason AND resets
+# BASE_REF to empty. That reset is the whole reason the materialization stays out of
+# the `[ -n "$BASE_REF" ]` branch, so the helper never resolves FETCH_HEAD — which
+# elsewhere (left by actions/checkout, or by any earlier fetch) can name PR-controlled
+# content. Delete or reorder the reset and the reviewing agent's own prompt extensions
+# get materialized from that content: precisely the vulnerability this step closes.
+#
+# WHY THE FIXTURE STUBS `git fetch` RATHER THAN LETTING A REAL FETCH FAIL. Measured
+# here across three real failure modes (missing ref, unreachable remote, unreachable
+# host), a failed `git fetch` ALSO truncates FETCH_HEAD, so the helper's own
+# ref-resolves guard would decline anyway. A fixture built on a real failing fetch
+# therefore passes identically with the reset present and with it deleted — vacuous on
+# exactly the regression it claims to pin. That incidental cleanup is undocumented and
+# transport- and version-dependent, and the reset exists precisely so this step does
+# not depend on it, so the fixture models the failure mode where FETCH_HEAD SURVIVES:
+# a pass-through `git` whose `fetch` fails without touching it. The measured cleanup is
+# a past-time observation recorded to explain the fixture, never a guarantee relied on.
+PXC_REAL_GIT="$(command -v git)"
+# $1=label $2=step script → work dir with poisoned FETCH_HEAD, gh succeeding, fetch failing
+pxc_run_poisoned() {
+  PXC_W="$PXC_ROOT/p-$1"
+  rm -rf "$PXC_W"
+  mkdir -p "$PXC_W/rt" "$PXC_W/bin" "$PXC_W/.prflow/vendor/prflow/scripts" "$PXC_W/.prflow/prompt-extensions"
+  git -C "$PXC_W" init -q -b main >/dev/null 2>&1
+  git -C "$PXC_W" remote add origin "file://$PXC_ROOT/base"
+  cp "$LIB/../scripts/materialize-trusted-prompt-extensions.sh" "$PXC_W/.prflow/vendor/prflow/scripts/"
+  cp "$LIB/../scripts/load-prompt-extension.sh" "$PXC_W/.prflow/vendor/prflow/scripts/"
+  # PR-author-controlled bytes, committed in this checkout and named by a planted
+  # FETCH_HEAD — the shape a stale FETCH_HEAD has on the real tier.
+  printf 'POISONED BY THE PR AUTHOR\n' > "$PXC_W/.prflow/prompt-extensions/review.md"
+  git -C "$PXC_W" add -A >/dev/null 2>&1
+  git -C "$PXC_W" -c user.email=p@p -c user.name=p commit -qm poison >/dev/null 2>&1
+  printf '%s\t\tbranch planted\n' "$(git -C "$PXC_W" rev-parse HEAD)" > "$PXC_W/.git/FETCH_HEAD"
+  printf '#!/usr/bin/env bash\necho main\n' > "$PXC_W/bin/gh"
+  chmod +x "$PXC_W/bin/gh"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'if [ "$1" = fetch ]; then exit 1; fi\n'
+    printf 'exec %s "$@"\n' "$PXC_REAL_GIT"
+  } > "$PXC_W/bin/git"
+  chmod +x "$PXC_W/bin/git"
+  PXC_LOG=$(mktemp)
+  ( cd "$PXC_W" && PATH="$PXC_W/bin:$PATH" RUNNER_TEMP="$PXC_W/rt" \
+      GITHUB_ENV="$PXC_W/genv" CMD="/prflow:review-and-fix 42" REPO=o/r GH_TOKEN=x \
+      DEVFLOW_PROTECTED_PROMPT_EXTENSIONS="$PXC_PROTECTED" \
+      bash "$2" ) >"$PXC_LOG" 2>&1
+}
+pxc_poison_survived() {
+  git -C "$PXC_W" rev-parse --verify --quiet 'FETCH_HEAD^{commit}' >/dev/null 2>&1 && echo yes || echo no
+}
+pxc_run_poisoned shipped "$PXC_STEP"
+# The fixture's own premise. Without this row the discrimination below could hold
+# because FETCH_HEAD was unreadable rather than because the reset fired — the vacuous
+# pass this whole arrangement exists to avoid.
+assert_eq "#1075 promptext(fetch-fail reset): the fixture's poisoned FETCH_HEAD really did survive the failed fetch" \
+  "yes" "$(pxc_poison_survived)"
+assert_eq "#1075 promptext(fetch-fail reset): the closure stays EMPTY" "" "$(pxc_closure)"
+assert_eq "#1075 promptext(fetch-fail reset): the export still happens" "1" "$(pxc_exported)"
+assert_eq "#1075 promptext(fetch-fail reset): the warning names the fetch cause" "1" \
+  "$(pxc_msg "could not be fetched")"
+assert_eq "#1075 promptext(fetch-fail reset): no protected name is materialized from the poisoned ref" "no" \
+  "$([ -f "$PXC_W/rt/devflow-trusted-prompt-ext/review.md" ] && echo yes || echo no)"
+
+# MUTATION: delete the `BASE_REF=''` reset from the fetch-failure arm alone (the line
+# that follows that arm's reason assignment; the initializer and the gh-failure arm's
+# identical statement are untouched). With the reset gone the helper runs against the
+# surviving FETCH_HEAD and writes the PR author's bytes into the trusted closure the
+# reviewing agent reads — the row above flips from "no" to "yes".
+PXC_MUT_RESET=$(mktemp)
+sed "/could not be fetched/{n;/BASE_REF=''/d;}" "$PXC_STEP" > "$PXC_MUT_RESET"
+assert_eq "#1075 promptext(fetch-fail reset): the reset-deletion mutation actually applied" "applied" \
+  "$(cmp -s "$PXC_STEP" "$PXC_MUT_RESET" && echo none || echo applied)"
+pxc_run_poisoned mutant "$PXC_MUT_RESET"
+assert_eq "#1075 promptext(fetch-fail reset): deleting the reset materializes the poisoned extension" "yes" \
+  "$([ -f "$PXC_W/rt/devflow-trusted-prompt-ext/review.md" ] && echo yes || echo no)"
+# ... and it is the ATTACKER's bytes, not merely some file. A row asserting only that a
+# file appeared could be satisfied by an empty or unrelated write.
+assert_eq "#1075 promptext(fetch-fail reset): the materialized bytes are the PR author's" \
+  "POISONED BY THE PR AUTHOR" \
+  "$(cat "$PXC_W/rt/devflow-trusted-prompt-ext/review.md" 2>/dev/null)"
+rm -f "$PXC_MUT_RESET"
+
+# (H) THE TWO FAIL-CLOSED ARMS. Creating the closure and exporting the variable are the
+# only operations in this step with no safe degraded variant: with no closure to point
+# at, the loader takes its repo-root branch and reads the working tree — which after the
+# branch sync is the PR head. Both therefore `exit 1` instead of continuing, and both
+# were unpinned. Each is driven by making its own operand unusable.
+# $1=label $2=RUNNER_TEMP $3=GITHUB_ENV → sets PXC_RC, PXC_LOG
+pxc_run_env() {
+  PXC_W="$PXC_ROOT/e-$1"
+  rm -rf "$PXC_W"
+  mkdir -p "$PXC_W/bin" "$PXC_W/.prflow/vendor/prflow/scripts"
+  git -C "$PXC_W" init -q -b main >/dev/null 2>&1
+  git -C "$PXC_W" remote add origin "file://$PXC_ROOT/base"
+  cp "$LIB/../scripts/materialize-trusted-prompt-extensions.sh" "$PXC_W/.prflow/vendor/prflow/scripts/"
+  printf '#!/usr/bin/env bash\necho main\n' > "$PXC_W/bin/gh"
+  chmod +x "$PXC_W/bin/gh"
+  PXC_LOG=$(mktemp)
+  ( cd "$PXC_W" && PATH="$PXC_W/bin:$PATH" RUNNER_TEMP="$2" GITHUB_ENV="$3" \
+      CMD="/prflow:review-and-fix 42" REPO=o/r GH_TOKEN=x \
+      DEVFLOW_PROTECTED_PROMPT_EXTENSIONS="$PXC_PROTECTED" \
+      bash "$PXC_STEP" ) >"$PXC_LOG" 2>&1
+  PXC_RC=$?
+}
+# A regular FILE where the closure's parent must be a directory, so `mkdir -p` fails
+# "Not a directory". Chosen over a chmod-based unwritable directory because a suite that
+# happened to run as root would defeat that and pass vacuously.
+printf 'not-a-directory\n' > "$PXC_ROOT/rt-is-a-file"
+pxc_run_env mkdirfail "$PXC_ROOT/rt-is-a-file" "$PXC_ROOT/genv-mkdirfail"
+assert_eq "#1075 promptext(unusable closure): refuses the run rather than leaving the loader on the working tree" \
+  "1" "$PXC_RC"
+assert_eq "#1075 promptext(unusable closure): the ::error:: names the closure it could not create" "1" \
+  "$(pxc_msg 'could not create the trusted prompt-extension closure')"
+assert_eq "#1075 promptext(unusable closure): nothing was exported" "no" \
+  "$([ -s "$PXC_ROOT/genv-mkdirfail" ] && echo yes || echo no)"
+# A DIRECTORY at $GITHUB_ENV: the append redirect fails, so the export cannot happen
+# while the closure itself was created fine — the arm the row above cannot reach.
+mkdir -p "$PXC_ROOT/genv-is-a-dir"
+pxc_run_env envfail "$PXC_ROOT/rt-envfail" "$PXC_ROOT/genv-is-a-dir"
+assert_eq "#1075 promptext(unexportable variable): refuses the run" "1" "$PXC_RC"
+assert_eq "#1075 promptext(unexportable variable): the ::error:: names the export, not the closure" "1" \
+  "$(pxc_msg 'could not export DEVFLOW_PROMPT_EXTENSION_ROOT')"
+
+# (I) The call site's non-zero-helper-exit annotation. The helper's exit 2 is a CALLER
+# defect (a missing flag, no names) rather than a runtime condition, so the call site
+# annotates it instead of swallowing it with `|| true` — otherwise an unpopulated
+# closure's only trace would be a raw stderr line, while every other non-population arm
+# carries a workflow annotation. The helper's OWN arms are covered by the #874 suite;
+# what is pinned here is that this tier's call site does not discard the status.
+pxc_run badhelper ok yes new "/prflow:review-and-fix 42" "$PXC_STEP"
+printf '#!/usr/bin/env bash\nexit 2\n' \
+  > "$PXC_W/.prflow/vendor/prflow/scripts/materialize-trusted-prompt-extensions.sh"
+# Re-run in the SAME fixture with the helper stubbed. Reset the state the first run
+# wrote, so the rows below report THIS run rather than accumulating across the two.
+: > "$PXC_W/genv"
+rm -rf "$PXC_W/rt/devflow-trusted-prompt-ext"
+PXC_LOG=$(mktemp)
+( cd "$PXC_W" && PATH="$PXC_W/bin:$PATH" GHMODE=ok RUNNER_TEMP="$PXC_W/rt" \
+    GITHUB_ENV="$PXC_W/genv" CMD="/prflow:review-and-fix 42" REPO=o/r GH_TOKEN=x \
+    DEVFLOW_PROTECTED_PROMPT_EXTENSIONS="$PXC_PROTECTED" \
+    bash "$PXC_STEP" ) >"$PXC_LOG" 2>&1
+assert_eq "#1075 promptext(helper usage defect): the non-zero helper exit is annotated, not swallowed" "1" \
+  "$(pxc_msg 'materialization helper exited 2')"
+assert_eq "#1075 promptext(helper usage defect): the export still happens" "1" "$(pxc_exported)"
+
+# The closure directory and the export are established OUTSIDE every branch. Read
+# from the parsed workflow rather than the step text: a step-level `if:` would make
+# the whole protection conditional, which is the defect shape #874 recorded and this
+# tier reproduces one layer up.
+assert_eq "#1075 promptext: the step is unconditional (carries no step-level if:)" "unconditional" \
+  "$(python3 -c '
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+for job in doc["jobs"].values():
+    for s in job.get("steps", []):
+        if s.get("id") == "promptext":
+            print("conditional" if "if" in s else "unconditional")
+            raise SystemExit
+print("missing")
+' "$PXC_WF")"
+
+# ── #1075 drift guard: the command tier's protected set must equal the names the
+# three commands its gate dispatches actually load. Same single-declaration-site
+# shape as the #874 guard above, with the same ONE-extractor discipline so the
+# positive control cannot drift away from the regex under test. A name MISSING from
+# the declared set is not a no-op here — the closure is exported unconditionally, so
+# the loader composes <closure>/<name>.md for it and reads an empty result.
+PXC_DRIFT_DIR="$(mktemp -d)"
+PXC_DRIFT_PY="$PXC_DRIFT_DIR/drift.py"
+cat > "$PXC_DRIFT_PY" <<'PY'
+import os, re, sys, yaml
+root = sys.argv[1]
+declared = yaml.safe_load(open(os.path.join(root, ".github/workflows/devflow.yml")))
+declared = declared["jobs"]["command"].get("env", {}).get("DEVFLOW_PROTECTED_PROMPT_EXTENSIONS", "")
+declared = sorted(set(declared.split()))
+# Same leading-token-and-path shape the #874 extractor uses, and load-bearing for the
+# same reason: the bare helper name appears mid-sentence and inside backticks in the
+# review bundle's prose, and a looser match would harvest the next English word.
+pat = re.compile(r'^(?:"[^"]*"|\S)*?/load-prompt-extension\.sh\s+([A-Za-z0-9][A-Za-z0-9._-]*)')
+found = set()
+# The three skill trees devflow.yml's gate can dispatch into: /prflow:review and
+# /prflow:review-and-fix (the shared engine plus the fix wrapper) and
+# /prflow:pr-description.
+for sub in ("skills/review", "skills/review-and-fix", "skills/pr-description"):
+    for dirpath, _dirs, files in os.walk(os.path.join(root, sub)):  # tree-walk-ok: three closed leaf subtrees of the plugin's own skills/ (or, for the positive control, a throwaway mktemp copy holding only the planted file) — unreachable from .claude/worktrees/ and from any dependency or build directory
+        for fn in files:
+            if not fn.endswith(".md"):
+                continue
+            with open(os.path.join(dirpath, fn), encoding="utf-8") as fh:
+                for line in fh:
+                    found.update(pat.findall(line.strip()))
+print("declared=%s reachable=%s" % (",".join(declared), ",".join(sorted(found))))
+PY
+PXC_DRIFT="$(python3 "$PXC_DRIFT_PY" "$LIB/..")" || PXC_DRIFT='UNREAD'
+PXC_DRIFT_DECL="${PXC_DRIFT%% reachable=*}"; PXC_DRIFT_DECL="${PXC_DRIFT_DECL#declared=}"
+PXC_DRIFT_REACH="${PXC_DRIFT#*reachable=}"
+assert_eq "#1075 drift guard: the command tier's protected set equals the names its skills load" \
+  "$PXC_DRIFT_REACH" "$PXC_DRIFT_DECL"
+assert_eq "#1075 drift guard: the protected set is non-empty (the comparison is not vacuous)" "yes" \
+  "$([ -n "$PXC_DRIFT_DECL" ] && echo yes || echo no)"
+# Positive control: plant an invocation for a name outside the protected set and
+# confirm the SAME extractor reports the difference — otherwise the equality above
+# could pass because the extractor matched nothing at all.
+PXC_DRIFT_TMP="$(mktemp -d)"
+mkdir -p "$PXC_DRIFT_TMP/skills/review-and-fix" "$PXC_DRIFT_TMP/.github/workflows"
+cp "$PXC_WF" "$PXC_DRIFT_TMP/.github/workflows/devflow.yml"
+printf 'scripts/load-prompt-extension.sh not-a-protected-name\n' \
+  > "$PXC_DRIFT_TMP/skills/review-and-fix/planted.md"
+PXC_DRIFT_PC="$(python3 "$PXC_DRIFT_PY" "$PXC_DRIFT_TMP")" || PXC_DRIFT_PC='UNREAD'
+PXC_DRIFT_PC_DECL="${PXC_DRIFT_PC%% reachable=*}"; PXC_DRIFT_PC_DECL="${PXC_DRIFT_PC_DECL#declared=}"
+PXC_DRIFT_PC_REACH="${PXC_DRIFT_PC#*reachable=}"
+assert_eq "#1075 drift guard positive control: an out-of-set invocation is reported as a difference" \
+  "differs" \
+  "$([ "$PXC_DRIFT_PC" != UNREAD ] && [ "$PXC_DRIFT_PC_DECL" != "$PXC_DRIFT_PC_REACH" ] && echo differs || echo same)"
+# ... and the difference must come from the extractor MATCHING the planted line. A
+# broken regex yields an empty reachable set, which also differs — so the row above
+# alone would pass vacuously on exactly the defect it exists to catch.
+assert_eq "#1075 drift guard positive control: the planted name is what the extractor reached" \
+  "not-a-protected-name" "$PXC_DRIFT_PC_REACH"
+rm -rf "$PXC_DRIFT_TMP" "$PXC_DRIFT_DIR" "$PXC_ROOT"
+rm -f "$PXC_STEP"
+
 # ── #874 env-propagation probe verdict helper. The probe itself is dispatched by a
 # maintainer, but its VERDICT is a branch-selecting core, so every arm is driven here —
 # a regressed arm would otherwise misreport a security-adjacent measurement while the

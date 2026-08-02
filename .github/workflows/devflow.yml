@@ -706,6 +706,22 @@ jobs:
       # claude-code-action spawns. Kept in sync with devflow-implement.yml's claude
       # job. (Platform premise — job env propagates into the Stop-hook subprocess.)
       DEVFLOW_TELEMETRY_PUSH: '1'
+      # The protected prompt-extension set (issue #1075) — every skill name whose
+      # extension bytes can reach an agent's own prompt inside THIS job. The gate
+      # above dispatches exactly three commands, so the set is closed by this same
+      # file: `/prflow:review` and `/prflow:review-and-fix` reach the review engine
+      # (`review`, and `requesting-code-review` for the Phase 3.1 final-pass
+      # reviewer), the fix wrapper adds its own two (`review-and-fix`,
+      # `receiving-code-review`), and `/prflow:pr-description` adds one.
+      #
+      # This is the SINGLE declaration site — the materialization call below is its
+      # only reader — and lib/test/run.sh's #1075 drift guard fails when it differs
+      # from the names actually reachable as `load-prompt-extension.sh <name>` from
+      # those three skill trees. A name MISSING here is not a silent no-op but a
+      # silent EMPTY read: the closure is exported unconditionally, so the loader
+      # composes `<closure>/<name>.md` for every name and finds nothing for one this
+      # list omits. That is the failure mode the drift guard exists to catch.
+      DEVFLOW_PROTECTED_PROMPT_EXTENSIONS: "pr-description receiving-code-review requesting-code-review review review-and-fix"
     steps:
       # Optional, opt-in: mint a primary-App installation token at full
       # installation scope (notably Contents: write + Workflows: write — no
@@ -768,6 +784,170 @@ jobs:
       - uses: ./.github/actions/vendor-plugin
         with:
           ref: ${{ needs.config.outputs.prflow_version }}
+
+      # ── Trusted prompt-extension closure (issue #1075, extending #874) ────────
+      # `scripts/load-prompt-extension.sh` prints an extension file byte-for-byte and
+      # every skill treats that stdout as instructions appended to its OWN prompt for
+      # the run. On this tier some of those reads happen against the PULL REQUEST's
+      # head, so without this step a PR author writes part of the prompt of the agent
+      # that reviews — and, on `/prflow:review-and-fix`, FIXES and PUSHES — their PR.
+      # That is the PR-#404 ruling ("a floor the PR controls is no floor") one level
+      # up, so it is closed here rather than recorded as an accepted trade.
+      #
+      # WHY THE WORKSPACE IS NOT A TRUSTED SOURCE FOR THESE BYTES, precisely — the
+      # mechanism is NOT "this job checks out the PR head":
+      #   * Under `issue_comment` (the dominant path, and the one docs/workflow-
+      #     triggers.md's auto-review snippet drives) GITHUB_REF is the DEFAULT
+      #     BRANCH, so the checkout below IS trusted at workflow-step time. But
+      #     `/prflow:review-and-fix`'s Step 0.5 branch sync runs `gh pr checkout` and
+      #     moves the tree to the PR head BEFORE the review engine loads `review` and
+      #     before Phase 3.1 loads `requesting-code-review`. The agent, not the
+      #     checkout, is what makes those two reads untrusted.
+      #   * Under `pull_request_review` / `pull_request_review_comment` GITHUB_REF is
+      #     `refs/pull/N/merge`, so the workspace is PR content from the first step.
+      # Standalone `/prflow:review` never moves the tree at all (it reads the PR
+      # through `gh pr diff` / `gh pr view`), so on `issue_comment` it was already
+      # reading trusted bytes; the closure costs it nothing and covers it on the two
+      # PR-review triggers.
+      #
+      # UNCONDITIONAL closure + export, CONDITIONAL population — the #874 shape. The
+      # closure directory and the variable are established outside every branch, so
+      # each non-population arm (no PR number, an unresolvable base branch, a failed
+      # fetch, a missing materialization helper, and every arm inside the helper)
+      # degrades to an EMPTY closure — the run proceeds with no extension text — and
+      # never back to the working tree. Putting either inside a conditional would
+      # reintroduce exactly the defect this step closes.
+      #
+      # DELIBERATE DIVERGENCE FROM devflow-runner.yml: no workspace truncation. The
+      # runner empties its workspace copies as a belt for a loader that ignores the
+      # variable. Here that would be actively harmful — this tier is WRITE-capable:
+      # a truncated file dirties the tree, `gh pr checkout` at Step 0.5 refuses a
+      # dirty tree (the skill then stops and reports), and any truncation that did
+      # survive is a change the fix loop would COMMIT to the contributor's branch.
+      # The belt is replaced by the loud skew probe at the end of this step.
+      #
+      # DELIBERATE DIVERGENCE: no three-rank trusted-source ladder for the helper.
+      # The runner needs one because its workspace is ALWAYS the PR head, so a
+      # workspace helper is never trusted. Here the helper's trust and the closure's
+      # efficacy share one precondition: on a trigger whose workspace is PR content,
+      # a PR that can edit this helper can equally edit the `load-prompt-extension.sh`
+      # the agent runs from the same vendored tree — which no ladder reaches, because
+      # the loader is what consults the closure. A ladder would therefore add
+      # complexity without adding a case it defends. That residual is recorded in
+      # docs/DEVFLOW_SYSTEM_OVERVIEW.md's base-ref trust boundary, not glossed.
+      #
+      # No `set -e`: every arm here already degrades to the safe empty closure, so an
+      # unexpected non-zero must not abort the job and deny the command path
+      # altogether. The two operations that must NOT fail silently — creating the
+      # closure and exporting the variable — are checked explicitly and fail closed.
+      - name: Establish the trusted prompt-extension closure
+        id: promptext
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CMD: ${{ needs.gate.outputs.command }}
+        run: |
+          set -uo pipefail
+          CLOSURE="$RUNNER_TEMP/devflow-trusted-prompt-ext"
+          # Fail CLOSED on both: with no closure to point at, the loader would take
+          # its repo-root branch and read the working tree — the very thing this step
+          # exists to prevent. There is no degraded-but-safe variant of these two.
+          if ! mkdir -p "$CLOSURE"; then
+            echo "::error::devflow could not create the trusted prompt-extension closure at '$CLOSURE'; refusing to run the command with the loader pointed at the working tree."
+            exit 1
+          fi
+          # $GITHUB_ENV is job-scoped, so this reaches every later step — including the
+          # commands the agent runs and the ones its dispatched Tasks run. It arrives
+          # through the environment rather than a command prefix precisely because the
+          # cloud matcher denies a leading `VAR=value` shape.
+          if ! echo "DEVFLOW_PROMPT_EXTENSION_ROOT=$CLOSURE" >> "$GITHUB_ENV"; then
+            echo "::error::devflow could not export DEVFLOW_PROMPT_EXTENSION_ROOT; refusing to run the command with the loader pointed at the working tree."
+            exit 1
+          fi
+
+          # Same parse the `Compose review grounding block` step below uses, for the
+          # same reason (this job is command-driven, and the gate's resolver fails
+          # closed rather than emitting a command with no number). A missing `grep`
+          # or `head` empties PR_NUM, which routes to the warn-and-empty-closure arm —
+          # this selection fails CLOSED on an absent PATH tool.
+          PR_NUM=$(printf '%s' "$CMD" | grep -oE '[0-9]+' | head -1 || true)
+          # One message, one reason string: each arm below sets only a cause and the
+          # single emit site composes the diagnosis, so no arm can be reordered into
+          # misattributing it (the hazard scripts/describe-denial-count.sh exists for).
+          REASON=''
+          BASE_REF=''
+          if [ -z "$PR_NUM" ]; then
+            REASON="the triggering command carried no issue or pull-request number"
+          elif ! BASE_REF=$(gh pr view "$PR_NUM" --repo "$REPO" --json baseRefName -q .baseRefName 2>/dev/null) || [ -z "$BASE_REF" ]; then
+            BASE_REF=''
+            REASON="the base branch of #${PR_NUM} could not be resolved (gh pr view failed, or the number names an issue rather than a pull request)"
+          elif ! git fetch --depth=1 origin "$BASE_REF" >/dev/null 2>&1; then
+            REASON="the trusted base ref '${BASE_REF}' could not be fetched"
+            BASE_REF=''
+          fi
+
+          # INSIDE the fetch-success branch and NOWHERE ELSE. FETCH_HEAD elsewhere —
+          # for example left by actions/checkout — can point at the PR head, and
+          # reading the extensions from there would hand the agent's own prompt to the
+          # PR author. The helper performs no fetch of its own and resolves no ref but
+          # FETCH_HEAD, so this branch is the whole of its trust premise.
+          if [ -n "$BASE_REF" ]; then
+            HELPER=.prflow/vendor/prflow/scripts/materialize-trusted-prompt-extensions.sh
+            [ -f "$HELPER" ] || HELPER=scripts/materialize-trusted-prompt-extensions.sh
+            if [ -f "$HELPER" ]; then
+              # The helper prints its own fully-formed ::warning:: / ::notice:: lines
+              # on stdout, so this call site selects no branch and composes no message
+              # for the per-name arms — that logic lives in the helper, where
+              # lib/test/run.sh drives every arm. The protected set is expanded
+              # UNQUOTED on purpose: each name must become its own argv entry, the one
+              # place word splitting is the intended behavior. A NON-ZERO exit is the
+              # helper's deliberate loud refusal of a CALLER defect (exit 2), never a
+              # runtime condition, so it is annotated rather than swallowed.
+              _mtpe_rc=0
+              bash "$HELPER" \
+                --base-ref "$BASE_REF" \
+                --target "$CLOSURE" \
+                $DEVFLOW_PROTECTED_PROMPT_EXTENSIONS || _mtpe_rc=$?
+              if [ "$_mtpe_rc" -ne 0 ]; then
+                echo "::warning::devflow trusted prompt-extension materialization helper exited ${_mtpe_rc} — a caller or usage defect, not a runtime condition; the closure stays empty and this run proceeds with no consumer prompt-extension text."
+              fi
+            else
+              REASON="materialize-trusted-prompt-extensions.sh was not found at the vendored or the repo path (a pinned prflow_version predating issue #874, or a vendor step that did not materialize the plugin)"
+            fi
+          fi
+          if [ -n "$REASON" ]; then
+            echo "::warning::devflow trusted prompt-extension closure not populated: ${REASON}. This run proceeds with NO consumer prompt-extension text rather than reading the pull-request head; see the trusted-ref rule in docs/cloud-setup.md."
+          fi
+
+          # Skew probe (the replacement for the runner's truncation belt). The loader
+          # the agent actually runs is the VENDORED copy — the skill anchor resolves
+          # through the loaded plugin — so a consumer whose pinned prflow_version
+          # predates issue #874 ships a loader that ignores the variable, resolves the
+          # repo root, and reads the working tree. Truncation cannot be used to blind
+          # it here, so say so loudly instead of failing open in silence. Scoped to
+          # the present-but-too-old case alone: an ABSENT vendored loader is a broken
+          # vendor step that other steps already diagnose, and folding two causes into
+          # one breadcrumb would leave the reader unable to tell them apart.
+          #
+          # The probe is BASH BUILTINS ONLY (`while IFS= read -r` + `case`), not `grep`.
+          # This value decides an EMITTED result — which diagnosis the maintainer reads —
+          # and CLAUDE.md's guard-class 2 bars deriving such a value through a
+          # non-preflight PATH tool. With `grep` the absent-tool case inverted the
+          # condition and published "predates issue #874" about a loader this step never
+          # actually read: loud, but naming a cause it had not established. The builtin
+          # loop cannot fail that way, so the message asserts only what was observed.
+          LOADER=.prflow/vendor/prflow/scripts/load-prompt-extension.sh
+          _loader_honors=no
+          if [ -f "$LOADER" ]; then
+            while IFS= read -r _l || [ -n "$_l" ]; do
+              case "$_l" in
+                *DEVFLOW_PROMPT_EXTENSION_ROOT*) _loader_honors=yes; break ;;
+              esac
+            done < "$LOADER"
+          fi
+          if [ -f "$LOADER" ] && [ "$_loader_honors" = no ]; then
+            echo "::warning::devflow: the vendored load-prompt-extension.sh predates issue #874 and ignores DEVFLOW_PROMPT_EXTENSION_ROOT, so it resolves the WORKING TREE rather than this run's trusted closure — and after /prflow:review-and-fix's branch sync that tree is the pull-request head. Bump prflow_version in .prflow/config.json to close it."
+          fi
 
       # Provision the runtime (Python / Node / pip cache / deps) from
       # `.prflow/config.json`'s `setup` block. The logic lives in the

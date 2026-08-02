@@ -126,7 +126,7 @@ Every local-tier skill locates its bundled helpers through a **portable single-s
 
 ### Running a skill from a repo subdirectory
 
-PRFlow's skills now work when invoked from **any subdirectory** of your repository, not just the repo root: the `.prflow/` config and prompt-extension readers (`scripts/config-get.sh`, `scripts/load-prompt-extension.sh`, and the in-process config reads in `scripts/workpad.py`, `scripts/match-deferrals.py`, `scripts/match-lint-adjudications.py`, and `scripts/render-audit-prompt.py`) resolve the **default** `.prflow/` path anchored to the git repo root (`git rev-parse --show-toplevel`, falling back to the current directory when not in a git tree), rather than relative to the current directory. (`load-prompt-extension.sh` takes that repo-root anchor only on its *fallback* branch since issue #874 — when `DEVFLOW_PROMPT_EXTENSION_ROOT` is set and non-empty, as the cloud review tier sets it, the path comes from that value instead.) So a `/prflow:*` skill run from a subfolder still loads the consumer's root `.prflow/config.json` and `.prflow/prompt-extensions/<skill>.md` instead of silently reverting to defaults. A **non-empty** explicit config path (`config-get.sh`'s 3rd argument, `match-deferrals.py --config`, `match-lint-adjudications.py --config`) is still honored verbatim; an explicit empty value still selects the root-anchored default.
+PRFlow's skills now work when invoked from **any subdirectory** of your repository, not just the repo root: the `.prflow/` config and prompt-extension readers (`scripts/config-get.sh`, `scripts/load-prompt-extension.sh`, and the in-process config reads in `scripts/workpad.py`, `scripts/match-deferrals.py`, `scripts/match-lint-adjudications.py`, and `scripts/render-audit-prompt.py`) resolve the **default** `.prflow/` path anchored to the git repo root (`git rev-parse --show-toplevel`, falling back to the current directory when not in a git tree), rather than relative to the current directory. (`load-prompt-extension.sh` takes that repo-root anchor only on its *fallback* branch since issue #874 — when `DEVFLOW_PROMPT_EXTENSION_ROOT` is set and non-empty, as the cloud tiers that run the review engine set it, the path comes from that value instead.) So a `/prflow:*` skill run from a subfolder still loads the consumer's root `.prflow/config.json` and `.prflow/prompt-extensions/<skill>.md` instead of silently reverting to defaults. A **non-empty** explicit config path (`config-get.sh`'s 3rd argument, `match-deferrals.py --config`, `match-lint-adjudications.py --config`) is still honored verbatim; an explicit empty value still selects the root-anchored default.
 
 **Limitation:** `--show-toplevel` returns the *nearest* git root, so a nested git submodule / inner repo, or a monorepo whose `.prflow/` deliberately does not sit at the git root, is not covered — the readers anchor to the nearest git root in those layouts.
 
@@ -145,9 +145,9 @@ PowerShell's double-quote handling can split a `--note`/`--reflection` text argu
 For autonomous GitHub Actions automation, run the installer from your repo root. It is idempotent, so re-running it at a *newer* release tag is also how you update. It writes into your repository — the workflows and composite actions under `.github/`, a local `marketplace.json`, and `.prflow/` templates (config scaffold, schema, ignore file) — so those changes land in version control. **Download it, read it, then run the downloaded file:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.57/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.58/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.30.57 bash devflow-install.sh
+DEVFLOW_REF=v2.30.58 bash devflow-install.sh
 ```
 
 <a id="pinning-the-installer"></a>
@@ -166,8 +166,8 @@ Independently of either pin, `install.sh` stamps `.prflow/config.json`'s `prflow
 `curl … | bash` runs the script without giving you a chance to read it. If you accept that, still pin both refs:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.57/install.sh \
-  | DEVFLOW_REF=v2.30.57 bash
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.58/install.sh \
+  | DEVFLOW_REF=v2.30.58 bash
 ```
 
 </details>
@@ -391,7 +391,11 @@ Repos with no `.prflow/prompt-extensions/receiving-code-review.md` are unaffecte
 
 #### Upgrade note: the review tier reads its prompt extensions from your BASE ref (a TWO-halves upgrade — the window is real)
 
-From this version, the **automated** cloud review runner (`devflow-runner.yml`) no longer reads `.prflow/prompt-extensions/review.md` or `requesting-code-review.md` from the checkout it reviews. (The manual `/prflow:review` comment path in `devflow.yml` still does — see the base-ref-trust-boundary residuals in `docs/DEVFLOW_SYSTEM_OVERVIEW.md`.) That checkout is the **pull request's head**, and whatever the loader printed became instructions appended to the merge-gating reviewer's own prompt — so a PR author could write the reviewer's instructions. The review job now materializes those two files from your **trusted base ref** into a `$RUNNER_TEMP` closure, points the loader at it with `DEVFLOW_PROMPT_EXTENSION_ROOT`, and — unconditionally, including on a failed base-ref fetch, an empty base ref, and an unresolvable materialization helper — truncates the workspace copies so an older loader finds nothing.
+From this version, neither cloud tier that runs the review engine reads your `.prflow/prompt-extensions/` files from pull-request content. Whatever the loader prints becomes instructions appended to the reviewing agent's own prompt, so a PR author could otherwise write the instructions of the agent that reviews — and, on `/prflow:review-and-fix`, fixes and pushes — their own pull request.
+
+The **automated** runner (`devflow-runner.yml`) checks out the pull request's head, so it materializes `review.md` and `requesting-code-review.md` from your **trusted base ref** into a `$RUNNER_TEMP` closure, points the loader at it with `DEVFLOW_PROMPT_EXTENSION_ROOT`, and — unconditionally, including on a failed base-ref fetch, an empty base ref, and an unresolvable materialization helper — truncates the workspace copies so an older loader finds nothing.
+
+The **shipped comment-driven tier** (`devflow.yml`'s `command` job — `/prflow:review`, `/prflow:review-and-fix`, `/prflow:pr-description`) does the same materialization for all five extensions those commands can load, but reaches the problem differently: its own checkout is your default branch on an `issue_comment` trigger, and it is `/prflow:review-and-fix`'s branch sync that moves the working tree onto the pull-request head part-way through the run. Because that tier commits and pushes, it deliberately does **not** truncate your workspace copies (that would dirty the tree the branch sync requires clean, and the fix loop would commit the truncation); it warns loudly instead when the plugin version you pinned is too old to honor `DEVFLOW_PROMPT_EXTENSION_ROOT`. Consequence to expect on both tiers: a pull request that edits a prompt extension does **not** change its own review run — the change takes effect after merge. Residuals neither tier closes are enumerated in `docs/DEVFLOW_SYSTEM_OVERVIEW.md`'s base-ref-trust-boundary bullet.
 
 This is a **two-halves** upgrade, and unlike most of the ones above the halves ship through *different* channels: the workflow arrives by re-running `install.sh` (a file copy), while the loader that honors the variable arrives by advancing `prflow_version` (the vendor fetch). Both halves are individually safe, but they are not equivalent:
 
