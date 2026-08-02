@@ -4,6 +4,40 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.26] — 2026-08-02
+
+### Changed
+### Fixed
+
+- The shared writing standard now states that agent-authored prose is not hard-wrapped: each paragraph and bullet is one line and the renderer wraps it. Drafted issue bodies were arriving with prose broken at a fixed column, which GitHub renders as ragged short lines and which makes every later edit rewrap the whole paragraph. Nothing in the write path reflowed the bytes — no rule existed in either direction, so the drafting agent's habit decided it.
+
+## [2.30.25] — 2026-08-02
+
+### Fixed
+- **Specify the per-reviewer assessment operand the shadow coverage join reads.** The shadow
+  pass's 1:1 coverage join referred to "the per-reviewer assessment captured in 'Parse and
+  compare'", but that section described no capture step, so the fail-closed join operand was
+  incidental — held only by an orchestrator that still carried the raw reviewer returns in
+  context, and lost on a compacted or resumed run. `skills/review-and-fix/references/shadow-review.md`
+  now describes capturing, per dispatched reviewer, the positive-return assessment/verdict
+  evidence the coverage bar names, worded to resolve for every roster member (the five
+  first-party `agents/` reviewers carry no `### Assessment` heading; only the vendored
+  final-pass reviewer does), so the join's operand is specified rather than incidental. (#1102)
+
+## [2.30.24] — 2026-08-02
+
+### Fixed
+- **Phase 4.3's checkpoint-4 evidence record is now machine-detectable.** The pre-ready
+  base-update checkpoint records its clean-token evidence through the keyed-checkpoint carrier
+  `workpad.py update --checkpoint base-update-checkpoint-4` instead of a free-text `--note`, and
+  `lib/fetch-pr-context.sh` derives a `base_update_checkpoint4_present` field from its hidden
+  marker — so an absent record on a run that reached Phase 4.3 is detectable without a substring
+  search over prose. The key stays outside the `gha:` prefix, preserving the review-tier
+  cloud/local discriminator, and the phase prose keeps a degrade-to-`--note` fallback so a
+  non-canonical workpad body cannot wedge the run at its last step. This covers runs that reach
+  Phase 4.3 and call `workpad.py`; a run whose agent dies before any Phase 4.3 write is out of
+  scope (tracked under #1027). (#1050)
+
 ## [2.30.23] — 2026-08-02
 
 ### Fixed
