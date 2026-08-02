@@ -5396,11 +5396,13 @@ def _worktree_path_identity(repo_root, relative):
     """Return a per-component identity tuple for a typed target's worktree path.
 
     Each parent directory and the leaf file contribute
-    ``(st_dev, st_ino, st_mode, st_size, st_mtime_ns, st_ctime_ns)``. Paired with
-    the payload compare in ``_worktree_target_snapshot``/the loader's ``verify()``,
-    this detects a target that is rewritten (payload or ``st_size``), chmod-ed
-    (``st_mode``), moved onto a different inode (``st_ino``/``st_dev``), or touched
-    across a timer tick (``st_mtime_ns``/``st_ctime_ns``) while it is under analysis.
+    ``(st_dev, st_ino, st_mode, st_size, st_mtime_ns, st_ctime_ns)``.
+    ``_worktree_target_snapshot`` compares this tuple before and after it reads the
+    target, and the loader's ``verify()`` compares the full snapshot (the cached
+    payload *and* this tuple) again after analysis. Together those catch a target
+    that is rewritten (payload or ``st_size``), chmod-ed (``st_mode``), moved onto a
+    different inode (``st_ino``/``st_dev``), or touched across a timer tick
+    (``st_mtime_ns``/``st_ctime_ns``) while it is under analysis.
 
     **By-design limitation.** One shape is not discriminable from these fields: an
     unlink-and-recreate that (a) reuses the same inode and (b) completes within one
