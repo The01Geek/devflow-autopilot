@@ -1858,8 +1858,29 @@ assert_eq "#1156 workflow: the warning and the comment are rendered off the help
 # exemption lint-gh-api-repo-path.py records; the two helpers carry no gh call at all.
 assert_eq "#1156 workflow: the comment POST addresses the repository from the environment" \
   "True" "$(v1156_step '"repos/$REPO/issues/$PR_NUMBER/comments" in step["run"] and step["env"]["REPO"] == "${{ github.repository }}"')"
-assert_eq "#1156 helpers: neither the reader nor the arm-dispatch helper invokes gh on a live line" "0-0" \
-  "$(grep -v '^[[:space:]]*#' "$V1156_CHECK" | grep -c -E '(^|[^-[:alnum:]_])gh ')-$(grep -v '^[[:space:]]*#' "$V1156_GAP" | grep -c -E '(^|[^-[:alnum:]_])gh ')"
+# Neither helper touches the network — asserted by EXECUTION, not by reading their source:
+# a recording `gh` is put first on PATH and both helpers are driven over every arm. That is
+# what lets the workflow own the only GitHub write, which is the whole reason its `gh api`
+# path may use environment addressing under the .github/workflows/ exemption.
+V1156_BIN="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s/gh-calls"\nexit 0\n' "$V1156_BIN" > "$V1156_BIN/gh"
+chmod +x "$V1156_BIN/gh"
+: > "$V1156_BIN/gh-calls"
+for V1156_L in 'REACHED SKIP not-numeric' 'NOT-REACHED' 'UNESTABLISHED receipt-empty' '' 'garbage'; do
+  PATH="$V1156_BIN:$PATH" bash "$V1156_GAP" "$V1156_L" 1 2 "$V1156_GSHA" "$V1156_BIN/w" "$V1156_BIN/b" >/dev/null 2>&1
+done
+for V1156_S in zero ws adir noread near-plural trail; do
+  PATH="$V1156_BIN:$PATH" bash "$V1156_CHECK" "$V1156_SHAPES/$V1156_S" >/dev/null 2>&1
+done
+PATH="$V1156_BIN:$PATH" bash "$V1156_CHECK" "$V1156_NONE/nothing-here.txt" >/dev/null 2>&1
+assert_eq "#1156 helpers: neither the reader nor the arm-dispatch helper invokes gh on any arm" \
+  "0" "$(grep -c . "$V1156_BIN/gh-calls")"
+# Anti-vacuity: the recorder DOES capture a gh invocation when one happens, so the row above
+# measures an absence rather than a broken recorder.
+PATH="$V1156_BIN:$PATH" gh api "repos/o/r/issues/1/comments" >/dev/null 2>&1
+assert_eq "#1156 helpers: the gh recorder captures a real invocation (the absence row is not vacuous)" \
+  "1" "$(grep -c . "$V1156_BIN/gh-calls")"
+rm -rf "$V1156_BIN"
 assert_eq "#1156 workflow: the step carries a token that can post an issue comment" \
   "True" "$(v1156_step '"steps.app-token.outputs.token || github.token" in step["env"]["GH_TOKEN"]')"
 
