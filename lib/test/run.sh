@@ -12915,6 +12915,11 @@ assert_eq "apply-pr-triggerer: never uses gh pr edit --add-assignee porcelain" "
 assert_eq "apply-pr-triggerer: cloud sender success → applied" "assignment: applied cloudy" "$APT_OUT"
 assert_eq "apply-pr-triggerer: cloud tier does NOT call 'gh api user'" "yes" \
   "$(! grep -qF -- 'api user' "$APT_TMP/args" && echo yes || echo no)"
+# The cloud path is the security-sensitive one: assert the propagated DEVFLOW_TRIGGERING_USER
+# actually reaches the POST as assignees[]=<login>, so a propagation→POST wiring regression
+# is caught (the stub echoes WANT regardless of argv, so the applied token alone cannot).
+assert_eq "apply-pr-triggerer: cloud POST carries the propagated login as assignees[]" "yes" \
+  "$(grep -qF -- 'assignees[]=cloudy' "$APT_TMP/args" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- the propagated-login-to-REST-field wiring is the helper's executable cloud assignment contract
 
 # 3) missing cloud sender → skipped no-triggering-user; no other account substituted
 : > "$APT_TMP/args"; APT_PR=42 apt_run GITHUB_RUN_ID=99 DEVFLOW_TRIGGERING_USER= GITHUB_ACTOR=tokenowner
