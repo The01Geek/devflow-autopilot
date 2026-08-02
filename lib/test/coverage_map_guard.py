@@ -751,6 +751,14 @@ def _serialize_map(map_value) -> str:
     return json.dumps(map_value, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
+def _is_canonical(raw_text: str, map_value) -> bool:
+    """True when RAW_TEXT is already the canonical serialization of MAP_VALUE.
+
+    The single definition of "already canonical" that both the checker (`_arm11`) and the
+    fixer (`_run_fix`) consume, so the two cannot disagree about when a write is a no-op."""
+    return raw_text == _serialize_map(map_value)
+
+
 def _arm11(map_value, map_raw_text, map_raw_error):
     """The map on disk must be byte-identical to its canonical serialization.
 
@@ -773,7 +781,7 @@ def _arm11(map_value, map_raw_text, map_raw_error):
         ]
     if map_raw_text is None:
         return []
-    if map_raw_text != _serialize_map(map_value):
+    if not _is_canonical(map_raw_text, map_value):
         return [
             f"[arm11] {MAP_REL} on disk is not in canonical serialized form — its key order or "
             "formatting differs from what `--fix` writes (the parsed JSON value may be "
@@ -928,14 +936,17 @@ def _run_fix(repo_root: Path) -> int:
     # establish"): this deliberately widens `--fix` to write on order-only drift — the
     # minimal resolution that lets the violation's remedy name an action that actually
     # repairs it. The two MEASURED `--fix` paths are unchanged: a canonical file with no
-    # repair still no-ops (`desired == current`), and a real repair is still additive-only
-    # (the write serializes canonically as it always did, inserting only the new blocks).
-    desired = _serialize_map(map_value)
+    # repair still no-ops, and a real repair is still additive-only (the write serializes
+    # canonically as it always did, inserting only the new blocks). The canonical-equality
+    # test is the SAME `_is_canonical` predicate arm 11 checks against, so the fixer and the
+    # checker cannot disagree about when a write is a no-op. A re-read failure (`current is
+    # None`) is treated as non-canonical so `--fix` attempts the write and `_write_map`
+    # surfaces any real write failure as a breadcrumb.
     try:
         current = map_path.read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         current = None
-    if changed or current != desired:
+    if changed or current is None or not _is_canonical(current, map_value):
         write_error = _write_map(map_path, map_value)
         if write_error is not None:
             print(f"[fix-refused] {write_error}; {MAP_REMEDY}")
