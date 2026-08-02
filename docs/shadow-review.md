@@ -68,7 +68,8 @@ directory via the ordered, repo-root-anchored candidate list (repo-root `skills/
 bundle to that located directory, `Read`ing its `SKILL.md` in full, walking its gated phase references under `phases/` (re-deriving bundle identity and clearing each reference's boundary contract at every entry — a shadow entry is a phase entry), and running every
 Phase-3 reviewer normally. (Reading the engine as an inline procedure, rather than invoking it via
 the `Skill` tool, is deliberate: `Skill` would run the engine end-to-end including Phase 4.4's
-GitHub post, and the loop is silent on GitHub by design. The shadow stops before Phase 4.4.)
+GitHub post, and the loop posts no formal review and no verdict comment. The shadow stops before
+Phase 4.4.)
 Because it reuses Phase 3.1's launch list and per-agent prompts verbatim, the shadow exercises the
 **same reviewer set** a standalone `/prflow:review` would on this diff.
 

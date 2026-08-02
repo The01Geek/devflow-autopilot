@@ -6378,6 +6378,19 @@ if [[ "$j" == *"-X PATCH"* ]]; then
   for a in "$@"; do case "$a" in body=@*) cat "${a#body=@}" | tee "${WP_PATCHBODY:-/dev/null}";; esac; done
   exit 0
 fi
+if [[ "$j" == *"issue comment"* ]]; then
+  # workpad.py create -> `gh issue comment <n> --body-file <path>`. WP_CREATE_FAIL
+  # forces the failure arm; otherwise record the composed body and print the URL
+  # cmd_create parses the new comment id out of (issue #1154's create arm).
+  if [ -n "${WP_CREATE_FAIL:-}" ]; then echo "create boom" >&2; exit 1; fi
+  _next=
+  for a in "$@"; do
+    if [ -n "$_next" ]; then [ -n "${WP_CREATEBODY:-}" ] && cp "$a" "$WP_CREATEBODY"; _next=; fi
+    [ "$a" = "--body-file" ] && _next=1
+  done
+  echo "https://github.com/owner/repo/pull/55#issuecomment-9001"
+  exit 0
+fi
 if [[ "$j" == *"issues/comments/7"* ]]; then
   # WP_BODY_FAIL: the single-comment read fails (403/5xx) -> workpad.py body rc 1.
   if [ -n "${WP_BODY_FAIL:-}" ]; then echo "body boom" >&2; exit 1; fi
@@ -6519,15 +6532,20 @@ assert_eq "#356 flip: makes NO PATCH on an already-terminal comment" "yes" \
 assert_eq "#356 flip: breadcrumb names the already-terminal arm" "yes" \
   "$(grep -qi 'already terminal' "$S356/ferr" && echo yes || echo no)"
 
-# (comment absent) no matching run-keyed marker → comment-absent no-op, exit 0.
+# (comment absent) no matching run-keyed marker → the #1154 CREATE arm: the run
+# died before the engine's Phase 0.3.5 seed, so there is nothing to flip and the
+# helper authors the terminal comment instead of returning. Still exit 0, still
+# no PATCH (a create is not a patch). The create arm's full contract — the body
+# shape, the marker on line 1, idempotency, and the create-failure arm — is
+# driven in lib/test/modules/review-trigger-helpers.sh, which can stub `create`.
 : > "$S356/patchlog"
 WP_BODY="$S356/rev-interim.md" WP_PATCHLOG="$S356/patchlog" WP_ABSENT=1 DEVFLOW_GH="$S356/gh" \
   bash "$FLIP_SH" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
 assert_eq "#356 flip: exits 0 when no progress comment exists" "0" "$_fc"
-assert_eq "#356 flip: comment-absent arm makes NO PATCH" "yes" \
+assert_eq "#356 flip: clean-absence arm makes NO PATCH" "yes" \
   "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
-assert_eq "#356 flip: breadcrumb names the comment-absent arm" "yes" \
-  "$(grep -qi 'comment-absent' "$S356/ferr" && echo yes || echo no)"
+assert_eq "#1154 flip: a confirmed clean absence CREATES the terminal comment instead of no-opping" "yes" \
+  "$(grep -q 'created comment #9001' "$S356/ferr" && ! grep -qi 'no-op' "$S356/ferr" && echo yes || echo no)"
 
 # (patch failure) the PATCH itself fails → exit 0, failure breadcrumb.
 : > "$S356/patchlog"
@@ -6970,12 +6988,19 @@ assert_eq "#356 pin: the resume) case arm is locatable (absence pin below is not
 assert_eq "#356 pin: no flip_to_failed inside the resume) comment-building case arm" "yes" \
   "$(_resume_arm_body "$IMPL_YML" | grep -q 'flip_to_failed' && echo no || echo yes)"
 
-# The flip step names the specific arm that fired, so the comment's cause line and the
-# job log agree on why the run was treated as dead. Pin both cause strings.
-assert_eq "#356 pin: devflow.yml names the engine-error cause when is_error fired on a success step" "yes" \
-  "$(grep -qF 'CAUSE="review engine ended with an error (is_error)"' "$DEVFLOW_YML" && echo yes || echo no)"
-assert_eq "#356 pin: devflow.yml otherwise names the claude step outcome as the cause" "yes" \
-  "$(grep -qF 'CAUSE="claude step ${CLAUDE_OUTCOME}"' "$DEVFLOW_YML" && echo yes || echo no)"
+# The flip step names the specific mode that fired, so the comment's cause line and the
+# job log agree on why the run was treated as dead. Issue #1154 moved that inline
+# if/else chain into scripts/describe-dead-run-cause.sh so the suite can drive every arm
+# AND its order (lib/test/modules/review-trigger-helpers.sh); what stays pinned here is
+# that the workflow REACHES the helper and still feeds it both observables. A cause
+# literal pinned against the YAML would now assert nothing about the selection.
+assert_eq "#1154 pin: devflow.yml derives the dead-run cause through describe-dead-run-cause.sh" "yes" \
+  "$(grep -qF 'CAUSE="$(bash "$CAUSE_HELPER" "${CLAUDE_OUTCOME:-}" "${ENGINE_ERROR:-false}")"' "$DEVFLOW_YML" && echo yes || echo no)"
+assert_eq "#1154 pin: devflow.yml resolves the cause helper vendored-first then repo-root" "yes" \
+  "$(grep -qF 'CAUSE_HELPER=.prflow/vendor/prflow/scripts/describe-dead-run-cause.sh' "$DEVFLOW_YML" \
+     && grep -qF '[ -f "$CAUSE_HELPER" ] || CAUSE_HELPER=scripts/describe-dead-run-cause.sh' "$DEVFLOW_YML" && echo yes || echo no)"
+assert_eq "#1154 pin: an absent cause helper degrades with a warning instead of failing the step" "yes" \
+  "$(grep -qF 'describe-dead-run-cause.sh absent at $CAUSE_HELPER' "$DEVFLOW_YML" && echo yes || echo no)"
 
 # Review flip: devflow.yml's outcome-keyed step. Issue #936 removed
 # devflow-review.yml (the auto PR-triggered tier's caller), so its finalize_check
@@ -6988,22 +7013,35 @@ assert_eq "#356 pin: devflow.yml adds the dead-run review-progress flip step" "y
 assert_eq "#356 pin: devflow.yml flip step wires the helper" "yes" \
   "$(grep -q 'flip-review-progress-failed.sh' "$DEVFLOW_YML" && echo yes || echo no)"
 assert_eq "#356 pin: devflow.yml actually INVOKES the helper (not just names it)" "yes" \
-  "$(grep -qF 'bash "$FLIP_HELPER" "$CONTEXT_NUMBER" "$FLIP_MARKER"' "$DEVFLOW_YML" && echo yes || echo no)"
-# Per-DISJUNCT pins on the flip step's `if:` guard. A bare `grep steps.claude.outcome`
-# would also match the step's own `CLAUDE_OUTCOME:` env line, so deleting a disjunct
-# from the guard would leave it GREEN — the exact vacuous-pin failure these replace.
-# Each pin below quotes the whole comparison, so removing any one arm goes RED.
-# The guard is extracted once (the single `if:` line carrying `always()`), so a
-# comparison appearing anywhere else in the file cannot satisfy these.
-DF356_IF="$(grep -F 'if: ${{ always() && (steps.claude.outcome' "$DEVFLOW_YML" || true)"
-assert_eq "#356 pin: devflow.yml flip step fires on a FAILED claude step" "yes" \
-  "$(printf '%s' "$DF356_IF" | grep -qF "steps.claude.outcome == 'failure'" && echo yes || echo no)"
-assert_eq "#356 pin: devflow.yml flip step fires on a CANCELLED claude step" "yes" \
-  "$(printf '%s' "$DF356_IF" | grep -qF "steps.claude.outcome == 'cancelled'" && echo yes || echo no)"
-assert_eq "#356 pin: devflow.yml flip step fires when the engine ended is_error" "yes" \
-  "$(printf '%s' "$DF356_IF" | grep -qF "steps.engine.outputs.is_error == 'true'" && echo yes || echo no)"
-assert_eq "#356 pin: devflow.yml flip step's guard is always()-wrapped (runs on cancellation)" "yes" \
-  "$(printf '%s' "$DF356_IF" | grep -qF 'always()' && echo yes || echo no)"
+  "$(grep -qF 'bash "$FLIP_HELPER" "$TARGET_NUMBER" "$FLIP_MARKER"' "$DEVFLOW_YML" && echo yes || echo no)"
+# Issue #1154 replaced the flip step's three-disjunct outcome gate with a bare
+# `always()`: a run that exited CLEANLY having written no verdict matched none of the
+# three disjuncts, so the backstop never fired on exactly the mode it exists to cover
+# (Actions run 29854795625). The gate is now asserted by ABSENCE as well as presence —
+# a reintroduced outcome disjunct on this step's own `if:` re-opens that hole while
+# every other pin here stays green.
+#
+# The step's `if:` is located by walking forward from its `- name:` line to the first
+# `if:`, so the assertion cannot be satisfied by some other step's guard, and the
+# located line is asserted non-empty first (an absence pin that cannot find its subject
+# asserts nothing).
+DF1154_IF="$(awk '
+  /^[[:space:]]*- name: Flip review-progress comment on dead run[[:space:]]*$/ { f=1; next }
+  f && /^[[:space:]]*if:/ { print; exit }
+' "$DEVFLOW_YML")"
+assert_eq "#1154 pin: the dead-run step's own if: guard is locatable (absence pin below is not vacuous)" "yes" \
+  "$([ -n "$DF1154_IF" ] && echo yes || echo no)"
+assert_eq "#1154 pin: devflow.yml dead-run step's guard is always()-wrapped (runs on cancellation)" "yes" \
+  "$(printf '%s' "$DF1154_IF" | grep -qF 'always()' && echo yes || echo no)"
+assert_eq "#1154 pin: the dead-run step's guard carries NO steps.claude.outcome disjunct" "yes" \
+  "$(printf '%s' "$DF1154_IF" | grep -qF 'steps.claude.outcome' && echo no || echo yes)"
+assert_eq "#1154 pin: the dead-run step's guard carries NO steps.engine.outputs.is_error disjunct" "yes" \
+  "$(printf '%s' "$DF1154_IF" | grep -qF 'steps.engine.outputs.is_error' && echo no || echo yes)"
+# Both observables must still reach the step as ENV — they are inputs to the cause, and
+# a guard removal that also dropped them would leave every cause undifferentiated.
+assert_eq "#1154 pin: the dead-run step still receives both observables as step env" "yes" \
+  "$(grep -qF 'CLAUDE_OUTCOME: ${{ steps.claude.outcome }}' "$DEVFLOW_YML" \
+     && grep -qF 'ENGINE_ERROR: ${{ steps.engine.outputs.is_error }}' "$DEVFLOW_YML" && echo yes || echo no)"
 # The is_error disjunct needs a producer: devflow.yml must parse the engine result
 # into steps.engine, mirroring devflow-runner.yml's own parse step.
 assert_eq "#356 pin: devflow.yml surfaces the engine execution result as steps.engine.is_error" "yes" \
@@ -15625,7 +15663,7 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # together, or test_module_runner.py's tranche test goes RED.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 649; then
+  "review-trigger-helpers" 722; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
