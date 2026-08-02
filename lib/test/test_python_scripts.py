@@ -21761,6 +21761,17 @@ _793_doc2 = _793_state_doc(_793_run)
 assert_eq("#793: the targeted round records no ledger of its own",
           None, _793_doc2['rounds'][1].get('findings'))
 
+# issue #1105: the recorded targeted-round scope carries a draft_lines span in the
+# two-element ordered non-bool int shape create-issue-context-eval's reader accepts.
+_1105_recorded_span = (_793_doc2['rounds'][1].get('scope') or {}).get('draft_lines')
+assert_eq("#1105: a scoped dispatch records a two-element ordered draft_lines span on its "
+          "frozen scope (read back from the state file)",
+          True,
+          isinstance(_1105_recorded_span, list) and len(_1105_recorded_span) == 2
+          and all(isinstance(x, int) and not isinstance(x, bool)
+                  for x in _1105_recorded_span)
+          and _1105_recorded_span[0] <= _1105_recorded_span[1])
+
 assert_eq("#793: ... and the shared automatic counter is unchanged across it",
           1, _793_doc2.get('automatic_reaudits_used'))
 
