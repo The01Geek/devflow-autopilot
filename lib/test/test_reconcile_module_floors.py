@@ -72,7 +72,15 @@ if not record.get("omit"):
             f'Module {module_id}: {record["passed"]} passed, '
             f'{record.get("failed", 0)} failed{suffix}'
         )
-raise SystemExit(record.get("rc", 0))
+rc = record.get("rc", 0)
+if record.get("failed", 0):
+    # Mirror the real runner, which sets RUN_RC to 1 whenever FAIL_COUNT is nonzero.
+    # Left decoupled, the fake could emit a failed>0 summary alongside rc 0 — a pair
+    # the real runner cannot produce — so the case would exercise the reconciler's
+    # later not-clean branch instead of the rc gate that actually rejects it first,
+    # and the test would attest to a path no real measurement reaches.
+    rc = 1
+raise SystemExit(rc)
 PY
 """,
             encoding="utf-8",
@@ -239,6 +247,10 @@ fi
     ) -> None:
         cases = {
             "failed process": {"passed": 4, "rc": 1},
+            # Rejected at the rc gate, because the fake couples rc to failed exactly as
+            # the real runner does. The reconciler's later not-clean branch stays
+            # covered by the skipped case below, which the real runner CAN emit with
+            # rc 0 — skips do not fail a module run.
             "failed assertion": {"passed": 3, "failed": 1},
             "skipped assertion": {"passed": 4, "skipped": 1},
             "missing summary": {"passed": 4, "omit": True},

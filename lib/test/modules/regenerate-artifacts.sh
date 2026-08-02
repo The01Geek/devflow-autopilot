@@ -697,12 +697,23 @@ RA_FLOOR_RUNNER="$_ra_tmp_root/floor-runner.sh"
 # shellcheck disable=SC2016  # these single-quoted arguments are the generated runner's source; expansion belongs to that later process
 printf '%s\n' \
   '#!/usr/bin/env bash' \
-  'module_id=""' \
+  'module_id=""; supplied_registry=""' \
   'while [ "$#" -gt 0 ]; do' \
-  '  case "$1" in --registry|--log-dir) shift 2 ;; --heavy-units) shift 2 ;; *) module_id="$1"; shift ;; esac' \
+  '  case "$1" in --registry) supplied_registry="$2"; shift 2 ;; --log-dir) shift 2 ;; --heavy-units) shift 2 ;; *) module_id="$1"; shift ;; esac' \
   'done' \
-  'python3 - "$PWD/scripts/workflow-flight-recorder-registry.json" "$module_id" <<'"'"'PY'"'"'' \
+  'python3 - "$PWD/scripts/workflow-flight-recorder-registry.json" "$module_id" "$supplied_registry" <<'"'"'PY'"'"'' \
   'import json, os, sys' \
+  '# Honor --registry the way the real runner does. Discarding it would leave the' \
+  '# reconciler free to stop passing a lowered measurement registry at all while every' \
+  '# fixture here stayed green — the lowering step untested by the very fixtures that' \
+  '# depend on it. The SUPPLIED registry is what proves the floor was lowered; the' \
+  '# measurement itself is still derived from the live fixture registry, because these' \
+  '# fixtures assert the reconciler reacts to a floor delta, not to the sentinel 1.' \
+  'supplied = sys.argv[3]' \
+  'if not supplied:' \
+  '    print("fixture runner: --registry was not supplied", file=sys.stderr); raise SystemExit(9)' \
+  'if json.load(open(supplied))["test_modules"][sys.argv[2]]["minimum_assertions"] != 1:' \
+  '    print("fixture runner: measurement floor was not lowered", file=sys.stderr); raise SystemExit(9)' \
   'registry = json.load(open(sys.argv[1]))' \
   'floor = registry["test_modules"][sys.argv[2]]["minimum_assertions"] + int(os.environ.get("DEVFLOW_FLOOR_TEST_DELTA", "0"))' \
   'print(f"Module {sys.argv[2]}: {floor} passed, 0 failed")' \
