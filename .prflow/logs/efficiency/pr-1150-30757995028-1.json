@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1150",
+  "generated_at": "2026-08-02T17:11:11Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.51",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.162463000000001,
+    "tokens": {
+      "input_tokens": 46,
+      "output_tokens": 20277,
+      "cache_read_input_tokens": 2993538,
+      "cache_creation_input_tokens": 146500,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 66,
+        "outputTokens": 27000,
+        "cacheReadInputTokens": 3445991,
+        "cacheCreationInputTokens": 194362,
+        "webSearchRequests": 0,
+        "costUSD": 4.162463000000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 26,
+    "duration_ms": 441867
+  },
+  "permission_denials": {
+    "count": 2,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "gh pr diff 1150 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1150/local-run/diff.patch\nwc -l .prflow/tmp/review/pr-1150/local-run/diff.patch",
+      "scripts/post-review-verdict.sh \"1150\" REQUEST_CHANGES .prflow/tmp/review-verdict-body.md; echo \"post-rc=$?\""
+    ],
+    "total": 2,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
