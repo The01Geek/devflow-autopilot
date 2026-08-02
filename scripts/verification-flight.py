@@ -22,7 +22,11 @@ Subcommands:
   mark-running  Owner-only CAS: claimed -> running, recording logical owner evidence
                 immediately before the caller launches its authorized command.
   finish        Owner-only CAS: running -> passed/failed/timed_out/cancelled with
-                terminal evidence (suite summary, skip details, exit status).
+                terminal evidence (suite summary, skip details, exit status). A
+                `passed` result requires a JSON integer 0 `exit_status` in that
+                evidence; a missing, wrong-typed, or nonzero one is refused
+                NON-terminally, leaving the flight running and re-finishable so the
+                truthful `failed` can still be recorded (issue #1053).
   status        Read a flight (token redacted); report whether it satisfies
                 verification. Applies lease-expiry (-> incomplete) and checkout
                 drift (-> stale) read-transitions. Any unreadable/malformed shape is
@@ -540,9 +544,40 @@ def _expire_claim(path: Path, flight: dict) -> dict:
     return flight
 
 
+def _zero_exit_status(summary: Any) -> bool:
+    """True iff `summary` is an object carrying a JSON integer `0` `exit_status`.
+
+    The single owner of this repository's zero-exit-status predicate, shared by the
+    `finish` write gate and the reuse predicate below so the two can never disagree
+    about which recorded evidence is a pass. It mirrors the READER's already-shipped
+    condition in `scripts/check-completion-evidence.py` (issue #1087 / PR #1119) in
+    intent: a JSON `true` is not a zero even though Python's `bool` subclasses `int`,
+    and the string `"0"` is not a zero either. An absent field is unestablished, and
+    an unestablished measurement is never collapsed onto a real value — so it is
+    false here, which is the fail-closed direction.
+    """
+    if not isinstance(summary, dict):
+        return False
+    status = summary.get("exit_status")
+    if isinstance(status, bool) or not isinstance(status, int):
+        return False
+    return status == 0
+
+
 def _satisfies(flight: dict) -> bool:
-    """Only a `passed` terminal handle satisfies verification."""
-    return flight["state"] == "passed"
+    """Only a `passed` terminal handle whose evidence carries a zero exit status.
+
+    The exit-status limb (issue #1053) is what keeps this predicate and the shipped
+    completion gate on ONE disposition. `finish` now refuses to mint a `passed`
+    handle without that evidence, so the only records the limb can exclude are ones
+    written BEFORE this change — a legacy `passed` handle carrying no `exit_status`.
+    Such a handle is disposed of as NOT reusable, which is the disposition the
+    completion gate already takes: without this limb an attacher would be told to
+    consume a pass that `check-completion-evidence.py` refuses at the phase where the
+    work is already finished. The cost of the fail-closed direction is one duplicate
+    verification run, never a false reuse.
+    """
+    return flight["state"] == "passed" and _zero_exit_status(flight.get("suite_summary"))
 
 
 def _public_view(flight: dict) -> dict:
@@ -867,8 +902,9 @@ def cmd_finish(args) -> int:
     # decides a pass, so an *unusable* summary (a non-dict scalar/array, or an
     # empty object `{}` with no keys) is the same unknown class as an absent one
     # and must NOT be recorded as `passed`: it becomes `incomplete` and blocks any
-    # automatic relaunch. The gate is non-emptiness only: any object with at least
-    # one key counts as present terminal evidence — no specific field is required.
+    # automatic relaunch. THIS arm's gate is non-emptiness only: any object with at
+    # least one key clears it. A `passed` result must additionally clear the
+    # exit-status backstop below, which is a separate, non-terminal refusal.
     if args.result in ("passed", "failed") and not (isinstance(summary, dict) and summary):
         flight["state"] = "incomplete"
         flight["invalidation_reason"] = "missing_terminal_evidence"
@@ -884,6 +920,57 @@ def cmd_finish(args) -> int:
         # needing the finer distinction read the JSON `reason` field, which is
         # `missing_terminal_evidence` here and `token_mismatch` for a real ownership
         # failure. Documented deliberately so the overload is not read as an oversight.
+        return EXIT_CAS_REJECT
+
+    # ── #1053 exit-status backstop: the WRITE half of the completion gate's contract ──
+    # Ordering is deliberate and load-bearing: the missing/unusable-summary arm above
+    # runs FIRST and is unchanged, so this condition only ever sees a summary that is
+    # already a non-empty object. It is a NECESSARY condition on the exit-status arm of
+    # result establishment — the ledger executes nothing and observes nothing, so every
+    # operand here is supplied by the same caller the gate exists to distrust. It
+    # therefore NARROWS the false-green path rather than closing it: it catches a caller
+    # holding a truthful nonzero status that still claims a pass, and does not catch one
+    # that writes a zero it never observed.
+    #
+    # The refusal is NON-TERMINAL, and that is the whole point: it writes no state at
+    # all, so the flight stays `running` and re-finishable and the run can still record
+    # the truthful `finish --result failed` afterwards. A terminal write here would
+    # permanently strand the very failure the gate exists to surface, because the ledger
+    # is one-shot per key with no reclaim path.
+    #
+    # Accepted consequence, recorded rather than hidden: a `running` handle carries no
+    # expiry by design, so an owner that never re-issues `finish` (e.g. its owner token
+    # is no longer available) leaves the key `running` rather than terminal, and a
+    # same-checkout attacher reaches the existing wait-expiry path instead of a prompt
+    # terminal verdict. The exposure is bounded to an unchanged tree: any declared-input
+    # change mints a fresh key.
+    #
+    # `failed`/`timed_out`/`cancelled` are untouched — a nonzero status is exactly what
+    # a truthful `failed` carries, and the two owner-recorded outcomes carry no summary.
+    if args.result == "passed" and not _zero_exit_status(summary):
+        recorded = summary.get("exit_status")
+        _print({
+            "ok": False,
+            "result": "rejected",
+            # Two reasons, not one, so the diagnosis is attributable: an unestablished
+            # status (absent, boolean, string, float) is a different defect from a
+            # truthfully-recorded nonzero one, exactly as the reader distinguishes its
+            # missing-evidence token from its not-pass token.
+            "reason": (
+                "exit_status_nonzero"
+                if isinstance(recorded, int) and not isinstance(recorded, bool)
+                else "exit_status_unestablished"
+            ),
+            "recorded_exit_status": recorded,
+            "state": "running",
+            "satisfies_verification": False,
+            # The re-issue needs the SAME owner token this call used: no terminal state
+            # was written, so the handle is still owned and still `running`.
+            "remedy": (
+                "retain this flight's owner token; the flight is left `running` and "
+                "re-finishable, so re-issue `finish` with the truthful result"
+            ),
+        })
         return EXIT_CAS_REJECT
 
     now = _now()
@@ -1075,7 +1162,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_fin.add_argument("--flight", required=True)
     p_fin.add_argument("--token", required=True)
     p_fin.add_argument("--result", required=True, choices=("passed", "failed", "timed_out", "cancelled"))
-    p_fin.add_argument("--summary-file", default=None)
+    p_fin.add_argument(
+        "--summary-file", default=None,
+        help="JSON object of terminal evidence. `--result passed` additionally requires a "
+             "JSON integer 0 `exit_status`; anything else is refused non-terminally, "
+             "leaving the flight running and re-finishable.",
+    )
     add_common(p_fin)
     p_fin.set_defaults(func=cmd_finish)
 
