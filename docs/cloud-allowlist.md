@@ -936,9 +936,13 @@ figure.** The counts and command entries below were read once, on 2026-08-02, fr
 `claude`-job execution-diagnostics detail blocks of two cloud implement-tier runs. They
 are **not** machine-rendered and must not be "corrected" or re-measured later — a run's
 diagnostics block is immutable history, and a different run would show a different
-population. Probe-based *shape* conclusions are not made here; they belong to
-`matcher-probe.yml`. This audit reads the denials, names each entry's cause, and records
-one disposition per cause.
+population. That immutability covers the **observations** (the counts, the entries, and the
+entry indices), not the **classification**: the cause and disposition assigned to an entry
+are ordinary claims, correctable on evidence like any other. Probe-based *shape* conclusions
+are not made here; they belong to
+`matcher-probe.yml` — and where a refusal is shape-level but no already-documented shape
+rule covers it, the property is left **unestablished** rather than inferred. This audit
+reads the denials, names each entry's cause, and records one disposition per cause.
 
 Source runs (both cloud implement tier, 2026-08-02):
 
@@ -949,55 +953,77 @@ Source runs (both cloud implement tier, 2026-08-02):
 - **Run 30738987528** (issue #1085) — block opened `9 permission denial(s) with detail:`;
   the run ended with a green pull request.
 
-Grant-state context that keeps the dispositions honest: at run time (2026-08-02) the
-config channel already granted `Bash(bash:*)` and `Bash(mktemp:*)` (added 2026-08-01 in
-`e30fcc6`), yet `bash -c`- and `mktemp`-bearing commands still appear in the denial block.
-That is the load-bearing observation of this audit: **the population is dominated by
-deliberately-denied composite *shapes* (a leading `cd`, a heredoc write, a leading
-assignment, a `/tmp`/file redirect, an interpreter head, a background launch), which the
-matcher refuses regardless of whether every head in them is granted.** Granting more heads
-would not have prevented them.
+**How every grant-state claim below was established.** Each "granted" / "not granted"
+statement in this section was read from the *run's own* resolved allowlist — the
+`--allowed-tools` string in that run's `claude` job log, which is the list the matcher
+actually applied (both runs resolved 210 tokens). That is deliberately not a citation of a
+commit or of the tree as it stands now: the grant channel is trigger-time-resolved from the
+default branch, so today's tree is not what a past run had, and a SHA decorating a grant
+rots.
+
+Grant-state context that keeps the dispositions honest: run 30738761826's own resolved
+allowlist already carried `Bash(bash:*)` and `Bash(mktemp:*)`, yet `bash -c`- and
+`mktemp`-bearing commands still appear in its denial block. That is the load-bearing
+observation of this audit: **the population is dominated by deliberately-denied composite
+*shapes* (a leading `cd`, a heredoc write, a leading assignment, a `/tmp`/file redirect, an
+interpreter head, a background launch), which the matcher refuses regardless of whether
+every head in them is granted.** Granting more heads would not have prevented them.
+
+**A granted head is not a permitted command, and the two are separate findings.** The
+diagnostics block names the refused command and nothing else — it carries no per-denial
+reason string. So an entry is recorded as an **ungranted head** only when a head or leading
+literal in it was absent from that run's resolved allowlist. When *every* head and literal
+in an entry was present, it is recorded as a **shape refusal**; and when no already-
+documented denied shape covers it, the specific property the matcher refused is recorded as
+**unestablished** rather than replaced with a plausible guess.
 
 ### Named causes and dispositions
 
 Every disposition is drawn from the issue's closed set of three — a prompt-surface
 correction, a manifest grant, or a recorded "no change" carrying its reason. **The audit
-reaches no manifest grant and no prompt-surface correction: every cause is dispositioned
-"no change."** The reasons follow.
+reaches no new grant and no prompt-surface correction: every cause is dispositioned "no
+change."** One of those "no change" rows records that the grant its entries called for
+landed independently (issue #1132) — not that the head should stay ungranted. The reasons
+follow.
 
 In the *entry indices* column, **A** is run 30738761826 and **B** is run 30738987528, and
 each number is the 1-based position of that entry within the run's detail block. The
-indices partition every entry of both runs (A: 1–51, B: 1–9) with one dominant cause each.
+indices partition every entry of both runs (A: 1–51, B: 1–9); each row groups the entries
+by the construct the agent typed, and the two rows where that grouping does not coincide
+with the refusal cause say so and split their entries explicitly.
 
 | Cause | Runs / entry indices | Disposition |
 | --- | --- | --- |
 | **Heredoc write** (`cat > <file> <<'…'`) | A: 1,2,3,4,20,21 | **No change.** A heredoc redirect write is a deliberately-denied shape (#401); the authorized alternative — the Write tool — is already documented. No prompt surface authors a heredoc. Granting it would defeat the shape ban. |
 | **Leading `cd`** | A: 5,6,7,22,23,24,25,26,27 | **No change.** The working-directory contract already bans a leading `cd` (desk lint `IR4`, issue #855); the persistent cwd makes it unnecessary. Agent-improvised; no surface authors it. |
 | **Leading `VAR=` assignment / env prefix** | A: 11,12,13,14,15 · B: 3 | **No change.** A leading assignment is the R1/PreToolUse-guard denied arm; the documented alternative is `VAR=$(cmd)` or passing the value as an argument. Agent-improvised. |
-| **`bash <path>` / `bash -c` wrapper** | A: 10,17,18 | **No change.** The `bash <path>` wrapper is deny-floored by policy and documented; helpers are invoked as leading tokens. `Bash(bash:*)` was granted yet these still denied — confirming the refusal is the wrapping shape, not the head. |
-| **`nohup … &` background launch** | A: 36,37,38,39 | **No change.** The coordinator `lib/test/run-parallel.sh` is documented to run as a bare leading token "with nothing around it"; backgrounding it is agent improvisation. The extension already states the correct form. |
-| **Interpreter head** (`python3 …`, `python3 -c`) | A: 8,34,35,42,43,44 | **No change.** The `python3 <path>` interpreter head is denied by design (#789/#401); the granted form is the executable `.py` as a direct leading token (`scripts/workpad.py`, etc. carry the exec bit and are config-granted). Granting `python3:*` would defeat the interpreter-head ban. |
+| **`bash <path>` / `bash -c` wrapper** | A: 10,17,18 | **No change.** The `bash <path>` wrapper is deny-floored by policy and documented; helpers are invoked as leading tokens. `Bash(bash:*)` was in the run's own resolved allowlist yet these still denied — confirming the refusal is the wrapping shape, not the head. |
+| **`nohup … &` background launch** | A: 36,37,38,39 | **No change.** These carry both defects: `nohup` is absent from the run's resolved allowlist (an ungranted head) *and* a background launch is a denied shape. The coordinator `lib/test/run-parallel.sh` is documented to run as a bare leading token "with nothing around it"; backgrounding it is agent improvisation, and the extension already states the correct form. |
+| **Interpreter head** (`python3 …`, `python3 -c`) | A: 8,34,35,42,43,44 | **No change — and no grant was missing.** `Bash(python3:*)` *was* in the run's own resolved allowlist, so none of these six is an ungranted head; each additionally carries a caller-side redirect (A: 8 also writes under `/tmp`). They are therefore the cleanest evidence in this population for the head-versus-shape distinction above: the `python3 <path>` interpreter head is refused by shape (#789/#401) with the head granted. The authored form is the executable `.py` as a direct leading token — `scripts/workpad.py`, itself granted in this same run. |
 | **stdout/file redirect** (`> <file>`, `> /tmp/…`) | A: 9,46 | **No change.** A caller-side redirect is denied even into `.prflow/tmp` (PR #694); the Write tool is the authorized path and is documented. Agent-improvised. |
-| **Ungranted head — `lib/test/run-shard.sh`** | A: 33,50,51 | **No change.** `run-shard.sh` is the internal primitive the granted `lib/test/run-parallel.sh` (and serial `lib/test/run.sh`) invoke as a subprocess, not a top-level tool call; no prompt surface authors a direct top-level invocation. The documented final-gate commands (run-parallel.sh, run.sh) are already granted, so a grant here would add a head with no authored caller. (This is the entry the issue's "Verified" section flagged as absent from the profile; its absence is correct.) |
-| **Ungranted head — `git write-tree`** | A: 31,32,41 | **No change.** A one-off introspection of the git tree with no authored caller; the run needs no tree hash. |
-| **Ungranted head — `git diff <sha> <sha> -- …`** | A: 30 | **No change.** An ad-hoc historical diff the agent ran to inspect a prior change; not a shape any surface authors. |
-| **Ungranted head — `awk`** | A: 16 | **No change.** A non-preflight PATH tool used for a one-off source scan; the repo's convention is bash builtins / `git grep`, both available. |
-| **Ungranted head — `gh auth status`** | B: 5,6,9 | **No change.** A credential-state debugging probe; no prompt surface calls `gh auth`. Granting an auth-introspection subcommand serves no durable caller. |
-| **Ungranted head — misc diagnostic probes** (`cat`/`ls` of `/tmp`, `git remote`/`git status` via `echo`/`printf`, `export`) | A: 19,28,29,40 | **No change.** Environment/state introspection the agent improvised; the authorized diagnostic surfaces (`preflight.py`, `config-get.sh`) already exist. |
-| **Non-vendored `scripts/…` leading path** | A: 47,48,49 | **No change.** The granted leading-token literal is the repo-relative vendored path (`.prflow/vendor/prflow/scripts/…`) or the config-granted `scripts/<name>` for specific helpers; the bare `scripts/efficiency-trace.sh`/`react-to-trigger.sh`/`workpad.py` forms the agent typed are not those literals. The surfaces already author the correct literal; these are self-repo improvisations. |
-| **`./scripts/…` dot-slash prefix** | B: 1,2,8 | **No change.** The `./` prefix makes the path a different literal than the granted `scripts/apply-labels.sh` / vendored form, so it is denied. The surfaces author no `./` prefix; agent-improvised. |
+| **Ungranted at run time, granted since — `lib/test/run-shard.sh`** | A: 33,50,51 | **No change by this audit — the grant these entries called for has already landed.** The head was absent from run 30738761826's own resolved allowlist, so these three were genuine ungranted-head refusals *at run time*. It does not follow that the absence was correct: `.prflow/prompt-extensions/implement.md` in that run's own checkout already named `lib/test/run-shard.sh --list-shards`, so there was an authored caller and no grant — precisely the grant-timing case that extension itself describes. Issue #1132 subsequently granted `Bash(lib/test/run-shard.sh:*)` in both `prflow_implement.allowed_tools` and `prflow.allowed_tools`, and `CLAUDE.md`'s cloud-implement tier section names its durable caller: decomposing the partition through the shard dispatcher when the tier's per-command execution ceiling terminates the coordinator. So this audit adds no grant because the right grant already exists — not because the head should stay ungranted. |
+| **Ungranted head — `git write-tree`** | A: 31,32,41 | **No change.** Absent from the run's own resolved allowlist, so a genuine ungranted head. A one-off introspection of the git tree with no authored caller; the run needs no tree hash. |
+| **Granted head, shape refusal — `git diff <sha> <sha> -- …`** | A: 30 | **No change — and not an ungranted head.** `Bash(git diff:*)` was in the run's own resolved allowlist. The fence carried a caller-side `>` redirect into `.prflow/tmp`, a `\|\| true`, and a `\| wc -l` tail — a denied redirect shape inside a compound, so no grant would have permitted it. It is still an ad-hoc historical diff no surface authors. |
+| **Granted head, shape refusal — `awk`** | A: 16 | **No change — and not an ungranted head.** `Bash(awk:*)`, `Bash(grep:*)` and `Bash(head:*)` were all in the run's own resolved allowlist. The entry is a `;`-joined compound of a pipeline; which property the matcher refused is **unestablished** (no per-denial reason is recorded). No grant would have changed the outcome, and a granted alternative for a one-off source scan was already available in a permitted shape (the `Grep` tool, or `grep` on its own). |
+| **Ungranted head — `gh auth status`** | B: 5,6,9 | **No change.** `gh auth` is absent from run 30738987528's own resolved allowlist. A credential-state debugging probe; no prompt surface calls it, and granting an auth-introspection subcommand serves no durable caller. |
+| **Mixed diagnostic probes — two ungranted heads, two shape refusals** (`cat`/`ls` of `/tmp`, `git remote`/`git status` via `echo`/`printf`, `export`) | A: 19,28,29,40 | **No change**, but the entries do not share a cause. A: 28 reaches `git remote` and A: 29 leads with `export`; neither is in the run's resolved allowlist, so those two are ungranted heads. A: 19 and A: 40 use only granted heads (`cat`, `ls`, `head`, `printf`, `git status`), so they are shape refusals — A: 19 additionally reads `/tmp`, while A: 40's refused property is **unestablished**. Environment/state introspection the agent improvised either way; the authorized diagnostic surfaces (`preflight.py`, `config-get.sh`) already exist and were granted. |
+| **Bare `scripts/…` leading path — one ungranted literal, two shape refusals** | A: 47,48,49 | **No change**, but these three do not share a cause either. A: 47 names `scripts/efficiency-trace.sh`, which is neither a granted literal **nor a file** — the helper lives at `lib/efficiency-trace.sh`, which *was* granted in this run; because grants are per-head across the whole pipeline, the fence's own `\|\| lib/efficiency-trace.sh --persist` fallback could not rescue the statement. A: 48 (`scripts/react-to-trigger.sh`) and A: 49 (`scripts/workpad.py`) name literals that **were** in the run's resolved allowlist as bare `scripts/<name>` forms, so neither is an ungranted head: A: 49 carries a `> /tmp/…` redirect, a documented denied shape, and A: 48's refused property is **unestablished** (every head in its `\| tail -2 \|\| echo …` tail was granted too). No grant is warranted — the one non-granted literal names a path that does not exist. |
+| **`./scripts/…` dot-slash prefix** | B: 1,2,8 | **No change.** The `./` prefix makes the path a different literal than the granted form — `Bash(scripts/apply-labels.sh:*)` *was* in that run's resolved allowlist, so this is a spelling difference, not a missing grant. The surfaces author no `./` prefix; agent-improvised. |
 | **`for … do … done` loop** | B: 4 | **No change.** A loop-wrapped compound is a denied shape (IR1/IR2 for label helpers, and a general `for` compound); agent-level iteration is the authored alternative. |
-| **Multiline `--body` argument** (`gh pr create --body "…\n…"`) | B: 7 | **No change.** The shipped Phase 3.1 procedure passes the PR body via `--body-file` (a file the Write tool authors), not an inline multi-line `--body`; a body string spanning lines reads to the matcher as multiple statements and denies. The agent improvised the inline form; the run then created the PR successfully, so the authored `--body-file` path is what shipped. |
-| **Surface-authored best-effort `rm` cleanup** (run-marker/cache removal, command-substitution path) | A: 45 | **No change.** This one *is* authored by `SKILL.md` (the Outcome-reaction run-marker/issue-body-cache removal). It is explicitly best-effort (`2>/dev/null \|\| true`): its denial is absorbed by design — the local Stop-hook guard self-heals a stale marker and a leftover cache file is inert (reads are hand-off-only). No grant is warranted for a fence whose failure is already tolerated. |
+| **Multiline `--body` argument** (`gh pr create --body "…\n…"`) | B: 7 | **No change — and not an ungranted head.** `Bash(gh pr create:*)` was in that run's resolved allowlist, so the refusal is the argument shape: a body string spanning lines reads to the matcher as multiple statements and denies. The shipped Phase 3.1 procedure passes the PR body via `--body-file` (a file the Write tool authors); the agent improvised the inline form, and the run then created the PR successfully, so the authored `--body-file` path is what shipped. |
+| **Surface-authored best-effort `rm` cleanup** (run-marker/cache removal, command-substitution path) | A: 45 | **No change — and not an ungranted head.** `Bash(rm:*)` was in the run's own resolved allowlist, so no grant was missing; the refusal is the `$(...)` command-substitution shape in the path arguments. This one *is* authored by `SKILL.md` (the Outcome-reaction run-marker/issue-body-cache removal) and is explicitly best-effort (`2>/dev/null \|\| true`), so its denial is absorbed by design — the local Stop-hook guard self-heals a stale marker and a leftover cache file is inert (reads are hand-off-only). Nothing to grant and nothing to correct. |
 
 **Per-cause coverage is complete by construction:** the entry indices above partition all
-51 entries of run 30738761826 and all 9 of run 30738987528 (60 total), one dominant cause
-each. Where an entry carried more than one denied property (e.g. an interpreter head *and*
-a redirect), it is filed under its leading authored construct, which is the property a
-prompt surface would be responsible for; the co-occurring property is noted in the cause's
-reason where it matters.
+51 entries of run 30738761826 and all 9 of run 30738987528 (60 total). Rows are grouped by
+the construct the agent typed; two of them are explicitly **mixed** (the diagnostic probes
+and the bare `scripts/…` paths) and name which entries fall to which cause, because
+grouping by typed construct and grouping by refusal cause do not coincide there. Where an
+entry carried more than one denied property (e.g. an interpreter head *and* a redirect),
+it is filed under its leading authored construct, which is the property a prompt surface
+would be responsible for; the co-occurring property is noted in the cause's reason where it
+matters.
 
-### Why the audit ships no grant and no surface correction
+### Why the audit ships no new grant and no surface correction
 
 The two runs differ starkly — 51 denials versus 9 — but the difference is *volume of
 agent-improvised verification*, not a missing grant. Run 30738761826 spent 228 turns
@@ -1005,7 +1031,10 @@ iterating verification probes on a shell script under classifier friction (the e
 situation the implement extension's "Verification under classifier friction" section
 addresses with the authorized `python3 -c "subprocess.run(...)"` wrapper and the Write
 tool). None of the 60 entries is a shape a prompt surface authors that the surface got
-wrong, and none is a head whose grant would serve a durable authored caller. Adding grants
-for one-off introspection or defeating the deliberately-denied shape family would widen the
-profile against its own discipline. The correct, principled disposition for this population
-is the recorded "no change," which this section is.
+wrong. **Exactly one cause was a head with a durable authored caller** — the shard
+dispatcher — and that grant has already landed independently through issue #1132, so this
+audit has none left to add. Every other ungranted head is one-off introspection
+(`git write-tree`, `git remote`, `gh auth status`, `export`) or a path that does not exist
+(`scripts/efficiency-trace.sh`); granting those, or defeating the deliberately-denied shape
+family, would widen the profile against its own discipline. The correct, principled
+disposition for this population is the recorded "no change," which this section is.
