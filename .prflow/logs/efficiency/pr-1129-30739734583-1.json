@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1129",
+  "generated_at": "2026-08-02T09:27:54Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.33",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 47.41335575000001,
+    "tokens": {
+      "input_tokens": 325,
+      "output_tokens": 168265,
+      "cache_read_input_tokens": 64482704,
+      "cache_creation_input_tokens": 525179,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 1593,
+        "outputTokens": 208285,
+        "cacheReadInputTokens": 67127439,
+        "cacheCreationInputTokens": 1066420,
+        "webSearchRequests": 0,
+        "costUSD": 47.41335575000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 197,
+    "duration_ms": 3683651
+  },
+  "permission_denials": {
+    "count": 24,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"GITHUB_ACTIONS=${GITHUB_ACTIONS:-unset}\"; echo \"ISSUE=990\"; git branch --show-current; git status --short | head; echo \"---preflight---\"; bash lib/preflight.sh 2>&1 | tail -5",
+      "printf 'GITHUB_ACTIONS=%s\\n' \"${GITHUB_ACTIONS:-unset}\"; git branch --show-current; git status --short | head",
+      "printf 'GITHUB_ACTIONS=%s\\n' \"${GITHUB_ACTIONS:-unset}\"; git branch --show-current; echo \"status:\"; git status --short | head",
+      ".prflow/vendor/prflow/scripts/parse-acs.py --issue 990 > /home/runner/work/prflow/prflow/.prflow/tmp/acs-990.md 2>/tmp/acserr; echo \"exit=$?\"; echo \"---\"; cat /home/runner/work/prflow/prflow/.prflow/tmp/acs-990.md",
+      "mkdir -p .prflow/tmp; .prflow/vendor/prflow/scripts/parse-acs.py --issue 990 > .prflow/tmp/acs-990.md; echo \"exit=$?\"; echo \"---\"; cat .prflow/tmp/acs-990.md",
+      "mkdir -p .prflow/tmp; .prflow/vendor/prflow/scripts/parse-acs.py --issue 990 > .prflow/tmp/acs-990.md; echo \"exit=$?\"; echo \"---\"; cat .prflow/tmp/acs-990.md",
+      ".prflow/vendor/prflow/scripts/parse-acs.py --issue 990 > acs990.tmp; echo \"exit=$?\"",
+      "bash -n scripts/post-ci-review-trigger.sh && echo \"syntax ok\"\necho \"--- compose ---\"\nMODE=compose PR=7 HEAD_SHA=0123456789abcdef0123456789abcdef01234567 bash scripts/post-ci-review-trigger.sh\necho \"--- announce test=success lint=failure ---\"\nMODE=announce PR=7 HEAD_SHA=0123456789abcdef0123456789abcdef01234567 TEST_RESULT=success LINT_RESULT=failure bash scripts/post-ci-review-trigger.sh\necho \"--- announce both fail ---\"\nMODE=announce PR=7 HEAD_SHA=0123456789abcdef0123456789abcdef01234567 TEST_RE …[per-command-truncated]",
+      "chmod +x .prflow/tmp/ghstub.sh\nrun() { : > .prflow/tmp/rec; env PCRT_REC=\"$PWD/.prflow/tmp/rec\" DEVFLOW_GH=\"$PWD/.prflow/tmp/ghstub.sh\" PR=7 HEAD_SHA=0123456789abcdef0123456789abcdef01234567 MODE=post \"$@\" bash scripts/post-ci-review-trigger.sh; echo \"posts=$(grep -c . .prflow/tmp/rec)\"; }\necho \"== A1: App-authored marker (slug[bot]), expect bare slug -> no post ==\"; run EXPECTED_AUTHOR=prflow-app PCRT_LIST_OUT=\"prflow-app[bot]\"\necho \"== A2: other author marker -> post ==\"; run EXPECTED_AUTHOR=p …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nsed \"s/draft == false/draft == true/\" .prflow/tmp/xd/doc.md > .prflow/tmp/xd/doc_m2.md\necho \"mutate draft clause (expect disagree): $(python3 lib/test/extract-ci-review-agreement.py .prflow/tmp/xd/doc_m2.md .github/workflows/ci.yml 2>/dev/null)\"\nsed \"s/permission-pull-requests: write/permission-issues: write/\" .prflow/tmp/xd/doc.md > .prflow/tmp/xd/doc_m3.md\necho \"mutate mint perm (expect disagree): $(python3 lib/test/extract-ci-review-agreement.py .prflow/tmp/ …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow; ls .changeset/ 2>/dev/null; echo \"---sample---\"; f=$(ls .changeset/*.md 2>/dev/null | grep -v README | head -1); echo \"$f\"; cat \"$f\" 2>/dev/null | head -20",
+      "cd /home/runner/work/prflow/prflow\necho \"=== shellcheck module ===\"; shellcheck --severity=warning -e SC1091 lib/test/modules/review-trigger-helpers.sh && echo \"module shellcheck OK\"\necho \"=== actionlint present? ===\"; command -v actionlint >/dev/null 2>&1 && actionlint .github/workflows/ci.yml && echo \"actionlint OK\" || echo \"actionlint not installed locally (CI runs it)\"\necho \"=== ruff present? ===\"; python3 -m ruff --version 2>/dev/null || echo \"ruff not installed locally (CI runs it)\"",
+      "cd /home/runner/work/prflow/prflow\nif command -v actionlint >/dev/null 2>&1; then actionlint .github/workflows/ci.yml && echo \"actionlint OK\"; else echo \"actionlint not installed (CI runs it)\"; fi",
+      "cd /home/runner/work/prflow/prflow\nBODY=$(printf '%s\\n' \"Work in progress — automated review pending.\" \"\" \"Resolves #990\" \"[View run](https://github.com/The01Geek/prflow/actions/runs/30739734583)\" \"\" \"Generated via \\`/prflow:implement 990\\`\")\ngh pr create --base main --draft --title \"Complete the CI-green auto-review trigger: consumer delivery plus three shipped-job residuals (#990)\" --body \"$BODY\" 2>&1 | tail -3",
+      "cd /tmp && printf '%s\\n' '[{\"body\":\"x <!-- prflow:ci-review-trigger sha=abc1234 -->\",\"user\":{\"login\":\"\"}},{\"body\":\"x <!-- prflow:ci-review-trigger sha=abc1234 -->\",\"user\":null}]' | jq '.[] | select((.body // \"\") | contains(\"sha=abc1234\")) | (.user.login // \"__prflow_no_author__\")'",
+      "cd /home/runner/work/prflow/prflow\nsed -i 's/\"minimum_assertions\": 626,/\"minimum_assertions\": 628,/' scripts/workflow-flight-recorder-registry.json\nsed -i 's/\"review-trigger-helpers\" 626;/\"review-trigger-helpers\" 628;/' lib/test/run.sh\nshellcheck --severity=warning -e SC1091 scripts/post-ci-review-trigger.sh && echo \"shellcheck helper OK\"\nlib/test/run-module.sh review-trigger-helpers 2>&1 | grep -E \"passed|FAIL\" | tail -3",
+      "cd /home/runner/work/prflow/prflow\npython3 lib/test/coverage_map_guard.py . --fix >/dev/null 2>&1; echo \"coverage map: exit $?\"\npython3 lib/test/extract-ci-review-agreement.py docs/workflow-triggers.md .github/workflows/ci.yml\ngit add -A && git commit -q -m \"fix: address review findings (iteration 1) for #990\n\nHarden fail-closed: empty-string comment login now maps to the UNVERIFIABLE\nsentinel in jq (was fail-open); announce both-green emits a low-noise notice\nbreadcrumb instead of a pure silent …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nfor m in workflow-flight-recorder regenerate-artifacts capability-profiles; do\n  echo \"=== $m ===\"; lib/test/run-module.sh \"$m\" 2>&1 | grep -E \"passed|failed|FAIL\" | tail -2\ndone",
+      "cd /home/runner/work/prflow/prflow\necho \"=== deferrals manifest? ===\"; ls .prflow/tmp/review/pr-1129/deferrals.json .prflow/tmp/review/issue-990/*/deferrals.json 2>&1 | head\necho \"=== doc-needed extractor ===\"; gh issue view 990 --json body --jq '.body' > .prflow/tmp/docbody.txt 2>/dev/null; .prflow/vendor/prflow/scripts/extract-doc-needed-paths.sh < .prflow/tmp/docbody.txt",
+      "cd /home/runner/work/prflow/prflow; lib/test/run-parallel.sh > /home/runner/work/prflow/prflow/.prflow/tmp/fullsuite.log 2>&1; echo \"SUITE_DONE exit=$?\" >> /home/runner/work/prflow/prflow/.prflow/tmp/fullsuite.log",
+      "cd /home/runner/work/prflow/prflow; lib/test/run-shard.sh --list-shards 2>&1 | head",
+      "/home/runner/work/prflow/prflow/lib/test/run-shard.sh --list-shards",
+      "lib/test/run-shard.sh --list-shards",
+      "cd /home/runner/work/prflow/prflow\nTRIGGER_COMMENT_ID=$(.prflow/vendor/prflow/scripts/run-jq.sh -r '.comment.id // empty' \"$GITHUB_EVENT_PATH\" 2>/dev/null || true)\nif [ -z \"$TRIGGER_COMMENT_ID\" ]; then\n  TRIGGER_COMMENT_ID=$(gh api \"repos/{owner}/{repo}/issues/990/comments?per_page=100\" --jq 'map(select((.body | contains(\"/prflow:implement\")) and ((.body | test(\"(pr|dev)flow:workpad\")) | not))) | last | .id' 2>/dev/null || true)\nfi\necho \"trigger comment id: [$TRIGGER_COMMENT_ID]\"\nif [ -n \"$TRIGG …[per-command-truncated]"
+    ],
+    "total": 24,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
