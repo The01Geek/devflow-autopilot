@@ -73,6 +73,19 @@ Coverage-map ownership for the moved labels is recorded in
   (`$INSTALL801`). Consequence to know when running this module as the focused test
   for an implement-tier change: `coverage-map.json` routes label `801` here, so an
   implement-side regression in those surfaces surfaces in a review-scoped module.
+- **`#1156` — the Phase 4.4 verdict-emitter reach record.** Authored in this module
+  rather than extracted from `run.sh`, and placed here because this module already
+  owns `devflow.yml`'s post-run handler region: the new `always()` step sits
+  directly below the `#408` stall backstop whose command-prefix gate it reuses, and
+  one assertion compares the two gates against each other rather than transcribing
+  either. It drives three surfaces the module did not previously own —
+  `lib/verdict-receipt.sh`, `scripts/check-verdict-post-reached.sh` and
+  `scripts/describe-verdict-post-gap.sh` — plus the receipt write inside
+  `scripts/post-review-verdict.sh`, whose own outcome-vocabulary coverage stays in
+  `run.sh`'s `post-review-verdict.sh` block. Consequence to know when running this
+  module as the focused test: `coverage-map.json` routes label `1156` and all three
+  new files here, so a regression in the emitter's receipt write surfaces in a
+  stall-backstop-scoped module.
 - The `#801` barrier pins target each engine ROOT's own path rather than
   `$REVIEW_BUNDLE`, unlike the two `#408` pins above: that criterion is
   location-sensitive (the statement is canonical in the root and the dispatch sites
