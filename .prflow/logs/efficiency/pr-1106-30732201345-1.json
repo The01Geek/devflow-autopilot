@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1106",
+  "generated_at": "2026-08-02T04:28:44Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.26",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.408958,
+    "tokens": {
+      "input_tokens": 51,
+      "output_tokens": 20383,
+      "cache_read_input_tokens": 3515143,
+      "cache_creation_input_tokens": 158495,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 73,
+        "outputTokens": 32358,
+        "cacheReadInputTokens": 3921386,
+        "cacheCreationInputTokens": 327135,
+        "webSearchRequests": 0,
+        "costUSD": 5.408958,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 33,
+    "duration_ms": 380354
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-unset} ATTEMPT=${GITHUB_RUN_ATTEMPT:-unset}\"\ngit status --porcelain\necho \"---base---\"\n/home/runner/work/prflow/prflow/scripts/config-get.sh .base_branch main 2>&1\necho \"---pr view---\"\ngh pr view 1106 --json headRefName,baseRefName,baseRefOid,headRefOid,title,body --jq '{head:.headRefName,base:.baseRefName,baseOid:.baseRefOid,headOid:.headRefOid,title:.title}' 2>&1",
+      "gh pr diff 1106 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1106/local-run/diff.patch\nwc -l .prflow/tmp/review/pr-1106/local-run/diff.patch",
+      "python3 - <<'PY' 2>&1 | head -40\nimport json\nd=json.load(open('lib/test/modules/coverage-map.json'))\ndef find(o,path=\"\"):\n    if isinstance(o,dict):\n        if \"1084\" in o or \"1080\" in o or \"1076\" in o:\n            print(\"PARENT PATH:\",path,\"keys sample:\",list(o.keys())[:5])\n        for k,v in o.items():\n            find(v,path+\"/\"+k)\nfind(d)\nPY\necho \"=== context around 1084/1082 region in file ===\"\ngrep -n '\"108[0-9]\"\\|\"107[0-9]\"' lib/test/modules/coverage-map.json | head",
+      "ls .changeset/ | head; echo \"---sample---\"; for f in $(git show origin/main:.changeset 2>/dev/null | tail -n +3); do git show origin/main:.changeset/$f 2>/dev/null | head -6; echo \"=== $f ===\"; done 2>/dev/null | head -40",
+      "/home/runner/work/prflow/prflow/scripts/dismiss-stale-rejections.sh 1106 2>&1 && echo \"DISMISS_OK\" || echo \"DISMISS_RC=$?\"",
+      "/home/runner/work/prflow/prflow/scripts/dismiss-stale-rejections.sh 1106"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
