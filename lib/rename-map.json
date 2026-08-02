@@ -242,7 +242,7 @@
           "selected_by": "A2 (read by scripts/load-prompt-extension.sh; declared in docs/install.md and docs/cloud-setup.md)",
           "decided_by": "A2's never-assigned-internally clause",
           "verdict": "OUT -- not consumer-facing",
-          "evidence": "Workflow-written and consumer-read-never: `.github/workflows/devflow-runner.yml` (and `matcher-probe.yml`) ASSIGN it, and the sole shipped reader consults it only on the branch those workflows drive. A consumer never sets it, so there is nothing for a consumer to rename. It appears in the docs precisely to explain that the automated review runner sets it -- which is the sentence a hand-drawn list mistakes for a declaration."
+          "evidence": "Workflow-written and consumer-read-never: `.github/workflows/devflow.yml`, `devflow-runner.yml` (and `matcher-probe.yml`) ASSIGN it, and the sole shipped reader consults it only on the branch those workflows drive. A consumer never sets it, so there is nothing for a consumer to rename. It appears in the docs precisely to explain that the cloud workflows running the review engine set it -- which is the sentence a hand-drawn list mistakes for a declaration. Issue #1075 added the devflow.yml assignment; the verdict is unchanged, because it turns on a consumer never setting the variable rather than on how many workflows do."
         },
         {
           "name": "DEVFLOW_CONFIG_FILE",

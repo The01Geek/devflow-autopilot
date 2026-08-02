@@ -162,10 +162,14 @@ Extension provenance is checked without a base-ref read: `git status --porcelain
 exit successfully with empty output, and the readable run-cached changed-file list must omit the
 extension path. That limitation now defines what the check is *for*. Where the dispatching
 environment materializes prompt extensions from a trusted base ref before the review begins — as the
-cloud review tier does since issue #874 — provenance is enforced structurally and these checks add
-nothing. They remain the sole provenance control for the `/prflow:review-and-fix` tier, which checks
-out the PR head in its Step 0.5 and is knowingly left unprotected, so read them as covering that tier
-only, never as covering the structural boundary. The control stays advisory: the extension is still
+cloud tiers that run the review engine do (issue #874, extended to `devflow.yml`'s shipped `command`
+job by issue #1075) — provenance is enforced structurally and these checks add nothing. They remain
+the sole provenance control on a run whose environment materializes no such trusted directory: a
+local or interactive run, where nothing is materialized and Step 0.5's pull-request-head checkout
+lands in the very working tree the loader reads; and a dispatching environment that does point the
+loader at a trusted directory but whose bundled loader is too old to honor that pointer and
+therefore still resolves the working tree. Read them as covering that case only, never as covering
+the structural boundary. The control stays advisory: the extension is still
 loaded when either check fails or either operand cannot be established, but the local-status,
 reviewed-diff, or provenance-not-established failure is named in `prompt_addenda`. An error or
 unreadable input never defaults to provenance-clean.
