@@ -1008,22 +1008,75 @@ for _t1_strayshape in '["a"]' '"hello"' 'null' '42'; do
     "$(_t1_stray "$_t1_strayshape")"
 done
 
+# NEGATIVE CONTROL on the shape's SCOPE: it matches a top-level config FAMILY, so a frozen
+# devflow-prefixed name that is not one must not be flagged even sitting at the top level
+# beside a canonical family. The marketplace name is the canonical example (it is in the
+# rename map's own frozen.identifiers). Without this the rows above prove only that the shape
+# is wide enough, never that it is narrow enough.
+assert_eq "#1083 stray-family detector: a frozen devflow-prefixed name that is NOT a top-level family is not flagged" "" \
+  "$(_t1_stray '{"prflow":{},"devflow-marketplace":{}}')"
+# ...and the control is LIVE: the same config plus a real stray family still fires, so the row
+# above cannot pass merely because the detector went silent altogether.
+assert_eq "#1083 stray-family detector: the frozen-name control is live (a real stray beside it still fires)" \
+  "devflow_review" "$(_t1_stray '{"prflow":{},"devflow-marketplace":{},"devflow_review":{}}')"
+
 # DERIVATION FROM THE RENAME INVENTORY: the workflow's inline jq cannot read
 # lib/rename-map.json at runtime (the checkout may not carry it), so the detector matches by
-# the `^devflow(_|$)` SHAPE and this desk-time row reconciles that shape against the map's
-# config_keys — every superseded family the map lists MUST match the shape, and no CURRENT
-# (prflow*) key may. A future map entry that no longer matches the shape turns this RED.
-assert_eq "#1083 stray-family detector: the ^devflow(_|\$) shape matches EVERY superseded config family in the rename map and no current one" \
-  "ALL-SUPERSEDED-MATCH NO-CURRENT-MATCH" \
-  "$(python3 - "$LIB/../lib/rename-map.json" <<'PY'
+# SHAPE and this desk-time row reconciles that shape against the map's config_keys.
+#
+# The patterns are EXTRACTED FROM THE SHIPPED JQ PROGRAM, never transcribed here: a row that
+# re-implemented the shape in its own Python would reconcile the map against a COPY, which is
+# the guard-reads-a-copy defect this repo calls unverified-assumption. Extraction failure
+# prints MISSING rather than falling back to a default, because an empty pattern matches
+# everything and would pass vacuously.
+#
+# Be exact about what derivation buys, because it is NOT "this row now catches any shape
+# change" — measured against the three mutation classes:
+#   NARROWING  (`^devflow_`, which stops covering the bare `devflow` family) — caught HERE, and
+#              only because the pattern is derived; a transcribed copy left this row green.
+#   WIDENING   (`^devflow`) — NOT caught here. It still covers every map entry and still misses
+#              every prflow* key, so all three directions below stay satisfied. It is caught by
+#              the frozen-name negative control above, which drives the real jq and goes RED
+#              because `devflow-marketplace` starts being flagged.
+#   CANONICAL PROBE broken (the neighbour test respelled) — caught by neither of those two; the
+#              `un-migrated config is silent` row above is what goes RED.
+# So over-reach is bounded behaviorally and under-reach is bounded here; neither row is
+# sufficient alone, and this comment is the record of which covers which.
+#
+# Three directions, so the row states the shape's intended TOP-LEVEL-FAMILY scope:
+#   ALL-SUPERSEDED-MATCH  every superseded family the map lists matches the shape
+#   NO-CURRENT-MATCH      no current (prflow*) key does
+#   FROZEN-EXCLUDED(N)    none of the N frozen CONFIG KEYS does. N is in the expected value on
+#                         purpose: Tier 4 emptied frozen.config_keys, so this direction is
+#                         vacuous today and the count makes that visible instead of hiding it
+#                         — and adding a frozen config key changes the expected string, which
+#                         is the deliberate review point vacuity would otherwise cost.
+# Scoped to frozen.CONFIG_KEYS and not to frozen.identifiers on purpose: `devflow_module_pin_*`
+# is a frozen identifier that DOES match the shape by design, and rightly so — it is not a
+# top-level config key, so the detector never sees it. Widening this row to every frozen name
+# would assert something false.
+assert_eq "#1083 stray-family detector: the shape read OUT OF THE SHIPPED jq matches every superseded config family in the rename map, no current key, and no frozen config key" \
+  "ALL-SUPERSEDED-MATCH NO-CURRENT-MATCH FROZEN-EXCLUDED(0)" \
+  "$(python3 - "$LIB/../lib/rename-map.json" "$_t1_stray_impl" <<'PY'
 import json, re, sys
+# argv, not stdin: the heredoc IS this process's stdin (python3 reads its own program from
+# `-`), so a piped program would arrive empty and every direction below would pass vacuously.
+prog = sys.argv[2]
+# Each pattern comes out of its own unambiguous position in the shipped program: the canonical
+# probe sits in `any($k[]; test(...))`, the superseded filter in `select(test(...))`.
+canon = re.search(r'any\(\$k\[\];\s*test\("([^"]+)"\)\)', prog)
+sup = re.search(r'select\(\s*test\("([^"]+)"\)\s*\)', prog)
+if not canon or not sup:
+    print("MISSING canonical=%s superseded=%s" % (bool(canon), bool(sup)))
+    raise SystemExit(0)
+sup_re = re.compile(sup.group(1))
 m = json.load(open(sys.argv[1]))
-sup_re = re.compile(r"^devflow(_|$)")
 ck = m["config_keys"]
-all_sup = all(sup_re.search(k) for k in ck)            # every superseded family matches
-no_cur = not any(sup_re.search(v) for v in ck.values())  # no current (prflow*) key matches
-print(("ALL-SUPERSEDED-MATCH" if all_sup else "SUPERSEDED-MISS"),
-      ("NO-CURRENT-MATCH" if no_cur else "CURRENT-MATCHED"))
+frozen = m.get("frozen", {}).get("config_keys", [])
+print(("ALL-SUPERSEDED-MATCH" if all(sup_re.search(k) for k in ck) else "SUPERSEDED-MISS"),
+      ("NO-CURRENT-MATCH" if not any(sup_re.search(v) for v in ck.values()) else "CURRENT-MATCHED"),
+      (("FROZEN-EXCLUDED(%d)" if not any(sup_re.search(k) for k in frozen)
+        else "FROZEN-MATCHED(%d)") % len(frozen)))
 PY
 )"
 
