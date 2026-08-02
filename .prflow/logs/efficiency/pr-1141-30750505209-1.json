@@ -100,5 +100,58 @@
       "iter": 1,
       "phases": "unavailable"
     }
-  ]
+  ],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.44",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.549579250000001,
+    "tokens": {
+      "input_tokens": 80,
+      "output_tokens": 28948,
+      "cache_read_input_tokens": 6166761,
+      "cache_creation_input_tokens": 180273,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 115,
+        "outputTokens": 37322,
+        "cacheReadInputTokens": 6908061,
+        "cacheCreationInputTokens": 397744,
+        "webSearchRequests": 0,
+        "costUSD": 7.549579250000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 49,
+    "duration_ms": 511576
+  },
+  "permission_denials": {
+    "count": 5,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "git status --porcelain; echo \"---ENV---\"; echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none}\"; echo \"---BASE---\"; .prflow/vendor/prflow/scripts/config-get.sh .base_branch main 2>&1; echo \"rc=$?\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve \"1088\" --pr \"1141\" 2>.prflow/tmp/review/pr-1141/30750505209-1/acs.err ; echo \"acs-rc=$?\"",
+      "mkdir -p .prflow/tmp\nif rm -f .prflow/tmp/review-dirty-tree-before .prflow/tmp/review-dirty-tree-disabled 2>/dev/null &&\n   git status --porcelain -z > .prflow/tmp/review-dirty-tree-before &&\n   [ -f .prflow/tmp/review-dirty-tree-before ] &&\n   [ ! -L .prflow/tmp/review-dirty-tree-before ] &&\n   git hash-object .prflow/tmp/review-dirty-tree-before; then\n  echo \"snapshot-ok\"\nelse\n  printf '%s\\n' disabled > .prflow/tmp/review-dirty-tree-disabled\n  echo \"snapshot-failed-disabled\"\nfi",
+      "git status --porcelain -z > .prflow/tmp/review-dirty-tree-before; echo \"wrote snapshot\"; git hash-object .prflow/tmp/review-dirty-tree-before",
+      ".prflow/vendor/prflow/scripts/run-jq.sh -n \\\n  --argjson dp '{\"small_diff\":true,\"config_only\":true,\"has_new_types\":false,\"engine_self_modifying\":false,\"detect_all_audit\":false}' \\\n  --argjson disp '[\"prflow:code-reviewer\",\"prflow:silent-failure-hunter\",\"prflow:comment-analyzer\",\"prflow:requesting-code-review\"]' \\\n  '{iter:1, source:\"review\", diff_profile:$dp, checklist:[], phase3_dispatched:$disp, phase3_findings:[], telemetry:\"unavailable\"}' \\\n  | tee .prflow/tmp/review/pr-1141/30750505209-1/it …[per-command-truncated]"
+    ],
+    "total": 5,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
 }
