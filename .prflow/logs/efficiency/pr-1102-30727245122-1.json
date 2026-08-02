@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1102",
+  "generated_at": "2026-08-02T03:19:19Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.21",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 31.070189750000015,
+    "tokens": {
+      "input_tokens": 266,
+      "output_tokens": 74585,
+      "cache_read_input_tokens": 33076722,
+      "cache_creation_input_tokens": 372484,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 435,
+        "outputTokens": 125094,
+        "cacheReadInputTokens": 37468312,
+        "cacheCreationInputTokens": 1249551,
+        "webSearchRequests": 0,
+        "costUSD": 31.070189750000015,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 176,
+    "duration_ms": 6303486
+  },
+  "permission_denials": {
+    "count": 29,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "./scripts/load-prompt-extension.sh implement 2>&1 | head -100; echo \"---EXIT:$?---\"",
+      "./scripts/load-prompt-extension.sh implement 2>&1 | head -60; echo \"---EXIT:${PIPESTATUS[0]}---\"",
+      "echo \"GITHUB_ACTIONS=$GITHUB_ACTIONS\"; git branch --show-current; git status --short | head",
+      "./scripts/load-prompt-extension.sh implement",
+      "printf '%s\\n' \"$GITHUB_ACTIONS\"",
+      "python3 scripts/parse-acs.py --issue 1079 > /tmp/acs-1079.md 2>/tmp/acs-err.txt; echo \"EXIT:$?\"; cat /tmp/acs-1079.md",
+      "python3 scripts/validate-cloud-writer-contract.py 2>&1 | tail -5; echo \"VAL_EXIT:${PIPESTATUS[0]}\"",
+      "python3 lib/test/cloud_writer_contract.py verify 2>&1 | tail -20; echo \"EXIT:${PIPESTATUS[0]}\"",
+      "python3 lib/test/pin-corpus-lint.py 2>&1 | tail -15; echo \"EXIT:${PIPESTATUS[0]}\"",
+      "lib/test/run-shard.sh --list-shards 2>&1 | head -40",
+      "lib/test/run-shard.sh --list-shards",
+      "python3 lib/test/test_red_on_removal_retirement_manifest.py 2>&1 | tail -30; echo \"EXIT:${PIPESTATUS[0]}\"",
+      "./scripts/ensure-label.sh PRFlow 2>&1",
+      "cat > /tmp/plan-1079.md <<'EOF'\n- [x] Add per-reviewer assessment capture step to `#### Parse and compare` in `skills/review-and-fix/references/shadow-review.md`, worded to resolve for every roster member\n- [x] Confirm `docs/shadow-review.md` needs no coupled change (recorded)\n- [x] Regenerate `scripts/devflow-cloud-writer-contract.json`\n- [x] Add `.changeset/*.md` (bump: patch)\n- [x] Run the test suite green (all shards)\nEOF\npython3 scripts/workpad.py update 1079 --replace-plan-file /tmp/plan-1 …[per-command-truncated]",
+      "ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); mkdir -p \"$ROOT/.prflow/tmp\"; set -- \"$ROOT\"/.prflow/tmp/review/*/*/iter-*.json; { [ -e \"$1\" ] && printf '%s\\n' \"$@\" | sort; } > \"$ROOT/.prflow/tmp/.phase33-iters-before\" || :; echo \"snapshot done\"",
+      "cd /home/runner/work/prflow/prflow; for f in code-reviewer silent-failure-hunter comment-analyzer type-design-analyzer pr-test-analyzer; do echo \"=== $f ===\"; grep -n \"^#\\+ \\|^\\*\\*Summary\\|Summary\\|Assessment\" agents/$f.md | head -20; done",
+      "cd /home/runner/work/prflow/prflow; for f in code-reviewer silent-failure-hunter comment-analyzer type-design-analyzer pr-test-analyzer; do echo \"=== $f ===\"; grep -nE \"^#+ |Summary|Assessment\" \"agents/$f.md\" | head -15; done",
+      "for f in code-reviewer comment-analyzer silent-failure-hunter pr-test-analyzer type-design-analyzer; do echo \"=== $f ===\"; grep -n \"^\\*\\*Summary\\|^Summary\\|## \\|output should be\\|structured as\\|provide\" agents/$f.md | head -5; done",
+      "for f in code-reviewer comment-analyzer silent-failure-hunter pr-test-analyzer type-design-analyzer; do echo \"=== $f ===\"; grep -n \"Summary\\|output.*structured\\|Provide.*summary\\|verdict\" agents/$f.md | head -4; done",
+      "./lib/efficiency-trace.sh --workpad-dir \"$(git rev-parse --show-toplevel)/.prflow/tmp/review/issue-1079-shadow-coverage-join/local-run\" --slug \"issue-1079-shadow-coverage-join\" --persist 2>&1 | tail -8; echo \"RC:${PIPESTATUS[0]}\"",
+      "ROOT=$(git rev-parse --show-toplevel); ./lib/efficiency-trace.sh --workpad-dir \"$ROOT/.prflow/tmp/review/issue-1079-shadow-coverage-join/local-run\" --slug \"issue-1079-shadow-coverage-join\" --persist 2>&1 | tail -6",
+      "./lib/efficiency-trace.sh --workpad-dir .prflow/tmp/review/issue-1079-shadow-coverage-join/local-run --slug issue-1079-shadow-coverage-join --persist",
+      "gh issue view 1079 --json body --jq '.body' | ./scripts/extract-doc-needed-paths.sh",
+      "gh issue view 1079 --json body --jq '.body' > .prflow/tmp/body-1079.txt 2>&1; ./scripts/extract-doc-needed-paths.sh < .prflow/tmp/body-1079.txt",
+      "gh issue view 1079 --json body --jq '.body' > .prflow/tmp/body-1079.txt",
+      "grep -rln \"docs/shadow-review\" lib/test/ 2>/dev/null; echo \"---labels---\"; ./scripts/config-get.sh .docs.labels Documented",
+      "./scripts/config-get.sh .docs.labels Documented",
+      "./scripts/update-branch-checkpoint.sh 2>&1 | tail -5",
+      "./scripts/update-branch-checkpoint.sh"
+    ],
+    "total": 29,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
