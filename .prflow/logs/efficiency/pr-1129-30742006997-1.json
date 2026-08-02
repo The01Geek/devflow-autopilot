@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1129",
+  "generated_at": "2026-08-02T09:49:22Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.36",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.973676500000001,
+    "tokens": {
+      "input_tokens": 55,
+      "output_tokens": 23219,
+      "cache_read_input_tokens": 3922575,
+      "cache_creation_input_tokens": 176142,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 71,
+        "outputTokens": 44333,
+        "cacheReadInputTokens": 4300628,
+        "cacheCreationInputTokens": 328664,
+        "webSearchRequests": 0,
+        "costUSD": 5.973676500000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 32,
+    "duration_ms": 529240
+  },
+  "permission_denials": {
+    "count": 3,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "RUN_ID=\"local-$(date -u +%Y%m%dT%H%M%SZ)-1\"; echo \"$RUN_ID\" | tee .prflow/tmp/review-runid-1129.txt; mkdir -p \".prflow/tmp/review/pr-1129/$RUN_ID\"; echo \"made dir\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 990 --pr 1129 2>.prflow/tmp/review/pr-1129/local-20260802T094102Z-1/acs.err ; echo \"acs-rc=$?\"; echo \"---ERR---\"; cat .prflow/tmp/review/pr-1129/local-20260802T094102Z-1/acs.err",
+      "cat > .prflow/tmp/review/pr-1129/local-20260802T094102Z-1/verdict.md <<'EOF'\n## 🔴 PRFlow Review — REJECT (changes requested)\n\n**PR #1129** · issue #990 · reviewed HEAD `44009369` · diff classification: `engine_self_modifying` + `detect_all_audit` (full checklist + completeness-critic pass).\n\n**Test evidence (from engine ground truth for this commit):** `lib + python tests: success`, `lint (shellcheck + actionlint + ruff): success`, all five shards `success`. Discharged — not re-run.\n\nThis is a s …[per-command-truncated]"
+    ],
+    "total": 3,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
