@@ -9023,8 +9023,8 @@ def build_parser():
     s.add_argument('--baseline-revision')
     s.add_argument('--baseline-identity',
                    help='The content identity the auditor captured, recorded verbatim as '
-                        'DATA. It is deliberately NOT cross-checked against any recorded '
-                        'claim baseline: the auditor cannot read the state file, so an '
+                        'DATA. It is deliberately NOT cross-checked against any stored '
+                        'record: the auditor cannot read the state file, so an '
                         'identity it supplies is a claim to verify, not a key to join on.')
     s.add_argument('--observed-stdin', action='store_true',
                    help='Read the observed output from stdin (multi-line is legal here).')

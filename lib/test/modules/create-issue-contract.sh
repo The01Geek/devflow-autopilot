@@ -1461,7 +1461,11 @@ assert_eq "#1011 ci: the dependency sub-step (5b) sits after the 5a PRFlow label
 
 # ── issue #1098: recurrence guards for the create-issue → implement drafting-obligation retirement ──
 # Guard 1 (subcommand-consumer) fails when an issue-audit-state.py subcommand has lost its last
-# consumer; Guard 2 (handle-form) fails when issue-template.md mandates a `Verified:` handle form
+# consumer. Scope, stated because it is weaker than "last consumer" reads: a consumer here is any
+# boundary-matched TEXTUAL occurrence under skills/scripts/lib (per AC13's named population), so a
+# subcommand that loses its last *executable* caller but keeps a prose or test mention still reads
+# all-consumed. The guard catches total disappearance, not executable-caller loss.
+# Guard 2 (handle-form) fails when issue-template.md mandates a `Verified:` handle form
 # check-verified-premises.py cannot adjudicate. Every value deciding either guard's outcome is
 # derived in-process through python3 (a lib/preflight.sh guarantee) and `git ls-files` (index-reading,
 # per issue #711) — never grep/awk/wc/sed — so AC15's non-preflight-tool ban holds, and the driver
@@ -1503,8 +1507,15 @@ def build_corpus():
     # Population: an index-reading `git ls-files` over skills/, scripts/, lib/ (never a
     # repository-root-anchored recursive walk — issue #711). The registry file itself is not a
     # consumer of the subcommands it registers, so it is excluded.
-    proc = subprocess.run(['git', 'ls-files', 'skills', 'scripts', 'lib'],
-                          cwd=str(root), capture_output=True, text=True)
+    # OSError covers git being absent from PATH entirely: subprocess.run raises rather than
+    # returning a non-zero rc, so without this the advertised clean exit-3 breadcrumb is replaced
+    # by a traceback. Both arms fail closed, but only this one says why.
+    try:
+        proc = subprocess.run(['git', 'ls-files', 'skills', 'scripts', 'lib'],
+                              cwd=str(root), capture_output=True, text=True)
+    except OSError as exc:
+        sys.stderr.write(f'guard1098: git could not be executed ({exc}) — failing closed\n')
+        sys.exit(3)
     if proc.returncode != 0:
         sys.stderr.write('guard1098: git ls-files failed (git unavailable?) — failing closed\n')
         sys.exit(3)
@@ -1606,6 +1617,19 @@ def main():
             verdict, tf, adj = guard2(tmpl, cvp)
             sys.stderr.write(f'  template forms={sorted(tf)} helper-adjudicated={sorted(adj)}\n')
             print(verdict)
+        elif mode == 'guard2-detector-live':
+            # Anti-vacuity floor over guard2's own comparand. `guard2` asserts `tf <= adj`, and
+            # the EMPTY set is a subset of everything — so if the template's path-quote sentence
+            # is reworded, `template_forms()` silently returns set(), `guard2-real` stays green,
+            # and the detector is blind while reading as healthy. That is the repo's
+            # unverified-assumption class: a comparand whose producer (the template's literal
+            # wording) does not guarantee emission. This asserts the comparand itself against the
+            # REAL shipped template, so a reword fails HERE with a name that says what broke,
+            # instead of silently disarming the subset test. Kept a separate assertion rather than
+            # folded into guard2-real so the two failure modes stay distinguishable: this one
+            # means "the detector no longer recognizes the template", guard2-real means "the
+            # template mandates a form the helper cannot adjudicate".
+            print(','.join(sorted(template_forms(tmpl))) or 'EMPTY')
         elif mode == 'guard2-command':
             # Planted defect: reintroduce the command form in its REALISTIC reverted shape —
             # markdown-emphasized and wrapped across a line, exactly as the deleted prose carried
@@ -1633,6 +1657,7 @@ assert_eq "#1098 guard1: a subcommand with no consumer is caught" "caught" "$(_c
 assert_eq "#1098 guard1: a prefix-only mention is not counted as a consumer" "caught" "$(_ci_guard1098 guard1-prefix)"
 assert_eq "#1098 guard1: an enumeration/registry count mismatch fails closed" "caught" "$(_ci_guard1098 guard1-mismatch)"
 assert_eq "#1098 guard2: template-mandated handle forms are a subset of helper-adjudicated forms" "subset-ok" "$(_ci_guard1098 guard2-real)"
+assert_eq "#1098 guard2 anti-vacuity: the detector still recognizes the real template (empty set would pass the subset test vacuously)" "path-quote" "$(_ci_guard1098 guard2-detector-live)"
 assert_eq "#1098 guard2: reintroducing the command handle form is caught" "caught" "$(_ci_guard1098 guard2-command)"
 assert_eq "#1098 guard2: narrowing the helper's adjudicated set is caught (subset direction)" "caught" "$(_ci_guard1098 guard2-narrow)"
 assert_eq "#1098 fixture: pre-change command-form bullet classifies handle=command" "command" "$(_ci_guard1098 classify-command)"
