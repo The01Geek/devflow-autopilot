@@ -326,7 +326,8 @@ class CoverageMapGuardTest(unittest.TestCase):
     def test_config_implement_tokens_breadcrumbs_a_present_but_wrong_typed_channel(self):
         # F2: a valid-JSON but wrong-typed grant channel is invisible to _load_json, so it
         # must not vanish silently (best-effort-parser: a specific breadcrumb per bad shape).
-        import contextlib, io
+        import contextlib
+        import io
         for bad, needle in (
             ({"prflow_implement": "oops"}, "'prflow_implement' is present but not a JSON object"),
             ({"prflow_implement": {"allowed_tools": "x"}}, "'prflow_implement.allowed_tools' is present but not a JSON array"),
