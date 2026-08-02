@@ -170,6 +170,30 @@ PROVENANCE_SOURCES = PROVENANCE_UNESTABLISHED + (
 )
 
 
+# The verdict sources whose value was recovered from the PROGRESS COMMENT while the
+# authoritative PR-reviews call could not be established. Membership — not a
+# `.endswith("-degraded")` suffix test — is what selects the caveat note the caller
+# appends, and the difference is not stylistic (issue #1030 review). The note asserts a
+# specific fact: *the verdict came from the progress comment, so it may predate the final
+# reviewed HEAD.* A suffix test would attach that sentence to any future `-degraded` tag,
+# including one on a source that is not the progress comment at all (a degraded
+# check-run or efficiency-record read), publishing a caveat that is simply untrue of the
+# row it annotates. An explicit set fails in the safe direction instead: a new
+# progress-comment-degraded source omitted from it loses the note (an under-claim a
+# reader can still act on), where the suffix test would over-claim silently.
+_PROGRESS_COMMENT_DEGRADED_SOURCES = frozenset({
+    "progress-comment-degraded",          # the transitional `## Verdict:` prose arm
+    "progress-comment-marker-degraded",   # the issue-#1030 producer-marker arm
+})
+# Closed-vocabulary coherence, enforced at import rather than left to review: a typo here
+# would silently select nothing and drop the caveat on every row, which is exactly the
+# fail-open this constant exists to prevent.
+assert _PROGRESS_COMMENT_DEGRADED_SOURCES <= set(PROVENANCE_SOURCES), (
+    "_PROGRESS_COMMENT_DEGRADED_SOURCES names a tag outside the closed PROVENANCE_SOURCES "
+    "vocabulary: " + repr(sorted(_PROGRESS_COMMENT_DEGRADED_SOURCES - set(PROVENANCE_SOURCES)))
+)
+
+
 def _assert_provenance_coherent(record):
     """The record's own type-level invariant, enforced at construction rather than left
     to reviewer vigilance: every field governed by an UNESTABLISHED provenance MUST be
@@ -1404,8 +1428,11 @@ def build_record(repo, repo_root, eff_index, pr, retro_entry):
         _resolve_verdict_and_important(repo, pr)
     provenance["verdict"] = verdict_source
     provenance["important_finding_count"] = important_source
-    if verdict_source == "progress-comment-degraded":
-        # Bare tag above; the caveat lives here, per the closed-vocabulary rule.
+    if verdict_source in _PROGRESS_COMMENT_DEGRADED_SOURCES:
+        # Bare tag above; the caveat lives here, per the closed-vocabulary rule. Membership,
+        # not equality: BOTH progress-comment-degraded arms (the transitional prose one and
+        # the issue-#1030 marker one) describe the same fact, and an equality test against
+        # only the older tag left the marker arm publishing a degraded row with no caveat.
         provenance["notes"].append(
             "verdict taken from the progress comment because the PR-reviews call could "
             "not be established; it may predate the final reviewed HEAD")

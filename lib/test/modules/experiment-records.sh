@@ -1291,6 +1291,50 @@ EOF
 r=[json.loads(l) for l in open(sys.argv[1]) if l.strip()][0]
 print("yes" if any("may predate the final reviewed HEAD" in n for n in r["provenance"]["notes"]) else "no")' "$STDG")"
 
+  # ── Tdegraded-marker the SAME degradation, reached through the #1030 producer marker ──
+  # Previously unreachable by the suite: both marker-arm cases resolved reviews_ok=true, so
+  # the `progress-comment-marker-degraded` tag was never produced and the caller's
+  # caveat-note condition was never exercised against it. That is the arm the guard rule
+  # requires a test for — a new selection arm widened the input set while the downstream
+  # note derivation still tested the OLD value on equality, so a degraded marker row shipped
+  # WITHOUT the caveat its prose sibling gets. Assert BOTH halves: the distinguishable tag
+  # AND the note, because the tag alone passed throughout the defect.
+  RDGM="$EXP/rdegraded-marker"
+  mkdir -p "$RDGM/.prflow/learnings"
+  cat > "$RDGM/.prflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1031,"merged_at":"2026-07-10T00:00:00Z","branch":"b1031","head_sha":"h1031","merge_commit_sha":"m1031"}
+EOF
+  jq -nc --arg b '<!-- prflow:review-progress run=1 -->'$'\n'"<!-- prflow:review-verdict head=$EXP_M_HEAD verdict=APPROVE -->"$'\n''**Reviewed HEAD:** h1031' \
+    '[{id:9,created_at:"2026-07-09T10:00:00Z",body:$b}]' > "$EXP/comments1031.json"
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    REVIEWS_FAIL=1 COMMENTS_JSON="$EXP/comments1031.json" \
+    python3 "$BXR" --repo-root "$RDGM" --prs 1031 >/dev/null 2>&1
+  STDGM="$RDGM/.prflow/learnings/experiment-records.jsonl"
+  assert_eq "#1030 Tdegraded-marker: an unreachable reviews call degrades the MARKER arm too" \
+    "APPROVE-progress-comment-marker-degraded" \
+    "$(exp_field "$STDGM" 1031 verdict)-$(exp_field "$STDGM" 1031 provenance.verdict)"
+  assert_eq "#1030 Tdegraded-marker: the marker arm carries the same degradation caveat as its prose sibling" "yes" \
+    "$(python3 -c 'import json,sys
+r=[json.loads(l) for l in open(sys.argv[1]) if l.strip()][0]
+print("yes" if any("may predate the final reviewed HEAD" in n for n in r["provenance"]["notes"]) else "no")' "$STDGM")"
+  # Negative control: with the reviews call REACHABLE the same comment yields the
+  # undegraded tag and no caveat, so the assertions above are about the degradation and
+  # not about the marker arm always carrying a note.
+  RDGM2="$EXP/rdegraded-marker-ok"
+  mkdir -p "$RDGM2/.prflow/learnings"
+  cat > "$RDGM2/.prflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1032,"merged_at":"2026-07-10T00:00:00Z","branch":"b1032","head_sha":"h1032","merge_commit_sha":"m1032"}
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    REVIEWS_JSON="$EXP/does-not-exist" COMMENTS_JSON="$EXP/comments1031.json" \
+    python3 "$BXR" --repo-root "$RDGM2" --prs 1032 >/dev/null 2>&1
+  STDGM2="$RDGM2/.prflow/learnings/experiment-records.jsonl"
+  assert_eq "#1030 Tdegraded-marker control: a reachable reviews call yields the undegraded tag and no caveat" \
+    "progress-comment-marker-no" \
+    "$(exp_field "$STDGM2" 1032 provenance.verdict)-$(python3 -c 'import json,sys
+r=[json.loads(l) for l in open(sys.argv[1]) if l.strip()][0]
+print("yes" if any("may predate the final reviewed HEAD" in n for n in r["provenance"]["notes"]) else "no")' "$STDGM2")"
+
   # ── Tmixed disagreeing per-run fingerprints → mixed-across-runs, never first-wins ──
   # config_fingerprint is the experiment's ATTRIBUTION KEY. A PR whose runs straddled a
   # config change must not be stamped with the older variant — that misattributes its
