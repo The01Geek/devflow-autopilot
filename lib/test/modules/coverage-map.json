@@ -181,6 +181,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/apply-pr-triggerer.sh": {
+      "note": "issue #1165 best-effort PR-assignment-to-triggerer helper; closed apply_pr_triggerer_matrix + Phase 3.1.1 integration + grant assertions tested inline in lib/test/run.sh",
+      "owner": "unmodularized"
+    },
     "scripts/assert-cli-version.sh": {
       "note": "issue #671 pinned-CLI version assertion extracted from ci.yml's verify step",
       "owner": "unmodularized"
@@ -811,6 +815,10 @@
       "owner": "issue-audit-state"
     },
     "1154": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1165": {
       "note": "",
       "owner": "unmodularized"
     },

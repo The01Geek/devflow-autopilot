@@ -139,6 +139,25 @@ Both helpers always exit 0 and need only the `repo` scope: `ensure-label.sh` alw
 
 The call is idempotent — it rewrites only records still reading `pr=pending` and leaves already-bound records untouched — so a resumed run re-entering §3.1 re-binds nothing. When a run wrote **no** scope-decision records, no record changes — but the call is still a real mutation (`--bind-scope-decisions` is one of the flags `workpad.py` counts as a non-checkpoint mutation), so it refreshes `Last updated` and issues one PATCH. That is harmless, so run this step **unconditionally** — do not try to detect first whether any records exist.
 
+#### 3.1.1 Assign the draft PR to the triggering user (CREATE arm ONLY — issue #1165)
+
+**This step runs ONLY on the CREATE arm — never on ADOPT.** Assignment is a create-time ownership action: a freshly-created draft PR has no assignee, so PRFlow assigns it to the developer who triggered the run. An **adopted** PR already belongs to its first attempt's assignees, so the ADOPT arm **skips this step entirely and leaves the existing assignees untouched** — do not invoke the helper on that arm.
+
+The `apply-pr-triggerer.sh` helper resolves the triggerer by tier and best-effort-assigns the PR: on a **cloud** run it reads the authorized comment sender the workflow propagates through `DEVFLOW_TRIGGERING_USER` (fail-closed — a missing value is a deployment-skew signal, never permission to substitute the token owner, the App identity, or `GITHUB_ACTOR`); on a **local** run it resolves the authenticated login through `gh api user --jq .login`. It always exits 0 and prints exactly one outcome token to stdout — `assignment: applied <login>` or `assignment: skipped <reason>` — so a hiccup never blocks the run.
+
+**Cloud-emission discipline (assignment helper): emit the call as a single leading-token statement, substituting the PR number as a LITERAL — see the *Cloud command-shape discipline* section in `skills/implement/SKILL.md`.** As with the label helpers, `$PR_NUM` — set in an earlier fence — **does not survive into this separate command**, so read the printed `draft PR number` and substitute the digits (never a variable, never a loop or output capture). Substitute the digits of the `draft PR number` printed above for `<draft-pr-number>`:
+
+```bash
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-pr-triggerer.sh <draft-pr-number>
+```
+
+**Route on the token this helper prints — all outcomes.** The helper breadcrumbs to stderr on every path and prints exactly one `assignment:` line to stdout, so a harness refusal is its ONLY silent outcome:
+- `assignment: applied <login>` — the PR was assigned; continue (optionally note it).
+- `assignment: skipped <reason>` — a handled non-applied path (`invalid-input`, `no-triggering-user`, `identity-lookup-failed`, `empty-identity`, `api-failure`, `unconfirmed`); the PR is preserved. Record it durably and continue: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 3.1.1 could not assign the draft PR to the triggering user (assignment: skipped <reason>); the PR is preserved and unassigned."`
+- **no `assignment:` line at all** — a harness refusal, not an empty value; record it durably the same way, naming it a likely harness denial, and continue: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 3.1.1: the assignment helper produced no output at all (likely a harness denial); the draft PR is preserved and unassigned."`
+
+The run continues regardless of the assignment outcome — assignment is best-effort and never gates the PR.
+
 ### 3.2 Self-Review with /simplify
 
 Invoke the **Skill tool** with `skill: simplify` — this runs the **built-in Claude Code `/simplify` slash-command**, not a DevFlow plugin skill (so there's no `devflow:` prefix and nothing to install). It ships with Claude Code and is always present; do not treat it as a missing skill or skip this phase.
