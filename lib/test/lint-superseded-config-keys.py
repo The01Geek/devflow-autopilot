@@ -25,7 +25,21 @@ automatically. Three things are intentionally NOT policed here:
 * The ``workflows["devflow-review"]`` sub-key, DELIBERATELY dual-named across the tree
   (``install.sh``'s both-spelling pattern, mirrored into the schema by #1084) so an unmigrated
   consumer still recognises their own key — policing it would flag the correct end state.
-* The declared-exemption sites below, which must keep the superseded spelling.
+* The declared-exemption sites below, which must keep the superseded spelling. These come in
+  two granularities. **Whole-file** exemptions (``_EXEMPT_EXACT`` / ``_EXEMPT_PREFIXES``) cover
+  sites not worth line-by-line scanning — frozen records, fixtures, the rename map, changelog /
+  changeset / doc prose, and a few executable files whose superseded references are pervasive
+  rather than one-per-line — where scanning would only re-flag content that legitimately keeps
+  the old spelling. **Line-scoped** exemptions cover files that are mostly scannable but carry a
+  few legitimate both-spelling lines (the migration helpers): a trailing
+  ``# superseded-key-ok: <non-empty reason>`` declaration marker (issue #1096, mirroring the
+  repo's ``# tree-walk-ok:`` / ``# raw-guard-ok:`` / ``# structural-pin-ok:`` family) exempts
+  only that one line, so the rest of the file is still scanned for an **undeclared** regression —
+  the highest-blast-radius place for a dead-family read, per CLAUDE.md's half-migrated-tree note.
+  Like its sibling markers, ``# superseded-key-ok:`` is honored in **any** scanned file, not only
+  the migration helpers, and it exempts the whole **physical line** (a second, undeclared leaf
+  piled onto an already-marked line is an accepted, greppable blind spot — the same whole-line
+  granularity the sibling markers carry).
 
 Population is sourced from ``lib/test/lint_population.py``'s ``enumerate_population`` with the
 index-reading ``git ls-files`` argv (no ``--others``, no recursive tree walk) per issue #711,
@@ -52,6 +66,26 @@ _pop_spec.loader.exec_module(_pop)
 for _name in ("enumerate_population", "read_source", "LS_FILES_INDEX", "EnumerationError"):
     if not hasattr(_pop, _name):
         raise SystemExit(f"lint_population.py is missing the expected `{_name}` interface")
+
+# Reuse lint-tree-enumeration.py's quote/escape-aware `_comment_split` so the line-scoped
+# `# superseded-key-ok:` marker is matched against a line's COMMENT tail alone, never the raw
+# line (the same reuse the sibling lint-argjson-transport.py makes). A raw-line search would let
+# the literal text `# superseded-key-ok:` sitting inside a string/regex literal exempt a real
+# superseded leaf on that same code line — failing open exactly where the guard claims to fail
+# closed, and the scanned migration files are precisely where such string/regex literals live.
+# The protection is exact for a line whose quotes BALANCE — the case every literal in this
+# population takes. `_comment_split` documents its own residual: a line it leaves with an open
+# quote (the `\`-continued statement whose opening quote is on an earlier line) is re-scanned with
+# quotes inert, and an in-literal marker on such a line can still exempt it. That residual is
+# inherited from the audited sibling rather than introduced here, and it fails toward
+# under-flagging one already-anomalous line, not toward corrupting a scanned result.
+# Loaded by path at LOAD time so a rename in the sibling lint fails here naming the dependency.
+_TREE_PATH = _REPO_ROOT / "lib" / "test" / "lint-tree-enumeration.py"
+_tree_spec = importlib.util.spec_from_file_location("lint_tree_enumeration", _TREE_PATH)
+_tree = importlib.util.module_from_spec(_tree_spec)
+_tree_spec.loader.exec_module(_tree)
+if not hasattr(_tree, "_comment_split"):
+    raise SystemExit(f"lint-superseded-config-keys: {_TREE_PATH} no longer provides `_comment_split`")
 
 
 def _superseded_families() -> list[str]:
@@ -86,8 +120,22 @@ _BINARY_SUFFIXES = frozenset(
     ".png .jpg .jpeg .gif .ico .bin .woff .woff2 .ttf .otf .pdf .zip .gz .tar .webp".split()
 )
 
-# Declared exemptions — sites that must keep the superseded spelling. Path prefixes (dirs)
-# and exact paths. Edited together with the do-not-sweep list in issue #1084 / CLAUDE.md.
+# Line-scoped exemption marker (issue #1096): a live migration file that legitimately names a
+# superseded leaf on one line carries a trailing `# superseded-key-ok: <reason>` declaration,
+# mirroring the repo's `# tree-walk-ok:` / `# raw-guard-ok:` / `# structural-pin-ok:` family.
+# The reason must be non-empty (at least one non-whitespace char after the colon), so a bare
+# `# superseded-key-ok:` does not silently exempt a line. Only the marked line is exempted —
+# the rest of the file is still scanned for an undeclared regression. The marker is matched
+# against the line's COMMENT tail (via the shared `_comment_split` above), never the raw line,
+# so the literal text appearing inside a BALANCED string/regex literal cannot spoof an exemption
+# (see the `_comment_split` note above for the unbalanced-quote residual it inherits).
+_MARKER_RE = re.compile(r"#\s*superseded-key-ok:\s*\S")
+
+# Whole-file declared exemptions — genuinely non-scannable sites that must keep the superseded
+# spelling (frozen records, fixtures, the rename map, changelog / changeset / doc prose). Live
+# migration files that are mostly scannable use the line-scoped `# superseded-key-ok:` marker
+# above instead (issue #1096). Path prefixes (dirs) and exact paths. Edited together with the
+# do-not-sweep list in issue #1084 / CLAUDE.md.
 _EXEMPT_PREFIXES = (
     ".changeset/",                 # changelog prose describing a fix legitimately names the old key
     ".prflow/learnings/",          # frozen append-only retrospective records (rewriting falsifies them)
@@ -102,10 +150,10 @@ _EXEMPT_EXACT = frozenset(
         "docs/external/release-notes.md",   # past-dated historical record (past-time snapshot exemption)
         "CHANGELOG.md",                     # historical changelog entries
         "lib/rename-map.json",              # the single source of truth for the rename itself
-        "lib/migrate-config-values.py",     # migration helper docstring naming the rename inputs
-        "scripts/scaffold-config.sh",       # live config-key migration regex
-        "scripts/migrate-consumer-tier1.sh",  # live migration regex
-        "scripts/config-get.sh",            # superseded-key probe (distinguishes absent from empty)
+        # Live migration files (lib/migrate-config-values.py, scripts/scaffold-config.sh,
+        # scripts/migrate-consumer-tier1.sh, scripts/config-get.sh) moved to LINE-scoped
+        # `# superseded-key-ok:` markers (issue #1096) — they are scannable, so a whole-file
+        # exemption would hide an undeclared dead-family read in exactly the highest-risk place.
         "lib/test/modules/installer-wiring.sh",   # migration-semantics comment + workflow-filename fixtures
         "lib/test/pin-corpus-lint.py",      # builds the rename substitution from the map
         "lib/test/test_pin_corpus_lint.py",       # its fixtures carry the superseded spelling
@@ -145,6 +193,13 @@ def main() -> int:
             skipped.append(f"{path}: {skip_reason or 'unknown'}")
             continue
         for lineno, line in enumerate(text.split("\n"), 1):
+            if _MARKER_RE.search(_tree._comment_split(line)[1]):
+                # Line-scoped exemption (issue #1096): a live migration file legitimately names
+                # a superseded leaf on this line and declares it. Only THIS line is exempt. The
+                # marker is tested against the COMMENT tail (quote/escape-aware via the shared
+                # `_comment_split`), so the literal text inside a BALANCED string/regex cannot
+                # spoof it (unbalanced-quote residual noted at the `_comment_split` import above).
+                continue
             for m in _LEAF_RE.finditer(line):
                 if m.group(1) in _EXTENSIONS:
                     continue

@@ -1,4 +1,20 @@
 {
+  "extraKnownMarketplaces": {
+    "devflow-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "The01Geek/prflow"
+      },
+      "autoUpdate": true
+    }
+  },
+  "enabledPlugins": {
+    "prflow@devflow-marketplace": true,
+    "superpowers@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "plugin-dev@claude-plugins-official": true
+  },
   "hooks": {
     "Stop": [
       {
@@ -21,11 +37,5 @@
         ]
       }
     ]
-  },
-  "enabledPlugins": {
-    "superpowers@claude-plugins-official": true,
-    "skill-creator@claude-plugins-official": true,
-    "claude-md-management@claude-plugins-official": true,
-    "plugin-dev@claude-plugins-official": true
   }
 }

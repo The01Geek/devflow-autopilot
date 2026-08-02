@@ -4,6 +4,39 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.31] — 2026-08-02
+
+### Changed
+- **Trimmed unconsumed output-format sections from the Phase-3 review agents.** The review
+  agents mandated output sections the engine never consumes — `Positive Findings`
+  (`comment-analyzer`), `Positive Observations` (`pr-test-analyzer`), and `### Strengths` /
+  `### Recommendations` (the vendored `requesting-code-review` final-pass template) — that were
+  authored on every dispatch and discarded. Removing them shortens reviewer returns across every
+  `/prflow:review-and-fix` iteration and both shadow fan-outs, lowering orchestrator context
+  pressure and the compaction risk it drives. Each agent's severity rubric, finding machinery,
+  clean-run evidence, and the template's `### Assessment` verdict are untouched. The read-only
+  working-tree policy is normalized to one identical `## Working-tree policy (read-only, advisory)`
+  heading across all five first-party review agents, and the final-pass dispatch fence now names
+  the sections the template actually defines. (#1080)
+
+## [2.30.30] — 2026-08-02
+
+### Fixed
+- **`/prflow:create-issue` Step 3.6 now refuses a file-arm audit dispatch whose draft bytes are absent from the run's recorded byte history.** A scoped ("targeted") audit round computes its delta against the bytes an earlier round dispatched, recovered from the staged-write history. When the canonical write was never recorded there, that operand is missing — and because a missing operand degrades the round-kind selection to the cold whole-draft kind rather than aborting, the loss was silent, so every round after the first paid for a full re-audit. `record-dispatch` now resolves that recoverability before it writes any state and refuses with a named breadcrumb (`file-arm-requires-staged-write`) that names the remedy, mirroring the `file-arm-requires-stdin-digest` refusal `record-revision` already carries. The refusal is scoped to a fresh file-arm dispatch: the file arm is selected only when the canonical write landed, and a retry re-dispatches an already-open round whose bytes may legitimately have moved. Recording the staged write is necessary rather than sufficient — the check reads the artifact at dispatch time, so one later overwritten or swept still strands the record. (#1113)
+
+## [2.30.29] — 2026-08-02
+
+### Fixed
+- **The PreToolUse shape guard now publishes a distinguishing signal when it disarms.** When
+  `scripts/pretooluse-shape-guard.py` cannot load or exercise its classifier
+  (`lib/test/extract-command-shapes.py`), it still fails open to `defer` and exit 0 — the
+  deliberate fail-open contract is unchanged — but it now writes a `pretooluse-guard-disarmed`
+  marker on the same path as the heartbeat, so a disarmed run is no longer byte-identical (on
+  every published artifact) to one that fired and matched nothing. The marker's cause is keyed
+  on the exception actually raised (`FileNotFoundError` from `exec_module`, not the unreachable
+  `ImportError` branch) and names the workspace-relative path with no `lib/test` as the cause,
+  not the vendor slice's prune. (#1077)
+
 ## [2.30.28] — 2026-08-02
 
 ### Security
