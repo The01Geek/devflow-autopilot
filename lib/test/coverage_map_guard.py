@@ -327,6 +327,8 @@ def evaluate(
     scan_read_errors: "list[str] | None" = None,
     executable_files: "set[str] | None" = None,
     implement_tokens: "set[str] | None" = None,
+    map_raw_text: "str | None" = None,
+    map_raw_error: "str | None" = None,
 ):
     """Return a list of violation breadcrumbs (empty ⇒ clean). Never raises.
 
@@ -345,7 +347,13 @@ def evaluate(
     INDEX mode is executable (100755), produced by `main()` and injected the same way,
     so this function still performs no file access. `None` means the mode set could not
     be established; arm 10 then reports that unestablished measurement once and makes no
-    per-entry executability claim (unknown is not "executable" and not "absent")."""
+    per-entry executability claim (unknown is not "executable" and not "absent").
+
+    `map_raw_text` / `map_raw_error` carry arm 11's input — the map file's raw bytes and
+    a read failure — produced by `main()` and injected the same way, so this function
+    still performs no file access. Both omitted (every pre-existing caller) leaves arm 11
+    stood down: it has no on-disk bytes to compare against, and inventing an empty
+    comparand would report the map as non-canonical on every pure-`evaluate` call."""
     violations = []
 
     # ── Arm 8: registry absent/unreadable/wrong-shape (incl. non-object test_modules)
@@ -441,6 +449,9 @@ def evaluate(
 
     # ── Arm 10: the recorded focused Python test of a `files` entry (issue #789)
     violations.extend(_arm10(files, tracked, executable_files, implement_tokens))
+
+    # ── Arm 11: the map on disk is byte-identical to its canonical serialization (#1065)
+    violations.extend(_arm11(map_value, map_raw_text, map_raw_error))
 
     return violations
 
@@ -723,6 +734,55 @@ def _label_sort_key(label: str):
     return (0, int(label)) if label.isdigit() else (1, label)
 
 
+# ── Arm 11: the on-disk map is in canonical serialized form (issue #1065) ─────
+ARM11_REMEDY = f"run `python3 {GUARD_REL} . --fix` to re-canonicalize {MAP_REL}"
+
+
+def _serialize_map(map_value) -> str:
+    """The ONE canonical serialization of the coverage map (issue #1065).
+
+    Two-space indent, recursively sorted keys, `ensure_ascii=False` (non-ASCII kept as
+    UTF-8), one trailing newline. `_write_map` WRITES this and arm 11 CHECKS against it,
+    so the writer and the checker cannot disagree about what "canonical" means — the
+    pinned shape has a single definition. `sort_keys=True` sorts object keys RECURSIVELY,
+    so it constrains both the `files` and `run_sh_blocks` object key order; it does NOT
+    reorder JSON ARRAY elements, so `non_code_exempt` / `exempt_subtrees` keep their given
+    order and this arm makes no claim about array order."""
+    return json.dumps(map_value, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+
+
+def _arm11(map_value, map_raw_text, map_raw_error):
+    """The map on disk must be byte-identical to its canonical serialization.
+
+    Ordering drift — a merge-conflict resolution reordering `run_sh_blocks`, or a hand
+    edit — leaves the parsed VALUE unchanged while the serialized bytes differ, so every
+    presence/ownership arm passes and the non-canonical file ships. It is then silently
+    rewritten later, in an unrelated author's change, by the first `--fix` that makes any
+    real repair. This arm fails at the point the drift is introduced instead.
+
+    Pure — every input is injected. `map_raw_error` is a read failure (an UNESTABLISHED
+    measurement, never a pass — CLAUDE.md's "unknown is not zero"). Both inputs `None`
+    means a pure-`evaluate` caller supplied no raw bytes; the arm stands down (like arm 9)
+    rather than inventing a comparand. Runs only after the arm-4 shape check has passed —
+    `evaluate` early-returns on a shape error before reaching here — so the serialization
+    is never attempted on a malformed map."""
+    if map_raw_error is not None:
+        return [
+            f"[arm11] {MAP_REL} raw bytes could not be read ({map_raw_error}); its canonical "
+            f"form is an unestablished measurement, not a pass — {ARM11_REMEDY}"
+        ]
+    if map_raw_text is None:
+        return []
+    if map_raw_text != _serialize_map(map_value):
+        return [
+            f"[arm11] {MAP_REL} on disk is not in canonical serialized form — its key order or "
+            "formatting differs from what `--fix` writes (the parsed JSON value may be "
+            "unchanged; only the serialized bytes drifted, e.g. from a merge-conflict "
+            f"resolution) — {ARM11_REMEDY}"
+        ]
+    return []
+
+
 def _git_tracked(repo_root: Path):
     """git-tracked repo-relative paths (index read; reads no history)."""
     result = subprocess.run(
@@ -827,21 +887,16 @@ def _apply_fix(map_value, run_sh_labels, module_labels):
 
 
 def _write_map(path: Path, map_value) -> "str | None":
-    """Serialize with the map's existing shape: 2-space indent, sorted keys,
-    `ensure_ascii=False` (non-ASCII kept as UTF-8, matching the checked-in file), one
-    trailing newline. Byte-identical to the checked-in file when nothing changed, which
-    is what makes a second `--fix` run a no-op — the four serialization knobs here are the
-    pinned shape (`indent=2, sort_keys=True, ensure_ascii=False`, `+ "\\n"`); changing any
-    one re-writes every byte and breaks that idempotency.
+    """Write the map in its canonical serialized form via `_serialize_map` — the single
+    definition of the pinned shape that arm 11 also checks against (issue #1065), so a
+    `--fix` write and the canonical-form check can never disagree. Byte-identical to the
+    checked-in file when nothing changed, which is what makes a second `--fix` run a no-op.
 
     Returns None on success, or a breadcrumb when the write fails. The write is the one
     remaining path that could leave `--fix` raising a raw traceback instead of this
     file's fail-closed-with-a-named-breadcrumb posture (a read-only map, a full disk)."""
     try:
-        path.write_text(
-            json.dumps(map_value, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
+        path.write_text(_serialize_map(map_value), encoding="utf-8")
     except (OSError, UnicodeError, TypeError, ValueError) as error:
         return f"{path} could not be written ({error})"
     return None
@@ -865,7 +920,22 @@ def _run_fix(repo_root: Path) -> int:
         for error in read_errors:
             print(f"[fix-refused] label-derivation source unreadable: {error}")
         return 1
-    if _apply_fix(map_value, run_sh_labels, module_labels):
+    changed = _apply_fix(map_value, run_sh_labels, module_labels)
+    # Order-only drift (issue #1065): even with NO presence/ownership repair pending, a
+    # non-canonical on-disk serialization (e.g. a merge-conflict resolution that reordered
+    # run_sh_blocks) is re-canonicalized here, so `--fix` is the single canonicalizer arm
+    # 11's remedy names. RECORDED SCOPE DECISION (the issue's "Prerequisite fact to
+    # establish"): this deliberately widens `--fix` to write on order-only drift — the
+    # minimal resolution that lets the violation's remedy name an action that actually
+    # repairs it. The two MEASURED `--fix` paths are unchanged: a canonical file with no
+    # repair still no-ops (`desired == current`), and a real repair is still additive-only
+    # (the write serializes canonically as it always did, inserting only the new blocks).
+    desired = _serialize_map(map_value)
+    try:
+        current = map_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        current = None
+    if changed or current != desired:
         write_error = _write_map(map_path, map_value)
         if write_error is not None:
             print(f"[fix-refused] {write_error}; {MAP_REMEDY}")
@@ -898,6 +968,16 @@ def main(argv):
         )
         return 1
     map_value, map_error = _load_json(repo_root / MAP_REL)
+    # Arm 11 (issue #1065) compares the map's raw on-disk bytes against their canonical
+    # serialization, so read them here and inject them like every other arm's input
+    # (evaluate stays pure). Only meaningful when the map parsed (map_error is None); a
+    # re-read failure is an unestablished measurement arm 11 reports rather than a pass.
+    map_raw_text, map_raw_error = None, None
+    if map_error is None:
+        try:
+            map_raw_text = (repo_root / MAP_REL).read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            map_raw_error = f"{repo_root / MAP_REL} unreadable ({error})"
     registry_value, registry_error = _load_json(repo_root / REGISTRY_REL)
     # Surface the two grant-channel read errors rather than discarding the tuple's error
     # half — a malformed .prflow/config.json (or capability-profiles.json) is otherwise
@@ -925,6 +1005,8 @@ def main(argv):
         scan_read_errors=scan_read_errors,
         executable_files=_git_executable(repo_root),
         implement_tokens=_resolve_implement_grant_tokens(profiles_value, config_value),
+        map_raw_text=map_raw_text,
+        map_raw_error=map_raw_error,
     )
     for line in violations:
         print(line)

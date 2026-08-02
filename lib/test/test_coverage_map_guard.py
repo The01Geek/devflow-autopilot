@@ -1036,6 +1036,126 @@ class Arm9Test(unittest.TestCase):
         self.assertEqual(first, second)
 
 
+class Arm11CanonicalFormTest(unittest.TestCase):
+    """Arm 11 (issue #1065): the map on disk is byte-identical to its canonical form."""
+
+    def _arm11(self, violations):
+        return [v for v in violations if v.startswith("[arm11]")]
+
+    def _evaluate(self, map_value, **kwargs):
+        # A minimal clean-elsewhere fixture so only arm 11 can speak: no tracked units,
+        # a registry that yields an id set, and the map's own default run_sh_blocks.
+        return guard.evaluate([], map_value, _registry(), **kwargs)
+
+    def test_a_canonical_map_records_no_arm11_violation(self):
+        m = _map(files={})
+        canonical = guard._serialize_map(m)
+        self.assertEqual(self._arm11(self._evaluate(m, map_raw_text=canonical)), [])
+
+    def test_key_order_drift_with_an_unchanged_value_is_reported(self):
+        # The measurement-3 case: the parsed JSON value is identical, only the serialized
+        # key order differs — every presence/ownership arm passes, so arm 11 is the only
+        # thing that can catch it.
+        m = _map(run_sh_blocks={"126": _owned(), "139": _owned(), "unlabeled": _owned()})
+        drift = json.dumps(
+            {
+                "schema_version": m["schema_version"],
+                "generated_by": m["generated_by"],
+                "files": m["files"],
+                # reversed key order in run_sh_blocks; dict value is unchanged
+                "run_sh_blocks": {"unlabeled": _owned(), "139": _owned(), "126": _owned()},
+                "non_code_exempt": m["non_code_exempt"],
+                "exempt_subtrees": m["exempt_subtrees"],
+            },
+            indent=2,
+            sort_keys=False,
+            ensure_ascii=False,
+        ) + "\n"
+        self.assertNotEqual(drift, guard._serialize_map(m))
+        found = self._arm11(self._evaluate(m, map_raw_text=drift))
+        self.assertEqual(len(found), 1)
+        self.assertIn("not in canonical serialized form", found[0])
+        self.assertIn(guard.MAP_REL, found[0])
+
+    def test_formatting_drift_is_reported(self):
+        # Compact (no-indent) bytes of the SAME value are non-canonical too — arm 11
+        # covers whitespace/indent, not only key order.
+        m = _map(files={})
+        compact = json.dumps(m, sort_keys=True, ensure_ascii=False)  # no indent, no trailing \n
+        found = self._arm11(self._evaluate(m, map_raw_text=compact))
+        self.assertEqual(len(found), 1)
+
+    def test_an_unreadable_raw_file_is_unestablished_not_a_pass(self):
+        # CLAUDE.md "unknown is not zero": a read failure is reported, never laundered
+        # into a clean pass.
+        found = self._arm11(self._evaluate(_map(files={}), map_raw_error="boom"))
+        self.assertEqual(len(found), 1)
+        self.assertIn("unestablished measurement", found[0])
+
+    def test_arm11_stands_down_when_no_raw_text_is_injected(self):
+        # Every pre-existing positional/keyword caller passes neither raw text nor a raw
+        # error; arm 11 must report nothing rather than flag the map non-canonical.
+        self.assertEqual(self._arm11(self._evaluate(_map(files={}))), [])
+
+    def test_arm4_shape_rejection_short_circuits_before_arm11(self):
+        # A malformed map must never reach the serialization: arm 4 early-returns first.
+        bad = _map(files={})
+        bad["run_sh_blocks"] = "not-an-object"
+        v = guard.evaluate([], bad, _registry(), map_raw_text="anything at all")
+        self.assertEqual(self._arm11(v), [])
+        self.assertIn("[arm4]", "".join(v))
+
+    def test_write_map_output_satisfies_arm11(self):
+        # The structural "one definition of canonical" guarantee: whatever _write_map
+        # writes is exactly what arm 11 accepts, so writer and checker cannot diverge.
+        m = _map(run_sh_blocks={"200": _owned("unmodularized"), "unlabeled": _owned()})
+        written = guard._serialize_map(m)
+        self.assertEqual(self._arm11(self._evaluate(m, map_raw_text=written)), [])
+
+    def test_main_reports_arm11_over_a_drifted_on_disk_map(self):
+        # End-to-end through main(): a non-canonically-serialized map on disk turns the
+        # guard RED and names arm 11, while the parsed value stays valid.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "lib/test/modules").mkdir(parents=True)
+            (root / "scripts").mkdir()
+            (root / "lib/test/run.sh").write_text("", encoding="utf-8")
+            (root / guard.REGISTRY_REL).write_text(
+                json.dumps(_registry()), encoding="utf-8"
+            )
+            m = _map(files={})
+            # Non-canonical bytes: compact, no trailing newline. Value is well-shaped.
+            (root / guard.MAP_REL).write_text(
+                json.dumps(m, sort_keys=True, ensure_ascii=False), encoding="utf-8"
+            )
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = guard.main(["coverage_map_guard.py", str(root)])
+            self.assertEqual(rc, 1)
+            self.assertIn("[arm11]", out.getvalue())
+
+    def test_main_passes_a_canonical_on_disk_map(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "lib/test/modules").mkdir(parents=True)
+            (root / "scripts").mkdir()
+            (root / "lib/test/run.sh").write_text("", encoding="utf-8")
+            (root / guard.REGISTRY_REL).write_text(
+                json.dumps(_registry()), encoding="utf-8"
+            )
+            # Exempt the depth-1 registry file (arm 5) so only arm 11 governs rc here.
+            m = _map(files={}, non_code_exempt=[guard.REGISTRY_REL])
+            (root / guard.MAP_REL).write_text(guard._serialize_map(m), encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = guard.main(["coverage_map_guard.py", str(root)])
+            self.assertEqual(rc, 0, out.getvalue())
+
+
 class FixModeTest(unittest.TestCase):
     def _tree(self, directory, map_value, run_sh="", modules=None):
         root = Path(directory)
@@ -1152,6 +1272,83 @@ class FixModeTest(unittest.TestCase):
             rc, output = self._fix(root)
             self.assertEqual(rc, 1)
             self.assertIn("[fix-refused]", output)
+
+    def test_fix_canonicalizes_order_only_drift(self):
+        # Issue #1065 recorded scope decision: `--fix` re-canonicalizes an order-only
+        # drifted map even with no presence/ownership repair pending, so its remedy is an
+        # action that actually repairs an arm-11 violation.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "lib/test/modules").mkdir(parents=True)
+            (root / "lib/test/run.sh").write_text("", encoding="utf-8")
+            m = _map(run_sh_blocks={"126": _owned(), "139": _owned(), "unlabeled": _owned()})
+            # Write NON-canonical bytes (reversed key order) whose parsed value is complete,
+            # so `_apply_fix` finds nothing to repair — only the serialization is wrong.
+            drift = json.dumps(
+                {
+                    "schema_version": m["schema_version"],
+                    "generated_by": m["generated_by"],
+                    "files": m["files"],
+                    "run_sh_blocks": {"unlabeled": _owned(), "139": _owned(), "126": _owned()},
+                    "non_code_exempt": m["non_code_exempt"],
+                    "exempt_subtrees": m["exempt_subtrees"],
+                },
+                indent=2, sort_keys=False, ensure_ascii=False,
+            ) + "\n"
+            (root / guard.MAP_REL).write_text(drift, encoding="utf-8")
+            rc, output = self._fix(root)
+            self.assertEqual(rc, 0)
+            self.assertIn("[fix] repaired", output)
+            self.assertEqual(
+                (root / guard.MAP_REL).read_text(encoding="utf-8"),
+                guard._serialize_map(m),
+            )
+            # Idempotent: a second run no-ops.
+            before = (root / guard.MAP_REL).read_bytes()
+            rc, output = self._fix(root)
+            self.assertIn("already satisfies", output)
+            self.assertEqual(before, (root / guard.MAP_REL).read_bytes())
+
+    def test_fix_is_a_noop_on_a_canonical_file(self):
+        # Measured path 1 (AC6): unchanged on a canonical file.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "lib/test/modules").mkdir(parents=True)
+            (root / "lib/test/run.sh").write_text("", encoding="utf-8")
+            m = _map(run_sh_blocks={"unlabeled": _owned()})
+            (root / guard.MAP_REL).write_text(guard._serialize_map(m), encoding="utf-8")
+            before = (root / guard.MAP_REL).read_bytes()
+            rc, output = self._fix(root)
+            self.assertEqual(rc, 0)
+            self.assertIn("already satisfies", output)
+            self.assertEqual(before, (root / guard.MAP_REL).read_bytes())
+
+    def test_fix_is_additive_only_on_a_real_repair(self):
+        # Measured path 2 (AC6): a canonical map plus one new run.sh label gains exactly
+        # the new block and moves no existing entry (the "4 added / 0 removed" property).
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "lib/test/modules").mkdir(parents=True)
+            (root / "lib/test/run.sh").write_text(
+                'assert_eq "#100 existing" "1" "1"\n', encoding="utf-8"
+            )
+            m = _map(run_sh_blocks={"100": _owned(), "unlabeled": _owned()})
+            (root / guard.MAP_REL).write_text(guard._serialize_map(m), encoding="utf-8")
+            before = json.loads((root / guard.MAP_REL).read_text(encoding="utf-8"))
+            # Add one new labelled assertion; --fix must add ONLY its block.
+            (root / "lib/test/run.sh").write_text(
+                'assert_eq "#100 existing" "1" "1"\nassert_eq "#1099 new label" "1" "1"\n',
+                encoding="utf-8",
+            )
+            rc, output = self._fix(root)
+            self.assertEqual(rc, 0)
+            self.assertIn("[fix] repaired", output)
+            after = json.loads((root / guard.MAP_REL).read_text(encoding="utf-8"))
+            self.assertEqual(set(after["run_sh_blocks"]) - set(before["run_sh_blocks"]), {"1099"})
+            self.assertEqual(set(before["run_sh_blocks"]) - set(after["run_sh_blocks"]), set())
+            # No existing entry's value changed.
+            for k, val in before["run_sh_blocks"].items():
+                self.assertEqual(after["run_sh_blocks"][k], val)
 
     def test_fix_preserves_the_positional_repo_root_cli_contract(self):
         # `main` still takes the repo root positionally, with or without --fix, so
