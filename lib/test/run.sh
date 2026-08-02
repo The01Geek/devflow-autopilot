@@ -41427,14 +41427,18 @@ echo "#619 batched-regeneration instruction surfaces"
 # pinned literal is a single unwrapped line in each file (a sentence wrapped across a
 # line break lives on no single line and this line-based pin would find nothing —
 # the issue-375 wrapped-literal hazard).
-# The batched invocation itself is NOT pinned as a sentence. What matters is not that a
-# particular wording survives but that the invocation is a FENCED command whose head is
-# the granted direct leading-token form — an inline-backtick mention is invisible to both
-# the matcher and the head scanner, and an interpreter head is silently denied. That is an
-# executable property, asserted per extension and per section by the regenerate-artifacts
-# module's head-extraction loop, so the superseded wording pins are retired rather than
-# retargeted (issue #1055; CLAUDE.md's guard-behavior-not-prose rule).
-for _ra_ext in review-and-fix receiving-code-review; do
+# Issue #1055 retargeted the invocation literal off the denied `python3` interpreter head
+# onto the granted direct leading-token form. The pin is RETAINED rather than retired:
+# CONTRIBUTING.md's ordered retirement arms decide from the frozen census, and this
+# literal has no census row (arm 0), which cannot answer the question and therefore
+# retains. The new per-extension, per-section head/shape extraction in the
+# regenerate-artifacts module is the stronger, executable guarantee — that the invocation
+# is FENCED with a granted head — but it is ADDITIVE here, not a substitute that would
+# authorize dropping a divergence check the census never adjudicated.
+for _ra_ext in implement review-and-fix receiving-code-review; do
+  assert_pin_unique "#619 .prflow/prompt-extensions/$_ra_ext.md carries the batched-regeneration invocation" \
+    'run the granted direct leading-token form once' \
+    "$LIB/../.prflow/prompt-extensions/$_ra_ext.md"  # structural-pin-ok: cross-file-phase-contract -- the cloud-only config grant and the prompt invocation must stay coupled across all three instruction surfaces
   assert_pin_unique "#619 .prflow/prompt-extensions/$_ra_ext.md carries the batched-regeneration discharge record" \
     '`batched-regeneration: run|refused|skipped`' \
     "$LIB/../.prflow/prompt-extensions/$_ra_ext.md"

@@ -35,14 +35,23 @@ the row does not synthesize or rewrite any other registry metadata.
 
 ROW ORDER is a maintenance obligation, not decoration. Rows run in the order listed and
 no row re-runs, so a row whose generator READS a file an earlier row WRITES must be
-ordered after it. Today that constraint binds nothing: `cloud-writer-manifest` pins a
-closure of `skills/**` / `scripts/**` assets and required helper sources, while
+ordered after it. No WRITER consumes another writer's outputs: `cloud-writer-manifest`
+pins a closure of `skills/**` / `scripts/**` assets and required helper sources, while
 `exact-module-floors` may raise only registry floor fields and their coupled `run.sh`
-call sites. Neither writer consumes the other's outputs — in particular the identity
-generator's four baked regions (`install.sh` and three siblings) are NOT in the manifest
-closure, so those rows are genuinely independent. Adding a row whose output feeds
-another row's input means placing it above that row here; nothing verifies the placement,
-because rows declare their outputs and not their inputs.
+call sites, and the identity generator's four baked regions (`install.sh` and three
+siblings) are NOT in the manifest closure.
+
+One READER-before-WRITER pair does exist and is deliberately left in this order:
+`coverage-map-ratchet` runs `coverage_map_guard.py`, which reads `lib/test/run.sh` — a
+file the later `exact-module-floors` row may rewrite — so within one pass the ratchet
+judges the pre-raise `run.sh`. That is sound only because of what the raise changes: a
+floor reconciliation rewrites a single numeric operand inside an existing
+`devflow_run_full_suite_module` call, adding and removing no call site, so the guard's
+block enumeration and attribution derivation see an identical structure either way. It
+is NOT sound in general — a future row that rewrites `run.sh` STRUCTURALLY must be
+ordered above `coverage-map-ratchet`, or the ratchet will judge a stale tree. Adding a
+row whose output feeds another row's input means placing it above that row here; nothing
+verifies the placement, because rows declare their outputs and not their inputs.
 
 WRITE SCOPE: writing rows declare their complete `writes` set in the registry. The
 cloud-writer row owns `scripts/devflow-cloud-writer-contract.json`; the exact-floor row
@@ -656,9 +665,15 @@ def _monotonic_outcome(row, proc, output, before, after, report):
         )
         return True, False
     if changed:
+        # Name the paths AND the reconciler's own output: this arm fires on the most
+        # alarming state the classifier models — a row that declares a refusal contract
+        # yet mutated files under source control — and the operator needs to know which
+        # coupled site is now inconsistent before committing anything.
+        relative = [path.name if path.name == "run.sh" else path.as_posix() for path in changed]
         report.append(
-            f"[{name}] INFRASTRUCTURE a non-clean reconciliation changed declared outputs "
-            "despite its refusal contract"
+            f"[{name}] INFRASTRUCTURE a non-clean reconciliation (exit "
+            f"{proc.returncode}) changed declared outputs despite its refusal "
+            f"contract: {', '.join(relative)}\n    output: {output or '(none)'}"
         )
         return False, True
     if "floor-reconciliation: DECREASE REFUSED" in output:
@@ -701,6 +716,20 @@ def _validate_registry():
                 f"registry row {row['name']!r} declares kind "
                 f"{row.get('kind')!r}, which is outside {ROW_KINDS}"
             )
+        # `run_row` narrows a mechanical row to `written[0]`, so a second declared output
+        # would never be compared and the row would report clean while that file drifted.
+        # The kind's single-output assumption is enforced here rather than left implicit.
+        if row["kind"] == "mechanical":
+            # Normalize exactly as run_row does: `writes` is a bare string on this row,
+            # so a plain `tuple()` would split it per character.
+            declared = row.get("writes", ())
+            declared = (declared,) if isinstance(declared, str) else tuple(declared)
+            if len(declared) != 1:
+                raise ValueError(
+                    f"registry row {row['name']!r} is kind 'mechanical' but declares "
+                    f"{len(declared)} writes; the mechanical outcome classifier "
+                    "compares exactly one output"
+                )
         if row.get("conflict_class") not in CONFLICT_CLASSES:
             raise ValueError(
                 f"registry row {row['name']!r} declares conflict_class "

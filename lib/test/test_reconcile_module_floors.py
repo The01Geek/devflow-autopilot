@@ -51,9 +51,17 @@ if mapping["minimum_assertions"] != 1:
     print("fixture runner: measurement floor was not lowered", file=sys.stderr)
     raise SystemExit(9)
 record = json.loads((root / "scripts/fake-measurements.json").read_text())[module_id]
-if record.get("require_trimmed_tmpdir") and os.environ.get("TMPDIR", "").endswith("/"):
-    print("fixture runner: TMPDIR retained a trailing separator", file=sys.stderr)
-    raise SystemExit(8)
+if record.get("require_trimmed_tmpdir"):
+    # Root is the one value whose trailing separator is load-bearing: stripping "/"
+    # yields the empty string, which is not a directory at all, so the reconciler
+    # deliberately preserves it. Every other value must arrive stripped.
+    _tmp = os.environ.get("TMPDIR", "")
+    if _tmp != "/" and _tmp.endswith("/"):
+        print("fixture runner: TMPDIR retained a trailing separator", file=sys.stderr)
+        raise SystemExit(8)
+    if not _tmp:
+        print("fixture runner: TMPDIR was not supplied to the measurement", file=sys.stderr)
+        raise SystemExit(8)
 if record.get("mutate_run"):
     run_path = root / "lib/test/run.sh"
     run_text = run_path.read_text(encoding="utf-8")
@@ -89,22 +97,41 @@ PY
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
 
-    def write_contract(self, alpha_floor: int, beta_floor: int) -> None:
+    def write_contract(
+        self,
+        alpha_floor: int,
+        beta_floor: int,
+        *,
+        beta_exact: bool = False,
+        alpha_description: str | None = None,
+        run_alpha_floor: int | None = None,
+        run_beta_floor: int | None = None,
+    ) -> None:
+        """Write the coupled registry/run.sh pair the reconciler reads.
+
+        `run_alpha_floor` / `run_beta_floor` default to the registry values, so the
+        common case keeps both coupled sites in sync; passing them explicitly is how a
+        test reproduces real-world DESYNC (a hand-edited call site, or a merge that
+        resolved only one side), which the reconciler's `or`-joined guards must handle.
+        """
+        alpha: dict[str, object] = {
+            "path": "lib/test/modules/alpha.sh",
+            "minimum_assertions": alpha_floor,
+            "assertion_floor_policy": "exact",
+        }
+        if alpha_description is not None:
+            alpha["description"] = alpha_description
+        beta: dict[str, object] = {
+            "path": "lib/test/modules/beta.sh",
+            "minimum_assertions": beta_floor,
+        }
+        if beta_exact:
+            beta["assertion_floor_policy"] = "exact"
         self.registry_path.write_text(
             json.dumps(
                 {
                     "schema_version": 1,
-                    "test_modules": {
-                        "alpha": {
-                            "path": "lib/test/modules/alpha.sh",
-                            "minimum_assertions": alpha_floor,
-                            "assertion_floor_policy": "exact",
-                        },
-                        "beta": {
-                            "path": "lib/test/modules/beta.sh",
-                            "minimum_assertions": beta_floor,
-                        },
-                    },
+                    "test_modules": {"alpha": alpha, "beta": beta},
                     "workflows": {"placeholder": {}},
                 },
                 indent=2,
@@ -122,7 +149,10 @@ if ! devflow_run_full_suite_module "$LIB/test/modules/beta.sh" \\
   exit 1
 fi
 """
-            % (alpha_floor, beta_floor),
+            % (
+                alpha_floor if run_alpha_floor is None else run_alpha_floor,
+                beta_floor if run_beta_floor is None else run_beta_floor,
+            ),
             encoding="utf-8",
         )
 
@@ -230,15 +260,127 @@ fi
         self.assertIn("clean", result.stdout)
 
     def test_measurement_runner_receives_a_normalized_tmpdir(self) -> None:
-        self.write_contract(alpha_floor=3, beta_floor=5)
+        # Set TMPDIR EXPLICITLY rather than relying on the ambient value. The fixture
+        # runner's guard reads `os.environ.get("TMPDIR", "").endswith("/")`, which is
+        # false when the variable is absent — so on a host that does not export TMPDIR
+        # (Linux CI) an ambient-only version of this test passes no matter what the
+        # helper does, protecting the normalization on a macOS desk and nothing on the
+        # required check.
+        for raw in (str(self.root) + "/", "/"):
+            with self.subTest(tmpdir=raw):
+                self.write_contract(alpha_floor=3, beta_floor=5)
+                self.settings_path.write_text(
+                    json.dumps(
+                        {"alpha": {"passed": 3, "require_trimmed_tmpdir": True}}
+                    ),
+                    encoding="utf-8",
+                )
+                environment = os.environ.copy()
+                environment["TMPDIR"] = raw
+
+                result = self.run_helper(environment)
+
+                self.assertEqual(
+                    result.returncode, 0, result.stdout + result.stderr
+                )
+
+    def test_braces_inside_a_string_value_do_not_derail_the_span_scan(self) -> None:
+        # The span scanner is a hand-rolled STRING-AWARE depth counter precisely so a
+        # brace inside a string VALUE cannot close the module's object early. No other
+        # fixture contains one, so neutering the in_string handling leaves every other
+        # test green. Here the unbalanced `{`/`}` sit in alpha's own description: without
+        # string-awareness the `}` closes alpha's span before its floor field, the floor
+        # regex then matches nothing, and the run refuses (rc 2) instead of raising.
+        #
+        # Note the complementary half needs no fixture: JSON must escape a `"` inside a
+        # string, so the exact literal `"minimum_assertions"` is unrepresentable in a
+        # string value and can never be matched there.
+        # An unbalanced OPEN brace, not a close: a `}` would merely truncate alpha's span
+        # after the floor field, which the scan still resolves — so that decoy would not
+        # bite. An unmatched `{` inflates the depth instead, running the span past
+        # alpha's real closing brace into beta's object, where the floor regex then finds
+        # TWO candidates and the scan refuses. (Verified by mutation: neutering the
+        # in_string branch turns this test RED and leaves the others green.)
+        adversarial = 'guards { an unbalanced open brace'
+        self.write_contract(
+            alpha_floor=2, beta_floor=3, alpha_description=adversarial
+        )
         self.settings_path.write_text(
-            json.dumps({"alpha": {"passed": 3, "require_trimmed_tmpdir": True}}),
+            json.dumps({"alpha": {"passed": 4}}), encoding="utf-8"
+        )
+
+        result = self.run_helper()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        registry = json.loads(self.registry_path.read_text(encoding="utf-8"))
+        self.assertEqual(registry["test_modules"]["alpha"]["minimum_assertions"], 4)
+        # The decoy survives byte-for-byte: only the floor digits were rewritten.
+        self.assertEqual(
+            registry["test_modules"]["alpha"]["description"], adversarial
+        )
+        self.assertIn('"alpha" 4; then', self.run_path.read_text(encoding="utf-8"))
+
+    def test_two_exact_modules_both_raise_at_correct_offsets(self) -> None:
+        # Every other fixture marks only alpha exact, so the sequential-offset
+        # correctness of a multi-module raise is untested — yet the real registry has
+        # eleven exact modules, making this the production case. reconcile()
+        # recomputes the span per module because each substitution shifts later
+        # offsets and can change digit width; hoisting that out of the loop, or
+        # computing against the original text, would still pass every single-module test.
+        self.write_contract(alpha_floor=9, beta_floor=2, beta_exact=True)
+        self.settings_path.write_text(
+            json.dumps({"alpha": {"passed": 12}, "beta": {"passed": 30}}),
             encoding="utf-8",
         )
 
         result = self.run_helper()
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        registry = json.loads(self.registry_path.read_text(encoding="utf-8"))
+        self.assertEqual(registry["test_modules"]["alpha"]["minimum_assertions"], 12)
+        self.assertEqual(registry["test_modules"]["beta"]["minimum_assertions"], 30)
+        run_text = self.run_path.read_text(encoding="utf-8")
+        self.assertIn('"alpha" 12; then', run_text)
+        self.assertIn('"beta" 30; then', run_text)
+
+    def test_desynced_coupled_floors_refuse_below_the_higher_site(self) -> None:
+        # Real drift: someone hand-edits the run.sh operand, or a merge resolves only
+        # one side. The reconciler's decrease guard is `measured < registry or
+        # measured < run`, so a tally BETWEEN the two must still refuse.
+        self.write_contract(
+            alpha_floor=2, beta_floor=3, run_alpha_floor=6
+        )
+        before = (self.registry_path.read_bytes(), self.run_path.read_bytes())
+        self.settings_path.write_text(
+            json.dumps({"alpha": {"passed": 4}}), encoding="utf-8"
+        )
+
+        result = self.run_helper()
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("DECREASE REFUSED", result.stderr)
+        self.assertEqual(
+            (self.registry_path.read_bytes(), self.run_path.read_bytes()), before
+        )
+
+    def test_desynced_coupled_floors_raise_only_the_lagging_site(self) -> None:
+        # The mirror of the case above: a tally equal to the HIGHER site is not a
+        # decrease, so the lagging registry field is raised into agreement while the
+        # already-correct run.sh operand is left byte-identical.
+        self.write_contract(
+            alpha_floor=2, beta_floor=3, run_alpha_floor=6
+        )
+        run_before = self.run_path.read_bytes()
+        self.settings_path.write_text(
+            json.dumps({"alpha": {"passed": 6}}), encoding="utf-8"
+        )
+
+        result = self.run_helper()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        registry = json.loads(self.registry_path.read_text(encoding="utf-8"))
+        self.assertEqual(registry["test_modules"]["alpha"]["minimum_assertions"], 6)
+        self.assertEqual(self.run_path.read_bytes(), run_before)
 
     def test_lower_measurement_is_a_nonwriting_judgment(self) -> None:
         self.write_contract(alpha_floor=4, beta_floor=5)

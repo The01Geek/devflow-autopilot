@@ -27,9 +27,31 @@ SUMMARY = re.compile(
 )
 
 
+DIAGNOSTIC_TAIL_CHARS = 2000
+
+
 def _fail(message: str) -> int:
     print(f"floor-reconciliation: INFRASTRUCTURE {message}", file=sys.stderr)
     return 2
+
+
+def _diagnostics(proc: subprocess.CompletedProcess[str]) -> str:
+    """Render a bounded tail of a failed measurement's own output.
+
+    The measurement runs with `capture_output=True` and its per-module log directory
+    lives inside the `TemporaryDirectory` that is destroyed the moment this function's
+    caller returns, so without this the operator is told only a derived counter — no
+    failing assertion name, no stderr, and no log left to open — for a failure that
+    STOPS the batched pass. Bounded because a focused module run can emit thousands of
+    passing lines and the tail is where the failure recap sits.
+    """
+    combined = (proc.stdout or "") + (proc.stderr or "")
+    combined = combined.strip()
+    if not combined:
+        return "\n    output: (none)"
+    if len(combined) > DIAGNOSTIC_TAIL_CHARS:
+        combined = "…" + combined[-DIAGNOSTIC_TAIL_CHARS:]
+    return f"\n    output: {combined}"
 
 
 def _registry_floor_span(registry_text: str, module_id: str) -> tuple[int, int] | None:
@@ -161,27 +183,37 @@ def reconcile(root: Path, runner: Path) -> int:
         )
         for module_id in exact_ids:
             log_dir = temporary_path / f"logs-{module_id}"
-            proc = subprocess.run(
-                [
-                    # The shell that RUNS a .sh helper is chosen at the invocation
-                    # boundary via DEVFLOW_BASH, never by a sourced resolver (#248):
-                    # a hardcoded `bash` head would ignore the operator's selected
-                    # WSL/Git-Bash/MSYS2 interpreter and measure under a different
-                    # shell than the suite itself runs under.
-                    os.environ.get("DEVFLOW_BASH") or "bash",
-                    str(runner),
-                    "--registry",
-                    str(temporary_registry),
-                    "--log-dir",
-                    str(log_dir),
-                    module_id,
-                ],
-                cwd=root,
-                env=runner_environment,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
+            try:
+                proc = subprocess.run(
+                    [
+                        # The shell that RUNS a .sh helper is chosen at the invocation
+                        # boundary via DEVFLOW_BASH, never by a sourced resolver (#248):
+                        # a hardcoded `bash` head would ignore the operator's selected
+                        # WSL/Git-Bash/MSYS2 interpreter and measure under a different
+                        # shell than the suite itself runs under.
+                        os.environ.get("DEVFLOW_BASH") or "bash",
+                        str(runner),
+                        "--registry",
+                        str(temporary_registry),
+                        "--log-dir",
+                        str(log_dir),
+                        module_id,
+                    ],
+                    cwd=root,
+                    env=runner_environment,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+            except OSError as error:
+                # A DEVFLOW_BASH or runner path that cannot be executed raises here.
+                # Without this arm the helper dies with a traceback instead of the
+                # INFRASTRUCTURE contract every other failure honors, and a standalone
+                # invocation reports no attributable cause at all.
+                return _fail(
+                    f"{module_id}: the measurement runner could not be launched "
+                    f"({error})"
+                )
             matches = [
                 match
                 for match in SUMMARY.finditer(proc.stdout)
@@ -191,6 +223,7 @@ def reconcile(root: Path, runner: Path) -> int:
                 return _fail(
                     f"{module_id}: focused run was not a single clean measurement "
                     f"(rc={proc.returncode}, summaries={len(matches)})"
+                    f"{_diagnostics(proc)}"
                 )
             summary = matches[0]
             failed = int(summary.group("failed"))
@@ -199,6 +232,7 @@ def reconcile(root: Path, runner: Path) -> int:
                 return _fail(
                     f"{module_id}: measurement was not clean "
                     f"(failed={failed}, skipped={skipped})"
+                    f"{_diagnostics(proc)}"
                 )
             measurements[module_id] = int(summary.group("passed"))
 
@@ -261,16 +295,20 @@ def main(argv: list[str] | None = None) -> int:
         if args.repo_root
         else Path(__file__).resolve().parents[2]
     )
-    runner = (
-        Path(args.runner).resolve()
-        if args.runner
-        else Path(
-            os.environ.get(
-                "DEVFLOW_RECONCILE_MODULE_FLOORS_RUNNER",
-                root / "lib/test/run-module.sh",
-            )
-        ).resolve()
-    )
+    # `or`, not `get(key, default)`: an exported-but-EMPTY override makes `get` return
+    # "", and `Path("")` resolves to the repo root — the run then becomes `bash <root>`,
+    # exits nonzero, and is misreported as an unclean MODULE when the fault is the
+    # override. Empty-behaves-as-unset is the repo's rule for every DEVFLOW_* override.
+    runner = Path(
+        args.runner
+        or os.environ.get("DEVFLOW_RECONCILE_MODULE_FLOORS_RUNNER")
+        or root / "lib/test/run-module.sh"
+    ).resolve()
+    if not runner.is_file():
+        return _fail(
+            f"the measurement runner {runner} is not an existing file — check the "
+            "--runner argument or the DEVFLOW_RECONCILE_MODULE_FLOORS_RUNNER override"
+        )
     return reconcile(root, runner)
 
 

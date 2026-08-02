@@ -957,6 +957,26 @@ assert_eq "#1055 a partial coupled raise is infrastructure, never reconciled" \
 _ra_has "#1055 a partial coupled raise names the incomplete write set" \
   "$RA_1055_PARTIAL" "changed only a subset of its declared outputs"
 
+# The sibling of the partial case, and the one the classifier's own comment calls the
+# dangerous shape: a clean exit that mutated EVERY declared output but announced no
+# raise. Without the marker requirement this reads as a successful reconciliation and
+# the mutated coupled floors are committed.
+RA_1055_SILENT="$_ra_tmp_root/issue-1055-silent-write"; _ra_fixture "$RA_1055_SILENT"
+cat > "$RA_1055_SILENT/lib/test/reconcile-module-floors.py" <<'PY'
+#!/usr/bin/env python3
+from pathlib import Path
+
+for target in ("scripts/workflow-flight-recorder-registry.json", "lib/test/run.sh"):
+    path = Path(target)
+    path.write_bytes(path.read_bytes() + b"\n")
+PY
+chmod 755 "$RA_1055_SILENT/lib/test/reconcile-module-floors.py"
+_ra_run "$RA_1055_SILENT"
+assert_eq "#1055 a silent full write is infrastructure, never reconciled" \
+  "2" "$(_ra_rc "$RA_1055_SILENT")"
+_ra_has "#1055 a silent full write is reported as unattributable" \
+  "$RA_1055_SILENT" "without announcing a raise"
+
 # ── A5 — exit 2 on an ABSENT generator, and exit 2 wins over a judgment item ─
 # An absent script is reported by the INTERPRETER as exit 2 ("can't open file"), which
 # the helper catches in its declared-set branch — NOT the OSError launch-failure branch
@@ -1567,20 +1587,26 @@ _ra_has "#655 the batched pass prints the SAME recipe string as governing policy
 # coupled prose mirror is present and identical, not that a behavior flips.
 RA_EXT_DIR="$RA_REPO/.prflow/prompt-extensions"
 RA_RULE_HEADING='## Merge conflicts in generated artifacts'
-# The oracle command is not pinned as a literal here. Its guarantee — that the invocation
-# is FENCED and its head is the granted direct form — is asserted executably below by
-# running the real head extractor over each extension's section, which an inline-backtick
-# or interpreter-head regression fails and a wording change does not (issue #1055).
+# Issue #1055 retargeted the oracle literal onto the granted direct leading-token form.
+# The pin is RETAINED, not retired: this literal has no row in the frozen census, which is
+# CONTRIBUTING.md's arm 0 — the census cannot answer, so the pin stays. The per-extension
+# head/shape extraction added below is the stronger executable guarantee (an
+# inline-backtick or interpreter-head regression fails it and a rewording does not), but
+# it is additive, not an authorization to drop an unadjudicated divergence check.
+devflow_module_pin_unique "#1055 the implement conflict oracle uses the granted direct head" \
+  'lib/test/regenerate-artifacts.py --list' "$RA_EXT_DIR/implement.md"  # structural-pin-ok: cross-file-phase-contract -- the cloud-only config grant and prompt invocation must stay coupled
 for _ext in review-and-fix receiving-code-review; do
   devflow_module_pin_unique "#655 the conflict rule has its own section in $_ext.md" \
     "$RA_RULE_HEADING" "$RA_EXT_DIR/$_ext.md"  # runtime-pin-ok: target path interpolates the `for _ext …` loop var, unresolvable by the static meta-guard
+  devflow_module_pin_unique "#655 the conflict rule cites --list as the oracle in $_ext.md" \
+    'lib/test/regenerate-artifacts.py --list' "$RA_EXT_DIR/$_ext.md"  # runtime-pin-ok: target path interpolates the `for _ext …` loop var, unresolvable by the static meta-guard
 done
 # Byte-identity across the three copies: extract each section (heading to the next `## `)
 # and require all three to be equal. A per-file presence pin cannot catch a copy that
 # drifted in its body.
 _ra_rule_body() {  # file
-  # All three copies now carry the granted direct leading-token form, so the section is
-  # compared verbatim — no normalizing rewrite stands between the copies any more.
+  # All three copies carry the granted direct leading-token form, so the section is
+  # compared verbatim — no normalization stands between the copies.
   sed -n "/^${RA_RULE_HEADING}\$/,/^## /p" "$1" | sed '$d'
 }
 RA_RULE_IMPL="$(_ra_rule_body "$RA_EXT_DIR/implement.md")"
