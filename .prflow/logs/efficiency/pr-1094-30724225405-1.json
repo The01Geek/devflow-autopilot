@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1094",
+  "generated_at": "2026-08-02T00:49:37Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.19",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 36.446218249999994,
+    "tokens": {
+      "input_tokens": 6013,
+      "output_tokens": 123578,
+      "cache_read_input_tokens": 45008448,
+      "cache_creation_input_tokens": 395448,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 6182,
+        "outputTokens": 170594,
+        "cacheReadInputTokens": 49270169,
+        "cacheCreationInputTokens": 965191,
+        "webSearchRequests": 0,
+        "costUSD": 36.446218249999994,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 186,
+    "duration_ms": 3228032
+  },
+  "permission_denials": {
+    "count": 24,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"GITHUB_ACTIONS=$GITHUB_ACTIONS\" && git branch --show-current && git status --short | head && echo \"---rename-map---\" && head -50 lib/rename-map.json",
+      "printf 'GITHUB_ACTIONS=[%s]\\n' \"${GITHUB_ACTIONS:-}\"; git branch --show-current; git status --short | head",
+      "printf 'SKILL_DIR=[%s]\\n' \"${CLAUDE_SKILL_DIR:-}\"; ls scripts/workpad.py && ls .prflow/vendor/prflow/scripts/workpad.py 2>/dev/null || echo \"no vendored path (self-repo)\"",
+      "echo \"skill dir check:\"; printenv CLAUDE_SKILL_DIR || echo \"(unset)\"; ls scripts/workpad.py; ls .prflow/vendor/prflow/scripts/workpad.py 2>/dev/null || echo \"no vendored path (self-repo)\"",
+      "printenv CLAUDE_SKILL_DIR || echo \"(unset)\"",
+      "mkdir -p .prflow/tmp/issue-body && gh issue view 1084 --json body --jq '.body' > .prflow/tmp/issue-body/issue-1084.md && wc -l .prflow/tmp/issue-body/issue-1084.md",
+      "FILES=\"\n.github/workflows/devflow-implement.yml\n.github/workflows/devflow-runner.yml\n.github/workflows/devflow.yml\n.prflow/config.schema.json\nREADME.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md\ndocs/cloud-setup.md\ndocs/implement-skill.md\ndocs/workflow-triggers.md\nlib/config-source.sh\nlib/scan.sh\nscripts/match-deferrals.py\nscripts/resolve-committer-identity.sh\nscripts/workpad.py\nskills/implement/SKILL.md\nskills/review/phases/phase-4-verdict.md\nlib/test/run.sh\n\"\nfor f in $FILES; do\n  sed -i -E 's/devflow\\.( …[per-command-truncated]",
+      "git add .prflow/config.schema.json .changeset/issue-1084-schema-workflows-review-family.md && git commit -q -m \"fix: name the migrated workflows.prflow-review key in schema exposure notices\n\nTen config.schema.json descriptions named only the superseded\nworkflows[\\\"devflow-review\\\"] spelling (renamed to prflow-review by Tier 4\n#1041). Each now names both spellings, following install.sh's pattern. The\n.yml workflow filenames stay frozen.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\" && …[per-command-truncated]",
+      "chmod +x lib/test/lint-superseded-config-keys.py; ./lib/test/lint-superseded-config-keys.py; echo \"exit=$?\"",
+      "awk 'NR>=39120 && /^# ──|^# ===|^assert_eq \"#711/{print NR\": \"$0}' lib/test/run.sh | head; echo \"---\"; grep -n '^# ──' lib/test/run.sh | awk -F: '$1>39100' | head -3",
+      "python3 -m py_compile lib/test/lint-superseded-config-keys.py && echo \"compile OK\"\necho \"=== test assertion 1 (guard rc) ===\"\nLIB=lib; L1084_LINT=\"$LIB/test/lint-superseded-config-keys.py\"; (cd \"$LIB/..\" && python3 \"$L1084_LINT\" >/dev/null 2>&1 && echo rc=0 || echo \"rc=$?\")\necho \"=== test assertion 2 (detector) ===\"\npython3 - \"$L1084_LINT\" <<'PY'\nimport importlib.util, sys\nspec = importlib.util.spec_from_file_location(\"g\", sys.argv[1])\ng = importlib.util.module_from_spec(spec); spec.loader.exec_ …[per-command-truncated]",
+      "for m in tier1-rename-migration installer-wiring; do echo \"=== MODULE $m ===\"; lib/test/run-module.sh \"$m\" 2>&1 | tail -8; done",
+      "R=.prflow/tmp/parallel-suite/run-59351-0/tally\nfor s in modules-large python-pool; do echo \"=== $s summary ===\"; cat \"$R/$s/summary\" 2>/dev/null; echo \"  failures:\"; cat \"$R/$s/names\" 2>/dev/null | grep -iF fail | head; done\necho \"=== monolith log tail (serial run.sh) ===\"; tail -20 .prflow/tmp/parallel-suite/run-59351-0/logs/monolith.log",
+      "git add lib/test/modules/coverage-map.json && git commit -q -F - <<'EOF'\ntest: register #1084 run.sh assertion labels in coverage-map\n\nThe coverage-map guard (#591) requires every run.sh assertion label to carry a\nrun_sh_blocks entry. Regenerated via coverage_map_guard.py --fix for the new\n#1084 SECTION, guard, and AC5 assertions.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nEOF\necho COMMITTED; echo \"=== run modules-pin shard ===\"; timeout 200 lib/test/run-shard.sh modules-pin 2>&1 | …[per-command-truncated]",
+      "timeout 240 lib/test/run-shard.sh modules-pin 2>&1 | tail -6",
+      "lib/test/run-shard.sh modules-pin > /tmp/pin.log 2>&1; echo \"rc=$?\"; tail -8 /tmp/pin.log",
+      "lib/test/run-shard.sh modules-pin 2>&1 | tail -8",
+      "lib/test/run-shard.sh modules-pin",
+      "RUN_URL=\"https://github.com/The01Geek/prflow/actions/runs/30724225405\"\nBODY=$(cat <<EOF\nWork in progress — automated review pending.\n\nResolves #1084\n[View run]($RUN_URL)\n\nGenerated via \\`/prflow:implement 1084\\`\nEOF\n)\ngh pr create --base main --draft --title \"Sweep superseded devflow.<key> config leaves in instructions and runtime remedies\" --body \"$BODY\" 2>&1 | tail -3",
+      "cd /home/runner/work/prflow/prflow; for f in devflow.yml devflow-runner.yml devflow-implement.yml; do echo \"== $f ==\"; grep -nE '^[[:space:]]*SECTION:' .github/workflows/$f; done",
+      "echo \"=== binary/non-utf8 tracked files (would trip skip_nul) ===\"; git ls-files | git check-attr --stdin binary 2>/dev/null | grep ': binary: set' | head; echo \"--- grep for NUL in tracked files ---\"; git ls-files -z | xargs -0 grep -lIZ . 2>/dev/null >/dev/null; git ls-files | while read -r f; do :; done; python3 - <<'PY'\nimport subprocess\nfiles = subprocess.run([\"git\",\"ls-files\"],capture_output=True,text=True).stdout.split(\"\\n\")\nbad=[]\nfor f in files:\n    if not f: continue\n    try:\n        d …[per-command-truncated]",
+      "/home/runner/work/prflow/prflow/skills/docs/../../scripts/load-prompt-extension.sh docs; echo \"---INTERNAL---\"; /home/runner/work/prflow/prflow/skills/docs/../../scripts/config-get.sh .docs.internal_enabled true; echo \"---EXTERNAL---\"; /home/runner/work/prflow/prflow/skills/docs/../../scripts/config-get.sh .docs.external_enabled true",
+      ".prflow/vendor/prflow/scripts/workpad.py update 1084 --replace-plan-file .prflow/tmp/plan-1084.md 2>&1 | tail -1\n.prflow/vendor/prflow/scripts/react-to-trigger.sh --repo The01Geek/prflow --event issue_comment --comment \"$(gh api \"repos/{owner}/{repo}/issues/1084/comments?per_page=100\" --jq 'map(select((.body | contains(\"/prflow:implement\")) and ((.body | test(\"(pr|dev)flow:workpad\")) | not))) | last | .id' 2>/dev/null)\" --reaction hooray 2>&1 | tail -2 || echo \"reaction best-effort\"",
+      "rm -f \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.prflow/tmp/implement-active-1084\" 2>/dev/null || true\nrm -f \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.prflow/tmp/issue-body/issue-1084.md\" 2>/dev/null || true\necho \"markers cleaned\"; echo \"=== final workpad status ===\"; .prflow/vendor/prflow/scripts/workpad.py body 5154069182 | grep -E '^\\*\\*Status|marked ready|Complete' | head"
+    ],
+    "total": 24,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
