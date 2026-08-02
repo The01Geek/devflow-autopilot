@@ -43888,14 +43888,14 @@ sp_pruneset() {  # <slice> -> "rc=<n>|<one-line joined stdout+stderr>"
   printf 'rc=%s|%s' "$rc" "$(printf '%s' "$out" | tr '\n' ' ')"
 }
 # test_nested_removal_is_a_target: a qualifying rm inside a conditional inside the body yields it.
-assert_eq "#1072 lint: a nested (conditional) removal is a target" "rc=0|lib/test " \
+assert_eq "#1072 lint: a nested (conditional) removal is a target" "rc=0|lib/test" \
   "$(sp_pruneset "$SP_FX/slices/nested-removal.sh")"
 # test_staging_variable_renamed_refuses (derive half): renaming the staging variable still derives
 # the same target, proving the name was DERIVED from the function, not transcribed.
-assert_eq "#1072 lint: a renamed staging variable still derives the same target" "rc=0|lib/test " \
+assert_eq "#1072 lint: a renamed staging variable still derives the same target" "rc=0|lib/test" \
   "$(sp_pruneset "$SP_FX/slices/renamed.sh")"
 # A target wrapped across a line continuation is folded and derived.
-assert_eq "#1072 lint: a target across a line continuation is derived" "rc=0|lib/test " \
+assert_eq "#1072 lint: a target across a line continuation is derived" "rc=0|lib/test" \
   "$(sp_pruneset "$SP_FX/slices/continuation.sh")"
 # test_bare_stage_argument_rejected: the bare staging directory yields an empty set + refusal,
 # never a set whose empty-suffix member would match every line of every audited file.
@@ -43988,7 +43988,7 @@ argv = ["--slice-source", sys.argv[2]]
 def run(pop_fn, reader):
     sp._pop.enumerate_population = pop_fn
     sp._pop.read_source = reader
-    with contextlib.redirect_stderr(io.StringIO()):
+    with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
         return sp.main(argv)
 def raise_enum(root, ff, *, ls_files_argv):
     raise sp._pop.EnumerationError("git ls-files failed")
