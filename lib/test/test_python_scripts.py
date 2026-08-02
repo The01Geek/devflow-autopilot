@@ -8394,6 +8394,33 @@ _code, _out, _err, _patched = _drive_cmd_update(_CP_BODY.replace(
 assert_eq("#537 checkpoint AC16: a checkpoint-only replay makes no PATCH", None, _patched)
 assert_eq("#537 checkpoint AC16: a checkpoint-only replay exits 0", None, _code)
 
+# #1050 (Slice A): the Phase 4.3 checkpoint-4 evidence record uses the SAME keyed-checkpoint
+# mechanism through the fixed key `base-update-checkpoint-4`, whose marker `lib/fetch-pr-context.sh`
+# reads into `base_update_checkpoint4_present`. Assert this specific key end-to-end: it is a VALID
+# key (accepted, not gha:-prefixed), a first write inserts exactly one hidden marker, a same-key
+# replay is a pure no-op (so a stall-backstop-resumed Phase 4.3 does not double-record), and a
+# non-canonical body is a STRUCTURAL failure with zero PATCH — which is precisely why the phase
+# prose must degrade to `--note` rather than let the carrier swap wedge the run's last step.
+_CP4_KEY = "base-update-checkpoint-4"
+assert_eq("#1050: the checkpoint-4 key is NOT gha:-prefixed (tier-discriminator invariant)",
+          False, _CP4_KEY.startswith("gha:"))
+assert_eq("#1050: the checkpoint-4 key matches the checkpoint key grammar",
+          True, bool(workpad._CHECKPOINT_KEY_RE.match(_CP4_KEY)))
+_MK4 = workpad._checkpoint_marker(_CP4_KEY)
+_out4 = apply_mut(_CP_BODY, make_args(checkpoint=[[_CP4_KEY,
+          "checkpoint 4: observed token UP_TO_DATE — clean, proceeding to the publish decision"]]))
+assert_eq("#1050: the checkpoint-4 first write adds exactly one hidden marker", 1, _out4.count(_MK4))
+assert_raises("#1050: a same-key checkpoint-4 replay is a pure no-op (backstop-resume safe)",
+              workpad._NoOpReplay,
+              lambda: apply_mut(_out4, make_args(checkpoint=[[_CP4_KEY, "x"]])))
+assert_raises("#1050: checkpoint-4 on a body with no ## Progress is structural (why the note fallback exists)",
+              workpad._UpdateError,
+              lambda: apply_mut(_CP_BODY.replace("## Progress", "## Notprogress"),
+                                make_args(checkpoint=[[_CP4_KEY, "t"]])))
+_code, _out, _err, _patched = _drive_cmd_update(
+    _CP_BODY.replace("## Progress", "## Notprogress"), checkpoint=[[_CP4_KEY, "t"]])
+assert_eq("#1050: checkpoint-4 structural failure makes no PATCH (degrade, do not wedge)", None, _patched)
+
 # AC16 (positive control at the process level): an ABSENT-key checkpoint INSERT
 # through cmd_update DOES issue a PATCH carrying the new row — the counterpart to the
 # replay-makes-no-PATCH negative above, so a mutant that silently swallowed inserts
