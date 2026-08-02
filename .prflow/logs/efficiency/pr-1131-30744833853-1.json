@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1131",
+  "generated_at": "2026-08-02T11:05:54Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.38",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.602013750000001,
+    "tokens": {
+      "input_tokens": 32,
+      "output_tokens": 15692,
+      "cache_read_input_tokens": 2160969,
+      "cache_creation_input_tokens": 142227,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 62,
+        "outputTokens": 28988,
+        "cacheReadInputTokens": 2657730,
+        "cacheCreationInputTokens": 322366,
+        "webSearchRequests": 0,
+        "costUSD": 4.602013750000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 25,
+    "duration_ms": 305006
+  },
+  "permission_denials": {
+    "count": 2,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "cat > .prflow/tmp/review/pr-1131/local-run/report.md <<'EOF'\n## Verdict: APPROVE with notes (flaky host-dependent test replaced with a deterministic one; docstring accurately documents the guard's by-design limitation)\n\n## Issue Compliance\nReviewed against issue #1100: pin-corpus-lint's worktree path-race guard cannot discriminate an unlink+recreate on a host with coarse inode timestamps — criteria from the issue body; scope unchanged. Requirement-based checklist items are included in the verifi …[per-command-truncated]",
+      "/home/runner/work/prflow/prflow/scripts/dismiss-stale-rejections.sh 1131; echo \"dismiss-rc=$?\""
+    ],
+    "total": 2,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
