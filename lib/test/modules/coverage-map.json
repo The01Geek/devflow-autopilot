@@ -159,6 +159,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "lib/verdict-receipt.sh": {
+      "note": "#1156 single source of the Phase 4.4 verdict-post receipt path and its best-effort write, sourced by both the producer (post-review-verdict.sh) and the reader (check-verdict-post-reached.sh); exercised end to end through the review-stall-backstop module's #1156 block, which drives the producer over every outcome path in a real git fixture and reads the bytes back.",
+      "owner": "review-stall-backstop"
+    },
     "scripts/agents-seam-probe-verdict.py": {
       "note": "issue #610 cloud seam-probe verdict core; driven directly in lib/test/run.sh (asv arms + fail-open matrix)",
       "owner": "unmodularized"
@@ -223,6 +227,10 @@
     "scripts/check-completion-evidence.py": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "scripts/check-verdict-post-reached.sh": {
+      "note": "#1156 reader reducing the verdict-post receipt to REACHED/NOT-REACHED/UNESTABLISHED; driven per arm by the review-stall-backstop module over the full malformed-receipt matrix, plus two arm-order swaps and a planted-defect control.",
+      "owner": "review-stall-backstop"
     },
     "scripts/check-verified-premises.py": {
       "focused_test": "lib/test/test_python_scripts.py",
@@ -293,6 +301,10 @@
     "scripts/describe-skip-title.sh": {
       "note": "retained unreachable-in-tree: called only by the withheld auto-review tier's workflow, kept so an installed consumer copy still resolves it (issue #936)",
       "owner": "review-trigger-helpers"
+    },
+    "scripts/describe-verdict-post-gap.sh": {
+      "note": "#1156 arm-dispatch helper for the always() reach-record step: selects the arm and composes the warning and comment bytes the workflow renders; driven per arm, per arm order and over its field validation by the review-stall-backstop module.",
+      "owner": "review-stall-backstop"
     },
     "scripts/detect-hook-closure-edges.py": {
       "note": "",
@@ -805,6 +817,10 @@
     "1105": {
       "note": "",
       "owner": "issue-audit-state"
+    },
+    "1156": {
+      "note": "",
+      "owner": "review-stall-backstop"
     },
     "126": {
       "note": "",
