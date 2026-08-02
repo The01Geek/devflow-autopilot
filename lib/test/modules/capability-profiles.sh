@@ -224,6 +224,44 @@ assert_eq "#1078 no shipped capability profile grants a Bash(lib/test/...) token
 CAP_1078_POS="$(_cap_libtest_hits "$LIB/capability-profiles.json" "Bash(lib/test/injected_probe.py:*)")"
 assert_eq "#1078 the shipped-profile lib/test scan is non-vacuous (positive control)" "implement:Bash(lib/test/injected_probe.py:*)" "$CAP_1078_POS"
 
+# ── issue #1030: the verdict-post grant flip, asserted on the RESOLVED manifest. ──
+# The producer guarantee is structural only because the raw review porcelain is UNGRANTED:
+# if `Bash(gh pr review:*)` came back, a cloud run could post an unmarked review again and
+# every consumer would fall back to the prose shapes a census measured 6-of-9 non-conforming.
+# So both halves are asserted together on the same resolved lists the generated literals
+# compile from — the grant that must be present, and the token that must be absent — and the
+# scan is comment-immune (a doc comment naming either token cannot move it).
+_cap_verdict_grants() {  # $1=manifest path  $2=optional token to inject into review profile
+  python3 - "$1" "${2:-}" <<'PY1030'
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+if len(sys.argv) > 2 and sys.argv[2]:
+    d["profiles"]["review"].append(sys.argv[2])
+groups = d["groups"]
+emitter = "Bash(.prflow/vendor/prflow/scripts/post-review-verdict.sh:*)"
+porcelain = "Bash(gh pr review:*)"
+out = []
+for name in ("review", "implement", "command"):
+    resolved = []
+    for tok in d["profiles"][name]:
+        resolved += groups[tok[1:]] if tok.startswith("@") else [tok]
+    out.append("%s:emitter=%s,porcelain=%s" % (
+        name, "yes" if emitter in resolved else "no",
+        "yes" if porcelain in resolved else "no"))
+print(" ".join(out))
+PY1030
+}
+CAP_1030="$(_cap_verdict_grants "$LIB/capability-profiles.json")"; CAP_1030_RC=$?
+# Fail-closed: a crashed scan yields empty stdout, which must not read as a satisfied
+# assertion — pin the exit status before the value.
+assert_eq "#1030 the verdict-grant scan actually ran (python3 exit 0, not a crashed empty scan)" "0" "$CAP_1030_RC"
+assert_eq "#1030 review/implement/command each grant the verdict emitter and grant no raw review porcelain" \
+  "review:emitter=yes,porcelain=no implement:emitter=yes,porcelain=no command:emitter=yes,porcelain=no" "$CAP_1030"
+# Positive control: the scan is non-vacuous — reinstating the porcelain in one profile is caught.
+CAP_1030_POS="$(_cap_verdict_grants "$LIB/capability-profiles.json" "Bash(gh pr review:*)")"
+assert_eq "#1030 the verdict-grant scan is non-vacuous (positive control: a reinstated porcelain grant is caught)" \
+  "review:emitter=yes,porcelain=yes implement:emitter=yes,porcelain=no command:emitter=yes,porcelain=no" "$CAP_1030_POS"
+
 # T8 — no-runtime-read: no workflow reads policy from the manifest at run
 # time. The assertion greps for the two policy-source filenames in NON-COMMENT content
 # only (comment lines — the banner comments and the maintenance comments that now name

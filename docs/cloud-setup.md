@@ -106,9 +106,9 @@ writes changes into your repository, so download it, read it, then run the file 
 read:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.51/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.52/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.30.51 bash devflow-install.sh
+DEVFLOW_REF=v2.30.52 bash devflow-install.sh
 ```
 
 Both refs are pinned to the same **release tag**, so the install is reproducible.
@@ -924,7 +924,7 @@ GitHub forbids **requesting changes on — or approving — your own pull reques
 Without a dedicated reviewer identity, PRFlow's review agent would run under the
 same identity that PRFlow uses to *author* PRs (the primary App above, or
 `github-actions[bot]`), so Phase 4.4's
-`gh pr review --request-changes` / `--approve` would be a forbidden self-review:
+a formal `REQUEST_CHANGES` / `APPROVE` review would be a forbidden self-review:
 the merge stays blocked by the required `Devflow Review` status check, but no
 **visible** formal review (`reviewDecision`) is recorded. To restore the visible
 formal review, run the review agent under a **dedicated second GitHub App**,

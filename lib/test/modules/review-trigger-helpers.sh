@@ -384,6 +384,110 @@ HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DE
   DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"},{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: NEEDS-DISCUSSION\"}]" \
   drv "#249 unrecognized verdict token on last verdict-bearing HEAD review -> incomplete (fail closed, pinned)" "incomplete false"
 
+# ── #1030: the producer marker is the FIRST signal, on both durable surfaces ──
+# scripts/post-review-verdict.sh stamps
+#   <!-- prflow:review-verdict head=<40-hex> verdict=<APPROVE|REJECT> -->
+# as line 1 of the review body and as line 2 of the run-keyed progress comment. Every
+# case below feeds a body the SHIPPED helper composes that shape for, and every
+# unestablished reading must reach `incomplete false` with its OWN breadcrumb — a
+# guessed verdict here would publish a merge signal nobody produced.
+DRV_M_APPROVE="<!-- prflow:review-verdict head=$DRV_NEW verdict=APPROVE -->"
+DRV_M_REJECT="<!-- prflow:review-verdict head=$DRV_NEW verdict=REJECT -->"
+DRV_M_OLDHEAD="<!-- prflow:review-verdict head=$DRV_OLD verdict=APPROVE -->"
+DRV_PROGRESS="<!-- prflow:review-progress run=100-1 -->"
+
+# The marquee before/after: a marker-carrying COMMENTED approve-with-notes on HEAD.
+# BEFORE #1030 this exact review yielded `incomplete false` (recorded on the issue as
+# the measured state), because a COMMENTED review was admitted only on the `## Verdict:`
+# prose the agent did not reliably write. The negative control immediately after it is
+# the same review with the marker removed and no prose — still incomplete — so the
+# marker, not the state, is what moved this case.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"$DRV_M_APPROVE\n## 🔴 Devflow Review — APPROVE with notes\"}]" \
+  drv "#1030 marker-carrying COMMENTED approve-with-notes on HEAD -> approve (was incomplete)" "approve true"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## 🔴 Devflow Review — APPROVE with notes\"}]" \
+  drv "#1030 control: the SAME COMMENTED review without the marker stays incomplete" "incomplete false"
+# A marker-carrying CHANGES_REQUESTED whose body matches NO prose shape (one of the six
+# census bodies) is still a reject — the marker, not the prose, carries it.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"$DRV_M_REJECT\n## 🔴 Devflow Review — REJECT\"}]" \
+  drv "#1030 marker-carrying non-conforming REJECT body on HEAD -> reject" "reject true"
+
+# The two verdict keys must agree. A marker naming another commit is a reportable
+# producer defect, never a verdict to join on.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"$DRV_M_OLDHEAD\"}]" \
+  drv "#1030 marker head disagreeing with the review commit_id -> incomplete (fail closed)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"$DRV_M_OLDHEAD\"}]" \
+  drv_stderr "#1030 the head disagreement emits its own 'two verdict keys disagree' breadcrumb" "verdict keys disagree"
+# ...and so must the marker and the reviews-API state.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"$DRV_M_APPROVE\"}]" \
+  drv "#1030 marker APPROVE on a CHANGES_REQUESTED review -> incomplete (contradiction)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"$DRV_M_REJECT\"}]" \
+  drv "#1030 marker REJECT on an APPROVED review -> incomplete (contradiction)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"$DRV_M_REJECT\"}]" \
+  drv_stderr "#1030 the state contradiction emits its own 'contradict each other' breadcrumb" "contradict each other"
+
+# Malformed marker shapes — each fails closed with its own breadcrumb, never a guess.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"<!-- prflow:review-verdict head=$DRV_NEW -->\"}]" \
+  drv "#1030 marker with no verdict= field -> incomplete (fail closed)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"<!-- prflow:review-verdict head=$DRV_NEW verdict=MAYBE -->\"}]" \
+  drv "#1030 marker with an out-of-enum verdict token -> incomplete (fail closed)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"<!-- prflow:review-verdict head=$DRV_NEW\nverdict=APPROVE -->\"}]" \
+  drv "#1030 marker split across two lines -> incomplete (fail closed)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"$DRV_M_APPROVE\n$DRV_M_REJECT\"}]" \
+  drv "#1030 two markers within the scanned window -> incomplete (ambiguous, fail closed)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"$DRV_M_APPROVE\n$DRV_M_REJECT\"}]" \
+  drv_stderr "#1030 the two-marker case emits its own 'TWO prflow:review-verdict marker lines' breadcrumb" "TWO prflow:review-verdict marker lines"
+# A marker QUOTED inside a fenced block by a finding is prose, not the producer's stamp:
+# it is outside the scanned window, so this review is not even admitted and the run ends
+# at the pre-existing no-verdict arm rather than reading the quoted token.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"a finding says:\n\n\`\`\`\n$DRV_M_APPROVE\n\`\`\`\n\"}]" \
+  drv "#1030 a marker quoted in a fenced block is never read as the verdict -> incomplete" "incomplete false"
+
+# The progress-comment surface. With NO review on HEAD, this run's run-keyed comment
+# carries the marker on the line after its run key, and that is the verdict.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" DRV_COMMENTS="[{\"body\":\"$DRV_PROGRESS\n$DRV_M_REJECT\n## 🔴 Devflow Review — REJECT\"}]" \
+  drv "#1030 marker on this run's progress comment, no review on HEAD -> reject" "reject true"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" DRV_COMMENTS="[{\"body\":\"$DRV_PROGRESS\n$DRV_M_APPROVE\n## ✅ Devflow Review — APPROVE\"}]" \
+  drv "#1030 marker on this run's progress comment, no review on HEAD -> approve" "approve true"
+# On a comment the marker's head= is authoritative, so one naming another commit is a
+# stale artifact and must not become this HEAD's verdict.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" DRV_COMMENTS="[{\"body\":\"$DRV_PROGRESS\n$DRV_M_OLDHEAD\n## ✅ Devflow Review — APPROVE\"}]" \
+  drv "#1030 progress-comment marker naming another head -> incomplete (fail closed)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" DRV_COMMENTS="[{\"body\":\"$DRV_PROGRESS\n<!-- prflow:review-verdict head=$DRV_NEW verdict=MAYBE -->\"}]" \
+  drv "#1030 malformed progress-comment marker -> incomplete (fail closed)" "incomplete false"
+# The transitional prose arm on the comment surface is UNCHANGED — an unmarked
+# progress comment still resolves through `## Verdict:` exactly as before.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" DRV_COMMENTS="[{\"body\":\"$DRV_PROGRESS\n## Verdict: APPROVE\"}]" \
+  drv "#1030 unmarked progress comment still resolves through the transitional prose" "approve true"
+# ...and the superseded devflow: run-key spelling is still accepted (issue #1003's
+# dual read on the PROGRESS marker is untouched by #1030's single-spelling rule).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" DRV_COMMENTS="[{\"body\":\"<!-- devflow:review-progress run=100-1 -->\n$DRV_M_APPROVE\"}]" \
+  drv "#1030 the superseded devflow: run-key spelling still reaches the marker" "approve true"
+# The verdict marker itself accepts ONLY the prflow: spelling — a devflow:review-verdict
+# marker is not a marker at all, so the body falls through to the prose arms.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" DRV_COMMENTS="[{\"body\":\"$DRV_PROGRESS\n<!-- devflow:review-verdict head=$DRV_NEW verdict=APPROVE -->\"}]" \
+  drv "#1030 a devflow:review-verdict spelling is not accepted as a marker -> incomplete" "incomplete false"
+
 # always exits 0 (best-effort; caller reads the verdict, not the exit code).
 ( HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER="" GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" bash "$DRV" >/dev/null 2>&1 ); DRV_RC=$?
 assert_eq "#249 deriver always exits 0 (best-effort)" "0" "$DRV_RC"

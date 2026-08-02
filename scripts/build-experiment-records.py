@@ -87,6 +87,18 @@ PROGRESS_MARKER = "<!-- prflow:review-progress"
 # superseded alternative is the one that carries the existing corpus.
 PROGRESS_MARKER_SUPERSEDED = "<!-- devflow:review-progress"
 VERDICT_LINE_RE = re.compile(r"^\s*##\s*Verdict:\s*(.+?)\s*$", re.MULTILINE)
+# The producer marker (issue #1030). scripts/post-review-verdict.sh — never the reviewing
+# agent — writes it as line 1 of a review body and as the line after the run key in the
+# run-keyed progress comment, so ONLY those first two lines are scanned: a review body
+# routinely QUOTES this contract inside a finding, and a quoted marker is prose. Two
+# markers in that window is ambiguous and reads as none, falling back to the transitional
+# `## Verdict:` line rather than picking one. Only the `prflow:` spelling is accepted —
+# the marker postdates the #1003 rename, so no persisted artifact can carry a `devflow:`
+# one; that issue's dual-read rule governs the review-PROGRESS marker above, which is
+# unchanged.
+VERDICT_MARKER_RE = re.compile(
+    r"^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=(APPROVE|REJECT) -->$"
+)
 REVIEWED_HEAD_RE = re.compile(r"^\*\*Reviewed HEAD:\*\*\s*(\S+)", re.MULTILINE)
 # The Important-findings sub-heading in the engine's `## Code Review Findings`
 # section (skills/review/SKILL.md renders "### 🟠 Important / Major"). Match on the
@@ -146,8 +158,39 @@ PROVENANCE_UNESTABLISHED = ("fetch-failed", "no-repo", "no-sha", "unparseable")
 PROVENANCE_SOURCES = PROVENANCE_UNESTABLISHED + (
     "found", "absent",
     "pr-review", "progress-comment", "progress-comment-degraded",
+    # Issue #1030 — the same two surfaces, but read from the PRODUCER MARKER rather than
+    # from the agent-authored `## Verdict:` line. They are distinct tags, not a widened
+    # meaning of the two above, because every inhabitant of a provenance field must be
+    # matchable on equality: an analysis asking "was this verdict producer-emitted or
+    # recovered from prose?" is exactly the question the census that motivated #1030 had
+    # to answer by hand.
+    "pr-review-marker", "progress-comment-marker", "progress-comment-marker-degraded",
     "check-run-summary", "check-run-annotation",
     "efficiency-record", "merge-commit-config", "mixed-across-runs",
+)
+
+
+# The verdict sources whose value was recovered from the PROGRESS COMMENT while the
+# authoritative PR-reviews call could not be established. Membership — not a
+# `.endswith("-degraded")` suffix test — is what selects the caveat note the caller
+# appends, and the difference is not stylistic (issue #1030 review). The note asserts a
+# specific fact: *the verdict came from the progress comment, so it may predate the final
+# reviewed HEAD.* A suffix test would attach that sentence to any future `-degraded` tag,
+# including one on a source that is not the progress comment at all (a degraded
+# check-run or efficiency-record read), publishing a caveat that is simply untrue of the
+# row it annotates. An explicit set fails in the safe direction instead: a new
+# progress-comment-degraded source omitted from it loses the note (an under-claim a
+# reader can still act on), where the suffix test would over-claim silently.
+_PROGRESS_COMMENT_DEGRADED_SOURCES = frozenset({
+    "progress-comment-degraded",          # the transitional `## Verdict:` prose arm
+    "progress-comment-marker-degraded",   # the issue-#1030 producer-marker arm
+})
+# Closed-vocabulary coherence, enforced at import rather than left to review: a typo here
+# would silently select nothing and drop the caveat on every row, which is exactly the
+# fail-open this constant exists to prevent.
+assert _PROGRESS_COMMENT_DEGRADED_SOURCES <= set(PROVENANCE_SOURCES), (
+    "_PROGRESS_COMMENT_DEGRADED_SOURCES names a tag outside the closed PROVENANCE_SOURCES "
+    "vocabulary: " + repr(sorted(_PROGRESS_COMMENT_DEGRADED_SOURCES - set(PROVENANCE_SOURCES)))
 )
 
 
@@ -751,6 +794,25 @@ def _parse_verdict(body):
     return raw or None
 
 
+def _verdict_marker(body):
+    """The producer-emitted verdict from a body's first two lines, or None.
+
+    Returns `APPROVE`/`REJECT` when EXACTLY ONE line of that window is the exact marker
+    literal. Anything else — no marker, two markers, a shape that does not match, a
+    non-string body — returns None so the caller falls back to the transitional
+    `## Verdict:` line rather than guessing. See VERDICT_MARKER_RE for why the window is
+    two lines and why the `devflow:` spelling is not accepted.
+    """
+    if not isinstance(body, str):
+        return None
+    hits = [
+        m.group(1)
+        for m in (VERDICT_MARKER_RE.match(line) for line in body.split("\n", 2)[:2])
+        if m
+    ]
+    return hits[0] if len(hits) == 1 else None
+
+
 def _reviewed_head(body):
     m = REVIEWED_HEAD_RE.search(body or "")
     return m.group(1).strip() if m else None
@@ -817,12 +879,23 @@ def _resolve_verdict_and_important(repo, pr):
     if reviews:
         completed = [r for r in reviews
                      if (r or {}).get("state") not in (None, "PENDING")
-                     and "## Verdict:" in ((r or {}).get("body") or "")]
+                     and (_verdict_marker((r or {}).get("body")) is not None
+                          or "## Verdict:" in ((r or {}).get("body") or ""))]
         completed.sort(key=lambda r: r.get("submitted_at") or "")
         if completed:
             r0 = completed[0]
-            parsed = _parse_verdict(r0.get("body"))
-            if parsed is not None:
+            # The producer marker is the FIRST signal (issue #1030): it is the only field
+            # the producer guarantees, so a review carrying one never falls through to the
+            # agent-authored line, and its own provenance tag records which surface
+            # answered. `unparseable` cannot arise on this arm — the marker either matched
+            # its exact literal or was not read at all.
+            marked = _verdict_marker(r0.get("body"))
+            parsed = _parse_verdict(r0.get("body")) if marked is None else None
+            if marked is not None:
+                verdict = marked
+                verdict_source = "pr-review-marker"
+                review_commit = r0.get("commit_id")
+            elif parsed is not None:
                 # Verdict parsed cleanly — attribute it and take the review's commit_id
                 # as the join key for the Important-count lookup below.
                 verdict = parsed
@@ -838,11 +911,16 @@ def _resolve_verdict_and_important(repo, pr):
 
     fallback_comment = None
     if verdict is None and progress:
-        vp = [c for c in progress if "## Verdict:" in (c.get("body") or "")]
+        vp = [c for c in progress
+              if _verdict_marker(c.get("body")) is not None
+              or "## Verdict:" in (c.get("body") or "")]
         vp.sort(key=lambda c: c.get("created_at") or "")
         if vp:
             fallback_comment = vp[-1]
-            parsed = _parse_verdict(fallback_comment.get("body"))
+            # Same marker-first order as the pr-review arm above (issue #1030).
+            marked = _verdict_marker(fallback_comment.get("body"))
+            parsed = (_parse_verdict(fallback_comment.get("body"))
+                      if marked is None else None)
             # Keep review_commit (the Reviewed HEAD join key) even when the verdict
             # line does not parse, so the Important-count join can still target this
             # comment. But mirror the pr-review arm's coherence rule: do NOT claim a
@@ -850,7 +928,14 @@ def _resolve_verdict_and_important(repo, pr):
             # marker-present-but-unparseable line gets "unparseable", symmetric with
             # the important-count field (issue #431 review, shadow pass).
             review_commit = _reviewed_head(fallback_comment.get("body"))
-            if parsed is not None:
+            if marked is not None:
+                verdict = marked
+                # The degraded distinction below applies identically to the marker arm:
+                # what makes a comment-sourced verdict degraded is that the REVIEW could
+                # not be fetched, not how the comment's own verdict was read.
+                verdict_source = ("progress-comment-marker-degraded" if not reviews_ok
+                                  else "progress-comment-marker")
+            elif parsed is not None:
                 verdict = parsed
                 # When the PRIMARY source (the formal PR review — the canonical surface,
                 # and the one supplying commit_id for the Important-count join) could not
@@ -1343,8 +1428,11 @@ def build_record(repo, repo_root, eff_index, pr, retro_entry):
         _resolve_verdict_and_important(repo, pr)
     provenance["verdict"] = verdict_source
     provenance["important_finding_count"] = important_source
-    if verdict_source == "progress-comment-degraded":
-        # Bare tag above; the caveat lives here, per the closed-vocabulary rule.
+    if verdict_source in _PROGRESS_COMMENT_DEGRADED_SOURCES:
+        # Bare tag above; the caveat lives here, per the closed-vocabulary rule. Membership,
+        # not equality: BOTH progress-comment-degraded arms (the transitional prose one and
+        # the issue-#1030 marker one) describe the same fact, and an equality test against
+        # only the older tag left the marker arm publishing a degraded row with no caveat.
         provenance["notes"].append(
             "verdict taken from the progress comment because the PR-reviews call could "
             "not be established; it may predate the final reviewed HEAD")

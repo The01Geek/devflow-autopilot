@@ -35,7 +35,7 @@
     },
     "capability-profiles": {
       "path": "lib/test/modules/capability-profiles.sh",
-      "minimum_assertions": 65,
+      "minimum_assertions": 68,
       "assertion_floor_policy": "exact",
       "description": "Focused #561 capability-profile manifest generator: --check clean pass, manifest and region adversarial matrices, planted-defect controls, idempotency/determinism, no-runtime-read, PR #588 hardening, and the #555 implement-tier bundled-helper grant-flow CLAUDE.md pins"
     },
@@ -64,7 +64,7 @@
     },
     "review-trigger-helpers": {
       "path": "lib/test/modules/review-trigger-helpers.sh",
-      "minimum_assertions": 628,
+      "minimum_assertions": 649,
       "assertion_floor_policy": "exact",
       "description": "Focused review and implement trigger-helper contracts: derive-review-verdict.sh and derive-review-preconditions.sh (both RETAINED and still covered after issue #936 withheld the auto PR-triggered review tier — their workflow caller is gone but an installed consumer copy still resolves them, so the helpers ship and their sections stay live), parse-engine-error.sh, surface-execution-diagnostics.sh (#329) with its workflow wiring (#331), the execution-transcript artifact config key and scrub/gate hardening (#409), resolve-implement-trigger.sh, dedupe-implement-run.sh, review-progress marker ownership and dead-run diagnosis (#1054), authorize-actor.sh, detect-standalone-command.sh and resolve-command-trigger.sh"
     },
@@ -76,7 +76,7 @@
     },
     "experiment-records": {
       "path": "lib/test/modules/experiment-records.sh",
-      "minimum_assertions": 133,
+      "minimum_assertions": 143,
       "assertion_floor_policy": "exact",
       "description": "Focused #431 build-experiment-records.py unified-experiment-record join: the DEVFLOW_GH-stubbed assembler driven over fixture stores with per-scenario repo roots, the joined record fields, and the config_fingerprint stamp with its partial-flag, None and canonical-hash arms"
     },

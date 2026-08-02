@@ -12,15 +12,30 @@
 # wedged at reviewDecision=CHANGES_REQUESTED despite a green required check.
 #
 # Scope: ONLY reviews whose body is a Devflow Review formal verdict are
-# dismissed. Two body shapes are matched:
-#   1. New stub format (post-#135 consolidation): the formal review body
-#      starts with `## Verdict: REJECT` — the full Phase 4.1 report lives
-#      in the progress comment, not the review body, so the review carries
-#      only a short verdict stub.
-#   2. Legacy format (pre-#135): the formal review body starts with
-#      `# Review Report` (kept for backward compatibility with any
+# dismissed. Three body shapes are matched:
+#   1. PRODUCER MARKER (issue #1030, the authoritative shape): the review
+#      body's LINE 1 is exactly
+#        <!-- prflow:review-verdict head=<40-hex> verdict=REJECT -->
+#      composed by scripts/post-review-verdict.sh — never by the reviewing
+#      agent. This is the only shape whose presence the producer guarantees.
+#      Matched on line 1 alone, so a marker literal quoted inside a finding's
+#      prose (routine on a pull request touching the review engine itself)
+#      is not mistaken for the producer's own stamp, and a marker carrying
+#      `verdict=APPROVE` is not selected.
+#   2. TRANSITIONAL — new stub format (post-#135 consolidation): the formal
+#      review body starts with `## Verdict: REJECT` — the full Phase 4.1
+#      report lives in the progress comment, not the review body, so the
+#      review carries only a short verdict stub.
+#   3. TRANSITIONAL — legacy format (pre-#135): the formal review body starts
+#      with `# Review Report` (kept for backward compatibility with any
 #      pre-consolidation reviews still outstanding on long-lived PRs).
-# A human reviewer's `--request-changes` carries neither marker and is left
+# Shapes 2 and 3 are agent-authored prose, which is exactly why #1030 added
+# shape 1: a census over 60 pull requests measured 6 of 9 real REJECT bodies
+# matching NEITHER, so each was silently read as "not one of ours" and never
+# dismissed. They are retained because reviews already posted on long-lived
+# open pull requests carry no marker; their removal is confirmation-gated on
+# the end criterion CLAUDE.md states, never on a timer.
+# A human reviewer's `--request-changes` carries none of the three and is left
 # untouched — an automated APPROVE must never silently clear a human's
 # block.
 #
@@ -100,15 +115,39 @@ REPO="${2:-$("$DEVFLOW_GH" repo view --json nameWithOwner --jq .nameWithOwner)}"
 # also carries the review's `commit_id`, the comparand the staleness test
 # below needs (`// ""` so an absent/null one arrives as an empty field rather
 # than aborting the filter).
+# Every row is emitted with an `own`/`other` KIND prefix rather than filtering the
+# unselected ones away, so a CHANGES_REQUESTED review this script declines to touch
+# is COUNTED instead of vanishing. That distinction is the whole point of issue
+# #1030: before the marker, six of nine real REJECTs matched no body shape, so the
+# script reported a clean no-op on a wedged pull request and nothing recorded that
+# it had looked at anything at all.
+# The body type is tested BEFORE any string operation and `and` short-circuits, so a
+# non-string `body` (an API shape this script does not produce) grades `other`
+# instead of aborting the whole filter — CLAUDE.md's non-string-field guard.
 if ! ROWS=$("$DEVFLOW_GH" api --paginate "repos/$REPO/pulls/$PR/reviews?per_page=100" \
-             --jq '.[] | select(.state=="CHANGES_REQUESTED" and ((.body // "") | (startswith("## Verdict: REJECT") or startswith("# Review Report")))) | "\(.id) \(.commit_id // "")"'); then
+             --jq 'def prflow_own_reject($b): ($b | type) == "string" and ((($b | split("\n") | (.[0] // "")) | test("^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=REJECT -->$")) or ($b | startswith("## Verdict: REJECT")) or ($b | startswith("# Review Report")));
+                   .[] | select(.state=="CHANGES_REQUESTED") | (prflow_own_reject(.body // "")) as $own | "\(if $own then "own" else "other" end) \(.id) \(.commit_id // "")"'); then
   echo "WARNING: could not list reviews for PR #$PR — dismiss manually." >&2
   exit 1
 fi
 
+# Split the kind prefix off with `read` + `case` (builtins) so no selection value is
+# routed through a non-preflight PATH tool. CANDIDATES holds only this engine's own
+# rows, in their original order; UNSELECTED counts the rest.
+CANDIDATES=""
+UNSELECTED=0
+while read -r RKIND RID RCOMMIT; do
+  [ -n "$RID" ] || continue
+  case "$RKIND" in
+    own) CANDIDATES="${CANDIDATES}${RID} ${RCOMMIT}"$'\n' ;;
+    *)   UNSELECTED=$((UNSELECTED + 1)) ;;
+  esac
+done <<< "$ROWS"
+
 # The PR's current head — the comparand every staleness test below is made
 # against. Resolved LAZILY, only once a candidate exists, so the common path
-# (nothing outstanding) still costs exactly one API call. A head that cannot
+# (nothing outstanding, or only reviews this script does not own) still costs
+# exactly one API call. A head that cannot
 # be established is fail-closed: no review can be SHOWN stale against an
 # unknown head, so nothing is dismissed and the caller is told the PR stays
 # blocked. `.head.sha` is validated as a plausible object name here because it
@@ -116,7 +155,7 @@ fi
 # silently become a value that compares unequal to every commit_id and so
 # waves every candidate through.
 HEAD_SHA=""
-if [ -n "$ROWS" ]; then
+if [ -n "$CANDIDATES" ]; then
   if ! HEAD_SHA=$("$DEVFLOW_GH" api "repos/$REPO/pulls/$PR" --jq '.head.sha'); then
     echo "WARNING: could not read the current head of PR #$PR — dismissed nothing (a review is only stale against a known head). Dismiss manually if appropriate." >&2
     exit 1
@@ -129,6 +168,15 @@ fi
 
 FAILED=0
 REFUSED=0
+# An outstanding CHANGES_REQUESTED this script did not select is REPORTED, never
+# silently dropped, so "there was nothing of ours" reads differently from "there was
+# nothing at all" (issue #1030). It does NOT move the exit status: a human reviewer's
+# block landing here is the correct, expected outcome — exit 3 would tell the caller
+# to go dismiss a human's review. A PRFlow REJECT landing here is a producer defect,
+# which is what the sentence names.
+if [ "$UNSELECTED" -gt 0 ]; then
+  echo "NOTE: PR #$PR carries $UNSELECTED outstanding CHANGES_REQUESTED review(s) this script did not select — none carried a prflow:review-verdict marker or a transitional report prefix, so none could be shown to be this engine's own. A human reviewer's block belongs here and is left untouched; a PRFlow verdict landing here means the post did not stamp its marker (issue #1030)." >&2
+fi
 # Fields are split by `read` (a builtin) and compared with `[` — CLAUDE.md
 # guard-class 2: a value deciding a SELECTION is never routed through a
 # non-preflight PATH tool such as tr/sed/cut, which would come back empty on a
@@ -155,7 +203,7 @@ while read -r RID RCOMMIT; do
     echo "WARNING: could not dismiss review $RID on PR #$PR — dismiss it manually. (${ERR:-no error output})" >&2
     FAILED=1
   fi
-done <<< "$ROWS"
+done <<< "$CANDIDATES"
 [ "$FAILED" -eq 0 ] || exit 1
 [ "$REFUSED" -eq 0 ] || exit 3
 exit 0

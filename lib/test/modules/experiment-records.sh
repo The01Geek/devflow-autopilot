@@ -385,6 +385,108 @@ EOF
   ST3G="$R3G/.prflow/learnings/experiment-records.jsonl"
   assert_eq "#431 T3g: latest progress comment supersedes (not the stale one)" "APPROVE" "$(exp_field "$ST3G" 740 verdict)"
 
+  # ── T3h #1030 producer marker: selection AND a distinguishable provenance ────
+  # The verdict is read from the marker scripts/post-review-verdict.sh stamps, and the
+  # provenance names which of the two sources answered — a census asking "was this
+  # verdict producer-emitted or recovered from prose?" is exactly the question #1030's
+  # own investigation had to answer by hand. Every body below is production-realistic:
+  # the review carries one of the REAL census first lines (a body whose prose matches
+  # NO verdict shape), so the marker is the only thing that can carry it.
+  R3H="$EXP/r3h"
+  mkdir -p "$R3H/.prflow/learnings"
+  cat > "$R3H/.prflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":770,"merged_at":"2026-07-10T00:00:00Z","branch":"b770","merge_commit_sha":"m770"}
+EOF
+  EXP_M_HEAD="5555555555555555555555555555555555555555"
+  EXP_CENSUS_LINE="$(jq -r '[.rejects[] | select(.dismisser_prose_match | not)][0].first_line' "$LIB/test/fixtures/review-verdict-census.json")"
+  jq -nc --arg b "<!-- prflow:review-verdict head=$EXP_M_HEAD verdict=REJECT -->"$'\n'"$EXP_CENSUS_LINE"$'\n\nfull report in the progress comment.' \
+    '[{state:"CHANGES_REQUESTED",submitted_at:"2026-07-09T10:00:00Z",commit_id:"h770",body:$b}]' > "$EXP/reviews3h.json"
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    REVIEWS_JSON="$EXP/reviews3h.json" COMMENTS_JSON="$EXP/does-not-exist" \
+    python3 "$BXR" --repo-root "$R3H" --prs 770 >/dev/null 2>&1
+  ST3H="$R3H/.prflow/learnings/experiment-records.jsonl"
+  assert_eq "#1030 T3h: a marker-carrying review body whose prose matches nothing yields the verdict" \
+    "REJECT" "$(exp_field "$ST3H" 770 verdict)"
+  assert_eq "#1030 T3h: the marker source is distinguishable from the prose source" \
+    "pr-review-marker" "$(exp_field "$ST3H" 770 provenance.verdict)"
+  # Negative control — the SAME body without the marker yields null/absent, which is the
+  # measured under-reporting #1030 closes.
+  R3H2="$EXP/r3h2"
+  mkdir -p "$R3H2/.prflow/learnings"
+  cat > "$R3H2/.prflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":771,"merged_at":"2026-07-10T00:00:00Z","branch":"b771","merge_commit_sha":"m771"}
+EOF
+  jq -nc --arg b "$EXP_CENSUS_LINE"$'\n\nfull report in the progress comment.' \
+    '[{state:"CHANGES_REQUESTED",submitted_at:"2026-07-09T10:00:00Z",commit_id:"h771",body:$b}]' > "$EXP/reviews3h2.json"
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    REVIEWS_JSON="$EXP/reviews3h2.json" COMMENTS_JSON="$EXP/does-not-exist" \
+    python3 "$BXR" --repo-root "$R3H2" --prs 771 >/dev/null 2>&1
+  ST3H2="$R3H2/.prflow/learnings/experiment-records.jsonl"
+  assert_eq "#1030 T3h control: the same body unmarked under-reports as null/absent" \
+    "null-absent" "$(exp_field "$ST3H2" 771 verdict)-$(exp_field "$ST3H2" 771 provenance.verdict)"
+  # The progress-comment surface carries the marker on the line after its run key, and
+  # gets its OWN provenance tag distinct from the prose one.
+  R3H3="$EXP/r3h3"
+  mkdir -p "$R3H3/.prflow/learnings"
+  cat > "$R3H3/.prflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":772,"merged_at":"2026-07-10T00:00:00Z","branch":"b772","merge_commit_sha":"m772"}
+EOF
+  jq -nc --arg b '<!-- prflow:review-progress run=1 -->'$'\n'"<!-- prflow:review-verdict head=$EXP_M_HEAD verdict=APPROVE -->"$'\n''**Reviewed HEAD:** h772'$'\n\n'"$EXP_CENSUS_LINE" \
+    '[{id:9,created_at:"2026-07-09T10:00:00Z",body:$b}]' > "$EXP/comments3h3.json"
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    REVIEWS_JSON="$EXP/does-not-exist" COMMENTS_JSON="$EXP/comments3h3.json" \
+    python3 "$BXR" --repo-root "$R3H3" --prs 772 >/dev/null 2>&1
+  ST3H3="$R3H3/.prflow/learnings/experiment-records.jsonl"
+  assert_eq "#1030 T3h: a marker on the progress comment yields the verdict and its own provenance" \
+    "APPROVE-progress-comment-marker" "$(exp_field "$ST3H3" 772 verdict)-$(exp_field "$ST3H3" 772 provenance.verdict)"
+  # A marker QUOTED below the scanned window is prose: the transitional line decides and
+  # keeps the prose provenance, so a finding citing this contract cannot forge a source.
+  R3H4="$EXP/r3h4"
+  mkdir -p "$R3H4/.prflow/learnings"
+  cat > "$R3H4/.prflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":773,"merged_at":"2026-07-10T00:00:00Z","branch":"b773","merge_commit_sha":"m773"}
+EOF
+  jq -nc --arg b '## Verdict: APPROVE'$'\n''a finding quotes the contract:'$'\n'"<!-- prflow:review-verdict head=$EXP_M_HEAD verdict=REJECT -->" \
+    '[{state:"COMMENTED",submitted_at:"2026-07-09T10:00:00Z",commit_id:"h773",body:$b}]' > "$EXP/reviews3h4.json"
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    REVIEWS_JSON="$EXP/reviews3h4.json" COMMENTS_JSON="$EXP/does-not-exist" \
+    python3 "$BXR" --repo-root "$R3H4" --prs 773 >/dev/null 2>&1
+  ST3H4="$R3H4/.prflow/learnings/experiment-records.jsonl"
+  assert_eq "#1030 T3h: a marker quoted below the scanned window keeps the prose source" \
+    "APPROVE-pr-review" "$(exp_field "$ST3H4" 773 verdict)-$(exp_field "$ST3H4" 773 provenance.verdict)"
+
+  # Only the prflow: spelling is a marker. The devflow:review-verdict spelling can exist on
+  # no persisted artifact (the marker postdates the rename), so it must fall through to the
+  # prose arm rather than be honored as a producer stamp (issue #1030) — while #1003's dual
+  # read on the review-PROGRESS run key, which this same record still resolves either way,
+  # is untouched.
+  R3H5="$EXP/r3h5"
+  mkdir -p "$R3H5/.prflow/learnings"
+  cat > "$R3H5/.prflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":774,"merged_at":"2026-07-10T00:00:00Z","branch":"b774","merge_commit_sha":"m774"}
+EOF
+  jq -nc --arg b "<!-- devflow:review-verdict head=$EXP_M_HEAD verdict=REJECT -->"$'\n'"$EXP_CENSUS_LINE" \
+    '[{state:"CHANGES_REQUESTED",submitted_at:"2026-07-09T10:00:00Z",commit_id:"h774",body:$b}]' > "$EXP/reviews3h5.json"
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    REVIEWS_JSON="$EXP/reviews3h5.json" COMMENTS_JSON="$EXP/does-not-exist" \
+    python3 "$BXR" --repo-root "$R3H5" --prs 774 >/dev/null 2>&1
+  ST3H5="$R3H5/.prflow/learnings/experiment-records.jsonl"
+  assert_eq "#1030 T3h: the devflow:review-verdict spelling is not honored as a marker" \
+    "null-absent" "$(exp_field "$ST3H5" 774 verdict)-$(exp_field "$ST3H5" 774 provenance.verdict)"
+  R3H6="$EXP/r3h6"
+  mkdir -p "$R3H6/.prflow/learnings"
+  cat > "$R3H6/.prflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":775,"merged_at":"2026-07-10T00:00:00Z","branch":"b775","merge_commit_sha":"m775"}
+EOF
+  jq -nc --arg b '<!-- devflow:review-progress run=1 -->'$'\n'"<!-- prflow:review-verdict head=$EXP_M_HEAD verdict=REJECT -->"$'\n''**Reviewed HEAD:** h775' \
+    '[{id:9,created_at:"2026-07-09T10:00:00Z",body:$b}]' > "$EXP/comments3h6.json"
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    REVIEWS_JSON="$EXP/does-not-exist" COMMENTS_JSON="$EXP/comments3h6.json" \
+    python3 "$BXR" --repo-root "$R3H6" --prs 775 >/dev/null 2>&1
+  ST3H6="$R3H6/.prflow/learnings/experiment-records.jsonl"
+  assert_eq "#1030 T3h: the superseded review-progress run-key spelling still reaches the marker" \
+    "REJECT-progress-comment-marker" "$(exp_field "$ST3H6" 775 verdict)-$(exp_field "$ST3H6" 775 provenance.verdict)"
+
   # ── T3f2 verdict fetch-failed provenance (review Fix C) ──────────────────────
   # Both the reviews and comments API calls FAIL (rc≠0) → verdict null with
   # provenance "fetch-failed" (unestablished), distinct from a genuinely-absent one.
@@ -1188,6 +1290,50 @@ EOF
     "$(python3 -c 'import json,sys
 r=[json.loads(l) for l in open(sys.argv[1]) if l.strip()][0]
 print("yes" if any("may predate the final reviewed HEAD" in n for n in r["provenance"]["notes"]) else "no")' "$STDG")"
+
+  # ── Tdegraded-marker the SAME degradation, reached through the #1030 producer marker ──
+  # Previously unreachable by the suite: both marker-arm cases resolved reviews_ok=true, so
+  # the `progress-comment-marker-degraded` tag was never produced and the caller's
+  # caveat-note condition was never exercised against it. That is the arm the guard rule
+  # requires a test for — a new selection arm widened the input set while the downstream
+  # note derivation still tested the OLD value on equality, so a degraded marker row shipped
+  # WITHOUT the caveat its prose sibling gets. Assert BOTH halves: the distinguishable tag
+  # AND the note, because the tag alone passed throughout the defect.
+  RDGM="$EXP/rdegraded-marker"
+  mkdir -p "$RDGM/.prflow/learnings"
+  cat > "$RDGM/.prflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1031,"merged_at":"2026-07-10T00:00:00Z","branch":"b1031","head_sha":"h1031","merge_commit_sha":"m1031"}
+EOF
+  jq -nc --arg b '<!-- prflow:review-progress run=1 -->'$'\n'"<!-- prflow:review-verdict head=$EXP_M_HEAD verdict=APPROVE -->"$'\n''**Reviewed HEAD:** h1031' \
+    '[{id:9,created_at:"2026-07-09T10:00:00Z",body:$b}]' > "$EXP/comments1031.json"
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    REVIEWS_FAIL=1 COMMENTS_JSON="$EXP/comments1031.json" \
+    python3 "$BXR" --repo-root "$RDGM" --prs 1031 >/dev/null 2>&1
+  STDGM="$RDGM/.prflow/learnings/experiment-records.jsonl"
+  assert_eq "#1030 Tdegraded-marker: an unreachable reviews call degrades the MARKER arm too" \
+    "APPROVE-progress-comment-marker-degraded" \
+    "$(exp_field "$STDGM" 1031 verdict)-$(exp_field "$STDGM" 1031 provenance.verdict)"
+  assert_eq "#1030 Tdegraded-marker: the marker arm carries the same degradation caveat as its prose sibling" "yes" \
+    "$(python3 -c 'import json,sys
+r=[json.loads(l) for l in open(sys.argv[1]) if l.strip()][0]
+print("yes" if any("may predate the final reviewed HEAD" in n for n in r["provenance"]["notes"]) else "no")' "$STDGM")"
+  # Negative control: with the reviews call REACHABLE the same comment yields the
+  # undegraded tag and no caveat, so the assertions above are about the degradation and
+  # not about the marker arm always carrying a note.
+  RDGM2="$EXP/rdegraded-marker-ok"
+  mkdir -p "$RDGM2/.prflow/learnings"
+  cat > "$RDGM2/.prflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1032,"merged_at":"2026-07-10T00:00:00Z","branch":"b1032","head_sha":"h1032","merge_commit_sha":"m1032"}
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    REVIEWS_JSON="$EXP/does-not-exist" COMMENTS_JSON="$EXP/comments1031.json" \
+    python3 "$BXR" --repo-root "$RDGM2" --prs 1032 >/dev/null 2>&1
+  STDGM2="$RDGM2/.prflow/learnings/experiment-records.jsonl"
+  assert_eq "#1030 Tdegraded-marker control: a reachable reviews call yields the undegraded tag and no caveat" \
+    "progress-comment-marker-no" \
+    "$(exp_field "$STDGM2" 1032 provenance.verdict)-$(python3 -c 'import json,sys
+r=[json.loads(l) for l in open(sys.argv[1]) if l.strip()][0]
+print("yes" if any("may predate the final reviewed HEAD" in n for n in r["provenance"]["notes"]) else "no")' "$STDGM2")"
 
   # ── Tmixed disagreeing per-run fingerprints → mixed-across-runs, never first-wins ──
   # config_fingerprint is the experiment's ATTRIBUTION KEY. A PR whose runs straddled a
