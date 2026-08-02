@@ -38,12 +38,12 @@
 # Exit codes:
 #   0  settings provisioned, or already complete (a quiet "nothing changed").
 #   2  any precondition or I/O failure — the existing .claude/settings.json is
-#      unreadable, could not be read into a variable, contains a NUL byte, is
-#      not valid JSON, or is valid JSON of the wrong shape (a
-#      non-object root, or a DevFlow object-valued path present as a non-object);
-#      or jq is missing; or the settings dir / temp file could not be created or
-#      the merged file could not be written. In every exit-2 case the existing
-#      file is left BYTE-FOR-BYTE UNCHANGED and a specific `devflow-settings:`
+#      a directory (not a regular file), unreadable, could not be read into a
+#      variable, contains a NUL byte, is not valid JSON, or is valid JSON of the
+#      wrong shape (a non-object root, or a DevFlow object-valued path present as
+#      a non-object); or jq is missing; or the settings dir / temp file could not
+#      be created or the merged file could not be written. In every exit-2 case the
+#      existing file is left BYTE-FOR-BYTE UNCHANGED and a specific `devflow-settings:`
 #      breadcrumb names the cause.
 set -euo pipefail
 
@@ -113,6 +113,20 @@ if ! SUPERSEDED="$(printf '%s' "$IDENTITY_JSON" | "$DEVFLOW_JQ" -c '
       specs:   [ $i.plugin_specs[] | select(. != $i.canonical_plugin_spec) ] }')" \
    || [ -z "$SUPERSEDED" ]; then
   warn "could not derive the superseded plugin/marketplace identifiers from the resolved plugin identity; left $SETTINGS unchanged and provisioned nothing."
+  exit 2
+fi
+
+# A DIRECTORY (or a symlink to one) at the settings path is treated as ABSENT by the
+# `[ -f "$SETTINGS" ]` test below, so the create path would run and the atomic mv would
+# land the temp file INSIDE the directory — reporting success while writing nothing the
+# runtime reads (issue #1082). Fail closed with a specific breadcrumb, above the `[ -f ]`.
+# Scope is the directory case ONLY: a dangling symlink and a FIFO are deliberately not
+# caught here — the mv REPLACES them with a real settings file, which is correct, and a
+# broader "non-regular file" guard would newly break a legitimate symlink-into-dotfiles
+# setup. Do NOT widen the predicate and lean on a failing read: `$(<dir)` is host-dependent
+# (nonzero on bash 3.2, zero on bash 5.3) and a FIFO read blocks forever.
+if [ -d "$SETTINGS" ]; then
+  warn "existing $SETTINGS is a directory, not a file; left it unchanged and provisioned nothing (remove or move the directory, then re-run /prflow:init)."
   exit 2
 fi
 

@@ -4,6 +4,37 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.29] — 2026-08-02
+
+### Fixed
+- **The PreToolUse shape guard now publishes a distinguishing signal when it disarms.** When
+  `scripts/pretooluse-shape-guard.py` cannot load or exercise its classifier
+  (`lib/test/extract-command-shapes.py`), it still fails open to `defer` and exit 0 — the
+  deliberate fail-open contract is unchanged — but it now writes a `pretooluse-guard-disarmed`
+  marker on the same path as the heartbeat, so a disarmed run is no longer byte-identical (on
+  every published artifact) to one that fired and matched nothing. The marker's cause is keyed
+  on the exception actually raised (`FileNotFoundError` from `exec_module`, not the unreachable
+  `ImportError` branch) and names the workspace-relative path with no `lib/test` as the cause,
+  not the vendor slice's prune. (#1077)
+
+## [2.30.28] — 2026-08-02
+
+### Security
+- **Stop shipping seven `Bash(lib/test/...)` grant tokens in the `implement` capability profile (#1078).** `devflow-implement.yml`'s baked `--allowed-tools` baseline (shipped to every consumer by `install.sh`) carried seven grant tokens naming paths under `lib/test`, the subtree the `vendor-plugin` slice prunes. They delivered zero benefit in a consumer — no install channel puts this repository's `lib/test` into a consumer tree, so the tokens could never match a PRFlow-owned file — while silently pre-authorizing any consumer file that happened to collide with a PRFlow-chosen path. Six moved to `.prflow/config.json`'s `prflow_implement.allowed_tools`, the self-repo-only grant channel (`config.example.json` ships it empty, so no consumer inherits it): the five `focused_test` targets, plus `coverage_map_guard.py` (still invoked as a direct leading token by `matcher-probe.yml`'s row 17). `test_module_harness.py` was dropped — it is not a `focused_test` target and is invoked only via the `python3 <path>` interpreter head, which the matcher denies regardless. The change is made in `lib/capability-profiles.json` (`manifest_version` 13→14) and regenerated with `python3 lib/generate-capability-profiles.py`; `lib/review-profile.tokens` is byte-unchanged. `coverage_map_guard.py`'s focused-test grant check (arm 10) now honors the config channel alongside the profile, and the capability-profiles module asserts no shipped profile carries a `lib/test` token so the next such grant cannot ship silently. (#1078)
+
+## [2.30.27] — 2026-08-02
+
+### Fixed
+- **Both settings provisioners now fail closed when a directory sits at the settings path.** A
+  directory (or a symlink to one) at `.claude/settings.json` was treated as absent by the
+  `[ -f "$SETTINGS" ]` test, so the create path ran and the atomic `mv` dropped the temp file
+  *inside* the directory while reporting success and exiting 0 — the requested settings were never
+  written anywhere the runtime reads. `scripts/provision-local-settings.sh` and
+  `scripts/provision-auto-mode.sh` now carry an explicit `[ -d "$SETTINGS" ]` guard above the
+  `[ -f ]` test that exits non-zero with a specific breadcrumb. A dangling symlink and a FIFO are
+  deliberately left alone (the `mv` correctly replaces them), asserted as negative controls so the
+  fix cannot silently widen into a legitimate symlink-into-dotfiles setup. (#1082)
+
 ## [2.30.26] — 2026-08-02
 
 ### Changed

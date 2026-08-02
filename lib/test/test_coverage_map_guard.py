@@ -69,8 +69,13 @@ class CoverageMapGuardTest(unittest.TestCase):
                 map_value,
                 registry_value,
                 executable_files=guard._git_executable(ROOT),
-                implement_tokens=guard._implement_profile_tokens(
-                    guard._load_json(ROOT / guard.PROFILES_REL)[0]
+                # Issue #1078: the focused_test grants live in the union of the manifest
+                # `implement` profile and .prflow/config.json's self-repo channel, exactly
+                # as main() resolves them — a manifest-only read here would false-flag the
+                # five moved targets.
+                implement_tokens=guard._resolve_implement_grant_tokens(
+                    guard._load_json(ROOT / guard.PROFILES_REL)[0],
+                    guard._load_json(ROOT / guard.CONFIG_REL)[0],
                 ),
             ),
             [],
@@ -280,6 +285,81 @@ class CoverageMapGuardTest(unittest.TestCase):
     def test_implement_profile_tokens_is_none_on_a_malformed_manifest(self):
         for bad in (None, [], {}, {"profiles": {}}, {"profiles": {"implement": "x"}, "groups": {}}):
             self.assertIsNone(guard._implement_profile_tokens(bad), bad)
+
+    def test_config_implement_tokens_reads_the_self_repo_grant_channel(self):
+        # Issue #1078: focused_test grants moved out of the shipped `implement` profile into
+        # .prflow/config.json's prflow_implement.allowed_tools (the self-repo channel).
+        cfg = {"prflow_implement": {"allowed_tools": [
+            "Bash(lib/test/test_python_scripts.py:*)", "Bash(shellcheck:*)"]}}
+        self.assertEqual(
+            guard._config_implement_tokens(cfg),
+            {"Bash(lib/test/test_python_scripts.py:*)", "Bash(shellcheck:*)"},
+        )
+
+    def test_config_implement_tokens_is_none_on_a_malformed_config(self):
+        for bad in (None, [], {}, {"prflow_implement": {}},
+                    {"prflow_implement": {"allowed_tools": "x"}}):
+            self.assertIsNone(guard._config_implement_tokens(bad), bad)
+
+    def test_resolve_implement_grant_tokens_unions_manifest_and_config(self):
+        # Issue #1078: arm 10 honors a grant from EITHER channel. A focused_test granted
+        # only via config (its manifest grant removed) must resolve as granted.
+        manifest = {"groups": {}, "profiles": {"implement": ["Bash(python3:*)"]}}
+        config = {"prflow_implement": {"allowed_tools": ["Bash(lib/test/test_python_scripts.py:*)"]}}
+        self.assertEqual(
+            guard._resolve_implement_grant_tokens(manifest, config),
+            {"Bash(python3:*)", "Bash(lib/test/test_python_scripts.py:*)"},
+        )
+        # None ONLY when NEITHER channel can be established — one readable channel suffices.
+        self.assertEqual(
+            guard._resolve_implement_grant_tokens(None, config),
+            {"Bash(lib/test/test_python_scripts.py:*)"},
+        )
+        # The consumer-protecting direction: manifest established but config unreadable must
+        # NOT false-flag a manifest-granted token — it returns the manifest set, never None.
+        self.assertEqual(
+            guard._resolve_implement_grant_tokens(manifest, None),
+            {"Bash(python3:*)"},
+        )
+        self.assertIsNone(guard._resolve_implement_grant_tokens(None, None))
+
+    def test_config_implement_tokens_breadcrumbs_a_present_but_wrong_typed_channel(self):
+        # F2: a valid-JSON but wrong-typed grant channel is invisible to _load_json, so it
+        # must not vanish silently (best-effort-parser: a specific breadcrumb per bad shape).
+        import contextlib
+        import io
+        for bad, needle in (
+            ({"prflow_implement": "oops"}, "'prflow_implement' is present but not a JSON object"),
+            ({"prflow_implement": {"allowed_tools": "x"}}, "'prflow_implement.allowed_tools' is present but not a JSON array"),
+        ):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertIsNone(guard._config_implement_tokens(bad))
+            self.assertIn(needle, err.getvalue())
+        # A legitimately-ABSENT key is silent (a consumer ships the channel empty) — no breadcrumb.
+        for absent in ({}, {"prflow_implement": {}}):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertIsNone(guard._config_implement_tokens(absent))
+            self.assertEqual(err.getvalue(), "")
+
+    def test_config_only_grant_satisfies_arm10(self):
+        # The end-to-end #1078 case: a focused_test whose grant lives ONLY in the config
+        # channel passes arm 10 (no violation), proving the union closes the false-flag the
+        # manifest-only check would otherwise raise for the five moved targets.
+        tracked = ["lib/real.sh", "lib/test/test_thing.py"]
+        grant = guard._resolve_implement_grant_tokens(
+            {"groups": {}, "profiles": {"implement": ["Bash(python3:*)"]}},
+            {"prflow_implement": {"allowed_tools": ["Bash(lib/test/test_thing.py:*)"]}},
+        )
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py")}),
+            _registry(),
+            executable_files=self._EXEC,
+            implement_tokens=grant,
+        )
+        self.assertEqual(v, [])
 
     def test_unestablished_breadcrumbs_are_emitted_ONCE_over_MULTIPLE_entries(self):
         # Cardinality: with a single recorded entry, "once per run" and "once per entry" are
@@ -504,6 +584,50 @@ class CoverageMapGuardTest(unittest.TestCase):
             self.assertEqual(rc, 1)
             self.assertIn("lib/planted.sh", out.getvalue())
             self.assertIn("[arm1]", out.getvalue())
+
+    def _min_guardable_tree(self, root):
+        # A minimal git tree main() can run over cleanly (no arm-1/2/9 noise): the two
+        # required JSON inputs present, no depth-1 lib/scripts code unit to list.
+        (root / "lib" / "test" / "modules").mkdir(parents=True)
+        (root / "scripts").mkdir()
+        (root / "lib" / "test" / "modules" / "coverage-map.json").write_text(
+            json.dumps(_map(files={})), encoding="utf-8"
+        )
+        (root / "scripts" / "workflow-flight-recorder-registry.json").write_text(
+            json.dumps(_registry()), encoding="utf-8"
+        )
+        subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+
+    def test_cli_main_surfaces_a_present_but_malformed_grant_channel(self):
+        # issue #1078: main() must surface a present-but-unparseable capability-profiles.json
+        # / .prflow/config.json rather than discarding the _load_json error half (which would
+        # misdirect arm10's "add the token to the config channel" remedy at an unusable file).
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._min_guardable_tree(root)
+            (root / "lib" / "capability-profiles.json").write_text("{ not json", encoding="utf-8")
+            (root / ".prflow").mkdir()
+            (root / ".prflow" / "config.json").write_text("{ not json", encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                guard.main(["coverage_map_guard.py", str(root)])
+            text = out.getvalue()
+            self.assertEqual(text.count("its cloud implement grant tokens were not read"), 2, text)
+            self.assertIn("capability-profiles.json", text)
+            self.assertIn("config.json", text)
+
+    def test_cli_main_is_silent_on_a_legitimately_absent_grant_channel(self):
+        # The exists()-gate: an absent optional file (a consumer/fixture that ships neither
+        # file) must NOT produce a spurious breadcrumb — the union already fails closed.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._min_guardable_tree(root)  # no capability-profiles.json, no .prflow/config.json
+            subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                guard.main(["coverage_map_guard.py", str(root)])
+            self.assertNotIn("its cloud implement grant tokens were not read", out.getvalue())
 
     # ── main() fail-closed git branch: git ls-files failing → rc 1 + the named
     # breadcrumb (the only advertised fail-closed arm without a positive control).
