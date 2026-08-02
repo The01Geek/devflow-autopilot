@@ -22237,6 +22237,11 @@ class _GuardRig:
     def heartbeat_exists(self):
         return (self.root / '.prflow' / 'tmp' / 'pretooluse-guard-fired').exists()
 
+    def disarmed_marker(self):
+        """The disarmed-run marker's text (issue #1077), or None when it was not written."""
+        f = self.root / '.prflow' / 'tmp' / 'pretooluse-guard-disarmed'
+        return f.read_text(encoding='utf-8') if f.exists() else None
+
     def store_names(self):
         d = self.root / '.prflow' / 'tmp'
         return sorted(p.name for p in d.glob('pretooluse-guard-counts-*.json')) if d.is_dir() else []
@@ -22479,6 +22484,90 @@ for _dname, _prepare in [
 # no such breadcrumb, so the assertions above are attributable to the disarming.
 assert_eq("#805 guard: an ARMED guard emits no failed-open breadcrumb (stderr control)",
           '', _GuardRig().run(_payload('echo x > /tmp/f', tid='armed')).stderr)
+
+# ── DISARMED-RUN PUBLISHED SIGNAL (issue #1077). stderr is ephemeral and the heartbeat says
+# "fired" for a disarmed run exactly as for a clean no-match run, so the disarm is invisible
+# in every PUBLISHED artifact. The guard now also writes a `pretooluse-guard-disarmed` marker
+# on the SAME path as the heartbeat, so a reader can tell "fired but could not classify" from
+# "fired and matched nothing" — WITHOUT the fail-open decision changing (defer, exit 0).
+for _dname, _prepare in [
+    ('syntax-error dependency', lambda r: r.break_dependency('def (:\n')),
+    ('bash-stubbed dependency', lambda r: r.break_dependency('#!/usr/bin/env bash\nexit 0\n')),
+    ('renamed classify_arms', lambda r: r.break_dependency('def _statements(c):\n    return [c]\n')),
+    ('absent dependency', lambda r: r.remove_dependency()),
+]:
+    _rig_m = _GuardRig()
+    _prepare(_rig_m)
+    _res_m = _rig_m.run(_payload('echo x > /tmp/f', tid='marker'))
+    # AC1: the fail-open decision is UNCHANGED (defer, exit 0) even as the signal is added.
+    assert_eq(f"#1077 guard: disarmed ({_dname}) still defers, exit 0 (fail-open unchanged)",
+              (0, 'defer'), (_res_m.rc, _res_m.decision))
+    # AC1/AC2: the distinguishing signal is published on the heartbeat path, so a run that
+    # disarmed before ever reaching the classifier cannot fail to emit it.
+    _marker = _rig_m.disarmed_marker()
+    assert_eq(f"#1077 guard: disarmed ({_dname}) writes the disarmed-run marker beside the "
+              f"heartbeat", True, _marker is not None and 'DISARMED' in _marker)
+# AC4/AC5: for the ABSENT classifier the marker's cause is keyed on the exception ACTUALLY
+# raised (FileNotFoundError from exec_module, NOT ImportError), names the workspace-relative
+# path with no lib/test, and NEVER attributes the absence to the vendor prune.
+_rig_abs = _GuardRig()
+_rig_abs.remove_dependency()
+_rig_abs.run(_payload('echo x > /tmp/f', tid='absent-cause'))
+_abs_marker = _rig_abs.disarmed_marker() or ''
+assert_eq("#1077 guard: absent-classifier marker names FileNotFoundError (the real "
+          "exception, not ImportError)", True,
+          'FileNotFoundError' in _abs_marker and 'ImportError' not in _abs_marker)
+assert_eq("#1077 guard: absent-classifier marker names the workspace-relative path and the "
+          "missing lib/test as the cause", True,
+          'workspace-relative' in _abs_marker and 'lib/test' in _abs_marker)
+assert_eq("#1077 guard: absent-classifier marker does NOT attribute the absence to the "
+          "vendor prune (issue #1077 AC5)", True,
+          'prune' not in _abs_marker and 'vendor' not in _abs_marker)
+# AC4 (else branch): a disarm that is NOT a missing file — a renamed interface raising
+# AttributeError inside _matched_arms — names the ACTUAL exception type, not FileNotFoundError,
+# so a reader is not misdirected to "no lib/test" for a load-then-classify failure.
+_rig_ren = _GuardRig()
+_rig_ren.break_dependency('def _statements(c):\n    return [c]\n')
+_rig_ren.run(_payload('echo x > /tmp/f', tid='renamed-cause'))
+_ren_marker = _rig_ren.disarmed_marker() or ''
+assert_eq("#1077 guard: renamed-interface marker names the real exception (AttributeError), "
+          "not FileNotFoundError", True,
+          'AttributeError' in _ren_marker and 'FileNotFoundError' not in _ren_marker)
+# AC5 (transitive branch): a FileNotFoundError from a file the classifier IMPORTS (heads.py
+# missing while extract-command-shapes.py is present) must name the actual missing file, NOT
+# falsely claim "this tree has no lib/test" — the mis-attribution the transitive branch fixes.
+_rig_tr = _GuardRig()
+(_rig_tr.root / 'lib' / 'test' / 'extract-command-heads.py').unlink()
+_rig_tr.run(_payload('echo x > /tmp/f', tid='transitive-cause'))
+_tr_marker = _rig_tr.disarmed_marker() or ''
+assert_eq("#1077 guard: a transitive-import FileNotFoundError names the imported file, not a "
+          "false 'no lib/test'", True,
+          'extract-command-heads.py' in _tr_marker and 'this tree has no lib/test' not in _tr_marker)
+# Negative control: an ARMED guard (clean classify, matched nothing) writes NO marker, so the
+# marker's presence is attributable to the disarm and not to every run.
+_rig_neg = _GuardRig()
+_rig_neg.run(_payload('echo hi', tid='armed-marker'))
+assert_eq("#1077 guard: an ARMED guard writes no disarmed-run marker (negative control)",
+          None, _rig_neg.disarmed_marker())
+# STALE-MARKER CLEARING: a prior disarmed run left a marker on a persistent checkout; the next
+# ARMED run must retract it, so the signal reflects THIS run — not the fresh-rig no-op path the
+# negative control above exercises. Pre-seed the marker, then run an armed payload.
+_rig_stale = _GuardRig()
+(_rig_stale.root / '.prflow' / 'tmp').mkdir(parents=True, exist_ok=True)
+(_rig_stale.root / '.prflow' / 'tmp' / 'pretooluse-guard-disarmed').write_text(
+    'pretooluse-shape-guard DISARMED: stale from a prior run\n', encoding='utf-8')
+_rig_stale.run(_payload('echo hi', tid='stale-clear'))
+assert_eq("#1077 guard: an armed run retracts a stale disarmed-run marker from a prior run",
+          None, _rig_stale.disarmed_marker())
+# A benign EARLY-DEFER run (empty stdin → defer BEFORE classification is ever reached) must
+# ALSO retract a stale marker — the clear is up front, not only on the armed-classify tail.
+_rig_ed = _GuardRig()
+(_rig_ed.root / '.prflow' / 'tmp').mkdir(parents=True, exist_ok=True)
+(_rig_ed.root / '.prflow' / 'tmp' / 'pretooluse-guard-disarmed').write_text(
+    'pretooluse-shape-guard DISARMED: stale from a prior run\n', encoding='utf-8')
+_res_ed = _rig_ed.run(None)  # empty stdin → the `not text.strip()` early-defer path
+assert_eq("#1077 guard: a benign early-defer run also retracts a stale marker (defer, exit 0)",
+          (0, 'defer', None), (_res_ed.rc, _res_ed.decision, _rig_ed.disarmed_marker()))
 
 # ── Counter store: a best-effort parser over an agent-writable path. CLAUDE.md's
 # best-effort-parser convention extends the malformed-shape matrix to a reader of a
