@@ -4662,18 +4662,38 @@ assert_eq "#779: the checkpoint-4 tool-boundary test precedes the token routing 
 # and would block publishing on exactly the runs that reconciled successfully.
 # CONFLICT is exempt from the refusal: it resolves per the inherited contract and the helper is
 # re-invoked, and THAT line's first field is what the gate reads.
-# The success-path channel: a note naming the observed token on UPDATED/UP_TO_DATE/DISABLED
-# alike, so a green run carries evidence of the comparison's result. §1.4.1's no-traffic rule
+# The success-path channel (issue #1050): a keyed `--checkpoint base-update-checkpoint-4` row
+# naming the observed token on UPDATED/UP_TO_DATE/DISABLED alike, so a green run carries evidence
+# of the comparison's result through a MACHINE-READABLE marker (`lib/fetch-pr-context.sh` derives
+# `base_update_checkpoint4_present` from it) rather than a free-text note. §1.4.1's no-traffic rule
 # for checkpoints 1-3 is unchanged, which is why this had to be a checkpoint-4-specific addition.
-# The ORDERING clause is separately operative: without it the note can assert the run is
+# The key stays OUTSIDE the `gha:` prefix so the review/review-and-fix tier discriminator (which
+# reads `gha:` checkpoints as a cloud marker) is unaffected. A non-canonical body makes `--checkpoint`
+# a structural no-PATCH where `--note` degrades, so the prose keeps a degrade-to-`--note` fallback.
+# The ORDERING clause is separately operative: without it the record can assert the run is
 # proceeding to publish on an UPDATED run the post-merge suite then routes to Blocked — a
-# workpad self-record contradicting what happened. The pin above only proves the note exists.
+# workpad self-record contradicting what happened.
 # The observable discriminator for "no token reported" — "produced no output at all" is unusable
 # because the helper rebinds fd 1 to stderr and a successful invocation is never silent.
 # A tier that REFUSES the invocation is a distinct case from a non-clean token: it publishes,
 # per §1.4.1's degraded posture. Routing it to Blocked would end every such run at its last step
 # with no escape, since the off-switch yields DISABLED only when the helper actually runs.
 unset U779_INV_LN U779_CO_LN U779_BR_LN U779_15_LN U779_TB_LN U779_RT_LN
+
+# ── #1050: checkpoint-4 evidence carrier = keyed-checkpoint marker, key OUTSIDE the `gha:` prefix.
+# Machine-consumed CROSS-FILE contract: phase-4 writes `--checkpoint <key>`, workpad.py validates
+# the key + writes `<!-- prflow:checkpoint <key> -->`, and BOTH fetch-pr-context.sh (the
+# `base_update_checkpoint4_present` field) and the review/review-and-fix tier discriminator READ
+# that marker. The discriminator reads any `gha:`-prefixed checkpoint as a cloud marker and
+# checkpoint 4 runs on both tiers, so a `gha:` key would silently misclassify every local run as
+# cloud (issue #1050 AC: tier-discriminator invariant preserved). The key must therefore never
+# carry that prefix; this is the executable guard on AC10.
+CP4_KEY=$(grep -oE -- '--checkpoint base-update-checkpoint-4' "$P4_FILE" | head -1 | sed -E 's/^--checkpoint //')
+assert_eq "#1050: phase-4 records checkpoint 4 through the keyed-checkpoint carrier" \
+  "base-update-checkpoint-4" "$CP4_KEY"  # structural-pin-ok: cross-file-phase-contract -- the checkpoint-4 carrier key is read by fetch-pr-context.sh and the tier discriminator and validated by workpad.py; a rename must reconcile all four sites
+assert_eq "#1050: the checkpoint-4 key is NOT gha:-prefixed (tier-discriminator invariant)" "yes" \
+  "$(case "$CP4_KEY" in gha:*) echo no ;; *) echo yes ;; esac)"
+unset CP4_KEY
 
 # ── Issue #755: Phase 2 §2.0 resume-idempotency gate ──
 # A stalled cloud run that stall_backstop auto-resumes must NOT re-dispatch the Phase 2
@@ -12117,12 +12137,19 @@ assert_eq "review_comments_count=0"        "0"              "$(jq -r '.signals.r
 assert_eq "post_bot_commits=4"             "4"              "$(jq -r '.signals.post_bot_commits'      <<<"$CTX")"
 assert_eq "ci_failures=1"                  "1"              "$(jq -r '.signals.ci_failures_during_pr' <<<"$CTX")"
 assert_eq "workpad_final_status=Complete"  "Complete"       "$(jq -r '.signals.workpad_final_status'  <<<"$CTX")"
+# #1050: the checkpoint-4 evidence record is a machine-consumed downstream field, not prose.
+# The 793 fixture workpad carries the hidden `<!-- prflow:checkpoint base-update-checkpoint-4 -->`
+# marker, so the derived field is true; the CLEAN fixture (no workpad marker) is false.
+assert_eq "#1050: base_update_checkpoint4_present=true when the marker is in the workpad" "true" \
+  "$(jq -r '.base_update_checkpoint4_present' <<<"$CTX")"
 assert_eq "review_reject_outstanding=true" "true"           "$(jq -r '.signals.review_reject_outstanding' <<<"$CTX")"
 OUTC="$(DEVFLOW_GH="$GH_STUB" DEVFLOW_FIXTURE_PR=CLEAN bash "$LIB/fetch-pr-context.sh" 4242)"
 CTXC="$(cat "$OUTC")"
 assert_eq "clean: reject_outstanding=false" "false" "$(jq -r '.signals.review_reject_outstanding' <<<"$CTXC")"
 assert_eq "clean: post_bot_commits=0"       "0"     "$(jq -r '.signals.post_bot_commits'      <<<"$CTXC")"
 assert_eq "clean: ci_failures=0"            "0"     "$(jq -r '.signals.ci_failures_during_pr' <<<"$CTXC")"
+assert_eq "#1050: base_update_checkpoint4_present=false when the workpad carries no marker" "false" \
+  "$(jq -r '.base_update_checkpoint4_present' <<<"$CTXC")"
 assert_eq "ci_status_unknown=false (793 fixture)"   "false" "$(jq -r '.signals.ci_status_unknown' <<<"$CTX")"
 assert_eq "ci_status_unknown=false (CLEAN fixture)"  "false" "$(jq -r '.signals.ci_status_unknown' <<<"$CTXC")"
 # Fix 2: diff field must be a non-null string when the fixture has content
