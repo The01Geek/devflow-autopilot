@@ -10,8 +10,11 @@ name: DevFlow
 # here. Its caller was devflow-review.yml, the automatic pull-request-triggered
 # review tier, which issue #936 WITHHELD from this release: that file is no
 # longer in the tree, install.sh ships none of the tier's files, and
-# devflow-runner.yml is retained without a caller. The supported review path is
-# therefore a collaborator commenting `/devflow:review` — this file's `command`
+# devflow-runner.yml is retained without a caller. The always-available review
+# path is therefore a collaborator commenting `/devflow:review` — this file's
+# `command` job. A consumer can additionally opt into having that same comment
+# posted automatically once their CI is green, with the documented snippet in
+# docs/workflow-triggers.md (issue #990); it routes into this same `command`
 # job. The runner was split out in the first place because a called reusable
 # workflow's permission ceiling is validated against the caller's grant across
 # the whole graph: co-locating the high-privilege `command` job (contents:write

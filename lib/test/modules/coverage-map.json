@@ -738,6 +738,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "1065": {
+      "note": "",
+      "owner": "harness-python-guards"
+    },
     "1072": {
       "note": "",
       "owner": "unmodularized"
@@ -769,6 +773,10 @@
     "1096": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "1105": {
+      "note": "",
+      "owner": "issue-audit-state"
     },
     "126": {
       "note": "",
@@ -2041,6 +2049,10 @@
     "99": {
       "note": "",
       "owner": "retrospective-lifecycle"
+    },
+    "990": {
+      "note": "",
+      "owner": "review-trigger-helpers"
     },
     "unlabeled": {
       "note": "aggregate of lib/test/run.sh assertion names carrying no issue-number token; a visible line item, not an absence.",

@@ -1010,9 +1010,11 @@ class PerKindAndProxyTest(unittest.TestCase):
         self.assertEqual(summary["wall_clock"], "unestablished")
 
     def test_producer_shaped_targeted_scope_reads_unestablished_not_zero(self):
-        """The scope shape `record-dispatch` ACTUALLY writes carries no draft-line span.
+        """A targeted round whose scope carries no draft-line span (a pre-#1105 round).
 
-        A targeted round the proxy cannot place must make BOTH figures `unestablished`;
+        As of issue #1105 `record-dispatch` writes `scope.draft_lines`, but a round
+        recorded before that — or one whose span could not be computed — carries none. A
+        targeted round the proxy cannot place must make BOTH figures `unestablished`;
         reporting `0` there would publish the value that reads as "no defects escaped
         scope" about a comparison that never ran.
         """

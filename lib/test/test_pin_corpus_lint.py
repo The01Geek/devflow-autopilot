@@ -4322,8 +4322,28 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             self.assertEqual(3, rc, stderr)
             self.assertIn("resolves into prose", stdout)
 
-    def test_worktree_target_snapshot_detects_byte_mode_and_path_races(self):
-        for mutation in ("bytes", "mode", "path"):
+    def test_worktree_target_snapshot_detects_byte_mode_and_recreate_races(self):
+        # The `different_content_recreate` mutation recreates with DIFFERENT content
+        # on purpose. An unlink+recreate with byte-identical content that reuses the
+        # inode within one timestamp tick is indistinguishable from no change (and
+        # harmless — the analyzed bytes are unchanged), so `_worktree_path_identity`
+        # does not guard it by design; see its docstring. Asserting it here would be
+        # a property the host's filesystem/clock does not guarantee (green on a slow
+        # host, red on a fast one). A different-content recreate is a real path race
+        # that the payload compare catches deterministically on every host, with no
+        # sleep-to-cross-a-tick timing dependence.
+        #
+        # Coverage residual, decided rather than overlooked: because that recreate is
+        # detected through the payload/`st_size` limb, no subtest here isolates
+        # `st_ino`, `st_dev`, or `st_mtime_ns` as the sole differing field of the
+        # identity tuple. Driving one of them in isolation deterministically would
+        # require sleeping to cross a timer tick — exactly the host-timing dependence
+        # issue #1100 exists to remove — so it is out of bounds. The identity
+        # comparison itself stays covered: the `mode` subtest leaves the payload
+        # byte-identical and differs only in metadata (`st_mode`, plus the
+        # `st_ctime_ns` that chmod bumps with it), so deleting the identity compare
+        # from `_worktree_target_snapshot`/`verify()` turns that subtest RED.
+        for mutation in ("bytes", "mode", "different_content_recreate"):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
                 target = root / "docs/target.md"
@@ -4337,7 +4357,7 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
                     target.chmod(0o755)
                 else:
                     target.unlink()
-                    target.write_text("TOKEN\n", encoding="utf-8")
+                    target.write_text("REPLACED\n", encoding="utf-8")
                 with self.assertRaisesRegex(
                     self.mod.InfrastructureError,
                     "changed during worktree analysis",
