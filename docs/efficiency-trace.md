@@ -95,7 +95,7 @@ from looking like a gap. The orchestrator deliberately avoids dispatching verifi
 doesn't need them — resolving substring claims via the cheap orchestrator-direct `lite` probe, or
 skipping Phase 1+2 entirely when Phase 0.5 classifies the diff as low-risk (`small_diff` +
 `config_only`). That is good behavior, not absence of work, so the trace names it explicitly rather
-than printing a bare "0 verifiers":
+than printing a bare "0 verifiers". **The "low-risk" characterization is scoped, not unconditional over the whole config-extension class:** a config-extension file that is part of the engine surface — a prompt extension under the `.prflow/`/`.devflow/` state directory ending in `.md`, or a file whose basename is `CLAUDE.md` — classifies `engine_self_modifying` (Phase 0.5) and therefore keeps the full checklist rather than taking this skip, precisely because a defect in the reviewer's own appended instructions is not low-risk. The skip below is the good-behavior posture only for a genuinely low-risk config-only diff that touches no such file:
 
 | Posture | When | Trace line |
 |---|---|---|

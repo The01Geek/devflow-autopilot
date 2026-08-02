@@ -4,6 +4,16 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.46] — 2026-08-02
+
+### Changed
+Phase 0.5 now classifies a prompt-extension diff (any `.md` file under the `.prflow/` or `.devflow/` state directory, at any depth) and a `CLAUDE.md` diff (basename match, any depth) as `engine_self_modifying`, so such a diff reaches the full Phase 1+2 checklist and the early shadow rather than the lean config-only path — including in a consumer repository, with no configuration required. The reviewer's own appended instructions and the root agent-instruction file are no longer reviewed as inert config. (#1142, closes #1071)
+
+## [2.30.45] — 2026-08-02
+
+### Fixed
+- **This repository's cloud implement run now resolves the plugin root to the vendored subtree, matching every consumer.** The repo-root marketplace sources the `prflow` plugin at `./`, so this repo's cloud `/prflow:implement` run resolved `$CLAUDE_SKILL_DIR` to `<workspace>/skills/<name>` while every consumer resolves it from `.prflow/vendor/prflow` — leaving the shipped helper-path shape with no coverage here. The `claude` job now composes a job-local marketplace rooted at `.prflow/vendor` (via `scripts/compose-vendor-marketplace.sh`) and swaps the repo-root `./` marketplace entry for it, implement tier only. The tracked `.claude-plugin/marketplace.json` and the baked marketplace baseline literal are untouched; the manual-command and review tiers keep `./`. The composition degrades on a partial/absent vendored tree with a `::warning::` naming `prflow_version`. (#1049)
+
 ## [2.30.44] — 2026-08-02
 
 ### Fixed
