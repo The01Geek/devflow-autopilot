@@ -1266,8 +1266,11 @@ the execution path — invoked by their **direct leading-token** form (the
 
 (This repo's own `.prflow/config.json` grants `Bash(lib/test/run.sh:*)`,
 `Bash(lib/test/run-parallel.sh:*)`, `Bash(lib/test/run-module.sh:*)`,
+`Bash(lib/test/run-shard.sh:*)`, `Bash(lib/test/shard-tally.py:*)`,
 `Bash(lib/preflight.sh:*)`, and `Bash(shellcheck:*)` under both keys for exactly
-this reason.) See [`implement-skill.md`](implement-skill.md) for the Phase 3.4
+this reason. The two shard tokens are what let a run decompose a suite the tier's
+per-command execution ceiling would otherwise terminate, and recombine it into one
+whole-suite result, instead of downgrading its completion evidence — issue #1132.) See [`implement-skill.md`](implement-skill.md) for the Phase 3.4
 gate behavior.
 
 ## Letting the reviewer build/test a PR
