@@ -23,6 +23,24 @@ merits, each for a stated reason:
   * `.prflow/prompt-extensions/**` and `docs/**` — documentation / consumer
     prose, not cut-over sites.
 
+That last bullet is an OUT-OF-POPULATION note scoped to the issue-body-refetch
+question, and to nothing else (issue #1076). It says only that those paths are
+not cut-over sites for the Phase 1.1 cache hand-off; it does not adjudicate what
+a prompt extension *is*, and widening or narrowing its phrasing changes nothing
+this scanner does — the audited population is `AUDITED_PREFIX`, defined
+positively below. Two sibling lints bind the `.prflow/prompt-extensions/<name>.md`
+shape for their own, different questions — `lint-subagent-extension-handoff.py`
+(does a subagent dispatch hand the child its extension path?) and
+`lint-subagent-dispatch-namespace.py` (the dispatch namespace) — and the three
+are NOT in conflict: three questions, three answers, no single adjudication to
+reconcile. Collapsing them onto one shared notion of "prompt extension" would
+force two of the three to audit a population their question does not concern.
+Relatedly, none of the three anchors on `lib/resolve-state-dir.sh`, and none
+needs to: all three are repo-internal desk/CI lints driven only from
+`lib/test/run.sh`, and the vendor slice
+(`.github/actions/vendor-plugin/vendor-slice.sh`) strips `lib/test` from the
+staged tree, so no consumer ever runs them on either state-directory spelling.
+
 The audited UNIT is the site, not the file: `skills/implement/phases/
 phase-1-setup.md` is audited, yet §1.1 in that same file must KEEP its fetch —
 that fetch is the cache producer. So the scanner carries two named in-file
