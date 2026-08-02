@@ -2353,6 +2353,48 @@ assert_eq("render_md: test plan appended after blank line", True,
               [{'text': 'a', 'ticked': False, 'post_merge': False}],
               [{'text': 'b', 'ticked': False, 'post_merge': False}]))
 
+# ── issue #1111: the operand properties the /prflow:create-issue drafting-time
+# acceptance-criteria gate rests on. The gate reads the emptiness of the
+# `acceptance_criteria` array — NOT the exit code, the stderr breadcrumb, or the
+# `--format md` sentinel. These four assertions (Testing Strategy Move 3, the
+# closed set) pin the operand properties that choice depends on; they pin
+# behavior parse-acs.py already has, so they cannot fail RED first — their
+# purpose is forward, turning a later fail-open simplification of the gate red.
+# Assertion 1 — happy path: a canonical section with `- [ ]` rows yields a
+# non-empty array (length 2).
+_AC_GATE_CANONICAL = "## Acceptance Criteria\n- [ ] one\n- [ ] two\n"
+assert_eq("#1111 gate operand: canonical section yields 2 criteria", 2,
+          len(parse_acs._parse_checkboxes(
+              parse_acs.extract_section(_AC_GATE_CANONICAL, 'Acceptance Criteria'))))
+# Assertion 2 — the real captured #1068 excerpt (bold `**AC1 — …**` paragraphs,
+# no checkbox rows) yields 0, from a checked-in file rather than an imitation.
+_AC_GATE_1068 = (Path(__file__).resolve().parents[2]
+                 / 'lib' / 'test' / 'fixtures'
+                 / 'issue-1068-acceptance-criteria.md').read_text(encoding='utf-8')
+assert_eq("#1111 gate operand: real #1068 excerpt yields 0 criteria", 0,
+          len(parse_acs._parse_checkboxes(
+              parse_acs.extract_section(_AC_GATE_1068, 'Acceptance Criteria'))))
+# Assertion 3 — the standing proof that an empty parse can be ENTIRELY silent:
+# criteria under a heading the parser does not match yield 0 criteria AND
+# _warn_near_miss writes 0 bytes, so only the array distinguishes this from the
+# happy path (the breadcrumb is unusable as the gate operand).
+_AC_GATE_NONMATCH = "## Success Criteria\n- [ ] one\n- [ ] two\n"
+assert_eq("#1111 gate operand: non-matching heading yields 0 criteria", 0,
+          len(parse_acs._parse_checkboxes(
+              parse_acs.extract_section(_AC_GATE_NONMATCH, 'Acceptance Criteria'))))
+_AC_GATE_NEARMISS = io.StringIO()
+with contextlib.redirect_stderr(_AC_GATE_NEARMISS):
+    parse_acs._warn_near_miss([], _AC_GATE_NONMATCH, 'Acceptance Criteria', 'acceptance')
+assert_eq("#1111 gate operand: near-miss breadcrumb is silent under a non-matching "
+          "heading (breadcrumb unusable as the gate operand)", 0,
+          len(_AC_GATE_NEARMISS.getvalue()))
+# Assertion 4 — the sentinel is unusable as the operand: a body with a test-plan
+# item but no acceptance criteria renders rows, not the sentinel.
+assert_eq("#1111 gate operand: sentinel not emitted when only a test-plan item "
+          "is present (sentinel unusable as the gate operand)", True,
+          parse_acs._render_md([], [{'text': 't', 'ticked': False, 'post_merge': False}])
+          != '_(none provided in issue body)_')
+
 # ── the documented mid-string `(post-merge)` residual (#781 review) ────────────
 # `_render_md_line`'s comment states the writer and the reader deliberately do NOT
 # share a predicate: the writer suppresses the append on CONTAINMENT, the reader
@@ -21259,7 +21301,8 @@ assert_eq("#793: each vocabulary member survives the guard unchanged",
 # Every reason the rows below drive the selector to answer must be a member — asserted
 # over the whole set the rows collect, not one representative, so the name matches what
 # the row actually grades.
-_793_REASONS_EXERCISED = ('targeted-eligible', 'no-completed-round',
+_793_REASONS_EXERCISED = ('targeted-eligible', 'no-round-dispatched',
+                          'no-completed-round',
                           'no-revision-after-round', 'not-file-arm',
                           'dispatch-bytes-unrecoverable', 'empty-claim-set',
                           'empty-delta', 'delta-error')
@@ -21286,9 +21329,22 @@ def _793_select(doc, before=b'# T\n\n## A\n\nold\n', after=b'# T\n\n## A\n\nnew\
 
 # --- each `targeted` condition, driven to failure in isolation -----------------------
 
-assert_eq("#793: no completed round selects discovery, naming the condition",
-          ('discovery', 'no-completed-round'),
+# issue #1103 split the old shared `no-completed-round` token into two facts, asserted
+# here over one fixture per shape. A state with NO round dispatched at all is the genuine
+# cold first round; a state whose dispatched round never completed is the fall-off.
+assert_eq("#1103: no round dispatched at all selects discovery for the genuine "
+          "first-round reason",
+          ('discovery', 'no-round-dispatched'),
           _793_kr(_793_select(_793_state(), stage=False)))
+
+assert_eq("#1103: a dispatched-but-uncompleted round selects discovery for the "
+          "fall-off reason, distinct from the first-round one",
+          ('discovery', 'no-completed-round'),
+          _793_kr(_m793.select_round_kind(
+              _793_state(rounds=[{'round': 1,
+                                  'attempts': [{'arm': 'file', 'digest': 'd' * 40}],
+                                  'outcome': None, 'kind': 'discovery'}]),
+              None)))
 
 assert_eq("#793: condition 1 — no revision postdating the round selects discovery",
           ('discovery', 'no-revision-after-round'),
@@ -22247,6 +22303,252 @@ assert_eq("#793/AC18: ... and the established result is PERSISTED on the round, 
           "later reader sees the verified regeneration rather than re-inferring it",
           'established', (_doc7['rounds'][1].get('steering') or {}).get('state'))
 
+# issue #1103: the TARGETED round records its selecting reason durably too — read back
+# from the same persisted scoped round, closing the "a dispatch of each kind" wording
+# (the discovery arms are covered by the CLI rows below).
+assert_eq("#1103: a targeted dispatch records kind_reason=targeted-eligible on the round",
+          'targeted-eligible', _doc7['rounds'][1].get('kind_reason'))
+
+print()
+print("issue-audit-state: carriage cause + durable round-kind reason (issue #1103)")
+
+# ── the carriage cause `_carriage_ok` distinguishes (unit) ─────────────────────────────
+# The `ok` boolean classify_return consumes is unchanged; the CAUSE is the new second
+# member, so absent evidence and mismatched evidence are distinguishable while still
+# failing closed identically.
+assert_eq("#1103: file-arm absent carriage -> (False, 'absent')", (False, 'absent'),
+          _m793._carriage_ok({'arm': 'file', 'digest': 'x' * 40},
+                             _ns(carriage_object_id=None)))
+assert_eq("#1103: file-arm mismatched carriage -> (False, 'mismatch')",
+          (False, 'mismatch'),
+          _m793._carriage_ok({'arm': 'file', 'digest': 'x' * 40},
+                             _ns(carriage_object_id='y' * 40)))
+assert_eq("#1103: file-arm matching carriage -> (True, None)", (True, None),
+          _m793._carriage_ok({'arm': 'file', 'digest': 'x' * 40},
+                             _ns(carriage_object_id='x' * 40)))
+assert_eq("#1103: embed-arm absent sentinels -> (False, 'absent')", (False, 'absent'),
+          _m793._carriage_ok({'arm': 'embed', 'sentinel_open': 'O', 'sentinel_close': 'C'},
+                             _ns(carriage_sentinel_open=None,
+                                 carriage_sentinel_close=None)))
+assert_eq("#1103: embed-arm mismatched sentinels -> (False, 'mismatch')",
+          (False, 'mismatch'),
+          _m793._carriage_ok({'arm': 'embed', 'sentinel_open': 'O', 'sentinel_close': 'C'},
+                             _ns(carriage_sentinel_open='O', carriage_sentinel_close='X')))
+assert_eq("#1103: inline arm -> (True, 'not-applicable') (no carriage to prove)",
+          (True, 'not-applicable'),
+          _m793._carriage_ok({'arm': 'inline'},
+                             _ns(carriage_sentinel_open=None,
+                                 carriage_sentinel_close=None)))
+
+# ── the record-return carriage breadcrumb, at the executable boundary ──────────────────
+
+def _1103_open_round(tmp):
+    """A run with round 1 dispatched on the file arm, awaiting its return."""
+    run = _Run603(tmp)
+    Path(run.tmp, 'd.md').write_text('draft body\n', encoding='utf-8')
+    d = run('record-dispatch', '--kind', 'discovery', run.slug, '--round', '1',
+            '--arm', 'file', '--draft-file', 'd.md', nonce=True)
+    if d.returncode != 0 or 'digest=' not in d.stdout:
+        raise AssertionError(f'#1103 harness: dispatch failed rc={d.returncode} '
+                             f'stderr={d.stderr!r}')
+    return run, d.stdout.split('digest=', 1)[1].split()[0]
+
+
+with tempfile.TemporaryDirectory() as _t_ab, \
+     tempfile.TemporaryDirectory() as _t_mm, \
+     tempfile.TemporaryDirectory() as _t_up:
+    _run_ab, _dig_ab = _1103_open_round(_t_ab)
+    _p_ab = _run_ab('record-return', _run_ab.slug, '--round', '1', '--verdict', 'FILE',
+                    nonce=True)   # no --carriage-object-id: absent
+    _run_mm, _dig_mm = _1103_open_round(_t_mm)
+    _p_mm = _run_mm('record-return', _run_mm.slug, '--round', '1', '--verdict', 'FILE',
+                    '--carriage-object-id', '0' * 40, nonce=True)   # present but wrong
+    _run_up, _dig_up = _1103_open_round(_t_up)
+    _p_up = _run_up('record-return', _run_up.slug, '--round', '1',
+                    '--carriage-object-id', _dig_up, nonce=True)   # no --verdict: unparseable
+
+    assert_eq("#1103: absent carriage names its cause on stderr (not stdout), exit 0",
+              (0, True, True, False),
+              (_p_ab.returncode,
+               'carriage-absent' in _p_ab.stderr,
+               'carriage-absent' not in _p_ab.stdout,
+               'carriage-mismatch' in _p_ab.stderr))
+    assert_eq("#1103: mismatched carriage names a DISTINCT cause on stderr, exit 0",
+              (0, True, True),
+              (_p_mm.returncode,
+               'carriage-mismatch' in _p_mm.stderr,
+               'carriage-absent' not in _p_mm.stderr))
+    assert_eq("#1103: an unparseable return (no verdict line) emits NEITHER carriage "
+              "breadcrumb — the third cause stays distinct",
+              (0, False, False),
+              (_p_up.returncode,
+               'carriage-absent' in _p_up.stderr,
+               'carriage-mismatch' in _p_up.stderr))
+    # AC2: the record-return CONTRACT line (stdout line 1) and the exit code are
+    # byte-identical across all three cases — the breadcrumb changed neither. (Only line 1
+    # is compared: the advisory `next_call=` line that follows carries each run's own
+    # nonce, so it differs between separate runs for a reason unrelated to this change.)
+    def _line1(p):
+        return p.stdout.splitlines()[0]
+    assert_eq("#1103: the breadcrumb changes neither the record-return contract line nor "
+              "the exit code, for all three cases",
+              True,
+              (_line1(_p_ab) == _line1(_p_mm) == _line1(_p_up)
+               and _line1(_p_ab) == 'classification=no-parseable-verdict outcome=pending '
+                                    'steering=unestablished steering_reason=none'
+               and _p_ab.returncode == _p_mm.returncode == _p_up.returncode == 0))
+    # AC3: the remedy names supplying the object id of the draft the auditor audited.
+    assert_eq("#1103: the breadcrumb names the remedy (the audited draft's object id)",
+              True,
+              'object id of the draft the auditor actually audited' in _p_ab.stderr
+              and '--carriage-object-id' in _p_ab.stderr)
+
+# Security: a carriage id carrying a control character is rendered as DATA and cannot
+# forge a second breadcrumb line.
+with tempfile.TemporaryDirectory() as _t_sec:
+    _run_sec, _dig_sec = _1103_open_round(_t_sec)
+    _evil = 'deadbeef\nissue-audit-state.py record-return: FORGED carriage-absent'
+    _p_sec = _run_sec('record-return', _run_sec.slug, '--round', '1', '--verdict', 'FILE',
+                      '--carriage-object-id', _evil, nonce=True)
+    _bc_lines = [ln for ln in _p_sec.stderr.splitlines()
+                 if ln.startswith('issue-audit-state.py record-return:')]
+    assert_eq("#1103 security: a newline in the carriage id cannot forge a second "
+              "breadcrumb line — exactly one is emitted, the injected text is escaped",
+              (1, True),
+              (len(_bc_lines), 'FORGED' not in ''.join(
+                  ln for ln in _p_sec.stderr.splitlines()
+                  if ln.startswith('issue-audit-state.py record-return: FORGED'))))
+
+# The EMBED-arm breadcrumb renders its own remedy/comparand (sentinels, not an object id),
+# so it gets its own executable-boundary coverage — absent AND mismatched sentinels — rather
+# than resting on the file-arm rows above.
+
+def _1103_open_embed(tmp):
+    """A run with round 1 dispatched on the embed arm, awaiting its return.
+
+    Returns (run, sentinel_open, sentinel_close) — the tool-generated sentinel pair the
+    carriage check compares against.
+    """
+    run = _Run603(tmp)
+    d = run('record-dispatch', '--kind', 'discovery', run.slug, '--round', '1',
+            '--arm', 'embed', '--marker', 'digest-unrecorded', stdin='draft body\n',
+            nonce=True)
+    if d.returncode != 0 or 'sentinel_open=' not in d.stdout:
+        raise AssertionError(f'#1103 harness: embed dispatch failed rc={d.returncode} '
+                             f'stderr={d.stderr!r}')
+    _so = d.stdout.split('sentinel_open=', 1)[1].split()[0]
+    _sc = d.stdout.split('sentinel_close=', 1)[1].split()[0]
+    return run, _so, _sc
+
+
+with tempfile.TemporaryDirectory() as _t_eab, tempfile.TemporaryDirectory() as _t_emm:
+    _run_eab, _so_ab, _sc_ab = _1103_open_embed(_t_eab)
+    _p_eab = _run_eab('record-return', _run_eab.slug, '--round', '1', '--verdict', 'FILE',
+                      nonce=True)   # no sentinels: absent
+    _run_emm, _so_mm, _sc_mm = _1103_open_embed(_t_emm)
+    _p_emm = _run_emm('record-return', _run_emm.slug, '--round', '1', '--verdict', 'FILE',
+                      '--carriage-sentinel-open', _so_mm,
+                      '--carriage-sentinel-close', 'AUDIT-WRONG-CLOSE', nonce=True)  # mismatch
+    assert_eq("#1103: the embed-arm absent-carriage breadcrumb names the sentinel remedy, "
+              "exit 0, stdout contract line unchanged",
+              (0, True, True, 'classification=no-parseable-verdict outcome=pending '
+                              'steering=unestablished steering_reason=none'),
+              (_p_eab.returncode,
+               'carriage-absent' in _p_eab.stderr,
+               '--carriage-sentinel-open' in _p_eab.stderr
+               and 'exact sentinel pair' in _p_eab.stderr,
+               _p_eab.stdout.splitlines()[0]))
+    assert_eq("#1103: the embed-arm mismatch breadcrumb renders the recorded sentinels as "
+              "the expected comparand, exit 0",
+              (0, True, True),
+              (_p_emm.returncode,
+               'carriage-mismatch' in _p_emm.stderr,
+               _so_mm in _p_emm.stderr))
+
+# ── the durable round-kind reason, recorded by record-dispatch ─────────────────────────
+
+def _1103_state(run):
+    return json.loads(Path(run.tmp, '.prflow', 'tmp',
+                           f'issue-audit-state-{run.slug}.json').read_text(encoding='utf-8'))
+
+
+with tempfile.TemporaryDirectory() as _t_disp:
+    _run = _Run603(_t_disp)
+    Path(_run.tmp, 'd.md').write_text('draft one\n', encoding='utf-8')
+    _d1 = _run('record-dispatch', '--kind', 'discovery', _run.slug, '--round', '1',
+               '--arm', 'file', '--draft-file', 'd.md', nonce=True)
+    _dig1 = _d1.stdout.split('digest=', 1)[1].split()[0]
+    assert_eq("#1103: the fresh first round records its selecting reason durably, and "
+              "record-dispatch announces NO fall-off for a genuine first round",
+              ('discovery', 'no-round-dispatched', False),
+              (_1103_state(_run)['rounds'][0].get('kind'),
+               _1103_state(_run)['rounds'][0].get('kind_reason'),
+               'accepted-discovery-fallback' in _d1.stderr))
+    _run('record-return', _run.slug, '--round', '1', '--verdict', 'REVISE',
+         '--findings-count', '1', '--carriage-object-id', _dig1, nonce=True)
+    Path(_run.tmp, 'd.md').write_text('draft two\n', encoding='utf-8')
+    _d2 = _run('record-dispatch', '--kind', 'discovery', _run.slug, '--round', '2',
+               '--arm', 'file', '--draft-file', 'd.md', nonce=True)
+    assert_eq("#1103: a fall-off discovery round records the failing-condition reason and "
+              "record-dispatch announces the expensive whole-draft path for it",
+              ('no-revision-after-round', True, True),
+              (_1103_state(_run)['rounds'][1].get('kind_reason'),
+               'accepted-discovery-fallback' in _d2.stderr,
+               'no-revision-after-round' in _d2.stderr))
+
+# A retry re-dispatching an open round carries that round's recorded kind and does NOT
+# rewrite its recorded reason.
+with tempfile.TemporaryDirectory() as _t_retry:
+    _run = _Run603(_t_retry)
+    Path(_run.tmp, 'd.md').write_text('retry body\n', encoding='utf-8')
+    _run('record-dispatch', '--kind', 'discovery', _run.slug, '--round', '1',
+         '--arm', 'file', '--draft-file', 'd.md', nonce=True)
+    _reason_before = _1103_state(_run)['rounds'][0].get('kind_reason')
+    # Refuse the return (absent carriage) so a same-arm retry becomes pending.
+    _run('record-return', _run.slug, '--round', '1', '--verdict', 'FILE', nonce=True)
+    _run('record-dispatch', '--kind', 'discovery', _run.slug, '--round', '1',
+         '--arm', 'file', '--draft-file', 'd.md', nonce=True)
+    assert_eq("#1103: a retry re-dispatch keeps the round's recorded kind and does not "
+              "rewrite its recorded reason",
+              ('discovery', 'no-round-dispatched', _reason_before),
+              (_1103_state(_run)['rounds'][0].get('kind'),
+               _1103_state(_run)['rounds'][0].get('kind_reason'),
+               _1103_state(_run)['rounds'][0].get('kind_reason')))
+
+# ── the reason field's guards: whole-vocabulary round-trip, off-vocabulary raises ──────
+assert_eq("#1103: the schema version is NOT bumped for the additive reason field",
+          3, _m793.SCHEMA_VERSION)
+assert_raises("#1103: an off-vocabulary reason raises at the write boundary, like the kind",
+              AssertionError, lambda: _m793._checked_kind_reason('whole-draft'))
+assert_eq("#1103: every reason member survives the write-boundary guard unchanged",
+          list(_m793._ROUND_KIND_REASONS),
+          [_m793._checked_kind_reason(x) for x in _m793._ROUND_KIND_REASONS])
+
+
+def _1103_round_with_reason(reason):
+    rnd = _round(1, 'file', 'FILE', 'D1')
+    rnd['kind'] = 'discovery'
+    rnd['kind_reason'] = reason
+    return rnd
+
+
+for _reason in _m793._ROUND_KIND_REASONS:
+    _validated = _m793._validate(_state([_1103_round_with_reason(_reason)]), 's')
+    assert_eq(f"#1103: reason {_reason!r} round-trips through _validate unchanged",
+              _reason, _validated['rounds'][0].get('kind_reason'))
+
+_malformed('round names a kind_reason outside the canonical set',
+           _state([_1103_round_with_reason('made-up-reason')]))
+
+# A round written before the field still loads and reports its reason as absent (never a
+# guessed value) — the additive-under-the-unchanged-schema-version precedent.
+_legacy_round = _round(1, 'file', 'FILE', 'D1')
+_legacy_round['kind'] = 'discovery'
+assert_eq("#1103: a pre-#1103 round (no reason field) still loads, reason absent — never "
+          "a guessed value",
+          None,
+          _m793._validate(_state([_legacy_round]), 's')['rounds'][0].get('kind_reason'))
+
 print()
 print("issue-audit-state: the file-arm staged-write guarantee at dispatch (issue #1104)")
 
@@ -22391,10 +22693,13 @@ _1104_uk = _1104_u('query-round-kind', _1104_u.slug, '--draft-file',
 assert_eq("#1104: an unstaged file-arm dispatch records no round, so the selection can "
           "never answer dispatch-bytes-unrecoverable over it — the refusal is what makes "
           "that state unreachable rather than merely unlikely",
+          # issue #1103 split the empty-state token: with no round recorded at all the
+          # selection now answers `no-round-dispatched` (the genuine first round), not the
+          # `no-completed-round` fall-off token.
           (True, [], 0, True, False),
           (_1104_ru.returncode != 0, _1104_state(_1104_u).get('rounds'),
            _1104_uk.returncode,
-           'reason=no-completed-round' in _1104_uk.stdout,
+           'reason=no-round-dispatched' in _1104_uk.stdout,
            'dispatch-bytes-unrecoverable' in _1104_uk.stdout))
 
 # --- AC8 part 2: with the history present, condition 3 no longer fails ------------------

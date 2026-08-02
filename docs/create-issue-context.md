@@ -242,10 +242,13 @@ obligation reads.
 `scripts/create-issue-context-eval.py` now attributes the auditor's own `isSidechain`
 `usage` records to rounds, derives round boundaries from the transcript's own
 `issue-audit-state.py record-dispatch --round N` records (the state file supplies only the
-round→kind labelling, the per-round scope and the per-finding quoted draft line, best-effort —
+round→kind labelling, the per-round scope, the per-round **selecting reason** (issue #1103) and
+the per-finding quoted draft line, best-effort —
 every degraded state-file shape yields `unestablished` figures with a stderr breadcrumb, never a
 number and never a crash), reports the per-kind auditor-cost medians and a per-run per-round
-breakdown carrying each round's recorded kind, and accepts a `--before`/`--after` operand pair with
+breakdown carrying each round's recorded kind **and the reason its kind was selected** — a round
+whose record carries no reason (a pre-#1103 round) reads `unestablished`, never a guessed value —
+and accepts a `--before`/`--after` operand pair with
 paired deltas: three corpus-wide sums, each named `total_` for that reason — total attributed
 auditor cost, total peak context, total round count — plus `mean_peak_context_per_run`, the
 **per-run-normalized** context axis (each side's sum divided by its own `run_count`, so a
