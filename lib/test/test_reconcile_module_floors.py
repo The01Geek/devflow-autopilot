@@ -146,23 +146,31 @@ fi
         )
 
     def test_measured_increase_raises_both_coupled_sites(self) -> None:
-        self.write_contract(alpha_floor=2, beta_floor=3)
+        # Every expectation below is derived from these three, so the test states the
+        # measured raise once instead of transcribing `4` into a bare literal that a
+        # reader cannot tie back to the measurement that produced it.
+        alpha_floor, beta_floor, measured = 2, 3, 4
+        self.write_contract(alpha_floor=alpha_floor, beta_floor=beta_floor)
         self.settings_path.write_text(
-            json.dumps({"alpha": {"passed": 4}}), encoding="utf-8"
+            json.dumps({"alpha": {"passed": measured}}), encoding="utf-8"
         )
 
         result = self.run_helper()
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         registry = json.loads(self.registry_path.read_text(encoding="utf-8"))
-        self.assertEqual(registry["test_modules"]["alpha"]["minimum_assertions"], 4)
-        self.assertEqual(registry["test_modules"]["beta"]["minimum_assertions"], 3)
+        self.assertEqual(
+            registry["test_modules"]["alpha"]["minimum_assertions"], measured
+        )
+        self.assertEqual(
+            registry["test_modules"]["beta"]["minimum_assertions"], beta_floor
+        )
         # Asserting the raised operand reached run.sh is the only thing separating a real
         # coupled raise from one that moved the registry alone.
         self.assertIn(
-            '"alpha" 4; then',
+            f'"alpha" {measured}; then',
             self.run_path.read_text(encoding="utf-8"),
-        )  # structural-pin-ok: generated-artifact-identity -- the post-image of the coupled run.sh floor site the reconciler writes, so the literal is the generated artifact's own shape, not prose
+        )
 
     def test_measured_increase_changes_only_the_selected_numeric_tokens(self) -> None:
         self.write_contract(alpha_floor=2, beta_floor=3)
