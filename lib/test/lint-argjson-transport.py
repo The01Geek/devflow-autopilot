@@ -19,8 +19,9 @@ one whose operand name the marker does not declare as a bounded scalar (a corpus
 operand reverted from ``--slurpfile`` even though marked scalars share its jq
 invocation) — so the E2BIG regression cannot ship silently.
 
-It is a member of the repository's declaration-marker lint family, alongside
-``# raw-guard-ok:`` / ``# structural-pin-ok:`` / ``# tree-walk-ok:``.
+It is a member of the repository's declaration-marker lint family
+(``# structural-pin-ok:`` / ``# raw-guard-ok:`` / ``# tree-walk-ok:`` /
+``# argjson-ok:`` / ``# pruned-path-ok:``).
 
 Audited population, closed by enumeration:
 
