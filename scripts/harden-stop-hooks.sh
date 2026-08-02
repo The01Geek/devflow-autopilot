@@ -145,11 +145,11 @@ HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh 
 # the exec-dep class (the logic derives "exec dep" as any closure member that is neither
 # an entry nor a sourced lib), so it is not read by the code below.
 # shellcheck disable=SC2034
-HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'
+HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py scripts/check-completion-evidence.py scripts/reception_identity.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'
 # Authoritative single-line closure literal (COUPLED mirror of devflow-runner.yml's
 # inline TARGETS= — pinned in lib/test/run.sh). Order: entries, then sourced libs, then
 # exec deps.
-HOOK_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh lib/resolve-state-dir.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'
+HOOK_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh lib/resolve-state-dir.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py scripts/check-completion-evidence.py scripts/reception_identity.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'
 
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-.}"
 TRUSTED_DIR="${TRUSTED_DIR:-}"
