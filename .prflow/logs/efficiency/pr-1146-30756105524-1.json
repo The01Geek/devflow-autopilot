@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1146",
+  "generated_at": "2026-08-02T16:21:57Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.49",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.119464500000001,
+    "tokens": {
+      "input_tokens": 1439,
+      "output_tokens": 18413,
+      "cache_read_input_tokens": 3409944,
+      "cache_creation_input_tokens": 139534,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 1461,
+        "outputTokens": 33956,
+        "cacheReadInputTokens": 3976089,
+        "cacheCreationInputTokens": 280314,
+        "webSearchRequests": 0,
+        "costUSD": 5.119464500000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 33,
+    "duration_ms": 464115
+  },
+  "permission_denials": {
+    "count": 7,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "git status --porcelain; echo \"---ENV---\"; echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none}\"",
+      "printf 'run=%s attempt=%s\\n' \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\"",
+      "H=e6f9ba75620ad730fb85ae1185b1e7c520982ed9\necho \"=== byte size phase-4-documentation.md at PR head ===\"\ngit cat-file -p $H:skills/implement/phases/phase-4-documentation.md | wc -c\necho \"=== sha256 ===\"\ngit cat-file -p $H:skills/implement/phases/phase-4-documentation.md | sha256sum\necho \"=== remaining contradiction check at PR head ===\"\nfor f in .prflow/prompt-extensions/implement.md CLAUDE.md skills/implement/phases/phase-4-documentation.md docs/implement-skill.md docs/cloud-setup.md; do\n  git c …[per-command-truncated]",
+      "for f in .prflow/prompt-extensions/implement.md CLAUDE.md skills/implement/phases/phase-4-documentation.md docs/implement-skill.md docs/cloud-setup.md; do\n  n=$(git cat-file -p \"e6f9ba75620ad730fb85ae1185b1e7c520982ed9:$f\" | grep -c \"or a covering focused module\")\n  echo \"$n  $f\"\ndone",
+      ".prflow/vendor/prflow/scripts/workpad.py patch 5159160079 .prflow/tmp/review/pr-1146/30756105524-1/review-wp.md 2>.prflow/tmp/review/pr-1146/30756105524-1/rv-patch.err; echo \"patch-rc=$?\"",
+      "cd /home/runner/work/prflow/prflow\necho \"=== covering focused module / focused ... discharge across tree at head ===\"\nfor f in .prflow/prompt-extensions/implement.md .prflow/prompt-extensions/review-and-fix.md .prflow/prompt-extensions/receiving-code-review.md CLAUDE.md skills/implement/phases/phase-4-documentation.md docs/implement-skill.md docs/cloud-setup.md; do\n  echo \"--- $f ---\"\n  git cat-file -p e6f9ba75620ad730fb85ae1185b1e7c520982ed9:$f 2>/dev/null | grep -niE \"covering focused|focused  …[per-command-truncated]"
+    ],
+    "total": 7,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
