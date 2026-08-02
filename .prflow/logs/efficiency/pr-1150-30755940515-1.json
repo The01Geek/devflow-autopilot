@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1150",
+  "generated_at": "2026-08-02T16:50:57Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.49",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 15.714658499999992,
+    "tokens": {
+      "input_tokens": 184,
+      "output_tokens": 76668,
+      "cache_read_input_tokens": 22145417,
+      "cache_creation_input_tokens": 272433,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 184,
+        "outputTokens": 76668,
+        "cacheReadInputTokens": 22145417,
+        "cacheCreationInputTokens": 272433,
+        "webSearchRequests": 0,
+        "costUSD": 15.714658499999992,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 114,
+    "duration_ms": 2480541
+  },
+  "permission_denials": {
+    "count": 13,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"GITHUB_ACTIONS=${GITHUB_ACTIONS:-<unset>}\"; echo \"---extension---\"; /home/runner/work/prflow/prflow/.prflow/vendor/prflow/scripts/load-prompt-extension.sh implement 2>&1 | head -50",
+      "/home/runner/work/prflow/prflow/.prflow/vendor/prflow/scripts/load-prompt-extension.sh implement 2>&1 | head -80; echo \"EXIT=$?\"",
+      "gh run view 30738761826 --log 2>&1 | grep -a \"^claude\" | sed -n '/### Permission denials/,/^claude.*###[^ ]* /p' | head -200 > /tmp/run1_denials.txt 2>&1; wc -l /tmp/run1_denials.txt; echo \"---preview---\"; head -120 /tmp/run1_denials.txt",
+      "gh run view 30738761826 --log > /tmp/run1.log 2>&1; wc -l /tmp/run1.log",
+      "gh run view 30738987528 --log > /tmp/run2.log 2>&1; wc -l /tmp/run2.log",
+      "gh run view 30738761826 --log > /tmp/run1.log",
+      "mkdir -p .prflow/tmp && gh run view 30738761826 --log > .prflow/tmp/run1.log",
+      "python3 lib/test/pin-corpus-lint.py 2>&1 | tail -15; echo \"pin-corpus-exit=${PIPESTATUS[0]}\"",
+      "git diff origin/main...HEAD -- docs/cloud-allowlist.md | python3 scripts/stale-prose-lint.py 2>&1 | tail -15; echo \"stale-prose-exit=${PIPESTATUS[1]}\"",
+      "grep -n \"pin-corpus-lint.py\" lib/test/run.sh | head -5; echo \"=== shards ===\"; lib/test/run-shard.sh --list-shards 2>&1 | head -30",
+      "lib/test/run-shard.sh --list-shards 2>&1",
+      "TRIGGER_COMMENT_ID=$(gh api \"repos/{owner}/{repo}/issues/1135/comments?per_page=100\" --jq 'map(select((.body | contains(\"/prflow:implement\")) and ((.body | test(\"(pr|dev)flow:workpad\")) | not))) | last | .id' 2>/dev/null || true); echo \"trigger=$TRIGGER_COMMENT_ID\"; if [ -n \"$TRIGGER_COMMENT_ID\" ] && [ -z \"${TRIGGER_COMMENT_ID//[0-9]/}\" ]; then scripts/react-to-trigger.sh --repo \"$GITHUB_REPOSITORY\" --event issue_comment --comment \"$TRIGGER_COMMENT_ID\" --reaction hooray --report-failure 2>&1 | t …[per-command-truncated]",
+      "scripts/react-to-trigger.sh --repo \"$GITHUB_REPOSITORY\" --event issue_comment --comment 5159107027 --reaction hooray --report-failure 2>&1 | tail -3"
+    ],
+    "total": 13,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
