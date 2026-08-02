@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -117,7 +118,9 @@ fi
             encoding="utf-8",
         )
 
-    def run_helper(self) -> subprocess.CompletedProcess[str]:
+    def run_helper(
+        self, environment: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [
                 "python3",
@@ -128,6 +131,7 @@ fi
                 str(self.runner_path),
             ],
             cwd=ROOT,
+            env=environment,
             text=True,
             capture_output=True,
             check=False,
@@ -146,6 +150,48 @@ fi
         self.assertEqual(registry["test_modules"]["alpha"]["minimum_assertions"], 4)
         self.assertEqual(registry["test_modules"]["beta"]["minimum_assertions"], 3)
         self.assertIn('"alpha" 4; then', self.run_path.read_text(encoding="utf-8"))
+
+    def test_measured_increase_changes_only_the_selected_numeric_tokens(self) -> None:
+        self.write_contract(alpha_floor=2, beta_floor=3)
+        registry = json.loads(self.registry_path.read_text(encoding="utf-8"))
+        registry["test_modules"]["beta"]["description"] = "kept byte-for-byte — café"
+        before = json.dumps(
+            registry, ensure_ascii=False, separators=(",", ":")
+        ) + "\n"
+        self.registry_path.write_text(before, encoding="utf-8")
+        self.settings_path.write_text(
+            json.dumps({"alpha": {"passed": 4}}), encoding="utf-8"
+        )
+
+        result = self.run_helper()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            self.registry_path.read_text(encoding="utf-8"),
+            before.replace('"minimum_assertions":2', '"minimum_assertions":4', 1),
+        )
+
+    def test_measurement_runner_honors_the_devflow_bash_override(self) -> None:
+        self.write_contract(alpha_floor=3, beta_floor=5)
+        self.settings_path.write_text(
+            json.dumps({"alpha": {"passed": 3}}), encoding="utf-8"
+        )
+        marker = self.root / "devflow-bash-used"
+        bash_override = self.root / "selected-bash"
+        bash_override.write_text(
+            "#!/usr/bin/env bash\n"
+            f"printf used > {marker}\n"
+            'exec bash "$@"\n',
+            encoding="utf-8",
+        )
+        bash_override.chmod(0o755)
+        environment = os.environ.copy()
+        environment["DEVFLOW_BASH"] = str(bash_override)
+
+        result = self.run_helper(environment)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(marker.read_text(encoding="utf-8"), "used")
 
     def test_equal_measurement_is_clean_and_writes_nothing(self) -> None:
         self.write_contract(alpha_floor=3, beta_floor=5)

@@ -931,6 +931,21 @@ _ra_same "#1055 a refused decrease leaves run.sh byte-unchanged" \
   "$RA_1055_LOWER_RUN_BEFORE" "$(cat "$RA_1055_LOWER/lib/test/run.sh")" \
   "run.sh changed on a decrease"
 
+RA_1055_PARTIAL="$_ra_tmp_root/issue-1055-partial"; _ra_fixture "$RA_1055_PARTIAL"
+cat > "$RA_1055_PARTIAL/lib/test/reconcile-module-floors.py" <<'PY'
+#!/usr/bin/env python3
+from pathlib import Path
+
+path = Path("scripts/workflow-flight-recorder-registry.json")
+path.write_bytes(path.read_bytes() + b"\n")
+PY
+chmod 755 "$RA_1055_PARTIAL/lib/test/reconcile-module-floors.py"
+_ra_run "$RA_1055_PARTIAL"
+assert_eq "#1055 a partial coupled raise is infrastructure, never reconciled" \
+  "2" "$(_ra_rc "$RA_1055_PARTIAL")"
+_ra_has "#1055 a partial coupled raise names the incomplete write set" \
+  "$RA_1055_PARTIAL" "changed only a subset of its declared outputs"
+
 # ── A5 — exit 2 on an ABSENT generator, and exit 2 wins over a judgment item ─
 # An absent script is reported by the INTERPRETER as exit 2 ("can't open file"), which
 # the helper catches in its declared-set branch — NOT the OSError launch-failure branch
@@ -1443,6 +1458,9 @@ _ra_bind_fails_closed "an out-of-set conflict_class" \
 _ra_bind_fails_closed "an empty recipe" \
   's/^        "policy": "add the missing coverage rows.*$/        "policy": "",/' \
   "empty recipe (policy)"
+_ra_bind_fails_closed "an unsupported row kind" \
+  '0,/"kind": "mechanical"/s//"kind": "mechanicl"/' \
+  "kind 'mechanicl'" "outside"
 
 # ── (f2) an underivable region set exits 2 (INFRASTRUCTURE), never 1 ────────────
 # `_capability_region_targets` documents that it RAISES rather than returning a partial set, and
@@ -1605,10 +1623,14 @@ devflow_run_focused_python_test "#1055 measured floor reconciliation focused tes
 # the resolved runtime profile adds `.prflow/config.json`'s repository-local extras.
 RA_1055_PROMPT="$_ra_tmp_root/issue-1055-direct-head.md"
 RA_1055_RESOLVED="$_ra_tmp_root/issue-1055-resolved-allowlist.txt"
-printf '%s\n' '```bash' 'lib/test/regenerate-artifacts.py --list' '```' > "$RA_1055_PROMPT"
+"$RA_REPO/scripts/load-prompt-extension.sh" implement \
+  --section '## Batched artifact regeneration' > "$RA_1055_PROMPT"
+"$RA_REPO/scripts/load-prompt-extension.sh" implement \
+  --section '## Merge conflicts in generated artifacts' >> "$RA_1055_PROMPT"
 RA_1055_HEADS="$(python3 "$LIB/test/extract-command-heads.py" heads "$RA_1055_PROMPT")"
 assert_eq "#1055 the batched helper is extracted as a direct command head" \
-  "lib/test/regenerate-artifacts.py" "$RA_1055_HEADS"
+  'lib/test/regenerate-artifacts.py
+lib/test/regenerate-artifacts.py' "$RA_1055_HEADS"
 RA_1055_BASE_UNGRANTED="$(python3 "$LIB/test/extract-command-heads.py" ungranted \
   "$RA_1055_PROMPT" "$RA_REPO/.github/workflows/devflow-implement.yml" implement-block)"
 assert_eq "#1055 the generated consumer baseline does not grant the self-repository helper" \
@@ -1636,3 +1658,7 @@ RA_1055_CHILD_UNGRANTED="$(python3 "$LIB/test/extract-command-heads.py" ungrante
   "$RA_1055_CHILD_PROMPT" "$RA_1055_RESOLVED")"
 assert_eq "#1055 the matcher-visible profile does not grant the subprocess-only child" \
   "lib/test/cloud_writer_contract.py" "$RA_1055_CHILD_UNGRANTED"
+assert_eq "#1055 the exact-floor recipe routes through the granted batch entry point" \
+  "yes" "$(_ra_recipe_names exact-module-floors 'lib/test/regenerate-artifacts.py')"
+assert_eq "#1055 the exact-floor recipe does not expose its subprocess-only child" \
+  "no" "$(_ra_recipe_names exact-module-floors 'python3 lib/test/reconcile-module-floors.py')"

@@ -638,24 +638,27 @@ class ModuleRunnerTests(unittest.TestCase):
                 )
                 self.assertFalse(self.marker.exists())
 
-    def test_unknown_assertion_floor_policy_invalidates_registry(self) -> None:
-        self._write_registry(
-            {
-                "sample": {
-                    "path": "lib/test/modules/sample.sh",
-                    "minimum_assertions": 1,
-                    "assertion_floor_policy": "estimated",
-                }
-            }
-        )
+    def test_invalid_assertion_floor_policy_values_invalidate_registry(self) -> None:
+        for policy in (None, 7, [], {}, "estimated"):
+            with self.subTest(policy=policy):
+                self._write_registry(
+                    {
+                        "sample": {
+                            "path": "lib/test/modules/sample.sh",
+                            "minimum_assertions": 1,
+                            "assertion_floor_policy": policy,
+                        }
+                    }
+                )
 
-        result = self._run("sample")
+                result = self._run("sample")
 
-        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
-        self.assertIn(
-            "assertion_floor_policy must be 'exact' when present", result.stderr
-        )
-        self.assertFalse(self.marker.exists())
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn(
+                    "assertion_floor_policy must be 'exact' when present",
+                    result.stderr,
+                )
+                self.assertFalse(self.marker.exists())
 
     def test_nonobject_registry_shapes_fail_before_source(self) -> None:
         registry = self.scripts_dir / "workflow-flight-recorder-registry.json"
