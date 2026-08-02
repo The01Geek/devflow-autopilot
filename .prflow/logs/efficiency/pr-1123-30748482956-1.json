@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1123",
+  "generated_at": "2026-08-02T12:55:36Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.42",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 10.248578499999997,
+    "tokens": {
+      "input_tokens": 5639,
+      "output_tokens": 10900,
+      "cache_read_input_tokens": 1431682,
+      "cache_creation_input_tokens": 119119,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 5788,
+        "outputTokens": 61279,
+        "cacheReadInputTokens": 8110022,
+        "cacheCreationInputTokens": 669753,
+        "webSearchRequests": 0,
+        "costUSD": 10.248578499999997,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 19,
+    "duration_ms": 556760
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUNID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none}\"; echo \"---\"; gh pr diff 1123 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > /tmp/diff1123.patch 2>&1; wc -l /tmp/diff1123.patch; echo \"---FILES---\"; grep '^diff --git' /tmp/diff1123.patch | sed -E 's|^diff --git a/(.*) b/.*|\\1|'; echo \"---STAT---\"; gh pr diff 1123 --patch | grep -cE '^[+-]' ",
+      "cd /home/runner/work/prflow/prflow 2>/dev/null; grep '^diff --git' .prflow/tmp/review/pr-1123/local/diff.patch | sed -E 's|^diff --git a/(.*) b/.*|\\1|'",
+      "for s in record-finding-evidence query-coverage emit-body record-offer; do n=$(git grep -l -- \"$s\" skills scripts lib | grep -v 'scripts/issue-audit-state.py' | wc -l); echo \"$s: $n files\"; done",
+      "for s in record-finding-evidence query-coverage emit-body record-offer; do echo -n \"$s: \"; git grep -l -e \"$s\" -- skills scripts lib | grep -v 'issue-audit-state.py' | wc -l; done",
+      "python3 - <<'PY'\nimport re, importlib.util, pathlib\nroot=pathlib.Path('.')\ns=importlib.util.spec_from_file_location('c','scripts/check-verified-premises.py');cvp=importlib.util.module_from_spec(s);s.loader.exec_module(cvp)\n_ALL={'path-quote','path','quote','command','none'}\nadj=_ALL-set(cvp._UNDECIDABLE_REASONS)\ndef norm(t): return re.sub(r'\\s+',' ',t.replace('*','').replace('`',''))\ntmpl=(root/'skills/create-issue/references/issue-template.md').read_text()\nt=norm(tmpl)\nforms=set()\nif norm('repo …[per-command-truncated]",
+      "cat > /tmp/g2.py <<'PY'\nimport re, importlib.util, pathlib\nroot=pathlib.Path('.')\ns=importlib.util.spec_from_file_location('c','scripts/check-verified-premises.py');cvp=importlib.util.module_from_spec(s);s.loader.exec_module(cvp)\n_ALL=frozenset({'path-quote','path','quote','command','none'})\nadj=_ALL-set(cvp._UNDECIDABLE_REASONS)\ndef norm(t): return re.sub(r'\\s+',' ',t.replace('*','').replace('`',''))\ntmpl=(root/'skills/create-issue/references/issue-template.md').read_text()\nt=norm(tmpl)\nforms=s …[per-command-truncated]"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
