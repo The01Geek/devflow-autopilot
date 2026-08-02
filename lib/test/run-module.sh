@@ -273,6 +273,19 @@ def resolve_mapping(registered_id: str, mapping: object) -> tuple[Path, int]:
             f"mapping for {registered_id!r}: minimum_assertions must be an integer "
             "from 1 to 1000000"
         )
+    # PRESENCE is the test, not truthiness: `mapping.get(...) is not None` cannot tell an
+    # ABSENT key from one explicitly set to JSON `null`, so a `"assertion_floor_policy":
+    # null` row was accepted exactly like an omitted field. That is the wrong direction —
+    # the reconciler selects its measurement population on this field being the string
+    # `exact`, so a null silently drops that module out of the exact-floor set while the
+    # registry reads as though the author had declared a policy for it.
+    if "assertion_floor_policy" in mapping:
+        assertion_floor_policy = mapping["assertion_floor_policy"]
+        if assertion_floor_policy != "exact":
+            selector_error(
+                f"mapping for {registered_id!r}: assertion_floor_policy must be "
+                "'exact' when present"
+            )
     return module_path, minimum_assertions
 
 

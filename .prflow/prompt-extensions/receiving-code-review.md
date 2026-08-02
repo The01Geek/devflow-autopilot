@@ -70,7 +70,13 @@ bytes. It is a different trigger from the Batched artifact regeneration section,
 post-edit and pre-suite — no in-run conflict arm routes through that section, so the conflict rule
 lives here on its own.
 
-1. Run `python3 lib/test/regenerate-artifacts.py --list`.
+The listing this rule reads comes from the granted direct leading-token form:
+
+```bash
+lib/test/regenerate-artifacts.py --list
+```
+
+1. Run that command.
 2. **Establish that the listing is usable before classifying anything.** This gate precedes the
    classification below, and the order is load-bearing: an unusable listing emits no `conflict-path`
    lines, so every conflicted path would otherwise satisfy step 3's "not among them" exit and be
@@ -104,13 +110,19 @@ drift.
 
 ## Batched artifact regeneration
 
-After applying edits and before each full-suite re-verify run, run `python3 lib/test/regenerate-artifacts.py` once. Edits applied while addressing review findings drift the repo's checked-in generated records, so a fix batch that skips this pass pays an extra full-suite cycle per drifted artifact. The helper is the sole enumeration point for this repo's suite-owned generated artifacts, so this section deliberately lists no artifact inventory of its own — an inventory duplicated into prose is one that silently goes stale as artifacts are added.
+After applying edits and before each full-suite re-verify run, run the granted direct leading-token form once:
+
+```bash
+lib/test/regenerate-artifacts.py
+```
+
+Edits applied while addressing review findings drift the repo's checked-in generated records, so a fix batch that skips this pass pays an extra full-suite cycle per drifted artifact. The helper is the sole enumeration point for this repo's suite-owned generated artifacts, so this section deliberately lists no artifact inventory of its own — an inventory duplicated into prose is one that silently goes stale as artifacts are added.
 
 Act on its report before starting the suite run: commit a changed manifest together with the edits that caused it, and resolve every printed exit-1-forcing judgment item under the governing policy that item names. Informational lines require reading, not action.
 
 **If the helper reports an INFRASTRUCTURE failure (its final line names it, and the run exits 2), at least one artifact was NEVER CHECKED.** Do not read those lines as informational: an unchecked artifact is unknown, not clean, and the report names the row that failed. Treat the batched pass as **undischarged** — record `batched-regeneration: skipped` naming the failing row (the pass ran but established nothing, so it discharges exactly as a skipped pass does), and fall back to the status-quo serial discovery for that artifact. Never record `run` on an exit-2 report.
 
-**The unchecked verdict is residual, not an enumeration of the helper's declared states.** Any outcome that is not a clean exit 0 carrying a per-row line for every registered row — a traceback, an empty report, a truncated one, an exit code you cannot attribute — is equally an unchecked pass, whether or not the literal `INFRASTRUCTURE` appears. Record `batched-regeneration: skipped` naming what you actually observed. Keying this on the enumerated tokens alone is what would let a novel failure shape read as "nothing to do". Note that an exit-2 run may still have **rewritten** `scripts/devflow-cloud-writer-contract.json` — the mechanical row runs first and writes unconditionally — so check for and commit that regeneration even on an undischarged pass.
+**The unchecked verdict is residual, not an enumeration of the helper's declared states.** Any outcome that is not a clean exit 0 carrying a per-row line for every registered row — a traceback, an empty report, a truncated one, an exit code you cannot attribute — is equally an unchecked pass, whether or not the literal `INFRASTRUCTURE` appears. Record `batched-regeneration: skipped` naming what you actually observed. Keying this on the enumerated tokens alone is what would let a novel failure shape read as "nothing to do". Note that an exit-2 run may still have **written**: any writing row that already completed has left its declared `writes` on disk, and the write surface is more than one file. Today those instances are the cloud-writer manifest `scripts/devflow-cloud-writer-contract.json`, and a completed exact-module floor raise, which lands in `scripts/workflow-flight-recorder-registry.json` together with its coupled `lib/test/run.sh` operands — a raise and its call sites move as one unit. Check for and commit every such regeneration even on an undischarged pass.
 
 If the runner's permission matcher refuses the invocation **twice**, stop — do not iterate variants of the command (the issue-401 two-denials discipline). Record the refusal in the workpad and proceed to the suite run: the batched pass then degrades to the status-quo serial discovery, which is slower but never a silent stall.
 

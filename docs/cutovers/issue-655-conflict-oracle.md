@@ -68,7 +68,8 @@ command — so the rule and the registry structurally cannot drift.
 
 ### Scope note — what "hardcodes no path and no command" means
 
-The rule names one command: `python3 lib/test/regenerate-artifacts.py --list`. That is the oracle's
+The rule names one command: `lib/test/regenerate-artifacts.py --list` (issue #1055 moved it off the
+`python3` interpreter head, which the cloud implement matcher denies). That is the oracle's
 entry point, not an artifact-specific command, and naming it is unavoidable — a rule that named no
 entry point could not be executed. What the rule hardcodes nowhere is any **artifact** path or any
 **per-artifact** regeneration command: both are read from `--list` at runtime, which is the property
