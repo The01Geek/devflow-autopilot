@@ -1116,7 +1116,7 @@ jobs:
           fi
           bash "$HELPER" --workspace "$GITENV_WS" --config-file "$CFG" --tier implement >> "$GITHUB_ENV"
 
-      # Resolve the DEFAULT-OFF devflow.attribute_commits_to_triggerer flag and,
+      # Resolve the DEFAULT-OFF prflow.attribute_commits_to_triggerer flag and,
       # when enabled, export the four GIT_AUTHOR_*/GIT_COMMITTER_* variables so the
       # agent's commits are authored by the human who triggered the run (issue #682).
       # Off by default, so on a stock consumer this step emits NOTHING and commits are
@@ -1634,7 +1634,7 @@ jobs:
       # transport/auth failure reading the workpad is a distinct auth-failure
       # class — it fails loud without consuming a resume attempt and is never
       # mislabeled unreadable. Auto-resume needs the optional DEVFLOW_APP_ID App
-      # token AND that App's bot login in devflow.allowed_bots; fail-loud works
+      # token AND that App's bot login in prflow.allowed_bots; fail-loud works
       # under either token — see docs/implement-skill.md for the full boundary
       # discussion.
       - name: Stall backstop

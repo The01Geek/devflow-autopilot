@@ -922,7 +922,7 @@ jobs:
         id: provider
         env:
           CONFIG_JSON: ${{ steps.cfg.outputs.json }}
-          SECTION: devflow
+          SECTION: prflow
         run: |
           set -euo pipefail
           # devflow-provider-resolver BEGIN (single-sourced; keep byte-identical across the three cloud workflows — lib/test/run.sh pins it)
@@ -998,7 +998,7 @@ jobs:
           TIMEOUT_MS: ${{ steps.provider.outputs.timeout_ms }}
           PROVIDER: ${{ steps.provider.outputs.provider }}
           PROVIDER_API_KEY: ${{ secrets.DEVFLOW_PROVIDER_API_KEY }}
-          SECTION: devflow
+          SECTION: prflow
         run: |
           set -euo pipefail
           if [ -z "$PROVIDER_API_KEY" ]; then
@@ -1262,7 +1262,7 @@ jobs:
           fi
           bash "$HELPER" --workspace "$GITENV_WS" --config-file "$CFG" --tier command >> "$GITHUB_ENV"
 
-      # Resolve the DEFAULT-OFF devflow.attribute_commits_to_triggerer flag and,
+      # Resolve the DEFAULT-OFF prflow.attribute_commits_to_triggerer flag and,
       # when enabled, export the four GIT_AUTHOR_*/GIT_COMMITTER_* variables so the
       # agent's commits are authored by the human who triggered the run (issue #682).
       # Off by default, so on a stock consumer this step emits NOTHING and commits are

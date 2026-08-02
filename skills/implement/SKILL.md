@@ -249,7 +249,7 @@ Helper invariants baked into the script (orchestrator doesn't need to enforce th
 - `--rewrite-ac` preserves the original checkbox state (don't tick during a 2.2.6 rewrite — the gate ticks later via `--tick-ac-n`).
 - Heredoc / shell-interpolation hazards are eliminated — body content never traverses bash quoting; everything goes through files.
 
-The helper reads `devflow.workpad_marker` from `.prflow/config.json`, falling back to the built-in default `<!-- prflow:workpad -->` when the config file or key is absent (so it works with no config).
+The helper reads `prflow.workpad_marker` from `.prflow/config.json`, falling back to the built-in default `<!-- prflow:workpad -->` when the config file or key is absent (so it works with no config).
 
 **Reflection style contract (every `--reflection` / `--reflection-file` bullet).** A reflection is the run's expensive-but-loud surface — a non-empty `reflections[]` trips the weekly retrospective's cheap gate and forces an LLM analysis — so every bullet must earn its place. The prose rules that govern how a bullet reads live in the shared writing standard, read at the reflection compose points in the phase files (see `lib/writing-standard.md`, reached through the portable skill-directory anchor as `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/writing-standard.md`). A failed load of the standard emits a breadcrumb naming the file and the failure kind, and the run composes the reflection without it. The one thing this contract still owns directly is the kind:
 
