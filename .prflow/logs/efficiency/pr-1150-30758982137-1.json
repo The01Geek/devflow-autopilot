@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1150",
+  "generated_at": "2026-08-02T17:47:02Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.52",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 11.934418750000003,
+    "tokens": {
+      "input_tokens": 3338,
+      "output_tokens": 51794,
+      "cache_read_input_tokens": 9271096,
+      "cache_creation_input_tokens": 254312,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 3404,
+        "outputTokens": 79997,
+        "cacheReadInputTokens": 11020420,
+        "cacheCreationInputTokens": 552575,
+        "webSearchRequests": 0,
+        "costUSD": 11.934418750000003,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 60,
+    "duration_ms": 994249
+  },
+  "permission_denials": {
+    "count": 4,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "git status --porcelain; echo \"---ENV---\"; echo \"RUN_ID=$GITHUB_RUN_ID\"; echo \"ATTEMPT=$GITHUB_RUN_ATTEMPT\"; echo \"ACTIONS=$GITHUB_ACTIONS\"; echo \"REPO=$GITHUB_REPOSITORY\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve \"1135\" --pr \"1150\" 2>.prflow/tmp/review/pr-1150/30758982137-1/acs.err ; echo \"acs-rc=$?\"",
+      "mkdir -p .prflow/tmp\nif rm -f \".prflow/tmp/review-dirty-tree-before\" \".prflow/tmp/review-dirty-tree-disabled\" 2>/dev/null &&\n   git status --porcelain -z > \".prflow/tmp/review-dirty-tree-before\" &&\n   [ -f \".prflow/tmp/review-dirty-tree-before\" ] &&\n   [ ! -L \".prflow/tmp/review-dirty-tree-before\" ] &&\n   git hash-object \".prflow/tmp/review-dirty-tree-before\"; then\n  : \nelse\n  echo \"SNAPSHOT-FAILED\"\n  rm -f \".prflow/tmp/review-dirty-tree-before\" 2>/dev/null\n  printf '%s\\n' disabled > \".prflow/tm …[per-command-truncated]",
+      "git status --porcelain -z > .prflow/tmp/review-dirty-tree-before"
+    ],
+    "total": 4,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
