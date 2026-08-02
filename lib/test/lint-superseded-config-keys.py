@@ -73,6 +73,12 @@ for _name in ("enumerate_population", "read_source", "LS_FILES_INDEX", "Enumerat
 # the literal text `# superseded-key-ok:` sitting inside a string/regex literal exempt a real
 # superseded leaf on that same code line — failing open exactly where the guard claims to fail
 # closed, and the scanned migration files are precisely where such string/regex literals live.
+# The protection is exact for a line whose quotes BALANCE — the case every literal in this
+# population takes. `_comment_split` documents its own residual: a line it leaves with an open
+# quote (the `\`-continued statement whose opening quote is on an earlier line) is re-scanned with
+# quotes inert, and an in-literal marker on such a line can still exempt it. That residual is
+# inherited from the audited sibling rather than introduced here, and it fails toward
+# under-flagging one already-anomalous line, not toward corrupting a scanned result.
 # Loaded by path at LOAD time so a rename in the sibling lint fails here naming the dependency.
 _TREE_PATH = _REPO_ROOT / "lib" / "test" / "lint-tree-enumeration.py"
 _tree_spec = importlib.util.spec_from_file_location("lint_tree_enumeration", _TREE_PATH)
@@ -121,7 +127,8 @@ _BINARY_SUFFIXES = frozenset(
 # `# superseded-key-ok:` does not silently exempt a line. Only the marked line is exempted —
 # the rest of the file is still scanned for an undeclared regression. The marker is matched
 # against the line's COMMENT tail (via the shared `_comment_split` above), never the raw line,
-# so the literal text appearing inside a string/regex literal cannot spoof an exemption.
+# so the literal text appearing inside a BALANCED string/regex literal cannot spoof an exemption
+# (see the `_comment_split` note above for the unbalanced-quote residual it inherits).
 _MARKER_RE = re.compile(r"#\s*superseded-key-ok:\s*\S")
 
 # Whole-file declared exemptions — genuinely non-scannable sites that must keep the superseded
@@ -190,7 +197,8 @@ def main() -> int:
                 # Line-scoped exemption (issue #1096): a live migration file legitimately names
                 # a superseded leaf on this line and declares it. Only THIS line is exempt. The
                 # marker is tested against the COMMENT tail (quote/escape-aware via the shared
-                # `_comment_split`), so the literal text inside a string/regex cannot spoof it.
+                # `_comment_split`), so the literal text inside a BALANCED string/regex cannot
+                # spoof it (unbalanced-quote residual noted at the `_comment_split` import above).
                 continue
             for m in _LEAF_RE.finditer(line):
                 if m.group(1) in _EXTENSIONS:

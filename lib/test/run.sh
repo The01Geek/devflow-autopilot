@@ -43816,13 +43816,20 @@ PY
 # exempt, a bare/empty-reason marker does NOT exempt (else a marker with no rationale would
 # silently launder any line), whitespace-only reason does NOT exempt (the `\S` anchor), the
 # marker text sitting inside a STRING LITERAL does NOT exempt a real leaf on that same code
-# line (the marker is matched against the quote-aware comment tail, not the raw line — else the
-# guard fails open exactly where it claims closed), and the marker is genuinely LINE-scoped: a
-# marker on a different line does NOT launder an undeclared leaf (the literal meaning of
-# "line-scoped", so a future regression to file-level "any marker exempts the file" fails RED).
+# line (the marker is matched against the balanced-quote-aware comment tail, not the raw line —
+# else the guard fails open exactly where it claims closed), and the marker is genuinely
+# LINE-scoped: a marker on a different line does NOT launder an undeclared leaf (the literal
+# meaning of "line-scoped", so a future regression to file-level "any marker exempts the file"
+# fails RED). The spoof arms are ATTRIBUTED (issue #1107 review note): arm 5's `#` sits directly
+# after the opening quote, so `_comment_split`'s WORD-BOUNDARY rule alone rejects it and the arm
+# stays green even against a mutant with quote tracking fully disabled — it pins the boundary
+# rule, not quote awareness. Arms 7 and 8 put a SPACE before the in-literal `#`, so only quote
+# tracking can reject them; both were observed rc 0 (guard fails open) against that mutant and
+# rc 1 at HEAD. Arm 8 uses a SINGLE-quoted literal carrying a backslash, the jq/regex idiom in
+# scaffold-config.sh, covering `_split_at_hash`'s single-quote-specific `quote != "'"` carve-out.
 # Drives the WHOLE guard pipeline over a synthetic population of a now-non-exempt migration
 # path; the leaf is assembled from parts so run.sh carries no literal.
-assert_eq "#1096 guard: line-scoped superseded-key-ok marker (undeclared/marked/empty/ws/spoof/cross-line)" "1 0 1 1 1 1" \
+assert_eq "#1096 guard: line-scoped superseded-key-ok marker (undeclared/marked/empty/ws/spoof x3/cross-line)" "1 0 1 1 1 1 1 1" \
   "$(python3 - "$L1084_LINT" <<'PY'
 import importlib.util, io, sys, contextlib
 spec = importlib.util.spec_from_file_location("g", sys.argv[1])
@@ -43841,11 +43848,21 @@ r_marked = run_main("# probes ." + LEAF + "  # superseded-key-ok: legitimate mig
 r_empty = run_main("# probes ." + LEAF + "  # superseded-key-ok:")
 # 4) same leaf with a whitespace-only reason → rc 1 (the `\S` anchor rejects it)
 r_ws = run_main("# probes ." + LEAF + "  # superseded-key-ok:   ")
-# 5) marker text inside a STRING literal, real leaf in code on the same line → rc 1 (no spoof)
+# 5) marker text inside a STRING literal, real leaf in code on the same line → rc 1 (no spoof).
+#    Rejection is attributable to the WORD-BOUNDARY rule: the `#` follows the opening quote
+#    directly, so no whitespace precedes it. This arm does NOT exercise quote tracking.
 r_spoof = run_main('bad = "# superseded-key-ok: spoof"; probe(' + LEAF + ')')
 # 6) leaf on one line, marker on a DIFFERENT line → rc 1 (line-scoped, not file-scoped)
 r_crossline = run_main("# probes ." + LEAF + "\n# superseded-key-ok: on a different line")
-print(r_undeclared, r_marked, r_empty, r_ws, r_spoof, r_crossline)
+# 7) DOUBLE-quoted literal with a SPACE before the in-literal `#` → rc 1. The word-boundary rule
+#    cannot reject this one, so only quote tracking can: this is the arm that goes rc 0 against a
+#    quote-tracking mutant.
+r_spoof_dq = run_main('bad = " # superseded-key-ok: spoof"; probe(' + LEAF + ')')
+# 8) SINGLE-quoted literal carrying a backslash, space before the in-literal `#` → rc 1. Covers
+#    `_split_at_hash`'s single-quote-specific backslash carve-out over the jq-program idiom the
+#    newly line-scoped scaffold-config.sh actually contains; also rc 0 against that mutant.
+r_spoof_sq = run_main("jq 'sub(\"a\\\\.\"; \"b\") # superseded-key-ok: spoof'; probe(" + LEAF + ")")
+print(r_undeclared, r_marked, r_empty, r_ws, r_spoof, r_crossline, r_spoof_dq, r_spoof_sq)
 PY
 )"
 # #1096: config-get.sh's real `# superseded-key-ok:` marker is honored on the LIVE tree — the
