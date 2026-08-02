@@ -32388,14 +32388,30 @@ assert_eq "#928 the allowed_tools_extra jq program is extractable from devflow-i
   "$([ -s "$I928_JQ" ] && echo yes || echo no)"
 # The transform is a NO-OP today: $GITHUB_WORKSPACE already equals the literal the
 # tokens carry, so the resolved allowlist is byte-identical to the pre-#928 program.
-I928_CUR="/home/runner/work/devflow-autopilot/devflow-autopilot"
+# Derive that literal FROM CONFIG rather than hardcoding it (the #480 sibling above does
+# the same): the prefix embeds the repository name twice, so a hardcoded copy turns every
+# assertion below RED on the rename these very assertions exist to make survivable.
+I928_CUR="$(python3 - "$LIB/../.prflow/config.json" <<'PY'
+import json, re, sys
+cfg = json.load(open(sys.argv[1], encoding="utf-8"))
+for t in cfg.get("prflow_implement", {}).get("allowed_tools", []):
+    m = re.match(r"Bash\((/home/runner/work/[^/]+/[^/]+)/(?:scripts|lib)/", t)
+    if m:
+        print(m.group(1))
+        break
+PY
+)"
+# Fail closed rather than vacuously: with no absolute token the greps below would count 0
+# on every input and pass while measuring nothing.
+assert_eq "#928 the hosted-workspace prefix is derivable from config (the pins below are not vacuous)" "yes" \
+  "$([ -n "$I928_CUR" ] && echo yes || echo no)"
 assert_eq "#928 re-anchoring is byte-identical to the untransformed join at the CURRENT workspace" \
   "$(jq -r '.prflow_implement.allowed_tools // [] | if length > 0 then "," + join(",") else "" end' "$LIB/../.prflow/config.json")" \
   "$(jq -r --arg ws "$I928_CUR" -f "$I928_JQ" "$LIB/../.prflow/config.json")"
 # After a rename every workspace-absolute token follows the workspace; none is left stale.
 I928_REN="$(jq -r --arg ws "/home/runner/work/renamed/renamed" -f "$I928_JQ" "$LIB/../.prflow/config.json")"
 assert_eq "#928 after a repo rename no token retains the stale workspace prefix" "0" \
-  "$(printf '%s' "$I928_REN" | tr ',' '\n' | grep -c 'devflow-autopilot/devflow-autopilot')"
+  "$(printf '%s' "$I928_REN" | tr ',' '\n' | grep -cF "$I928_CUR")"
 assert_eq "#928 after a repo rename every workspace-absolute token is re-anchored (count preserved)" \
   "$(jq -r '[.prflow_implement.allowed_tools[] | select(startswith("Bash(/home/runner/work/"))] | length' "$LIB/../.prflow/config.json")" \
   "$(printf '%s' "$I928_REN" | tr ',' '\n' | grep -c 'work/renamed/renamed')"
@@ -32419,7 +32435,7 @@ assert_eq "#928 an EMPTY \$GITHUB_WORKSPACE selects the identity branch (never a
   "$(jq -r --arg ws "" -f "$I928_JQ" "$LIB/../.prflow/config.json" | tr ',' '\n' | grep -c '^Bash(/scripts/')"
 assert_eq "#928 an EMPTY \$GITHUB_WORKSPACE leaves the authored tokens intact" \
   "$(jq -r '[.prflow_implement.allowed_tools[] | select(startswith("Bash(/home/runner/work/"))] | length' "$LIB/../.prflow/config.json")" \
-  "$(jq -r --arg ws "" -f "$I928_JQ" "$LIB/../.prflow/config.json" | tr ',' '\n' | grep -c 'devflow-autopilot/devflow-autopilot')"
+  "$(jq -r --arg ws "" -f "$I928_JQ" "$LIB/../.prflow/config.json" | tr ',' '\n' | grep -cF "$I928_CUR")"
 # Empty/absent-key shapes still collapse to "" (no stray leading comma reaching the splice).
 for _i928_shape in '{}' '{"prflow_implement":{"allowed_tools":null}}' '{"prflow_implement":{"allowed_tools":[]}}'; do
   assert_eq "#928 an empty/absent allowlist still yields the empty string ($_i928_shape)" "" \
