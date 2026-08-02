@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1136",
+  "generated_at": "2026-08-02T11:31:05Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.38",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 9.389328999999998,
+    "tokens": {
+      "input_tokens": 50,
+      "output_tokens": 31098,
+      "cache_read_input_tokens": 4736709,
+      "cache_creation_input_tokens": 214023,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 105,
+        "outputTokens": 58857,
+        "cacheReadInputTokens": 6014598,
+        "cacheCreationInputTokens": 657199,
+        "webSearchRequests": 0,
+        "costUSD": 9.389328999999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 37,
+    "duration_ms": 579808
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "python3 scripts/workpad.py acs-resolve 1065 --pr 1136 2>.prflow/tmp/review/pr-1136/local/acs.err ; echo \"acs-rc=$?\"",
+      "H=670279378aa7319d0ad2b6db5c514e53348b2c39\necho \"=== VC-5: coverage-map.json canonical at PR head + 1065 present ===\"\ngit show $H:lib/test/modules/coverage-map.json > /tmp/cm.json 2>/dev/null || git cat-file -p $H:lib/test/modules/coverage-map.json > /tmp/cm.json\npython3 -c '\nimport json\nraw=open(\"/tmp/cm.json\",encoding=\"utf-8\").read()\nval=json.loads(raw)\ncanon=json.dumps(val,indent=2,sort_keys=True,ensure_ascii=False)+\"\\n\"\nprint(\"canonical:\", \"PASS\" if raw==canon else \"FAIL\")\nb=val.get(\"run_sh_ …[per-command-truncated]",
+      "git show 670279378aa7319d0ad2b6db5c514e53348b2c39:lib/test/modules/coverage-map.json > /tmp/cm.json\npython3 -c '\nimport json\nraw=open(\"/tmp/cm.json\",encoding=\"utf-8\").read()\nval=json.loads(raw)\ncanon=json.dumps(val,indent=2,sort_keys=True,ensure_ascii=False)+\"\\n\"\nprint(\"VC-5 canonical:\", \"PASS\" if raw==canon else \"FAIL\")\nb=val.get(\"run_sh_blocks\",{})\nprint(\"1065 in run_sh_blocks:\", \"1065\" in b, b.get(\"1065\"))\n'",
+      "git show 670279378aa7319d0ad2b6db5c514e53348b2c39:lib/test/modules/coverage-map.json > .prflow/tmp/cm.json\npython3 -c '\nimport json\nraw=open(\".prflow/tmp/cm.json\",encoding=\"utf-8\").read()\nval=json.loads(raw)\ncanon=json.dumps(val,indent=2,sort_keys=True,ensure_ascii=False)+\"\\n\"\nprint(\"VC-5 canonical:\", \"PASS\" if raw==canon else \"FAIL\")\nb=val.get(\"run_sh_blocks\",{})\nprint(\"1065 in run_sh_blocks:\", \"1065\" in b, \"->\", b.get(\"1065\"))\n'",
+      "cat > .prflow/tmp/review-body.md <<'REPORTEOF'\n## Verdict: APPROVE with notes (arm 11 correctly detects canonical-serialization drift; all 8 acceptance criteria met and the shipped tree is canonical — only low-severity test-gap/wording suggestions remain)\n\n## Issue Compliance\nReviewed against issue #1065: Detect ordering drift in coverage-map.json (arm 11) — criteria from the issue body's `## Acceptance Criteria` section; scope not-established. Requirement-based checklist items are included in t …[per-command-truncated]"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
