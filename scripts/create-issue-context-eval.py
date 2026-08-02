@@ -20,14 +20,15 @@ the audit state file **best-effort**: every degraded state-file shape yields
 `unestablished` per-kind figures with a stderr breadcrumb, never a number and never
 a crash.
 
-One of the three escaped-defect proxies is not fillable against any state file this
-repository writes today: the scope-escape proxy needs a `scope.draft_lines` span on a
-targeted round, and `scripts/issue-audit-state.py`'s `record-dispatch` records no such
-key (see `_scope_draft_span`). So on a state file carrying **at least one targeted
-round** the proxy reports `unestablished` rather than the `0` that would read as "no
-defects escaped scope"; a state carrying **no targeted round at all** is a different
-case and reports a genuine, established `0` — nothing can escape a scope that was
-never dispatched. The other two proxies — the `record-reopen` count and the declared
+The scope-escape proxy needs a `scope.draft_lines` span on a targeted round. As of
+issue #1105 `scripts/issue-audit-state.py`'s `record-dispatch` records that key (the
+convex-hull draft-line span over the changed sections), so the proxy is now fillable
+against a state file carrying a targeted round dispatched under that code — it reports an
+integer. Two arms still report `unestablished` rather than a misleading `0`: a targeted
+round whose recorded span is absent (a pre-#1105 round), wrong-typed or inverted (see
+`_scope_draft_span`), and — orthogonally — a state carrying **no targeted round at all**
+reports a genuine, established `0`, since nothing can escape a scope that was never
+dispatched. The other two proxies — the `record-reopen` count and the declared
 post-filing class — are unaffected.
 
 A "run" is bounded by `attributionSkill` matching any declared `<ns>:create-issue` on
@@ -794,16 +795,15 @@ def _scope_draft_span(scope):
     coordinates in the DRAFT's own space, so the operand is a draft-line span, not a
     repository path:line.
 
-    KNOWN GAP, disclosed rather than papered over: no producer in this repository
-    writes `scope.draft_lines` today. `scripts/issue-audit-state.py`'s `record-dispatch`
-    composes a targeted round's scope as `{basis_digest, sections, claim_ids}`, and
-    `sections` holds heading strings, not line spans. So on a real state file every
-    call reaching this function returns `None` — which is exactly why
-    `scope_escape_proxy` reports `unestablished` rather than a confident `0` for a
-    state carrying a targeted round. (A state with no targeted round never calls this
-    at all, and its established `0` is correct.) Adding the producer is tracked as
-    follow-up work; until it lands the proxy is honest about being unfillable instead
-    of reporting the value that reads as "nothing escaped".
+    The producer landed in issue #1105: `scripts/issue-audit-state.py`'s `record-dispatch`
+    now composes a targeted round's scope as `{basis_digest, sections, claim_ids,
+    draft_lines}`, where `draft_lines` is the convex-hull draft-line span over the changed
+    sections. So a targeted round dispatched under that code fills this function with a real
+    span and `scope_escape_proxy` reports an integer. This reader is unchanged and stays
+    strict: a scope with no `draft_lines` (a pre-#1105 round), a wrong-typed value, a
+    non-two-element list, a bool-carrying element, or an inverted span all still return
+    `None`, so the proxy stays at its honest `unestablished` rather than reporting the value
+    that reads as "nothing escaped".
     """
     if not isinstance(scope, dict):
         return None
@@ -867,12 +867,13 @@ def scope_escape_proxy(state):
 
     Both figures read `unestablished` — never `0` — whenever the comparand cannot be
     established: no state at all, or ANY `targeted` round whose scope yields no usable
-    draft-line span. That second arm is the load-bearing one: no producer in this repo
-    writes `scope.draft_lines` yet (see `_scope_draft_span`), so on every real state
-    file the proxy is unfillable, and reporting `0` there would publish the value that
-    reads as "no defects escaped scope" about a comparison that never ran. A state
-    carrying NO targeted round at all is a different case — nothing could escape a scope
-    that was never dispatched — and that is a genuine, established `0`.
+    draft-line span. As of issue #1105 `record-dispatch` writes `scope.draft_lines` (see
+    `_scope_draft_span`), so a targeted round dispatched under that code IS fillable and the
+    proxy reports an integer; the second arm still fires for a pre-#1105 round, or a span
+    that is wrong-typed or inverted, so a partial comparison never launders into a
+    real-looking number. A state carrying NO targeted round at all is a different case —
+    nothing could escape a scope that was never dispatched — and that is a genuine,
+    established `0`.
     """
     if state is None:
         return {"count": UNESTABLISHED, "unattributable": UNESTABLISHED}
