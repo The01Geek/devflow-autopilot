@@ -2475,6 +2475,364 @@ assert_eq "drc: guard+notice PR env derive the thread key on ALL three events (|
 rm -rf "$DRC_STUB"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "review-progress marker ownership and dead-run diagnosis (#1054)"
+# ────────────────────────────────────────────────────────────────────────────
+# Exercise the seed helper behind a fixture workpad so these are pure local
+# contract tests. The stub records both the marker used for identity lookup and
+# the exact body handed to create.
+S1054_ROOT="$(mktemp -d)"
+mkdir -p "$S1054_ROOT/scripts" "$S1054_ROOT/state"
+cp "$LIB/../scripts/seed-review-progress.sh" "$S1054_ROOT/scripts/seed-review-progress.sh"
+cat > "$S1054_ROOT/scripts/workpad.py" <<'PY'
+#!/usr/bin/env python3
+import os
+import shutil
+import sys
+
+state = os.environ["S1054_STATE"]
+command = sys.argv[1]
+args = sys.argv[2:]
+
+def value(flag):
+    index = args.index(flag)
+    return args[index + 1]
+
+def record_body(body):
+    shutil.copyfile(body, os.path.join(state, "created-body"))
+    if os.environ.get("S1054_STATEFUL") == "1":
+        with open(body, encoding="utf-8") as handle:
+            marker = handle.readline().rstrip("\n")
+        with open(os.path.join(state, "stateful-marker"), "w", encoding="utf-8") as handle:
+            handle.write(marker)
+
+if command == "id":
+    marker = value("--marker")
+    with open(os.path.join(state, "id-marker"), "w", encoding="utf-8") as handle:
+        handle.write(marker)
+    stateful_marker = os.path.join(state, "stateful-marker")
+    if os.environ.get("S1054_STATEFUL") == "1" and os.path.exists(stateful_marker):
+        with open(stateful_marker, encoding="utf-8") as handle:
+            if handle.read() == marker:
+                print("9002")
+                raise SystemExit(0)
+    if os.environ.get("S1054_RESUME") == "1":
+        print("9001")
+        raise SystemExit(0)
+    raise SystemExit(2)
+
+if command == "create":
+    body = args[-1]
+    record_body(body)
+    print("9002")
+    raise SystemExit(0)
+
+if command == "patch":
+    body = args[-1]
+    record_body(body)
+    raise SystemExit(0)
+
+raise SystemExit(2)
+PY
+chmod +x "$S1054_ROOT/scripts/workpad.py"
+
+S1054_SEED="$S1054_ROOT/scripts/seed-review-progress.sh"
+S1054_BODY="$S1054_ROOT/body.md"
+S1054_EXPECTED='<!-- prflow:review-progress run=306999-4 -->'
+printf '%s\n' '<!-- prflow:review-progress run=local-improvised-1 -->' '**Status:** 🚀 Reviewing' > "$S1054_BODY"
+
+S1054_OUT="$(GITHUB_RUN_ID=306999 GITHUB_RUN_ATTEMPT=4 S1054_STATE="$S1054_ROOT/state" \
+  bash "$S1054_SEED" 7 '<!-- prflow:review-progress run=caller-wrong-1 -->' "$S1054_BODY" 2>/dev/null)"
+S1054_REPORTED_MARKER="${S1054_OUT#*$'\n'MARKER }"
+assert_eq "seed #1054: cloud marker is derived from run id+attempt and reported after CREATED" \
+  "CREATED 9002
+MARKER $S1054_EXPECTED" "$S1054_OUT"
+assert_eq "seed #1054: identity lookup uses the cloud-derived marker" "$S1054_EXPECTED" \
+  "$(cat "$S1054_ROOT/state/id-marker")"
+assert_eq "seed #1054: create rewrites the body's first line to the derived marker" "$S1054_EXPECTED" \
+  "$(sed -n '1p' "$S1054_ROOT/state/created-body")"
+assert_eq "seed #1054: create leaves exactly one review-progress marker in the normalized body" "1" \
+  "$(grep -c '^<!-- prflow:review-progress run=' "$S1054_ROOT/state/created-body")"
+
+# The other two body-input rows prove insertion when marker material is absent
+# and replacement remains idempotent when the correct line is already present.
+printf '%s\n' '# PRFlow Review' '**Status:** 🚀 Reviewing' > "$S1054_BODY"
+S1054_OUT="$(GITHUB_RUN_ID=306999 GITHUB_RUN_ATTEMPT=4 S1054_STATE="$S1054_ROOT/state" \
+  bash "$S1054_SEED" 7 '' "$S1054_BODY" 2>/dev/null)"
+assert_eq "seed #1054: cloud caller may omit all marker material and still creates the authoritative line" \
+  "$S1054_EXPECTED" "$(sed -n '1p' "$S1054_ROOT/state/created-body")"
+assert_eq "seed #1054: omitted caller marker still receives the helper's reported marker" \
+  "$S1054_EXPECTED" "${S1054_OUT#*$'\n'MARKER }"
+printf '%s\n' "$S1054_EXPECTED" '# PRFlow Review' '**Status:** 🚀 Reviewing' > "$S1054_BODY"
+GITHUB_RUN_ID=306999 GITHUB_RUN_ATTEMPT=4 S1054_STATE="$S1054_ROOT/state" \
+  bash "$S1054_SEED" 7 'ignored' "$S1054_BODY" >/dev/null 2>&1
+assert_eq "seed #1054: an already-correct marker remains exactly one authoritative first line" "1" \
+  "$(grep -cF "$S1054_EXPECTED" "$S1054_ROOT/state/created-body")"
+
+# A resume reports the same authoritative marker so the engine can reuse the
+# helper's decision for every later full-body rewrite.
+S1054_OUT="$(GITHUB_RUN_ID=306999 GITHUB_RUN_ATTEMPT=4 S1054_RESUME=1 \
+  S1054_STATE="$S1054_ROOT/state" bash "$S1054_SEED" 7 'caller-is-ignored' "$S1054_BODY" 2>/dev/null)"
+assert_eq "seed #1054: RESUME reports the authoritative marker on a separate line" \
+  "RESUME 9001
+MARKER $S1054_EXPECTED" "$S1054_OUT"
+
+# Local callers keep their explicit positional-slot marker when no usable
+# GitHub run id exists, including the whitespace-only cloud value.
+S1054_LOCAL='<!-- prflow:review-progress run=local-20260801-1 -->'
+printf '%s\n' '# PRFlow review' '**Status:** 🚀 Reviewing' > "$S1054_BODY"
+S1054_OUT="$(env -u GITHUB_RUN_ID -u GITHUB_RUN_ATTEMPT S1054_STATE="$S1054_ROOT/state" \
+  bash "$S1054_SEED" 7 "$S1054_LOCAL" "$S1054_BODY" 2>/dev/null)"
+assert_eq "seed #1054: absent cloud run id falls back to the existing marker slot" \
+  "CREATED 9002
+MARKER $S1054_LOCAL" "$S1054_OUT"
+assert_eq "seed #1054: local body receives its explicit fallback marker as line one" "$S1054_LOCAL" \
+  "$(sed -n '1p' "$S1054_ROOT/state/created-body")"
+S1054_OUT="$(GITHUB_RUN_ID=$' \t ' GITHUB_RUN_ATTEMPT=9 S1054_RESUME=1 \
+  S1054_STATE="$S1054_ROOT/state" bash "$S1054_SEED" 7 "$S1054_LOCAL" "$S1054_BODY" 2>/dev/null)"
+assert_eq "seed #1054: whitespace-only cloud run id also falls back to the marker slot" \
+  "RESUME 9001
+MARKER $S1054_LOCAL" "$S1054_OUT"
+S1054_OUT="$(GITHUB_RUN_ID='' GITHUB_RUN_ATTEMPT=9 S1054_RESUME=1 \
+  S1054_STATE="$S1054_ROOT/state" bash "$S1054_SEED" 7 "$S1054_LOCAL" "$S1054_BODY" 2>/dev/null)"
+assert_eq "seed #1054: explicitly empty cloud run id falls back to the marker slot" \
+  "RESUME 9001
+MARKER $S1054_LOCAL" "$S1054_OUT"
+S1054_OUT="$(env -u GITHUB_RUN_ATTEMPT GITHUB_RUN_ID=307000 S1054_RESUME=1 \
+  S1054_STATE="$S1054_ROOT/state" bash "$S1054_SEED" 7 "$S1054_LOCAL" "$S1054_BODY" 2>/dev/null)"
+assert_eq "seed #1054: an absent cloud attempt defaults to one inside the helper" \
+  "RESUME 9001
+MARKER <!-- prflow:review-progress run=307000-1 -->" "$S1054_OUT"
+
+# Stateful local run: the engine computes one timestamp-bearing fallback, and a
+# second seed invocation resolves the first comment instead of creating another.
+rm -f "$S1054_ROOT/state/stateful-marker"
+printf '%s\n' '# PRFlow Review' '**Status:** 🚀 Reviewing' > "$S1054_BODY"
+S1054_OUT="$(env -u GITHUB_RUN_ID -u GITHUB_RUN_ATTEMPT S1054_STATEFUL=1 \
+  S1054_STATE="$S1054_ROOT/state" bash "$S1054_SEED" 7 "$S1054_LOCAL" "$S1054_BODY" 2>/dev/null)"
+assert_eq "seed #1054: first local invocation creates under the engine-computed marker" \
+  "CREATED 9002
+MARKER $S1054_LOCAL" "$S1054_OUT"
+S1054_OUT="$(env -u GITHUB_RUN_ID -u GITHUB_RUN_ATTEMPT S1054_STATEFUL=1 \
+  S1054_STATE="$S1054_ROOT/state" bash "$S1054_SEED" 7 "$S1054_LOCAL" "$S1054_BODY" 2>/dev/null)"
+assert_eq "seed #1054: second local invocation resumes the same marker" \
+  "RESUME 9002
+MARKER $S1054_LOCAL" "$S1054_OUT"
+
+# Three full-body rewrites retain the held marker, so exact lookup survives every
+# phase boundary rather than only the initial seed.
+for S1054_PHASE in 1 2 3; do
+  printf '%s\n' "$S1054_LOCAL" '# PRFlow Review' "**Status:** 🚀 Phase $S1054_PHASE" > "$S1054_BODY"
+  S1054_STATEFUL=1 S1054_STATE="$S1054_ROOT/state" \
+    "$S1054_ROOT/scripts/workpad.py" patch 9002 "$S1054_BODY"
+  S1054_OUT="$(env -u GITHUB_RUN_ID -u GITHUB_RUN_ATTEMPT S1054_STATEFUL=1 \
+    S1054_STATE="$S1054_ROOT/state" bash "$S1054_SEED" 7 "$S1054_LOCAL" "$S1054_BODY" 2>/dev/null)"
+  assert_eq "seed #1054: phase-$S1054_PHASE full-body rewrite remains discoverable by held marker" \
+    "RESUME 9002
+MARKER $S1054_LOCAL" "$S1054_OUT"
+done
+
+S1054_RC=0
+S1054_OUT="$(env -u GITHUB_RUN_ID -u GITHUB_RUN_ATTEMPT S1054_STATE="$S1054_ROOT/state" \
+  bash "$S1054_SEED" 7 '' "$S1054_BODY" 2>/dev/null)" || S1054_RC=$?
+assert_eq "seed #1054: no cloud run key and no fallback marker skips with the new token" \
+  "SKIP no-run-key" "$S1054_OUT"
+assert_eq "seed #1054: no-run-key keeps the helper's skip exit contract" "3" "$S1054_RC"
+assert_eq "seed #1054: retired bad-marker token is absent from the helper" "0" \
+  "$(grep -cF 'SKIP bad-marker' "$S1054_SEED" || true)"
+
+# Executable parity pin: the seed's produced marker and the dead-run workflow's
+# flip marker must agree for the same run id/attempt.
+assert_eq "seed #1054: workflow retains the run-id/attempt marker producer" "1" \
+  "$(grep -cF 'FLIP_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$RDWF")"
+S1054_WF_MARKER="$(GITHUB_RUN_ID=306999 GITHUB_RUN_ATTEMPT=4 python3 - "$RDWF" <<'PY'
+import os
+import re
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+matches = re.findall(r'^\s*FLIP_MARKER="(<!-- prflow:review-progress run=\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\} -->)"$', text, re.M)
+if len(matches) != 1:
+    raise SystemExit(2)
+print(matches[0].replace("${GITHUB_RUN_ID}", os.environ["GITHUB_RUN_ID"]).replace("${GITHUB_RUN_ATTEMPT}", os.environ["GITHUB_RUN_ATTEMPT"]))
+PY
+)"
+assert_eq "seed #1054: helper-reported cloud marker equals the executable workflow flip marker for the same run" \
+  "$S1054_WF_MARKER" "$S1054_REPORTED_MARKER"
+
+# The mismatch diagnosis helper is deliberately non-authoritative: every arm
+# exits zero and reports one of four outcomes. GitHub/JQ resolution is injected
+# so malformed responses and API failure remain deterministic.
+S1054_DIAG="$LIB/../scripts/diagnose-review-progress-marker.sh"
+S1054_GH="$S1054_ROOT/gh"
+cat > "$S1054_GH" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" > "$S1054_STATE/gh-args"
+if [ "${S1054_GH_FAIL:-0}" = 1 ]; then
+  echo 'HTTP 500' >&2
+  exit 1
+fi
+printf '%s' "${S1054_COMMENTS-[]}"
+SH
+chmod +x "$S1054_GH"
+S1054_JQ="$(command -v jq)"
+s1054_diag() {
+  S1054_COMMENTS="$1" S1054_GH_FAIL="${2:-0}" DEVFLOW_GH="$S1054_GH" DEVFLOW_JQ="$S1054_JQ" S1054_STATE="$S1054_ROOT/state" \
+    bash "$S1054_DIAG" o/r 7 "$S1054_EXPECTED" 2>/dev/null
+}
+
+assert_eq "diagnose #1054: exact bot Reviewing marker -> matched" "matched" \
+  "$(s1054_diag '[{"body":"<!-- prflow:review-progress run=306999-4 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"}}]')"
+assert_eq "diagnose #1054: another bot Reviewing marker -> foreign" "foreign" \
+  "$(s1054_diag '[{"body":"<!-- prflow:review-progress run=foreign-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"}}]')"
+assert_eq "diagnose #1054: superseded namespace with the expected run key remains a foreign marker identity" "foreign" \
+  "$(s1054_diag '[{"body":"<!-- devflow:review-progress run=306999-4 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"}}]')"
+assert_eq "diagnose #1054: concatenated paginated arrays are flattened before matching" "matched" \
+  "$(s1054_diag '[][{"body":"<!-- prflow:review-progress run=306999-4 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"}}]')"
+assert_eq "diagnose #1054: terminal/non-bot/null candidates do not fabricate a mismatch" "absent" \
+  "$(s1054_diag '[{"body":"<!-- prflow:review-progress run=foreign-1 -->\n**Status:** ✅ Complete","user":{"type":"Bot"}},{"body":"<!-- prflow:review-progress run=foreign-2 -->\n**Status:** 🚀 Reviewing","user":{"type":"User"}},{"body":null,"user":{}}]')"
+assert_eq "diagnose #1054: terminal comment quoting an old Reviewing line stays terminal" "absent" \
+  "$(s1054_diag '[{"body":"<!-- prflow:review-progress run=foreign-1 -->\n**Status:** ❌ Review failed\n\nPrior status was **Status:** 🚀 Reviewing","user":{"type":"Bot"}}]')"
+assert_eq "diagnose #1054: terminal exact marker wins over an unrelated active marker after the flip" "matched" \
+  "$(s1054_diag '[{"body":"<!-- prflow:review-progress run=306999-4 -->\n**Status:** ❌ Review failed","user":{"type":"Bot"}},{"body":"<!-- prflow:review-progress run=foreign-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"}}]')"
+assert_eq "diagnose #1054: no progress comment -> absent" "absent" "$(s1054_diag '[]')"
+assert_eq "diagnose #1054: a non-array response -> unestablished" "unestablished" "$(s1054_diag '{}')"
+assert_eq "diagnose #1054: malformed JSON -> unestablished" "unestablished" "$(s1054_diag 'not-json')"
+assert_eq "diagnose #1054: API failure -> unestablished" "unestablished" "$(s1054_diag '[]' 1)"
+S1054_DIAG_ERR="$(S1054_COMMENTS='[]' S1054_GH_FAIL=1 DEVFLOW_GH="$S1054_GH" DEVFLOW_JQ="$S1054_JQ" \
+  S1054_STATE="$S1054_ROOT/state" bash "$S1054_DIAG" o/r 7 "$S1054_EXPECTED" 2>&1 >/dev/null)"
+assert_eq "diagnose #1054: API-failure breadcrumb preserves the resolver-routed gh cause" "1" \
+  "$(grep -cF 'HTTP 500' <<<"$S1054_DIAG_ERR")"
+S1054_BAD_JQ="$S1054_ROOT/bad-jq"
+cat > "$S1054_BAD_JQ" <<'SH'
+#!/usr/bin/env bash
+echo 'fixture jq parse failure' >&2
+exit 4
+SH
+chmod +x "$S1054_BAD_JQ"
+S1054_DIAG_ERR="$(S1054_COMMENTS='[]' DEVFLOW_GH="$S1054_GH" DEVFLOW_JQ="$S1054_BAD_JQ" \
+  S1054_STATE="$S1054_ROOT/state" bash "$S1054_DIAG" o/r 7 "$S1054_EXPECTED" 2>&1 >/dev/null)"
+assert_eq "diagnose #1054: parser-failure breadcrumb preserves the resolver-routed jq cause" "1" \
+  "$(grep -cF 'fixture jq parse failure' <<<"$S1054_DIAG_ERR")"
+S1054_DIAG_RC=0
+s1054_diag 'not-json' >/dev/null || S1054_DIAG_RC=$?
+assert_eq "diagnose #1054: unestablished diagnosis still exits zero" "0" "$S1054_DIAG_RC"
+s1054_diag '[]' >/dev/null
+S1054_DIAG_RC=0
+DEVFLOW_GH="$S1054_GH" DEVFLOW_JQ="$S1054_JQ" S1054_STATE="$S1054_ROOT/state" \
+  bash "$S1054_DIAG" bad-repo 7 "$S1054_EXPECTED" >/dev/null 2>&1 || S1054_DIAG_RC=$?
+assert_eq "diagnose #1054: invalid-input diagnosis still exits zero" "0" "$S1054_DIAG_RC"
+assert_eq "diagnose #1054: query is scoped to the supplied repo and PR" "1" \
+  "$(grep -cF 'api --paginate repos/o/r/issues/7/comments' "$S1054_ROOT/state/gh-args")"
+S1054_DIAG_ERR="$(S1054_COMMENTS='[{"body":"<!-- prflow:review-progress run=foreign-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"}}]' \
+  DEVFLOW_GH="$S1054_GH" DEVFLOW_JQ="$S1054_JQ" S1054_STATE="$S1054_ROOT/state" \
+  bash "$S1054_DIAG" o/r 7 "$S1054_EXPECTED" 2>&1 >/dev/null)"
+assert_eq "diagnose #1054: foreign alone emits a possible-mismatch warning" "1" \
+  "$(grep -cF '::warning::flip review-progress: possible review-progress marker mismatch' <<<"$S1054_DIAG_ERR")"
+S1054_DIAG_ERR="$(S1054_COMMENTS='{}' DEVFLOW_GH="$S1054_GH" DEVFLOW_JQ="$S1054_JQ" \
+  S1054_STATE="$S1054_ROOT/state" bash "$S1054_DIAG" o/r 7 "$S1054_EXPECTED" 2>&1 >/dev/null)"
+assert_eq "diagnose #1054: unestablished emits distinct non-asserting notice language" "1" \
+  "$(grep -cF '::notice::flip review-progress: could not establish whether' <<<"$S1054_DIAG_ERR")"
+S1054_DIAG_ERR="$(S1054_COMMENTS='[]' DEVFLOW_GH="$S1054_GH" DEVFLOW_JQ="$S1054_JQ" \
+  S1054_STATE="$S1054_ROOT/state" bash "$S1054_DIAG" o/r 7 "$S1054_EXPECTED" 2>&1 >/dev/null)"
+assert_eq "diagnose #1054: absent emits no possible-mismatch warning" "0" \
+  "$(grep -cF 'possible review-progress marker mismatch' <<<"$S1054_DIAG_ERR" || true)"
+
+# The authoritative flip runs before advisory diagnosis so diagnostic latency
+# or quota use cannot consume the cleanup window. Diagnosis recognizes the
+# exact marker after terminalization, while foreign candidates stay active-only.
+S1054_ORDER="$(python3 - "$RDWF" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+print(text.index('bash "$FLIP_HELPER"') < text.index("# review-progress marker diagnosis BEGIN"))
+PY
+)"
+assert_eq "diagnose #1054: workflow performs the authoritative flip before advisory diagnosis" "True" "$S1054_ORDER"
+
+# The dispatcher owns the command predicate that workflow shell must not inline.
+# It invokes diagnosis for canonical review commands and stays silent for every
+# other command while preserving the best-effort exit contract.
+S1054_DISPATCH="$LIB/../scripts/run-review-progress-diagnosis.sh"
+: > "$S1054_ROOT/state/gh-args"
+DEVFLOW_GH="$S1054_GH" DEVFLOW_JQ="$S1054_JQ" S1054_STATE="$S1054_ROOT/state" \
+  S1054_COMMENTS='[]' bash "$S1054_DISPATCH" '/prflow:review 7' o/r 7 "$S1054_EXPECTED" >/dev/null 2>&1 || true
+assert_eq "diagnose #1054: dispatcher invokes diagnosis for a canonical review command" "1" \
+  "$(grep -cF 'api --paginate repos/o/r/issues/7/comments' "$S1054_ROOT/state/gh-args" || true)"
+: > "$S1054_ROOT/state/gh-args"
+DEVFLOW_GH="$S1054_GH" DEVFLOW_JQ="$S1054_JQ" S1054_STATE="$S1054_ROOT/state" \
+  S1054_COMMENTS='[]' bash "$S1054_DISPATCH" '/prflow:pr-description 7' o/r 7 "$S1054_EXPECTED" >/dev/null 2>&1 || true
+assert_eq "diagnose #1054: dispatcher does not invoke diagnosis for a non-review command" "0" \
+  "$(grep -c . "$S1054_ROOT/state/gh-args" || true)"
+
+# Workflow integration remains diagnostic-only and restricted to canonical
+# review command namespaces. Extract and execute the shipped workflow block
+# with the real dispatcher and a recording diagnosis sibling.
+S1054_WF_ROOT="$S1054_ROOT/workflow"
+mkdir -p "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts" "$S1054_WF_ROOT/scripts"
+S1054_WF_BLOCK="$S1054_WF_ROOT/diagnosis-block.sh"
+python3 - "$RDWF" "$S1054_WF_BLOCK" <<'PY'
+import sys
+import textwrap
+
+text = open(sys.argv[1], encoding="utf-8").read()
+begin = text.index("          # review-progress marker diagnosis BEGIN")
+end = text.index("          # review-progress marker diagnosis END", begin)
+block = text[begin:end].splitlines()[1:]
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    handle.write("set -uo pipefail\n")
+    handle.write(textwrap.dedent("\n".join(block)))
+    handle.write("\n")
+PY
+cp "$S1054_DISPATCH" "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/run-review-progress-diagnosis.sh"
+chmod +x "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/run-review-progress-diagnosis.sh"
+cat > "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/diagnose-review-progress-marker.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s|token=%s\n' "$*" "${GH_TOKEN:-}" >> "$S1054_WF_RECORD"
+[ -z "${S1054_WF_MESSAGE:-}" ] || echo "$S1054_WF_MESSAGE" >&2
+echo foreign
+exit "${S1054_WF_RC:-0}"
+SH
+chmod +x "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/diagnose-review-progress-marker.sh"
+S1054_WF_RECORD="$S1054_WF_ROOT/record"
+s1054_run_wf_block() {
+  ( cd "$S1054_WF_ROOT" && COMMAND="$1" REPO=o/r CONTEXT_NUMBER=7 FLIP_MARKER="$S1054_EXPECTED" \
+      GH_TOKEN=secret S1054_WF_RECORD="$S1054_WF_RECORD" S1054_WF_MESSAGE="${2:-}" S1054_WF_RC="${3:-0}" \
+      bash "$S1054_WF_BLOCK" )
+}
+: > "$S1054_WF_RECORD"
+s1054_run_wf_block '/prflow:review 7' >/dev/null
+s1054_run_wf_block '/prflow:review-and-fix 7' >/dev/null
+assert_eq "diagnose #1054: canonical review and review-and-fix each invoke diagnosis" "2" \
+  "$(grep -c . "$S1054_WF_RECORD")"
+assert_eq "diagnose #1054: workflow passes repo, PR, marker, and inherited GH_TOKEN" \
+  "o/r 7 $S1054_EXPECTED|token=secret" "$(sed -n '1p' "$S1054_WF_RECORD")"
+S1054_WF_ERR="$(s1054_run_wf_block '/prflow:review 7' '::warning::possible review-progress marker mismatch' 0 2>&1 >/dev/null)"
+assert_eq "diagnose #1054: review-path stderr annotation survives workflow stdout suppression" "1" \
+  "$(grep -cF '::warning::possible review-progress marker mismatch' <<<"$S1054_WF_ERR")"
+: > "$S1054_WF_RECORD"
+S1054_WF_ERR="$(s1054_run_wf_block '/prflow:pr-description 7' '::warning::possible review-progress marker mismatch' 0 2>&1 >/dev/null)"
+assert_eq "diagnose #1054: non-review command never invokes diagnosis" "0" \
+  "$(grep -c . "$S1054_WF_RECORD" || true)"
+assert_eq "diagnose #1054: non-review command emits no possible-mismatch warning" "0" \
+  "$(grep -cF 'possible review-progress marker mismatch' <<<"$S1054_WF_ERR" || true)"
+S1054_WF_RC=0
+S1054_WF_ERR="$(s1054_run_wf_block '/prflow:review 7' '' 9 2>&1 >/dev/null)" || S1054_WF_RC=$?
+assert_eq "diagnose #1054: diagnosis helper failure leaves workflow block exit status unchanged" "0" "$S1054_WF_RC"
+assert_eq "diagnose #1054: unexpected helper failure emits an observable dispatcher notice" "1" \
+  "$(grep -cF 'diagnosis helper exited 9' <<<"$S1054_WF_ERR" || true)"
+cp "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/diagnose-review-progress-marker.sh" \
+  "$S1054_WF_ROOT/scripts/diagnose-review-progress-marker.sh"
+cp "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/run-review-progress-diagnosis.sh" \
+  "$S1054_WF_ROOT/scripts/run-review-progress-diagnosis.sh"
+rm -f "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/diagnose-review-progress-marker.sh" \
+  "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/run-review-progress-diagnosis.sh"
+: > "$S1054_WF_RECORD"
+s1054_run_wf_block '/prflow:review 7' >/dev/null
+assert_eq "diagnose #1054: absent vendored helper falls back to the repo-root helper" "1" \
+  "$(grep -c . "$S1054_WF_RECORD")"
+
+rm -rf "$S1054_ROOT"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "authorize-actor.sh (allowed_users filter)"
 # ────────────────────────────────────────────────────────────────────────────
 AUTH="$LIB/../scripts/authorize-actor.sh"
