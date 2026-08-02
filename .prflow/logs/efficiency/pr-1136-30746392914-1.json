@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1136",
+  "generated_at": "2026-08-02T11:54:03Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.39",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 9.484409,
+    "tokens": {
+      "input_tokens": 45,
+      "output_tokens": 20380,
+      "cache_read_input_tokens": 3863268,
+      "cache_creation_input_tokens": 200089,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 123,
+        "outputTokens": 54964,
+        "cacheReadInputTokens": 6259033,
+        "cacheCreationInputTokens": 676775,
+        "webSearchRequests": 0,
+        "costUSD": 9.484409,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 32,
+    "duration_ms": 452579
+  },
+  "permission_denials": {
+    "count": 14,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "python3 lib/test/coverage_map_guard.py . 2>&1 | head -20; echo \"rc=${PIPESTATUS[0]}\"",
+      "python3 lib/test/coverage_map_guard.py . > /tmp/g.out 2>&1; echo \"rc=$?\"; head -20 /tmp/g.out",
+      "cd /tmp && python3 /home/runner/work/prflow/prflow/lib/test/test_coverage_map_guard.py 2>&1 | tail -5",
+      "python3 -c '\nimport json\np=\"lib/test/modules/coverage-map.json\"\nraw=open(p,encoding=\"utf-8\").read()\nv=json.load(open(p,encoding=\"utf-8\"))\ncanon=json.dumps(v,indent=2,sort_keys=True,ensure_ascii=False)+\"\\n\"\nprint(\"base canonical:\", raw==canon)\n# simulate adding 1065\nv[\"run_sh_blocks\"][\"1065\"]={\"note\":\"\",\"owner\":\"harness-python-guards\"}\ncanon2=json.dumps(v,indent=2,sort_keys=True,ensure_ascii=False)+\"\\n\"\n# find neighbors of 1065 in sorted key order\nkeys=sorted(v[\"run_sh_blocks\"])\ni=keys.index(\"106 …[per-command-truncated]",
+      "python3 - <<'EOF'\nimport json\np=\"lib/test/modules/coverage-map.json\"\nraw=open(p,encoding=\"utf-8\").read()\nv=json.load(open(p,encoding=\"utf-8\"))\ncanon=json.dumps(v,indent=2,sort_keys=True,ensure_ascii=False)+\"\\n\"\nprint(\"base canonical:\", raw==canon)\nv[\"run_sh_blocks\"][\"1065\"]={\"note\":\"\",\"owner\":\"harness-python-guards\"}\nkeys=sorted(v[\"run_sh_blocks\"])\ni=keys.index(\"1065\")\nprint(\"neighbors:\", keys[max(0,i-1):i+2])\nEOF",
+      "git apply .prflow/tmp/review/pr-1136/local-run/diff.patch && echo \"APPLIED OK\" && python3 lib/test/test_coverage_map_guard.py 2>&1 | tail -5 && echo \"---guard on real tree---\" && python3 lib/test/coverage_map_guard.py . ; echo \"guard rc=$?\"",
+      "git apply .prflow/tmp/review/pr-1136/local-run/diff.patch && echo APPLIED",
+      "git apply .prflow/tmp/review/pr-1136/local-run/diff.patch",
+      "git fetch origin 8f3352d5819708c8789851f34bcc64dd9b1726c0 2>/dev/null; git cat-file -p 8f3352d5819708c8789851f34bcc64dd9b1726c0:lib/test/modules/coverage-map.json > .prflow/tmp/review/pr-1136/local-run/head-map.json 2>&1 && python3 -c \"\nimport json\nraw = open('.prflow/tmp/review/pr-1136/local-run/head-map.json', encoding='utf-8').read()\ncanon = json.dumps(json.loads(raw), indent=2, sort_keys=True, ensure_ascii=False) + '\\n'\nprint('HEAD map canonical (arm 11 passes)?', raw == canon)\nv = json.load …[per-command-truncated]",
+      "python3 -c \"\nimport json\nraw = open('lib/test/modules/coverage-map.json', encoding='utf-8').read()\nv = json.loads(raw)\n# simulate the PR: insert the 1065 entry\nv['run_sh_blocks']['1065'] = {'note': '', 'owner': 'harness-python-guards'}\ncanon = json.dumps(v, indent=2, sort_keys=True, ensure_ascii=False) + '\\n'\n# what the diff shows inserted: keys around it\nks = sorted(v['run_sh_blocks'].keys())\ni = ks.index('1065')\nprint('neighbors:', ks[i-1], '1065', ks[i+1])\nprint('entry canonical within object …[per-command-truncated]",
+      "cat > .prflow/tmp/review/pr-1136/local-run/report.md <<'EOF'\n## Verdict: APPROVE with notes (arm 11 is correct, well-tested, and stays in scope; three low-severity residual notes, none merge-blocking)\n\n## Issue Compliance\nReviewed against issue #1065: Detect ordering drift in coverage-map.json (arm 11) — criteria from issue-body/PR (resolver not run on this local tier); scope not-established (no workpad compared). All acceptance criteria verified satisfied against the shipped code (see checklist …[per-command-truncated]",
+      "scripts/dismiss-stale-rejections.sh 1136; echo \"dismiss-rc=$?\"",
+      "scripts/dismiss-stale-rejections.sh 1136"
+    ],
+    "total": 14,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
