@@ -145,9 +145,9 @@ PowerShell's double-quote handling can split a `--note`/`--reflection` text argu
 For autonomous GitHub Actions automation, run the installer from your repo root. It is idempotent, so re-running it at a *newer* release tag is also how you update. It writes into your repository — the workflows and composite actions under `.github/`, a local `marketplace.json`, and `.prflow/` templates (config scaffold, schema, ignore file) — so those changes land in version control. **Download it, read it, then run the downloaded file:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.36/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.38/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.30.36 bash devflow-install.sh
+DEVFLOW_REF=v2.30.38 bash devflow-install.sh
 ```
 
 <a id="pinning-the-installer"></a>
@@ -166,8 +166,8 @@ Independently of either pin, `install.sh` stamps `.prflow/config.json`'s `prflow
 `curl … | bash` runs the script without giving you a chance to read it. If you accept that, still pin both refs:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.36/install.sh \
-  | DEVFLOW_REF=v2.30.36 bash
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.38/install.sh \
+  | DEVFLOW_REF=v2.30.38 bash
 ```
 
 </details>
@@ -247,7 +247,7 @@ Three things it deliberately leaves alone, and says so once when your config car
 
 ### Local tier
 
-Running `/prflow:init` provisions your repo's project `.claude/settings.json` so Claude Code keeps the plugin updated — it registers `devflow-marketplace` under `extraKnownMarketplaces` with `autoUpdate: true` and enables the plugin under `enabledPlugins`, additively and without clobbering anything you already set (re-running is a no-op once the keys exist). Review the change before committing. The provisioned block looks like:
+Running `/prflow:init` provisions your repo's project `.claude/settings.json` so Claude Code keeps the plugin updated — it registers `devflow-marketplace` under `extraKnownMarketplaces` with `autoUpdate: true` and enables the plugin under `enabledPlugins`, additively and without clobbering anything you already set (re-running is a no-op once the keys exist). **This write is not gated** — there is no separate opt-in step; `/prflow:init` performs it directly, in the same run you type the command, into a committed project file collaborators inherit. **The registration carries no version pin** — no `ref`, `tag`, `sha`, nor `version` — so the plugin auto-updates from the marketplace repo's default branch (`autoUpdate: true`), which means a change on that branch changes what runs in your editor. Review the change before committing. The provisioned block looks like:
 
 ```jsonc
 {
