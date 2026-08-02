@@ -2696,7 +2696,147 @@ def _net_adds_post_merge(pre: list[bool], post: list[bool]) -> bool:
     return any(now and not before for before, now in zip(pre, post))
 
 
-def _terminal_complete_gate(sections) -> list[str]:
+# ── Completion verification-flight evidence gate (issue #1087) ──────────────────
+# The implement engine's terminal `--status Complete` write must be backed by a
+# current, machine-readable verification-flight record for the run's final in-env
+# verification command. The validated flight key rides on the EXISTING keyed-
+# checkpoint marker family (issue #537) — no second marker family is minted — under
+# a fixed `completion-verification:<flight-key>` key namespace. The record itself is
+# resolved from the repo-root-anchored canonical flight directory and validated by
+# the sibling check-completion-evidence module's implement-completion entry point.
+_VERIFICATION_FLIGHT_DIRNAME = os.path.join('.prflow', 'tmp', 'verification-flights')
+_COMPLETION_MARKER_KEY_PREFIX = 'completion-verification:'
+# A flight key is a sha256 hex digest; a non-hex value is a malformed marker.
+_COMPLETION_FLIGHT_KEY_RE = re.compile(r'\A[0-9a-f]{16,}\Z')
+# Both the current `prflow:` and the superseded `devflow:` checkpoint spellings are
+# read per-record (issue #1003 renamed the marker namespace and rewrites no history).
+_COMPLETION_MARKER_RE = re.compile(
+    r'<!--\s*(?:pr|dev)flow:checkpoint\s+completion-verification:([^\s]+?)\s*-->'
+)
+_COMPLETION_VALIDATOR_CACHE = None
+
+
+def _load_completion_validator():
+    """Lazily import the sibling `check-completion-evidence.py` module, once.
+
+    Returns the imported module, or None when the sibling is absent beside this
+    `workpad.py` copy (the standalone-deployment closure — `lib/implement-stop-guard.sh`
+    and the suite's guard sandboxes copy `workpad.py` without its evidence siblings).
+    Imported by file path via importlib because the sibling's filename carries a
+    hyphen and is not importable as a module name; the result is memoized so a
+    combined record+Complete call does not re-exec the sibling twice. Tests exercise
+    the standalone-copy arm by monkeypatching this function to return None."""
+    global _COMPLETION_VALIDATOR_CACHE
+    if _COMPLETION_VALIDATOR_CACHE is not None:
+        return _COMPLETION_VALIDATOR_CACHE
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'check-completion-evidence.py')
+    if not os.path.exists(path):
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location(
+            '_devflow_completion_evidence', path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception:  # noqa: BLE001 - an unimportable sibling fails closed to absent
+        return None
+    _COMPLETION_VALIDATOR_CACHE = mod
+    return mod
+
+
+def _devflow_repo_root(args=None) -> str:
+    """The repository root the completion-evidence gate anchors on: an explicit
+    `--repo-root`, else the git top-level, else cwd. Reuses the module's #295
+    `_repo_root()` helper (the Windows-safe native-git resolver) rather than
+    re-spawning `git rev-parse`."""
+    explicit = getattr(args, 'repo_root', None) if args is not None else None
+    return explicit or _repo_root() or os.getcwd()
+
+
+def _completion_marker_keys(progress_content: str) -> list[str]:
+    """Every flight key carried by a `completion-verification:` checkpoint marker in
+    the ## Progress content. A marker outside ## Progress is not found here (the
+    caller passes only the Progress section), so it is treated as absent — fail
+    closed. Duplicate markers surface as a >1-length list."""
+    return _COMPLETION_MARKER_RE.findall(progress_content or '')
+
+
+def _strip_completion_marker_rows(content: str) -> str:
+    """Remove any ## Progress row carrying a `completion-verification:` marker, so a
+    later validated key replaces the prior one rather than accumulating."""
+    kept = [ln for ln in content.splitlines(keepends=True)
+            if not _COMPLETION_MARKER_RE.search(ln)]
+    return ''.join(kept)
+
+
+def _validate_flight_key(args, flight_key: str) -> None:
+    """Validate a specific completion flight key against its canonical record.
+
+    Raises a structural `_UpdateError` (no PATCH) on a malformed key, an absent
+    validator sibling, an internal validator failure, or a non-pass verdict.
+    Returns None on a clean pass."""
+    if not isinstance(flight_key, str) or not _COMPLETION_FLIGHT_KEY_RE.match(flight_key):
+        raise _UpdateError(
+            f"completion evidence: flight key {flight_key!r} is malformed "
+            f"(expected a hex verification-flight key). No PATCH was made."
+        )
+    validator = _load_completion_validator()
+    if validator is None:
+        # The standalone-copy arm: fail closed BEFORE any PATCH with the validator's
+        # own missing-evidence token and a detail naming the absent sibling module.
+        raise _UpdateError(
+            "completion evidence [missing-evidence]: the completion-evidence "
+            "validator module (check-completion-evidence.py) is not available beside "
+            "this workpad.py copy, so a --status Complete write cannot be backed by "
+            "verification evidence. No PATCH was made."
+        )
+    root = _devflow_repo_root(args)
+    record_path = os.path.join(root, _VERIFICATION_FLIGHT_DIRNAME, flight_key + '.json')
+    claim_identity = getattr(args, 'claim_identity', None)
+    try:
+        token, detail = validator.validate_implement_completion(
+            record_path, root, claim_identity)
+    except Exception as e:  # noqa: BLE001 - internal validator failure fails closed
+        raise _UpdateError(
+            f"completion evidence: the validator raised an internal error "
+            f"({e.__class__.__name__}); treating as unestablished. No PATCH was made."
+        )
+    if token != 'pass':
+        raise _UpdateError(
+            f"completion evidence rejected [{token}]: {detail}. No PATCH was made."
+        )
+
+
+def _completion_evidence_verdict(args, progress_content: str) -> None:
+    """The terminal-gate half: re-validate the completion evidence carried by the
+    workpad's ## Progress marker at Complete time. When no `--claim-identity` is
+    pinned (the production path — Phase 4.3 finalizes with a plain `--status
+    Complete`), the validator re-derives the candidate identity from the current
+    tree, so edits made after the evidence was recorded are caught as `stale`. A
+    pinned `--claim-identity` (loop/test override) is honored verbatim instead, so a
+    caller that pins it deliberately opts out of the fresh re-derivation.
+
+    Raises `_UpdateError` (structural — no PATCH) when the marker is absent or
+    duplicated, or when its record fails the implement-completion validator. Returns
+    None on a clean pass."""
+    keys = _completion_marker_keys(progress_content)
+    if not keys:
+        raise _UpdateError(
+            "refusing to finalize Status: Complete — no completion "
+            "verification-flight marker present [missing-evidence]. Record one with "
+            "`workpad.py update <issue> --record-completion-evidence <flight-key>` "
+            "after the run's final in-env verification passes. No PATCH was made."
+        )
+    if len(keys) > 1:
+        raise _UpdateError(
+            "refusing to finalize Status: Complete — "
+            f"{len(keys)} completion verification-flight markers present; exactly one "
+            "is required [missing-evidence]. No PATCH was made."
+        )
+    _validate_flight_key(args, keys[0])
+
+
+def _terminal_complete_gate(sections, args) -> list[str]:
     """Reconcile the workpad self-record on a terminal `--status Complete` write.
 
     Hard-fail (a *structural* `_UpdateError`, so `cmd_update` aborts before any
@@ -2709,7 +2849,22 @@ def _terminal_complete_gate(sections) -> list[str]:
     holds the un-mirrored `new-body` placeholder (mirroring never ran — a vacuously
     satisfied hard-fail), so a Complete over an unpopulated self-record is surfaced.
     NEVER modifies a row; an absent section contributes nothing. Called only for
-    `--status Complete`, over the post-mutation sections."""
+    `--status Complete`, over the post-mutation sections.
+
+    Also enforces the completion verification-flight evidence gate (issue #1087):
+    the ## Progress section must carry exactly one `completion-verification:` marker
+    whose canonical record passes the implement-completion validator, re-checked here
+    immediately before the PATCH path so edits made after the evidence was recorded
+    are caught. A missing/duplicate marker or a non-pass record is a structural
+    `_UpdateError` (no PATCH), exactly like the AC hard-fail."""
+    # Completion-evidence gate first: it is the strictest precondition and its
+    # failure is the one issue #1087 exists to enforce. `args` is REQUIRED (never
+    # defaulted) so the gate can never be silently skipped by an argument omission —
+    # a Complete write without the evidence check would fail open on exactly the
+    # guarantee this change adds.
+    prog_idx = _find_section(sections, 'Progress')
+    prog_content = sections[prog_idx][1] if prog_idx is not None else ''
+    _completion_evidence_verdict(args, prog_content)
     ac_idx = _find_section(sections, 'Acceptance Criteria')
     if ac_idx is not None:
         ac_content = sections[ac_idx][1]
@@ -2798,6 +2953,7 @@ def _has_non_checkpoint_mutation(args) -> bool:
         args.record_classification, args.reconcile_reproduction,
         args.scope_decision_deferred, args.scope_decision_rewritten,
         args.bind_scope_decisions, args.mark_deferred_filed,
+        getattr(args, 'record_completion_evidence', None),
     ])
 
 
@@ -3081,6 +3237,13 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         if not checkpoint_inserts and not _has_non_checkpoint_mutation(args):
             raise _NoOpReplay()
 
+    # Completion verification-flight evidence recording (issue #1087). Validate the
+    # record BEFORE any body mutation so a non-pass key is a structural failure that
+    # changes nothing (all-or-nothing); the marker row is written below.
+    record_flight_key = getattr(args, 'record_completion_evidence', None)
+    if record_flight_key:
+        _validate_flight_key(args, record_flight_key)
+
     # Scope-decision records (issue #781). Validate + render them BEFORE any body
     # mutation, so a malformed PR value or an empty criterion text is a structural
     # failure that changes nothing — the same all-or-nothing contract
@@ -3307,11 +3470,22 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
     progress_notes = list(args.note) + scope_decision_notes + deferred_filed_notes + [
         f'{text} {_checkpoint_marker(key)}' for key, text in checkpoint_inserts
     ]
+    # Completion-evidence marker (issue #1087): validated above; a later validated key
+    # REPLACES the prior one (unlike a plain checkpoint replay), so any existing
+    # completion-verification row is stripped before the new marker is appended.
+    if record_flight_key:
+        _ck = _COMPLETION_MARKER_KEY_PREFIX + record_flight_key
+        progress_notes.append(
+            f'completion verification recorded (flight {record_flight_key[:12]}…, '
+            f'validated) {_checkpoint_marker(_ck)}'
+        )
     if progress_notes:
         idx = _find_section(sections, 'Progress')
         if idx is None:
             raise _UpdateError("section '## Progress' not found")
         heading, content = sections[idx]
+        if record_flight_key:
+            content = _strip_completion_marker_rows(content)
         phase_label = _progress_phase_for_status(content, current_phase)
         for text in progress_notes:
             content = _append_progress_note(content, text, now_time, phase_label)
@@ -3393,7 +3567,7 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
     # Complete/🎉 vocabulary), so a non-Complete status (Blocked/👎, any in-progress
     # 🚀) and a status-less update are never gated.
     if args.status and _status_glyph(args.status) == '🎉':
-        unticked_plan = _terminal_complete_gate(sections)  # AC hard-fail raises here
+        unticked_plan = _terminal_complete_gate(sections, args)  # AC/evidence hard-fail raises here
         if unticked_plan:
             rows = '; '.join(t.strip() for t in unticked_plan)
             sys.stderr.write(
@@ -3434,9 +3608,9 @@ def main():
 
     s = sub.add_parser(
         'status',
-        help='Print the workpad Status as `CLASS GLYPH WORD` (CLASS is '
-             'terminal|interim). Exit 2 if no workpad, exit 1 if present but the '
-             'Status is unreadable.',
+        help='Print the workpad Status as `CLASS GLYPH WORD` (CLASS is one of '
+             'complete|blocked|failed|cancelled|interim). Exit 2 if no workpad, '
+             'exit 1 if present but the Status is unreadable.',
     )
     s.add_argument('issue', type=int)
     s.add_argument('--marker', default=None, help=_marker_help)
@@ -3715,6 +3889,26 @@ def main():
                         'combined with another mutation it applies that mutation '
                         'once and does not duplicate the checkpoint. KEY must match '
                         '[A-Za-z0-9._:-]+ . May be passed multiple times.')
+    u.add_argument('--record-completion-evidence', default=None, metavar='FLIGHT_KEY',
+                   help='Record a validated completion verification-flight key '
+                        '(issue #1087). The canonical record '
+                        '.prflow/tmp/verification-flights/<FLIGHT_KEY>.json is '
+                        'validated under the implement-completion policy; only on a '
+                        'pass is a hidden "<!-- prflow:checkpoint '
+                        'completion-verification:<FLIGHT_KEY> -->" ## Progress row '
+                        'written (replacing any prior completion-verification row). A '
+                        'non-pass record aborts the whole call before any PATCH. This '
+                        'marker is what a later "--status Complete" write requires.')
+    u.add_argument('--repo-root', default=None,
+                   help='Repository root for resolving the canonical '
+                        'verification-flights directory and re-deriving the '
+                        'candidate identity in the completion-evidence gate '
+                        '(issue #1087; default: the git top-level, else cwd).')
+    u.add_argument('--claim-identity', default=None,
+                   help='Pin the current candidate identity the completion-evidence '
+                        'gate compares the flight record against (issue #1087), '
+                        'mirroring check-completion-evidence.py --claim-identity; '
+                        'default re-derives it via scripts/reception_identity.py.')
     u.add_argument('--expect-comment-id', default=None,
                    help='Hydration-race precondition (issue #537, AC24): abort '
                         'before any mutation/PATCH (exit 4) if the live workpad '
