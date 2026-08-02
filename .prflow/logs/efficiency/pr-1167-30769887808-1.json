@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1167",
+  "generated_at": "2026-08-02T22:28:25Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.58",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.14591675,
+    "tokens": {
+      "input_tokens": 2129,
+      "output_tokens": 21232,
+      "cache_read_input_tokens": 2041239,
+      "cache_creation_input_tokens": 162714,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 2137,
+        "outputTokens": 30237,
+        "cacheReadInputTokens": 2134596,
+        "cacheCreationInputTokens": 272293,
+        "webSearchRequests": 0,
+        "costUSD": 4.14591675,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 21,
+    "duration_ms": 389288
+  },
+  "permission_denials": {
+    "count": 3,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1164 --pr 1167 2>.prflow/tmp/review/pr-1167/local-run/acs.err ; echo \"acs-rc=$?\"; echo \"=== err ===\"; cat .prflow/tmp/review/pr-1167/local-run/acs.err 2>/dev/null | head -5",
+      "cat > .prflow/tmp/review/pr-1167/local-run/verdict.md <<'EOF'\n## Verdict: APPROVE with notes (opt-in rename-sweep prompt is thorough and fail-closed; a few prose/consistency nits and one discharge-marker gap)\n\n_Standalone `/prflow:review` of a **merged** PR (head `9dc98cd`, base `main`). Diff classification: `engine_self_modifying` + `config_only` → full checklist (no verifiable mechanical code claims in a pure-prose diff), Phase-3 roster gated (type-design-analyzer / pr-test-analyzer skipped).  …[per-command-truncated]"
+    ],
+    "total": 3,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
