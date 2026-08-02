@@ -82,7 +82,11 @@ _identity = _load(
 #: deliberately wider than the accepted set and the verdict is taken below.
 _QUALIFIED = re.compile(r"\b([a-z0-9][a-z0-9-]*):([a-z0-9][a-z0-9-]*)\b")
 
-#: Prompt surfaces this guard audits.
+#: Prompt surfaces this guard audits. The shape is bound for the dispatch-namespace
+#: question alone; two sibling lints bind it for their own questions and the three
+#: share no notion of what a prompt extension is. That adjudication — and why the
+#: three are not in conflict — is recorded once, in `lint-issue-body-refetch.py`'s
+#: module docstring (issue #1076).
 _SKILLS_PREFIX = "skills/"
 _EXTENSION_RE = re.compile(r"\.prflow/prompt-extensions/[^/]+\.md")
 
