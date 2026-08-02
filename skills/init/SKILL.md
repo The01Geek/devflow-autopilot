@@ -140,6 +140,8 @@ Any of these produces an **incomplete** result: an enumeration failure, an unrea
 - **Complete + clean** — report that no replaceable stale `DevFlow` branding was found.
 - **Incomplete** — report the incomplete reason (from the ledger). **Never** report an incomplete sweep as clean.
 
+**Surface any recorded ambiguous occurrences on the complete arms.** An occurrence the predicate left unchanged as *ambiguous* is preserved by design, but it is **recorded in the result** — so on a **complete** sweep (changed or clean) that recorded a non-zero ambiguous count, name those files/mentions and invite the user to review them by hand. A clean sweep that recorded only ambiguous occurrences is still reported as clean (nothing was replaceable), but it does not silently swallow them.
+
 Whatever the result, the rest of `/prflow:init` continues after it.
 
 ### Renewed-consent resume (the `ALREADY MIGRATED` arm)
