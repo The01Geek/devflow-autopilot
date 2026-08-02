@@ -1844,6 +1844,94 @@ jobs:
           fi
           HEAD_SHA="$HEAD_SHA" bash "$HELPER"
 
+      # ── Phase 4.4 verdict-emitter reach record (issue #1156). ────────────────
+      # The failure this step records is a run that ends CLEANLY: a standalone
+      # review reaches a verdict, publishes it as an ordinary pull-request
+      # comment it composed itself, exits `success`, and never reaches Phase 4.4
+      # at all. The reviews API stays empty for the reviewed head,
+      # `reviewDecision` keeps whatever a superseded round left there, and both
+      # post-run handlers above stay silent because they are gated on the run
+      # having gone WRONG (`steps.claude.outcome` non-success, or engine
+      # is_error). Neither gate matches, so nothing durable records the
+      # deviation and a maintainer is handed a pull request whose API surface
+      # contradicts the only verdict it can see.
+      #
+      # Gated on the SAME `startsWith(needs.gate.outputs.command, '/prflow:review ')`
+      # test the stall backstop above uses — the trailing space is load-bearing,
+      # excluding `/prflow:review-and-fix`, which skips Phase 4.4 by design —
+      # plus a resolvable number on the event that is KNOWN TO BE A PULL REQUEST.
+      #
+      # The PR-ness term is load-bearing, not belt-and-braces. `gate` does not
+      # require a pull request: resolve-command-trigger.sh accepts any numeric
+      # target, so `/prflow:review` commented on a plain ISSUE by an authorized
+      # actor resolves should_run=true with that issue's number. Phase 4.4 is
+      # PR-mode-only by design, so its emitter never runs there and the reader
+      # would answer NOT-REACHED — posting a verdict-record comment on an issue
+      # that never had a verdict to record. `github.event.issue.pull_request` is
+      # GitHub's own discriminator (present only when the commented issue IS a
+      # pull request); the two PR-scoped events carry a pull_request number
+      # directly. No API call, so there is no unknown state to fall back from.
+      #
+      # Residual, shared with the stall backstop above and unchanged by this
+      # step: PR_NUMBER comes from the EVENT, not from an explicit number in the
+      # command, so `/prflow:review 1150` typed on some other pull request
+      # records against the pull request it was typed on. The PR-ness gate
+      # narrows the worst version of that (an issue) out entirely.
+      #
+      # THE STEP SELECTS NOTHING. check-verdict-post-reached.sh reduces the
+      # run-scoped receipt to one line; describe-verdict-post-gap.sh picks the
+      # arm and writes every byte that arm emits into two files. This step then
+      # warns iff the warning file is non-empty and comments iff the body file
+      # is non-empty — two mechanical consequences, so an arm reordering or a
+      # message change is caught by the focused module that drives the helper,
+      # not by a grep-pin on YAML. `exit 0` on every path: an always() record
+      # must never change the job's pass and never change its fail.
+      - name: Record whether the verdict emitter was reached
+        if: ${{ always() && startsWith(needs.gate.outputs.command, '/prflow:review ') && (github.event.issue.pull_request || github.event.pull_request.number) && (github.event.issue.number || github.event.pull_request.number) }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          CHECK=.prflow/vendor/prflow/scripts/check-verdict-post-reached.sh
+          [ -f "$CHECK" ] || CHECK=scripts/check-verdict-post-reached.sh
+          GAP=.prflow/vendor/prflow/scripts/describe-verdict-post-gap.sh
+          [ -f "$GAP" ] || GAP=scripts/describe-verdict-post-gap.sh
+          if [ ! -f "$CHECK" ] || [ ! -f "$GAP" ]; then
+            echo "::warning::verdict-post reach record: the check helpers are absent from this deployment (an older vendored tree); this run leaves no record of whether Phase 4.4's verdict emitter was reached."
+            exit 0
+          fi
+          # The head SHA is a REPORTED field, never a gate: a failed lookup must
+          # not suppress the record. This step runs without errexit and ends in an
+          # explicit `exit 0`, so the `|| true` changes no exit status — it is
+          # here so the shape stays correct if either of those ever changes, and
+          # so a reader is not left wondering whether the failure was handled.
+          HEAD_SHA=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha 2>/dev/null || true)
+          LINE=$(bash "$CHECK" || true)
+          WARNING_FILE="$RUNNER_TEMP/verdict-post-gap-warning.txt"
+          BODY_FILE="$RUNNER_TEMP/verdict-post-gap-body.md"
+          ARM=$(bash "$GAP" "$LINE" "${GITHUB_RUN_ID:-}" "$PR_NUMBER" "$HEAD_SHA" "$WARNING_FILE" "$BODY_FILE" || true)
+          echo "::notice::verdict-post reach record: ${ARM:-ARM unreported} (check said: ${LINE:-<no output>})"
+          if [ -s "$WARNING_FILE" ]; then
+            while IFS= read -r WARNING_LINE; do
+              [ -z "$WARNING_LINE" ] || echo "::warning::$WARNING_LINE"
+            done < "$WARNING_FILE"
+          fi
+          if [ -s "$BODY_FILE" ]; then
+            # Environment addressing is the correct form here under the
+            # .github/workflows/ exemption lint-gh-api-repo-path.py records:
+            # this job resolves $GITHUB_REPOSITORY from the runner, and the
+            # helpers that can also run outside Actions carry no gh call at all.
+            if jq -n --rawfile b "$BODY_FILE" '{body: $b}' \
+                 | gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" --input - >/dev/null; then
+              echo "::notice::verdict-post reach record: posted the cause-naming comment on #$PR_NUMBER."
+            else
+              echo "::warning::verdict-post reach record: the cause-naming comment could not be posted on #$PR_NUMBER; the ::warning:: above is the only surviving record."
+            fi
+          fi
+          exit 0
+
       # ── Execution-transcript artifact channel (issue #1064 D3) ──────────────
       # INCLUDE on this file: devflow.yml runs the same shared review engine on the
       # surviving manual /prflow:* path, so a silent denial here produces the same
