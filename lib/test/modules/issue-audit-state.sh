@@ -79,16 +79,25 @@ ias_instructions() {  # <sandbox-root> <slug> <draft-path> [PATH-override]
 # recoverable from the run's recorded byte history. That is a PRECONDITION of a file-arm
 # fixture below, in the same class as the `init` each one already runs — the guarantee is
 # not any of their subjects, so this helper carries the recipe once and a fixture calls it
-# instead of re-inlining it. The artifact is content-addressed, the shape
-# `stage-draft-write.py stage` resolves to, and it is left on disk: the guard re-reads it,
-# so a helper that removed it here would refuse the very dispatch it was called to enable.
-# Best-effort by design — a fixture whose dispatch is EXPECTED to fail must fail on its
-# own subject's guard, never on this helper's exit status.
+# instead of re-inlining it. The artifact is content-addressed — the digest inside the
+# `.staged.md` suffix, the property `record-staged-write` and the byte-history reader key
+# on, NOT the `issue-draft-<slug>.<nonce>.<digest>.staged.md` shape `resolve_staged_path`
+# produces — and it is left on disk: the guard re-reads it, so a helper that removed it
+# here would refuse the very dispatch it was called to enable.
+#
 # It never aborts the module — a fixture whose dispatch is EXPECTED to fail must fail on
 # its own subject's guard, not on this helper's exit status — but it never fails SILENTLY
 # either: a failure arm breadcrumbs to stderr naming the slug, so an environment-induced
 # staging breakage reads as one attributable line rather than as a crowd of unrelated
-# fixtures failing on `file-arm-requires-staged-write`.
+# fixtures failing on `file-arm-requires-staged-write`. It is also INERT at a site whose
+# dispatch is refused by an earlier guard (a retry, an out-of-order or still-open round, a
+# write-path refusal); calling it there costs a staging round-trip and changes nothing.
+#
+# Retention has a consequence the Python harness deliberately avoids by unlinking: with the
+# artifact on disk a later round's `select_round_kind` can reconstruct these bytes and
+# answer `targeted`, which `_cross_check_kind` then refuses against a hardcoded
+# `--kind discovery`. Adding a `record-revision` to a retained-artifact fixture will flip
+# the tool-selected kind — it fails loudly, but not on that fixture's own subject.
 ias_stage() {  # <slug> <nonce> <draft-file>
   local dig art
   if ! dig="$(git hash-object --stdin --no-filters < "$3")"; then
@@ -100,8 +109,11 @@ ias_stage() {  # <slug> <nonce> <draft-file>
     printf '  ias-stage %s: could not copy %s to the staging artifact; the byte-history precondition was NOT established\n' "$1" "$3" >&2
     return 0
   fi
+  # Only stdout is discarded: the tool's OWN named refusal (staged-digest-mismatch,
+  # staged-path-not-absolute, staged-artifact-unreadable, a foreign nonce) rides out on
+  # stderr beside the helper's line, so the breadcrumb names the cause and not just the fault.
   python3 "$IAS" record-staged-write "$1" --nonce "$2" --path "$art" --digest "$dig" \
-    > /dev/null 2>&1 \
+    > /dev/null \
     || printf '  ias-stage %s: record-staged-write exited non-zero; the byte-history precondition was NOT established\n' "$1" >&2
 }
 
