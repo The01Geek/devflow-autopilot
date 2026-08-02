@@ -1030,8 +1030,11 @@ agent-improvised verification*, not a missing grant. Run 30738761826 spent 228 t
 iterating verification probes on a shell script under classifier friction (the exact
 situation the implement extension's "Verification under classifier friction" section
 addresses with the authorized `python3 -c "subprocess.run(...)"` wrapper and the Write
-tool). None of the 60 entries is a shape a prompt surface authors that the surface got
-wrong. **Exactly one cause was a head with a durable authored caller** — the shard
+tool). Exactly one of the 60 entries is authored by a prompt surface at all — A: 45's
+best-effort `rm` cleanup — and it is authored *correctly*: the fence is explicitly
+tolerant of its own failure, so its refusal changes nothing and calls for no edit. Every
+other entry is agent-improvised, so no surface has a shape to correct.
+**Exactly one cause was a head with a durable authored caller** — the shard
 dispatcher — and that grant has already landed independently through issue #1132, so this
 audit has none left to add. Every other ungranted head is one-off introspection
 (`git write-tree`, `git remote`, `gh auth status`, `export`) or a path that does not exist
