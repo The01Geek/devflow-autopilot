@@ -27,33 +27,42 @@ loop-induced edits AND whose state this helper can establish without writing it 
 standalone non-writing check command (a regeneration command, for a mechanical row, or a
 non-writing checker for a judgment row).
 
-DELIBERATELY EXCLUDED as an artifact row, because it is REDUNDANT — not because it is
-uncovered: `scripts/workflow-flight-recorder-registry.json` is a hand-maintained
-inventory with no *regeneration* command (nothing can rewrite it from the tree), and it
-is already checked by a command a row here runs — the coverage guard's `[arm8]` arm
-covers the flight-recorder registry. A row of its own could only re-report what
-`coverage-map-ratchet` already reports.
+PARTIAL REGISTRATION: `scripts/workflow-flight-recorder-registry.json` remains a
+hand-maintained inventory, and the coverage guard's `[arm8]` arm checks that inventory.
+The `exact-module-floors` row below additionally owns only its exact-policy modules'
+`minimum_assertions` fields, because those values can be measured and raised safely;
+the row does not synthesize or rewrite any other registry metadata.
 
 ROW ORDER is a maintenance obligation, not decoration. Rows run in the order listed and
 no row re-runs, so a row whose generator READS a file an earlier row WRITES must be
-ordered after it. Today that constraint binds nothing: the only writing row
-(`cloud-writer-manifest`) pins a closure of `skills/**` / `scripts/**` assets and the
-required helper sources, and no other row's generator writes any of them — in particular
-the identity generator's four baked regions (`install.sh` and three siblings) are NOT in
-that pinned set, so regenerating them cannot stale the manifest and the two rows are
-genuinely independent. Adding a row whose output feeds another row's input means placing
-it above that row here; nothing verifies the placement, because rows declare their
-outputs and not their inputs.
+ordered after it. No WRITER consumes another writer's outputs: `cloud-writer-manifest`
+pins a closure of `skills/**` / `scripts/**` assets and required helper sources, while
+`exact-module-floors` may raise only registry floor fields and their coupled `run.sh`
+call sites, and the identity generator's four baked regions (`install.sh` and three
+siblings) are NOT in the manifest closure.
 
-WRITE SCOPE: the only file under the target root this helper writes is
-`scripts/devflow-cloud-writer-contract.json` (the mechanical row's output). Every
-judgment row runs a non-writing check and never writes its artifact.
+One READER-before-WRITER pair does exist and is deliberately left in this order:
+`coverage-map-ratchet` runs `coverage_map_guard.py`, which reads `lib/test/run.sh` — a
+file the later `exact-module-floors` row may rewrite — so within one pass the ratchet
+judges the pre-raise `run.sh`. That is sound only because of what the raise changes: a
+floor reconciliation rewrites a single numeric operand inside an existing
+`devflow_run_full_suite_module` call, adding and removing no call site, so the guard's
+block enumeration and attribution derivation see an identical structure either way. It
+is NOT sound in general — a future row that rewrites `run.sh` STRUCTURALLY must be
+ordered above `coverage-map-ratchet`, or the ratchet will judge a stale tree. Adding a
+row whose output feeds another row's input means placing it above that row here; nothing
+verifies the placement, because rows declare their outputs and not their inputs.
+
+WRITE SCOPE: writing rows declare their complete `writes` set in the registry. The
+cloud-writer row owns `scripts/devflow-cloud-writer-contract.json`; the exact-floor row
+may raise `scripts/workflow-flight-recorder-registry.json` and `lib/test/run.sh`
+together. Every judgment row runs a non-writing check and never writes its artifact.
 
 EXIT CONTRACT (exactly three states):
   0 — every row resolved in its declared clean state (its command exited in that
       state), the mechanical regeneration changed nothing, and no exit-1-forcing
       judgment item was printed.
-  1 — at least one of {the manifest bytes changed, an exit-1-forcing judgment item
+  1 — at least one of {a writing row changed its declared output, an exit-1-forcing judgment item
       was printed} holds, and no row hit the infrastructure state.
   2 — infrastructure failure. Exit 2 takes precedence over exit 1. It is reached from
       an exit code OUTSIDE a row's declared set, from paths that occur despite an
@@ -100,6 +109,14 @@ MECHANICAL_ARTIFACT = "scripts/devflow-cloud-writer-contract.json"
 # Kept a module-level constant so a row's class is validated against one enumeration
 # rather than each consumer re-spelling the vocabulary.
 CONFLICT_CLASSES = ("regenerate", "reconcile-source", "by-hand")
+
+# The row-kind vocabulary `run_row` dispatches on. Closed and validated at import for the
+# same reason `CONFLICT_CLASSES` is: `run_row` routes `mechanical` and `monotonic` through
+# their own outcome classifiers and lets every other kind fall through to the generic
+# exit-code arm, so a typo'd kind does not fail — it silently downgrades that row to the
+# weaker generic classification and reports a clean pass the row's real contract never
+# established.
+ROW_KINDS = ("mechanical", "monotonic", "judgment")
 
 # Ordered registry. `argv` is resolved under the target root and run with that root as
 # the working directory, so a fixture root exercises the fixture's own generators.
@@ -277,6 +294,43 @@ ROWS = (
         ),
     },
     {
+        "name": "exact-module-floors",
+        "kind": "monotonic",
+        "argv": ("python3", "lib/test/reconcile-module-floors.py"),
+        "clean": (0,),
+        "exits": (0, 1),
+        "writes": (
+            "scripts/workflow-flight-recorder-registry.json",
+            "lib/test/run.sh",
+        ),
+        # The recipe names the BATCH entry point, never this row's own argv. `argv` is
+        # how the batch runs the reconciler as an internal subprocess; the recipe is what
+        # an AGENT is told to run, and on the cloud implement tier the interpreter-head
+        # form `python3 lib/test/reconcile-module-floors.py` is an ungranted shape that is
+        # silently denied — so a recipe naming it would hand the agent a command that
+        # produces no output and no error, and the floors would stay unreconciled.
+        "policy": (
+            "hand-merge the conflicted region as any normal file, then re-measure by "
+            "rerunning the granted direct leading-token form "
+            "`lib/test/regenerate-artifacts.py`; its exact-module-floors row measures "
+            "the real focused runners, raises both coupled floors together, and "
+            "refuses every decrease"
+        ),
+        # `by-hand`, NOT `reconcile-source`. Neither declared output is a generated
+        # artifact: both are hand-authored files in which this row owns a single numeric
+        # token per exact module. Classing them `reconcile-source` would tell an agent
+        # never to hand-merge conflicted bytes in `lib/test/run.sh` — the repo's largest
+        # hand-authored file, whose conflicts are almost never in a floor operand — and
+        # send it to regenerate a file no generator produces. `by-hand` carries the
+        # correct instruction for a partially-owned record: merge it deliberately, then
+        # let the batch re-measure the fields it does own.
+        "conflict_class": "by-hand",
+        "conflict_paths": (
+            "scripts/workflow-flight-recorder-registry.json",
+            "lib/test/run.sh",
+        ),
+    },
+    {
         "name": "env-freeze-advisory-region",
         "kind": "judgment",
         "argv": ("python3", "lib/generate-env-freeze-advisory.py", "--check"),
@@ -388,7 +442,11 @@ def conflict_paths(row, root):
       returning additional paths derived at emit time. Bound below the function definitions
       because the table is defined above the function it names.
     """
-    static = tuple(row["conflict_paths"]) if "conflict_paths" in row else (row["writes"],)
+    if "conflict_paths" in row:
+        static = tuple(row["conflict_paths"])
+    else:
+        writes = row["writes"]
+        static = (writes,) if isinstance(writes, str) else tuple(writes)
     extra = row.get("conflict_paths_extra")
     return static + (tuple(extra(root)) if extra else ())
 
@@ -428,7 +486,10 @@ def run_row(row, root, report):
     # The mechanical generator writes unconditionally on success, so "did anything
     # change?" is answered by bracketing the run with byte snapshots — never by the
     # generator's own wording, which says "wrote <path>" either way.
-    written = root / row["writes"] if row["kind"] == "mechanical" else None
+    writes = row.get("writes", ())
+    if isinstance(writes, str):
+        writes = (writes,)
+    written = tuple(root / path for path in writes)
     # The snapshot is an OS read, and it brackets the run OUTSIDE the try below (which
     # covers only subprocess.run). An unreadable/undeletable manifest (PermissionError,
     # IsADirectoryError — what a half-restored worktree or a root-owned fixture
@@ -436,10 +497,17 @@ def run_row(row, root, report):
     # infrastructure state aliased onto "action required", which is the exact
     # unknown-collapsed-onto-a-real-value class this helper exists to prevent.
     try:
-        before = written.read_bytes() if written and written.is_file() else None
+        before = {
+            path: path.read_bytes() if path.is_file() else None for path in written
+        }
     except OSError as error:
+        failed_path = getattr(error, "filename", None)
+        try:
+            failed_path = Path(failed_path).resolve().relative_to(root).as_posix()
+        except (OSError, TypeError, ValueError):
+            failed_path = "a declared output"
         report.append(
-            f"[{name}] INFRASTRUCTURE could not read {row['writes']} before the run "
+            f"[{name}] INFRASTRUCTURE could not read {failed_path} before the run "
             f"({error}) — nothing was compared and nothing was verified."
         )
         return False, True
@@ -474,14 +542,30 @@ def run_row(row, root, report):
 
     if row["kind"] == "mechanical":
         try:
-            after = written.read_bytes() if written.is_file() else None
+            path = written[0]
+            after = path.read_bytes() if path.is_file() else None
         except OSError as error:
             report.append(
                 f"[{name}] INFRASTRUCTURE could not read {row['writes']} after the run "
                 f"({error}) — the change comparison never happened."
             )
             return False, True
-        return _mechanical_outcome(row, proc, output, before != after, after, report)
+        return _mechanical_outcome(
+            row, proc, output, before[path] != after, after, report
+        )
+
+    if row["kind"] == "monotonic":
+        try:
+            after = {
+                path: path.read_bytes() if path.is_file() else None for path in written
+            }
+        except OSError as error:
+            report.append(
+                f"[{name}] INFRASTRUCTURE could not read its declared writes after the run "
+                f"({error}) — the change comparison never happened."
+            )
+            return False, True
+        return _monotonic_outcome(row, proc, output, before, after, report)
 
     if proc.returncode in row["clean"]:
         report.append(
@@ -547,6 +631,72 @@ def _mechanical_outcome(row, proc, output, changed, after, report):
     return False, True
 
 
+def _monotonic_outcome(row, proc, output, before, after, report):
+    """Classify a raise-only row without collapsing a refused decrease into clean."""
+    name = row["name"]
+    absent = [path for path, content in after.items() if content is None]
+    if absent:
+        report.append(
+            f"[{name}] INFRASTRUCTURE the row left declared output(s) absent: "
+            + ", ".join(str(path) for path in absent)
+        )
+        return False, True
+    changed = [path for path in before if before[path] != after[path]]
+    if proc.returncode in row["clean"]:
+        if not changed:
+            report.append(f"[{name}] clean — every measured tally matches both floors")
+            return False, False
+        relative = [path.name if path.name == "run.sh" else path.as_posix() for path in changed]
+        # A raise-only row's outputs are COUPLED sites that must move together, so a
+        # write it did not announce is unattributable: the reconciler prints its own
+        # `RAISED` marker naming the modules it staged, and only that marker
+        # establishes the change as the reconciliation rather than incidental
+        # corruption. Without it, a clean exit code plus a mutated file would be
+        # reported as a successful reconciliation and committed — the coupled floors
+        # left disagreeing while the batch claims it resolved them.
+        if "floor-reconciliation: RAISED" not in output:
+            if len(changed) < len(before):
+                report.append(
+                    f"[{name}] INFRASTRUCTURE the reconciliation exited "
+                    f"{proc.returncode} but changed only a subset of its declared "
+                    f"outputs ({', '.join(relative)}) and announced no raise — the "
+                    "coupled floors cannot be assumed consistent"
+                )
+            else:
+                report.append(
+                    f"[{name}] INFRASTRUCTURE the reconciliation exited "
+                    f"{proc.returncode} and changed {', '.join(relative)} without "
+                    "announcing a raise — the change is unattributable"
+                )
+            return False, True
+        report.append(
+            f"[{name}] RECONCILED measured floor raise changed: {', '.join(relative)}"
+        )
+        return True, False
+    if changed:
+        # Name the paths AND the reconciler's own output: this arm fires on the most
+        # alarming state the classifier models — a row that declares a refusal contract
+        # yet mutated files under source control — and the operator needs to know which
+        # coupled site is now inconsistent before committing anything.
+        relative = [path.name if path.name == "run.sh" else path.as_posix() for path in changed]
+        report.append(
+            f"[{name}] INFRASTRUCTURE a non-clean reconciliation (exit "
+            f"{proc.returncode}) changed declared outputs despite its refusal "
+            f"contract: {', '.join(relative)}\n    output: {output or '(none)'}"
+        )
+        return False, True
+    if "floor-reconciliation: DECREASE REFUSED" in output:
+        report.append(
+            f"[{name}] JUDGMENT {output}\n    governing policy: {row['policy']}"
+        )
+        return True, False
+    report.append(
+        f"[{name}] INFRASTRUCTURE the reconciler exited {proc.returncode} without a "
+        f"recognized non-writing refusal marker:\n{output or '(no output)'}"
+    )
+    return False, True
+
+
 # The capability row's extra paths come from the capability generator's own REGIONS. Bound
 # here rather than in the table (which is defined above the function it names), and as a
 # FIELD, so `conflict_paths` never keys on a row name.
@@ -570,6 +720,25 @@ def _validate_registry():
     discrimination this module's EXIT CONTRACT says the net exists to preserve.
     """
     for row in ROWS:
+        if row.get("kind") not in ROW_KINDS:
+            raise ValueError(
+                f"registry row {row['name']!r} declares kind "
+                f"{row.get('kind')!r}, which is outside {ROW_KINDS}"
+            )
+        # `run_row` narrows a mechanical row to `written[0]`, so a second declared output
+        # would never be compared and the row would report clean while that file drifted.
+        # The kind's single-output assumption is enforced here rather than left implicit.
+        if row["kind"] == "mechanical":
+            # Normalize exactly as run_row does: `writes` is a bare string on this row,
+            # so a plain `tuple()` would split it per character.
+            declared = row.get("writes", ())
+            declared = (declared,) if isinstance(declared, str) else tuple(declared)
+            if len(declared) != 1:
+                raise ValueError(
+                    f"registry row {row['name']!r} is kind 'mechanical' but declares "
+                    f"{len(declared)} writes; the mechanical outcome classifier "
+                    "compares exactly one output"
+                )
         if row.get("conflict_class") not in CONFLICT_CLASSES:
             raise ValueError(
                 f"registry row {row['name']!r} declares conflict_class "
