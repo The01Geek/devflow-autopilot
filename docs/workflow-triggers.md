@@ -131,17 +131,18 @@ repository does not receive it — the standing "a collaborator comments the tri
 statement above stays literally true out of the box. A consumer that wants the same
 automatic request copies the snippet below into their own CI.
 
-**How the in-repo job behaves** (the same behavior the snippet reproduces): it fires
-on every green head, deduped only at an identical head SHA via the marker
-`<!-- prflow:ci-review-trigger sha=<sha> -->` that `scripts/post-ci-review-trigger.sh`
-posts and reads back. A prior comment suppresses the request **only when this App
-itself authored it** — a human or another bot merely quoting the marker no longer
-kills the review. Concurrent runs at one head SHA are serialized (`concurrency` group,
-`cancel-in-progress: false`) so the read-then-post dedupe is atomic. And when a
-dependency (`test` or `lint`) concludes anything other than `success`, the job posts
-nothing but emits a `::warning::` naming which dependency withheld the request —
-`lint` is **not** a required status check, so such a pull request is mergeable, and
-without the announcement its missing review would be silent.
+**How the in-repo job behaves.** It fires on every green head, deduped only at an
+identical head SHA via the marker `<!-- prflow:ci-review-trigger sha=<sha> -->` that
+`scripts/post-ci-review-trigger.sh` posts and reads back. A prior comment suppresses
+the request **only when this App itself authored it** — a human or another bot merely
+quoting the marker no longer kills the review. This request-and-author-scoped-dedupe
+core is exactly what the consumer snippet below reproduces. The in-repo job adds two
+refinements the minimal snippet omits: concurrent runs at one head SHA are serialized
+(`concurrency` group, `cancel-in-progress: false`) so the read-then-post dedupe is
+atomic; and when a dependency (`test` or `lint`) concludes anything other than
+`success`, the job posts nothing but emits a `::warning::` naming which dependency
+withheld the request — `lint` is **not** a required status check, so such a pull
+request is mergeable, and without the announcement its missing review would be silent.
 
 ### Consumer snippet
 
