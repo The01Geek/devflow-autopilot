@@ -1,0 +1,117 @@
+{
+  "iter": 2,
+  "started_at": "2026-08-02T00:30:00Z",
+  "fix_commit_sha": "69cee88",
+  "fix_files": [
+    "lib/test/test_coverage_map_guard.py",
+    "lib/test/modules/capability-profiles.sh"
+  ],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:pr-test-analyzer",
+    "prflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "main() grant-channel breadcrumb loop (malformed-JSON path + absent-file silence) untested",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "capability-profiles.sh comment 'five...row 17' rot risk",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "main() breadcrumb prints to stdout not stderr (inconsistent with _config helper)",
+      "fix_decision": "pushed_back",
+      "evidence": "stdout is consistent with main()'s existing [input-error] git-ls-files line and the violation channel; the stderr sibling is a different (pure-helper) layer. Kept on stdout deliberately."
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "mixed-type array element / positive-control scope minor coverage",
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "PTA-main-breadcrumb",
+      "decision": "applied",
+      "commit": "69cee88"
+    },
+    {
+      "finding_id": "CA-sh-comment-rot",
+      "decision": "applied",
+      "commit": "69cee88"
+    },
+    {
+      "finding_id": "SFH-stdout-stderr",
+      "decision": "pushed_back",
+      "skip_category": "claim-quality",
+      "evidence": "main()'s own convention (git ls-files [input-error]) is stdout; the file's stdout is the diagnostic+violation channel. stderr would be inconsistent with main()."
+    },
+    {
+      "finding_id": "minor-coverage",
+      "decision": "advisory",
+      "skip_category": "uncategorized",
+      "evidence": "defensible degradation; one positive control over the shared loop body suffices"
+    }
+  ],
+  "sweep_evidence": {
+    "status": "run"
+  },
+  "shadow": {
+    "ran_at": "2026-08-02T00:20:00Z",
+    "reviewed_sha": "b5bb766",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:comment-analyzer",
+      "prflow:pr-test-analyzer",
+      "prflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:comment-analyzer",
+      "prflow:pr-test-analyzer",
+      "prflow:requesting-code-review"
+    ],
+    "comparison": {
+      "shadow_total": 4,
+      "overlap_with_iter_N": 0,
+      "new": 4,
+      "new_critical": 0,
+      "new_important": 1
+    },
+    "promoted_to_iter_next": true
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "refixed",
+      "reason": null
+    }
+  },
+  "telemetry": "unavailable"
+}

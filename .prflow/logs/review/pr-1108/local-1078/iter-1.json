@@ -1,0 +1,138 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-02T00:00:00Z",
+  "fix_commit_sha": "b5bb766",
+  "fix_files": [
+    "lib/test/coverage_map_guard.py",
+    "lib/test/test_coverage_map_guard.py",
+    "lib/test/modules/capability-profiles.sh",
+    "docs/cloud-allowlist.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": null,
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:pr-test-analyzer",
+    "prflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "main() discarded the _load_json error half for profiles/config; a malformed config misdirects arm10",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "wrong-typed config subtree silently dropped with no breadcrumb",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "_cap_libtest_hits real scan fails open on python crash (assert_eq discards subst rc); compensated by positive control",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "malformed manifest masked by readable config in arm10 (inherent to union; compensated by --check)",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "(manifest, None) quadrant not tested — documented no-false-flag invariant uncovered",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "docs/changeset cite matcher-probe 'row 17' by numeric index (rot risk)",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "capability-profiles.sh #1078 comment enumerates counts (provenance; assertion is count-free/comment-immune)",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "prflow:requesting-code-review",
+      "severity": "Important",
+      "description": "ACs 8 & 10 (atomic-swap reasoning + #593 note) must live in the PR description",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "SFH-1",
+      "decision": "applied",
+      "commit": "b5bb766"
+    },
+    {
+      "finding_id": "SFH-2",
+      "decision": "applied",
+      "commit": "b5bb766"
+    },
+    {
+      "finding_id": "SFH-4",
+      "decision": "applied",
+      "commit": "b5bb766"
+    },
+    {
+      "finding_id": "PTA-1",
+      "decision": "applied",
+      "commit": "b5bb766"
+    },
+    {
+      "finding_id": "CA-1",
+      "decision": "applied",
+      "commit": "b5bb766"
+    },
+    {
+      "finding_id": "SFH-3",
+      "decision": "advisory",
+      "skip_category": "uncategorized",
+      "evidence": "inherent to the union grant contract; compensated by generate-capability-profiles.py --check which loudly catches manifest corruption"
+    },
+    {
+      "finding_id": "CA-2",
+      "decision": "advisory",
+      "skip_category": "uncategorized",
+      "evidence": "the #1078 assertion is count-free and comment-immune; the comment is provenance, cannot make the test lie"
+    },
+    {
+      "finding_id": "RCR-1",
+      "decision": "deferred",
+      "skip_category": "out-of-scope",
+      "evidence": "ACs 8/10 are PR-description obligations discharged in Phase 4.2 /pr-description, not code fixes"
+    }
+  ],
+  "sweep_evidence": {
+    "status": "run"
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "refixed",
+      "reason": null
+    }
+  },
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
+  },
+  "telemetry": "unavailable"
+}
