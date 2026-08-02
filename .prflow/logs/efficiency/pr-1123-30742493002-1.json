@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1123",
+  "generated_at": "2026-08-02T10:11:44Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.36",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 20.115349750000004,
+    "tokens": {
+      "input_tokens": 5805,
+      "output_tokens": 59188,
+      "cache_read_input_tokens": 9934947,
+      "cache_creation_input_tokens": 272855,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 5997,
+        "outputTokens": 128458,
+        "cacheReadInputTokens": 18273860,
+        "cacheCreationInputTokens": 1018655,
+        "webSearchRequests": 0,
+        "costUSD": 19.768165000000003,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 2,
+        "outputTokens": 11866,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 45117,
+        "webSearchRequests": 0,
+        "costUSD": 0.34718475000000004,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 69,
+    "duration_ms": 1340056
+  },
+  "permission_denials": {
+    "count": 8,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"run_id=${GITHUB_RUN_ID:-unset} attempt=${GITHUB_RUN_ATTEMPT:-unset}\"; echo \"derived=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1}\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/seed-review-progress.sh \"1123\" \"\" .prflow/tmp/review/pr-1123/30742493002-1/review-wp.md ; echo \"seed-rc=$?\"",
+      "scripts/seed-review-progress.sh \"1123\" \"\" .prflow/tmp/review/pr-1123/30742493002-1/review-wp.md ; echo \"seed-rc=$?\"",
+      "python3 scripts/workpad.py acs-resolve 1098 --pr 1123 2>.prflow/tmp/review/pr-1123/30742493002-1/acs.err ; echo \"acs-rc=$?\"",
+      "D=.prflow/tmp/review/pr-1123/30742493002-1\nawk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e' \"$D/diff.patch\" > \"$D/batch-1.patch\" && test -s \"$D/batch-1.patch\" && echo \"slice-ok: batch-1 ($(grep -c '^diff --git' \"$D/batch-1.patch\") files)\" || echo \"slice-failed: batch-1\"\nawk -v s=11 -v e=20 '/^diff --git/{n++} n>=s && n<=e' \"$D/diff.patch\" > \"$D/batch-2.patch\" && test -s \"$D/batch-2.patch\" && echo \"slice-ok: batch-2 ($(grep -c '^diff --git' \"$D/batch-2.patch\") files)\" || echo \"slice-failed: b …[per-command-truncated]",
+      "awk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/review/pr-1123/30742493002-1/diff.patch > .prflow/tmp/review/pr-1123/30742493002-1/batch-1.patch\nawk -v s=11 -v e=20 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/review/pr-1123/30742493002-1/diff.patch > .prflow/tmp/review/pr-1123/30742493002-1/batch-2.patch\necho \"batch-1 files:\"; grep -c '^diff --git' .prflow/tmp/review/pr-1123/30742493002-1/batch-1.patch\necho \"batch-2 files:\"; grep -c '^diff --git' .prflow/tmp/review/pr-1123/307 …[per-command-truncated]",
+      "awk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/review/pr-1123/30742493002-1/diff.patch > .prflow/tmp/review/pr-1123/30742493002-1/batch-1.patch",
+      "T=skills/create-issue/references/issue-template.md\necho \"=== VC-6/23: premise-verification block + command handle form removed from template ===\"\ngrep -nEi \"exact command whose output grounded|record the repository baseline|record-claim-baseline|Occurrence counts and coupled-site lists are a premise class\" \"$T\" | head || echo \"ABSENT (good)\"\necho \"=== VC-24: template names Step 3.6 pre-dispatch canonical write ===\"\ngrep -nE \"Step 3\\.6\" \"$T\" | head\necho \"=== VC-8: check-verified-premises.py handl …[per-command-truncated]"
+    ],
+    "total": 8,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
