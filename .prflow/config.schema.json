@@ -995,7 +995,7 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "When true, Implement and inline Review-and-Fix coordinate each same-checkout full-verification flight through scripts/verification-flight.py (claim/mark-running/finish, attach/wait/consume) instead of relaunching the command directly. When false, callers launch the verification command directly as before. Off never weakens a guarantee: a missing, partial, timed-out, unreadable, or stale handle always falls back to a direct launch and never becomes a pass.",
+          "description": "When true, Implement and inline Review-and-Fix coordinate each same-checkout full-verification flight through scripts/verification-flight.py (claim/mark-running/finish, attach/wait/consume) instead of relaunching the command directly. The off-switch is per-caller (issue #1087): for a standalone Review-and-Fix run, false means launch the verification command directly as before (ledger bypass); for an Implement run, false means REUSE bypass only — the run still executes the claim/mark-running/finish record transitions so it produces the machine-readable verification-flight record the terminal `workpad.py --status Complete` evidence gate requires, and only skips attaching to another owner's terminal evidence. Off never weakens a guarantee: a missing, partial, timed-out, unreadable, or stale handle always falls back to a direct launch and never becomes a pass.",
           "default": true
         },
         "lease_seconds": {

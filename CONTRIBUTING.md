@@ -395,9 +395,9 @@ And the ledger refreshes an assertion **name** only: changing a retained pin's l
 target changes the identity itself, which the ledger cannot express — that is a retirement, handled
 by the manifest protocol, not by editing a refresh row.
 
-**Declaring a repository-tree walk (issue #711).** `# tree-walk-ok: <reason>` is the third
-member of the same declaration-marker family, in the same one-line-reason framing as
-`# structural-pin-ok:` and `# raw-guard-ok:`. A tracked `.py` or `.sh` file under `lib/test/`
+**Declaring a repository-tree walk (issue #711).** `# tree-walk-ok: <reason>` is a
+member of the same declaration-marker family (`# structural-pin-ok:`, `# raw-guard-ok:`,
+`# tree-walk-ok:`, `# argjson-ok:`, `# pruned-path-ok:`), in the same one-line-reason framing. A tracked `.py` or `.sh` file under `lib/test/`
 that enumerates with a recursive walk — `rglob(`, `os.walk(`, `iglob(`, a `recursive=True`
 call, a `glob(` whose pattern carries a `**` component or is not a string literal (these two
 are judged by a Python parse, so they apply to `.py` files only), or a shell `find` / `grep -r`

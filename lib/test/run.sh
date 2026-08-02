@@ -5459,8 +5459,23 @@ echo '[]'
 STUB
 chmod +x "$S258/gh"
 
-# Fixture bodies. Base = every Plan/AC row ticked (the clean-run shape).
-cat > "$S258/all-ticked.md" <<'WPMD'
+# issue #1087: the terminal gate also requires a validated completion
+# verification-flight marker. Stand up a passing flight record under a temp
+# repo-root and carry the marker in the fixtures' ## Progress, so the #258 AC/Plan
+# self-record gate (which runs AFTER the evidence gate) is exercised on its own
+# terms. run258 pins the candidate identity with --claim-identity so no git tree
+# derivation is needed. A dedicated no-marker assertion below pins the evidence
+# gate's own missing-evidence abort.
+S258_ROOT="$(mktemp -d)"
+S258_KEY="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+mkdir -p "$S258_ROOT/.prflow/tmp/verification-flights"
+cat > "$S258_ROOT/.prflow/tmp/verification-flights/$S258_KEY.json" <<'VFJSON'
+{"state":"passed","result":"passed","candidate_identity":"treeX","suite_summary":{"command":"lib/test/run.sh","exit_status":0,"skipped_checks":[]},"skipped_checks":[]}
+VFJSON
+
+# Fixture bodies. Base = every Plan/AC row ticked (the clean-run shape). The
+# ## Progress section carries the validated completion-verification marker.
+cat > "$S258/all-ticked.md" <<WPMD
 <!-- devflow:workpad -->
 # DevFlow Workpad — Issue #999
 
@@ -5469,6 +5484,7 @@ cat > "$S258/all-ticked.md" <<'WPMD'
 
 ## Progress
 - [x] **Setup**
+  - 00:00:00 — completion verification recorded <!-- prflow:checkpoint completion-verification:$S258_KEY -->
 
 ## Plan
 - [x] Plan step one
@@ -5478,6 +5494,8 @@ cat > "$S258/all-ticked.md" <<'WPMD'
 - [x] AC one
 - [x] AC two
 WPMD
+# A marker-free copy for the evidence-gate abort test (issue #1087).
+grep -v 'completion-verification:' "$S258/all-ticked.md" > "$S258/no-marker.md"
 # (a) a non-post-merge AC row still unticked.
 sed 's/- \[x\] AC two/- [ ] AC two/' "$S258/all-ticked.md" > "$S258/ac-unticked.md"
 # (b) the ONLY outstanding AC row carries the (post-merge) marker.
@@ -5490,9 +5508,21 @@ run258() {
   local body="$1"; shift
   : > "$S258/patchlog"
   WP_BODY="$body" WP_PATCHLOG="$S258/patchlog" DEVFLOW_GH="$S258/gh" \
-    python3 "$WP_PY" update 999 --print-body "$@" >"$S258/out" 2>"$S258/err"
+    python3 "$WP_PY" update 999 --print-body \
+      --repo-root "$S258_ROOT" --claim-identity treeX "$@" >"$S258/out" 2>"$S258/err"
   echo $?
 }
+
+# (issue #1087) --status Complete over a workpad with NO completion marker aborts
+# non-zero with NO PATCH and names missing-evidence — the "Completion requires
+# marker" AC at the real CLI boundary.
+_c="$(run258 "$S258/no-marker.md" --status Complete)"
+assert_eq "#1087: --status Complete with no completion marker aborts non-zero" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#1087: the no-marker abort made NO PATCH" "yes" \
+  "$([ -s "$S258/patchlog" ] && echo no || echo yes)"
+assert_eq "#1087: the no-marker abort names missing-evidence" "yes" \
+  "$(grep -q 'missing-evidence' "$S258/err" && echo yes || echo no)"
 
 # (a) --status Complete aborts non-zero with NO PATCH when a non-post-merge AC is [ ].
 _c="$(run258 "$S258/ac-unticked.md" --status Complete)"
@@ -5532,7 +5562,7 @@ assert_eq "#258(e): --status Blocked with an unticked AC still PATCHed (Status �
 # Source pin: the terminal gate + its post-merge exclusion live in workpad.py.
 assert_eq "#258: workpad.py carries the terminal --status Complete self-record gate" "yes" \
   "$(grep -q '_terminal_complete_gate' "$WP_PY" && grep -q "(post-merge)" "$WP_PY" && echo yes || echo no)"
-rm -rf "$S258"
+rm -rf "$S258" "$S258_ROOT"
 
 # ── issue #781: workpad-sourced acceptance criteria (acs / acs-resolve) ────────
 # The review engine used to source the criteria it judges a PR against from the
@@ -9540,8 +9570,14 @@ assert_pin_unique "#541 reference_reads: the field is conditional — absence on
 # when one is not. GREEN arm: the real files. RED arm: a scratch SKILL copy with every
 # '## Devflow Reflection' line stripped (including its mapping-table row) while the marker stays in
 # the sweep bodies → RED.
-P478_MARKERS=( 'workpad.py' '$ISSUE_NUMBER' 'Phase 3.4' 'Phase 4.1' '(post-merge)' '--rewrite-ac' '## Devflow Reflection' 'lib/test/run.sh' 'CLAUDE.md' )
-P478_DESTINATIONS=( "The loop's own evidence sink" "The loop's own evidence sink" 'An item-5 pushback/advisory record' 'Fix-now, or record through' 'An item-5 pushback/advisory record' 'An item-5 pushback/advisory record' "The loop's evidence sink" 'Run the project-specific check that carries the obligation' "The repo's stated conventions" )
+# issue #1072 removed 'lib/test/run.sh' from this closed vocabulary: the §2.3 sweep bodies
+# no longer name this repository's suite path as a routing obligation (the citations were
+# reworded generically so no shipped prompt surface references a vendor-slice-pruned path), so
+# the marker no longer appears in the sweep bodies and its precondition would fail. The
+# fixing.md translation-table row it used to map survives (with a pruned-path-ok marker) as
+# correct consumer-facing prose, and is no longer a drift-guarded routing marker.
+P478_MARKERS=( 'workpad.py' '$ISSUE_NUMBER' 'Phase 3.4' 'Phase 4.1' '(post-merge)' '--rewrite-ac' '## Devflow Reflection' 'CLAUDE.md' )
+P478_DESTINATIONS=( "The loop's own evidence sink" "The loop's own evidence sink" 'An item-5 pushback/advisory record' 'Fix-now, or record through' 'An item-5 pushback/advisory record' 'An item-5 pushback/advisory record' "The loop's evidence sink" "The repo's stated conventions" )
 p478_sweep_bodies() {
   awk '
     /^\*\*Sweep selection \(run first\)\.\*\*/ { starts++; f=1; next }
@@ -9601,8 +9637,10 @@ assert_eq "#478 AC5 routing lint RED: deleting a mapping-table row while its mar
   "RED" "$(p478_routing_lint "$P478_MUT" "$P478_P2")"
 rm -f "$P478_MUT"
 # Destination-only RED arm: retaining the marker while blanking its mapped destination must fail.
+# Re-pointed by issue #1072 from the removed 'lib/test/run.sh' marker to the 'CLAUDE.md' marker,
+# whose row destination "The repo's stated conventions" is unique in the mapping table.
 P478_MUT_DEST="$(probe_tmp '#478 AC5 routing lint destination RED-arm setup')"
-sed 's#| Run the project-specific check that carries the obligation to discharge it — a consumer runs its own equivalent project-specific check, never a broader suite that does not carry the obligation.#| # ' "$MAXI_SKILL" > "$P478_MUT_DEST"
+sed 's#The repo.s stated conventions#(blanked)#' "$MAXI_SKILL" > "$P478_MUT_DEST"
 assert_eq "#478 AC5 routing lint RED: blanking a mapping destination while retaining its marker flips the lint RED" \
   "RED" "$(p478_routing_lint "$P478_MUT_DEST" "$P478_P2")"
 rm -f "$P478_MUT_DEST"
@@ -17399,7 +17437,7 @@ assert_eq "#458 helper: harden-stop-hooks.sh exists" "yes" \
 # guard entry — COUPLED (a
 # file dropped here silently leaves that PR-head script executable, or the workflow
 # never materializes its trusted copy). Pin the exact closure literal.
-HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh lib/resolve-state-dir.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'
+HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh lib/resolve-state-dir.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py scripts/check-completion-evidence.py scripts/reception_identity.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'
 assert_eq "#458 helper: HOOK_TARGETS is the full transitive source/exec closure" "1" \
   "$(grep -cF "HOOK_TARGETS='$HSH_CLOSURE_LIT'" "$HSH" || true)"
 # The three per-class sub-lists (entries / sourced libs / exec'd deps) drive the
@@ -17409,7 +17447,7 @@ assert_eq "#458 helper: HOOK_ENTRY_TARGETS are the three Stop-hook entries plus 
 assert_eq "#458 helper: HOOK_SOURCED_TARGETS are the inline-sourced libs (mid-source-break class)" "1" \
   "$(grep -cF "HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh lib/resolve-state-dir.sh'" "$HSH" || true)"
 assert_eq "#458 helper: HOOK_EXEC_TARGETS are the subprocess-exec'd deps" "1" \
-  "$(grep -cF "HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'" "$HSH" || true)"
+  "$(grep -cF "HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py scripts/check-completion-evidence.py scripts/reception_identity.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'" "$HSH" || true)"
 SETTINGS="$LIB/../.claude/settings.json"
 assert_eq "#458 coupling: settings.json wires lib/efficiency-trace.sh Stop hook" "1" \
   "$(jq '[.hooks.Stop[]?.hooks[]? | select((.command // "") | contains("lib/efficiency-trace.sh") and contains("--persist"))] | length' "$SETTINGS" 2>/dev/null || echo BAD)"
@@ -17436,7 +17474,7 @@ assert_eq "#805 coupling: HOOK_ENTRY_TARGETS has exactly 4 entries in total (3 .
 # The full closure hardened here is the entry hooks plus their transitive source/exec/python3
 # deps; its exact membership and size are pinned by the assertion below and the drift-guard,
 # not asserted in prose (the count-locked stale-prose lint owns numeric claims).
-assert_eq "#458 coupling: HOOK_TARGETS has exactly 14 closure entries (.sh + .py)" "14" \
+assert_eq "#458 coupling: HOOK_TARGETS has exactly 16 closure entries (.sh + .py)" "16" \
   "$(grep -oE "HOOK_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -cE '\.(sh|py)' || true)"
 # SET-EQUALITY invariant (issue #460 SHADOW, FP-S3): the three per-class lists must
 # partition HOOK_TARGETS exactly — entries ∪ sourced ∪ exec == HOOK_TARGETS. A future
@@ -32248,8 +32286,12 @@ fi
 # arm, so they live in the unconditional §4.3 prose. That does not fit the residual headroom the
 # post-#1039 figure left, so the ceiling is raised again here at the post-#1050 measurement with
 # NO added slack, exactly as above.
+# Issue #1087 adds the terminal completion-evidence flight and marker handoff to the
+# unconditional Phase 4 completion path. The implement engine must read that gate before
+# it can finalize the workpad, so this contract cannot be deferred behind a progressively
+# loaded reference. Raise the ceiling to the exact post-#1087 measurement, with no slack.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
-  "$([ "$(wc -c < "$I480_P4")" -le 100707 ] && echo yes || echo no)"
+  "$([ "$(wc -c < "$I480_P4")" -le 104586 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
 # the reference through this file's own entry-gate anchor, and degrades rather than halting
 # on a failed read — carry NO pin. Every mutation those sentences admit rewrites the one
@@ -39391,7 +39433,7 @@ assert_eq "#664 scanner: a non-repository root fails closed naming git ls-files"
 echo "#711 tree enumeration: a repository-root recursive walk is declared, not silent"
 # The guard joins the desk-time static-lint family (extract-command-heads.py, pin-corpus-lint.py,
 # lint-gh-api-repo-path.py, lint-issue-body-refetch.py, coverage_map_guard.py — deliberately no
-# ordinal: it is the THIRD member of the DECLARATION-MARKER family, which is a different set, and
+# ordinal: it is a member of the DECLARATION-MARKER family, which is a different set, and
 # a count of this one accretes) and is driven the same way: the real tree as the
 # live gate, plus synthetic fixtures through --root/--files-from. Its audited population INCLUDES
 # lib/test/, which is why its fixtures are written into probe_tmp scratch rather than checked in —
@@ -43928,6 +43970,195 @@ for lit in ("devflow-marketplace", "/devflow:", "devflow:code-reviewer", "DevFlo
 print("ALL-PRESENT" if not missing else "MISSING: " + ", ".join(missing))
 PY
 )"
+# ────────────────────────────────────────────────────────────────────────────
+
+# ── #1072 shipped-pruned-path lint (lib/test/lint-shipped-pruned-path.py) ──
+# The vendor slice prunes lib/test / docs/site / .claude-plugin/marketplace.json from the
+# vendored plugin, so a shipped prompt sentence naming one of them resolves against a consumer
+# tree where it does not exist. This lint derives the prune set from vendor-slice.sh itself (not
+# a hardcoded literal) and audits skills/** + agents/** for an unmarked reference. It joins the
+# desk-time static-lint family, driven the same way: the real tree as the live gate, plus
+# synthetic fixtures through --root/--files-from/--slice-source.
+SP_LINT="$LIB/test/lint-shipped-pruned-path.py"
+SP_FX="$LIB/test/fixtures/shipped-pruned-path"
+SP_SIMPLE="$SP_FX/slices/simple.sh"
+
+# Real-tree run: exits 0 AND audited a positive number of files (a green run whose count had
+# silently collapsed to zero would otherwise read as clean while auditing nothing).
+SP_OUT="$(cd "$LIB/.." && python3 "$SP_LINT" 2>&1)"; SP_RC=$?
+assert_eq "#1072 lint: clean on the tree as it stands" "rc=0" \
+  "$([ "$SP_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$SP_RC" "$SP_OUT")"
+assert_eq "#1072 lint: the real-tree run audited a positive number of files" "yes" \
+  "$(printf '%s' "$SP_OUT" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) of", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+
+# AC11 / test_derived_set_matches_pinned_expectation: the derived set from the REAL slice equals
+# the checked-in expectation. The floor the non-empty check alone does not provide — dropping the
+# one live member (lib/test) still leaves a non-empty set, so a bare non-empty check would pass
+# over a population it no longer covers. Reading the live vendor-slice.sh through --print-prune-set.
+assert_eq "#1072 lint: derived prune set matches the checked-in expectation" \
+  ".claude-plugin/marketplace.json docs/site lib/test" \
+  "$(cd "$LIB/.." && python3 "$SP_LINT" --print-prune-set | python3 -c 'import sys; print(" ".join(sys.stdin.read().split()))')"
+
+# Prune-set derivation over synthetic slices, driven through --slice-source (AC10 matrix).
+sp_pruneset() {  # <slice> -> "rc=<n>|<one-line joined stdout+stderr>"
+  local out rc
+  out="$(python3 "$SP_LINT" --print-prune-set --slice-source "$1" 2>&1)"; rc=$?
+  printf 'rc=%s|%s' "$rc" "$(printf '%s' "$out" | tr '\n' ' ')"
+}
+# test_nested_removal_is_a_target: a qualifying rm inside a conditional inside the body yields it.
+assert_eq "#1072 lint: a nested (conditional) removal is a target" "rc=0|lib/test" \
+  "$(sp_pruneset "$SP_FX/slices/nested-removal.sh")"
+# test_staging_variable_renamed_refuses (derive half): renaming the staging variable still derives
+# the same target, proving the name was DERIVED from the function, not transcribed.
+assert_eq "#1072 lint: a renamed staging variable still derives the same target" "rc=0|lib/test" \
+  "$(sp_pruneset "$SP_FX/slices/renamed.sh")"
+# A target wrapped across a line continuation is folded and derived.
+assert_eq "#1072 lint: a target across a line continuation is derived" "rc=0|lib/test" \
+  "$(sp_pruneset "$SP_FX/slices/continuation.sh")"
+# test_bare_stage_argument_rejected: the bare staging directory yields an empty set + refusal,
+# never a set whose empty-suffix member would match every line of every audited file.
+assert_eq "#1072 lint: a bare staging-directory argument is rejected (refusal, not empty suffix)" "yes" \
+  "$(case "$(sp_pruneset "$SP_FX/slices/bare-stage.sh")" in "rc=1|"*"no qualifying rm target"*) echo yes ;; *) echo no ;; esac)"
+# A find … -exec {} composite yields no target.
+assert_eq "#1072 lint: a find -exec {} composite is not a target" "yes" \
+  "$(case "$(sp_pruneset "$SP_FX/slices/find-exec.sh")" in "rc=1|"*"no qualifying rm target"*) echo yes ;; *) echo no ;; esac)"
+# A removal keyed on the destination variable is not a target.
+assert_eq "#1072 lint: a removal keyed on a non-staging variable is not a target" "yes" \
+  "$(case "$(sp_pruneset "$SP_FX/slices/dest-var.sh")" in "rc=1|"*"no qualifying rm target"*) echo yes ;; *) echo no ;; esac)"
+# An rm outside the function body is not scanned.
+assert_eq "#1072 lint: an rm outside the function body is not a target" "yes" \
+  "$(case "$(sp_pruneset "$SP_FX/slices/outside-func.sh")" in "rc=1|"*"no qualifying rm target"*) echo yes ;; *) echo no ;; esac)"
+# test_staging_variable_renamed_refuses (refuse half): removing the composing assignment refuses,
+# naming the inability to identify the staging variable.
+assert_eq "#1072 lint: an absent composing assignment refuses (cannot identify staging variable)" "yes" \
+  "$(case "$(sp_pruneset "$SP_FX/slices/no-assignment.sh")" in "rc=1|"*"could not identify the staging variable"*) echo yes ;; *) echo no ;; esac)"
+# test_absent_prune_statement_refuses: the refusal names the slice source it read and audits nothing.
+assert_eq "#1072 lint: an unparseable slice refuses non-zero naming the slice source" "yes" \
+  "$(case "$(sp_pruneset "$SP_FX/slices/bare-stage.sh")" in *"slices/bare-stage.sh"*) echo yes ;; *) echo no ;; esac)"
+# The remaining "cannot establish" arms, each ATTRIBUTED to its own guard rather than to a bare
+# rc=1: bare-stage.sh above refuses via the empty-target path, so without these three the
+# _function_body and _destination_param refusals are undriven and a mutant disabling one of them
+# stays green. Each fixture is otherwise a well-formed slice, so the rejection cannot come from an
+# unrelated precondition.
+assert_eq "#1072 lint: a slice with no devflow_copy_slice() refuses, attributed to the missing function" "yes" \
+  "$(case "$(sp_pruneset "$SP_FX/slices/no-function.sh")" in "rc=1|"*"devflow_copy_slice() not found"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1072 lint: an unclosed function body refuses, attributed to the missing closing brace" "yes" \
+  "$(case "$(sp_pruneset "$SP_FX/slices/unclosed-brace.sh")" in "rc=1|"*"closing brace not found"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1072 lint: an unidentifiable destination parameter refuses, attributed to \$2" "yes" \
+  "$(case "$(sp_pruneset "$SP_FX/slices/no-dest-param.sh")" in "rc=1|"*"could not identify the destination parameter"*) echo yes ;; *) echo no ;; esac)"
+# An unlexable line inside the function body refuses instead of best-effort re-splitting. The
+# fixture carries TWO rm targets and mangles only the second: under a `line.split()` fallback the
+# survivor (docs/site) keeps the set non-empty, so the empty-set refusal never fires and the lint
+# audits the shipped surface against a set silently missing lib/test. The assertion pins the
+# lexer's own attribution, so that fail-open cannot pass as this refusal.
+assert_eq "#1072 lint: an unlexable body line refuses, attributed to the lexer, not silently re-split" "yes" \
+  "$(case "$(sp_pruneset "$SP_FX/slices/unlexable.sh")" in "rc=1|"*"could not lex a line of devflow_copy_slice()"*) echo yes ;; *) echo no ;; esac)"
+# Positive control for the arm above: a `#` comment carrying an apostrophe is stripped BEFORE
+# lexing, so prose inside the function body (as the real slice carries) still derives its set.
+assert_eq "#1072 lint: an apostrophe inside a body comment does not refuse (comments stripped pre-lex)" "rc=0|lib/test" \
+  "$(sp_pruneset "$SP_FX/slices/comment-apostrophe.sh")"
+
+# Audited-population behavior, driven over the fixture skills/ tree with a fixture slice (target
+# lib/test). Every list rides through probe_tmp so the fixtures stay unreachable from the default
+# index enumeration.
+sp_run() {  # <slice> <path…> -> "rc=<n>|<stdout+stderr>"
+  local slice="$1"; shift
+  local list out rc
+  list="$(probe_tmp '#1072 fixture list')" || return 0
+  printf '%s\n' "$@" > "$list"
+  out="$(python3 "$SP_LINT" --root "$SP_FX" --files-from "$list" --slice-source "$slice" 2>&1)"; rc=$?
+  rm -f "$list"
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+# test_unmarked_reference_is_reported / test_marked_reference_is_not — the discriminating pair.
+assert_eq "#1072 lint: an unmarked reference is reported" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/unmarked.md)" in "rc=1|"*"skills/unmarked.md:1:"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1072 lint: a marked (HTML) reference is not reported" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/marked-html.md)"
+# test_marker_with_empty_reason_is_reported.
+assert_eq "#1072 lint: a marker with an empty reason is reported" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/marked-empty.md)" in "rc=1|"*"skills/marked-empty.md:1:"*) echo yes ;; *) echo no ;; esac)"
+# An HTML comment that is not the marker does not suppress.
+assert_eq "#1072 lint: an HTML comment that is not the marker does not suppress" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/html-nonmarker.md)" in "rc=1|"*"skills/html-nonmarker.md:1:"*) echo yes ;; *) echo no ;; esac)"
+# A clean file with no reference is silent.
+assert_eq "#1072 lint: a file with no reference is clean" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/clean.md)"
+# test_marker_in_emitted_fence + fence-state matrix (AC14/AC15). Each row states its own reason.
+while IFS='|' read -r _sp_file _sp_expect _sp_why; do
+  [ -n "$_sp_file" ] || continue
+  assert_eq "#1072 lint fence-state: $_sp_why ($_sp_file)" "$_sp_expect" \
+    "$(case "$(sp_run "$SP_SIMPLE" "$_sp_file")" in "rc=0|"*) echo suppressed ;; *"$_sp_file:"*) echo reported ;; *) echo other ;; esac)"
+done <<'SP_FENCE'
+skills/fence-shell.md|suppressed|a # pruned-path-ok marker inside a backtick fence suppresses
+skills/fence-html-in-fence.md|reported|an HTML marker inside a fence is not recognized
+skills/fence-tilde.md|suppressed|a # marker inside a tilde fence suppresses
+skills/fence-tilde-in-backtick.md|suppressed|a tilde line does not close a backtick fence
+skills/fence-unclosed.md|suppressed|an unclosed fence runs to end of file
+skills/fence-indented.md|reported|an indented fence is not recognized, so the shell marker does not apply
+SP_FENCE
+# AC18 / test_planted_reference_is_caught: the positive control — skills/planted.md is a verbatim
+# copy of the head of skills/review/phases/phase-0-setup.md (real prose, a real fenced block) into
+# which a prune-target reference has been planted after the fence; the lint reports it.
+assert_eq "#1072 lint: a planted reference in a shipped-file copy is caught (positive control)" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/planted.md)" in "rc=1|"*"skills/planted.md:"*) echo yes ;; *) echo no ;; esac)"
+# The audited SUBSET carries its own floor. enumerate_population floors on zero TOTAL index paths,
+# BEFORE is_audited() narrows to skills/**+agents/**, so an enumeration that selects only
+# non-audited paths reaches the read loop zero times and would print `audited 0 of 0` and return 0
+# — a clean pass over an unchecked shipped surface, the lint's own fail-open class one level up.
+# The pair below is discriminating: the same invocation differing only in whether ONE audited path
+# is present separates the floor from any unrelated refusal.
+assert_eq "#1072 lint: an enumeration selecting no skills/agents path refuses (empty-audited floor)" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" slices/simple.sh)" in "rc=1|"*"selected no file under skills/ or agents/"*) echo yes ;; *) echo no ;; esac)"
+# Positive control on the same shape, doubling as is_audited's negative half: adding ONE audited
+# path to that same list audits and passes, and the `1 of 1` count proves the non-audited
+# slices/simple.sh was excluded rather than read. So the refusal above is attributable to the empty
+# subset, not to the list mechanism.
+assert_eq "#1072 lint: the same list plus one audited path audits 1 of 1 (floor control + is_audited negative)" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" slices/simple.sh skills/clean.md)"
+# The agents/ prefix, which the real-tree positive-count assertion cannot isolate from skills/.
+assert_eq "#1072 lint: an agents/ path is audited (second prefix, reported like skills/)" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" agents/unmarked-agent.md)" in "rc=1|"*"agents/unmarked-agent.md:1:"*) echo yes ;; *) echo no ;; esac)"
+# A NUL-carrying file is a fail-closed skip, never absorbed into a clean pass.
+assert_eq "#1072 lint: a NUL-carrying file is a fail-closed skip" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/nul.md)" in "rc=1|"*"SKIPPED skills/nul.md"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1072 fixture integrity: the NUL fixture still carries a NUL byte" "yes" \
+  "$(python3 -c 'import pathlib,sys; print("yes" if b"\x00" in pathlib.Path(sys.argv[1]).read_bytes() else "no")' "$SP_FX/skills/nul.md")"
+# test_slice_source_independent_of_root (AC12): the run reads the FIXTURE slice, not the repo's —
+# proven by the reported prune set being the fixture's single member, not the repo's three.
+assert_eq "#1072 lint: --slice-source is read independently of --root" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/clean.md)" in *"prune set: lib/test"*) echo yes ;; *) echo no ;; esac)"
+# AC12 default: with no --slice-source, the default is <root>/.github/actions/vendor-plugin/
+# vendor-slice.sh — absent under the fixture root, so the run refuses naming that path.
+assert_eq "#1072 lint: the default slice source is the resolved root's vendor-slice.sh" "yes" \
+  "$(SP_L="$(probe_tmp '#1072 default-slice list')" && printf '%s\n' skills/clean.md > "$SP_L"
+     SP_D="$(python3 "$SP_LINT" --root "$SP_FX" --files-from "$SP_L" 2>&1)"; rm -f "$SP_L"
+     case "$SP_D" in *".github/actions/vendor-plugin/vendor-slice.sh"*) echo yes ;; *) echo no ;; esac)"
+# main()-level fail-closed red-paths: an enumeration failure and an unreadable audited file both
+# fail closed (rc 1), never a silent clean pass. Monkeypatch the shared population reader, mirroring
+# the #1084 driver, so the fail-closed arms are exercised without fixture plumbing.
+assert_eq "#1072 lint: main() fail-closed red-paths (enumeration failure / unreadable file)" "1 1" \
+  "$(python3 - "$SP_LINT" "$SP_SIMPLE" <<'PY'
+import importlib.util, io, sys, contextlib
+spec = importlib.util.spec_from_file_location("sp", sys.argv[1])
+sp = importlib.util.module_from_spec(spec); spec.loader.exec_module(sp)
+argv = ["--slice-source", sys.argv[2]]
+def run(pop_fn, reader):
+    sp._pop.enumerate_population = pop_fn
+    sp._pop.read_source = reader
+    with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+        return sp.main(argv)
+def raise_enum(root, ff, *, ls_files_argv):
+    raise sp._pop.EnumerationError("git ls-files failed")
+r_enum = run(raise_enum, lambda p, *, skip_nul: ("", None))
+r_skip = run(lambda root, ff, *, ls_files_argv: ["skills/x.md"],
+             lambda p, *, skip_nul: (None, "unreadable (permission)"))
+print(r_enum, r_skip)
+PY
+)"
+# ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 # SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as
