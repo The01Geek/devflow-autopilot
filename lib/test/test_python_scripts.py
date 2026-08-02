@@ -150,8 +150,8 @@ def decided(text):
     pinning the absence of a second line. The subcommands EXCLUDED from that line keep
     comparing whole stdout — they emit no `next_call=` line, and their tails are exactly
     what those rows exist to assert. That set is the multi-line read-backs
-    (`query-findings`, `query-coverage`, …) PLUS `emit-body`, the gated payload emitter,
-    and `check-claim-staleness`; `emit-body` is deliberately not one of the read-backs,
+    (`query-findings`, `query-coverage`, …) PLUS `emit-body`, the gated payload emitter;
+    `emit-body` is deliberately not one of the read-backs,
     and the module keeps the two apart.
     """
     return text.strip().split('\n')[0]
@@ -7457,25 +7457,16 @@ assert_eq("#1040 _selects_stdin: --attestation-unavailable reads no stdin", Fals
                                                attestation_unavailable=True)))
 assert_eq("#1040 _selects_stdin: record-revision reads only with --stdin-digest", True,
           issue_audit_state._selects_stdin(_ns(cmd='record-revision', stdin_digest=True)))
-assert_eq("#1040 _selects_stdin: check-claim-staleness reads only with --domain-stdin",
-          True, issue_audit_state._selects_stdin(_ns(cmd='check-claim-staleness',
-                                                     domain_stdin=True)))
 assert_eq("#1040 _selects_stdin: record-coverage reads with --coverage-stdin", True,
           issue_audit_state._selects_stdin(_ns(cmd='record-coverage', coverage_stdin=True)))
-assert_eq("#1040 _selects_stdin: record-claim-baseline reads only with --domain-stdin",
-          True, issue_audit_state._selects_stdin(_ns(cmd='record-claim-baseline',
-                                                     domain_stdin=True)))
-assert_eq("#1040 _selects_stdin: record-claim-baseline without --domain-stdin reads no stdin",
-          False, issue_audit_state._selects_stdin(_ns(cmd='record-claim-baseline',
-                                                      domain_stdin=False)))
 assert_eq("#1040 _selects_stdin: record-finding-evidence reads only with --observed-stdin",
           True, issue_audit_state._selects_stdin(_ns(cmd='record-finding-evidence',
                                                      observed_stdin=True)))
 assert_eq("#1040 _selects_stdin: an unrelated command selects no stdin", False,
           issue_audit_state._selects_stdin(_ns(cmd='query-summary')))
 
-# The FALSE branch of every flag-gated selector. Before this only record-claim-baseline had
-# one, so an inverted condition (`not getattr(...)`) on any of the other five passed the
+# The FALSE branch of every flag-gated selector. Without one, an inverted condition
+# (`not getattr(...)`) on any of these passed the
 # suite: each TRUE row above stays green under inversion only if some row also pins the
 # unset flag, and none did. Both unset shapes are driven, because `_selects_stdin` reads
 # every flag through `getattr(args, flag, False)` and the two reach that default by
@@ -7486,8 +7477,6 @@ assert_eq("#1040 _selects_stdin: an unrelated command selects no stdin", False,
 for _cmd1040, _flag1040 in (('record-revision', 'stdin_digest'),
                             ('record-adjudication', 'ledger_stdin'),
                             ('record-coverage', 'coverage_stdin'),
-                            ('record-claim-baseline', 'domain_stdin'),
-                            ('check-claim-staleness', 'domain_stdin'),
                             ('record-finding-evidence', 'observed_stdin')):
     assert_eq(f"#1040 _selects_stdin: {_cmd1040} with --{_flag1040} present-but-False "
               f"selects no stdin", False,
@@ -7544,7 +7533,7 @@ class _RaisingStdin1040:
 _orig_stdin = sys.stdin
 try:
     sys.stdin = _RaisingStdin1040()
-    _err1040 = _ns(cmd='check-claim-staleness', domain_stdin=True)
+    _err1040 = _ns(cmd='record-coverage', coverage_stdin=True)
     issue_audit_state._read_stdin_once(_err1040)
     assert_eq("#1040 stdin_read_error: a mid-read OSError is recorded on args", True,
               isinstance(_err1040._stdin_error, OSError))
@@ -7559,7 +7548,7 @@ _errbuf1040 = io.StringIO()
 _raised1040 = False
 try:
     with contextlib.redirect_stderr(_errbuf1040):
-        issue_audit_state._stdin_bytes_or_fail(_err1040, 'check-claim-staleness',
+        issue_audit_state._stdin_bytes_or_fail(_err1040, 'record-coverage',
                                                'the domain search result')
 except SystemExit:
     _raised1040 = True
@@ -7598,93 +7587,13 @@ def _drive1040(fn, args, root):
 
 _IOERR1040 = OSError(5, 'Input/output error')
 
-# cmd_check_claim_staleness — the silent swallow (review Must-fix). A read failure produced
-# `domain = None`, which is the SAME value the intentional no---domain-stdin case produces,
-# so the handler scored every claim against a search that never ran and printed a DECIDED
-# staleness line at exit 0. Nothing downstream could tell that from a real answer.
+# The stdin consumers exit with a named breadcrumb, never a swallowed read failure.
 with tempfile.TemporaryDirectory() as _td:
     _R = Path(_td)
     _doc1040 = _state([])
-    _doc1040['claims'] = {'k': {'claim_class': 'count', 'revision': 'r1',
-                                'identity': 'ID1'}}
     issue_audit_state.save_state(_doc1040, 's', root=_R)
 
-    _end, _err, _out = _drive1040(
-        issue_audit_state.cmd_check_claim_staleness,
-        _ns(cmd='check-claim-staleness', slug='s', nonce='n0', claim_key='k',
-            domain_stdin=True, _stdin_data=None, _stdin_missing=False,
-            _stdin_error=_IOERR1040), _R)
-    assert_eq("#1040 staleness_read_error: a mid-read OSError exits non-zero, never a "
-              "decided staleness line at exit 0", 'SystemExit(1)', _end)
-    assert_eq("#1040 staleness_read_error: ... naming the read failure and its errno", True,
-              'could not read the domain search result from stdin' in _err
-              and 'Input/output error' in _err)
-    assert_eq("#1040 staleness_read_error: ... and NO staleness verdict is printed", '', _out)
-
-    _end, _err, _out = _drive1040(
-        issue_audit_state.cmd_check_claim_staleness,
-        _ns(cmd='check-claim-staleness', slug='s', nonce='n0', claim_key='k',
-            domain_stdin=True, _stdin_data=None, _stdin_missing=True,
-            _stdin_error=None), _R)
-    assert_eq("#1040 staleness_closed_fd: a closed fd 0 exits non-zero", 'SystemExit(1)', _end)
-    assert_eq("#1040 staleness_closed_fd: ... naming the absent stdin", True,
-              'no stdin is attached (fd 0 is closed)' in _err)
-    assert_eq("#1040 staleness_closed_fd: ... and NO staleness verdict is printed", '', _out)
-
-    # Positive control: with the flag absent the handler still answers normally, so the two
-    # rows above lock out a failure rather than the feature. `_read_stdin_once` never reads
-    # in this shape, so the fields it records keep the defaults main() leaves them at.
-    _end, _err, _out = _drive1040(
-        issue_audit_state.cmd_check_claim_staleness,
-        _ns(cmd='check-claim-staleness', slug='s', nonce='n0', claim_key='k',
-            domain_stdin=False, _stdin_data=None, _stdin_missing=False,
-            _stdin_error=None), _R)
-    assert_eq("#1040 staleness_no_flag: without --domain-stdin the handler answers normally",
-              'returned', _end)
-    assert_eq("#1040 staleness_no_flag: ... printing its decided staleness line", True,
-              _out.startswith('claim=k class=count state='))
-
-    # cmd_record_claim_baseline — the false diagnosis (review Should-fix). A closed fd 0 fell
-    # through to `domain-class-empty-domain: --domain-stdin produced no bytes; a search that
-    # emitted nothing cannot identify a baseline`, which ASSERTS that a search ran and
-    # returned nothing. Both halves are pinned: the right breadcrumb appears AND the wrong
-    # one does not, since the fix would be worthless if it merely added a second line.
-    _end, _err, _out = _drive1040(
-        issue_audit_state.cmd_record_claim_baseline,
-        _ns(cmd='record-claim-baseline', slug='s', nonce='n0', claim_key='k2',
-            claim_class='count', path=[], domain_stdin=True, _stdin_data=None,
-            _stdin_missing=True, _stdin_error=None), _R)
-    assert_eq("#1040 baseline_closed_fd: a closed fd 0 exits non-zero", 'SystemExit(1)', _end)
-    assert_eq("#1040 baseline_closed_fd: ... naming the absent stdin", True,
-              'no stdin is attached (fd 0 is closed)' in _err)
-    assert_eq("#1040 baseline_closed_fd: ... and NOT as an empty search result, which would "
-              "assert a search that never ran", False, 'domain-class-empty-domain' in _err)
-
-    # ... while a genuinely EMPTY read still earns the empty-domain refusal: the fix
-    # separates "never attached" from "attached and returned nothing", so this row proves
-    # the second diagnosis survives rather than being swallowed by the first.
-    _end, _err, _out = _drive1040(
-        issue_audit_state.cmd_record_claim_baseline,
-        _ns(cmd='record-claim-baseline', slug='s', nonce='n0', claim_key='k2',
-            claim_class='count', path=[], domain_stdin=True, _stdin_data=b'',
-            _stdin_missing=False, _stdin_error=None), _R)
-    assert_eq("#1040 baseline_empty_read: an attached-but-empty stdin still exits non-zero",
-              'SystemExit(1)', _end)
-    assert_eq("#1040 baseline_empty_read: ... and KEEPS the empty-domain diagnosis", True,
-              'domain-class-empty-domain' in _err)
-
-    _end, _err, _out = _drive1040(
-        issue_audit_state.cmd_record_claim_baseline,
-        _ns(cmd='record-claim-baseline', slug='s', nonce='n0', claim_key='k2',
-            claim_class='count', path=[], domain_stdin=True, _stdin_data=None,
-            _stdin_missing=False, _stdin_error=_IOERR1040), _R)
-    assert_eq("#1040 baseline_read_error: a mid-read OSError exits non-zero", 'SystemExit(1)',
-              _end)
-    assert_eq("#1040 baseline_read_error: ... naming the errno, not the empty-domain claim",
-              True, 'Input/output error' in _err
-              and 'domain-class-empty-domain' not in _err)
-
-    # cmd_record_finding_evidence — the third consumer. A closed fd 0 reached `raw.decode`
+    # cmd_record_finding_evidence — the stdin consumer. A closed fd 0 reached `raw.decode`
     # as None and died with a bare AttributeError, which names nothing and discards the
     # condition. The ending is compared as a STRING so this row cannot be satisfied by the
     # crash it exists to remove.
@@ -7899,12 +7808,12 @@ assert_eq("#1040 stdin_is_read_before_acquire: main() calls _read_stdin_once bef
           _ias1040_main_src.index('_read_stdin_once(args)')
           < _ias1040_main_src.index('_StateSection(args.slug)'))
 
-# readers_are_not_serialized: the read-only predicate selects every query-* plus emit-body
-# and check-claim-staleness, and NO record-* / init.
-for _ro in ('query-summary', 'query-arm', 'emit-body', 'check-claim-staleness'):
+# readers_are_not_serialized: the read-only predicate selects every query-* plus emit-body,
+# and NO record-* / init.
+for _ro in ('query-summary', 'query-arm', 'emit-body'):
     assert_eq(f"#1040 readers_are_not_serialized: {_ro} is read-only (no section)", True,
               issue_audit_state._is_read_only(_ro))
-for _mut in ('init', 'record-dispatch', 'record-return', 'record-claim-baseline',
+for _mut in ('init', 'record-dispatch', 'record-return', 'record-finding-evidence',
              'write-dispatch-scope'):
     assert_eq(f"#1040 readers_are_not_serialized: {_mut} is NOT read-only (takes section)",
               False, issue_audit_state._is_read_only(_mut))
@@ -7951,7 +7860,7 @@ def _query_state(slug):
 
 
 def _is_read_only(cmd):
-    return cmd.startswith("query-") or cmd in ("emit-body", "check-claim-staleness")
+    return cmd.startswith("query-") or cmd in ("emit-body",)
 
 
 def registered_subcommands():
@@ -14480,23 +14389,6 @@ class _Run704(_Run603):
             raise AssertionError(f'_Run704 fixture commit {msg!r} did not advance HEAD')
         return after
 
-    def baseline(self, key, klass, *paths, domain=None):
-        argv = ['record-claim-baseline', self.slug, '--claim-key', key,
-                '--claim-class', klass]
-        for p in paths:
-            argv += ['--path', p]
-        if domain is not None:
-            argv.append('--domain-stdin')
-        return self(*argv, stdin=domain, nonce=True)
-
-    def staleness(self, key=None, domain=None):
-        argv = ['check-claim-staleness', self.slug]
-        if key is not None:
-            argv += ['--claim-key', key]
-        if domain is not None:
-            argv.append('--domain-stdin')
-        return self(*argv, stdin=domain, nonce=True)
-
     def evidence(self, rnd, fid, **kw):
         argv = ['record-finding-evidence', self.slug, '--round', str(rnd),
                 '--finding-id', str(fid)]
@@ -14525,190 +14417,6 @@ def _field704(text, token):
 def _with_run704(fn):
     with tempfile.TemporaryDirectory() as tmp:
         fn(_Run704(tmp))
-
-
-print()
-print("issue-audit-state: repository-baseline claim provenance (issue #704)")
-
-# Row 1 — Base movement (mandatory): a claim recorded at revision A whose measured content
-# then changes and whose base advances to B is reported STALE; a control claim recorded at B
-# is reported FRESH. The control is the planted positive proof the detector fires rather than
-# merely never erroring.
-def _row704_1(r):
-    r.write('anchor.md', 'alpha\n')
-    r.commit('A: add anchor')
-    rec = r.baseline('claim-a', 'location', 'anchor.md')
-    assert_eq("#704-1: recording a location baseline at revision A exits 0",
-              0, rec.returncode)
-    r.write('anchor.md', 'alpha changed\n')
-    r.commit('B: change the anchor content')
-    ctl = r.baseline('claim-control', 'location', 'anchor.md')
-    assert_eq("#704-1: recording the control baseline at revision B exits 0",
-              0, ctl.returncode)
-    assert_eq("#704-1: the claim grounded at A is reported stale after the base moved",
-              'stale', _field704(r.staleness('claim-a').stdout, 'state='))
-    assert_eq("#704-1 positive control: the claim grounded at B is reported fresh",
-              'fresh', _field704(r.staleness('claim-control').stdout, 'state='))
-
-
-_with_run704(_row704_1)
-
-
-# Row 2 — Unrelated base move, location anchor (mandatory negative control): the base advances
-# via a commit that does NOT touch the anchor's paths, so the location claim stays FRESH. A
-# global-revision compare would wrongly flag it stale; this row is what forbids that design.
-def _row704_2(r):
-    r.write('anchor.md', 'alpha\n')
-    r.commit('A: add anchor')
-    r.baseline('claim-loc', 'location', 'anchor.md')
-    r.write('unrelated.md', 'nothing to do with the anchor\n')
-    r.commit('B: an unrelated file')
-    assert_eq("#704-2: an unrelated base advance leaves a location anchor fresh",
-              'fresh', _field704(r.staleness('claim-loc').stdout, 'state='))
-
-
-_with_run704(_row704_2)
-
-
-# Row 3 — Count outside the hit set (mandatory): a count/inventory claim's identity is the
-# FULL-DOMAIN search result, so an occurrence added in a file OUTSIDE the original hit set
-# marks it stale. This is the positive control row 2's location-class negative control must
-# never suppress.
-def _row704_3(r):
-    for name in ('one.txt', 'two.txt', 'three.txt'):
-        r.write(name, 'LITERAL_L\n')
-    r.commit('A: three occurrences')
-    domain_a = 'one.txt:LITERAL_L\nthree.txt:LITERAL_L\ntwo.txt:LITERAL_L\n'
-    rec = r.baseline('claim-count', 'count', domain=domain_a)
-    assert_eq("#704-3: recording a count baseline from a piped full-domain result exits 0",
-              0, rec.returncode)
-    assert_eq("#704-3: re-running the unchanged search reports the count fresh",
-              'fresh', _field704(r.staleness('claim-count', domain=domain_a).stdout,
-                                 'state='))
-    r.write('four.txt', 'LITERAL_L\n')
-    r.commit('B: a fourth occurrence outside the original hit set')
-    domain_b = domain_a + 'four.txt:LITERAL_L\n'
-    assert_eq("#704-3: an occurrence added outside the original hit set marks the count stale",
-              'stale', _field704(r.staleness('claim-count', domain=domain_b).stdout,
-                                 'state='))
-
-
-_with_run704(_row704_3)
-
-
-# Row 4 — Absent baseline (legacy / mid-upgrade, mandatory): a claim carrying NO baseline field
-# is possibly-stale, never fresh — the schema-compat "fields default" behavior must not read an
-# absent baseline as a known-fresh one.
-def _row704_4(r):
-    r.write('anchor.md', 'alpha\n')
-    r.commit('A')
-    r.baseline('claim-present', 'location', 'anchor.md')
-    doc = _json.loads(Path(r.tmp, '.prflow/tmp/issue-audit-state-s704.json')
-                         .read_text(encoding='utf-8'))
-    doc['claims']['claim-legacy'] = {'claim_class': 'location', 'paths': ['anchor.md']}
-    Path(r.tmp, '.prflow/tmp/issue-audit-state-s704.json').write_text(
-        _json.dumps(doc), encoding='utf-8')
-    got = r.staleness('claim-legacy')
-    assert_eq("#704-4: a claim with no recorded baseline reads possibly-stale, never fresh",
-              ('possibly-stale', 0), (_field704(got.stdout, 'state='), got.returncode))
-    assert_eq("#704-4: the absent-baseline reading is distinct from a known-fresh claim",
-              'fresh', _field704(r.staleness('claim-present').stdout, 'state='))
-
-
-_with_run704(_row704_4)
-
-
-# Row 5 — Worktree-vs-canonical (mandatory): a claim grounded against DIRTY worktree content
-# records the dirty content's own digest, distinct from the same claim grounded against clean
-# canonical content — and a further dirty→dirty edit marks it stale. A global worktree
-# cleanliness flag misses exactly that second edit, which is why the identity is per-claim.
-def _row704_5(r):
-    r.write('anchor.md', 'canonical\n')
-    r.commit('A: canonical content')
-    clean = r.baseline('claim-clean', 'location', 'anchor.md')
-    r.write('anchor.md', 'dirty\n')          # uncommitted
-    dirty = r.baseline('claim-dirty', 'location', 'anchor.md')
-    assert_eq("#704-5: a dirty-worktree grounding records a different identity than the clean one",
-              False,
-              _field704(clean.stdout, 'identity=') == _field704(dirty.stdout, 'identity='))
-    r.write('anchor.md', 'dirty again\n')    # still uncommitted: global flag unchanged
-    assert_eq("#704-5: a further dirty->dirty edit of the measured content marks the claim stale",
-              'stale', _field704(r.staleness('claim-dirty').stdout, 'state='))
-
-
-_with_run704(_row704_5)
-
-
-# Row 6 — Stale count (mandatory): a quantitative count grounded at A whose value differs at B
-# is reported stale, and the report is scoped to that one claim.
-def _row704_6(r):
-    r.write('a.txt', 'X\n')
-    r.commit('A')
-    r.baseline('count-1', 'count', domain='a.txt:X\n')
-    r.baseline('count-2', 'count', domain='unrelated-domain\n')
-    r.write('b.txt', 'X\n')
-    r.commit('B')
-    assert_eq("#704-6: a count whose full-domain result changed is reported stale",
-              'stale', _field704(r.staleness('count-1', domain='a.txt:X\nb.txt:X\n').stdout,
-                                 'state='))
-    assert_eq("#704-6: re-verification is scoped to that count (the sibling stays fresh)",
-              'fresh', _field704(r.staleness('count-2', domain='unrelated-domain\n').stdout,
-                                 'state='))
-
-
-_with_run704(_row704_6)
-
-
-# Row 7 — Stale location (mandatory): a line-range / region-boundary anchor grounded at A whose
-# region content moved at B is reported stale.
-def _row704_7(r):
-    r.write('region.md', 'line1\nline2\nline3\n')
-    r.commit('A')
-    r.baseline('loc-region', 'location', 'region.md')
-    r.write('region.md', 'inserted\nline1\nline2\nline3\n')
-    r.commit('B: shift the region boundaries')
-    assert_eq("#704-7: a location anchor whose region content moved is reported stale",
-              'stale', _field704(r.staleness('loc-region').stdout, 'state='))
-
-
-_with_run704(_row704_7)
-
-
-# Row 8 — Degraded arms: an unmeasurable path records the baseline `unestablished`, the
-# claim is treated as possibly-stale, and creation is never blocked (exit 0 throughout).
-# Shallow-clone depth is asserted NOT to force `unestablished`: the comparison reads no history.
-def _row704_8(r):
-    r.write('anchor.md', 'alpha\n')
-    r.commit('A')
-    got = r.baseline('claim-gone', 'location', 'does-not-exist.md')
-    assert_eq("#704-8: an unmeasurable path records the baseline as unestablished, exit 0",
-              ('unestablished', 0), (_field704(got.stdout, 'identity='), got.returncode))
-    assert_eq("#704-8: an unestablished baseline is treated as possibly stale, never fresh",
-              'possibly-stale', _field704(r.staleness('claim-gone').stdout, 'state='))
-    # Shallow clone: history is truncated, but the content-identity comparison reads none of
-    # it, so the claim resolves a NORMAL baseline rather than degrading.
-    shallow = Path(r.tmp, 'shallow')
-    clone = _subprocess.run(['git', 'clone', '-q', '--depth', '1', 'file://' + str(r.tmp),
-                             str(shallow)], capture_output=True, text=True)
-    # This is the AC's shallow-clone evidence, so a failed clone must be LOUD: silently
-    # asserting nothing would let the degraded-arm coverage evaporate with no signal.
-    assert_eq("#704-8: the shallow-clone fixture was established (never a silent skip)",
-              (0, True), (clone.returncode, shallow.is_dir()))
-    if shallow.is_dir():
-        sh = _subprocess.run(
-            [sys.executable, _IAS603, 'init', 'sh704'], cwd=str(shallow),
-            capture_output=True, text=True)
-        sh_nonce = _Run603._field(sh, 'nonce=', 'init (shallow)')
-        rec = _subprocess.run(
-            [sys.executable, _IAS603, 'record-claim-baseline', 'sh704', '--nonce', sh_nonce,
-             '--claim-key', 'k', '--claim-class', 'location', '--path', 'anchor.md'],
-            cwd=str(shallow), capture_output=True, text=True)
-        assert_eq("#704-8: a shallow clone resolves a normal baseline (not unestablished)",
-                  (0, False),
-                  (rec.returncode, _field704(rec.stdout, 'identity=') == 'unestablished'))
-
-
-_with_run704(_row704_8)
 
 
 print()
@@ -14826,109 +14534,10 @@ def _row704_12(r):
 _with_run704(_row704_12)
 
 
-# Row 13 — Schema compatibility: a state file at the UNCHANGED schema_version with the new
-# additive fields absent still loads (the fields default); a MISMATCHED schema_version is
-# rejected fail-closed with the #546 breadcrumb rather than silently misread.
-def _row704_13(r):
-    r.write('anchor.md', 'alpha\n')
-    r.commit('A')
-    sp = Path(r.tmp, '.prflow/tmp/issue-audit-state-s704.json')
-    doc = _json.loads(sp.read_text(encoding='utf-8'))
-    doc.pop('claims', None)
-    doc.pop('finding_evidence', None)
-    sp.write_text(_json.dumps(doc), encoding='utf-8')
-    got = r.baseline('post-upgrade', 'location', 'anchor.md')
-    assert_eq("#704-13: an old-schema file lacking the new additive fields still loads",
-              0, got.returncode)
-    doc = _json.loads(sp.read_text(encoding='utf-8'))
-    doc['schema_version'] = issue_audit_state.SCHEMA_VERSION + 1
-    sp.write_text(_json.dumps(doc), encoding='utf-8')
-    bad = r.staleness('post-upgrade')
-    assert_eq("#704-13: a mismatched schema_version is rejected fail-closed, never misread",
-              (True, True, ''),
-              ('schema_version' in bad.stderr, bad.returncode != 0, bad.stdout.strip()))
-
-
-_with_run704(_row704_13)
-
-
-# Row 14 — the all-claims form and the read-back. The all-claims form recomputes only what it
-# can establish alone: a location anchor resolves a real verdict, while a full-domain class
-# needs a piped search result the caller must re-execute, so it reports possibly-stale
-# (`domain-not-recomputed`) rather than a fabricated `fresh`. Unknown is not fresh.
-def _row704_14(r):
-    r.write('anchor.md', 'alpha\n')
-    r.commit('A')
-    r.baseline('loc', 'location', 'anchor.md')
-    r.baseline('cnt', 'count', domain='a\n')
-    lines = r.staleness().stdout.strip().splitlines()
-    got = {_field704(ln, 'claim='): _field704(ln, 'state=') for ln in lines}
-    assert_eq("#704-14: the all-claims form resolves a location anchor on its own",
-              'fresh', got.get('loc'))
-    assert_eq("#704-14: a full-domain claim with no piped domain is possibly-stale, never fresh",
-              'possibly-stale', got.get('cnt'))
-    assert_eq("#704-14: and it names WHY, so the reader can re-run the search",
-              'domain-not-recomputed',
-              _field704([ln for ln in lines if 'claim=cnt' in ln][0], 'reason='))
-    read = r('query-claim-baselines', r.slug, nonce=True)
-    assert_eq("#704-14: the read-back reports both claims with their captured revisions",
-              (0, 2), (read.returncode, len(read.stdout.strip().splitlines())))
-    # The closed staleness vocabulary is load-bearing, not decorative: every verdict this
-    # module can print is a member, so a future arm returning a novel token is RED here.
-    assert_eq("#704-14: every printed verdict is a member of the closed staleness vocabulary",
-              set(), {v for v in got.values()} - set(issue_audit_state._STALENESS_STATES))
-
-
-_with_run704(_row704_14)
-
-
 # ── issue #704 review round: the defensive half — read-boundary validators, the bounded
 # encoding, and every new caller-contract `_fail` arm. The rows above prove the FEATURE
 # behaves; these prove the guards that keep a malformed or hostile state file from being
 # read as a good one actually fire.
-
-def _row704_15(r):
-    """Adversarial shape matrix over `_validate_claims` (CLAUDE.md best-effort-parser rule)."""
-    r.write('anchor.md', 'alpha\n')
-    r.commit('A')
-    r.baseline('ok', 'location', 'anchor.md')
-    sp = Path(r.tmp, '.prflow/tmp/issue-audit-state-s704.json')
-    good = _json.loads(sp.read_text(encoding='utf-8'))
-
-    def _with(claims):
-        doc = _json.loads(_json.dumps(good))
-        doc['claims'] = claims
-        sp.write_text(_json.dumps(doc), encoding='utf-8')
-        return r.staleness('ok')
-
-    for label, claims in (
-            ('claims is a list', []),
-            ('claims is a scalar', 'nope'),
-            ('an entry is a scalar', {'ok': 'nope'}),
-            ('an entry is a list', {'ok': []}),
-            ('claim_class is a novel token', {'ok': {'claim_class': 'invented'}}),
-            ('claim_class is missing', {'ok': {'identity': 'x'}}),
-            ('identity is a non-string', {'ok': {'claim_class': 'location',
-                                                'paths': ['anchor.md'], 'identity': 7}}),
-            # `revision` shares `identity`'s validation loop but had no row of its own, and
-            # dropping it from that loop does not merely degrade: the claim reads back
-            # `state=fresh` at rc 0 and `query-claim-baselines` renders `revision=7` as if it
-            # were a captured commit id — the malformed-state-read-as-good class this matrix
-            # exists to deny.
-            ('revision is a non-string', {'ok': {'claim_class': 'location',
-                                                 'paths': ['anchor.md'], 'revision': 7}}),
-            ('paths is a list of ints', {'ok': {'claim_class': 'location', 'paths': [1]}}),
-            ('a location claim carries no paths', {'ok': {'claim_class': 'location'}}),
-            ('a count claim carries hit paths', {'ok': {'claim_class': 'count',
-                                                        'paths': ['anchor.md']}}),
-    ):
-        got = _with(claims)
-        assert_eq(f"#704-15: {label} is rejected fail-closed, never read as a good claim",
-                  True, got.returncode != 0 and 'claim' in got.stderr.lower())
-
-
-_with_run704(_row704_15)
-
 
 def _row704_16(r):
     """Adversarial shape matrix over `_validate_finding_evidence`, incl. the key and bound."""
@@ -14981,36 +14590,7 @@ _with_run704(_row704_16)
 
 
 def _row704_17(r):
-    """Every new caller-contract `_fail` arm fires with its own attributable breadcrumb."""
-    r.write('anchor.md', 'alpha\n')
-    r.commit('A')
-    r.baseline('loc', 'location', 'anchor.md')
-    r.baseline('cnt', 'count', domain='d\n')
-    for label, token, got in (
-            ('an empty --claim-key', 'claim-key-empty',
-             r.baseline('', 'location', 'anchor.md')),
-            ('a full-domain claim given --path', 'domain-class-paths',
-             r.baseline('x', 'count', 'anchor.md', domain='d\n')),
-            # The arm whose absence silently recorded a permanently-unmeasurable baseline.
-            ('a full-domain claim given no domain', 'domain-class-no-domain',
-             r.baseline('x', 'count')),
-            ('a full-domain claim given an empty domain', 'domain-class-empty-domain',
-             r.baseline('x', 'count', domain='')),
-            ('a location claim given --domain-stdin', 'location-class-domain',
-             r.baseline('x', 'location', 'anchor.md', domain='d\n')),
-            ('a location claim given no --path', 'location-class-no-paths',
-             r.baseline('x', 'location')),
-            ('an unknown --claim-key', 'claim-unknown', r.staleness('nosuch')),
-            # Its own comment says applying one piped result to every claim "would manufacture
-            # a `fresh` for every claim whose real domain was never re-executed" — the exact
-            # false-freshness class rows 2/3 exist to prevent, so the refusal is pinned.
-            ('--domain-stdin with no --claim-key', 'domain-without-claim-key',
-             r.staleness(domain='d\n')),
-            ('--domain-stdin against a location claim', 'domain-for-location-claim',
-             r.staleness('loc', domain='d\n')),
-    ):
-        assert_eq(f"#704-17: {label} is refused naming {token}",
-                  (True, True), (got.returncode != 0, token in got.stderr))
+    """The finding-evidence caller-contract argument boundary."""
     # A non-negative-int boundary keeps a mistyped flag from persisting a key the read
     # boundary rejects — which would lock the run out of its own state file.
     bad = r('record-finding-evidence', r.slug, '--round', '-1', '--finding-id', '1',
@@ -15077,84 +14657,41 @@ _with_run704(_row704_19)
 def _row704_20(r):
     """Fail-closed read-back arms: a foreign nonce and an unestablished state are named.
 
-    Without these a stale nonce reads ANOTHER run's baselines and evidence as its own — the
+    Without these a stale nonce reads ANOTHER run's evidence as its own — the
     cross-run re-anchoring the state file's out-of-bounds discipline exists to prevent — and
     an unreadable state is indistinguishable from a genuinely empty store, which would let it
     license the cheap replay the adjudication policy gates on.
     """
     r.write('anchor.md', 'alpha\n')
     r.commit('A')
-    r.baseline('loc', 'location', 'anchor.md')
-    for cmd, sentinel in (('query-claim-baselines', 'claims'),
-                          ('query-finding-evidence', 'evidence')):
-        argv = [cmd, r.slug, '--nonce', 'not-this-runs-nonce']
-        if cmd == 'query-finding-evidence':
-            argv += ['--round', '1']
-        got = r(*argv)
-        assert_eq(f"#704-20: {cmd} refuses a foreign nonce rather than reading another run",
-                  (0, f'{sentinel}=none reason=foreign-nonce'), (got.returncode,
-                                                                 got.stdout.strip()))
+    got = r('query-finding-evidence', r.slug, '--round', '1', '--nonce', 'not-this-runs-nonce')
+    assert_eq("#704-20: query-finding-evidence refuses a foreign nonce rather than reading "
+              "another run",
+              (0, 'evidence=none reason=foreign-nonce'), (got.returncode, got.stdout.strip()))
     Path(r.tmp, '.prflow/tmp/issue-audit-state-s704.json').write_text('{', encoding='utf-8')
-    got = r('query-claim-baselines', r.slug, nonce=True)
+    got = r('query-finding-evidence', r.slug, '--round', '1', nonce=True)
     assert_eq("#704-20: an unestablished state is named, never rendered as an empty store",
-              'claims=none reason=state-unestablished', got.stdout.strip())
+              'evidence=none reason=state-unestablished', got.stdout.strip())
 
 
 _with_run704(_row704_20)
 
 
 def _row704_21(r):
-    """The empty read-back sentinels, and `capture_revision`'s unestablished arm.
-
-    A commit-less repository is the cheap fixture for the revision arm: `git rev-parse HEAD`
-    fails there, and CLAUDE.md's unknown-is-not-zero rule makes that a value the run must be
-    able to see rather than a silent blank.
-    """
-    assert_eq("#704-21: an empty claim store prints its sentinel", 'claims=none',
-              r('query-claim-baselines', r.slug, nonce=True).stdout.strip())
+    """The empty per-finding evidence read-back sentinel."""
     assert_eq("#704-21: an empty evidence store prints its sentinel", 'evidence=none',
               r('query-finding-evidence', r.slug, '--round', '1', nonce=True).stdout.strip())
-    assert_eq("#704-21: an all-claims check over an empty store prints its sentinel",
-              'claims=none', r.staleness().stdout.strip())
-    with tempfile.TemporaryDirectory() as bare:
-        _subprocess.run(['git', 'init', '-q', '-b', 'main'], cwd=bare, capture_output=True)
-        got = _subprocess.run([sys.executable, _IAS603, 'query-nonce', 'x'], cwd=bare,
-                              capture_output=True, text=True)
-        assert_eq("#704-21: the helper still runs in a commit-less repository", True,
-                  got.returncode in (0, 1))
-        rev = _subprocess.run(
-            [sys.executable, '-c',
-             'import importlib.util,sys;'
-             f'spec=importlib.util.spec_from_file_location("m", {_IAS603!r});'
-             'm=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);'
-             'print(m.capture_revision())'],
-            cwd=bare, capture_output=True, text=True)
-        assert_eq("#704-21: a commit-less repository resolves the revision as unestablished",
-                  'unestablished', rev.stdout.strip())
-        assert_eq("#704-21: and names the CAUSE on stderr rather than a bare sentinel",
-                  True, 'capture_revision' in rev.stderr and 'unestablished' in rev.stderr)
 
 
 _with_run704(_row704_21)
 
 
 def _row704_22(r):
-    """The shadow round's residual arms: recompute-at-check-time failure, undecodable
-    evidence, the exact cap boundary, and the truncation-aware conflict rule.
+    """The shadow round's residual evidence arms: undecodable evidence, the exact cap
+    boundary, and the truncation-aware conflict rule.
     """
     r.write('anchor.md', 'alpha\n')
     r.commit('A')
-    r.baseline('loc', 'location', 'anchor.md')
-    # `recompute-unestablished` is the arm that separates "could not measure NOW" from
-    # "measured and moved". Falling through to `stale` would falsely assert a measured
-    # difference; an inverted guard would return `fresh`. Both are legal vocabulary tokens,
-    # so row 14's membership check cannot catch either — only this row can.
-    Path(r.tmp, 'anchor.md').unlink()
-    got = r.staleness('loc')
-    assert_eq("#704-22: a path unmeasurable AT CHECK TIME is possibly-stale, never stale",
-              ('possibly-stale', 'recompute-unestablished'),
-              (_field704(got.stdout, 'state='), _field704(got.stdout, 'reason=')))
-
     _round704(r)
     # Observed output is the field most likely to carry raw bytes (a grep over a binary, a
     # truncated capture), and `ledger-undecodable`'s analogue is pinned, so this asymmetry
@@ -15231,93 +14768,9 @@ def _row704_22(r):
 _with_run704(_row704_22)
 
 
-# Row 23 — `capture_revision`'s two remaining shapes, both of which a docstring once got
-# wrong. A DETACHED HEAD is not a failure state (`git rev-parse HEAD` resolves it), so it
-# must record the real commit id; and an rc-0 call that prints NOTHING — the shimmed-`git`
-# shape — must name its cause on stderr rather than collapsing to a bare sentinel.
-def _row704_23(r):
-    head = r.git('rev-parse', 'HEAD').stdout.strip()
-    assert_eq("#704-23: the fixture's HEAD resolves before detaching",
-              40, len(head))
-    r.git('checkout', '--detach', '-q', head)
-    # `_git_raw`, not `git`: a detached HEAD makes `symbolic-ref -q` exit 1, and that non-zero
-    # exit IS the assertion's answer, not a fixture failure.
-    assert_eq("#704-23: the fixture really is in a detached-HEAD state",
-              '', r._git_raw('symbolic-ref', '-q', 'HEAD').stdout.strip())
-    assert_eq("#704-23: recording a baseline under a detached HEAD exits 0",
-              0, r.baseline('det', 'location', 'seed.txt').returncode)
-    read = r('query-claim-baselines', r.slug, nonce=True)
-    line = [ln for ln in read.stdout.splitlines() if 'claim=det' in ln][0]
-    assert_eq("#704-23: a detached HEAD records the REAL revision, never unestablished",
-              head, _field704(line, 'revision='))
-
-    # rc 0 with empty stdout: exercised against the function directly, because a PATH-level
-    # `git` shim would also break the `git hash-object` calls the CLI path depends on and the
-    # test would pass for the wrong reason.
-    class _Empty:
-        stdout = b'  \n'
-
-    real_run, real_err = issue_audit_state._run, sys.stderr
-    sys.stderr = io.StringIO()
-    try:
-        issue_audit_state._run = lambda *a, **k: _Empty()
-        got = issue_audit_state.capture_revision()
-        crumb = sys.stderr.getvalue()
-    finally:
-        issue_audit_state._run, sys.stderr = real_run, real_err
-    assert_eq("#704-23: an rc-0 git that prints no revision resolves as unestablished",
-              issue_audit_state._UNESTABLISHED, got)
-    assert_eq("#704-23: and names the CAUSE on stderr rather than a bare sentinel",
-              True, 'capture_revision' in crumb and 'printed no revision' in crumb)
-
-
-_with_run704(_row704_23)
-
-
 # Row 24 — The four PR-#706 review fixes, each pinned by the defect it closes.
 def _row704_24(r):
-    """Repo-root path anchoring, claim-key forging refusal, `unestablished` completeness,
-    and the whole-item evidence overwrite identity."""
-    # (a) A measured path is anchored to the REPO ROOT, not the caller's cwd. Recording at the
-    # root and checking from a subdirectory that holds a same-named file with the ORIGINAL
-    # bytes is the falsifying fixture: under a cwd-relative resolve the check digests the
-    # WRONG file and reports a genuinely drifted claim `fresh` — the one verdict that makes a
-    # later pass skip re-derivation.
-    r.write('anchor.md', 'alpha\n')
-    r.commit('A: add the measured anchor')
-    assert_eq("#704-24: recording a location baseline at the repo root exits 0",
-              0, r.baseline('anch', 'location', 'anchor.md').returncode)
-    r.write('sub/anchor.md', 'alpha\n')     # colliding basename, ORIGINAL bytes
-    r.write('anchor.md', 'alpha changed\n')  # the real anchor drifts
-    r.commit('B: drift the anchor, plant the colliding basename')
-    assert_eq("#704-24: the drifted claim is stale when checked from the repo root",
-              'stale', _field704(r.staleness('anch').stdout, 'state='))
-    sub = _subprocess.run(
-        [sys.executable, _IAS603, 'check-claim-staleness', r.slug,
-         '--nonce', r.nonce, '--claim-key', 'anch'],
-        cwd=str(Path(r.tmp, 'sub')), capture_output=True, text=True)
-    assert_eq("#704-24: and STILL stale from a subdirectory holding a same-named file "
-              "(a cwd-relative resolve would read the wrong bytes and answer fresh)",
-              ('stale', 0), (_field704(sub.stdout, 'state='), sub.returncode))
-    # Positive control: the anchoring must not break the ordinary same-cwd fresh answer.
-    assert_eq("#704-24 positive control: an unmoved anchor still reads fresh",
-              'fresh', _field704(r.baseline('anch2', 'location', 'anchor.md').stdout
-                                 and r.staleness('anch2').stdout, 'state='))
-
-    # (b) The claim key reaches the printed protocol UNENCODED and in a non-trailing position,
-    # so both forging shapes are refused at ingestion (the ledger's model), not neutralized.
-    split = r.baseline('x\nclaim=FORGED class=location state=fresh', 'location', 'anchor.md')
-    assert_eq("#704-24: a record-splitting claim key is refused, naming the shape",
-              (True, True),
-              (split.returncode != 0, 'claim-key-record-splitting' in split.stderr))
-    forge = r.baseline('y state=fresh reason=identity-match', 'location', 'anchor.md')
-    assert_eq("#704-24: a claim key forging a protocol token is refused, naming the token",
-              (True, True),
-              (forge.returncode != 0,
-               'claim-key-forges-protocol-token' in forge.stderr and "'state='" in forge.stderr))
-    assert_eq("#704-24 positive control: an ordinary claim key is still accepted",
-              0, r.baseline('ordinary-key_1.a', 'location', 'anchor.md').returncode)
-
+    """`unestablished` completeness, and the whole-item evidence overwrite identity."""
     # (c) `unestablished` is this module's spelling of an unresolvable measurement, and the
     # auditor bar instructs an auditor to report an unestablished field that way — so grading
     # it `complete` would buy the cheap replay for evidence that established nothing.
@@ -15402,18 +14855,6 @@ _with_run704(_row704_25)
 # Row 26 — the PR-#706 round-3 fixes. Two of these guard REGRESSIONS THE ROUND-2 FIXES
 # INTRODUCED, which is why they are pinned rather than merely reasoned about.
 def _row704_26(r):
-    # (a) Anchoring runs BEFORE measurement, so a `resolve()` failure there lands outside
-    # `location_identity`'s `_DigestError` → `unestablished` funnel. CPython re-raises an
-    # ELOOP symlink loop as RuntimeError, NOT OSError, so catching only OSError turned a
-    # graceful exit-0 degradation into an uncaught traceback.
-    Path(r.tmp, 'loop').symlink_to('loop')
-    loop = r.baseline('sl', 'location', 'loop')
-    assert_eq("#704-26: a symlink-loop anchor degrades at exit 0 instead of crashing",
-              (0, True),
-              (loop.returncode, 'Traceback' not in loop.stderr))
-    assert_eq("#704-26: and records the measurement as unestablished, never a plausible digest",
-              issue_audit_state._UNESTABLISHED, _field704(loop.stdout, 'identity='))
-
     # (b) An OMITTED optional field is not a disagreement. `baseline_identity` is optional by
     # construction (an auditor under the Step 3.6 information diet cannot supply it), so a
     # replay that simply does not pass the flag must not be refused — and refusing told the
@@ -15440,23 +14881,6 @@ def _row704_26(r):
               (True, False),
               ('differs in locator' in loc.stderr, 'truncated' in loc.stderr))
 
-    # (c) The claim-key guard runs at BOTH boundaries: a writer-only guard cannot speak for
-    # state the writer never produced, and a stored forging key prints a forged `state=fresh`.
-    r.write('anchor26.md', 'x\n')
-    r.commit('C: anchor for the read-boundary row')
-    r.baseline('good26', 'location', 'anchor26.md')
-    state = Path(r.tmp, '.prflow/tmp', f'issue-audit-state-{r.slug}.json')
-    doc = _json.loads(state.read_text())
-    doc['claims']['evil\nclaim=forged class=location state=fresh reason=identity-match'] = \
-        dict(doc['claims']['good26'])
-    state.write_text(_json.dumps(doc))
-    read = r('check-claim-staleness', r.slug, '--claim-key', 'good26', nonce=True)
-    assert_eq("#704-26: a STORED forging claim key is refused at the read boundary, never "
-              "printed as a forged record line",
-              (True, False),
-              (read.returncode != 0, 'state=fresh reason=identity-match' in
-               '\n'.join(ln for ln in read.stdout.splitlines() if 'claim=forged' in ln)))
-
 
 _with_run704(_row704_26)
 
@@ -15476,7 +14900,7 @@ def _row704_27(r):
     doc['finding_evidence']['1:1']['baseline_revision'] = issue_audit_state._UNESTABLISHED
     doc['finding_evidence']['1:1']['completeness'] = 'complete'
     state.write_text(_json.dumps(doc))
-    mut = r.baseline('after-legacy', 'location', 'seed.txt')
+    mut = r.evidence(2, 1, locator='c:1', command='c', baseline_revision='r2', observed='o\n')
     assert_eq("#704-27: a legacy completeness disagreement does NOT lock the run out of its "
               "own state — a later MUTATION still succeeds",
               0, mut.returncode)
@@ -15546,23 +14970,6 @@ def _row704_28(r):
               (both.returncode != 0,
                'differs in locator' in both.stderr, 'truncated' in both.stderr))
 
-    # (d) `root.resolve()` sits inside the same guard as the measured path's resolve. Both
-    # raise the same family for the same reasons, so guarding only one moved the crash a line
-    # down rather than removing it. Exercised by pointing the repo root at a symlink loop.
-    Path(r.tmp, 'rootloop').symlink_to('rootloop')
-    real_root = issue_audit_state._repo_root
-    try:
-        issue_audit_state._repo_root = lambda: Path(r.tmp, 'rootloop')
-        got = issue_audit_state.anchor_measured_path('seed.txt')
-    except (OSError, RuntimeError) as exc:      # the regression: an escape past the guard
-        got = f'ESCAPED: {type(exc).__name__}'
-    finally:
-        issue_audit_state._repo_root = real_root
-    assert_eq("#704-28: an unresolvable REPO ROOT degrades to the absolute form instead of "
-              "escaping the guard (the crash round 3 moved one line down)",
-              (False, True),
-              (str(got).startswith('ESCAPED:'), str(got).endswith('seed.txt')))
-
 
 _with_run704(_row704_28)
 
@@ -15622,37 +15029,6 @@ _with_run704(_row704_29)
 # Row 30 — the shadow-review findings: the claim record's update invariant, and the
 # truncation test keyed on a length rather than a content-reachable suffix.
 def _row704_30(r):
-    r.write('anchor30.md', 'alpha\n')
-    r.commit('A: anchor for the update-invariant row')
-    r.baseline('c30', 'location', 'anchor30.md')
-    # A CLASS change under one key silently swapped the identity basis and discarded the
-    # measured paths the location claim was grounded on — unrecoverable, and the resulting
-    # document is well-formed for its new class, so no read-boundary check catches it.
-    flip = r.baseline('c30', 'count', domain='hits\n')
-    assert_eq("#704-30: a class change under a recorded claim key is refused, naming both "
-              "classes",
-              (True, True),
-              (flip.returncode != 0, 'claim-class-changed' in flip.stderr))
-    read = r('query-claim-baselines', r.slug, nonce=True)
-    line = [ln for ln in read.stdout.splitlines() if 'claim=c30' in ln][0]
-    assert_eq("#704-30: and the original claim keeps its class (the refusal left no partial "
-              "write)",
-              'location', _field704(line, 'class='))
-    # A re-baseline stays LEGAL — re-grounding a re-derived claim is the documented workflow —
-    # but it moves a measurably stale claim to fresh, so it is disclosed rather than silent.
-    r.write('anchor30.md', 'alpha drifted\n')
-    r.commit('B: drift the anchor')
-    assert_eq("#704-30: the drifted claim reads stale before re-grounding",
-              'stale', _field704(r.staleness('c30').stdout, 'state='))
-    rebase = r.baseline('c30', 'location', 'anchor30.md')
-    assert_eq("#704-30: re-baselining the same claim is still allowed (rc 0) ...",
-              0, rebase.returncode)
-    assert_eq("#704-30: ... and DISCLOSES the superseded identity, so a re-grounding is never "
-              "silently indistinguishable from an original grounding",
-              True, 're-baselined' in rebase.stderr and 'superseded' in rebase.stderr)
-    assert_eq("#704-30: the re-grounded claim then reads fresh",
-              'fresh', _field704(r.staleness('c30').stdout, 'state='))
-
     # `_observed_divergent` keys on the LENGTH truncation produces, not the mark as a suffix:
     # auditor text can legitimately end with that literal without ever having been capped, and
     # a suffix-only test let it force a refusal on a byte-identical replay.
@@ -15686,27 +15062,6 @@ if os.name != 'nt':
 
         r.write('anchor.md', 'alpha\n')
         r.commit('A: add anchor')
-        _fix = r.baseline('c1', 'count', domain='hit-a\nhit-b\n')
-        assert_eq("#1040-e2e fixture: the count baseline records (guards the staleness row "
-                  "below against passing on an absent claim)", 0, _fix.returncode)
-
-        _got = _closed_fd0('check-claim-staleness', r.slug, '--claim-key', 'c1',
-                           '--domain-stdin')
-        assert_eq("#1040-e2e: check-claim-staleness with fd 0 CLOSED exits non-zero, never "
-                  "a decided staleness line at exit 0", 1, _got.returncode)
-        assert_eq("#1040-e2e: ... naming the absent stdin", True,
-                  'no stdin is attached (fd 0 is closed)' in _got.stderr)
-        assert_eq("#1040-e2e: ... and printing NO staleness verdict", '', _got.stdout)
-
-        _got = _closed_fd0('record-claim-baseline', r.slug, '--claim-key', 'c2',
-                           '--claim-class', 'count', '--domain-stdin')
-        assert_eq("#1040-e2e: record-claim-baseline with fd 0 CLOSED exits non-zero",
-                  1, _got.returncode)
-        assert_eq("#1040-e2e: ... naming the absent stdin, and NOT diagnosing it as an "
-                  "empty search result (which asserts a search that never ran)",
-                  (True, False),
-                  ('no stdin is attached (fd 0 is closed)' in _got.stderr,
-                   'domain-class-empty-domain' in _got.stderr))
 
         _got = _closed_fd0('record-finding-evidence', r.slug, '--round', '1',
                            '--finding-id', '1', '--observed-stdin')
@@ -15728,11 +15083,11 @@ if os.name != 'nt':
 # finding showed that style of argument can miss a real interleaving, so several REAL
 # processes now mutate the same slug at once and the RESULT is checked.
 #
-# Each writer records a DISTINCT claim key, which is what gives the whole-write property a
-# directly observable consequence: `record-claim-baseline` is a read-modify-write of one
-# `claims{}` map, so a writer whose load happened before a peer's save and whose own save
-# happened after it DROPS that peer's key. Unserialized, that loss is the expected outcome;
-# serialized, all N keys survive.
+# Each writer records a DISTINCT finding-evidence key, which is what gives the whole-write
+# property a directly observable consequence: `record-finding-evidence` is a read-modify-write
+# of one `finding_evidence{}` map, so a writer whose load happened before a peer's save and
+# whose own save happened after it DROPS that peer's key. Unserialized, that loss is the
+# expected outcome; serialized, all N keys survive.
 #
 # Deterministic by construction, not by timing: the assertions are on the FINAL document,
 # and every one of them holds whether or not the writers actually overlapped in time. The
@@ -15746,9 +15101,9 @@ if os.name != 'nt':
         _n1040 = 6
         _procs1040 = [
             _subprocess.Popen(
-                [sys.executable, _IAS603, 'record-claim-baseline', r.slug,
-                 '--claim-key', f'p{_i}', '--claim-class', 'location',
-                 '--path', 'anchor.md', '--nonce', r.nonce],
+                [sys.executable, _IAS603, 'record-finding-evidence', r.slug,
+                 '--round', '1', '--finding-id', str(_i), '--locator', 'a:1',
+                 '--command', 'c', '--baseline-revision', 'r1', '--nonce', r.nonce],
                 cwd=r.tmp, stdout=_subprocess.PIPE, stderr=_subprocess.PIPE, text=True)
             for _i in range(_n1040)]
         # communicate() before returncode: waiting first can deadlock a child that fills a
@@ -15764,15 +15119,15 @@ if os.name != 'nt':
                   [_e for _o, _e in _io1040
                    if 'Traceback (most recent call last)' in _e])
 
-        _final1040 = r('query-claim-baselines', r.slug, nonce=True)
+        _final1040 = r('query-finding-evidence', r.slug, '--round', '1', nonce=True)
         assert_eq("#1040 stress: the final document still loads and VALIDATES — a torn "
                   "write is rejected by _validate, so a readable answer here is the "
                   "integrity claim holding", 0, _final1040.returncode)
-        _keys1040 = sorted(_field704(_l, 'claim=')
-                           for _l in _final1040.stdout.splitlines() if 'claim=' in _l)
-        assert_eq("#1040 stress: every concurrent writer's claim survived — no "
+        _keys1040 = sorted(_field704(_l, 'finding=')
+                           for _l in _final1040.stdout.splitlines() if 'finding=' in _l)
+        assert_eq("#1040 stress: every concurrent writer's record survived — no "
                   "read-modify-write was lost to an interleaving",
-                  [f'p{_i}' for _i in range(_n1040)], _keys1040)
+                  [f'1:{_i}' for _i in range(_n1040)], _keys1040)
 
         _tmpdir1040 = Path(r.tmp, '.prflow', 'tmp')
         assert_eq("#1040 stress: no sentinel leaked once every writer released", [],
