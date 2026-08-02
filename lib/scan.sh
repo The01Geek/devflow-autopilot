@@ -224,7 +224,7 @@ _add_candidates "$LABEL_BATCH"
 # Skipped (not fatal) when no watched authors are configured — the label pass
 # above still stands on its own.
 if [ -z "$WATCHED" ]; then
-    echo "::warning::no watched authors configured (prflow_retrospective.watched_authors / devflow.allowed_bots); relying on the provenance-label path only" >&2
+    echo "::warning::no watched authors configured (prflow_retrospective.watched_authors / prflow.allowed_bots); relying on the provenance-label path only" >&2
 else
     IFS=',' read -ra _watched <<< "$WATCHED"
     for _w in "${_watched[@]}"; do

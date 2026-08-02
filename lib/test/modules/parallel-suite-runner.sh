@@ -136,6 +136,21 @@ assert_eq "psr population: python-pool receives the nested-pool reservation" "4"
   "$(psr_pool_width_of "$PSR_TRACE" python-pool)"
 assert_eq "psr population: a normal shard receives no pool reservation" "(absent)" \
   "$(psr_pool_width_of "$PSR_TRACE" alpha)"
+# The two assertions above prove the coordinator routes the reservation to a shard NAMED
+# `python-pool`, but they prove it against a synthetic dispatcher that hardcodes the name.
+# Nothing else reconciles that literal with the real population, so renaming the shard in
+# run-shard.sh would make the reservation inert while every synthetic case stayed green.
+# This closes that half: the real dispatcher must still emit the name the routing is keyed
+# on. `--list-shards` prints and exits, so it launches no suite from inside this module.
+PSR_REAL_SHARDS="$(bash "$LIB/test/run-shard.sh" --list-shards 2>/dev/null)"
+assert_eq "psr population: the real dispatcher still returns the shard name the pool reservation is keyed on" "yes" \
+  "$(PSR_HIT=no
+     while IFS= read -r l || [ -n "$l" ]; do
+       case "$l" in python-pool) PSR_HIT=yes ;; esac
+     done <<PSR_EOD
+$PSR_REAL_SHARDS
+PSR_EOD
+     printf '%s\n' "$PSR_HIT")"
 # Private per-shard TMPDIRs are what make one shared checkout safe for concurrent
 # shards; two shards handed the same temp root would collide on every mktemp name.
 assert_eq "psr population: each shard is handed its own private TMPDIR" "yes" \
@@ -244,6 +259,9 @@ S="$1"; D="${DEVFLOW_SHARD_TALLY_DIR:?}"; mkdir -p "$D"
 case "${SYN_MODE:-}" in
   crash) [ "$S" = beta ] && { printf 'shard crashed\n' >&2; exit 7; } ;;
   notally-zero) [ "$S" = beta ] && exit 0 ;;
+  # EVERY shard exits clean without a tally, so the coordinator reaches the aggregation
+  # step with an empty tally-path list — the one input shape that expands an empty array.
+  notally-all) exit 0 ;;
   nonzero) [ "$S" = beta ] && { printf '1 passed, 1 failed\n' > "$D/log.txt"
       python3 "$HERE/lib/test/shard-tally.py" extract --shard "$S" --tier monolith \
         --log "$D/log.txt" --rc 1 --out "$D" >/dev/null; exit 1; } ;;
@@ -290,6 +308,17 @@ assert_eq "psr failure: a crashed shard is named, with its exit status" "yes" \
   "$(case "$PSR_FC" in *"exited non-zero"*"beta=7"*) echo yes ;; *) echo no ;; esac)"
 assert_eq "psr failure: a shard that wrote no tally is named as such" "yes" \
   "$(case "$PSR_FC" in *"produced no tally"*beta*) echo yes ;; *) echo no ;; esac)"
+# EVERY shard writing no tally is the boundary of the case above: the tally-path list the
+# aggregation step passes is empty, so this is the shape that expands an empty array. The
+# refusal must still come from the coordinator's own named diagnostic and the aggregate
+# path, not from an interpreter-level abort. Scope stated honestly: on a bash 4.4+ host the
+# guarded and bare expansions behave identically, so this covers the aggregation path
+# rather than discriminating the guard — no host here can run the pre-4.4 arm.
+PSR_FC="$(psr_fail_case notally-all)"
+assert_eq "psr failure: every shard writing no tally still refuses through the named diagnostic" "yes" \
+  "$(case "$PSR_FC" in 1\|*"produced no tally"*alpha*beta*) echo yes ;; *) echo no ;; esac)"
+assert_eq "psr failure: that refusal reaches the aggregate line rather than aborting before it" "yes" \
+  "$(case "$PSR_FC" in *"aggregate FAILED"*) echo yes ;; *) echo no ;; esac)"
 PSR_FC="$(psr_fail_case nonzero)"
 assert_eq "psr failure: a shard reporting a failed assertion fails the aggregate" "yes" \
   "$(case "$PSR_FC" in 1\|*"1 failed"*) echo yes ;; *) echo no ;; esac)"
@@ -491,6 +520,34 @@ for psr_sig in HUP INT TERM; do
     "1|0|yes" "$PSR_SC"
 done
 
+# The third window: a signal arriving while a shard is QUEUED behind the budget. It lands
+# in the slot-wait loop, where LAUNCHING is 0, so the handler itself is the one the `post`
+# case already covers. What is distinct — and what neither case above can observe — is the
+# QUEUE: a coordinator that returned to the scheduling loop would fork new shards while it
+# was tearing the launched ones down. Budget 1 makes the state deterministic rather than
+# timed: alpha holds the only slot for its full sleep, so beta is parked in the slot-wait
+# for as long as the case needs, and one published PID is exactly the state under test.
+PSR_Q_PIDS="$PSR_T5/pids-queued"; : > "$PSR_Q_PIDS"
+( cd "$PSR_T5" || exit 1
+  export SYN_PIDFILE="$PSR_Q_PIDS" DEVFLOW_SHARD_DISPATCHER="$PSR_T5/dispatch.sh" \
+    DEVFLOW_SUITE_PROCESS_BUDGET=1
+  exec bash lib/test/run-parallel.sh > "$PSR_T5/out-queued" 2>&1 ) &
+PSR_Q_COORD=$!
+while [ "$(psr_count_matching "$PSR_Q_PIDS" "")" -lt 1 ]; do sleep 0.05; done
+kill -s TERM "$PSR_Q_COORD" 2>/dev/null || :
+wait "$PSR_Q_COORD"; PSR_Q_RC=$?
+sleep 0.5
+assert_eq "psr signal: a signal while a shard is queued behind the budget still exits 1" \
+  "1" "$PSR_Q_RC"
+assert_eq "psr signal: the queued shard is never launched after the signal" "yes" \
+  "$(case "$(cat "$PSR_T5/out-queued")" in *"launched shard beta"*) echo no ;; *) echo yes ;; esac)"
+assert_eq "psr signal: the shard that held the slot is still reaped" "0" \
+  "$(PSR_N=0
+     while IFS= read -r p || [ -n "$p" ]; do
+       [ -z "$p" ] || { kill -0 "$p" 2>/dev/null && PSR_N=$((PSR_N + 1)); }
+     done < "$PSR_Q_PIDS"
+     printf '%s\n' "$PSR_N")"
+
 # ── output contract: clean-run suppression, the detail cap, retained logs ─────
 PSR_T6="$(psr_make_tree)"
 cat > "$PSR_T6/dispatch.sh" <<'PSR_EOF'
@@ -598,6 +655,14 @@ assert_eq "psr cap: a population exactly at the cap announces no omission" "yes"
   "$(case "$PSR_ATCAP" in *omitted*) echo no ;; *) echo yes ;; esac)"
 assert_eq "psr cap: a population exactly at the cap renders all of it" "20" \
   "$(PSR_N=0; while IFS= read -r l || [ -n "$l" ]; do case "$l" in "  SKIP  planted-skip-"*) PSR_N=$((PSR_N+1)) ;; esac; done <<PSR_EOD
+$PSR_ATCAP
+PSR_EOD
+printf '%s\n' "$PSR_N")"
+# The SAME boundary for the failure-recap class. `_render_detail` is one function, but the
+# two classes are two call sites passing their own prefix and their own population, so the
+# at-cap arm is asserted per class rather than inferred from the skip class alone.
+assert_eq "psr cap: a failure population exactly at the cap renders all of it" "20" \
+  "$(PSR_N=0; while IFS= read -r l || [ -n "$l" ]; do case "$l" in "  - planted-failure-"*) PSR_N=$((PSR_N+1)) ;; esac; done <<PSR_EOD
 $PSR_ATCAP
 PSR_EOD
 printf '%s\n' "$PSR_N")"
