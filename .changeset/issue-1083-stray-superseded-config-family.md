@@ -1,6 +1,0 @@
----
-bump: patch
-type: Changed
----
-
-- **Detect a stray superseded config family beside a present canonical one at trigger time.** The two shipped workflows' (`devflow.yml`, `devflow-implement.yml`) `config` jobs now emit a `::warning::` when `.prflow/config.json` carries a stray superseded top-level family (e.g. `devflow`, `devflow_version`) beside a canonical `prflow*` family — the half-migrated shape the existing `MISSING_FAMILIES` set-difference passed silently, whose stray keys resolve to their `// default` everywhere and silently drop any grant, allowlist narrowing, or provider selection written there. The check is advisory (the run proceeds), lives outside the enable gate so a disabled repo mid-migration is still told, reads presence from the config's key set (never a `//`-coerced value, so a valid-falsy stray value is still caught), fails safe on a non-object root, and matches the superseded families by the `^devflow(_|$)` shape rather than any dotted/bare literal — so it cannot wedge `scaffold-config.sh`'s freshness gate. `lib/test/modules/tier1-rename-migration.sh` drives the extracted jq program over an adversarial input-shape matrix and reconciles the shape against `lib/rename-map.json`'s `config_keys`. (#1083)
