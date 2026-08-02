@@ -4,13 +4,13 @@
 
 The orchestrator persists per-iteration state under `.prflow/tmp/review/<slug>/<run-id>/iter-<N>.json` (relative to the repo root). `<slug>` is `pr-<N>` in PR mode or the sanitized current branch name in branch mode. `<run-id>` is a per-run discriminator (see below). `<N>` is the iteration number, starting at 1.
 
-**Run-scoping (`<run-id>`).** The workpad is scoped by a per-run id so that a second `/prflow:review-and-fix` or `/prflow:review` invocation on the same PR — including `/prflow:implement` Phase 3.3's bounded re-review, which re-invokes this skill on the *same* PR — never clobbers a prior run's `iter-*.json` or `deferrals.json`. Reuse the **exact** discriminator `/prflow:review`'s live progress comment already uses (don't invent a new one):
+**Run-scoping (`<run-id>`).** The workpad is scoped by a per-run id so that a second `/prflow:review-and-fix` or `/prflow:review` invocation on the same PR — including `/prflow:implement` Phase 3.3's bounded re-review, which re-invokes this skill on the *same* PR — never clobbers a prior run's `iter-*.json` or `deferrals.json`. Derive this scratch discriminator independently at loop start:
 
 ```bash
 RUN_ID="${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1}"
 ```
 
-Compute `RUN_ID` **once at loop start, before iteration 1, and hold the literal value for the run's whole lifetime** — never recompute it (on a local run the timestamp would change between calls and split one run's state across two directories). This is the same compute-once-and-reuse rule the run-keyed progress-comment marker follows.
+Compute `RUN_ID` **once at loop start, before iteration 1, and hold the literal value for the run's whole lifetime** — never recompute it (on a local run the timestamp would change between calls and split one run's state across two directories).
 
 **All in-run scratch is run-scoped** — `diff.patch`, `iter-*.json`, and `deferrals.json` all live under `.prflow/tmp/review/<slug>/<run-id>/`, so two runs on the same PR never clobber any of them. The cached diff is at `.prflow/tmp/review/<slug>/<run-id>/diff.patch` — the full diff written by Phase 0.2 of `/prflow:review` on every iteration (overwritten within a run, but never across runs). Phase 3 agents Read this file directly via the `{DIFF_PATH}` substitution Phase 0.2 fills in, instead of re-running `gh pr diff` / `git diff` 4–5 times in parallel — so they pick up the run-scoped path automatically with no per-agent-prompt change. **Run-id consistency across the wrapper and the engine:** so the engine's Phase 0.2 and this wrapper agree on one `<run-id>` for the whole run (rather than `/prflow:review` computing a fresh timestamp-based id on each inline invocation), the wrapper passes its held `RUN_ID` into the engine's Phase 0.2 (see Step 1's head-override paragraph, which already plumbs caller inputs into Phase 0.2). See `/prflow:review`'s Phase 0.2 for the write logic.
 

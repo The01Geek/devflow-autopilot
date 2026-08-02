@@ -8,9 +8,11 @@
 # THIS run's `prflow:review-progress` comment from the interim `🚀 Reviewing`
 # state to the terminal `❌ Review failed` state so its Status stops lying. This
 # is the workflow-level mirror of the agent-side fatal-abort rule in
-# skills/review/SKILL.md (the "Fatal review abort after seeding" clause); the
-# `❌ Review failed` literal and the run-keyed marker shape are a coupled
-# contract with that skill (pinned in lib/test/run.sh).
+# skills/review/SKILL.md (the "Fatal review abort after seeding" clause). The
+# `❌ Review failed` literal mirrors that skill. Marker ownership is split:
+# seed-review-progress.sh derives the cloud marker, the skill composes only the
+# local and helper-absent recovery forms, and the workflow rebuilds the cloud
+# form passed here. Runtime parity tests keep those cloud forms aligned.
 #
 # Contract (mirrors ensure-label.sh / apply-labels.sh / post-issue-comment.sh):
 #   - ALWAYS exits 0 — a flip hiccup must never change the invoking job's or
@@ -31,9 +33,10 @@
 #     matches ONLY the current run's comment, so an earlier run's comment is
 #     never modified.
 #
-# All GitHub access routes through workpad.py (id/body/patch), which honors
-# DEVFLOW_GH — so no bare `gh` caller is introduced (the resolve-gh convention
-# holds by construction). The review comment's vocabulary is NOT workpad.py's
+# All GitHub access in this helper routes through workpad.py (id/body/patch),
+# which honors DEVFLOW_GH. The workflow step may invoke the sibling marker-
+# diagnosis helper afterward; that separate helper reads comments through the
+# repository's gh resolver. The review comment's vocabulary is NOT workpad.py's
 # (`Review failed` is unrecognized there and `--status` would stamp the wrong
 # glyph), so the Status line is rewritten textually and the full body PATCHed —
 # the same full-body-rewrite model the skill itself uses.
