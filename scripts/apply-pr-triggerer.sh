@@ -95,10 +95,12 @@ fi
 
 # Add the assignee. Capture the response body so login membership can be confirmed;
 # capture stderr separately so a genuine failure names its cause in the breadcrumb.
-_ERRF="$(mktemp)"
+# mktemp with the repo's fail-open fallback (a denied/failed mktemp must not leave
+# an empty redirect target); the rm is guarded against the /dev/null sentinel.
+_ERRF="$(mktemp 2>/dev/null || echo /dev/null)"
 RESP="$("$DEVFLOW_GH" api --method POST "repos/{owner}/{repo}/issues/${NUMBER}/assignees" -f "assignees[]=${LOGIN}" 2>"$_ERRF")"
 RC=$?
-ERR_OUT="$(cat "$_ERRF")"; rm -f "$_ERRF"
+ERR_OUT="$(<"$_ERRF")"; [ "$_ERRF" = /dev/null ] || rm -f "$_ERRF"
 
 if [ "$RC" -ne 0 ]; then
   _skipped api-failure "add-assignee POST failed: ${ERR_OUT}"
@@ -112,7 +114,7 @@ fi
 # a non-array/absent `assignees` (wrong-type, scalar/array/valid-falsy root) yields
 # no match and routes to `unconfirmed` — it NEVER falsely reports applied.
 if printf '%s' "$RESP" | "$DEVFLOW_JQ" -e --arg login "$LOGIN" \
-    '((.assignees? // empty) | if type=="array" then map(.login? // empty) else [] end) | index($login) != null' \
+    'any(.assignees?[]?; .login? == $login)' \
     >/dev/null 2>&1; then
   _applied "$LOGIN"
 fi
