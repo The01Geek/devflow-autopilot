@@ -405,92 +405,6 @@ class ModuleRunnerTests(unittest.TestCase):
             )
             self.assertTrue(list(Path(log_dir).iterdir()))
 
-    def test_review_and_fix_contract_module_runs_green_through_the_real_runner(self) -> None:
-        """The documented local RAF path uses the real registry and module API."""
-        registry = json.loads(
-            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        floor = registry["test_modules"]["review-and-fix-contract"][
-            "minimum_assertions"
-        ]
-        environment = os.environ.copy()
-        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
-        with tempfile.TemporaryDirectory() as log_dir:
-            result = subprocess.run(
-                [
-                    "bash",
-                    str(RUNNER_SOURCE),
-                    "--log-dir",
-                    log_dir,
-                    "review-and-fix-contract",
-                ],
-                cwd=ROOT,
-                env=environment,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-
-            self.assertEqual(
-                result.returncode,
-                0,
-                result.stdout[-4000:] + result.stderr[-4000:],
-            )
-            self.assertIn(
-                f"Module review-and-fix-contract: {floor} passed, 0 failed",
-                result.stdout,
-            )
-            self.assertTrue(list(Path(log_dir).iterdir()))
-
-    def test_issue_audit_state_module_runs_green_through_the_real_runner(self) -> None:
-        """The issue-audit-state module's fixtures need the real runner environment.
-
-        Every fixture in that module allocates a throwaway git repository through
-        `git_sandbox`, which lives in `lib/test/module-harness.sh` rather than in
-        `lib/test/run.sh`. The full suite exercises the module only through the
-        harness boundary, so this is the execution that proves the FOCUSED runner's
-        environment contract (LIB, RESULTS_FILE, assert_eq, sourced harness) also
-        satisfies it. The expected tally is read from the registry — never restated
-        as a second literal here, which would be one more site to reconcile whenever
-        the module's assertion count moves.
-        """
-        registry = json.loads(
-            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        floor = registry["test_modules"]["issue-audit-state"]["minimum_assertions"]
-        environment = os.environ.copy()
-        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
-        with tempfile.TemporaryDirectory() as log_dir:
-            result = subprocess.run(
-                [
-                    "bash",
-                    str(RUNNER_SOURCE),
-                    "--log-dir",
-                    log_dir,
-                    "issue-audit-state",
-                ],
-                cwd=ROOT,
-                env=environment,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-
-            self.assertEqual(
-                result.returncode,
-                0,
-                result.stdout[-4000:] + result.stderr[-4000:],
-            )
-            self.assertIn(
-                f"Module issue-audit-state: {floor} passed, 0 failed",
-                result.stdout,
-            )
-            self.assertTrue(list(Path(log_dir).iterdir()))
-
     def test_relative_registry_and_log_dir_resolve_against_repo_root(self) -> None:
         custom_dir = self.root / "custom"
         custom_dir.mkdir()
@@ -720,6 +634,28 @@ class ModuleRunnerTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
                 self.assertIn(
                     "minimum_assertions must be an integer from 1 to 1000000",
+                    result.stderr,
+                )
+                self.assertFalse(self.marker.exists())
+
+    def test_invalid_assertion_floor_policy_values_invalidate_registry(self) -> None:
+        for policy in (None, 7, [], {}, "estimated"):
+            with self.subTest(policy=policy):
+                self._write_registry(
+                    {
+                        "sample": {
+                            "path": "lib/test/modules/sample.sh",
+                            "minimum_assertions": 1,
+                            "assertion_floor_policy": policy,
+                        }
+                    }
+                )
+
+                result = self._run("sample")
+
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn(
+                    "assertion_floor_policy must be 'exact' when present",
                     result.stderr,
                 )
                 self.assertFalse(self.marker.exists())
@@ -1273,6 +1209,7 @@ class ModuleRunnerTests(unittest.TestCase):
                 "# SPDX-License-Identifier: MIT\n"
             )
         )
+
         self.assertNotIn(POOL_TRIPLE_LITERAL, module_text)
         self.assertIn(
             'IFR_MANIFEST="$LIB/../scripts/capture-workflow-manifest.py"',
@@ -1345,6 +1282,20 @@ class ModuleRunnerTests(unittest.TestCase):
         registered_file, registered_dir = proc.stdout.splitlines()[:2]
         self.assertFalse(os.path.exists(registered_file))
         self.assertFalse(os.path.exists(registered_dir))
+
+    def test_repository_declares_the_exact_floor_population(self) -> None:
+        registry = json.loads(
+            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        exact_modules = [
+            module_id
+            for module_id, mapping in registry["test_modules"].items()
+            if mapping.get("assertion_floor_policy") == "exact"
+        ]
+
+        self.assertEqual(len(exact_modules), 11)
 
     def test_every_on_disk_module_is_fully_wired(self) -> None:
         # Issue #757: REVERSE orphan check. Enumerate the modules that exist ON DISK
@@ -1437,29 +1388,6 @@ class ModuleRunnerTests(unittest.TestCase):
                     "host-capability condition through module_host_capability_skip",
                 )
 
-    def test_installer_wiring_module_runs_green_through_the_real_runner(self) -> None:
-        """Issue #695: the extracted module runs green through the real focused runner at
-        or above its registry floor, so a harness-API misuse or a broken LIB/RESULTS_FILE
-        contract surfaces here rather than only in the aggregate monolith run."""
-        registry = json.loads(
-            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(encoding="utf-8")
-        )
-        floor = registry["test_modules"]["installer-wiring"]["minimum_assertions"]
-        environment = os.environ.copy()
-        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
-        with tempfile.TemporaryDirectory() as log_dir:
-            result = subprocess.run(
-                ["bash", str(RUNNER_SOURCE), "--log-dir", log_dir, "installer-wiring"],
-                cwd=ROOT,
-                env=environment,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertEqual(result.returncode, 0, result.stdout[-4000:] + result.stderr[-4000:])
-            self.assertIn(f"Module installer-wiring: {floor} passed, 0 failed", result.stdout)
-            self.assertTrue(list(Path(log_dir).iterdir()))
-
     def test_the_harness_clears_an_inherited_devflow_gh_before_a_module_body(self) -> None:
         """Issue #695 AC: a focused run started with DEVFLOW_GH exported must produce the
         same assertion outcomes as one started with it unset.
@@ -1541,29 +1469,6 @@ class ModuleRunnerTests(unittest.TestCase):
             "lib/test/run.sh must obtain the promoted helpers by sourcing the harness",
         )
 
-    def test_capability_profiles_module_runs_green_through_the_real_runner(self) -> None:
-        """Issue #591 T-module: the seed module runs green through the real runner
-        (a subprocess exec inside the already-granted suite — not matcher-gated), at
-        or above its registry floor."""
-        registry = json.loads(
-            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(encoding="utf-8")
-        )
-        floor = registry["test_modules"]["capability-profiles"]["minimum_assertions"]
-        environment = os.environ.copy()
-        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
-        with tempfile.TemporaryDirectory() as log_dir:
-            result = subprocess.run(
-                ["bash", str(RUNNER_SOURCE), "--log-dir", log_dir, "capability-profiles"],
-                cwd=ROOT,
-                env=environment,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertEqual(result.returncode, 0, result.stdout[-4000:] + result.stderr[-4000:])
-            self.assertIn(f"Module capability-profiles: {floor} passed, 0 failed", result.stdout)
-            self.assertTrue(list(Path(log_dir).iterdir()))
-
     def test_capability_profiles_module_references_no_monolith_helper(self) -> None:
         # Issue #591: the seed module uses only assert_eq plus its own private helpers
         # (_cap_fail, _cap_noncomment_hits) — a monolith run.sh helper reference would
@@ -1572,199 +1477,14 @@ class ModuleRunnerTests(unittest.TestCase):
         hits = sorted({match.group(1) for match in MONOLITH_HELPER_RE.finditer(text)})
         self.assertEqual(hits, [], f"capability-profiles module references monolith helper(s): {hits}")
 
-    def test_create_issue_contract_module_runs_green_through_the_real_runner(self) -> None:
-        """The documented local create-issue path uses the real registry + module API."""
-        registry = json.loads(
-            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        floor = registry["test_modules"]["create-issue-contract"][
-            "minimum_assertions"
-        ]
-        environment = os.environ.copy()
-        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
-        with tempfile.TemporaryDirectory() as log_dir:
-            result = subprocess.run(
-                [
-                    "bash",
-                    str(RUNNER_SOURCE),
-                    "--log-dir",
-                    log_dir,
-                    "create-issue-contract",
-                ],
-                cwd=ROOT,
-                env=environment,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
+    def test_exact_floor_modules_run_green_through_the_real_runner(self) -> None:
+        """Every exact-policy module is selected from registry metadata and measured.
 
-            self.assertEqual(
-                result.returncode,
-                0,
-                result.stdout[-4000:] + result.stderr[-4000:],
-            )
-            self.assertIn(
-                f"Module create-issue-contract: {floor} passed, 0 failed",
-                result.stdout,
-            )
-            self.assertTrue(list(Path(log_dir).iterdir()))
-
-    def test_efficiency_trace_telemetry_module_runs_green_through_the_real_runner(
-        self,
-    ) -> None:
-        """The extracted efficiency-trace + telemetry-persistence module runs green
-        through the real runner at exactly its registry floor. The floor is READ from
-        `scripts/workflow-flight-recorder-registry.json` rather than restated here, so
-        the registry entry, the module's emitted tally, and the `lib/test/run.sh`
-        call-site literal stay one coupled triple with a single source of truth."""
-        registry = json.loads(
-            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        floor = registry["test_modules"]["efficiency-trace-telemetry"][
-            "minimum_assertions"
-        ]
-        environment = os.environ.copy()
-        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
-        with tempfile.TemporaryDirectory() as log_dir:
-            result = subprocess.run(
-                [
-                    "bash",
-                    str(RUNNER_SOURCE),
-                    "--log-dir",
-                    log_dir,
-                    "efficiency-trace-telemetry",
-                ],
-                cwd=ROOT,
-                env=environment,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-
-            self.assertEqual(
-                result.returncode,
-                0,
-                result.stdout[-4000:] + result.stderr[-4000:],
-            )
-            # Membership in the LINE list, not a substring of the whole stdout: a bare
-            # substring match would also accept a summary line that grew a trailing
-            # clause (a skip tally, say — a skipped assertion is never a clean pass,
-            # issue #456), so this pins the runner's exact summary format.
-            self.assertIn(
-                f"Module efficiency-trace-telemetry: {floor} passed, 0 failed",
-                result.stdout.splitlines(),
-            )
-            self.assertTrue(list(Path(log_dir).iterdir()))
-
-    def test_harness_python_guards_module_runs_green_through_the_real_runner(self) -> None:
-        """Issue #719: the harness-python-guards module — added by #710 — is driven
-        through its OWN runner (run-module.sh), the very assertion issue #695 exists to
-        make, which #710 never added. The floor is read from the registry and compared
-        for EQUALITY, so the test carries no second copy of the floor value: the registry
-        entry, the module's emitted tally, and the run.sh call-site floor are one coupled
-        triple, reconciled together.
-
-        Issue #890: this test is a member of a POOLED suite, so it runs inside the
-        `monolith` CI shard — while the module it drives is also run, in full, by the
-        `modules-pin` shard. That made the module's heaviest unit (the sharded
-        test_pin_corpus_lint.py block) execute twice per CI run, and the second execution
-        was the critical path of the required check. The run below therefore passes
-        `--heavy-units smoke`, which bounds that one unit to a single test per class.
-
-        What the test proves is unchanged, and that is the point. CONTRIBUTING.md step 8
-        asks for three things: invoke lib/test/run-module.sh against the module id, read
-        the `minimum_assertions` floor from the registry rather than hard-coding a second
-        copy, and assert the emitted summary equals `Module <id>: {floor} passed, 0
-        failed`. Each still holds below (the exit-0 assertion is an additional property
-        this test has always carried, not something step 8 asks for), and none is
-        weakened by the bounded unit, because the bound changes how many Python tests one
-        assertion covers and not how many assertions the module emits. The full population
-        still runs exactly once per CI run, in `modules-pin`, which passes no flag and
-        therefore gets the runner's `full` default.
-
-        The bound is ASSERTED, not assumed: without the last assertion below, a future
-        change that dropped the flag plumbing would silently restore the duplicate
-        execution while this test stayed green, which is exactly the failure this issue
-        exists to remove."""
-        registry = json.loads(
-            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        floor = registry["test_modules"]["harness-python-guards"][
-            "minimum_assertions"
-        ]
-        environment = os.environ.copy()
-        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
-        with tempfile.TemporaryDirectory() as log_dir:
-            result = subprocess.run(
-                [
-                    "bash",
-                    str(RUNNER_SOURCE),
-                    "--log-dir",
-                    log_dir,
-                    "--heavy-units",
-                    "smoke",
-                    "harness-python-guards",
-                ],
-                cwd=ROOT,
-                env=environment,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-
-            self.assertEqual(
-                result.returncode,
-                0,
-                result.stdout[-4000:] + result.stderr[-4000:],
-            )
-            # Membership in the LINE list, not a substring of the whole stdout: a bare substring
-            # match would also accept a summary line that grew a trailing clause (a skip tally,
-            # say — a skipped assertion is never a clean pass, issue #456), so this pins the
-            # runner's exact summary format. The floor is still read from the registry, so the
-            # coupled triple keeps its single source of truth.
-            self.assertIn(
-                f"Module harness-python-guards: {floor} passed, 0 failed",
-                result.stdout.splitlines(),
-            )
-            # The bounded unit actually took the bounded path. The driver states the bound
-            # in the same statement as its tally, so this reads the run's own report
-            # rather than re-deriving the population: a run that silently fell back to the
-            # full population would print that tally without this clause and fail here.
-            self.assertRegex(
-                result.stdout,
-                r"test_pin_corpus_lint\.py: .*BOUNDED smoke subset "
-                r"— the full population did NOT run",
-                result.stdout[-4000:] + result.stderr[-4000:],
-            )
-            self.assertTrue(list(Path(log_dir).iterdir()))
-
-    def test_issue_746_tranche_modules_run_green_through_the_real_runner(self) -> None:
-        """Issue #746 step 8: each module of the first extraction tranche is driven
-        through its OWN runner (run-module.sh), the assertion issue #695 exists to make
-        and #719 restated as a checklist step. Written as one subTest loop rather than
-        four near-identical methods so the four share one assertion shape instead of
-        four copies that can drift apart. (It does NOT make a fifth module unforgettable
-        — the module list below is hand-written, so adding one still means adding it
-        here. Nothing in the registry marks tranche membership to derive it from.)
-
-        The floor is read from the registry and compared for EQUALITY, so this test
-        carries no second copy of any floor value. Equality (not `>=`) is what makes the
-        floor detect assertion LOSS — a floor seeded below the real count would let
-        assertions vanish silently, which is exactly how this tranche's floors were
-        first (wrongly) seeded from the issue's estimates.
-
-        The run.sh call-site floor is reconciled here too, in the same loop. Without it
-        the "coupled triple" is only a pair: run-module.sh reads the REGISTRY, so a
-        call-site literal edited down in run.sh would leave this test green while the
-        full-suite boundary — the tier CI actually gates on — enforced a floor far below
-        the real count. That is the same silent-loss hole the floors exist to close, one
-        level up.
+        The registry flag is the sole population source: adding another exact module
+        automatically puts it through the real focused runner. Each measured tally must
+        equal both the live registry floor and its coupled `run.sh` call-site operand.
+        Equality (not `>=`) detects assertion loss instead of accepting a stale low
+        watermark.
 
         HOST ASSUMPTION: equality means the module must execute every assertion, so a
         host that trips a conditional arm inside a module (running as root, where the
@@ -1777,21 +1497,24 @@ class ModuleRunnerTests(unittest.TestCase):
         it folds the declared host-capability skip into the suite tally and credits the
         arm's declared assertions against the floor (see
         HostCapabilitySkipChannelTests), so this equality is a statement about the
-        focused runner, not about every tier."""
+        focused runner, not about every tier. The harness guard module retains its
+        bounded heavy-unit mode here so the pooled suite does not duplicate the full
+        Python corpus already owned by the modules shard."""
         registry = json.loads(
             (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
                 encoding="utf-8"
             )
         )
         run_text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
-        for module_id in (
-            "prompt-extension-reader",
-            "review-trigger-helpers",
-            "review-stall-backstop",
-            "experiment-records",
-        ):
+        exact_modules = {
+            module_id: mapping
+            for module_id, mapping in registry["test_modules"].items()
+            if mapping.get("assertion_floor_policy") == "exact"
+        }
+        self.assertTrue(exact_modules)
+        for module_id, mapping in exact_modules.items():
             with self.subTest(module=module_id):
-                floor = registry["test_modules"][module_id]["minimum_assertions"]
+                floor = mapping["minimum_assertions"]
                 self.assertIn(
                     f'devflow_run_full_suite_module "$LIB/test/modules/{module_id}.sh"',
                     run_text,
@@ -1803,9 +1526,20 @@ class ModuleRunnerTests(unittest.TestCase):
                 self.assertEqual(int(floor_match.group(1)), floor)
                 environment = os.environ.copy()
                 environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+                if temp_root := environment.get("TMPDIR"):
+                    environment["TMPDIR"] = temp_root.rstrip("/") or "/"
                 with tempfile.TemporaryDirectory() as log_dir:
+                    runner_argv = [
+                        "bash",
+                        str(RUNNER_SOURCE),
+                        "--log-dir",
+                        log_dir,
+                    ]
+                    if module_id == "harness-python-guards":
+                        runner_argv.extend(("--heavy-units", "smoke"))
+                    runner_argv.append(module_id)
                     result = subprocess.run(
-                        ["bash", str(RUNNER_SOURCE), "--log-dir", log_dir, module_id],
+                        runner_argv,
                         cwd=ROOT,
                         env=environment,
                         text=True,
@@ -1826,6 +1560,12 @@ class ModuleRunnerTests(unittest.TestCase):
                         f"Module {module_id}: {floor} passed, 0 failed",
                         result.stdout.splitlines(),
                     )
+                    if module_id == "harness-python-guards":
+                        self.assertRegex(
+                            result.stdout,
+                            r"test_pin_corpus_lint\.py: .*BOUNDED smoke subset "
+                            r"— the full population did NOT run",
+                        )
                     self.assertTrue(list(Path(log_dir).iterdir()))
 
     def test_create_issue_self_allocated_root_rejects_unsafe_mktemp_output(self) -> None:
@@ -2215,6 +1955,7 @@ SERIAL_BY_EXCLUSION_SUITES = (
     "test_create_issue_context_eval.py",
 )
 MODULE_DRIVEN_SUITES = (
+    "test_reconcile_module_floors.py",
     "test_render_audit_prompt.py",
     "test_verification_baseline.py",
     "test_verification_flight.py",
