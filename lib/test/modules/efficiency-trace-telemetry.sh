@@ -196,6 +196,18 @@ cat > "$ET_PROF/iter-2.json" <<'EOF'
 "phase3_findings":[{"agent":"devflow:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],
 "convergence_inputs":{"fixes_applied":1},"telemetry":null}
 EOF
+# iter-3 (issue #1071, documentary — NOT a RED-first fixture): the flag combination the
+# widened engine_self_modifying predicate makes COMMON — engine_self_modifying set ALONGSIDE
+# small_diff AND config_only. This tuple is a one-file, sub-100-line prompt-extension or
+# CLAUDE.md edit: .md is in the config_only extension set and the diff is small, yet the
+# path is now engine-surface, so checklist_skipped stays null (the override wins) and the
+# checklist RAN. The record is path-agnostic (diff_profile carries flags, not paths), so this
+# documents the combination rather than exercising a new path — the emitter is unchanged.
+cat > "$ET_PROF/iter-3.json" <<'EOF'
+{"iter":3,"diff_profile":{"small_diff":true,"config_only":true,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
+"checklist":[{"verification_mode":"lite","verdict":"PASS"}],"phase3_dispatched":["devflow:code-reviewer"],
+"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
+EOF
 ET_PROF_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_PROF" --slug pr-15 --mode record)"
 assert_eq "et: diff_profile carried into record (engine_self_modifying)" "true" \
   "$(echo "$ET_PROF_REC" | jq -r '.per_iteration[] | select(.iter==1) | .diff_profile.engine_self_modifying')"
@@ -203,6 +215,10 @@ assert_eq "et: lite-only verification posture (no subagents dispatched)" "lite-o
   "$(echo "$ET_PROF_REC" | jq -r '.per_iteration[] | select(.iter==1) | .verification_posture')"
 assert_eq "et: Phase 0.5 intentional skip → skipped-intentional posture" "skipped-intentional" \
   "$(echo "$ET_PROF_REC" | jq -r '.per_iteration[] | select(.iter==2) | .verification_posture')"
+# #1071 documentary: engine_self_modifying + small_diff + config_only carried together, and the
+# override kept the checklist ON (checklist_skipped null → posture is NOT skipped-intentional).
+assert_eq "et: engine_self_modifying overrides small_diff+config_only skip (checklist ran)" "true" \
+  "$(echo "$ET_PROF_REC" | jq -r '.per_iteration[] | select(.iter==3) | (.diff_profile.engine_self_modifying and .diff_profile.small_diff and .diff_profile.config_only and (.diff_profile.checklist_skipped==null))')"
 ET_PROF_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_PROF" --slug pr-15 --mode trace)"
 assert_eq "et: trace logs the no-subagent decision (lite-only line)" "true" \
   "$(echo "$ET_PROF_TRACE" | grep -q 'without dispatching verifier subagents' && echo true || echo false)"

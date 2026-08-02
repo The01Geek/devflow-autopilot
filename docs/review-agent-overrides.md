@@ -153,6 +153,8 @@ finding — **zero sole-source applied findings after iteration 1** (61 late-ite
 nothing unique). Scoping the agent to `first-only` stops ~47% of its dispatches (the positionally-worthless
 late ones) with no measured loss.
 
+**Pre-widening scope note (issue #1071).** The R2 figures above were measured under the **pre-widening** `engine_self_modifying` definition — its three source-directory arms (`skills/**`/`agents/**`/`lib/**`) only. Issue #1071 widened the flag's population with two further arms, and **both enlarge the population this baseline was measured over**: the state-directory `.md` arm (a prompt extension under `.prflow/`/`.devflow/`), and the `CLAUDE.md`-basename arm — the second widening it **further still**, on consumer repositories where `CLAUDE.md` is the consumer's own frequently-edited governance file and on this repository's own `CLAUDE.md`-only pull requests. The recorded figures are **not** re-read under the widened definition; they stand as the pre-widening measurement, and this note records that the adjudication baseline's population changed after they were taken.
+
 - **Revert trigger for the `iterations` key.** Any retrospective entry attributing an escaped
   Important-or-higher defect on this repo to a *late-iteration miss* in this agent's specialty class
   (guideline-adherence / doc-mirror) reverts the `iterations` key. Baseline for adjudication is R2 above
