@@ -4,6 +4,21 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.59] — 2026-08-02
+
+### Added
+- **`/prflow:init` now offers an opt-in, consent-gated PRFlow rename sweep after a successful
+  DevFlow→PRFlow layout migration.** After the atomic migration reports terminal `APPLIED`, init
+  offers a repository-wide semantic sweep that finds and repairs stale `DevFlow` product-name
+  prose the mechanical rename map cannot classify. The sweep discloses model access to tracked,
+  untracked, and ignored file contents before consent, starts only on an explicit yes, enumerates
+  candidates with three NUL-delimited `git ls-files` queries, records bounded base64-encoded
+  progress pages under `.prflow/tmp/init-rename-sweep/`, pins the rename-map authority object ID
+  per batch, and replaces each candidate through verified same-directory atomic writes with a
+  preserve-by-default semantic predicate. A declined or non-interactive run makes no sweep writes;
+  an incomplete sweep is never reported as clean; and a later `ALREADY MIGRATED` run offers a
+  renewed-consent resume when a matching incomplete ledger exists. (#1164)
+
 ## [2.30.58] — 2026-08-02
 
 ### Changed
