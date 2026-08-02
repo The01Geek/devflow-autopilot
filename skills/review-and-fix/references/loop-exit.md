@@ -43,7 +43,7 @@ The `disclosure` object is present **only** on a `settled-by-disclosure` entry (
 
 `symbol` is best-effort: scan the finding's `description` for the first backtick-quoted identifier; if none, leave empty string. Downstream matchers (the /prflow:review verdict engine) fall back to `line_range` + summary similarity when `symbol` is absent.
 
-This step writes the artifact and applies the guard. It does **NOT** file follow-up issues, mutate the PR body, or touch GitHub — those are /prflow:implement Phase 4.0.5's responsibility. /prflow:review-and-fix is silent on GitHub by design and stays so. When the caller is standalone /prflow:review-and-fix (no orchestrator wrapping it), the manifest is still written but no consumer reads it — that's fine; it's informational state on disk and useful for debugging.
+This step writes the artifact and applies the guard. It does **NOT** file follow-up issues, mutate the PR body, or touch GitHub — those are /prflow:implement Phase 4.0.5's responsibility. /prflow:review-and-fix posts no formal review and no verdict comment — in PR mode its inline engine maintains only the run's progress comment — and stays so. When the caller is standalone /prflow:review-and-fix (no orchestrator wrapping it), the manifest is still written but no consumer reads it — that's fine; it's informational state on disk and useful for debugging.
 
 ### Pre-mapping: Step-3-evaluated REJECT downgrade
 
@@ -79,7 +79,7 @@ This gate is also `reviewed_sha`-absent fail-closed: if no shadow block carries 
 
 ### Verdict → chat output
 
-The fix loop is silent on GitHub by design — it does NOT post a `gh pr review` or `gh pr comment` for any verdict. The final report (including any `## Advisory Findings`, `## Coverage`, and `## Unresolved Shadow Findings` sections) is emitted to chat only. A human who wants a formal `--request-changes` / `--approve` / `--comment` review on the PR runs `/prflow:review <PR>` separately; that skill performs an independent re-review and posts the result via its own Phase 4.4.
+The fix loop posts no verdict to GitHub — it does NOT post a `gh pr review` or `gh pr comment` for any verdict; the only GitHub artifact it maintains is its inline engine's run-keyed progress comment in PR mode. The final report (including any `## Advisory Findings`, `## Coverage`, and `## Unresolved Shadow Findings` sections) is emitted to chat only. A human who wants a formal `--request-changes` / `--approve` / `--comment` review on the PR runs `/prflow:review <PR>` separately; that skill performs an independent re-review and posts the result via its own Phase 4.4.
 
 **Over-grade gate non-convergence (fail-closed).** A promote-path `Critical`/`Important` Phase 3 finding that the Step 2.6 **Over-grade calibration gate** flagged but for which **no `decision: "severity-calibrated"` technical-evaluation `fix_decisions` entry was recorded** is **non-convergence**: the run may **not** emit a clean APPROVE-family verdict while one exists. It is the over-grade analogue of the park-calibration gate's promoted re-grade — at the iteration cap it surfaces through the `APPROVE WITH UNRESOLVED SHADOW FINDINGS` (or **REJECT**, if the unexamined finding was Critical) path, never as a clean approve and never silently dropped. This makes the recorded technical evaluation the gate requires *detectable by its absence* — a run that skipped the calibration discipline cannot exit clean.
 
