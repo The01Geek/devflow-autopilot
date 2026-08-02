@@ -16092,6 +16092,13 @@ echo "#936 — surviving references to the withheld devflow-review.yml"
 # tier before it was withheld keeps it, and the installer must report it, leave it alone by
 # default, and remove it only on the explicit opt-in — so the filename has to appear there.
 #
+# Stated reference, docs/cloud-allowlist.md (issue #1051): a withheld-tier statement. That page's
+# PreToolUse section has to name the deleted workflow to say WHY the #908 guard is inert — the
+# guard's registration rides on devflow-runner.yml, which is `workflow_call`-only and lost its
+# sole caller when #936 deleted devflow-review.yml. The filename is the caller that no longer
+# exists, so naming it is the point of the sentence; describing it obliquely would leave a reader
+# unable to check the claim against the tree.
+#
 # Accepted residual, stated rather than discovered later: this pins the FILENAME form only.
 # The bare `devflow-review` is a config KEY, not a filename, and legitimately survives in
 # .prflow/config.example.json, .prflow/config.json and .prflow/config.schema.json (each
@@ -16108,6 +16115,7 @@ _936_EXPECTED="$(cat <<'EOF'
 CLAUDE.md
 README.md
 docs/DEVFLOW_SYSTEM_OVERVIEW.md
+docs/cloud-allowlist.md
 docs/cloud-setup.md
 docs/execution-file-shape.md
 docs/external/release-notes.md
