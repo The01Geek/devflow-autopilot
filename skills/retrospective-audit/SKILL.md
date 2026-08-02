@@ -103,7 +103,8 @@ The `body` you return is filed verbatim as the GitHub issue, so it must read lik
 - [ ] …
 
 ## Implementation Notes
-- **Approach** — <the one proposed change, file by file>
+- **Approach** — <the one proposed change: what changes and why>
+- **Relevant files** — <the file and function surfaces the change is expected to reach, **at minimum** — a floor-declared map the implementer extends, hedges permitted>
 - **Code Patterns** — <patterns in this repo to mirror>
 - **Potential Gotchas** — <constraints / false-positive edges from § 3>
 
@@ -120,7 +121,7 @@ The `body` you return is filed verbatim as the GitHub issue, so it must read lik
 
 Author the `## 🔁 Retrospective provenance` block **per finding**, inside each finding's own `body`: every filing gets its own key and lifecycle, so a sibling sub-pattern is no longer "left for a future run" — it is its own finding in the same return.
 
-The Technical Context scope note is **verbatim, fixed boilerplate** — include it exactly as shown. Observe the template's **no-options discipline** in the issue sections (Problem → Implementation Notes): no choice / hedge / deferral language — the proposed change is a resolved decision. The `## 🔁 Retrospective provenance` block is the clearly-delimited provenance section; keep it after the issue sections, separated by the `---` rule.
+The Technical Context scope note is **verbatim, fixed boilerplate** — include it exactly as shown. Observe the template's **no-options discipline** in the issue sections (Problem → Implementation Notes): no choice / hedge / deferral language — the proposed change is a resolved decision. The one exception is the Implementation Notes `Relevant files` block, which the discipline skips by location: it is a floor-declared map, so hedged phrasing is permitted inside it. The `## 🔁 Retrospective provenance` block is the clearly-delimited provenance section; keep it after the issue sections, separated by the `---` rule.
 
 ---
 
