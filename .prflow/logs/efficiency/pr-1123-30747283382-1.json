@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1123",
+  "generated_at": "2026-08-02T12:28:33Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.41",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 17.884354500000004,
+    "tokens": {
+      "input_tokens": 47,
+      "output_tokens": 26270,
+      "cache_read_input_tokens": 3550569,
+      "cache_creation_input_tokens": 196859,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 257,
+        "outputTokens": 123061,
+        "cacheReadInputTokens": 14947384,
+        "cacheCreationInputTokens": 1055141,
+        "webSearchRequests": 0,
+        "costUSD": 17.884354500000004,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 34,
+    "duration_ms": 810025
+  },
+  "permission_denials": {
+    "count": 20,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "RUN_ID=\"local-$(date -u +%Y%m%dT%H%M%SZ)-1\"; echo \"run-id=$RUN_ID\"; mkdir -p \".prflow/tmp/review/pr-1123/$RUN_ID\"; echo \"$RUN_ID\" > .prflow/tmp/review/pr-1123/current-run-id.txt; gh pr diff 1123 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee \".prflow/tmp/review/pr-1123/$RUN_ID/diff.patch\" | wc -l",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1098 --pr 1123 2>.prflow/tmp/review/pr-1123/run1/acs.err ; echo \"acs-rc=$?\"; echo \"---ERR---\"; cat .prflow/tmp/review/pr-1123/run1/acs.err | head -20",
+      "awk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/review/pr-1123/run1/diff.patch > .prflow/tmp/review/pr-1123/run1/batch-1.patch && test -s .prflow/tmp/review/pr-1123/run1/batch-1.patch && echo \"slice-ok: batch-1\" || echo \"slice-failed: batch-1\"\nawk -v s=11 -v e=20 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/review/pr-1123/run1/diff.patch > .prflow/tmp/review/pr-1123/run1/batch-2.patch && test -s .prflow/tmp/review/pr-1123/run1/batch-2.patch && echo \"slice-ok: batch-2\" || echo \" …[per-command-truncated]",
+      "awk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/review/pr-1123/run1/diff.patch > .prflow/tmp/review/pr-1123/run1/batch-1.patch; test -s .prflow/tmp/review/pr-1123/run1/batch-1.patch && echo \"slice-ok: batch-1\"",
+      "cp .prflow/tmp/review/pr-1123/run1/diff.patch /tmp/d.patch && git stash -u >/dev/null 2>&1; git apply --check /tmp/d.patch 2>&1 | head; echo \"---apply to worktree copy---\"; mkdir -p /tmp/wc && git archive HEAD | tar -x -C /tmp/wc && (cd /tmp/wc && git init -q && git add -A && git commit -qm base && git apply /tmp/d.patch && echo APPLIED_OK)",
+      "rm -rf /tmp/wc; mkdir -p /tmp/wc; git archive HEAD | tar -x -C /tmp/wc",
+      "rm -rf /tmp/wc && mkdir -p /tmp/wc && git archive HEAD | tar -x -C /tmp/wc && cd /tmp/wc && git apply /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1123/run1/diff.patch && echo APPLIED_OK",
+      "rm -rf /tmp/wc && mkdir -p /tmp/wc && git archive HEAD | tar -x -C /tmp/wc && git -C /tmp/wc apply /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1123/run1/diff.patch && echo APPLIED_OK",
+      "rm -rf /tmp/wc",
+      "D=$(mktemp -d); git archive HEAD | tar -x -C \"$D\"; git -C \"$D\" apply /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1123/run1/diff.patch && echo APPLIED_OK; echo \"$D\" > /tmp/wcdir.txt; cat /tmp/wcdir.txt",
+      "git archive HEAD -o /tmp/base.tar",
+      "git worktree add -q /tmp/pr1123 140103e94f9048d72d60ef9dd6da4df92117b79d 2>&1 | tail -3; cd /tmp/pr1123 && git apply --index /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1123/run1/diff.patch 2>&1 | head; echo \"APPLY_RC=$?\"",
+      "git worktree add -q /tmp/pr1123 140103e94f9048d72d60ef9dd6da4df92117b79d 2>&1 | tail -3; git -C /tmp/pr1123 apply --index /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1123/run1/diff.patch 2>&1 | head; echo \"APPLY_RC=$?\"",
+      "git worktree add -q /tmp/pr1123 140103e94f9048d72d60ef9dd6da4df92117b79d",
+      "for f in skills/create-issue/references/step-3-6-audit.md skills/create-issue/references/step-3-5-steelman.md skills/create-issue/references/revision-delta.md skills/create-issue/references/issue-template.md docs/DEVFLOW_SYSTEM_OVERVIEW.md docs/implement-skill.md; do echo \"=== $f ===\"; git show 140103e:$f | grep -nE 'check-claim-staleness|record-claim-baseline|query-claim-baselines|claim baseline|claim-baseline|repository baseline|domain-stdin|occurrence-count grounding' || echo \"(none)\"; done",
+      "python3 - <<'PY'\nimport re,subprocess,importlib.util,pathlib\nroot=pathlib.Path('.')\n_ADD=re.compile(r\"sub\\.add_parser\\(\\s*['\\\"]([a-z0-9][a-z0-9-]*)['\\\"]\",re.DOTALL)\nsrc=(root/'scripts/issue-audit-state.py').read_text()\nnames=list(dict.fromkeys(_ADD.findall(src)))\nproc=subprocess.run(['git','ls-files','skills','scripts','lib'],capture_output=True,text=True)\ncorpus={}\nfor rel in proc.stdout.split():\n    if rel=='scripts/issue-audit-state.py': continue\n    try: corpus[rel]=(root/rel).read_text(enco …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nfor f in skills/create-issue/references/issue-template.md skills/create-issue/references/step-3-5-steelman.md skills/create-issue/references/step-3-6-audit.md skills/create-issue/references/revision-delta.md; do\n  echo \"=== $f (base) ===\"\n  grep -n \"baseline\\|record-claim\\|check-claim\\|query-claim\" \"$f\"\ndone",
+      "cd /home/runner/work/prflow/prflow\nfor f in skills/create-issue/references/issue-template.md skills/create-issue/references/step-3-5-steelman.md skills/create-issue/references/step-3-6-audit.md skills/create-issue/references/revision-delta.md; do\n  echo \"=== $f (base) matches ===\"\n  grep -n \"baseline\\|record-claim\\|check-claim\\|query-claim\" \"$f\" || echo \"  (none)\"\ndone",
+      "scripts/post-review-verdict.sh \"1123\" COMMENT .prflow/tmp/review-verdict-body.md"
+    ],
+    "total": 20,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
