@@ -262,14 +262,6 @@
       "note": "Candidate-C /prflow:review duplicate check (issue #989): detect an in-flight review from the seeded devflow:review-progress comment, and compose the suppression notice per cause",
       "owner": "review-trigger-helpers"
     },
-    "scripts/diagnose-review-progress-marker.sh": {
-      "note": "issue #1054 four-arm mismatch diagnosis, annotations, resolver-routed API boundary, and workflow command-scope integration",
-      "owner": "review-trigger-helpers"
-    },
-    "scripts/run-review-progress-diagnosis.sh": {
-      "note": "issue #1054 workflow-facing canonical-command dispatcher for the four-arm marker diagnosis",
-      "owner": "review-trigger-helpers"
-    },
     "scripts/derive-review-preconditions.sh": {
       "note": "retained unreachable-in-tree: called only by the withheld auto-review tier's workflow, kept so an installed consumer copy still resolves it (issue #936)",
       "owner": "review-trigger-helpers"
@@ -309,6 +301,10 @@
     "scripts/detect-standalone-command.sh": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "scripts/diagnose-review-progress-marker.sh": {
+      "note": "issue #1054 four-arm mismatch diagnosis, annotations, resolver-routed API boundary, and workflow command-scope integration",
+      "owner": "review-trigger-helpers"
     },
     "scripts/discover-deferral-manifests.py": {
       "focused_test": "lib/test/test_python_scripts.py",
@@ -548,6 +544,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/run-review-progress-diagnosis.sh": {
+      "note": "issue #1054 workflow-facing canonical-command dispatcher for the four-arm marker diagnosis",
+      "owner": "review-trigger-helpers"
+    },
     "scripts/scaffold-config.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -734,6 +734,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "1072": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "1078": {
       "note": "",
       "owner": "capability-profiles"
@@ -747,6 +751,10 @@
       "owner": "unmodularized"
     },
     "1084": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1087": {
       "note": "",
       "owner": "unmodularized"
     },

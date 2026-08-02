@@ -24,6 +24,22 @@ and one category from this closed set: `helper-contract`, `schema-config-vocabul
 `routing-dispatch-contract`, `lifecycle-state-transition`,
 `generated-artifact-identity`, `cross-file-phase-contract`.
 
+## This repository's declaration markers (limb-one input)
+
+When applying the review engine's Phase 4.1.5 behavior-inertness limb one, this repository's
+own tool-read declaration markers are `# structural-pin-ok:`, `# raw-guard-ok:`,
+`# tree-walk-ok:`, `# argjson-ok:`, and `# pruned-path-ok:`. Each is parsed by a lint under
+`lib/test/` to decide whether that check passes, so prose carrying one is **not** inert.
+Keep this list here rather than in the shared engine: the engine states the governing
+property, and each repository states its own marker set in its own review prompt extension.
+
+## `$PR_BASE_BRANCH` naming (this repository's reason)
+
+Phase 0.2 tells the engine to keep the exact `$PR_BASE_BRANCH` name because "a project's own
+desk-time check may forbid" the bare `BASE_REF` spelling. In this repository that check is the
+`#424` `grep -c` pin in `lib/test/run.sh`, mirroring `lib/fetch-pr-context.sh`; renaming the
+variable to `$BASE_REF` turns the suite RED.
+
 ## Prompt-surface edit routing evidence gate
 
 DevFlow-repo policy: a reviewed diff that touches a **prompt-surface** file must carry evidence

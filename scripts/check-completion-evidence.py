@@ -227,18 +227,20 @@ def _check_rebind(obj: dict, label: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Candidate-identity re-derivation (single source of truth — the #668 routine)
 # ─────────────────────────────────────────────────────────────────────────────
-def _claim_time_identity(args) -> str:
+def _claim_time_identity(claim_identity: "str | None", repo_root: "str | None") -> str:
     """The claim-time candidate identity.
 
     Re-derived at validation time by calling the shipped preflight producer, so
     the identity format has exactly one implementation. A test/loop may pin an
-    explicit value with --claim-identity (the loop passes what it computed); any
-    other value routes through the same derivation routine.
+    explicit value (the loop passes what it computed); any other value routes
+    through the same derivation routine. Shared by every context — the loop/direct
+    `_validate` and the implement `validate_implement_completion` — so the "exactly
+    one implementation" invariant holds across all callers.
     """
-    if args.claim_identity:
-        return args.claim_identity
+    if claim_identity:
+        return claim_identity
     try:
-        return ri.derive_candidate_identity(args.repo_root or os.getcwd())
+        return ri.derive_candidate_identity(repo_root or os.getcwd())
     except ri.IdentityError as exc:
         # A derivation that cannot complete is an internal failure of the check
         # itself, not a verdict about the claim — exit 2, no verdict line.
@@ -693,7 +695,7 @@ def _validate(args) -> "tuple[str, str]":
         ledger = findings_inventory
 
     # Claim-time identity — re-derived (or pinned) — needed for the stale compare.
-    claim_identity = _claim_time_identity(args)
+    claim_identity = _claim_time_identity(args.claim_identity, args.repo_root)
 
     # 2) stale-candidate — currency of the verification record.
     _check_stale_candidate(vrecord, claim_identity)
@@ -716,6 +718,120 @@ def _validate(args) -> "tuple[str, str]":
     return TOK_PASS, detail
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Implement-completion context (issue #1087) — the stricter no-skip policy
+# ─────────────────────────────────────────────────────────────────────────────
+# The implement engine's terminal `workpad.py --status Complete` write is gated on
+# a canonical verification-flight record (the #528 ledger handle) for the run's
+# final in-env verification command. This context is STRICTER than the loop/direct
+# contexts above: it admits NO skip population at all (not even host-capability),
+# it requires the flight to be in the terminal `passed` STATE (not merely a `passed`
+# result), and it requires a nonempty terminal-summary `command` and an integer `0`
+# `exit_status`. It mints NO ninth token — every defect maps onto the closed
+# ORDERED_TOKENS set, in the documented first-failing-class order
+# (missing -> stale -> not-pass -> skipped).
+FLIGHT_STATE_PASSED = "passed"
+
+
+def _validate_implement_record(rec: dict, claim_identity: str) -> "tuple[str, str]":
+    """The strict implement-completion checks over a flight record `rec`.
+
+    Raises a Verdict on the first failing class; returns (TOK_PASS, detail) when the
+    record is a current, skip-free, passed flight whose candidate identity equals the
+    final tree. `claim_identity` is the freshly-derived current-tree identity.
+    """
+    # 1) missing-evidence — presence and shape of the terminal-summary operands.
+    summary = rec.get("suite_summary")
+    if not isinstance(summary, dict):
+        raise Verdict(
+            TOK_MISSING,
+            "flight record carries no suite_summary object (terminal evidence absent)",
+        )
+    command = summary.get("command")
+    if not isinstance(command, str) or not command.strip():
+        raise Verdict(
+            TOK_MISSING,
+            "suite_summary.command is missing or not a nonempty string",
+        )
+    exit_status = summary.get("exit_status")
+    # An integer, and NOT a bool (bool is an int subclass) and NOT the string "0":
+    # only the JSON integer 0 is a pass, so a wrong-typed field is missing-evidence.
+    if isinstance(exit_status, bool) or not isinstance(exit_status, int):
+        raise Verdict(
+            TOK_MISSING,
+            f"suite_summary.exit_status is not a JSON integer ({exit_status!r})",
+        )
+    top_skips = rec.get("skipped_checks")
+    if not isinstance(top_skips, list):
+        # A wrong-typed skip set is an unclassifiable shape — fail closed as skipped.
+        raise Verdict(
+            TOK_SKIPPED,
+            "flight record's top-level skipped_checks is not a list (unclassifiable)",
+        )
+
+    # 2) missing-identity + stale-candidate — reuse the shared check (a `str` record
+    #    with no candidate_identity is TOK_MISSING; a mismatch is TOK_STALE).
+    _check_stale_candidate(rec, claim_identity)
+
+    # 3) verification-not-pass — the flight must be in the terminal `passed` STATE
+    #    (not merely a `passed` result: any other state — claimed, running, failed,
+    #    timed_out, cancelled, stale, incomplete — is non-pass), with a `passed`
+    #    result (shared check) and a zero exit status.
+    state = rec.get("state")
+    if state != FLIGHT_STATE_PASSED:
+        raise Verdict(
+            TOK_NOT_PASS,
+            f"flight state is {state!r}, not {FLIGHT_STATE_PASSED!r}",
+        )
+    _check_verification_pass(rec)
+    if exit_status != 0:
+        raise Verdict(
+            TOK_NOT_PASS,
+            f"suite_summary.exit_status is {exit_status}, not 0",
+        )
+
+    # 4) skipped-checks-present — the no-skip policy. The top-level list must be
+    #    empty, and when the summary carries its own skipped_checks key it must be an
+    #    empty list too (the top-level field is the one the finish path guarantees).
+    if top_skips:
+        raise Verdict(
+            TOK_SKIPPED,
+            f"flight records {len(top_skips)} skipped check(s); implement completion "
+            f"requires an empty skip population",
+        )
+    if "skipped_checks" in summary:
+        summary_skips = summary["skipped_checks"]
+        if not isinstance(summary_skips, list) or summary_skips:
+            raise Verdict(
+                TOK_SKIPPED,
+                "suite_summary.skipped_checks is present but not an empty list",
+            )
+
+    return TOK_PASS, "implement completion evidence current, passed, and skip-free"
+
+
+def validate_implement_completion(
+    record_path: "str | None",
+    repo_root: "str | None" = None,
+    claim_identity: "str | None" = None,
+) -> "tuple[str, str]":
+    """Importable entry point used lazily by scripts/workpad.py's terminal gate.
+
+    Reads the canonical flight record at `record_path` and runs the strict
+    implement-completion checks. Returns (token, detail) — `token == TOK_PASS`
+    (== "pass") only when every class resolved affirmatively. A None/absent/
+    unreadable/malformed/non-object record is TOK_MISSING. Raises _Internal only
+    when the current-tree identity cannot be derived (an internal failure of the
+    check itself, never a verdict about the run) — the caller aborts on that too.
+    """
+    try:
+        rec = _require_object(record_path, "verification-flight")
+        fresh = _claim_time_identity(claim_identity, repo_root)
+        return _validate_implement_record(rec, fresh)
+    except Verdict as v:
+        return v.token, v.detail
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="check-completion-evidence.py",
@@ -723,16 +839,23 @@ def build_parser() -> argparse.ArgumentParser:
         "Prints exactly one `completion-check: <token> — <detail>` line.",
     )
     parser.add_argument(
-        "--context", required=True,
+        "--context", required=False, default=None,
         help="The claim-context operand: the loop's run identifier, or the direct "
              "session's preflight-minted claim-context token (printed by the "
              "preflight at mint time; re-reading it from the cited artifacts is "
              "forbidden — that would compare an artifact with itself).",
     )
     parser.add_argument(
-        "--context-mode", required=True, choices=("loop", "direct"),
+        "--context-mode", required=True, choices=("loop", "direct", "implement"),
         help="Which invocation context is claiming completion. Scopes the "
-             "undischarged-findings check.",
+             "undischarged-findings check. `implement` validates a canonical "
+             "verification-flight record under the stricter no-skip completion policy "
+             "(issue #1087) and reads --flight-record instead of the session anchors.",
+    )
+    parser.add_argument(
+        "--flight-record", default=None,
+        help="implement context only: the canonical verification-flight record "
+             "(.prflow/tmp/verification-flights/<flight-key>.json) to validate.",
     )
     parser.add_argument("--verification-record", default=None,
                         help="The current verification record (the #528 durable "
@@ -776,7 +899,12 @@ def main(argv: "list[str] | None" = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        token, detail = _validate(args)
+        if args.context_mode == "implement":
+            token, detail = validate_implement_completion(
+                args.flight_record, args.repo_root, args.claim_identity,
+            )
+        else:
+            token, detail = _validate(args)
         return _emit(token, detail)
     except Verdict as v:
         return _emit(v.token, v.detail)

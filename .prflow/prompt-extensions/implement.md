@@ -199,6 +199,42 @@ Full-suite ownership still flows through `scripts/verification-flight.py`. That 
 
 Record the marker with the **`note`** reflection kind (`scripts/workpad.py update <ISSUE_NUMBER> --reflection-kind note --reflection "Verification evidence: …"`): `note` is the only kind `lib/cheap-gate.jq` does not treat as friction, so a marker recorded as any other kind would flip an otherwise-clean run and make the retrospective gate fire on exactly the runs that complied. **Fallback channel when there is no workpad:** a direct reception pass on a branch with no linked issue (`lib/fetch-pr-context.sh` emits `NoIssue`) has no workpad, so record the marker in the **PR description** instead; a run with **neither** a workpad nor a PR names that terminal explicitly and reports the evidence as **unrecordable** rather than stalling. This is **artifact vocabulary plus a captured artifact, not runtime enforcement** — the capture file and the workpad bullet are what a later reader, a reviewer, and the retrospective inspect; no gate in this change consumes them. `lib/cheap-gate.jq` is deliberately **not** wired to the marker, because its input population is merged watched-author PRs — predominantly cloud `/prflow:implement` runs, the population this local/interactive scoping excludes by name — so a clause there would evaluate out-of-coverage on nearly every workpad and be itself a guard that reads as armed and cannot fail, the exact shape #719 removes. Runtime enforcement is deferred to the named follow-up **issue #730**, scoped to a consumer whose input population actually contains local/interactive runs. The cloud tiers keep the issue-#405 in-env verification rule unchanged and gain **no** marker obligation. That scoping is now a **deliberately unchanged boundary rather than a shape constraint** (issue #1086): the pre-#1086 reason was that those tiers' matchers refuse the caller-side output-redirect and command-substitution capture shapes even when the head is granted (issues #401/#455), and the coordinator removed that obstacle by retaining its logs itself. What did not change is the consumer argument — the marker's readers are a later human reader, a reviewer, and the retrospective, and `lib/cheap-gate.jq` stays unwired to it for the population reason above — so extending the obligation to the cloud tiers is a decision for the runtime-enforcement follow-up (**issue #730**), not a side effect of the capture shape becoming available there.
 
+## Repo-specific command names and coupled-pin recognizers (relocation destination, issue #1072)
+
+The phase files state their verification, relocation and capability-boundary obligations
+**generically** — "the project's own test/lint command", "the project's own relocation check",
+"a coupled test-suite pin that asserts workflow content" — because the concrete command names
+and pin recognizers below are this repository's own and must never ship to a consumer whose
+tree does not carry them (`lib/test/**` is pruned from the vendored plugin by
+`.github/actions/vendor-plugin/vendor-slice.sh`). The **form constraint stays in the phase
+files**: on the cloud tier every verification/relocation command is invoked as the command's
+**leading token**, never behind a `bash <path>` wrapper (deny-floored). Only the concrete names
+live here, so a run whose extension was lost to compaction still reads a phase-file sentence
+sufficient to avoid the denied shape.
+
+- **The project's own test command** is `lib/test/run.sh` (the serial primitive) and, for the
+  final full suite, `lib/test/run-parallel.sh`; a focused surface uses
+  `lib/test/run-module.sh <module-id>`. These are already stated in full in the verification
+  section above — the relocation from `skills/implement/phases/phase-3-review.md`'s in-env
+  verification rule and single-flight paragraph adds nothing beyond confirming that this is the
+  concrete command those now-generic phase sentences mean. Invoke each as a **direct leading
+  token** on the cloud tier; the `bash <path>` wrapper is deny-floored.
+- **The project's own relocation check** is `lib/test/pin-corpus-lint.py --reloc` — the
+  deterministic desk-time net `skills/implement/phases/phase-2-implement.md`'s relocation sweep
+  now names generically. It turns a bare `ABSENT` pin into `relocated to <file>` and fails
+  closed on a genuine deletion or an unresolvable search set. On the cloud implement tier it has
+  no direct-token grant and `python3 <path>` is the denied interpreter-head shape, so the
+  relocation reconciliation is discharged by observing the full suite green (its drift check is
+  what turns red on an unreconciled citation); the local/interactive tier runs it directly.
+- **The coupled test-suite pin that asserts workflow content** — the recognizer
+  `skills/implement/phases/phase-1-setup.md`'s Pass 5 scan, its provisional-flag paragraph, and
+  `skills/implement/phases/phase-2-implement.md`'s commit guard now name generically — is, in
+  this repository, a `lib/test/run.sh` pin. That is the concrete literal Pass 5 detects a
+  workflow-resident AC from, and the concrete pin the workflows-scoped commit-guard greps miss
+  (they list only the workflow file itself); reverting a workflow-resident AC on a
+  workflow-incapable cloud credential reverts that coupled `lib/test/run.sh` pin with it so the
+  pushable remainder stays CI-green.
+
 ## Interpreter-faithful probes — probe under the shell the artifact actually runs under
 
 When you probe behavior that depends on the **interpreter or environment** an artifact runs under —

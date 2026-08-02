@@ -4,6 +4,42 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.33] — 2026-08-02
+
+### Changed
+Require current verification-flight evidence before implement completion (#1087).
+
+The terminal `workpad.py --status Complete` write is now gated on a current,
+machine-readable verification-flight record for the run's final in-env
+verification command. `check-completion-evidence.py` gains an `implement`
+context (importable `validate_implement_completion`) enforcing a strict no-skip
+pass contract — terminal `passed` state, a nonempty command, an integer-`0`
+exit status, an empty skip population, and a candidate identity equal to the
+current tree. `workpad.py update --record-completion-evidence <flight-key>`
+records the validated key on the existing keyed-checkpoint marker family, and
+the terminal gate re-validates it (re-deriving the candidate identity) before
+PATCH; a missing/duplicate marker, non-pass record, or stale identity aborts the
+Complete write before any GitHub call. A standalone `workpad.py` copy without the
+evidence sibling fails a Complete write closed with `missing-evidence` while its
+other subcommands are unaffected. The `verification_flight.enabled` off-switch is
+now per-caller: an implement run under `false` still produces the machine record
+(reuse bypass), while a standalone review-and-fix run keeps its direct-launch
+behavior.
+
+## [2.30.32] — 2026-08-02
+
+### Fixed
+- **Stop shipping prompt instructions that name paths the vendor slice prunes.** The
+  implement-phase and review-engine prompts told a consumer's agent to run files under
+  `lib/test/`, and named this project's own declaration markers and desk-time pins — a subtree
+  `.github/actions/vendor-plugin/vendor-slice.sh` deletes before the plugin reaches a consumer,
+  so the paths resolved against a tree where they do not exist. Those sentences are reworded to
+  name the project's own test/lint/relocation commands generically (the concrete repo-specific
+  command names moved into the non-shipped `implement`/`review`/`review-and-fix` prompt
+  extensions), and a new desk-time lint (`lib/test/lint-shipped-pruned-path.py`) derives the
+  pruned-path set from the vendor slice itself and fails the suite if any `skills/**` or
+  `agents/**` file references a pruned path without a `pruned-path-ok` declaration marker. (#1072)
+
 ## [2.30.31] — 2026-08-02
 
 ### Changed
