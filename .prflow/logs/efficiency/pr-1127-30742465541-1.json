@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1127",
+  "generated_at": "2026-08-02T09:57:12Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.36",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.039884249999998,
+    "tokens": {
+      "input_tokens": 1991,
+      "output_tokens": 18730,
+      "cache_read_input_tokens": 2988794,
+      "cache_creation_input_tokens": 98652,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 11504,
+        "outputTokens": 50707,
+        "cacheReadInputTokens": 4931701,
+        "cacheCreationInputTokens": 460623,
+        "webSearchRequests": 0,
+        "costUSD": 7.039884249999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 29,
+    "duration_ms": 516339
+  },
+  "permission_denials": {
+    "count": 7,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "cd /home/runner/work/prflow/prflow\nD=.prflow/tmp/review/pr-1127/local-20260802T094913Z-1/diff.patch\necho \"=== changed files (from diff headers) ===\"\ngrep -E '^diff --git' \"$D\" | sed -E 's|^diff --git a/(.*) b/.*|\\1|'\necho \"=== total lines / added / removed ===\"\nwc -l \"$D\"\ngrep -cE '^\\+[^+]' \"$D\"; grep -cE '^-[^-]' \"$D\"",
+      "D=/home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1127/local-20260802T094913Z-1/diff.patch\ngrep -E '^diff --git' \"$D\" | sed -E 's|^diff --git a/(.*) b/.*|\\1|'\necho \"=== wc ===\"; wc -l \"$D\"\necho \"=== added ===\"; grep -cE '^\\+[^+]' \"$D\"\necho \"=== removed ===\"; grep -cE '^-[^-]' \"$D\"",
+      "cd /home/runner/work/prflow/prflow\nPLS=scripts/provision-local-settings.sh\n# Block 1\nWC=$(mktemp -d); bash \"$PLS\" \"$WC\" >/dev/null 2>&1; rc=$?\necho \"block1: $rc:$([ -f \"$WC/.claude/settings.json\" ] && echo yes || echo no)\"\n# Block 3\nOR=$(mktemp -d); mkdir -p \"$OR/.claude\"\nprintf '%s' '{\"enabledPlugins\":{\"devflow@devflow-marketplace\":true}}' > \"$OR/.claude/settings.json\"\nbash \"$PLS\" \"$OR\" >/dev/null 2>&1; echo \"block3 rc=$?\"\njq -c '.enabledPlugins' \"$OR/.claude/settings.json\"\necho \"len=$(jq -r '. …[per-command-truncated]",
+      "PLS=scripts/provision-local-settings.sh && WC=$(mktemp -d) && bash \"$PLS\" \"$WC\" >/dev/null 2>&1; rc=$?; echo \"block1: $rc:$([ -f \"$WC/.claude/settings.json\" ] && echo yes || echo no)\"; OR=$(mktemp -d); mkdir -p \"$OR/.claude\"; printf '%s' '{\"enabledPlugins\":{\"devflow@devflow-marketplace\":true}}' > \"$OR/.claude/settings.json\"; bash \"$PLS\" \"$OR\" >/dev/null 2>&1; echo \"block3 rc=$?\"; jq -c '.enabledPlugins' \"$OR/.claude/settings.json\"; rm -rf \"$WC\" \"$OR\"",
+      "bash -c '\nPLS=scripts/provision-local-settings.sh\nWC=$(mktemp -d); bash \"$PLS\" \"$WC\" >/dev/null 2>&1; rc=$?\necho \"block1: $rc:$([ -f \"$WC/.claude/settings.json\" ] && echo yes || echo no)\"\nOR=$(mktemp -d); mkdir -p \"$OR/.claude\"\nprintf \"%s\" \"{\\\"enabledPlugins\\\":{\\\"devflow@devflow-marketplace\\\":true}}\" > \"$OR/.claude/settings.json\"\nbash \"$PLS\" \"$OR\" >/dev/null 2>&1; echo \"block3 rc=$?\"\necho \"len=$(jq -r \".enabledPlugins|length\" \"$OR/.claude/settings.json\") key0=$(jq -r \".enabledPlugins|keys[0]\" \"$ …[per-command-truncated]",
+      "bash -c '\nPLS=scripts/provision-local-settings.sh\nWC=$(mktemp -d); bash \"$PLS\" \"$WC\" >/dev/null 2>&1; rc=$?\necho \"block1: $rc:$([ -f \"$WC/.claude/settings.json\" ] && echo yes || echo no)\"\nOR=$(mktemp -d); mkdir -p \"$OR/.claude\"\nprintf \"%s\" \"{\\\"enabledPlugins\\\":{\\\"devflow@devflow-marketplace\\\":true}}\" > \"$OR/.claude/settings.json\"\nbash \"$PLS\" \"$OR\" >/dev/null 2>&1; echo \"block3 rc=$?\"\necho \"len=$(jq -r \".enabledPlugins|length\" \"$OR/.claude/settings.json\") key0=$(jq -r \".enabledPlugins|keys[0]\" \"$ …[per-command-truncated]"
+    ],
+    "total": 7,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
