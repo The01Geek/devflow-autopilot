@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1162",
+  "generated_at": "2026-08-02T21:57:25Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.56",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 10.564013999999997,
+    "tokens": {
+      "input_tokens": 4640,
+      "output_tokens": 22694,
+      "cache_read_input_tokens": 5223181,
+      "cache_creation_input_tokens": 190183,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 4754,
+        "outputTokens": 65791,
+        "cacheReadInputTokens": 9908078,
+        "cacheCreationInputTokens": 516519,
+        "webSearchRequests": 0,
+        "costUSD": 10.564013999999997,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 40,
+    "duration_ms": 738965
+  },
+  "permission_denials": {
+    "count": 19,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/scripts/load-prompt-extension.sh review; echo \"ext-rc=$?\"",
+      "/home/runner/work/prflow/prflow/scripts/load-prompt-extension.sh review",
+      "mkdir -p .prflow/tmp/review/pr-1162/local && gh pr diff 1162 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1162/local/diff.patch; echo \"diff-rc=$?\"; wc -l .prflow/tmp/review/pr-1162/local/diff.patch",
+      "cd /home/runner/work/prflow/prflow\ngit stash list >/dev/null 2>&1\n# run the drift guard logic against the PR head tree via a temp checkout of just the needed files\ntmp=$(mktemp -d)\ngit worktree add -q --detach \"$tmp\" origin/issue-1075-trusted-prompt-extensions 2>&1 | tail -1\npython3 - \"$tmp\" <<'PY'\nimport os, re, sys, yaml\nroot = sys.argv[1]\ndeclared = yaml.safe_load(open(os.path.join(root, \".github/workflows/devflow.yml\")))\ndeclared = declared[\"jobs\"][\"command\"].get(\"env\", {}).get(\"DEVFLOW_PROT …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow; tmp=$(mktemp -d); git worktree add -q --detach \"$tmp\" origin/issue-1075-trusted-prompt-extensions >/dev/null 2>&1; echo \"$tmp\"",
+      "git worktree add -q --detach /tmp/pr1162 origin/issue-1075-trusted-prompt-extensions && echo done",
+      "git worktree add -q --detach /tmp/pr1162 origin/issue-1075-trusted-prompt-extensions",
+      "cd /home/runner/work/prflow/prflow\ngit show origin/issue-1075-trusted-prompt-extensions:lib/generate-env-freeze-advisory.py > /tmp/gen.py 2>/dev/null\ngit show origin/issue-1075-trusted-prompt-extensions:lib/rename-map.json > /tmp/rm.json 2>/dev/null\ngit show origin/issue-1075-trusted-prompt-extensions:docs/cloud-setup.md > /tmp/cs.md 2>/dev/null\npython3 /tmp/gen.py --help 2>&1 | head -5 || echo \"no help\"\necho \"=== embedded sha in doc ===\"\ngrep -oE 'sha256=[0-9a-f]{64}' /tmp/cs.md | head -1",
+      "cd /home/runner/work/prflow/prflow; git show origin/issue-1075-trusted-prompt-extensions:lib/generate-env-freeze-advisory.py > /tmp/gen.py; wc -l /tmp/gen.py",
+      "cd /home/runner/work/prflow/prflow; git show origin/issue-1075-trusted-prompt-extensions:lib/generate-env-freeze-advisory.py > /tmp/gen.py",
+      "cd /home/runner/work/prflow/prflow; git show origin/issue-1075-trusted-prompt-extensions:lib/generate-env-freeze-advisory.py > .prflow/tmp/gen.py",
+      "cd /home/runner/work/prflow/prflow; git show origin/issue-1075-trusted-prompt-extensions:lib/generate-env-freeze-advisory.py > .prflow/tmp/gen.py; python3 -c \"import sys; sys.argv=['x','--help']\" ; grep -nE \"add_argument|--check|--derive|--file|def main\" .prflow/tmp/gen.py | head",
+      "git -C /home/runner/work/prflow/prflow show origin/issue-1075-trusted-prompt-extensions:lib/generate-env-freeze-advisory.py > /home/runner/work/prflow/prflow/.prflow/tmp/gen.py",
+      "cd /home/runner/work/prflow/prflow; git show origin/issue-1075-trusted-prompt-extensions:.github/workflows/devflow.yml | python3 -c \"\nimport sys,yaml\nd=yaml.safe_load(sys.stdin)\ncmd=d['jobs']['command']\nsteps=cmd['steps']\n# find promptext index and preceding step\nfor i,s in enumerate(steps):\n    if s.get('id')=='promptext':\n        print('promptext preceded by:', steps[i-1].get('uses') or steps[i-1].get('name'))\n        print('promptext has if:', 'if' in s)\n        print('promptext shell run pre …[per-command-truncated]",
+      "/home/runner/work/prflow/prflow/scripts/post-review-verdict.sh 1162 APPROVE .prflow/tmp/review/pr-1162/local/verdict.md ec7c5850d52fc08afd52bba5108c3f3ceac8bd9f; echo \"post-rc=$?\"",
+      "/home/runner/work/prflow/prflow/scripts/post-review-verdict.sh 1162 APPROVE .prflow/tmp/review/pr-1162/local/verdict.md ec7c5850d52fc08afd52bba5108c3f3ceac8bd9f",
+      "MARKER=\"<!-- prflow:review-verdict head=ec7c5850d52fc08afd52bba5108c3f3ceac8bd9f verdict=APPROVE -->\"; jq -n --arg event APPROVE --arg marker \"$MARKER\" --rawfile body .prflow/tmp/review/pr-1162/local/verdict.md '{event:$event, body:($marker + \"\\n\" + $body)}' | gh api -X POST \"repos/{owner}/{repo}/pulls/1162/reviews\" --input - --jq '.state'",
+      "BODY=$(cat .prflow/tmp/review/pr-1162/local/verdict.md); MARKER=\"<!-- prflow:review-verdict head=ec7c5850d52fc08afd52bba5108c3f3ceac8bd9f verdict=APPROVE -->\"; jq -n --arg event APPROVE --arg body \"$MARKER\n$BODY\" '{event:$event, body:$body}' | gh api -X POST \"repos/{owner}/{repo}/pulls/1162/reviews\" --input - --jq '.state'",
+      "BODY=$(cat .prflow/tmp/review/pr-1162/local/verdict-body.md); jq -n --arg event APPROVE --arg body \"$BODY\" '{event:$event, body:$body}' | gh api -X POST \"repos/{owner}/{repo}/pulls/1162/reviews\" --input - --jq '.state'"
+    ],
+    "total": 19,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
