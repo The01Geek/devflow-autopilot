@@ -185,11 +185,11 @@ When iter N≥2, hand off the `fix_files`, `prior_checklist`, and `prior_phase3_
 
 Skip /prflow:review's Phase 4.4 (formal GitHub review posting). The fix loop is silent on GitHub by design — the final report is emitted to chat only at Loop Exit. A human who wants a formal merge signal runs `/prflow:review <PR>` separately.
 
-**Red flags — STOP and run Glob+Read if you're about to:**
+**Red flags — STOP and `Read` the engine from the `<engine-dir>` this entry already resolved, if you're about to:**
 - Skip the Read because "I already know what /prflow:review does"
 - Paraphrase the Phase 3 agent prompts instead of using them verbatim
 - Treat the engine recap below as a substitute for the canonical phases
-- Guess the path instead of running Glob
+- Guess the engine directory instead of using the one Step 1's ordered candidate list resolved
 - append focus/prioritize/scope clauses to a shadow prompt, hand it regenerated or subsetted diff artifacts, or write steering into its prompt-extension file
 
 Every drift incident this skill has had traces to one of those rationalizations. Violating the letter of /prflow:review's phases is violating the spirit, even when the paraphrase reads correct. The engine-defined iter-N≥2 prior-findings handoff is sanctioned only for Step-1 loop iterations, never for a shadow prompt; provenance-clean extension text is the only sanctioned shadow-prompt addition.
