@@ -742,6 +742,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "1073": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "1078": {
       "note": "",
       "owner": "capability-profiles"
@@ -769,6 +773,10 @@
     "1098": {
       "note": "",
       "owner": "create-issue-contract"
+    },
+    "1105": {
+      "note": "",
+      "owner": "issue-audit-state"
     },
     "126": {
       "note": "",
