@@ -476,10 +476,10 @@ class RunAccumulator:
         """The run record's own fields.
 
         NOT the complete field set of a run record as a report consumer sees it:
-        `_join_round_kinds` injects one further key, `round_kinds`, after
-        `eval_corpus` returns. Every reader of a run record therefore reads
-        `round_kinds` defensively (`.get`), because a run record taken straight from
-        this method has not been through the join.
+        `_join_round_kinds` injects two further keys, `round_kinds` and `round_reasons`
+        (issue #1103), after `eval_corpus` returns. Every reader of a run record therefore
+        reads both defensively (`.get`), because a run record taken straight from this
+        method has not been through the join.
         """
         peak = max(self.per_turn_context) if self.per_turn_context else 0
         final = self.per_turn_context[-1] if self.per_turn_context else 0
@@ -675,7 +675,7 @@ def _degraded_state(state_path, reason):
 def read_state(state_path):
     """Read one audit state file's round labelling, best-effort.
 
-    Returns a dict {round_num(int): {"kind": str, "scope": dict|None,
+    Returns a dict {round_num(int): {"kind": str, "kind_reason": str, "scope": dict|None,
     "findings": list}} on success, or None when the state file is absent, unreadable,
     undecodable, empty, malformed, carries a wrong-typed `rounds` container, or carries
     a round whose PRESENT kind is outside `ROUND_KINDS`. A None return makes every
@@ -756,6 +756,19 @@ def read_state(state_path):
             return _degraded_state(
                 state_path,
                 "round {} names the unrecognized kind {!r}".format(num, kind))
+        # issue #1103 — the round-kind selecting reason, read alongside the kind. Unlike
+        # `kind` (whose absent default of `discovery` is the truthful one — a pre-#793
+        # round genuinely WAS a whole-draft derivation), an absent reason has no truthful
+        # default: a round that recorded no reason has an UNESTABLISHED one, never a
+        # guessed value. A present-but-non-string reason is likewise unestablished rather
+        # than a coerced value. This reader deliberately does NOT mirror the closed reason
+        # vocabulary from the state owner (as it must for `kind`, whose membership drives a
+        # whole-state collapse): the reason is a disclosure field, so an unrecognized
+        # string is surfaced verbatim rather than collapsing the state — the state owner's
+        # `_validate` is the boundary that refuses an off-vocabulary reason on load.
+        reason = rnd.get("kind_reason")
+        if not isinstance(reason, str) or not reason:
+            reason = UNESTABLISHED
         scope = rnd.get("scope") if isinstance(rnd.get("scope"), dict) else None
         # A PRESENT-but-non-list `findings` is a corrupt container, not an empty one.
         # Coercing it to `[]` would make `finding_count` publish a real `0` ("the audit
@@ -770,7 +783,8 @@ def read_state(state_path):
         elif not isinstance(findings, list):
             return _degraded_state(
                 state_path, "round {} `findings` is not a list".format(num))
-        by_num[num] = {"kind": kind, "scope": scope, "findings": findings}
+        by_num[num] = {"kind": kind, "kind_reason": reason, "scope": scope,
+                       "findings": findings}
     return by_num
 
 
@@ -1027,11 +1041,20 @@ def _join_round_kinds(runs, state):
     coordinate for.
     """
     for run in runs:
-        run["round_kinds"] = {
-            n: (state[n]["kind"] if state is not None and n in state
-                else UNESTABLISHED)
-            for n in run["round_auditor_cost"]
-        }
+        # issue #1103 — the recorded selecting reason is joined beside the kind, on the
+        # same membership test, in one pass so the "state present for this round?" guard is
+        # resolved once per round rather than duplicated. A round the state does not label,
+        # and a labelled round whose record carries no reason, both read `unestablished`
+        # (never a guessed reason): the former because no state row exists, the latter
+        # because `read_state` already resolved an absent/non-string `kind_reason` to the
+        # sentinel.
+        kinds, reasons = {}, {}
+        for n in run["round_auditor_cost"]:
+            present = state is not None and n in state
+            kinds[n] = state[n]["kind"] if present else UNESTABLISHED
+            reasons[n] = state[n]["kind_reason"] if present else UNESTABLISHED
+        run["round_kinds"] = kinds
+        run["round_reasons"] = reasons
     return runs
 
 
@@ -1178,11 +1201,19 @@ def _render_run_line(r):
     if r["round_auditor_cost"]:
         # AC6: each per-round entry carries the round's RECORDED kind beside its cost,
         # so one run's report is readable without the aggregate per-kind medians.
+        # issue #1103 adds the selecting reason on its own per-round line (a separate line
+        # rather than folded into `r{}={}(kind)` so the kind rendering stays byte-stable
+        # for its existing readers). Both lines walk the SAME round order, sorted once.
+        order = sorted(r["round_auditor_cost"])
         kinds = r.get("round_kinds") or {}
+        reasons = r.get("round_reasons") or {}
         by_round = " ".join(
-            "r{}={}({})".format(n, c, kinds.get(n, UNESTABLISHED))
-            for n, c in sorted(r["round_auditor_cost"].items()))
+            "r{}={}({})".format(n, r["round_auditor_cost"][n], kinds.get(n, UNESTABLISHED))
+            for n in order)
         parts.append("\n  - per-round auditor cost: {}".format(by_round))
+        by_reason = " ".join(
+            "r{}={}".format(n, reasons.get(n, UNESTABLISHED)) for n in order)
+        parts.append("\n  - per-round selecting reason: {}".format(by_reason))
     return "".join(parts)
 
 
