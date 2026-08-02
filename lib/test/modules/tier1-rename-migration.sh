@@ -1171,15 +1171,19 @@ assert_eq "#1004 the arms DO select DEVFLOW_PROMPT_EXTENSION_ROOT, so excluding 
 assert_eq "#1004 the arms do NOT select DEVFLOW_CONFIG_FILE (declared in no consumer document)" \
   "no" "$(_t1_env_sel DEVFLOW_CONFIG_FILE)"
 
-# The record's two halves stay disjoint, and the excluded pair is the pair the issue names.
+# The record's two halves stay disjoint, and the excluded set is exactly what is recorded.
+# The set literal below IS the enforcement (issue #656's enforcement-constant exception): an
+# exclusion added without a human adjudication moves it, so it is deliberately transcribed
+# rather than derived. Count-free by construction — adding a row edits the literal, never a
+# tally in the assertion name (the PR-#553 self-referential-count rot class).
 assert_eq "#1004 no name is both consumer-facing and adjudicated out" "disjoint" \
   "$(python3 -c '
 import json,sys
 b=json.load(open(sys.argv[1]))["frozen"]["env_identifiers"]
 both=set(r["name"] for r in b["identifiers"])&set(r["name"] for r in b["adjudicated_out"])
 print(" ".join(sorted(both)) or "disjoint")' "$T1_MAP" 2>/dev/null)"
-assert_eq "#1004 the adjudicated-out set is exactly the two names issue #1004 names" \
-  "DEVFLOW_CONFIG_FILE DEVFLOW_PROMPT_EXTENSION_ROOT" \
+assert_eq "#1004 the adjudicated-out set is exactly the names the record excludes" \
+  "DEVFLOW_CONFIG_FILE DEVFLOW_PROMPT_EXTENSION_ROOT DEVFLOW_TRIGGERING_USER" \
   "$(python3 -c '
 import json,sys
 b=json.load(open(sys.argv[1]))["frozen"]["env_identifiers"]
