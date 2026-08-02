@@ -148,6 +148,43 @@ class IdentityContractTests(unittest.TestCase):
         self.assertIn(want, entry,
                       f"derived tree carries a stale a.txt blob: {entry!r}")
 
+    def test_ineffective_backdate_refuses_instead_of_deriving(self):
+        """A backdate the filesystem did not store refuses with a named reason.
+
+        The fail-closed sibling of the test above. `os.utime` reporting success is not
+        evidence the value was stored: a coarse-granularity or clamping filesystem can
+        truncate the epoch second to 0 — the value git reads as an unset index timestamp,
+        which short-circuits `is_racy_stat` and disarms the very rule the backdate arms —
+        and a filesystem that accepts the call while keeping the creation time fails the
+        same comparison from the other side. Either one silently returns `git add -A` to
+        the stale-stat path that yields the pre-edit blob, i.e. reintroduces the #1117
+        collision with no error. A no-op `os.utime` stands in for both (the temp index
+        keeps its creation mtime), proving the read-back raises rather than deriving an
+        identity from stat data the backdate never protected.
+        """
+        r = self._repo()
+        r.write("a.txt", "one\n")
+        r.commit_all("a")
+        orig = ri.os.utime
+
+        def noop(*a, **k):
+            return None
+
+        ri.os.utime = noop
+        try:
+            with self.assertRaises(ri.IdentityError) as cm:
+                ri.derive_candidate_identity(str(r.path))
+        finally:
+            ri.os.utime = orig
+        self.assertTrue(
+            cm.exception.reason.startswith("index_backdate_ineffective:"),
+            cm.exception.reason,
+        )
+        # Negative control: with the real os.utime the same repository derives normally,
+        # so the refusal above is attributable to the ineffective backdate and not to
+        # anything else in the fixture.
+        self.assertRegex(ri.derive_candidate_identity(str(r.path)), r"^[0-9a-f]{40,64}$")
+
     def test_one_byte_change_after_unequal(self):
         r = self._repo()
         r.write("a.txt", "one\n")

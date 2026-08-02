@@ -28,7 +28,13 @@ tracked file rewritten to the same size within the mtime tick the index cached �
 tree would then carry the old blob (issue #1117). Backdating the temp index makes
 every ordinary entry "racily clean" by git's own rule (cached mtime not strictly
 older than the index), which forces git to re-read content independent of stat
-timing. Going through git's racy machinery rather than around it (e.g. an unqualified
+timing. The backdate is then read back and verified before anything is staged:
+`os.utime` reports only that the syscall succeeded, while the filesystem decides
+what it stores, and both a stored 0 (read as "unset") and a stored value later than
+the entries' cached mtimes disarm the rule silently — so a stored second other than
+the requested one raises `index_backdate_ineffective` instead of deriving an
+identity from stat data the backdate never protected. Going through git's racy
+machinery rather than around it (e.g. an unqualified
 `add --renormalize`) is deliberate: the skip-worktree and `assume-unchanged` entries
 git deliberately does not re-stat both bypass the racy re-check, so the INDEX content
 still decides their contribution — see the skip-worktree/assume-unchanged paragraph
@@ -70,14 +76,22 @@ import tempfile
 # A DEVFLOW_GIT override mirrors the DEVFLOW_GH escape hatch without probing.
 GIT = os.environ.get("DEVFLOW_GIT") or "git"
 
+# The whole-second mtime the seeded temporary index is backdated to, and the value
+# the post-condition read-back requires the filesystem to have actually stored.
+# 1, not 0: git reads a zero index timestamp as "unset" and short-circuits
+# `is_racy_stat`, so the epoch second itself would disarm the very rule the
+# backdate exists to arm. See derive_candidate_identity.
+_INDEX_BACKDATE_SECONDS = 1
+
 
 class IdentityError(Exception):
     """A candidate-identity derivation that could not complete.
 
     `.reason` is a named machine-readable breadcrumb (never a bare traceback):
     `git_not_found`, `git_exec_error:<class>`, `git_failed:<subcommand>:<code>`,
-    `git_output_not_utf8:<subcommand>`, `temp_index_error:<class>`, or
-    `empty_tree_output`. The caller prints it to stderr and prints no identity.
+    `git_output_not_utf8:<subcommand>`, `temp_index_error:<class>`,
+    `index_backdate_ineffective:<stored-second>`, or `empty_tree_output`. The
+    caller prints it to stderr and prints no identity.
     """
 
     def __init__(self, reason: str):
@@ -163,7 +177,23 @@ def derive_candidate_identity(repo_root: "str | None" = None) -> str:
             # index timestamp as "unset" and short-circuits `is_racy_stat`, so 1 second
             # past the epoch is the smallest value that makes every real-mtime (>= 1)
             # entry racy.
-            os.utime(tmp_index, (1, 1))
+            os.utime(tmp_index, (_INDEX_BACKDATE_SECONDS, _INDEX_BACKDATE_SECONDS))
+            # Verify the backdate rather than assume it: `os.utime` reports the syscall's
+            # success, but the FILESYSTEM decides what it stores, and two stored values
+            # disarm the racy rule — each of them silently. A 0 (a coarse-granularity or
+            # clamping filesystem truncating the epoch second down) is the "unset" value
+            # above. A value LATER than the entries' cached mtimes (a filesystem that
+            # accepts the call and keeps the creation time) fails `is_racy_stat`'s
+            # comparison from the other side. Either one puts `git add -A` straight back
+            # on the stale-stat path and yields the pre-edit blob — the issue #1117
+            # collision this backdate exists to prevent, with no error and no breadcrumb.
+            # Requiring the exact stored second refuses both directions at once; whole
+            # seconds are the granularity git's own stat comparison uses, so sub-second
+            # noise a filesystem may add is tolerated. A host that cannot store the value
+            # gets a named refusal, never an identity the backdate never protected.
+            stored_mtime = int(os.stat(tmp_index).st_mtime)
+            if stored_mtime != _INDEX_BACKDATE_SECONDS:
+                raise IdentityError(f"index_backdate_ineffective:{stored_mtime}")
         else:
             # Absent index: start from an empty index (git creates the file). No
             # seeded stat data exists, so the racy backdate above is unnecessary.
