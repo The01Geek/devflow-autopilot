@@ -5459,8 +5459,23 @@ echo '[]'
 STUB
 chmod +x "$S258/gh"
 
-# Fixture bodies. Base = every Plan/AC row ticked (the clean-run shape).
-cat > "$S258/all-ticked.md" <<'WPMD'
+# issue #1087: the terminal gate also requires a validated completion
+# verification-flight marker. Stand up a passing flight record under a temp
+# repo-root and carry the marker in the fixtures' ## Progress, so the #258 AC/Plan
+# self-record gate (which runs AFTER the evidence gate) is exercised on its own
+# terms. run258 pins the candidate identity with --claim-identity so no git tree
+# derivation is needed. A dedicated no-marker assertion below pins the evidence
+# gate's own missing-evidence abort.
+S258_ROOT="$(mktemp -d)"
+S258_KEY="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+mkdir -p "$S258_ROOT/.prflow/tmp/verification-flights"
+cat > "$S258_ROOT/.prflow/tmp/verification-flights/$S258_KEY.json" <<'VFJSON'
+{"state":"passed","result":"passed","candidate_identity":"treeX","suite_summary":{"command":"lib/test/run.sh","exit_status":0,"skipped_checks":[]},"skipped_checks":[]}
+VFJSON
+
+# Fixture bodies. Base = every Plan/AC row ticked (the clean-run shape). The
+# ## Progress section carries the validated completion-verification marker.
+cat > "$S258/all-ticked.md" <<WPMD
 <!-- devflow:workpad -->
 # DevFlow Workpad — Issue #999
 
@@ -5469,6 +5484,7 @@ cat > "$S258/all-ticked.md" <<'WPMD'
 
 ## Progress
 - [x] **Setup**
+  - 00:00:00 — completion verification recorded <!-- prflow:checkpoint completion-verification:$S258_KEY -->
 
 ## Plan
 - [x] Plan step one
@@ -5478,6 +5494,8 @@ cat > "$S258/all-ticked.md" <<'WPMD'
 - [x] AC one
 - [x] AC two
 WPMD
+# A marker-free copy for the evidence-gate abort test (issue #1087).
+grep -v 'completion-verification:' "$S258/all-ticked.md" > "$S258/no-marker.md"
 # (a) a non-post-merge AC row still unticked.
 sed 's/- \[x\] AC two/- [ ] AC two/' "$S258/all-ticked.md" > "$S258/ac-unticked.md"
 # (b) the ONLY outstanding AC row carries the (post-merge) marker.
@@ -5490,9 +5508,21 @@ run258() {
   local body="$1"; shift
   : > "$S258/patchlog"
   WP_BODY="$body" WP_PATCHLOG="$S258/patchlog" DEVFLOW_GH="$S258/gh" \
-    python3 "$WP_PY" update 999 --print-body "$@" >"$S258/out" 2>"$S258/err"
+    python3 "$WP_PY" update 999 --print-body \
+      --repo-root "$S258_ROOT" --claim-identity treeX "$@" >"$S258/out" 2>"$S258/err"
   echo $?
 }
+
+# (issue #1087) --status Complete over a workpad with NO completion marker aborts
+# non-zero with NO PATCH and names missing-evidence — the "Completion requires
+# marker" AC at the real CLI boundary.
+_c="$(run258 "$S258/no-marker.md" --status Complete)"
+assert_eq "#1087: --status Complete with no completion marker aborts non-zero" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#1087: the no-marker abort made NO PATCH" "yes" \
+  "$([ -s "$S258/patchlog" ] && echo no || echo yes)"
+assert_eq "#1087: the no-marker abort names missing-evidence" "yes" \
+  "$(grep -q 'missing-evidence' "$S258/err" && echo yes || echo no)"
 
 # (a) --status Complete aborts non-zero with NO PATCH when a non-post-merge AC is [ ].
 _c="$(run258 "$S258/ac-unticked.md" --status Complete)"
@@ -5532,7 +5562,7 @@ assert_eq "#258(e): --status Blocked with an unticked AC still PATCHed (Status �
 # Source pin: the terminal gate + its post-merge exclusion live in workpad.py.
 assert_eq "#258: workpad.py carries the terminal --status Complete self-record gate" "yes" \
   "$(grep -q '_terminal_complete_gate' "$WP_PY" && grep -q "(post-merge)" "$WP_PY" && echo yes || echo no)"
-rm -rf "$S258"
+rm -rf "$S258" "$S258_ROOT"
 
 # ── issue #781: workpad-sourced acceptance criteria (acs / acs-resolve) ────────
 # The review engine used to source the criteria it judges a PR against from the

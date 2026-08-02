@@ -59,6 +59,14 @@ def _load(modname: str, path: Path) -> types.ModuleType:
 
 
 workpad = _load('workpad', SCRIPTS / 'workpad.py')
+# issue #1087: the terminal `--status Complete` gate now also requires a completion
+# verification-flight marker. The pre-#1087 workpad tests (issues #258/#814 and the
+# cmd_update drivers) exercise the AC/Plan self-record gate and the PATCH path, NOT
+# the evidence gate, so they run with the evidence half bypassed by default. The
+# dedicated #1087 block near the end of this file saves the real function, exercises
+# it directly, and restores this bypass afterwards.
+_REAL_COMPLETION_EVIDENCE_VERDICT = workpad._completion_evidence_verdict
+workpad._completion_evidence_verdict = lambda args, prog_content: None
 parse_acs = _load('parse_acs', SCRIPTS / 'parse-acs.py')
 section_parse = _load('section_parse', SCRIPTS / 'section_parse.py')
 file_deferrals = _load('file_deferrals', SCRIPTS / 'file-deferrals.py')
@@ -200,6 +208,9 @@ def make_args(**overrides):
         # issue #815 filed-marker writer — same reason as the scope-decision
         # attributes above: `_apply_mutations` reads it on every call.
         mark_deferred_filed=[],
+        # issue #1087 completion verification-flight evidence — `_apply_mutations`
+        # and the terminal gate read these on every call.
+        record_completion_evidence=None, repo_root=None, claim_identity=None,
         print_body=False,
     )
     base.update(overrides)
@@ -22949,6 +22960,150 @@ _p = _sp1011.run([str(_impfail_helper), '100'], capture_output=True, encoding='u
 assert_eq("#1011 import-failure: exit 0", 0, _p.returncode)
 assert_eq("#1011 import-failure: breadcrumb names the recognizer import failure", True,
           "could not import the dependency recognizer" in _p.stderr)
+
+print("issue #1087: completion verification-flight evidence gate")
+
+cce = _load('check_completion_evidence', SCRIPTS / 'check-completion-evidence.py')
+import json as _json1087  # noqa: E402
+import tempfile as _tmp1087  # noqa: E402
+
+
+def _write_flight(rec):
+    """Write a flight record JSON to a temp verification-flights dir; return
+    (repo_root, flight_key)."""
+    root = _tmp1087.mkdtemp()
+    key = 'a' * 64
+    d = os.path.join(root, '.prflow', 'tmp', 'verification-flights')
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, key + '.json'), 'w') as fh:
+        fh.write(_json1087.dumps(rec))
+    return root, key
+
+
+_PASS_REC = {
+    "state": "passed", "result": "passed", "candidate_identity": "treeX",
+    "suite_summary": {"command": "lib/test/run.sh", "exit_status": 0,
+                      "skipped_checks": []},
+    "skipped_checks": [],
+}
+
+# ── Validator unit: the strict pass contract (maps AC "Pass contract is strict") ──
+_root, _key = _write_flight(_PASS_REC)
+_p = os.path.join(_root, '.prflow', 'tmp', 'verification-flights', _key + '.json')
+_tok, _det = cce.validate_implement_completion(_p, _root, claim_identity="treeX")
+assert_eq("#1087 pass: a current, passed, skip-free record passes", "pass", _tok)
+
+# integer 0 only — string "0" and boolean false are NOT a pass (missing-evidence,
+# a wrong-typed field, per the pass contract).
+for _bad, _lbl in [("0", "string-0"), (False, "bool-false"), (1.0, "float")]:
+    _rec = dict(_PASS_REC); _rec["suite_summary"] = dict(_PASS_REC["suite_summary"], exit_status=_bad)
+    _r2, _k2 = _write_flight(_rec)
+    _pp = os.path.join(_r2, '.prflow', 'tmp', 'verification-flights', _k2 + '.json')
+    _t, _d = cce.validate_implement_completion(_pp, _r2, claim_identity="treeX")
+    assert_eq(f"#1087 exit_status {_lbl} is not a pass", True, _t != "pass")
+
+# nonzero exit → verification-not-pass.
+_rec = dict(_PASS_REC); _rec["suite_summary"] = dict(_PASS_REC["suite_summary"], exit_status=1)
+_r2, _k2 = _write_flight(_rec)
+_pp = os.path.join(_r2, '.prflow', 'tmp', 'verification-flights', _k2 + '.json')
+_t, _d = cce.validate_implement_completion(_pp, _r2, claim_identity="treeX")
+assert_eq("#1087 nonzero exit → verification-not-pass", "verification-not-pass", _t)
+
+# missing command → missing-evidence.
+_rec = dict(_PASS_REC); _rec["suite_summary"] = {"exit_status": 0}
+_r2, _k2 = _write_flight(_rec)
+_pp = os.path.join(_r2, '.prflow', 'tmp', 'verification-flights', _k2 + '.json')
+_t, _d = cce.validate_implement_completion(_pp, _r2, claim_identity="treeX")
+assert_eq("#1087 missing suite_summary.command → missing-evidence", "missing-evidence", _t)
+
+# ── Flight states fail closed (maps AC "Flight states fail closed") ──────────────
+for _st in ("claimed", "running", "failed", "timed_out", "cancelled", "stale", "incomplete"):
+    _rec = dict(_PASS_REC); _rec["state"] = _st
+    _r2, _k2 = _write_flight(_rec)
+    _pp = os.path.join(_r2, '.prflow', 'tmp', 'verification-flights', _k2 + '.json')
+    _t, _d = cce.validate_implement_completion(_pp, _r2, claim_identity="treeX")
+    assert_eq(f"#1087 flight state {_st!r} is not a pass", "verification-not-pass", _t)
+
+# missing / malformed / array / scalar file → missing-evidence.
+_t, _d = cce.validate_implement_completion(os.path.join(_root, 'nope.json'), _root, claim_identity="treeX")
+assert_eq("#1087 absent record → missing-evidence", "missing-evidence", _t)
+_bad = _tmp1087.mkstemp(suffix='.json')[1]
+with open(_bad, 'w') as _fh:
+    _fh.write('[1,2,3]')
+_t, _d = cce.validate_implement_completion(_bad, _root, claim_identity="treeX")
+assert_eq("#1087 JSON array record → missing-evidence", "missing-evidence", _t)
+
+# ── Passed-record defects fail closed (skips, stale) ─────────────────────────────
+_rec = dict(_PASS_REC); _rec["skipped_checks"] = [{"check": "x", "kind": "host-capability"}]
+_r2, _k2 = _write_flight(_rec)
+_pp = os.path.join(_r2, '.prflow', 'tmp', 'verification-flights', _k2 + '.json')
+_t, _d = cce.validate_implement_completion(_pp, _r2, claim_identity="treeX")
+assert_eq("#1087 any skip (even host-capability) → skipped-checks-present", "skipped-checks-present", _t)
+
+# top-level skip list disagreeing with an empty summary list is still caught (top-level owns it).
+_t, _d = cce.validate_implement_completion(_p, _root, claim_identity="DIFFERENT-TREE")
+assert_eq("#1087 changed candidate identity → stale-candidate", "stale-candidate", _t)
+
+# ── workpad integration: no marker → no PATCH (maps "Completion requires marker",
+#    "Skipped-step regression is executable") ──────────────────────────────────────
+workpad._completion_evidence_verdict = _REAL_COMPLETION_EVIDENCE_VERDICT
+try:
+    _code, _out, _err, _patched = _drive_cmd_update(GATE_BODY, status='Complete')
+    assert_eq("#1087 Complete with NO completion marker exits non-zero", 1, _code)
+    assert_eq("#1087 Complete with no marker performs NO PATCH", None, _patched)
+    assert_eq("#1087 the no-marker abort names missing-evidence", True, 'missing-evidence' in _err)
+
+    # Recording a completion marker for a PASSING record, then finalizing, PATCHes once.
+    _root, _key = _write_flight(_PASS_REC)
+    _code, _out, _err, _patched = _drive_cmd_update(
+        GATE_BODY, status='Complete', record_completion_evidence=_key,
+        repo_root=_root, claim_identity="treeX")
+    assert_eq("#1087 Complete WITH a validated marker exits 0", None, _code)
+    assert_eq("#1087 Complete with a valid marker PATCHes (🎉 Complete)", True,
+              _patched is not None and '🎉 Complete' in _patched)
+    assert_eq("#1087 exactly one completion-verification marker is written", 1,
+              _patched.count('completion-verification:' + _key))
+
+    # Pass replay is idempotent: the recorded-marker body re-finalized keeps one marker.
+    _body_with_marker = _patched
+    _code2, _o2, _e2, _patched2 = _drive_cmd_update(
+        _body_with_marker, status='Complete', repo_root=_root, claim_identity="treeX")
+    assert_eq("#1087 replay: a second Complete over the recorded marker exits 0", None, _code2)
+    assert_eq("#1087 replay: still exactly one completion marker (no duplicate)", 1,
+              _patched2.count('completion-verification:' + _key))
+
+    # Recording a STALE record aborts before PATCH (the suite-failed/stale regressions).
+    _rootS, _keyS = _write_flight(dict(_PASS_REC, candidate_identity="OLD-TREE"))
+    _codeS, _oS, _eS, _patchedS = _drive_cmd_update(
+        GATE_BODY, status='Complete', record_completion_evidence=_keyS,
+        repo_root=_rootS, claim_identity="treeX")
+    assert_eq("#1087 recording a stale record aborts (no PATCH)", None, _patchedS)
+    assert_eq("#1087 the stale abort names stale-candidate", True, 'stale-candidate' in _eS)
+
+    # A failed record recorded for the current tree aborts before PATCH.
+    _rootF, _keyF = _write_flight(dict(_PASS_REC, state="failed", result="failed"))
+    _codeF, _oF, _eF, _patchedF = _drive_cmd_update(
+        GATE_BODY, status='Complete', record_completion_evidence=_keyF,
+        repo_root=_rootF, claim_identity="treeX")
+    assert_eq("#1087 recording a failed record aborts (no PATCH)", None, _patchedF)
+
+    # Standalone copy (validator sibling absent): a Complete with a marker fails closed
+    # with the missing-evidence token, while a NON-Complete update is unaffected.
+    _body_marker_only = _body_with_marker  # carries the completion marker
+    workpad._COMPLETION_VALIDATOR_ABSENT = True
+    try:
+        _codeA, _oA, _eA, _patchedA = _drive_cmd_update(
+            _body_marker_only, status='Complete', repo_root=_root, claim_identity="treeX")
+        assert_eq("#1087 standalone-copy Complete performs NO PATCH", None, _patchedA)
+        assert_eq("#1087 standalone-copy Complete names missing-evidence + the sibling", True,
+                  'missing-evidence' in _eA and 'check-completion-evidence.py' in _eA)
+        _codeB, _oB, _eB, _patchedB = _drive_cmd_update(_body_marker_only, note=['still works'])
+        assert_eq("#1087 standalone-copy NON-Complete update still PATCHes", True, _patchedB is not None)
+    finally:
+        workpad._COMPLETION_VALIDATOR_ABSENT = False
+finally:
+    workpad._completion_evidence_verdict = lambda args, prog_content: None
+
 
 print()
 print(f"{PASS} passed, {FAIL} failed")
