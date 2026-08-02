@@ -4,6 +4,13 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.26] — 2026-08-02
+
+### Changed
+### Fixed
+
+- The shared writing standard now states that agent-authored prose is not hard-wrapped: each paragraph and bullet is one line and the renderer wraps it. Drafted issue bodies were arriving with prose broken at a fixed column, which GitHub renders as ragged short lines and which makes every later edit rewrap the whole paragraph. Nothing in the write path reflowed the bytes — no rule existed in either direction, so the drafting agent's habit decided it.
+
 ## [2.30.25] — 2026-08-02
 
 ### Fixed
