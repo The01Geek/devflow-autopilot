@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.36] — 2026-08-02
+
+### Fixed
+- **Make cloud implementation artifact reconciliation directly invocable.** The repository-local implement grant now reaches the executable batch helper, whose pass also measures and raises exact module assertion floors while refusing decreases or untrustworthy runs. (#1055)
+
 ## [2.30.35] — 2026-08-02
 
 ### Fixed
