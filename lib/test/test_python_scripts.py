@@ -23455,21 +23455,24 @@ assert_eq("#1087 pass: a current, passed, skip-free record passes", "pass", _tok
 # integer 0 only — string "0" and boolean false are NOT a pass (missing-evidence,
 # a wrong-typed field, per the pass contract).
 for _bad, _lbl in [("0", "string-0"), (False, "bool-false"), (1.0, "float")]:
-    _rec = dict(_PASS_REC); _rec["suite_summary"] = dict(_PASS_REC["suite_summary"], exit_status=_bad)
+    _rec = dict(_PASS_REC)
+    _rec["suite_summary"] = dict(_PASS_REC["suite_summary"], exit_status=_bad)
     _r2, _k2 = _write_flight(_rec)
     _pp = os.path.join(_r2, '.prflow', 'tmp', 'verification-flights', _k2 + '.json')
     _t, _d = cce.validate_implement_completion(_pp, _r2, claim_identity="treeX")
     assert_eq(f"#1087 exit_status {_lbl} is not a pass", True, _t != "pass")
 
 # nonzero exit → verification-not-pass.
-_rec = dict(_PASS_REC); _rec["suite_summary"] = dict(_PASS_REC["suite_summary"], exit_status=1)
+_rec = dict(_PASS_REC)
+_rec["suite_summary"] = dict(_PASS_REC["suite_summary"], exit_status=1)
 _r2, _k2 = _write_flight(_rec)
 _pp = os.path.join(_r2, '.prflow', 'tmp', 'verification-flights', _k2 + '.json')
 _t, _d = cce.validate_implement_completion(_pp, _r2, claim_identity="treeX")
 assert_eq("#1087 nonzero exit → verification-not-pass", "verification-not-pass", _t)
 
 # missing command → missing-evidence.
-_rec = dict(_PASS_REC); _rec["suite_summary"] = {"exit_status": 0}
+_rec = dict(_PASS_REC)
+_rec["suite_summary"] = {"exit_status": 0}
 _r2, _k2 = _write_flight(_rec)
 _pp = os.path.join(_r2, '.prflow', 'tmp', 'verification-flights', _k2 + '.json')
 _t, _d = cce.validate_implement_completion(_pp, _r2, claim_identity="treeX")
@@ -23477,7 +23480,8 @@ assert_eq("#1087 missing suite_summary.command → missing-evidence", "missing-e
 
 # ── Flight states fail closed (maps AC "Flight states fail closed") ──────────────
 for _st in ("claimed", "running", "failed", "timed_out", "cancelled", "stale", "incomplete"):
-    _rec = dict(_PASS_REC); _rec["state"] = _st
+    _rec = dict(_PASS_REC)
+    _rec["state"] = _st
     _r2, _k2 = _write_flight(_rec)
     _pp = os.path.join(_r2, '.prflow', 'tmp', 'verification-flights', _k2 + '.json')
     _t, _d = cce.validate_implement_completion(_pp, _r2, claim_identity="treeX")
@@ -23493,7 +23497,8 @@ _t, _d = cce.validate_implement_completion(_bad, _root, claim_identity="treeX")
 assert_eq("#1087 JSON array record → missing-evidence", "missing-evidence", _t)
 
 # ── Passed-record defects fail closed (skips, stale) ─────────────────────────────
-_rec = dict(_PASS_REC); _rec["skipped_checks"] = [{"check": "x", "kind": "host-capability"}]
+_rec = dict(_PASS_REC)
+_rec["skipped_checks"] = [{"check": "x", "kind": "host-capability"}]
 _r2, _k2 = _write_flight(_rec)
 _pp = os.path.join(_r2, '.prflow', 'tmp', 'verification-flights', _k2 + '.json')
 _t, _d = cce.validate_implement_completion(_pp, _r2, claim_identity="treeX")
