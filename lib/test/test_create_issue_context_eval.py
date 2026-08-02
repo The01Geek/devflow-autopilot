@@ -887,6 +887,35 @@ class StateReaderBestEffortTest(unittest.TestCase):
         self.assertEqual(state[2]["kind"], "targeted")
         self.assertEqual(state[2]["scope"]["draft_lines"], [10, 50])
 
+    def test_recorded_reason_is_read_alongside_the_kind(self):
+        """Issue #1103: read_state carries the recorded kind_reason per round."""
+        state = CICE.read_state(self._state(
+            '{"rounds": [{"round": 1, "kind": "discovery", '
+            '"kind_reason": "no-round-dispatched"}, '
+            '{"round": 2, "kind": "discovery", "kind_reason": "empty-delta"}]}'))
+        self.assertIsNotNone(state)
+        self.assertEqual(state[1]["kind_reason"], "no-round-dispatched")
+        self.assertEqual(state[2]["kind_reason"], "empty-delta")
+
+    def test_absent_reason_reads_unestablished_never_a_guess(self):
+        """Issue #1103: a round carrying no reason (pre-change record, or a legacy round)
+        reads `unestablished` — never a guessed value, and never a whole-state collapse."""
+        state = CICE.read_state(self._state(
+            '{"rounds": [{"round": 1, "kind": "discovery"}, '
+            '{"round": 2, "kind": "targeted", "kind_reason": "targeted-eligible"}]}'))
+        self.assertIsNotNone(state)
+        self.assertEqual(state[1]["kind_reason"], CICE.UNESTABLISHED)
+        self.assertEqual(state[2]["kind_reason"], "targeted-eligible")
+
+    def test_non_string_reason_reads_unestablished(self):
+        """Issue #1103: a present-but-non-string reason is unestablished, never coerced —
+        and does not collapse the whole state (the state owner's _validate is the boundary
+        that refuses an off-vocabulary reason on load)."""
+        state = CICE.read_state(self._state(
+            '{"rounds": [{"round": 1, "kind": "discovery", "kind_reason": 7}]}'))
+        self.assertIsNotNone(state)
+        self.assertEqual(state[1]["kind_reason"], CICE.UNESTABLISHED)
+
 
 class RoundKindCouplingTest(unittest.TestCase):
     """The eval's ROUND_KINDS mirror of the state owner's `_ROUND_KINDS` (issue #793).
@@ -1080,6 +1109,35 @@ class PerKindAndProxyTest(unittest.TestCase):
         self.assertEqual(set(report["runs"][0]["round_kinds"].values()),
                          {"unestablished"})
         self.assertIn("(unestablished)", CICE._render_run_line(report["runs"][0]))
+
+    def test_per_run_breakdown_carries_each_rounds_recorded_reason(self):
+        """Issue #1103: the selecting reason lives on the per-run breakdown beside the
+        kind, and a round the state does not label reads `unestablished` (never guessed).
+
+        The committed `after-state.json` fixture records no `kind_reason` on any round, so
+        every reason reads `unestablished` here — which is exactly the absent-field arm
+        this AC also asks for. A round whose reason IS recorded is covered by the
+        `_join_round_kinds` unit test below."""
+        report = CICE.build_report(
+            os.path.join(_FIX, "after-rounds"),
+            os.path.join(_FIX, "states", "after-state.json"))
+        run = report["runs"][0]
+        self.assertEqual(set(run["round_reasons"].values()), {"unestablished"})
+        self.assertIn("per-round selecting reason:", CICE._render_run_line(run))
+
+    def test_join_reads_a_recorded_reason_and_unestablished_for_an_absent_one(self):
+        """Issue #1103: one fixture per shape — a round whose record carries the reason,
+        and a round whose record carries none — read through the join."""
+        runs = [{"round_auditor_cost": {1: 100, 2: 200}}]
+        state = {1: {"kind": "discovery", "kind_reason": "no-round-dispatched"},
+                 2: {"kind": "discovery", "kind_reason": CICE.UNESTABLISHED}}
+        CICE._join_round_kinds(runs, state)
+        self.assertEqual(runs[0]["round_reasons"],
+                         {1: "no-round-dispatched", 2: "unestablished"})
+        # A round absent from the state entirely also reads unestablished.
+        runs2 = [{"round_auditor_cost": {3: 300}}]
+        CICE._join_round_kinds(runs2, state)
+        self.assertEqual(runs2[0]["round_reasons"], {3: "unestablished"})
 
 
 class PairedDeltaTest(unittest.TestCase):
