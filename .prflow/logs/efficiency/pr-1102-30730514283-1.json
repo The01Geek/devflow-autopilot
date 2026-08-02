@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1102",
+  "generated_at": "2026-08-02T03:32:44Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.23",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 8.192434500000003,
+    "tokens": {
+      "input_tokens": 3164,
+      "output_tokens": 26707,
+      "cache_read_input_tokens": 4999305,
+      "cache_creation_input_tokens": 187922,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 3252,
+        "outputTokens": 50333,
+        "cacheReadInputTokens": 7343384,
+        "cacheCreationInputTokens": 406632,
+        "webSearchRequests": 0,
+        "costUSD": 8.192434500000003,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 42,
+    "duration_ms": 524138
+  },
+  "permission_denials": {
+    "count": 13,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-unset} ATTEMPT=${GITHUB_RUN_ATTEMPT:-unset} ACTIONS=${GITHUB_ACTIONS:-unset}\"; date -u +%Y%m%dT%H%M%SZ",
+      "gh pr diff 1102 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1102/30730514283-1/diff.patch\nwc -l .prflow/tmp/review/pr-1102/30730514283-1/diff.patch",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1079 --pr 1102 2>.prflow/tmp/review/pr-1102/30730514283-1/acs.err ; echo \"acs-rc=$?\"; echo \"===ERR===\"; cat .prflow/tmp/review/pr-1102/30730514283-1/acs.err",
+      "ls .changeset/*.md | grep -v README | head -3 | while read f; do echo \"=== $f ===\"; head -5 \"$f\"; done\necho \"===VERIFY CONTRACT HASH===\"\npython3 -c \"import hashlib; print(hashlib.sha256(open('skills/review-and-fix/references/shadow-review.md','rb').read()).hexdigest())\"",
+      "git show 9f158d1e1744e7773482642f09a1f0c5e71a87fd:skills/review-and-fix/references/shadow-review.md > /tmp/sr.md; grep -n \"coverage\\|Assessment\\|assessment\\|defect_signature\\|positive-return\\|1:1\\|dispatched-but-lost\\|coverage bar\" /tmp/sr.md",
+      "git show 9f158d1e1744e7773482642f09a1f0c5e71a87fd:skills/review-and-fix/references/shadow-review.md > /tmp/sr.md",
+      "git show 9f158d1e1744e7773482642f09a1f0c5e71a87fd:skills/review-and-fix/references/shadow-review.md > /home/runner/work/prflow/prflow/.prflow/tmp/sr.md",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>/tmp/err.txt 1>/tmp/out.txt; echo \"EXIT=$?\"; echo \"--- STDOUT ---\"; cat /tmp/out.txt; echo \"--- STDERR ---\"; cat /tmp/err.txt",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>/tmp/err.txt 1>/tmp/out.txt; echo \"EXIT=$?\"",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>.prflow/tmp/err.txt 1>.prflow/tmp/out.txt; echo \"EXIT=$?\"",
+      "for f in code-reviewer comment-analyzer pr-test-analyzer type-design-analyzer silent-failure-hunter; do echo \"=== $f ===\"; grep -niE \"assessment|verdict|no issues|no findings|## |output format|if you find no|when.*no \" agents/$f.md | head -20; done",
+      "for f in code-reviewer comment-analyzer pr-test-analyzer type-design-analyzer; do echo \"=== $f ===\"; grep -niE \"assessment|verdict|no (issues|findings|problems)|clean|when.*no |summary\" \"agents/$f.md\" | head -12; done",
+      "for f in agents/code-reviewer.md agents/comment-analyzer.md agents/pr-test-analyzer.md agents/silent-failure-hunter.md agents/type-design-analyzer.md; do echo \"=== $f ===\"; grep -c \"^### Assessment\" \"$f\" 2>/dev/null || echo \"missing file\"; done; echo \"=== requesting-code-review (vendored final-pass) ===\"; grep -rn \"### Assessment\" skills/requesting-code-review/ 2>/dev/null"
+    ],
+    "total": 13,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
