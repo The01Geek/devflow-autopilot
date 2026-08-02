@@ -212,7 +212,11 @@ def _audited_sources(repo_root: Path) -> tuple[str, ...]:
 # audited set alone, for the same 13 within-census hits on the tree as it stood
 # at that run. Past-time snapshot of that run.
 #
-# Raised 2026-08-02 (issue #1072): the shipped-pruned-path lint's fixture corpus
+# Bound raise, 2026-08-02 (issue #1072). Note the wording here avoids the bare
+# tokens `sed` and `grep` followed by a space: this module carries an executable
+# guard (test_census_does_not_spawn_or_interpret_mutation_tools) that scans its
+# own source for them, and a past participle of "raise" collides with the first.
+# The shipped-pruned-path lint's fixture corpus
 # adds nine tracked shell sources under lib/test/fixtures/shipped-pruned-path/,
 # taking the population the sweep parses from 51 to 60 — past the old bound of
 # 56, so every entry was evicted before the extraction asked for it again and
