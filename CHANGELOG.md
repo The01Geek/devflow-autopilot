@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.20] — 2026-08-02
+
+### Fixed
+- **Keep seeded, interrupted cloud reviews discoverable.** When the cloud seed helper runs, it now derives and writes the workflow-run marker so dead-run cleanup can find and flip that comment. A run that never reaches the helper remains a separate omission mode. (#1093)
+
 ## [2.30.19] — 2026-08-01
 
 ### Changed
