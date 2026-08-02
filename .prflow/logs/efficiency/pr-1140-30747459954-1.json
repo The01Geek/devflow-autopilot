@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1140",
+  "generated_at": "2026-08-02T12:22:21Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.42",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.7038385000000007,
+    "tokens": {
+      "input_tokens": 59,
+      "output_tokens": 20974,
+      "cache_read_input_tokens": 3751907,
+      "cache_creation_input_tokens": 130324,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 59,
+        "outputTokens": 20974,
+        "cacheReadInputTokens": 3751907,
+        "cacheCreationInputTokens": 130324,
+        "webSearchRequests": 0,
+        "costUSD": 3.7038385000000007,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 33,
+    "duration_ms": 329661
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review",
+      "gh pr diff 1140 > .prflow/tmp/review/pr-1140/local-run/full.patch 2>&1; wc -l .prflow/tmp/review/pr-1140/local-run/full.patch; echo \"===\"; git diff 140103e94f9048d72d60ef9dd6da4df92117b79d...06f7c68667bd296e76e908282857e87afe02ee61 --stat 2>/dev/null | tail -5",
+      "cd /home/runner/work/prflow/prflow\necho \"=== all files containing devflow-review.yml (filename form) ===\"\ngit grep -lF -- 'devflow-review.yml' | LC_ALL=C sort\necho \"=== _936_EXPECTED contents ===\"\nsed -n '/_936_EXPECTED=\"\\$(cat <<'\"'\"'EOF'\"'\"'/,/^EOF/p' lib/test/run.sh",
+      "git -C /home/runner/work/prflow/prflow grep -lF -- 'devflow-review.yml' | LC_ALL=C sort",
+      "cat > .prflow/tmp/review/pr-1140/local-run/verdict.md <<'EOF'\n## PRFlow Review — PR #1140 — ✅ APPROVE\n\n**Diff profile:** `engine_self_modifying` (touches `lib/**`) → full checklist. 2 files, ~50 lines: `docs/cloud-allowlist.md` (prose correction) + `lib/test/run.sh` (coupled `#936` inventory entry).\n**Reviewed HEAD:** `06f7c68667bd296e76e908282857e87afe02ee61`\n**Test evidence:** CI `lib + python tests: success` for this commit (from engine ground-truth block).\n\nThis is a documentation-correctnes …[per-command-truncated]"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
