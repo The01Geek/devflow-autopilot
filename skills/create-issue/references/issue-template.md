@@ -108,6 +108,37 @@ it during the no-options check:
 - **Data/Schema Considerations** — schema changes, queries, or data-access patterns.
 - **Cross-layer Impact** — which layers are affected (frontend, backend, API, database).
 
+**Verify relied-on third-party behavior before drafting.** The premise class is
+**relied-on third-party behavior** — every behavior of an external platform, API, or
+service the issue **relies on** (load-bearing for the Desired Behavior, an acceptance
+criterion, **or** the Implementation Notes Approach — not only an AC's mechanism): webhook /
+event delivery, trigger syntax, token scopes, endpoint behavior, response shapes, rate
+limits, and the like. Relied-on behavior is **never assumed**. Verify it with this **decided
+fallback ladder**, in order, stopping at the first rung that resolves it: **(1)** the vendor's
+**official documentation via `WebFetch`** (not memory); **(2)** when the official docs are not
+reachable, **`WebSearch`**; **(3)** when search is unavailable or fails, **ask the user to
+provide the documentation**. Record the verified fact and its source URL in the draft's
+`Technical Context` before the relied-on claim is written. This is the premise class the #304
+run missed: it prescribed a `check_suite`/`workflow_run` mechanism GitHub cannot deliver
+(Actions-created check suites never emit `check_suite`; `workflow_run` requires a named
+workflow list), which only surfaced mid-implement — a `WebFetch` of the events docs at
+drafting time would have caught it. This class is **not** re-derived downstream: an
+implementing run re-checks claims against the tree it builds on, and vendor behavior is not
+in the tree.
+
+**Ladder terminal arm — decided two ways.** When the ladder yields **no documentation** and
+**no working example in this codebase already proves** the relied-on behavior, the item
+becomes a `## 🚫 Blocked` entry phrased as a **direct question** — the exact vendor-behavior
+fact to confirm plus one line on why it blocks the work — because an unverifiable load-bearing
+external premise blocks implementation exactly as an undecided decision does. When a **working
+in-codebase example does prove** the behavior but documentation remains unavailable, write the
+claim inline as an explicitly flagged `— assumption, confirm before implementing` line
+**citing that in-repo example** (not a Blocked entry). Treat an empty or inconclusive ladder
+result as **unverified**, never as silent confirmation. Verification is scoped to
+**load-bearing** premises, so an **incidental third-party mention** (named in passing, not
+load-bearing for the Desired Behavior, an AC, or the Approach) stays light and triggers no
+verification, and drafting is never blocked in a data-less authoring context.
+
 **Every "Verified:" bullet carries a self-contained re-derivation handle.** A bullet is true when
 you write it and nothing re-checks it afterwards, so the reader who matters is both a human
 developer who does not know this codebase, reading to understand what the issue asks, and an
@@ -424,6 +455,7 @@ incomplete issues.
 - [ ] An AC establishing a trust/integrity boundary over executable artifacts defines the protected set over the transitive source/exec/import closure of its entry points, or states the residual unprotected surface explicitly
 - [ ] A Testing Strategy that enumerates an input-shape/case matrix for a convention-governed surface carries the full convention matrix (or an explicit named-and-justified narrowing) and a `governing conventions consulted:` discharge line bounded to `CLAUDE.md`, `CONTRIBUTING.md`, and the configured internal-docs path
 - [ ] The draft's own unstated mechanism dependencies (relied-on in-repo helper/resolver/gate behaviors, and existence-shaped reliances, it never asserts as claims) each have their existence determined first and are then routed per Step 3.5's item 4 (`skills/create-issue/references/step-3-5-steelman.md`), an undetermined one recording **not established** and taking its implementer-obligation route
+- [ ] Every relied-on third-party behavior (load-bearing for the Desired Behavior, an AC, or the Approach) is checked against official docs via the WebFetch → WebSearch → ask-the-user ladder with the source recorded — or, when unverifiable, becomes a `## 🚫 Blocked` vendor-behavior question (or a flagged assumption citing an in-repo example); an incidental mention triggers none of this
 - [ ] Every "Verified:" bullet carries a self-contained re-derivation handle — the repository path in backticks plus the sentence quoted verbatim from it — so an implementing run can re-check the premise mechanically rather than re-investigating it
 - [ ] A premise verified as "the code does X" was read with its enclosing gates/conditionals and their defaults on the path to X, and any claim that holds only under a non-default configuration states that precondition inside the claim
 - [ ] A designed LLM/semantic-judgment surface over third-party text (issue bodies, PR comments, commit messages, external API responses) carries the input-is-data guard AC paired with a hostile-input Testing Strategy case that asserts instruction-shaped input is not obeyed — or cites the existing already-guarded judgment path it reuses; a draft with no such surface adds nothing here
