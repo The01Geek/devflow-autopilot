@@ -12406,6 +12406,51 @@ assert_eq "union: stub review + progress comment (same verdict) → 2 entries" "
 # Regression: empty comments + empty reviews → [] and false.
 assert_eq "union: empty comments + empty reviews → [] and rro false" "0 false" \
   "$(_uv '[]' '[]' | jq -r '"\(.review_verdicts | length) \(.signals.review_reject_outstanding)"')"
+
+# ── #1030: the producer marker, over the REAL census bodies ───────────────────
+# The measured defect this closes: six of the nine bot CHANGES_REQUESTED bodies in
+# lib/test/fixtures/review-verdict-census.json match NO heading shape, so the
+# "merged over an un-cleared REJECT" detector was blind to every one of them. Each
+# assertion below feeds a body built from a recorded census first line through the
+# REAL producer; the unmarked control beside it is what proves the marker moved it.
+UVM_HEAD="4444444444444444444444444444444444444444"
+UVM_REJECT="<!-- prflow:review-verdict head=$UVM_HEAD verdict=REJECT -->"
+UVM_APPROVE="<!-- prflow:review-verdict head=$UVM_HEAD verdict=APPROVE -->"
+# Every non-conforming census REJECT body, marker-stamped, is recognised — and the
+# same bodies unmarked are recognised by NOTHING, which is the pre-#1030 blindness.
+UVM_MARKED_HITS=0
+UVM_UNMARKED_HITS=0
+while IFS= read -r UVM_LINE; do
+  UVM_MARKED="$(_uv '[]' "$(jq -nc --arg b "$UVM_REJECT"$'\n'"$UVM_LINE" '[{state:"CHANGES_REQUESTED",body:$b,submitted_at:"2026-01-01T00:00:00Z"}]')" | _uv_verds)"
+  [ "$UVM_MARKED" = "REJECT" ] && UVM_MARKED_HITS=$((UVM_MARKED_HITS + 1))
+  UVM_PLAIN="$(_uv '[]' "$(jq -nc --arg b "$UVM_LINE" '[{state:"CHANGES_REQUESTED",body:$b,submitted_at:"2026-01-01T00:00:00Z"}]')" | _uv_verds)"
+  [ -z "$UVM_PLAIN" ] && UVM_UNMARKED_HITS=$((UVM_UNMARKED_HITS + 1))
+done < <(jq -r '.rejects[] | select(.dismisser_prose_match | not) | .first_line' "$LIB/test/fixtures/review-verdict-census.json")
+assert_eq "#1030 union: every marker-stamped non-conforming census REJECT is recognised" \
+  "6-6" "$UVM_MARKED_HITS-$UVM_UNMARKED_HITS"
+# The consequence the retrospective loop reads: a pull request merged over a
+# marker-carrying un-cleared REJECT whose body matches no heading shape.
+assert_eq "#1030 union: a marker-carrying REJECT matching no heading shape sets rro true" "true" \
+  "$(_uv '[]' "$(jq -nc --arg b "$UVM_REJECT"$'\n''## 🔴 Devflow Review — REJECT' '[{state:"CHANGES_REQUESTED",body:$b,submitted_at:"2026-01-01T00:00:00Z"}]')" | _uv_rro)"
+# ...and a later marker-carrying APPROVE ordering after it clears the signal.
+assert_eq "#1030 union: a later marker-carrying APPROVE clears the marker REJECT" "false" \
+  "$(_uv '[]' "$(jq -nc --arg r "$UVM_REJECT"$'\n''## 🔴 REJECT' --arg a "$UVM_APPROVE"$'\n''## ✅ APPROVE' '[{state:"CHANGES_REQUESTED",body:$r,submitted_at:"2026-01-01T00:00:00Z"},{state:"COMMENTED",body:$a,submitted_at:"2026-01-02T00:00:00Z"}]')" | _uv_rro)"
+# The marker is recognised on the COMMENT leg too, on the line after the run key.
+assert_eq "#1030 union: a marker on line 2 of a progress comment is recognised" "REJECT" \
+  "$(_uv "$(jq -nc --arg b '<!-- prflow:review-progress run=7-1 -->'$'\n'"$UVM_REJECT"$'\n''## 🔴 Devflow Review — REJECT' '[{body:$b,created_at:"2026-01-01T00:00:00Z"}]')" '[]' | _uv_verds)"
+# ONE entry per marker-carrying artifact: a body carrying BOTH the marker and a
+# heading contributes the marker's verdict once, not two entries.
+assert_eq "#1030 union: a marked body contributes exactly one entry, not one per heading" "1-APPROVE" \
+  "$(_uv '[]' "$(jq -nc --arg b "$UVM_APPROVE"$'\n''## Verdict: APPROVE'$'\n''## Verdict: REJECT' '[{state:"COMMENTED",body:$b,submitted_at:"2026-01-01T00:00:00Z"}]')" | jq -r '"\(.review_verdicts | length)-\(.review_verdicts[0].verdict)"')"
+# A marker QUOTED below the scanned window is prose: the heading grammar decides.
+assert_eq "#1030 union: a marker quoted below line 2 is not read; the heading decides" "APPROVE" \
+  "$(_uv '[]' "$(jq -nc --arg b '## Verdict: APPROVE'$'\n''a finding quotes:'$'\n'"$UVM_REJECT" '[{state:"COMMENTED",body:$b,submitted_at:"2026-01-01T00:00:00Z"}]')" | _uv_verds)"
+# Only the prflow: spelling is a marker — the devflow: spelling falls through.
+assert_eq "#1030 union: a devflow:review-verdict spelling is not a marker" "" \
+  "$(_uv '[]' "$(jq -nc --arg b "<!-- devflow:review-verdict head=$UVM_HEAD verdict=REJECT -->" '[{state:"COMMENTED",body:$b,submitted_at:"2026-01-01T00:00:00Z"}]')" | _uv_verds)"
+# A non-string body still skips the entry rather than aborting the marker filter.
+assert_eq "#1030 union: a non-string body skips without aborting the marker scan" "REJECT" \
+  "$(_uv '[]' "$(jq -nc --arg b "$UVM_REJECT" '[{state:"COMMENTED",body:5,submitted_at:"2026-01-01T00:00:00Z"},{state:"COMMENTED",body:$b,submitted_at:"2026-01-02T00:00:00Z"}]')" | _uv_verds)"
 rm -rf "$F895"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -36154,7 +36199,7 @@ echo "#431 build-experiment-records.py — the unified experiment record (join)"
 # module header and its .inventory.md carry the rationale and the resulting
 # coverage-map decision; do not restate it here, so the two cannot drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/experiment-records.sh" \
-  "experiment-records" 133; then
+  "experiment-records" 138; then
   printf 'ERROR: experiment-records boundary could not record its result\n'
   exit 1
 fi

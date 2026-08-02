@@ -458,7 +458,24 @@ PYEOF
 # so a PR merged over an un-cleared REJECT reads clean (issue #895). Reading the
 # reviews leg too closes that hole.
 #
-# BOTH legs recognize the verdict heading with the SAME grammar: a heading line
+# BOTH legs read the PRODUCER MARKER first (issue #1030) and fall back to the
+# heading grammar. scripts/post-review-verdict.sh — never the reviewing agent —
+# stamps
+#     <!-- prflow:review-verdict head=<40-hex> verdict=<APPROVE|REJECT> -->
+# as line 1 of a review body and as the line after the run key in the run-keyed
+# progress comment, so ONLY the first two lines are scanned for it: that is where
+# the producer writes it and nowhere a fenced quote lands, so a review body that
+# QUOTES this contract in a finding (routine on a pull request touching the review
+# engine itself) is not read as carrying a verdict. Exactly one marker in that
+# window contributes exactly ONE entry and the heading grammar is not consulted for
+# that artifact; zero markers, or an ambiguous two, fall back to the grammar
+# unchanged. The marker exists because a census over 60 pull requests measured 6 of
+# 9 real bot REJECT bodies matching NO heading shape, so this signal — the
+# retrospective loop's "merged over an un-cleared REJECT" detector — was blind to
+# them.
+#
+# The heading grammar (the TRANSITIONAL shape, retained for artifacts posted before
+# the marker existed): a heading line
 # (1-6 `#`), an optional `/review —`/`/review –`/`/review -` wrapper prefix, the
 # literal `Verdict:`, an optional `**` bold marker, then the first APPROVE|REJECT
 # token. Two formats occur in the wild — the standalone `## Verdict: APPROVE (…)`
@@ -490,12 +507,18 @@ PYEOF
 printf '%s' "$PR_REVIEWS_RAW" > "$_JQ_TMP/pr_reviews_raw.json"
 REVIEW_VERDICTS="$(echo "$PR_COMMENTS_RAW" | "$DEVFLOW_JQ" --slurpfile reviews "$_JQ_TMP/pr_reviews_raw.json" '
     def verdicts_in($body):
-        ($body | strings)
-        | split("\n")[]
-        | rtrimstr("\r")
-        | select(test("^#{1,6}[ \t]*(/review[ \t]*[—–-]+[ \t]*)?Verdict:[ \t]*\\**[ \t]*(APPROVE|REJECT)"; "i"))
-        | capture("Verdict:[ \t]*\\**[ \t]*(?<verdict>APPROVE|REJECT)"; "i")
-        | (.verdict | ascii_upcase);
+        (($body | strings) | split("\n") | map(rtrimstr("\r"))) as $lines
+        | ([ $lines[0:2][]
+             | select(test("^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=(APPROVE|REJECT) -->$"))
+             | capture("verdict=(?<verdict>APPROVE|REJECT)")
+             | .verdict ]) as $marked
+        | (if ($marked | length) == 1 then $marked
+           else [ $lines[]
+                  | select(test("^#{1,6}[ \t]*(/review[ \t]*[—–-]+[ \t]*)?Verdict:[ \t]*\\**[ \t]*(APPROVE|REJECT)"; "i"))
+                  | capture("Verdict:[ \t]*\\**[ \t]*(?<verdict>APPROVE|REJECT)"; "i")
+                  | (.verdict | ascii_upcase) ]
+           end)
+        | .[];
     # Guard both payloads to arrays before iterating: a non-array comments payload
     # (stdin `.`) or a non-array reviews payload ($reviews[0]) would otherwise abort
     # the whole filter on `.[]` (external structured format — fail closed to empty).
