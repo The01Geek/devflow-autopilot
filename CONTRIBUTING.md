@@ -140,6 +140,15 @@ write-scope assertion proves the pass leaves the file byte-unchanged. Running it
 twice in a row leaves the file byte-unchanged the second time, and it refuses to
 write a malformed map rather than corrupting it.
 
+The guard also fails RED when the map on disk is **not in canonical serialized form**
+— its key order or formatting differs from what `--fix` writes (issue #1065). This
+catches drift the ownership arms miss (a merge-conflict resolution that reorders
+entries leaves the parsed value unchanged), so it fails at the point the drift is
+introduced instead of being silently folded into a later, unrelated `--fix`. The
+remedy is the same command: `--fix` re-canonicalizes an order-only drifted map even
+when it has no ownership repair to make, so you can always run it and commit the
+result.
+
 A label a module carries while assertions remain in `lib/test/run.sh` is *partially*
 extracted and correctly stays `unmodularized`: one `owner` string cannot truthfully
 describe split coverage.

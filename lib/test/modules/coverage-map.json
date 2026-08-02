@@ -434,6 +434,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/post-review-verdict.sh": {
+      "note": "#1059 formal-review-verdict poster; driven directly from lib/test/run.sh's 'post-review-verdict.sh' block over the five-outcome matrix (POSTED/FAILED/SKIP) under a faithful gh+jq stub, plus the no-silent-path guarantee-class control.",
+      "owner": "unmodularized"
+    },
     "scripts/preflight.py": {
       "note": "",
       "owner": "unmodularized"
@@ -734,9 +738,17 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "1059": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "1064": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "1065": {
+      "note": "",
+      "owner": "harness-python-guards"
     },
     "1072": {
       "note": "",
@@ -2045,6 +2057,10 @@
     "99": {
       "note": "",
       "owner": "retrospective-lifecycle"
+    },
+    "990": {
+      "note": "",
+      "owner": "review-trigger-helpers"
     },
     "unlabeled": {
       "note": "aggregate of lib/test/run.sh assertion names carrying no issue-number token; a visible line item, not an absence.",
