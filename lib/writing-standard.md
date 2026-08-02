@@ -23,6 +23,8 @@ Write for a competent developer who does not know this codebase. They understand
 
 5. **Define a coined term at first use, and prefer a standard term.** When a word already exists for the thing, use it rather than inventing one. When no word exists and you must coin one, define it where it first appears. Do not invent ALL-CAPS taxonomies, and do not attach serial tags such as `R7`, `META`, or `CORRECTION` — the surrounding structure already classifies the content.
 
+6. **Do not hard-wrap.** Write each paragraph and each bullet as one line and let the renderer wrap it. GitHub and every other markdown renderer reflows prose to the reader's width, so a hand-inserted fixed-column break survives into the rendered output as a ragged short line, and it makes every later edit rewrap the whole paragraph. Line breaks inside a fenced code block are content rather than wrapping, so leave those alone.
+
 ## Machine-consumed structure comes first
 
 Some of this content is parsed by tools, not only read by people. An `## Acceptance Criteria` heading, a `- [ ]` checkbox row, an HTML marker block, and a literal cross-reference token such as `PR #<N>` are read by downstream code that matches them exactly. These structures are exempt from the rules above and survive verbatim. When a rule here would push you to reword one of them, the structure wins.
