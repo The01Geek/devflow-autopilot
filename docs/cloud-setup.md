@@ -774,6 +774,16 @@ Key properties:
   "opened-by" identity are out of scope — they require a per-user credential (tracked
   separately).
 
+## Assigning the created PR to the triggering user (issue #1165)
+
+Distinct from commit *attribution* above (which is opt-in and rewrites git metadata), every `/prflow:implement` run **assigns the draft PR it creates** to the developer who triggered it — always on, no config key — so reviewers can read ownership from the standard GitHub assignee field. This is the PR **assignee**, not the "opened-by" identity (which still requires a per-user credential and stays out of scope).
+
+- **Cloud identity propagation.** `.github/workflows/devflow-implement.yml` exports `DEVFLOW_TRIGGERING_USER: ${{ github.event.sender.login }}` — the same authorized issue-comment sender authorization and commit attribution already use — into the `claude` writer step. Phase 3.1.1 of the implement engine passes it to `scripts/apply-pr-triggerer.sh`, which POSTs the login to `repos/{owner}/{repo}/issues/{number}/assignees`. The `DEVFLOW_` prefix is kept deliberately — the rename contract freezes environment identifiers. **You do not set this variable**, which is why it is absent from the frozen consumer-facing table above: the workflow derives it from the trigger event, and it is recorded as an adjudicated-out name in `lib/rename-map.json` (a consumer-supplied value would be an identity the authorization step never vetted).
+- **Local identity resolution.** Outside Actions (a local `/prflow:implement`) the helper resolves the authenticated login through `gh api user --jq .login` instead.
+- **Assignment confirmation.** GitHub can accept the POST while silently ignoring an unassignable login, so the helper reports success (`assignment: applied <login>`) only after confirming the login is present in the response; otherwise it records `assignment: skipped unconfirmed`. Reapplying is idempotent and never removes existing assignees.
+- **Best-effort, fail-closed on identity.** The helper always exits 0; a skip or a harness refusal is recorded as a `dropped-failed` entry in the workpad's `## Devflow Reflection` and never gates the run. It is **CREATE-only** — a resumed run that adopts an existing PR leaves its assignees untouched.
+- **Deployment skew.** A cloud run whose `DEVFLOW_TRIGGERING_USER` is empty (an older workflow paired with a newer skill, or a non-issue-comment trigger) skips assignment and **never** substitutes another account — not the token owner, the GitHub App identity, or `GITHUB_ACTOR`. A newer workflow paired with an older skill simply never invokes the helper. No new credential is required (the assignee POST uses the run's existing repo-scoped token).
+
 ## Durable denial forensics — a default-ON behavior change on upgrade (issue #1064)
 
 When a cloud run emits a Bash command in a shape the permission matcher does not grant,

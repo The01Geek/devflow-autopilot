@@ -112,6 +112,8 @@ This is what stops the weekly retrospective's audit-report comment (which quotes
 the literal `/prflow:implement` phrase in prose) from self-triggering on the
 state PR.
 
+**The authorized comment sender becomes the created PR's assignee (issue #1165).** Because the implement trigger is an `issue_comment[created]` event, `github.event.sender.login` names the developer who requested the run. `devflow-implement.yml` propagates it to the writer as `DEVFLOW_TRIGGERING_USER`, and Phase 3.1.1 of the implement engine best-effort-assigns the newly-created draft PR to that login (a local run resolves `gh api user --jq .login` instead). Assignment is CREATE-only, fail-closed on identity (an empty sender substitutes no other account), and never gates the run — see [`docs/cloud-setup.md`](cloud-setup.md) → *Assigning the created PR to the triggering user*.
+
 `resolve-implement-trigger.sh` is **also markdown-aware** (issue #1032): it routes
 through the shared `scripts/detect-standalone-command.sh` detector, so on an *issue*
 comment a `/prflow:implement` token that is merely quoted in prose, blockquoted,
