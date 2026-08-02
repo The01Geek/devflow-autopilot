@@ -38,7 +38,8 @@
 # Exit codes:
 #   0  settings provisioned, or already complete (a quiet "nothing changed").
 #   2  any precondition or I/O failure — the existing .claude/settings.json is
-#      unreadable, is not valid JSON, or is valid JSON of the wrong shape (a
+#      unreadable, could not be read into a variable, contains a NUL byte, is
+#      not valid JSON, or is valid JSON of the wrong shape (a
 #      non-object root, or a DevFlow object-valued path present as a non-object);
 #      or jq is missing; or the settings dir / temp file could not be created or
 #      the merged file could not be written. In every exit-2 case the existing
@@ -128,12 +129,55 @@ if [ -f "$SETTINGS" ]; then
     warn "existing $SETTINGS is not readable (check permissions); left it unchanged and provisioned nothing."
     exit 2
   fi
-  if [ -s "$SETTINGS" ] && grep -q '[^[:space:]]' "$SETTINGS"; then
-    if ! EXISTING="$("$DEVFLOW_JQ" . "$SETTINGS" 2>/dev/null)"; then
-      warn "existing $SETTINGS is not valid JSON; left it unchanged and provisioned nothing (fix or remove it, then re-run /prflow:init)."
-      exit 2
-    fi
+  # Classify the file's content with BASH BUILTINS ONLY — never a non-preflight
+  # PATH tool (was `[ -s ] && grep -q '[^[:space:]]'`, silently defeated when
+  # grep does not resolve on PATH: it classified every file blank and let the
+  # merge below clobber the user's whole settings). CLAUDE.md guard-class 2 — a
+  # value that decides a SELECTION or an EMITTED result must not be derived
+  # through a non-preflight PATH tool; mirrors scripts/resolve-command-trigger.sh.
+  # Three steps, in this order:
+  #   1. NUL probe BEFORE any slurp — both command substitution and `read` stop
+  #      at a NUL byte, so a slurp-first remedy would read a NUL-bearing file as
+  #      blank and clobber it. `read -r -d ''` is a builtin that succeeds iff the
+  #      file holds a NUL.
+  #   2. Captured read INTO a variable with `if !` — keeps a read that fails
+  #      after the [ -r ] pre-check (file deleted/replaced/chmod'd in the race,
+  #      an EIO on a mount, a dangling symlink) inside the exit-0-or-2 contract
+  #      instead of aborting under set -e.
+  #   3. Blankness `case` — non-blank parses as JSON; blank / whitespace-only /
+  #      zero-byte leaves EXISTING at {} and fills the keys.
+  #
+  # HOST-BASH-VARIANCE NOTE (the assumption issue #1081 flagged "confirm before
+  # implementing" — confirmed FALSE on this host, bash 5.2.21): the prescribed
+  # `settings_content="$(<"$SETTINGS" 2>/dev/null)"` is NOT usable here — a
+  # `2>/dev/null` INSIDE a `$(<file)` substitution defeats bash's fast-path read
+  # and yields the empty string, which misclassifies every real settings file as
+  # blank and clobbers it (the very fail-open this change removes). The `read`
+  # builtin sidesteps both that bug and command substitution's NUL-stripping. The
+  # reads are wrapped in `{ …; } 2>/dev/null` groups so a redirection-open error
+  # is suppressed AFTER the group's stderr is redirected (an inline
+  # `< "$f" 2>/dev/null` leaks the open error, which fires before 2>/dev/null
+  # takes effect) — keeping the breadcrumb the only thing on the error channel.
+  # `read -r -d ''` returns non-zero at EOF even on a clean read, so its status
+  # cannot signal a read failure; the read-failure branch pairs the group status
+  # with a fresh `[ ! -r ]` re-test to catch an open failure and ignore EOF.
+  # shellcheck disable=SC2034  # _nul_probe is a throwaway; only read's status matters
+  if { IFS= read -r -d '' _nul_probe < "$SETTINGS"; } 2>/dev/null; then
+    warn "existing $SETTINGS contains a NUL byte (not valid JSON text); left it unchanged and provisioned nothing (fix or remove it, then re-run /prflow:init)."
+    exit 2
   fi
+  if ! { IFS= read -r -d '' settings_content < "$SETTINGS"; } 2>/dev/null && [ ! -r "$SETTINGS" ]; then
+    warn "existing $SETTINGS could not be read into a variable; left it unchanged and provisioned nothing."
+    exit 2
+  fi
+  case "$settings_content" in
+    *[![:space:]]*)
+      if ! EXISTING="$("$DEVFLOW_JQ" . "$SETTINGS" 2>/dev/null)"; then
+        warn "existing $SETTINGS is not valid JSON; left it unchanged and provisioned nothing (fix or remove it, then re-run /prflow:init)."
+        exit 2
+      fi
+      ;;
+  esac
 fi
 
 # Type-guard the shapes the deep-merge relies on. `jq .` above only proves the

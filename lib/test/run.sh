@@ -22787,6 +22787,142 @@ assert_eq "pls: {} → exit 0" "0" "$PLS_OBJ_RC"
 assert_eq "pls: {} → enabledPlugins added" "true" \
   "$(jq -r --arg k "$SUITE_PLUGIN_SPEC" '.enabledPlugins[$k]' "$PLS_OBJ/.claude/settings.json" 2>/dev/null)"
 
+# ── Issue #1081: guard-class-2 fail-open — the blankness classification must use
+#    bash BUILTINS, never `grep` (a non-preflight PATH tool). On a host without
+#    grep the old `[ -s ] && grep -q '[^[:space:]]'` came back false, the file
+#    was treated as blank, and the merge clobbered every user key while reporting
+#    success. Build a restricted PATH holding everything the provisioner needs
+#    EXCEPT grep (per the #1081 audit note, reuse _mk_restricted) and drive the
+#    classification rows twice — once with grep resolvable, once without — which
+#    must reach the SAME row and identical file bytes. A shim that merely renamed
+#    grep would not reproduce the defect (the defect is the 127 a MISSING binary
+#    produces), so grep is genuinely absent from this PATH.
+# A grep whose body exits 127 — the sanctioned fixture (issue #1081 Potential
+# Gotchas): the defect is the NON-ZERO STATUS a missing binary produces, so the
+# shim reproduces it exactly (`grep -q …` → 127 → the old guard's `&&` false →
+# file mis-treated as blank), while keeping every other tool (dirname/jq/python3)
+# resolvable so the script reaches its classification. A fully-restricted PATH is
+# brittle here — a tool the script needs but the list omits fails the run for the
+# wrong reason (dirname was the trap). Prepend the shim dir so it shadows the real
+# grep; the SCRIPT's own grep call is what must be gone, and it is.
+PLS_NG_BIN="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nexit 127\n' > "$PLS_NG_BIN/grep"; chmod +x "$PLS_NG_BIN/grep"
+assert_eq "pls #1081: grep shim → grep returns missing-binary status 127" "127" \
+  "$(PATH="$PLS_NG_BIN:$PATH" bash -c 'grep -q x /dev/null; echo $?' 2>/dev/null)"
+
+# AC1 (the load-bearing arm): missing grep over a fixture holding user keys →
+# provisions AND preserves. Survival alone does not discharge this — every
+# fail-closed path also leaves the file surviving — so assert all four: exit 0,
+# the "provisioned … (added: …)" breadcrumb, both DevFlow keys, AND every user
+# key. RED against origin/main: the resulting file holds only the two DevFlow
+# keys and neither user key.
+PLS_NG_KEEP="$(mktemp -d)"; mkdir -p "$PLS_NG_KEEP/.claude"
+printf '%s' '{"permissions":{"allow":["Bash(ls:*)"]},"statusLine":{"type":"command","command":"echo hi"},"customTopKey":42}' \
+  > "$PLS_NG_KEEP/.claude/settings.json"
+PLS_NG_SF="$PLS_NG_KEEP/.claude/settings.json"
+PLS_NG_OUT="$(PATH="$PLS_NG_BIN:$PATH" bash "$PLS" "$PLS_NG_KEEP" 2>&1)"; PLS_NG_RC=$?
+assert_eq "pls #1081: missing grep → exit 0 (AC1)" "0" "$PLS_NG_RC"
+assert_eq "pls #1081: missing grep → 'provisioned … (added: …)' breadcrumb (AC1)" "yes" \
+  "$(printf '%s' "$PLS_NG_OUT" | grep -qiE 'provisioned.*added' && echo yes || echo no)"
+assert_eq "pls #1081: missing grep → devflow marketplace added (AC1)" "true" \
+  "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_NG_SF" 2>/dev/null)"
+assert_eq "pls #1081: missing grep → enabledPlugins added (AC1)" "true" \
+  "$(jq -r --arg k "$SUITE_PLUGIN_SPEC" '.enabledPlugins[$k]' "$PLS_NG_SF" 2>/dev/null)"
+assert_eq "pls #1081: missing grep → user permissions key survived (AC1)" "Bash(ls:*)" \
+  "$(jq -r '.permissions.allow[0]' "$PLS_NG_SF" 2>/dev/null)"
+assert_eq "pls #1081: missing grep → user statusLine key survived (AC1)" "echo hi" \
+  "$(jq -r '.statusLine.command' "$PLS_NG_SF" 2>/dev/null)"
+assert_eq "pls #1081: missing grep → unrelated user key survived (AC1)" "42" \
+  "$(jq -r '.customTopKey' "$PLS_NG_SF" 2>/dev/null)"
+rm -rf "$PLS_NG_KEEP"
+
+# AC5 + row-2-before-row-4 precedence: a NUL-bearing file (all-NUL, and NUL beside
+# valid JSON) exits 2, byte-for-byte unchanged, with the new NUL breadcrumb —
+# probe present AND absent. The NUL+JSON fixture is a member of both row 2 and
+# row 4 and must take row 2. The blankness decision is a builtin, so it holds with
+# grep absent too. (A slurp-only remedy would read the NUL file as blank and
+# clobber it; today's code names it a "merge failure" rather than a NUL.)
+for _nulcase in all-nul nul-plus-json; do
+  for _grep in present absent; do
+    PLS_NUL="$(mktemp -d)"; mkdir -p "$PLS_NUL/.claude"
+    if [ "$_nulcase" = all-nul ]; then printf '\000\000\000' > "$PLS_NUL/.claude/settings.json"
+    else printf '{"a":1}\000' > "$PLS_NUL/.claude/settings.json"; fi
+    cp "$PLS_NUL/.claude/settings.json" "$PLS_NUL/before.bin"
+    if [ "$_grep" = absent ]; then
+      PLS_NUL_OUT="$(PATH="$PLS_NG_BIN:$PATH" bash "$PLS" "$PLS_NUL" 2>&1)"; PLS_NUL_RC=$?
+    else
+      PLS_NUL_OUT="$(bash "$PLS" "$PLS_NUL" 2>&1)"; PLS_NUL_RC=$?
+    fi
+    assert_eq "pls #1081: NUL ($_nulcase, grep $_grep) → exit 2 (AC5)" "2" "$PLS_NUL_RC"
+    assert_eq "pls #1081: NUL ($_nulcase, grep $_grep) → file byte-for-byte unchanged (AC5)" "same" \
+      "$(cmp -s "$PLS_NUL/before.bin" "$PLS_NUL/.claude/settings.json" && echo same || echo differ)"
+    assert_eq "pls #1081: NUL ($_nulcase, grep $_grep) → breadcrumb names the NUL condition (AC5)" "yes" \
+      "$(printf '%s' "$PLS_NUL_OUT" | grep -qi 'NUL' && echo yes || echo no)"
+    rm -rf "$PLS_NUL"
+  done
+done
+
+# AC6: the absent-file case and the benign classification rows (whitespace-only,
+# zero-byte, populated JSON object) driven twice — grep resolvable and not — must
+# agree on exit code and resulting file bytes. Row 1 (read failure) is exempt (no
+# deterministic fixture reaches it — the [ -r ] pre-check fires first); row 2
+# (NUL) is covered above. Each benign row also provisions (exit 0, marketplace
+# added). RED if the conversion routes a benign row down a different path than
+# grep did.
+for _row in absent whitespace zerobyte populated; do
+  PLS_A="$(mktemp -d)"; PLS_B="$(mktemp -d)"
+  for _d in "$PLS_A" "$PLS_B"; do
+    case "$_row" in
+      absent)     : ;;                                              # no file
+      whitespace) mkdir -p "$_d/.claude"; printf '   \n\t\n' > "$_d/.claude/settings.json" ;;
+      zerobyte)   mkdir -p "$_d/.claude"; : > "$_d/.claude/settings.json" ;;
+      populated)  mkdir -p "$_d/.claude"; printf '%s' '{"env":{"FOO":"bar"},"customTopKey":7}' > "$_d/.claude/settings.json" ;;
+    esac
+  done
+  bash "$PLS" "$PLS_A" >/dev/null 2>&1; PLS_RA=$?
+  PATH="$PLS_NG_BIN:$PATH" bash "$PLS" "$PLS_B" >/dev/null 2>&1; PLS_RB=$?
+  assert_eq "pls #1081: row '$_row' → exit code agrees grep present vs absent (AC6)" "$PLS_RA" "$PLS_RB"
+  assert_eq "pls #1081: row '$_row' → resulting file bytes agree grep present vs absent (AC6)" "same" \
+    "$(cmp -s "$PLS_A/.claude/settings.json" "$PLS_B/.claude/settings.json" 2>/dev/null && echo same || echo differ)"
+  assert_eq "pls #1081: row '$_row' → benign row provisions, exit 0 (AC6)" "0" "$PLS_RA"
+  assert_eq "pls #1081: row '$_row' → marketplace added (AC6)" "true" \
+    "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_A/.claude/settings.json" 2>/dev/null)"
+  assert_eq "pls #1081: row '$_row' → user key preserved when present (AC6)" "$([ "$_row" = populated ] && echo 7 || echo n/a)" \
+    "$([ "$_row" = populated ] && jq -r '.customTopKey' "$PLS_A/.claude/settings.json" 2>/dev/null || echo n/a)"
+  rm -rf "$PLS_A" "$PLS_B"
+done
+
+# AC8: invalid JSON still exits 2, unchanged, with the existing not-valid-JSON
+# breadcrumb — grep resolvable and not. RED if the conversion routes malformed
+# input down the blank path.
+for _grep in present absent; do
+  PLS_IJ="$(mktemp -d)"; mkdir -p "$PLS_IJ/.claude"
+  printf '%s' '{ not valid json' > "$PLS_IJ/.claude/settings.json"
+  if [ "$_grep" = absent ]; then
+    PLS_IJ_OUT="$(PATH="$PLS_NG_BIN:$PATH" bash "$PLS" "$PLS_IJ" 2>&1)"; PLS_IJ_RC=$?
+  else
+    PLS_IJ_OUT="$(bash "$PLS" "$PLS_IJ" 2>&1)"; PLS_IJ_RC=$?
+  fi
+  assert_eq "pls #1081: invalid JSON (grep $_grep) → exit 2 (AC8)" "2" "$PLS_IJ_RC"
+  assert_eq "pls #1081: invalid JSON (grep $_grep) → file byte-for-byte unchanged (AC8)" '{ not valid json' \
+    "$(cat "$PLS_IJ/.claude/settings.json")"
+  assert_eq "pls #1081: invalid JSON (grep $_grep) → existing not-valid-JSON breadcrumb (AC8)" "yes" \
+    "$(printf '%s' "$PLS_IJ_OUT" | grep -qi 'not valid json' && echo yes || echo no)"
+  rm -rf "$PLS_IJ"
+done
+
+# Idempotent second run with the probe unavailable → "nothing changed", byte-identical.
+PLS_NG_IDEM="$(mktemp -d)"
+PATH="$PLS_NG_BIN:$PATH" bash "$PLS" "$PLS_NG_IDEM" >/dev/null 2>&1
+PLS_NG_IDEM_FIRST="$(cat "$PLS_NG_IDEM/.claude/settings.json")"
+PLS_NG_IDEM_OUT="$(PATH="$PLS_NG_BIN:$PATH" bash "$PLS" "$PLS_NG_IDEM" 2>&1)"; PLS_NG_IDEM_RC=$?
+assert_eq "pls #1081: idempotent re-run, grep absent → exit 0" "0" "$PLS_NG_IDEM_RC"
+assert_eq "pls #1081: idempotent re-run, grep absent → file byte-identical" \
+  "$PLS_NG_IDEM_FIRST" "$(cat "$PLS_NG_IDEM/.claude/settings.json")"
+assert_eq "pls #1081: idempotent re-run, grep absent → 'nothing changed' breadcrumb" "yes" \
+  "$(printf '%s' "$PLS_NG_IDEM_OUT" | grep -qi 'nothing changed' && echo yes || echo no)"
+rm -rf "$PLS_NG_IDEM" "$PLS_NG_BIN"
+
 # AC 7: isolation invariant — the cloud path (scaffold-config.sh, as install.sh
 # calls it) creates/modifies NO .claude/settings.json.
 PLS_ISO="$(mktemp -d)"
@@ -23256,6 +23392,115 @@ assert_eq "pam: gate Anthropic-direct, no --apply → still prints the copy-past
   "$(printf '%s' "$PAM_GNC_OUT" | grep -q 'CLAUDE_CODE_ENABLE_AUTO_MODE' && echo yes || echo no)"
 assert_eq "pam: gate Anthropic-direct, no --apply → file NOT created (AC6)" "no" \
   "$([ -f "$PAM_GNC_SF" ] && echo yes || echo no)"
+
+# ── Issue #1081: guard-class-2 fail-open, user-scope variant. Same defect as the
+#    project provisioner, sharper blast radius (writes ~/.claude/settings.json,
+#    outside any repo/diff/git-checkout). The blankness classification must use
+#    bash builtins so a missing grep cannot make it clobber the user's file. The
+#    restricted PATH additionally carries `tr` and `dirname`: is_truthy normalises
+#    through tr (a tr-less PATH skips the write before the merge, masking the
+#    defect) and the resolve-jq.sh source line needs dirname. CLAUDE_CODE_USE_BEDROCK=1
+#    is exported for this whole block, so --apply reaches the merge. Every arm
+#    passes an EXPLICIT scratch target — never the default ~/.claude/settings.json.
+# grep-127 shim, same rationale as the pls block above (issue #1081 Gotchas).
+PAM_NG_BIN="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nexit 127\n' > "$PAM_NG_BIN/grep"; chmod +x "$PAM_NG_BIN/grep"
+assert_eq "pam #1081: grep shim → grep returns missing-binary status 127" "127" \
+  "$(PATH="$PAM_NG_BIN:$PATH" bash -c 'grep -q x /dev/null; echo $?' 2>/dev/null)"
+
+# AC2 (the load-bearing arm): missing grep over a user-scope fixture holding user
+# keys → provisions AND preserves. All four: exit 0, the success breadcrumb,
+# env.CLAUDE_CODE_ENABLE_AUTO_MODE == "1", and every user key. RED against
+# origin/main: only {"env":{"CLAUDE_CODE_ENABLE_AUTO_MODE":"1"}} survives.
+PAM_NG_KEEP="$(mktemp -d)"; PAM_NG_SF="$PAM_NG_KEEP/settings.json"
+printf '%s' '{"env":{"MY_TOKEN_HELPER":"/usr/local/bin/helper"},"permissions":{"allow":["Bash(ls:*)"]}}' > "$PAM_NG_SF"
+PAM_NG_OUT="$(PATH="$PAM_NG_BIN:$PATH" bash "$PAM" --apply "$PAM_NG_SF" 2>&1)"; PAM_NG_RC=$?
+assert_eq "pam #1081: missing grep → exit 0 (AC2)" "0" "$PAM_NG_RC"
+assert_eq "pam #1081: missing grep → success breadcrumb 'provisioned' (AC2)" "yes" \
+  "$(printf '%s' "$PAM_NG_OUT" | grep -qi 'provisioned' && echo yes || echo no)"
+assert_eq "pam #1081: missing grep → CLAUDE_CODE_ENABLE_AUTO_MODE=\"1\" (AC2)" "1" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_NG_SF" 2>/dev/null)"
+assert_eq "pam #1081: missing grep → user env var survived (AC2)" "/usr/local/bin/helper" \
+  "$(jq -r '.env.MY_TOKEN_HELPER' "$PAM_NG_SF" 2>/dev/null)"
+assert_eq "pam #1081: missing grep → user permissions key survived (AC2)" "Bash(ls:*)" \
+  "$(jq -r '.permissions.allow[0]' "$PAM_NG_SF" 2>/dev/null)"
+rm -rf "$PAM_NG_KEEP"
+
+# AC5 + row-2-before-row-4 precedence: NUL-bearing (all-NUL, NUL+JSON) exits 2,
+# unchanged, with the new NUL breadcrumb — probe present AND absent.
+for _nulcase in all-nul nul-plus-json; do
+  for _grep in present absent; do
+    PAM_NUL="$(mktemp -d)"; PAM_NUL_SF="$PAM_NUL/settings.json"
+    if [ "$_nulcase" = all-nul ]; then printf '\000\000\000' > "$PAM_NUL_SF"
+    else printf '{"a":1}\000' > "$PAM_NUL_SF"; fi
+    cp "$PAM_NUL_SF" "$PAM_NUL/before.bin"
+    if [ "$_grep" = absent ]; then
+      PAM_NUL_OUT="$(PATH="$PAM_NG_BIN:$PATH" bash "$PAM" --apply "$PAM_NUL_SF" 2>&1)"; PAM_NUL_RC=$?
+    else
+      PAM_NUL_OUT="$(bash "$PAM" --apply "$PAM_NUL_SF" 2>&1)"; PAM_NUL_RC=$?
+    fi
+    assert_eq "pam #1081: NUL ($_nulcase, grep $_grep) → exit 2 (AC5)" "2" "$PAM_NUL_RC"
+    assert_eq "pam #1081: NUL ($_nulcase, grep $_grep) → file byte-for-byte unchanged (AC5)" "same" \
+      "$(cmp -s "$PAM_NUL/before.bin" "$PAM_NUL_SF" && echo same || echo differ)"
+    assert_eq "pam #1081: NUL ($_nulcase, grep $_grep) → breadcrumb names the NUL condition (AC5)" "yes" \
+      "$(printf '%s' "$PAM_NUL_OUT" | grep -qi 'NUL' && echo yes || echo no)"
+    rm -rf "$PAM_NUL"
+  done
+done
+
+# AC6: absent file + benign rows (whitespace-only, zero-byte, populated JSON)
+# driven twice — grep present vs absent — agree on exit code and resulting bytes.
+# Row 1 exempt; row 2 (NUL) covered above.
+for _row in absent whitespace zerobyte populated; do
+  PAM_A="$(mktemp -d)"; PAM_B="$(mktemp -d)"
+  PAM_A_SF="$PAM_A/settings.json"; PAM_B_SF="$PAM_B/settings.json"
+  for _sf in "$PAM_A_SF" "$PAM_B_SF"; do
+    case "$_row" in
+      absent)     : ;;
+      whitespace) printf '   \n\t\n' > "$_sf" ;;
+      zerobyte)   : > "$_sf" ;;
+      populated)  printf '%s' '{"env":{"MY_TOKEN_HELPER":"/x"}}' > "$_sf" ;;
+    esac
+  done
+  bash "$PAM" --apply "$PAM_A_SF" >/dev/null 2>&1; PAM_RA=$?
+  PATH="$PAM_NG_BIN:$PATH" bash "$PAM" --apply "$PAM_B_SF" >/dev/null 2>&1; PAM_RB=$?
+  assert_eq "pam #1081: row '$_row' → exit code agrees grep present vs absent (AC6)" "$PAM_RA" "$PAM_RB"
+  assert_eq "pam #1081: row '$_row' → resulting file bytes agree grep present vs absent (AC6)" "same" \
+    "$(cmp -s "$PAM_A_SF" "$PAM_B_SF" 2>/dev/null && echo same || echo differ)"
+  assert_eq "pam #1081: row '$_row' → auto-mode key written, exit 0 (AC6)" "1" \
+    "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_A_SF" 2>/dev/null)"
+  rm -rf "$PAM_A" "$PAM_B"
+done
+
+# AC8: invalid JSON still exits 2, unchanged, existing not-valid-JSON breadcrumb —
+# grep present vs absent.
+for _grep in present absent; do
+  PAM_IJ="$(mktemp -d)"; PAM_IJ_SF="$PAM_IJ/settings.json"
+  printf '%s' '{ not valid json' > "$PAM_IJ_SF"
+  if [ "$_grep" = absent ]; then
+    PAM_IJ_OUT="$(PATH="$PAM_NG_BIN:$PATH" bash "$PAM" --apply "$PAM_IJ_SF" 2>&1)"; PAM_IJ_RC=$?
+  else
+    PAM_IJ_OUT="$(bash "$PAM" --apply "$PAM_IJ_SF" 2>&1)"; PAM_IJ_RC=$?
+  fi
+  assert_eq "pam #1081: invalid JSON (grep $_grep) → exit 2 (AC8)" "2" "$PAM_IJ_RC"
+  assert_eq "pam #1081: invalid JSON (grep $_grep) → file byte-for-byte unchanged (AC8)" '{ not valid json' \
+    "$(cat "$PAM_IJ_SF")"
+  assert_eq "pam #1081: invalid JSON (grep $_grep) → existing not-valid-JSON breadcrumb (AC8)" "yes" \
+    "$(printf '%s' "$PAM_IJ_OUT" | grep -qi 'not valid json' && echo yes || echo no)"
+  rm -rf "$PAM_IJ"
+done
+
+# Idempotent second run with the probe unavailable → "nothing changed", byte-identical.
+PAM_NG_IDEM="$(mktemp -d)"; PAM_NG_IDEM_SF="$PAM_NG_IDEM/settings.json"
+PATH="$PAM_NG_BIN:$PATH" bash "$PAM" --apply "$PAM_NG_IDEM_SF" >/dev/null 2>&1
+PAM_NG_IDEM_FIRST="$(cat "$PAM_NG_IDEM_SF")"
+PAM_NG_IDEM_OUT="$(PATH="$PAM_NG_BIN:$PATH" bash "$PAM" --apply "$PAM_NG_IDEM_SF" 2>&1)"; PAM_NG_IDEM_RC=$?
+assert_eq "pam #1081: idempotent re-run, grep absent → exit 0" "0" "$PAM_NG_IDEM_RC"
+assert_eq "pam #1081: idempotent re-run, grep absent → file byte-identical" \
+  "$PAM_NG_IDEM_FIRST" "$(cat "$PAM_NG_IDEM_SF")"
+assert_eq "pam #1081: idempotent re-run, grep absent → 'nothing changed' breadcrumb" "yes" \
+  "$(printf '%s' "$PAM_NG_IDEM_OUT" | grep -qi 'nothing changed' && echo yes || echo no)"
+rm -rf "$PAM_NG_IDEM" "$PAM_NG_BIN"
 
 unset CLAUDE_CODE_USE_BEDROCK   # don't leak the provider var into later test blocks
 
