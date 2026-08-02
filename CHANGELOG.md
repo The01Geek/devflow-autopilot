@@ -4,6 +4,50 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.41] — 2026-08-02
+
+### Changed
+Detect ordering/formatting drift in `lib/test/modules/coverage-map.json`. `coverage_map_guard.py` gains arm 11, which asserts the map on disk is byte-identical to its canonical serialization — the same `_serialize_map` output `--fix` writes — so a non-canonical key order (e.g. from a merge-conflict resolution) fails at the point it is introduced instead of being silently folded into a later, unrelated `--fix`. An unreadable raw file is reported as an unestablished measurement, never a pass. `--fix` is correspondingly widened (a recorded scope decision) to re-canonicalize an order-only drifted map, so its remedy names an action that actually repairs the violation; the two measured `--fix` paths (no-op on a canonical file, additive-only on a real repair) are unchanged.
+
+## [2.30.40] — 2026-08-02
+
+### Changed
+Complete the CI-green auto-review trigger: ship it to consumers and close three
+shipped-job residuals (#990).
+
+**Part A — consumer delivery.** `docs/workflow-triggers.md` now carries a
+copy-pasteable `pull_request` job snippet a consumer adds to their own CI, with the
+hard `pull_request`-only precondition stated adjacent to it, plus the `allowed_bots`
+App-slug requirement (and its trigger-time default-branch resolution), the `2.30.18`
+minimum `prflow_version`, the no-repository-root-`scripts/` fact, an absent-file
+breadcrumb guard, a sparse cone naming both vendored directories, and the coverage
+boundary (GitHub Actions jobs only). A new row in the trigger table and a
+`docs/cloud-setup.md` note document the mechanism, and every in-tree statement that a
+collaborator comment is the review path is reconciled to name the automatic
+producer. `lib/test/extract-ci-review-agreement.py` (driven from the
+`review-trigger-helpers` module) asserts a fail-closed byte-equality agreement
+predicate between the snippet and the `auto_review_trigger` job region, with a
+planted-defect positive control and six fail-closed input shapes. `install.sh`'s
+workflow copy loop is byte-unchanged — `ci.yml` is repo-internal and the snippet is
+the delivery vehicle.
+
+**Part B — three shipped-job residuals.** `.github/workflows/ci.yml`'s
+`auto_review_trigger` job gains a `concurrency` group keyed on the head SHA
+(`cancel-in-progress: false`) so its read-then-post dedupe is atomic;
+`scripts/post-ci-review-trigger.sh` now suppresses only a marker comment the minting
+App itself authored (matching bare and `[bot]` slug forms, empty comparand
+fail-closed) instead of on marker containment alone; and the job's `if:` widens to
+`!cancelled()` with the two dependency-success tests moved onto the checkout, mint,
+and post steps, so a red `lint` — not a required check — is announced by a
+`::warning::` naming which dependency withheld the request (composed in the helper
+under a new `MODE=announce`) rather than skipped in silence. The announcement path
+mints no token and checks out no pull-request code.
+
+## [2.30.39] — 2026-08-02
+
+### Fixed
+- **`/prflow:review-and-fix` can now resolve the review-engine bundle on every tier where the engine is present on disk.** Engine location no longer uses a `Glob` for `**/devflow/skills/review/SKILL.md` — a pattern that stopped matching any layout after the `.devflow/` → `.prflow/` rename and depended on unestablished file-search-tool semantics. Resolution now walks an ordered, repo-root-anchored candidate list (the repo-root `skills/review`, then `.prflow/vendor/prflow/skills/review`, then the superseded `.devflow/vendor/devflow/skills/review`), reading each candidate's `SKILL.md` directly, resolved once per engine entry. The engine bundle now binds its phase references and root-identity hashing to the **caller-located** directory rather than re-resolving the runner anchor, so a caller that reached the root by reading it as a file derives a complete manifest instead of stopping at `identity: underived`. When no candidate resolves, the run still stops with a message naming `/prflow:init`. (#1085)
+
 ## [2.30.38] — 2026-08-02
 
 ### Changed

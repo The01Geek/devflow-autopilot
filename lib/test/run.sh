@@ -15350,7 +15350,7 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # together, or test_module_runner.py's tranche test goes RED.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 605; then
+  "review-trigger-helpers" 628; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
@@ -42479,7 +42479,7 @@ assert_eq "issue #767: create-issue context eval focused tests pass" "0" "$CICE_
 # this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/harness-python-guards.sh" \
-  "harness-python-guards" 39; then
+  "harness-python-guards" 43; then
   printf 'ERROR: harness-python-guards boundary could not record its result\n'
   exit 1
 fi
