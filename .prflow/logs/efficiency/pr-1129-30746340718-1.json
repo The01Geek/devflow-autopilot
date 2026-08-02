@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1129",
+  "generated_at": "2026-08-02T11:51:12Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.39",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.741983500000001,
+    "tokens": {
+      "input_tokens": 42,
+      "output_tokens": 13643,
+      "cache_read_input_tokens": 2700560,
+      "cache_creation_input_tokens": 132908,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 56,
+        "outputTokens": 30562,
+        "cacheReadInputTokens": 3021072,
+        "cacheCreationInputTokens": 314994,
+        "webSearchRequests": 0,
+        "costUSD": 4.741983500000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 26,
+    "duration_ms": 368796
+  },
+  "permission_denials": {
+    "count": 2,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "cat > .prflow/tmp/review/pr-1129/local-run/verdict.md <<'EOF'\n## PRFlow Review — PR #1129 — ✅ APPROVE\n\n**Reviewed HEAD:** `0a0cb85` · Resolves #990 · Diff profile: `engine_self_modifying` (full checklist)\n\nShips the CI-green auto-review trigger to consumers and closes three residuals in the in-repo `auto_review_trigger` job. The change is unusually defensive and well-tested.\n\n### Verification evidence\n- CI for `0a0cb85` (from GitHub API): `lib + python tests`, all four `shard` jobs, and `lint (s …[per-command-truncated]"
+    ],
+    "total": 2,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
