@@ -1,5 +1,5 @@
 {
-  "manifest_version": 15,
+  "manifest_version": 16,
   "readme": [
     "This manifest is the single source of truth for DevFlow's cloud capability policy:",
     "which tools/commands each execution tier (review, implement, command) may run.",
@@ -89,7 +89,6 @@
       "Bash(*/load-prompt-extension.sh:*)",
       "Bash(gh pr diff:*)",
       "Bash(gh pr view:*)",
-      "Bash(gh pr review:*)",
       "Bash(gh pr comment:*)",
       "Bash(gh pr list:*)",
       "Bash(gh pr checks:*)",
@@ -167,7 +166,6 @@
       "Bash(gh pr comment:*)",
       "Bash(gh pr diff:*)",
       "Bash(gh pr view:*)",
-      "Bash(gh pr review:*)",
       "Bash(gh pr ready:*)",
       "Bash(gh pr list:*)",
       "Bash(gh pr checks:*)",
@@ -290,7 +288,6 @@
       "Bash(gh pr comment:*)",
       "Bash(gh pr diff:*)",
       "Bash(gh pr view:*)",
-      "Bash(gh pr review:*)",
       "Bash(gh pr ready:*)",
       "Bash(gh pr list:*)",
       "Bash(gh pr checks:*)",

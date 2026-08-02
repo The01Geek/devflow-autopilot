@@ -650,7 +650,7 @@ marker derivation and marker/body agreement.
   run the shared engine. Exactly one such comment exists **per review run**.
   Earlier runs' comments are never overwritten and remain on the pull request as
   review history.
-- Phase 4.4's `gh pr review` stays the authoritative merge signal (a short
+- Phase 4.4's posted review stays the authoritative merge signal (a short
   verdict stub); the live comment is the human-readable narrative pointing at it.
   The final comment state reflects the actual verdict — never a green check above
   a REJECT.

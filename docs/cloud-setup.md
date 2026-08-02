@@ -924,7 +924,7 @@ GitHub forbids **requesting changes on — or approving — your own pull reques
 Without a dedicated reviewer identity, PRFlow's review agent would run under the
 same identity that PRFlow uses to *author* PRs (the primary App above, or
 `github-actions[bot]`), so Phase 4.4's
-`gh pr review --request-changes` / `--approve` would be a forbidden self-review:
+a formal `REQUEST_CHANGES` / `APPROVE` review would be a forbidden self-review:
 the merge stays blocked by the required `Devflow Review` status check, but no
 **visible** formal review (`reviewDecision`) is recorded. To restore the visible
 formal review, run the review agent under a **dedicated second GitHub App**,
