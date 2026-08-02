@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1114",
+  "generated_at": "2026-08-02T09:19:07Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.35",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 8.017517499999999,
+    "tokens": {
+      "input_tokens": 82,
+      "output_tokens": 23856,
+      "cache_read_input_tokens": 6320240,
+      "cache_creation_input_tokens": 143640,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 132,
+        "outputTokens": 46208,
+        "cacheReadInputTokens": 7793540,
+        "cacheCreationInputTokens": 388198,
+        "webSearchRequests": 0,
+        "costUSD": 8.017517499999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 47,
+    "duration_ms": 561680
+  },
+  "permission_denials": {
+    "count": 7,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "RUNID=\"local-$(date -u +%Y%m%dT%H%M%SZ)-1\"; echo \"run-id=$RUNID\"; mkdir -p .prflow/tmp/review/pr-1114/$RUNID; gh pr diff 1114 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1114/$RUNID/diff.patch > /dev/null; echo \"run-id-file=$RUNID\" > .prflow/tmp/review/pr-1114/runid.txt; wc -l .prflow/tmp/review/pr-1114/$RUNID/diff.patch",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve \"1055\" --pr \"1114\" 2>.prflow/tmp/review/pr-1114/local-run-1/acs.err ; echo \"acs-rc=$?\"; echo \"---ERR---\"; cat .prflow/tmp/review/pr-1114/local-run-1/acs.err",
+      "git rm --cached -q lib/test/reconcile-module-floors.py lib/test/test_reconcile_module_floors.py 2>/dev/null; rm -f lib/test/reconcile-module-floors.py lib/test/test_reconcile_module_floors.py; git status --porcelain; echo \"---index mode in PR---\"; git ls-tree 4b769bf4f96d9a66287b3ba68e96e13faaad21f8 -- lib/test/regenerate-artifacts.py lib/test/reconcile-module-floors.py",
+      "git ls-tree 4b769bf4f96d9a66287b3ba68e96e13faaad21f8 -- lib/test/regenerate-artifacts.py lib/test/reconcile-module-floors.py",
+      "git ls-tree 4b769bf4f96d9a66287b3ba68e96e13faaad21f8 lib/test/reconcile-module-floors.py lib/test/regenerate-artifacts.py",
+      "cd /home/runner/work/prflow/prflow; D=.prflow/tmp/review/pr-1114/local-run-1/diff.patch\necho \"===FILES CHANGED===\"; grep '^diff --git' $D | sed 's|diff --git a/||;s| b/.*||'\necho; echo \"===run-module.sh validation hunk===\"; awk '/^diff --git a\\/lib\\/test\\/run-module.sh/,/^diff --git a\\/(?!lib\\/test\\/run-module)/' $D | head -80",
+      "cd /home/runner/work/prflow/prflow; D=.prflow/tmp/review/pr-1114/local-run-1/diff.patch\ngrep '^diff --git' \"$D\" | sed 's#diff --git a/##; s# b/.*##'"
+    ],
+    "total": 7,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
