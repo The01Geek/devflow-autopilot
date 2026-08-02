@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1143",
+  "generated_at": "2026-08-02T14:45:31Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.46",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 2.96463975,
+    "tokens": {
+      "input_tokens": 29,
+      "output_tokens": 13034,
+      "cache_read_input_tokens": 1871979,
+      "cache_creation_input_tokens": 86538,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 45,
+        "outputTokens": 21306,
+        "cacheReadInputTokens": 2275157,
+        "cacheCreationInputTokens": 155147,
+        "webSearchRequests": 0,
+        "costUSD": 2.96463975,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 21,
+    "duration_ms": 336386
+  },
+  "permission_denials": {
+    "count": 2,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "gh pr diff 1143 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1143/local-run/diff.patch\ngrep -n '^diff --git' .prflow/tmp/review/pr-1143/local-run/diff.patch; echo \"===total lines===\"; wc -l .prflow/tmp/review/pr-1143/local-run/diff.patch"
+    ],
+    "total": 2,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
