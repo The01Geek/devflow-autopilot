@@ -1562,16 +1562,15 @@ for _ext in review-and-fix receiving-code-review; do
   devflow_module_pin_unique "#655 the conflict rule has its own section in $_ext.md" \
     "$RA_RULE_HEADING" "$RA_EXT_DIR/$_ext.md"  # runtime-pin-ok: target path interpolates the `for _ext …` loop var, unresolvable by the static meta-guard
   devflow_module_pin_unique "#655 the conflict rule cites --list as the oracle in $_ext.md" \
-    'python3 lib/test/regenerate-artifacts.py --list' "$RA_EXT_DIR/$_ext.md"  # runtime-pin-ok: target path interpolates the `for _ext …` loop var, unresolvable by the static meta-guard
+    'lib/test/regenerate-artifacts.py --list' "$RA_EXT_DIR/$_ext.md"  # runtime-pin-ok: target path interpolates the `for _ext …` loop var, unresolvable by the static meta-guard
 done
 # Byte-identity across the three copies: extract each section (heading to the next `## `)
 # and require all three to be equal. A per-file presence pin cannot catch a copy that
 # drifted in its body.
 _ra_rule_body() {  # file
-  # The backticked command is literal prompt text; shell expansion would corrupt it.
-  # shellcheck disable=SC2016
-  sed -n "/^${RA_RULE_HEADING}\$/,/^## /p" "$1" | sed '$d' | \
-    sed 's/Run the granted direct leading-token form `lib\/test\/regenerate-artifacts.py --list`/Run `python3 lib\/test\/regenerate-artifacts.py --list`/'
+  # All three copies now carry the granted direct leading-token form, so the section is
+  # compared verbatim — no normalizing rewrite stands between the copies any more.
+  sed -n "/^${RA_RULE_HEADING}\$/,/^## /p" "$1" | sed '$d'
 }
 RA_RULE_IMPL="$(_ra_rule_body "$RA_EXT_DIR/implement.md")"
 case "$RA_RULE_IMPL" in
@@ -1633,9 +1632,14 @@ RA_1055_RESOLVED="$_ra_tmp_root/issue-1055-resolved-allowlist.txt"
 "$RA_REPO/scripts/load-prompt-extension.sh" implement \
   --section '## Merge conflicts in generated artifacts' >> "$RA_1055_PROMPT"
 RA_1055_HEADS="$(python3 "$LIB/test/extract-command-heads.py" heads "$RA_1055_PROMPT")"
+# ONE line, not one per fence: `heads` prints a sorted SET of head NAMES, so the two
+# fences in these sections — `…regenerate-artifacts.py` and `…regenerate-artifacts.py
+# --list` — share a head name and can only ever collapse to a single line. A two-line
+# expectation is unsatisfiable, not merely unmet. What this asserts is that the head is
+# extracted at all, i.e. that both invocations live in fenced blocks the matcher-visible
+# scanner can see, rather than in inline backticks it cannot.
 assert_eq "#1055 the batched helper is extracted as a direct command head" \
-  'lib/test/regenerate-artifacts.py
-lib/test/regenerate-artifacts.py' "$RA_1055_HEADS"
+  'lib/test/regenerate-artifacts.py' "$RA_1055_HEADS"
 RA_1055_BASE_UNGRANTED="$(python3 "$LIB/test/extract-command-heads.py" ungranted \
   "$RA_1055_PROMPT" "$RA_REPO/.github/workflows/devflow-implement.yml" implement-block)"
 assert_eq "#1055 the generated consumer baseline does not grant the self-repository helper" \
