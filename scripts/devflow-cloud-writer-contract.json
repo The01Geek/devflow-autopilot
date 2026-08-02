@@ -45,13 +45,13 @@
     "skills/review/SKILL.md": "6071255f1ddfb017e3597c392abf25c2db8baf56625458aaaeec09d6139d0dde",
     "skills/review/phases/phase-0-3-6-blocker-recheck.md": "e49fbd837b376ff61e25abac649b340debb66c68c5e92e735679e8e86d62ddb7",
     "skills/review/phases/phase-0-6-stale-prose-lint.md": "6f27454e4646de1a26484075362039a1a337d65e79d0411980c028c9636e124f",
-    "skills/review/phases/phase-0-setup.md": "95ce4c053d0017821059229bcbb506fa923c72b65fdfb4f66409de54d8ff71e5",
+    "skills/review/phases/phase-0-setup.md": "14e66b7753e692d64f8bca3bf7d8340dad6d322b095f8a340aaaa8656d0da6c1",
     "skills/review/phases/phase-1-checklist.md": "edbcc9c2a53ce7bb0841d0d61d4a9bdfef3c4a1bfffda3e7a1403a95c0951030",
     "skills/review/phases/phase-2-verification.md": "19c3c7da624323bb2a0233755f8fdc070c5515bf9e858cbb2e252077292e49f6",
-    "skills/review/phases/phase-3-agents.md": "6c0dd68c16e0dc8909e4aea786fd471d5218b0fbe7bd6d691efed5b230eb9449",
+    "skills/review/phases/phase-3-agents.md": "a29c41af7bd4123237e0bd50165817ffa4db16f0140d48e2498a8ee3addff2bd",
     "skills/review/phases/phase-4-1-7-stale-adjudication.md": "20854ed90b0cf95dd2646cc1055469b7cd99c3c26a573592fc1594b89a52bc95",
     "skills/review/phases/phase-4-4-github-post.md": "f075715559cc866798ca964ca02bd66d75b003be79bd5f1d433f3c2f14a8bd4f",
-    "skills/review/phases/phase-4-verdict.md": "dd439dc940fab6df6a0512a13ea726d6e7873525ad80636b73c8a3f491088ee6"
+    "skills/review/phases/phase-4-verdict.md": "5d4cb1dfc5af4caf30647196bc71e724a5e1fd64b7d91d6fc89436e7664e6250"
   },
   "legacy_profile_baseline": "2.15.13",
   "protocol": "devflow-cloud-writer-contract-v1",

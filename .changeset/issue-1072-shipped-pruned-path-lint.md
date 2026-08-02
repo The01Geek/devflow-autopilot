@@ -4,7 +4,8 @@ type: Fixed
 ---
 
 - **Stop shipping prompt instructions that name paths the vendor slice prunes.** The
-  implement-phase prompts told a consumer's agent to run files under `lib/test/` — a subtree
+  implement-phase and review-engine prompts told a consumer's agent to run files under
+  `lib/test/`, and named this project's own declaration markers and desk-time pins — a subtree
   `.github/actions/vendor-plugin/vendor-slice.sh` deletes before the plugin reaches a consumer,
   so the paths resolved against a tree where they do not exist. Those sentences are reworded to
   name the project's own test/lint/relocation commands generically (the concrete repo-specific

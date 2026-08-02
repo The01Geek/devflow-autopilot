@@ -198,8 +198,8 @@ The completeness critic is a **finding-producing pass, not a verdict override**:
 **Dirty-tree backstop — compare after dispatch (mandatory).** Before extracting findings, confirm the Phase 3.1 review-agent batch left the working tree unchanged. Compare against the fixed repo-local NUL-delimited snapshot file taken before dispatch; on any divergence the dispatch violated the advisory contract, so record it as a finding (never discard it silently) and restore only the snapshot-delta paths — those whose **path** was clean at snapshot time and became dirty during the dispatch window. The fixed path survives the Agent-tool boundary; shell variables do not. The restore set is computed by **path column** (status prefix stripped from each `-z` record, not whole porcelain line), so the guarantee is exact: any path the orchestrator had **already** modified before dispatch is left to the human — its `git checkout` is never run even if an agent changes its status byte — so a concurrent legitimate edit is never clobbered. Because the snapshots are `git status --porcelain -z` (UNQUOTED, NUL-delimited), a spaced or special-character filename is restored correctly, not silently skipped. **Residuals the backstop does NOT auto-restore:** (1) a **true rename/copy** (status `R`/`C`) — a staged rename needs index surgery to undo safely, so it is *surfaced* (named in a breadcrumb) but left for the human; (2) an agent's further edit to an **already-dirty path that does not change its status byte** — it produces an identical `-z` record, so the divergence test never fires and the path is never auto-restored. The Step 2.6 shadow + the post-shadow edit gate cover those residuals.
 
 ```bash
-# devflow:dirty-tree-compare BEGIN (the complete compare/authenticate/restore wrapper is extracted
-# and exercised by the #484 git_sandbox integration tests in lib/test/run.sh)  # pruned-path-ok: provenance footnote inside a bash block the engine emits verbatim into a consumer shell; the HTML-comment spelling would emit as shell text (issue #1072)
+# devflow:dirty-tree-compare BEGIN (the marked region is the complete compare/authenticate/
+# restore wrapper, extracted and exercised as one unit by the project's own test suite)
 mkdir -p .prflow/tmp
 if [ -f ".prflow/tmp/review-dirty-tree-disabled" ]; then
   : # before-snapshot failed in 3.1 (already surfaced there); backstop disabled this dispatch
@@ -232,8 +232,8 @@ else
     # continuation — which the read loops consume rather than mis-stripping. The restore set is
     # `paths in AFTER, absent from BEFORE, NOT rename/copy entries`; rename/copy entries are
     # surfaced separately, never auto-restored (index surgery needed).
-    # devflow:dirty-tree-restore BEGIN (self-contained given the fixed before/after snapshot files and
-    # cwd=repo; extracted + exercised by the #216 git_sandbox integration test in lib/test/run.sh)  # pruned-path-ok: provenance footnote inside a bash block the engine emits verbatim into a consumer shell; the HTML-comment spelling would emit as shell text (issue #1072)
+    # devflow:dirty-tree-restore BEGIN (self-contained given the fixed before/after snapshot
+    # files and cwd=repo; extracted + exercised as one unit by the project's own test suite)
     mkdir -p .prflow/tmp
     # NOTE (runtime assumption): the NUL-mode grep operand below is a GNU extension — this region
     # runs in the review engine's own GNU/Linux agent runtime (same env as CI), NOT a committed
