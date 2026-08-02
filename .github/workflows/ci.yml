@@ -414,28 +414,46 @@ jobs:
   auto_review_trigger:
     name: auto-review notification (not a check; skipped = not sent)
     needs: [test, lint]
-    # BOTH jobs, because `lint` is not downstream of `test` — the only `needs:`
-    # elsewhere in this file is `test: needs: [shard]`. Gating on `test` alone
-    # would ask for a review of a head whose ruff or shellcheck run was red.
+    # `needs: [test, lint]` names BOTH jobs, because `lint` is not downstream of
+    # `test` — the only `needs:` elsewhere in this file is `test: needs: [shard]`.
+    # But the two dependency-RESULT tests are NOT in this `if:` anymore: they moved
+    # onto the individual steps below. The job now runs whenever both dependencies
+    # have CONCLUDED (`!cancelled()`), so a red `lint` — which is NOT a required
+    # status check, hence a mergeable PR — is ANNOUNCED rather than skipped in
+    # silence. The credential-safety property is preserved by step-level gating:
+    # the checkout, mint, and post steps each require both results to be `success`,
+    # so an ineligible run still reaches no App-token mint and no PR-code checkout.
     #
-    # Every guard is GitHub-evaluated, so an ineligible run reaches no shell and,
-    # more importantly, mints no credential. The head-repo comparison is the fork
-    # gate and it is the actual security property of this job: it excludes fork
-    # pull requests BEFORE the App token is minted, rather than relying on secrets
-    # being withheld from fork runs. Dependabot branches live in this repo, so they
-    # satisfy the head-repo test and need their own exclusion. The `pull_request`
-    # test is load-bearing rather than cosmetic: this workflow also runs on pushes
-    # to main, where `github.event.pull_request` is null and the draft comparison
-    # would read as satisfied.
+    # The remaining `if:` guards are all GitHub-evaluated, so an ineligible run
+    # reaches no shell. The head-repo comparison is the fork gate and it is the
+    # actual security property of this job: it excludes fork pull requests BEFORE
+    # the App token is minted, rather than relying on secrets being withheld from
+    # fork runs. Dependabot branches live in this repo, so they satisfy the
+    # head-repo test and need their own exclusion. The `pull_request` test is
+    # load-bearing rather than cosmetic: this workflow also runs on pushes to main,
+    # where `github.event.pull_request` is null and the draft comparison would read
+    # as satisfied.
     if: >-
-      needs.test.result == 'success' &&
-      needs.lint.result == 'success' &&
+      !cancelled() &&
       github.event_name == 'pull_request' &&
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.actor != 'dependabot[bot]' &&
       vars.DEVFLOW_APP_ID != ''
     runs-on: ubuntu-latest
+    # Serialize concurrent runs at ONE head SHA so the helper's read-then-post
+    # dedupe is atomic. Two runs at the same head (a manual re-run overlapping the
+    # push run) could otherwise each read an absent marker and each post, double-
+    # billing the review. This does NOT contradict the repository's standing
+    # doctrine that GitHub-native `concurrency` is not a duplicate-SUPPRESSION
+    # primitive (scripts/dedupe-review-command.sh): here queueing is exactly the
+    # wanted behavior — `cancel-in-progress: false` lets the first run finish and
+    # post, then the queued run reads the marker it posted and takes the helper's
+    # already-posted arm. The group is keyed on the workflow, this job, and the
+    # head SHA, so distinct heads never serialize against each other.
+    concurrency:
+      group: auto-review-trigger-${{ github.workflow }}-${{ github.event.pull_request.head.sha }}
+      cancel-in-progress: false
     # JOB-SCOPED, never workflow-level. Raising `pull-requests: write` to the file's
     # top-level block would widen `shard`, `test`, and `lint`, which run arbitrary
     # pull-request code; declared here it reaches this job alone.
@@ -472,7 +490,13 @@ jobs:
       # persist-credentials: false because nothing here talks to git over the
       # network — gh authenticates from GH_TOKEN — so the checkout leaves no
       # credential behind for later steps to inherit.
+      #
+      # Step-gated on both dependencies succeeding: on the announcement path
+      # (a red/pending dependency) this checkout of the pull request's own code
+      # does NOT run, preserving the "ineligible run reaches no PR-code checkout
+      # and mints no credential" property across the widened job `if:`.
       - uses: actions/checkout@v6
+        if: needs.test.result == 'success' && needs.lint.result == 'success'
         with:
           persist-credentials: false
 
@@ -485,6 +509,7 @@ jobs:
       # `review_dedupe` mints).
       - name: Mint downscoped comment token
         id: app_token
+        if: needs.test.result == 'success' && needs.lint.result == 'success'
         uses: actions/create-github-app-token@v3
         with:
           client-id: ${{ vars.DEVFLOW_APP_ID }}
@@ -493,9 +518,38 @@ jobs:
 
       # Keyed on the pull request's HEAD sha, not the merge commit github.sha —
       # the head is what a review reviews and what the marker must dedupe on.
+      # EXPECTED_AUTHOR is the mint's own `app-slug` output: the helper suppresses
+      # only a marker comment THIS App authored, so a human (or another bot) merely
+      # quoting the marker no longer kills the review request.
       - name: Request a review for this head
+        if: needs.test.result == 'success' && needs.lint.result == 'success'
         env:
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_AUTHOR: ${{ steps.app_token.outputs.app-slug }}
+        run: bash scripts/post-ci-review-trigger.sh
+
+      # --- Announcement path (a dependency did NOT conclude success) -----------
+      # Reached only when the post path above was gated out. It mints no token and
+      # checks out no pull-request code: it checks out the BASE ref (trusted, not
+      # the PR's own code) solely to put the helper on disk, then runs it in
+      # MODE=announce, which posts nothing and emits a `::warning::` naming which
+      # dependency withheld the request. This is what makes a red `lint` — not a
+      # required check, so the PR is mergeable — visible instead of a silent skip.
+      - name: Check out base ref (no PR code) for the announcement
+        if: needs.test.result != 'success' || needs.lint.result != 'success'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Announce the withheld review request
+        if: needs.test.result != 'success' || needs.lint.result != 'success'
+        env:
+          MODE: announce
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          TEST_RESULT: ${{ needs.test.result }}
+          LINT_RESULT: ${{ needs.lint.result }}
         run: bash scripts/post-ci-review-trigger.sh
