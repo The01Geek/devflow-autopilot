@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1114",
+  "generated_at": "2026-08-02T09:32:17Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.35",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 19.0097005,
+    "tokens": {
+      "input_tokens": 124,
+      "output_tokens": 60339,
+      "cache_read_input_tokens": 11457690,
+      "cache_creation_input_tokens": 270878,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 252,
+        "outputTokens": 133108,
+        "cacheReadInputTokens": 16277774,
+        "cacheCreationInputTokens": 1001933,
+        "webSearchRequests": 0,
+        "costUSD": 18.745720750000004,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 2,
+        "outputTokens": 6553,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 44181,
+        "webSearchRequests": 0,
+        "costUSD": 0.26397974999999996,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 75,
+    "duration_ms": 1567985
+  },
+  "permission_denials": {
+    "count": 12,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-<unset>} ATTEMPT=${GITHUB_RUN_ATTEMPT:-<unset>} ACTIONS=${GITHUB_ACTIONS:-<unset>}\"; date -u +%Y%m%dT%H%M%SZ",
+      "printf 'RUN_ID=[%s]\\n' \"$GITHUB_RUN_ID\"; printf 'ATTEMPT=[%s]\\n' \"$GITHUB_RUN_ATTEMPT\"; printf 'ACTIONS=[%s]\\n' \"$GITHUB_ACTIONS\"; date -u +%Y%m%dT%H%M%SZ",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1055 --pr 1114 2>.prflow/tmp/review/pr-1114/30740930644-1/acs.err ; echo \"acs-rc=$?\"",
+      "awk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/review/pr-1114/30740930644-1/diff.patch > .prflow/tmp/review/pr-1114/30740930644-1/batch-1.patch && test -s .prflow/tmp/review/pr-1114/30740930644-1/batch-1.patch && echo \"slice-ok: batch-1\" || echo \"slice-failed: batch-1\"\nawk -v s=11 -v e=18 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/review/pr-1114/30740930644-1/diff.patch > .prflow/tmp/review/pr-1114/30740930644-1/batch-2.patch && test -s .prflow/tmp/review/pr-1114/30740930644 …[per-command-truncated]",
+      "awk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/review/pr-1114/30740930644-1/diff.patch > .prflow/tmp/review/pr-1114/30740930644-1/batch-1.patch",
+      "git show 4b769bf:lib/test/run.sh > .prflow/tmp/review/pr-1114/30740930644-1/head-run.sh\ngit show 4b769bf:scripts/workflow-flight-recorder-registry.json > .prflow/tmp/review/pr-1114/30740930644-1/head-registry.json\npython3 - <<'PY'\nimport re\nrun=open('.prflow/tmp/review/pr-1114/30740930644-1/head-run.sh',encoding='utf-8').read()\nreg=open('.prflow/tmp/review/pr-1114/30740930644-1/head-registry.json',encoding='utf-8').read()\nimport json\nmods=[k for k,v in json.loads(reg)['test_modules'].items() if  …[per-command-truncated]",
+      "for m in review-and-fix-contract create-issue-contract capability-profiles installer-wiring harness-python-guards prompt-extension-reader review-trigger-helpers review-stall-backstop experiment-records efficiency-trace-telemetry issue-audit-state; do\n  c=$(grep -c \"devflow_run_full_suite_module \\\"\\$LIB/test/modules/$m.sh\\\"\" lib/test/run.sh)\n  k=$(grep -c \"\\\"$m\\\": {\" scripts/workflow-flight-recorder-registry.json)\n  echo \"$m: run.sh_sites=$c registry_keys=$k\"\ndone",
+      "timeout 300 lib/test/run-module.sh regenerate-artifacts 2>&1 | tail -8; echo \"PIPE=${PIPESTATUS[0]}\"",
+      "timeout 400 lib/test/run-module.sh regenerate-artifacts > /tmp/ra.out 2>&1; echo \"RC=$?\"; tail -6 /tmp/ra.out",
+      "lib/test/run-module.sh regenerate-artifacts > /tmp/ra.out 2>&1; echo \"RC=$?\"",
+      "lib/test/run-module.sh regenerate-artifacts > .prflow/tmp/ra.out 2>&1; echo \"RC=$?\"; tail -6 .prflow/tmp/ra.out"
+    ],
+    "total": 12,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
