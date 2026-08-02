@@ -1079,7 +1079,8 @@ jobs:
             echo "::warning::devflow compose-vendor-marketplace.sh not found at $VENDORMK — a pinned prflow_version predating issue #1049 running an upgraded workflow; the prflow plugin resolves from the repo-root marketplace (./). Bump prflow_version in .prflow/config.json."
           fi
           # Re-read the (possibly transformed) list via bash builtins (guard-class 2 —
-          # no cat/tr/sed/wc/cut/head for the emitted marketplace list).
+          # no cat/tr/sed/wc/cut/head for the emitted marketplace list). Blank lines are
+          # dropped deliberately, so an empty entry never reaches plugin_marketplaces.
           OUT=""
           while IFS= read -r mkline || [ -n "$mkline" ]; do
             [ -z "$mkline" ] && continue

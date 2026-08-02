@@ -38162,6 +38162,40 @@ _1049_run .prflow/vendor 'https://github.com/anthropics/claude-plugins-official.
 assert_eq "#1049 swap-miss: no ./ in the list → ::warning:: (not silent)" "yes" \
   "$(printf '%s' "$_1049_ANN" | grep -q '::warning::' && echo yes || echo no)"
 rm -rf "$_1049_FX"
+# (e) write-failure arm: complete vendor, but the job-local marketplace.json cannot be
+# written. The helper runs under `set -u` and NOT `set -e`, so the write is checked
+# explicitly and the swap is GATED on it — otherwise the list would be repointed at
+# $VENDOR_ROOT while the marketplace.json it depends on does not exist, i.e. a
+# silently-wrong resolution wearing a green ::notice::. Without a driver for that gate a
+# refactor hoisting the swap above it (or downgrading the annotation to a notice) ships
+# green, so drive it here. Fixture: a regular FILE where the helper needs to mkdir
+# `<vendor-root>/.claude-plugin` — portable and root-insensitive, unlike a chmod.
+_1049_FX="$(mktemp -d)"; _1049_mkvendor "$_1049_FX" complete
+printf '%s\n' 'not a directory' > "$_1049_FX/.prflow/vendor/.claude-plugin"
+_1049_run .prflow/vendor "$(printf '%s\n%s' 'https://github.com/anthropics/claude-plugins-official.git' './')"
+assert_eq "#1049 write-failure: marketplace.json unwritable → list left UNCHANGED (no swap without a confirmed write)" \
+  "$(printf '%s\n%s' 'https://github.com/anthropics/claude-plugins-official.git' './')" "$_1049_LIST"
+assert_eq "#1049 write-failure: emits a ::warning:: and NO ::notice:: (never a broken resolution reported as clean)" "yes" \
+  "$(printf '%s' "$_1049_ANN" | grep -q '::warning::' && ! printf '%s' "$_1049_ANN" | grep -q '::notice::' && echo yes || echo no)"
+rm -rf "$_1049_FX"
+# (f) baseline coupling: the helper's swap arm matches the literal `./`, but nothing
+# above ties that to what the baked marketplaces baseline actually emits — every fixture
+# supplies its own `./`. The #505 AC4 pins lock $_505_BM byte-identical across the three
+# workflows and say nothing about whether the helper matches any line it produces, so a
+# baseline respelling (`.`, a trailing slash, an absolute path) would silently take the
+# swap-miss arm in production while the suite stayed green. Couple them BEHAVIORALLY
+# rather than by grepping the two literals at each other: derive the baseline's emitted
+# entries from the pinned literal (the same `printf '%s\n' ` prefix strip the #505 AC4
+# block uses) and drive the REAL helper over them. The composed ::notice:: fires only
+# when SWAPPED=1, so this goes RED if either side moves — and it survives a refactor of
+# the match itself (case → if, a variable), which a literal-to-literal pin would not.
+_1049_FX="$(mktemp -d)"; _1049_mkvendor "$_1049_FX" complete
+_1049_BM_ENTRIES="${_505_BM##*"' "}"
+# shellcheck disable=SC2086  # deliberate word-split: reproduce the baseline printf's lines
+_1049_run .prflow/vendor "$(printf '%s\n' $_1049_BM_ENTRIES)"
+assert_eq "#1049 baseline coupling: the baked marketplaces baseline emits an entry the helper's swap arm matches" "yes" \
+  "$(printf '%s' "$_1049_ANN" | grep -q '::notice::' && ! printf '%s' "$_1049_ANN" | grep -q '::warning::' && echo yes || echo no)"
+rm -rf "$_1049_FX"
 
 # Workflow wiring: the vendor_marketplace step is implement-tier ONLY.
 _1049_IMPL="$_505_WF/devflow-implement.yml"

@@ -43,7 +43,11 @@
 #               rewrite the marketplaces file so the repo-root `./` entry becomes
 #               `<vendor-root>`, emit one `::notice::` audit line. A directory's
 #               presence is NOT proof the helper set exists, so completeness is proven by
-#               the plugin manifest, not the directory.
+#               the plugin manifest, not the directory. Two sub-cases warn instead of
+#               that notice, so this arm is not unconditionally a `::notice::`: an
+#               unwritable `marketplace.json` gates the swap OFF (list left unchanged),
+#               and a combined list carrying no `./` entry composes the marketplace but
+#               splices nothing in. Both sub-cases are driven by the suite.
 #   degraded  — the vendored tree is absent or partial (the #505-class skew: a pinned
 #               prflow_version predating this change, or an incomplete vendor fetch).
 #               Leave the marketplaces file UNCHANGED (the run keeps resolving from the
