@@ -2898,7 +2898,11 @@ SH
 chmod +x "$S1054_WF_ROOT/.prflow/vendor/prflow/scripts/diagnose-review-progress-marker.sh"
 S1054_WF_RECORD="$S1054_WF_ROOT/record"
 s1054_run_wf_block() {
-  ( cd "$S1054_WF_ROOT" && COMMAND="$1" REPO=o/r CONTEXT_NUMBER=7 FLIP_MARKER="$S1054_EXPECTED" \
+  # TARGET_NUMBER is derived by the sibling upsert block (issue #1154) from the
+  # command's own trailing number, and the diagnosis dispatch addresses the same
+  # thread. This extraction starts below that derivation, so supply the value the
+  # upsert block would have produced for this command.
+  ( cd "$S1054_WF_ROOT" && COMMAND="$1" REPO=o/r CONTEXT_NUMBER=7 TARGET_NUMBER=7 FLIP_MARKER="$S1054_EXPECTED" \
       GH_TOKEN=secret S1054_WF_RECORD="$S1054_WF_RECORD" S1054_WF_MESSAGE="${2:-}" S1054_WF_RC="${3:-0}" \
       bash "$S1054_WF_BLOCK" )
 }
@@ -3324,6 +3328,27 @@ assert_eq "#1154 wiring: a cancelled run still reaches the upsert helper" "claud
 s1154_wf '/devflow:review-and-fix 7' failure false >/dev/null
 assert_eq "#1154 wiring: the transitional /devflow: command spelling is accepted" "1" \
   "$(grep -c . "$S1154_WF_RECORD" || true)"
+
+# ── Which THREAD the upsert writes to. The command carries its own target number,
+# and that is the thread the engine seeded its progress comment on — not always the
+# thread the triggering comment sits on. While the handler was flip-only a mismatch
+# was a harmless no-op; now that a confirmed absence WRITES, addressing the event's
+# own number would post a '❌ Review failed' comment on a thread that never had a
+# review. The command's number must win.
+: > "$S1154_WF_RECORD"
+s1154_wf '/prflow:review 42' success false 10 >/dev/null
+assert_eq "#1154 wiring: the command's own target number wins over a differing event number" "42" \
+  "$(sed -n '1p' "$S1154_WF_RECORD" | sed 's/|.*//')"
+# With no number on the command, the event's own number is the fallback.
+: > "$S1154_WF_RECORD"
+s1154_wf '/prflow:review' success false 10 >/dev/null
+assert_eq "#1154 wiring: a command carrying no number falls back to the event's own" "10" \
+  "$(sed -n '1p' "$S1154_WF_RECORD" | sed 's/|.*//')"
+# A non-numeric trailing token is not a target either.
+: > "$S1154_WF_RECORD"
+s1154_wf '/prflow:review-and-fix HEAD' success false 10 >/dev/null
+assert_eq "#1154 wiring: a non-numeric trailing token falls back to the event's own number" "10" \
+  "$(sed -n '1p' "$S1154_WF_RECORD" | sed 's/|.*//')"
 
 # The command screen. Now that a clean absence WRITES, a command that never seeds a
 # progress comment must be screened out, or an ungated step would post a spurious

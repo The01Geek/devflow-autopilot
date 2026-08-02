@@ -7013,7 +7013,7 @@ assert_eq "#356 pin: devflow.yml adds the dead-run review-progress flip step" "y
 assert_eq "#356 pin: devflow.yml flip step wires the helper" "yes" \
   "$(grep -q 'flip-review-progress-failed.sh' "$DEVFLOW_YML" && echo yes || echo no)"
 assert_eq "#356 pin: devflow.yml actually INVOKES the helper (not just names it)" "yes" \
-  "$(grep -qF 'bash "$FLIP_HELPER" "$CONTEXT_NUMBER" "$FLIP_MARKER"' "$DEVFLOW_YML" && echo yes || echo no)"
+  "$(grep -qF 'bash "$FLIP_HELPER" "$TARGET_NUMBER" "$FLIP_MARKER"' "$DEVFLOW_YML" && echo yes || echo no)"
 # Issue #1154 replaced the flip step's three-disjunct outcome gate with a bare
 # `always()`: a run that exited CLEANLY having written no verdict matched none of the
 # three disjuncts, so the backstop never fired on exactly the mode it exists to cover
@@ -15663,7 +15663,7 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # together, or test_module_runner.py's tranche test goes RED.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 717; then
+  "review-trigger-helpers" 720; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi

@@ -1573,6 +1573,22 @@ jobs:
               exit 0
               ;;
           esac
+          # The resolved command carries its OWN target number (the detector emits
+          # `/prflow:<cmd> <n>`), and that is the thread the engine seeded its
+          # progress comment on — which is not always the thread the triggering
+          # comment sits on, because a collaborator can write `/prflow:review 42`
+          # from somewhere else. While the handler was flip-only that mismatch was
+          # a harmless no-op; now that a confirmed absence WRITES, addressing the
+          # event's own number would post a '❌ Review failed' comment on a thread
+          # that never had a review. Prefer the command's trailing number and fall
+          # back to the event's only when the command carries none. Derived with
+          # parameter expansion and a `case` glob — both bash builtins, because a
+          # value that decides where a write lands must not flow through a
+          # non-preflight-guaranteed PATH tool.
+          TARGET_NUMBER="${COMMAND##* }"
+          case "$TARGET_NUMBER" in
+            ''|*[!0-9]*) TARGET_NUMBER="$CONTEXT_NUMBER" ;;
+          esac
           # Name the specific mode that fired, so the comment's cause line and
           # the job log agree on why the run was treated as dead. The four-mode
           # partition and its arm ORDER live in the helper, not here.
@@ -1589,7 +1605,7 @@ jobs:
             CAUSE="claude step ${CLAUDE_OUTCOME:-unavailable} (engine is_error=${ENGINE_ERROR:-false})"
           fi
           if [ -f "$FLIP_HELPER" ]; then
-            bash "$FLIP_HELPER" "$CONTEXT_NUMBER" "$FLIP_MARKER" "$CAUSE" || true
+            bash "$FLIP_HELPER" "$TARGET_NUMBER" "$FLIP_MARKER" "$CAUSE" || true
           else
             echo "::warning::flip review-progress: flip-review-progress-failed.sh absent at $FLIP_HELPER; review-progress comment not flipped to '❌ Review failed'"
           fi
@@ -1601,7 +1617,7 @@ jobs:
           DIAG_RUNNER=.prflow/vendor/prflow/scripts/run-review-progress-diagnosis.sh
           [ -f "$DIAG_RUNNER" ] || DIAG_RUNNER=scripts/run-review-progress-diagnosis.sh
           if [ -f "$DIAG_RUNNER" ]; then
-            bash "$DIAG_RUNNER" "$COMMAND" "$REPO" "$CONTEXT_NUMBER" "$FLIP_MARKER" || true
+            bash "$DIAG_RUNNER" "$COMMAND" "$REPO" "$TARGET_NUMBER" "$FLIP_MARKER" || true
           else
             echo "::notice::flip review-progress: could not establish marker diagnosis because the dispatcher is absent at $DIAG_RUNNER"
           fi
