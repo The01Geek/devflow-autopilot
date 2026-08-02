@@ -123,5 +123,68 @@
       "iter": 5,
       "phases": "unavailable"
     }
-  ]
+  ],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.46",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.769033,
+    "tokens": {
+      "input_tokens": 30,
+      "output_tokens": 15178,
+      "cache_read_input_tokens": 2064397,
+      "cache_creation_input_tokens": 140456,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 106,
+        "outputTokens": 29877,
+        "cacheReadInputTokens": 4124461,
+        "cacheCreationInputTokens": 389222,
+        "webSearchRequests": 0,
+        "costUSD": 5.769033,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 24,
+    "duration_ms": 320538
+  },
+  "permission_denials": {
+    "count": 15,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none}\"; git status --porcelain | head; echo \"---PRVIEW---\"; gh pr view 1144 --json headRefName,baseRefName,baseRefOid,headRefOid,title,body,state,url --jq '{head:.headRefName,base:.baseRefName,baseOid:.baseRefOid,headOid:.headRefOid,state:.state,url:.url,title:.title}'",
+      "for f in .github/workflows/devflow-implement.yml .github/workflows/devflow.yml .github/workflows/devflow-runner.yml; do echo \"=== $f ===\"; git show e28dc036:$f 2>/dev/null | grep -niE 'vendor_marketplace|compose-vendor-marketplace|1049|vendored subtree|vendored-marketplace|vendored marketplace' || echo \"(none)\"; done",
+      "for f in .github/workflows/devflow-implement.yml .github/workflows/devflow.yml .github/workflows/devflow-runner.yml; do echo \"=== $f ===\"; git show \"e28dc036:$f\" 2>/dev/null | grep -niE 'vendor_marketplace|compose-vendor-marketplace|1049|vendored sub|vendored-marketplace|vendored marketplace' || echo \"(none)\"; done",
+      "git show e28dc036:.github/workflows/devflow-implement.yml > /tmp/impl.yml; git show e28dc036:.github/workflows/devflow.yml > /tmp/dev.yml; git show e28dc036:.github/workflows/devflow-runner.yml > /tmp/run.yml; echo done",
+      "git show e28dc036:.github/workflows/devflow-implement.yml > /tmp/impl.yml",
+      "git show e28dc036:.github/workflows/devflow-implement.yml > /home/runner/work/prflow/prflow/.prflow/tmp/impl.yml",
+      "for f in devflow-implement devflow devflow-runner; do echo \"=== $f.yml ===\"; git grep -c -F 'plugin_marketplaces: ${{ steps.plugins.outputs.plugin_marketplaces }}' e28dc036 -- .github/workflows/$f.yml; done",
+      "for f in devflow-implement devflow devflow-runner; do n=$(git show e28dc036:.github/workflows/$f.yml | grep -c -F 'plugin_marketplaces: ${{ steps.plugins.outputs.plugin_marketplaces }}'); echo \"$f.yml: $n\"; done",
+      "for f in devflow-implement devflow devflow-runner; do git show \"e28dc036:.github/workflows/$f.yml\" > /tmp/wf-$f.yml; n=$(grep -c -F 'steps.plugins.outputs.plugin_marketplaces' /tmp/wf-$f.yml); v=$(grep -c -F 'steps.vendor_marketplace.outputs.plugin_marketplaces' /tmp/wf-$f.yml); echo \"$f.yml: plugins-step=$n vendor-step=$v\"; done",
+      "for f in devflow-implement devflow devflow-runner; do git show e28dc036:.github/workflows/$f.yml > /tmp/wf-$f.yml; done; echo done",
+      "git show e28dc036:.github/workflows/devflow-implement.yml > /tmp/a.yml; git show e28dc036:.github/workflows/devflow.yml > /tmp/b.yml; git show e28dc036:.github/workflows/devflow-runner.yml > /tmp/c.yml; echo extracted",
+      "git show e28dc036:.github/workflows/devflow-implement.yml > /tmp/a.yml && echo ok",
+      "git show e28dc036:.github/workflows/devflow-implement.yml > .prflow/tmp/a.yml && git show e28dc036:.github/workflows/devflow.yml > .prflow/tmp/b.yml && git show e28dc036:.github/workflows/devflow-runner.yml > .prflow/tmp/c.yml && echo ok",
+      "git show e28dc036:.github/workflows/devflow-implement.yml > .prflow/tmp/a.yml; echo ok",
+      ".prflow/vendor/prflow/scripts/workpad.py patch 5158648816 .prflow/tmp/review/pr-1144/30752833009-1/review-wp.md 2>.prflow/tmp/review/pr-1144/30752833009-1/rv-patch.err; echo \"patch-rc=$?\""
+    ],
+    "total": 15,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
 }
