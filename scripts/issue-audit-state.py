@@ -4223,7 +4223,13 @@ def _reconstruct_dispatch_bytes(state, digest):
             continue
         try:
             data = Path(path).read_bytes()
-        except OSError:
+        except (OSError, ValueError):
+            # `ValueError` is NOT redundant beside `OSError`: a recorded path carrying an
+            # embedded NUL raises it out of `Path.read_bytes` before any syscall, and the
+            # state file is hand-editable, so that path reaches here. Issue #1104 routed
+            # this reader onto `record-dispatch`, a MUTATION whose contract forbids a raw
+            # traceback — an uncaught raise there would break that contract on exactly the
+            # corrupted input this best-effort read exists to survive.
             continue
         try:
             if hash_bytes(data) == digest:
@@ -5757,6 +5763,44 @@ def cmd_record_dispatch(args):
             _fail('record-dispatch',
                   f'round {doc["rounds"][-1]["round"]} is still open; record its return '
                   f'before dispatching round {args.round}')
+        # issue #1104: the file-arm staged-write guarantee at DISPATCH — the sibling of
+        # `record-revision`'s `file-arm-requires-stdin-digest` refusal (issue #705), enforced
+        # by the tool rather than carried by prose a context compaction can evict. Without
+        # the record the loss is SILENT by design: `select_round_kind`'s condition 3 has no
+        # operand, and a missing operand degrades the selection to `discovery` rather than
+        # aborting the run, so every later round pays for a cold whole-draft audit and
+        # nothing says why. Refused before any mutation of `doc`, the round stays
+        # dispatchable — the caller records the staged write and re-issues the identical call.
+        #
+        # The predicate is `_reconstruct_dispatch_bytes`, the same reader condition 3 uses:
+        # a weaker digest-membership test would admit a recorded pair whose artifact is gone
+        # or whose bytes no longer hash to it, satisfying the guard while leaving the
+        # selection to fail on the very same run.
+        #
+        # The FILE-arm scoping is what makes the guarantee safe to require at all: `route_arm`
+        # selects `file` only when the canonical write landed, and the degraded arms it and
+        # `next_action` route to instead are reached precisely when the run has no trustworthy
+        # canonical file to have staged. The fresh-dispatch scoping is structural — the
+        # predicate is `_find_round` having answered `None` — because a retry re-dispatches an
+        # already-open round whose bytes may legitimately have moved, and refusing it would
+        # refuse the re-dispatch the tool itself prescribed.
+        #
+        # SCOPE, stated so the breadcrumb is not read as more than it is: this establishes
+        # recoverability AT DISPATCH. It does not make the artifact durable — a later
+        # overwrite or sweep can still strand the record, and condition 3 then answers
+        # `dispatch-bytes-unrecoverable` exactly as before.
+        if args.arm == 'file' and _reconstruct_dispatch_bytes(doc, digest) is None:
+            _fail('record-dispatch',
+                  f'the draft bytes this dispatch audits (digest {digest!r}) are not '
+                  'recoverable from the run\'s recorded byte history '
+                  '(file-arm-requires-staged-write): stage those exact bytes and record the '
+                  'staged write for them (stage-draft-write.py stage, then record-staged-write '
+                  '--path <the resolved artifact> --digest <that digest>), then re-issue this '
+                  'identical record-dispatch call. Without a recorded staged write a later '
+                  'round cannot reconstruct these bytes at all, so every scoped-round delta '
+                  'silently falls back to a whole-draft audit. Recording it is necessary, '
+                  'not sufficient: this check reads the artifact now, so one later '
+                  'overwritten or swept still strands the record.')
         # Spend the automatic re-audit budget HERE, where the round actually opens.
         # A new round whose predecessor closed REVISE is the automatic re-audit while the
         # budget is unspent; once it is spent, a further round can only be a user-chosen
