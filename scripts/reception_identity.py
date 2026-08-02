@@ -35,8 +35,12 @@ still decides their contribution — see the skip-worktree/assume-unchanged para
 below. The repository's own index is never modified (the derivation writes to
 a private `GIT_INDEX_FILE`; it does add unreferenced blob/tree objects to the
 object database, which are GC-collectable and touch no ref), and no repository
-history is read, so the cost scales with the number of changed files rather than
-repository size.
+history is read. The backdate does raise the cost profile: forcing every ordinary
+entry racy makes `git add -A` re-hash the content of every tracked file (not only
+the changed ones), so the cost now scales with the number of tracked plus untracked
+non-ignored files rather than with the changed-file count — a deliberate tradeoff
+accepted for stat-timing-independent correctness (issue #1117). It still reads no
+history, so it does not scale with repository depth.
 
 Seeding the temporary index from the current index is load-bearing, not an
 optimization: a cone-mode sparse checkout leaves skip-worktree entries off disk,
