@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1168",
+  "generated_at": "2026-08-02T21:20:24Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.55",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 35.15878975,
+    "tokens": {
+      "input_tokens": 1826,
+      "output_tokens": 82808,
+      "cache_read_input_tokens": 42977228,
+      "cache_creation_input_tokens": 421822,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 1968,
+        "outputTokens": 127099,
+        "cacheReadInputTokens": 46870322,
+        "cacheCreationInputTokens": 1112717,
+        "webSearchRequests": 0,
+        "costUSD": 35.15878975,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 179,
+    "duration_ms": 3942058
+  },
+  "permission_denials": {
+    "count": 15,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/.prflow/vendor/prflow/scripts/load-prompt-extension.sh implement 2>&1 || echo \"EXIT: $?\"",
+      "/home/runner/work/prflow/prflow/.prflow/vendor/prflow/scripts/load-prompt-extension.sh implement 2>&1; echo \"EXIT: $?\"",
+      "echo \"GITHUB_ACTIONS=${GITHUB_ACTIONS:-unset}\"; echo \"GITHUB_RUN_ID=${GITHUB_RUN_ID:-unset}\"; git branch --show-current; git status --short | head",
+      "gh issue view 1166 --json body --jq '.body' > /home/runner/work/prflow/prflow/.prflow/tmp/issue-body/issue-1166.md",
+      "echo test > /home/runner/work/prflow/prflow/.prflow/tmp/redirtest.txt 2>&1; echo \"rc=$?\"",
+      "BASE=$(.prflow/vendor/prflow/scripts/config-get.sh .base_branch main) || BASE=\"\"\n[ -n \"$BASE\" ] || BASE=main\nRUN_URL=\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"\nBODY=$(cat <<EOF\nWork in progress — automated review pending.\n\nResolves #1166\n[View run]($RUN_URL)\n\nGenerated via \\`/prflow:implement 1166\\`\nEOF\n)\nif gh pr create --base \"$BASE\" --draft --title \"Prompt users to self-assign issues created by PRFlow\" --body \"$BODY\"; then\n  printf 'create: ok\\n'\nelse\n  printf 'create …[per-command-truncated]",
+      "git diff --no-index -U0 /dev/null .changeset/issue-1166-self-assign-prompt.md | .prflow/vendor/prflow/scripts/stale-prose-lint.py --worktree; echo \"exit=$?\"",
+      "ls .changeset/ 2>/dev/null; echo \"---\"; for f in .changeset/*.md; do [ \"$f\" != \".changeset/README.md\" ] && echo \"== $f ==\" && head -5 \"$f\"; done 2>/dev/null | head -40",
+      "/home/runner/work/prflow/prflow/.prflow/vendor/prflow/scripts/load-prompt-extension.sh docs; echo \"---GATES---\"; /home/runner/work/prflow/prflow/.prflow/vendor/prflow/scripts/config-get.sh .docs.internal_enabled true; /home/runner/work/prflow/prflow/.prflow/vendor/prflow/scripts/config-get.sh .docs.external_enabled true",
+      "/home/runner/work/prflow/prflow/.prflow/vendor/prflow/scripts/load-prompt-extension.sh docs",
+      "/home/runner/work/prflow/prflow/.prflow/vendor/prflow/scripts/config-get.sh .docs.internal_enabled true",
+      "/home/runner/work/prflow/prflow/.prflow/vendor/prflow/scripts/config-get.sh .docs.external_enabled true",
+      ".prflow/vendor/prflow/scripts/shard-tally.py --help 2>&1 | head -30; echo \"===\"; ls -1 /home/runner/work/prflow/prflow/.prflow/tmp/ | grep -iE 'tally|shard' | head",
+      "lib/test/../../scripts/verification-flight.py --help 2>&1 | head -40",
+      ".prflow/vendor/prflow/scripts/run-jq.sh -r '.comment.id // empty' \"$GITHUB_EVENT_PATH\" 2>/dev/null || true"
+    ],
+    "total": 15,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
