@@ -217,13 +217,29 @@ coordinator — the per-shard `TMPDIR` and tally exports, the log capture, the b
 launches, the capacity arithmetic, the aggregation — so the cloud tiers invoke exactly
 `lib/test/run-parallel.sh` with nothing around it, granted through
 `prflow_implement.allowed_tools` and `prflow.allowed_tools`. Those grants resolve from
-the **default branch at trigger time**, so the grant is inert on the PR that adds it
-(`docs/cloud-setup.md` states the general rule) — until it lands on the default branch
-the cloud tier's final gate stays `lib/test/run.sh`, and a coordinator invocation that
-produces no output at all there is a denial, not an empty result. The local/interactive tier reaches
+the **default branch at trigger time**, so a grant is inert on the PR that adds it
+(`docs/cloud-setup.md` states the general rule) — until it lands there, the cloud tier's
+final gate falls back to a whole-suite form already granted on the default branch, and an
+invocation that produces no output at all is a denial, not an empty result. The local/interactive tier reaches
 the same coordinator through the `DEVFLOW_BASH` invocation-layer selector `CLAUDE.md`
 documents, because on that tier the shell that *runs* a `.sh` helper is chosen at the
 invocation boundary.
+
+**When the ceiling terminates the coordinator, decompose it (issue #1132).** The cloud
+implement tier terminates any single command at roughly ten minutes, and that ceiling is not
+escapable in-run: `devflow-implement.yml` sets `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"`,
+the tree carries no `BASH_MAX_TIMEOUT_MS` override, and `nohup` is ungranted. A run in that
+position does **not** downgrade its evidence to a focused module — the Phase 4.3 completion
+gate takes a whole-suite result, and the prompt extensions state that scope once. It instead
+does what CI already does to satisfy the same required check: enumerate the partition with
+`lib/test/run-shard.sh --list-shards`, run each shard as its own command (CI observes
+1m44s–4m48s per shard, comfortably inside the ceiling), and recombine the run's own tally
+paths through `lib/test/shard-tally.py combine`. Both helpers are granted in
+`prflow_implement.allowed_tools` and `prflow.allowed_tools` for exactly this reason; before
+that grant existed, a run that took the strict reading had no sanctioned discharge at all and
+its shard attempts were silently denied. Only an unobservable *recombined* run terminates the
+work, and it does so as the `execution-ceiling` Blocked terminal that Phase 4.3 names —
+distinguishable in the workpad from a run that observed a failing suite.
 
 **Retained logs, not truncated ones.** The aggregate is compact by design — bounded by the
 `DETAIL_CAP` constant `lib/test/run-parallel.sh` passes to `shard-tally.py combine`, per

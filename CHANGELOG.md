@@ -4,6 +4,31 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.51] — 2026-08-02
+
+### Fixed
+- **Single-sourced the verification-flight scope that discharges the Phase 4.3
+  completion-evidence gate, and made the strict rule satisfiable on the cloud implement
+  tier.** `.prflow/prompt-extensions/implement.md` carried two statements that disagreed —
+  one excluding a focused result from the final gate, and a parenthetical admitting one —
+  so two implement runs on the same tip read the same file and split, one completing on a
+  focused-module flight and one dead-ending Blocked with its work finished and its PR
+  green. The rule now has one home: only a whole-suite result discharges that gate, and
+  `skills/implement/phases/phase-4-documentation.md` and `CLAUDE.md`'s tiered-runner bullet
+  point at that statement rather than restating it. `Bash(lib/test/run-shard.sh:*)` and
+  `Bash(lib/test/shard-tally.py:*)` are granted in `prflow_implement.allowed_tools` and
+  `prflow.allowed_tools`, so when the tier's per-command execution ceiling terminates the
+  parallel coordinator a run decomposes the same partition one shard at a time and
+  recombines it — the way CI already satisfies the same required check — instead of
+  downgrading its completion evidence. Phase 4.3 also gains a named `execution-ceiling`
+  Blocked terminal, distinguishable in the workpad from a run that observed a failing
+  suite. `scripts/check-completion-evidence.py` is byte-unchanged. (#1146, closes #1132)
+
+## [2.30.50] — 2026-08-02
+
+### Changed
+- **Detect a stray superseded config family beside a present canonical one at trigger time.** The two shipped workflows' (`devflow.yml`, `devflow-implement.yml`) `config` jobs now emit a `::warning::` when `.prflow/config.json` carries a stray superseded top-level family (e.g. `devflow`, `devflow_version`) beside a canonical `prflow*` family — the half-migrated shape the existing `MISSING_FAMILIES` set-difference passed silently, whose stray keys resolve to their `// default` everywhere and silently drop any grant, allowlist narrowing, or provider selection written there. The check is advisory (the run proceeds), lives outside the enable gate so a disabled repo mid-migration is still told, reads presence from the config's key set (never a `//`-coerced value, so a valid-falsy stray value is still caught), fails safe on a non-object root, and matches the superseded families by the `^devflow(_|$)` shape rather than any dotted/bare literal — so it cannot wedge `scaffold-config.sh`'s freshness gate. `lib/test/modules/tier1-rename-migration.sh` drives the extracted jq program over an adversarial input-shape matrix and reconciles the shape against `lib/rename-map.json`'s `config_keys`. (#1083)
+
 ## [2.30.49] — 2026-08-02
 
 ### Fixed
