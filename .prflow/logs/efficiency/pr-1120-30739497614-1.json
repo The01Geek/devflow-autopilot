@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1120",
+  "generated_at": "2026-08-02T08:27:03Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.33",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.216419500000001,
+    "tokens": {
+      "input_tokens": 69,
+      "output_tokens": 16671,
+      "cache_read_input_tokens": 4584319,
+      "cache_creation_input_tokens": 150714,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 69,
+        "outputTokens": 16671,
+        "cacheReadInputTokens": 4584319,
+        "cacheCreationInputTokens": 150714,
+        "webSearchRequests": 0,
+        "costUSD": 4.216419500000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 38,
+    "duration_ms": 408499
+  },
+  "permission_denials": {
+    "count": 7,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"\n/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "/home/runner/work/prflow/prflow/scripts/load-prompt-extension.sh review",
+      "mkdir -p .prflow/tmp/review/pr-1120/local\ngh pr diff 1120 > .prflow/tmp/review/pr-1120/local/diff.patch 2>&1\nwc -l .prflow/tmp/review/pr-1120/local/diff.patch\necho \"===LINES-CHANGED===\"\ngrep -cE '^[+-]' .prflow/tmp/review/pr-1120/local/diff.patch",
+      "gh issue view 1111 --json body 2>&1 | python3 -c \"\nimport json,sys,re\nb=json.load(sys.stdin)['body']\ni=b.find('## Acceptance Criteria')\nseg=b[i:]\n# stop at next ## heading\nm=re.search(r'(?m)^## (?!Acceptance)',seg[3:])\nprint(seg[:16000].split('\\n### ')[0][:3200] if False else seg[1600:3600])\n\"",
+      "gh issue view 1111 --json body > .prflow/tmp/review/pr-1120/local/issue.json 2>&1; python3 -c \"\nimport json\nb=json.load(open('.prflow/tmp/review/pr-1120/local/issue.json'))['body']\ni=b.find('## Acceptance Criteria')\nseg=b[i:]\nimport re\n# find next '## ' that is not Acceptance\nnxt=[m.start() for m in re.finditer(r'(?m)^## ',seg) if not seg[m.start():].startswith('## Acceptance')]\nend=nxt[0] if nxt else len(seg)\nprint(seg[:end])\n\"",
+      "gh pr review 1120 --approve --body \"## PRFlow Review — PR #1120 — ✅ APPROVE\n\n**Reviewed HEAD:** 9aa70468106a0e5eff3caea39ff190689db5c307\n**Diff classification:** engine_self_modifying (skills/**, lib/**) → full checklist; no new types; not detect_all_audit.\n\nGates \\`/prflow:create-issue\\` on the shipped \\`scripts/parse-acs.py\\` so a drafted \\`## Acceptance Criteria\\` section the parser reads as empty can no longer ship as an unenforceable spec. Prose in \\`step-3-5-steelman.md\\` (obligation) + \\` …[per-command-truncated]"
+    ],
+    "total": 7,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
