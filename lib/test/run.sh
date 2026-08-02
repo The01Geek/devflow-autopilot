@@ -1680,7 +1680,7 @@ assert_pin_unique "347(AC2): the verifier is a single agent that does not itself
   'that does not itself fan out' "$ST_REV"
 # AC3 (APPROVE posts through Phase 4.4 + reuses dismiss-stale-rejections.sh unchanged).
 # PR #349 review (MEDIUM): the fast path originally said only "post it exactly through Phase 4.4".
-# Phase 4.4 is JUST the `gh pr review` step — the progress-comment finalization (Status glyph, report,
+# Phase 4.4 is JUST the verdict-post step — the progress-comment finalization (Status glyph, report,
 # and the `Reviewed HEAD` producer key) lives in the separate Phase 4 update protocol. So a fast-path
 # run left its own comment at `_(set at Phase 4)_` / `🚀 Reviewing`, meaning (a) a fast-path REJECT can
 # never satisfy a LATER fast path's precondition-2 join (the feature cannot chain across successive
@@ -31636,8 +31636,8 @@ echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"
 #
 # Scope boundary, asserted below and documented in the extractor's own header: only
 # ```bash fences are scanned. Commands the engine invokes from inline-backtick PROSE or
-# from a markdown table — `git cat-file -e` (Phase 0.3.6), `gh pr review` (Phase 4.4's
-# verdict->command table), and the rest of the set enumerated at the direct-grant pins
+# from a markdown table — `git cat-file -e` (Phase 0.3.6), `gh pr comment` (Phase 4.4's
+# fallback arm), and the rest of the set enumerated at the direct-grant pins
 # below — are out of the extractor's reach, so their grants are pinned by direct literal
 # instead. Widening extraction to prose would resurrect the `git a`/`git failure`/`git
 # said` false positives, which is strictly worse than a documented narrow reach PLUS a
