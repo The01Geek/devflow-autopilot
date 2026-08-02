@@ -1635,11 +1635,21 @@ RA_1055_HEADS="$(python3 "$LIB/test/extract-command-heads.py" heads "$RA_1055_PR
 # ONE line, not one per fence: `heads` prints a sorted SET of head NAMES, so the two
 # fences in these sections — `…regenerate-artifacts.py` and `…regenerate-artifacts.py
 # --list` — share a head name and can only ever collapse to a single line. A two-line
-# expectation is unsatisfiable, not merely unmet. What this asserts is that the head is
-# extracted at all, i.e. that both invocations live in fenced blocks the matcher-visible
-# scanner can see, rather than in inline backticks it cannot.
+# expectation is unsatisfiable, not merely unmet.
 assert_eq "#1055 the batched helper is extracted as a direct command head" \
   'lib/test/regenerate-artifacts.py' "$RA_1055_HEADS"
+# The combined extraction above cannot tell "both sections fenced" from "one fenced, one
+# still in inline backticks" — the set collapses either way, so reverting EITHER fence
+# would leave it green. Extract each section on its own so both invocations are covered
+# independently; this is the assertion that actually holds the matcher-visibility fix.
+for _ra_1055_section in '## Batched artifact regeneration' \
+                        '## Merge conflicts in generated artifacts'; do
+  "$RA_REPO/scripts/load-prompt-extension.sh" implement --section "$_ra_1055_section" \
+    > "$_ra_tmp_root/issue-1055-section.md"
+  assert_eq "#1055 '$_ra_1055_section' fences the granted direct head" \
+    'lib/test/regenerate-artifacts.py' \
+    "$(python3 "$LIB/test/extract-command-heads.py" heads "$_ra_tmp_root/issue-1055-section.md")"
+done
 RA_1055_BASE_UNGRANTED="$(python3 "$LIB/test/extract-command-heads.py" ungranted \
   "$RA_1055_PROMPT" "$RA_REPO/.github/workflows/devflow-implement.yml" implement-block)"
 assert_eq "#1055 the generated consumer baseline does not grant the self-repository helper" \
