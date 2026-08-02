@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1167",
+  "generated_at": "2026-08-02T21:33:46Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.56",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.1306579999999995,
+    "tokens": {
+      "input_tokens": 6627,
+      "output_tokens": 22226,
+      "cache_read_input_tokens": 2386869,
+      "cache_creation_input_tokens": 166090,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 6691,
+        "outputTokens": 61577,
+        "cacheReadInputTokens": 4260481,
+        "cacheCreationInputTokens": 448752,
+        "webSearchRequests": 0,
+        "costUSD": 7.1306579999999995,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 25,
+    "duration_ms": 527460
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "cd /home/runner/work/prflow/prflow\ngh issue view 1164 --json comments --jq '.comments[] | select(.body | test(\"prflow:workpad|devflow:workpad\")) | .body' > .prflow/tmp/review/pr-1167/local/workpad.txt\necho \"workpad bytes: $(wc -c < .prflow/tmp/review/pr-1167/local/workpad.txt)\"\ngrep -in 'writing-skills' .prflow/tmp/review/pr-1167/local/workpad.txt || echo \"=== NO 'writing-skills' ANYWHERE IN WORKPAD ===\"\necho \"===also PR body full grep===\"\ngh pr view 1167 --json body --jq '.body' > .prflow/tmp/r …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow; gh issue view 1164 --json comments --jq '.comments[] | select(.body | test(\"prflow:workpad|devflow:workpad\")) | .body' > .prflow/tmp/review/pr-1167/local/workpad.txt; echo \"done $(wc -c < .prflow/tmp/review/pr-1167/local/workpad.txt)\"",
+      "ls /home/runner/work/prflow/prflow/.changeset/ 2>/dev/null; echo \"---existing changeset sample---\"; head -20 $(git -C /home/runner/work/prflow/prflow ls-files '.changeset/*.md' | grep -v README | head -1) 2>/dev/null",
+      "ls .changeset/ && echo \"---sample---\" && f=$(git ls-files '.changeset/*.md' | grep -v README | head -1) && echo \"$f\" && head -12 \"$f\"",
+      "cd /home/runner/work/prflow/prflow\necho \"=== changeset parser: frontmatter keys ===\"\ngrep -nE \"bump|type|frontmatter|yaml|Added|Changed\" scripts/consolidate-changesets.py | head -40\necho \"=== existing changeset examples ===\"\nls .changeset/ 2>/dev/null | head; echo \"---\"; for f in $(ls .changeset/*.md 2>/dev/null | grep -v README | head -3); do echo \"## $f\"; head -8 \"$f\"; done"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
