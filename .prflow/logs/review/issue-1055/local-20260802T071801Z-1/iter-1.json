@@ -1,0 +1,54 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-02T07:18:01Z",
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "phase_1_and_3_dispatch",
+  "pending_dispatch": {
+    "kind": "agent",
+    "roster": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:comment-analyzer",
+      "prflow:pr-test-analyzer",
+      "prflow:requesting-code-review",
+      "prflow:checklist-generator:batch-1",
+      "prflow:checklist-generator:batch-2"
+    ],
+    "dispatched_at": "2026-08-02T07:30:00Z"
+  },
+  "max_iterations": 5,
+  "fix_severity_threshold": "suggestion",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "acceptance_criteria_source": "workpad",
+  "acceptance_criteria_divergence": "none",
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:pr-test-analyzer",
+    "prflow:requesting-code-review"
+  ],
+  "checklist": [],
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": null,
+    "verdict": null,
+    "coverage": null,
+    "reviewers_dispatched": [],
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
