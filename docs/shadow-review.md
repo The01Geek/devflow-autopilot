@@ -62,8 +62,10 @@ the loop's own answer is the exact false-convergence the step exists to prevent.
 cause fixed under issue #57.
 
 **The fix: the PARENT orchestrator runs the shadow fan-out itself.** The parent *can* dispatch
-subagents, so it re-runs `/prflow:review`'s Phases 0 through 4.3 inline — `Glob` for
-`**/devflow/skills/review/SKILL.md`, `Read` it in full, walk its gated phase references under `phases/` (re-deriving bundle identity and clearing each reference's boundary contract at every entry — a shadow entry is a phase entry), and run every
+subagents, so it re-runs `/prflow:review`'s Phases 0 through 4.3 inline — resolving the engine
+directory via the ordered, repo-root-anchored candidate list (repo-root `skills/review`, then the
+`.prflow/vendor/prflow/` and superseded `.devflow/vendor/devflow/` vendored layouts), binding the
+bundle to that located directory, `Read`ing its `SKILL.md` in full, walking its gated phase references under `phases/` (re-deriving bundle identity and clearing each reference's boundary contract at every entry — a shadow entry is a phase entry), and running every
 Phase-3 reviewer normally. (Reading the engine as an inline procedure, rather than invoking it via
 the `Skill` tool, is deliberate: `Skill` would run the engine end-to-end including Phase 4.4's
 GitHub post, and the loop is silent on GitHub by design. The shadow stops before Phase 4.4.)
