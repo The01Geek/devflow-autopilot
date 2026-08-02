@@ -692,6 +692,58 @@ and the generator's `--check` (driven by
 `lib/test/modules/capability-profiles.sh`) enforces it. **Never hand-edit either
 workflow literal** to add such a grant.
 
+### The `./` dot-slash spelling on a bundled-helper invocation (issue #1133)
+
+**Settled disposition: the `./` spelling is GRANTED, on the `implement` profile only.**
+The matcher does **not** normalize a leading `./` against the bare literal, so
+`./scripts/workpad.py` and `scripts/workpad.py` are two different literals and a grant
+of one is not a grant of the other. The evidence handle is cloud implement run
+**30738987528** (issue #1085), whose diagnostics block records
+`./scripts/workpad.py`, `./scripts/apply-labels.sh` and `./scripts/config-get.sh` as
+permission denials while the corresponding bare literals were in that run's own resolved
+allowlist. Because a denial returns nothing rather than failing, that run's workpad
+froze at `🚀 Setup` while the run went on to open a green pull request, and the stall
+backstop then read the frozen workpad and decided `resume` on a `job_status=success`
+run.
+
+**Why a grant rather than a prompt-surface prohibition.** The desk gates
+`lib/test/extract-command-heads.py` and `lib/test/extract-command-shapes.py` constrain
+shapes that are *authored into a prompt surface*; no surface authors a `./` prefix, and
+the denied invocations above were composed by the runtime agent. A prohibition therefore
+closes only the path that is already closed, while the reachable path — an improvised
+spelling — stays open and stays silent.
+
+**Population: every vendored-literal helper token on the `implement` profile carries a
+`./`-prefixed alias of the same path**, and nothing else does. That set is derived from
+the profile itself rather than from the three helpers the run happened to name: the
+vendored literal is the tier's one shipped repo-relative helper spelling (the
+**row-I2-proven** leading-token form), so it is exactly the set an improvised `./` can
+land on in a consumer *and*, since issue #1049 moved this repository's own implement run
+onto the `.prflow/vendor/prflow` subtree, in this repository too. Keep each pair in step
+when adding or removing a helper; the manifest's `readme` carries that authoring note.
+
+**Blast radius is a spelling alias, not a new capability.** Under the
+[working-directory contract](working-directory-contract.md) the run begins at the
+checkout root and no surface emits a leading `cd`, so `./<path>` and `<path>` resolve to
+the same file. The alias does not widen *which* helper may run or with what arguments —
+only how an already-granted path may be written.
+
+**Not covered by this grant, and deliberately so:** the `./` alias of the *config-channel*
+repo-root-relative family (`Bash(scripts/<helper>:*)` in
+`prflow_implement.allowed_tools`, described under *Config-supplied helper grants* below).
+That family is a self-repo-only channel — issue #1078 removed self-repo paths from the
+shipped profiles precisely because they pre-authorize any consumer file that collides
+with a PRFlow-chosen path — so its alias cannot live in the manifest, and it is the
+pre-#1049 resolution shape that run 30738987528 exercised rather than the shape this
+repository's implement runs resolve now.
+
+`manifest_version` went 16 → 17 and the literals were regenerated with `python3
+lib/generate-capability-profiles.py`. The widening is implement-only: the resolved
+`review` and `command` token lists are byte-unchanged (only their banner
+`manifest_version=` moved), and `lib/review-profile.tokens` needed no update. Grant
+timing is the usual one (#593) — a baked workflow literal a PR ships is **inert for that
+PR's own implementing run** and live for subsequent cloud runs.
+
 ### Implement-tier repo-internal test grants (issue #789)
 
 **Superseded by issue #1078 (this describes the #789-era state).** These seven tokens
@@ -984,7 +1036,10 @@ correction, a manifest grant, or a recorded "no change" carrying its reason. **T
 reaches no new grant and no prompt-surface correction: every cause is dispositioned "no
 change."** One of those "no change" rows records that the grant its entries called for
 landed independently (issue #1132) — not that the head should stay ungranted. The reasons
-follow.
+follow. **One row has since been superseded on later evidence — the `./scripts/…`
+dot-slash prefix, granted by issue #1133** — which is the classification-is-correctable
+clause above in action; the row says so in place, and the current disposition lives under
+*Grant flows*.
 
 In the *entry indices* column, **A** is run 30738761826 and **B** is run 30738987528, and
 each number is the 1-based position of that entry within the run's detail block. The
@@ -1008,7 +1063,7 @@ with the refusal cause say so and split their entries explicitly.
 | **Ungranted head — `gh auth status`** | B: 5,6,9 | **No change.** `gh auth` is absent from run 30738987528's own resolved allowlist. A credential-state debugging probe; no prompt surface calls it, and granting an auth-introspection subcommand serves no durable caller. |
 | **Mixed diagnostic probes — two ungranted heads, two shape refusals** (`cat`/`ls` of `/tmp`, `git remote`/`git status` via `echo`/`printf`, `export`) | A: 19,28,29,40 | **No change**, but the entries do not share a cause. A: 28 reaches `git remote` and A: 29 leads with `export`; neither is in the run's resolved allowlist, so those two are ungranted heads. A: 19 and A: 40 use only granted heads (`cat`, `ls`, `head`, `printf`, `git status`), so those two are shape refusals whose **specific** refused property is **unestablished** — both are `;`-joined compounds of pipelines, and A: 19 additionally *reads* under `/tmp`, but the recorded `/tmp` rule (`R3-tmp`) is about a redirect *target*, so applying it to a read would be an inference. Environment/state introspection the agent improvised either way; the authorized diagnostic surfaces (`preflight.py`, `config-get.sh`) already exist and were granted. |
 | **Bare `scripts/…` leading path — one ungranted literal, two shape refusals** | A: 47,48,49 | **No change**, but these three do not share a cause either. A: 47 names `scripts/efficiency-trace.sh`, which is neither a granted literal **nor a file** — the helper lives at `lib/efficiency-trace.sh`, which *was* granted in this run; because grants are per-head across the whole pipeline, the fence's own `\|\| lib/efficiency-trace.sh --persist` fallback could not rescue the statement. A: 48 (`scripts/react-to-trigger.sh`) and A: 49 (`scripts/workpad.py`) name literals that **were** in the run's resolved allowlist as bare `scripts/<name>` forms, so neither is an ungranted head: A: 49 carries a `> /tmp/…` redirect, a documented denied shape, and A: 48's refused property is **unestablished** (every head in its `\| tail -2 \|\| echo …` tail was granted too). No grant is warranted — the one non-granted literal names a path that does not exist. |
-| **`./scripts/…` dot-slash prefix** | B: 1,2,8 | **No change.** The `./` prefix makes the path a different literal than the granted form — `Bash(scripts/apply-labels.sh:*)` *was* in that run's resolved allowlist, so this is a spelling difference, not a missing grant. The surfaces author no `./` prefix; agent-improvised. |
+| **`./scripts/…` dot-slash prefix** | B: 1,2,8 | **No change** — **SUPERSEDED by issue #1133, which granted the spelling; see *The `./` dot-slash spelling on a bundled-helper invocation* under Grant flows for the current disposition.** This audit's own reading stands as recorded: the `./` prefix makes the path a different literal than the granted form — `Bash(scripts/apply-labels.sh:*)` *was* in that run's resolved allowlist, so this is a spelling difference, not a missing grant, and the surfaces author no `./` prefix. What #1133 changed is the *consequence* drawn from that reading: because the spelling is agent-improvised rather than authored, no desk gate over the prompt surfaces can constrain it, so a `./` alias of the vendored-literal family was granted on the `implement` profile instead. |
 | **`for … do … done` loop** | B: 4 | **No change — and not an ungranted head.** Every head in the loop body (`echo`, `grep`) was in that run's resolved allowlist, so this is a shape refusal. The **specific** refused property is **unestablished**: the recorded denied-loop evidence (probe rows I4/I5, desk rules `IR1`/`IR2`) is scoped to a loop whose body invokes a *label helper* by name, which this loop does not, so citing it here would be an inference, not a measurement. Dispositioned "no change" regardless: agent-level iteration is the authored alternative and no surface authors this loop. |
 | **Multiline `--body` argument** (`gh pr create --body "…\n…"`) | B: 7 | **No change — and not an ungranted head.** `Bash(gh pr create:*)` was in that run's resolved allowlist, so the refusal is the argument shape: a body string spanning lines reads to the matcher as multiple statements and denies. The shipped Phase 3.1 CREATE fence does **not** author that shape, and not by using `--body-file` either — no `--body-file` appears on the PR-create path anywhere in `skills/implement/`. It composes the body into a variable with an unquoted `cat <<EOF` heredoc and passes `--body "$BODY"` (`skills/implement/phases/phase-3-review.md`), which is a single-line `gh pr create` at author time and so is not the denied inline-multiline-literal shape. The agent improvised both the inline multiline literal and the omission of the fence's `--base "$BASE"`, and the run then created the PR successfully. Nothing to correct on the surface: the authored form was already a permitted one. |
 | **Surface-authored best-effort `rm` cleanup** (run-marker/cache removal, command-substitution path) | A: 45 | **No change — and not an ungranted head.** Every head in it (`rm`, `git rev-parse`, `echo`) was in the run's own resolved allowlist, so no grant was missing and this is a shape refusal. The **specific** refused property is **unestablished** — the fence carries `$(...)` command substitution in argument position and a `;`-joined tail, and neither is a shape this page records as denied (shape 18 in fact records command substitution PERMITTED in *condition* position at the review tier), so naming one would be an inference. This one *is* authored by `SKILL.md` (the Outcome-reaction run-marker/issue-body-cache removal) and is explicitly best-effort (`2>/dev/null \|\| true`), so its denial is absorbed by design — the local Stop-hook guard self-heals a stale marker and a leftover cache file is inert (reads are hand-off-only). Nothing to grant and nothing to correct. |
