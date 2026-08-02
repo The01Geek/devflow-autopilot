@@ -52,6 +52,16 @@ unwritable `.prflow/tmp` silently disarmed the guard for a whole run. See the
 this exclusion is the contract those two comments implement, so do not "restore" a
 uniform fail-open here.
 
+DISARMED-RUN SIGNAL (issue #1077). The fail-open above means an unloadable classifier
+resolves to `defer` + exit 0 — byte-identical on every PUBLISHED artifact to a run that
+fired and matched nothing, because the heartbeat says "fired" for both and stderr is
+ephemeral. So when `_load_shapes_module()` cannot be loaded, `_run` writes a `_DISARMED`
+marker on the SAME path as the heartbeat (best-effort telemetry, then re-raises so main()'s
+fail-open-to-defer + stderr breadcrumb are unchanged). The marker's cause line is keyed on
+the exception ACTUALLY raised — `FileNotFoundError` from `exec_module`, NOT the unreachable
+`ImportError` spec branch — and names the workspace-relative path with no `lib/test` as the
+cause, deliberately not the vendor slice's prune.
+
 REPEAT BOUND. The load-bearing assumption (a per-call remediation changes behavior where
 generic refusal did not) may fail, so the guard also carries a control: a second denial
 of the same arm within one run escalates the remediation to name the abandonment rule
@@ -155,6 +165,12 @@ _ABANDON = (
 )
 
 _HEARTBEAT = "pretooluse-guard-fired"
+# Written on the SAME path as the heartbeat when the shape classifier cannot be loaded, so
+# a disarmed run is no longer byte-identical (on every published artifact) to one that fired
+# and matched nothing (issue #1077). The heartbeat says "fired" for both; only this marker
+# distinguishes "fired but could not classify" from "fired and classified, matched nothing".
+_DISARMED = "pretooluse-guard-disarmed"
+_SHAPES_REL = "lib/test/extract-command-shapes.py"
 _COUNTS = "pretooluse-guard-counts.json"
 _LOCK = "pretooluse-guard-counts.lock"
 _LOCK_WAIT_SECONDS = 2.0  # bounded wait; on timeout, emit the decision without incrementing
@@ -258,7 +274,7 @@ def _load_shapes_module():
     (both this file and lib/test/extract-command-shapes.py, plus the extract-command-
     heads.py it loads in turn, are in the trusted-base HOOK_TARGETS closure)."""
     root = _repo_root()
-    path = os.path.join(root, "lib", "test", "extract-command-shapes.py")
+    path = os.path.join(root, *_SHAPES_REL.split("/"))
     spec = importlib.util.spec_from_file_location("devflow_extract_command_shapes", path)
     if spec is None or spec.loader is None:
         raise ImportError(f"devflow: cannot load {path}")
@@ -280,6 +296,59 @@ def _matched_arms(command: str, shapes) -> set[str]:
 def _write_heartbeat(tmp: str) -> None:
     with open(os.path.join(tmp, _HEARTBEAT), "w", encoding="utf-8") as fh:
         fh.write("fired\n")
+
+
+def _disarm_detail(exc: BaseException) -> str:
+    """The cause line for a disarmed run, keyed on the exception ACTUALLY raised.
+
+    When the classifier file is simply not on disk, `spec_from_file_location` still returns a
+    valid spec for a `.py` path and `exec_module` raises `FileNotFoundError` — NOT
+    `ImportError` (that branch is unreachable for this path shape), which is why the detection
+    is keyed on the real exception and this arm names the workspace-relative cause. The
+    absence is because the composed path is workspace-relative and the tree has no
+    `lib/test/` — deliberately NOT attributed to the vendor slice's prune (issue #1077)."""
+    if isinstance(exc, FileNotFoundError):
+        return (
+            f"the shape classifier at the workspace-relative path {_SHAPES_REL} is not on "
+            f"disk (FileNotFoundError) — the composed path is workspace-relative and this "
+            f"tree has no lib/test"
+        )
+    return (
+        f"the shape classifier at the workspace-relative path {_SHAPES_REL} could not be "
+        f"loaded or did not classify ({type(exc).__name__}: {exc})"
+    )
+
+
+def _note_disarm(tmp: str | None, exc: BaseException) -> None:
+    """Publish the distinguishing disarmed-run signal on the heartbeat path (best-effort).
+
+    Telemetry, so a failure here never changes the decision — the caller re-raises to main()'s
+    fail-open-to-defer handler regardless. When the heartbeat itself could not be written
+    (`tmp is None`) there is no directory to publish into; stderr (from main()) remains the
+    only signal, exactly as before this marker existed."""
+    detail = _disarm_detail(exc)
+    if tmp is not None:
+        try:
+            with open(os.path.join(tmp, _DISARMED), "w", encoding="utf-8") as fh:
+                fh.write(
+                    "pretooluse-shape-guard DISARMED: "
+                    f"{detail}; no command was classified this run. This marker sits beside "
+                    "the heartbeat so a disarmed run is distinguishable from one that fired "
+                    "and matched nothing.\n"
+                )
+        except Exception:  # noqa: BLE001 - telemetry must never decide
+            pass
+
+
+def _clear_disarm(tmp: str | None) -> None:
+    """Remove any stale disarmed-run marker on the armed path (best-effort), so the signal
+    reflects THIS run rather than a prior disarmed one on a persistent checkout."""
+    if tmp is None:
+        return
+    try:
+        os.remove(os.path.join(tmp, _DISARMED))
+    except OSError:
+        pass
 
 
 def _read_command(payload) -> str | None:
@@ -496,8 +565,20 @@ def _run() -> None:
     if not isinstance(tool_use_id, str) or not tool_use_id:
         tool_use_id = None
 
-    shapes = _load_shapes_module()
-    matched = _matched_arms(command, shapes)
+    try:
+        # Both the load AND the classification are disarm paths: a classifier that is absent
+        # or unloadable raises here, and one that loads but no longer exposes the expected
+        # interface (a renamed symbol) raises inside _matched_arms — both leave the run unable
+        # to classify while the heartbeat still says "fired". Publish the distinguishing signal
+        # on the heartbeat path (issue #1077), then re-raise so main() fails OPEN to defer with
+        # its stderr breadcrumb, unchanged. The decision is untouched; the only new thing is
+        # that the disarm is now visible in a published artifact, not just in ephemeral stderr.
+        shapes = _load_shapes_module()
+        matched = _matched_arms(command, shapes)
+    except BaseException as exc:  # noqa: BLE001 - telemetry write then re-raise; never decides
+        _note_disarm(tmp, exc)
+        raise
+    _clear_disarm(tmp)  # armed run: the marker reflects only a run that actually disarmed
     if not matched:
         _emit(_decision_object("defer", None))
         return
