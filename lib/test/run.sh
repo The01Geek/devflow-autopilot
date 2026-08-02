@@ -33068,11 +33068,14 @@ done
 #     span whose FIRST token is the command (`git rev-parse` reaches the engine only as
 #     `$(git rev-parse HEAD)` inside a larger assignment span, and a future phrasing could
 #     hide another head the same way), so the critical heads are also pinned by literal.
-#     `gh pr review` is the load-bearing member: it EMITS the verdict (Phase 4.4's
-#     verdict->command table) and appears in no bash fence. `gh pr comment` is Phase 4.4's
-#     REJECT fallback, `gh api` Phase 0.3.6's reviews query, `git merge-base` its ancestor
-#     check, `git cat-file` its SHA-resolution check, `rg` Phase 2.1a's lite probe, `jq`
-#     Phase 0.3.6's page flatten.
+#     `gh pr comment` is the load-bearing member: it is Phase 4.4's fallback arm, the only
+#     durable channel left when the verdict emitter reaches none, and it appears in no bash
+#     fence. `gh api` is Phase 0.3.6's reviews query, `git merge-base` its ancestor check,
+#     `git cat-file` its SHA-resolution check, `rg` Phase 2.1a's lite probe, `jq` Phase
+#     0.3.6's page flatten. The verdict POST itself is no longer a porcelain head here:
+#     issue #1030 withdrew `Bash(gh pr review:*)` from all three profiles so the ONLY
+#     granted post path is scripts/post-review-verdict.sh, which stamps the producer
+#     marker — that helper is a FENCED head and is covered by the fenced-head audit above.
 #
 # Neither pin alone is a proof of exhaustiveness; together they make the common regressions
 # (a dropped grant, a new prose command) loud. (`wslpath`/`cygpath`/`filterdiff` are
@@ -33123,7 +33126,7 @@ PY363
 # the Phase 0.3.6 heads. A regexp typo, a fence-toggle bug, or a swallowed heredoc would
 # otherwise empty the fixture and make the two assertions below green over nothing.
 _DERIVED_HEADS="$(python3 "$ECH" heads "$E363/prose-derived.md" | tr '\n' ' ')"
-for _h363 in 'gh pr review' 'gh pr comment' 'gh api' 'git cat-file' 'git merge-base' 'git rev-parse' 'rg' 'jq'; do
+for _h363 in 'gh pr comment' 'gh api' 'git cat-file' 'git merge-base' 'git rev-parse' 'rg' 'jq'; do
   assert_eq "#363 the prose derivation surfaces '$_h363' from SKILL.md (anti-vacuity)" "yes" \
     "$(case " $_DERIVED_HEADS " in *" $_h363 "*) echo yes ;; *) echo no ;; esac)"
 done
@@ -33137,9 +33140,9 @@ done
 # extractor's `tools-line` mode — rather than with a whole-file `grep -oF` for a
 # `Bash(...)` literal. That distinction is load-bearing, not stylistic. A whole-file grep
 # accepts a spec CITED IN A COMMENT (both workflows carry `Bash(...)` specs in their
-# deny-floor commentary), so a TOOLS-line edit that dropped `Bash(gh pr review:*)` from the
-# real grant while any comment still mentioned it would leave this pin GREEN and the verdict
-# command silently denied — the exact no-verdict rebuild this block exists to prevent. The
+# deny-floor commentary), so a TOOLS-line edit that dropped a real grant while any comment
+# still mentioned it would leave this pin GREEN and that command silently denied — the exact
+# no-verdict rebuild this block exists to prevent. The
 # extractor already rejects that shape (asserted at "a Bash(...) spec cited in a COMMENT
 # does not grant the head"), so we reuse the consumer's own operation as the guard instead
 # of re-deriving "is it granted" with a weaker matcher.
@@ -33149,7 +33152,6 @@ done
   printf '%s\n' 'git checkout HEAD -- "$p"'
   printf '%s\n' 'git merge-base --is-ancestor "$REJECTED_HEAD" "$PR_HEAD_SHA"'
   printf '%s\n' 'git rev-parse HEAD'
-  printf '%s\n' 'gh pr review 1 --request-changes --body "$BODY"'
   printf '%s\n' 'gh pr comment 1 --body "$REPORT"'
   printf '%s\n' 'gh api --paginate "repos/o/r/pulls/1/reviews?per_page=100"'
   printf '%s\n' 'rg -nF "x" file'
@@ -33165,7 +33167,7 @@ done
 # list down to one word, so the 2-word `Bash(gh api:*)` spec still grants it (proven by the
 # two `ungranted` assertions below returning empty against the real allowlists).
 assert_eq "#363 the explicit prose-head floor yields exactly its pinned head set (anti-vacuity)" \
-  "gh api --paginate gh pr comment gh pr review git cat-file git checkout git merge-base git rev-parse jq rg" \
+  "gh api --paginate gh pr comment git cat-file git checkout git merge-base git rev-parse jq rg" \
   "$(python3 "$ECH" heads "$E363/prose-heads.md" | tr '\n' ' ' | sed 's/ *$//')"
 for _w363 in "$RUNNER_YML" "$DEVFLOW_YML"; do
   assert_eq "#363 $(basename "$_w363")'s TOOLS grant covers the explicit prose-head floor" "" \
