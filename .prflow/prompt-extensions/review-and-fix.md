@@ -205,7 +205,13 @@ bytes. It is a different trigger from the Batched artifact regeneration section,
 post-edit and pre-suite — no in-run conflict arm routes through that section, so the conflict rule
 lives here on its own.
 
-1. Run `python3 lib/test/regenerate-artifacts.py --list`.
+The listing this rule reads comes from the granted direct leading-token form:
+
+```bash
+lib/test/regenerate-artifacts.py --list
+```
+
+1. Run that command.
 2. **Establish that the listing is usable before classifying anything.** This gate precedes the
    classification below, and the order is load-bearing: an unusable listing emits no `conflict-path`
    lines, so every conflicted path would otherwise satisfy step 3's "not among them" exit and be
@@ -239,7 +245,13 @@ drift.
 
 ## Batched artifact regeneration
 
-After applying edits and before each full-suite re-verify run, run `python3 lib/test/regenerate-artifacts.py` once. A fix loop's edits drift the checked-in generated records, and rediscovering each one a full suite run later is an iteration's dominant cost. The helper is the sole enumeration point; no inventory is listed here.
+After applying edits and before each full-suite re-verify run, run the granted direct leading-token form once:
+
+```bash
+lib/test/regenerate-artifacts.py
+```
+
+A fix loop's edits drift the checked-in generated records, and rediscovering each one a full suite run later is an iteration's dominant cost. The helper is the sole enumeration point; no inventory is listed here.
 
 Act on its report first: commit a changed manifest with its causing edits, and resolve every exit-1-forcing judgment item under the policy it names. Informational lines need reading, not action.
 

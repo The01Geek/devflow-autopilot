@@ -32465,7 +32465,7 @@ assert_eq "#480 an ESCAPED backslash before a quote does not flip the mask's par
   "$(python3 "$ECS" "$E363/i-esc-parity.md" | grep -q '  R2  ' && echo yes || echo no)"
 # ── matcher-probe's EXTRAS mirrors every probe-eligible config grant. A grant that is
 # ── intentionally config-only until a later matcher-probe run proves its command shape is
-# ── listed in `unproven_post_merge` below (currently none) so it stays closed and visible.
+# ── listed in `unproven_post_merge` below so it stays closed and visible.
 # ── Issue #928: the workflow templates config's absolute workspace prefix off
 # ── ${{ github.workspace }} so matcher-probe.yml hardcodes no repo-derived path, while
 # ── the config key stays out of scope (trigger-time-resolved) and keeps its absolute
@@ -32477,7 +32477,7 @@ assert_eq "#480 matcher-probe EXTRAS mirrors probe-eligible prflow_implement.all
 import json, re, sys
 yml = open(sys.argv[1], encoding="utf-8").read()
 cfg = json.load(open(sys.argv[2], encoding="utf-8"))
-unproven_post_merge = set()
+unproven_post_merge = {"Bash(lib/test/regenerate-artifacts.py:*)"}
 cfg_tokens = [
     token
     for token in cfg.get("prflow_implement", {}).get("allowed_tools", [])
@@ -41570,10 +41570,29 @@ echo "#619 batched-regeneration instruction surfaces"
 # pinned literal is a single unwrapped line in each file (a sentence wrapped across a
 # line break lives on no single line and this line-based pin would find nothing —
 # the issue-375 wrapped-literal hazard).
+# Issue #1055 retargeted the invocation literal off the denied `python3` interpreter head
+# onto the granted direct leading-token form. The pin is RETAINED rather than retired:
+# CONTRIBUTING.md's ordered retirement arms decide from the frozen census, and this
+# literal has no census row (arm 0), which cannot answer the question and therefore
+# retains. The new per-extension, per-section head/shape extraction in the
+# regenerate-artifacts module is the stronger, executable guarantee — that the invocation
+# is FENCED with a granted head — but it is ADDITIVE here, not a substitute that would
+# authorize dropping a divergence check the census never adjudicated.
+# The invocation pins are spelled out per file rather than driven from the loop below:
+# a declared structural pin must name a target the #810 static scanner can OPEN, and a
+# path interpolating the loop variable is unresolvable to it (reported as "declaration
+# target cannot be inspected"). The discharge-record pin keeps the loop because it
+# carries no declaration.
+assert_pin_unique "#619 .prflow/prompt-extensions/implement.md carries the batched-regeneration invocation" \
+  'run the granted direct leading-token form once' \
+  "$LIB/../.prflow/prompt-extensions/implement.md"  # structural-pin-ok: cross-file-phase-contract -- the cloud-only config grant and the prompt invocation must stay coupled
+assert_pin_unique "#619 .prflow/prompt-extensions/review-and-fix.md carries the batched-regeneration invocation" \
+  'run the granted direct leading-token form once' \
+  "$LIB/../.prflow/prompt-extensions/review-and-fix.md"  # structural-pin-ok: cross-file-phase-contract -- the cloud-only config grant and the prompt invocation must stay coupled
+assert_pin_unique "#619 .prflow/prompt-extensions/receiving-code-review.md carries the batched-regeneration invocation" \
+  'run the granted direct leading-token form once' \
+  "$LIB/../.prflow/prompt-extensions/receiving-code-review.md"  # structural-pin-ok: cross-file-phase-contract -- the cloud-only config grant and the prompt invocation must stay coupled
 for _ra_ext in implement review-and-fix receiving-code-review; do
-  assert_pin_unique "#619 .prflow/prompt-extensions/$_ra_ext.md carries the batched-regeneration invocation" \
-    'run `python3 lib/test/regenerate-artifacts.py` once' \
-    "$LIB/../.prflow/prompt-extensions/$_ra_ext.md"
   assert_pin_unique "#619 .prflow/prompt-extensions/$_ra_ext.md carries the batched-regeneration discharge record" \
     '`batched-regeneration: run|refused|skipped`' \
     "$LIB/../.prflow/prompt-extensions/$_ra_ext.md"
