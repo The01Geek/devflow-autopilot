@@ -101,6 +101,14 @@ MECHANICAL_ARTIFACT = "scripts/devflow-cloud-writer-contract.json"
 # rather than each consumer re-spelling the vocabulary.
 CONFLICT_CLASSES = ("regenerate", "reconcile-source", "by-hand")
 
+# The row-kind vocabulary `run_row` dispatches on. Closed and validated at import for the
+# same reason `CONFLICT_CLASSES` is: `run_row` routes `mechanical` and `monotonic` through
+# their own outcome classifiers and lets every other kind fall through to the generic
+# exit-code arm, so a typo'd kind does not fail — it silently downgrades that row to the
+# weaker generic classification and reports a clean pass the row's real contract never
+# established.
+ROW_KINDS = ("mechanical", "monotonic", "judgment")
+
 # Ordered registry. `argv` is resolved under the target root and run with that root as
 # the working directory, so a fixture root exercises the fixture's own generators.
 # `exits` is the row's declared exit-code set and `clean` its positive arm; an exit
@@ -286,11 +294,17 @@ ROWS = (
             "scripts/workflow-flight-recorder-registry.json",
             "lib/test/run.sh",
         ),
+        # The recipe names the BATCH entry point, never this row's own argv. `argv` is
+        # how the batch runs the reconciler as an internal subprocess; the recipe is what
+        # an AGENT is told to run, and on the cloud implement tier the interpreter-head
+        # form `python3 lib/test/reconcile-module-floors.py` is an ungranted shape that is
+        # silently denied — so a recipe naming it would hand the agent a command that
+        # produces no output and no error, and the floors would stay unreconciled.
         "policy": (
-            "resolve the exact-module source and rerun "
-            "`python3 lib/test/reconcile-module-floors.py`; it measures the real "
-            "focused runners, raises both coupled floors together, and refuses every "
-            "decrease"
+            "resolve the exact-module source and rerun the granted direct "
+            "leading-token form `lib/test/regenerate-artifacts.py`; its "
+            "exact-module-floors row measures the real focused runners, raises both "
+            "coupled floors together, and refuses every decrease"
         ),
         "conflict_class": "reconcile-source",
         "conflict_paths": (
@@ -615,6 +629,28 @@ def _monotonic_outcome(row, proc, output, before, after, report):
             report.append(f"[{name}] clean — every measured tally matches both floors")
             return False, False
         relative = [path.name if path.name == "run.sh" else path.as_posix() for path in changed]
+        # A raise-only row's outputs are COUPLED sites that must move together, so a
+        # write it did not announce is unattributable: the reconciler prints its own
+        # `RAISED` marker naming the modules it staged, and only that marker
+        # establishes the change as the reconciliation rather than incidental
+        # corruption. Without it, a clean exit code plus a mutated file would be
+        # reported as a successful reconciliation and committed — the coupled floors
+        # left disagreeing while the batch claims it resolved them.
+        if "floor-reconciliation: RAISED" not in output:
+            if len(changed) < len(before):
+                report.append(
+                    f"[{name}] INFRASTRUCTURE the reconciliation exited "
+                    f"{proc.returncode} but changed only a subset of its declared "
+                    f"outputs ({', '.join(relative)}) and announced no raise — the "
+                    "coupled floors cannot be assumed consistent"
+                )
+            else:
+                report.append(
+                    f"[{name}] INFRASTRUCTURE the reconciliation exited "
+                    f"{proc.returncode} and changed {', '.join(relative)} without "
+                    "announcing a raise — the change is unattributable"
+                )
+            return False, True
         report.append(
             f"[{name}] RECONCILED measured floor raise changed: {', '.join(relative)}"
         )
@@ -660,6 +696,11 @@ def _validate_registry():
     discrimination this module's EXIT CONTRACT says the net exists to preserve.
     """
     for row in ROWS:
+        if row.get("kind") not in ROW_KINDS:
+            raise ValueError(
+                f"registry row {row['name']!r} declares kind "
+                f"{row.get('kind')!r}, which is outside {ROW_KINDS}"
+            )
         if row.get("conflict_class") not in CONFLICT_CLASSES:
             raise ValueError(
                 f"registry row {row['name']!r} declares conflict_class "

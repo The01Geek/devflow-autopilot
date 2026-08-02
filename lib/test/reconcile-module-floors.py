@@ -32,6 +32,53 @@ def _fail(message: str) -> int:
     return 2
 
 
+def _registry_floor_span(registry_text: str, module_id: str) -> tuple[int, int] | None:
+    """Locate the module's own `minimum_assertions` digits in the registry SOURCE.
+
+    The registry is rewritten textually rather than re-serialized, because
+    `json.dumps` would reformat every unrelated byte — indentation, key order and
+    non-ASCII escaping — turning a one-token floor raise into a whole-file diff
+    that buries the change and conflicts with any concurrent registry edit. The
+    scan walks the module's object with a string-aware depth counter so a brace
+    or a `minimum_assertions` substring inside some other module's *string value*
+    can never be selected. Returns the (start, end) offsets of the digit run, or
+    None when the module's key or its floor cannot be uniquely located.
+    """
+    key = re.search(rf'"{re.escape(module_id)}"\s*:\s*\{{', registry_text)
+    if key is None:
+        return None
+    index = key.end()
+    depth = 1
+    in_string = False
+    escaped = False
+    while index < len(registry_text) and depth > 0:
+        char = registry_text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+        index += 1
+    if depth != 0:
+        return None
+    floors = list(
+        re.finditer(
+            r'"minimum_assertions"\s*:\s*([0-9]+)', registry_text[key.end() : index]
+        )
+    )
+    if len(floors) != 1:
+        return None
+    return (key.end() + floors[0].start(1), key.end() + floors[0].end(1))
+
+
 def _site_pattern(module_id: str) -> re.Pattern[str]:
     return re.compile(
         rf'(devflow_run_full_suite_module\s+"\$LIB/test/modules/'
@@ -116,7 +163,12 @@ def reconcile(root: Path, runner: Path) -> int:
             log_dir = temporary_path / f"logs-{module_id}"
             proc = subprocess.run(
                 [
-                    "bash",
+                    # The shell that RUNS a .sh helper is chosen at the invocation
+                    # boundary via DEVFLOW_BASH, never by a sourced resolver (#248):
+                    # a hardcoded `bash` head would ignore the operator's selected
+                    # WSL/Git-Bash/MSYS2 interpreter and measure under a different
+                    # shell than the suite itself runs under.
+                    os.environ.get("DEVFLOW_BASH") or "bash",
                     str(runner),
                     "--registry",
                     str(temporary_registry),
@@ -165,14 +217,21 @@ def reconcile(root: Path, runner: Path) -> int:
         )
         return 1
 
-    updated_registry = copy.deepcopy(registry)
+    registry_after = registry_text
     updated_run = run_text
     raised = []
     for module_id, measured in measurements.items():
         registry_floor = modules[module_id]["minimum_assertions"]
         run_floor = sites[module_id][1]
         if measured > registry_floor or measured > run_floor:
-            updated_registry["test_modules"][module_id]["minimum_assertions"] = measured
+            span = _registry_floor_span(registry_after, module_id)
+            if span is None:
+                return _fail(
+                    f"{module_id}: could not uniquely locate its registry floor token"
+                )
+            registry_after = (
+                registry_after[: span[0]] + str(measured) + registry_after[span[1] :]
+            )
             updated_run, count = _site_pattern(module_id).subn(
                 rf"\g<1>{measured}\g<3>", updated_run
             )
@@ -184,7 +243,6 @@ def reconcile(root: Path, runner: Path) -> int:
         print("floor-reconciliation: clean — every measured tally matches both floors")
         return 0
 
-    registry_after = json.dumps(updated_registry, indent=2) + "\n"
     before = {registry_path: registry_text, run_path: run_text}
     after = {registry_path: registry_after, run_path: updated_run}
     if not _patch(root, before, after):

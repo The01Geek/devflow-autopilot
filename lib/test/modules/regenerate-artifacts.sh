@@ -1458,8 +1458,13 @@ _ra_bind_fails_closed "an out-of-set conflict_class" \
 _ra_bind_fails_closed "an empty recipe" \
   's/^        "policy": "add the missing coverage rows.*$/        "policy": "",/' \
   "empty recipe (policy)"
+# `"kind": "mechanical"` occurs exactly once in the registry, so an unanchored
+# substitution mutates that one row. The GNU-only `0,/re/s//repl/` address form this
+# mutation could otherwise use is silently a NO-OP under BSD sed (macOS), which would
+# hand the validator an UNMUTATED helper and read its clean exit 0 as this guard
+# failing — a red assertion on the desk and a green one in CI, diagnosing nothing.
 _ra_bind_fails_closed "an unsupported row kind" \
-  '0,/"kind": "mechanical"/s//"kind": "mechanicl"/' \
+  's/"kind": "mechanical"/"kind": "mechanicl"/' \
   "kind 'mechanicl'" "outside"
 
 # ── (f2) an underivable region set exits 2 (INFRASTRUCTURE), never 1 ────────────
