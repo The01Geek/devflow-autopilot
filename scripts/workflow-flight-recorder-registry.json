@@ -58,7 +58,7 @@
     },
     "review-trigger-helpers": {
       "path": "lib/test/modules/review-trigger-helpers.sh",
-      "minimum_assertions": 626,
+      "minimum_assertions": 628,
       "description": "Focused review and implement trigger-helper contracts: derive-review-verdict.sh and derive-review-preconditions.sh (both RETAINED and still covered after issue #936 withheld the auto PR-triggered review tier — their workflow caller is gone but an installed consumer copy still resolves them, so the helpers ship and their sections stay live), parse-engine-error.sh, surface-execution-diagnostics.sh (#329) with its workflow wiring (#331), the execution-transcript artifact config key and scrub/gate hardening (#409), resolve-implement-trigger.sh, dedupe-implement-run.sh, review-progress marker ownership and dead-run diagnosis (#1054), authorize-actor.sh, detect-standalone-command.sh and resolve-command-trigger.sh"
     },
     "review-stall-backstop": {

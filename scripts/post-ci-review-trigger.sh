@@ -148,10 +148,14 @@ if [ "$MODE" = announce ]; then
   _WITHHELD="$(_describe_withheld "${TEST_RESULT:-}" "${LINT_RESULT:-}")"
   if [ -n "$_WITHHELD" ]; then
     _note warning "ci auto-review trigger: no review requested for PR #$PR at $HEAD_SHA — $_WITHHELD did not conclude success (test=${TEST_RESULT:-}, lint=${LINT_RESULT:-})."
+  else
+    # Both green in announce mode: the post path owns this case, so nothing is
+    # withheld. This is reachable only from a MISWIRED caller (in this repo the
+    # ci.yml announce step is gated to the not-both-success complement), so leave a
+    # low-noise breadcrumb rather than a pure silent exit — a miswired consumer then
+    # sees why no review was requested instead of nothing at all.
+    _note notice "ci auto-review trigger: announce mode with both dependencies green for PR #$PR — nothing withheld; the post path (not announce) handles the both-green case."
   fi
-  # Both green here (a caller that ran announce despite eligibility) is a silent
-  # no-op: the post path owns that case, so announce emits nothing rather than a
-  # spurious warning.
   exit 0
 fi
 
@@ -185,7 +189,10 @@ fi
 
 # Login match, mirroring authorize-actor.sh's actor_bare handling: the App comment
 # login is `<slug>[bot]` while the app-slug output is the bare `<slug>`, so compare
-# both exact and bare-stripped forms in BOTH directions.
+# both exact and bare-stripped forms in BOTH directions. This rests on
+# create-github-app-token@v3's `app-slug` output being the slug portion of that
+# `<slug>[bot]` login; if that output form ever changed, the App would stop
+# recognizing its own comments and re-post — the coupling is deliberate, not implicit.
 _login_matches() {  # $1=comment login  $2=expected comparand
   local login="$1" expect="$2"
   local login_bare="${login%\[bot\]}"
@@ -203,12 +210,14 @@ _login_matches() {  # $1=comment login  $2=expected comparand
 # The filter emits ONE LINE PER marker-bearing comment: its author login, or the
 # sentinel `__prflow_no_author__` when the comment carries no resolvable author
 # (a login can contain neither underscores nor brackets, so the sentinel can never
-# collide with a real one). bash then applies the author match — the author scoping
-# is deliberately NOT in jq, so an unresolvable author is a distinguishable
-# fail-closed case rather than a silently-dropped row.
+# collide with a real one). An author that is null OR an empty string both map to
+# the sentinel, so an empty-`login` marker comment takes the fail-closed UNVERIFIABLE
+# arm rather than the fail-OPEN "no matching author -> post" one. bash then applies
+# the author match — the author scoping is deliberately NOT in jq, so an unresolvable
+# author is a distinguishable fail-closed case rather than a silently-dropped row.
 LIST_ERR="$(mktemp 2>/dev/null || echo /dev/null)"
 if ! LIST_OUT="$("$DEVFLOW_GH" api --paginate "repos/{owner}/{repo}/issues/${PR}/comments" \
-      --jq ".[] | select((.body // \"\") | contains(\"$MARKER\")) | (.user.login // \"__prflow_no_author__\")" 2>"$LIST_ERR")"; then
+      --jq ".[] | select((.body // \"\") | contains(\"$MARKER\")) | (if (.user.login // \"\") == \"\" then \"__prflow_no_author__\" else .user.login end)" 2>"$LIST_ERR")"; then
   _note warning "ci auto-review trigger: could not read PR #$PR comments to check for an existing trigger ($(tr '\n' ' ' < "$LIST_ERR")); NOT posting (fail-closed — a duplicate standalone review is unrecoverable spend, a missed one is not)."
   [ "$LIST_ERR" = /dev/null ] || rm -f "$LIST_ERR"
   exit 0

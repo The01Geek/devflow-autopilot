@@ -3438,11 +3438,14 @@ pcrt_run EXPECTED_AUTHOR="prflow-app[bot]" PCRT_LIST_OUT="prflow-app"
 assert_eq "pcrt #990-3: [bot]/bare slug match both directions -> no post" \
   "0-0" "$PCRT_P3A-$PCRT_POSTS"
 
-# 4. Marker for a DIFFERENT head SHA, App-authored -> POST. The jq marker filter
-#    only matches THIS head, so a different-head marker is not in the emitted list
-#    at all (empty list here) and the helper posts.
+# 4. Per-SHA keying: the marker embeds sha=$HEAD_SHA, so a marker for a DIFFERENT
+#    head is filtered out by the helper's jq before the emitted list — modeled here
+#    as an empty emitted list (a proxy for the post-jq output). The marker's own
+#    head-keying (that the composed marker literally carries sha=$PCRT_SHA) is
+#    asserted separately by the compose-mode marker assertion above; the stub returns
+#    $PCRT_LIST_OUT verbatim and cannot itself run the jq head filter.
 pcrt_run PCRT_LIST_OUT=""
-assert_eq "pcrt #990-4: no marker for THIS head (a different-head marker filtered out) -> post" \
+assert_eq "pcrt #990-4: emitted list empty (a different-head marker filtered out by jq) -> post" \
   "1" "$PCRT_POSTS"
 
 # 5. Empty author comparand -> no post + its own distinct warning (fail-closed
@@ -3473,28 +3476,41 @@ pcrt_announce() {  # $1=test result  $2=lint result -> $PCRT_ANN, $PCRT_ANN_RC
 
 # 8. test success, lint failure -> no post, warning naming lint (NOT test/both).
 pcrt_announce success failure
-assert_eq "pcrt #990-8: test ok, lint red -> warning names lint, posts nothing" \
-  "1-0" "$(printf '%s\n' "$PCRT_ANN" | grep -cF '— lint did not conclude success')-$(printf '%s\n' "$PCRT_ANN" | grep -c 'posted the review trigger')"
+assert_eq "pcrt #990-8: test ok, lint red -> warning names lint, posts nothing (exit 0)" \
+  "1-0-0" "$(printf '%s\n' "$PCRT_ANN" | grep -cF '— lint did not conclude success')-$(printf '%s\n' "$PCRT_ANN" | grep -c 'posted the review trigger')-$PCRT_ANN_RC"
 
 # 9. lint success, test failure -> warning naming test.
 pcrt_announce failure success
-assert_eq "pcrt #990-9: lint ok, test red -> warning names test" \
-  "1" "$(printf '%s\n' "$PCRT_ANN" | grep -cF '— test did not conclude success')"
+assert_eq "pcrt #990-9: lint ok, test red -> warning names test (exit 0)" \
+  "1-0" "$(printf '%s\n' "$PCRT_ANN" | grep -cF '— test did not conclude success')-$PCRT_ANN_RC"
 
 # 10. both failing -> warning naming both.
 pcrt_announce failure failure
-assert_eq "pcrt #990-10: both red -> warning names test and lint" \
-  "1" "$(printf '%s\n' "$PCRT_ANN" | grep -cF '— test and lint did not conclude success')"
+assert_eq "pcrt #990-10: both red -> warning names test and lint (exit 0)" \
+  "1-0" "$(printf '%s\n' "$PCRT_ANN" | grep -cF '— test and lint did not conclude success')-$PCRT_ANN_RC"
 
-# 11. both succeeding via announce -> NO announcement (negative control; the post
-#     path owns the both-green case, and the step condition keeps announce off it).
+# 11. both succeeding via announce -> NO warning (negative control; the post path
+#     owns the both-green case, and the step condition keeps announce off it). A
+#     low-noise ::notice:: breadcrumb IS emitted so a miswired consumer is not left
+#     with a pure silent skip — assert exactly that (no warning, one notice).
 pcrt_announce success success
-assert_eq "pcrt #990-11: both green via announce -> emits no warning (negative control)" \
-  "0" "$(printf '%s\n' "$PCRT_ANN" | grep -c '^::warning::')"
+assert_eq "pcrt #990-11: both green via announce -> no warning, one breadcrumb notice, exit 0" \
+  "0-1-0" "$(printf '%s\n' "$PCRT_ANN" | grep -c '^::warning::')-$(printf '%s\n' "$PCRT_ANN" | grep -c '^::notice::.*nothing withheld')-$PCRT_ANN_RC"
 
-# 12. every announce arm exits 0 (the always-exit-0 contract). A representative arm.
+# 12. every announce arm exits 0 (the always-exit-0 contract) — each arm above now
+#     asserts its own $PCRT_ANN_RC, so this is the consolidated restatement.
 pcrt_announce failure failure
 assert_eq "pcrt #990-12: announce always exits 0" "0" "$PCRT_ANN_RC"
+
+# 12b. Empty-`login` marker comment maps to the fail-closed sentinel IN JQ (a code
+#      reviewer fail-open gap): the stub bypasses jq, so assert the real jq mapping
+#      directly — a null user and an empty-string login both yield the sentinel, so
+#      the bash UNVERIFIABLE arm (not the fail-open "no match -> post") is taken.
+PCRT_JQ_FILTER='(if (.user.login // "") == "" then "__prflow_no_author__" else .user.login end)'
+assert_eq "pcrt #990-12b: an empty-string comment login maps to the fail-closed sentinel in jq" \
+  "__prflow_no_author__" "$(printf '%s' '{"user":{"login":""}}' | jq -r "$PCRT_JQ_FILTER")"
+assert_eq "pcrt #990-12c: a null comment user maps to the fail-closed sentinel in jq" \
+  "__prflow_no_author__" "$(printf '%s' '{"user":null}' | jq -r "$PCRT_JQ_FILTER")"
 
 rm -rf "$PCRT_SB"
 
