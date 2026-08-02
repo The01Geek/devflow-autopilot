@@ -150,26 +150,15 @@ def derive_candidate_identity(repo_root: "str | None" = None) -> str:
         if os.path.exists(index_path):
             # Seed from the current index so skip-worktree (sparse) entries survive.
             shutil.copyfile(index_path, tmp_index)
-            # Backdate the seeded index so `git add -A` cannot trust its cached stat
-            # data (issue #1117). The copied entries carry each file's pre-edit stat;
-            # when a tracked file is rewritten to the same size within the mtime tick
-            # the index cached, a stat comparison reads it as clean and `git add -A`
-            # never re-hashes it, so the written tree carries the STALE blob. Git's
-            # own "racy index" rule re-reads the content of any entry whose cached
-            # mtime is not strictly older than the index file's mtime; backdating the
-            # index to a mtime of 1 second past the epoch makes every ordinary tracked
-            # entry racy (any real file mtime is >= 1), forcing a content re-hash
-            # independent of stat timing. A mtime of 0 would NOT work: git reads a
-            # zero index timestamp as "unset" and disables the racy check entirely
-            # (`is_racy_stat` short-circuits on `timestamp.sec == 0`), so 1 is the
-            # smallest value that actually arms the mechanism. Crucially this goes
-            # THROUGH git's racy machinery rather than around it (unlike an unqualified
-            # `add --renormalize`), so the two entry classes git deliberately does not
-            # re-stat are still honored: skip-worktree (sparse, off-disk) entries and
-            # `assume-unchanged` (CE_VALID) entries both bypass the racy re-check, so
-            # the index content continues to decide their contribution — preserving
-            # both the sparse-preservation reason for seeding and the documented
-            # CE_VALID invariance above.
+            # Backdate the seeded index (issue #1117) so git's racy-index rule forces
+            # `git add -A` to re-hash every ordinary tracked entry instead of trusting
+            # the copied pre-edit stat data — the module docstring's derivation
+            # paragraph carries the full rationale and why this preserves the
+            # skip-worktree / assume-unchanged bypass. The one detail that is local to
+            # this line: a mtime of 0 would NOT arm the mechanism — git reads a zero
+            # index timestamp as "unset" and short-circuits `is_racy_stat`, so 1 second
+            # past the epoch is the smallest value that makes every real-mtime (>= 1)
+            # entry racy.
             os.utime(tmp_index, (1, 1))
         else:
             # Absent index: start from an empty index (git creates the file). No
