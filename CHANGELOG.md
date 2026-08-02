@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.57] — 2026-08-02
+
+### Added
+- **`/prflow:create-issue` now offers to self-assign the new issue.** After you approve the rendered draft and before the issue is created, the skill asks "Assign this issue to you?"; answering yes adds `--assignee "@me"` to the `gh issue create` call so ownership is set in the same atomic create, answering no files it unassigned, and silence or an unclear reply pauses and re-asks rather than guessing. Draft-only requests are unchanged and trigger no assignment prompt. (#1168)
+
 ## [2.30.56] — 2026-08-02
 
 ### Changed
