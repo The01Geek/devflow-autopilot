@@ -43374,7 +43374,7 @@ PY
 # non-exempt file that cannot be read → rc 1 (fail-closed skip, not a silent clean pass); an
 # enumeration failure → rc 2. The offending leaf is assembled from parts so this file carries
 # none.
-assert_eq "#1084 guard: main() pipeline red-paths (offender/exempt/unreadable-skip/enum-fail)" "1 0 1 2" \
+assert_eq "#1084 guard: main() pipeline red-paths (offender/exact-exempt/prefix-exempt/skip/enum)" "1 0 0 1 2" \
   "$(python3 - "$L1084_LINT" <<'PY'
 import importlib.util, io, sys, contextlib
 spec = importlib.util.spec_from_file_location("g", sys.argv[1])
@@ -43386,19 +43386,22 @@ def run_main(pop, reader):
     g._pop.read_source = reader
     with contextlib.redirect_stderr(io.StringIO()):
         return g.main()
+off = lambda p, *, skip_nul: (OFFENDER, None)
 # 1) offender in a NON-exempt file → rc 1
-r_off = run_main(["some/live-file.md"], lambda p, *, skip_nul: (OFFENDER, None))
-# 2) offender only in an EXEMPT file (install.sh) → rc 0 (exemption honored)
-r_exempt = run_main(["install.sh"], lambda p, *, skip_nul: (OFFENDER, None))
-# 3) a non-exempt, non-binary file that cannot be read → rc 1 (fail-closed skip)
+r_off = run_main(["some/live-file.md"], off)
+# 2) offender only in an EXACT-exempt file (install.sh) → rc 0 (_EXEMPT_EXACT honored)
+r_exact = run_main(["install.sh"], off)
+# 3) offender only in a PREFIX-exempt file (.changeset/) → rc 0 (_EXEMPT_PREFIXES honored)
+r_prefix = run_main([".changeset/x.md"], off)
+# 4) a non-exempt, non-binary file that cannot be read → rc 1 (fail-closed skip)
 r_skip = run_main(["some/live-file.md"], lambda p, *, skip_nul: (None, "unreadable (permission)"))
-# 4) enumeration failure → rc 2
+# 5) enumeration failure → rc 2
 def raise_enum(root, ff, *, ls_files_argv):
     raise g._pop.EnumerationError("git ls-files failed")
 g._pop.enumerate_population = raise_enum
 with contextlib.redirect_stderr(io.StringIO()):
     r_enum = g.main()
-print(r_off, r_exempt, r_skip, r_enum)
+print(r_off, r_exact, r_prefix, r_skip, r_enum)
 PY
 )"
 # #1084 AC5: the sweep must not touch any FROZEN identifier. Verified against a
