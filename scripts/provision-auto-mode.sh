@@ -42,10 +42,10 @@
 #      (--apply).
 #   2  a malformed invocation, independent of --apply: an unknown option, or more than
 #      one positional target. OR --apply but a precondition / I-O failure: the existing
-#      file is unreadable, could not be read into a variable, contains a NUL byte, is
-#      not valid JSON, or is valid JSON of the wrong shape (a
-#      non-object root, or `env` present as a non-object); or jq is missing; or HOME is
-#      unset with no explicit target; or the settings dir / temp file / merged file
+#      file is a directory (not a regular file), unreadable, could not be read into a
+#      variable, contains a NUL byte, is not valid JSON, or is valid JSON of the wrong
+#      shape (a non-object root, or `env` present as a non-object); or jq is missing; or
+#      HOME is unset with no explicit target; or the settings dir / temp file / merged file
 #      could not be created or written. In every exit-2 case the existing file is left
 #      BYTE-FOR-BYTE UNCHANGED and a specific `devflow-automode:` breadcrumb names
 #      the cause.
@@ -169,6 +169,20 @@ fi
 DEFAULTS='{
   "env": { "CLAUDE_CODE_ENABLE_AUTO_MODE": "1" }
 }'
+
+# A DIRECTORY (or a symlink to one) at the settings path is treated as ABSENT by the
+# `[ -f "$SETTINGS" ]` test below, so the create path would run and the atomic mv would
+# land the temp file INSIDE the directory — reporting success while writing nothing the
+# runtime reads (issue #1082). Fail closed with a specific breadcrumb, above the `[ -f ]`.
+# Scope is the directory case ONLY: a dangling symlink and a FIFO are deliberately not
+# caught here — the mv REPLACES them with a real settings file, which is correct, and a
+# broader "non-regular file" guard would newly break a legitimate symlink-into-dotfiles
+# setup. Do NOT widen the predicate and lean on a failing read: `$(<dir)` is host-dependent
+# (nonzero on bash 3.2, zero on bash 5.3) and a FIFO read blocks forever.
+if [ -d "$SETTINGS" ]; then
+  warn "existing $SETTINGS is a directory, not a file; left it unchanged and provisioned nothing (remove or move the directory, then re-run /prflow:init)."
+  exit 2
+fi
 
 # Resolve the existing settings into a JSON value to merge against.
 #   - absent file                  -> start from {} (create it)
