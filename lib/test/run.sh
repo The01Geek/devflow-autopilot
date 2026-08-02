@@ -1317,7 +1317,7 @@ assert_eq "sev(rcv): vendored body has no repo-specific test path (lib/test/run.
 assert_eq "sev(rcv): vendored body has no repo-specific CI job name (lib + python tests)" "no" "$(grep -qF 'lib + python tests' "$ST_RCV" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "review live-comment seeding: scripts/seed-review-progress.sh token-line contract (#857)"
+echo "review live-comment seeding: scripts/seed-review-progress.sh outcome-plus-marker contract (#857/#1054)"
 # ────────────────────────────────────────────────────────────────────────────
 # The review live-progress seed's S1/S2/S3 screens moved OUT of the SKILL.md prompt fence
 # (which the cloud review matcher refused as a compound, so the screens never ran there)
@@ -1325,7 +1325,8 @@ echo "review live-comment seeding: scripts/seed-review-progress.sh token-line co
 # ordinary shell driven here per-outcome (the classify-id-exit.sh / describe-denial-count.sh
 # precedent). The four old prompt-fence pins (#384 S1/S2/S3, #284 positive elif) are retired
 # with the fence they guarded; this driver is their behavioral replacement. Each row asserts
-# one token line + its exit code against a stubbed workpad.py, so a screen regression — a
+# the closed stdout shape (one refusal line, or outcome + marker on success) and its exit code
+# against a stubbed workpad.py, so a screen regression — a
 # non-numeric argument reaching `id`, an unreadable-script exit-2 misread as a clean absence,
 # an rc-2-with-stderr taking the create arm (the #384 duplicate-comment defect) — turns RED.
 SRP857="$(git_sandbox '#857 seed-review-progress driver')"
@@ -1349,7 +1350,7 @@ if sys.argv[1] == 'create':
 PYEOF
   chmod +x "$SRP857/scripts/workpad.py"
 }
-srp857_run() { "$SRP857_SH" "$1" "$2" "$SRP857/body.md" 2>/dev/null; }   # $1=PR $2=marker
+srp857_run() { env -u GITHUB_RUN_ID -u GITHUB_RUN_ATTEMPT "$SRP857_SH" "$1" "$2" "$SRP857/body.md" 2>/dev/null; }   # $1=PR $2=local marker
 # (#871) Every refusal-token row asserts THROUGH this recorder, so the set of tokens the
 # driver rows exercise is a by-product of the rows rather than a hand-kept list beside them.
 # The grounded-coverage assertion at the end of this block states what that buys.
@@ -1367,11 +1368,15 @@ srp857_expect() {   # $1=label $2=expected refusal token $3=actual stdout
 }
 # RESUME: id exit 0 prints the comment id.
 srp857_stub 0 "999" "" 0 ""
-assert_eq "#857 seed helper: existing comment -> RESUME <id> stdout" "RESUME 999" "$(srp857_run 7 m)"
+assert_eq "#857/#1054 seed helper: existing comment reports RESUME <id> and authoritative marker" \
+  "RESUME 999
+MARKER m" "$(srp857_run 7 m)"
 assert_eq "#857 seed helper: RESUME exits 0" "0" "$(srp857_run 7 m >/dev/null; echo $?)"
 # CREATED: id exit 2 silent (clean absence) -> create prints the new id.
 srp857_stub 2 "" "" 0 "1234"
-assert_eq "#857 seed helper: clean absence -> CREATED <id> stdout" "CREATED 1234" "$(srp857_run 7 m)"
+assert_eq "#857/#1054 seed helper: clean absence reports CREATED <id> and authoritative marker" \
+  "CREATED 1234
+MARKER m" "$(srp857_run 7 m)"
 assert_eq "#857 seed helper: CREATED exits 0" "0" "$(srp857_run 7 m >/dev/null; echo $?)"
 # S1: a non-numeric / empty PR number is refused BEFORE the id call.
 srp857_stub 0 "999" "" 0 ""   # stub would RESUME if reached — it must not be
@@ -1407,7 +1412,8 @@ chmod 755 "$SRP857/scripts/workpad.py"
 # was broken for some unrelated reason.
 srp857_stub 0 "999" "" 0 ""
 assert_eq "#857 seed helper (S2): positive control -- the same fixture RESUMEs once readable" \
-  "RESUME 999" "$(srp857_run 7 m)"
+  "RESUME 999
+MARKER m" "$(srp857_run 7 m)"
 # The scratch-file arm IS drivable, and driving it beats declaring it: the helper calls a
 # BARE `mktemp` resolved on PATH, so a PATH-shadowing stub that exits 1 reaches the arm on any
 # POSIX host -- no root, no GNU flag, and no dependence on whether this host's mktemp honors
@@ -1423,7 +1429,8 @@ chmod +x "$SRP857/bin/mktemp"
 printf '%s\n' '#!/bin/sh' 'printf "%s\\n" "$TMPDIR/srp857-ok"; : > "$TMPDIR/srp857-ok"' > "$SRP857/bin/mktemp"
 srp857_stub 0 "999" "" 0 ""
 assert_eq "#871 seed helper (mktemp arm): positive control -- a PATH-shadowed mktemp that SUCCEEDS still RESUMEs" \
-  "RESUME 999" "$(TMPDIR="$SRP857" PATH="$SRP857/bin:$PATH" srp857_run 7 m)"
+  "RESUME 999
+MARKER m" "$(TMPDIR="$SRP857" PATH="$SRP857/bin:$PATH" srp857_run 7 m)"
 printf '%s\n' '#!/bin/sh' 'exit 1' > "$SRP857/bin/mktemp"
 srp857_expect "#871 seed helper: the id-stderr scratch file could not be created -> SKIP api-error-scratch-file" \
   "SKIP api-error-scratch-file" "$(TMPDIR="$SRP857" PATH="$SRP857/bin:$PATH" srp857_run 7 m)"
@@ -1455,14 +1462,15 @@ assert_eq "#857 seed helper: id exit 1 SKIP api-error-id-failed exits 3" "3" "$(
 srp857_stub 2 "" "" 1 ""
 srp857_expect "#857/#871 seed helper: create failure after clean absence -> SKIP api-error-create-failed" "SKIP api-error-create-failed" "$(srp857_run 7 m)"
 assert_eq "#857 seed helper: create-failure SKIP api-error-create-failed exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
-# An empty run-keyed marker is refused at the boundary: an empty --marker would let a
+# An absent run key (neither cloud-derived nor local fallback) is refused at the boundary: an empty --marker would let a
 # config breadcrumb reach stderr and defeat S3's exit-2 emptiness discriminator, losing
 # the live comment on a genuine first write. Attributed by its own distinct token.
 srp857_stub 0 "999" "" 0 ""
-srp857_expect "#857 seed helper: empty marker -> SKIP bad-marker" "SKIP bad-marker" "$(srp857_run 7 '')"
-assert_eq "#857 seed helper: SKIP bad-marker exits 3" "3" "$(srp857_run 7 '' >/dev/null; echo $?)"
+srp857_expect "#857/#1054 seed helper: no cloud or local marker -> SKIP no-run-key" "SKIP no-run-key" "$(srp857_run 7 '')"
+assert_eq "#857/#1054 seed helper: SKIP no-run-key exits 3" "3" "$(srp857_run 7 '' >/dev/null; echo $?)"
 assert_eq "#857 seed helper: positive control -- the same fixture RESUMEs with a non-empty marker" \
-  "RESUME 999" "$(srp857_run 7 m)"
+  "RESUME 999
+MARKER m" "$(srp857_run 7 m)"
 # exit 0 with an EMPTY printed id never becomes a bare `RESUME `/`CREATED ` — an empty
 # $WP would make every later patch call a silent no-op (the frozen-comment failure).
 srp857_stub 0 "" "" 0 ""
@@ -1473,9 +1481,10 @@ srp857_stub 2 "" "" 0 ""
 srp857_expect "#857/#871 seed helper: create exit 0 with no printed id -> SKIP api-error-create-empty-id, never a bare CREATED" \
   "SKIP api-error-create-empty-id" "$(srp857_run 7 m)"
 assert_eq "#871 seed helper: SKIP api-error-create-empty-id exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
-# No silent path: every reachable arm prints exactly one non-empty token line.
+# No silent path: every success prints its outcome and marker lines (refusals
+# remain one attributed SKIP line).
 srp857_stub 0 "999" "" 0 ""
-assert_eq "#857 seed helper: no silent path — stdout is one non-empty line on every arm" "1" \
+assert_eq "#857/#1054 seed helper: success stdout has exactly outcome + marker lines" "2" \
   "$(srp857_run 7 m | grep -c .)"
 # (#871) GROUNDED COVERAGE. The rows above are only as complete as the helper's arms, so
 # derive the emitted refusal-token vocabulary from the helper's OWN source and assert it
@@ -1553,9 +1562,10 @@ assert_eq "#871 the emitted-token derivation reads a non-trivial vocabulary out 
 assert_eq "#871 the helper's emitted refusal-token set equals the set the driver rows exercise (plus the declared-undrivable arm)" \
   "$SRP857_EMITTED" "$SRP857_COVERED"
 # The CALL SITE's positional contract. The behavioral rows below drive the helper through
-# srp857_run, which hard-codes the argument order — so a transposed $MARKER and body path in
-# the SKILL.md fence (or a drop to two args) leaves every one of them green while every cloud
-# review silently loses its live comment on a SKIP bad-marker. The head extractor pins the
+# srp857_run, which hard-codes the argument order — so a transposed marker slot and body path in
+# the SKILL.md fence (or a drop to two args) leaves every one of them green while a local
+# run can reach SKIP no-run-key and a cloud clean-absence create can receive the wrong body
+# path and fail normalization/create. The head extractor pins the
 # leading token only and is insensitive to arguments, so this is the one place the fence's
 # arity and order are checked.
 # The declaration below documents WHY the site immediately under it is a typed executable
@@ -1568,8 +1578,8 @@ assert_eq "#871 the helper's emitted refusal-token set equals the set the driver
 # behavioral test can reach the fence, which is prompt text an agent emits.
 # pin_count matches with `grep -oF` — a LITERAL, not an ERE — so each pattern here is
 # de-escaped (`seed-review-progress.sh`, a plain `$`); a regex-escaped pattern would count 0.
-assert_eq "#857 the SKILL.md seed fence passes PR_NUMBER, MARKER, BODY_FILE in that order" "1" \
-  "$(pin_count 'seed-review-progress.sh "$PR_NUMBER" "$MARKER" .prflow/tmp/review/<slug>/<run-id>/review-wp.md' "$ST_REV")"
+assert_eq "#857/#1054 the SKILL.md seed fence passes PR_NUMBER, marker slot, BODY_FILE in that order" "1" \
+  "$(pin_count 'seed-review-progress.sh "$PR_NUMBER" <marker-slot> .prflow/tmp/review/<slug>/<run-id>/review-wp.md' "$ST_REV")"
 # (#871) The FALLBACK arm reproduces the same positional contract by hand — on the path taken
 # precisely when the primary helper has already failed — and was uncovered. Its `id` and
 # `create` statements live in a prose paragraph as inline backticked code rather than in a
@@ -1597,7 +1607,7 @@ assert_eq "#871 the SKILL.md fallback arm's create call passes the PR number the
 # merge-gating review pass, and that absence is the decision, not an oversight.
 # ARGUMENT FORWARDING. The rows above stub workpad.py on `sys.argv[1]` alone, so nothing
 # above constrains WHAT the helper passes. That matters most for `--marker`: the SKIP
-# bad-marker guard exists because an empty --marker lets a config breadcrumb reach stderr
+# no-run-key guard exists because an empty --marker lets a config breadcrumb reach stderr
 # and defeat S3's emptiness discriminator — but the regression it anticipates is the flag
 # being DROPPED from the id call, which every row above survives. This stub records argv.
 srp857_argv_stub() {   # $1=id-exit $2=id-stdout $3=create-exit $4=create-stdout
@@ -1610,6 +1620,8 @@ if sys.argv[1] == 'id':
     sys.stdout.write("""$2""")
     sys.exit($1)
 if sys.argv[1] == 'create':
+    with open(sys.argv[-1], encoding='utf-8') as source, open("$SRP857/created-body.md", "w", encoding='utf-8') as target:
+        target.write(source.read())
     sys.stdout.write("""$4""")
     sys.exit($3)
 PYEOF
@@ -1621,15 +1633,20 @@ srp857_argv_stub 0 "999" 0 ""
 srp857_run 7 mark-xyz >/dev/null
 assert_eq "#857 seed helper: the id call forwards the PR number and --marker <marker>" \
   "id 7 --marker mark-xyz" "$(grep '^id ' "$SRP857/argv.log")"
-# create-arm forwarding: the PR number and the BODY_FILE path this run was given.
+# create-arm forwarding: the PR number and a normalized scratch body whose first
+# line is the helper-authoritative marker.
 srp857_argv_stub 2 "" 0 "1234"
 srp857_run 7 mark-xyz >/dev/null
-assert_eq "#857 seed helper: the create call forwards the PR number and the body-file path" \
-  "create 7 $SRP857/body.md" "$(grep '^create ' "$SRP857/argv.log")"
+SRP857_CREATE_ARG="$(grep '^create ' "$SRP857/argv.log")"
+assert_eq "#857/#1054 seed helper: the create call forwards the PR number and one body path" \
+  "yes" "$(case "$SRP857_CREATE_ARG" in 'create 7 '*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1054 seed helper: the create body begins with the effective marker" \
+  "mark-xyz" "$(sed -n '1p' "$SRP857/created-body.md")"
 # Positive control: the argv-recording stub still drives the ordinary outcomes, so the two
 # rows above cannot pass against a stub the helper never actually reached.
 assert_eq "#857 seed helper: argv-recording stub still yields the normal CREATED token" \
-  "CREATED 1234" "$(srp857_run 7 mark-xyz)"
+  "CREATED 1234
+MARKER mark-xyz" "$(srp857_run 7 mark-xyz)"
 # ────────────────────────────────────────────────────────────────────────────
 echo "self-contradicting-diff verdict carve-out (Phase 4.2, threshold-independent) (#263)"
 # ────────────────────────────────────────────────────────────────────────────
@@ -6643,40 +6660,30 @@ assert_pin_unique "#356 flip: skills/review/SKILL.md carries the '❌ Review fai
 assert_eq "#356 flip: helper carries the matching '❌ Review failed' literal" "yes" \
   "$(grep -qF '❌ Review failed' "$FLIP_SH" && echo yes || echo no)"
 
-# ── Run-keyed MARKER shape: the OTHER half of the coupled contract ─────────────
+# ── Run-keyed MARKER shape: executable producer/consumer parity ────────────────
 # The helper finds the comment with `workpad.py id --marker "$FLIP_MARKER"`. If the review
-# skill's SEED marker and the workflows' FLIP_MARKER ever drift apart, `id` returns rc 2,
+# seed helper's derived marker and the workflow's FLIP_MARKER ever drift apart, `id` returns rc 2,
 # the helper takes its comment-absent no-op arm, exits 0 — and BOTH dead-run flips silently
 # never fire. That is a fail-open in exactly the scenario the flip exists to cover, and
-# nothing else in the suite goes RED for it. `flip-review-progress-failed.sh`'s header and
-# docs/DEVFLOW_SYSTEM_OVERVIEW.md both assert this marker shape is "pinned in
-# lib/test/run.sh" — these are the pins that make that claim true.
-#
-# The producer and consumer are not byte-identical (the skill defaults the env for a local
-# run; the workflows rely on Actions always setting it), so pin the invariant *sub-shape*
-# each carries, plus the identity of the two workflow literals.
+# the issue-1054 block in review-trigger-helpers goes RED for it: it executes the seed
+# helper and a python3-extracted, exactly-once workflow expression under one fixed env,
+# then compares the two produced strings byte-for-byte. The workflow literal remains
+# pinned here because it is itself the dead-run lookup producer.
 #
 # Declared here rather than reused from the workflow-wiring block below: that block defines
 # $DEVFLOW_YML further down, and this block must not depend on statement order.
 # Issue #936 retired the second consumer: devflow-review.yml (the auto PR-triggered
 # review tier's caller) was removed from the tree, so the cross-FILE identity check
 # between the two workflow copies has no second operand and is gone with it. The
-# producer↔consumer contract this block exists to protect is untouched — it is the
-# skill's seeded marker against devflow.yml's rebuilt one, pinned below — and that is
-# the pair `flip-review-progress-failed.sh`'s header and docs/DEVFLOW_SYSTEM_OVERVIEW.md
-# claim is "pinned in lib/test/run.sh".
+# producer↔consumer contract this block exists to protect is now helper runtime output
+# against devflow.yml's rebuilt value, covered by the executable parity row named above.
 M356_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
-assert_pin_unique "#356 marker: skills/review/SKILL.md seeds the run-keyed review-progress marker" \
-  'MARKER=$(printf '"'"'%s'"'"' "<!-- prflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->")' \
-  "$REVIEW_BUNDLE"
 assert_pin_unique "#356 marker: devflow.yml rebuilds the identical run-keyed marker" \
   'FLIP_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_DEVFLOW_YML"
 # The former cross-FILE identity check compared the two workflow copies of FLIP_MARKER
 # against each other. Issue #936 removed the second copy with devflow-review.yml, and no
-# separate prefix assertion replaces it: the two assert_pin_unique calls above already pin
-# the producer's seeded literal and the consumer's rebuilt literal in full, and the shared
-# `<!-- prflow:review-progress run=` prefix is a substring of both — so a rename on either
-# side turns one of them RED without a third, weaker check.
+# separate prefix assertion replaces it: the module's runtime equality is stronger than
+# a source-substring comparison and the remaining pin protects the workflow extraction site.
 
 # ── fetch-pr-context.sh glyph-strip pin (unit) ────────────────────────────────
 assert_eq "#356: fetch-pr-context.sh strips the full Status glyph set (incl. 💥 and 🛑)" "yes" \
@@ -15127,7 +15134,7 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # together, or test_module_runner.py's tranche test goes RED.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 552; then
+  "review-trigger-helpers" 605; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
@@ -30974,8 +30981,8 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # Regression guard: the arm-position fix is a NO-OP on today's Review engine BUNDLE
 # (root + skills/review/phases/*.md — #529 split the engine, so the reviewed surface
 # is every source, not just the root).
-assert_eq "#363 the review-skill head set matches the reviewed count (33 distinct names over the whole bundle; #529 moved fences into references and added only already-counted heads (git hash-object, echo); #857 added seed-review-progress.sh, the one genuinely new name)" \
-  "33" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names over the whole bundle; #529 moved fences into references and added only already-counted heads (git hash-object, echo); #857 added seed-review-progress.sh; #1054 moved marker derivation out of the cloud fence, removing date)" \
+  "32" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$REVIEW_BUNDLE")"
 
