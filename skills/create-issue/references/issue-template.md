@@ -108,147 +108,20 @@ it during the no-options check:
 - **Data/Schema Considerations** — schema changes, queries, or data-access patterns.
 - **Cross-layer Impact** — which layers are affected (frontend, backend, API, database).
 
-**Verify every load-bearing premise before drafting — not only file paths.** Any premise the
-issue relies on as fact, and any premise that seeds the Implementation Notes `Approach`, is
-checked with a method matched to its class: **data-source / data-model** claims ("column X
-holds the role name") against the schema definitions or the code that reads and writes that
-data; **"parent PR or commit already did X"** claims at HEAD (read the file, `git log -p` /
-`git log -S<symbol>`), never taken from the parent issue's narrative; **data-coverage /
-population** claims ("column X is set for most users") against live data when it is available;
-and **relied-on third-party behavior** — every behavior of an external platform, API, or
-service the issue **relies on** (load-bearing for the Desired Behavior, an acceptance
-criterion, **or** the Implementation Notes Approach — not only an AC's mechanism): webhook /
-event delivery, trigger syntax, token scopes, endpoint behavior, response shapes, rate
-limits, and the like. Relied-on behavior is **never assumed**. Verify it with this **decided
-fallback ladder**, in order, stopping at the first rung that resolves it: **(1)** the vendor's
-**official documentation via `WebFetch`** (not memory); **(2)** when the official docs are not
-reachable, **`WebSearch`**; **(3)** when search is unavailable or fails, **ask the user to
-provide the documentation**. Record the verified fact and its source URL in the draft's
-`Technical Context` before the relied-on claim is written. This is the premise class the #304
-run missed: it prescribed a `check_suite`/`workflow_run` mechanism GitHub cannot deliver
-(Actions-created check suites never emit `check_suite`; `workflow_run` requires a named
-workflow list), which only surfaced mid-implement — a `WebFetch` of the events docs at
-drafting time would have caught it.
-
-**Ladder terminal arm — decided two ways.** When the ladder yields **no documentation** and
-**no working example in this codebase already proves** the relied-on behavior, the item
-becomes a `## 🚫 Blocked` entry phrased as a **direct question** — the exact vendor-behavior
-fact to confirm plus one line on why it blocks the work — because an unverifiable load-bearing
-external premise blocks implementation exactly as an undecided decision does. When a **working
-in-codebase example does prove** the behavior but documentation remains unavailable, write the
-claim inline as an explicitly flagged `— assumption, confirm before implementing` line
-**citing that in-repo example** (not a Blocked entry).
-
-Treat an empty or inconclusive result (no matching commit, no matching column/schema, data
-unavailable) as **unverified** — never as silent confirmation. A load-bearing premise that
-cannot be verified is written as an explicitly flagged assumption for the implementer to
-confirm — stated inline as a declarative fact tagged `— assumption, confirm before
-implementing` (a factual premise-to-confirm, so the no-options gate's hedge/deferral ban does
-not apply to it, and it is not a `## 🚫 Blocked` item — **with the one exception of the
-ladder terminal arm above**, where a relied-on third-party behavior that is neither
-documentation-verified nor proven by an in-repo example becomes a Blocked vendor-behavior
-question), and never baked into a prescriptive `Approach`.
-
-Verification is **proportional**: cheap in-repo reads for most claims, live-data only for
-population claims, and the docs ladder only for **relied-on** third-party behavior. It is
-scoped to **load-bearing** premises, so incidental context bullets — and an **incidental
-third-party mention** (named in passing, not load-bearing for the Desired Behavior, an AC, or
-the Approach) — stay light and trigger no verification, so drafting is never blocked in a
-data-less authoring context.
-
-**Unstated mechanism dependencies are a premise class too.** The verification above attaches
-to premises the issue **states as fact**. But a designed mechanism can *rely on* an in-repo
-behavior — a helper's exit code, a resolver's output shape, a gate's semantics, or the mere
-existence of a renderer mode, state field, subcommand, or config key it names — that the body
-never asserts as a claim, so the claim-driven loop has nothing to verify (issue #446's
-config-unreadable arm rested on `config-get.sh`'s malformed-input non-zero exit without ever
-asserting it as a claim). Enumerate the draft's **own mechanism dependencies** and, for each,
-determine existence first, then route — the rule's single home, with its outcome set, its route
-mapping, and its grounding, is **Step 3.5's item 4** (`skills/create-issue/references/step-3-5-steelman.md`);
-where that reference is unavailable to you, an undetermined dependency records **not established** and
-takes its implementer-obligation route. This is the
-**in-repo sibling of the relied-on-third-party-behavior class** above — same discipline, extended
-to unstated in-repo reliances; it adds no duplicate premise class.
-
-**Occurrence counts and coupled-site lists are a premise class too.** A *count* of in-repo
-occurrences ("fixed at both call sites", "the ten coupled invariants") or a *list* of mirror
-sites is a load-bearing premise the claim-driven loop otherwise accepts as written — and a count
-assembled from **recall** is exactly how a real enumeration silently drifts (a claimed "both
-occurrences" while the pattern lives at several more sites). Ground it one of two decided ways,
-selected by observed drafting-time capability: **(a) executed** — where the drafter's tier grants
-a repository text search, run a **whitespace-normalized** search (a phrase wrapped across adjacent
-lines defeats a line-based search) and cite it in the draft as a **"Verified:"** bullet carrying
-the exact command and its hit list; **(b) records** — where that search command is unavailable or
-denied on the tier, and for any count **not derivable from a repository text search** (a count of
-pull-request occurrences, a tally over an evidence bundle), cite the specific evidence records
-consulted — the query output, the source rows — **record-by-record**. Neither arm accepts a count
-from recall.
-
 **Every "Verified:" bullet carries a self-contained re-derivation handle.** A bullet is true when
 you write it and nothing re-checks it afterwards, so the reader who matters is both a human
 developer who does not know this codebase, reading to understand what the issue asks, and an
 implementing run weeks later, deciding whether it may skip its own investigation on the strength of
 your sentence — and this re-derivability discipline serves both.
 Give that reader the means to re-derive the premise **mechanically**, in the bullet itself: the
-**repository path in backticks plus the sentence quoted verbatim** from it, or the **exact command**
-whose output grounded the claim. A bullet that merely *asserts* a premise in prose — no path, no
-quotation, no command — hands the reader nothing to re-run, and a stale one of those is strictly
+**repository path in backticks plus the sentence quoted verbatim** from it. A bullet that merely *asserts* a premise in prose — no path, no
+quotation — hands the reader nothing to re-run, and a stale one of those is strictly
 worse than no bullet at all, because it converts "go and check" into "this was already checked".
 Issue #857 is the worked case: three of its handle-less premises were false by the time #864
 implemented it, and two acceptance criteria were unimplementable as prescribed. The handle is what
-`scripts/check-verified-premises.py` reads — Step 3.5 runs it over the assembled draft, and an
+`scripts/check-verified-premises.py` reads — **Step 3.6's pre-dispatch canonical write** runs it over the assembled draft, and an
 implementing run re-checks the filed issue with it — so a bullet written without one is not
 re-checkable by either.
-
-**Load-bearing claims record the repository baseline they were grounded against.** The claim
-classes are enumerated **first**, and each takes the baseline representation *its own* drift mode
-needs — no single universal identity is imposed across them:
-
-- **Location-sensitive anchor** — a line range, a region boundary, a file-and-section anchor.
-  Identity is a content digest of the **measured paths**, so a base advance touching none of them
-  leaves the claim fresh.
-- **Occurrence count or tally** — identity digests the **re-executed search result over the
-  claim's full search domain**, never the hit paths, so an occurrence added *outside* the
-  original hit set changes it.
-- **Consumer or coupled-site inventory** — the same full-domain identity as a count: the claim is
-  about the domain, not the sites it happened to hit.
-
-**The audit run opens here**, at the first nonce-taking call — not at Step 3.6, which reuses it
-and re-opens nothing. **Nonce.** `init` mints this run's nonce and prints `nonce=…`; hold it and
-substitute it into every later call. It is a value you carry, not a shell variable that survives
-between Bash calls. After a context compaction, recover it with `query-nonce "<slug>"` — recovery
-restores single-run continuity but **cannot discriminate a foreign same-slug run in the same cwd**
-(a disclosed limitation). Open the run with a **cold-start `init`** (no `--nonce` — that omission
-is what selects the ported delete-leftover-first wipe; a `--nonce` on `init` is only for a same-run
-re-init and needs `--force` over recorded rounds):
-
-```bash
-python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/issue-audit-state.py init "<slug>"
-```
-
-Record each claim with `record-claim-baseline` — `--path` per measured path for a location anchor,
-the re-executed search result piped with `--domain-stdin` for a count or inventory:
-
-```bash
-python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/issue-audit-state.py record-claim-baseline "<slug>" --nonce "<nonce>" --claim-key "<key>" --claim-class location --path "<measured path>"
-```
-
-Cite the printed `claim=` key with `revision=` and `identity=` on that claim's **"Verified:"**
-bullet, beside its command and hit list — the key is the only join Steps 3.5 and 3.6 have. A
-non-zero call records nothing: omit all three rather than inventing them. The captured revision accompanies the identity, but the **identity** is what
-the deterministic re-check compares — so the committed-vs-dirty and drift distinctions are made
-**per claim**, never from a global worktree cleanliness flag, which a dirty→dirty edit of the
-measured content leaves unchanged while the content itself drifts.
-
-**The complement is named explicitly and receives no provenance:** an **incidental mention** — a
-file, count, or site named in passing and not load-bearing for the Desired Behavior, an
-acceptance criterion, or the Approach — records no baseline, exactly as it triggers no
-verification above.
-
-**Every arm is best-effort and blocks nothing.** A measurement that cannot be established records
-`unestablished`, and an **absent** baseline field reads **identically** — both are **possibly
-stale** (re-verified), never silently fresh. Neither
-ever blocks issue creation.
 
 **Verifying "the code does X" includes the gates on the path to X.** Confirming that the code
 doing X exists and does X is not complete until you have read the **enclosing gates,
@@ -260,8 +133,8 @@ configuration** states that precondition **inside the claim**, never as a bare "
 This same discipline runs **twice**: here at drafting time, and again in the calling
 skill's Step 3.5 self-steelman, which re-applies it to the *assembled* draft (fresh
 targeted reads/greps against the code, never ambient context) before the user sees it.
-Keep the two coherent — a change to the premise-classes or the flagged-assumption form
-above must carry into Step 3.5's checks.
+Keep the two coherent — a change to the re-derivation-handle rule or the "code does X"
+gate-reading discipline above must carry into Step 3.5's checks.
 
 ### Visual Specification (include only for user-visible UI changes)
 Include this section **only** when the issue involves user-visible UI changes (Step 2's
@@ -543,7 +416,6 @@ incomplete issues.
 - [ ] Technical Context opens with the standardized scope note, included verbatim
 - [ ] Technical context cites real file paths / class names from this project
 - [ ] Open cross-issue prerequisites are listed in `## Dependencies` as `Blocked by #N — <reason>` lines (rendered above Problem Statement, only when a prerequisite is still open at drafting time; already-closed prerequisites recorded as Technical Context provenance instead)
-- [ ] Load-bearing Technical Context premises (data-source/model, coverage/population, "already-done", relied-on third-party behavior) are verified — not just file paths; relied-on third-party behavior is checked against official docs via the WebFetch → WebSearch → ask-the-user ladder with the source recorded — or, when unverifiable, becomes a `## 🚫 Blocked` vendor-behavior question (or a flagged assumption citing an in-repo example)
 - [ ] For a user-visible UI change, the Visual Specification section records a screenshot/mockup or a verbally-verified placement spec (screenshot preferred, verbal verification an accepted substitute); non-UI issues omit the section entirely
 - [ ] Acceptance criteria are measurable, testable, and unconditional
 - [ ] Value-comparison ACs/assertions state the comparison in the producing surface's observed-output terms, grounded by a boundary-covering probe (exercising the type-boundary fixture the comparison distinguishes) or a named implementer obligation carrying its execution-tier constraint — adjective-only or probe-silent-on-the-axis comparison language is non-conforming
@@ -552,8 +424,7 @@ incomplete issues.
 - [ ] An AC establishing a trust/integrity boundary over executable artifacts defines the protected set over the transitive source/exec/import closure of its entry points, or states the residual unprotected surface explicitly
 - [ ] A Testing Strategy that enumerates an input-shape/case matrix for a convention-governed surface carries the full convention matrix (or an explicit named-and-justified narrowing) and a `governing conventions consulted:` discharge line bounded to `CLAUDE.md`, `CONTRIBUTING.md`, and the configured internal-docs path
 - [ ] The draft's own unstated mechanism dependencies (relied-on in-repo helper/resolver/gate behaviors, and existence-shaped reliances, it never asserts as claims) each have their existence determined first and are then routed per Step 3.5's item 4 (`skills/create-issue/references/step-3-5-steelman.md`), an undetermined one recording **not established** and taking its implementer-obligation route
-- [ ] Every in-repo occurrence count or coupled-site list is grounded by an executed whitespace-normalized search (cited as a "Verified:" bullet with the command and its hit list) where the tier grants one, else by the specific evidence records consulted record-by-record — never assembled from recall
-- [ ] Every "Verified:" bullet carries a self-contained re-derivation handle — the repository path in backticks plus the sentence quoted verbatim from it, or the exact command whose output grounded the claim — so an implementing run can re-check the premise mechanically rather than re-investigating it
+- [ ] Every "Verified:" bullet carries a self-contained re-derivation handle — the repository path in backticks plus the sentence quoted verbatim from it — so an implementing run can re-check the premise mechanically rather than re-investigating it
 - [ ] A premise verified as "the code does X" was read with its enclosing gates/conditionals and their defaults on the path to X, and any claim that holds only under a non-default configuration states that precondition inside the claim
 - [ ] A designed LLM/semantic-judgment surface over third-party text (issue bodies, PR comments, commit messages, external API responses) carries the input-is-data guard AC paired with a hostile-input Testing Strategy case that asserts instruction-shaped input is not obeyed — or cites the existing already-guarded judgment path it reuses; a draft with no such surface adds nothing here
 - [ ] Every enumerated test/case/example list inside an AC declares its form — the `at minimum` floor marker or an explicit closed-set exhaustiveness statement — and each floor-marked list has had Move 2's coverage sweep (state, case variants, multiplicity, absence) written back as additional closed AC items
