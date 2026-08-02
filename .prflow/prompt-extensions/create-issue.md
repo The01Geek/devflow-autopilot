@@ -223,19 +223,18 @@ DevFlow-specific evidence axes for the Step 2 evidence-bundle sub-pass. The skil
 section to its generic axis floor when computing the effective axis list.
 
 **Consumers-axis evidence floor (this repo).** On the generic **consumers** axis, a `Verified:`
-entry covering a contract sentence or value the mechanism amends is grounded by a **conjunction**:
-the Interaction-surface map part 2 call-site reads (each consumer named with the quoted sentence
-that reads it) **plus an executed repo-wide whitespace-normalized sweep** for the amended sentence
-or value, the command and its hit list recorded in the entry. The read leg means reads in the
+entry covering a contract sentence or value the mechanism amends is grounded by the
+Interaction-surface map part 2 call-site reads (each consumer named with the quoted sentence
+that reads it). The read leg means reads in the
 part-2 *form* — the form defined in the Interaction-surface map section of
 `.prflow/prompt-extensions/create-issue.md`, part 2 (read the form there rather than restating
 it) — produced at this floor when the Interaction-surface map did not fire for the mechanism (the
 map fires only on engine-decision surfaces, while this floor fires on any amended contract
-sentence or value, a wider population). The sweep catches the mirror sites the reads missed; the
-reads catch the semantic consumers a textual sweep can never find (a sweep matches copies of the
-text, not code that reads the value) — so neither leg substitutes for the other. A consumers entry
-whose required sweep was not executed is recorded `unestablished — consumers not swept`, never
-`Verified:`. A mechanism amending no contract sentence or value leaves the sweep leg untriggered.
+sentence or value, a wider population). The reads catch the semantic consumers a textual sweep
+can never find (a sweep matches copies of the text, not code that reads the value), which is why
+this floor rests on the reads rather than a repo-wide text sweep. A consumers entry
+whose required call-site reads were not performed is recorded `unestablished — consumers not read`, never
+`Verified:`.
 
 **Closed-set complement entries (this repo).** Every closed set the mechanism defines — a glob
 pattern, a guard's arm list, an exempt or suppression list, a registry's arms — gets one bundle
