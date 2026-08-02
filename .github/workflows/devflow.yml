@@ -927,10 +927,25 @@ jobs:
           # it here, so say so loudly instead of failing open in silence. Scoped to
           # the present-but-too-old case alone: an ABSENT vendored loader is a broken
           # vendor step that other steps already diagnose, and folding two causes into
-          # one breadcrumb would leave the reader unable to tell them apart. A missing
-          # `grep` makes the condition true and emits the warning — fail loud.
+          # one breadcrumb would leave the reader unable to tell them apart.
+          #
+          # The probe is BASH BUILTINS ONLY (`while IFS= read -r` + `case`), not `grep`.
+          # This value decides an EMITTED result — which diagnosis the maintainer reads —
+          # and CLAUDE.md's guard-class 2 bars deriving such a value through a
+          # non-preflight PATH tool. With `grep` the absent-tool case inverted the
+          # condition and published "predates issue #874" about a loader this step never
+          # actually read: loud, but naming a cause it had not established. The builtin
+          # loop cannot fail that way, so the message asserts only what was observed.
           LOADER=.prflow/vendor/prflow/scripts/load-prompt-extension.sh
-          if [ -f "$LOADER" ] && ! grep -q 'DEVFLOW_PROMPT_EXTENSION_ROOT' "$LOADER"; then
+          _loader_honors=no
+          if [ -f "$LOADER" ]; then
+            while IFS= read -r _l || [ -n "$_l" ]; do
+              case "$_l" in
+                *DEVFLOW_PROMPT_EXTENSION_ROOT*) _loader_honors=yes; break ;;
+              esac
+            done < "$LOADER"
+          fi
+          if [ -f "$LOADER" ] && [ "$_loader_honors" = no ]; then
             echo "::warning::devflow: the vendored load-prompt-extension.sh predates issue #874 and ignores DEVFLOW_PROMPT_EXTENSION_ROOT, so it resolves the WORKING TREE rather than this run's trusted closure — and after /prflow:review-and-fix's branch sync that tree is the pull-request head. Bump prflow_version in .prflow/config.json to close it."
           fi
 

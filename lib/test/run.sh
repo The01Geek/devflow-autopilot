@@ -20520,6 +20520,88 @@ assert_eq "#1075 promptext(mutation): quoting the protected set materializes no 
   "$([ -f "$PXC_W/rt/devflow-trusted-prompt-ext/review.md" ] && echo yes || echo no)"
 rm -f "$PXC_MUT"
 
+# (G) THE FETCH-FAILURE RESET IS THE SECURITY LINCHPIN, and it needs its own pin.
+# When `gh pr view` SUCCEEDS but `git fetch` FAILS, the arm sets a reason AND resets
+# BASE_REF to empty. That reset is the whole reason the materialization stays out of
+# the `[ -n "$BASE_REF" ]` branch, so the helper never resolves FETCH_HEAD — which
+# elsewhere (left by actions/checkout, or by any earlier fetch) can name PR-controlled
+# content. Delete or reorder the reset and the reviewing agent's own prompt extensions
+# get materialized from that content: precisely the vulnerability this step closes.
+#
+# WHY THE FIXTURE STUBS `git fetch` RATHER THAN LETTING A REAL FETCH FAIL. Measured
+# here across three real failure modes (missing ref, unreachable remote, unreachable
+# host), a failed `git fetch` ALSO truncates FETCH_HEAD, so the helper's own
+# ref-resolves guard would decline anyway. A fixture built on a real failing fetch
+# therefore passes identically with the reset present and with it deleted — vacuous on
+# exactly the regression it claims to pin. That incidental cleanup is undocumented and
+# transport- and version-dependent, and the reset exists precisely so this step does
+# not depend on it, so the fixture models the failure mode where FETCH_HEAD SURVIVES:
+# a pass-through `git` whose `fetch` fails without touching it. The measured cleanup is
+# a past-time observation recorded to explain the fixture, never a guarantee relied on.
+PXC_REAL_GIT="$(command -v git)"
+# $1=label $2=step script → work dir with poisoned FETCH_HEAD, gh succeeding, fetch failing
+pxc_run_poisoned() {
+  PXC_W="$PXC_ROOT/p-$1"
+  rm -rf "$PXC_W"
+  mkdir -p "$PXC_W/rt" "$PXC_W/bin" "$PXC_W/.prflow/vendor/prflow/scripts" "$PXC_W/.prflow/prompt-extensions"
+  git -C "$PXC_W" init -q -b main >/dev/null 2>&1
+  git -C "$PXC_W" remote add origin "file://$PXC_ROOT/base"
+  cp "$LIB/../scripts/materialize-trusted-prompt-extensions.sh" "$PXC_W/.prflow/vendor/prflow/scripts/"
+  cp "$LIB/../scripts/load-prompt-extension.sh" "$PXC_W/.prflow/vendor/prflow/scripts/"
+  # PR-author-controlled bytes, committed in this checkout and named by a planted
+  # FETCH_HEAD — the shape a stale FETCH_HEAD has on the real tier.
+  printf 'POISONED BY THE PR AUTHOR\n' > "$PXC_W/.prflow/prompt-extensions/review.md"
+  git -C "$PXC_W" add -A >/dev/null 2>&1
+  git -C "$PXC_W" -c user.email=p@p -c user.name=p commit -qm poison >/dev/null 2>&1
+  printf '%s\t\tbranch planted\n' "$(git -C "$PXC_W" rev-parse HEAD)" > "$PXC_W/.git/FETCH_HEAD"
+  printf '#!/usr/bin/env bash\necho main\n' > "$PXC_W/bin/gh"
+  chmod +x "$PXC_W/bin/gh"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'if [ "$1" = fetch ]; then exit 1; fi\n'
+    printf 'exec %s "$@"\n' "$PXC_REAL_GIT"
+  } > "$PXC_W/bin/git"
+  chmod +x "$PXC_W/bin/git"
+  PXC_LOG=$(mktemp)
+  ( cd "$PXC_W" && PATH="$PXC_W/bin:$PATH" RUNNER_TEMP="$PXC_W/rt" \
+      GITHUB_ENV="$PXC_W/genv" CMD="/prflow:review-and-fix 42" REPO=o/r GH_TOKEN=x \
+      DEVFLOW_PROTECTED_PROMPT_EXTENSIONS="$PXC_PROTECTED" \
+      bash "$2" ) >"$PXC_LOG" 2>&1
+}
+pxc_poison_survived() {
+  git -C "$PXC_W" rev-parse --verify --quiet 'FETCH_HEAD^{commit}' >/dev/null 2>&1 && echo yes || echo no
+}
+pxc_run_poisoned shipped "$PXC_STEP"
+# The fixture's own premise. Without this row the discrimination below could hold
+# because FETCH_HEAD was unreadable rather than because the reset fired — the vacuous
+# pass this whole arrangement exists to avoid.
+assert_eq "#1075 promptext(fetch-fail reset): the fixture's poisoned FETCH_HEAD really did survive the failed fetch" \
+  "yes" "$(pxc_poison_survived)"
+assert_eq "#1075 promptext(fetch-fail reset): the closure stays EMPTY" "" "$(pxc_closure)"
+assert_eq "#1075 promptext(fetch-fail reset): the export still happens" "1" "$(pxc_exported)"
+assert_eq "#1075 promptext(fetch-fail reset): the warning names the fetch cause" "1" \
+  "$(pxc_msg "could not be fetched")"
+assert_eq "#1075 promptext(fetch-fail reset): no protected name is materialized from the poisoned ref" "no" \
+  "$([ -f "$PXC_W/rt/devflow-trusted-prompt-ext/review.md" ] && echo yes || echo no)"
+
+# MUTATION: delete the `BASE_REF=''` reset from the fetch-failure arm alone (the line
+# that follows that arm's reason assignment; the initializer and the gh-failure arm's
+# identical statement are untouched). With the reset gone the helper runs against the
+# surviving FETCH_HEAD and writes the PR author's bytes into the trusted closure the
+# reviewing agent reads — the row above flips from "no" to "yes".
+PXC_MUT_RESET=$(mktemp)
+sed "/could not be fetched/{n;/BASE_REF=''/d;}" "$PXC_STEP" > "$PXC_MUT_RESET"
+assert_eq "#1075 promptext(fetch-fail reset): the reset-deletion mutation actually applied" "applied" \
+  "$(cmp -s "$PXC_STEP" "$PXC_MUT_RESET" && echo none || echo applied)"
+pxc_run_poisoned mutant "$PXC_MUT_RESET"
+assert_eq "#1075 promptext(fetch-fail reset): deleting the reset materializes the poisoned extension" "yes" \
+  "$([ -f "$PXC_W/rt/devflow-trusted-prompt-ext/review.md" ] && echo yes || echo no)"
+# ... and it is the ATTACKER's bytes, not merely some file. A row asserting only that a
+# file appeared could be satisfied by an empty or unrelated write.
+assert_eq "#1075 promptext(fetch-fail reset): the materialized bytes are the PR author's" \
+  "POISONED BY THE PR AUTHOR" \
+  "$(cat "$PXC_W/rt/devflow-trusted-prompt-ext/review.md" 2>/dev/null)"
+rm -f "$PXC_MUT_RESET"
+
 # The closure directory and the export are established OUTSIDE every branch. Read
 # from the parsed workflow rather than the step text: a step-level `if:` would make
 # the whole protection conditional, which is the defect shape #874 recorded and this
