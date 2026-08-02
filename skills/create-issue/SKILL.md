@@ -43,7 +43,7 @@ Mark each item `in_progress` when you start and `completed` only when done — t
 
 The per-step procedures and the conditional fallback arms live in `references/`, loaded at their trigger. **Load a reference by building its path from this skill's directory per the *Portable helper anchor* rules above** (the runner-reported skill base directory, with prompt-time Windows-path normalization) and **reading it with the runner's file-read tool** — never a new shell invocation. A load is accepted only when the file's **first line is its `start` boundary marker and its last line is the matching `end` marker**, each naming that file's own path, with exactly one of each.
 
-**Every load failure degrades, and no failure arm terminates the run.** On an unreadable or absent file, an empty file, a missing / duplicated / foreign-path marker, or a truncated read, emit an in-chat breadcrumb naming the file and the failure kind, then continue on that row's named degraded behavior below. The four non-degradable invariants stated after this table hold on every degraded arm.
+**Every load failure degrades, and no failure arm terminates the run.** On an unreadable or absent file, an empty file, a missing / duplicated / foreign-path marker, or a truncated read, emit an in-chat breadcrumb naming the file and the failure kind, then continue on that row's named degraded behavior below. The five non-degradable invariants stated after this table hold on every degraded arm.
 
 | Load trigger | File | Marker contract | Degraded behavior on a failed load |
 | --- | --- | --- | --- |
