@@ -20602,6 +20602,69 @@ assert_eq "#1075 promptext(fetch-fail reset): the materialized bytes are the PR 
   "$(cat "$PXC_W/rt/devflow-trusted-prompt-ext/review.md" 2>/dev/null)"
 rm -f "$PXC_MUT_RESET"
 
+# (H) THE TWO FAIL-CLOSED ARMS. Creating the closure and exporting the variable are the
+# only operations in this step with no safe degraded variant: with no closure to point
+# at, the loader takes its repo-root branch and reads the working tree — which after the
+# branch sync is the PR head. Both therefore `exit 1` instead of continuing, and both
+# were unpinned. Each is driven by making its own operand unusable.
+# $1=label $2=RUNNER_TEMP $3=GITHUB_ENV → sets PXC_RC, PXC_LOG
+pxc_run_env() {
+  PXC_W="$PXC_ROOT/e-$1"
+  rm -rf "$PXC_W"
+  mkdir -p "$PXC_W/bin" "$PXC_W/.prflow/vendor/prflow/scripts"
+  git -C "$PXC_W" init -q -b main >/dev/null 2>&1
+  git -C "$PXC_W" remote add origin "file://$PXC_ROOT/base"
+  cp "$LIB/../scripts/materialize-trusted-prompt-extensions.sh" "$PXC_W/.prflow/vendor/prflow/scripts/"
+  printf '#!/usr/bin/env bash\necho main\n' > "$PXC_W/bin/gh"
+  chmod +x "$PXC_W/bin/gh"
+  PXC_LOG=$(mktemp)
+  ( cd "$PXC_W" && PATH="$PXC_W/bin:$PATH" RUNNER_TEMP="$2" GITHUB_ENV="$3" \
+      CMD="/prflow:review-and-fix 42" REPO=o/r GH_TOKEN=x \
+      DEVFLOW_PROTECTED_PROMPT_EXTENSIONS="$PXC_PROTECTED" \
+      bash "$PXC_STEP" ) >"$PXC_LOG" 2>&1
+  PXC_RC=$?
+}
+# A regular FILE where the closure's parent must be a directory, so `mkdir -p` fails
+# "Not a directory". Chosen over a chmod-based unwritable directory because a suite that
+# happened to run as root would defeat that and pass vacuously.
+printf 'not-a-directory\n' > "$PXC_ROOT/rt-is-a-file"
+pxc_run_env mkdirfail "$PXC_ROOT/rt-is-a-file" "$PXC_ROOT/genv-mkdirfail"
+assert_eq "#1075 promptext(unusable closure): refuses the run rather than leaving the loader on the working tree" \
+  "1" "$PXC_RC"
+assert_eq "#1075 promptext(unusable closure): the ::error:: names the closure it could not create" "1" \
+  "$(pxc_msg 'could not create the trusted prompt-extension closure')"
+assert_eq "#1075 promptext(unusable closure): nothing was exported" "no" \
+  "$([ -s "$PXC_ROOT/genv-mkdirfail" ] && echo yes || echo no)"
+# A DIRECTORY at $GITHUB_ENV: the append redirect fails, so the export cannot happen
+# while the closure itself was created fine — the arm the row above cannot reach.
+mkdir -p "$PXC_ROOT/genv-is-a-dir"
+pxc_run_env envfail "$PXC_ROOT/rt-envfail" "$PXC_ROOT/genv-is-a-dir"
+assert_eq "#1075 promptext(unexportable variable): refuses the run" "1" "$PXC_RC"
+assert_eq "#1075 promptext(unexportable variable): the ::error:: names the export, not the closure" "1" \
+  "$(pxc_msg 'could not export DEVFLOW_PROMPT_EXTENSION_ROOT')"
+
+# (I) The call site's non-zero-helper-exit annotation. The helper's exit 2 is a CALLER
+# defect (a missing flag, no names) rather than a runtime condition, so the call site
+# annotates it instead of swallowing it with `|| true` — otherwise an unpopulated
+# closure's only trace would be a raw stderr line, while every other non-population arm
+# carries a workflow annotation. The helper's OWN arms are covered by the #874 suite;
+# what is pinned here is that this tier's call site does not discard the status.
+pxc_run badhelper ok yes new "/prflow:review-and-fix 42" "$PXC_STEP"
+printf '#!/usr/bin/env bash\nexit 2\n' \
+  > "$PXC_W/.prflow/vendor/prflow/scripts/materialize-trusted-prompt-extensions.sh"
+# Re-run in the SAME fixture with the helper stubbed. Reset the state the first run
+# wrote, so the rows below report THIS run rather than accumulating across the two.
+: > "$PXC_W/genv"
+rm -rf "$PXC_W/rt/devflow-trusted-prompt-ext"
+PXC_LOG=$(mktemp)
+( cd "$PXC_W" && PATH="$PXC_W/bin:$PATH" GHMODE=ok RUNNER_TEMP="$PXC_W/rt" \
+    GITHUB_ENV="$PXC_W/genv" CMD="/prflow:review-and-fix 42" REPO=o/r GH_TOKEN=x \
+    DEVFLOW_PROTECTED_PROMPT_EXTENSIONS="$PXC_PROTECTED" \
+    bash "$PXC_STEP" ) >"$PXC_LOG" 2>&1
+assert_eq "#1075 promptext(helper usage defect): the non-zero helper exit is annotated, not swallowed" "1" \
+  "$(pxc_msg 'materialization helper exited 2')"
+assert_eq "#1075 promptext(helper usage defect): the export still happens" "1" "$(pxc_exported)"
+
 # The closure directory and the export are established OUTSIDE every branch. Read
 # from the parsed workflow rather than the step text: a step-level `if:` would make
 # the whole protection conditional, which is the defect shape #874 recorded and this
