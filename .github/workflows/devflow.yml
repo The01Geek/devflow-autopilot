@@ -1551,6 +1551,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # dead-run review-progress upsert BEGIN
           FLIP_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
           FLIP_HELPER=.prflow/vendor/prflow/scripts/flip-review-progress-failed.sh
           [ -f "$FLIP_HELPER" ] || FLIP_HELPER=scripts/flip-review-progress-failed.sh
@@ -1592,6 +1593,7 @@ jobs:
           else
             echo "::warning::flip review-progress: flip-review-progress-failed.sh absent at $FLIP_HELPER; review-progress comment not flipped to '❌ Review failed'"
           fi
+          # dead-run review-progress upsert END
           # review-progress marker diagnosis BEGIN
           # The authoritative flip runs first. Diagnosis still recognizes its
           # exact marker after terminalization, while only active Reviewing

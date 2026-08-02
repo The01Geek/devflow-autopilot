@@ -2937,6 +2937,437 @@ assert_eq "diagnose #1054: absent vendored helper falls back to the repo-root he
 rm -rf "$S1054_ROOT"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "dead-run review-progress upsert: cause selection and the create arm (#1154)"
+# ────────────────────────────────────────────────────────────────────────────
+# devflow.yml's dead-run backstop used to be gated on three outcome disjuncts and
+# to be flip-ONLY. Actions run 29854795625 matched neither: the claude step exited
+# cleanly, the engine reported no error, and the run had died in Phase 0 before the
+# engine's Phase 0.3.5 seed — so the step never fired, and could not have helped if
+# it had, because there was no comment to flip. Issue #1154 ungates the step, moves
+# the cause selection into a helper the suite can drive arm by arm, and turns the
+# write into an upsert. Everything below drives real processes: the cause helper is
+# a pure function of two strings, and the upsert helper runs end to end against a
+# stubbed gh, so no arm is asserted by reading source.
+
+S1154_CAUSE="$LIB/../scripts/describe-dead-run-cause.sh"
+
+# ── The four run-end modes. They partition on the two observables devflow.yml
+# has, so this table IS the contract: each mode, one cause string.
+assert_eq "#1154 cause: engine is_error on a SUCCESS step names the engine-error mode" \
+  "review engine ended with an error (is_error)" "$(bash "$S1154_CAUSE" success true)"
+assert_eq "#1154 cause: a clean step with no engine error names the no-verdict mode (the run-29854795625 mode)" \
+  "claude step success but the run wrote no verdict (engine reported no error)" \
+  "$(bash "$S1154_CAUSE" success false)"
+assert_eq "#1154 cause: a failed job names the step failure" \
+  "claude step failure" "$(bash "$S1154_CAUSE" failure false)"
+assert_eq "#1154 cause: a cancelled run names the cancellation" \
+  "claude step cancelled" "$(bash "$S1154_CAUSE" cancelled false)"
+# The four modes must be four DISTINCT strings, or the partition collapses and a
+# maintainer cannot tell which one fired from the comment alone.
+assert_eq "#1154 cause: the four run-end modes map to four distinct cause strings" "4" \
+  "$( { bash "$S1154_CAUSE" success true; bash "$S1154_CAUSE" success false
+       bash "$S1154_CAUSE" failure false; bash "$S1154_CAUSE" cancelled false; } | sort -u | grep -c . || true)"
+# The step's own non-success outcome wins over is_error: a FAILED step whose engine
+# also reported an error is still reported as the job failure (the engine-error arm
+# is deliberately conjoined with `outcome == success`).
+assert_eq "#1154 cause: a failed step with is_error still names the step failure, not the engine" \
+  "claude step failure" "$(bash "$S1154_CAUSE" failure true)"
+# Only the exact literal `true` is an engine error — the producer normalizes anything
+# else to false, so a near-miss must NOT be read as an error.
+assert_eq "#1154 cause: only the exact literal 'true' counts as an engine error" \
+  "claude step success but the run wrote no verdict (engine reported no error)" \
+  "$(bash "$S1154_CAUSE" success TRUE)"
+assert_eq "#1154 cause: an empty is_error is not an engine error" \
+  "claude step success but the run wrote no verdict (engine reported no error)" \
+  "$(bash "$S1154_CAUSE" success '')"
+# Residual outcomes are named verbatim rather than misattributed to one of the four.
+assert_eq "#1154 cause: a residual raw outcome is named verbatim" \
+  "claude step skipped" "$(bash "$S1154_CAUSE" skipped false)"
+assert_eq "#1154 cause: an absent outcome is reported as unavailable, never collapsed onto a real mode" \
+  "claude step outcome unavailable" "$(bash "$S1154_CAUSE")"
+S1154_RC=0
+bash "$S1154_CAUSE" >/dev/null 2>&1 || S1154_RC=$?
+assert_eq "#1154 cause: always exits 0 (it can never change the invoking job's result)" "0" "$S1154_RC"
+
+# ── ARM ORDER. The engine-error arm and the no-verdict arm BOTH match
+# `outcome == success`, so their relative order decides which cause a run whose
+# engine errored is given. Prove the order is load-bearing with a disposable
+# mutant: swap the two arms in a scratch copy and confirm the (success, true)
+# input now yields the WRONG cause — i.e. a reordering is observable here, not
+# something the assertions above would sail past.
+S1154_MUT="$(mktemp -d)"
+python3 - "$S1154_CAUSE" "$S1154_MUT/reordered.sh" <<'PY'
+import sys
+
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+i = next(n for n, l in enumerate(lines) if l.startswith('if [ "$ENGINE_IS_ERROR"'))
+arm1, arm2 = lines[i:i + 2], lines[i + 2:i + 4]
+assert arm2[0].startswith('elif [ "$CLAUDE_OUTCOME" = "success" ]'), arm2[0]
+swapped = arm2 + arm1
+swapped[0] = "if " + swapped[0].split(" ", 1)[1]
+swapped[2] = "elif " + swapped[2].split(" ", 1)[1]
+lines[i:i + 4] = swapped
+open(sys.argv[2], "w", encoding="utf-8").write("\n".join(lines) + "\n")
+PY
+assert_eq "#1154 cause: arm order is load-bearing — reordering the two success arms misattributes an engine error" \
+  "claude step success but the run wrote no verdict (engine reported no error)" \
+  "$(bash "$S1154_MUT/reordered.sh" success true)"
+assert_eq "#1154 cause: the shipped arm order attributes that same input to the engine (the mutant's control)" \
+  "review engine ended with an error (is_error)" "$(bash "$S1154_CAUSE" success true)"
+rm -rf "$S1154_MUT"
+
+# ── The upsert helper, driven end to end against a stubbed gh. ────────────────
+S1154_ROOT="$(mktemp -d)"
+mkdir -p "$S1154_ROOT/scripts" "$S1154_ROOT/state"
+cp "$LIB/../scripts/flip-review-progress-failed.sh" "$S1154_ROOT/scripts/"
+cp "$LIB/../scripts/workpad.py" "$S1154_ROOT/scripts/"
+S1154_FLIP="$S1154_ROOT/scripts/flip-review-progress-failed.sh"
+S1154_STATE="$S1154_ROOT/state"
+S1154_MARK='<!-- prflow:review-progress run=RUN1154-1 -->'
+cat > "$S1154_ROOT/gh" <<'STUB'
+#!/usr/bin/env bash
+# Records every write so an arm that claims "no write" can be proven, not assumed.
+j="$*"
+if [[ "$j" == *"repo view"* ]]; then echo "owner/repo"; exit 0; fi
+if [[ "$j" == *"-X PATCH"* ]]; then
+  [ -n "${S1154_PATCH_FAIL:-}" ] && { echo "patch boom" >&2; exit 1; }
+  for a in "$@"; do
+    case "$a" in body=@*) cp "${a#body=@}" "$S1154_STATE/patched-body"; cat "${a#body=@}" ;; esac
+  done
+  echo p >> "$S1154_STATE/patchlog"
+  exit 0
+fi
+if [[ "$j" == *"issue comment"* ]]; then
+  [ -n "${S1154_CREATE_FAIL:-}" ] && { echo "create boom" >&2; exit 1; }
+  _n=
+  for a in "$@"; do
+    if [ -n "$_n" ]; then cp "$a" "$S1154_STATE/created-body"; _n=; fi
+    [ "$a" = "--body-file" ] && _n=1
+  done
+  echo c >> "$S1154_STATE/createlog"
+  [ -n "${S1154_CREATE_NO_URL:-}" ] && { echo "posted but no url printed"; exit 0; }
+  echo "https://github.com/owner/repo/pull/55#issuecomment-4242"
+  exit 0
+fi
+if [[ "$j" == *"issues/comments/"* ]]; then
+  [ -n "${S1154_BODY_FAIL:-}" ] && { echo "body boom" >&2; exit 1; }
+  cat "$S1154_STATE/body"
+  exit 0
+fi
+if [[ "$j" == *"/comments"* ]]; then
+  [ -n "${S1154_LIST_FAIL:-}" ] && { echo "list boom" >&2; exit 1; }
+  cat "$S1154_STATE/comments.json"
+  exit 0
+fi
+echo '[]'
+STUB
+chmod +x "$S1154_ROOT/gh"
+
+# Seed the stub's world. With no argument the issue carries no comment at all —
+# the run-died-before-the-seed shape. With one, that file is comment id 7's body.
+s1154_seed() {  # [body-file]
+  : > "$S1154_STATE/patchlog"; : > "$S1154_STATE/createlog"
+  rm -f "$S1154_STATE/patched-body" "$S1154_STATE/created-body"
+  if [ "$#" -eq 0 ]; then
+    printf '%s' '[]' > "$S1154_STATE/comments.json"
+    : > "$S1154_STATE/body"
+  else
+    cp "$1" "$S1154_STATE/body"
+    python3 - "$1" "$S1154_STATE/comments.json" <<'PY'
+import json, sys
+body = open(sys.argv[1], encoding="utf-8").read()
+json.dump([{"id": 7, "body": body}], open(sys.argv[2], "w", encoding="utf-8"))
+PY
+  fi
+}
+# Failure modes are passed as trailing KEY=VALUE arguments, never as a command
+# prefix on the function call: bash leaves a prefix assignment on a FUNCTION set in
+# the calling shell afterward, which would leak one arm's induced failure into every
+# later fixture in this section.
+s1154_run() {  # <pr> <marker> <cause> [KEY=VALUE...] -> stderr to state/err, prints rc
+  local pr="$1" mark="$2" cause="$3" rc=0
+  shift 3
+  ( cd "$S1154_ROOT" \
+    && env DEVFLOW_GH="$S1154_ROOT/gh" S1154_STATE="$S1154_STATE" \
+           GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=owner/repo GITHUB_RUN_ID=1154 \
+           "$@" bash "$S1154_FLIP" "$pr" "$mark" "$cause" \
+       >/dev/null 2>"$S1154_STATE/err" ) || rc=$?
+  echo "$rc"
+}
+s1154_writes() {  # "<patch-count>/<create-count>" — proves "no write" rather than assuming it
+  printf '%s/%s' "$(grep -c . "$S1154_STATE/patchlog" || true)" "$(grep -c . "$S1154_STATE/createlog" || true)"
+}
+
+printf '%s\n' "$S1154_MARK" '# PRFlow Review — PR #55' '' '**Status:** 🚀 Reviewing' > "$S1154_ROOT/interim.md"
+
+# (flip) an interim comment is still flipped, exactly as before the upsert.
+s1154_seed "$S1154_ROOT/interim.md"
+assert_eq "#1154 upsert: an interim comment still flips and exits 0" "0" "$(s1154_run 55 "$S1154_MARK" 'job died')"
+assert_eq "#1154 upsert: the interim flip PATCHes and creates nothing" "1/0" "$(s1154_writes)"
+assert_eq "#1154 upsert: the flipped body carries the terminal Status" "yes" \
+  "$(grep -qF '**Status:** ❌ Review failed' "$S1154_STATE/patched-body" && echo yes || echo no)"
+
+# (create) a CONFIRMED clean absence now writes the comment instead of no-opping.
+# This is the reported defect: pre-#1154 this arm left the pull request with nothing.
+s1154_seed
+assert_eq "#1154 upsert: a clean absence exits 0" "0" \
+  "$(s1154_run 55 "$S1154_MARK" 'claude step success but the run wrote no verdict (engine reported no error)')"
+assert_eq "#1154 upsert: a clean absence CREATES exactly one comment and PATCHes nothing" "0/1" "$(s1154_writes)"
+assert_eq "#1154 upsert: the created body carries the run-keyed marker as line 1 (so workpad.py id resolves it)" \
+  "$S1154_MARK" "$(sed -n '1p' "$S1154_STATE/created-body")"
+assert_eq "#1154 upsert: the created body carries the terminal '❌ Review failed' Status line" "yes" \
+  "$(grep -qF '**Status:** ❌ Review failed' "$S1154_STATE/created-body" && echo yes || echo no)"
+# The review comment's vocabulary is NOT workpad.py's: a `--status Failed` write
+# would stamp 💥, which no reader of this comment recognizes.
+assert_eq "#1154 upsert: the created Status uses the review vocabulary's ❌, never workpad.py's 💥" "yes" \
+  "$(grep -qF '💥' "$S1154_STATE/created-body" && echo no || echo yes)"
+assert_eq "#1154 upsert: the created body names the cause" "yes" \
+  "$(grep -qF 'the run wrote no verdict' "$S1154_STATE/created-body" && echo yes || echo no)"
+assert_eq "#1154 upsert: the created body carries no interim 🚀 status" "yes" \
+  "$(grep -qF '🚀' "$S1154_STATE/created-body" && echo no || echo yes)"
+assert_eq "#1154 upsert: the create arm breadcrumb reports 'created', not a no-op" "yes" \
+  "$(grep -qF 'created comment #4242' "$S1154_STATE/err" && ! grep -qi 'no-op' "$S1154_STATE/err" && echo yes || echo no)"
+# Exactly ONE breadcrumb per invocation — a second line means two arms fired.
+assert_eq "#1154 upsert: the create arm emits exactly one stderr breadcrumb" "1" \
+  "$(grep -c '^flip-review-progress-failed:' "$S1154_STATE/err" || true)"
+
+# The body the create arm composed must be resolvable by a subsequent lookup for the
+# SAME run. Feed it straight back in: the helper must now take the already-terminal
+# arm and write nothing at all. This is the load-bearing idempotency assertion — a
+# non-idempotent upsert posts a fresh failure comment on every job retry.
+cp "$S1154_STATE/created-body" "$S1154_ROOT/created.md"
+s1154_seed "$S1154_ROOT/created.md"
+assert_eq "#1154 upsert: a re-run over the comment it just created exits 0" "0" "$(s1154_run 55 "$S1154_MARK" 'job died')"
+assert_eq "#1154 upsert: the re-run writes NOTHING (idempotent across job retries)" "0/0" "$(s1154_writes)"
+assert_eq "#1154 upsert: the re-run reports the already-terminal arm" "yes" \
+  "$(grep -qi 'already terminal' "$S1154_STATE/err" && echo yes || echo no)"
+
+# (already terminal) a comment carrying a written verdict is left byte-untouched and
+# no second comment is created — the fail-closed precondition, unchanged.
+printf '%s\n' "$S1154_MARK" '# PRFlow Review — PR #55' '' '**Status:** 🎉 Review complete — APPROVE' > "$S1154_ROOT/verdict.md"
+s1154_seed "$S1154_ROOT/verdict.md"
+assert_eq "#1154 upsert: a written verdict is left untouched and no second comment is created" "0/0" \
+  "$(s1154_run 55 "$S1154_MARK" 'job died' >/dev/null; s1154_writes)"
+
+# ── Error paths. Each must report the SPECIFIC failure and still exit 0.
+# A failed LIST never established absence, so it must NOT create — creating on an
+# unestablished absence is how a duplicate comment gets posted.
+s1154_seed "$S1154_ROOT/interim.md"
+assert_eq "#1154 upsert: a failed comment lookup exits 0" "0" \
+  "$(s1154_run 55 "$S1154_MARK" 'job died' S1154_LIST_FAIL=1)"
+assert_eq "#1154 upsert: a failed lookup writes nothing — an unestablished absence never authorizes a create" "0/0" \
+  "$(s1154_writes)"
+assert_eq "#1154 upsert: a failed lookup is diagnosed as a read failure, not a clean absence" "yes" \
+  "$(grep -qi 'read-failure' "$S1154_STATE/err" && grep -qF 'absence was NOT established' "$S1154_STATE/err" && echo yes || echo no)"
+
+# A failed CREATE reports as a create failure, never as a read failure.
+s1154_seed
+assert_eq "#1154 upsert: a failed create exits 0" "0" \
+  "$(s1154_run 55 "$S1154_MARK" 'job died' S1154_CREATE_FAIL=1)"
+assert_eq "#1154 upsert: a failed create is diagnosed as a create failure, not a read failure" "yes" \
+  "$(grep -qi 'create-failure' "$S1154_STATE/err" && ! grep -qi 'read-failure' "$S1154_STATE/err" && echo yes || echo no)"
+# A create that "succeeds" while printing no comment id is a create failure too: a
+# breadcrumb naming no comment cannot be told from a create that posted nothing.
+s1154_seed
+assert_eq "#1154 upsert: a create that prints no comment id is reported as a create failure" "yes" \
+  "$(s1154_run 55 "$S1154_MARK" 'job died' S1154_CREATE_NO_URL=1 >/dev/null
+     grep -qi 'create-failure' "$S1154_STATE/err" && echo yes || echo no)"
+
+# A failed body READ is neither a create nor a patch.
+s1154_seed "$S1154_ROOT/interim.md"
+assert_eq "#1154 upsert: a failed body read writes nothing and stays a read failure" "0/0" \
+  "$(s1154_run 55 "$S1154_MARK" 'job died' S1154_BODY_FAIL=1 >/dev/null; s1154_writes)"
+# A body that reads back EMPTY is an unusable read, not a create authorization.
+s1154_seed "$S1154_ROOT/interim.md"
+: > "$S1154_STATE/body"
+assert_eq "#1154 upsert: a comment whose body reads back empty writes nothing" "0/0" \
+  "$(s1154_run 55 "$S1154_MARK" 'job died' >/dev/null; s1154_writes)"
+# A failed PATCH is reported as a patch failure and still exits 0.
+s1154_seed "$S1154_ROOT/interim.md"
+assert_eq "#1154 upsert: a failed patch exits 0 and is reported as a patch failure" "yes" \
+  "$([ "$(s1154_run 55 "$S1154_MARK" 'job died' S1154_PATCH_FAIL=1)" = "0" ] \
+    && grep -qi 'patch-failure' "$S1154_STATE/err" && echo yes || echo no)"
+# Missing arguments stay usage no-ops — and, now that a clean absence writes, they
+# must be screened BEFORE the create arm or an empty marker would create a comment
+# no later lookup could ever resolve.
+s1154_seed
+assert_eq "#1154 upsert: a missing PR number writes nothing" "0/0" \
+  "$(s1154_run '' "$S1154_MARK" 'job died' >/dev/null; s1154_writes)"
+s1154_seed
+assert_eq "#1154 upsert: a missing marker writes nothing (never an unresolvable comment)" "0/0" \
+  "$(s1154_run 55 '' 'job died' >/dev/null; s1154_writes)"
+s1154_seed
+assert_eq "#1154 upsert: a non-numeric PR number writes nothing" "0/0" \
+  "$(s1154_run 'not-a-number' "$S1154_MARK" 'job died' >/dev/null; s1154_writes)"
+
+# ── Run scoping. The helper writes only to the comment its OWN run-keyed marker
+# resolves. A different run's interim comment must survive untouched — this is the
+# accepted-loss fixture that proves the scoping holds rather than being asserted.
+printf '%s\n' '<!-- prflow:review-progress run=OTHERRUN-1 -->' '# PRFlow Review — PR #55' '' '**Status:** 🚀 Reviewing' \
+  > "$S1154_ROOT/foreign.md"
+s1154_seed "$S1154_ROOT/foreign.md"
+assert_eq "#1154 upsert: another run's interim comment is never patched" "yes" \
+  "$(s1154_run 55 "$S1154_MARK" 'job died' >/dev/null
+     [ ! -f "$S1154_STATE/patched-body" ] && echo yes || echo no)"
+assert_eq "#1154 upsert: with only a foreign comment present this run creates its OWN" "0/1" "$(s1154_writes)"
+assert_eq "#1154 upsert: the comment this run created is keyed to THIS run" "$S1154_MARK" \
+  "$(sed -n '1p' "$S1154_STATE/created-body")"
+
+# ── Adversarial / malformed mutable-markdown shapes. The comment body is
+# agent- and human-mutable markdown, so every ambiguous shape must take a
+# DETERMINATE arm, and every ambiguous-terminal shape must fail closed.
+printf '%s\n' "$S1154_MARK" '**Status:** 🚀 Reviewing' '**Status:** 🎉 Review complete' > "$S1154_ROOT/two-status.md"
+s1154_seed "$S1154_ROOT/two-status.md"
+assert_eq "#1154 upsert: a body with two Status lines flips the first and creates nothing" "1/0" \
+  "$(s1154_run 55 "$S1154_MARK" 'job died' >/dev/null; s1154_writes)"
+assert_eq "#1154 upsert: the second Status line survives the flip verbatim" "yes" \
+  "$(grep -qF '**Status:** 🎉 Review complete' "$S1154_STATE/patched-body" && echo yes || echo no)"
+# A Status line inside a fenced block is still the first Status the parser sees.
+# It must fail CLOSED (treat the body as terminal), never guess.
+printf '%s\n' "$S1154_MARK" '```' '**Status:** ❌ Review failed' '```' '' '**Status:** 🚀 Reviewing' \
+  > "$S1154_ROOT/fenced.md"
+s1154_seed "$S1154_ROOT/fenced.md"
+assert_eq "#1154 upsert: a fenced terminal Status fails closed — no flip, no create" "0/0" \
+  "$(s1154_run 55 "$S1154_MARK" 'job died' >/dev/null; s1154_writes)"
+# A Status line with no glyph at all is not the interim state, so it is terminal.
+printf '%s\n' "$S1154_MARK" '**Status:** Reviewing' > "$S1154_ROOT/noglyph.md"
+s1154_seed "$S1154_ROOT/noglyph.md"
+assert_eq "#1154 upsert: a glyph-less Status fails closed — no flip, no create" "0/0" \
+  "$(s1154_run 55 "$S1154_MARK" 'job died' >/dev/null; s1154_writes)"
+# No Status line at all: no flip, and NOT a create either (the comment exists).
+printf '%s\n' "$S1154_MARK" 'no status here' > "$S1154_ROOT/nostatus.md"
+s1154_seed "$S1154_ROOT/nostatus.md"
+assert_eq "#1154 upsert: a body with no Status line writes nothing (it exists, so it is not a create)" "0/0" \
+  "$(s1154_run 55 "$S1154_MARK" 'job died' >/dev/null; s1154_writes)"
+# A body whose ONLY line is the marker: no Status, so no write.
+printf '%s\n' "$S1154_MARK" > "$S1154_ROOT/marker-only.md"
+s1154_seed "$S1154_ROOT/marker-only.md"
+assert_eq "#1154 upsert: a marker-only body writes nothing" "0/0" \
+  "$(s1154_run 55 "$S1154_MARK" 'job died' >/dev/null; s1154_writes)"
+# A body missing its final newline still flips.
+printf '%s\n%s' "$S1154_MARK" '**Status:** 🚀 Reviewing' > "$S1154_ROOT/nonewline.md"
+s1154_seed "$S1154_ROOT/nonewline.md"
+assert_eq "#1154 upsert: a body with no trailing newline still flips" "1/0" \
+  "$(s1154_run 55 "$S1154_MARK" 'job died' >/dev/null; s1154_writes)"
+# The marker present but NOT at the start of the body: workpad.py's scan matches a
+# body that STARTS WITH the marker, so this is a clean absence for this run.
+printf '%s\n' '# PRFlow Review' "$S1154_MARK" '**Status:** 🚀 Reviewing' > "$S1154_ROOT/marker-line2.md"
+s1154_seed "$S1154_ROOT/marker-line2.md"
+assert_eq "#1154 upsert: a marker below line 1 does not resolve, so this run creates its own comment" "0/1" \
+  "$(s1154_run 55 "$S1154_MARK" 'job died' >/dev/null; s1154_writes)"
+# A comment carrying THIS run's key in the superseded namespace is still this run's
+# own comment: workpad.py resolves both spellings per record (issue #1003). So the
+# upsert must FLIP it, not create a duplicate beside it — the create arm must not
+# turn the rename boundary into a second comment on every pre-rename progress record.
+printf '%s\n' '<!-- devflow:review-progress run=RUN1154-1 -->' '**Status:** 🚀 Reviewing' > "$S1154_ROOT/superseded.md"
+s1154_seed "$S1154_ROOT/superseded.md"
+assert_eq "#1154 upsert: this run's key in the superseded namespace resolves as its own comment — flipped, not duplicated" "1/0" \
+  "$(s1154_run 55 "$S1154_MARK" 'job died' >/dev/null; s1154_writes)"
+# A DIFFERENT run's key in that same superseded namespace is still a foreign comment.
+printf '%s\n' '<!-- devflow:review-progress run=OTHERRUN-9 -->' '**Status:** 🚀 Reviewing' > "$S1154_ROOT/superseded-foreign.md"
+s1154_seed "$S1154_ROOT/superseded-foreign.md"
+assert_eq "#1154 upsert: another run's key in the superseded namespace stays foreign — untouched, own comment created" "0/1" \
+  "$(s1154_run 55 "$S1154_MARK" 'job died' >/dev/null; s1154_writes)"
+
+rm -rf "$S1154_ROOT"
+
+# ── devflow.yml wiring, executed rather than grepped. Extract the shipped step's
+# own shell between its BEGIN/END markers and run it against recording helpers, so
+# the command screen, the cause-helper resolution and its degraded arm are driven
+# as real branches — the same extraction the #1054 diagnosis block above uses.
+S1154_WF="$(mktemp -d)"
+mkdir -p "$S1154_WF/.prflow/vendor/prflow/scripts"
+python3 - "$RDWF" "$S1154_WF/upsert-block.sh" <<'PY'
+import sys
+import textwrap
+
+text = open(sys.argv[1], encoding="utf-8").read()
+begin = text.index("          # dead-run review-progress upsert BEGIN")
+end = text.index("          # dead-run review-progress upsert END", begin)
+block = text[begin:end].splitlines()[1:]
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    handle.write("set -euo pipefail\n")
+    handle.write(textwrap.dedent("\n".join(block)))
+    handle.write("\n")
+PY
+cat > "$S1154_WF/.prflow/vendor/prflow/scripts/flip-review-progress-failed.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s|%s|%s\n' "$1" "$2" "$3" >> "$S1154_WF_RECORD"
+exit 0
+SH
+chmod +x "$S1154_WF/.prflow/vendor/prflow/scripts/flip-review-progress-failed.sh"
+cp "$S1154_CAUSE" "$S1154_WF/.prflow/vendor/prflow/scripts/describe-dead-run-cause.sh"
+S1154_WF_RECORD="$S1154_WF/record"
+s1154_wf() {  # <command> <claude-outcome> <engine-is-error> [context-number]
+  ( cd "$S1154_WF" && COMMAND="$1" CLAUDE_OUTCOME="$2" ENGINE_ERROR="$3" \
+      CONTEXT_NUMBER="${4-7}" REPO=o/r GH_TOKEN=secret \
+      GITHUB_RUN_ID=1154 GITHUB_RUN_ATTEMPT=2 S1154_WF_RECORD="$S1154_WF_RECORD" \
+      bash "$S1154_WF/upsert-block.sh" )
+}
+
+# The reported mode: a review-and-fix run whose step exited cleanly with no engine
+# error. The pre-#1154 gate skipped this entirely; the step must now fire and name it.
+: > "$S1154_WF_RECORD"
+s1154_wf '/prflow:review-and-fix 7' success false >/dev/null
+assert_eq "#1154 wiring: a clean-exit review-and-fix run reaches the upsert helper with this run's marker and cause" \
+  "7|<!-- prflow:review-progress run=1154-2 -->|claude step success but the run wrote no verdict (engine reported no error)" \
+  "$(sed -n '1p' "$S1154_WF_RECORD")"
+: > "$S1154_WF_RECORD"
+s1154_wf '/prflow:review 7' success true >/dev/null
+assert_eq "#1154 wiring: an engine-error run is named as such by the helper the workflow calls" \
+  "review engine ended with an error (is_error)" "$(sed -n '1p' "$S1154_WF_RECORD" | sed 's/^.*|//')"
+: > "$S1154_WF_RECORD"
+s1154_wf '/prflow:review 7' cancelled false >/dev/null
+assert_eq "#1154 wiring: a cancelled run still reaches the upsert helper" "claude step cancelled" \
+  "$(sed -n '1p' "$S1154_WF_RECORD" | sed 's/^.*|//')"
+: > "$S1154_WF_RECORD"
+s1154_wf '/devflow:review-and-fix 7' failure false >/dev/null
+assert_eq "#1154 wiring: the transitional /devflow: command spelling is accepted" "1" \
+  "$(grep -c . "$S1154_WF_RECORD" || true)"
+
+# The command screen. Now that a clean absence WRITES, a command that never seeds a
+# progress comment must be screened out, or an ungated step would post a spurious
+# "Review failed" comment on an unrelated run.
+: > "$S1154_WF_RECORD"
+S1154_WF_OUT="$(s1154_wf '/prflow:pr-description 7' success false)"
+assert_eq "#1154 wiring: a pr-description run never reaches the upsert helper" "0" \
+  "$(grep -c . "$S1154_WF_RECORD" || true)"
+assert_eq "#1154 wiring: the screened-out command says so rather than failing silently" "1" \
+  "$(grep -cF 'seeds no review-progress comment' <<<"$S1154_WF_OUT" || true)"
+: > "$S1154_WF_RECORD"
+s1154_wf '' success false >/dev/null
+assert_eq "#1154 wiring: an empty command is screened out too" "0" \
+  "$(grep -c . "$S1154_WF_RECORD" || true)"
+# No issue/PR number on the event: nothing to write, and that arm fires first.
+: > "$S1154_WF_RECORD"
+S1154_WF_OUT="$(s1154_wf '/prflow:review 7' success false '')"
+assert_eq "#1154 wiring: an event with no issue/PR number never reaches the upsert helper" "0" \
+  "$(grep -c . "$S1154_WF_RECORD" || true)"
+assert_eq "#1154 wiring: the no-number arm emits its own notice" "1" \
+  "$(grep -cF 'no issue/PR number on this event' <<<"$S1154_WF_OUT" || true)"
+
+# Consumer skew: an installed devflow.yml whose vendored plugin pin predates the
+# cause helper must DEGRADE (warn, undifferentiated cause) rather than fail the step.
+rm -f "$S1154_WF/.prflow/vendor/prflow/scripts/describe-dead-run-cause.sh"
+: > "$S1154_WF_RECORD"
+S1154_WF_RC=0
+S1154_WF_OUT="$(s1154_wf '/prflow:review 7' success false)" || S1154_WF_RC=$?
+assert_eq "#1154 wiring: an absent cause helper does not fail the step" "0" "$S1154_WF_RC"
+assert_eq "#1154 wiring: an absent cause helper warns instead of failing silently" "1" \
+  "$(grep -cF 'describe-dead-run-cause.sh absent' <<<"$S1154_WF_OUT" || true)"
+assert_eq "#1154 wiring: the degraded cause still names both observables" \
+  "claude step success (engine is_error=false)" "$(sed -n '1p' "$S1154_WF_RECORD" | sed 's/^.*|//')"
+# An absent FLIP helper degrades the same way — the upsert is best-effort end to end.
+rm -f "$S1154_WF/.prflow/vendor/prflow/scripts/flip-review-progress-failed.sh"
+S1154_WF_RC=0
+S1154_WF_OUT="$(s1154_wf '/prflow:review 7' success false)" || S1154_WF_RC=$?
+assert_eq "#1154 wiring: an absent upsert helper does not fail the step either" "0" "$S1154_WF_RC"
+assert_eq "#1154 wiring: an absent upsert helper warns" "1" \
+  "$(grep -cF 'flip-review-progress-failed.sh absent' <<<"$S1154_WF_OUT" || true)"
+
+rm -rf "$S1154_WF"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "authorize-actor.sh (allowed_users filter)"
 # ────────────────────────────────────────────────────────────────────────────
 AUTH="$LIB/../scripts/authorize-actor.sh"

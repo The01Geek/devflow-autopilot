@@ -188,11 +188,16 @@ elif [ "$ID_RC" -eq 2 ]; then
   # silently posted nothing, which is the undiagnosable state this arm exists to
   # remove. Same non-empty check seed-review-progress.sh applies to its own
   # create arm.
-  if NEW_CID="$(python3 "$WORKPAD" create "$PR" "$NEWBODY" 2>/dev/null)" && [ -n "$NEW_CID" ]; then
+  CREATE_ERR="$(mktemp 2>/dev/null)" || CREATE_ERR=/dev/null
+  if NEW_CID="$(python3 "$WORKPAD" create "$PR" "$NEWBODY" 2>"$CREATE_ERR")" && [ -n "$NEW_CID" ]; then
     echo "flip-review-progress-failed: no prflow:review-progress comment for PR #${PR} (marker '${MARKER}', workpad.py id rc=2 — scanned cleanly, none present) — created comment #${NEW_CID} in the '❌ Review failed' state (${CAUSE})" >&2
   else
-    echo "flip-review-progress-failed: no prflow:review-progress comment for PR #${PR} (marker '${MARKER}', scanned cleanly, none present) and workpad.py create failed or printed no comment id — create-failure no-op; the dead run is NOT recorded on the pull request" >&2
+    # `cat` here is COSMETIC only — it folds workpad.py's own cause into the
+    # breadcrumb. No arm was selected by it, and its absence on a stripped PATH
+    # empties the clause rather than changing an outcome.
+    echo "flip-review-progress-failed: no prflow:review-progress comment for PR #${PR} (marker '${MARKER}', scanned cleanly, none present) and workpad.py create failed or printed no comment id — create-failure no-op; the dead run is NOT recorded on the pull request. Cause: $(cat "$CREATE_ERR" 2>/dev/null)" >&2
   fi
+  [ "$CREATE_ERR" = /dev/null ] || rm -f "$CREATE_ERR"
   rm -f "$NEWBODY"
   exit 0
 elif [ "$ID_RC" -ne 0 ] || [ -z "$CID" ]; then
