@@ -18,6 +18,12 @@
 #   - Only older-commit reviews / empty reviews for HEAD .... incomplete
 #   - No HEAD review and no run id to scope the comment
 #     fallback (unverifiable) ............................... incomplete
+#   - A producer marker on HEAD whose `head=` names another
+#     commit, or which cannot be parsed, or of which the body
+#     carries two (unestablished) ....................... incomplete
+#   - A producer marker on HEAD the reviews-API `state`
+#     contradicts (unestablished) ...................... incomplete
+#   - A producer marker on HEAD ..................... reject/approve
 #   - A CHANGES_REQUESTED (or `## Verdict: REJECT`) ON HEAD .. reject
 #   - An APPROVED (or `## Verdict: APPROVE`) review ON HEAD .. approve
 #   - A DISMISSED or PENDING review ON HEAD is never the verdict (a dismissed
@@ -29,7 +35,34 @@
 # `failure` titled "Devflow review incomplete — re-run needed", and it NEVER
 # triggers the stale-REJECT dismissal (only a positively-observed APPROVE does).
 #
-# Producer contract (skills/review/SKILL.md Phase 4.4) this consumes:
+# Producer contract (skills/review/SKILL.md Phase 4.4) this consumes.
+#
+# THE FIRST SIGNAL IS THE PRODUCER MARKER (issue #1030). scripts/post-review-verdict.sh
+# — never the reviewing agent — writes
+#     <!-- prflow:review-verdict head=<40-hex> verdict=<APPROVE|REJECT> -->
+# as line 1 of the review body it posts, and as the line immediately AFTER the run key in
+# the run-keyed progress comment. Only the marker states WHOSE verdict this is; the
+# reviews-API `state` and the `## Verdict:` prose below it remain, the first as the
+# API-side signal and the second as the TRANSITIONAL shape for reviews already posted on
+# long-lived open pull requests, which carry no marker. A census over 60 pull requests
+# measured 6 of 9 real REJECT bodies matching no prose shape, which is why the prose can
+# no longer be the identity.
+#
+# Marker reading is deliberately narrow and fail-closed, because a review body routinely
+# QUOTES this contract (a finding on a pull request that touches the review engine):
+#   - only the FIRST TWO lines of a body are scanned, which is where the producer writes
+#     it (line 1 of a review, line 2 of a progress comment) and nowhere a fenced quote
+#     lands; a quoted marker deeper in the body is prose and is never read;
+#   - TWO marker-shaped lines within that window is `unestablished`, never a pick;
+#   - a marker that does not match the exact literal shape (no `verdict=`, an out-of-enum
+#     token, a marker split across lines) is `unestablished`, never a guess;
+#   - a marker whose `head=` is not the HEAD under consideration is `unestablished` — the
+#     reviews-API `commit_id` stays authoritative for a review, so a disagreement between
+#     the two keys is a reportable producer defect, not a verdict to join on;
+#   - a marker the reviews-API `state` CONTRADICTS (marker REJECT on an APPROVED or
+#     COMMENTED review, marker APPROVE on a CHANGES_REQUESTED one) is `unestablished`.
+# Every one of those emits `incomplete`/`false` with its own breadcrumb.
+#
 #   REJECT (any form) -> `gh pr review --request-changes` -> state
 #     CHANGES_REQUESTED, body first line `## Verdict: REJECT ...`
 #   APPROVE with notes / CAVEAT -> `gh pr review --comment` -> state COMMENTED,
@@ -116,7 +149,52 @@ RUN_ID="${GITHUB_RUN_ID:-}"
 REJECT_RE='^##[[:space:]]+Verdict:[[:space:]]*REJECT'
 APPROVE_RE='^##[[:space:]]+Verdict:[[:space:]]*APPROVE'
 
+# The producer marker (issue #1030). MARKER_STRICT_RE is the exact literal shape
+# post-review-verdict.sh emits; MARKER_LOOSE_RE is anything CLAIMING to be one, so a
+# malformed marker is caught and refused rather than silently ignored. Both are matched
+# with bash's `[[ =~ ]]` — a builtin, so this SELECTION never depends on a
+# non-preflight PATH tool (CLAUDE.md guard-class 2), and BASH_REMATCH does the field
+# extraction with no `sed`/`cut` hop.
+MARKER_STRICT_RE='^<!-- prflow:review-verdict head=([0-9a-fA-F]{40}) verdict=(APPROVE|REJECT) -->$'
+MARKER_LOOSE_RE='^<!-- prflow:review-verdict[ >]'
+
 emit() { printf 'verdict=%s\nverdict_determined=%s\n' "$1" "$2"; exit 0; }
+
+# Read the producer marker out of a body, scanning ONLY its first two lines (see the
+# header). Echoes exactly one token: the empty string (no marker — the caller falls
+# through to the state/prose signals), `APPROVE`, `REJECT`, or one of the three
+# unestablished tokens `ambiguous` / `malformed` / `head-mismatch`.
+# Line splitting is pure parameter expansion for the same builtin-only reason.
+drv_marker_verdict() {
+  local body="$1" line1 line2 rest hits="" found=""
+  line1="${body%%$'\n'*}"
+  if [ "$body" = "$line1" ]; then
+    line2=""
+  else
+    rest="${body#*$'\n'}"
+    line2="${rest%%$'\n'*}"
+  fi
+  local l
+  for l in "$line1" "$line2"; do
+    [[ "$l" =~ $MARKER_LOOSE_RE ]] || continue
+    hits="${hits}x"
+    found="$l"
+  done
+  case "$hits" in
+    '')  printf ''; return 0 ;;
+    x)   ;;
+    *)   printf 'ambiguous'; return 0 ;;
+  esac
+  if [[ ! "$found" =~ $MARKER_STRICT_RE ]]; then
+    printf 'malformed'
+    return 0
+  fi
+  if [ "${BASH_REMATCH[1]}" != "$HEAD_SHA" ]; then
+    printf 'head-mismatch'
+    return 0
+  fi
+  printf '%s' "${BASH_REMATCH[2]}"
+}
 
 # 1. Engine execution ended in error -> no verdict for HEAD, regardless of any
 #    existing (necessarily older-commit) reviews.
@@ -185,7 +263,11 @@ fi
 #    the real gh error-object shape — still errors in `map()`, keeping the parse
 #    guard live; an all-empty input slurps to [] whose `add` yields null and
 #    `map` then errors — fail-closed either way).
-DRV_STATE_FILTER='add | map(select(.commit_id == $h and (((.state // "") | IN("APPROVED","CHANGES_REQUESTED")) or (((.state // "") == "COMMENTED") and ((.body // "") | test("(?:^|\\n)##[[:space:]]+Verdict:")))))) | last'
+#    A COMMENTED review is admitted when its body carries EITHER the producer marker on
+#    line 1 (issue #1030's approve-with-notes channel, the shape post-review-verdict.sh
+#    emits) or the transitional `## Verdict:` heading — a plain human comment-review on
+#    HEAD carries neither and still must not mask the bot verdict posted just before it.
+DRV_STATE_FILTER='add | map(select(.commit_id == $h and (((.state // "") | IN("APPROVED","CHANGES_REQUESTED")) or (((.state // "") == "COMMENTED") and ((.body // "") | (test("(?:^|\\n)##[[:space:]]+Verdict:") or test("^<!-- prflow:review-verdict "))))))) | last'
 if ! STATE=$(printf '%s' "$REVIEWS_JSON" | "$DEVFLOW_JQ" -rs --arg h "$HEAD_SHA" \
           "$DRV_STATE_FILTER | (.state // \"\")" 2>/dev/null); then
   echo "derive-review-verdict: reviews JSON could not be parsed (jq failed or the reviews payload was not an array) — verdict unverifiable; failing closed (incomplete)." >&2
@@ -196,6 +278,37 @@ if ! RBODY=$(printf '%s' "$REVIEWS_JSON" | "$DEVFLOW_JQ" -rs --arg h "$HEAD_SHA"
   echo "derive-review-verdict: reviews JSON could not be parsed (jq failed or the reviews payload was not an array) — verdict unverifiable; failing closed (incomplete)." >&2
   emit incomplete false
 fi
+
+# 5b. THE PRODUCER MARKER IS THE FIRST SIGNAL on the HEAD review's body (issue #1030).
+#     It is the only artifact that states whose verdict this is, so it is consulted
+#     before the state and long before the transitional prose. Every unestablished
+#     reading — two markers, a shape that does not parse, a head naming another commit,
+#     or a reviews-API state that contradicts it — emits `incomplete`/`false` with its
+#     own breadcrumb rather than a guess, exactly like every other arm in this helper.
+RMARKER="$(drv_marker_verdict "$RBODY")"
+case "$RMARKER" in
+  ambiguous)
+    echo "derive-review-verdict: the HEAD review body carries TWO prflow:review-verdict marker lines — which one states the verdict cannot be established; failing closed (incomplete)." >&2
+    emit incomplete false ;;
+  malformed)
+    echo "derive-review-verdict: the HEAD review body carries a prflow:review-verdict marker that does not parse (no verdict= field, an out-of-enum verdict token, or a marker split across lines) — refusing to guess; failing closed (incomplete)." >&2
+    emit incomplete false ;;
+  head-mismatch)
+    echo "derive-review-verdict: the HEAD review's prflow:review-verdict marker names a different head than the review's own commit_id ($HEAD_SHA) — the two verdict keys disagree, so the join is unsafe; failing closed (incomplete)." >&2
+    emit incomplete false ;;
+  REJECT)
+    if [ "$STATE" = "APPROVED" ] || [ "$STATE" = "COMMENTED" ]; then
+      echo "derive-review-verdict: the HEAD review's prflow:review-verdict marker says REJECT but the reviews API records state '$STATE' — the producer's own two signals contradict each other; failing closed (incomplete)." >&2
+      emit incomplete false
+    fi
+    emit reject true ;;
+  APPROVE)
+    if [ "$STATE" = "CHANGES_REQUESTED" ]; then
+      echo "derive-review-verdict: the HEAD review's prflow:review-verdict marker says APPROVE but the reviews API records state 'CHANGES_REQUESTED' — the producer's own two signals contradict each other; failing closed (incomplete)." >&2
+      emit incomplete false
+    fi
+    emit approve true ;;
+esac
 
 # REJECT first (fail toward blocking): a CHANGES_REQUESTED, or a REJECT verdict
 # marker, on the HEAD review. Herestrings, not `printf | grep -q`: under
@@ -238,6 +351,26 @@ if ! CBODY=$(printf '%s' "$COMMENTS_JSON" | "$DEVFLOW_JQ" -rs --arg m "$MARKER" 
   echo "derive-review-verdict: issue-comments JSON could not be parsed (jq failed or the comments payload was not an array) — verdict unverifiable; failing closed (incomplete)." >&2
   emit incomplete false
 fi
+
+# 6b. The producer marker is the first signal here too. On a COMMENT the marker's `head=`
+#     is AUTHORITATIVE — an issue comment carries no API-side head — so a marker naming a
+#     commit other than the HEAD under consideration means this run's comment describes a
+#     different commit, and joining on it would publish a stale verdict. There is no state
+#     to contradict the marker on this surface, so no contradiction arm applies.
+CMARKER="$(drv_marker_verdict "$CBODY")"
+case "$CMARKER" in
+  ambiguous)
+    echo "derive-review-verdict: this run's progress comment carries TWO prflow:review-verdict marker lines — which one states the verdict cannot be established; failing closed (incomplete)." >&2
+    emit incomplete false ;;
+  malformed)
+    echo "derive-review-verdict: this run's progress comment carries a prflow:review-verdict marker that does not parse (no verdict= field, an out-of-enum verdict token, or a marker split across lines) — refusing to guess; failing closed (incomplete)." >&2
+    emit incomplete false ;;
+  head-mismatch)
+    echo "derive-review-verdict: this run's progress comment carries a prflow:review-verdict marker naming a head other than $HEAD_SHA — the comment describes a different commit; failing closed (incomplete)." >&2
+    emit incomplete false ;;
+  REJECT) emit reject true ;;
+  APPROVE) emit approve true ;;
+esac
 
 # Herestrings for the same SIGPIPE/pipefail reason as the review-body greps.
 if grep -qE "$REJECT_RE" <<<"$CBODY"; then
