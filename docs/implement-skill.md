@@ -701,13 +701,20 @@ iteration* section (the canonical description of the tiers). In outline:
 lib/test/test_python_scripts.py`, which is the interpreter-head shape the cloud matcher
 denies (#401) even though `python3` is a granted head. That requires two things the
 selection cannot supply on its own: the file carries the **exec bit**, and its
-`Bash(lib/test/test_*.py:*)` token is granted in the **`implement` profile** of
-`lib/capability-profiles.json` (regenerated, never hand-edited). Note this is a
-*different* channel from the `prflow_implement.allowed_tools` config key described
-above: these are baked workflow literals generated from the manifest. The
-`.py`-as-direct-leading-token shape is probe-proven PERMITTED on the implement tier —
-see [`cloud-allowlist.md`](cloud-allowlist.md)'s row 17 for the run of record and the
-grant list.
+`Bash(lib/test/<file>.py:*)` token is granted for the implement run. Since issue #1078
+that grant lives in `.prflow/config.json`'s `prflow_implement.allowed_tools` — the
+self-repo-only channel described above (`config.example.json` ships it empty, so no
+consumer inherits it), not the `lib/capability-profiles.json` manifest. The seven
+`Bash(lib/test/…)` tokens issue #789 originally baked into the `implement` profile
+delivered zero benefit in a consumer (the `vendor-plugin` slice prunes `lib/test`, so
+none can ever match a PRFlow file there) while pre-authorizing any consumer file that
+collided with a PRFlow-chosen path, so #1078 removed all seven from the manifest: the
+five `focused_test` targets plus `coverage_map_guard.py` moved to that config key, and
+`test_module_harness.py` — not a `focused_test` target, invoked only via the `python3
+<path>` interpreter head — was dropped. The `.py`-as-direct-leading-token shape is
+probe-proven PERMITTED on the implement tier — see
+[`cloud-allowlist.md`](cloud-allowlist.md)'s row 17 for the run of record and the
+grant history.
 
 **None of this weakens the gate.** The final completion claim still runs the full suite,
 and the #456 skip accounting is unchanged — a nonempty skip tally is not clean, and a

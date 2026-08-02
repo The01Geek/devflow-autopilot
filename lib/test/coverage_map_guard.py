@@ -35,6 +35,7 @@ RUN_SH_REL = "lib/test/run.sh"
 GUARD_REL = "lib/test/coverage_map_guard.py"
 MODULES_GLOB = "lib/test/modules/*.sh"
 PROFILES_REL = "lib/capability-profiles.json"
+CONFIG_REL = ".prflow/config.json"
 
 # The synthetic aggregate key: no mechanical derivation ever produces it, so both
 # halves of arm 9 exempt it rather than reporting it as a stale entry.
@@ -509,6 +510,62 @@ def _implement_profile_tokens(manifest_value: object) -> "set[str] | None":
     return tokens
 
 
+def _config_implement_tokens(config_value: object) -> "set[str] | None":
+    """`.prflow/config.json`'s `prflow_implement.allowed_tools` grant tokens, or None if
+    unestablished. This is the self-repo-only grant channel (issue #1078): a token moved
+    here is added to the effective cloud implement allowlist at trigger time (issue #593)
+    without shipping in the manifest, so arm 10 must honor it alongside the `implement`
+    profile. A malformed/absent config returns None (the caller unions it with the
+    manifest, so an absent config never turns a manifest-granted token into a violation)."""
+    if not isinstance(config_value, dict):
+        return None
+    # Distinguish a legitimately-ABSENT key (silent None — a consumer ships the channel
+    # empty) from a PRESENT-but-wrong-typed one (a maintainer misconfiguration that would
+    # otherwise vanish silently and misdirect arm 10's "add the token to the config
+    # channel" remedy at a channel that is in fact unusable). The best-effort-parser
+    # convention wants a specific breadcrumb per non-absent bad shape; a valid-JSON
+    # wrong-type is invisible to _load_json, so it is surfaced here.
+    if "prflow_implement" not in config_value:
+        return None
+    section = config_value.get("prflow_implement")
+    if not isinstance(section, dict):
+        print(
+            f"[input-error] {CONFIG_REL}: 'prflow_implement' is present but not a JSON "
+            f"object ({type(section).__name__}); its self-repo grant channel is unusable "
+            "so no 'focused_test' cloud grant was read from it",
+            file=sys.stderr,
+        )
+        return None
+    if "allowed_tools" not in section:
+        return None
+    allowed = section.get("allowed_tools")
+    if not isinstance(allowed, list):
+        print(
+            f"[input-error] {CONFIG_REL}: 'prflow_implement.allowed_tools' is present but "
+            f"not a JSON array ({type(allowed).__name__}); its self-repo grant channel is "
+            "unusable so no 'focused_test' cloud grant was read from it",
+            file=sys.stderr,
+        )
+        return None
+    return {t for t in allowed if isinstance(t, str)}
+
+
+def _resolve_implement_grant_tokens(
+    manifest_value: object, config_value: object
+) -> "set[str] | None":
+    """Union of the two cloud implement grant channels (issue #1078): the manifest's
+    `implement` profile (the baked baseline) and `.prflow/config.json`'s
+    `prflow_implement.allowed_tools` (the self-repo channel). None ONLY when NEITHER
+    channel can be established — so a token granted through either is honored, while a
+    total read failure is still reported by arm 10 as unestablished rather than laundered
+    into an absent grant on every entry."""
+    manifest_tokens = _implement_profile_tokens(manifest_value)
+    config_tokens = _config_implement_tokens(config_value)
+    if manifest_tokens is None and config_tokens is None:
+        return None
+    return (manifest_tokens or set()) | (config_tokens or set())
+
+
 def _arm10(files, tracked, executable_files, implement_tokens=None):
     """Validate every recorded `focused_test`. Pure — all inputs are injected."""
     violations = []
@@ -521,9 +578,10 @@ def _arm10(files, tracked, executable_files, implement_tokens=None):
         return violations
     if implement_tokens is None:
         violations.append(
-            f"[arm10] the `implement` profile token list could not be established from "
-            f"{PROFILES_REL}, so no 'focused_test' entry's cloud grant was checked; "
-            "repair the manifest"
+            f"[arm10] the cloud implement grant token list could not be established from "
+            f"either {PROFILES_REL} (the `implement` profile) or {CONFIG_REL} "
+            f"(`prflow_implement.allowed_tools`), so no 'focused_test' entry's cloud grant "
+            "was checked; repair the manifest and/or config"
         )
     if executable_files is None:
         # An unestablished mode set is reported ONCE and never collapsed onto either
@@ -573,9 +631,11 @@ def _arm10(files, tracked, executable_files, implement_tokens=None):
         if implement_tokens is not None and f"Bash({target}:*)" not in implement_tokens:
             violations.append(
                 f"[arm10] coverage-map files entry {path!r} focused_test {value!r} carries no "
-                f"`Bash({target}:*)` grant in the `implement` profile of {PROFILES_REL} — the "
-                "cloud matcher silently refuses an ungranted leading token, so the recorded "
-                f"focused run would produce no signal there; add the token and regenerate")
+                f"`Bash({target}:*)` grant in the cloud implement allowlist (neither the "
+                f"`implement` profile of {PROFILES_REL} nor `prflow_implement.allowed_tools` "
+                f"in {CONFIG_REL}) — the cloud matcher silently refuses an ungranted leading "
+                "token, so the recorded focused run would produce no signal there; add the "
+                "token to the config channel (self-repo) or the manifest and regenerate")
     return violations
 
 
@@ -839,6 +899,20 @@ def main(argv):
         return 1
     map_value, map_error = _load_json(repo_root / MAP_REL)
     registry_value, registry_error = _load_json(repo_root / REGISTRY_REL)
+    # Surface the two grant-channel read errors rather than discarding the tuple's error
+    # half — a malformed .prflow/config.json (or capability-profiles.json) is otherwise
+    # invisible, and arm 10 then tells the maintainer to "add the token to the config
+    # channel" when the real cause is that the channel is unparseable. Print the breadcrumb
+    # (never fail on it: the union already fails closed on an unestablished channel).
+    profiles_value, profiles_error = _load_json(repo_root / PROFILES_REL)
+    config_value, config_error = _load_json(repo_root / CONFIG_REL)
+    # Surface an error only for a file that EXISTS (present-but-unreadable/malformed — the
+    # maintainer misconfiguration worth a breadcrumb). A legitimately-absent optional file
+    # is not surfaced: the union already fails closed on an unestablished channel, and a
+    # fixture/consumer tree may lack either file without that being an error.
+    for _path, _err in ((PROFILES_REL, profiles_error), (CONFIG_REL, config_error)):
+        if _err and (repo_root / _path).exists():
+            print(f"[input-error] {_err}; its cloud implement grant tokens were not read")
     run_sh_labels, module_labels, scan_read_errors = _scan_labels(repo_root)
     violations = evaluate(
         tracked,
@@ -850,7 +924,7 @@ def main(argv):
         module_labels=module_labels,
         scan_read_errors=scan_read_errors,
         executable_files=_git_executable(repo_root),
-        implement_tokens=_implement_profile_tokens(_load_json(repo_root / PROFILES_REL)[0]),
+        implement_tokens=_resolve_implement_grant_tokens(profiles_value, config_value),
     )
     for line in violations:
         print(line)
