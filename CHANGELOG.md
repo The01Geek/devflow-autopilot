@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.28] — 2026-08-02
+
+### Security
+- **Stop shipping seven `Bash(lib/test/...)` grant tokens in the `implement` capability profile (#1078).** `devflow-implement.yml`'s baked `--allowed-tools` baseline (shipped to every consumer by `install.sh`) carried seven grant tokens naming paths under `lib/test`, the subtree the `vendor-plugin` slice prunes. They delivered zero benefit in a consumer — no install channel puts this repository's `lib/test` into a consumer tree, so the tokens could never match a PRFlow-owned file — while silently pre-authorizing any consumer file that happened to collide with a PRFlow-chosen path. Six moved to `.prflow/config.json`'s `prflow_implement.allowed_tools`, the self-repo-only grant channel (`config.example.json` ships it empty, so no consumer inherits it): the five `focused_test` targets, plus `coverage_map_guard.py` (still invoked as a direct leading token by `matcher-probe.yml`'s row 17). `test_module_harness.py` was dropped — it is not a `focused_test` target and is invoked only via the `python3 <path>` interpreter head, which the matcher denies regardless. The change is made in `lib/capability-profiles.json` (`manifest_version` 13→14) and regenerated with `python3 lib/generate-capability-profiles.py`; `lib/review-profile.tokens` is byte-unchanged. `coverage_map_guard.py`'s focused-test grant check (arm 10) now honors the config channel alongside the profile, and the capability-profiles module asserts no shipped profile carries a `lib/test` token so the next such grant cannot ship silently. (#1078)
+
 ## [2.30.27] — 2026-08-02
 
 ### Fixed
