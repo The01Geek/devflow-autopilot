@@ -1459,6 +1459,210 @@ assert_eq "#1011 ci: Step 4 stamps native blocked-by deps via apply-issue-depend
 assert_eq "#1011 ci: the dependency sub-step (5b) sits after the 5a PRFlow label stamp" "yes" \
   "$(awk '/^5a\./{a=NR} /apply-issue-dependencies\.py/{d=NR} END{print (a>0 && d>a)?"yes":"no"}' "$CI_REF_STEP4")"  # raw-guard-ok: routing-dispatch-contract: post-creation ordering — the dep stamp follows the label stamp
 
+# ── issue #1098: recurrence guards for the create-issue → implement drafting-obligation retirement ──
+# Guard 1 (subcommand-consumer) fails when an issue-audit-state.py subcommand has lost its last
+# consumer. Scope, stated because it is weaker than "last consumer" reads: a consumer here is any
+# boundary-matched TEXTUAL occurrence under skills/scripts/lib (per AC13's named population), so a
+# subcommand that loses its last *executable* caller but keeps a prose or test mention still reads
+# all-consumed. The guard catches total disappearance, not executable-caller loss.
+# Guard 2 (handle-form) fails when issue-template.md mandates a `Verified:` handle form
+# check-verified-premises.py cannot adjudicate. Every value deciding either guard's outcome is
+# derived in-process through python3 (a lib/preflight.sh guarantee) and `git ls-files` (index-reading,
+# per issue #711) — never grep/awk/wc/sed — so AC15's non-preflight-tool ban holds, and the driver
+# exits non-zero with a diagnostic if git is unavailable (a fail-closed check on its absence). The
+# guards live in THIS module (a member of pin-corpus-lint.py's AUDITED_PIN_SOURCES) so the pin gate
+# scans them; their literals are read by scripts/issue-audit-state.py and
+# scripts/check-verified-premises.py, the pin-gate first-step route, so no `# structural-pin-ok:`
+# declaration or ledger row follows. The classification fixture pair drives check-verified-premises.py
+# in-process (parse_bullets → classify), never through its CLI.
+_ci_guard1098() {
+  python3 - "$1" "$CI_ROOT" <<'PYEOF'
+import sys, re, subprocess, importlib.util, pathlib
+mode = sys.argv[1]
+root = pathlib.Path(sys.argv[2])
+
+def _load(rel, name):
+    spec = importlib.util.spec_from_file_location(name, root / rel)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+# ---- Guard 1: every subcommand of scripts/issue-audit-state.py has a consumer ----
+# Enumerate the registry by a WHITESPACE-NORMALIZED read of the `sub.add_parser` registrations
+# (re.DOTALL lets the name string wrap onto the next line — a line-based read would miss those).
+_ADD_PARSER = re.compile(r"sub\.add_parser\(\s*['\"]([a-z0-9][a-z0-9-]*)['\"]", re.DOTALL)
+
+def enumerate_subcommands(src):
+    return list(dict.fromkeys(_ADD_PARSER.findall(src)))
+
+def boundary_count(name, corpus):
+    # A consumer is a BOUNDARY-matched occurrence of the subcommand name, so a longer name that
+    # merely shares a shorter name's prefix is never counted as the shorter one's consumer. This
+    # comment deliberately names no real subcommand literal: the guard module is itself in the
+    # scanned corpus, so a literal here would be a phantom consumer masking a real orphaning.
+    pat = re.compile(r'(?<![\w-])' + re.escape(name) + r'(?![\w-])')
+    return sum(len(pat.findall(text)) for text in corpus.values())
+
+def build_corpus():
+    # Population: an index-reading `git ls-files` over skills/, scripts/, lib/ (never a
+    # repository-root-anchored recursive walk — issue #711). The registry file itself is not a
+    # consumer of the subcommands it registers, so it is excluded.
+    # OSError covers git being absent from PATH entirely: subprocess.run raises rather than
+    # returning a non-zero rc, so without this the advertised clean exit-3 breadcrumb is replaced
+    # by a traceback. Both arms fail closed, but only this one says why.
+    try:
+        proc = subprocess.run(['git', 'ls-files', 'skills', 'scripts', 'lib'],
+                              cwd=str(root), capture_output=True, text=True)
+    except OSError as exc:
+        sys.stderr.write(f'guard1098: git could not be executed ({exc}) — failing closed\n')
+        sys.exit(3)
+    if proc.returncode != 0:
+        sys.stderr.write('guard1098: git ls-files failed (git unavailable?) — failing closed\n')
+        sys.exit(3)
+    corpus = {}
+    for rel in proc.stdout.split():
+        if rel == 'scripts/issue-audit-state.py':
+            continue
+        try:
+            corpus[rel] = (root / rel).read_text(encoding='utf-8', errors='replace')
+        except OSError:
+            corpus[rel] = ''
+    return corpus
+
+def guard1(names, corpus, registry_count):
+    # Fail closed when the whitespace-normalized enumeration disagrees with the registry.
+    if len(names) != registry_count:
+        return 'mismatch', {}
+    counts = {n: boundary_count(n, corpus) for n in names}
+    orphans = sorted(n for n, c in counts.items() if c == 0)
+    return ('orphans:' + ','.join(orphans) if orphans else 'all-consumed'), counts
+
+# ---- Guard 2: template-mandated handle forms subset of helper-ADJUDICATED forms ----
+# The full handle-class set check-verified-premises.py classifies (AC5: unchanged by this change).
+_ALL_HANDLES = frozenset({'path-quote', 'path', 'quote', 'command', 'none'})
+
+def helper_adjudicated(cvp, undecidable=None):
+    # A form the helper ADJUDICATES is one it can resolve to a decision — i.e. NOT in
+    # `_UNDECIDABLE_REASONS` (which reports `command`/`quote`/`none`, never deciding them).
+    # Deriving from the live set means narrowing the helper (adding a form to the undecidable
+    # set) shrinks this and makes the subset test fail — narrowing the helper cannot satisfy it.
+    und = set(cvp._UNDECIDABLE_REASONS) if undecidable is None else set(undecidable)
+    return _ALL_HANDLES - und
+
+def _norm(text):
+    # Mirror check-verified-premises.py's own markup/wrap robustness: a reintroduced form
+    # arrives as markdown (`**exact command**`) wrapped across lines, so strip emphasis and
+    # backticks and collapse whitespace before matching — a plain substring test would miss
+    # exactly the emphasized/wrapped shape the deleted prose actually carried.
+    return re.sub(r'\s+', ' ', text.replace('*', '').replace('`', ''))
+
+def template_forms(tmpl_text):
+    t = _norm(tmpl_text)
+    forms = set()
+    if _norm('repository path in backticks plus the sentence quoted verbatim') in t:
+        forms.add('path-quote')
+    if _norm('exact command whose output grounded the claim') in t:
+        forms.add('command')
+    return forms
+
+def guard2(tmpl_text, cvp, undecidable=None):
+    tf = template_forms(tmpl_text)
+    adj = helper_adjudicated(cvp, undecidable)
+    ok = tf <= adj
+    return ('subset-ok' if ok else 'subset-FAIL'), tf, adj
+
+def classify_form(cvp, body):
+    spans = cvp.parse_bullets(body)
+    if not spans:
+        return 'no-bullet'
+    handle, _paths, _quotes = cvp.classify(spans[0])
+    return handle
+
+_CMD_BODY = '- **Verified:** the count is 42, per `grep -c foo a b c`\n'
+_PQ_BODY = '- **Verified:** `scripts/check-verified-premises.py` states — "the tally is right"\n'
+
+def main():
+    if mode.startswith('guard1'):
+        src = (root / 'scripts/issue-audit-state.py').read_text(encoding='utf-8')
+        names = enumerate_subcommands(src)
+        ias = _load('scripts/issue-audit-state.py', 'issue_audit_state')
+        registry_count = len(ias.registered_subcommands())
+        if mode == 'guard1-real':
+            corpus = build_corpus()
+            verdict, counts = guard1(names, corpus, registry_count)
+            for n in sorted(counts):
+                sys.stderr.write(f'  consumer count: {n}={counts[n]}\n')
+            print(verdict)
+        elif mode == 'guard1-orphan':
+            # Planted defect: a synthetic subcommand with no consumer anywhere. The name is
+            # ASSEMBLED at runtime, never written as a contiguous literal, so this guard module —
+            # which is itself in the scanned corpus — cannot accidentally BE its consumer.
+            orphan = 'no' + 'such' + 'subcommand' + 'zzzz'
+            aug = names + [orphan]
+            verdict, _ = guard1(aug, build_corpus(), len(aug))
+            print('caught' if verdict.startswith('orphans:') else 'MISSED')
+        elif mode == 'guard1-prefix':
+            # Planted defect: the subcommand is mentioned only as a PREFIX of a longer name.
+            corpus = {'fixture': 'synthorphanlonger synthorphanlonger'}
+            verdict, _ = guard1(['synthorphan'], corpus, 1)
+            print('caught' if verdict == 'orphans:synthorphan' else 'MISSED')
+        elif mode == 'guard1-mismatch':
+            # Planted defect: enumeration count disagrees with the registry count.
+            verdict, _ = guard1(names, build_corpus(), registry_count + 1)
+            print('caught' if verdict == 'mismatch' else 'MISSED')
+    if mode.startswith('guard2'):
+        cvp = _load('scripts/check-verified-premises.py', 'check_verified_premises')
+        tmpl = (root / 'skills/create-issue/references/issue-template.md').read_text(encoding='utf-8')
+        if mode == 'guard2-real':
+            verdict, tf, adj = guard2(tmpl, cvp)
+            sys.stderr.write(f'  template forms={sorted(tf)} helper-adjudicated={sorted(adj)}\n')
+            print(verdict)
+        elif mode == 'guard2-detector-live':
+            # Anti-vacuity floor over guard2's own comparand. `guard2` asserts `tf <= adj`, and
+            # the EMPTY set is a subset of everything — so if the template's path-quote sentence
+            # is reworded, `template_forms()` silently returns set(), `guard2-real` stays green,
+            # and the detector is blind while reading as healthy. That is the repo's
+            # unverified-assumption class: a comparand whose producer (the template's literal
+            # wording) does not guarantee emission. This asserts the comparand itself against the
+            # REAL shipped template, so a reword fails HERE with a name that says what broke,
+            # instead of silently disarming the subset test. Kept a separate assertion rather than
+            # folded into guard2-real so the two failure modes stay distinguishable: this one
+            # means "the detector no longer recognizes the template", guard2-real means "the
+            # template mandates a form the helper cannot adjudicate".
+            print(','.join(sorted(template_forms(tmpl))) or 'EMPTY')
+        elif mode == 'guard2-command':
+            # Planted defect: reintroduce the command form in its REALISTIC reverted shape —
+            # markdown-emphasized and wrapped across a line, exactly as the deleted prose carried
+            # it — so this proves the normalization above, not just a plain-substring revert.
+            planted = tmpl + '\nor the **exact command**\nwhose output grounded the claim.\n'
+            verdict, _, _ = guard2(planted, cvp)
+            print('caught' if verdict == 'subset-FAIL' else 'MISSED')
+        elif mode == 'guard2-narrow':
+            # Planted defect: narrow the HELPER's adjudicated set to exclude path-quote.
+            narrowed = set(cvp._UNDECIDABLE_REASONS) | {'path-quote'}
+            verdict, _, _ = guard2(tmpl, cvp, undecidable=narrowed)
+            print('caught' if verdict == 'subset-FAIL' else 'MISSED')
+    if mode.startswith('classify'):
+        cvp = _load('scripts/check-verified-premises.py', 'check_verified_premises')
+        if mode == 'classify-command':
+            print(classify_form(cvp, _CMD_BODY))
+        elif mode == 'classify-pathquote':
+            print(classify_form(cvp, _PQ_BODY))
+
+main()
+PYEOF
+}
+assert_eq "#1098 guard1: every issue-audit-state subcommand has a live consumer (fail-closed on registry mismatch)" "all-consumed" "$(_ci_guard1098 guard1-real)"
+assert_eq "#1098 guard1: a subcommand with no consumer is caught" "caught" "$(_ci_guard1098 guard1-orphan)"
+assert_eq "#1098 guard1: a prefix-only mention is not counted as a consumer" "caught" "$(_ci_guard1098 guard1-prefix)"
+assert_eq "#1098 guard1: an enumeration/registry count mismatch fails closed" "caught" "$(_ci_guard1098 guard1-mismatch)"
+assert_eq "#1098 guard2: template-mandated handle forms are a subset of helper-adjudicated forms" "subset-ok" "$(_ci_guard1098 guard2-real)"
+assert_eq "#1098 guard2 anti-vacuity: the detector still recognizes the real template (empty set would pass the subset test vacuously)" "path-quote" "$(_ci_guard1098 guard2-detector-live)"
+assert_eq "#1098 guard2: reintroducing the command handle form is caught" "caught" "$(_ci_guard1098 guard2-command)"
+assert_eq "#1098 guard2: narrowing the helper's adjudicated set is caught (subset direction)" "caught" "$(_ci_guard1098 guard2-narrow)"
+assert_eq "#1098 fixture: pre-change command-form bullet classifies handle=command" "command" "$(_ci_guard1098 classify-command)"
+assert_eq "#1098 fixture: post-change path-quote-form bullet classifies handle=path-quote" "path-quote" "$(_ci_guard1098 classify-pathquote)"
+
 # Complete normal cleanup explicitly so a removal or marker failure changes the
 # module status. EXIT remains a fallback for earlier returns and shell errors.
 if ! _ci_cleanup; then
