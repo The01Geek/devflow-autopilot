@@ -11,7 +11,10 @@ the whole codebase; the findings are your map.
 The issue describes **one decided behavior built one decided way.** A developer reading
 it must never have to choose between alternatives or fill in a gap to start work.
 
-Outside the `## 🚫 Blocked` section, the body must contain **none** of:
+Outside the `## 🚫 Blocked` section — and outside the Implementation Notes `Relevant files`
+block, which this scan skips by **location** exactly as it skips `## 🚫 Blocked`, never by
+judging whether any single word inside it describes a decision — the body must contain
+**none** of:
 
 - choice words: "or", "either / or", "alternatively", "vs", "option", "approach A vs B"
 - hedge words: "could", "we might", "we may want to", "consider", "perhaps", "possibly"
@@ -285,8 +288,25 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
 - Reference project coding standards from `CLAUDE.md` if available.
 
 ### Implementation Notes
-Describe the **one** approach the user chose — not a comparison of candidates.
-- **Approach** — the decided design: the specific files to touch and how the change fits.
+Describe the **one** approach the user chose — not a comparison of candidates. The
+one-approach rule governs the **Approach**, **Code Patterns**, and **Testing Strategy**
+bullets. The **Relevant files** block below is different in kind — a floor-declared *map*
+rather than a comparison of candidates — so its own bullet, not this rule, governs it.
+- **Approach** — the decided design: what changes and why, and how it fits the existing code.
+  Name the surfaces the change is expected to reach in the `Relevant files` block below, not here.
+- **Relevant files** — a floor-declared map of the file and function surfaces the decided
+  Approach is expected to reach, **at minimum**; the implementing run traces the change and
+  extends this list. Because it is a *map* and not a specification, **hedged phrasing is
+  permitted inside this block** — write "this likely touches `lib/scan.sh`, and plausibly
+  `lib/classify-pr-kind.jq`" rather than promoting a guess to a stated fact or deleting a
+  useful starting point; the no-options gate skips this block by location, so a hedge here is
+  never read as an unresolved decision. The block admits **file and function references
+  only**: a behavior decision, a library choice, or a mechanism fork written inside it is
+  **non-conforming** — resolve it with the user, and on user disengagement it lands in
+  `## 🚫 Blocked`, never as prose in this block. Keep it distinct from Technical Context's
+  **Relevant Classes/Files** bullet: that bullet records the surfaces the Step 1 findings
+  established about current behavior, while this block records the surfaces the chosen
+  Approach is expected to reach — record each surface in exactly one of the two.
 - **Code Patterns** — patterns already used in this codebase to mirror.
 - **Testing Strategy** — the implementer must inherit a concrete, test-first plan, not a
   vague intent. Build it in three moves: **(1) classify the boundary, (2) walk the coverage
@@ -313,24 +333,16 @@ Describe the **one** approach the user chose — not a comparison of candidates.
   and **writes the sweep's output back as additional closed AC items before filing**, so no AC
   is left open-ended for a non-interactive run that must decide when it is met.
   - **Happy path** — the primary decided behavior for each AC.
-  - **Boundary & degenerate inputs** — empty / zero / one / max: empty collection, first and
-    last element, off-by-one edges, page 0 and past-the-end, size and length limits, empty
-    string vs. null vs. missing. (The CSV export with *zero* responses still emits a header
-    row; pagination is exercised at page 0, the exact-multiple page, and the partial final
-    page — these are where off-by-ones hide.)
-  - **Error & failure paths** — every error the change can raise or must reject: malformed
-    input, missing resource (404), unauthenticated vs. unauthorized (401 vs. 403), conflict,
-    downstream/dependency failure. Assert the *specific* failure (status, error type,
-    message contract), not merely "it errors."
-  - **Adversarial / malformed input** — values crafted to break parsing or escaping:
-    delimiter/quote/newline injection (RFC-4180), Unicode / non-ASCII / encoding (UTF-8,
-    BOM), oversized or deeply-nested payloads, and every hostile shape a parser or config
-    consumer must survive without detonating.
+  - **Boundary & degenerate inputs** — empty / zero / one / max, off-by-one edges, size and
+    length limits, and empty string vs. null vs. missing.
+  - **Error & failure paths** — every error the change can raise or must reject; assert the
+    *specific* failure (status, error type, message contract), not merely "it errors."
+  - **Adversarial / malformed input** — values crafted to break parsing or escaping, and
+    every hostile shape a parser or config consumer must survive without detonating.
   - **State, concurrency & idempotency** — re-running the operation, concurrent callers,
     partial-failure rollback, ordering, and double-fire. Assert the invariant still holds.
-  - **Scale / performance** — only when an AC implies it (streaming vs. buffering, 100k+
-    rows, query-count ceilings). Assert the *property* (no full-collection buffering, bounded
-    query count), not a brittle wall-clock number.
+  - **Scale / performance** — only when an AC implies it. Assert the *property* (no
+    full-collection buffering, bounded query count), not a brittle wall-clock number.
   - **Security / authorization** — ownership and tenant isolation, and that secrets or other
     tenants' data are never exposed, whenever the change touches an access boundary.
 
@@ -460,9 +472,9 @@ incomplete issues.
 - [ ] A premise verified as "the code does X" was read with its enclosing gates/conditionals and their defaults on the path to X, and any claim that holds only under a non-default configuration states that precondition inside the claim
 - [ ] A designed LLM/semantic-judgment surface over third-party text (issue bodies, PR comments, commit messages, external API responses) carries the input-is-data guard AC paired with a hostile-input Testing Strategy case that asserts instruction-shaped input is not obeyed — or cites the existing already-guarded judgment path it reuses; a draft with no such surface adds nothing here
 - [ ] Every enumerated test/case/example list inside an AC declares its form — the `at minimum` floor marker or an explicit closed-set exhaustiveness statement — and each floor-marked list has had Move 2's coverage sweep (state, case variants, multiplicity, absence) written back as additional closed AC items
-- [ ] Implementation notes describe a single chosen approach
+- [ ] Implementation notes describe a single chosen approach (the `Relevant files` block excepted — it is a floor-declared map, hedges permitted)
 - [ ] Testing Strategy classifies the boundary + level, walks the coverage dimensions (boundary/error/adversarial/state/scale/security as they apply), and gives test-first assertions with every AC mapped to ≥1 assertion and no orphan assertions — bug fixes reproduce the defect first; guarantee-class changes test the skipped-step path; or it names a reproducible stand-in verification when no automated test applies
-- [ ] **No-options gate passed**: no choice/hedge/deferral language outside `## 🚫 Blocked`
+- [ ] **No-options gate passed**: no choice/hedge/deferral language outside `## 🚫 Blocked` and the Implementation Notes `Relevant files` block
 - [ ] Any unresolved decision is in `## 🚫 Blocked`, phrased as a question — nowhere else
 - [ ] Edge cases and error handling are considered
 - [ ] Architecture constraints are explicitly noted
