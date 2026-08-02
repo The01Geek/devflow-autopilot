@@ -41293,11 +41293,11 @@ echo "#619 batched-regeneration instruction surfaces"
 # line break lives on no single line and this line-based pin would find nothing —
 # the issue-375 wrapped-literal hazard).
 assert_pin_unique "#1055 .prflow/prompt-extensions/implement.md uses the granted direct batched invocation" \
-  'run the granted direct leading-token form `lib/test/regenerate-artifacts.py` once' \
+  'run the granted direct leading-token form once' \
   "$LIB/../.prflow/prompt-extensions/implement.md"  # structural-pin-ok: cross-file-phase-contract -- the cloud-only config grant and prompt invocation must stay coupled
 for _ra_ext in review-and-fix receiving-code-review; do
   assert_pin_unique "#619 .prflow/prompt-extensions/$_ra_ext.md carries the batched-regeneration invocation" \
-    'run `python3 lib/test/regenerate-artifacts.py` once' \
+    'run the granted direct leading-token form once' \
     "$LIB/../.prflow/prompt-extensions/$_ra_ext.md"
   assert_pin_unique "#619 .prflow/prompt-extensions/$_ra_ext.md carries the batched-regeneration discharge record" \
     '`batched-regeneration: run|refused|skipped`' \

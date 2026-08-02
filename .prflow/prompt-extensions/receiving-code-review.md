@@ -110,7 +110,13 @@ drift.
 
 ## Batched artifact regeneration
 
-After applying edits and before each full-suite re-verify run, run `python3 lib/test/regenerate-artifacts.py` once. Edits applied while addressing review findings drift the repo's checked-in generated records, so a fix batch that skips this pass pays an extra full-suite cycle per drifted artifact. The helper is the sole enumeration point for this repo's suite-owned generated artifacts, so this section deliberately lists no artifact inventory of its own — an inventory duplicated into prose is one that silently goes stale as artifacts are added.
+After applying edits and before each full-suite re-verify run, run the granted direct leading-token form once:
+
+```bash
+lib/test/regenerate-artifacts.py
+```
+
+Edits applied while addressing review findings drift the repo's checked-in generated records, so a fix batch that skips this pass pays an extra full-suite cycle per drifted artifact. The helper is the sole enumeration point for this repo's suite-owned generated artifacts, so this section deliberately lists no artifact inventory of its own — an inventory duplicated into prose is one that silently goes stale as artifacts are added.
 
 Act on its report before starting the suite run: commit a changed manifest together with the edits that caused it, and resolve every printed exit-1-forcing judgment item under the governing policy that item names. Informational lines require reading, not action.
 
