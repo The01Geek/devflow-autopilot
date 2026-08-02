@@ -137,6 +137,8 @@ python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports 
 
 It prints `scope_path= scope_digest= basis_digest=`. Pass `--scope-file "<scope_path>"` to the renderer. `record-dispatch` now **requires** `--kind <the kind query-round-kind answered>` on every round, plus `--scope-file` on a targeted one.
 
+**A scoped round re-checks resolved claims (issue #1105).** The claim set a targeted round enumerates is *every* finding raised in an earlier round, **regardless of its resolved status** — a resolution is an **input the round audits, not a filter that skips it**. That is deliberate: a resolution is the drafter's own attestation that its own fix worked, produced by the same context that wrote the defect, so it is exactly the claim a fresh-context auditor is best placed to falsify. Only the claim id and its one-line summary travel to the auditor — never the status, prior verdict, disposition or rationale — so a re-checked resolved claim arrives as something to check, never as an answer already given. The tool still selects the cold whole-draft kind when there are **no** earlier-round findings at all, so the enumeration remains a real gate rather than a vacuous one.
+
 **The arm is the tool's answer, never yours.** Call `query-arm` and dispatch on the arm it returns:
 
 ```bash

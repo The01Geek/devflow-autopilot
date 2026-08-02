@@ -258,17 +258,46 @@ if m._finding_count(st) != 2: sys.exit(8)                    # never the UNESTAB
       --round 1 --revision-ordinal 1 --resolved-ids 1,2 > .rt-resolution
     PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-resolved
 
-    # A clean round on the revised bytes, then approve mode must ground eligible.
-    # Regenerate the instructions AFTER the revision: the generator reads the title from
-    # the draft file, so a round must be established against the bytes it actually audits.
+    # issue #1105: round 1's findings were all RESOLVED above, yet the tool now selects a
+    # TARGETED re-check rather than the pre-#1105 empty-claim-set discovery — a scoped round
+    # re-audits the drafter's own resolutions. Drive the targeted round end to end, then the
+    # CONFIRMING whole-draft round it schedules (which carries the clean-round narrative this
+    # fixture asserts). The scope file is written OUTSIDE .prflow/tmp so the "creates no file
+    # besides the state JSON" artifact assertion below still holds.
+    PATH="$RESTRICTED" python3 "$IAS" query-round-kind rt --nonce "$NONCE" \
+      --draft-file "$IAS_SB/draft.md" > .rt-roundkind
+    PATH="$RESTRICTED" python3 "$IAS" write-dispatch-scope rt --nonce "$NONCE" \
+      --draft-file draft.md --path "$IAS_SB/scope-rt.md" > .rt-scope
+    # #1104: a fresh file-arm dispatch (targeted included) requires the exact draft bytes
+    # recoverable from the byte history — stage the revised bytes before dispatching.
+    ias_stage rt "$NONCE" draft.md
+    PATH="$RESTRICTED" python3 "$IAS" record-dispatch --kind targeted rt --nonce "$NONCE" \
+      --round 2 --arm file --draft-file draft.md --scope-file "$IAS_SB/scope-rt.md" > .rt-tdispatch
+    DIG2T="$(PATH="$RESTRICTED" git hash-object --stdin --no-filters < draft.md)"
+    PATH="$RESTRICTED" python3 "$IAS" record-return rt --nonce "$NONCE" --round 2 \
+      --verdict FILE --findings-count 0 --carriage-object-id "$DIG2T" \
+      --claim-verdicts "1.1 addressed
+1.2 addressed" > .rt-treturn
+    PATH="$RESTRICTED" python3 "$IAS" query-next-action rt --nonce "$NONCE" --round 2 > .rt-tnext
+    # issue #1105: the targeted round froze a draft_lines span on its scope (the #889
+    # scope-escape proxy's comparand). Assert the recorded shape directly from the state
+    # file: a two-element ordered non-bool int list.
+    IAS1105_RC=0
+    PATH="$RESTRICTED" python3 -c 'import json,sys; d=json.load(open(".prflow/tmp/issue-audit-state-rt.json")); s=[r for r in d["rounds"] if r["round"]==2][0]["scope"]["draft_lines"]; sys.exit(0 if isinstance(s,list) and len(s)==2 and all(isinstance(x,int) and not isinstance(x,bool) for x in s) and s[0]<=s[1] else 1)' || IAS1105_RC=$?
+    assert_eq "issue #1105: a targeted dispatch freezes a two-element ordered draft_lines span on its scope" "0" "$IAS1105_RC"
+
+    # The CONFIRMING whole-draft round (round 3), funded from its own counter. It carries the
+    # clean-round advisory/adjudication/eligibility narrative. Regenerate the instructions
+    # AFTER the revision: the generator reads the title from the draft file, so a round must
+    # be established against the bytes it actually audits.
     IOID2="$(ias_instructions "$IAS_SB" rt draft.md "$RESTRICTED")"
     ias_stage rt "$NONCE" draft.md
     PATH="$RESTRICTED" python3 "$IAS" record-dispatch --kind discovery rt --nonce "$NONCE" \
-      --round 2 --arm file --draft-file draft.md \
+      --round 3 --arm file --draft-file draft.md \
       --instructions-file "$IAS_SB/instr-rt.md" \
       --instructions-draft-path "$IAS_SB/draft.md" > /dev/null
     OID2="$(PATH="$RESTRICTED" git hash-object --stdin --no-filters < draft.md)"
-    PATH="$RESTRICTED" python3 "$IAS" record-return rt --nonce "$NONCE" --round 2 \
+    PATH="$RESTRICTED" python3 "$IAS" record-return rt --nonce "$NONCE" --round 3 \
       --verdict FILE --findings-count 0 --carriage-object-id "$OID2" \
       --instructions-object-id "$IOID2" --extra-dispatch-content no > /dev/null
     # #548: adjudicate the clean round (FILE, 0 unresolved must-revise) — the run now converges.
@@ -276,17 +305,17 @@ if m._finding_count(st) != 2: sys.exit(8)                    # never the UNESTAB
     # deterministic recording floor). The Write-tool JSON transport is a plain file, so the
     # restricted-PATH lifecycle authors it with printf (a bash builtin, PATH-independent).
     printf '%s' '[{"summary":"a nit","rationale":"cosmetic","impact_class":"clearly-optional","evidence":"none needed","auditor_block":"Quoted: x\nSeverity: low"}]' > adv-rt.json
-    PATH="$RESTRICTED" python3 "$IAS" record-adjudication rt --nonce "$NONCE" --round 2 \
+    PATH="$RESTRICTED" python3 "$IAS" record-adjudication rt --nonce "$NONCE" --round 3 \
       --verdict FILE --must-revise 0 --advisory 1 --invalid 0 --unresolved-must-revise 0 \
       --advisory-records-file adv-rt.json > /dev/null
-    # #743: read back the round-2 advisory record and the calibration axis under the SAME
+    # #743: read back the round-3 advisory record and the calibration axis under the SAME
     # restricted PATH (git + python3 only), proving the new read-back + calibration + render
-    # commands derive nothing through a non-preflight PATH tool. Round 2 recorded one
+    # commands derive nothing through a non-preflight PATH tool. Round 3 recorded one
     # clearly-optional, evidenced advisory (adv-rt.json) → calibration-clear, but its render is
     # unreported until reported, so the disclosure trigger holds on the render tooth alone.
-    PATH="$RESTRICTED" python3 "$IAS" query-adjudication-records rt --nonce "$NONCE" --round 2 > .rt-adjrec
+    PATH="$RESTRICTED" python3 "$IAS" query-adjudication-records rt --nonce "$NONCE" --round 3 > .rt-adjrec
     PATH="$RESTRICTED" python3 "$IAS" query-calibration rt --nonce "$NONCE" > .rt-calib
-    PATH="$RESTRICTED" python3 "$IAS" record-adjudication-render rt --nonce "$NONCE" --round 2 --landed yes > .rt-render
+    PATH="$RESTRICTED" python3 "$IAS" record-adjudication-render rt --nonce "$NONCE" --round 3 --landed yes > .rt-render
     PATH="$RESTRICTED" python3 "$IAS" query-calibration rt --nonce "$NONCE" > .rt-calib2
     PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-file
     # #548: query-convergence must fail closed on a FOREIGN nonce over this SAME converged
@@ -320,16 +349,22 @@ if m._finding_count(st) != 2: sys.exit(8)                    # never the UNESTAB
     "converged=yes reason= basis=adjudicated unledgered_revise=none" "$(sed -n 1p "$IAS_SB/.rt-conv-file" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: query-convergence fails closed on a foreign nonce (never reads a converged verdict off another run)" \
     "converged=no reason=foreign-nonce basis=none unledgered_revise=none" "$(sed -n 1p "$IAS_SB/.rt-conv-fn" 2>/dev/null)"
-  assert_eq "#548 cli_roundtrip_restricted_path: query-summary RENDERS the latest round's adjudicated tokens at the CLI (round 2: FILE, 0 unresolved)" \
+  assert_eq "#1105 cli_roundtrip_restricted_path: an all-resolved run selects a TARGETED re-check (was pre-#1105 empty-claim-set discovery)" \
+    "1" "$(grep -c 'kind=targeted reason=targeted-eligible' "$IAS_SB/.rt-roundkind" 2>/dev/null)"
+  assert_eq "#1105 cli_roundtrip_restricted_path: the targeted return records its per-claim sweep over the resolved claims" \
+    "1" "$(grep -c 'addressed=2 not_addressed=0' "$IAS_SB/.rt-treturn" 2>/dev/null)"
+  assert_eq "#1105 cli_roundtrip_restricted_path: an all-addressed targeted round schedules the confirming whole-draft round" \
+    "1" "$(grep -c 'confirm-whole-draft' "$IAS_SB/.rt-tnext" 2>/dev/null)"
+  assert_eq "#548 cli_roundtrip_restricted_path: query-summary RENDERS the latest round's adjudicated tokens at the CLI (round 3: FILE, 0 unresolved)" \
     "1" "$(grep -c 'adjudicated_verdict=FILE must_revise=0 advisory=1 invalid=0 unresolved_must_revise=0' "$IAS_SB/.rt-summary" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: record-adjudication echoes the adjudicated payload" \
     "adjudicated=REVISE unresolved=2 must_revise=2 advisory=0 invalid=0 superseded=0" "$(sed -n 1p "$IAS_SB/.rt-adj" 2>/dev/null)"
-  assert_eq "#743 cli_roundtrip_restricted_path: query-adjudication-records reads back the round-2 advisory record" \
-    "1" "$(grep -c 'record_class=advisory round=2 id=1 impact_class=clearly-optional impact_bearing=no evidence_state=recorded' "$IAS_SB/.rt-adjrec" 2>/dev/null)"
+  assert_eq "#743 cli_roundtrip_restricted_path: query-adjudication-records reads back the round-3 advisory record" \
+    "1" "$(grep -c 'record_class=advisory round=3 id=1 impact_class=clearly-optional impact_bearing=no evidence_state=recorded' "$IAS_SB/.rt-adjrec" 2>/dev/null)"
   assert_eq "#743 cli_roundtrip_restricted_path: an evidenced clearly-optional advisory is calibration-clear, but the unreported render holds the disclosure trigger" \
     "1" "$(grep -c 'calibration_backing=clear adjudication_render=unreported calibration_trigger=yes' "$IAS_SB/.rt-calib" 2>/dev/null)"
   assert_eq "#743 cli_roundtrip_restricted_path: record-adjudication-render reports the rendering" \
-    "adjudication_render=reported round=2" "$(sed -n 1p "$IAS_SB/.rt-render" 2>/dev/null)"
+    "adjudication_render=reported round=3" "$(sed -n 1p "$IAS_SB/.rt-render" 2>/dev/null)"
   assert_eq "#743 cli_roundtrip_restricted_path: after a reported render on an all-clear round the calibration trigger clears" \
     "1" "$(grep -c 'calibration_trigger=no' "$IAS_SB/.rt-calib2" 2>/dev/null)"
   assert_eq "#603 cli_roundtrip_restricted_path: query-findings re-emits an auditor summary byte-verbatim (the quoted-delimiter heredoc performed no expansion)" \
