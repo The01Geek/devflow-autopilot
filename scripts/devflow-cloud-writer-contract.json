@@ -3,7 +3,7 @@
     "lib/efficiency-trace.sh": "338712d5f1fbf1983f0b9c92d7df40877060358d7e7e01a9465abbd45a6a7ddb",
     "scripts/apply-labels.sh": "7ea8de21f888b038ab0d6a2324b197e6e865144caf51d8b7a765d06996ab3ad2",
     "scripts/branch-for-issue.py": "e44aa7e0d8e743c9ea6c0b650e39376b91cefb5ce7eaca22803f3f50f5a0f1a9",
-    "scripts/config-get.sh": "9a2636c2865cebee899e2875066701ffb177d8ce6be4af5cfdbdffac69d97773",
+    "scripts/config-get.sh": "377f6043b7e0f1e5fc953cc766a5323c5e684c07e569b32812a17a31785245a5",
     "scripts/discover-deferral-manifests.py": "468d1d666e803dcc8859879e0644edaa9961925411eb530829cae863fdebc135",
     "scripts/dismiss-stale-rejections.sh": "1b0b6c7c5f81e38cc5a62ae7ad5d2d05ca4ebfd72bb1da8539ef98d0db4cc2ea",
     "scripts/ensure-label.sh": "5270fdb7d7bd44c0c2d55c753758834c34fb5c8eaa28942d500c668e025229c5",

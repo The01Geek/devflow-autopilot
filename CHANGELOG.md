@@ -4,6 +4,19 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.29] — 2026-08-02
+
+### Fixed
+- **The PreToolUse shape guard now publishes a distinguishing signal when it disarms.** When
+  `scripts/pretooluse-shape-guard.py` cannot load or exercise its classifier
+  (`lib/test/extract-command-shapes.py`), it still fails open to `defer` and exit 0 — the
+  deliberate fail-open contract is unchanged — but it now writes a `pretooluse-guard-disarmed`
+  marker on the same path as the heartbeat, so a disarmed run is no longer byte-identical (on
+  every published artifact) to one that fired and matched nothing. The marker's cause is keyed
+  on the exception actually raised (`FileNotFoundError` from `exec_module`, not the unreachable
+  `ImportError` branch) and names the workspace-relative path with no `lib/test` as the cause,
+  not the vendor slice's prune. (#1077)
+
 ## [2.30.28] — 2026-08-02
 
 ### Security
