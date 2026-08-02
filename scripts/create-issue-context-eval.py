@@ -1040,21 +1040,20 @@ def _join_round_kinds(runs, state):
     coordinate for.
     """
     for run in runs:
-        run["round_kinds"] = {
-            n: (state[n]["kind"] if state is not None and n in state
-                else UNESTABLISHED)
-            for n in run["round_auditor_cost"]
-        }
-        # issue #1103 — the recorded selecting reason, joined the same way and beside the
-        # kind. A round the state does not label, and a labelled round whose record
-        # carries no reason, both read `unestablished` (never a guessed reason): the
-        # former because no state row exists, the latter because `read_state` already
-        # resolved an absent/non-string `kind_reason` to the sentinel.
-        run["round_reasons"] = {
-            n: (state[n]["kind_reason"] if state is not None and n in state
-                else UNESTABLISHED)
-            for n in run["round_auditor_cost"]
-        }
+        # issue #1103 — the recorded selecting reason is joined beside the kind, on the
+        # same membership test, in one pass so the "state present for this round?" guard is
+        # resolved once per round rather than duplicated. A round the state does not label,
+        # and a labelled round whose record carries no reason, both read `unestablished`
+        # (never a guessed reason): the former because no state row exists, the latter
+        # because `read_state` already resolved an absent/non-string `kind_reason` to the
+        # sentinel.
+        kinds, reasons = {}, {}
+        for n in run["round_auditor_cost"]:
+            present = state is not None and n in state
+            kinds[n] = state[n]["kind"] if present else UNESTABLISHED
+            reasons[n] = state[n]["kind_reason"] if present else UNESTABLISHED
+        run["round_kinds"] = kinds
+        run["round_reasons"] = reasons
     return runs
 
 
@@ -1201,19 +1200,18 @@ def _render_run_line(r):
     if r["round_auditor_cost"]:
         # AC6: each per-round entry carries the round's RECORDED kind beside its cost,
         # so one run's report is readable without the aggregate per-kind medians.
+        # issue #1103 adds the selecting reason on its own per-round line (a separate line
+        # rather than folded into `r{}={}(kind)` so the kind rendering stays byte-stable
+        # for its existing readers). Both lines walk the SAME round order, sorted once.
+        order = sorted(r["round_auditor_cost"])
         kinds = r.get("round_kinds") or {}
-        by_round = " ".join(
-            "r{}={}({})".format(n, c, kinds.get(n, UNESTABLISHED))
-            for n, c in sorted(r["round_auditor_cost"].items()))
-        parts.append("\n  - per-round auditor cost: {}".format(by_round))
-        # issue #1103 — the recorded selecting reason on its own per-round line, beside
-        # the kind's. A separate line rather than folded into `r{}={}(kind)` so the kind
-        # rendering stays byte-stable for its existing readers; every round reads its
-        # reason or `unestablished`.
         reasons = r.get("round_reasons") or {}
+        by_round = " ".join(
+            "r{}={}({})".format(n, r["round_auditor_cost"][n], kinds.get(n, UNESTABLISHED))
+            for n in order)
+        parts.append("\n  - per-round auditor cost: {}".format(by_round))
         by_reason = " ".join(
-            "r{}={}".format(n, reasons.get(n, UNESTABLISHED))
-            for n in sorted(r["round_auditor_cost"]))
+            "r{}={}".format(n, reasons.get(n, UNESTABLISHED)) for n in order)
         parts.append("\n  - per-round selecting reason: {}".format(by_reason))
     return "".join(parts)
 

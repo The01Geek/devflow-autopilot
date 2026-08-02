@@ -6041,15 +6041,12 @@ def cmd_record_return(args):
                        'object id of the draft the auditor actually audited '
                        '(git hash-object <draft>)')
             _supplied = f'--carriage-object-id {args.carriage_object_id!r}'
-            _recorded = f'the recorded dispatch digest {attempt["digest"]!r}'
         else:
             _remedy = ('re-run record-return supplying --carriage-sentinel-open / '
                        '--carriage-sentinel-close quoting the exact sentinel pair the '
                        'dispatch embedded around the draft')
             _supplied = (f'--carriage-sentinel-open {args.carriage_sentinel_open!r} '
                          f'--carriage-sentinel-close {args.carriage_sentinel_close!r}')
-            _recorded = (f'the recorded sentinels {attempt.get("sentinel_open")!r} / '
-                         f'{attempt.get("sentinel_close")!r}')
         if carriage_cause == _CARRIAGE_ABSENT:
             sys.stderr.write(
                 f'issue-audit-state.py record-return: round {rnd["round"]} returned a '
@@ -6058,6 +6055,13 @@ def cmd_record_return(args):
                 f'a bad parse, the proof that the auditor read the dispatched bytes is '
                 f'missing. Remedy: {_remedy}. Supplied: {_supplied}.\n')
         else:
+            # `_recorded` (the recorded comparand) is composed only here, on the mismatch
+            # arm that actually renders it — the absent arm never references it.
+            if arm == 'file':
+                _recorded = f'the recorded dispatch digest {attempt["digest"]!r}'
+            else:
+                _recorded = (f'the recorded sentinels {attempt.get("sentinel_open")!r} / '
+                             f'{attempt.get("sentinel_close")!r}')
             sys.stderr.write(
                 f'issue-audit-state.py record-return: round {rnd["round"]} returned a '
                 f'parseable {verdict} verdict whose carriage evidence DISAGREES with the '
