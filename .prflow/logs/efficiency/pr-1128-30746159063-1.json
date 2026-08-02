@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1128",
+  "generated_at": "2026-08-02T11:51:00Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.39",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 6.412604899999998,
+    "tokens": {
+      "input_tokens": 5993,
+      "output_tokens": 28284,
+      "cache_read_input_tokens": 2466087,
+      "cache_creation_input_tokens": 189079,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 5993,
+        "outputTokens": 28284,
+        "cacheReadInputTokens": 2466087,
+        "cacheCreationInputTokens": 189079,
+        "webSearchRequests": 0,
+        "costUSD": 3.8608985000000007,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 86,
+        "outputTokens": 34779,
+        "cacheReadInputTokens": 2791503,
+        "cacheCreationInputTokens": 317950,
+        "webSearchRequests": 0,
+        "costUSD": 2.5517064000000005,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 24,
+    "duration_ms": 543253
+  },
+  "permission_denials": {
+    "count": 4,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "git status --porcelain; echo \"---ENV---\"; echo \"GITHUB_RUN_ID=${GITHUB_RUN_ID:-<empty>}\"; echo \"GITHUB_ACTIONS=${GITHUB_ACTIONS:-<empty>}\"; echo \"CLAUDE_SKILL_DIR=${CLAUDE_SKILL_DIR:-<empty>}\"",
+      "git status --porcelain; echo \"---ENV---\"; echo \"GITHUB_RUN_ID=[${GITHUB_RUN_ID:-none}]\"; echo \"GITHUB_ACTIONS=[${GITHUB_ACTIONS:-none}]\"; echo \"CLAUDE_SKILL_DIR=[${CLAUDE_SKILL_DIR:-none}]\"",
+      "printf 'RUN_ID=%s\\n' \"${GITHUB_RUN_ID:-none}\"; printf 'ACTIONS=%s\\n' \"${GITHUB_ACTIONS:-none}\"; printf 'SKILLDIR=%s\\n' \"${CLAUDE_SKILL_DIR:-none}\"",
+      "git -C /home/runner/work/prflow/prflow grep -n \"dismiss-stale-rejections.sh\" docs/ skills/ | grep -v \"phase-4-4-github-post\""
+    ],
+    "total": 4,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
