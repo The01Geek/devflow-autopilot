@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1138",
+  "generated_at": "2026-08-02T13:08:50Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.43",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 6.1786819999999985,
+    "tokens": {
+      "input_tokens": 34,
+      "output_tokens": 22182,
+      "cache_read_input_tokens": 2334498,
+      "cache_creation_input_tokens": 156022,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 94,
+        "outputTokens": 55472,
+        "cacheReadInputTokens": 3774384,
+        "cacheCreationInputTokens": 371062,
+        "webSearchRequests": 0,
+        "costUSD": 6.1786819999999985,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 23,
+    "duration_ms": 537301
+  },
+  "permission_denials": {
+    "count": 15,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"CLAUDE_SKILL_DIR=${CLAUDE_SKILL_DIR:-<unset>}\"; echo \"GITHUB_RUN_ID=${GITHUB_RUN_ID:-<unset>}\"; echo \"GITHUB_ACTIONS=${GITHUB_ACTIONS:-<unset>}\"; pwd",
+      "echo \"skilldir=$CLAUDE_SKILL_DIR\"; echo \"runid=$GITHUB_RUN_ID\"; echo \"gha=$GITHUB_ACTIONS\"; pwd",
+      "cp scripts/reception_identity.py /tmp/rc.py && git apply --3way 2>/dev/null; git apply --include=scripts/reception_identity.py .prflow/tmp/review/pr-1138/local/diff.patch 2>&1 | head; sha256sum scripts/reception_identity.py; git checkout scripts/reception_identity.py",
+      "git apply --include=scripts/reception_identity.py .prflow/tmp/review/pr-1138/local/diff.patch && sha256sum scripts/reception_identity.py && git checkout scripts/reception_identity.py",
+      "git apply --include=scripts/reception_identity.py .prflow/tmp/review/pr-1138/local/diff.patch; sha256sum scripts/reception_identity.py; git checkout scripts/reception_identity.py",
+      "git apply --include=scripts/reception_identity.py .prflow/tmp/review/pr-1138/local/diff.patch",
+      "d=$(mktemp -d); mkdir -p \"$d/scripts\"; cp scripts/reception_identity.py \"$d/scripts/\"; cd \"$d\" >/dev/null; git apply --include=scripts/reception_identity.py /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1138/local/diff.patch && sha256sum scripts/reception_identity.py",
+      "cd /tmp && rm -rf rcw && mkdir -p rcw/scripts && cp /home/runner/work/prflow/prflow/scripts/reception_identity.py rcw/scripts/ && cd /tmp/rcw && git init -q . && git apply .prflow 2>/dev/null; patch -p1 < /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1138/local/diff.patch; sha256sum scripts/reception_identity.py",
+      "rm -rf /tmp/rcw && mkdir -p /tmp/rcw/scripts && cp /home/runner/work/prflow/prflow/scripts/reception_identity.py /tmp/rcw/scripts/reception_identity.py",
+      "rm -rf /tmp/rcw && mkdir -p /tmp/rcw/scripts && cp /home/runner/work/prflow/prflow/scripts/reception_identity.py /tmp/rcw/scripts/reception_identity.py && cd /tmp/rcw && patch -p1 -s < /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1138/local/diff.patch; sha256sum /tmp/rcw/scripts/reception_identity.py",
+      "mkdir -p /tmp/rcw/scripts",
+      "cd /home/runner/work/prflow/prflow/.prflow/tmp/rcw && patch -p1 -s < /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1138/local/diff.patch",
+      "patch -d /home/runner/work/prflow/prflow/.prflow/tmp/rcw -p1 -s -i /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1138/local/diff.patch",
+      "patch -d /home/runner/work/prflow/prflow/.prflow/tmp/rcw -p1 -s -i /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1138/local/diff.patch",
+      "scripts/post-review-verdict.sh \"1138\" COMMENT .prflow/tmp/review-verdict-body.md"
+    ],
+    "total": 15,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
