@@ -42218,7 +42218,7 @@ fi
 # full-suite call share the same lower-bound contract; test_module_runner.py parses
 # this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/tier1-rename-migration.sh" \
-  "tier1-rename-migration" 191; then
+  "tier1-rename-migration" 300; then
   printf 'ERROR: tier1-rename-migration boundary could not record its result\n'
   exit 1
 fi
