@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1118",
+  "generated_at": "2026-08-02T06:29:10Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.30",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 6.194174049999995,
+    "tokens": {
+      "input_tokens": 60,
+      "output_tokens": 19016,
+      "cache_read_input_tokens": 3809454,
+      "cache_creation_input_tokens": 135632,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 60,
+        "outputTokens": 19016,
+        "cacheReadInputTokens": 3809454,
+        "cacheCreationInputTokens": 135632,
+        "webSearchRequests": 0,
+        "costUSD": 3.7367470000000003,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 150,
+        "outputTokens": 18968,
+        "cacheReadInputTokens": 4185861,
+        "cacheCreationInputTokens": 244453,
+        "webSearchRequests": 0,
+        "costUSD": 2.45742705,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 37,
+    "duration_ms": 414967
+  },
+  "permission_denials": {
+    "count": 24,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "gh pr diff 1118 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1118/local-run/diff.patch; wc -l .prflow/tmp/review/pr-1118/local-run/diff.patch",
+      "for f in skills/requesting-code-review/SKILL.md skills/requesting-code-review/code-reviewer.md skills/review/phases/phase-3-agents.md; do printf '%s  ' \"$f\"; python3 -c \"import hashlib;print(hashlib.sha256(open('$f','rb').read()).hexdigest())\"; done",
+      "rev=cc12d5055d5a98a21c733622c49225ca6cf93b4c\necho \"=== comment-analyzer: Positive Findings? ===\"; git show $rev:agents/comment-analyzer.md | grep -c \"Positive Findings\" || true\necho \"=== pr-test-analyzer: Positive Observations? ===\"; git show $rev:agents/pr-test-analyzer.md | grep -c \"Positive Observations\" || true\necho \"=== pr-test-analyzer: rated 8-10 / 5-7 ===\"; git show $rev:agents/pr-test-analyzer.md | grep -Eo \"Tests rated (8-10|5-7)\" || true\necho \"=== type-design-analyzer: Strengths/Conce …[per-command-truncated]",
+      "git show cc12d5055d5a98a21c733622c49225ca6cf93b4c:agents/comment-analyzer.md > .prflow/tmp/review/pr-1118/local-run/ca.md; git show cc12d5055d5a98a21c733622c49225ca6cf93b4c:agents/pr-test-analyzer.md > .prflow/tmp/review/pr-1118/local-run/pta.md; git show cc12d5055d5a98a21c733622c49225ca6cf93b4c:agents/type-design-analyzer.md > .prflow/tmp/review/pr-1118/local-run/tda.md; git show cc12d5055d5a98a21c733622c49225ca6cf93b4c:skills/requesting-code-review/code-reviewer.md > .prflow/tmp/review/pr-1118 …[per-command-truncated]",
+      "git show cc12d5055d5a98a21c733622c49225ca6cf93b4c --stat | head -30\necho ---\ngit grep -n \"Working-tree policy\" $(git ls-tree -r --name-only cc12d5055d5a98a21c733622c49225ca6cf93b4c -- agents/) 2>/dev/null\necho ---\nfor f in agents/*.md; do echo \"== $f ==\"; git show cc12d5055d5a98a21c733622c49225ca6cf93b4c:\"$f\" | grep -n \"Working-tree policy\" ; done",
+      "for f in agents/*.md; do echo \"== $f ==\"; git show cc12d5055d5a98a21c733622c49225ca6cf93b4c:\"$f\" 2>/dev/null | grep -n \"Working-tree policy\"; done",
+      "for f in agents/*.md; do printf '== %s ==\\n' \"$f\"; git show cc12d5055d5a98a21c733622c49225ca6cf93b4c:\"$f\" 2>/dev/null | grep -n \"Working-tree policy\"; done",
+      "for f in comment-analyzer.md pr-test-analyzer.md type-design-analyzer.md code-reviewer.md silent-failure-hunter.md; do\n  echo \"== agents/$f ==\"\n  git show cc12d5055d5a98a21c733622c49225ca6cf93b4c:agents/$f 2>/dev/null | grep -n \"Working-tree policy\"\ndone",
+      "for f in comment-analyzer.md pr-test-analyzer.md type-design-analyzer.md code-reviewer.md silent-failure-hunter.md; do\n  echo \"== agents/$f ==\"\n  git show \"cc12d5055d5a98a21c733622c49225ca6cf93b4c:agents/${f}\" 2>/dev/null | grep -n \"Working-tree policy\"\ndone",
+      "git ls-tree cc12d5055d5a98a21c733622c49225ca6cf93b4c -- agents/",
+      "git ls-tree cc12d5055d5a98a21c733622c49225ca6cf93b4c -- agents/",
+      "git ls-tree cc12d5055d5a98a21c733622c49225ca6cf93b4c -- agents/ 2>&1",
+      "git worktree list 2>/dev/null | head -1\ngit archive cc12d5055d5a98a21c733622c49225ca6cf93b4c | tar -tf - > /tmp/filelist.txt 2>/dev/null\nmkdir -p /tmp/pr1118tree && git archive cc12d5055d5a98a21c733622c49225ca6cf93b4c | tar -x -C /tmp/pr1118tree\ngrep -rn \"Positive Findings\\|Positive Observations\\|### Strengths\\|### Recommendations\\|Strengths:\" /tmp/pr1118tree --include=\"*.md\" --include=\"*.json\" ",
+      "mkdir -p /tmp/pr1118tree && git archive cc12d5055d5a98a21c733622c49225ca6cf93b4c | tar -x -C /tmp/pr1118tree",
+      "mkdir -p /tmp/pr1118tree",
+      "git show cc12d5055d5a98a21c733622c49225ca6cf93b4c:agents/code-reviewer.md > /tmp/cr.md 2>&1; grep -n \"Working-tree policy\" /tmp/cr.md\ngit show cc12d5055d5a98a21c733622c49225ca6cf93b4c:agents/silent-failure-hunter.md > /tmp/sfh.md 2>&1; grep -n \"Working-tree policy\" /tmp/sfh.md\ngit show cc12d5055d5a98a21c733622c49225ca6cf93b4c:agents/code-explorer.md > /tmp/ce.md 2>&1; grep -n \"Working-tree policy\" /tmp/ce.md\ngit show cc12d5055d5a98a21c733622c49225ca6cf93b4c:agents/code-architect.md > /tmp/ca.md  …[per-command-truncated]",
+      "for f in skills/review/phases/phase-3-agents.md skills/requesting-code-review/code-reviewer.md agents/comment-analyzer.md agents/pr-test-analyzer.md agents/type-design-analyzer.md; do\necho \"== $f ==\"\ngit show cc12d5055d5a98a21c733622c49225ca6cf93b4c:\"$f\" | grep -n \"Positive Findings\\|Positive Observations\\|### Strengths\\|### Recommendations\"\ndone",
+      "for f in code-reviewer silent-failure-hunter comment-analyzer pr-test-analyzer type-design-analyzer; do echo \"== $f ==\"; git show cc12d5055d5a98a21c733622c49225ca6cf93b4c:agents/$f.md | grep -A2 \"^## Working-tree policy\"; done",
+      "cd /home/runner/work/prflow/prflow\ngit worktree add /tmp/pr1118-check cc12d5055d5a98a21c733622c49225ca6cf93b4c >/tmp/wtlog 2>&1\ncd /tmp/pr1118-check\npython3 lib/test/cloud_writer_contract.py generate 2>&1 | tail -5\ngit diff --stat\ngit diff -- scripts/devflow-cloud-writer-contract.json | head -30",
+      "git worktree add /tmp/pr1118-check cc12d5055d5a98a21c733622c49225ca6cf93b4c 2>&1",
+      "git worktree add /tmp/pr1118-check cc12d5055d5a98a21c733622c49225ca6cf93b4c 2>&1",
+      "git show cc12d5055d5a98a21c733622c49225ca6cf93b4c:scripts/devflow-cloud-writer-contract.json > /tmp/contract.json 2>/dev/null || true\ncat /tmp/contract.json | grep -c '\"' \npython3 - <<'EOF'\nimport hashlib, subprocess, json\nsha_head=\"cc12d5055d5a98a21c733622c49225ca6cf93b4c\"\ndata=json.loads(subprocess.run([\"git\",\"show\",f\"{sha_head}:scripts/devflow-cloud-writer-contract.json\"],capture_output=True,text=True).stdout)\nfiles=[\"skills/requesting-code-review/SKILL.md\",\"skills/requesting-code-review/code …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\ngit show cc12d5055d5a98a21c733622c49225ca6cf93b4c:skills/requesting-code-review/SKILL.md | sha256sum\ngit show cc12d5055d5a98a21c733622c49225ca6cf93b4c:skills/review/phases/phase-3-agents.md | sha256sum\ngit worktree remove /tmp/pr1118-check --force 2>/dev/null; rm -rf /tmp/pr1118-check"
+    ],
+    "total": 24,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
