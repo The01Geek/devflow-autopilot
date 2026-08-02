@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1137",
+  "generated_at": "2026-08-02T13:32:09Z",
+  "config_fingerprint": {
+    "sha256": "4ec1b79f4a7be9f17abdcf05fd02903b4fc7276b40d9024a53ab5922fbddfce9",
+    "partial": false,
+    "salient": {
+      "verdict_severity_threshold": "critical",
+      "fix_severity_threshold": "suggestion",
+      "max_iterations": 5
+    }
+  },
+  "source": "review-and-fix",
+  "synthesized": true,
+  "cut_candidate_min_dispatch": 3,
+  "iterations": 1,
+  "per_iteration": [
+    {
+      "iter": 1,
+      "loop_role": "fix",
+      "synthesized": true,
+      "phase3_dispatched": [],
+      "phase3_dispatched_count": 0,
+      "phase3_dispatched_present": false,
+      "dispatched_effort_present": false,
+      "agent_effort": [],
+      "diff_profile": null,
+      "verification_posture": "none-recorded",
+      "checklist_lite_count": 0,
+      "checklist_agent_count": 0,
+      "fixes_applied": 0,
+      "added_nothing": true,
+      "agent_verdicts": []
+    }
+  ],
+  "telemetry": [
+    {
+      "iter": 1,
+      "phases": "unavailable"
+    }
+  ],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.43",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 9.555603000000005,
+    "tokens": {
+      "input_tokens": 46,
+      "output_tokens": 26682,
+      "cache_read_input_tokens": 4109154,
+      "cache_creation_input_tokens": 217698,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 116,
+        "outputTokens": 73794,
+        "cacheReadInputTokens": 6064711,
+        "cacheCreationInputTokens": 617832,
+        "webSearchRequests": 0,
+        "costUSD": 9.555603000000005,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 42,
+    "duration_ms": 713770
+  },
+  "permission_denials": {
+    "count": 12,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"PR_NUMBER=1137\"; /home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review; echo \"ext-rc=$?\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review 2>&1; echo \"ext-rc=$?\"",
+      "scripts/load-prompt-extension.sh review",
+      "git status --porcelain; echo \"---env---\"; echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none}\"",
+      "echo \"RUN_ID=[${GITHUB_RUN_ID:-}] ATTEMPT=[${GITHUB_RUN_ATTEMPT:-}] ACTIONS=[${GITHUB_ACTIONS:-}]\"",
+      "printf 'RUN_ID=[%s] ATTEMPT=[%s] ACTIONS=[%s]\\n' \"${GITHUB_RUN_ID:-}\" \"${GITHUB_RUN_ATTEMPT:-}\" \"${GITHUB_ACTIONS:-}\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1049 --pr 1137 2>.prflow/tmp/review/pr-1137/30749668547-1/acs.err ; echo \"acs-rc=$?\"",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>/tmp/ext_stderr; echo \"EXIT=$?\"; echo \"---STDERR---\"; cat /tmp/ext_stderr",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>/tmp/ext_stderr 1>/tmp/ext_stdout; echo \"EXIT=$?\"",
+      "mkdir -p .prflow/tmp/review/pr-1137; .prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>.prflow/tmp/review/pr-1137/ext_stderr 1>.prflow/tmp/review/pr-1137/ext_stdout; echo \"EXIT=$?\"",
+      "ls .changeset/ 2>/dev/null; echo \"---\"; for f in $(ls .changeset/*.md 2>/dev/null | grep -v README | head -2); do echo \"== $f ==\"; sed -n '1,8p' \"$f\"; done; echo \"=== consolidator frontmatter keys ===\"; grep -n \"type\\|bump\\|frontmatter\\|split(\" scripts/consolidate-changesets.py | head -30"
+    ],
+    "total": 12,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
