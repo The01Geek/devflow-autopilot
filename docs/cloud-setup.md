@@ -30,11 +30,15 @@ gate. Two open defects describe the consequences and neither is close to landing
   `GITHUB_TOKEN` regardless of the `permissions:` block, so the job cannot post the required
   check and the context goes unreported.
 
-**The supported review path is `/prflow:review` by comment**, and this change does not edit it. A
-repository collaborator with write, admin or maintain permission comments `/prflow:review`
-on a pull request; `devflow.yml`'s `gate` job authorizes the actor through
-`scripts/authorize-actor.sh`, and the review runs. **An outside fork contributor cannot
-self-trigger a PRFlow review — a repository collaborator must post the comment.**
+**A repository collaborator commenting `/prflow:review` is the always-available review
+path**, and this change does not edit it. A repository collaborator with write, admin or
+maintain permission comments `/prflow:review` on a pull request; `devflow.yml`'s `gate` job
+authorizes the actor through `scripts/authorize-actor.sh`, and the review runs. **An outside
+fork contributor cannot self-trigger a PRFlow review — a repository collaborator must post
+the comment.** A consumer can *additionally* opt into having that comment posted
+**automatically once CI is green** by copying the documented snippet in
+[`workflow-triggers.md`](workflow-triggers.md); it is authorized by the same
+`prflow.allowed_bots` gate (see the automatic-review note later in this guide).
 
 **Duplicate `/prflow:review` commands are deduped (issue #989).** A second standalone
 `/prflow:review` on a pull request while a review of the **same commit** is already in flight
@@ -1011,6 +1015,17 @@ re-enters declines the App-authored comment. The backstop is capped at
 gated by `prflow_review.stall_backstop.enabled` (default `true`, disabled only
 on a real JSON `false`); when the cap is exhausted, disabled, or no App token is
 configured it reports no-fire and degrades to the dead-end flip.
+
+A **third** path shares this `prflow.allowed_bots` requirement: the optional
+**automatic review request on green CI**. A consumer that copies the
+`pull_request` snippet from
+[`workflow-triggers.md`](workflow-triggers.md#automatic-review-request-on-green-ci-ciyml-and-shipping-it-to-a-consumer-repository)
+has their App post a `/prflow:review` comment automatically once CI is green — and
+that comment is authorized by the same `prflow.allowed_bots` gate, so the minting
+App's bot login (e.g. `your-app[bot]`) must be listed there too. As with the two
+backstops above, `prflow.allowed_bots` is resolved from the **default branch at
+trigger time**, so the slug must merge before the snippet can start a review; see
+the snippet's adjacent preconditions for the full set.
 
 > **Loop-safety note.** Unlike `GITHUB_TOKEN` pushes (which GitHub suppresses from
 > re-triggering workflows), an **App-token push re-triggers workflows**. For PRFlow
