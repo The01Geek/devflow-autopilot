@@ -462,9 +462,10 @@ argument RED at the desk, everywhere outside the Actions-only
 
 ## A PR-mode `/prflow:review` posts one live progress comment
 
-Standalone `/prflow:review` (the light listener in `devflow.yml`, and the
-automated `devflow-review.yml` reviewer) is the review-side analogue of the
-implement workpad. In **PR mode**, and when
+Standalone `/prflow:review` is handled by the light listener in `devflow.yml`.
+The same engine also runs in repositories that retained the now-withheld
+`devflow-review.yml` automated reviewer, but that workflow is not shipped in
+this tree. In **PR mode**, and when
 `prflow_review.live_progress_comment_enabled` is `true` (the default), the
 review engine maintains a **single per-run** marker-tagged comment — keyed by a
 run-keyed marker (`<!-- prflow:review-progress run=<id>-<attempt> -->`; the bare
@@ -473,27 +474,27 @@ a blueprint of the phases up front, then per-phase results (diff classification,
 checklist counts, each Phase-3 agent's findings appended *as that agent
 returns*, the verdict), finalizing with the full Phase 4.1 report plus a
 run-telemetry summary and effectiveness trace. `skills/review/SKILL.md` owns
-this end-to-end (Phase 0.3.5 seeds it; the update protocol rewrites it at each
-phase boundary; Phase 4.5 finalizes it).
+the comment lifecycle. `scripts/seed-review-progress.sh` owns the cloud seed's
+marker derivation and marker/body agreement.
 
-- It reuses the **same helper** as the implement workpad — `scripts/workpad.py`
-  — pointed at the review marker via the helper's `--marker` flag (a plain
-  argument on each call; precedence: `--marker` > the `DEVFLOW_WORKPAD_MARKER`
-  env var > `prflow.workpad_marker` config > the built-in default). The flag is
-  used rather than the env var because a leading `VAR=value` env-assignment
-  makes the command un-matchable against the cloud allow-list rule
-  `Bash(.../workpad.py:*)` — the command would no longer *start with* the helper
-  path — so those calls would be silently denied on the read-only `review`
-  profile and the live comment would never appear.
-- The engine **owns the comment end-to-end**, so `devflow-review.yml` no longer
-  seeds, templates, or PATCHes a competing progress comment — its prompt just
-  runs the skill against the PR. The earlier per-phase PATCH choreography that
-  lived in the workflow now lives in the skill. Exactly one such comment exists
-  **per review run**: each run seeds its own, keyed by a run-keyed marker
-  (`<!-- prflow:review-progress run=<id>-<attempt> -->`) and carrying a link to
-  that job, so `workpad.py id --marker …` resolves only the current run's comment
-  — earlier runs' comments are never overwritten and stay on the PR as review
-  history.
+- Cloud seeding runs through `scripts/seed-review-progress.sh`. With a usable
+  `GITHUB_RUN_ID`, that helper derives
+  `<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT:-1} -->`,
+  inserts it as line 1 of the body passed to `workpad.py create` and reports the
+  exact literal. The engine holds that reported value for each later rewrite.
+  It never composes a second cloud marker after a successful helper call.
+- A local run is the explicit exception. The engine computes one timestamp-based
+  marker before invoking the helper and passes it through the helper's existing
+  marker slot. The helper uses and reports that literal unchanged. If the helper
+  never executes because it is absent or refused, the engine composes the
+  effective marker itself and reauthors the body with that marker as line 1
+  before a direct `workpad.py create` call.
+- The review lifecycle still uses `scripts/workpad.py` for marker-scoped lookup,
+  create and patch operations. `devflow-review.yml` does not seed, template or
+  PATCH a competing comment; repositories that retained that withheld workflow
+  run the shared engine. Exactly one such comment exists **per review run**.
+  Earlier runs' comments are never overwritten and remain on the pull request as
+  review history.
 - Phase 4.4's `gh pr review` stays the authoritative merge signal (a short
   verdict stub); the live comment is the human-readable narrative pointing at it.
   The final comment state reflects the actual verdict — never a green check above
@@ -509,10 +510,22 @@ phase boundary; Phase 4.5 finalizes it).
   `**Status:**` line still begins with the interim `🚀` glyph, rewrites it to
   `❌ Review failed` with a one-line cause and run link (a terminal Status is
   never clobbered; earlier runs' comments are never touched). It is best-effort
-  (always exits 0, so it never fails the required check) and is wired into the
-  **same three** non-success arms at both call sites — `devflow-review.yml`'s
-  `finalize_check` job (`if: always()`, so it survives even a review-job runner
-  death) and `devflow.yml`'s comment-triggered job (an `always()` step). The
+  (always exits 0, so it never fails the required check). In the shipped tree,
+  `devflow.yml` invokes it from an `always()` step for a failed or cancelled
+  Claude step and for a final engine result carrying `is_error`. A repository
+  that retained the withheld `devflow-review.yml` keeps that installed file's
+  existing `finalize_check` call site; this change does not add new workflow
+  wiring to that preserved copy.
+
+  After the authoritative flip, the shipped `devflow.yml` path runs marker
+  diagnosis only for canonical `/prflow:review` and `/prflow:review-and-fix`
+  commands. `scripts/run-review-progress-diagnosis.sh` dispatches to
+  `scripts/diagnose-review-progress-marker.sh`, which distinguishes an exact
+  match, a clean absence, an active bot-authored `🚀 Reviewing` comment under a
+  foreign marker and an unestablished comments read. The foreign outcome emits a
+  warning phrased as a possible marker mismatch. Exact matches and clean
+  absences remain silent. An unestablished read emits a non-asserting notice.
+  Non-review commands do not run the diagnosis. The
   died-flip makes a dead review *visible* but leaves it a dead-end; the bounded
   **no-verdict auto-resume backstop** (`prflow_review.stall_backstop`, issue
   #408) then re-runs it without a human — when a cloud review ends with no
@@ -612,8 +625,9 @@ the `review_dedupe` job in `devflow.yml`.
   Reviewing`. Only the review engine writes that comment, so the candidate
   population is *reviews*, not conversation. The helper suppresses when the PR
   carries such a comment that is **bot-authored** (a forged marker from an ordinary
-  commenter is not trusted), **not this run's own** (excluded by its `run=<id>`
-  key), still in `🚀 Reviewing` (a terminal-flipped comment is a *completed*
+  commenter is not trusted), **not this workflow run's own** (excluded by the
+  `run=<workflow-run-id>-` prefix, deliberately ignoring the attempt suffix),
+  still in `🚀 Reviewing` (a terminal-flipped comment is a *completed*
   review, not an in-flight one), and **fresh** — its `updated_at` within a liveness
   window (default 120 minutes), so a *killed* run that froze its comment in
   `🚀 Reviewing` is treated as stale, not in-flight.

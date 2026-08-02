@@ -1498,6 +1498,8 @@ jobs:
           CONTEXT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
           CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
           ENGINE_ERROR: ${{ steps.engine.outputs.is_error }}
+          COMMAND: ${{ needs.gate.outputs.command }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           FLIP_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
@@ -1519,6 +1521,18 @@ jobs:
           else
             echo "::warning::flip review-progress: flip-review-progress-failed.sh absent at $FLIP_HELPER; review-progress comment not flipped to '❌ Review failed'"
           fi
+          # review-progress marker diagnosis BEGIN
+          # The authoritative flip runs first. Diagnosis still recognizes its
+          # exact marker after terminalization, while only active Reviewing
+          # comments under another identity can produce a mismatch warning.
+          DIAG_RUNNER=.prflow/vendor/prflow/scripts/run-review-progress-diagnosis.sh
+          [ -f "$DIAG_RUNNER" ] || DIAG_RUNNER=scripts/run-review-progress-diagnosis.sh
+          if [ -f "$DIAG_RUNNER" ]; then
+            bash "$DIAG_RUNNER" "$COMMAND" "$REPO" "$CONTEXT_NUMBER" "$FLIP_MARKER" || true
+          else
+            echo "::notice::flip review-progress: could not establish marker diagnosis because the dispatcher is absent at $DIAG_RUNNER"
+          fi
+          # review-progress marker diagnosis END
 
       # ── No-verdict auto-resume backstop for the manual /prflow:review path
       # (issue #408). The review-side sibling of the devflow-review.yml
