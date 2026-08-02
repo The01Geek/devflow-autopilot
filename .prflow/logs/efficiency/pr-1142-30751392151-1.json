@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1142",
+  "generated_at": "2026-08-02T14:17:21Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.45",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.951066249999999,
+    "tokens": {
+      "input_tokens": 61,
+      "output_tokens": 29016,
+      "cache_read_input_tokens": 4821096,
+      "cache_creation_input_tokens": 196554,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 73,
+        "outputTokens": 36479,
+        "cacheReadInputTokens": 5151135,
+        "cacheCreationInputTokens": 276173,
+        "webSearchRequests": 0,
+        "costUSD": 5.951066249999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 44,
+    "duration_ms": 560650
+  },
+  "permission_denials": {
+    "count": 9,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=$GITHUB_RUN_ID ATTEMPT=$GITHUB_RUN_ATTEMPT ACTIONS=$GITHUB_ACTIONS REPO=$GITHUB_REPOSITORY\"; echo \"---base_branch---\"; .prflow/vendor/prflow/scripts/config-get.sh .base_branch main 2>&1; echo \"---live_progress---\"; .prflow/vendor/prflow/scripts/config-get.sh .prflow_review.live_progress_comment_enabled true 2>&1",
+      "echo \"run=$GITHUB_RUN_ID attempt=$GITHUB_RUN_ATTEMPT actions=$GITHUB_ACTIONS\"",
+      "printf 'run_id:[%s] attempt:[%s] actions:[%s]\\n' \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" \"$GITHUB_ACTIONS\"",
+      "echo \"$GITHUB_RUN_ID\"",
+      "RUNID=\"${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}\"; mkdir -p \".prflow/tmp/review/pr-1142/$RUNID\"; printf '%s\\n' \"$RUNID\" | tee .prflow/tmp/review/pr-1142/runid.txt",
+      "mkdir -p \".prflow/tmp/review/pr-1142/$(printf '%s-%s' \"${GITHUB_RUN_ID:-local}\" \"${GITHUB_RUN_ATTEMPT:-1}\")\"",
+      "gh pr diff 1142 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1142/run/diff.patch; grep -c '^diff --git' .prflow/tmp/review/pr-1142/run/diff.patch; wc -l .prflow/tmp/review/pr-1142/run/diff.patch",
+      "for f in lib/efficiency-trace.jq lib/test/modules/review-and-fix-contract.sh skills/review-and-fix/SKILL.md skills/review-and-fix/references/convergence.md skills/review-and-fix/references/loop-exit.md skills/review/phases/phase-3-agents.md skills/review/phases/phase-0-3-6-blocker-recheck.md; do echo \"===== $f =====\"; grep -nE \"skills/\\*\\*|agents/\\*\\*|lib/\\*\\*|engine.surface|engine_self_modifying\" \"$f\" | grep -iE \"engine.surface|skills/\\*\\*|touches|matches|path\" | head -8; done",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1071 --pr 1142 2>.prflow/tmp/review/pr-1142/run/acs.err; echo \"acs-rc=$?\""
+    ],
+    "total": 9,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
