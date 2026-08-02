@@ -467,9 +467,14 @@ printf '%s\n' '{"schema_version": 1, "test_modules": {}}' \
 # Two hand-written copies of the map schema would let the control arm and the drift arm
 # diverge in some other key, which would make the control pass — or fail — for a reason
 # unrelated to the planted drift, defeating its whole purpose.
-_hpg_write_map() {  # files-object -> writes the fixture's coverage map
+_hpg_write_map() {  # files-object -> writes the fixture's coverage map in CANONICAL form
+  # Canonical serialization (issue #1065): the guard now asserts the on-disk map is
+  # byte-identical to `json.dumps(..., indent=2, sort_keys=True, ensure_ascii=False)`
+  # + one trailing newline (arm 11). A raw single-line printf would trip that arm and
+  # break the #707 clean control below, so the template is re-serialized canonically.
   printf '{"schema_version": 1, "files": %s, "run_sh_blocks": {}, "non_code_exempt": ["scripts/workflow-flight-recorder-registry.json", "lib/test/modules/coverage-map.json"], "exempt_subtrees": ["lib/test/"], "generated_by": "harness-python-guards planted-defect fixture"}\n' \
-    "$1" > "$_hpg_cg_fixture/lib/test/modules/coverage-map.json"
+    "$1" | python3 -c 'import json,sys; sys.stdout.write(json.dumps(json.load(sys.stdin), indent=2, sort_keys=True, ensure_ascii=False)+"\n")' \
+    > "$_hpg_cg_fixture/lib/test/modules/coverage-map.json"
 }
 # Undrifted map: the planted unit is listed, so the guard must report nothing.
 _hpg_write_map '{"lib/planted-drift.sh": {"owner": "unmodularized", "note": ""}}'
@@ -499,4 +504,30 @@ assert_eq "#707 planted-defect control: the planted coverage-map drift turns the
   "$([ "$_hpg_cg_drift_rc" -ne 0 ] && echo yes || echo no)"
 assert_eq "#707 planted-defect control: the RED names the drifted unit" "yes" \
   "$(case "$_hpg_cg_drift_out" in *"lib/planted-drift.sh"*) echo yes ;; *) echo no ;; esac)"
+
+# ── Arm 11 canonical-form positive control (issue #1065) ─────────────────────
+# The guard now asserts the on-disk map is byte-identical to its canonical
+# serialization, so ordering/formatting drift (a merge-conflict resolution, a hand
+# edit) fails at the point of introduction instead of being silently rewritten later
+# by an unrelated author's --fix. Same fixture discipline as #707: a canonically-
+# serialized map must be CLEAN, so the RED is attributable to the planted drift rather
+# than fixture noise. The planted unit is re-listed so `files` is complete and only the
+# SERIALIZATION differs between the two arms — the drift the arm exists to catch leaves
+# the parsed value unchanged, so every presence/ownership arm still passes.
+_hpg_write_map '{"lib/planted-drift.sh": {"owner": "unmodularized", "note": ""}}'
+_hpg_cg_canon_out="$(python3 "$LIB/test/coverage_map_guard.py" "$_hpg_cg_fixture" 2>&1)"
+_hpg_cg_canon_rc=$?
+assert_eq "#1065 canonical-form control: a canonically-serialized map is clean (control arm)" "0" "$_hpg_cg_canon_rc"
+assert_eq "#1065 canonical-form control: the canonical fixture reports no violation" "" "$_hpg_cg_canon_out"
+# Plant serialization drift: rewrite the SAME parsed value with non-canonical bytes
+# (compact, no indent, no trailing newline). `git ls-files` is unaffected (the path
+# stays tracked) and the guard reads the working-tree bytes, so only arm 11 can catch it.
+python3 -c 'import json,sys; p=sys.argv[1]; v=json.load(open(p,encoding="utf-8")); open(p,"w",encoding="utf-8").write(json.dumps(v,sort_keys=True,ensure_ascii=False))' \
+  "$_hpg_cg_fixture/lib/test/modules/coverage-map.json"
+_hpg_cg_canon_drift_out="$(python3 "$LIB/test/coverage_map_guard.py" "$_hpg_cg_fixture" 2>&1)"
+_hpg_cg_canon_drift_rc=$?
+assert_eq "#1065 canonical-form control: non-canonical serialized bytes turn the guard RED" "yes" \
+  "$([ "$_hpg_cg_canon_drift_rc" -ne 0 ] && echo yes || echo no)"
+assert_eq "#1065 canonical-form control: the RED names arm 11" "yes" \
+  "$(case "$_hpg_cg_canon_drift_out" in *"[arm11]"*) echo yes ;; *) echo no ;; esac)"
 rm -rf "$_hpg_cg_fixture"
