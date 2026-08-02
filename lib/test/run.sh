@@ -15267,10 +15267,11 @@ assert_eq "#1059 post-verdict: empty API error still prints a FAILED line, exit 
 
 # ── Adversarial / malformed input: every SKIP issues NO request ──
 # Non-numeric PR (drive the helper directly to control argv[1]).
+# Reset the log BEFORE the single run so its own POST count is the observation
+# (this case bypasses prv_run only to control argv[1]; one invocation suffices).
+: > "$PRV_SB/log"
 PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" PRV_SB="$PRV_SB" \
   bash "$PRV" abc APPROVE "$PRV_SB/body-plain.md" 2>/dev/null)"; PRV_RC_OBS=$?
-: > "$PRV_SB/log"; DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" PRV_SB="$PRV_SB" \
-  bash "$PRV" abc APPROVE "$PRV_SB/body-plain.md" >/dev/null 2>&1
 assert_eq "#1059 post-verdict: non-numeric PR → SKIP not-numeric, exit 3, no request" \
   "SKIP not-numeric-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
 # Unknown event AND the empty string both refuse (no PENDING draft can be created).
