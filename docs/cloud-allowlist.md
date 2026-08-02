@@ -872,13 +872,19 @@ discipline, not a probe result). The guard **defers** these.
 `settings:` input and writes a `pretooluse-probe-fired` marker. It is designed to
 establish, by observation, whether a `PreToolUse` hook fires under `claude-code-action`
 (`FIRED`/`NOT-FIRED`) and whether its `permissionDecisionReason` reaches the engine
-transcript (`REASON-DELIVERED`/`REASON-ABSENT`). The guard's own firing behavior is
-resolved from the workflow definition and is **not** observable inside the implementing
-pull request's own run, so the probe is dispatched **after merge** and its run id +
-three-way result are recorded here then. (#919 owns that dispatch; it has since **dropped**
-the once-planned per-arm review-run denial count against the run-30138268273 baseline as
-no longer achievable — no live tier can produce a review run carrying the guard — retaining
-that baseline run id only as historical reference.)
+transcript (`REASON-DELIVERED`/`REASON-ABSENT`).
+
+Filling the table below is **#919's** job, not this section's, and that issue — not
+this page — holds the current record. Two things a reader should take from it rather
+than from the row's placeholder. First, the arm is **not** awaiting a dispatch to
+produce a first result: #919 records it as having already returned the same verdict
+pair on repeated same-repo `pull_request` runs, together with the scope note that keeps
+the pair from misleading (the probe's own hook emits `permissionDecision: "allow"`, for
+which `permissionDecisionReason` is specified to be ignored, so the guard's `deny`-path
+reason delivery remains unmeasured). Second, #919 has **dropped** the once-planned
+per-arm review-run denial count against the run-30138268273 baseline as no longer
+achievable — no live tier can produce a review run carrying the guard — retaining that
+baseline run id only as historical reference. The row is left as found until #919 lands.
 
 | Probe run id | Firing verdict | Reason-delivery verdict | Per-arm denial counts (review run) |
 | --- | --- | --- | --- |
