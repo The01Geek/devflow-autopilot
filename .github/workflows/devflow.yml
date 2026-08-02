@@ -1513,21 +1513,35 @@ jobs:
           fi
           echo "is_error=$IS_ERROR" >> "$GITHUB_OUTPUT"
 
-      # Dead-run review-progress flip (issue #356). A comment-triggered
-      # /devflow:review or /devflow:review-and-fix seeds a run-keyed
-      # prflow:review-progress comment; if the run ends non-success the agent
-      # never flips it out of the interim 🚀 Reviewing state. This always() step
-      # does the workflow-level flip on the same three non-success arms
-      # devflow-review.yml's finalize_check covers — job failure, cancellation,
-      # and an engine that ended is_error while the step still reported success.
-      # `steps.claude.outcome` is the RAW outcome (success/failure/cancelled/
-      # skipped, before continue-on-error). Best-effort: the helper always exits
-      # 0, so this never changes the job's pass/fail. A /devflow:implement or
-      # /devflow:pr-description trigger seeds no such comment, so the helper's
-      # comment-absent no-op arm handles it. The run-keyed marker matches ONLY
-      # this run's comment, so an earlier run's comment is never touched.
+      # Dead-run review-progress upsert (issues #356 and #1154). A
+      # comment-triggered /devflow:review or /devflow:review-and-fix seeds a
+      # run-keyed prflow:review-progress comment; if the run ends without a
+      # verdict the agent never moves it out of the interim 🚀 Reviewing state —
+      # and a run that dies before the engine's Phase 0.3.5 seed leaves no
+      # comment at all. This always() step does the workflow-level write.
+      #
+      # It is deliberately NOT gated on the run's outcome any more (issue
+      # #1154). The pre-#1154 `if:` fired only on job failure, cancellation, or
+      # an engine that ended is_error — so Actions run 29854795625, which took
+      # six Phase 0 permission denials, produced no verdict and exited CLEANLY,
+      # matched none of them and left a green check beside nothing at all. The
+      # two observables (`steps.claude.outcome`, the RAW outcome before
+      # continue-on-error; and the parsed engine is_error) are now inputs to the
+      # CAUSE the step reports, never to whether it runs. Which mode they select
+      # is decided by scripts/describe-dead-run-cause.sh so the suite can drive
+      # every arm and its order — inline shell in YAML cannot be unit-tested,
+      # and a mis-selected arm misattributes the diagnosis while the workflow
+      # still "works" (the same extraction as scripts/describe-denial-count.sh).
+      #
+      # Best-effort: both helpers always exit 0, so this never changes the job's
+      # pass/fail. This job also serves the /prflow:pr-description command, which
+      # seeds no progress comment — see the command screen below, which keeps the
+      # upsert to the review commands that actually own one. The run-keyed marker
+      # matches ONLY this run's comment, so an earlier run's comment is never
+      # read or written, and a second attempt of this step resolves the comment
+      # the first one created and takes the already-terminal arm.
       - name: Flip review-progress comment on dead run
-        if: ${{ always() && (steps.claude.outcome == 'failure' || steps.claude.outcome == 'cancelled' || steps.engine.outputs.is_error == 'true') }}
+        if: ${{ always() }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           CONTEXT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
@@ -1537,6 +1551,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # dead-run review-progress upsert BEGIN
           FLIP_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
           FLIP_HELPER=.prflow/vendor/prflow/scripts/flip-review-progress-failed.sh
           [ -f "$FLIP_HELPER" ] || FLIP_HELPER=scripts/flip-review-progress-failed.sh
@@ -1544,18 +1559,57 @@ jobs:
             echo "::notice::flip review-progress: no issue/PR number on this event; nothing to flip"
             exit 0
           fi
-          # Name the specific arm that fired, so the comment's cause line and the
-          # job log agree on why the run was treated as dead.
-          if [ "${ENGINE_ERROR:-false}" = "true" ] && [ "$CLAUDE_OUTCOME" = "success" ]; then
-            CAUSE="review engine ended with an error (is_error)"
+          # Only the review commands seed (and therefore own) a review-progress
+          # comment. Without this screen the ungated step would CREATE one on a
+          # pr-description run that never had one — the upsert's create arm
+          # turning a benign no-op into a spurious "Review failed" comment on an
+          # unrelated command. Matched with bash builtins only: a value that
+          # decides a selection must not flow through a non-preflight-guaranteed
+          # PATH tool.
+          case "${COMMAND:-}" in
+            /prflow:review*|/devflow:review*) : ;;
+            *)
+              echo "::notice::flip review-progress: command '${COMMAND:-}' seeds no review-progress comment; nothing to write"
+              exit 0
+              ;;
+          esac
+          # The resolved command carries its OWN target number (the detector emits
+          # `/prflow:<cmd> <n>`), and that is the thread the engine seeded its
+          # progress comment on — which is not always the thread the triggering
+          # comment sits on, because a collaborator can write `/prflow:review 42`
+          # from somewhere else. While the handler was flip-only that mismatch was
+          # a harmless no-op; now that a confirmed absence WRITES, addressing the
+          # event's own number would post a '❌ Review failed' comment on a thread
+          # that never had a review. Prefer the command's trailing number and fall
+          # back to the event's only when the command carries none. Derived with
+          # parameter expansion and a `case` glob — both bash builtins, because a
+          # value that decides where a write lands must not flow through a
+          # non-preflight-guaranteed PATH tool.
+          TARGET_NUMBER="${COMMAND##* }"
+          case "$TARGET_NUMBER" in
+            ''|*[!0-9]*) TARGET_NUMBER="$CONTEXT_NUMBER" ;;
+          esac
+          # Name the specific mode that fired, so the comment's cause line and
+          # the job log agree on why the run was treated as dead. The four-mode
+          # partition and its arm ORDER live in the helper, not here.
+          CAUSE_HELPER=.prflow/vendor/prflow/scripts/describe-dead-run-cause.sh
+          [ -f "$CAUSE_HELPER" ] || CAUSE_HELPER=scripts/describe-dead-run-cause.sh
+          if [ -f "$CAUSE_HELPER" ]; then
+            CAUSE="$(bash "$CAUSE_HELPER" "${CLAUDE_OUTCOME:-}" "${ENGINE_ERROR:-false}")"
           else
-            CAUSE="claude step ${CLAUDE_OUTCOME}"
+            # A consumer's installed devflow.yml and their vendored scripts/
+            # upgrade on independent schedules, so a pin that predates this
+            # helper must degrade rather than fail: warn, and fall back to a
+            # cause that still names both observables.
+            echo "::warning::flip review-progress: describe-dead-run-cause.sh absent at $CAUSE_HELPER; falling back to an undifferentiated cause (upgrade the vendored plugin pin)"
+            CAUSE="claude step ${CLAUDE_OUTCOME:-unavailable} (engine is_error=${ENGINE_ERROR:-false})"
           fi
           if [ -f "$FLIP_HELPER" ]; then
-            bash "$FLIP_HELPER" "$CONTEXT_NUMBER" "$FLIP_MARKER" "$CAUSE" || true
+            bash "$FLIP_HELPER" "$TARGET_NUMBER" "$FLIP_MARKER" "$CAUSE" || true
           else
             echo "::warning::flip review-progress: flip-review-progress-failed.sh absent at $FLIP_HELPER; review-progress comment not flipped to '❌ Review failed'"
           fi
+          # dead-run review-progress upsert END
           # review-progress marker diagnosis BEGIN
           # The authoritative flip runs first. Diagnosis still recognizes its
           # exact marker after terminalization, while only active Reviewing
@@ -1563,7 +1617,7 @@ jobs:
           DIAG_RUNNER=.prflow/vendor/prflow/scripts/run-review-progress-diagnosis.sh
           [ -f "$DIAG_RUNNER" ] || DIAG_RUNNER=scripts/run-review-progress-diagnosis.sh
           if [ -f "$DIAG_RUNNER" ]; then
-            bash "$DIAG_RUNNER" "$COMMAND" "$REPO" "$CONTEXT_NUMBER" "$FLIP_MARKER" || true
+            bash "$DIAG_RUNNER" "$COMMAND" "$REPO" "$TARGET_NUMBER" "$FLIP_MARKER" || true
           else
             echo "::notice::flip review-progress: could not establish marker diagnosis because the dispatcher is absent at $DIAG_RUNNER"
           fi
