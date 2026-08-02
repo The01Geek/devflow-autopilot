@@ -63,23 +63,28 @@
 #     COMMENTED review, marker APPROVE on a CHANGES_REQUESTED one) is `unestablished`.
 # Every one of those emits `incomplete`/`false` with its own breadcrumb.
 #
-#   REJECT (any form) -> `gh pr review --request-changes` -> state
-#     CHANGES_REQUESTED, body first line `## Verdict: REJECT ...`
-#   APPROVE with notes / CAVEAT -> `gh pr review --comment` -> state COMMENTED,
-#     body first line `## Verdict: APPROVE ...`  (so a positive APPROVE is NOT
-#     always state APPROVED — the body marker is the second signal)
-#   APPROVE (clean) -> `gh pr review --approve` -> state APPROVED
-#   Same-identity self-review fallback (`gh pr review` fails) -> the verdict is
+# The emitter picks the review channel from the verdict token, so what reaches the
+# reviews API is:
+#   REJECT (any form) -> event REQUEST_CHANGES -> state CHANGES_REQUESTED, marker
+#     `verdict=REJECT`, transitional body line `## Verdict: REJECT ...`
+#   APPROVE with notes / CAVEAT / ADVISORY NOTES -> event COMMENT -> state COMMENTED,
+#     marker `verdict=APPROVE`, transitional body line `## Verdict: APPROVE ...` (so a
+#     positive APPROVE is NOT always state APPROVED — which is why a COMMENTED review
+#     carrying either signal is admitted by the HEAD-selection filter below)
+#   APPROVE (clean) -> event APPROVE -> state APPROVED, marker `verdict=APPROVE`
+#   Same-identity self-review fallback (the review POST fails) -> the verdict is
 #     recovered from THIS run's run-keyed `prflow:review-progress` PROGRESS
-#     comment, which embeds the full report + the `## Verdict:` line and is the
-#     only artifact this helper matches in step 6 (it carries the run-keyed
-#     `<!-- prflow:review-progress run=<id>- -->` marker). Issue comments carry
-#     no commit_id, so scoping is by that run-keyed marker, never a historical
-#     comment. NOTE: the separate `gh pr comment` self-review fallback comment
-#     the skill posts DOES carry a `## Verdict:` line, but it lacks the run-keyed
-#     progress marker, so this helper does NOT read it — matching it un-scoped
-#     (by `## Verdict:` alone, across all issue comments) is exactly the stale-/
-#     prior-run-verdict resurrection this HEAD-scoping fix removes.
+#     comment, which carries the marker on the line after its run key plus the full
+#     report, and is the only artifact this helper matches in step 6 (it carries the
+#     run-keyed `<!-- prflow:review-progress run=<id>- -->` marker). Issue comments
+#     carry no commit_id, so scoping is by that run-keyed marker, never a historical
+#     comment. NOTE: the emitter's own comment-channel fallback — the marker-stamped
+#     body it posts when the review POST is refused — is a plain issue comment with no
+#     run-keyed progress marker, so this helper does NOT read it. That is deliberate:
+#     matching it un-scoped, across all issue comments, is exactly the stale-/
+#     prior-run-verdict resurrection this HEAD-scoping fix removes, and the emitter
+#     reports that channel to its caller instead so the gap is visible rather than
+#     silently filled here.
 #
 # Inputs (environment; all optional, absence fails closed where it matters):
 #   HEAD_SHA       current HEAD SHA (needs.precheck.outputs.head_sha)
