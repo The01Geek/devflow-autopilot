@@ -268,21 +268,20 @@ says so rather than reporting one it cannot establish.** The `record-reopen` cou
 the transcript and is genuinely measured. The post-filing class is a *declared* class the instrument
 reports `unestablished` by construction (an escaped defect found after the issue is filed is outside
 any transcript or state file it reads). The **scope-escape** proxy needs two draft-space coordinates,
-and only one of them has a producer: the per-finding `quoted_draft_line` is ingested from the
-ledger's optional `<status>@<n>: <summary>` line and persisted by `scripts/issue-audit-state.py`,
-but no writer in this repository records a `draft_lines` span on a targeted round's `scope` —
-`record-dispatch` composes `{basis_digest, sections, claim_ids}`, and `sections` holds heading
-strings. The proxy's predicate is therefore about the **span, not the round**: it reports
-`unestablished` — **not** the `0` that would read as "no defects escaped scope" — on a state file
-carrying **any targeted round whose recorded scope yields no usable `draft_lines` span**. Because no
-writer records that span, that is every targeted round on every *real* state file today; a synthetic
-state file that supplies the span (as
-`lib/test/fixtures/create-issue-eval/states/after-state.json` does) is compared normally and yields a
-real count, which is what lets the committed test drive the proxy at all. A state carrying **no
-targeted round at all** is a third case and reports a genuine, established `0` — nothing can escape a
-scope that was never dispatched. Recording the span at dispatch time is tracked follow-up work; until
-it lands the scope-escape row of the record above is filled with `unestablished` on any real run that
-dispatched a targeted round, and that is the honest value, not a placeholder.
+and as of issue #1105 both have a producer: the per-finding `quoted_draft_line` is ingested from the
+ledger's optional `<status>@<n>: <summary>` line and persisted by `scripts/issue-audit-state.py`, and
+`record-dispatch` now records a `draft_lines` span on a targeted round's `scope` beside the existing
+`{basis_digest, sections, claim_ids}`. The span is the **convex hull** `[min_start, max_end]` over the
+changed sections' draft-line extents in the canonical draft — a single `(start, end)` the reader tests
+with `any(s <= line <= e)`, deliberately over-approximating a disjoint changed set so it over-counts
+escapes rather than under-counting them (the safe direction). The proxy's predicate is about the
+**span, not the round**: it reports `unestablished` — **not** the `0` that would read as "no defects
+escaped scope" — on a state file carrying **any targeted round whose recorded scope yields no usable
+`draft_lines` span**. That still fires for a **pre-#1105** targeted round (recorded before the
+producer landed), or a span that is wrong-typed or inverted, so a partial comparison never launders
+into a real-looking number; but a targeted round dispatched under the current code fills the comparand
+and yields a real count. A state carrying **no targeted round at all** is a third case and reports a
+genuine, established `0` — nothing can escape a scope that was never dispatched.
 
 `lib/test/test_create_issue_context_eval.py` asserts the reduction **live** from the committed
 synthetic before/after fixtures under `lib/test/fixtures/create-issue-eval/{before,after}-rounds/`
