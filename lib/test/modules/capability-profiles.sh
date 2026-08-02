@@ -211,7 +211,12 @@ for name, spec in d["profiles"].items():
 print("\n".join(hits))
 PY
 }
-CAP_LIBTEST_TOKENS="$(_cap_libtest_hits "$LIB/capability-profiles.json")"
+CAP_LIBTEST_TOKENS="$(_cap_libtest_hits "$LIB/capability-profiles.json")"; CAP_LIBTEST_RC=$?
+# Fail-closed: a python3 crash (malformed manifest, absent interpreter) yields EMPTY stdout,
+# which would silently satisfy the `""` assertion below — the exact fail-open a "no token"
+# scan must not have. Assert the scan actually ran (exit 0) so an empty result means "scanned,
+# none found", not "never scanned". (The positive control just below is the second guard.)
+assert_eq "#1078 the shipped-profile lib/test scan actually ran (python3 exit 0, not a crashed empty scan)" "0" "$CAP_LIBTEST_RC"
 assert_eq "#1078 no shipped capability profile grants a Bash(lib/test/...) token (self-repo grants live in .prflow/config.json)" "" "$CAP_LIBTEST_TOKENS"
 # Positive control: the scan is non-vacuous — a lib/test token injected into the
 # implement profile is caught (proves the assertion above would fire).

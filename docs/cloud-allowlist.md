@@ -701,7 +701,7 @@ there) while pre-authorizing any consumer file that collided with a PRFlow-chose
 path. Six moved to `.prflow/config.json`'s `prflow_implement.allowed_tools` — the
 self-repo-only grant channel (`config.example.json` ships it empty, so no consumer
 inherits it): the five `focused_test` targets, plus `coverage_map_guard.py` (still
-invoked as a direct leading token by `matcher-probe.yml`'s row 17). `test_module_harness.py`
+invoked as a direct leading token by `matcher-probe.yml`'s executable-`.py`-as-direct-leading-token probe row — the `coverage_map_guard.py --iprobe17direct` shape). `test_module_harness.py`
 was **dropped** — it is not a `focused_test` target and `lib/test/run.sh` invokes it
 only via the `python3 <path>` interpreter head. The paragraphs below are the #789
 record, kept for provenance.

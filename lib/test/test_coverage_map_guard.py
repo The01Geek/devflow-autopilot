@@ -315,7 +315,32 @@ class CoverageMapGuardTest(unittest.TestCase):
             guard._resolve_implement_grant_tokens(None, config),
             {"Bash(lib/test/test_python_scripts.py:*)"},
         )
+        # The consumer-protecting direction: manifest established but config unreadable must
+        # NOT false-flag a manifest-granted token — it returns the manifest set, never None.
+        self.assertEqual(
+            guard._resolve_implement_grant_tokens(manifest, None),
+            {"Bash(python3:*)"},
+        )
         self.assertIsNone(guard._resolve_implement_grant_tokens(None, None))
+
+    def test_config_implement_tokens_breadcrumbs_a_present_but_wrong_typed_channel(self):
+        # F2: a valid-JSON but wrong-typed grant channel is invisible to _load_json, so it
+        # must not vanish silently (best-effort-parser: a specific breadcrumb per bad shape).
+        import contextlib, io
+        for bad, needle in (
+            ({"prflow_implement": "oops"}, "'prflow_implement' is present but not a JSON object"),
+            ({"prflow_implement": {"allowed_tools": "x"}}, "'prflow_implement.allowed_tools' is present but not a JSON array"),
+        ):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertIsNone(guard._config_implement_tokens(bad))
+            self.assertIn(needle, err.getvalue())
+        # A legitimately-ABSENT key is silent (a consumer ships the channel empty) — no breadcrumb.
+        for absent in ({}, {"prflow_implement": {}}):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertIsNone(guard._config_implement_tokens(absent))
+            self.assertEqual(err.getvalue(), "")
 
     def test_config_only_grant_satisfies_arm10(self):
         # The end-to-end #1078 case: a focused_test whose grant lives ONLY in the config
