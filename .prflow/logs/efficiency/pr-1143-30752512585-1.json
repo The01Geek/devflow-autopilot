@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1143",
+  "generated_at": "2026-08-02T14:47:42Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.46",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 6.608822250000001,
+    "tokens": {
+      "input_tokens": 45,
+      "output_tokens": 24420,
+      "cache_read_input_tokens": 3242175,
+      "cache_creation_input_tokens": 170088,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 81,
+        "outputTokens": 51573,
+        "cacheReadInputTokens": 4041462,
+        "cacheCreationInputTokens": 425685,
+        "webSearchRequests": 0,
+        "costUSD": 6.608822250000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 32,
+    "duration_ms": 551947
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review 2>&1; echo \"ext-rc=$?\"",
+      "scripts/load-prompt-extension.sh review",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none}\"; mkdir -p .prflow/tmp/review/pr-1143/local; gh pr diff 1143 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1143/local/diff.patch | wc -l",
+      "gh issue view 1112 --comments --json comments --jq '.comments[] | select(.body | test(\"prflow:workpad|devflow:workpad\")) | .body' > .prflow/tmp/review/pr-1143/local/workpad.txt; grep -c \"Writing-skills evidence:\" .prflow/tmp/review/pr-1143/local/workpad.txt; echo \"--- reflections/status ---\"; grep -iE \"writing-skills|reflection|status:\" .prflow/tmp/review/pr-1143/local/workpad.txt | head -20",
+      "scripts/post-review-verdict.sh 1143 COMMENT .prflow/tmp/review-verdict-body.md"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
