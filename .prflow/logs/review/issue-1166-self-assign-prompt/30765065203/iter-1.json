@@ -1,0 +1,122 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-02T20:30:00Z",
+  "fix_commit_sha": "f164701",
+  "fix_files": [
+    "skills/create-issue/SKILL.md",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "CLAUDE.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "sweep_defs_read": [
+    "phase-2-implement.md"
+  ],
+  "sweep_evidence": {
+    "status": "run"
+  },
+  "checklist": [
+    {
+      "id": "VC-1",
+      "claim": "assignment election consistent across all copies (invariant, step-4, issue-template, docs, changeset)",
+      "file": "skills/create-issue/SKILL.md",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "evidence": "comment-analyzer + code-reviewer confirmed semantics agree across all five locations"
+    },
+    {
+      "id": "VC-2",
+      "claim": "no gh issue create runs before an explicit yes/no",
+      "file": "skills/create-issue/references/step-4-present-create.md",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "evidence": "silent-failure-hunter confirmed fail-closed on ambiguity"
+    },
+    {
+      "id": "VC-3",
+      "claim": "non-degradable invariant count consistent (five) in all live files",
+      "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "evidence": "shadow code-reviewer + comment-analyzer confirmed SKILL.md/DEVFLOW_SYSTEM_OVERVIEW.md/CLAUDE.md all read five; CHANGELOG/cutovers correctly frozen at four"
+    }
+  ],
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": false
+  },
+  "phase3_findings": [
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Important",
+      "description": "stale 'four non-degradable invariants' count after adding invariant #5 (documented_falsehood / self-contradicting diff) in SKILL.md:46, DEVFLOW_SYSTEM_OVERVIEW.md:666 x2, CLAUDE.md:46",
+      "defect_signature": {
+        "file": "skills/create-issue/SKILL.md",
+        "line_range": [
+          46,
+          46
+        ],
+        "kind": "stale_count"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "f164701"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 4,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "refixed",
+      "reason": null
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-08-02T20:45:00Z",
+    "reviewed_sha": "f164701",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "prflow:code-reviewer",
+      "prflow:comment-analyzer"
+    ],
+    "expected_reviewers": [
+      "prflow:code-reviewer",
+      "prflow:comment-analyzer"
+    ],
+    "reason": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
