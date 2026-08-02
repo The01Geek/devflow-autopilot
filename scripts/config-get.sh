@@ -132,7 +132,7 @@ fi
 # PRESENT.
 #
 # It maps the FIRST dot-path segment only, so `.prflow_implement.stall_backstop`
-# probes `.devflow_implement.stall_backstop` and no deeper segment is rewritten.
+# probes `.devflow_implement.stall_backstop` and no deeper segment is rewritten.  # superseded-key-ok: documents the superseded leaf this migration probe reads (issue #1096)
 # The map comes from lib/rename-map.json — the single source — never from a
 # literal copy here. Best-effort throughout: an unreadable map or config makes
 # the probe a silent no-op, because a diagnostic must never be able to break the
