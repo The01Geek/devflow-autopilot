@@ -250,8 +250,11 @@ A degraded pass must **never** clear a PR with a clean verdict. The guard is the
   roster tripwire). Only a skip both profiles independently judged legitimate is honored.
 - **Dispatched is not collected — a 1:1 join is required.** `coverage: "full"` requires not only
   that the expected roster was *dispatched* but that each dispatched identifier maps to exactly one
-  *collected and successfully-parsed* result. A dispatched-but-lost result (launched, never
-  collected, or unparseable) is a shortfall like a never-dispatched one. "It's in
+  *collected and successfully-parsed* result — concretely, the per-reviewer assessment/verdict
+  evidence captured for that identifier (the positive-return assessment/verdict prose plus a
+  `defect_signature` on every finding, the same evidence the coverage bar above names). A
+  dispatched-but-lost result (launched, never collected, or unparseable — including an
+  evidence-empty return) is a shortfall like a never-dispatched one. "It's in
   `reviewers_dispatched`" is not evidence the reviewer ran.
 - **A too-narrow self-classification cannot silently shrink the reviewer roster.** Because the
   expected roster is computed from the shadow's *own* Phase 0.5, an under-classification would shrink
