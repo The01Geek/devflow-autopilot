@@ -34,7 +34,7 @@ Capture the matcher's stdout (the JSON report described below). When invoked fro
 The matcher always exits 0 when it ran (any result, including no block found). Read the output JSON:
 
 - `block_present: false` → PR has no Scope-Acknowledged Findings block; proceed to 4.1 with all findings intact.
-- `pr_author_trusted: false` → PR author is not in `devflow.allowed_bots`; **every** deferral is rejected with reason `untrusted-filer`. All findings flow through unchanged. Include the rejection list in 4.1's `## Deferrals` section so the human reader sees the contract was claimed but not honorable.
+- `pr_author_trusted: false` → PR author is not in `prflow.allowed_bots`; **every** deferral is rejected with reason `untrusted-filer`. All findings flow through unchanged. Include the rejection list in 4.1's `## Deferrals` section so the human reader sees the contract was claimed but not honorable.
 - For each entry in `honored[]`: the finding at `findings[finding_index]` is **demoted to Informational** for the rest of Phase 4. Record the `deferral_id` + `follow_up_issue` so the 4.1 line annotation can cite them.
 - **A `settled-by-disclosure` foreclosure match (issue #621)** (an `honored[]` entry, category `settled-by-disclosure`, null `follow_up_issue`) is demoted **only when the matched finding is below this run's `verdict_severity_threshold`** — no follow-up work backs it, so it **never demotes a verdict-gating finding** (an at-or-above match is reported undemoted). Its 4.1 line **quotes the `disclosure.phrase` inline** for the merge gate.
 - For each entry in `rejected_deferrals[]`: the deferral did not apply (issue closed, missing cross-link, widens-surface failed, a foreclosure's disclosure failed to verify — `disclosure-unverified`, or no matching finding). The current finding (if any) is **not** demoted — flag it in 4.1's `## Deferrals` section with the reason.
@@ -104,7 +104,7 @@ FAIL and INCONCLUSIVE items stay listed outside the `<details>` block so they re
 {for each honored entry: "  - {deferral_id} → #{follow_up_issue} ({category})"}
 - Rejected: {len(rejected_deferrals)}
 {for each rejected entry: "  - {deferral_id} — rejected: {reason}"}
-{If pr_author_trusted is false, prepend a single line: "**Block claimed but not honored — PR author is not in `devflow.allowed_bots`. All deferrals rejected.**"}
+{If pr_author_trusted is false, prepend a single line: "**Block claimed but not honored — PR author is not in `prflow.allowed_bots`. All deferrals rejected.**"}
 
 ## Verdict Criteria
 - Any FAIL in verification checklist → REJECT

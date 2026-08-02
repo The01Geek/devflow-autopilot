@@ -4072,7 +4072,7 @@ assert_eq "429/T7: devflow-implement.yml --allowed-tools already grants gh pr vi
   "$(grep -cF 'Bash(gh pr view:*)' "$_DI429" || true)"
 assert_eq "429/T7: prflow_implement.allowed_tools adds no merge-base/pr-view grant" "0" \
   "$(jq -r '.prflow_implement.allowed_tools[]? | select(test("merge-base|pr view"))' "$_C429" 2>/dev/null | grep -c . || true)"
-assert_eq "429/T7: devflow.allowed_tools adds no merge-base/pr-view grant" "0" \
+assert_eq "429/T7: prflow.allowed_tools adds no merge-base/pr-view grant" "0" \
   "$(jq -r '.prflow.allowed_tools[]? | select(test("merge-base|pr view"))' "$_C429" 2>/dev/null | grep -c . || true)"
 
 # ── F1 (review): STANDING anti-vacuity proofs for the new fail-closed guards ───────────────
@@ -7581,7 +7581,7 @@ fi
 
 # ── issue #682: attribute cloud-tier writer commits to the triggering user ─────
 # scripts/resolve-committer-identity.sh is the sibling of emit-git-env.sh (#645):
-# a default-off config flag (devflow.attribute_commits_to_triggerer) gates whether
+# a default-off config flag (prflow.attribute_commits_to_triggerer) gates whether
 # the four GIT_AUTHOR_*/GIT_COMMITTER_* variables are emitted for the triggering
 # human. The helper is a pure shell CLI with a deterministic stdout/exit contract,
 # driven directly here with DEVFLOW_GH stubbed (the resolver's test-stub contract),
@@ -7601,11 +7601,11 @@ assert_eq "#682: resolve-committer-identity.sh exists and is executable" "yes" \
 # Schema/example: the key is declared as boolean defaulting to false and mirrored
 # in the example config as an explicit false (the documented-off-switch class — a
 # valid-falsy value must survive as false, never be coerced to a truthy default).
-assert_eq "#682: schema declares devflow.attribute_commits_to_triggerer as boolean:false" "boolean:false" \
+assert_eq "#682: schema declares prflow.attribute_commits_to_triggerer as boolean:false" "boolean:false" \
   "$(jq -r '.properties.prflow.properties.attribute_commits_to_triggerer | "\(.type):\(.default)"' "$I682_SCHEMA")"
 assert_eq "#682: schema description names the post-merge-only semantics" "yes" \
   "$(jq -e '.properties.prflow.properties.attribute_commits_to_triggerer.description | test("POST-MERGE-ONLY")' "$I682_SCHEMA" >/dev/null && echo yes || echo no)"
-assert_eq "#682: example config carries devflow.attribute_commits_to_triggerer as an explicit false" "false" \
+assert_eq "#682: example config carries prflow.attribute_commits_to_triggerer as an explicit false" "false" \
   "$(jq -r '.prflow.attribute_commits_to_triggerer' "$I682_EXAMPLE")"
 
 # Workflow wiring: BOTH writer workflows carry a step that reads the flag from the
@@ -11844,7 +11844,7 @@ echo "config-source.sh"
   assert_eq "conf: malformed JSON → default (warns, no abort)" "dflt" "$(devflow_conf '.anything' dflt 2>/dev/null)"
   rm -f "$wp"
 )
-# watched_authors falls back to devflow.allowed_bots when the override array is absent.
+# watched_authors falls back to prflow.allowed_bots when the override array is absent.
 ( wp="$(mktemp)"; printf '{"prflow":{"allowed_bots":"claude,fallback-bot"}}' > "$wp"
   export DEVFLOW_CONFIG_FILE="$wp"
   . "$LIB/config-source.sh"
@@ -27399,6 +27399,22 @@ assert_pin_unique "#271 coupled: phase-4-documentation.md deferrals merge invoke
 R313_IMPL="$(region_lines "$IMPL_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
 R313_RUNNER="$(region_lines "$RUNNER_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
 R313_LIGHT="$(region_lines "$LIGHT_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
+# --- AC2 (issue #1084): the provider resolver reads `$cfg[$section].provider`, so
+# each provider step's `SECTION:` env must name the config family that workflow's
+# own config reads use. devflow.yml set `SECTION: devflow` while the schema declares
+# `prflow.provider` and /prflow:init scaffolds only `prflow`, so a configured
+# provider was silently ignored on the entire /prflow:* command path. Assert each
+# workflow's SECTION matches its family and that the superseded `devflow` spelling
+# never reappears at a resolver call site.
+# structural-pin-ok: routing-dispatch-contract -- the SECTION literal selects which
+# config family the single-sourced resolver reads; a wrong value silently routes to
+# an unread section, so this is a typed routing boundary, not documentation prose.
+assert_eq "#1084 SECTION: devflow.yml provider steps name the prflow family (not the dead devflow spelling)" "2 0" \
+  "$(grep -cE '^[[:space:]]*SECTION:[[:space:]]*prflow$' "$LIGHT_WF") $(grep -cE '^[[:space:]]*SECTION:[[:space:]]*devflow$' "$LIGHT_WF")"
+assert_eq "#1084 SECTION: devflow-runner.yml provider steps name the prflow_runner family" "2 0" \
+  "$(grep -cE '^[[:space:]]*SECTION:[[:space:]]*prflow_runner$' "$RUNNER_WF") $(grep -cE '^[[:space:]]*SECTION:[[:space:]]*devflow$' "$RUNNER_WF")"
+assert_eq "#1084 SECTION: devflow-implement.yml provider steps name the prflow_implement family" "2 0" \
+  "$(grep -cE '^[[:space:]]*SECTION:[[:space:]]*prflow_implement$' "$IMPL_WF") $(grep -cE '^[[:space:]]*SECTION:[[:space:]]*devflow$' "$IMPL_WF")"
 # Non-empty guard: a renamed/removed sentinel would extract "" and make the
 # identity asserts vacuously PASS ("" == "") — assert extraction found a program.
 assert_eq "#313 resolver: program extracted from devflow-implement.yml is non-empty (sentinels intact)" "yes" \
@@ -43327,6 +43343,107 @@ PY
 fi
 # ────────────────────────────────────────────────────────────────────────────
 
+# ── #1084 superseded-config-key guard (lib/test/lint-superseded-config-keys.py) ──
+# The consumer-facing `devflow` config family was renamed to `prflow` (#1002); #1068 and
+# #1084 swept the tree of stale `devflow.<key>` leaves twice, so a one-time sweep has a known
+# recurrence rate. This guard fails RED on a newly introduced superseded leaf. It sources its
+# population from `git ls-files` (no recursive walk, #711) and carries a declared-exemption
+# list for the do-not-sweep sites. Driven here so the whole tree is re-scanned every run.
+L1084_LINT="$LIB/test/lint-superseded-config-keys.py"
+assert_eq "#1084 guard: no superseded devflow.<key> config leaf in the tree" "rc=0" \
+  "$(cd "$LIB/.." && python3 "$L1084_LINT" >/dev/null 2>&1 && echo rc=0 || echo "rc=$?")"
+# Non-vacuous detector: assert the leaf regex fires on a superseded leaf and a jq path, and
+# correctly skips the frozen forms (a bare `SECTION:` family word with no leaf, a filename
+# extension, the `/`-alias colon form) — so an accidental weakening of the pattern is caught,
+# not just an empty tree. Drives the module's own `_LEAF_RE` / `_EXTENSIONS` directly. The
+# superseded family word is ASSEMBLED FROM PARTS so no literal superseded leaf appears in this
+# file's own source — otherwise this fixture would be a candidate the guard flags in run.sh.
+assert_eq "#1084 guard: leaf detector matches superseded leaves and skips frozen forms" "T T F F F" \
+  "$(python3 - "$L1084_LINT" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("g", sys.argv[1])
+g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+F = "dev" + "flow"  # assembled so this file carries no literal superseded leaf
+def hit(line):
+    m = g._LEAF_RE.search(line)
+    return bool(m) and m.group(1) not in g._EXTENSIONS
+def t(b): return "T" if b else "F"
+print(" ".join(t(hit(x)) for x in (
+    F + ".allowed_bots", "read `." + F + ".workpad_marker`",
+    "SECTION: " + F, F + ".yml", "/" + F + ":review")))
+PY
+)"
+# main()-level RED-path test: drive the WHOLE guard pipeline (not just the regex) over a
+# synthetic population by monkeypatching the shared population reader, so a neutered exemption
+# list, a swallowed skip, or an unhandled enumeration failure is caught — the clean-tree rc=0
+# assertion above is vacuous if _exempt() is broadened to match everything. Asserts, in order:
+# an offender in a NON-exempt file → rc 1; an offender only in an EXEMPT file → rc 0; a
+# non-exempt file that cannot be read → rc 1 (fail-closed skip, not a silent clean pass); an
+# enumeration failure → rc 2. The offending leaf is assembled from parts so this file carries
+# none.
+assert_eq "#1084 guard: main() pipeline red-paths (offender/exact-exempt/prefix-exempt/skip/enum)" "1 0 0 1 2" \
+  "$(python3 - "$L1084_LINT" <<'PY'
+import importlib.util, io, sys, contextlib
+spec = importlib.util.spec_from_file_location("g", sys.argv[1])
+g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+F = "dev" + "flow"
+OFFENDER = "a comment naming " + F + ".allowed_bots here"
+def run_main(pop, reader):
+    g._pop.enumerate_population = lambda root, ff, *, ls_files_argv: pop
+    g._pop.read_source = reader
+    with contextlib.redirect_stderr(io.StringIO()):
+        return g.main()
+off = lambda p, *, skip_nul: (OFFENDER, None)
+# 1) offender in a NON-exempt file → rc 1
+r_off = run_main(["some/live-file.md"], off)
+# 2) offender only in an EXACT-exempt file (install.sh) → rc 0 (_EXEMPT_EXACT honored)
+r_exact = run_main(["install.sh"], off)
+# 3) offender only in a PREFIX-exempt file (.changeset/) → rc 0 (_EXEMPT_PREFIXES honored)
+r_prefix = run_main([".changeset/x.md"], off)
+# 4) a non-exempt, non-binary file that cannot be read → rc 1 (fail-closed skip)
+r_skip = run_main(["some/live-file.md"], lambda p, *, skip_nul: (None, "unreadable (permission)"))
+# 5) enumeration failure → rc 2
+def raise_enum(root, ff, *, ls_files_argv):
+    raise g._pop.EnumerationError("git ls-files failed")
+g._pop.enumerate_population = raise_enum
+with contextlib.redirect_stderr(io.StringIO()):
+    r_enum = g.main()
+print(r_off, r_exact, r_prefix, r_skip, r_enum)
+PY
+)"
+# #1084 AC5: the sweep must not touch any FROZEN identifier. Verified against a
+# lib/rename-map.json-derived assertion rather than a bare negative: derive the frozen
+# workflow filenames present in the tree, the DEVFLOW_ env prefix, devflow-marketplace, the
+# /devflow: alias and the DevFlow product name from the map + tree, and assert each SURVIVES.
+assert_eq "#1084 AC5: frozen identifiers survive the superseded-leaf sweep" "ALL-PRESENT" \
+  "$(cd "$LIB/.." && python3 - <<'PY'
+import json, subprocess, sys
+m = json.load(open("lib/rename-map.json"))
+def present(needle):
+    r = subprocess.run(["git", "grep", "-qF", needle], capture_output=True)
+    return r.returncode == 0
+def ftracked(path):
+    r = subprocess.run(["git", "ls-files", "--error-unmatch", path], capture_output=True)
+    return r.returncode == 0
+missing = []
+# Frozen workflow FILENAMES that ship in the tree (devflow-review.yml / telemetry-push.yml
+# are withheld from this release, so only assert survival of the ones actually present).
+for fn in m["frozen"]["workflow_filenames"]:
+    p = ".github/workflows/" + fn
+    if ftracked(p) and not present(fn):
+        missing.append(fn)
+# Frozen consumer-facing env identifiers keep their DEVFLOW_ spelling (no PRFLOW_ read exists).
+for row in m["frozen"]["env_identifiers"]["identifiers"]:
+    if not present(row["name"]):
+        missing.append(row["name"])
+# Frozen top-level identifiers: the marketplace slug, the /devflow: command alias, the
+# devflow:<agent> override namespace, and the DevFlow product name.
+for lit in ("devflow-marketplace", "/devflow:", "devflow:code-reviewer", "DevFlow"):
+    if not present(lit):
+        missing.append(lit)
+print("ALL-PRESENT" if not missing else "MISSING: " + ", ".join(missing))
+PY
+)"
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 # SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as

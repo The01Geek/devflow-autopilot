@@ -265,9 +265,9 @@ that runs *before* authorization and number resolution: it declines any
 > **Workflow wiring.** Passing `SELF_COMMENT_MARKER` into the resolver's
 > environment (and exposing a `workpad_marker` config output) lives in
 > `.github/workflows/devflow-implement.yml`, and is **applied as shipped** — the
-> config job extracts `devflow.workpad_marker` (defaulting to the built-in
+> config job extracts `prflow.workpad_marker` (defaulting to the built-in
 > `<!-- prflow:workpad -->`) and the gate passes it to the resolver. So both the
-> **default** marker and any repo-customized `devflow.workpad_marker` are protected
+> **default** marker and any repo-customized `prflow.workpad_marker` are protected
 > out of the box, with no manual edit required.
 
 ## Startup lifecycle: "resumed" means an earlier execution, not the normal handoff

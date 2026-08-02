@@ -365,7 +365,7 @@ def _workpad_marker(explicit=None):
     if isinstance(value, str) and value.strip():
         return value.strip()
     sys.stderr.write(
-        f"workpad.py: ignoring non-string or blank devflow.workpad_marker in "
+        f"workpad.py: ignoring non-string or blank prflow.workpad_marker in "
         f"{str(config_file)!r}; falling back to default marker\n"
     )
     return _DEFAULT_WORKPAD_MARKER
