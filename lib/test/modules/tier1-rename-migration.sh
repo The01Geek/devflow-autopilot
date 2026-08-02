@@ -1054,6 +1054,34 @@ PY
 )"
 done
 
+# COUPLED MIRROR: the two shipped workflows carry the SAME block, byte for byte. The row above
+# only proves the extracted jq program matches; the block is more than the program — the arm
+# that selects the emit, the operator-facing message, and the comment stating why no dotted or
+# bare superseded literal may appear here. A drift confined to any of those would leave every
+# row above green while the two shipped workflows diagnosed the same config differently (or one
+# of them re-introduced a literal the freshness gate marks stale). Digested, not compared
+# in-place, so a failure names WHICH file drifted rather than dumping both blocks.
+_t1_stray_block() {  # $1 = shipped workflow id -> sha256 of that file's whole detector block
+  python3 - "$LIB/../.github/workflows/$1.yml" <<'PY'
+import hashlib, sys
+lines = open(sys.argv[1], encoding="utf-8").readlines()
+start = next((i for i, l in enumerate(lines) if "# STRAY SUPERSEDED FAMILY DETECTION" in l), None)
+if start is None:
+    sys.exit(0)
+# The block ends at its own terminating `fi` (the guard around the per-family emit loop).
+end = next((i for i in range(start, len(lines)) if lines[i].strip() == "fi"), None)
+if end is None:
+    sys.exit(0)
+sys.stdout.write(hashlib.sha256("".join(lines[start:end + 1]).encode("utf-8")).hexdigest()[:16])
+PY
+}
+_t1_stray_blk_cmd="$(_t1_stray_block devflow)"
+_t1_stray_blk_impl="$(_t1_stray_block devflow-implement)"
+assert_eq "#1083 stray-family detector: the WHOLE block (comment, jq, selecting arm, message) is byte-identical across both shipped workflows" \
+  "identical" \
+  "$( [ -n "$_t1_stray_blk_cmd" ] && [ "$_t1_stray_blk_cmd" = "$_t1_stray_blk_impl" ] && echo identical \
+      || printf 'DRIFT devflow=%s devflow-implement=%s' "${_t1_stray_blk_cmd:-MISSING}" "${_t1_stray_blk_impl:-MISSING}" )"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "#1004 J. the frozen out-of-repo DEVFLOW_* identifier inventory"
 # ────────────────────────────────────────────────────────────────────────────
