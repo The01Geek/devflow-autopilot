@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1148",
+  "generated_at": "2026-08-02T17:05:00Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.51",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 9.944493750000005,
+    "tokens": {
+      "input_tokens": 4746,
+      "output_tokens": 20999,
+      "cache_read_input_tokens": 2678452,
+      "cache_creation_input_tokens": 171824,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 4886,
+        "outputTokens": 69252,
+        "cacheReadInputTokens": 7895010,
+        "cacheCreationInputTokens": 575507,
+        "webSearchRequests": 0,
+        "costUSD": 9.944493750000005,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 29,
+    "duration_ms": 515127
+  },
+  "permission_denials": {
+    "count": 14,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"SKILL_DIR=${CLAUDE_SKILL_DIR:-unset}\"; gh pr view 1148 --json number,title,headRefOid,baseRefName,headRefName,state,url,author,body 2>&1 | head -80",
+      "echo \"skilldir-check\"; echo \"$CLAUDE_SKILL_DIR\"",
+      "cd /home/runner/work/prflow/prflow; echo \"=== experiment-records assert_eq net change ===\"; git diff main...HEAD -- lib/test/modules/experiment-records.sh | grep -E '^[-+].*assert_eq' | sed 's/\".*//' | sort | uniq -c; echo \"added: $(git diff main...HEAD -- lib/test/modules/experiment-records.sh | grep -cE '^\\+.*assert_eq') removed: $(git diff main...HEAD -- lib/test/modules/experiment-records.sh | grep -cE '^-.*assert_eq')\"; echo \"=== review-trigger-helpers ===\"; echo \"added: $(git diff main...H …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\necho \"=== experiment-records ===\"\necho \"added assert_eq: $(git diff main...HEAD -- lib/test/modules/experiment-records.sh | grep -cE '^\\+.*assert_eq')\"\necho \"removed assert_eq: $(git diff main...HEAD -- lib/test/modules/experiment-records.sh | grep -cE '^-.*assert_eq')\"\necho \"=== review-trigger-helpers ===\"\necho \"added assert_eq: $(git diff main...HEAD -- lib/test/modules/review-trigger-helpers.sh | grep -cE '^\\+.*assert_eq')\"\necho \"removed assert_eq: $(git dif …[per-command-truncated]",
+      "cd /tmp; printf '%s' '<!-- prflow:review-verdict head=0123456789012345678901234567890123456789 verdict=REJECT -->' > lf.txt\nprintf '%s\\r' '<!-- prflow:review-verdict head=0123456789012345678901234567890123456789 verdict=REJECT -->' > crlf.txt\necho \"LF line0 match:\"; jq -rs '(split(\"\\n\")|.[0]) | test(\"^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=REJECT -->$\")' lf.txt\necho \"CRLF line0 match:\"; jq -rs '(split(\"\\n\")|.[0]) | test(\"^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=R …[per-command-truncated]",
+      "cd /tmp; printf '%s' '<!-- prflow:review-verdict head=0123456789012345678901234567890123456789 verdict=REJECT -->' > lf.txt\nprintf '%s\\r' '<!-- prflow:review-verdict head=0123456789012345678901234567890123456789 verdict=REJECT -->' > crlf.txt\necho -n \"LF match: \"; jq -rs '(split(\"\\n\")|.[0]) | test(\"^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=REJECT -->$\")' lf.txt\necho -n \"CRLF match: \"; jq -rs '(split(\"\\n\")|.[0]) | test(\"^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=REJEC …[per-command-truncated]",
+      "RE='^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=REJECT -->$'\nprintf '%s' '<!-- prflow:review-verdict head=0123456789012345678901234567890123456789 verdict=REJECT -->' | jq -Rrs --arg re \"$RE\" '(split(\"\\n\")|.[0]) | test($re)' | sed 's/^/LF match: /'\nprintf '%s\\r' '<!-- prflow:review-verdict head=0123456789012345678901234567890123456789 verdict=REJECT -->' | jq -Rrs --arg re \"$RE\" '(split(\"\\n\")|.[0]) | test($re)' | sed 's/^/CRLF match: /'\nprintf '%s\\r' '<!-- prflow:review-verdict head …[per-command-truncated]",
+      "RE='^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=REJECT -->$'\nB='<!-- prflow:review-verdict head=0123456789012345678901234567890123456789 verdict=REJECT -->'\nprintf 'LF: %s\\n' \"$(printf '%s' \"$B\" | jq -Rrs --arg re \"$RE\" '(split(\"\\n\")|.[0]) | test($re)')\"\nprintf 'CRLF: %s\\n' \"$(printf '%s\\r' \"$B\" | jq -Rrs --arg re \"$RE\" '(split(\"\\n\")|.[0]) | test($re)')\"\nprintf 'CRLF_rtrim: %s\\n' \"$(printf '%s\\r' \"$B\" | jq -Rrs --arg re \"$RE\" '(split(\"\\n\")|.[0]|rtrimstr(\"\\r\")) | test($re)')\"",
+      "cat > /tmp/t.sh <<'SH'\nRE='^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=REJECT -->$'\nB='<!-- prflow:review-verdict head=0123456789012345678901234567890123456789 verdict=REJECT -->'\nprintf 'LF: %s\\n' \"$(printf '%s' \"$B\" | jq -Rrs --arg re \"$RE\" '(split(\"\\n\")|.[0]) | test($re)')\"\nprintf 'CRLF: %s\\n' \"$(printf '%s\\r' \"$B\" | jq -Rrs --arg re \"$RE\" '(split(\"\\n\")|.[0]) | test($re)')\"\nprintf 'CRLF_rtrim: %s\\n' \"$(printf '%s\\r' \"$B\" | jq -Rrs --arg re \"$RE\" '(split(\"\\n\")|.[0]|rtrimstr(\"\\r\")) …[per-command-truncated]",
+      "printf '%s\\n' 'RE='\\''^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=REJECT -->$'\\''' 'B='\\''<!-- prflow:review-verdict head=0123456789012345678901234567890123456789 verdict=REJECT -->'\\''' 'printf \"LF: %s\\n\" \"$(printf \"%s\" \"$B\" | jq -Rrs --arg re \"$RE\" \"(split(\\\"\\n\\\")|.[0]) | test(\\$re)\")\"' 'printf \"CRLF: %s\\n\" \"$(printf \"%s\\r\" \"$B\" | jq -Rrs --arg re \"$RE\" \"(split(\\\"\\n\\\")|.[0]) | test(\\$re)\")\"' > /tmp/t.sh\nbash /tmp/t.sh",
+      "s=$(printf '<!-- prflow:review-verdict head=0123456789012345678901234567890123456789 verdict=REJECT -->\\r'); RE='^<!-- prflow:review-verdict head=([0-9a-fA-F]{40}) verdict=(APPROVE|REJECT) -->$'; [[ \"$s\" =~ $RE ]] && echo \"CRLF bash MATCH\" || echo \"CRLF bash NOMATCH\"",
+      "printf 'RE=%s\\ns=$(printf %s)\\n[[ \"$s\" =~ $RE ]] && echo CRLF-bash-MATCH || echo CRLF-bash-NOMATCH\\n' \"'^<!-- prflow:review-verdict head=([0-9a-fA-F]{40}) verdict=(APPROVE|REJECT) -->\\$'\" \"'<!-- prflow:review-verdict head=0123456789012345678901234567890123456789 verdict=REJECT -->\\\\r'\" | bash",
+      "M='<!-- prflow:review-verdict head=5555555555555555555555555555555555555555 verdict=REJECT -->'\nprintf 'LF  match: '; printf '%s\\nbody' \"$M\" | jq -rs 'split(\"\\n\")|(.[0])|test(\"^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=REJECT -->$\")'\nprintf 'CRLF match: '; printf '%s\\r\\nbody' \"$M\" | jq -rs 'split(\"\\n\")|(.[0])|test(\"^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=REJECT -->$\")'\nprintf 'CRLF+rtrim: '; printf '%s\\r\\nbody' \"$M\" | jq -rs 'split(\"\\n\")|(.[0]|rtrimstr(\"\\r\"))|test( …[per-command-truncated]",
+      "printf '<!-- prflow:review-verdict head=5555555555555555555555555555555555555555 verdict=REJECT -->\\r\\nbody' > /tmp/crlf_test.txt\njq -Rs 'split(\"\\n\")|(.[0])|test(\"^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=REJECT -->$\")' /tmp/crlf_test.txt"
+    ],
+    "total": 14,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
