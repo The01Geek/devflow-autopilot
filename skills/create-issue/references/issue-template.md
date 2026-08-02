@@ -496,6 +496,14 @@ has not confirmed.
 Create the issue **directly**, sourcing the body from the **single presentation source** — the
 same bytes the user approved. Which source that is depends on the epoch's arm:
 
+**Consume the self-assignment answer.** Step 4 sub-step 5 obtains the user's answer to *"Assign
+this issue to you?"* before any creation command runs. Substitute `<assignee-args>` into the
+`gh issue create` invocation on **both** arms below: on an explicit **yes** it is the token pair
+`--assignee "@me"` (self-assignment inside the same create call, no post-create edit); on an
+explicit **no** it is **empty**, preserving unassigned creation byte-for-byte. Never invoke a
+creation command before that answer is an explicit yes or no — silence and any non-yes/non-no
+reply pause and re-ask (Step 4 sub-step 5).
+
 **On a file-arm epoch**, the body comes from the gated canonical file, via the state owner's
 gated `emit-body` emitter (it is neither a query nor a mutation: unlike a query it does not
 always exit 0 — it refuses with a non-zero exit and empty stdout). **Do not pipe it into `gh`**:
@@ -523,7 +531,7 @@ output, so the old never-`--body-file` rule (which banned the unaudited preview 
 not apply to it:
 
 ```bash
-python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/issue-audit-state.py emit-body "<slug>" --nonce "<nonce>" --draft-file "<absolute issue-draft-<slug>.md path>" > "<main-root>/.prflow/tmp/issue-body-<slug>.md" && test -s "<main-root>/.prflow/tmp/issue-body-<slug>.md" && gh issue create --title "Action-oriented title here" --body-file "<main-root>/.prflow/tmp/issue-body-<slug>.md"
+python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/issue-audit-state.py emit-body "<slug>" --nonce "<nonce>" --draft-file "<absolute issue-draft-<slug>.md path>" > "<main-root>/.prflow/tmp/issue-body-<slug>.md" && test -s "<main-root>/.prflow/tmp/issue-body-<slug>.md" && gh issue create --title "Action-oriented title here" --body-file "<main-root>/.prflow/tmp/issue-body-<slug>.md" <assignee-args>
 ```
 
 **On an embed- or inline-arm epoch** there is no trustworthy canonical file, so the body is
@@ -532,7 +540,7 @@ are not expanded). This is a **disclosed residual**, not the preferred path — 
 not byte-identical-by-construction the way `emit-body` is:
 
 ```bash
-gh issue create --title "Action-oriented title here" --body-file - <<'BODY'
+gh issue create --title "Action-oriented title here" <assignee-args> --body-file - <<'BODY'
 ## Dependencies
 Blocked by #N — <reason>
 (include this section, above Problem Statement, ONLY when a prerequisite is still open at
