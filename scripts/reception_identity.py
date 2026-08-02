@@ -18,14 +18,35 @@ sparse checkouts. This is the single machine-checkable session identity the
 Reception Preflight records and later consumers re-derive.
 
 Derivation is index-cached plumbing, not a hand-rolled tree walk: a temporary
-index is SEEDED from the repository's current index, `git add -A` stages every
-working-tree content change (edits, deletions, renames, and untracked non-ignored
-files) into that temporary index, and `git write-tree` prints the resulting tree
-object ID. The repository's own index is never modified (the derivation writes to
+index is SEEDED from the repository's current index and BACKDATED to a mtime of 1
+(the racy floor), `git add -A` stages every working-tree content change (edits, deletions,
+renames, and untracked non-ignored files) into that temporary index, and
+`git write-tree` prints the resulting tree object ID. The backdate is load-bearing
+for content-correctness: the seeded index carries each entry's pre-edit stat data,
+so without it `git add -A` trusts a stale-but-clean stat and never re-hashes a
+tracked file rewritten to the same size within the mtime tick the index cached — the
+tree would then carry the old blob (issue #1117). Backdating the temp index makes
+every ordinary entry "racily clean" by git's own rule (cached mtime not strictly
+older than the index), which forces git to re-read content independent of stat
+timing. The backdate is then read back and verified before anything is staged:
+`os.utime` reports only that the syscall succeeded, while the filesystem decides
+what it stores, and both a stored 0 (read as "unset") and a stored value later than
+the entries' cached mtimes disarm the rule silently — so a stored second other than
+the requested one raises `index_backdate_ineffective` instead of deriving an
+identity from stat data the backdate never protected. Going through git's racy
+machinery rather than around it (e.g. an unqualified
+`add --renormalize`) is deliberate: the skip-worktree and `assume-unchanged` entries
+git deliberately does not re-stat both bypass the racy re-check, so the INDEX content
+still decides their contribution — see the skip-worktree/assume-unchanged paragraph
+below. The repository's own index is never modified (the derivation writes to
 a private `GIT_INDEX_FILE`; it does add unreferenced blob/tree objects to the
 object database, which are GC-collectable and touch no ref), and no repository
-history is read, so the cost scales with the number of changed files rather than
-repository size.
+history is read. The backdate does raise the cost profile: forcing every ordinary
+entry racy makes `git add -A` re-hash the content of every tracked file (not only
+the changed ones), so the cost now scales with the number of tracked plus untracked
+non-ignored files rather than with the changed-file count — a deliberate tradeoff
+accepted for stat-timing-independent correctness (issue #1117). It still reads no
+history, so it does not scale with repository depth.
 
 Seeding the temporary index from the current index is load-bearing, not an
 optimization: a cone-mode sparse checkout leaves skip-worktree entries off disk,
@@ -55,14 +76,22 @@ import tempfile
 # A DEVFLOW_GIT override mirrors the DEVFLOW_GH escape hatch without probing.
 GIT = os.environ.get("DEVFLOW_GIT") or "git"
 
+# The whole-second mtime the seeded temporary index is backdated to, and the value
+# the post-condition read-back requires the filesystem to have actually stored.
+# 1, not 0: git reads a zero index timestamp as "unset" and short-circuits
+# `is_racy_stat`, so the epoch second itself would disarm the very rule the
+# backdate exists to arm. See derive_candidate_identity.
+_INDEX_BACKDATE_SECONDS = 1
+
 
 class IdentityError(Exception):
     """A candidate-identity derivation that could not complete.
 
     `.reason` is a named machine-readable breadcrumb (never a bare traceback):
     `git_not_found`, `git_exec_error:<class>`, `git_failed:<subcommand>:<code>`,
-    `git_output_not_utf8:<subcommand>`, `temp_index_error:<class>`, or
-    `empty_tree_output`. The caller prints it to stderr and prints no identity.
+    `git_output_not_utf8:<subcommand>`, `temp_index_error:<class>`,
+    `index_backdate_ineffective:<stored-second>`, or `empty_tree_output`. The
+    caller prints it to stderr and prints no identity.
     """
 
     def __init__(self, reason: str):
@@ -139,8 +168,35 @@ def derive_candidate_identity(repo_root: "str | None" = None) -> str:
         if os.path.exists(index_path):
             # Seed from the current index so skip-worktree (sparse) entries survive.
             shutil.copyfile(index_path, tmp_index)
+            # Backdate the seeded index (issue #1117) so git's racy-index rule forces
+            # `git add -A` to re-hash every ordinary tracked entry instead of trusting
+            # the copied pre-edit stat data — the module docstring's derivation
+            # paragraph carries the full rationale and why this preserves the
+            # skip-worktree / assume-unchanged bypass. The one detail that is local to
+            # this line: a mtime of 0 would NOT arm the mechanism — git reads a zero
+            # index timestamp as "unset" and short-circuits `is_racy_stat`, so 1 second
+            # past the epoch is the smallest value that makes every real-mtime (>= 1)
+            # entry racy.
+            os.utime(tmp_index, (_INDEX_BACKDATE_SECONDS, _INDEX_BACKDATE_SECONDS))
+            # Verify the backdate rather than assume it: `os.utime` reports the syscall's
+            # success, but the FILESYSTEM decides what it stores, and two stored values
+            # disarm the racy rule — each of them silently. A 0 (a coarse-granularity or
+            # clamping filesystem truncating the epoch second down) is the "unset" value
+            # above. A value LATER than the entries' cached mtimes (a filesystem that
+            # accepts the call and keeps the creation time) fails `is_racy_stat`'s
+            # comparison from the other side. Either one puts `git add -A` straight back
+            # on the stale-stat path and yields the pre-edit blob — the issue #1117
+            # collision this backdate exists to prevent, with no error and no breadcrumb.
+            # Requiring the exact stored second refuses both directions at once; whole
+            # seconds are the granularity git's own stat comparison uses, so sub-second
+            # noise a filesystem may add is tolerated. A host that cannot store the value
+            # gets a named refusal, never an identity the backdate never protected.
+            stored_mtime = int(os.stat(tmp_index).st_mtime)
+            if stored_mtime != _INDEX_BACKDATE_SECONDS:
+                raise IdentityError(f"index_backdate_ineffective:{stored_mtime}")
         else:
-            # Absent index: start from an empty index (git creates the file).
+            # Absent index: start from an empty index (git creates the file). No
+            # seeded stat data exists, so the racy backdate above is unnecessary.
             os.remove(tmp_index)
         env = {"GIT_INDEX_FILE": tmp_index}
         # -A stages every working-tree content change: edits, deletions, renames,
