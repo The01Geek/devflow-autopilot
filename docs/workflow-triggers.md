@@ -265,9 +265,9 @@ that runs *before* authorization and number resolution: it declines any
 > **Workflow wiring.** Passing `SELF_COMMENT_MARKER` into the resolver's
 > environment (and exposing a `workpad_marker` config output) lives in
 > `.github/workflows/devflow-implement.yml`, and is **applied as shipped** — the
-> config job extracts `devflow.workpad_marker` (defaulting to the built-in
+> config job extracts `prflow.workpad_marker` (defaulting to the built-in
 > `<!-- prflow:workpad -->`) and the gate passes it to the resolver. So both the
-> **default** marker and any repo-customized `devflow.workpad_marker` are protected
+> **default** marker and any repo-customized `prflow.workpad_marker` are protected
 > out of the box, with no manual edit required.
 
 ## Startup lifecycle: "resumed" means an earlier execution, not the normal handoff
@@ -479,7 +479,7 @@ phase boundary; Phase 4.5 finalizes it).
 - It reuses the **same helper** as the implement workpad — `scripts/workpad.py`
   — pointed at the review marker via the helper's `--marker` flag (a plain
   argument on each call; precedence: `--marker` > the `DEVFLOW_WORKPAD_MARKER`
-  env var > `devflow.workpad_marker` config > the built-in default). The flag is
+  env var > `prflow.workpad_marker` config > the built-in default). The flag is
   used rather than the env var because a leading `VAR=value` env-assignment
   makes the command un-matchable against the cloud allow-list rule
   `Bash(.../workpad.py:*)` — the command would no longer *start with* the helper

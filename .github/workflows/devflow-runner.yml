@@ -240,7 +240,7 @@ jobs:
             exit 1
           fi
           if [ -z "$ALLOWED_BOTS" ]; then
-            echo "::error::devflow.allowed_bots is missing from .prflow/config.json"
+            echo "::error::prflow.allowed_bots is missing from .prflow/config.json"
             exit 1
           fi
           {
@@ -2794,7 +2794,7 @@ jobs:
       # (subtype success, mid-phase) that nobody could ever read — the execution file
       # dies with the runner, so every stall diagnosis so far has been inference from
       # denial counts. Recording it turns the next stall from a guess into a read.
-      # Gated by its OWN opt-in key `devflow.execution_transcript_artifact_enabled`
+      # Gated by its OWN opt-in key `prflow.execution_transcript_artifact_enabled`
       # (default FALSE, fail-closed — resolved in the diagnostics step above), NOT the
       # default-on diagnostics gate: a consumer repo must never start publishing
       # transcripts merely by upgrading. The scrub pass redacts token-shaped strings

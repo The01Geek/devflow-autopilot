@@ -4055,7 +4055,7 @@ assert_eq "429/T7: devflow-implement.yml --allowed-tools already grants gh pr vi
   "$(grep -cF 'Bash(gh pr view:*)' "$_DI429" || true)"
 assert_eq "429/T7: prflow_implement.allowed_tools adds no merge-base/pr-view grant" "0" \
   "$(jq -r '.prflow_implement.allowed_tools[]? | select(test("merge-base|pr view"))' "$_C429" 2>/dev/null | grep -c . || true)"
-assert_eq "429/T7: devflow.allowed_tools adds no merge-base/pr-view grant" "0" \
+assert_eq "429/T7: prflow.allowed_tools adds no merge-base/pr-view grant" "0" \
   "$(jq -r '.prflow.allowed_tools[]? | select(test("merge-base|pr view"))' "$_C429" 2>/dev/null | grep -c . || true)"
 
 # ── F1 (review): STANDING anti-vacuity proofs for the new fail-closed guards ───────────────
@@ -7574,7 +7574,7 @@ fi
 
 # ── issue #682: attribute cloud-tier writer commits to the triggering user ─────
 # scripts/resolve-committer-identity.sh is the sibling of emit-git-env.sh (#645):
-# a default-off config flag (devflow.attribute_commits_to_triggerer) gates whether
+# a default-off config flag (prflow.attribute_commits_to_triggerer) gates whether
 # the four GIT_AUTHOR_*/GIT_COMMITTER_* variables are emitted for the triggering
 # human. The helper is a pure shell CLI with a deterministic stdout/exit contract,
 # driven directly here with DEVFLOW_GH stubbed (the resolver's test-stub contract),
@@ -7594,11 +7594,11 @@ assert_eq "#682: resolve-committer-identity.sh exists and is executable" "yes" \
 # Schema/example: the key is declared as boolean defaulting to false and mirrored
 # in the example config as an explicit false (the documented-off-switch class — a
 # valid-falsy value must survive as false, never be coerced to a truthy default).
-assert_eq "#682: schema declares devflow.attribute_commits_to_triggerer as boolean:false" "boolean:false" \
+assert_eq "#682: schema declares prflow.attribute_commits_to_triggerer as boolean:false" "boolean:false" \
   "$(jq -r '.properties.prflow.properties.attribute_commits_to_triggerer | "\(.type):\(.default)"' "$I682_SCHEMA")"
 assert_eq "#682: schema description names the post-merge-only semantics" "yes" \
   "$(jq -e '.properties.prflow.properties.attribute_commits_to_triggerer.description | test("POST-MERGE-ONLY")' "$I682_SCHEMA" >/dev/null && echo yes || echo no)"
-assert_eq "#682: example config carries devflow.attribute_commits_to_triggerer as an explicit false" "false" \
+assert_eq "#682: example config carries prflow.attribute_commits_to_triggerer as an explicit false" "false" \
   "$(jq -r '.prflow.attribute_commits_to_triggerer' "$I682_EXAMPLE")"
 
 # Workflow wiring: BOTH writer workflows carry a step that reads the flag from the
@@ -11837,7 +11837,7 @@ echo "config-source.sh"
   assert_eq "conf: malformed JSON → default (warns, no abort)" "dflt" "$(devflow_conf '.anything' dflt 2>/dev/null)"
   rm -f "$wp"
 )
-# watched_authors falls back to devflow.allowed_bots when the override array is absent.
+# watched_authors falls back to prflow.allowed_bots when the override array is absent.
 ( wp="$(mktemp)"; printf '{"prflow":{"allowed_bots":"claude,fallback-bot"}}' > "$wp"
   export DEVFLOW_CONFIG_FILE="$wp"
   . "$LIB/config-source.sh"
