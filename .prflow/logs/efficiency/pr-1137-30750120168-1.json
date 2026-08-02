@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1137",
+  "generated_at": "2026-08-02T13:42:44Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.44",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 8.067215500000003,
+    "tokens": {
+      "input_tokens": 5259,
+      "output_tokens": 19335,
+      "cache_read_input_tokens": 3235655,
+      "cache_creation_input_tokens": 142790,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 5355,
+        "outputTokens": 71986,
+        "cacheReadInputTokens": 6098106,
+        "cacheCreationInputTokens": 425004,
+        "webSearchRequests": 0,
+        "costUSD": 8.067215500000003,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 31,
+    "duration_ms": 603886
+  },
+  "permission_denials": {
+    "count": 24,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "git status --porcelain; echo \"---ENV---\"; echo \"RUN_ID=${GITHUB_RUN_ID:-}\"; echo \"ATTEMPT=${GITHUB_RUN_ATTEMPT:-}\"; echo \"ACTIONS=${GITHUB_ACTIONS:-}\"",
+      "gh pr diff 1137 > .prflow/tmp/review/pr-1137/30750120168-1/diff.full 2>&1; wc -l .prflow/tmp/review/pr-1137/30750120168-1/diff.full; echo \"---TAIL---\"; tail -30 .prflow/tmp/review/pr-1137/30750120168-1/diff.full",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1049 --pr 1137 2>.prflow/tmp/review/pr-1137/30750120168-1/acs.err ; echo \"acs-rc=$?\"",
+      "cat .gitignore 2>/dev/null | grep -nE 'prflow|vendor'; echo \"--- .prflow/.gitignore ---\"; cat .prflow/.gitignore 2>/dev/null; echo \"--- is vendor ignored? ---\"; git check-ignore .prflow/vendor/.claude-plugin/marketplace.json .prflow/vendor/prflow/scripts/x 2>/dev/null || echo \"not-ignored-or-no-match\"",
+      "git check-ignore .prflow/vendor/.claude-plugin/marketplace.json .prflow/vendor/prflow/scripts/x",
+      "git check-ignore -v .prflow/vendor/.claude-plugin/marketplace.json",
+      "git check-ignore .prflow/vendor/.claude-plugin/marketplace.json; echo \"rc=$?\"; echo \"---\"; git check-ignore .prflow/vendor/prflow/scripts/foo.sh; echo \"rc=$?\"",
+      "git check-ignore .prflow/vendor/.claude-plugin/marketplace.json .prflow/vendor/prflow/scripts/foo.sh .prflow/vendor 2>&1; echo \"rc=$?\"",
+      "git check-ignore -v .prflow/vendor/.claude-plugin/marketplace.json",
+      "OUT=\"\"; VENDOR_ROOT=\".prflow/vendor\"; OUT=\"giturl\"; OUT=\"${OUT:+$OUT$'\\n'}$VENDOR_ROOT\"; printf '%s\\n' \"$OUT\" | cat -A",
+      "bash -c 'OUT=\"giturl\"; VENDOR_ROOT=\".prflow/vendor\"; OUT=\"${OUT:+$OUT$'\"'\"'\\n'\"'\"'}$VENDOR_ROOT\"; printf \"%s\\n\" \"$OUT\"' | cat -A",
+      "cat > /tmp/t.sh <<'EOF'\nOUT=\"giturl\"\nVENDOR_ROOT=\".prflow/vendor\"\nOUT=\"${OUT:+$OUT$'\\n'}$VENDOR_ROOT\"\nprintf '%s\\n' \"$OUT\"\nEOF\nbash /tmp/t.sh | cat -A",
+      "printf '%s\\n' 'OUT=\"giturl\"' 'VENDOR_ROOT=\".prflow/vendor\"' 'OUT=\"${OUT:+$OUT$'\"'\"'\\n'\"'\"'}$VENDOR_ROOT\"' 'printf \"%s\\n\" \"$OUT\"' > /tmp/t.sh; bash /tmp/t.sh | cat -A",
+      "printf '%s\\n' 'OUT=\"giturl\"' 'VENDOR_ROOT=\".prflow/vendor\"' 'OUT=\"${OUT:+$OUT$'\"'\"'\\n'\"'\"'}$VENDOR_ROOT\"' 'printf \"%s\\n\" \"$OUT\"' > /tmp/t.sh",
+      "printf '%s\\n' 'OUT=\"giturl\"' 'VENDOR_ROOT=\".prflow/vendor\"' 'OUT=\"${OUT:+$OUT$'\"'\"'\\n'\"'\"'}$VENDOR_ROOT\"' 'printf \"%s\\n\" \"$OUT\"' > /tmp/t.sh",
+      "printf '%s\\n' 'OUT=\"giturl\"' 'VENDOR_ROOT=\".prflow/vendor\"' 'OUT=\"${OUT:+$OUT$'\"'\"'\\n'\"'\"'}$VENDOR_ROOT\"' 'printf \"%s\\n\" \"$OUT\"' > /tmp/cvm-test.sh && bash /tmp/cvm-test.sh | cat -A && rm -f /tmp/cvm-test.sh",
+      "D=$(mktemp -d) && printf '%s\\n' 'OUT=\"giturl\"' 'VENDOR_ROOT=\".prflow/vendor\"' 'OUT=\"${OUT:+$OUT$'\"'\"'\\n'\"'\"'}$VENDOR_ROOT\"' 'printf \"%s\\n\" \"$OUT\"' > \"$D/t.sh\" && bash \"$D/t.sh\" | cat -A; rm -rf \"$D\"",
+      "printf '%s\\n' 'A=\"x\"; B=\"y\"; C=\"${A:+$A$'\"'\"'\\n'\"'\"'}$B\"; printf \"[%s]\\n\" \"$C\"' > cvmtest.sh; bash cvmtest.sh | cat -A; rm -f cvmtest.sh",
+      "printf '%s\\n' 'A=\"x\"; B=\"y\"; C=\"${A:+$A$'\"'\"'\\n'\"'\"'}$B\"; printf \"[%s]\\n\" \"$C\"' > cvmtest.sh; bash cvmtest.sh | cat -A; rm -f cvmtest.sh",
+      "echo 'QT0ieCI7IEI9InkiOyBDPSIke0E6KyRBJCdcbid9JEIiOyBwcmludGYgIlslc11cbiIgIiRDIg==' | base64 -d > cvmtest.sh; cat cvmtest.sh; echo '---'; bash cvmtest.sh | cat -A; rm -f cvmtest.sh",
+      "echo 'QT0ieCI7IEI9InkiOyBDPSIke0E6KyRBJCdcbid9JEIiOyBwcmludGYgIlslc11cbiIgIiRDIg==' | base64 -d > cvmtest.sh",
+      "echo 'QT0ieCI7IEI9InkiOyBDPSIke0E6KyRBJCdcbid9JEIiOyBwcmludGYgIlslc11cbiIgIiRDIg==' | base64 -d > cvmtest.sh; bash cvmtest.sh | cat -A; rm -f cvmtest.sh",
+      "echo 'QT0ieCI7IEI9InkiOyBDPSIke0E6KyRBJCdcbid9JEIiOyBwcmludGYgIlslc11cbiIgIiRDIg==' | base64 -d > cvmtest.sh",
+      "bash -c 'v=\"a$'\\''\\n'\\''b\"; printf \"%q\\n\" \"$v\"'"
+    ],
+    "total": 24,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
