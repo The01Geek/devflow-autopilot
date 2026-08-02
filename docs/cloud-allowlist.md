@@ -804,18 +804,34 @@ offending call. It resolves through `extract-command-shapes.py`'s arm-level
 `classify_arms()` because the deny set is defined over **arms**, not rule ids
 (`classify()` collapses R3's two arms onto one token).
 
-**Registration is not yet wired — the guard is inert at this revision.** What is shipped
-is the guard body, its unit coverage, and its hardening from the trusted base ref via the
-`#458` `HOOK_TARGETS` closure (its path is in both `HOOK_ENTRY_TARGETS` and
-`HOOK_TARGETS`). What is **not** shipped is either registration channel: no `PreToolUse`
-key in the committed `.claude/settings.json`, and no `settings` input on
-`devflow-runner.yml`'s review-tier action step. Both are required and must land together
-— the committed settings entry is what arms the `#458` relevance gate (`--wired-check`
-matches `HOOK_ENTRY_TARGETS` against the *trusted base* settings), while the `settings`
-input is what makes the guard effective in a run; registering through `settings` alone
-would execute PR-editable guard code in a secrets-bearing job. Until both land, every
-runtime behavior described below is the guard's implemented contract, not observed
-behavior.
+**Registration shipped (#908), but the guard is inert because its delivery tier lost its
+caller (#936).** What is shipped is the guard body, its unit coverage, its hardening from
+the trusted base ref, and — under #908 — the review-tier registration itself:
+`devflow-runner.yml`'s "Run Claude Code" step carries a `settings:` input that registers a
+`PreToolUse` / `Bash` hook resolving `pretooluse-shape-guard.py` at the vendored path
+(with a repo-root fallback) and failing open — exit 0 — when neither copy exists. That
+registration is made safe by the **unconditional** `Harden PreToolUse guard closure`
+step (`harden_guard`), which materializes a trusted-base copy of the guard so no PR-head
+copy of it can execute in the secrets-bearing review job; membership of the guard's path
+in the `#458` `HOOK_TARGETS` closure alone is **not** that mechanism, because
+`harden_hooks` can skip entirely.
+
+The **second** registration channel — a `PreToolUse` key in the committed
+`.claude/settings.json` — is deliberately still absent, and by design rather than
+oversight: the harness denies agent writes under `.claude/`, so #908 records it under
+"Maintainer prerequisite (NOT an acceptance criterion)" and instructs an implementing run
+to neither attempt it nor report Blocked on it. So it is **not** the case that the two
+channels must land together; the shipped state is exactly one of them, intentionally.
+
+The guard is nevertheless inert on `main` — but the reason is the delivery tier, not the
+registration. `devflow-runner.yml` declares `workflow_call:` as its sole trigger, and its
+only caller, `devflow-review.yml`, was deleted under #936 (which withheld the automatic
+pull-request-triggered review tier), so no workflow in the tree invokes it; the `settings:`
+registration rides on a reusable workflow that nothing calls. Whether to wire the guard
+onto a live tier (`devflow.yml` / `devflow-implement.yml`) or to accept it as
+retained-but-inert alongside the withheld tier is a separate open decision (#919) that is
+not settled here. Because the tier cannot run, every runtime behavior described below is
+the guard's implemented contract, not observed behavior.
 
 ### The deny set and each arm's permitted alternative (authoritative)
 
@@ -851,16 +867,24 @@ discipline, not a probe result). The guard **defers** these.
 
 ### PreToolUse probe evidence (Part 1)
 
-**The probe arm is not yet authored.** `.github/workflows/matcher-probe.yml` carries no
-`pretooluse-probe` arm at this revision — it is to be added alongside the registration
-above. Once added it will establish, by observation, whether a `PreToolUse` hook fires
-under `claude-code-action` (`FIRED`/`NOT-FIRED`) and whether its
-`permissionDecisionReason` reaches the engine transcript
-(`REASON-DELIVERED`/`REASON-ABSENT`). The guard's own firing behavior is
-resolved from the workflow definition and is **not** observable inside the implementing
-pull request's own run, so the probe is dispatched **after merge** and its run id +
-three-way result, plus one review run's per-arm denial counts against the
-run-30138268273 baseline of five `/tmp`-redirect denials, are recorded here then:
+**The probe arm shipped under #908.** `.github/workflows/matcher-probe.yml` carries a
+`pretooluse-probe` job that registers its own ad-hoc `PreToolUse` / `Bash` hook via a
+`settings:` input and writes a `pretooluse-probe-fired` marker. It is designed to
+establish, by observation, whether a `PreToolUse` hook fires under `claude-code-action`
+(`FIRED`/`NOT-FIRED`) and whether its `permissionDecisionReason` reaches the engine
+transcript (`REASON-DELIVERED`/`REASON-ABSENT`).
+
+Filling the table below is **#919's** job, not this section's, and that issue — not
+this page — holds the current record. Two things a reader should take from it rather
+than from the row's placeholder. First, the arm is **not** awaiting a dispatch to
+produce a first result: #919 records it as having already returned the same verdict
+pair on repeated same-repo `pull_request` runs, together with the scope note that keeps
+the pair from misleading (the probe's own hook emits `permissionDecision: "allow"`, for
+which `permissionDecisionReason` is specified to be ignored, so the guard's `deny`-path
+reason delivery remains unmeasured). Second, #919 has **dropped** the once-planned
+per-arm review-run denial count against the run-30138268273 baseline as no longer
+achievable — no live tier can produce a review run carrying the guard — retaining that
+baseline run id only as historical reference. The row is left as found until #919 lands.
 
 | Probe run id | Firing verdict | Reason-delivery verdict | Per-arm denial counts (review run) |
 | --- | --- | --- | --- |
