@@ -199,7 +199,7 @@ The completeness critic is a **finding-producing pass, not a verdict override**:
 
 ```bash
 # devflow:dirty-tree-compare BEGIN (the complete compare/authenticate/restore wrapper is extracted
-# and exercised by the #484 git_sandbox integration tests in lib/test/run.sh)
+# and exercised by the #484 git_sandbox integration tests in lib/test/run.sh)  # pruned-path-ok: provenance footnote inside a bash block the engine emits verbatim into a consumer shell; the HTML-comment spelling would emit as shell text (issue #1072)
 mkdir -p .prflow/tmp
 if [ -f ".prflow/tmp/review-dirty-tree-disabled" ]; then
   : # before-snapshot failed in 3.1 (already surfaced there); backstop disabled this dispatch
@@ -233,7 +233,7 @@ else
     # `paths in AFTER, absent from BEFORE, NOT rename/copy entries`; rename/copy entries are
     # surfaced separately, never auto-restored (index surgery needed).
     # devflow:dirty-tree-restore BEGIN (self-contained given the fixed before/after snapshot files and
-    # cwd=repo; extracted + exercised by the #216 git_sandbox integration test in lib/test/run.sh)
+    # cwd=repo; extracted + exercised by the #216 git_sandbox integration test in lib/test/run.sh)  # pruned-path-ok: provenance footnote inside a bash block the engine emits verbatim into a consumer shell; the HTML-comment spelling would emit as shell text (issue #1072)
     mkdir -p .prflow/tmp
     # NOTE (runtime assumption): the NUL-mode grep operand below is a GNU extension — this region
     # runs in the review engine's own GNU/Linux agent runtime (same env as CI), NOT a committed
