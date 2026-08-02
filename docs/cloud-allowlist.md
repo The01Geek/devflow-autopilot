@@ -752,6 +752,26 @@ and the portable anchor's `/../../scripts/` lands at the repository root, never 
 granted `.prflow/vendor/prflow/scripts/` subtree. Both shapes were granted in
 response, for each of the 25 helpers.
 
+**Issue #1049 closed this resolution fidelity gap for the implement tier.** The
+observation above — this repo's cloud implement run resolving `$CLAUDE_SKILL_DIR` to
+`<workspace>/skills/<name>` while every consumer resolves the same shipped bytes from
+`.prflow/vendor/prflow` — meant the shipped `.prflow/vendor/prflow/scripts/` helper-path
+shape had **no coverage in this repo** (the #824 fidelity gap): a denial a consumer
+would hit was invisible here. `devflow-implement.yml`'s `claude` job now runs an
+implement-tier-only `vendor_marketplace` step (`scripts/compose-vendor-marketplace.sh`)
+that composes a **job-local** marketplace rooted at `.prflow/vendor` (plugin `prflow`
+sourced at `./prflow`) and swaps the repo-root `./` entry in the composed marketplace
+list for it, so this repo's implement run now resolves `$CLAUDE_SKILL_DIR` to
+`<workspace>/.prflow/vendor/prflow/skills/<name>` — the **same subtree a consumer
+resolves**, so the shipped helper-path shape finally has coverage here and a denial in
+this repo is a denial there. The composition is best-effort (always exits 0) and
+degrades on an absent/partial vendored tree with a `::warning::` naming `prflow_version`.
+The tracked `.claude-plugin/marketplace.json`, the baked marketplace baseline literal,
+and the **review/manual tiers** are untouched — those still resolve from the repo-root
+`./` and continue to exercise the workspace-absolute / repo-root-relative shapes above.
+Per the usual grant timing (#593), the workflow change is **inert for its own PR's
+implementing run** and live for subsequent cloud runs (verified post-merge).
+
 **The workspace-absolute literal embeds the repository name twice.** A rename moves
 `$GITHUB_WORKSPACE`, every such token stops matching, and — per this tier's defining
 property — an ungranted head is **silently denied**. The failure mode is a run that
