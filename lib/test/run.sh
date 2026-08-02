@@ -44003,6 +44003,28 @@ assert_eq "#1072 lint: an absent composing assignment refuses (cannot identify s
 # test_absent_prune_statement_refuses: the refusal names the slice source it read and audits nothing.
 assert_eq "#1072 lint: an unparseable slice refuses non-zero naming the slice source" "yes" \
   "$(case "$(sp_pruneset "$SP_FX/slices/bare-stage.sh")" in *"slices/bare-stage.sh"*) echo yes ;; *) echo no ;; esac)"
+# The remaining "cannot establish" arms, each ATTRIBUTED to its own guard rather than to a bare
+# rc=1: bare-stage.sh above refuses via the empty-target path, so without these three the
+# _function_body and _destination_param refusals are undriven and a mutant disabling one of them
+# stays green. Each fixture is otherwise a well-formed slice, so the rejection cannot come from an
+# unrelated precondition.
+assert_eq "#1072 lint: a slice with no devflow_copy_slice() refuses, attributed to the missing function" "yes" \
+  "$(case "$(sp_pruneset "$SP_FX/slices/no-function.sh")" in "rc=1|"*"devflow_copy_slice() not found"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1072 lint: an unclosed function body refuses, attributed to the missing closing brace" "yes" \
+  "$(case "$(sp_pruneset "$SP_FX/slices/unclosed-brace.sh")" in "rc=1|"*"closing brace not found"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1072 lint: an unidentifiable destination parameter refuses, attributed to \$2" "yes" \
+  "$(case "$(sp_pruneset "$SP_FX/slices/no-dest-param.sh")" in "rc=1|"*"could not identify the destination parameter"*) echo yes ;; *) echo no ;; esac)"
+# An unlexable line inside the function body refuses instead of best-effort re-splitting. The
+# fixture carries TWO rm targets and mangles only the second: under a `line.split()` fallback the
+# survivor (docs/site) keeps the set non-empty, so the empty-set refusal never fires and the lint
+# audits the shipped surface against a set silently missing lib/test. The assertion pins the
+# lexer's own attribution, so that fail-open cannot pass as this refusal.
+assert_eq "#1072 lint: an unlexable body line refuses, attributed to the lexer, not silently re-split" "yes" \
+  "$(case "$(sp_pruneset "$SP_FX/slices/unlexable.sh")" in "rc=1|"*"could not lex a line of devflow_copy_slice()"*) echo yes ;; *) echo no ;; esac)"
+# Positive control for the arm above: a `#` comment carrying an apostrophe is stripped BEFORE
+# lexing, so prose inside the function body (as the real slice carries) still derives its set.
+assert_eq "#1072 lint: an apostrophe inside a body comment does not refuse (comments stripped pre-lex)" "rc=0|lib/test" \
+  "$(sp_pruneset "$SP_FX/slices/comment-apostrophe.sh")"
 
 # Audited-population behavior, driven over the fixture skills/ tree with a fixture slice (target
 # lib/test). Every list rides through probe_tmp so the fixtures stay unreachable from the default
@@ -44043,10 +44065,28 @@ skills/fence-tilde-in-backtick.md|suppressed|a tilde line does not close a backt
 skills/fence-unclosed.md|suppressed|an unclosed fence runs to end of file
 skills/fence-indented.md|reported|an indented fence is not recognized, so the shell marker does not apply
 SP_FENCE
-# AC18 / test_planted_reference_is_caught: the positive control — a copy of a shipped prompt file
-# into which a prune-target reference has been planted is reported.
+# AC18 / test_planted_reference_is_caught: the positive control — skills/planted.md is a verbatim
+# copy of the head of skills/review/phases/phase-0-setup.md (real prose, a real fenced block) into
+# which a prune-target reference has been planted after the fence; the lint reports it.
 assert_eq "#1072 lint: a planted reference in a shipped-file copy is caught (positive control)" "yes" \
   "$(case "$(sp_run "$SP_SIMPLE" skills/planted.md)" in "rc=1|"*"skills/planted.md:"*) echo yes ;; *) echo no ;; esac)"
+# The audited SUBSET carries its own floor. enumerate_population floors on zero TOTAL index paths,
+# BEFORE is_audited() narrows to skills/**+agents/**, so an enumeration that selects only
+# non-audited paths reaches the read loop zero times and would print `audited 0 of 0` and return 0
+# — a clean pass over an unchecked shipped surface, the lint's own fail-open class one level up.
+# The pair below is discriminating: the same invocation differing only in whether ONE audited path
+# is present separates the floor from any unrelated refusal.
+assert_eq "#1072 lint: an enumeration selecting no skills/agents path refuses (empty-audited floor)" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" slices/simple.sh)" in "rc=1|"*"selected no file under skills/ or agents/"*) echo yes ;; *) echo no ;; esac)"
+# Positive control on the same shape, doubling as is_audited's negative half: adding ONE audited
+# path to that same list audits and passes, and the `1 of 1` count proves the non-audited
+# slices/simple.sh was excluded rather than read. So the refusal above is attributable to the empty
+# subset, not to the list mechanism.
+assert_eq "#1072 lint: the same list plus one audited path audits 1 of 1 (floor control + is_audited negative)" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" slices/simple.sh skills/clean.md)"
+# The agents/ prefix, which the real-tree count>0 assertion cannot isolate from skills/.
+assert_eq "#1072 lint: an agents/ path is audited (second prefix, reported like skills/)" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" agents/unmarked-agent.md)" in "rc=1|"*"agents/unmarked-agent.md:1:"*) echo yes ;; *) echo no ;; esac)"
 # A NUL-carrying file is a fail-closed skip, never absorbed into a clean pass.
 assert_eq "#1072 lint: a NUL-carrying file is a fail-closed skip" "yes" \
   "$(case "$(sp_run "$SP_SIMPLE" skills/nul.md)" in "rc=1|"*"SKIPPED skills/nul.md"*) echo yes ;; *) echo no ;; esac)"

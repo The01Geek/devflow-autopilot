@@ -52,10 +52,11 @@ Usage:
     lint-shipped-pruned-path.py [--root DIR] [--files-from PATH]
                                 [--slice-source PATH] [--print-prune-set]
 
-Exit status is 0 only when the prune set was established, every selected file was
-read, and none referenced a prune target without a marker. It is non-zero when a
-reference is found, when the prune set cannot be established, when the enumeration is
-unusable, and when any selected path could not be read.
+Exit status is 0 only when the prune set was established, the enumeration selected at
+least one audited file, every selected file was read, and none referenced a prune
+target without a marker. It is non-zero when a reference is found, when the prune set
+cannot be established, when the enumeration is unusable, when it selects no audited
+file at all, and when any selected path could not be read.
 """
 
 from __future__ import annotations
@@ -196,9 +197,22 @@ def parse_prune_targets(slice_text: str) -> list[str]:
     targets: list[str] = []
     for line in lines:
         try:
-            tokens = shlex.split(line, posix=True)
-        except ValueError:
-            tokens = line.split()
+            # `comments=True` so a `#` comment is stripped BEFORE lexing. The real slice
+            # carries prose comments inside this function, and an apostrophe in one of
+            # them ("DevFlow's own test suite") is an unbalanced quote to a lexer that
+            # sees it. shlex itself decides what is a comment, so a `#` inside a quoted
+            # token still lexes as data — the accepted set is shlex's, not a re-derived
+            # approximation of it.
+            tokens = shlex.split(line, comments=True, posix=True)
+        except ValueError as exc:
+            # No best-effort re-split. `line.split()` accepts a SUPERSET of what shlex
+            # accepts, so a quoted target on an unlexable line keeps its quotes, misses
+            # `stage_re`, and drops out of the set — and the empty-set refusal below
+            # never fires while one other target survives. An unlexable line inside
+            # the slice function is an establishment failure, so it refuses here.
+            raise PruneParseError(
+                f"could not lex a line of devflow_copy_slice(): {line.strip()!r}: {exc}"
+            ) from exc
         if "rm" not in tokens:
             continue
         for token in tokens:
@@ -338,6 +352,22 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     audited = [path for path in population if is_audited(path)]
+    # The enumeration floors on zero TOTAL index paths, before this narrowing. The
+    # audited subset needs its own floor: an empty one reads the loop zero times and
+    # would return 0 with `audited 0 of 0` — a clean pass over an unchecked shipped
+    # surface, which is this lint's own fail-open class one level up. Reachable by a
+    # renamed AUDITED_PREFIXES, a relocated tree, or a --files-from list naming no
+    # such path. The driver asserts a positive count over the real tree; that floor
+    # is the driver's, so the tool carries this one to hold its stated contract for
+    # every caller.
+    if not audited:
+        print(
+            "lint-shipped-pruned-path: the enumeration selected no file under "
+            f"{' or '.join(AUDITED_PREFIXES)} — refusing to report clean over an "
+            "unaudited shipped surface",
+            file=sys.stderr,
+        )
+        return 1
 
     findings: list[str] = []
     skipped: list[tuple[str, str]] = []
