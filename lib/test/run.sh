@@ -32825,8 +32825,16 @@ fi
 # unconditional Phase 4 completion path. The implement engine must read that gate before
 # it can finalize the workpad, so this contract cannot be deferred behind a progressively
 # loaded reference. Raise the ceiling to the exact post-#1087 measurement, with no slack.
+# Issue #1132 single-sources the verification-flight scope this phase's completion gate
+# requires and adds the execution-ceiling terminal beside item 3's. Neither part can be
+# routed behind a conditional progressively-loaded reference: the scope pointer is read on
+# the way INTO item 1's flight (a run that has not read it has already chosen a scope), and
+# the ceiling arm exists precisely to stop a run from taking item 3's terminal by default —
+# a reference it only knows to load after deciding is not read at all. That is the same
+# unconditional-reading argument #1087 made for the gate these two amend. Raise the ceiling
+# to the exact post-#1132 measurement, with no slack.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
-  "$([ "$(wc -c < "$I480_P4")" -le 104586 ] && echo yes || echo no)"
+  "$([ "$(wc -c < "$I480_P4")" -le 105849 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
 # the reference through this file's own entry-gate anchor, and degrades rather than halting
 # on a failed read — carry NO pin. Every mutation those sentences admit rewrites the one
