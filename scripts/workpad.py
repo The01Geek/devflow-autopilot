@@ -2730,8 +2730,8 @@ def _load_completion_validator():
     if _COMPLETION_VALIDATOR_CACHE is not None:
         return _COMPLETION_VALIDATOR_CACHE
     import importlib.util
-    path = Path(__file__).resolve().parent / 'check-completion-evidence.py'
-    if not path.exists():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'check-completion-evidence.py')
+    if not os.path.exists(path):
         return None
     try:
         spec = importlib.util.spec_from_file_location(

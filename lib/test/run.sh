@@ -17429,7 +17429,7 @@ assert_eq "#458 helper: harden-stop-hooks.sh exists" "yes" \
 # guard entry — COUPLED (a
 # file dropped here silently leaves that PR-head script executable, or the workflow
 # never materializes its trusted copy). Pin the exact closure literal.
-HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh lib/resolve-state-dir.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'
+HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh lib/resolve-state-dir.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py scripts/check-completion-evidence.py scripts/reception_identity.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'
 assert_eq "#458 helper: HOOK_TARGETS is the full transitive source/exec closure" "1" \
   "$(grep -cF "HOOK_TARGETS='$HSH_CLOSURE_LIT'" "$HSH" || true)"
 # The three per-class sub-lists (entries / sourced libs / exec'd deps) drive the
@@ -17439,7 +17439,7 @@ assert_eq "#458 helper: HOOK_ENTRY_TARGETS are the three Stop-hook entries plus 
 assert_eq "#458 helper: HOOK_SOURCED_TARGETS are the inline-sourced libs (mid-source-break class)" "1" \
   "$(grep -cF "HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh lib/resolve-state-dir.sh'" "$HSH" || true)"
 assert_eq "#458 helper: HOOK_EXEC_TARGETS are the subprocess-exec'd deps" "1" \
-  "$(grep -cF "HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'" "$HSH" || true)"
+  "$(grep -cF "HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py scripts/check-completion-evidence.py scripts/reception_identity.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'" "$HSH" || true)"
 SETTINGS="$LIB/../.claude/settings.json"
 assert_eq "#458 coupling: settings.json wires lib/efficiency-trace.sh Stop hook" "1" \
   "$(jq '[.hooks.Stop[]?.hooks[]? | select((.command // "") | contains("lib/efficiency-trace.sh") and contains("--persist"))] | length' "$SETTINGS" 2>/dev/null || echo BAD)"
@@ -17466,7 +17466,7 @@ assert_eq "#805 coupling: HOOK_ENTRY_TARGETS has exactly 4 entries in total (3 .
 # The full closure hardened here is the entry hooks plus their transitive source/exec/python3
 # deps; its exact membership and size are pinned by the assertion below and the drift-guard,
 # not asserted in prose (the count-locked stale-prose lint owns numeric claims).
-assert_eq "#458 coupling: HOOK_TARGETS has exactly 14 closure entries (.sh + .py)" "14" \
+assert_eq "#458 coupling: HOOK_TARGETS has exactly 16 closure entries (.sh + .py)" "16" \
   "$(grep -oE "HOOK_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -cE '\.(sh|py)' || true)"
 # SET-EQUALITY invariant (issue #460 SHADOW, FP-S3): the three per-class lists must
 # partition HOOK_TARGETS exactly — entries ∪ sourced ∪ exec == HOOK_TARGETS. A future
@@ -32278,8 +32278,12 @@ fi
 # arm, so they live in the unconditional §4.3 prose. That does not fit the residual headroom the
 # post-#1039 figure left, so the ceiling is raised again here at the post-#1050 measurement with
 # NO added slack, exactly as above.
+# Issue #1087 adds the terminal completion-evidence flight and marker handoff to the
+# unconditional Phase 4 completion path. The implement engine must read that gate before
+# it can finalize the workpad, so this contract cannot be deferred behind a progressively
+# loaded reference. Raise the ceiling to the exact post-#1087 measurement, with no slack.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
-  "$([ "$(wc -c < "$I480_P4")" -le 100707 ] && echo yes || echo no)"
+  "$([ "$(wc -c < "$I480_P4")" -le 104586 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
 # the reference through this file's own entry-gate anchor, and degrades rather than halting
 # on a failed read — carry NO pin. Every mutation those sentences admit rewrites the one
