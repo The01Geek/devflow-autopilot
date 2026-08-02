@@ -69,8 +69,6 @@ Subagent (general-purpose):
     ## Calibration
 
     Categorize issues by actual severity. Not everything is Critical.
-    Acknowledge what was done well before listing issues — accurate praise
-    helps the implementer trust the rest of the feedback.
 
     If you find significant deviations from the plan, flag them specifically
     so the implementer can confirm whether the deviation was intentional.
@@ -78,9 +76,6 @@ Subagent (general-purpose):
     say so.
 
     ## Output Format
-
-    ### Strengths
-    [What's well done? Be specific.]
 
     ### Issues
 
@@ -99,9 +94,6 @@ Subagent (general-purpose):
     - Why it matters
     - How to fix (if not obvious)
 
-    ### Recommendations
-    [Improvements for code quality, architecture, or process]
-
     ### Assessment
 
     **Ready to merge?** [Yes | No | With fixes]
@@ -114,7 +106,6 @@ Subagent (general-purpose):
     - Categorize by actual severity
     - Be specific (file:line, not vague)
     - Explain WHY each issue matters
-    - Acknowledge strengths
     - Give a clear verdict
 
     **DON'T:**
@@ -131,16 +122,11 @@ Subagent (general-purpose):
 - `[BASE_SHA]` — starting commit
 - `[HEAD_SHA]` — ending commit
 
-**Reviewer returns:** Strengths, Issues (Critical / Important / Minor), Recommendations, Assessment
+**Reviewer returns:** Issues (Critical / Important / Minor), Assessment
 
 ## Example Output
 
 ```
-### Strengths
-- Clean database schema with proper migrations (db.ts:15-42)
-- Comprehensive test coverage (18 tests, all edge cases)
-- Good error handling with fallbacks (summarizer.ts:85-92)
-
 ### Issues
 
 #### Important
@@ -159,10 +145,6 @@ Subagent (general-purpose):
    - File: indexer.ts:130
    - Issue: No "X of Y" counter for long operations
    - Impact: Users don't know how long to wait
-
-### Recommendations
-- Add progress reporting for user experience
-- Consider config file for excluded projects (portability)
 
 ### Assessment
 
