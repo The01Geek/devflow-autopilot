@@ -27,13 +27,21 @@
 # assigned: the helper confirms the requested login is present in the response's
 # assignees before reporting `applied`. An unconfirmed login is reported skipped.
 #
+# `unconfirmed` means UNESTABLISHED, not failed (CLAUDE.md's "unknown is not zero"):
+# the POST returned rc 0, so the request succeeded and only the confirmation did not
+# — an empty/truncated response body or a degraded $DEVFLOW_JQ lands here just as an
+# ignored login does. Callers must record it as "could not confirm assignment", never
+# as "unassigned"; every OTHER skip reason does establish that no assignment was made.
+#
 # OUTCOME CONTRACT (the closed set): the helper prints exactly ONE outcome token to
 # STDOUT and exits 0:
 #   * `assignment: applied <login>`   — the add-assignee response contains <login>.
-#   * `assignment: skipped <reason>`  — every handled non-applied path (invalid
-#     input, no cloud triggerer, empty/failed local identity, API failure, or an
-#     unconfirmed response). <reason> is one of: invalid-input, no-triggering-user,
-#     identity-lookup-failed, empty-identity, api-failure, unconfirmed.
+#   * `assignment: skipped <reason>`  — every handled path that does NOT report
+#     applied (invalid input, no cloud triggerer, empty/failed local identity, API
+#     failure, or an unconfirmed response). <reason> is one of: invalid-input,
+#     no-triggering-user, identity-lookup-failed, empty-identity, api-failure,
+#     unconfirmed. Every reason except `unconfirmed` establishes that no assignment
+#     was made; `unconfirmed` establishes only that it could not be confirmed.
 # It ALWAYS exits 0 (best-effort: an assignment hiccup never aborts the caller) and
 # NEVER prints an empty stdout — so the caller reads "no output at all" as a HARNESS
 # REFUSAL (a denied command produces nothing), distinct from every handled skip.
@@ -119,4 +127,4 @@ if printf '%s' "$RESP" | "$DEVFLOW_JQ" -e --arg login "$LOGIN" \
   _applied "$LOGIN"
 fi
 
-_skipped unconfirmed "the add-assignee response did not contain '${LOGIN}' (GitHub may have silently ignored an unassignable login)"
+_skipped unconfirmed "the add-assignee request succeeded but its response did not confirm '${LOGIN}' among the assignees (GitHub may have silently ignored an unassignable login, or the response was empty/truncated) — assignment is UNCONFIRMED, not known to have failed"
