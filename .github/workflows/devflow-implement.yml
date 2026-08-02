@@ -126,6 +126,38 @@ jobs:
             *)
               echo "::warning::.prflow/config.json still carries the superseded workflows[\"devflow\"] key and has no workflows.prflow. This workflow reads workflows.prflow, so it is disabled — which matches the superseded key's own value, but the key is un-migrated. Re-run install.sh --apply to migrate it." ;;
           esac
+          # STRAY SUPERSEDED FAMILY DETECTION (issue #1083) — advisory, deliberately NOT gated
+          # on the enable read. A stray superseded top-level family present beside a canonical
+          # prflow* family is a half-migrated config: the stray family's keys resolve to their
+          # `// default` everywhere, so any tool grant, allowlist narrowing, or provider
+          # selection written under it silently does nothing. The fully-un-migrated shape (no
+          # prflow* family present) is left to the loud MISSING_FAMILIES gate below; this warns
+          # only when a canonical family sits beside the stray one, which is exactly the
+          # population the MISSING_FAMILIES set-difference passes silently (issue #1083).
+          #
+          # The superseded family names are matched by SHAPE (a `^devflow(_|$)` top-level key),
+          # never spelled out, and this comment names NEITHER a dotted superseded read NOR a
+          # bare superseded-family literal: the freshness gate in scaffold-config.sh marks a
+          # workflow stale on either form, so writing one here — in jq, message, or comment —
+          # would wedge every consumer's config-key migration (a guard must not defeat another
+          # guard). lib/test/run.sh reconciles this shape against lib/rename-map.json's
+          # config_keys so it cannot drift from the rename inventory. `keys` (not `//`) is what
+          # keeps a valid-falsy stray value visible: presence is read from the key set, never
+          # the value, so a stray family holding false/0/"" is still detected (issue #312).
+          STRAY_FAMILIES=$(echo "$CONFIG_JSON" | jq -r '
+            if type != "object" then ""
+            else
+              (keys) as $k
+              | (any($k[]; test("^prflow(_|$)"))) as $has_canon
+              | if $has_canon then ($k | map(select(test("^devflow(_|$)"))) | join(" ")) else "" end
+            end')
+          # Bash builtin word-splitting selects the emitted arm — no non-preflight PATH tool
+          # decides the result. One warning per stray family, naming it and the remedy.
+          if [ -n "$STRAY_FAMILIES" ]; then
+            for fam in $STRAY_FAMILIES; do
+              echo "::warning::.prflow/config.json carries the superseded top-level config key '$fam' beside a canonical prflow* family. Its keys are ignored — they resolve to their built-in defaults, so any tool grant, allowlist narrowing, or provider selection written under '$fam' silently does nothing. Run /prflow:init to migrate the Tier 1 config keys, then delete the stray '$fam' object."
+            done
+          fi
           # `// empty` collapses a missing/null allowlist to a real empty string.
           # Fail loud only when the workflow is ENABLED — a config left on the
           # pre-2.2.5 `claude.allowed_bots` key would otherwise propagate a

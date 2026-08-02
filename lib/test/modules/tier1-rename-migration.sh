@@ -945,6 +945,197 @@ print("stale" if any(p.search(text) for p in compiled) else "clean")
 ' "$LIB/../scripts/scaffold-config.sh")"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#1083 E4. the stray-superseded-family detector, deliberately NOT gated on the enable read"
+# ────────────────────────────────────────────────────────────────────────────
+# #1068 corrected every instruction that named a dead grant key but deliberately left the
+# DETECTION gap: the MISSING_FAMILIES set-difference (section H) only fires when a canonical
+# family is ABSENT, so a config carrying a correct prflow family PLUS a stray superseded
+# top-level family passes silently — the stray family's keys resolve to their `// default`
+# everywhere and any grant/allowlist-narrowing/provider-selection written there evaporates.
+# This detector warns on exactly that half-migrated shape. Like the #1041 skew guard it lives
+# OUTSIDE the enable gate (a disabled repo mid-migration must still be told), and the selector
+# is driven directly over the adversarial shape matrix — a grep-pin on the ::warning:: literal
+# is not coverage of the branch that chooses it.
+#
+# The jq program is READ OUT OF THE SHIPPED WORKFLOW rather than transcribed here, so these
+# rows drive the bytes that actually run and no copy can drift away from them.
+_t1_stray_prog() {  # $1 = shipped workflow id -> that file's own STRAY_FAMILIES jq program
+  python3 - "$LIB/../.github/workflows/$1.yml" <<'PY'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+# Capture the multi-line program between `STRAY_FAMILIES=$(echo "$CONFIG_JSON" | jq -r '`
+# and its terminating `')`.
+m = re.search(r"STRAY_FAMILIES=\$\(echo \"\$CONFIG_JSON\" \| jq -r '(.*?)'\)", text, re.S)
+if m:
+    sys.stdout.write(m.group(1))
+PY
+}
+_t1_stray_impl="$(_t1_stray_prog devflow-implement)"
+_t1_stray_cmd="$(_t1_stray_prog devflow)"
+assert_eq "#1083 stray-family detector: the program is extractable from BOTH shipped workflows and is byte-identical (so the rows below drive what really runs)" "yes" \
+  "$([ -n "$_t1_stray_impl" ] && [ "$_t1_stray_impl" = "$_t1_stray_cmd" ] && echo yes || echo no)"
+_t1_stray() { printf '%s' "$1" | jq -r "$_t1_stray_impl" 2>/dev/null; }
+
+# THE REACHABLE DEFECT: a canonical family present beside a stray superseded one — the exact
+# population MISSING_FAMILIES passes silently. The stray family is named so the operator can act.
+assert_eq "#1083 stray-family detector: a stray superseded family beside a canonical one is named" \
+  "devflow" "$(_t1_stray '{"prflow":{},"devflow":{}}')"
+# One warning per stray family: multiple strays are all reported, space-joined for the loop.
+assert_eq "#1083 stray-family detector: every stray family present is reported" \
+  "devflow devflow_version" "$(_t1_stray '{"prflow":{},"prflow_version":"x","devflow":{},"devflow_version":"y"}')"
+# The 'canonical present' discriminator uses the same prflow* SHAPE, so any migrated family
+# beside a stray one arms the detector — not just the specific prflow/prflow_version pair.
+assert_eq "#1083 stray-family detector: any prflow* family counts as the canonical neighbour" \
+  "devflow_review" "$(_t1_stray '{"prflow_implement":{},"devflow_review":{}}')"
+# VALID-FALSY (issue #312): presence is read from `keys`, never the value, so a stray family
+# deliberately holding false/0/"" is STILL detected — a `//`-based read would collapse it to absent.
+assert_eq "#1083 stray-family detector: a stray family holding a valid-falsy value is still detected" \
+  "devflow" "$(_t1_stray '{"prflow":{},"devflow":false}')"
+assert_eq "#1083 stray-family detector: a stray family holding 0 is still detected" \
+  "devflow_runner" "$(_t1_stray '{"prflow":{},"devflow_runner":0}')"
+# The fully-UN-migrated shape (no canonical neighbour) is the loud MISSING_FAMILIES gate's
+# subject — this detector stays silent so the two do not double-diagnose the same config.
+assert_eq "#1083 stray-family detector: an un-migrated config (no canonical family) is silent" "" \
+  "$(_t1_stray '{"devflow":{},"devflow_version":"x"}')"
+assert_eq "#1083 stray-family detector: a fully-migrated config is silent" "" \
+  "$(_t1_stray '{"prflow":{},"prflow_version":"x"}')"
+assert_eq "#1083 stray-family detector: an empty object is silent" "" \
+  "$(_t1_stray '{}')"
+# Non-object roots fail SAFE (empty, no crash): a hand-corrupted config is the loud
+# per-family guard's subject, and this advisory detector must not detonate the filter.
+for _t1_strayshape in '["a"]' '"hello"' 'null' '42'; do
+  assert_eq "#1083 stray-family detector: a non-object root ($_t1_strayshape) yields no verdict rather than crashing" "" \
+    "$(_t1_stray "$_t1_strayshape")"
+done
+
+# NEGATIVE CONTROL on the shape's SCOPE: it matches a top-level config FAMILY, so a frozen
+# devflow-prefixed name that is not one must not be flagged even sitting at the top level
+# beside a canonical family. The marketplace name is the canonical example (it is in the
+# rename map's own frozen.identifiers). Without this the rows above prove only that the shape
+# is wide enough, never that it is narrow enough.
+assert_eq "#1083 stray-family detector: a frozen devflow-prefixed name that is NOT a top-level family is not flagged" "" \
+  "$(_t1_stray '{"prflow":{},"devflow-marketplace":{}}')"
+# ...and the control is LIVE: the same config plus a real stray family still fires, so the row
+# above cannot pass merely because the detector went silent altogether.
+assert_eq "#1083 stray-family detector: the frozen-name control is live (a real stray beside it still fires)" \
+  "devflow_review" "$(_t1_stray '{"prflow":{},"devflow-marketplace":{},"devflow_review":{}}')"
+
+# DERIVATION FROM THE RENAME INVENTORY: the workflow's inline jq cannot read
+# lib/rename-map.json at runtime (the checkout may not carry it), so the detector matches by
+# SHAPE and this desk-time row reconciles that shape against the map's config_keys.
+#
+# The patterns are EXTRACTED FROM THE SHIPPED JQ PROGRAM, never transcribed here: a row that
+# re-implemented the shape in its own Python would reconcile the map against a COPY, which is
+# the guard-reads-a-copy defect this repo calls unverified-assumption. Extraction failure
+# prints MISSING rather than falling back to a default, because an empty pattern matches
+# everything and would pass vacuously.
+#
+# Be exact about what derivation buys, because it is NOT "this row now catches any shape
+# change" — measured against the three mutation classes:
+#   NARROWING  (`^devflow_`, which stops covering the bare `devflow` family) — caught HERE, and
+#              only because the pattern is derived; a transcribed copy left this row green.
+#   WIDENING   (`^devflow`) — NOT caught here. It still covers every map entry and still misses
+#              every prflow* key, so all three directions below stay satisfied. It is caught by
+#              the frozen-name negative control above, which drives the real jq and goes RED
+#              because `devflow-marketplace` starts being flagged.
+#   CANONICAL PROBE broken (the neighbour test respelled) — caught by neither of those two; the
+#              `un-migrated config is silent` row above is what goes RED.
+# So over-reach is bounded behaviorally and under-reach is bounded here; neither row is
+# sufficient alone, and this comment is the record of which covers which.
+#
+# Three directions, so the row states the shape's intended TOP-LEVEL-FAMILY scope:
+#   ALL-SUPERSEDED-MATCH  every superseded family the map lists matches the shape
+#   NO-CURRENT-MATCH      no current (prflow*) key does
+#   FROZEN-EXCLUDED(N)    none of the N frozen CONFIG KEYS does. N is in the expected value on
+#                         purpose: Tier 4 emptied frozen.config_keys, so this direction is
+#                         vacuous today and the count makes that visible instead of hiding it
+#                         — and adding a frozen config key changes the expected string, which
+#                         is the deliberate review point vacuity would otherwise cost.
+# Scoped to frozen.CONFIG_KEYS and not to frozen.identifiers on purpose: `devflow_module_pin_*`
+# is a frozen identifier that DOES match the shape by design, and rightly so — it is not a
+# top-level config key, so the detector never sees it. Widening this row to every frozen name
+# would assert something false.
+assert_eq "#1083 stray-family detector: the shape read OUT OF THE SHIPPED jq matches every superseded config family in the rename map, no current key, and no frozen config key" \
+  "ALL-SUPERSEDED-MATCH NO-CURRENT-MATCH FROZEN-EXCLUDED(0)" \
+  "$(python3 - "$LIB/../lib/rename-map.json" "$_t1_stray_impl" <<'PY'
+import json, re, sys
+# argv, not stdin: the heredoc IS this process's stdin (python3 reads its own program from
+# `-`), so a piped program would arrive empty and every direction below would pass vacuously.
+prog = sys.argv[2]
+# Each pattern comes out of its own unambiguous position in the shipped program: the canonical
+# probe sits in `any($k[]; test(...))`, the superseded filter in `select(test(...))`.
+canon = re.search(r'any\(\$k\[\];\s*test\("([^"]+)"\)\)', prog)
+sup = re.search(r'select\(\s*test\("([^"]+)"\)\s*\)', prog)
+if not canon or not sup:
+    print("MISSING canonical=%s superseded=%s" % (bool(canon), bool(sup)))
+    raise SystemExit(0)
+sup_re = re.compile(sup.group(1))
+m = json.load(open(sys.argv[1]))
+ck = m["config_keys"]
+frozen = m.get("frozen", {}).get("config_keys", [])
+print(("ALL-SUPERSEDED-MATCH" if all(sup_re.search(k) for k in ck) else "SUPERSEDED-MISS"),
+      ("NO-CURRENT-MATCH" if not any(sup_re.search(v) for v in ck.values()) else "CURRENT-MATCHED"),
+      (("FROZEN-EXCLUDED(%d)" if not any(sup_re.search(k) for k in frozen)
+        else "FROZEN-MATCHED(%d)") % len(frozen)))
+PY
+)"
+
+# Wired into both SHIPPED workflows, and — like the #1041 skew guard — computed BEFORE the
+# enable gate, so an intentionally-disabled repository mid-migration is still warned. Asserted
+# positionally on each shipped file: an edit that tucked it inside `if [ "$ENABLED" = "true" ]`
+# would leave every row above green while the detector went dark on disabled configs.
+for _t1_wf in devflow devflow-implement; do
+  _t1_body="$(cat "$LIB/../.github/workflows/$_t1_wf.yml" 2>/dev/null)"
+  assert_eq "#1083 stray-family detector: $_t1_wf.yml carries the detector" "yes" \
+    "$(_t1_has "$_t1_body" 'STRAY_FAMILIES=$(')"
+  assert_eq "#1083 stray-family detector: $_t1_wf.yml routes the operator to /prflow:init" "yes" \
+    "$(_t1_has "$_t1_body" 'Run /prflow:init to migrate the Tier 1 config keys')"
+  assert_eq "#1083 stray-family detector: $_t1_wf.yml computes it BEFORE the enable gate" "outside-gate" \
+    "$(python3 - "$LIB/../.github/workflows/$_t1_wf.yml" <<'PY'
+import sys
+detector = gate = None
+for i, line in enumerate(open(sys.argv[1], encoding="utf-8")):
+    if detector is None and "STRAY_FAMILIES=$(" in line:
+        detector = i
+    if gate is None and 'if [ "$ENABLED" = "true" ]; then' in line:
+        gate = i
+if detector is None or gate is None:
+    print("MISSING detector=%s gate=%s" % (detector, gate))
+else:
+    print("outside-gate" if detector < gate else "inside-or-after-gate")
+PY
+)"
+done
+
+# COUPLED MIRROR: the two shipped workflows carry the SAME block, byte for byte. The row above
+# only proves the extracted jq program matches; the block is more than the program — the arm
+# that selects the emit, the operator-facing message, and the comment stating why no dotted or
+# bare superseded literal may appear here. A drift confined to any of those would leave every
+# row above green while the two shipped workflows diagnosed the same config differently (or one
+# of them re-introduced a literal the freshness gate marks stale). Digested, not compared
+# in-place, so a failure names WHICH file drifted rather than dumping both blocks.
+_t1_stray_block() {  # $1 = shipped workflow id -> sha256 of that file's whole detector block
+  python3 - "$LIB/../.github/workflows/$1.yml" <<'PY'
+import hashlib, sys
+lines = open(sys.argv[1], encoding="utf-8").readlines()
+start = next((i for i, l in enumerate(lines) if "# STRAY SUPERSEDED FAMILY DETECTION" in l), None)
+if start is None:
+    sys.exit(0)
+# The block ends at its own terminating `fi` (the guard around the per-family emit loop).
+end = next((i for i in range(start, len(lines)) if lines[i].strip() == "fi"), None)
+if end is None:
+    sys.exit(0)
+sys.stdout.write(hashlib.sha256("".join(lines[start:end + 1]).encode("utf-8")).hexdigest()[:16])
+PY
+}
+_t1_stray_blk_cmd="$(_t1_stray_block devflow)"
+_t1_stray_blk_impl="$(_t1_stray_block devflow-implement)"
+assert_eq "#1083 stray-family detector: the WHOLE block (comment, jq, selecting arm, message) is byte-identical across both shipped workflows" \
+  "identical" \
+  "$( [ -n "$_t1_stray_blk_cmd" ] && [ "$_t1_stray_blk_cmd" = "$_t1_stray_blk_impl" ] && echo identical \
+      || printf 'DRIFT devflow=%s devflow-implement=%s' "${_t1_stray_blk_cmd:-MISSING}" "${_t1_stray_blk_impl:-MISSING}" )"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "#1004 J. the frozen out-of-repo DEVFLOW_* identifier inventory"
 # ────────────────────────────────────────────────────────────────────────────
 # Tier 3 records the consumer-facing DEVFLOW_* names that are NOT renamed, and derives a
