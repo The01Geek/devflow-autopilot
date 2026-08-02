@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1143",
+  "generated_at": "2026-08-02T14:30:02Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.44",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 30.639224249999987,
+    "tokens": {
+      "input_tokens": 2372,
+      "output_tokens": 82048,
+      "cache_read_input_tokens": 39247492,
+      "cache_creation_input_tokens": 370799,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 2467,
+        "outputTokens": 117098,
+        "cacheReadInputTokens": 41853236,
+        "cacheCreationInputTokens": 861172,
+        "webSearchRequests": 0,
+        "costUSD": 30.639224249999987,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 161,
+    "duration_ms": 2971888
+  },
+  "permission_denials": {
+    "count": 11,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"GITHUB_ACTIONS=${GITHUB_ACTIONS:-<unset>}\"; echo \"branch=$(git branch --show-current)\"; git status --short | head; echo \"---labels---\"; echo \"PRFlow only\"",
+      "printf 'GITHUB_ACTIONS=%s\\n' \"${GITHUB_ACTIONS:-unset}\"; printf 'branch=%s\\n' \"$(git branch --show-current)\"; git status --short",
+      ".prflow/vendor/prflow/scripts/parse-acs.py --issue 1112 > .prflow/tmp/acs-1112.md 2>err.txt; echo \"exit=$?\"; wc -l .prflow/tmp/acs-1112.md; head -30 .prflow/tmp/acs-1112.md; echo \"---err---\"; cat err.txt",
+      "gh issue view 1112 --json body --jq '.body' > .prflow/tmp/issue-1112-body.md 2>/dev/null; scripts/extract-doc-needed-paths.sh .prflow/tmp/issue-1112-body.md 2>&1; echo \"exit=$?\"",
+      "sed -n '1,60p' scripts/extract-doc-needed-paths.sh | grep -nE \"usage|--issue|--body|stdin|\\\\$1|read|Usage\" | head",
+      "timeout 560 lib/test/run.sh >/tmp/suite.log 2>&1; echo \"rc=$?\"; tail -8 /tmp/suite.log",
+      "lib/test/run.sh > .prflow/tmp/suite-1112.log 2>&1; echo \"rc=$?\"",
+      "lib/test/run.sh > suite-1112.log 2>&1; echo \"rc=$?\"; tail -6 suite-1112.log",
+      "gh pr ready 2>&1 && echo \"PR_OUTCOME=published\" || { [ \"$(gh pr view --json isDraft --jq '.isDraft' 2>/dev/null)\" = \"false\" ] && echo \"PR_OUTCOME=published (already non-draft)\" || echo \"PR_OUTCOME=publish_failed\"; }",
+      "TRIGGER_COMMENT_ID=$(gh api \"repos/{owner}/{repo}/issues/1112/comments?per_page=100\" --jq 'map(select((.body | contains(\"/prflow:implement\")) and ((.body | test(\"(pr|dev)flow:workpad\")) | not))) | last | .id' 2>/dev/null || true); echo \"trigger=$TRIGGER_COMMENT_ID\"; if [ -n \"$TRIGGER_COMMENT_ID\" ] && [ -z \"${TRIGGER_COMMENT_ID//[0-9]/}\" ]; then .prflow/vendor/prflow/scripts/react-to-trigger.sh --repo \"$GITHUB_REPOSITORY\" --event issue_comment --comment \"$TRIGGER_COMMENT_ID\" --reaction hooray 2>& …[per-command-truncated]",
+      ".prflow/vendor/prflow/scripts/react-to-trigger.sh --repo \"$GITHUB_REPOSITORY\" --event issue_comment --comment 5158263800 --reaction hooray 2>&1; echo \"rc=$?\""
+    ],
+    "total": 11,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
