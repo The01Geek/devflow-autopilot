@@ -290,9 +290,8 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
 ### Implementation Notes
 Describe the **one** approach the user chose — not a comparison of candidates. The
 one-approach rule governs the **Approach**, **Code Patterns**, and **Testing Strategy**
-bullets. The **Relevant files** block below is different in kind — a floor-declared *map* of
-the surfaces the approach is expected to reach, not a comparison of candidates — so a hedge
-inside it is a marked-as-such starting point, not an unresolved option.
+bullets. The **Relevant files** block below is different in kind — a floor-declared *map*
+rather than a comparison of candidates — so its own bullet, not this rule, governs it.
 - **Approach** — the decided design: what changes and why, and how it fits the existing code.
   Name the surfaces the change is expected to reach in the `Relevant files` block below, not here.
 - **Relevant files** — a floor-declared map of the file and function surfaces the decided
@@ -473,7 +472,7 @@ incomplete issues.
 - [ ] A premise verified as "the code does X" was read with its enclosing gates/conditionals and their defaults on the path to X, and any claim that holds only under a non-default configuration states that precondition inside the claim
 - [ ] A designed LLM/semantic-judgment surface over third-party text (issue bodies, PR comments, commit messages, external API responses) carries the input-is-data guard AC paired with a hostile-input Testing Strategy case that asserts instruction-shaped input is not obeyed — or cites the existing already-guarded judgment path it reuses; a draft with no such surface adds nothing here
 - [ ] Every enumerated test/case/example list inside an AC declares its form — the `at minimum` floor marker or an explicit closed-set exhaustiveness statement — and each floor-marked list has had Move 2's coverage sweep (state, case variants, multiplicity, absence) written back as additional closed AC items
-- [ ] Implementation notes describe a single chosen approach
+- [ ] Implementation notes describe a single chosen approach (the `Relevant files` block excepted — it is a floor-declared map, hedges permitted)
 - [ ] Testing Strategy classifies the boundary + level, walks the coverage dimensions (boundary/error/adversarial/state/scale/security as they apply), and gives test-first assertions with every AC mapped to ≥1 assertion and no orphan assertions — bug fixes reproduce the defect first; guarantee-class changes test the skipped-step path; or it names a reproducible stand-in verification when no automated test applies
 - [ ] **No-options gate passed**: no choice/hedge/deferral language outside `## 🚫 Blocked` and the Implementation Notes `Relevant files` block
 - [ ] Any unresolved decision is in `## 🚫 Blocked`, phrased as a question — nowhere else
