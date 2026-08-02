@@ -237,6 +237,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/compose-vendor-marketplace.sh": {
+      "note": "issue #1049 implement-tier vendored-marketplace composition; covered by the #1049 block in lib/test/run.sh",
+      "owner": "unmodularized"
+    },
     "scripts/config-get.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -722,6 +726,10 @@
       "note": "",
       "owner": "review-trigger-helpers"
     },
+    "1049": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "1050": {
       "note": "",
       "owner": "unmodularized"
@@ -769,6 +777,10 @@
     "1082": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "1083": {
+      "note": "",
+      "owner": "tier1-rename-migration"
     },
     "1084": {
       "note": "",

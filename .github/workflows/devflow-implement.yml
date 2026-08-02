@@ -34,7 +34,11 @@ run-name: "DevFlow implement (issue ${{ github.event.issue.number }})"
 # flows in devflow.yml, without inflating every command's cost.
 #
 # Keep the plugin_marketplaces, plugins, and claude_args sections in sync with
-# devflow.yml so the skill surface is identical across listeners.
+# devflow.yml so the skill surface is identical across listeners. ONE deliberate
+# exception (issue #1049): the plugin_marketplaces action INPUT is consumed from the
+# implement-only `vendor_marketplace` step, which resolves the prflow plugin root to the
+# vendored subtree — do NOT "re-sync" it back to steps.plugins. The skill surface stays
+# identical; only the resolution root differs.
 
 on:
   issue_comment:
@@ -122,6 +126,38 @@ jobs:
             *)
               echo "::warning::.prflow/config.json still carries the superseded workflows[\"devflow\"] key and has no workflows.prflow. This workflow reads workflows.prflow, so it is disabled — which matches the superseded key's own value, but the key is un-migrated. Re-run install.sh --apply to migrate it." ;;
           esac
+          # STRAY SUPERSEDED FAMILY DETECTION (issue #1083) — advisory, deliberately NOT gated
+          # on the enable read. A stray superseded top-level family present beside a canonical
+          # prflow* family is a half-migrated config: the stray family's keys resolve to their
+          # `// default` everywhere, so any tool grant, allowlist narrowing, or provider
+          # selection written under it silently does nothing. The fully-un-migrated shape (no
+          # prflow* family present) is left to the loud MISSING_FAMILIES gate below; this warns
+          # only when a canonical family sits beside the stray one, which is exactly the
+          # population the MISSING_FAMILIES set-difference passes silently (issue #1083).
+          #
+          # The superseded family names are matched by SHAPE (a `^devflow(_|$)` top-level key),
+          # never spelled out, and this comment names NEITHER a dotted superseded read NOR a
+          # bare superseded-family literal: the freshness gate in scaffold-config.sh marks a
+          # workflow stale on either form, so writing one here — in jq, message, or comment —
+          # would wedge every consumer's config-key migration (a guard must not defeat another
+          # guard). lib/test/run.sh reconciles this shape against lib/rename-map.json's
+          # config_keys so it cannot drift from the rename inventory. `keys` (not `//`) is what
+          # keeps a valid-falsy stray value visible: presence is read from the key set, never
+          # the value, so a stray family holding false/0/"" is still detected (issue #312).
+          STRAY_FAMILIES=$(echo "$CONFIG_JSON" | jq -r '
+            if type != "object" then ""
+            else
+              (keys) as $k
+              | (any($k[]; test("^prflow(_|$)"))) as $has_canon
+              | if $has_canon then ($k | map(select(test("^devflow(_|$)"))) | join(" ")) else "" end
+            end')
+          # Bash builtin word-splitting selects the emitted arm — no non-preflight PATH tool
+          # decides the result. One warning per stray family, naming it and the remedy.
+          if [ -n "$STRAY_FAMILIES" ]; then
+            for fam in $STRAY_FAMILIES; do
+              echo "::warning::.prflow/config.json carries the superseded top-level config key '$fam' beside a canonical prflow* family. Its keys are ignored — they resolve to their built-in defaults, so any tool grant, allowlist narrowing, or provider selection written under '$fam' silently does nothing. Run /prflow:init to migrate the Tier 1 config keys, then delete the stray '$fam' object."
+            done
+          fi
           # `// empty` collapses a missing/null allowlist to a real empty string.
           # Fail loud only when the workflow is ENABLED — a config left on the
           # pre-2.2.5 `claude.allowed_bots` key would otherwise propagate a
@@ -1038,6 +1074,59 @@ jobs:
             fi
           fi
 
+      # Resolve the prflow plugin root to the VENDORED subtree (issue #1049) — the
+      # implement tier ONLY (devflow.yml and devflow-runner.yml deliberately keep the
+      # repo-root `./`). The composed marketplace list from the step above registers
+      # `devflow-marketplace` from the repo-root `./`: the tracked marketplace.json
+      # sources `prflow` at `./`, so here $CLAUDE_SKILL_DIR resolves to
+      # <workspace>/skills/<name> and the portable helper anchor lands at the repo root.
+      # A CONSUMER instead resolves the same shipped bytes from `.prflow/vendor/prflow`.
+      # This step swaps the `./` marketplace entry for a job-local marketplace rooted at
+      # `./.prflow/vendor` (written by the helper, `prflow` sourced at `./prflow`), so the
+      # anchor lands under `.prflow/vendor/prflow/scripts/` here too — the shape this
+      # repo emits becomes the shape a consumer emits, and a denial here is a denial
+      # there. It leaves the tracked marketplace.json AND the baked baseline literal
+      # untouched (issue #1049 constraints): only this composed, job-local list is
+      # rewritten, and `plugins` passes through steps.plugins unchanged. The composed-
+      # vs-degraded branch selection lives in compose-vendor-marketplace.sh, driven by
+      # lib/test/run.sh (the describe-denial-count.sh extraction convention); the outer
+      # file-absent guard is the #505-class vendored-helper skew arm and names
+      # prflow_version, mirroring the compose step's HELPER guard. Best-effort: the helper
+      # never hard-fails (always exits 0) and every non-clean path is audited (never a
+      # silently-wrong resolution). THE `./` PREFIX ON THE EMITTED ENTRY IS LOAD-BEARING:
+      # claude-code-action validates every plugin_marketplaces entry and rejects a bare
+      # relative path outright (`Invalid marketplace URL format`), which broke every cloud
+      # implement run in this repo when PR #1137 first shipped this step; the helper
+      # normalizes it, and lib/test/run.sh asserts the emitted value satisfies the
+      # action's local-path predicate. The step itself runs under `set -euo pipefail`, so a
+      # mktemp/output-write failure would fail loudly (never silently) — consistent with
+      # the compose step above, which likewise mktemps under set -euo.
+      - name: Resolve plugin root to the vendored subtree (issue #1049)
+        id: vendor_marketplace
+        env:
+          COMPOSED_MK: ${{ steps.plugins.outputs.plugin_marketplaces }}
+        run: |
+          set -euo pipefail
+          VENDORMK=.prflow/vendor/prflow/scripts/compose-vendor-marketplace.sh
+          MKF="$(mktemp)"; printf '%s\n' "$COMPOSED_MK" > "$MKF"
+          if [ -f "$VENDORMK" ]; then
+            bash "$VENDORMK" "$MKF" .prflow/vendor \
+              || echo "::warning::devflow compose-vendor-marketplace.sh failed (rc≠0); the prflow plugin resolves from the repo-root marketplace (./)."
+          else
+            echo "::warning::devflow compose-vendor-marketplace.sh not found at $VENDORMK — a pinned prflow_version predating issue #1049 running an upgraded workflow; the prflow plugin resolves from the repo-root marketplace (./). Bump prflow_version in .prflow/config.json."
+          fi
+          # Re-read the (possibly transformed) list via bash builtins (guard-class 2 —
+          # no cat/tr/sed/wc/cut/head for the emitted marketplace list). Blank lines are
+          # dropped deliberately, so an empty entry never reaches plugin_marketplaces.
+          OUT=""
+          while IFS= read -r mkline || [ -n "$mkline" ]; do
+            [ -z "$mkline" ] && continue
+            OUT="${OUT:+$OUT$'\n'}$mkline"
+          done < "$MKF"
+          rm -f "$MKF"
+          vdelim="MKV_EOF_$(date +%s%N)_$$"
+          { printf 'plugin_marketplaces<<%s\n' "$vdelim"; printf '%s\n' "$OUT"; printf '%s\n' "$vdelim"; } >> "$GITHUB_OUTPUT"
+
       # AC13 boundary 2 (issue #537): record the "Claude job provisioning complete"
       # startup checkpoint immediately before the action, AFTER runtime provisioning
       # and plugin composition, so its timestamp marks the actual action boundary.
@@ -1212,7 +1301,11 @@ jobs:
           # baked baseline (byte-identical across the three call sites — run.sh
           # pins it) PLUS the entries .claude/settings.json declares. Kept in sync
           # with devflow.yml so both listeners expose the same skill surface.
-          plugin_marketplaces: ${{ steps.plugins.outputs.plugin_marketplaces }}
+          # Consumed here from the `vendor_marketplace` step (issue #1049), which
+          # post-processes that composed list so `devflow-marketplace` resolves from
+          # the vendored subtree instead of the repo-root `./` — implement tier only;
+          # devflow.yml/devflow-runner.yml still consume steps.plugins directly.
+          plugin_marketplaces: ${{ steps.vendor_marketplace.outputs.plugin_marketplaces }}
 
           # code-review@ and claude-md-management@ are ambient-command conveniences (the
           # /code-review and /revise-claude-md slash commands), NOT engine dependencies —

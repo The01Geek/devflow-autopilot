@@ -32,6 +32,12 @@ worktree under `.claude/worktrees/` cannot change the result — issue #711):
 * every tracked `skills/**/*.md`, and
 * every tracked `.prflow/prompt-extensions/*.md` (exactly one level deep).
 
+This population answers THIS guard's question and no other. Two sibling lints
+bind the same path shape for their own questions, and the three deliberately do
+not share one notion of what a prompt extension is; the adjudication and why it
+is not a contradiction are recorded once, in `lint-issue-body-refetch.py`'s
+module docstring (issue #1076).
+
 Section model. A file is split into sections at markdown headings (`#`..`######`).
 Each section owns only its **own** lines — its heading line through to the next
 heading of *any* level, so a nested subsection is a separate section, never part of
