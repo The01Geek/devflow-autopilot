@@ -654,20 +654,35 @@ marker derivation and marker/body agreement.
   verdict stub); the live comment is the human-readable narrative pointing at it.
   The final comment state reflects the actual verdict — never a green check above
   a REJECT.
-- **Dead-run backstop (issue #356).** The agent flips this comment to
-  `❌ Review failed` on its own fatal aborts, but on a non-success run it never
-  gets to — the claude step failed, the run was cancelled (so the agent was torn
-  down mid-flight), or the step reported `success` while the engine's final
-  message carried `is_error` (the agent ran but ended in error without reaching
-  its own flip). A workflow-level backstop then mirrors that flip:
-  `scripts/flip-review-progress-failed.sh`
-  locates *this run's* comment by its run-keyed marker and, only when its
-  `**Status:**` line still begins with the interim `🚀` glyph, rewrites it to
-  `❌ Review failed` with a one-line cause and run link (a terminal Status is
-  never clobbered; earlier runs' comments are never touched). It is best-effort
-  (always exits 0, so it never fails the required check). In the shipped tree,
-  `devflow.yml` invokes it from an `always()` step for a failed or cancelled
-  Claude step and for a final engine result carrying `is_error`. A repository
+- **Dead-run backstop (issues #356 and #1154).** The agent flips this comment to
+  `❌ Review failed` on its own fatal aborts, but on a run that ends without a
+  verdict it never gets to. A workflow-level backstop then writes that state
+  instead: `scripts/flip-review-progress-failed.sh` locates *this run's* comment
+  by its run-keyed marker and **upserts**. When the comment exists and its
+  `**Status:**` line still begins with the interim `🚀` glyph, it is rewritten to
+  `❌ Review failed` with a one-line cause and run link. When the scan confirms
+  *no* comment exists — a run that died before the engine reached its Phase 0.3.5
+  seed — one is created carrying the same run-keyed marker as line 1 and that
+  same terminal Status, so the pull request records the dead run instead of
+  carrying nothing beside a green check. A terminal Status is never clobbered and
+  no second comment is created beside it (which is also what makes the upsert
+  idempotent across job retries), a lookup that *failed* never authorizes a
+  create, and earlier runs' comments are never read or written. The helper is
+  best-effort — always exits 0, so it never fails the required check.
+
+  In the shipped tree, `devflow.yml` invokes it from an `always()` step whose
+  decision to act no longer depends on the run's outcome at all. Before issue
+  #1154 that step was gated on three disjuncts (a failed Claude step, a
+  cancellation, or a final engine result carrying `is_error`), so a run that
+  exited *cleanly* having written no verdict — the observed Phase 0
+  permission-denial mode — matched none of them and left the pull request
+  unmarked. The two observables the workflow has (the Claude step's raw outcome
+  and the parsed engine `is_error`) are now inputs to the **cause** the backstop
+  reports, and the four run-end modes they partition into are selected by
+  `scripts/describe-dead-run-cause.sh` rather than by inline workflow shell.
+  A command that seeds no progress comment (`/prflow:pr-description`) is screened
+  out before the upsert, and a consumer whose vendored plugin pin predates the
+  cause helper degrades with a warning rather than failing the step. A repository
   that retained the withheld `devflow-review.yml` keeps that installed file's
   existing `finalize_check` call site; this change does not add new workflow
   wiring to that preserved copy.
