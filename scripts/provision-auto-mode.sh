@@ -189,38 +189,41 @@ if [ -f "$SETTINGS" ]; then
   # merge below clobber the user's whole USER-SCOPE settings). CLAUDE.md
   # guard-class 2 — a value that decides a SELECTION or an EMITTED result must
   # not be derived through a non-preflight PATH tool; mirrors
-  # scripts/resolve-command-trigger.sh. Three steps, in this order:
-  #   1. NUL probe BEFORE any slurp — both command substitution and `read` stop
-  #      at a NUL byte, so a slurp-first remedy would read a NUL-bearing file as
-  #      blank and clobber it. `read -r -d ''` is a builtin that succeeds iff the
-  #      file holds a NUL.
-  #   2. Captured read INTO a variable with `if !` — keeps a read that fails
-  #      after the [ -r ] pre-check (file deleted/replaced/chmod'd in the race,
-  #      an EIO on a mount, a dangling symlink) inside the exit-0-or-2 contract
-  #      instead of aborting under set -e.
-  #   3. Blankness `case` — non-blank parses as JSON; blank / whitespace-only /
-  #      zero-byte leaves EXISTING at {} and fills the key.
+  # scripts/resolve-command-trigger.sh.
+  #
+  # One builtin read does the whole classification. `read -r -d ''` reads up to
+  # the first NUL byte:
+  #   - returns 0            → a NUL was found: not JSON text, fail closed
+  #     (exit 2). Using a builtin (not a slurp) matters because command
+  #     substitution DISCARDS NUL bytes, so a `$(<file)` remedy would read a
+  #     NUL-bearing file as blank and clobber it.
+  #   - returns non-zero at EOF → a clean read; `settings_content` holds the
+  #     whole file. `if`-capturing it (the group status + the `[ ! -r ]` re-test)
+  #     keeps a file that became unreadable BETWEEN the `[ -r ]` pre-check and
+  #     this read (deleted / replaced / chmod'd in the race) inside the
+  #     exit-0-or-2 contract instead of aborting under set -e. (`[ ! -r ]` only
+  #     disambiguates an open failure from EOF; a mid-read I/O error on a
+  #     still-readable file is not deterministically reachable and is out of
+  #     scope, per issue #1081's read-failure criterion.)
+  # The group is wrapped `{ …; } 2>/dev/null` so a redirection-open error is
+  # suppressed AFTER the group's stderr is redirected (an inline
+  # `< "$f" 2>/dev/null` leaks the open error, which fires before 2>/dev/null
+  # takes effect) — keeping the breadcrumb the only thing on the error channel.
+  # Then a `case` classifies blankness: non-blank parses as JSON; blank /
+  # whitespace-only / zero-byte leaves EXISTING at {} and fills the key.
   #
   # HOST-BASH-VARIANCE NOTE (the assumption issue #1081 flagged "confirm before
   # implementing" — confirmed FALSE on this host, bash 5.2.21): the prescribed
   # `settings_content="$(<"$SETTINGS" 2>/dev/null)"` is NOT usable here — a
   # `2>/dev/null` INSIDE a `$(<file)` substitution defeats bash's fast-path read
   # and yields the empty string, which misclassifies every real settings file as
-  # blank and clobbers it (the very fail-open this change removes). The `read`
-  # builtin sidesteps both that bug and command substitution's NUL-stripping. The
-  # reads are wrapped in `{ …; } 2>/dev/null` groups so a redirection-open error
-  # is suppressed AFTER the group's stderr is redirected (an inline
-  # `< "$f" 2>/dev/null` leaks the open error, which fires before 2>/dev/null
-  # takes effect) — keeping the breadcrumb the only thing on the error channel.
-  # `read -r -d ''` returns non-zero at EOF even on a clean read, so its status
-  # cannot signal a read failure; the read-failure branch pairs the group status
-  # with a fresh `[ ! -r ]` re-test to catch an open failure and ignore EOF.
-  # shellcheck disable=SC2034  # _nul_probe is a throwaway; only read's status matters
-  if { IFS= read -r -d '' _nul_probe < "$SETTINGS"; } 2>/dev/null; then
+  # blank and clobbers it. The `read` builtin sidesteps both that and the
+  # NUL-stripping above.
+  settings_content=""
+  if { IFS= read -r -d '' settings_content < "$SETTINGS"; } 2>/dev/null; then
     warn "existing $SETTINGS contains a NUL byte (not valid JSON text); left it unchanged and provisioned nothing (fix or remove it, then re-run /prflow:init)."
     exit 2
-  fi
-  if ! { IFS= read -r -d '' settings_content < "$SETTINGS"; } 2>/dev/null && [ ! -r "$SETTINGS" ]; then
+  elif [ ! -r "$SETTINGS" ]; then
     warn "existing $SETTINGS could not be read into a variable; left it unchanged and provisioned nothing."
     exit 2
   fi
