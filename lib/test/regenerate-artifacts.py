@@ -27,33 +27,33 @@ loop-induced edits AND whose state this helper can establish without writing it 
 standalone non-writing check command (a regeneration command, for a mechanical row, or a
 non-writing checker for a judgment row).
 
-DELIBERATELY EXCLUDED as an artifact row, because it is REDUNDANT — not because it is
-uncovered: `scripts/workflow-flight-recorder-registry.json` is a hand-maintained
-inventory with no *regeneration* command (nothing can rewrite it from the tree), and it
-is already checked by a command a row here runs — the coverage guard's `[arm8]` arm
-covers the flight-recorder registry. A row of its own could only re-report what
-`coverage-map-ratchet` already reports.
+PARTIAL REGISTRATION: `scripts/workflow-flight-recorder-registry.json` remains a
+hand-maintained inventory, and the coverage guard's `[arm8]` arm checks that inventory.
+The `exact-module-floors` row below additionally owns only its exact-policy modules'
+`minimum_assertions` fields, because those values can be measured and raised safely;
+the row does not synthesize or rewrite any other registry metadata.
 
 ROW ORDER is a maintenance obligation, not decoration. Rows run in the order listed and
 no row re-runs, so a row whose generator READS a file an earlier row WRITES must be
-ordered after it. Today that constraint binds nothing: the only writing row
-(`cloud-writer-manifest`) pins a closure of `skills/**` / `scripts/**` assets and the
-required helper sources, and no other row's generator writes any of them — in particular
-the identity generator's four baked regions (`install.sh` and three siblings) are NOT in
-that pinned set, so regenerating them cannot stale the manifest and the two rows are
-genuinely independent. Adding a row whose output feeds another row's input means placing
-it above that row here; nothing verifies the placement, because rows declare their
-outputs and not their inputs.
+ordered after it. Today that constraint binds nothing: `cloud-writer-manifest` pins a
+closure of `skills/**` / `scripts/**` assets and required helper sources, while
+`exact-module-floors` may raise only registry floor fields and their coupled `run.sh`
+call sites. Neither writer consumes the other's outputs — in particular the identity
+generator's four baked regions (`install.sh` and three siblings) are NOT in the manifest
+closure, so those rows are genuinely independent. Adding a row whose output feeds
+another row's input means placing it above that row here; nothing verifies the placement,
+because rows declare their outputs and not their inputs.
 
-WRITE SCOPE: the only file under the target root this helper writes is
-`scripts/devflow-cloud-writer-contract.json` (the mechanical row's output). Every
-judgment row runs a non-writing check and never writes its artifact.
+WRITE SCOPE: writing rows declare their complete `writes` set in the registry. The
+cloud-writer row owns `scripts/devflow-cloud-writer-contract.json`; the exact-floor row
+may raise `scripts/workflow-flight-recorder-registry.json` and `lib/test/run.sh`
+together. Every judgment row runs a non-writing check and never writes its artifact.
 
 EXIT CONTRACT (exactly three states):
   0 — every row resolved in its declared clean state (its command exited in that
       state), the mechanical regeneration changed nothing, and no exit-1-forcing
       judgment item was printed.
-  1 — at least one of {the manifest bytes changed, an exit-1-forcing judgment item
+  1 — at least one of {a writing row changed its declared output, an exit-1-forcing judgment item
       was printed} holds, and no row hit the infrastructure state.
   2 — infrastructure failure. Exit 2 takes precedence over exit 1. It is reached from
       an exit code OUTSIDE a row's declared set, from paths that occur despite an
@@ -277,6 +277,28 @@ ROWS = (
         ),
     },
     {
+        "name": "exact-module-floors",
+        "kind": "monotonic",
+        "argv": ("python3", "lib/test/reconcile-module-floors.py"),
+        "clean": (0,),
+        "exits": (0, 1),
+        "writes": (
+            "scripts/workflow-flight-recorder-registry.json",
+            "lib/test/run.sh",
+        ),
+        "policy": (
+            "resolve the exact-module source and rerun "
+            "`python3 lib/test/reconcile-module-floors.py`; it measures the real "
+            "focused runners, raises both coupled floors together, and refuses every "
+            "decrease"
+        ),
+        "conflict_class": "reconcile-source",
+        "conflict_paths": (
+            "scripts/workflow-flight-recorder-registry.json",
+            "lib/test/run.sh",
+        ),
+    },
+    {
         "name": "env-freeze-advisory-region",
         "kind": "judgment",
         "argv": ("python3", "lib/generate-env-freeze-advisory.py", "--check"),
@@ -388,7 +410,11 @@ def conflict_paths(row, root):
       returning additional paths derived at emit time. Bound below the function definitions
       because the table is defined above the function it names.
     """
-    static = tuple(row["conflict_paths"]) if "conflict_paths" in row else (row["writes"],)
+    if "conflict_paths" in row:
+        static = tuple(row["conflict_paths"])
+    else:
+        writes = row["writes"]
+        static = (writes,) if isinstance(writes, str) else tuple(writes)
     extra = row.get("conflict_paths_extra")
     return static + (tuple(extra(root)) if extra else ())
 
@@ -428,7 +454,10 @@ def run_row(row, root, report):
     # The mechanical generator writes unconditionally on success, so "did anything
     # change?" is answered by bracketing the run with byte snapshots — never by the
     # generator's own wording, which says "wrote <path>" either way.
-    written = root / row["writes"] if row["kind"] == "mechanical" else None
+    writes = row.get("writes", ())
+    if isinstance(writes, str):
+        writes = (writes,)
+    written = tuple(root / path for path in writes)
     # The snapshot is an OS read, and it brackets the run OUTSIDE the try below (which
     # covers only subprocess.run). An unreadable/undeletable manifest (PermissionError,
     # IsADirectoryError — what a half-restored worktree or a root-owned fixture
@@ -436,10 +465,17 @@ def run_row(row, root, report):
     # infrastructure state aliased onto "action required", which is the exact
     # unknown-collapsed-onto-a-real-value class this helper exists to prevent.
     try:
-        before = written.read_bytes() if written and written.is_file() else None
+        before = {
+            path: path.read_bytes() if path.is_file() else None for path in written
+        }
     except OSError as error:
+        failed_path = getattr(error, "filename", None)
+        try:
+            failed_path = Path(failed_path).resolve().relative_to(root).as_posix()
+        except (OSError, TypeError, ValueError):
+            failed_path = "a declared output"
         report.append(
-            f"[{name}] INFRASTRUCTURE could not read {row['writes']} before the run "
+            f"[{name}] INFRASTRUCTURE could not read {failed_path} before the run "
             f"({error}) — nothing was compared and nothing was verified."
         )
         return False, True
@@ -474,14 +510,30 @@ def run_row(row, root, report):
 
     if row["kind"] == "mechanical":
         try:
-            after = written.read_bytes() if written.is_file() else None
+            path = written[0]
+            after = path.read_bytes() if path.is_file() else None
         except OSError as error:
             report.append(
                 f"[{name}] INFRASTRUCTURE could not read {row['writes']} after the run "
                 f"({error}) — the change comparison never happened."
             )
             return False, True
-        return _mechanical_outcome(row, proc, output, before != after, after, report)
+        return _mechanical_outcome(
+            row, proc, output, before[path] != after, after, report
+        )
+
+    if row["kind"] == "monotonic":
+        try:
+            after = {
+                path: path.read_bytes() if path.is_file() else None for path in written
+            }
+        except OSError as error:
+            report.append(
+                f"[{name}] INFRASTRUCTURE could not read its declared writes after the run "
+                f"({error}) — the change comparison never happened."
+            )
+            return False, True
+        return _monotonic_outcome(row, proc, output, before, after, report)
 
     if proc.returncode in row["clean"]:
         report.append(
@@ -543,6 +595,44 @@ def _mechanical_outcome(row, proc, output, changed, after, report):
         f"[{name}] INFRASTRUCTURE exited 1 with no `cloud-writer-contract:` marker "
         "(an interpreter traceback or an unhandled exception):\n"
         f"{output or '(no output)'}"
+    )
+    return False, True
+
+
+def _monotonic_outcome(row, proc, output, before, after, report):
+    """Classify a raise-only row without collapsing a refused decrease into clean."""
+    name = row["name"]
+    absent = [path for path, content in after.items() if content is None]
+    if absent:
+        report.append(
+            f"[{name}] INFRASTRUCTURE the row left declared output(s) absent: "
+            + ", ".join(str(path) for path in absent)
+        )
+        return False, True
+    changed = [path for path in before if before[path] != after[path]]
+    if proc.returncode in row["clean"]:
+        if not changed:
+            report.append(f"[{name}] clean — every measured tally matches both floors")
+            return False, False
+        relative = [path.name if path.name == "run.sh" else path.as_posix() for path in changed]
+        report.append(
+            f"[{name}] RECONCILED measured floor raise changed: {', '.join(relative)}"
+        )
+        return True, False
+    if changed:
+        report.append(
+            f"[{name}] INFRASTRUCTURE a non-clean reconciliation changed declared outputs "
+            "despite its refusal contract"
+        )
+        return False, True
+    if "floor-reconciliation: DECREASE REFUSED" in output:
+        report.append(
+            f"[{name}] JUDGMENT {output}\n    governing policy: {row['policy']}"
+        )
+        return True, False
+    report.append(
+        f"[{name}] INFRASTRUCTURE the reconciler exited {proc.returncode} without a "
+        f"recognized non-writing refusal marker:\n{output or '(no output)'}"
     )
     return False, True
 

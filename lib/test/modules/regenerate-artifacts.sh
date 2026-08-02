@@ -686,7 +686,29 @@ _ra_has() {  # name root substring   (the fixture-root form of _ra_has_file)
 
 # The registry's row names, declared ONCE and consumed by both the A1 clean-line loop
 # and the A4 --list loop — adding a row must not mean editing two lists.
-RA_ROW_NAMES="cloud-writer-manifest capability-profile-literals plugin-identity-regions coverage-map-ratchet"
+RA_ROW_NAMES="cloud-writer-manifest capability-profile-literals plugin-identity-regions coverage-map-ratchet exact-module-floors"
+
+# Batched-pass fixtures exercise row dispatch and outcome classification many times. The
+# reconciler's own focused Python suite below drives its real subprocess protocol; these
+# surrounding full-tree fixtures substitute only the expensive module runner and return
+# each fixture registry's live floor, keeping the row clean without duplicating eleven
+# module populations in every unrelated artifact-row scenario.
+RA_FLOOR_RUNNER="$_ra_tmp_root/floor-runner.sh"
+# shellcheck disable=SC2016  # these single-quoted arguments are the generated runner's source; expansion belongs to that later process
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'module_id=""' \
+  'while [ "$#" -gt 0 ]; do' \
+  '  case "$1" in --registry|--log-dir) shift 2 ;; --heavy-units) shift 2 ;; *) module_id="$1"; shift ;; esac' \
+  'done' \
+  'python3 - "$PWD/scripts/workflow-flight-recorder-registry.json" "$module_id" <<'"'"'PY'"'"'' \
+  'import json, os, sys' \
+  'registry = json.load(open(sys.argv[1]))' \
+  'floor = registry["test_modules"][sys.argv[2]]["minimum_assertions"] + int(os.environ.get("DEVFLOW_FLOOR_TEST_DELTA", "0"))' \
+  'print(f"Module {sys.argv[2]}: {floor} passed, 0 failed")' \
+  'PY' > "$RA_FLOOR_RUNNER"
+chmod 755 "$RA_FLOOR_RUNNER"
+export DEVFLOW_RECONCILE_MODULE_FLOORS_RUNNER="$RA_FLOOR_RUNNER"
 
 # The four files `lib/generate-plugin-identity.py` bakes a region into. Declared once and
 # consumed by the A3 write-scope snapshot and the A3b drift arm below. All four are listed
@@ -873,6 +895,41 @@ for _row in $RA_ROW_NAMES; do
     *) assert_eq "#619 A4 --list names artifact: $_row" yes "no($_row absent from --list)" ;;
   esac
 done
+
+# The row integration itself has two non-clean states. A measured raise is a mechanical
+# reconciliation that changes the registry and `run.sh`; a measured decrease is a non-writing
+# judgment. The fake runner above supplies the actual summary boundary while these fixtures
+# exercise the batched row's snapshots, exit mapping, and report.
+RA_1055_RAISE="$_ra_tmp_root/issue-1055-raise"; _ra_fixture "$RA_1055_RAISE"
+RA_1055_RAISE_REG_BEFORE="$(cat "$RA_1055_RAISE/scripts/workflow-flight-recorder-registry.json")"
+RA_1055_RAISE_RUN_BEFORE="$(cat "$RA_1055_RAISE/lib/test/run.sh")"
+DEVFLOW_FLOOR_TEST_DELTA=1 _ra_run "$RA_1055_RAISE"
+assert_eq "#1055 a measured floor raise makes the batched pass action-required" \
+  "1" "$(_ra_rc "$RA_1055_RAISE")"
+_ra_has "#1055 the batched row reports its measured reconciliation" "$RA_1055_RAISE" \
+  "[exact-module-floors] RECONCILED"
+_ra_ok "#1055 the measured raise updates the registry" \
+  "$([ "$RA_1055_RAISE_REG_BEFORE" != "$(cat "$RA_1055_RAISE/scripts/workflow-flight-recorder-registry.json")" ] && printf yes)" \
+  "the registry did not change"
+_ra_ok "#1055 the measured raise updates the coupled run.sh sites" \
+  "$([ "$RA_1055_RAISE_RUN_BEFORE" != "$(cat "$RA_1055_RAISE/lib/test/run.sh")" ] && printf yes)" \
+  "run.sh did not change"
+
+RA_1055_LOWER="$_ra_tmp_root/issue-1055-lower"; _ra_fixture "$RA_1055_LOWER"
+RA_1055_LOWER_REG_BEFORE="$(cat "$RA_1055_LOWER/scripts/workflow-flight-recorder-registry.json")"
+RA_1055_LOWER_RUN_BEFORE="$(cat "$RA_1055_LOWER/lib/test/run.sh")"
+DEVFLOW_FLOOR_TEST_DELTA=-1 _ra_run "$RA_1055_LOWER"
+assert_eq "#1055 a measured floor decrease makes the batched pass action-required" \
+  "1" "$(_ra_rc "$RA_1055_LOWER")"
+_ra_has "#1055 the batched row reports the decrease as judgment" "$RA_1055_LOWER" \
+  "[exact-module-floors] JUDGMENT"
+_ra_same "#1055 a refused decrease leaves the registry byte-unchanged" \
+  "$RA_1055_LOWER_REG_BEFORE" \
+  "$(cat "$RA_1055_LOWER/scripts/workflow-flight-recorder-registry.json")" \
+  "the registry changed on a decrease"
+_ra_same "#1055 a refused decrease leaves run.sh byte-unchanged" \
+  "$RA_1055_LOWER_RUN_BEFORE" "$(cat "$RA_1055_LOWER/lib/test/run.sh")" \
+  "run.sh changed on a decrease"
 
 # ── A5 — exit 2 on an ABSENT generator, and exit 2 wins over a judgment item ─
 # An absent script is reported by the INTERPRETER as exit 2 ("can't open file"), which
@@ -1158,7 +1215,21 @@ _ra_live_unchanged "#624 A5o live manifest byte-unchanged after the unreadable-r
 devflow_module_pin_unique "#619 the helper header carries the registration rule" 'A PR that adds a checked-in generated artifact gated by the suite adds a row to this registry in the same PR.' "$RA_HELPER"
 assert_eq "#619 the helper is stdlib-only (imports no yaml module)" "0" \
   "$(devflow_module_pin_count 'import yaml' "$RA_HELPER")"
-devflow_module_pin_unique "#619 the helper states its single-file write scope" 'the only file under the target root this helper writes is' "$RA_HELPER"
+RA_DECLARED_WRITES="$(python3 - "$RA_HELPER" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("regenerate_artifacts", sys.argv[1])
+module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+paths = set()
+for row in module.ROWS:
+    writes = row.get("writes", ())
+    paths.update((writes,) if isinstance(writes, str) else writes)
+print("\n".join(sorted(paths)))
+PY
+)"
+assert_eq "#619 writing rows expose their complete output set through the registry" \
+  'lib/test/run.sh
+scripts/devflow-cloud-writer-contract.json
+scripts/workflow-flight-recorder-registry.json' "$RA_DECLARED_WRITES"
 
 # ════════════════════════════════════════════════════════════════════════════
 # #655 — the registry as the merge-conflict oracle
@@ -1214,6 +1285,7 @@ _ra_class_is() {  # row expected-class
 _ra_class_is cloud-writer-manifest       regenerate
 _ra_class_is capability-profile-literals reconcile-source
 _ra_class_is coverage-map-ratchet        by-hand
+_ra_class_is exact-module-floors          reconcile-source
 
 # ── (c) the conflict-path set covers EVERY known generated artifact ──────────────
 # This is the property without which the whole rule is inert: the rule matches a
@@ -1238,6 +1310,8 @@ _ra_conflict_path_covered() {  # artifact-path
 _ra_conflict_path_covered scripts/devflow-cloud-writer-contract.json
 _ra_conflict_path_covered lib/capability-profiles.json
 _ra_conflict_path_covered lib/test/modules/coverage-map.json
+_ra_conflict_path_covered scripts/workflow-flight-recorder-registry.json
+_ra_conflict_path_covered lib/test/run.sh
 # The generated workflow literals, sourced from the generator's own REGIONS rather than
 # re-enumerated in the registry. Pinned by their real paths here so a REGIONS rename that
 # silently empties the derivation is caught.
@@ -1459,7 +1533,9 @@ _ra_has "#655 the batched pass prints the SAME recipe string as governing policy
 # coupled prose mirror is present and identical, not that a behavior flips.
 RA_EXT_DIR="$RA_REPO/.prflow/prompt-extensions"
 RA_RULE_HEADING='## Merge conflicts in generated artifacts'
-for _ext in implement review-and-fix receiving-code-review; do
+devflow_module_pin_unique "#1055 the implement conflict oracle uses the granted direct head" \
+  'lib/test/regenerate-artifacts.py --list' "$RA_EXT_DIR/implement.md"  # structural-pin-ok: cross-file-phase-contract -- the cloud-only config grant and prompt invocation must stay coupled
+for _ext in review-and-fix receiving-code-review; do
   devflow_module_pin_unique "#655 the conflict rule has its own section in $_ext.md" \
     "$RA_RULE_HEADING" "$RA_EXT_DIR/$_ext.md"  # runtime-pin-ok: target path interpolates the `for _ext …` loop var, unresolvable by the static meta-guard
   devflow_module_pin_unique "#655 the conflict rule cites --list as the oracle in $_ext.md" \
@@ -1469,7 +1545,10 @@ done
 # and require all three to be equal. A per-file presence pin cannot catch a copy that
 # drifted in its body.
 _ra_rule_body() {  # file
-  sed -n "/^${RA_RULE_HEADING}\$/,/^## /p" "$1" | sed '$d'
+  # The backticked command is literal prompt text; shell expansion would corrupt it.
+  # shellcheck disable=SC2016
+  sed -n "/^${RA_RULE_HEADING}\$/,/^## /p" "$1" | sed '$d' | \
+    sed 's/Run the granted direct leading-token form `lib\/test\/regenerate-artifacts.py --list`/Run `python3 lib\/test\/regenerate-artifacts.py --list`/'
 }
 RA_RULE_IMPL="$(_ra_rule_body "$RA_EXT_DIR/implement.md")"
 case "$RA_RULE_IMPL" in
@@ -1515,3 +1594,45 @@ devflow_module_pin_unique "#655 the receiving-code-review branch-update arm carr
 # helper — the same repo-agnostic boundary its upstream MIT body already carries.
 assert_eq "#655 the vendored receiving-code-review pointer names no DevFlow-internal helper" "0" \
   "$(devflow_module_pin_count 'regenerate-artifacts.py' "$RA_REPO/skills/receiving-code-review/SKILL.md")"
+
+# The reconciler's transactional and refusal semantics are exercised in Python so the
+# fixtures can compare both complete post-images without reproducing JSON handling in shell.
+devflow_run_focused_python_test "#1055 measured floor reconciliation focused tests pass" \
+  "$LIB/test/test_reconcile_module_floors.py" "$_ra_tmp_root/floor-reconcile-unit.out"
+
+# Exercise the same command-head and command-shape analyzers that guard cloud prompt
+# bundles. The generated baseline deliberately does not grant this self-repository path;
+# the resolved runtime profile adds `.prflow/config.json`'s repository-local extras.
+RA_1055_PROMPT="$_ra_tmp_root/issue-1055-direct-head.md"
+RA_1055_RESOLVED="$_ra_tmp_root/issue-1055-resolved-allowlist.txt"
+printf '%s\n' '```bash' 'lib/test/regenerate-artifacts.py --list' '```' > "$RA_1055_PROMPT"
+RA_1055_HEADS="$(python3 "$LIB/test/extract-command-heads.py" heads "$RA_1055_PROMPT")"
+assert_eq "#1055 the batched helper is extracted as a direct command head" \
+  "lib/test/regenerate-artifacts.py" "$RA_1055_HEADS"
+RA_1055_BASE_UNGRANTED="$(python3 "$LIB/test/extract-command-heads.py" ungranted \
+  "$RA_1055_PROMPT" "$RA_REPO/.github/workflows/devflow-implement.yml" implement-block)"
+assert_eq "#1055 the generated consumer baseline does not grant the self-repository helper" \
+  "lib/test/regenerate-artifacts.py" "$RA_1055_BASE_UNGRANTED"
+{
+  sed -n '/--allowed-tools "/,/" \\/p' "$RA_REPO/.github/workflows/devflow-implement.yml"
+  cat "$RA_REPO/.prflow/config.json"
+} > "$RA_1055_RESOLVED"
+RA_1055_RESOLVED_UNGRANTED="$(python3 "$LIB/test/extract-command-heads.py" ungranted \
+  "$RA_1055_PROMPT" "$RA_1055_RESOLVED")"
+assert_eq "#1055 the resolved implement profile grants the direct batched helper head" \
+  "" "$RA_1055_RESOLVED_UNGRANTED"
+python3 "$LIB/test/extract-command-shapes.py" --profile implement "$RA_1055_PROMPT" \
+  > "$_ra_tmp_root/issue-1055-shapes.out" 2>&1
+RA_1055_SHAPE_RC=$?
+assert_eq "#1055 the direct helper invocation is clean under implement shape rules" \
+  "0" "$RA_1055_SHAPE_RC"
+RA_1055_MODE="$(git -C "$RA_REPO" ls-files -s -- lib/test/regenerate-artifacts.py)"
+RA_1055_MODE="${RA_1055_MODE%% *}"
+assert_eq "#1055 the batched helper is executable in the Git index" "100755" "$RA_1055_MODE"
+
+RA_1055_CHILD_PROMPT="$_ra_tmp_root/issue-1055-child-head.md"
+printf '%s\n' '```bash' 'lib/test/cloud_writer_contract.py generate' '```' > "$RA_1055_CHILD_PROMPT"
+RA_1055_CHILD_UNGRANTED="$(python3 "$LIB/test/extract-command-heads.py" ungranted \
+  "$RA_1055_CHILD_PROMPT" "$RA_1055_RESOLVED")"
+assert_eq "#1055 the matcher-visible profile does not grant the subprocess-only child" \
+  "lib/test/cloud_writer_contract.py" "$RA_1055_CHILD_UNGRANTED"

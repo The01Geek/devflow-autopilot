@@ -24,16 +24,19 @@
     "review-and-fix-contract": {
       "path": "lib/test/modules/review-and-fix-contract.sh",
       "minimum_assertions": 39,
+      "assertion_floor_policy": "exact",
       "description": "Focused review-and-fix iteration, guardrail, convergence, telemetry, and prompt-composition contracts"
     },
     "create-issue-contract": {
       "path": "lib/test/modules/create-issue-contract.sh",
       "minimum_assertions": 221,
+      "assertion_floor_policy": "exact",
       "description": "Focused create-issue Step 3.6 audit, state-owner cutover, authoring-discipline, and revision-delta contracts"
     },
     "capability-profiles": {
       "path": "lib/test/modules/capability-profiles.sh",
       "minimum_assertions": 62,
+      "assertion_floor_policy": "exact",
       "description": "Focused #561 capability-profile manifest generator: --check clean pass, manifest and region adversarial matrices, planted-defect controls, idempotency/determinism, no-runtime-read, PR #588 hardening, and the #555 implement-tier bundled-helper grant-flow CLAUDE.md pins"
     },
     "regenerate-artifacts": {
@@ -44,41 +47,49 @@
     "installer-wiring": {
       "path": "lib/test/modules/installer-wiring.sh",
       "minimum_assertions": 277,
+      "assertion_floor_policy": "exact",
       "description": "Focused installer and workflow-wiring coverage: the #487/#491 credential-refresher and fresh-gh wrapper workflow wiring, the #533 seven-output install-gh-wrapper.sh validation with its planted-defect controls, the #544 fingerprint-comparison symmetry, the #599 workflow-token and secret-file permission pins, and the #690 Windows mode-probe arms, and the consumer UPGRADE path driven end-to-end over fixture consumer repositories (provenance manifest, non-clobbering preservation, the dry-run preview, the withheld review tier, name-agnostic identifier migration, the stale-config detect-and-route report with its adversarial input-shape matrix, the #970 preserved-artifact sidecar ignore rule driven over a real git index, and the #971 preview language-detection scan root)"
     },
     "harness-python-guards": {
       "path": "lib/test/modules/harness-python-guards.sh",
       "minimum_assertions": 39,
+      "assertion_floor_policy": "exact",
       "description": "Focused monolith-only Python guard drivers whose subject is a single code unit and whose verification is self-contained: the #600 render-audit-prompt renderer, the #527 verification-launch baseline analyzer, the #528 single-flight verification ledger, the #668 reception-identity producer, the #798 pin-corpus classifier unit tests, the #810 pin-corpus authoring-gate unit tests plus the red-on-removal and residual-prose retirement censuses/current-corpus closure, the #985 opt-in suite wall-clock profiler unit tests, and the #591 coverage-map ratchet guard (live-tree invocation, unit test, and a planted coverage-map drift as the coverage-map guard's positive control)"
     },
     "prompt-extension-reader": {
       "path": "lib/test/modules/prompt-extension-reader.sh",
       "minimum_assertions": 127,
+      "assertion_floor_policy": "exact",
       "description": "Focused load-prompt-extension.sh consumer prompt-extension reader contract: the present/absent/empty extension arms, skill-name validation and the path-traversal refusal, unreadable/symlinked/locked fixture arms, the --section selector including its interaction with the pre-existing name guards, and the DEVFLOW_PROMPT_EXTENSION_ROOT trusted-root override — its presence-state matrix, its containment under the pre-existing name guards, and the branch-scoped stderr breadcrumb"
     },
     "review-trigger-helpers": {
       "path": "lib/test/modules/review-trigger-helpers.sh",
       "minimum_assertions": 605,
+      "assertion_floor_policy": "exact",
       "description": "Focused review and implement trigger-helper contracts: derive-review-verdict.sh and derive-review-preconditions.sh (both RETAINED and still covered after issue #936 withheld the auto PR-triggered review tier — their workflow caller is gone but an installed consumer copy still resolves them, so the helpers ship and their sections stay live), parse-engine-error.sh, surface-execution-diagnostics.sh (#329) with its workflow wiring (#331), the execution-transcript artifact config key and scrub/gate hardening (#409), resolve-implement-trigger.sh, dedupe-implement-run.sh, review-progress marker ownership and dead-run diagnosis (#1054), authorize-actor.sh, detect-standalone-command.sh and resolve-command-trigger.sh"
     },
     "review-stall-backstop": {
       "path": "lib/test/modules/review-stall-backstop.sh",
       "minimum_assertions": 187,
+      "assertion_floor_policy": "exact",
       "description": "Focused cloud-review stall-backstop coverage: the #408 no-verdict auto-resume backstop (request-review-backstop.sh, its devflow.yml wiring and grounding-block coupling), the #414 post-and-annotate helper extraction (post-review-backstop-comment.sh plus the ScheduleWakeup and agents-seam probe verdict readers), and the #812 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS harness-floor probe verdict reader (background-tasks-probe-verdict.py) including the #839 additive coverage (denial-side tool-name net, main() side-output arms and EXECUTION_FILE fallback, and the docs/implement-skill.md verdict mirror)"
     },
     "experiment-records": {
       "path": "lib/test/modules/experiment-records.sh",
       "minimum_assertions": 133,
+      "assertion_floor_policy": "exact",
       "description": "Focused #431 build-experiment-records.py unified-experiment-record join: the DEVFLOW_GH-stubbed assembler driven over fixture stores with per-scenario repo roots, the joined record fields, and the config_fingerprint stamp with its partial-flag, None and canonical-hash arms"
     },
     "efficiency-trace-telemetry": {
       "path": "lib/test/modules/efficiency-trace-telemetry.sh",
       "minimum_assertions": 902,
+      "assertion_floor_policy": "exact",
       "description": "Focused efficiency-trace and telemetry-persistence coverage: the efficiency-trace.jq/.sh per-run derivation surface with its degradation and flag-off arms, --persist and --self-check (#80), the #475 harness-side cost floor, the #381 synthesis floor with its shadow-provenance pins, #532 base-ref freshness, #441 telemetry-branch persistence, the #469 push-operand fail-closed/fetch-before-exclusion/degraded-retention contract, the #489 cross-workflow telemetry artifact relay, and the #499 unavailable-telemetry normalization matrix that shares this module's _et_show durable-blob reader"
     },
     "issue-audit-state": {
       "path": "lib/test/modules/issue-audit-state.sh",
       "minimum_assertions": 238,
+      "assertion_floor_policy": "exact",
       "description": "Focused drivers for scripts/issue-audit-state.py, the create-issue Step 3.6 audit-lifecycle state owner: the restricted-PATH CLI round trip and its #889 quoted-draft-line findings, the #603 digest filter-mode rows and the stale pre-cutover event log, the query exit contract, re-init/force and foreign-nonce rows, the embed-arm emitter, creation binding, override attestation and preconditions, the next-action and user-round budgets, illegal transitions, shadow and convergence rounds, the iteration-3/4/5/6 hardening, variance and seam rows, the retry-arm deadlock matrix, the #562 draft-binding CLI rows and the #569 write-path cross-check"
     }
   },

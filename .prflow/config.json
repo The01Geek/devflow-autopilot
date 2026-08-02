@@ -29,6 +29,7 @@
       "Bash(lib/test/run.sh:*)",
       "Bash(lib/test/run-parallel.sh:*)",
       "Bash(lib/test/run-module.sh:*)",
+      "Bash(lib/test/regenerate-artifacts.py:*)",
       "Bash(lib/preflight.sh:*)",
       "Bash(shellcheck:*)",
       "Bash(chmod:*)",

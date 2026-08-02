@@ -32168,7 +32168,7 @@ assert_eq "#480 an ESCAPED backslash before a quote does not flip the mask's par
   "$(python3 "$ECS" "$E363/i-esc-parity.md" | grep -q '  R2  ' && echo yes || echo no)"
 # ── matcher-probe's EXTRAS mirrors every probe-eligible config grant. A grant that is
 # ── intentionally config-only until a later matcher-probe run proves its command shape is
-# ── listed in `unproven_post_merge` below (currently none) so it stays closed and visible.
+# ── listed in `unproven_post_merge` below so it stays closed and visible.
 # ── Issue #928: the workflow templates config's absolute workspace prefix off
 # ── ${{ github.workspace }} so matcher-probe.yml hardcodes no repo-derived path, while
 # ── the config key stays out of scope (trigger-time-resolved) and keeps its absolute
@@ -32180,7 +32180,7 @@ assert_eq "#480 matcher-probe EXTRAS mirrors probe-eligible prflow_implement.all
 import json, re, sys
 yml = open(sys.argv[1], encoding="utf-8").read()
 cfg = json.load(open(sys.argv[2], encoding="utf-8"))
-unproven_post_merge = set()
+unproven_post_merge = {"Bash(lib/test/regenerate-artifacts.py:*)"}
 cfg_tokens = [
     token
     for token in cfg.get("prflow_implement", {}).get("allowed_tools", [])
@@ -41257,7 +41257,10 @@ echo "#619 batched-regeneration instruction surfaces"
 # pinned literal is a single unwrapped line in each file (a sentence wrapped across a
 # line break lives on no single line and this line-based pin would find nothing —
 # the issue-375 wrapped-literal hazard).
-for _ra_ext in implement review-and-fix receiving-code-review; do
+assert_pin_unique "#1055 .prflow/prompt-extensions/implement.md uses the granted direct batched invocation" \
+  'run the granted direct leading-token form `lib/test/regenerate-artifacts.py` once' \
+  "$LIB/../.prflow/prompt-extensions/implement.md"  # structural-pin-ok: cross-file-phase-contract -- the cloud-only config grant and prompt invocation must stay coupled
+for _ra_ext in review-and-fix receiving-code-review; do
   assert_pin_unique "#619 .prflow/prompt-extensions/$_ra_ext.md carries the batched-regeneration invocation" \
     'run `python3 lib/test/regenerate-artifacts.py` once' \
     "$LIB/../.prflow/prompt-extensions/$_ra_ext.md"

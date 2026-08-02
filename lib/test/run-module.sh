@@ -273,6 +273,12 @@ def resolve_mapping(registered_id: str, mapping: object) -> tuple[Path, int]:
             f"mapping for {registered_id!r}: minimum_assertions must be an integer "
             "from 1 to 1000000"
         )
+    assertion_floor_policy = mapping.get("assertion_floor_policy")
+    if assertion_floor_policy is not None and assertion_floor_policy != "exact":
+        selector_error(
+            f"mapping for {registered_id!r}: assertion_floor_policy must be "
+            "'exact' when present"
+        )
     return module_path, minimum_assertions
 
 

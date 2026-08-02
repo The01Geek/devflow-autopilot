@@ -354,7 +354,7 @@ bytes. It is a different trigger from the Batched artifact regeneration section,
 post-edit and pre-suite — no in-run conflict arm routes through that section, so the conflict rule
 lives here on its own.
 
-1. Run `python3 lib/test/regenerate-artifacts.py --list`.
+1. Run the granted direct leading-token form `lib/test/regenerate-artifacts.py --list`.
 2. **Establish that the listing is usable before classifying anything.** This gate precedes the
    classification below, and the order is load-bearing: an unusable listing emits no `conflict-path`
    lines, so every conflicted path would otherwise satisfy step 3's "not among them" exit and be
@@ -388,7 +388,7 @@ drift.
 
 ## Batched artifact regeneration
 
-After applying edits and before each full-suite re-verify run, run `python3 lib/test/regenerate-artifacts.py` once. Loop-induced edits drift the repo's checked-in generated records — editing a reached skill asset drifts the cloud-writer runtime manifest, and editing the capability manifest drifts the generated workflow literals — and discovering each one a full suite run at a time is the dominant cost of a Phase 2-3 iteration. The helper is the sole enumeration point for this repo's suite-owned generated artifacts, so this section deliberately lists no artifact inventory of its own — an inventory duplicated into prose is one that silently goes stale as artifacts are added.
+After applying edits and before each full-suite re-verify run, run the granted direct leading-token form `lib/test/regenerate-artifacts.py` once. Loop-induced edits drift the repo's checked-in generated records — editing a reached skill asset drifts the cloud-writer runtime manifest, and editing the capability manifest drifts the generated workflow literals — and discovering each one a full suite run at a time is the dominant cost of a Phase 2-3 iteration. The helper is the sole enumeration point for this repo's suite-owned generated artifacts, so this section deliberately lists no artifact inventory of its own — an inventory duplicated into prose is one that silently goes stale as artifacts are added. This batched pass does not discharge the existing Phase 2 stale-prose sweep: `scripts/stale-prose-lint.py` consumes a caller-selected diff on stdin and needs the correct post-image mode, so that separate sweep remains a completion-claim obligation.
 
 Act on its report before starting the suite run: commit a changed manifest together with the edits that caused it, and resolve every printed exit-1-forcing judgment item under the governing policy that item names. Informational lines require reading, not action. A merge conflict in one of these regenerated records is resolved under the Merge conflicts in generated artifacts section, never by hand-merging its bytes.
 
