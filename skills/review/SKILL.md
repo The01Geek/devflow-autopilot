@@ -14,7 +14,7 @@ You are the review engine orchestrator. Run a four-phase review and present an A
 
 **The cloud comment tier is unchanged and out of scope.** `scripts/resolve-command-trigger.sh` synthesizes a two-token `command=/prflow:<cmd> <n>`, so a `--issue N` typed into a trigger comment is discarded before this skill runs and that path keeps today's derivation. Widening the trigger grammar is out of scope.
 
-**Engine sharing.** Phases 0 through 4.3 are executed verbatim by `/prflow:review-and-fix` (which wraps them in a fix loop and skips Phase 4.4 — its report goes to chat only). When modifying engine behavior here — Phase 3 agent prompts, Phase 1 batching, Phase 0.5 classification, Phase 4 verdict criteria — verify `/prflow:review-and-fix` still produces the same findings; that's where divergence has historically slipped in. Its SKILL.md keeps no paraphrase of these phases, so changes here propagate automatically as long as the file is reachable at `**/devflow/skills/review/SKILL.md`.
+**Engine sharing.** Phases 0 through 4.3 are executed verbatim by `/prflow:review-and-fix` (which wraps them in a fix loop and skips Phase 4.4 — its report goes to chat only). When modifying engine behavior here — Phase 3 agent prompts, Phase 1 batching, Phase 0.5 classification, Phase 4 verdict criteria — verify `/prflow:review-and-fix` still produces the same findings; that's where divergence has historically slipped in. Its SKILL.md keeps no paraphrase of these phases, so changes here propagate automatically as long as the engine directory is reachable through the ordered, repo-root-anchored candidate list its `references/loop-control.md` Step 1 defines (the repo-root `skills/review` and the two vendored layouts).
 
 ## Engine ground truth (only when the injected block is present)
 
@@ -257,13 +257,12 @@ For each subagent present in `$OVERRIDES`, dispatch it via the **Agent tool**, p
 
 This root holds the run's shared state, the cross-phase invariants above, and the routing below.
 
-**Resolve the Review root here.** Run:
+**Resolve the Review root here.** How `<skill-dir>` is resolved depends on **how this engine was entered**:
 
-```bash
-echo "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"
-```
+- **Reached by a caller that already located the bundle directory** (the file-read path — `/prflow:review-and-fix`'s Step 1 loop and its Step 2.6 shadow, and the implement tier's degraded engine-read arm). The caller located the engine directory by an ordered, repo-root-anchored candidate list (see `/prflow:review-and-fix`'s `references/loop-control.md` Step 1, the canonical statement) and supplies it. Treat that **caller-located directory** as `<skill-dir>` — do **not** re-resolve the runner anchor here, because on this path `${CLAUDE_SKILL_DIR}` names the *caller's* skill directory (which has no `phases/`), so re-resolving would strand every reference at `identity: underived`.
+- **Reached via the `Skill` tool** (the manual `/prflow:review` comment path). Run `echo "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"` and treat the printed path as `<skill-dir>` — here the `Skill` loader supplies the engine's own directory, so the runner anchor is correct.
 
-Treat the printed path as `<skill-dir>` — a **textual** substitution you make when emitting each command below, never a shell variable. The **canonical Review root** is `<skill-dir>/SKILL.md`, and **every reference resolves relative to that located root**, at `<skill-dir>/phases/<file>` — never relative to the working directory, which finds nothing under a vendored install (`.prflow/vendor/prflow/skills/review/…`) and strands the engine. **Fail closed:** if the command prints empty or the unsubstituted `<absolute skill base directory this runner reports in context>` placeholder, stop and report that the Review root did not resolve; run no phase.
+Either way, `<skill-dir>` is a **textual** substitution you make when emitting each command below, never a shell variable. The **canonical Review root** is `<skill-dir>/SKILL.md`, and **every reference resolves relative to that located root**, at `<skill-dir>/phases/<file>` — never relative to the working directory, which finds nothing under a vendored install (`.prflow/vendor/prflow/skills/review/…`) and strands the engine. The bundled-helper anchor is a **separate** resolution left unchanged (it resolves helpers at `<runner-anchor>/../../scripts/…`, which points at the same `scripts/` directory from either sibling skill directory in every layout), so rebinding the phase-reference base above does not move it. **Fail closed:** if the resolved `<skill-dir>` is empty or the unsubstituted `<absolute skill base directory this runner reports in context>` placeholder, stop and report that the Review root did not resolve; run no phase.
 
 ### Root identity
 
