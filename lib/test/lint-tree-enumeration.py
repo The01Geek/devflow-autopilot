@@ -19,9 +19,9 @@ whose working-tree enumeration is worktree-immune only through untracked
 This guard does not bar a recursive walk. Its violation condition is a candidate
 token carrying no marker, and it never judges what a marker's reason claims — so
 what it buys is a reviewable, greppable declaration at the desk. A marked walk
-still ships; it ships visibly. The marker is `# tree-walk-ok: <reason>`, the third
-member of the declaration-marker family this repository already applies through
-`# raw-guard-ok:` and `# structural-pin-ok:`.
+still ships; it ships visibly. The marker is `# tree-walk-ok: <reason>`, a
+member of the declaration-marker family this repository applies (`# structural-pin-ok:`,
+`# raw-guard-ok:`, `# tree-walk-ok:`, `# argjson-ok:`, `# pruned-path-ok:`).
 
 Audited population, closed by enumeration:
 
