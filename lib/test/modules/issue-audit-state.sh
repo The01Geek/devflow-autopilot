@@ -84,13 +84,25 @@ ias_instructions() {  # <sandbox-root> <slug> <draft-path> [PATH-override]
 # so a helper that removed it here would refuse the very dispatch it was called to enable.
 # Best-effort by design — a fixture whose dispatch is EXPECTED to fail must fail on its
 # own subject's guard, never on this helper's exit status.
+# It never aborts the module — a fixture whose dispatch is EXPECTED to fail must fail on
+# its own subject's guard, not on this helper's exit status — but it never fails SILENTLY
+# either: a failure arm breadcrumbs to stderr naming the slug, so an environment-induced
+# staging breakage reads as one attributable line rather than as a crowd of unrelated
+# fixtures failing on `file-arm-requires-staged-write`.
 ias_stage() {  # <slug> <nonce> <draft-file>
   local dig art
-  dig="$(git hash-object --stdin --no-filters < "$3")" || return 0
+  if ! dig="$(git hash-object --stdin --no-filters < "$3")"; then
+    printf '  ias-stage %s: could not digest %s; the byte-history precondition was NOT established\n' "$1" "$3" >&2
+    return 0
+  fi
   art="$(pwd)/staged-$1.$dig.staged.md"
-  cp "$3" "$art" || return 0
+  if ! cp "$3" "$art"; then
+    printf '  ias-stage %s: could not copy %s to the staging artifact; the byte-history precondition was NOT established\n' "$1" "$3" >&2
+    return 0
+  fi
   python3 "$IAS" record-staged-write "$1" --nonce "$2" --path "$art" --digest "$dig" \
-    > /dev/null 2>&1 || true
+    > /dev/null 2>&1 \
+    || printf '  ias-stage %s: record-staged-write exited non-zero; the byte-history precondition was NOT established\n' "$1" >&2
 }
 
 # help_surface_pin — pinned against the RENDERED --help output, whitespace-normalized.

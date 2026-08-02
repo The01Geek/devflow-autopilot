@@ -5759,34 +5759,24 @@ def cmd_record_dispatch(args):
                   f'before dispatching round {args.round}')
         # issue #1104: the file-arm staged-write guarantee at DISPATCH — the sibling of
         # `record-revision`'s `file-arm-requires-stdin-digest` refusal (issue #705), enforced
-        # by the tool rather than carried by prose a context compaction can evict. A file-arm
-        # round is the one `select_round_kind`'s condition 3 later reconstructs its dispatch
-        # bytes for, so a dispatch whose bytes are not in the byte history leaves every
-        # subsequent round without the operand its delta needs — and the loss is SILENT by
-        # design, because a missing operand degrades the selection to `discovery` rather than
-        # aborting the run. Refused here, before any mutation of `doc`, the round stays
-        # dispatchable: the caller records the staged write for these bytes and re-issues the
-        # identical call.
+        # by the tool rather than carried by prose a context compaction can evict. Without
+        # the record the loss is SILENT by design: `select_round_kind`'s condition 3 has no
+        # operand, and a missing operand degrades the selection to `discovery` rather than
+        # aborting the run, so every later round pays for a cold whole-draft audit and
+        # nothing says why. Refused before any mutation of `doc`, the round stays
+        # dispatchable — the caller records the staged write and re-issues the identical call.
         #
-        # The predicate is `_reconstruct_dispatch_bytes`, the SAME reader condition 3 uses,
-        # not a bare digest-membership test. A recorded pair whose artifact has since gone
-        # missing, or whose bytes no longer hash to the recorded digest, is exactly the
-        # operand condition 3 refuses to compute a delta from — so admitting it here would
-        # satisfy the guard while leaving the selection to fail on the same run.
+        # The predicate is `_reconstruct_dispatch_bytes`, the same reader condition 3 uses:
+        # a weaker digest-membership test would admit a recorded pair whose artifact is gone
+        # or whose bytes no longer hash to it, satisfying the guard while leaving the
+        # selection to fail on the very same run.
         #
-        # SCOPE, on two axes, each for its own reason:
-        #   * the FILE arm only — `route_arm` selects it only when the canonical write landed,
-        #     so the embed and inline arms exist precisely for a run with no staging artifact
-        #     to require, and requiring one there would refuse the fallback outright.
-        #   * a FRESH dispatch only — it sits inside the branch `_find_round` selected for a
-        #     round that does not yet exist, so the scoping is structural rather than a
-        #     second predicate that could drift from it. A retry re-dispatches an already-open
-        #     round, whose bytes may legitimately have moved since it opened, and applying a
-        #     fresh-dispatch precondition to it would refuse the very re-dispatch the tool
-        #     itself prescribed. This mirrors how the arm and the kind already work:
-        #     `_permitted_retry_arms` and `_cross_check_kind` both read the ROUND for a retry.
-        # It is placed AFTER the ordering and still-open refusals so those keep naming their
-        # own cause, and BEFORE the budget spends, which are this branch's first `doc` writes.
+        # The FILE-arm scoping is what makes the guarantee safe to require at all: the embed
+        # and inline arms are entered precisely because the canonical write did not land, so
+        # there is no staging artifact to demand there. The fresh-dispatch scoping is
+        # structural — this sits in the branch taken for a round that does not exist yet —
+        # because a retry re-dispatches an already-open round whose bytes may legitimately
+        # have moved, and refusing it would refuse the re-dispatch the tool itself prescribed.
         if args.arm == 'file' and _reconstruct_dispatch_bytes(doc, digest) is None:
             _fail('record-dispatch',
                   f'the draft bytes this dispatch audits (digest {digest!r}) are not '
