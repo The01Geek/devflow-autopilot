@@ -37543,8 +37543,17 @@ for _f in devflow-implement devflow devflow-runner; do
   assert_eq "#505 AC4: $_f.yml carries the baked plugins baseline literal" "1" "$(grep -cF "$_505_BP" "$_505_WF/$_f.yml")"
   assert_eq "#505 AC4: $_f.yml carries the baked marketplaces baseline literal" "1" "$(grep -cF "$_505_BM" "$_505_WF/$_f.yml")"
   assert_eq "#505 AC4: $_f.yml has a Compose plugin inputs step" "1" "$(grep -c 'name: Compose plugin inputs' "$_505_WF/$_f.yml")"
-  assert_eq "#505 AC4: $_f.yml plugin_marketplaces consumes the step output" "1" \
-    "$(grep -cF 'plugin_marketplaces: ${{ steps.plugins.outputs.plugin_marketplaces }}' "$_505_WF/$_f.yml")"
+  # devflow-implement.yml consumes plugin_marketplaces from the issue-#1049
+  # vendor_marketplace step (which post-processes steps.plugins' composed list);
+  # the other two tiers still consume steps.plugins directly. The action input must
+  # name exactly the right producing step per tier.
+  if [ "$_f" = devflow-implement ]; then
+    _505_EXPMK='plugin_marketplaces: ${{ steps.vendor_marketplace.outputs.plugin_marketplaces }}'
+  else
+    _505_EXPMK='plugin_marketplaces: ${{ steps.plugins.outputs.plugin_marketplaces }}'
+  fi
+  assert_eq "#505 AC4: $_f.yml plugin_marketplaces action input consumes the right composed step" "1" \
+    "$(grep -cF "$_505_EXPMK" "$_505_WF/$_f.yml")"
   assert_eq "#505 AC4: $_f.yml plugins consumes the step output" "1" \
     "$(grep -cF 'plugins: ${{ steps.plugins.outputs.plugins }}' "$_505_WF/$_f.yml")"
   assert_eq "#505 AC: $_f.yml routes the annotation through describe-plugin-compose.sh" "yes" \
@@ -37826,6 +37835,135 @@ PY
   rm -rf "$_505_FIXROOT" "$_505_TRUST"; rm -f "$_505_WSTEP" "$_505_WSTEP2" "$_505_RSTEP"
 else
   skip "#513 I3 compose-step behavioral block" host-capability "python3+pyyaml unavailable; compose steps covered by static pins only this run"
+fi
+
+# ── #1049 vendored-marketplace resolution: compose-vendor-marketplace.sh + the
+#    implement-tier vendor_marketplace step ──────────────────────────────────────
+# This repo's cloud implement run resolved the plugin root to <workspace>/skills (the
+# repo-root marketplace's ./ source) while every consumer resolves it from
+# .prflow/vendor/prflow — so the shipped helper-path shape had no coverage here. The
+# fix composes a job-local marketplace rooted at the vendored subtree and swaps the ./
+# entry for it, implement-tier only. Constraints: the tracked marketplace.json and the
+# baked baseline literal stay untouched; the composed-vs-degraded branch selection lives
+# in the helper (describe-denial-count.sh extraction convention) and is driven here.
+echo "compose-vendor-marketplace.sh + vendor_marketplace step (issue #1049)"
+_1049_CVM="$LIB/../scripts/compose-vendor-marketplace.sh"
+assert_eq "#1049 AC1: compose-vendor-marketplace.sh exists" "yes" "$([ -f "$_1049_CVM" ] && echo yes || echo no)"
+assert_eq "#1049 AC1: compose-vendor-marketplace.sh SPDX header" "yes" \
+  "$(grep -q 'SPDX-License-Identifier: MIT' "$_1049_CVM" && echo yes || echo no)"
+# guard-class 2: the emitted marketplace-list swap is a bash read-loop, so no
+# tr/sed/wc/cut/head command may derive it.
+assert_eq "#1049 AC1: no tr/sed/wc/cut/head command derives the emitted list (guard-class 2)" "0" \
+  "$(grep -cE '^[[:space:]]*(tr|sed|wc|cut|head)([[:space:]]|$)' "$_1049_CVM")"
+
+# Behavioral driver: a fixture vendor tree + a marketplace-list file, run the helper,
+# capture the rewritten list and the stdout annotation.
+_1049_mkvendor() {  # $1=root  $2=complete|partial  → make .prflow/vendor[/prflow/.claude-plugin/plugin.json]
+  mkdir -p "$1/.prflow/vendor/prflow/scripts"
+  if [ "$2" = complete ]; then
+    mkdir -p "$1/.prflow/vendor/prflow/.claude-plugin"
+    printf '%s\n' '{"name":"prflow"}' > "$1/.prflow/vendor/prflow/.claude-plugin/plugin.json"
+  fi
+}
+_1049_run() {  # $1=vendor-root-arg  $2=marketplaces-file-content  (cwd=$_1049_FX)
+  _1049_MKF="$_1049_FX/mk.txt"; printf '%s\n' "$2" > "$_1049_MKF"
+  _1049_ANN="$( cd "$_1049_FX" && bash "$_1049_CVM" "$_1049_MKF" "$1" 2>&1 )"; _1049_RC=$?
+  _1049_LIST="$(cat "$_1049_MKF")"
+}
+# (a) composed arm: complete vendor + a list containing ./ → ./ swapped for the vendor
+# root, marketplace.json written (devflow-marketplace, prflow sourced ./prflow), ::notice::
+_1049_FX="$(mktemp -d)"; _1049_mkvendor "$_1049_FX" complete
+_1049_run .prflow/vendor "$(printf '%s\n%s' 'https://github.com/anthropics/claude-plugins-official.git' './')"
+assert_eq "#1049 composed: helper always exits 0" "0" "$_1049_RC"
+assert_eq "#1049 composed: ./ entry swapped for the vendor root" \
+  "$(printf '%s\n%s' 'https://github.com/anthropics/claude-plugins-official.git' '.prflow/vendor')" "$_1049_LIST"
+assert_eq "#1049 composed: emits a ::notice:: audit line" "yes" \
+  "$(printf '%s' "$_1049_ANN" | grep -q '::notice::' && echo yes || echo no)"
+assert_eq "#1049 composed: no ::warning:: on the clean composed arm" "no" \
+  "$(printf '%s' "$_1049_ANN" | grep -q '::warning::' && echo yes || echo no)"
+assert_eq "#1049 composed: job-local marketplace.json is named devflow-marketplace" "yes" \
+  "$(grep -q '"name": "devflow-marketplace"' "$_1049_FX/.prflow/vendor/.claude-plugin/marketplace.json" && echo yes || echo no)"
+assert_eq "#1049 composed: job-local marketplace sources prflow at ./prflow" "yes" \
+  "$(grep -q '"source": "./prflow"' "$_1049_FX/.prflow/vendor/.claude-plugin/marketplace.json" && echo yes || echo no)"
+rm -rf "$_1049_FX"
+# (b) degraded arm: partial vendor (no plugin.json) → list UNCHANGED, ::warning:: names prflow_version
+_1049_FX="$(mktemp -d)"; _1049_mkvendor "$_1049_FX" partial
+_1049_run .prflow/vendor "$(printf '%s\n%s' 'https://github.com/anthropics/claude-plugins-official.git' './')"
+assert_eq "#1049 degraded: partial vendor → list left UNCHANGED (still ./)" \
+  "$(printf '%s\n%s' 'https://github.com/anthropics/claude-plugins-official.git' './')" "$_1049_LIST"
+assert_eq "#1049 degraded: ::warning:: names prflow_version as the remedy" "yes" \
+  "$(printf '%s' "$_1049_ANN" | grep -q '::warning::' && printf '%s' "$_1049_ANN" | grep -q 'prflow_version' && echo yes || echo no)"
+assert_eq "#1049 degraded: no marketplace.json written on the degraded arm" "no" \
+  "$([ -f "$_1049_FX/.prflow/vendor/.claude-plugin/marketplace.json" ] && echo yes || echo no)"
+rm -rf "$_1049_FX"
+# (c) usage arm: missing args → ::warning::, exit 0, no crash
+_1049_FX="$(mktemp -d)"
+_1049_ANN="$( cd "$_1049_FX" && bash "$_1049_CVM" 2>&1 )"; _1049_RC=$?
+assert_eq "#1049 usage: missing args exits 0" "0" "$_1049_RC"
+assert_eq "#1049 usage: missing args emits a ::warning::" "yes" \
+  "$(printf '%s' "$_1049_ANN" | grep -q '::warning::' && echo yes || echo no)"
+rm -rf "$_1049_FX"
+# (d) swap-miss arm: complete vendor but the list has NO ./ entry → marketplace.json is
+# written but a ::warning:: flags that nothing consumed it (never a silent resolution).
+_1049_FX="$(mktemp -d)"; _1049_mkvendor "$_1049_FX" complete
+_1049_run .prflow/vendor 'https://github.com/anthropics/claude-plugins-official.git'
+assert_eq "#1049 swap-miss: no ./ in the list → ::warning:: (not silent)" "yes" \
+  "$(printf '%s' "$_1049_ANN" | grep -q '::warning::' && echo yes || echo no)"
+rm -rf "$_1049_FX"
+
+# Workflow wiring: the vendor_marketplace step is implement-tier ONLY.
+_1049_IMPL="$_505_WF/devflow-implement.yml"
+assert_eq "#1049 wiring: devflow-implement.yml has the vendor_marketplace step" "1" \
+  "$(grep -c 'id: vendor_marketplace' "$_1049_IMPL")"
+assert_eq "#1049 wiring: the step invokes compose-vendor-marketplace.sh at the vendored path" "yes" \
+  "$(grep -qF 'bash "$VENDORMK" "$MKF" .prflow/vendor' "$_1049_IMPL" && echo yes || echo no)"
+assert_eq "#1049 wiring: the step's vendored-helper-absent skew arm names prflow_version" "yes" \
+  "$(grep -qF 'compose-vendor-marketplace.sh not found' "$_1049_IMPL" && grep -q 'Bump prflow_version' "$_1049_IMPL" && echo yes || echo no)"
+# Implement-tier ONLY: the manual-command and review tiers must NOT reference either the
+# step id or the helper, so their plugin root stays the repo-root ./ (out of scope here).
+for _f in devflow devflow-runner; do
+  assert_eq "#1049 wiring: $_f.yml does NOT reference vendor_marketplace (implement-tier only)" "0" \
+    "$(grep -c 'vendor_marketplace' "$_505_WF/$_f.yml")"
+  assert_eq "#1049 wiring: $_f.yml does NOT reference compose-vendor-marketplace.sh (implement-tier only)" "0" \
+    "$(grep -c 'compose-vendor-marketplace.sh' "$_505_WF/$_f.yml")"
+done
+
+# Execute the extracted vendor_marketplace step against fixtures (mirrors the #513 I3
+# harness): the swap must actually happen when the vendored helper is present, and the
+# list must pass through unchanged (repo-root ./) when it is absent.
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+  _1049_extract() {  # $1=workflow  $2=step id → run: script on stdout
+    python3 - "$1" "$2" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+for job in doc["jobs"].values():
+    for s in job.get("steps", []):
+        if s.get("id") == sys.argv[2] and "run" in s:
+            sys.stdout.write("#!/usr/bin/env bash\n" + s["run"]); raise SystemExit
+raise SystemExit("step %s not found" % sys.argv[2])
+PY
+  }
+  _1049_VSTEP="$(mktemp)"; _1049_extract "$_1049_IMPL" vendor_marketplace > "$_1049_VSTEP"
+  _1049_vstep_run() {  # $1=cwd  $2=COMPOSED_MK → sets _1049_OUT (plugin_marketplaces heredoc value)
+    local out; out="$(mktemp)"
+    ( cd "$1" && COMPOSED_MK="$2" GITHUB_OUTPUT="$out" bash "$_1049_VSTEP" >/dev/null 2>&1 )
+    _1049_OUT="$(awk '/^plugin_marketplaces<</{f=1;next} f&&/^MKV_EOF_/{f=0} f' "$out")"; rm -f "$out"
+  }
+  # helper present + complete vendor → ./ swapped to .prflow/vendor
+  _1049_FX="$(mktemp -d)"; _1049_mkvendor "$_1049_FX" complete
+  cp "$_1049_CVM" "$_1049_FX/.prflow/vendor/prflow/scripts/compose-vendor-marketplace.sh"
+  _1049_vstep_run "$_1049_FX" "$(printf '%s\n%s' 'https://github.com/anthropics/claude-plugins-official.git' './')"
+  assert_eq "#1049 step exec: helper present → ./ resolved to the vendored marketplace root" \
+    "$(printf '%s\n%s' 'https://github.com/anthropics/claude-plugins-official.git' '.prflow/vendor')" "$_1049_OUT"
+  rm -rf "$_1049_FX"
+  # helper absent (skew) → list passes through unchanged (repo-root ./ kept)
+  _1049_FX="$(mktemp -d)"; mkdir -p "$_1049_FX/.prflow/vendor"
+  _1049_vstep_run "$_1049_FX" "$(printf '%s\n%s' 'https://github.com/anthropics/claude-plugins-official.git' './')"
+  assert_eq "#1049 step exec: helper absent → list passes through unchanged (repo-root ./ kept)" \
+    "$(printf '%s\n%s' 'https://github.com/anthropics/claude-plugins-official.git' './')" "$_1049_OUT"
+  rm -rf "$_1049_FX"; rm -f "$_1049_VSTEP"
+else
+  skip "#1049 vendor_marketplace step behavioral block" host-capability "python3+pyyaml unavailable; step covered by static pins only this run"
 fi
 
 # ── #456 skip tally, summary renderer, and the NOTE-emit meta-assertion ───────────────
