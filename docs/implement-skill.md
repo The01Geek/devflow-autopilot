@@ -745,6 +745,18 @@ matcher-denied on cloud, where the recap rides in the runner log instead). The r
 preserves `run.sh`'s exit status, so `scripts/verification-flight.py` still records
 `failed` for a RED suite; on a clean run nothing extra prints.
 
+## Phase 3.1.1 assigns the draft PR to the triggering user (issue #1165)
+
+Immediately after Phase 3.1's **CREATE** path opens a draft PR, the engine best-effort-assigns it to the developer who triggered the run, so reviewers can read ownership from the standard GitHub assignee field. This runs on the **CREATE arm only** — the **ADOPT** path (a resumed run whose PR a prior attempt created) skips it entirely and leaves the existing PR's assignees untouched.
+
+The single assignment path is `scripts/apply-pr-triggerer.sh <pull-request-number>`, which resolves the triggerer by tier:
+
+- **Local identity resolution.** On a local run (`GITHUB_RUN_ID` empty) the helper resolves the authenticated GitHub login through `gh api user --jq .login` — the repository's established local-login pattern. An empty result (`empty-identity`) or a failed query (`identity-lookup-failed`) skips assignment **without guessing** a login.
+- **Cloud identity propagation.** On a cloud run (`GITHUB_RUN_ID` set) the helper reads the authorized issue-comment sender the workflow propagates through `DEVFLOW_TRIGGERING_USER` (`.github/workflows/devflow-implement.yml` exports `github.event.sender.login` — the same trusted login authorization and commit attribution use). The `DEVFLOW_` prefix is kept because the rename contract freezes environment identifiers.
+- **Assignment confirmation.** GitHub can accept the add-assignee POST (`repos/{owner}/{repo}/issues/{number}/assignees`) and *silently ignore* an unassignable login, so HTTP success alone is not enough: the helper inspects the response and reports `assignment: applied <login>` only when the requested login is present, otherwise `assignment: skipped unconfirmed`. Because the endpoint only *adds* assignees, reapplying to an already-assigned PR reports `applied` and never removes existing assignees (idempotent).
+- **Workpad Reflection behavior.** The helper always exits 0 and prints exactly one outcome token to stdout — so `assignment: skipped <reason>` (`invalid-input`, `no-triggering-user`, `identity-lookup-failed`, `empty-identity`, `api-failure`, `unconfirmed`) **or no output at all** (a harness refusal) routes to a `dropped-failed` entry in the workpad's `## Devflow Reflection`, preserving the created PR. Assignment never gates the run.
+- **Deployment skew.** Workflow files and vendored skills reach consumers through independent upgrade channels. A new workflow paired with an *older* skill simply never calls the helper (no assignment, fully compatible). A newer skill paired with an *older* workflow finds `DEVFLOW_TRIGGERING_USER` empty on the cloud tier and takes the **skew-safe** path: it skips assignment and **never** substitutes another account (the token owner, the GitHub App identity, or `GITHUB_ACTOR`). The helper's implement-tier grant is trigger-time inert for its own PR's cloud run, so pre-merge coverage is executable helper tests plus code-reading assertions against the grant producers.
+
 ## Phase 4.3 finalize: publish vs. draft (`implement_pr_state`)
 
 Phase 4.3 (*Finalize the PR and Finalize Workpad*) is where a run ends. It runs four things in order:
