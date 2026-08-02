@@ -5459,8 +5459,23 @@ echo '[]'
 STUB
 chmod +x "$S258/gh"
 
-# Fixture bodies. Base = every Plan/AC row ticked (the clean-run shape).
-cat > "$S258/all-ticked.md" <<'WPMD'
+# issue #1087: the terminal gate also requires a validated completion
+# verification-flight marker. Stand up a passing flight record under a temp
+# repo-root and carry the marker in the fixtures' ## Progress, so the #258 AC/Plan
+# self-record gate (which runs AFTER the evidence gate) is exercised on its own
+# terms. run258 pins the candidate identity with --claim-identity so no git tree
+# derivation is needed. A dedicated no-marker assertion below pins the evidence
+# gate's own missing-evidence abort.
+S258_ROOT="$(mktemp -d)"
+S258_KEY="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+mkdir -p "$S258_ROOT/.prflow/tmp/verification-flights"
+cat > "$S258_ROOT/.prflow/tmp/verification-flights/$S258_KEY.json" <<'VFJSON'
+{"state":"passed","result":"passed","candidate_identity":"treeX","suite_summary":{"command":"lib/test/run.sh","exit_status":0,"skipped_checks":[]},"skipped_checks":[]}
+VFJSON
+
+# Fixture bodies. Base = every Plan/AC row ticked (the clean-run shape). The
+# ## Progress section carries the validated completion-verification marker.
+cat > "$S258/all-ticked.md" <<WPMD
 <!-- devflow:workpad -->
 # DevFlow Workpad — Issue #999
 
@@ -5469,6 +5484,7 @@ cat > "$S258/all-ticked.md" <<'WPMD'
 
 ## Progress
 - [x] **Setup**
+  - 00:00:00 — completion verification recorded <!-- prflow:checkpoint completion-verification:$S258_KEY -->
 
 ## Plan
 - [x] Plan step one
@@ -5478,6 +5494,8 @@ cat > "$S258/all-ticked.md" <<'WPMD'
 - [x] AC one
 - [x] AC two
 WPMD
+# A marker-free copy for the evidence-gate abort test (issue #1087).
+grep -v 'completion-verification:' "$S258/all-ticked.md" > "$S258/no-marker.md"
 # (a) a non-post-merge AC row still unticked.
 sed 's/- \[x\] AC two/- [ ] AC two/' "$S258/all-ticked.md" > "$S258/ac-unticked.md"
 # (b) the ONLY outstanding AC row carries the (post-merge) marker.
@@ -5490,9 +5508,21 @@ run258() {
   local body="$1"; shift
   : > "$S258/patchlog"
   WP_BODY="$body" WP_PATCHLOG="$S258/patchlog" DEVFLOW_GH="$S258/gh" \
-    python3 "$WP_PY" update 999 --print-body "$@" >"$S258/out" 2>"$S258/err"
+    python3 "$WP_PY" update 999 --print-body \
+      --repo-root "$S258_ROOT" --claim-identity treeX "$@" >"$S258/out" 2>"$S258/err"
   echo $?
 }
+
+# (issue #1087) --status Complete over a workpad with NO completion marker aborts
+# non-zero with NO PATCH and names missing-evidence — the "Completion requires
+# marker" AC at the real CLI boundary.
+_c="$(run258 "$S258/no-marker.md" --status Complete)"
+assert_eq "#1087: --status Complete with no completion marker aborts non-zero" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#1087: the no-marker abort made NO PATCH" "yes" \
+  "$([ -s "$S258/patchlog" ] && echo no || echo yes)"
+assert_eq "#1087: the no-marker abort names missing-evidence" "yes" \
+  "$(grep -q 'missing-evidence' "$S258/err" && echo yes || echo no)"
 
 # (a) --status Complete aborts non-zero with NO PATCH when a non-post-merge AC is [ ].
 _c="$(run258 "$S258/ac-unticked.md" --status Complete)"
@@ -5532,7 +5562,7 @@ assert_eq "#258(e): --status Blocked with an unticked AC still PATCHed (Status �
 # Source pin: the terminal gate + its post-merge exclusion live in workpad.py.
 assert_eq "#258: workpad.py carries the terminal --status Complete self-record gate" "yes" \
   "$(grep -q '_terminal_complete_gate' "$WP_PY" && grep -q "(post-merge)" "$WP_PY" && echo yes || echo no)"
-rm -rf "$S258"
+rm -rf "$S258" "$S258_ROOT"
 
 # ── issue #781: workpad-sourced acceptance criteria (acs / acs-resolve) ────────
 # The review engine used to source the criteria it judges a PR against from the
@@ -17407,7 +17437,7 @@ assert_eq "#458 helper: harden-stop-hooks.sh exists" "yes" \
 # guard entry — COUPLED (a
 # file dropped here silently leaves that PR-head script executable, or the workflow
 # never materializes its trusted copy). Pin the exact closure literal.
-HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh lib/resolve-state-dir.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'
+HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh lib/resolve-state-dir.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py scripts/check-completion-evidence.py scripts/reception_identity.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'
 assert_eq "#458 helper: HOOK_TARGETS is the full transitive source/exec closure" "1" \
   "$(grep -cF "HOOK_TARGETS='$HSH_CLOSURE_LIT'" "$HSH" || true)"
 # The three per-class sub-lists (entries / sourced libs / exec'd deps) drive the
@@ -17417,7 +17447,7 @@ assert_eq "#458 helper: HOOK_ENTRY_TARGETS are the three Stop-hook entries plus 
 assert_eq "#458 helper: HOOK_SOURCED_TARGETS are the inline-sourced libs (mid-source-break class)" "1" \
   "$(grep -cF "HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh lib/resolve-state-dir.sh'" "$HSH" || true)"
 assert_eq "#458 helper: HOOK_EXEC_TARGETS are the subprocess-exec'd deps" "1" \
-  "$(grep -cF "HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'" "$HSH" || true)"
+  "$(grep -cF "HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py scripts/check-completion-evidence.py scripts/reception_identity.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'" "$HSH" || true)"
 SETTINGS="$LIB/../.claude/settings.json"
 assert_eq "#458 coupling: settings.json wires lib/efficiency-trace.sh Stop hook" "1" \
   "$(jq '[.hooks.Stop[]?.hooks[]? | select((.command // "") | contains("lib/efficiency-trace.sh") and contains("--persist"))] | length' "$SETTINGS" 2>/dev/null || echo BAD)"
@@ -17444,7 +17474,7 @@ assert_eq "#805 coupling: HOOK_ENTRY_TARGETS has exactly 4 entries in total (3 .
 # The full closure hardened here is the entry hooks plus their transitive source/exec/python3
 # deps; its exact membership and size are pinned by the assertion below and the drift-guard,
 # not asserted in prose (the count-locked stale-prose lint owns numeric claims).
-assert_eq "#458 coupling: HOOK_TARGETS has exactly 14 closure entries (.sh + .py)" "14" \
+assert_eq "#458 coupling: HOOK_TARGETS has exactly 16 closure entries (.sh + .py)" "16" \
   "$(grep -oE "HOOK_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -cE '\.(sh|py)' || true)"
 # SET-EQUALITY invariant (issue #460 SHADOW, FP-S3): the three per-class lists must
 # partition HOOK_TARGETS exactly — entries ∪ sourced ∪ exec == HOOK_TARGETS. A future
@@ -32256,8 +32286,12 @@ fi
 # arm, so they live in the unconditional §4.3 prose. That does not fit the residual headroom the
 # post-#1039 figure left, so the ceiling is raised again here at the post-#1050 measurement with
 # NO added slack, exactly as above.
+# Issue #1087 adds the terminal completion-evidence flight and marker handoff to the
+# unconditional Phase 4 completion path. The implement engine must read that gate before
+# it can finalize the workpad, so this contract cannot be deferred behind a progressively
+# loaded reference. Raise the ceiling to the exact post-#1087 measurement, with no slack.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
-  "$([ "$(wc -c < "$I480_P4")" -le 100707 ] && echo yes || echo no)"
+  "$([ "$(wc -c < "$I480_P4")" -le 104586 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
 # the reference through this file's own entry-gate anchor, and degrades rather than halting
 # on a failed read — carry NO pin. Every mutation those sentences admit rewrites the one
