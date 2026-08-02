@@ -15553,7 +15553,7 @@ unset PRV_COMMENTS
 # Remove the POSTED emission from a COPY of the helper and confirm the happy-path
 # assertion loses its subject — proving the assertion has teeth, not that the
 # suite merely stayed green. Restore is implicit (the copy is discarded).
-sed '/^[[:space:]]*echo "POSTED review \$EVENT"$/d' "$PRV" > "$PRV_SB/mutant.sh"
+sed '/^[[:space:]]*_prv_say "POSTED review \$EVENT"$/d' "$PRV" > "$PRV_SB/mutant.sh"
 PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" \
   bash "$PRV_SB/mutant.sh" 123 APPROVE "$PRV_SB/body-plain.md" "$PRV_HEAD" 2>/dev/null)"
 assert_eq "#1059 post-verdict: guarantee-class control — removing the POSTED emit silences the outcome (control ran)" \
@@ -15583,7 +15583,10 @@ if sys.argv[1] == 'emitted':
     # re.M is load-bearing: without it the anchors bind to the whole string and findall
     # returns nothing, emptying this side and making the comparison vacuous. The floor row
     # below catches that too.
-    pat = re.compile(r'^\s*echo "([A-Z]+ [a-z][a-z0-9-]*)', re.M)
+    # `_prv_say` is the emit head since issue #1156 (stdout line first, then the run-scoped
+    # receipt); `echo` stays in the alternation so a reverted or newly authored bare-echo
+    # arm is still counted here rather than dropping silently out of the emitted set.
+    pat = re.compile(r'^\s*(?:echo|_prv_say) "([A-Z]+ [a-z][a-z0-9-]*)', re.M)
 else:
     pat = re.compile(r'^([A-Z]+ [a-z][a-z0-9-]*)', re.M)
 print(' '.join(sorted(set(pat.findall(text)))))

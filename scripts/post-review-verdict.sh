@@ -112,6 +112,23 @@
 # secondary stamp must not turn a posted verdict into a failure. It is a second line, not a
 # second outcome — the caller routes on line 1.
 #
+# THE RECEIPT (issue #1156). Every line above is ALSO written to a run-scoped receipt file
+# (lib/verdict-receipt.sh owns the path, and is the single source both this producer and
+# scripts/check-verdict-post-reached.sh compose it from): the outcome line becomes the
+# receipt's first line, and the PROGRESS line, when one is emitted, its second. The receipt
+# is what makes this helper's ABSENCE observable after the run. Everything documented above
+# begins at this helper's first line, so a review run that never invokes it produces none of
+# it — no outcome line, no error text, no failure record — and presents afterwards as a
+# successful review with a published-looking verdict and an untouched reviews API. With the
+# receipt, "the post was refused" (a receipt naming a refusal outcome) and "the post was
+# never reached" (no receipt at all) are two different durable states.
+#
+# The write is BEST-EFFORT and fully isolated: it happens after the stdout line is already
+# printed, it cannot change stdout's bytes or their order, it cannot change the exit code,
+# and a failed write emits exactly ONE stderr breadcrumb per run however many lines follow
+# it. A receipt is a diagnostic; a helper that failed its verdict post because it could not
+# write a diagnostic would be strictly worse than the state this issue set out to fix.
+#
 # WHAT SILENCE MEANS. Printing NOTHING is not one of the outcomes above: a helper that
 # emits no line at all was refused by the harness/permission matcher before it ran. A
 # caller reads that silence as "route to the fallback arm" (post the full report as a
@@ -153,6 +170,48 @@ _PRV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
 : "${DEVFLOW_JQ:=jq}"
 
+# The run-scoped receipt (issue #1156). Guarded exactly like the resolvers above: a
+# partially copied deployment degrades to a helper that posts verdicts and records no
+# receipt — the reader then reports NOT-REACHED, which is the pre-#1156 state, never a
+# refused post.
+# shellcheck source=../lib/verdict-receipt.sh
+. "$_PRV_DIR/../lib/verdict-receipt.sh" \
+  || { echo "devflow post-verdict: verdict-receipt.sh could not be sourced — this run records no verdict-post receipt (the verdict post itself is unaffected)" >&2; devflow_verdict_receipt_record() { return 1; }; }
+
+_PRV_RECEIPT_STARTED=0
+_PRV_RECEIPT_WARNED=0
+# _prv_say LINE — print one contract line to stdout, then record it on the receipt.
+#
+# The stdout `echo` comes FIRST and unconditionally, so the receipt can neither change
+# the bytes the caller routes on nor their order. The receipt write is best-effort: it
+# returns 0 whatever happens, and only the FIRST failure earns a stderr breadcrumb, so
+# a run whose receipt directory is unwritable emits one line rather than one per
+# contract line.
+#
+# The first call of the process truncates the receipt and the rest append, which is
+# what makes the outcome line the receipt's first line without any caller having to say
+# so — and what makes a second invocation inside one job REPLACE the earlier round
+# rather than accumulate behind it.
+#
+# KNOWN RESIDUAL, stated rather than papered over: when the write itself fails, the run
+# leaves no receipt and is therefore indistinguishable afterwards from one that never
+# reached this helper at all. The breadcrumb below is the only signal that separates
+# them, and it lives in the job log rather than on the pull request.
+_prv_say() {
+  echo "$1"
+  local _mode=add
+  if [ "$_PRV_RECEIPT_STARTED" -eq 0 ]; then
+    _mode=start
+    _PRV_RECEIPT_STARTED=1
+  fi
+  devflow_verdict_receipt_record "$_mode" "$1" && return 0
+  if [ "$_PRV_RECEIPT_WARNED" -eq 0 ]; then
+    _PRV_RECEIPT_WARNED=1
+    echo "devflow post-verdict: could not write the verdict-post receipt — this run's Phase 4.4 reach cannot be established from it (the verdict post itself is unaffected)" >&2
+  fi
+  return 0
+}
+
 PR_NUMBER="${1:-}"
 VERDICT="${2:-}"
 BODY_FILE="${3:-}"
@@ -164,7 +223,7 @@ PROGRESS_MARKER="${5:-}"
 case "$PR_NUMBER" in
   ''|*[!0-9]*)
     echo "devflow post-verdict: PR number '$PR_NUMBER' is not numeric — refusing the review post (no request issued)" >&2
-    echo "SKIP not-numeric"
+    _prv_say "SKIP not-numeric"
     exit 3 ;;
 esac
 
@@ -177,7 +236,7 @@ case "$VERDICT" in
   'APPROVE '*|COMMENT)               EVENT=COMMENT;         MARKER_VERDICT=APPROVE ;;
   *)
     echo "devflow post-verdict: verdict token '$VERDICT' maps to no review event (accepted: REJECT / 'REJECT …' / APPROVE / 'APPROVE …' / REQUEST_CHANGES / COMMENT) — refusing the post (a blank/unknown event would create an unsubmitted PENDING review)" >&2
-    echo "SKIP unknown-event"
+    _prv_say "SKIP unknown-event"
     exit 3 ;;
 esac
 
@@ -188,7 +247,7 @@ esac
 # refuses rather than stamping a lie. `[[ =~ ]]` is a bash builtin (no PATH tool).
 if [[ ! "$HEAD_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
   echo "devflow post-verdict: head '$HEAD_SHA' is not a 40-character hex object name — refusing the post (the verdict marker's head= field must be comparable to the reviews-API commit_id; no request issued)" >&2
-  echo "SKIP head-not-sha"
+  _prv_say "SKIP head-not-sha"
   exit 3
 fi
 
@@ -196,7 +255,7 @@ fi
 # posts a body carrying the marker line alone); only absent/unreadable refuses.
 if [ ! -r "$BODY_FILE" ] || [ ! -f "$BODY_FILE" ]; then
   echo "devflow post-verdict: body file '$BODY_FILE' is absent or unreadable — refusing the post (no request issued)" >&2
-  echo "SKIP body-file-unreadable"
+  _prv_say "SKIP body-file-unreadable"
   exit 3
 fi
 
@@ -240,7 +299,7 @@ _prv_oneline() {
 # prints a PROGRESS line and never touches the exit code (see the CONTRACT block).
 _prv_stamp_progress() {
   if [ -z "$PROGRESS_MARKER" ]; then
-    echo "PROGRESS not-requested"
+    _prv_say "PROGRESS not-requested"
     return 0
   fi
   local err raw target
@@ -250,23 +309,23 @@ _prv_stamp_progress() {
   # comment whose body carries the supplied run-keyed marker and emit "<id>\t<body-json>": the
   # id and the body travel together so no second read can race a different comment.
   if ! raw="$("$DEVFLOW_GH" api --paginate "repos/{owner}/{repo}/issues/$PR_NUMBER/comments?per_page=100" 2>&1)"; then
-    echo "PROGRESS failed $(_prv_oneline "$raw")"
+    _prv_say "PROGRESS failed $(_prv_oneline "$raw")"
     return 0
   fi
   if ! target="$(printf '%s' "$raw" | "$DEVFLOW_JQ" -rs --arg m "$PROGRESS_MARKER" \
                      'add | map(select(((.body // "") | type == "string") and ((.body // "") | contains($m)))) | last
                       | if . == null then "" else ((.id | tostring) + "\t" + (.body | @json)) end' 2>&1)"; then
-    echo "PROGRESS failed $(_prv_oneline "$target")"
+    _prv_say "PROGRESS failed $(_prv_oneline "$target")"
     return 0
   fi
   if [ -z "$target" ]; then
-    echo "PROGRESS not-found"
+    _prv_say "PROGRESS not-found"
     return 0
   fi
   local cid="${target%%$'\t'*}"
   local bjson="${target#*$'\t'}"
   if [ -z "$cid" ] || [ "$cid" = "$target" ]; then
-    echo "PROGRESS failed could not split the comment id from its body"
+    _prv_say "PROGRESS failed could not split the comment id from its body"
     return 0
   fi
   # Rewrite: keep line 1 (the run key), put the marker on line 2, drop a marker line already
@@ -279,14 +338,14 @@ _prv_stamp_progress() {
                         end)
                      | join("\n"))}' \
                  | "$DEVFLOW_GH" api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" --input - ; } 2>&1 1>/dev/null)"; then
-    echo "PROGRESS failed $(_prv_oneline "$err")"
+    _prv_say "PROGRESS failed $(_prv_oneline "$err")"
     return 0
   fi
-  echo "PROGRESS stamped $cid"
+  _prv_say "PROGRESS stamped $cid"
 }
 
 if [ "$REVIEW_RC" -eq 0 ]; then
-  echo "POSTED review $EVENT"
+  _prv_say "POSTED review $EVENT"
   _prv_stamp_progress
   exit 0
 fi
@@ -306,11 +365,11 @@ COMMENT_RC=$?
 
 if [ "$COMMENT_RC" -eq 0 ]; then
   echo "devflow post-verdict: the formal review POST was refused ($(_prv_oneline "$REVIEW_ERR")) — the marker-stamped verdict was posted as a pull-request comment instead" >&2
-  echo "POSTED comment $EVENT"
+  _prv_say "POSTED comment $EVENT"
   _prv_stamp_progress
   exit 0
 fi
 
-echo "FAILED no-durable-channel review: $(_prv_oneline "$REVIEW_ERR") | comment: $(_prv_oneline "$COMMENT_ERR")"
+_prv_say "FAILED no-durable-channel review: $(_prv_oneline "$REVIEW_ERR") | comment: $(_prv_oneline "$COMMENT_ERR")"
 _prv_stamp_progress
 exit 1
