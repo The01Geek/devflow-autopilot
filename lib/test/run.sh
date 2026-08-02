@@ -22683,6 +22683,67 @@ if [ "$(id -u)" -ne 0 ] && [ ! -r "$PLS_UNREAD/.claude/settings.json" ]; then
 fi
 chmod 644 "$PLS_UNREAD/.claude/settings.json"   # restore so rm -rf can clean up
 
+# Issue #1082: a DIRECTORY at the settings path is treated as absent by `[ -f ]`,
+# so the un-guarded create path lands the temp file INSIDE the directory and reports
+# success. The explicit `[ -d ]` guard must fail closed: exit non-zero, a breadcrumb
+# naming the directory cause, and NO temp file dropped inside the directory. RED if the
+# guard fails open (a `.settings.json.XXXXXX` orphan would appear inside it and rc=0).
+PLS_DIR="$(mktemp -d)"; mkdir -p "$PLS_DIR/.claude/settings.json"
+PLS_DIR_OUT="$(bash "$PLS" "$PLS_DIR" 2>&1)"; PLS_DIR_RC=$?
+assert_eq "pls #1082: directory at settings path → exit non-zero (fails closed)" "yes" \
+  "$([ "$PLS_DIR_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "pls #1082: directory → breadcrumb names the directory cause" "yes" \
+  "$(printf '%s' "$PLS_DIR_OUT" | grep -qi 'is a directory' && echo yes || echo no)"
+assert_eq "pls #1082: directory → still a directory, no temp file dropped inside it" "yes" \
+  "$([ -d "$PLS_DIR/.claude/settings.json" ] && [ -z "$(find "$PLS_DIR/.claude/settings.json" -mindepth 1 -print -quit)" ] && echo yes || echo no)"
+rm -rf "$PLS_DIR"
+
+# Issue #1082: a SYMLINK-TO-DIRECTORY must be caught too — `[ -d ]` follows the link,
+# so the guard's stated "or a symlink to one" scope is executable, not just asserted in
+# prose. Without this arm a narrowing mutation (`[ -d "$SETTINGS" ] && [ ! -h … ]`) would
+# reintroduce the exact #1082 bug for a symlinked settings path while the suite stayed green.
+PLS_SYMDIR="$(mktemp -d)"; mkdir -p "$PLS_SYMDIR/.claude" "$PLS_SYMDIR/realdir"
+ln -s "$PLS_SYMDIR/realdir" "$PLS_SYMDIR/.claude/settings.json"
+PLS_SYMDIR_OUT="$(bash "$PLS" "$PLS_SYMDIR" 2>&1)"; PLS_SYMDIR_RC=$?
+assert_eq "pls #1082: symlink-to-directory → exit non-zero (fails closed)" "yes" \
+  "$([ "$PLS_SYMDIR_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "pls #1082: symlink-to-directory → breadcrumb names the directory cause" "yes" \
+  "$(printf '%s' "$PLS_SYMDIR_OUT" | grep -qi 'is a directory' && echo yes || echo no)"
+assert_eq "pls #1082: symlink-to-directory → no temp file dropped inside the pointed-to dir" "yes" \
+  "$([ -z "$(find "$PLS_SYMDIR/realdir" -mindepth 1 -print -quit)" ] && echo yes || echo no)"
+rm -rf "$PLS_SYMDIR"
+
+# Issue #1082 negative controls: a DANGLING SYMLINK and a FIFO at the settings path
+# must NOT be caught by the directory guard — the atomic mv REPLACES them with a real
+# settings file at exit 0. This pins the scope so the fix cannot silently widen into a
+# "non-regular file" guard that would break a legitimate symlink-into-dotfiles setup.
+PLS_SYM="$(mktemp -d)"; mkdir -p "$PLS_SYM/.claude"
+ln -s "$PLS_SYM/.claude/nonexistent-target.json" "$PLS_SYM/.claude/settings.json"
+bash "$PLS" "$PLS_SYM" >/dev/null 2>&1; PLS_SYM_RC=$?
+assert_eq "pls #1082: dangling symlink → exit 0 (replaced, not caught)" "0" "$PLS_SYM_RC"
+assert_eq "pls #1082: dangling symlink → replaced with a real settings file" "true" \
+  "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_SYM/.claude/settings.json" 2>/dev/null)"
+rm -rf "$PLS_SYM"
+
+# The FIFO arm is bounded by a timeout so that the exact regression it guards against — a
+# future guard that opens/reads the settings path before the `[ -f ]` gate — fails RED
+# (rc 124) instead of wedging the serial suite on a reader-with-no-writer FIFO. Resolve the
+# bounded-run helper the same way the #782 hang guard does; when neither timeout binary is
+# present, skip the FIFO arm (host-capability) rather than run an unbounded invocation.
+PLS_FIFO_TMO="$(command -v timeout || command -v gtimeout || true)"
+if [ -z "$PLS_FIFO_TMO" ]; then
+  skip "pls #1082: FIFO → exit 0 (replaced, not caught, no hang)" host-capability \
+    "neither timeout nor gtimeout is on PATH (GNU coreutils); the FIFO arm needs a bounded run so a read-based guard regression cannot wedge the suite"
+else
+  PLS_FIFO="$(mktemp -d)"; mkdir -p "$PLS_FIFO/.claude"
+  mkfifo "$PLS_FIFO/.claude/settings.json"
+  "$PLS_FIFO_TMO" 30 bash "$PLS" "$PLS_FIFO" >/dev/null 2>&1; PLS_FIFO_RC=$?
+  assert_eq "pls #1082: FIFO → exit 0 (replaced, not caught, no hang)" "0" "$PLS_FIFO_RC"
+  assert_eq "pls #1082: FIFO → replaced with a real regular settings file" "yes" \
+    "$([ -f "$PLS_FIFO/.claude/settings.json" ] && [ ! -p "$PLS_FIFO/.claude/settings.json" ] && echo yes || echo no)"
+  rm -rf "$PLS_FIFO"
+fi
+
 # Valid JSON but WRONG SHAPE — a non-object root (array / scalar) or a DevFlow
 # container key present as a non-object — is corrupt for provisioning: exit
 # non-zero, specific breadcrumb, file byte-for-byte unchanged. These shapes parse
@@ -23293,6 +23354,64 @@ if [ "$(id -u)" -ne 0 ] && [ ! -r "$PAM_UR_SF" ]; then
     "$(printf '%s' "$PAM_UR_OUT" | grep -qi 'not readable' && echo yes || echo no)"
 fi
 chmod 644 "$PAM_UR_SF"   # restore so rm -rf can clean up
+
+# Issue #1082: a DIRECTORY at the settings path is treated as absent by `[ -f ]`, so the
+# un-guarded create path lands the temp file INSIDE the directory and reports success. The
+# byte-identical `[ -d ]` guard in provision-auto-mode.sh must fail closed: exit non-zero, a
+# breadcrumb naming the directory cause, and NO temp file dropped inside the directory.
+PAM_DIR="$(mktemp -d)"; PAM_DIR_SF="$PAM_DIR/settings.json"
+mkdir -p "$PAM_DIR_SF"
+PAM_DIR_OUT="$(bash "$PAM" --apply "$PAM_DIR_SF" 2>&1)"; PAM_DIR_RC=$?
+assert_eq "pam #1082: directory at settings path → exit non-zero (fails closed)" "yes" \
+  "$([ "$PAM_DIR_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "pam #1082: directory → breadcrumb names the directory cause" "yes" \
+  "$(printf '%s' "$PAM_DIR_OUT" | grep -qi 'is a directory' && echo yes || echo no)"
+assert_eq "pam #1082: directory → still a directory, no temp file dropped inside it" "yes" \
+  "$([ -d "$PAM_DIR_SF" ] && [ -z "$(find "$PAM_DIR_SF" -mindepth 1 -print -quit)" ] && echo yes || echo no)"
+rm -rf "$PAM_DIR"
+
+# Issue #1082: a SYMLINK-TO-DIRECTORY must be caught too — `[ -d ]` follows the link, making
+# the guard's stated "or a symlink to one" scope executable and killing a narrowing mutation
+# (`[ -d "$SETTINGS" ] && [ ! -h … ]`) that would otherwise reintroduce the bug for a symlink.
+PAM_SYMDIR="$(mktemp -d)"; PAM_SYMDIR_SF="$PAM_SYMDIR/settings.json"; mkdir -p "$PAM_SYMDIR/realdir"
+ln -s "$PAM_SYMDIR/realdir" "$PAM_SYMDIR_SF"
+PAM_SYMDIR_OUT="$(bash "$PAM" --apply "$PAM_SYMDIR_SF" 2>&1)"; PAM_SYMDIR_RC=$?
+assert_eq "pam #1082: symlink-to-directory → exit non-zero (fails closed)" "yes" \
+  "$([ "$PAM_SYMDIR_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "pam #1082: symlink-to-directory → breadcrumb names the directory cause" "yes" \
+  "$(printf '%s' "$PAM_SYMDIR_OUT" | grep -qi 'is a directory' && echo yes || echo no)"
+assert_eq "pam #1082: symlink-to-directory → no temp file dropped inside the pointed-to dir" "yes" \
+  "$([ -z "$(find "$PAM_SYMDIR/realdir" -mindepth 1 -print -quit)" ] && echo yes || echo no)"
+rm -rf "$PAM_SYMDIR"
+
+# Issue #1082 negative controls: a DANGLING SYMLINK and a FIFO at the settings path must NOT
+# be caught by the directory guard — the atomic mv REPLACES them with a real settings file at
+# exit 0, pinning the scope against a widened "non-regular file" guard.
+PAM_SYM="$(mktemp -d)"; PAM_SYM_SF="$PAM_SYM/settings.json"
+ln -s "$PAM_SYM/nonexistent-target.json" "$PAM_SYM_SF"
+bash "$PAM" --apply "$PAM_SYM_SF" >/dev/null 2>&1; PAM_SYM_RC=$?
+assert_eq "pam #1082: dangling symlink → exit 0 (replaced, not caught)" "0" "$PAM_SYM_RC"
+assert_eq "pam #1082: dangling symlink → replaced with a real settings file carrying the env var" "1" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_SYM_SF" 2>/dev/null)"
+rm -rf "$PAM_SYM"
+
+# The FIFO arm is bounded by a timeout so a future read-based guard regression fails RED
+# (rc 124) instead of wedging the serial suite on a reader-with-no-writer FIFO. Same
+# bounded-run resolution as the #782 hang guard; skip (host-capability) if neither binary
+# is present rather than run unbounded.
+PAM_FIFO_TMO="$(command -v timeout || command -v gtimeout || true)"
+if [ -z "$PAM_FIFO_TMO" ]; then
+  skip "pam #1082: FIFO → exit 0 (replaced, not caught, no hang)" host-capability \
+    "neither timeout nor gtimeout is on PATH (GNU coreutils); the FIFO arm needs a bounded run so a read-based guard regression cannot wedge the suite"
+else
+  PAM_FIFO="$(mktemp -d)"; PAM_FIFO_SF="$PAM_FIFO/settings.json"
+  mkfifo "$PAM_FIFO_SF"
+  "$PAM_FIFO_TMO" 30 bash "$PAM" --apply "$PAM_FIFO_SF" >/dev/null 2>&1; PAM_FIFO_RC=$?
+  assert_eq "pam #1082: FIFO → exit 0 (replaced, not caught, no hang)" "0" "$PAM_FIFO_RC"
+  assert_eq "pam #1082: FIFO → replaced with a real regular settings file" "yes" \
+    "$([ -f "$PAM_FIFO_SF" ] && [ ! -p "$PAM_FIFO_SF" ] && echo yes || echo no)"
+  rm -rf "$PAM_FIFO"
+fi
 
 # AC 3 (atomic + fail-closed on the WRITE side): a real change against a read-only target dir
 # holding a valid existing file → mktemp in that dir fails → exit 2 with a specific breadcrumb,
@@ -41257,7 +41376,7 @@ fi
 # lower-bound contract; test_module_runner.py parses this operand and rejects any
 # coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/capability-profiles.sh" \
-  "capability-profiles" 62; then
+  "capability-profiles" 65; then
   printf 'ERROR: capability-profiles boundary could not record its result\n'
   exit 1
 fi
