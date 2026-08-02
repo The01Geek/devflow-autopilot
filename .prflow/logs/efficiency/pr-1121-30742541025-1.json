@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1121",
+  "generated_at": "2026-08-02T09:59:59Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.36",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 9.265586749999999,
+    "tokens": {
+      "input_tokens": 39,
+      "output_tokens": 23229,
+      "cache_read_input_tokens": 3168768,
+      "cache_creation_input_tokens": 201388,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 144,
+        "outputTokens": 64726,
+        "cacheReadInputTokens": 6595561,
+        "cacheCreationInputTokens": 574997,
+        "webSearchRequests": 0,
+        "costUSD": 9.265586749999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 31,
+    "duration_ms": 529532
+  },
+  "permission_denials": {
+    "count": 9,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "git status --porcelain; echo \"---RUNENV---\"; echo \"GITHUB_RUN_ID=${GITHUB_RUN_ID:-<empty>}\"; echo \"GITHUB_RUN_ATTEMPT=${GITHUB_RUN_ATTEMPT:-<empty>}\"; echo \"GITHUB_ACTIONS=${GITHUB_ACTIONS:-<empty>}\"",
+      "/home/runner/work/prflow/prflow/scripts/config-get.sh .base_branch main; echo \"base-rc=$?\"",
+      "mkdir -p .prflow/tmp/review/pr-1121/local-run; gh pr diff 1121 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1121/local-run/diff.patch | head -5; echo \"diff-rc=${PIPESTATUS[0]}\"",
+      "mkdir -p .prflow/tmp/review/pr-1121/local-run; gh pr diff 1121 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1121/local-run/diff.patch; echo \"done\"; wc -l .prflow/tmp/review/pr-1121/local-run/diff.patch",
+      "scripts/load-prompt-extension.sh requesting-code-review",
+      "git show f412b1ba1ce069e3bd7bd46d40e2f1d46c83a068:scripts/issue-audit-state.py > /tmp/ias.py 2>/dev/null; wc -l /tmp/ias.py",
+      "git show f412b1ba1ce069e3bd7bd46d40e2f1d46c83a068:scripts/issue-audit-state.py > /tmp/ias.py",
+      "git show f412b1ba1ce069e3bd7bd46d40e2f1d46c83a068:scripts/issue-audit-state.py > /home/runner/work/prflow/prflow/.prflow/tmp/ias.py",
+      "scripts/dismiss-stale-rejections.sh \"1121\"; echo \"dismiss-rc=$?\""
+    ],
+    "total": 9,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
