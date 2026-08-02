@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1136",
+  "generated_at": "2026-08-02T10:26:01Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.36",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 25.888651249999988,
+    "tokens": {
+      "input_tokens": 242,
+      "output_tokens": 95135,
+      "cache_read_input_tokens": 30467222,
+      "cache_creation_input_tokens": 285345,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 380,
+        "outputTokens": 137765,
+        "cacheReadInputTokens": 33998390,
+        "cacheCreationInputTokens": 699742,
+        "webSearchRequests": 0,
+        "costUSD": 25.888651249999988,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 140,
+    "duration_ms": 2794242
+  },
+  "permission_denials": {
+    "count": 20,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"GITHUB_ACTIONS=${GITHUB_ACTIONS:-unset}\"; echo \"branch: $(git branch --show-current)\"; git status --porcelain | head",
+      "printf 'GITHUB_ACTIONS=%s\\n' \"${GITHUB_ACTIONS:-unset}\"; printf 'branch=%s\\n' \"$(git branch --show-current)\"; git status --porcelain | head",
+      "printf 'GITHUB_ACTIONS=%s\\n' \"${GITHUB_ACTIONS:-unset}\"; git branch --show-current; git status --porcelain | head",
+      "printf 'root=%s\\n' \"$(git rev-parse --show-toplevel)\"",
+      "python3 scripts/parse-acs.py --issue 1065 > /tmp/acs-1065.md 2>&1; cat /tmp/acs-1065.md",
+      "python3 scripts/parse-acs.py --issue 1065 > /tmp/acs-1065.md 2>&1",
+      "mkdir -p .prflow/tmp && python3 scripts/parse-acs.py --issue 1065 > .prflow/tmp/acs-1065.md 2>&1",
+      "cd /tmp && python3 -c '\nimport json\nv={\"b\":1,\"a\":2}\ncanon=json.dumps(v,indent=2,sort_keys=True,ensure_ascii=False)+\"\\n\"\n# write CRLF (non-canonical bytes) \nopen(\"m.json\",\"wb\").write(canon.replace(\"\\n\",\"\\r\\n\").encode(\"utf-8\"))\nraw=open(\"m.json\",encoding=\"utf-8\").read()   # what the guard does: read_text\nprint(\"read_text==canon:\", raw==canon)\nprint(\"raw_bytes==canon_bytes:\", open(\"m.json\",\"rb\").read()==canon.encode(\"utf-8\"))\n'",
+      "cd /tmp && printf '%s\\n' 'import json' 'v={\"b\":1,\"a\":2}' 'canon=json.dumps(v,indent=2,sort_keys=True,ensure_ascii=False)+chr(10)' 'open(\"m.json\",\"wb\").write(canon.replace(chr(10),chr(13)+chr(10)).encode())' 'raw=open(\"m.json\",encoding=\"utf-8\").read()' 'print(\"read_text_equal:\", raw==canon)' 'print(\"bytes_equal:\", open(\"m.json\",\"rb\").read()==canon.encode())' > t.py && python3 t.py",
+      "printf '%s\\n' 'import json' 'v={\"b\":1,\"a\":2}' 'canon=json.dumps(v,indent=2,sort_keys=True,ensure_ascii=False)+chr(10)' 'open(\"/tmp/m.json\",\"wb\").write(canon.replace(chr(10),chr(13)+chr(10)).encode())' 'raw=open(\"/tmp/m.json\",encoding=\"utf-8\").read()' 'print(\"read_text_equal:\", raw==canon)' 'print(\"bytes_equal:\", open(\"/tmp/m.json\",\"rb\").read()==canon.encode())' > /tmp/t.py && python3 /tmp/t.py",
+      "printf '%s\\n' 'import json' 'v={\"b\":1,\"a\":2}' 'canon=json.dumps(v,indent=2,sort_keys=True,ensure_ascii=False)+chr(10)' 'open(\"/tmp/m.json\",\"wb\").write(canon.replace(chr(10),chr(13)+chr(10)).encode())' 'raw=open(\"/tmp/m.json\",encoding=\"utf-8\").read()' 'print(\"read_text_equal:\", raw==canon)' 'print(\"bytes_equal:\", open(\"/tmp/m.json\",\"rb\").read()==canon.encode())' > /tmp/t.py && python3 /tmp/t.py",
+      "printf '%s\\n' 'import json' 'v={\"b\":1,\"a\":2}' 'canon=json.dumps(v,indent=2,sort_keys=True,ensure_ascii=False)+chr(10)' 'open(\"/tmp/m.json\",\"wb\").write(canon.replace(chr(10),chr(13)+chr(10)).encode())' 'raw=open(\"/tmp/m.json\",encoding=\"utf-8\").read()' 'print(\"read_text_equal:\", raw==canon)' 'print(\"bytes_equal:\", open(\"/tmp/m.json\",\"rb\").read()==canon.encode())' > t_tmp.py && python3 t_tmp.py; rm -f t_tmp.py",
+      "cd /home/runner/work/prflow/prflow\nTMP=$(mktemp -d)\ncp lib/test/coverage_map_guard.py \"$TMP/g.py\"\n# Neutralize arm 11 by making _arm11 always return []\npython3 - \"$TMP/g.py\" <<'PY'\nimport sys,re\np=sys.argv[1]; s=open(p).read()\ns=s.replace(\"def _arm11(map_value, map_raw_text, map_raw_error):\",\n            \"def _arm11(map_value, map_raw_text, map_raw_error):\\n    return []  # NEUTRALIZED\")\nopen(p,\"w\").write(s)\nPY\n# Build the drift fixture like the shell control\nFIX=\"$TMP/cg\"\nmkdir -p \"$FIX/lib/tes …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nTMP=/tmp/arm11check\nrm -rf \"$TMP\"; mkdir -p \"$TMP\"\ncp lib/test/coverage_map_guard.py \"$TMP/g.py\"\npython3 - \"$TMP/g.py\" <<'PY'\nimport sys\np=sys.argv[1]; s=open(p).read()\ns=s.replace(\"def _arm11(map_value, map_raw_text, map_raw_error):\",\n            \"def _arm11(map_value, map_raw_text, map_raw_error):\\n    return []  # NEUTRALIZED\")\nopen(p,\"w\").write(s)\nPY\nFIX=\"$TMP/cg\"\nmkdir -p \"$FIX/lib/test/modules\" \"$FIX/scripts\"\n: > \"$FIX/lib/planted-drift.sh\"; : > \"$FIX/lib …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nTMP=/tmp/arm11check\nrm -rf \"$TMP\"; mkdir -p \"$TMP\"\ncp lib/test/coverage_map_guard.py \"$TMP/g.py\"\npython3 -c \"p='$TMP/g.py';s=open(p).read();s=s.replace('def _arm11(map_value, map_raw_text, map_raw_error):','def _arm11(map_value, map_raw_text, map_raw_error):\\n    return []');open(p,'w').write(s)\"\nFIX=\"$TMP/cg\"\nmkdir -p \"$FIX/lib/test/modules\" \"$FIX/scripts\"\n: > \"$FIX/lib/planted-drift.sh\"; : > \"$FIX/lib/test/run.sh\"\nprintf '%s\\n' '{\"schema_version\":1,\"test_modu …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nTMP=/tmp/arm11check\nrm -rf \"$TMP\"\nmkdir -p \"$TMP\"\ncp lib/test/coverage_map_guard.py \"$TMP/g.py\"\npython3 -c \"p='$TMP/g.py';s=open(p).read();s=s.replace('def _arm11(map_value, map_raw_text, map_raw_error):','def _arm11(map_value, map_raw_text, map_raw_error):\\n    return []');open(p,'w').write(s)\"\nFIX=\"$TMP/cg\"\nmkdir -p \"$FIX/lib/test/modules\"\nmkdir -p \"$FIX/scripts\"\ntouch \"$FIX/lib/planted-drift.sh\"\ntouch \"$FIX/lib/test/run.sh\"\nprintf '%s\\n' '{\"schema_version\":1 …[per-command-truncated]",
+      "cat > /tmp/mut.py <<'PYEOF'\nimport json, os, subprocess, shutil, sys\nTMP=\"/tmp/arm11check\"; shutil.rmtree(TMP, ignore_errors=True); os.makedirs(TMP)\nshutil.copy(\"lib/test/coverage_map_guard.py\", TMP+\"/g.py\")\ns=open(TMP+\"/g.py\").read()\ns=s.replace(\"def _arm11(map_value, map_raw_text, map_raw_error):\",\n            \"def _arm11(map_value, map_raw_text, map_raw_error):\\n    return []\")\nopen(TMP+\"/g.py\",\"w\").write(s)\nFIX=TMP+\"/cg\"; os.makedirs(FIX+\"/lib/test/modules\"); os.makedirs(FIX+\"/scripts\")\nopen …[per-command-truncated]",
+      "cd /tmp && rm -rf cgctl && mkdir -p cgctl/lib/test/modules cgctl/scripts && : > cgctl/lib/planted-drift.sh && : > cgctl/lib/test/run.sh && printf '%s\\n' '{\"schema_version\": 1, \"test_modules\": {}}' > cgctl/scripts/workflow-flight-recorder-registry.json && GUARD=/home/runner/work/prflow/prflow/lib/test/coverage_map_guard.py && printf '{\"schema_version\": 1, \"files\": %s, \"run_sh_blocks\": {}, \"non_code_exempt\": [\"scripts/workflow-flight-recorder-registry.json\", \"lib/test/modules/coverage-map.json\"],  …[per-command-truncated]",
+      "lib/test/run-shard.sh --list-shards 2>&1 | head -40",
+      "lib/test/run-shard.sh --list-shards"
+    ],
+    "total": 20,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
