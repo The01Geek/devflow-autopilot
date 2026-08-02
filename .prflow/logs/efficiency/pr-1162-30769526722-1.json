@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1162",
+  "generated_at": "2026-08-02T22:19:12Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.57",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 6.707193899999997,
+    "tokens": {
+      "input_tokens": 2484,
+      "output_tokens": 22185,
+      "cache_read_input_tokens": 5194256,
+      "cache_creation_input_tokens": 189329,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 2484,
+        "outputTokens": 22185,
+        "cacheReadInputTokens": 5194256,
+        "cacheCreationInputTokens": 189329,
+        "webSearchRequests": 0,
+        "costUSD": 5.057462999999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 68,
+        "outputTokens": 16691,
+        "cacheReadInputTokens": 1866198,
+        "cacheCreationInputTokens": 223814,
+        "webSearchRequests": 0,
+        "costUSD": 1.6497308999999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 39,
+    "duration_ms": 438221
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "/home/runner/work/prflow/prflow/scripts/load-prompt-extension.sh review",
+      "RUNID=\"${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1}\"; echo \"run-id=$RUNID\"; mkdir -p \".prflow/tmp/review/pr-1162/$RUNID\"; gh pr diff 1162 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee \".prflow/tmp/review/pr-1162/$RUNID/diff.patch\" > /dev/null; echo \"diff-bytes=$(wc -c < \".prflow/tmp/review/pr-1162/$RUNID/diff.patch\")\"; echo \"===FILES===\"; grep '^diff --git' \".prflow/tmp/review/pr-1162/$RUNID/diff.patch\" | sed -E 's#^diff --git a/(.*) b/.*# …[per-command-truncated]",
+      "echo \"GITHUB_RUN_ID=${GITHUB_RUN_ID:-<empty>} ATTEMPT=${GITHUB_RUN_ATTEMPT:-<empty>}\"",
+      "echo \"run=$GITHUB_RUN_ID attempt=$GITHUB_RUN_ATTEMPT\"",
+      "sed -n '435,806p' /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1162/30769526722-1/diff.patch > /tmp/runsh_diff.txt\nwc -l /tmp/runsh_diff.txt\nsed -n '1,120p' /tmp/runsh_diff.txt"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
