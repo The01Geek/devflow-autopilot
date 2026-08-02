@@ -66,9 +66,16 @@ def _registry_floor_span(registry_text: str, module_id: str) -> tuple[int, int] 
     can never be selected. Returns the (start, end) offsets of the digit run, or
     None when the module's key or its floor cannot be uniquely located.
     """
-    key = re.search(rf'"{re.escape(module_id)}"\s*:\s*\{{', registry_text)
-    if key is None:
+    # Require a UNIQUE key match, mirroring the caller's one-site rule for the coupled
+    # `run.sh` boundary. An unguarded first match would silently pick whichever
+    # `"<id>": {` appeared first anywhere in the file — including one outside
+    # `test_modules` — and rewrite a digit run inside the wrong object. Refusing on an
+    # ambiguous match is the only fail direction that cannot corrupt a machine-consumed
+    # floor.
+    keys = list(re.finditer(rf'"{re.escape(module_id)}"\s*:\s*\{{', registry_text))
+    if len(keys) != 1:
         return None
+    key = keys[0]
     index = key.end()
     depth = 1
     in_string = False

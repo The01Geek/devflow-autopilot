@@ -1331,7 +1331,10 @@ _ra_class_is() {  # row expected-class
 _ra_class_is cloud-writer-manifest       regenerate
 _ra_class_is capability-profile-literals reconcile-source
 _ra_class_is coverage-map-ratchet        by-hand
-_ra_class_is exact-module-floors          reconcile-source
+# by-hand, not reconcile-source: this row's two declared outputs are hand-authored files
+# in which it owns only a single numeric token per exact module, so a conflict in either
+# is hand-merged deliberately and the floors re-measured — never blind-regenerated.
+_ra_class_is exact-module-floors          by-hand
 
 # ── (c) the conflict-path set covers EVERY known generated artifact ──────────────
 # This is the property without which the whole rule is inert: the rule matches a

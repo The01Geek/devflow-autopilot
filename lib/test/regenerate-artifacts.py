@@ -310,12 +310,21 @@ ROWS = (
         # silently denied — so a recipe naming it would hand the agent a command that
         # produces no output and no error, and the floors would stay unreconciled.
         "policy": (
-            "resolve the exact-module source and rerun the granted direct "
-            "leading-token form `lib/test/regenerate-artifacts.py`; its "
-            "exact-module-floors row measures the real focused runners, raises both "
-            "coupled floors together, and refuses every decrease"
+            "hand-merge the conflicted region as any normal file, then re-measure by "
+            "rerunning the granted direct leading-token form "
+            "`lib/test/regenerate-artifacts.py`; its exact-module-floors row measures "
+            "the real focused runners, raises both coupled floors together, and "
+            "refuses every decrease"
         ),
-        "conflict_class": "reconcile-source",
+        # `by-hand`, NOT `reconcile-source`. Neither declared output is a generated
+        # artifact: both are hand-authored files in which this row owns a single numeric
+        # token per exact module. Classing them `reconcile-source` would tell an agent
+        # never to hand-merge conflicted bytes in `lib/test/run.sh` — the repo's largest
+        # hand-authored file, whose conflicts are almost never in a floor operand — and
+        # send it to regenerate a file no generator produces. `by-hand` carries the
+        # correct instruction for a partially-owned record: merge it deliberately, then
+        # let the batch re-measure the fields it does own.
+        "conflict_class": "by-hand",
         "conflict_paths": (
             "scripts/workflow-flight-recorder-registry.json",
             "lib/test/run.sh",

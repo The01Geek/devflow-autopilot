@@ -419,11 +419,13 @@ implies, so a source edit can turn the suite red until the artifact is refreshed
 Run one batched pass before re-running the suite:
 
 ```bash
-python3 lib/test/regenerate-artifacts.py
+lib/test/regenerate-artifacts.py
 ```
 
 It regenerates the one mechanically-safe artifact (the cloud-writer runtime manifest,
-`scripts/devflow-cloud-writer-contract.json` — the only path it ever writes) and runs a
+`scripts/devflow-cloud-writer-contract.json`), may raise the exact-module assertion
+floors in `scripts/workflow-flight-recorder-registry.json` and their coupled
+`lib/test/run.sh` call sites from a measured tally (never lowering either), and runs a
 **non-writing** check for each judgment-gated artifact, reporting every judgment item
 together in one pass instead of one red run at a time. The registry inside the helper is
 the sole enumeration point — run `--list` for the current set rather than trusting a
