@@ -4295,6 +4295,64 @@ def _changed_sections(before, after):
     return sorted(set(changed))
 
 
+def _section_line_spans(text):
+    """Each `## ` section's 1-based inclusive draft-line span, keyed as `_sections` keys.
+
+    The line-number companion to `_sections` (issue #1105). The scope-escape proxy needs a
+    draft-line span for a scoped round, but the changed-section set names headings, not
+    lines, so a changed heading is mapped back to the lines it occupies here. Keys are
+    disambiguated by occurrence with the same rule `_sections` uses (`H`, then `H #2`, …),
+    so a changed-section key resolves to the same section on both sides. An empty leading
+    section (a draft that opens with `## `) is clamped to a non-inverted `(start, start)`
+    rather than emitted inverted — this over-approximates by at most the heading line, the
+    safe direction for a scope span.
+    """
+    lines = text.splitlines()
+    n = len(lines)
+    spans = {}
+    seen = {}
+
+    def _key(h):
+        seen[h] = seen.get(h, 0) + 1
+        return h if seen[h] == 1 else f'{h} #{seen[h]}'
+
+    heading = '(preamble)'
+    start = 1
+    for i in range(n):
+        if lines[i].startswith('## '):
+            end = i if i >= start else start   # the line before this heading (1-based)
+            spans[_key(heading)] = (start, end)
+            heading = lines[i].strip()
+            start = i + 1
+    end = n if n >= start else start
+    spans[_key(heading)] = (start, end)
+    return spans
+
+
+def _scope_draft_lines(after_bytes, changed_sections):
+    """The convex-hull draft-line span `[min_start, max_end]` over the changed sections.
+
+    Issue #1105: the scope-escape proxy holds ONE `(start, end)` per round and tests
+    `any(s <= line <= e)`, while the changed-section set is generally disjoint — so the
+    recorded span is the convex hull over the changed sections' draft-line extents in the
+    canonical (after) draft. That deliberately over-approximates a disjoint changed set,
+    which over-counts escapes rather than under-counting them — the safe direction.
+
+    Returns the two-element ordered-integer list `create-issue-context-eval.py` accepts, or
+    `None` when no changed section has an extent in the after draft (an all-deletion delta,
+    or undecodable bytes). `None` keeps the reader's honest `unestablished` rather than
+    fabricating a span — the unknown-is-not-zero rule.
+    """
+    try:
+        spans = _section_line_spans(after_bytes.decode('utf-8'))
+    except UnicodeDecodeError:
+        return None
+    extents = [spans[h] for h in changed_sections if h in spans]
+    if not extents:
+        return None
+    return [min(s for s, _ in extents), max(e for _, e in extents)]
+
+
 def _enumerated_claims(state):
     """The run's live already-raised findings, as `(claim_id, summary)` pairs (issue #793).
 
@@ -4302,18 +4360,26 @@ def _enumerated_claims(state):
     by `_validate_ledger`), so a bare id would collide across rounds and let a return's
     verdict update the wrong ledger entry.
 
-    Only entries whose status is still `unresolved` are enumerated. A `resolved`,
-    `invalidated` or `superseded` entry is not a live claim, so re-checking it would spend
-    the round's whole point on findings nobody is waiting on — and would let a stale
-    verdict reopen something the drafter already settled.
+    EVERY earlier-round ledger entry is enumerated, regardless of status (issue #1105).
+    The prior filter yielded only `unresolved` entries, but the shipped revision discipline
+    records a resolution for every confirmed fix *before* the next round's kind is selected,
+    so a run that fixes what it was told about and confirms the fixes emptied the very set a
+    scoped round requires and dispatched every round cold — the better a run behaved, the
+    more certainly it was ineligible. A resolved entry is also a self-attested fix produced
+    by the same context that wrote the defect, which is exactly the claim a fresh-context
+    auditor is best placed to falsify, so re-checking it is the point rather than waste. The
+    drafter's own resolution becomes the input the round audits.
+
+    Condition 4 in `select_round_kind` stays a real gate: a run with no earlier-round ledger
+    entries at all still yields an empty set and selects the cold kind (`empty-claim-set`).
 
     The summary alone travels; no status, severity, disposition, prior verdict, rationale
-    or evidence is read here, which is what keeps the caller physically unable to leak one.
+    or evidence is read here, which is what keeps the caller physically unable to leak one —
+    load-bearing under the widening, because a resolved claim that arrived carrying its
+    prior verdict would be told the answer before it looked.
     """
     out = []
     for rnd, entry in _all_entries(state):
-        if entry.get('status') != 'unresolved':
-            continue
         out.append((f'{rnd["round"]}.{entry["id"]}', entry.get('summary') or ''))
     return out
 
@@ -4349,14 +4415,18 @@ def select_round_kind(state, canonical_path):
     steering all still pass. `record-dispatch` refuses that dispatch by comparing its
     `--draft-file` digest against this basis.
     """
-    def _answer(kind, reason, *, claims=None, sections=None, basis=None):
+    def _answer(kind, reason, *, claims=None, sections=None, basis=None, draft_lines=None):
         # `claims` is the single representation; the ids are `[c for c, _ in claims]` at
         # the two sites that need them. Carrying a derived alias beside it made every
         # caller choose between two spellings of one fact.
+        # `draft_lines` (issue #1105) is the convex-hull draft-line span over the changed
+        # sections, recorded on a targeted round's frozen scope so the #889 scope-escape
+        # proxy has its comparand. `None` on every non-targeted answer.
         return {'kind': _checked_kind(kind), 'reason': _checked_kind_reason(reason),
                 'claims': list(claims or []),
                 'sections': list(sections or []),
-                'basis_digest': basis}
+                'basis_digest': basis,
+                'draft_lines': draft_lines}
 
     last = last_completed(state) if state is not None else None
     if last is None:
@@ -4392,8 +4462,9 @@ def select_round_kind(state, canonical_path):
         return _answer('discovery', 'delta-error', claims=claims)
     if not sections:
         return _answer('discovery', 'empty-delta', claims=claims, basis=basis)
+    draft_lines = _scope_draft_lines(after, sections)
     return _answer('targeted', 'targeted-eligible', claims=claims, sections=sections,
-                   basis=basis)
+                   basis=basis, draft_lines=draft_lines)
 
 
 # The dispatch-scope file's format marker. Versioned so a future payload shape is a
@@ -5466,7 +5537,10 @@ def _cross_check_kind(doc, args):
         return {'kind': recorded, 'reason': 'targeted-eligible',
                 'claims': [(c, '') for c in (_rscope.get('claim_ids') or [])],
                 'sections': list(_rscope.get('sections') or []),
-                'basis_digest': _rscope.get('basis_digest')}
+                'basis_digest': _rscope.get('basis_digest'),
+                # issue #1105: a retry re-dispatches an already-open round, so its span is
+                # the FACT that round recorded, not a fresh derivation.
+                'draft_lines': _rscope.get('draft_lines')}
     ans = select_round_kind(doc, args.draft_file)
     if args.kind != ans['kind']:
         _fail('record-dispatch',
@@ -5878,9 +5952,17 @@ def cmd_record_dispatch(args):
                'kind': _checked_kind(args.kind),
                # The derived scope a targeted round was dispatched under, for the audit
                # trail. `None` on a discovery round.
+               # `draft_lines` (issue #1105) is the convex-hull draft-line span over the
+               # changed sections, in the two-element ordered-integer shape
+               # `create-issue-context-eval.py`'s `_scope_draft_span` accepts. Frozen here
+               # like the rest of the scope, so a post-dispatch ledger mutation cannot move
+               # it. `None` (via `.get`) when the span could not be computed (e.g. an
+               # all-deletion delta) or on a pre-#1105 recorded round, which keeps the
+               # scope-escape proxy at its honest `unestablished`.
                'scope': ({'basis_digest': _kind_answer['basis_digest'],
                           'sections': _kind_answer['sections'],
-                          'claim_ids': [c for c, _ in _kind_answer['claims']]}
+                          'claim_ids': [c for c, _ in _kind_answer['claims']],
+                          'draft_lines': _kind_answer.get('draft_lines')}
                          if args.kind == 'targeted' else None)}
         doc['rounds'].append(rnd)
     elif rnd.get('outcome') is not None:

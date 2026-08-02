@@ -21355,6 +21355,150 @@ assert_eq("#793: the selector answers the basis digest of the canonical bytes th
           True,
           isinstance(_793_ok.get('basis_digest'), str) and len(_793_ok['basis_digest']) == 40)
 
+# ── issue #1105: a scoped round re-checks resolved claims + records the draft-line span ──
+print("issue-audit-state: scoped rounds re-check resolved claims (issue #1105)")
+
+_m1105 = issue_audit_state
+_cice1105 = _load('_cice1105', SCRIPTS / 'create-issue-context-eval.py')
+
+
+def _1105_entry(i, summary='a defect', status='resolved', **extra):
+    e = {'id': i, 'summary': summary, 'status': status}
+    e.update(extra)
+    return e
+
+
+# AC1 — _enumerated_claims yields EVERY earlier-round ledger entry regardless of status,
+# over a fixture whose every entry is `resolved`.
+_1105_all_resolved = {'rounds': [{'round': 1, 'findings': [
+    _1105_entry(1, 's-one', 'resolved'),
+    _1105_entry(2, 's-two', 'resolved'),
+]}]}
+assert_eq("#1105 AC1: a fully-resolved ledger enumerates a non-empty claim set",
+          [('1.1', 's-one'), ('1.2', 's-two')],
+          _m1105._enumerated_claims(_1105_all_resolved))
+
+# The other non-unresolved statuses travel too, not just resolved.
+assert_eq("#1105 AC1: invalidated and superseded entries also enumerate (status ignored)",
+          [('1.1', 'a'), ('1.2', 'b'), ('1.3', 'c')],
+          _m1105._enumerated_claims({'rounds': [{'round': 1, 'findings': [
+              _1105_entry(1, 'a', 'invalidated'),
+              _1105_entry(2, 'b', 'superseded'),
+              _1105_entry(3, 'c', 'unresolved'),
+          ]}]}))
+
+# AC2 — only the id and the one-line summary travel; no status/severity/disposition/prior
+# verdict/rationale/evidence reaches the auditor, over a fixture whose entries carry all of
+# those fields populated.
+_1105_fat = {'rounds': [{'round': 1, 'findings': [
+    _1105_entry(1, 'the summary', 'resolved', severity='high', disposition='must-revise',
+                prior_verdict='REVISE', rationale='because', evidence='see line 5',
+                fix_decision='fixed', quoted_draft_line=5, resolution_ordinal=1),
+]}]}
+assert_eq("#1105 AC2: each enumerated claim is exactly (id, summary) — nothing else leaks",
+          [('1.1', 'the summary')], _m1105._enumerated_claims(_1105_fat))
+# Structural proof: every enumerated element is a 2-tuple of (str, str).
+assert_eq("#1105 AC2: an enumerated claim is a 2-tuple carrying no extra field",
+          True,
+          all(isinstance(c, tuple) and len(c) == 2
+              and isinstance(c[0], str) and isinstance(c[1], str)
+              for c in _m1105._enumerated_claims(_1105_fat)))
+
+# AC3 — a run with NO earlier-round ledger entries at all still selects the cold kind with
+# reason `empty-claim-set` (the gate stays real, not vacuous).
+assert_eq("#1105 AC3: no earlier-round ledger entries → empty claim set",
+          [], _m1105._enumerated_claims({'rounds': [{'round': 1, 'findings': []}]}))
+assert_eq("#1105 AC3: the selector still selects discovery/empty-claim-set with no entries",
+          ('discovery', 'empty-claim-set'),
+          _793_kr(_793_select(_793_state(rounds=[_793_round(findings=[])],
+                                         revisions=[{'ordinal': 1, 'after_round': 1}]))))
+
+# The intended single behavior change: a run whose entries are ALL resolved used to hit
+# empty-claim-set and dispatch cold; it now selects targeted with the widened claim set.
+_1105_resolved_round = _793_round(findings=[_1105_entry(1, 'r1', 'resolved'),
+                                            _1105_entry(2, 'r2', 'resolved')])
+_1105_widened = _793_select(_793_state(rounds=[_1105_resolved_round],
+                                       revisions=[{'ordinal': 1, 'after_round': 1}]))
+assert_eq("#1105 AC1: an all-resolved run now selects targeted (was empty-claim-set)",
+          ('targeted', 'targeted-eligible'), _793_kr(_1105_widened))
+assert_eq("#1105 AC1: the widened selection carries the resolved claim ids",
+          ['1.1', '1.2'], [c for c, _ in _1105_widened['claims']])
+
+# AC4 — the convex-hull draft-line span over NON-CONTIGUOUS changed sections. The before/
+# after differ in `## A` and `## C` (disjoint) while `## B` between them is untouched, so
+# the recorded span is the hull [min_start, max_end] spanning across the gap.
+_1105_before = (b'# Title\n\n## A\n\naaa\n\n## B\n\nbbb\n\n## C\n\nccc\n')
+_1105_after = (b'# Title\n\n## A\n\nAAA\n\n## B\n\nbbb\n\n## C\n\nCCC\n')
+_1105_hull = _793_select(
+    _793_state(rounds=[_793_round(findings=[_1105_entry(1, status='unresolved')])],
+               revisions=[{'ordinal': 1, 'after_round': 1}]),
+    before=_1105_before, after=_1105_after)
+assert_eq("#1105 AC4: non-contiguous changed sections are recorded as a convex-hull span",
+          True,
+          isinstance(_1105_hull.get('draft_lines'), list)
+          and len(_1105_hull['draft_lines']) == 2
+          and all(isinstance(x, int) and not isinstance(x, bool)
+                  for x in _1105_hull['draft_lines'])
+          and _1105_hull['draft_lines'][0] <= _1105_hull['draft_lines'][1])
+# The changed sections are `## A` and `## C`; the untouched `## B` between them is inside
+# the hull, which is the deliberate over-approximation (over-count escapes, never under).
+_1105_spans = _m1105._section_line_spans(_1105_after.decode('utf-8'))
+assert_eq("#1105 AC4: the hull is exactly [min_start('## A'), max_end('## C')]",
+          [_1105_spans['## A'][0], _1105_spans['## C'][1]],
+          _1105_hull['draft_lines'])
+assert_eq("#1105 AC4: a discovery answer records no draft_lines span",
+          None,
+          _793_select(_793_state(), stage=False).get('draft_lines'))
+
+# AC4/AC5 producer→reader join: the span the producer records is exactly the shape the
+# #889 eval reader (`_scope_draft_span`) accepts — proving the two boundaries agree rather
+# than each unit-testing an invented shape.
+assert_eq("#1105 AC4: the recorded span is accepted by create-issue-context-eval's reader",
+          tuple(_1105_hull['draft_lines']),
+          _cice1105._scope_draft_span({'draft_lines': _1105_hull['draft_lines']}))
+
+# An all-deletion delta (a changed section absent from the after draft) records None, which
+# keeps the reader's honest `unestablished` rather than fabricating a span.
+assert_eq("#1105 AC4: an all-deletion changed set records no span (None, not a fabrication)",
+          None, _m1105._scope_draft_lines(_1105_after, ['## GONE']))
+
+# AC7 — the fail-toward-the-expensive-kind direction is unchanged: every condition OTHER
+# than the claim filter still selects discovery when it fails. The #793 per-condition rows
+# above stay green; here we assert the widening flipped NOTHING outside empty-claim-set —
+# each non-claim discovery reason is still discovery.
+for _label, _ans in (
+    ('no-completed-round', _793_select(_793_state(), stage=False)),
+    ('no-revision-after-round',
+     _793_select(_793_state(rounds=[_793_round(findings=[_793_entry(1)])]))),
+    ('not-file-arm',
+     _793_select(_793_state(rounds=[_793_round(arm='embed', findings=[_793_entry(1)])],
+                            revisions=[{'ordinal': 1, 'after_round': 1}]))),
+    ('empty-delta',
+     _793_select(_793_state(rounds=[_793_round(findings=[_793_entry(1)])],
+                            revisions=[{'ordinal': 1, 'after_round': 1}]),
+                 before=b'# T\n\n## A\n\nsame\n', after=b'# T\n\n## A\n\nsame\n')),
+):
+    assert_eq(f"#1105 AC7: {_label} still selects discovery after the widening",
+              ('discovery', _label), _793_kr(_ans))
+
+# AC8 — the scoped-prompt renderer's empty-claim-set refusal stays coherent with the
+# widened enumeration: a render over the widened (now resolved-inclusive) non-empty set
+# succeeds, and a render over a genuinely empty set still refuses with its named breadcrumb.
+_rap1105 = _load('_rap1105', SCRIPTS / 'render-audit-prompt.py')
+_1105_scope_ok = _m1105.render_dispatch_scope(
+    'd' * 40, ['## A'], [('1.1', 'a resolved claim now re-checked')])
+_1105_sections_ok, _1105_claims_ok = _rap1105.parse_scope(_1105_scope_ok.decode('utf-8'))
+assert_eq("#1105 AC8: a render over the widened non-empty claim set parses its claim",
+          [('1.1', 'a resolved claim now re-checked')], _1105_claims_ok)
+_1105_scope_empty = _m1105.render_dispatch_scope('d' * 40, ['## A'], [])
+try:
+    _rap1105.parse_scope(_1105_scope_empty.decode('utf-8'))
+    _1105_empty_refused = 'no-refusal'
+except _rap1105.RenderError as _exc:
+    _1105_empty_refused = 'empty-claim-set' if 'empty-claim-set' in str(_exc) else 'other'
+assert_eq("#1105 AC8: a render over a genuinely empty claim set still refuses (empty-claim-set)",
+          'empty-claim-set', _1105_empty_refused)
+
 # ── issue #793: the durable byte history — `stage --path` is a BASE ────────────────────
 # The delta a `targeted` round is scoped by has no operand without a per-revision byte
 # history, so `stage` completes the caller's base path with the staged bytes' own digest.
@@ -21503,8 +21647,12 @@ assert_raises("#793: a scope file that does not open with its format marker is r
               _m793._DigestError,
               lambda: _m793.parse_dispatch_scope(b'not a scope file\n'))
 
-assert_eq("#793: a resolved claim is not enumerated — only live claims are re-checked",
-          ('discovery', 'empty-claim-set'),
+# issue #1105 SUPERSEDES the pre-#1105 behavior this row used to assert (a resolved claim
+# was skipped and a fully-resolved run dispatched cold). A scoped round now re-checks
+# resolved claims: the drafter's own resolution is the input the round audits, not a filter.
+assert_eq("#1105: a resolved claim IS enumerated — a scoped round re-checks it (was "
+          "#793 empty-claim-set)",
+          ('targeted', 'targeted-eligible'),
           _793_kr(
               _793_select(_793_state(
                   rounds=[_793_round(findings=[_793_entry(1, status='resolved')])],
