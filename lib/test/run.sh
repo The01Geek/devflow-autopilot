@@ -15174,6 +15174,157 @@ assert_eq "#1029 dismisser: a failed review list reads no head, dismisses nothin
 rm -rf "$DSR_SB"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "post-review-verdict.sh"
+# ────────────────────────────────────────────────────────────────────────────
+# Issue #1059: the formal-review verdict post is a bundled helper with a CLOSED
+# outcome vocabulary. Everything below drives the REAL script under a FAITHFUL
+# `gh` fake: the stub records the POST + its stdin (the JSON request body the
+# helper composed with jq --rawfile), so "the body-file bytes reached the API"
+# and "exactly one request was issued" are OBSERVATIONS from the call log rather
+# than inferences from the exit status. jq is real (the helper's DEVFLOW_JQ). The
+# knob PRV_RC injects the API-refusal path, PRV_ERR its (possibly multi-line)
+# stderr.
+PRV="$LIB/../scripts/post-review-verdict.sh"
+PRV_SB="$(mktemp -d)"
+cat > "$PRV_SB/gh" <<'EOS'
+#!/usr/bin/env bash
+# Faithful-enough gh: only the `api -X POST .../reviews` call matters. Record the
+# arg string to the call log ($PRV_LOG) and the JSON request body from stdin to a
+# SEPARATE body file ($PRV_SB_BODY, which the assertions read via jq), then honor
+# the failure knobs. The literal {owner}/{repo} path passes through verbatim — the
+# helper never interpolates $GITHUB_REPOSITORY (asserted separately by
+# lint-gh-api-repo-path.py).
+if [ "$1" = "api" ]; then
+  BODY="$(cat)"
+  printf 'POST %s\n' "$*" >> "$PRV_LOG"
+  printf '%s' "$BODY" > "$PRV_SB_BODY"
+  if [ "${PRV_RC:-0}" != 0 ]; then
+    printf '%s' "${PRV_ERR:-HTTP 422 Unprocessable Entity}" >&2
+    exit 1
+  fi
+  exit 0
+fi
+exit 0
+EOS
+chmod +x "$PRV_SB/gh"
+
+# $1 event, $2 body-file path, rest: stub knobs as VAR=VALUE.
+prv_run() {
+  local ev="$1" bf="$2"; shift 2
+  : > "$PRV_SB/log"
+  PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" \
+             PRV_SB_BODY="$PRV_SB/body" \
+             env "$@" bash "$PRV" 123 "$ev" "$bf" 2>/dev/null)"
+  PRV_RC_OBS=$?
+}
+prv_posts() { grep -c '^POST ' "$PRV_SB/log"; }
+# BYTE-EXACT body comparison. jq -j (raw, NO trailing newline) writes the sent body
+# verbatim, then cmp against the source file — so the trailing-newline dimension
+# (empty vs a lone newline) is genuinely distinguished, unlike a $()-captured
+# compare, which strips ALL trailing newlines from both sides and cannot tell them
+# apart.
+prv_body_matches() { jq -j '.body' "$PRV_SB/body" > "$PRV_SB/got"; cmp -s "$PRV_SB/got" "$1" && echo yes || echo no; }
+
+printf 'plain body line\nsecond line\n' > "$PRV_SB/body-plain.md"
+printf '' > "$PRV_SB/body-empty.md"
+printf '\n' > "$PRV_SB/body-nl.md"
+# Adversarial body bytes: backticks, a command substitution, a literal double
+# quote — all must reach the API unmangled (the jq --rawfile guarantee).
+printf '## Verdict: APPROVE\ntricky: `bt` $(cmd) "q" end\n' > "$PRV_SB/body-tricky.md"
+# A body whose first bytes LOOK like a gh error blob: posted verbatim, not interpreted.
+printf 'HTTP 422 Unprocessable Entity\nnot really an error\n' > "$PRV_SB/body-errshape.md"
+
+# ── Happy path: each of the three events posts once and reports POSTED <event> ──
+for EV in APPROVE REQUEST_CHANGES COMMENT; do
+  prv_run "$EV" "$PRV_SB/body-plain.md"
+  assert_eq "#1059 post-verdict: $EV → POSTED $EV, exit 0" "POSTED $EV-0" "$PRV_OUT-$PRV_RC_OBS"
+  assert_eq "#1059 post-verdict: $EV issues exactly one POST" "1" "$(prv_posts)"
+  assert_eq "#1059 post-verdict: $EV POST targets the reviews endpoint with the event" "1" \
+    "$(grep -c "pulls/123/reviews" "$PRV_SB/log")"
+  # The body file's bytes reach the API byte-exactly (extracted from the composed JSON).
+  assert_eq "#1059 post-verdict: $EV sends the body-file bytes verbatim" "yes" \
+    "$(prv_body_matches "$PRV_SB/body-plain.md")"
+  assert_eq "#1059 post-verdict: $EV sends the mapped event in the JSON" "$EV" \
+    "$(jq -r '.event' "$PRV_SB/body")"
+done
+
+# ── Boundary bodies: empty, single-newline, tricky, error-shaped — all verbatim ──
+for BF in body-empty.md body-nl.md body-tricky.md body-errshape.md; do
+  prv_run APPROVE "$PRV_SB/$BF"
+  assert_eq "#1059 post-verdict: body $BF → POSTED, exit 0" "POSTED APPROVE-0" "$PRV_OUT-$PRV_RC_OBS"
+  assert_eq "#1059 post-verdict: body $BF reaches the API byte-exactly" "yes" \
+    "$(prv_body_matches "$PRV_SB/$BF")"
+done
+
+# ── Error / failure path: an API refusal yields FAILED <one line>, exit 1 ──
+prv_run APPROVE "$PRV_SB/body-plain.md" PRV_RC=1 PRV_ERR="HTTP 422 Unprocessable Entity"
+assert_eq "#1059 post-verdict: API refusal → exit 1" "1" "$PRV_RC_OBS"
+assert_eq "#1059 post-verdict: API refusal → FAILED carries the captured error" "yes" \
+  "$(case "$PRV_OUT" in "FAILED HTTP 422 Unprocessable Entity") echo yes;; *) echo no;; esac)"
+# The refusal path still issued the request exactly once (the stub logs the POST
+# before honoring PRV_RC) — a regression issuing zero or two would pass otherwise.
+assert_eq "#1059 post-verdict: a refused post still issues exactly one POST" "1" "$(prv_posts)"
+# A multi-line stderr collapses to exactly ONE output line.
+prv_run APPROVE "$PRV_SB/body-plain.md" PRV_RC=1 PRV_ERR=$'line one\nline two\nline three'
+assert_eq "#1059 post-verdict: multi-line API error → exactly one output line" "1" \
+  "$(printf '%s\n' "$PRV_OUT" | grep -c .)"
+assert_eq "#1059 post-verdict: multi-line API error is collapsed onto the FAILED line" "yes" \
+  "$(case "$PRV_OUT" in "FAILED line one line two line three") echo yes;; *) echo no;; esac)"
+# An EMPTY stderr still yields a FAILED line (never a bare non-zero exit).
+prv_run APPROVE "$PRV_SB/body-plain.md" PRV_RC=1 PRV_ERR=""
+assert_eq "#1059 post-verdict: empty API error still prints a FAILED line, exit 1" "yes-1" \
+  "$(case "$PRV_OUT" in "FAILED "*) echo yes;; *) echo no;; esac)-$PRV_RC_OBS"
+
+# ── Adversarial / malformed input: every SKIP issues NO request ──
+# Non-numeric PR (drive the helper directly to control argv[1]).
+# Reset the log BEFORE the single run so its own POST count is the observation
+# (this case bypasses prv_run only to control argv[1]; one invocation suffices).
+: > "$PRV_SB/log"
+PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" \
+  bash "$PRV" abc APPROVE "$PRV_SB/body-plain.md" 2>/dev/null)"; PRV_RC_OBS=$?
+assert_eq "#1059 post-verdict: non-numeric PR → SKIP not-numeric, exit 3, no request" \
+  "SKIP not-numeric-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
+# The EMPTY-string PR number is the case glob's OTHER arm (''|*[!0-9]*) and the
+# omitted-argv[1] shape — exercise it so narrowing the pattern to only *[!0-9]* is caught.
+: > "$PRV_SB/log"
+PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" \
+  bash "$PRV" "" APPROVE "$PRV_SB/body-plain.md" 2>/dev/null)"; PRV_RC_OBS=$?
+assert_eq "#1059 post-verdict: empty PR number → SKIP not-numeric, exit 3, no request" \
+  "SKIP not-numeric-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
+# Unknown event AND the empty string both refuse (no PENDING draft can be created).
+prv_run FOO "$PRV_SB/body-plain.md"
+assert_eq "#1059 post-verdict: unknown event → SKIP unknown-event, exit 3, no request" \
+  "SKIP unknown-event-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
+prv_run "" "$PRV_SB/body-plain.md"
+assert_eq "#1059 post-verdict: EMPTY event → SKIP unknown-event, exit 3, no request" \
+  "SKIP unknown-event-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
+# Absent and unreadable body files both refuse.
+prv_run APPROVE "$PRV_SB/does-not-exist.md"
+assert_eq "#1059 post-verdict: absent body file → SKIP body-file-unreadable, exit 3, no request" \
+  "SKIP body-file-unreadable-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
+touch "$PRV_SB/body-noperm.md"; chmod 000 "$PRV_SB/body-noperm.md"
+prv_run APPROVE "$PRV_SB/body-noperm.md"
+assert_eq "#1059 post-verdict: unreadable body file → SKIP body-file-unreadable, exit 3, no request" \
+  "SKIP body-file-unreadable-3-0" "$PRV_OUT-$PRV_RC_OBS-$(prv_posts)"
+chmod 644 "$PRV_SB/body-noperm.md"
+
+# ── State / idempotency: at most one POST per invocation on every reachable path ──
+prv_run APPROVE "$PRV_SB/body-plain.md"
+assert_eq "#1059 post-verdict: a successful post issues at most one request" "1" "$(prv_posts)"
+
+# ── Guarantee-class control (the "no outcome path is silent" coverage claim). ──
+# Remove the POSTED emission from a COPY of the helper and confirm the happy-path
+# assertion loses its subject — proving the assertion has teeth, not that the
+# suite merely stayed green. Restore is implicit (the copy is discarded).
+sed '/^[[:space:]]*echo "POSTED \$EVENT"$/d' "$PRV" > "$PRV_SB/mutant.sh"
+PRV_OUT="$(DEVFLOW_GH="$PRV_SB/gh" DEVFLOW_JQ=jq PRV_LOG="$PRV_SB/log" PRV_SB_BODY="$PRV_SB/body" \
+  bash "$PRV_SB/mutant.sh" 123 APPROVE "$PRV_SB/body-plain.md" 2>/dev/null)"
+assert_eq "#1059 post-verdict: guarantee-class control — removing the POSTED emit silences the outcome (control ran)" \
+  "no" "$(case "$PRV_OUT" in POSTED*) echo yes;; *) echo no;; esac)"
+
+rm -rf "$PRV_SB"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-command-trigger.sh)"
 # ────────────────────────────────────────────────────────────────────────────
 # Extracted to lib/test/modules/review-trigger-helpers.sh (issue #746): the 11 consecutive
@@ -31534,8 +31685,8 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # Regression guard: the arm-position fix is a NO-OP on today's Review engine BUNDLE
 # (root + skills/review/phases/*.md — #529 split the engine, so the reviewed surface
 # is every source, not just the root).
-assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names over the whole bundle; #529 moved fences into references and added only already-counted heads (git hash-object, echo); #857 added seed-review-progress.sh; #1054 moved marker derivation out of the cloud fence, removing date)" \
-  "32" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (33 distinct names over the whole bundle; #529 moved fences into references and added only already-counted heads (git hash-object, echo); #857 added seed-review-progress.sh; #1054 moved marker derivation out of the cloud fence, removing date; #1059 added post-review-verdict.sh as the Phase 4.4 verdict-post head)" \
+  "33" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$REVIEW_BUNDLE")"
 

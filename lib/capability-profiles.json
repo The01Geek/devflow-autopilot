@@ -1,5 +1,5 @@
 {
-  "manifest_version": 14,
+  "manifest_version": 15,
   "readme": [
     "This manifest is the single source of truth for DevFlow's cloud capability policy:",
     "which tools/commands each execution tier (review, implement, command) may run.",
@@ -127,6 +127,7 @@
       "Bash(.prflow/vendor/prflow/scripts/match-lint-adjudications.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/normalize-verdicts.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh:*)",
+      "Bash(.prflow/vendor/prflow/scripts/post-review-verdict.sh:*)",
       "Bash(.prflow/vendor/prflow/scripts/workpad.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/seed-review-progress.sh:*)",
       "Bash(.prflow/vendor/prflow/scripts/config-get.sh:*)",
@@ -211,6 +212,7 @@
       "Bash(.prflow/vendor/prflow/lib/efficiency-trace.sh:*)",
       "Bash(.prflow/vendor/prflow/scripts/stale-prose-lint.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh:*)",
+      "Bash(.prflow/vendor/prflow/scripts/post-review-verdict.sh:*)",
       "Bash(.prflow/vendor/prflow/scripts/match-lint-adjudications.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/normalize-verdicts.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/load-prompt-extension.sh:*)",
@@ -329,6 +331,7 @@
       "Bash(.prflow/vendor/prflow/scripts/resolve-review-overrides.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/stale-prose-lint.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh:*)",
+      "Bash(.prflow/vendor/prflow/scripts/post-review-verdict.sh:*)",
       "Bash(.prflow/vendor/prflow/lib/efficiency-trace.sh:*)",
       "Bash(pip install:*)",
       "Bash(pip:*)",
