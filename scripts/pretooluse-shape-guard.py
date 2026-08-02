@@ -276,7 +276,10 @@ def _load_shapes_module():
     (both this file and lib/test/extract-command-shapes.py, plus the extract-command-
     heads.py it loads in turn, are in the trusted-base HOOK_TARGETS closure)."""
     root = _repo_root()
-    path = os.path.join(root, *_SHAPES_REL.split("/"))
+    # Keep the quoted basename literal INSIDE os.path.join so scripts/detect-hook-closure-edges.py
+    # (the #458/#805 drift-guard) can statically capture this importlib edge — do not refactor it
+    # into a variable/split composition (that made the edge invisible and the guard fail closed).
+    path = os.path.join(root, "lib", "test", "extract-command-shapes.py")
     spec = importlib.util.spec_from_file_location("devflow_extract_command_shapes", path)
     if spec is None or spec.loader is None:
         raise ImportError(f"devflow: cannot load {path}")
