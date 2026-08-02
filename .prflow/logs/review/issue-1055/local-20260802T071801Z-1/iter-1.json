@@ -2,21 +2,9 @@
   "iter": 1,
   "started_at": "2026-08-02T07:18:01Z",
   "loop_role": "fix",
-  "current_step": "loop-control",
-  "current_substep": "phase_1_and_3_dispatch",
-  "pending_dispatch": {
-    "kind": "agent",
-    "roster": [
-      "prflow:code-reviewer",
-      "prflow:silent-failure-hunter",
-      "prflow:comment-analyzer",
-      "prflow:pr-test-analyzer",
-      "prflow:requesting-code-review",
-      "prflow:checklist-generator:batch-1",
-      "prflow:checklist-generator:batch-2"
-    ],
-    "dispatched_at": "2026-08-02T07:30:00Z"
-  },
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
   "max_iterations": 5,
   "fix_severity_threshold": "suggestion",
   "diff_profile": {
@@ -45,10 +33,19 @@
   },
   "shadow": {
     "ran_at": null,
+    "reviewed_sha": null,
     "verdict": null,
-    "coverage": null,
+    "coverage": "not_verified",
+    "reason": "the inline pass ran Phase 0/1/3 but no Step 2.6 shadow fan-out",
     "reviewers_dispatched": [],
+    "expected_reviewers": [],
     "promoted_to_iter_next": false
+  },
+  "fix_commit_sha": "e5544873e68f1dc27548ca74a5ab4301f4461b23",
+  "convergence_inputs": {
+    "fixes_applied": 18,
+    "fix_diff_lines": null,
+    "new_corroborated_critical_count": 0
   },
   "telemetry": "unavailable"
 }
