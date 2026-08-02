@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.34] — 2026-08-02
+
+### Added
+- **`/prflow:create-issue` now gates drafts on the shipped acceptance-criteria parser.** At Step 3.6's pre-dispatch canonical write the skill runs `scripts/parse-acs.py --body-file <draft> --format json` and refuses to present a draft whose `acceptance_criteria` array is empty, rewriting the criterion rows and re-running the gate (bounded at three attempts) before surfacing the failure. This closes a silent failure where a drafted `## Acceptance Criteria` section the parser could not read reached an implementing run as an empty specification, letting the Phase 3.4 gate pass vacuously. The parser-cannot-run arm degrades best-effort and never blocks issue creation. (#1111)
+
 ## [2.30.33] — 2026-08-02
 
 ### Changed
