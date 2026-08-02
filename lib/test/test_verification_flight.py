@@ -304,7 +304,7 @@ class TestClaimAndAttach(Harness):
         })
         self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
         self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
-                      "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                      "--summary-file", self._write({"command": "x", "exit_status": 0, "skipped_checks": []}),
                       "--state-dir", self.state, "--logs-dir", self.logs])
         # No current-checkout: passed handle, but checkout_verified must be False.
         code, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
@@ -327,7 +327,7 @@ class TestClaimAndAttach(Harness):
         k, t = owner["flight_key"], owner["token"]
         self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
         self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
-                      "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                      "--summary-file", self._write({"command": "x", "exit_status": 0, "skipped_checks": []}),
                       "--state-dir", self.state, "--logs-dir", self.logs])
         # A later caller with the identical declaration attaches — no second owner.
         code, att = self.claim()
@@ -368,7 +368,7 @@ class TestClaimAndAttach(Harness):
         k, t = owner["flight_key"], owner["token"]
         self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
         self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
-                      "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                      "--summary-file", self._write({"command": "x", "exit_status": 0, "skipped_checks": []}),
                       "--state-dir", self.state, "--logs-dir", self.logs])
         code, att = self.claim(d_b)
         self.assertEqual(code, vf.EXIT_OK)
@@ -392,7 +392,7 @@ class TestClaimAndAttach(Harness):
         k, t = owner["flight_key"], owner["token"]
         self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
         self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
-                      "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                      "--summary-file", self._write({"command": "x", "exit_status": 0, "skipped_checks": []}),
                       "--state-dir", self.state, "--logs-dir", self.logs])
         code, att = self.claim(_decl(candidate_identity="tree-DECLARED"))
         self.assertEqual(code, vf.EXIT_OK)
@@ -412,7 +412,7 @@ class TestClaimAndAttach(Harness):
         k, t = owner["flight_key"], owner["token"]
         self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
         self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
-                      "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                      "--summary-file", self._write({"command": "x", "exit_status": 0, "skipped_checks": []}),
                       "--state-dir", self.state, "--logs-dir", self.logs])
         code, att = self.claim(_decl())
         self.assertEqual(code, vf.EXIT_OK)
@@ -428,7 +428,7 @@ class TestClaimAndAttach(Harness):
         k, t = owner["flight_key"], owner["token"]
         self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
         self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
-                      "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                      "--summary-file", self._write({"command": "x", "exit_status": 0, "skipped_checks": []}),
                       "--state-dir", self.state, "--logs-dir", self.logs])
         code, att = self.claim(d)
         self.assertEqual(code, vf.EXIT_OK)
@@ -712,7 +712,7 @@ class TestFinishPropagation(Harness):
             self.assertFalse(st["satisfies_verification"])
             # immutable: a second finish is rejected
             c2, _ = self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
-                                  "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                                  "--summary-file", self._write({"command": "x", "exit_status": 0, "skipped_checks": []}),
                                   "--state-dir", self.state])
             self.assertEqual(c2, vf.EXIT_CAS_REJECT)
 
@@ -755,10 +755,205 @@ class TestFinishPropagation(Harness):
         self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
         os.environ["DEVFLOW_FLIGHT_NOW"] = "5060"
         self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
-                      "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                      "--summary-file", self._write({"command": "x", "exit_status": 0, "skipped_checks": []}),
                       "--state-dir", self.state, "--logs-dir", self.logs])
         _, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
         self.assertEqual(st["command_duration_s"], 60.0)
+
+
+class TestExitStatusBackstop(Harness):
+    """The `finish --result passed` exit-status backstop (issue #1053).
+
+    The WRITE half of a contract whose read half shipped in PR #1119: the ledger
+    used to mint a terminal `passed` handle that
+    `scripts/check-completion-evidence.py` would later refuse, and the run learned
+    that only at the phase where the work was already finished.
+
+    Distinct from the fixture migration in this change: every pre-existing
+    `--result passed` fixture elsewhere in this file gained an `exit_status: 0`
+    so it keeps exercising its own subject, whereas every assertion in this class
+    is new coverage of the refusal itself.
+    """
+
+    def _running(self, head="es-default"):
+        """Claim + mark-running a flight with its own key, returning (key, token)."""
+        _, owner = self.claim(_decl(checkout={"head": head}))
+        k, t = owner["flight_key"], owner["token"]
+        self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+        return k, t
+
+    def _finish_passed(self, k, t, summary):
+        return self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
+                             "--summary-file", self._write(summary),
+                             "--state-dir", self.state, "--logs-dir", self.logs])
+
+    def test_zero_exit_status_is_accepted(self):
+        # Positive control: without it every refusal below could be a gate that
+        # refuses everything.
+        k, t = self._running("es-ok")
+        code, out = self._finish_passed(k, t, {"command": "run.sh", "exit_status": 0})
+        self.assertEqual(code, vf.EXIT_OK)
+        self.assertEqual(out["state"], "passed")
+        c, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
+        self.assertEqual(c, vf.EXIT_OK)
+        self.assertTrue(st["satisfies_verification"])
+
+    def test_refused_exit_status_shapes(self):
+        # The full refusal matrix. `True` and `"0"` are the two traps the reader
+        # names explicitly: Python's bool subclasses int, and a JSON string that
+        # *looks* like a zero is not a zero.
+        cases = (
+            ({"command": "run.sh"}, "exit_status_unestablished"),
+            ({"command": "run.sh", "exit_status": None}, "exit_status_unestablished"),
+            ({"command": "run.sh", "exit_status": True}, "exit_status_unestablished"),
+            ({"command": "run.sh", "exit_status": False}, "exit_status_unestablished"),
+            ({"command": "run.sh", "exit_status": "0"}, "exit_status_unestablished"),
+            ({"command": "run.sh", "exit_status": 0.0}, "exit_status_unestablished"),
+            ({"command": "run.sh", "exit_status": []}, "exit_status_unestablished"),
+            ({"command": "run.sh", "exit_status": 1}, "exit_status_nonzero"),
+            ({"command": "run.sh", "exit_status": -1}, "exit_status_nonzero"),
+            ({"command": "run.sh", "exit_status": 2}, "exit_status_nonzero"),
+        )
+        for i, (summary, reason) in enumerate(cases):
+            with self.subTest(summary=summary):
+                k, t = self._running(f"es-bad-{i}")
+                code, out = self._finish_passed(k, t, summary)
+                self.assertEqual(code, vf.EXIT_CAS_REJECT)
+                self.assertEqual(out["result"], "rejected")
+                self.assertEqual(out["reason"], reason)
+                self.assertFalse(out["satisfies_verification"])
+                # NON-terminal: no state was written, so the handle is still an
+                # owned `running` flight rather than a stranded terminal one.
+                self.assertEqual(out["state"], "running")
+                _, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
+                self.assertEqual(st["state"], "running")
+                self.assertFalse(st["satisfies_verification"])
+
+    def test_refusal_output_names_the_owner_token_retention(self):
+        # The re-issue needs the same owner token, and the refusal's own output is
+        # the only place the caller learns the handle is still owned + re-finishable.
+        k, t = self._running("es-remedy")
+        _, out = self._finish_passed(k, t, {"command": "run.sh", "exit_status": 7})
+        self.assertEqual(out["recorded_exit_status"], 7)
+        self.assertIn("owner token", out["remedy"])
+
+    def test_refused_pass_stays_re_finishable_as_failed(self):
+        # The reason the refusal must never write a terminal state: the ledger is
+        # one-shot per key, so a terminal write here would strand the very failure
+        # the gate exists to surface.
+        k, t = self._running("es-refinish")
+        code, _ = self._finish_passed(k, t, {"command": "run.sh", "exit_status": 3})
+        self.assertEqual(code, vf.EXIT_CAS_REJECT)
+        _, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
+        self.assertEqual(st["state"], "running")
+        code2, out2 = self.run_cmd([
+            "finish", "--flight", k, "--token", t, "--result", "failed",
+            "--summary-file", self._write({"command": "run.sh", "exit_status": 3,
+                                           "failure_text": "3 failed"}),
+            "--state-dir", self.state, "--logs-dir", self.logs])
+        self.assertEqual(code2, vf.EXIT_OK)
+        self.assertEqual(out2["state"], "failed")
+        c3, st3 = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
+        self.assertEqual(c3, vf.EXIT_NON_PASS)
+        self.assertEqual(st3["state"], "failed")
+
+    def test_non_passed_results_are_not_gated(self):
+        # `failed` is the arm whose truthful evidence is a NONZERO status, and the
+        # two owner-recorded outcomes carry no summary at all. Gating any of them
+        # would block the honest record.
+        k, t = self._running("es-failed")
+        code, out = self.run_cmd([
+            "finish", "--flight", k, "--token", t, "--result", "failed",
+            "--summary-file", self._write({"command": "run.sh", "exit_status": 1}),
+            "--state-dir", self.state, "--logs-dir", self.logs])
+        self.assertEqual(code, vf.EXIT_OK)
+        self.assertEqual(out["state"], "failed")
+        for result in ("timed_out", "cancelled"):
+            k2, t2 = self._running(f"es-{result}")
+            code2, out2 = self.run_cmd([
+                "finish", "--flight", k2, "--token", t2, "--result", result,
+                "--state-dir", self.state, "--logs-dir", self.logs])
+            self.assertEqual(code2, vf.EXIT_OK)
+            self.assertEqual(out2["state"], result)
+
+    def test_unusable_summary_arm_runs_first_and_is_unchanged(self):
+        # Ordering is load-bearing: an absent / scalar / array / empty-object
+        # summary keeps its ORIGINAL terminal `incomplete` disposition and is never
+        # rerouted through the new non-terminal refusal.
+        for i, payload in enumerate((42, "x", [], {})):
+            with self.subTest(payload=payload):
+                k, t = self._running(f"es-unusable-{i}")
+                code, out = self._finish_passed(k, t, payload)
+                self.assertEqual(code, vf.EXIT_CAS_REJECT)
+                self.assertEqual(out["result"], "incomplete")
+                self.assertEqual(out["reason"], "missing_terminal_evidence")
+                _, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
+                self.assertEqual(st["state"], "incomplete")
+        # …and the no-summary-at-all arm too.
+        k, t = self._running("es-nosummary")
+        code, out = self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
+                                  "--state-dir", self.state, "--logs-dir", self.logs])
+        self.assertEqual(out["result"], "incomplete")
+        self.assertEqual(out["reason"], "missing_terminal_evidence")
+
+    def test_legacy_passed_flight_without_exit_status_is_not_reusable(self):
+        # A handle written BEFORE this change is the only population the reuse
+        # predicate's new limb can exclude. Its disposition must be the one the
+        # already-shipped completion gate takes — refused — so an attacher is never
+        # directed to consume a pass that gate refuses.
+        k, t = self._running("es-legacy")
+        self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
+                      "--summary-file", self._write({"command": "run.sh", "exit_status": 0}),
+                      "--state-dir", self.state, "--logs-dir", self.logs])
+        path = Path(self.state) / f"{k}.json"
+        rec = json.loads(path.read_text(encoding="utf-8"))
+        self.assertTrue(rec["suite_summary"].pop("exit_status") == 0)
+        path.write_text(json.dumps(rec), encoding="utf-8")
+        code, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
+        self.assertEqual(code, vf.EXIT_NON_PASS)
+        self.assertEqual(st["state"], "passed")
+        self.assertFalse(st["satisfies_verification"])
+        self.assertFalse(st["reuse_ready"])
+
+    def test_writer_and_reader_agree_on_every_exit_status_shape(self):
+        # The contract this change exists to restore is a CROSS-FILE one, so it is
+        # driven against the real reader rather than a restatement of it: for every
+        # shape, "the ledger records a pass" and "the completion gate accepts that
+        # record" must be the same answer.
+        spec = importlib.util.spec_from_file_location(
+            "check_completion_evidence_parity",
+            ROOT / "scripts" / "check-completion-evidence.py",
+        )
+        reader = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reader)
+
+        shapes = (None, True, False, "0", 0.0, [], 0, 1, -1)
+        for i, status in enumerate(shapes):
+            with self.subTest(exit_status=status):
+                summary = {"command": "run.sh"}
+                if status is not None:
+                    summary["exit_status"] = status
+                k, t = self._running(f"es-parity-{i}")
+                code, _ = self._finish_passed(k, t, summary)
+                writer_accepts = code == vf.EXIT_OK
+
+                identity = "identity-parity"
+                rec = {
+                    "state": "passed",
+                    "result": "passed",
+                    "candidate_identity": identity,
+                    "suite_summary": dict(summary),
+                    "skipped_checks": [],
+                }
+                try:
+                    token, _detail = reader._validate_implement_record(rec, identity)
+                    reader_accepts = token == reader.TOK_PASS
+                except reader.Verdict:
+                    reader_accepts = False
+                self.assertEqual(
+                    writer_accepts, reader_accepts,
+                    f"writer/reader disagree on exit_status={status!r}",
+                )
 
 
 class TestWait(Harness):
@@ -767,7 +962,7 @@ class TestWait(Harness):
         k, t = owner["flight_key"], owner["token"]
         self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
         self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
-                      "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                      "--summary-file", self._write({"command": "x", "exit_status": 0, "skipped_checks": []}),
                       "--state-dir", self.state, "--logs-dir", self.logs])
         code, out = self.run_cmd(["wait", "--flight", k, "--timeout", "1",
                                   "--poll-interval", "0", "--state-dir", self.state, "--logs-dir", self.logs])
@@ -836,7 +1031,7 @@ class TestTelemetry(Harness):
         k, t = owner["flight_key"], owner["token"]
         self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
         self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
-                      "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                      "--summary-file", self._write({"command": "x", "exit_status": 0, "skipped_checks": []}),
                       "--state-dir", self.state, "--logs-dir", self.logs])
         self.assertIn("flight_finished", self._events())
 
@@ -1301,7 +1496,7 @@ class TestLedgerWriteFailure(Harness):
         try:
             code, out = self.run_cmd([
                 "finish", "--flight", k, "--token", t, "--result", "passed",
-                "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                "--summary-file", self._write({"command": "x", "exit_status": 0, "skipped_checks": []}),
                 "--state-dir", self.state, "--logs-dir", self.logs,
             ])
         finally:
