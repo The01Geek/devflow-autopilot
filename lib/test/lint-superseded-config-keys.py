@@ -69,10 +69,21 @@ _LEAF_RE = re.compile(
 )
 
 # Leaves that are file extensions, not config keys — `devflow.yml` / `devflow.sh` / … are
-# filenames (the workflow filenames are frozen), never config-leaf references.
+# filenames (the workflow filenames are frozen), never config-leaf references. (No config key
+# collides with a listed extension word today; a `devflow.tokens`-style leaf would be masked as
+# a filename — an accepted, documented assumption that config keys never share an extension name.)
 _EXTENSIONS = frozenset(
     "yml yaml sh py json jq md tsv jsonl txt toml lock cfg ini example "
     "tokens gitignore mjs js ts png svg html".split()
+)
+
+# Binary path suffixes excluded from the population before reading. A binary file cannot carry a
+# text config-leaf reference, so scanning it would only produce a spurious `skip_nul` skip that
+# the fail-closed arm below would then treat as an unaudited file. Excluding them upfront (the
+# sibling #711 lints' pattern) keeps the skip arm meaningful: a remaining skip is a genuine
+# permission/race failure, never an expected image/fixture.
+_BINARY_SUFFIXES = frozenset(
+    ".png .jpg .jpeg .gif .ico .bin .woff .woff2 .ttf .otf .pdf .zip .gz .tar .webp".split()
 )
 
 # Declared exemptions — sites that must keep the superseded spelling. Path prefixes (dirs)
@@ -120,12 +131,19 @@ def main() -> int:
         return 2
 
     offenders: list[str] = []
+    skipped: list[str] = []
     for path in population:
         if _exempt(path):
             continue
+        if Path(path).suffix.lower() in _BINARY_SUFFIXES:
+            continue  # binary by extension: no text config-leaf reference possible
         text, skip_reason = _pop.read_source(_REPO_ROOT / path, skip_nul=True)
         if text is None:
-            continue  # binary/unreadable: not a text config-leaf reference
+            # A selected file that could not be audited is NEVER a clean pass — "audited
+            # nothing" must not read as "audited everything, found nothing" (the shared
+            # reader's own contract, and the sibling #711 lints' convention). Fail closed.
+            skipped.append(f"{path}: {skip_reason or 'unknown'}")
+            continue
         for lineno, line in enumerate(text.split("\n"), 1):
             for m in _LEAF_RE.finditer(line):
                 if m.group(1) in _EXTENSIONS:
@@ -140,8 +158,15 @@ def main() -> int:
         )
         for o in offenders:
             sys.stderr.write(f"  {o}\n")
-        return 1
-    return 0
+    if skipped:
+        sys.stderr.write(
+            f"lint-superseded-config-keys: {len(skipped)} selected path(s) could not be audited "
+            "(a partial audit is not a clean pass — permission blip, worktree race, or an "
+            "unexpected non-UTF-8/binary file that no _BINARY_SUFFIXES entry covers):\n"
+        )
+        for s in skipped:
+            sys.stderr.write(f"  {s}\n")
+    return 1 if (offenders or skipped) else 0
 
 
 if __name__ == "__main__":
