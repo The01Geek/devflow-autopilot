@@ -3612,9 +3612,9 @@ def main():
 
     s = sub.add_parser(
         'status',
-        help='Print the workpad Status as `CLASS GLYPH WORD` (CLASS is '
-             'terminal|interim). Exit 2 if no workpad, exit 1 if present but the '
-             'Status is unreadable.',
+        help='Print the workpad Status as `CLASS GLYPH WORD` (CLASS is one of '
+             'complete|blocked|failed|cancelled|interim). Exit 2 if no workpad, '
+             'exit 1 if present but the Status is unreadable.',
     )
     s.add_argument('issue', type=int)
     s.add_argument('--marker', default=None, help=_marker_help)
