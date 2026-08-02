@@ -44084,7 +44084,7 @@ assert_eq "#1072 lint: an enumeration selecting no skills/agents path refuses (e
 # subset, not to the list mechanism.
 assert_eq "#1072 lint: the same list plus one audited path audits 1 of 1 (floor control + is_audited negative)" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
   "$(sp_run "$SP_SIMPLE" slices/simple.sh skills/clean.md)"
-# The agents/ prefix, which the real-tree count>0 assertion cannot isolate from skills/.
+# The agents/ prefix, which the real-tree positive-count assertion cannot isolate from skills/.
 assert_eq "#1072 lint: an agents/ path is audited (second prefix, reported like skills/)" "yes" \
   "$(case "$(sp_run "$SP_SIMPLE" agents/unmarked-agent.md)" in "rc=1|"*"agents/unmarked-agent.md:1:"*) echo yes ;; *) echo no ;; esac)"
 # A NUL-carrying file is a fail-closed skip, never absorbed into a clean pass.
