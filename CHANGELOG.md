@@ -4,6 +4,19 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.27] — 2026-08-02
+
+### Fixed
+- **Both settings provisioners now fail closed when a directory sits at the settings path.** A
+  directory (or a symlink to one) at `.claude/settings.json` was treated as absent by the
+  `[ -f "$SETTINGS" ]` test, so the create path ran and the atomic `mv` dropped the temp file
+  *inside* the directory while reporting success and exiting 0 — the requested settings were never
+  written anywhere the runtime reads. `scripts/provision-local-settings.sh` and
+  `scripts/provision-auto-mode.sh` now carry an explicit `[ -d "$SETTINGS" ]` guard above the
+  `[ -f ]` test that exits non-zero with a specific breadcrumb. A dangling symlink and a FIFO are
+  deliberately left alone (the `mv` correctly replaces them), asserted as negative controls so the
+  fix cannot silently widen into a legitimate symlink-into-dotfiles setup. (#1082)
+
 ## [2.30.26] — 2026-08-02
 
 ### Changed
