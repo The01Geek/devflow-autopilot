@@ -43,7 +43,7 @@ Mark each item `in_progress` when you start and `completed` only when done — t
 
 The per-step procedures and the conditional fallback arms live in `references/`, loaded at their trigger. **Load a reference by building its path from this skill's directory per the *Portable helper anchor* rules above** (the runner-reported skill base directory, with prompt-time Windows-path normalization) and **reading it with the runner's file-read tool** — never a new shell invocation. A load is accepted only when the file's **first line is its `start` boundary marker and its last line is the matching `end` marker**, each naming that file's own path, with exactly one of each.
 
-**Every load failure degrades, and no failure arm terminates the run.** On an unreadable or absent file, an empty file, a missing / duplicated / foreign-path marker, or a truncated read, emit an in-chat breadcrumb naming the file and the failure kind, then continue on that row's named degraded behavior below. The four non-degradable invariants stated after this table hold on every degraded arm.
+**Every load failure degrades, and no failure arm terminates the run.** On an unreadable or absent file, an empty file, a missing / duplicated / foreign-path marker, or a truncated read, emit an in-chat breadcrumb naming the file and the failure kind, then continue on that row's named degraded behavior below. The five non-degradable invariants stated after this table hold on every degraded arm.
 
 | Load trigger | File | Marker contract | Degraded behavior on a failed load |
 | --- | --- | --- | --- |
@@ -59,12 +59,13 @@ The per-step procedures and the conditional fallback arms live in `references/`,
 
 ## Non-degradable invariants
 
-These four hold on every path, including every degraded arm above, and are load-independent of any reference:
+These five hold on every path, including every degraded arm above, and are load-independent of any reference:
 
 1. **The issue is created only after the user explicitly approves the full rendered draft in chat.** The full title and body are rendered verbatim in your message first; an earlier "just create it", a complete Step 2, or a paused pipeline is never a substitute for approval of *this* draft.
 2. **The no-options gate** (stated under Step 3 below) passes on the body that is shown and on every revision of it.
 3. **The audit summary line is mandatory and always renders** — even on a clean `VERDICT: FILE` with zero findings. A skipped or degraded audit is **never silent**; the summary line is the evidence the audit ran and which arm it took.
 4. **The reserved `PRFlow` provenance label is applied best-effort after creation, and any degradation is reported explicitly** — a label hiccup never blocks creation, and a `PRFlow` label that could not be applied is named in the final outcome rather than passed over.
+5. **The self-assignment election runs after approval and before creation, on every path including every degraded arm.** After the user explicitly approves the full rendered draft and before any `gh issue create`, the run asks whether to assign the new issue to the user; an explicit **yes** adds `--assignee "@me"` to the create call, an explicit **no** creates it unassigned, and silence or any non-yes/non-no reply pauses and re-asks — no issue-creation command runs until the answer is an explicit yes or no. This election belongs to the interactive create path only; a draft-only request never reaches it.
 
 ## Steps
 
