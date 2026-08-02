@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1150",
+  "generated_at": "2026-08-02T17:43:51Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.52",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 8.783000749999998,
+    "tokens": {
+      "input_tokens": 65,
+      "output_tokens": 31955,
+      "cache_read_input_tokens": 5267480,
+      "cache_creation_input_tokens": 206800,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 123,
+        "outputTokens": 59253,
+        "cacheReadInputTokens": 6843734,
+        "cacheCreationInputTokens": 496591,
+        "webSearchRequests": 0,
+        "costUSD": 8.783000749999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 40,
+    "duration_ms": 700351
+  },
+  "permission_denials": {
+    "count": 5,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none}\"; mkdir -p .prflow/tmp/review/pr-1150/local-run; gh pr diff 1150 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1150/local-run/diff.patch | wc -l",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/seed-review-progress.sh \"1150\" \"\" .prflow/tmp/review/pr-1150/30759040652-1/review-wp.md ; echo \"seed-rc=$?\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve \"1135\" --pr \"1150\" 2>.prflow/tmp/review/pr-1150/30759040652-1/acs.err ; echo \"acs-rc=$?\"",
+      "mkdir -p .prflow/tmp\nif rm -f .prflow/tmp/review-dirty-tree-before .prflow/tmp/review-dirty-tree-disabled 2>/dev/null &&\n   git status --porcelain -z > .prflow/tmp/review-dirty-tree-before &&\n   [ -f .prflow/tmp/review-dirty-tree-before ] &&\n   [ ! -L .prflow/tmp/review-dirty-tree-before ] &&\n   git hash-object .prflow/tmp/review-dirty-tree-before; then\n  echo \"snapshot-ok\"\nelse\n  printf '%s\\n' disabled > .prflow/tmp/review-dirty-tree-disabled; echo \"snapshot-failed\"\nfi\ngrep -n 'agent_overrides' …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nfor tok in 'R1' 'R3-tmp' 'I4' 'I5' 'IR1' 'IR2' 'IR4' 'shape 18' 'PreToolUse'; do\n  echo \"=== $tok ===\"\n  grep -n \"$tok\" docs/cloud-allowlist.md | grep -v \"Denial-population\\|928\\|issue #1135\" | head -6\ndone"
+    ],
+    "total": 5,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
