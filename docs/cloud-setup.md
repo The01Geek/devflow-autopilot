@@ -102,9 +102,9 @@ writes changes into your repository, so download it, read it, then run the file 
 read:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.21/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.23/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.30.21 bash devflow-install.sh
+DEVFLOW_REF=v2.30.23 bash devflow-install.sh
 ```
 
 Both refs are pinned to the same **release tag**, so the install is reproducible.
@@ -705,7 +705,7 @@ restore the default-token behavior. The read-only review run has the same fail-l
 contract, but under its own `DEVFLOW_REVIEWER_APP_ID` (unset *that* to restore the
 review run's default token) — see the DevFlow-Reviewer section below.
 
-## Attributing commits to the triggering user (`devflow.attribute_commits_to_triggerer`)
+## Attributing commits to the triggering user (`prflow.attribute_commits_to_triggerer`)
 
 By default, the git commits a cloud-tier **writer** run produces
 (`/prflow:implement`'s `claude` job and `/prflow:review-and-fix`'s `command` job)
@@ -967,7 +967,7 @@ comment authored by the built-in `GITHUB_TOKEN` never re-triggers the workflow
 backstop posts its resume comment and then fails the job loud instead of
 pretending the resume happened — a human re-posts the trigger comment manually.
 With the App configured, also add the App's bot login (e.g. `your-app[bot]`) to
-`devflow.allowed_bots` in `.prflow/config.json`, or the gate's actor
+`prflow.allowed_bots` in `.prflow/config.json`, or the gate's actor
 authorization declines the App-authored resume comment. Because a `claude` job
 can run longer than an App installation token's ~60-minute lifetime, the backstop
 mints its **own fresh** App token just-in-time immediately before it runs rather
@@ -999,7 +999,7 @@ re-runs without a human. As with the implement resume, a `GITHUB_TOKEN`-authored
 comment never re-triggers the workflow, so this needs the App: with `DEVFLOW_APP_ID`
 unset the backstop degrades to the dead-end flip (a visible `❌ Review failed`
 that a human must re-trigger). And exactly like the implement resume, add the
-minting App's bot login (e.g. `your-app[bot]`) to `devflow.allowed_bots` in
+minting App's bot login (e.g. `your-app[bot]`) to `prflow.allowed_bots` in
 `.prflow/config.json`, or the manual-`/prflow:review` gate the re-trigger
 re-enters declines the App-authored comment. The backstop is capped at
 `prflow_review.stall_backstop.max_resume_attempts` (default `2`) per head and
@@ -1037,12 +1037,12 @@ unaffected.
 
 > **Who can trigger it.** The `gate` job runs
 > `scripts/resolve-implement-trigger.sh`, which authorizes the sender only if
-> they are an allowed bot (`devflow.allowed_bots`) **or** their login matches
-> `devflow.allowed_users` **and** they hold write / admin / maintain access — and
-> fails closed otherwise. `devflow.allowed_users` defaults to `"*"` (any
+> they are an allowed bot (`prflow.allowed_bots`) **or** their login matches
+> `prflow.allowed_users` **and** they hold write / admin / maintain access — and
+> fails closed otherwise. `prflow.allowed_users` defaults to `"*"` (any
 > collaborator) and can be narrowed to a comma-separated list of logins to
 > restrict who may start a run; it only tightens the collaborator gate, never
-> bypasses it. Bots are governed separately by `devflow.allowed_bots` — this is
+> bypasses it. Bots are governed separately by `prflow.allowed_bots` — this is
 > the path for a custom GitHub App that posts the trigger comment on your behalf.
 > The same gate guards the light `/prflow:*` command path in `devflow.yml`.
 >

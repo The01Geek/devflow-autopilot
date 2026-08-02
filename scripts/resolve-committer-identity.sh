@@ -31,7 +31,7 @@
 #                       PR head, which is what makes the flag POST-MERGE-ONLY.
 #
 # Config key (under `devflow`, default false):
-#   devflow.attribute_commits_to_triggerer → resolve + emit the four GIT_* vars
+#   prflow.attribute_commits_to_triggerer → resolve + emit the four GIT_* vars
 #
 # ENABLED semantics are kept in LOCKSTEP with emit-git-env.sh: the key is enabled
 # only when its JSON leaf is the boolean `true` or the string "true". Every other

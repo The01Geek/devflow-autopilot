@@ -4,6 +4,58 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.23] — 2026-08-02
+
+### Fixed
+- **Both settings provisioners now classify an existing settings file's blankness with bash
+  builtins, never `grep`.** `scripts/provision-local-settings.sh` and
+  `scripts/provision-auto-mode.sh` decided whether an existing `.claude/settings.json` held
+  content by shelling out to `grep -q '[^[:space:]]'`. On a host where `grep` does not resolve
+  on `PATH` that test came back false, the file was treated as blank, and the deep merge wrote
+  DevFlow's defaults alone — silently clobbering every key the user had set while reporting
+  success (the auto-mode script writes user-global `~/.claude/settings.json`, outside any repo
+  or diff). The classification is now a NUL probe plus a captured read plus a `case`
+  whitespace test, all builtins, so a missing `grep` reaches the same outcome as a present one.
+  A NUL-bearing settings file now fails closed (exit 2, byte-for-byte unchanged) on every host
+  rather than only on some, and both scripts' `Exit codes:` headers and the `/prflow:init`
+  breadcrumb routing tables record the two new exit-2 causes. (#1081)
+
+## [2.30.22] — 2026-08-02
+
+### Fixed
+- **The config schema's `workflows["devflow-review"]` exposure notices now name the migrated
+  key.** Ten `.prflow/config.schema.json` descriptions told a consumer their fork-PR review
+  exposure persists `while workflows["devflow-review"] is true` — naming only the superseded
+  spelling, which Tier 4 (#1041) renamed to `prflow-review` (`lib/rename-map.json`'s
+  `frozen.config_keys` is now empty). The schema is the surface a consumer's editor validates
+  against, so each notice now names both spellings, following the pattern `install.sh` already
+  uses: `workflows["prflow-review"]` (or `workflows["devflow-review"]` on an unmigrated config).
+  The `devflow-review.yml` / `devflow-runner.yml` / `telemetry-push.yml` workflow filenames stay
+  frozen. (#1084)
+- **The light `/prflow:*` command path now honors a configured model provider.** The
+  single-sourced provider resolver in `devflow.yml` selects `$cfg[$section].provider`, but both
+  provider-resolver call sites set `SECTION: devflow` — the superseded config family — while
+  the schema declares `prflow.provider` and `/prflow:init` scaffolds only `prflow`. A consumer
+  who configured a third-party provider using the only spelling their schema validates had it
+  silently ignored on the entire `/prflow:*` command path and the run fell back to the
+  Anthropic-OAuth default with no diagnostic. Both sites now set `SECTION: prflow`, matching the
+  family the schema declares and the scaffolder writes; `lib/test/run.sh` asserts each cloud
+  workflow's `SECTION:` value matches its own config family. (#1084)
+- **Instructions and emitted runtime remedies now name the `prflow.<key>` config leaf their
+  live reader actually reads.** Follow-up to #1068, which swept the `allowed_tools` grant
+  instructions. Every remaining superseded `devflow.<key>` leaf across the tree is corrected so a
+  message and the read it describes move as a pair. Four **emitted remedies** were the worst
+  cases — following them could not work: `devflow-runner.yml`'s `::error::…allowed_bots is
+  missing` (its adjacent read is `.prflow.allowed_bots`), `lib/scan.sh`'s watched-authors
+  `::warning::`, `scripts/workpad.py`'s blank-`workpad_marker` breadcrumb, and
+  `skills/review/phases/phase-4-verdict.md`'s "PR author is not in `…allowed_bots`" line rendered
+  into a PR comment. The `docs/DEVFLOW_SYSTEM_OVERVIEW.md` §17 configuration-reference table — one
+  table that carried both families side by side, with `prflow.allowed_bots`/`prflow.workpad_marker`
+  correct but the provider row still reading `devflow.provider` — is reconciled. Frozen identifiers
+  (workflow filenames, `DEVFLOW_*` env vars, `/devflow:<command>` aliases, the `devflow:<agent>`
+  namespace, `devflow-marketplace`, the product name) and the deliberate both-spelling sites
+  (`install.sh`, `docs/install.md`, the live migration regexes) are untouched. (#1084)
+
 ## [2.30.21] — 2026-08-02
 
 ### Changed

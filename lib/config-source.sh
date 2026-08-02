@@ -62,7 +62,7 @@ devflow_conf() {
   printf '%s' "$val"
 }
 
-# Watched authors → comma-separated. devflow override array > devflow.allowed_bots string.
+# Watched authors → comma-separated. watched_authors override array > prflow.allowed_bots string.
 devflow_watched_authors() {
   local arr
   arr="$(devflow_conf '.prflow_retrospective.watched_authors' '')"

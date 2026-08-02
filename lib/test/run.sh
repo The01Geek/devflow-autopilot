@@ -4072,7 +4072,7 @@ assert_eq "429/T7: devflow-implement.yml --allowed-tools already grants gh pr vi
   "$(grep -cF 'Bash(gh pr view:*)' "$_DI429" || true)"
 assert_eq "429/T7: prflow_implement.allowed_tools adds no merge-base/pr-view grant" "0" \
   "$(jq -r '.prflow_implement.allowed_tools[]? | select(test("merge-base|pr view"))' "$_C429" 2>/dev/null | grep -c . || true)"
-assert_eq "429/T7: devflow.allowed_tools adds no merge-base/pr-view grant" "0" \
+assert_eq "429/T7: prflow.allowed_tools adds no merge-base/pr-view grant" "0" \
   "$(jq -r '.prflow.allowed_tools[]? | select(test("merge-base|pr view"))' "$_C429" 2>/dev/null | grep -c . || true)"
 
 # ── F1 (review): STANDING anti-vacuity proofs for the new fail-closed guards ───────────────
@@ -7581,7 +7581,7 @@ fi
 
 # ── issue #682: attribute cloud-tier writer commits to the triggering user ─────
 # scripts/resolve-committer-identity.sh is the sibling of emit-git-env.sh (#645):
-# a default-off config flag (devflow.attribute_commits_to_triggerer) gates whether
+# a default-off config flag (prflow.attribute_commits_to_triggerer) gates whether
 # the four GIT_AUTHOR_*/GIT_COMMITTER_* variables are emitted for the triggering
 # human. The helper is a pure shell CLI with a deterministic stdout/exit contract,
 # driven directly here with DEVFLOW_GH stubbed (the resolver's test-stub contract),
@@ -7601,11 +7601,11 @@ assert_eq "#682: resolve-committer-identity.sh exists and is executable" "yes" \
 # Schema/example: the key is declared as boolean defaulting to false and mirrored
 # in the example config as an explicit false (the documented-off-switch class — a
 # valid-falsy value must survive as false, never be coerced to a truthy default).
-assert_eq "#682: schema declares devflow.attribute_commits_to_triggerer as boolean:false" "boolean:false" \
+assert_eq "#682: schema declares prflow.attribute_commits_to_triggerer as boolean:false" "boolean:false" \
   "$(jq -r '.properties.prflow.properties.attribute_commits_to_triggerer | "\(.type):\(.default)"' "$I682_SCHEMA")"
 assert_eq "#682: schema description names the post-merge-only semantics" "yes" \
   "$(jq -e '.properties.prflow.properties.attribute_commits_to_triggerer.description | test("POST-MERGE-ONLY")' "$I682_SCHEMA" >/dev/null && echo yes || echo no)"
-assert_eq "#682: example config carries devflow.attribute_commits_to_triggerer as an explicit false" "false" \
+assert_eq "#682: example config carries prflow.attribute_commits_to_triggerer as an explicit false" "false" \
   "$(jq -r '.prflow.attribute_commits_to_triggerer' "$I682_EXAMPLE")"
 
 # Workflow wiring: BOTH writer workflows carry a step that reads the flag from the
@@ -11844,7 +11844,7 @@ echo "config-source.sh"
   assert_eq "conf: malformed JSON → default (warns, no abort)" "dflt" "$(devflow_conf '.anything' dflt 2>/dev/null)"
   rm -f "$wp"
 )
-# watched_authors falls back to devflow.allowed_bots when the override array is absent.
+# watched_authors falls back to prflow.allowed_bots when the override array is absent.
 ( wp="$(mktemp)"; printf '{"prflow":{"allowed_bots":"claude,fallback-bot"}}' > "$wp"
   export DEVFLOW_CONFIG_FILE="$wp"
   . "$LIB/config-source.sh"
@@ -22794,6 +22794,140 @@ assert_eq "pls: {} → exit 0" "0" "$PLS_OBJ_RC"
 assert_eq "pls: {} → enabledPlugins added" "true" \
   "$(jq -r --arg k "$SUITE_PLUGIN_SPEC" '.enabledPlugins[$k]' "$PLS_OBJ/.claude/settings.json" 2>/dev/null)"
 
+# ── Issue #1081: guard-class-2 fail-open — the blankness classification must use
+#    bash BUILTINS, never `grep` (a non-preflight PATH tool). On a host without
+#    grep the old `[ -s ] && grep -q '[^[:space:]]'` came back false, the file
+#    was treated as blank, and the merge clobbered every user key while reporting
+#    success. Drive the classification rows twice — once with grep resolvable,
+#    once with grep producing a missing-binary status — which must reach the SAME
+#    row and identical file bytes.
+# A grep whose body exits 127 — the sanctioned fixture (issue #1081 Potential
+# Gotchas): the defect is the NON-ZERO STATUS a missing binary produces, so the
+# shim reproduces it exactly (`grep -q …` → 127 → the old guard's `&&` false →
+# file mis-treated as blank), while keeping every other tool (dirname/jq/python3)
+# resolvable so the script reaches its classification. A fully-restricted PATH
+# (the #1081 audit note's `_mk_restricted` suggestion) is brittle here — a tool
+# the script needs but the list omits fails the run for the wrong reason (dirname
+# was the trap in an earlier draft). Prepend the shim dir so it shadows the real
+# grep; the SCRIPT's own grep call is what must be gone, and it is.
+PLS_NG_BIN="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nexit 127\n' > "$PLS_NG_BIN/grep"; chmod +x "$PLS_NG_BIN/grep"
+assert_eq "pls #1081: grep shim → grep returns missing-binary status 127" "127" \
+  "$(PATH="$PLS_NG_BIN:$PATH" bash -c 'grep -q x /dev/null; echo $?' 2>/dev/null)"
+
+# AC1 (the load-bearing arm): missing grep over a fixture holding user keys →
+# provisions AND preserves. Survival alone does not discharge this — every
+# fail-closed path also leaves the file surviving — so assert all four: exit 0,
+# the "provisioned … (added: …)" breadcrumb, both DevFlow keys, AND every user
+# key. RED against origin/main: the resulting file holds only the two DevFlow
+# keys and neither user key.
+PLS_NG_KEEP="$(mktemp -d)"; mkdir -p "$PLS_NG_KEEP/.claude"
+printf '%s' '{"permissions":{"allow":["Bash(ls:*)"]},"statusLine":{"type":"command","command":"echo hi"},"customTopKey":42}' \
+  > "$PLS_NG_KEEP/.claude/settings.json"
+PLS_NG_SF="$PLS_NG_KEEP/.claude/settings.json"
+PLS_NG_OUT="$(PATH="$PLS_NG_BIN:$PATH" bash "$PLS" "$PLS_NG_KEEP" 2>&1)"; PLS_NG_RC=$?
+assert_eq "pls #1081: missing grep → exit 0 (AC1)" "0" "$PLS_NG_RC"
+assert_eq "pls #1081: missing grep → 'provisioned … (added: …)' breadcrumb (AC1)" "yes" \
+  "$(printf '%s' "$PLS_NG_OUT" | grep -qiE 'provisioned.*added' && echo yes || echo no)"
+assert_eq "pls #1081: missing grep → devflow marketplace added (AC1)" "true" \
+  "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_NG_SF" 2>/dev/null)"
+assert_eq "pls #1081: missing grep → enabledPlugins added (AC1)" "true" \
+  "$(jq -r --arg k "$SUITE_PLUGIN_SPEC" '.enabledPlugins[$k]' "$PLS_NG_SF" 2>/dev/null)"
+assert_eq "pls #1081: missing grep → user permissions key survived (AC1)" "Bash(ls:*)" \
+  "$(jq -r '.permissions.allow[0]' "$PLS_NG_SF" 2>/dev/null)"
+assert_eq "pls #1081: missing grep → user statusLine key survived (AC1)" "echo hi" \
+  "$(jq -r '.statusLine.command' "$PLS_NG_SF" 2>/dev/null)"
+assert_eq "pls #1081: missing grep → unrelated user key survived (AC1)" "42" \
+  "$(jq -r '.customTopKey' "$PLS_NG_SF" 2>/dev/null)"
+rm -rf "$PLS_NG_KEEP"
+
+# AC5 + row-2-before-row-4 precedence: a NUL-bearing file (all-NUL, and NUL beside
+# valid JSON) exits 2, byte-for-byte unchanged, with the new NUL breadcrumb —
+# probe present AND absent. The NUL+JSON fixture is a member of both row 2 and
+# row 4 and must take row 2. The blankness decision is a builtin, so it holds with
+# grep absent too. (A slurp-only remedy would read the NUL file as blank and
+# clobber it; today's code names it a "merge failure" rather than a NUL.)
+for _nulcase in all-nul nul-plus-json; do
+  for _grep in present absent; do
+    PLS_NUL="$(mktemp -d)"; mkdir -p "$PLS_NUL/.claude"
+    if [ "$_nulcase" = all-nul ]; then printf '\000\000\000' > "$PLS_NUL/.claude/settings.json"
+    else printf '{"a":1}\000' > "$PLS_NUL/.claude/settings.json"; fi
+    cp "$PLS_NUL/.claude/settings.json" "$PLS_NUL/before.bin"
+    if [ "$_grep" = absent ]; then
+      PLS_NUL_OUT="$(PATH="$PLS_NG_BIN:$PATH" bash "$PLS" "$PLS_NUL" 2>&1)"; PLS_NUL_RC=$?
+    else
+      PLS_NUL_OUT="$(bash "$PLS" "$PLS_NUL" 2>&1)"; PLS_NUL_RC=$?
+    fi
+    assert_eq "pls #1081: NUL ($_nulcase, grep $_grep) → exit 2 (AC5)" "2" "$PLS_NUL_RC"
+    assert_eq "pls #1081: NUL ($_nulcase, grep $_grep) → file byte-for-byte unchanged (AC5)" "same" \
+      "$(cmp -s "$PLS_NUL/before.bin" "$PLS_NUL/.claude/settings.json" && echo same || echo differ)"
+    assert_eq "pls #1081: NUL ($_nulcase, grep $_grep) → breadcrumb names the NUL condition (AC5)" "yes" \
+      "$(printf '%s' "$PLS_NUL_OUT" | grep -qi 'NUL' && echo yes || echo no)"
+    rm -rf "$PLS_NUL"
+  done
+done
+
+# AC6: the absent-file case and the benign classification rows (whitespace-only,
+# zero-byte, populated JSON object) driven twice — grep resolvable and not — must
+# agree on exit code and resulting file bytes. Row 1 (read failure) is exempt (no
+# deterministic fixture reaches it — the [ -r ] pre-check fires first); row 2
+# (NUL) is covered above. Each benign row also provisions (exit 0, marketplace
+# added). RED if the conversion routes a benign row down a different path than
+# grep did.
+for _row in absent whitespace zerobyte populated; do
+  PLS_A="$(mktemp -d)"; PLS_B="$(mktemp -d)"
+  for _d in "$PLS_A" "$PLS_B"; do
+    case "$_row" in
+      absent)     : ;;                                              # no file
+      whitespace) mkdir -p "$_d/.claude"; printf '   \n\t\n' > "$_d/.claude/settings.json" ;;
+      zerobyte)   mkdir -p "$_d/.claude"; : > "$_d/.claude/settings.json" ;;
+      populated)  mkdir -p "$_d/.claude"; printf '%s' '{"env":{"FOO":"bar"},"customTopKey":7}' > "$_d/.claude/settings.json" ;;
+    esac
+  done
+  bash "$PLS" "$PLS_A" >/dev/null 2>&1; PLS_RA=$?
+  PATH="$PLS_NG_BIN:$PATH" bash "$PLS" "$PLS_B" >/dev/null 2>&1; PLS_RB=$?
+  assert_eq "pls #1081: row '$_row' → exit code agrees grep present vs absent (AC6)" "$PLS_RA" "$PLS_RB"
+  assert_eq "pls #1081: row '$_row' → resulting file bytes agree grep present vs absent (AC6)" "same" \
+    "$(cmp -s "$PLS_A/.claude/settings.json" "$PLS_B/.claude/settings.json" 2>/dev/null && echo same || echo differ)"
+  assert_eq "pls #1081: row '$_row' → benign row provisions, exit 0 (AC6)" "0" "$PLS_RA"
+  assert_eq "pls #1081: row '$_row' → marketplace added (AC6)" "true" \
+    "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_A/.claude/settings.json" 2>/dev/null)"
+  assert_eq "pls #1081: row '$_row' → user key preserved when present (AC6)" "$([ "$_row" = populated ] && echo 7 || echo n/a)" \
+    "$([ "$_row" = populated ] && jq -r '.customTopKey' "$PLS_A/.claude/settings.json" 2>/dev/null || echo n/a)"
+  rm -rf "$PLS_A" "$PLS_B"
+done
+
+# AC8: invalid JSON still exits 2, unchanged, with the existing not-valid-JSON
+# breadcrumb — grep resolvable and not. RED if the conversion routes malformed
+# input down the blank path.
+for _grep in present absent; do
+  PLS_IJ="$(mktemp -d)"; mkdir -p "$PLS_IJ/.claude"
+  printf '%s' '{ not valid json' > "$PLS_IJ/.claude/settings.json"
+  if [ "$_grep" = absent ]; then
+    PLS_IJ_OUT="$(PATH="$PLS_NG_BIN:$PATH" bash "$PLS" "$PLS_IJ" 2>&1)"; PLS_IJ_RC=$?
+  else
+    PLS_IJ_OUT="$(bash "$PLS" "$PLS_IJ" 2>&1)"; PLS_IJ_RC=$?
+  fi
+  assert_eq "pls #1081: invalid JSON (grep $_grep) → exit 2 (AC8)" "2" "$PLS_IJ_RC"
+  assert_eq "pls #1081: invalid JSON (grep $_grep) → file byte-for-byte unchanged (AC8)" '{ not valid json' \
+    "$(cat "$PLS_IJ/.claude/settings.json")"
+  assert_eq "pls #1081: invalid JSON (grep $_grep) → existing not-valid-JSON breadcrumb (AC8)" "yes" \
+    "$(printf '%s' "$PLS_IJ_OUT" | grep -qi 'not valid json' && echo yes || echo no)"
+  rm -rf "$PLS_IJ"
+done
+
+# Idempotent second run with the probe unavailable → "nothing changed", byte-identical.
+PLS_NG_IDEM="$(mktemp -d)"
+PATH="$PLS_NG_BIN:$PATH" bash "$PLS" "$PLS_NG_IDEM" >/dev/null 2>&1
+PLS_NG_IDEM_FIRST="$(cat "$PLS_NG_IDEM/.claude/settings.json")"
+PLS_NG_IDEM_OUT="$(PATH="$PLS_NG_BIN:$PATH" bash "$PLS" "$PLS_NG_IDEM" 2>&1)"; PLS_NG_IDEM_RC=$?
+assert_eq "pls #1081: idempotent re-run, grep absent → exit 0" "0" "$PLS_NG_IDEM_RC"
+assert_eq "pls #1081: idempotent re-run, grep absent → file byte-identical" \
+  "$PLS_NG_IDEM_FIRST" "$(cat "$PLS_NG_IDEM/.claude/settings.json")"
+assert_eq "pls #1081: idempotent re-run, grep absent → 'nothing changed' breadcrumb" "yes" \
+  "$(printf '%s' "$PLS_NG_IDEM_OUT" | grep -qi 'nothing changed' && echo yes || echo no)"
+rm -rf "$PLS_NG_IDEM" "$PLS_NG_BIN"
+
 # AC 7: isolation invariant — the cloud path (scaffold-config.sh, as install.sh
 # calls it) creates/modifies NO .claude/settings.json.
 PLS_ISO="$(mktemp -d)"
@@ -23263,6 +23397,116 @@ assert_eq "pam: gate Anthropic-direct, no --apply → still prints the copy-past
   "$(printf '%s' "$PAM_GNC_OUT" | grep -q 'CLAUDE_CODE_ENABLE_AUTO_MODE' && echo yes || echo no)"
 assert_eq "pam: gate Anthropic-direct, no --apply → file NOT created (AC6)" "no" \
   "$([ -f "$PAM_GNC_SF" ] && echo yes || echo no)"
+
+# ── Issue #1081: guard-class-2 fail-open, user-scope variant. Same defect as the
+#    project provisioner, sharper blast radius (writes ~/.claude/settings.json,
+#    outside any repo/diff/git-checkout). The blankness classification must use
+#    bash builtins so a missing grep cannot make it clobber the user's file. The
+#    grep-127 shim only shadows grep; the rest of $PATH is intact, so is_truthy's
+#    `tr` and the resolve-jq.sh source line's `dirname` still resolve (a tr-less
+#    PATH would skip the write at the provider gate, masking the defect).
+#    CLAUDE_CODE_USE_BEDROCK=1 is exported for this whole block, so --apply reaches
+#    the merge. Every arm passes an EXPLICIT scratch target — never the default
+#    ~/.claude/settings.json.
+# grep-127 shim, same rationale as the pls block above (issue #1081 Gotchas).
+PAM_NG_BIN="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nexit 127\n' > "$PAM_NG_BIN/grep"; chmod +x "$PAM_NG_BIN/grep"
+assert_eq "pam #1081: grep shim → grep returns missing-binary status 127" "127" \
+  "$(PATH="$PAM_NG_BIN:$PATH" bash -c 'grep -q x /dev/null; echo $?' 2>/dev/null)"
+
+# AC2 (the load-bearing arm): missing grep over a user-scope fixture holding user
+# keys → provisions AND preserves. All four: exit 0, the success breadcrumb,
+# env.CLAUDE_CODE_ENABLE_AUTO_MODE == "1", and every user key. RED against
+# origin/main: only {"env":{"CLAUDE_CODE_ENABLE_AUTO_MODE":"1"}} survives.
+PAM_NG_KEEP="$(mktemp -d)"; PAM_NG_SF="$PAM_NG_KEEP/settings.json"
+printf '%s' '{"env":{"MY_TOKEN_HELPER":"/usr/local/bin/helper"},"permissions":{"allow":["Bash(ls:*)"]}}' > "$PAM_NG_SF"
+PAM_NG_OUT="$(PATH="$PAM_NG_BIN:$PATH" bash "$PAM" --apply "$PAM_NG_SF" 2>&1)"; PAM_NG_RC=$?
+assert_eq "pam #1081: missing grep → exit 0 (AC2)" "0" "$PAM_NG_RC"
+assert_eq "pam #1081: missing grep → success breadcrumb 'provisioned' (AC2)" "yes" \
+  "$(printf '%s' "$PAM_NG_OUT" | grep -qi 'provisioned' && echo yes || echo no)"
+assert_eq "pam #1081: missing grep → CLAUDE_CODE_ENABLE_AUTO_MODE=\"1\" (AC2)" "1" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_NG_SF" 2>/dev/null)"
+assert_eq "pam #1081: missing grep → user env var survived (AC2)" "/usr/local/bin/helper" \
+  "$(jq -r '.env.MY_TOKEN_HELPER' "$PAM_NG_SF" 2>/dev/null)"
+assert_eq "pam #1081: missing grep → user permissions key survived (AC2)" "Bash(ls:*)" \
+  "$(jq -r '.permissions.allow[0]' "$PAM_NG_SF" 2>/dev/null)"
+rm -rf "$PAM_NG_KEEP"
+
+# AC5 + row-2-before-row-4 precedence: NUL-bearing (all-NUL, NUL+JSON) exits 2,
+# unchanged, with the new NUL breadcrumb — probe present AND absent.
+for _nulcase in all-nul nul-plus-json; do
+  for _grep in present absent; do
+    PAM_NUL="$(mktemp -d)"; PAM_NUL_SF="$PAM_NUL/settings.json"
+    if [ "$_nulcase" = all-nul ]; then printf '\000\000\000' > "$PAM_NUL_SF"
+    else printf '{"a":1}\000' > "$PAM_NUL_SF"; fi
+    cp "$PAM_NUL_SF" "$PAM_NUL/before.bin"
+    if [ "$_grep" = absent ]; then
+      PAM_NUL_OUT="$(PATH="$PAM_NG_BIN:$PATH" bash "$PAM" --apply "$PAM_NUL_SF" 2>&1)"; PAM_NUL_RC=$?
+    else
+      PAM_NUL_OUT="$(bash "$PAM" --apply "$PAM_NUL_SF" 2>&1)"; PAM_NUL_RC=$?
+    fi
+    assert_eq "pam #1081: NUL ($_nulcase, grep $_grep) → exit 2 (AC5)" "2" "$PAM_NUL_RC"
+    assert_eq "pam #1081: NUL ($_nulcase, grep $_grep) → file byte-for-byte unchanged (AC5)" "same" \
+      "$(cmp -s "$PAM_NUL/before.bin" "$PAM_NUL_SF" && echo same || echo differ)"
+    assert_eq "pam #1081: NUL ($_nulcase, grep $_grep) → breadcrumb names the NUL condition (AC5)" "yes" \
+      "$(printf '%s' "$PAM_NUL_OUT" | grep -qi 'NUL' && echo yes || echo no)"
+    rm -rf "$PAM_NUL"
+  done
+done
+
+# AC6: absent file + benign rows (whitespace-only, zero-byte, populated JSON)
+# driven twice — grep present vs absent — agree on exit code and resulting bytes.
+# Row 1 exempt; row 2 (NUL) covered above.
+for _row in absent whitespace zerobyte populated; do
+  PAM_A="$(mktemp -d)"; PAM_B="$(mktemp -d)"
+  PAM_A_SF="$PAM_A/settings.json"; PAM_B_SF="$PAM_B/settings.json"
+  for _sf in "$PAM_A_SF" "$PAM_B_SF"; do
+    case "$_row" in
+      absent)     : ;;
+      whitespace) printf '   \n\t\n' > "$_sf" ;;
+      zerobyte)   : > "$_sf" ;;
+      populated)  printf '%s' '{"env":{"MY_TOKEN_HELPER":"/x"}}' > "$_sf" ;;
+    esac
+  done
+  bash "$PAM" --apply "$PAM_A_SF" >/dev/null 2>&1; PAM_RA=$?
+  PATH="$PAM_NG_BIN:$PATH" bash "$PAM" --apply "$PAM_B_SF" >/dev/null 2>&1; PAM_RB=$?
+  assert_eq "pam #1081: row '$_row' → exit code agrees grep present vs absent (AC6)" "$PAM_RA" "$PAM_RB"
+  assert_eq "pam #1081: row '$_row' → resulting file bytes agree grep present vs absent (AC6)" "same" \
+    "$(cmp -s "$PAM_A_SF" "$PAM_B_SF" 2>/dev/null && echo same || echo differ)"
+  assert_eq "pam #1081: row '$_row' → auto-mode key written, exit 0 (AC6)" "1" \
+    "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_A_SF" 2>/dev/null)"
+  rm -rf "$PAM_A" "$PAM_B"
+done
+
+# AC8: invalid JSON still exits 2, unchanged, existing not-valid-JSON breadcrumb —
+# grep present vs absent.
+for _grep in present absent; do
+  PAM_IJ="$(mktemp -d)"; PAM_IJ_SF="$PAM_IJ/settings.json"
+  printf '%s' '{ not valid json' > "$PAM_IJ_SF"
+  if [ "$_grep" = absent ]; then
+    PAM_IJ_OUT="$(PATH="$PAM_NG_BIN:$PATH" bash "$PAM" --apply "$PAM_IJ_SF" 2>&1)"; PAM_IJ_RC=$?
+  else
+    PAM_IJ_OUT="$(bash "$PAM" --apply "$PAM_IJ_SF" 2>&1)"; PAM_IJ_RC=$?
+  fi
+  assert_eq "pam #1081: invalid JSON (grep $_grep) → exit 2 (AC8)" "2" "$PAM_IJ_RC"
+  assert_eq "pam #1081: invalid JSON (grep $_grep) → file byte-for-byte unchanged (AC8)" '{ not valid json' \
+    "$(cat "$PAM_IJ_SF")"
+  assert_eq "pam #1081: invalid JSON (grep $_grep) → existing not-valid-JSON breadcrumb (AC8)" "yes" \
+    "$(printf '%s' "$PAM_IJ_OUT" | grep -qi 'not valid json' && echo yes || echo no)"
+  rm -rf "$PAM_IJ"
+done
+
+# Idempotent second run with the probe unavailable → "nothing changed", byte-identical.
+PAM_NG_IDEM="$(mktemp -d)"; PAM_NG_IDEM_SF="$PAM_NG_IDEM/settings.json"
+PATH="$PAM_NG_BIN:$PATH" bash "$PAM" --apply "$PAM_NG_IDEM_SF" >/dev/null 2>&1
+PAM_NG_IDEM_FIRST="$(cat "$PAM_NG_IDEM_SF")"
+PAM_NG_IDEM_OUT="$(PATH="$PAM_NG_BIN:$PATH" bash "$PAM" --apply "$PAM_NG_IDEM_SF" 2>&1)"; PAM_NG_IDEM_RC=$?
+assert_eq "pam #1081: idempotent re-run, grep absent → exit 0" "0" "$PAM_NG_IDEM_RC"
+assert_eq "pam #1081: idempotent re-run, grep absent → file byte-identical" \
+  "$PAM_NG_IDEM_FIRST" "$(cat "$PAM_NG_IDEM_SF")"
+assert_eq "pam #1081: idempotent re-run, grep absent → 'nothing changed' breadcrumb" "yes" \
+  "$(printf '%s' "$PAM_NG_IDEM_OUT" | grep -qi 'nothing changed' && echo yes || echo no)"
+rm -rf "$PAM_NG_IDEM" "$PAM_NG_BIN"
 
 unset CLAUDE_CODE_USE_BEDROCK   # don't leak the provider var into later test blocks
 
@@ -27399,6 +27643,22 @@ assert_pin_unique "#271 coupled: phase-4-documentation.md deferrals merge invoke
 R313_IMPL="$(region_lines "$IMPL_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
 R313_RUNNER="$(region_lines "$RUNNER_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
 R313_LIGHT="$(region_lines "$LIGHT_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
+# --- AC2 (issue #1084): the provider resolver reads `$cfg[$section].provider`, so
+# each provider step's `SECTION:` env must name the config family that workflow's
+# own config reads use. devflow.yml set `SECTION: devflow` while the schema declares
+# `prflow.provider` and /prflow:init scaffolds only `prflow`, so a configured
+# provider was silently ignored on the entire /prflow:* command path. Assert each
+# workflow's SECTION matches its family and that the superseded `devflow` spelling
+# never reappears at a resolver call site.
+# structural-pin-ok: routing-dispatch-contract -- the SECTION literal selects which
+# config family the single-sourced resolver reads; a wrong value silently routes to
+# an unread section, so this is a typed routing boundary, not documentation prose.
+assert_eq "#1084 SECTION: devflow.yml provider steps name the prflow family (not the dead devflow spelling)" "2 0" \
+  "$(grep -cE '^[[:space:]]*SECTION:[[:space:]]*prflow$' "$LIGHT_WF") $(grep -cE '^[[:space:]]*SECTION:[[:space:]]*devflow$' "$LIGHT_WF")"
+assert_eq "#1084 SECTION: devflow-runner.yml provider steps name the prflow_runner family" "2 0" \
+  "$(grep -cE '^[[:space:]]*SECTION:[[:space:]]*prflow_runner$' "$RUNNER_WF") $(grep -cE '^[[:space:]]*SECTION:[[:space:]]*devflow$' "$RUNNER_WF")"
+assert_eq "#1084 SECTION: devflow-implement.yml provider steps name the prflow_implement family" "2 0" \
+  "$(grep -cE '^[[:space:]]*SECTION:[[:space:]]*prflow_implement$' "$IMPL_WF") $(grep -cE '^[[:space:]]*SECTION:[[:space:]]*devflow$' "$IMPL_WF")"
 # Non-empty guard: a renamed/removed sentinel would extract "" and make the
 # identity asserts vacuously PASS ("" == "") — assert extraction found a program.
 assert_eq "#313 resolver: program extracted from devflow-implement.yml is non-empty (sentinels intact)" "yes" \
@@ -40946,7 +41206,7 @@ fi
 # full-suite call share the same lower-bound contract; test_module_runner.py parses
 # this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/parallel-suite-runner.sh" \
-  "parallel-suite-runner" 97; then
+  "parallel-suite-runner" 104; then
   printf 'ERROR: parallel-suite-runner boundary could not record its result\n'
   exit 1
 fi
@@ -43327,6 +43587,107 @@ PY
 fi
 # ────────────────────────────────────────────────────────────────────────────
 
+# ── #1084 superseded-config-key guard (lib/test/lint-superseded-config-keys.py) ──
+# The consumer-facing `devflow` config family was renamed to `prflow` (#1002); #1068 and
+# #1084 swept the tree of stale `devflow.<key>` leaves twice, so a one-time sweep has a known
+# recurrence rate. This guard fails RED on a newly introduced superseded leaf. It sources its
+# population from `git ls-files` (no recursive walk, #711) and carries a declared-exemption
+# list for the do-not-sweep sites. Driven here so the whole tree is re-scanned every run.
+L1084_LINT="$LIB/test/lint-superseded-config-keys.py"
+assert_eq "#1084 guard: no superseded devflow.<key> config leaf in the tree" "rc=0" \
+  "$(cd "$LIB/.." && python3 "$L1084_LINT" >/dev/null 2>&1 && echo rc=0 || echo "rc=$?")"
+# Non-vacuous detector: assert the leaf regex fires on a superseded leaf and a jq path, and
+# correctly skips the frozen forms (a bare `SECTION:` family word with no leaf, a filename
+# extension, the `/`-alias colon form) — so an accidental weakening of the pattern is caught,
+# not just an empty tree. Drives the module's own `_LEAF_RE` / `_EXTENSIONS` directly. The
+# superseded family word is ASSEMBLED FROM PARTS so no literal superseded leaf appears in this
+# file's own source — otherwise this fixture would be a candidate the guard flags in run.sh.
+assert_eq "#1084 guard: leaf detector matches superseded leaves and skips frozen forms" "T T F F F" \
+  "$(python3 - "$L1084_LINT" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("g", sys.argv[1])
+g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+F = "dev" + "flow"  # assembled so this file carries no literal superseded leaf
+def hit(line):
+    m = g._LEAF_RE.search(line)
+    return bool(m) and m.group(1) not in g._EXTENSIONS
+def t(b): return "T" if b else "F"
+print(" ".join(t(hit(x)) for x in (
+    F + ".allowed_bots", "read `." + F + ".workpad_marker`",
+    "SECTION: " + F, F + ".yml", "/" + F + ":review")))
+PY
+)"
+# main()-level RED-path test: drive the WHOLE guard pipeline (not just the regex) over a
+# synthetic population by monkeypatching the shared population reader, so a neutered exemption
+# list, a swallowed skip, or an unhandled enumeration failure is caught — the clean-tree rc=0
+# assertion above is vacuous if _exempt() is broadened to match everything. Asserts, in order:
+# an offender in a NON-exempt file → rc 1; an offender only in an EXEMPT file → rc 0; a
+# non-exempt file that cannot be read → rc 1 (fail-closed skip, not a silent clean pass); an
+# enumeration failure → rc 2. The offending leaf is assembled from parts so this file carries
+# none.
+assert_eq "#1084 guard: main() pipeline red-paths (offender/exact-exempt/prefix-exempt/skip/enum)" "1 0 0 1 2" \
+  "$(python3 - "$L1084_LINT" <<'PY'
+import importlib.util, io, sys, contextlib
+spec = importlib.util.spec_from_file_location("g", sys.argv[1])
+g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+F = "dev" + "flow"
+OFFENDER = "a comment naming " + F + ".allowed_bots here"
+def run_main(pop, reader):
+    g._pop.enumerate_population = lambda root, ff, *, ls_files_argv: pop
+    g._pop.read_source = reader
+    with contextlib.redirect_stderr(io.StringIO()):
+        return g.main()
+off = lambda p, *, skip_nul: (OFFENDER, None)
+# 1) offender in a NON-exempt file → rc 1
+r_off = run_main(["some/live-file.md"], off)
+# 2) offender only in an EXACT-exempt file (install.sh) → rc 0 (_EXEMPT_EXACT honored)
+r_exact = run_main(["install.sh"], off)
+# 3) offender only in a PREFIX-exempt file (.changeset/) → rc 0 (_EXEMPT_PREFIXES honored)
+r_prefix = run_main([".changeset/x.md"], off)
+# 4) a non-exempt, non-binary file that cannot be read → rc 1 (fail-closed skip)
+r_skip = run_main(["some/live-file.md"], lambda p, *, skip_nul: (None, "unreadable (permission)"))
+# 5) enumeration failure → rc 2
+def raise_enum(root, ff, *, ls_files_argv):
+    raise g._pop.EnumerationError("git ls-files failed")
+g._pop.enumerate_population = raise_enum
+with contextlib.redirect_stderr(io.StringIO()):
+    r_enum = g.main()
+print(r_off, r_exact, r_prefix, r_skip, r_enum)
+PY
+)"
+# #1084 AC5: the sweep must not touch any FROZEN identifier. Verified against a
+# lib/rename-map.json-derived assertion rather than a bare negative: derive the frozen
+# workflow filenames present in the tree, the DEVFLOW_ env prefix, devflow-marketplace, the
+# /devflow: alias and the DevFlow product name from the map + tree, and assert each SURVIVES.
+assert_eq "#1084 AC5: frozen identifiers survive the superseded-leaf sweep" "ALL-PRESENT" \
+  "$(cd "$LIB/.." && python3 - <<'PY'
+import json, subprocess, sys
+m = json.load(open("lib/rename-map.json"))
+def present(needle):
+    r = subprocess.run(["git", "grep", "-qF", needle], capture_output=True)
+    return r.returncode == 0
+def ftracked(path):
+    r = subprocess.run(["git", "ls-files", "--error-unmatch", path], capture_output=True)
+    return r.returncode == 0
+missing = []
+# Frozen workflow FILENAMES that ship in the tree (devflow-review.yml / telemetry-push.yml
+# are withheld from this release, so only assert survival of the ones actually present).
+for fn in m["frozen"]["workflow_filenames"]:
+    p = ".github/workflows/" + fn
+    if ftracked(p) and not present(fn):
+        missing.append(fn)
+# Frozen consumer-facing env identifiers keep their DEVFLOW_ spelling (no PRFLOW_ read exists).
+for row in m["frozen"]["env_identifiers"]["identifiers"]:
+    if not present(row["name"]):
+        missing.append(row["name"])
+# Frozen top-level identifiers: the marketplace slug, the /devflow: command alias, the
+# devflow:<agent> override namespace, and the DevFlow product name.
+for lit in ("devflow-marketplace", "/devflow:", "devflow:code-reviewer", "DevFlow"):
+    if not present(lit):
+        missing.append(lit)
+print("ALL-PRESENT" if not missing else "MISSING: " + ", ".join(missing))
+PY
+)"
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 # SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as
