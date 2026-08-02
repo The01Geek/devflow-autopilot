@@ -23205,6 +23205,107 @@ assert_eq "pls #1081: idempotent re-run, grep absent → 'nothing changed' bread
   "$(printf '%s' "$PLS_NG_IDEM_OUT" | grep -qi 'nothing changed' && echo yes || echo no)"
 rm -rf "$PLS_NG_IDEM" "$PLS_NG_BIN"
 
+# Issue #1073 — the script's OWN executable write-contract boundary. The shipped
+# script is UNGATED: a bare invocation (no --apply, no consent step) writes the
+# project .claude/settings.json immediately. Pin that as one tuple — exit code
+# AND whether <target>/.claude/settings.json exists after the invocation — so the
+# write-state is asserted directly, not inferred from a downstream key read. RED by
+# inverting the contract: gate the write behind an --apply arm (print-and-stop by
+# default) and the file no longer exists after a bare invocation, flipping the
+# expected `0:yes` to `0:no`; likewise a script that exits non-zero flips the tuple.
+PLS_WC="$(mktemp -d)"
+bash "$PLS" "$PLS_WC" >/dev/null 2>&1; PLS_WC_RC=$?
+assert_eq "pls: bare invocation write-state matches the shipped contract (#1073)" "0:yes" \
+  "$PLS_WC_RC:$([ -f "$PLS_WC/.claude/settings.json" ] && echo yes || echo no)"
+rm -rf "$PLS_WC"
+
+# Issue #1073 — the fenced jsonc blocks in docs/install.md and docs/cloud-setup.md
+# reproduce the provisioned settings and are byte-mirrors of the script's $DEFAULTS
+# jq program. Assert they parse to the SAME JSON a write-performing invocation of
+# the shipped script produces, compared key-for-key (deep equality). This is a
+# content comparison against a produced artifact, not a source-text search, so it
+# is an executable assertion rather than a prose pin. RED by adding a key to
+# $DEFAULTS without editing the fences (or vice versa). The extractor strips
+# blockquote `> ` prefixes (the cloud-setup.md block lives in a blockquote) and
+# `//` line comments (jsonc) before parsing, and selects the first fenced block
+# that parses to a JSON object carrying `extraKnownMarketplaces`.
+PLS_DOC="$(mktemp -d)"
+bash "$PLS" "$PLS_DOC" >/dev/null 2>&1
+pls_doc_cmp() {
+  # $1 = produced settings.json ; $2 = markdown doc carrying the jsonc fence
+  python3 - "$1" "$2" <<'PY'
+import json, sys
+produced_path, doc_path = sys.argv[1], sys.argv[2]
+with open(produced_path, encoding="utf-8") as fh:
+    produced = json.load(fh)
+lines = []
+for raw in open(doc_path, encoding="utf-8"):
+    s = raw.rstrip("\n")
+    # strip a leading blockquote marker ("> " or ">")
+    if s.startswith("> "):
+        s = s[2:]
+    elif s == ">":
+        s = ""
+    lines.append(s)
+# collect fenced code blocks
+blocks, cur, infence = [], None, False
+for s in lines:
+    if s.lstrip().startswith("```"):
+        if infence:
+            blocks.append("\n".join(cur)); cur, infence = None, False
+        else:
+            cur, infence = [], True
+        continue
+    if infence:
+        cur.append(s)
+# Among fenced blocks, collect every one that (after stripping jsonc // line
+# comments) parses to a JSON object carrying extraKnownMarketplaces — robust to a
+# `bash`/`text` fence that merely mentions the marketplace name in prose. Require
+# EXACTLY ONE such block: today each doc carries a single provisioned-settings
+# fence, and demanding exactly one closes the latent false-green a "first match
+# wins" selection would open if a future edit added a second settings-like fence
+# before the canonical one (the comparison could then pass against the wrong block
+# while the intended fence drifts). Zero or more-than-one both fail LOUD (the token
+# is never "match"), so a doc-structure change surfaces here rather than masking drift.
+candidates = []
+for b in blocks:
+    clean = "\n".join(l for l in b.splitlines() if not l.lstrip().startswith("//"))
+    try:
+        cand = json.loads(clean)
+    except Exception:
+        continue
+    if isinstance(cand, dict) and "extraKnownMarketplaces" in cand:
+        candidates.append(cand)
+if len(candidates) != 1:
+    print("expected-exactly-one-settings-fence-got-%d" % len(candidates)); sys.exit(0)
+print("match" if candidates[0] == produced else "mismatch")
+PY
+}
+assert_eq "pls: shipped defaults match the documented jsonc block in docs/install.md (#1073)" "match" \
+  "$(pls_doc_cmp "$PLS_DOC/.claude/settings.json" "$LIB/../docs/install.md")"
+assert_eq "pls: shipped defaults match the documented jsonc block in docs/cloud-setup.md (#1073)" "match" \
+  "$(pls_doc_cmp "$PLS_DOC/.claude/settings.json" "$LIB/../docs/cloud-setup.md")"
+rm -rf "$PLS_DOC"
+unset -f pls_doc_cmp
+
+# Issue #1073 — a fixture carrying ONLY the superseded plugin spec is driven
+# through the shipped invocation; the resulting enabledPlugins enables the plugin
+# under exactly one identifier — the canonical one — because the removal of the
+# superseded spec and the addition of the canonical one are a single atomic write.
+# The real shipped identity declares `devflow@devflow-marketplace` superseded and
+# `prflow@devflow-marketplace` canonical. RED by splitting the removal and the
+# addition across a gate (the superseded spec would survive → two identifiers).
+PLS_ORPHAN="$(mktemp -d)"; mkdir -p "$PLS_ORPHAN/.claude"
+printf '%s' '{"enabledPlugins":{"devflow@devflow-marketplace":true}}' > "$PLS_ORPHAN/.claude/settings.json"
+bash "$PLS" "$PLS_ORPHAN" >/dev/null 2>&1; PLS_ORPHAN_RC=$?
+PLS_ORPHAN_SF="$PLS_ORPHAN/.claude/settings.json"
+assert_eq "pls: superseded-only fixture → exit 0 (#1073)" "0" "$PLS_ORPHAN_RC"
+assert_eq "pls: superseded-only fixture → enabledPlugins has exactly one identifier (#1073)" "1" \
+  "$(jq -r '.enabledPlugins | length' "$PLS_ORPHAN_SF" 2>/dev/null)"
+assert_eq "pls: superseded-only fixture → the one identifier is the canonical spec (#1073)" "$SUITE_PLUGIN_SPEC" \
+  "$(jq -r '.enabledPlugins | keys[0]' "$PLS_ORPHAN_SF" 2>/dev/null)"
+rm -rf "$PLS_ORPHAN"
+
 # AC 7: isolation invariant — the cloud path (scaffold-config.sh, as install.sh
 # calls it) creates/modifies NO .claude/settings.json.
 PLS_ISO="$(mktemp -d)"
