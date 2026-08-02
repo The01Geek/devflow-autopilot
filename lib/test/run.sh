@@ -43363,6 +43363,39 @@ print(" ".join(t(hit(x)) for x in (
     "SECTION: devflow", "devflow.yml", "/devflow:review")))
 PY
 )"
+# #1084 AC5: the sweep must not touch any FROZEN identifier. Verified against a
+# lib/rename-map.json-derived assertion rather than a bare negative: derive the frozen
+# workflow filenames present in the tree, the DEVFLOW_ env prefix, devflow-marketplace, the
+# /devflow: alias and the DevFlow product name from the map + tree, and assert each SURVIVES.
+assert_eq "#1084 AC5: frozen identifiers survive the superseded-leaf sweep" "ALL-PRESENT" \
+  "$(cd "$LIB/.." && python3 - <<'PY'
+import json, subprocess, sys
+m = json.load(open("lib/rename-map.json"))
+def present(needle):
+    r = subprocess.run(["git", "grep", "-qF", needle], capture_output=True)
+    return r.returncode == 0
+def ftracked(path):
+    r = subprocess.run(["git", "ls-files", "--error-unmatch", path], capture_output=True)
+    return r.returncode == 0
+missing = []
+# Frozen workflow FILENAMES that ship in the tree (devflow-review.yml / telemetry-push.yml
+# are withheld from this release, so only assert survival of the ones actually present).
+for fn in m["frozen"]["workflow_filenames"]:
+    p = ".github/workflows/" + fn
+    if ftracked(p) and not present(fn):
+        missing.append(fn)
+# Frozen consumer-facing env identifiers keep their DEVFLOW_ spelling (no PRFLOW_ read exists).
+for row in m["frozen"]["env_identifiers"]["identifiers"]:
+    if not present(row["name"]):
+        missing.append(row["name"])
+# Frozen top-level identifiers: the marketplace slug, the /devflow: command alias, the
+# devflow:<agent> override namespace, and the DevFlow product name.
+for lit in ("devflow-marketplace", "/devflow:", "devflow:code-reviewer", "DevFlow"):
+    if not present(lit):
+        missing.append(lit)
+print("ALL-PRESENT" if not missing else "MISSING: " + ", ".join(missing))
+PY
+)"
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 # SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as
