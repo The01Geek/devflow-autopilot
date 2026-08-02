@@ -405,7 +405,7 @@ def body(block: dict, rows: list[dict]) -> list[str]:
 
     out.append(
         "Not on this list and wondering why: `DEVFLOW_PROMPT_EXTENSION_ROOT` is written "
-        "by the automated review workflow and never set by you, and `DEVFLOW_CONFIG_FILE` "
+        "by the cloud workflows that run the review engine and never set by you, and `DEVFLOW_CONFIG_FILE` "
         "is an internal seam that has never been published as a consumer setting. Both "
         "are recorded with their reasoning in `lib/rename-map.json`."
     )
