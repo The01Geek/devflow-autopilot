@@ -4,21 +4,24 @@
 # post-ci-review-trigger.sh — post the bare standalone review-trigger comment on a
 # pull request, at most once per head SHA.
 #
-# SOLE CALLER: the `auto_review_trigger` job in .github/workflows/ci.yml. That
-# workflow is REPO-INTERNAL — install.sh's copy loop ships only devflow.yml and
-# devflow-implement.yml, so no consumer repo has ci.yml, nothing consumer-facing
-# calls this helper, and the standing "a collaborator posts the review comment"
-# statement in the shipped docs is untouched.
+# SOLE IN-REPO CALLER: the `auto_review_trigger` job in .github/workflows/ci.yml.
+# That workflow is REPO-INTERNAL — install.sh's copy loop ships only devflow.yml
+# and devflow-implement.yml, so no consumer repo has ci.yml. A consumer instead
+# copies the documented `pull_request` job snippet from docs/workflow-triggers.md
+# into their OWN CI workflow and invokes this helper at its vendored path
+# .prflow/vendor/prflow/scripts/post-ci-review-trigger.sh (materialized by the
+# vendor-plugin composite action install.sh ships). Both callers pass the same
+# environment contract below.
 #
 # Division of labour with the calling job:
 #   * The job's `if:` decides ELIGIBILITY, entirely in GitHub-evaluated expressions
-#     so no credential is minted for an ineligible run: both CI jobs green, a
-#     non-draft `pull_request` whose head repo IS this repo (the fork gate), not
-#     dependabot, and an App configured.
-#   * This helper owns the remaining POST-or-SKIP selection. That is a branch
-#     selection over a user-visible outcome, so it lives in a script the suite can
-#     drive arm by arm rather than inline in YAML — the scripts/describe-denial-count.sh
-#     precedent CLAUDE.md names.
+#     so no credential is minted for an ineligible run: a non-draft `pull_request`
+#     whose head repo IS this repo (the fork gate), not dependabot, an App
+#     configured, and (post path only) both CI jobs green.
+#   * This helper owns the remaining POST-or-SKIP selection AND the withheld-request
+#     announcement. Both are branch selections over a user-visible outcome, so they
+#     live in a script the suite can drive arm by arm rather than inline in YAML —
+#     the scripts/describe-denial-count.sh precedent CLAUDE.md names.
 #
 # CONTRACT
 #   * ALWAYS exits 0 (best-effort notification; it must never redden CI). Every
@@ -33,6 +36,17 @@
 #     posts when it cannot verify has no bounding property at all, which is exactly
 #     the "a guard whose comparand can be absent fails open where it claims to fail
 #     closed" class CLAUDE.md warns about.
+#   * A prior comment SUPPRESSES only when BOTH its author login matches the minting
+#     App AND its body carries the complete marker for the current head SHA. The
+#     author scoping closes the quoting-suppression hazard: before it, ANY comment
+#     that merely quoted the marker (a human pasting it, a bot echoing it) killed
+#     the review request. The comparand is EXPECTED_AUTHOR (the App slug); both the
+#     bare slug and the `<slug>[bot]` login form match, mirroring
+#     scripts/authorize-actor.sh's actor_bare handling. An EMPTY EXPECTED_AUTHOR, or
+#     a marker comment whose author cannot be resolved, fails CLOSED (no post +
+#     warning) in the SAME direction as the idempotency read — an unestablished
+#     comparand must never widen the mechanism into duplicate-posting on every
+#     re-run.
 #   * The success annotation is gated on post-issue-comment.sh's own success
 #     breadcrumb, never on its exit code — that helper is best-effort and always
 #     exits 0, so a failed POST would otherwise be annotated as a fired trigger
@@ -49,15 +63,27 @@
 # `/prflow:review ` command) and pushes nothing.
 #
 # Inputs (env):
-#   PR        the pull-request number the comment goes on (required, numeric)
-#   HEAD_SHA  the reviewed head commit (required, lowercase hex 7..40) — it keys
-#             the marker, so dedupe is per-SHA and a new head always re-notifies
-#   MODE      `post` (default) or `compose`
-#   GH_TOKEN  consumed by gh; the caller sets it to the minted App token
+#   PR              the pull-request number the comment goes on (required, numeric)
+#   HEAD_SHA        the reviewed head commit (required, lowercase hex 7..40) — it
+#                   keys the marker, so dedupe is per-SHA and a new head re-notifies
+#   MODE            `post` (default), `compose`, or `announce`
+#   EXPECTED_AUTHOR (post mode) the minting App's slug — the app-slug output of the
+#                   actions/create-github-app-token mint step in the calling job. A
+#                   comment suppresses only when authored by this login (bare or
+#                   `[bot]` form). Empty → fail closed.
+#   TEST_RESULT     (announce mode) the `test` dependency's result
+#   LINT_RESULT     (announce mode) the `lint` dependency's result
+#   GH_TOKEN        consumed by gh; the caller sets it to the minted App token
 #
 # MODE=compose writes ONLY the composed body to stdout and touches no network. It
 # is the seam the suite drives the payload contract through, so the body the test
 # inspects is byte-identical to the body a real run posts.
+#
+# MODE=announce writes ONLY a `::warning::` naming which dependency withheld the
+# request (test, lint, or both) and touches no network. The calling job runs it on
+# the step-level branch where a dependency did NOT conclude `success`, so a red
+# `lint` — not a required status check, hence a mergeable PR — is announced instead
+# of skipped in silence.
 set -uo pipefail
 
 _PCRT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -80,9 +106,9 @@ PR="${PR:-}"
 HEAD_SHA="${HEAD_SHA:-}"
 MODE="${MODE:-post}"
 
-# Annotation sink. In `post` mode the runner parses workflow commands off this
-# step's stdout, so annotations go there. In `compose` mode stdout is reserved for
-# the composed body — a breadcrumb mixed into it would corrupt the payload the
+# Annotation sink. In `post`/`announce` mode the runner parses workflow commands off
+# this step's stdout, so annotations go there. In `compose` mode stdout is reserved
+# for the composed body — a breadcrumb mixed into it would corrupt the payload the
 # caller is asking for — so they go to stderr instead.
 _note() {  # $1=notice|warning  $2=message
   if [ "$MODE" = compose ]; then
@@ -95,7 +121,9 @@ _note() {  # $1=notice|warning  $2=message
 # Validate BEFORE composing. HEAD_SHA is interpolated into the marker and into the
 # jq filter that reads the comment list, so a non-hex value is refused rather than
 # embedded: it keeps the marker's shape a machine-comparable constant and leaves
-# the filter free of anything jq or the shell would treat as special.
+# the filter free of anything jq or the shell would treat as special. (EXPECTED_AUTHOR
+# is NEVER interpolated into jq — it is compared in bash below — so it needs no such
+# validate-before-interpolate step.)
 case "$PR" in
   ''|*[!0-9]*)
     _note warning "ci auto-review trigger: PR number '$PR' is missing or non-numeric; no trigger comment posted."
@@ -103,6 +131,27 @@ case "$PR" in
 esac
 if ! [[ "$HEAD_SHA" =~ ^[0-9a-f]{7,40}$ ]]; then
   _note warning "ci auto-review trigger: head SHA '$HEAD_SHA' is missing or not a lowercase hex commit id; no trigger comment posted for PR #$PR."
+  exit 0
+fi
+
+# --- MODE=announce ----------------------------------------------------------
+# Compose the withheld-request warning. The selection lives here (not inline in
+# ci.yml) so the suite can drive every dependency-result combination — the
+# scripts/describe-denial-count.sh precedent. It posts nothing and mints nothing.
+_describe_withheld() {  # $1=test result  $2=lint result — echoes the withheld set, or empty
+  local t="$1" l="$2" withheld=""
+  [ "$t" = success ] || withheld="test"
+  [ "$l" = success ] || withheld="${withheld:+$withheld and }lint"
+  printf '%s' "$withheld"
+}
+if [ "$MODE" = announce ]; then
+  _WITHHELD="$(_describe_withheld "${TEST_RESULT:-}" "${LINT_RESULT:-}")"
+  if [ -n "$_WITHHELD" ]; then
+    _note warning "ci auto-review trigger: no review requested for PR #$PR at $HEAD_SHA — $_WITHHELD did not conclude success (test=${TEST_RESULT:-}, lint=${LINT_RESULT:-})."
+  fi
+  # Both green here (a caller that ran announce despite eligibility) is a silent
+  # no-op: the post path owns that case, so announce emits nothing rather than a
+  # spurious warning.
   exit 0
 fi
 
@@ -123,6 +172,27 @@ if [ "$MODE" = compose ]; then
   exit 0
 fi
 
+# --- MODE=post --------------------------------------------------------------
+# Author comparand. A suppressing comment must be authored by the minting App;
+# an empty comparand fails CLOSED (an author-blind match is exactly what the
+# author-scoping criterion removes, so degrading to it on an empty value would
+# re-open the hazard).
+EXPECTED_AUTHOR="${EXPECTED_AUTHOR:-}"
+if [ -z "$EXPECTED_AUTHOR" ]; then
+  _note warning "ci auto-review trigger: the expected author login (app-slug) is empty; NOT posting for PR #$PR (fail-closed — an empty author comparand must not widen the trigger into duplicate-posting)."
+  exit 0
+fi
+
+# Login match, mirroring authorize-actor.sh's actor_bare handling: the App comment
+# login is `<slug>[bot]` while the app-slug output is the bare `<slug>`, so compare
+# both exact and bare-stripped forms in BOTH directions.
+_login_matches() {  # $1=comment login  $2=expected comparand
+  local login="$1" expect="$2"
+  local login_bare="${login%\[bot\]}"
+  local expect_bare="${expect%\[bot\]}"
+  [ "$login" = "$expect" ] || [ "$login_bare" = "$expect_bare" ]
+}
+
 # --- Idempotency read (fail-closed) -----------------------------------------
 # `{owner}/{repo}` placeholders, which gh fills from the git remote, NOT an
 # interpolated $GITHUB_REPOSITORY: this file lives under scripts/ and so is a
@@ -130,10 +200,15 @@ fi
 # the path would collapse to `repos//issues/…` while gh wrote the HTTP error body
 # to stdout (issue #664; lib/test/lint-gh-api-repo-path.py enforces it here).
 # --paginate so a long-lived PR whose marker sits past page one is still seen.
-# The filter emits one comment id per hit; a page with no hit emits nothing.
+# The filter emits ONE LINE PER marker-bearing comment: its author login, or the
+# sentinel `__prflow_no_author__` when the comment carries no resolvable author
+# (a login can contain neither underscores nor brackets, so the sentinel can never
+# collide with a real one). bash then applies the author match — the author scoping
+# is deliberately NOT in jq, so an unresolvable author is a distinguishable
+# fail-closed case rather than a silently-dropped row.
 LIST_ERR="$(mktemp 2>/dev/null || echo /dev/null)"
 if ! LIST_OUT="$("$DEVFLOW_GH" api --paginate "repos/{owner}/{repo}/issues/${PR}/comments" \
-      --jq ".[] | select((.body // \"\") | contains(\"$MARKER\")) | .id" 2>"$LIST_ERR")"; then
+      --jq ".[] | select((.body // \"\") | contains(\"$MARKER\")) | (.user.login // \"__prflow_no_author__\")" 2>"$LIST_ERR")"; then
   _note warning "ci auto-review trigger: could not read PR #$PR comments to check for an existing trigger ($(tr '\n' ' ' < "$LIST_ERR")); NOT posting (fail-closed — a duplicate standalone review is unrecoverable spend, a missed one is not)."
   [ "$LIST_ERR" = /dev/null ] || rm -f "$LIST_ERR"
   exit 0
@@ -141,21 +216,34 @@ fi
 [ "$LIST_ERR" = /dev/null ] || rm -f "$LIST_ERR"
 
 # Decide with bash builtins only. `tr`/`sed`/`wc` are not preflight-guaranteed, and
-# a missing one would empty the pipeline and silently flip this selection to
-# "post" — the un-guaranteed-tool trap CLAUDE.md names. (The `tr` above is inside a
-# breadcrumb, where a missing tool only empties a diagnostic.)
+# a missing one would empty the pipeline and silently flip this selection — the
+# un-guaranteed-tool trap CLAUDE.md names. (The `tr` above is inside a breadcrumb,
+# where a missing tool only empties a diagnostic.)
+#   ALREADY      an App-authored marker comment for THIS head exists → already posted
+#   UNVERIFIABLE a marker comment exists whose author cannot be resolved → fail closed
+# A marker comment authored by a DIFFERENT resolvable login sets neither, so the
+# review still posts — that is the quoting-suppression fix.
 ALREADY=false
-while IFS= read -r _id; do
-  case "$_id" in
-    ''|*[!0-9]*) : ;;
-    *) ALREADY=true ;;
-  esac
+UNVERIFIABLE=false
+while IFS= read -r _login; do
+  [ -z "$_login" ] && continue
+  if [ "$_login" = "__prflow_no_author__" ]; then
+    UNVERIFIABLE=true
+    continue
+  fi
+  if _login_matches "$_login" "$EXPECTED_AUTHOR"; then
+    ALREADY=true
+  fi
 done <<EOF
 $LIST_OUT
 EOF
 
 if [ "$ALREADY" = true ]; then
-  _note notice "ci auto-review trigger: PR #$PR already carries a trigger comment for $HEAD_SHA; nothing to post."
+  _note notice "ci auto-review trigger: PR #$PR already carries an App-authored trigger comment for $HEAD_SHA; nothing to post."
+  exit 0
+fi
+if [ "$UNVERIFIABLE" = true ]; then
+  _note warning "ci auto-review trigger: PR #$PR carries a marker comment for $HEAD_SHA whose author could not be resolved; NOT posting (fail-closed — an unestablished author comparand must not widen the trigger into duplicate-posting)."
   exit 0
 fi
 

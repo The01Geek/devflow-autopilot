@@ -148,6 +148,10 @@ dismissed.
 receives those workflow files, so the flaw is not reachable. Review still works: a
 repository collaborator comments `/prflow:review` on a pull request and the review runs,
 gated by an actor-authorization check. An outside fork contributor cannot self-trigger one.
+You can *additionally* opt into having that `/prflow:review` posted **automatically once CI
+is green** by copying the documented `pull_request` snippet in
+[`docs/workflow-triggers.md`](docs/workflow-triggers.md) — it never grants a fork access to
+secrets (the head-repo clause excludes fork pull requests before any token is minted).
 
 **If you installed an earlier version that did ship the tier,** you still have the files
 and re-running the installer deliberately leaves them alone. To remove them, run

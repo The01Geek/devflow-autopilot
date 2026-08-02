@@ -46,11 +46,14 @@ gate. Two open defects describe the consequences and neither is close to landing
   `GITHUB_TOKEN` regardless of the `permissions:` block, so the job cannot post the required
   check and the context goes unreported.
 
-**The supported review path is `/prflow:review` by comment**, and this change does not edit it. A
-repository collaborator with write, admin or maintain permission comments `/prflow:review`
-on a pull request; `devflow.yml`'s `gate` job authorizes the actor through
-`scripts/authorize-actor.sh`, and the review runs. **An outside fork contributor cannot
-self-trigger a PRFlow review — a repository collaborator must post the comment.**
+**A repository collaborator commenting `/prflow:review` is the always-available review
+path**, and this change does not edit it. A repository collaborator with write, admin or
+maintain permission comments `/prflow:review` on a pull request; `devflow.yml`'s `gate` job
+authorizes the actor through `scripts/authorize-actor.sh`, and the review runs. **An outside
+fork contributor cannot self-trigger a PRFlow review — a repository collaborator must post
+the comment.** A consumer can *additionally* opt into having that comment posted
+**automatically once CI is green** with the documented `pull_request` snippet in
+[`workflow-triggers.md`](workflow-triggers.md) (authorized by the same `allowed_bots` gate).
 
 **If you already installed the tier, you keep it.** `install.sh`'s
 `prune_stale_devflow_workflows()` is deliberately not extended, so re-running the installer
@@ -793,7 +796,9 @@ consumer repository (plus the repo's own `ci.yml`, whose **required** status che
 
 `devflow-review.yml` — the auto-review caller that ran `/prflow:review` as a required PR
 gate — was **withdrawn from this release (issue #936) and is not in the tree**. The
-supported review path is a repository collaborator commenting `/prflow:review`. See
+always-available review path is a repository collaborator commenting `/prflow:review`; a
+consumer can *additionally* opt into an automatic CI-green `/prflow:review` request via the
+documented snippet in [`workflow-triggers.md`](workflow-triggers.md). See
 [Withheld from this release](#withheld-from-this-release-the-automatic-pull-request-triggered-review-tier).
 
 **Key architectural facts (the engineering-deck details):**

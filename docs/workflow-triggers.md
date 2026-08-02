@@ -26,11 +26,16 @@ gate. Two open defects describe the consequences and neither is close to landing
   `GITHUB_TOKEN` regardless of the `permissions:` block, so the job cannot post the required
   check and the context goes unreported.
 
-**The supported review path is `/prflow:review` by comment**, and this change does not edit it. A
-repository collaborator with write, admin or maintain permission comments `/prflow:review`
-on a pull request; `devflow.yml`'s `gate` job authorizes the actor through
-`scripts/authorize-actor.sh`, and the review runs. **An outside fork contributor cannot
-self-trigger a PRFlow review — a repository collaborator must post the comment.**
+**A repository collaborator commenting `/prflow:review` is the always-available review
+path.** A repository collaborator with write, admin or maintain permission comments
+`/prflow:review` on a pull request; `devflow.yml`'s `gate` job authorizes the actor
+through `scripts/authorize-actor.sh`, and the review runs. **An outside fork
+contributor cannot self-trigger a PRFlow review — a repository collaborator must post
+the comment.** A consumer can *additionally* have that `/prflow:review` comment posted
+**automatically once CI is green**, by copying the documented snippet in *Automatic
+review request on green CI* below; the comment it posts is authorized by the same
+`allowed_bots` gate. The collaborator comment remains the path for CI systems the
+automatic snippet does not reach (see that section's coverage boundary).
 
 **If you already installed the tier, you keep it.** `install.sh`'s
 `prune_stale_devflow_workflows()` is deliberately not extended, so re-running the installer
@@ -75,6 +80,7 @@ restore.
 |---|---|---|
 | `devflow.yml` (light path) | `/prflow:review`, `/prflow:review-and-fix`, `/prflow:pr-description` | `issue_comment[created]`, `pull_request_review_comment[created]`, `pull_request_review[submitted]` |
 | `devflow-implement.yml` (heavy path) | `/prflow:implement` | `issue_comment[created]` |
+| `ci.yml` — `auto_review_trigger` job **(repo-internal; `install.sh` does NOT ship it)** | posts `/prflow:review` automatically once CI is green on a non-draft same-repo pull request | `pull_request[opened, synchronize, reopened, ready_for_review]` (an automatic *producer* of the `/prflow:review` comment, not a listener for it; a consumer reproduces it with the documented snippet below — see *Automatic review request on green CI*) |
 | `devflow-review.yml` **(withheld — see above; not shipped, still live in repositories that installed it)** | automated review | PR lifecycle + `check_run[rerequested]` + `workflow_run`/`check_suite` `[completed]` + `status` (CI-completion re-trigger for deferred reviews — `status` covers legacy commit-status-only CI, filtered to a green state; see the preconditions note in `DEVFLOW_SYSTEM_OVERVIEW.md` §14; the `workflow_run` `workflows:` list must name **every** first-party workflow that runs on PR events — the review waits on all of them but re-fires only on a listed one's completion, so a gating workflow omitted from the list can strand a deferred review, issue #579) |
 
 **Both command namespaces are accepted in a comment.** The plugin was renamed
@@ -113,6 +119,143 @@ indented, or inside a fenced code block does **not** trigger — only a standalo
 own-line command does. See the *"A light `/prflow:*` command fires only when
 issued, never when quoted"* section below for the shared detector's exact
 anchoring rules; the heavy path inherits them wholesale.
+
+## Automatic review request on green CI (`ci.yml`), and shipping it to a consumer repository
+
+PRFlow's own repository requests a `/prflow:review` automatically the moment CI is
+green on a pull request, so the review it already expects before merge does not wait
+on a human remembering to type the trigger. This lives in the `auto_review_trigger`
+job of `.github/workflows/ci.yml`. **It is repo-internal: `install.sh`'s workflow copy
+loop ships `devflow.yml` and `devflow-implement.yml` and NOT `ci.yml`**, so a consumer
+repository does not receive it — the standing "a collaborator comments the trigger"
+statement above stays literally true out of the box. A consumer that wants the same
+automatic request copies the snippet below into their own CI.
+
+**How the in-repo job behaves** (the same behavior the snippet reproduces): it fires
+on every green head, deduped only at an identical head SHA via the marker
+`<!-- prflow:ci-review-trigger sha=<sha> -->` that `scripts/post-ci-review-trigger.sh`
+posts and reads back. A prior comment suppresses the request **only when this App
+itself authored it** — a human or another bot merely quoting the marker no longer
+kills the review. Concurrent runs at one head SHA are serialized (`concurrency` group,
+`cancel-in-progress: false`) so the read-then-post dedupe is atomic. And when a
+dependency (`test` or `lint`) concludes anything other than `success`, the job posts
+nothing but emits a `::warning::` naming which dependency withheld the request —
+`lint` is **not** a required status check, so such a pull request is mergeable, and
+without the announcement its missing review would be silent.
+
+### Consumer snippet
+
+Add this as a new workflow file (e.g. `.github/workflows/prflow-auto-review.yml`) in
+your repository.
+
+> **Hard precondition — read before copying.** This snippet is safe **only** inside a
+> `pull_request`-triggered workflow. **Never** place it under `pull_request_target`:
+> that trigger makes your secrets available to fork-originated runs, and the
+> head-repo clause (`…head.repo.full_name == github.repository`) would then be the
+> *sole* defense keeping a fork from minting your App token. Under `pull_request`,
+> secrets are withheld from fork runs regardless, so the fork gate is defense in
+> depth rather than the only line.
+
+<!-- prflow:ci-review-consumer-snippet -->
+```yaml
+# .github/workflows/prflow-auto-review.yml
+# Requests a PRFlow /prflow:review automatically once your CI is green on a
+# non-draft, same-repository pull request. Safe ONLY under `pull_request`
+# (see the hard precondition above — never `pull_request_target`).
+name: PRFlow auto-review request
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  request-review:
+    needs: [ci]   # replace `ci` with YOUR own CI job(s); gate on their success below
+    # These five eligibility clauses are PORTABLE and are held byte-identical to
+    # PRFlow's own auto_review_trigger job by a suite assertion — do not edit them.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]' &&
+      vars.DEVFLOW_APP_ID != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # The helper is NOT at a repo-root scripts/ in your repo — install.sh
+      # vendored the plugin under .prflow/vendor/prflow/, and the vendor-plugin
+      # composite action re-materializes it at runtime. The sparse cone names BOTH
+      # scripts/ AND lib/ because the helper's transitive closure spans both:
+      # post-ci-review-trigger.sh, post-issue-comment.sh, resolve-gh.sh,
+      # resolve-bin.sh.
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/vendor-plugin
+            .prflow/vendor/prflow/scripts
+            .prflow/vendor/prflow/lib
+      - name: Materialize the vendored PRFlow helper tree
+        uses: ./.github/actions/vendor-plugin
+      - name: Mint downscoped comment token
+        id: app_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+          permission-pull-requests: write
+      - name: Request a PRFlow review for this head
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_AUTHOR: ${{ steps.app_token.outputs.app-slug }}
+        run: |
+          HELPER=.prflow/vendor/prflow/scripts/post-ci-review-trigger.sh
+          # Absent-file breadcrumb (modeled on devflow.yml's review_dedupe detector
+          # guard): a consumer pinned below the version that carries the helper gets
+          # a NAMED warning rather than an rc-127 red step.
+          if [ ! -x "$HELPER" ]; then
+            echo "::warning::PRFlow auto-review: helper not found at $HELPER — has install.sh vendored the plugin at prflow_version >= 2.30.18? Skipping (no review requested)."
+            exit 0
+          fi
+          "$HELPER"
+```
+
+**Preconditions to satisfy beside this snippet:**
+
+- **Minimum version.** `scripts/post-ci-review-trigger.sh` first ships in
+  `prflow_version` **`2.30.18`** — pin at or above it, or the absent-file guard in
+  the snippet fires and no review is requested.
+- **The minting App's bot login must be in `prflow.allowed_bots`.** The review this
+  snippet requests is dispatched by `devflow.yml`'s gate, which authorizes the
+  commenting actor through `scripts/authorize-actor.sh`. The comment is posted by
+  your GitHub App, so its bot login (e.g. `your-app[bot]`) must appear in
+  `prflow.allowed_bots`. The shipped `.prflow/config.example.json` value is
+  `"claude,dependabot"` — it names **no** App slug, so a fresh install does not
+  authorize your App until you add it. **And `devflow.yml`'s `config` job resolves
+  `prflow.allowed_bots` from your repository's *default branch at trigger time*** —
+  so adding your App slug *inside the same pull request that adds this snippet* is
+  inert for that pull request (the trigger reads the default branch, where the slug
+  is not yet present). Merge the `allowed_bots` change first; only then does the
+  snippet start a review. (This is the same trigger-time-resolution note
+  `docs/cloud-setup.md` carries for the two stall-backstop paths.)
+- **No repository-root `scripts/`.** A consumer checkout has no repo-root `scripts/`
+  directory — that exists only in PRFlow's own repository. The helper resolves under
+  `.prflow/vendor/prflow/scripts/`, materialized by the `vendor-plugin` composite
+  action `install.sh` ships. The sparse cone names both `.prflow/vendor/prflow/scripts/`
+  and `.prflow/vendor/prflow/lib/` because the helper sources its `gh` resolver from
+  the sibling `lib/` directory.
+
+**Coverage boundary.** This mechanism reaches pull requests gated by **GitHub Actions
+workflow jobs** only. It does **not** reach external CI apps that report through the
+`check_suite` event (CircleCI, Buildkite, and the like) or systems that report through
+the legacy `status` event (classic Jenkins, legacy CircleCI): the snippet's `needs:`
+can only wait on Actions jobs in the same workflow run. Users of those CI systems keep
+the manual collaborator-comment path — a repository collaborator comments
+`/prflow:review` on the pull request.
 
 ## Automated review (`devflow-review.yml`): trigger + preconditions policy
 

@@ -1475,9 +1475,11 @@ JSON
   # devflow-runner.yml or telemetry-push.yml is copied. That tier triggered on
   # pull-request events, called a reusable workflow with `secrets: inherit`, checked
   # out the pull-request head, and carried no actor-authorization gate; issues #930
-  # and #920 describe the open defects. The supported review path is a repository
-  # collaborator commenting `/devflow:review` on a pull request, which devflow.yml
-  # authorizes through scripts/authorize-actor.sh.
+  # and #920 describe the open defects. The always-available review path is a
+  # repository collaborator commenting `/devflow:review` on a pull request, which
+  # devflow.yml authorizes through scripts/authorize-actor.sh; a consumer can
+  # additionally opt into an automatic CI-green request with the documented snippet
+  # in docs/workflow-triggers.md (issue #990).
   #
   # A repository that already installed those three files KEEPS them —
   # prune_stale_devflow_workflows() is deliberately not extended to remove them, so

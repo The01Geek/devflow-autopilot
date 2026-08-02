@@ -3372,10 +3372,14 @@ chmod +x "$PCRT_SB/gh"
 
 # Runs the helper under the stub, leaving its stdout in $PCRT_OUT and the recorded
 # POST count in $PCRT_POSTS.
-pcrt_run() {  # $@ = extra command-prefix env assignments
+# EXPECTED_AUTHOR is the App slug the mint step plumbs in (issue #990): a marker
+# comment suppresses only when THIS App authored it. The stub returns
+# $PCRT_LIST_OUT verbatim as the helper's post-jq output, now ONE LINE PER
+# marker-bearing comment: its author login, or the __prflow_no_author__ sentinel.
+pcrt_run() {  # $@ = extra command-prefix env assignments (override EXPECTED_AUTHOR/etc last)
   : > "$PCRT_SB/rec"
   PCRT_OUT="$(env PCRT_REC="$PCRT_SB/rec" DEVFLOW_GH="$PCRT_SB/gh" \
-                  PR=7 HEAD_SHA="$PCRT_SHA" "$@" bash "$PCRT" 2>/dev/null)"
+                  PR=7 HEAD_SHA="$PCRT_SHA" EXPECTED_AUTHOR=prflow-app "$@" bash "$PCRT" 2>/dev/null)"
   PCRT_POSTS="$(grep -c . "$PCRT_SB/rec")"
 }
 
@@ -3385,11 +3389,11 @@ assert_eq "pcrt: no existing marker for this head → the trigger is POSTed" \
 assert_eq "pcrt: a successful post is annotated as a notice naming the head" \
   "1" "$(printf '%s\n' "$PCRT_OUT" | grep -c "^::notice::ci auto-review trigger: posted the review trigger on PR #7 for $PCRT_SHA")"
 
-pcrt_run PCRT_LIST_OUT="4242"
-assert_eq "pcrt: an existing marker for THIS head → nothing is posted (per-SHA dedupe)" \
+pcrt_run PCRT_LIST_OUT="prflow-app[bot]"
+assert_eq "pcrt: an App-authored marker for THIS head → nothing is posted (per-SHA, author-scoped dedupe)" \
   "0" "$PCRT_POSTS"
 assert_eq "pcrt: the already-posted arm annotates a notice, never a warning" \
-  "1-0" "$(printf '%s\n' "$PCRT_OUT" | grep -c 'already carries a trigger comment')-$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::')"
+  "1-0" "$(printf '%s\n' "$PCRT_OUT" | grep -c 'already carries an App-authored trigger comment')-$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::')"
 
 pcrt_run PCRT_LIST_RC=1
 assert_eq "pcrt: an unreadable comment list → FAIL-CLOSED, nothing is posted" \
@@ -3407,13 +3411,159 @@ pcrt_run HEAD_SHA=""
 assert_eq "pcrt: an unusable head SHA → nothing is posted, with its own warning" \
   "0-1" "$PCRT_POSTS-$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::.*head SHA')"
 
+# --- author-scoped suppression, arm by arm (issue #990 Part B) --------------
+# The author scoping closes the quoting-suppression hazard: before it, ANY comment
+# quoting the marker suppressed the review. Each arm below drives the helper's bash
+# author-matching directly through the stub's post-jq output ($PCRT_LIST_OUT).
+
+# 1. App-authored marker for THIS head -> no post (dedupe still holds once
+#    authorship is required) — asserted by the already-posted arm above with a
+#    matching login; re-stated here as the author-required positive.
+pcrt_run PCRT_LIST_OUT="prflow-app[bot]"
+assert_eq "pcrt #990-1: an App-authored marker for this head -> no post (author required)" \
+  "0" "$PCRT_POSTS"
+
+# 2. Exact marker for this head authored by ANY OTHER login -> POST. The planted-
+#    defect positive control for the quoting-suppression hazard: it fails FIRST
+#    against the old author-blind filter, which suppressed on marker containment.
+pcrt_run PCRT_LIST_OUT="some-human"
+assert_eq "pcrt #990-2: a marker quoted by a NON-App login no longer suppresses -> post" \
+  "1" "$PCRT_POSTS"
+
+# 3. [bot]/bare-slug handling in BOTH directions (mirrors authorize-actor.sh's
+#    actor_bare): login carries [bot] while comparand is bare, and the mirror.
+pcrt_run PCRT_LIST_OUT="prflow-app[bot]"
+PCRT_P3A="$PCRT_POSTS"
+pcrt_run EXPECTED_AUTHOR="prflow-app[bot]" PCRT_LIST_OUT="prflow-app"
+assert_eq "pcrt #990-3: [bot]/bare slug match both directions -> no post" \
+  "0-0" "$PCRT_P3A-$PCRT_POSTS"
+
+# 4. Marker for a DIFFERENT head SHA, App-authored -> POST. The jq marker filter
+#    only matches THIS head, so a different-head marker is not in the emitted list
+#    at all (empty list here) and the helper posts.
+pcrt_run PCRT_LIST_OUT=""
+assert_eq "pcrt #990-4: no marker for THIS head (a different-head marker filtered out) -> post" \
+  "1" "$PCRT_POSTS"
+
+# 5. Empty author comparand -> no post + its own distinct warning (fail-closed
+#    direction, asserted rather than assumed).
+pcrt_run EXPECTED_AUTHOR="" PCRT_LIST_OUT=""
+assert_eq "pcrt #990-5: empty author comparand -> no post + distinct warning (fail closed)" \
+  "0-1" "$PCRT_POSTS-$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::.*expected author login .*is empty')"
+
+# 6. An instruction-shaped / other-author comment body changes no outcome — the
+#    helper matches marker and author literally and interprets no body text. Modeled
+#    as an other-author login whose (simulated) text "asks to suppress": still posts.
+pcrt_run PCRT_LIST_OUT="please-suppress-bot"
+assert_eq "pcrt #990-6: an instruction-shaped / other-author comment changes nothing -> post" \
+  "1" "$PCRT_POSTS"
+
+# 7. A marker comment whose author cannot be resolved (sentinel) -> no post +
+#    fail-closed warning. An unestablished author must never widen to duplicate-post.
+pcrt_run PCRT_LIST_OUT="__prflow_no_author__"
+assert_eq "pcrt #990-7: a marker comment whose author cannot be resolved -> no post + fail-closed warning" \
+  "0-1" "$PCRT_POSTS-$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::.*author could not be resolved')"
+
+# 8-12. The withheld-request announcement (MODE=announce). It posts nothing, mints
+# nothing, and names which dependency withheld the request. Every arm exits 0.
+pcrt_announce() {  # $1=test result  $2=lint result -> $PCRT_ANN, $PCRT_ANN_RC
+  PCRT_ANN="$(env MODE=announce PR=7 HEAD_SHA="$PCRT_SHA" TEST_RESULT="$1" LINT_RESULT="$2" bash "$PCRT" 2>/dev/null)"
+  PCRT_ANN_RC=$?
+}
+
+# 8. test success, lint failure -> no post, warning naming lint (NOT test/both).
+pcrt_announce success failure
+assert_eq "pcrt #990-8: test ok, lint red -> warning names lint, posts nothing" \
+  "1-0" "$(printf '%s\n' "$PCRT_ANN" | grep -cF '— lint did not conclude success')-$(printf '%s\n' "$PCRT_ANN" | grep -c 'posted the review trigger')"
+
+# 9. lint success, test failure -> warning naming test.
+pcrt_announce failure success
+assert_eq "pcrt #990-9: lint ok, test red -> warning names test" \
+  "1" "$(printf '%s\n' "$PCRT_ANN" | grep -cF '— test did not conclude success')"
+
+# 10. both failing -> warning naming both.
+pcrt_announce failure failure
+assert_eq "pcrt #990-10: both red -> warning names test and lint" \
+  "1" "$(printf '%s\n' "$PCRT_ANN" | grep -cF '— test and lint did not conclude success')"
+
+# 11. both succeeding via announce -> NO announcement (negative control; the post
+#     path owns the both-green case, and the step condition keeps announce off it).
+pcrt_announce success success
+assert_eq "pcrt #990-11: both green via announce -> emits no warning (negative control)" \
+  "0" "$(printf '%s\n' "$PCRT_ANN" | grep -c '^::warning::')"
+
+# 12. every announce arm exits 0 (the always-exit-0 contract). A representative arm.
+pcrt_announce failure failure
+assert_eq "pcrt #990-12: announce always exits 0" "0" "$PCRT_ANN_RC"
+
 rm -rf "$PCRT_SB"
 
+# --- the snippet-to-job agreement predicate (issue #990 Part A) --------------
+# structural-pin-ok: cross-file-phase-contract -- the agreement predicate guards a
+# MACHINE-CONSUMED cross-file contract (a consumer copies BYTES out of the doc
+# snippet, so the copy is unavoidable and the extractor keeps the doc snippet and
+# the auto_review_trigger job region from drifting); it is not a prose-presence pin.
+CIREV_EX="$LIB/test/extract-ci-review-agreement.py"
+CIREV_DOC="$LIB/../docs/workflow-triggers.md"
+CIREV_CI="$LIB/../.github/workflows/ci.yml"
+cirev() { python3 "$CIREV_EX" "$1" "$2" 2>/dev/null; }
+
+# 13. The real doc snippet and the real ci.yml job agree on the compared element set.
+assert_eq "pcrt #990-13: doc snippet and auto_review_trigger job agree on the compared element set" \
+  "result=agree" "$(cirev "$CIREV_DOC" "$CIREV_CI")"
+
+CIREV_TMP="$(mktemp -d)"
+cp "$CIREV_DOC" "$CIREV_TMP/doc.md"
+cp "$CIREV_CI" "$CIREV_TMP/ci.yml"
+
+# 14. Planted-defect positive control: mutate ONE compared element on the doc side
+#     only -> agreement turns RED.
+sed 's/draft == false/draft == true/' "$CIREV_TMP/doc.md" > "$CIREV_TMP/doc-mut.md"
+assert_eq "pcrt #990-14: mutating one compared element on one side turns agreement RED" \
+  "result=disagree" "$(cirev "$CIREV_TMP/doc-mut.md" "$CIREV_TMP/ci.yml")"
+
+# 15. Each of the six fail-closed input shapes turns the assertion RED (an error
+#     token), never two-empty-extractions-agree.
+grep -v 'prflow:ci-review-consumer-snippet' "$CIREV_TMP/doc.md" > "$CIREV_TMP/doc-absent.md"
+assert_eq "pcrt #990-15a: snippet block absent -> RED" \
+  "result=error:snippet-absent" "$(cirev "$CIREV_TMP/doc-absent.md" "$CIREV_TMP/ci.yml")"
+printf '%s\n%s\n%s\n' '<!-- prflow:ci-review-consumer-snippet -->' '```yaml' '```' > "$CIREV_TMP/doc-empty.md"
+assert_eq "pcrt #990-15b: snippet present but empty -> RED" \
+  "result=error:snippet-empty" "$(cirev "$CIREV_TMP/doc-empty.md" "$CIREV_TMP/ci.yml")"
+cp "$CIREV_TMP/doc.md" "$CIREV_TMP/doc-dup.md"
+printf '\n%s\n' '<!-- prflow:ci-review-consumer-snippet -->' >> "$CIREV_TMP/doc-dup.md"
+assert_eq "pcrt #990-15c: snippet duplicated -> RED" \
+  "result=error:snippet-duplicated" "$(cirev "$CIREV_TMP/doc-dup.md" "$CIREV_TMP/ci.yml")"
+printf '%s\n%s\n' '<!-- prflow:ci-review-consumer-snippet -->' 'name: not a fenced block' > "$CIREV_TMP/doc-unfenced.md"
+assert_eq "pcrt #990-15d: snippet unfenced -> RED" \
+  "result=error:snippet-unfenced" "$(cirev "$CIREV_TMP/doc-unfenced.md" "$CIREV_TMP/ci.yml")"
+sed '/^  auto_review_trigger:/,$d' "$CIREV_TMP/ci.yml" > "$CIREV_TMP/ci-nojob.yml"
+assert_eq "pcrt #990-15e: auto_review_trigger job region absent -> RED" \
+  "result=error:job-absent" "$(cirev "$CIREV_TMP/doc.md" "$CIREV_TMP/ci-nojob.yml")"
+printf '%s\n' 'jobs: [unbalanced' > "$CIREV_TMP/ci-bad.yml"
+assert_eq "pcrt #990-15f: workflow unparseable as YAML -> RED" \
+  "result=error:workflow-unparseable" "$(cirev "$CIREV_TMP/doc.md" "$CIREV_TMP/ci-bad.yml")"
+rm -rf "$CIREV_TMP"
+
+# 16. The vendored cone: the helper's `. lib/resolve-gh.sh` source succeeds under a
+# tree restricted to the snippet's cone (the four closure files), so the vendored
+# shape cannot silently take the degraded bare-`gh` arm while full-tree assertions
+# pass. Absence of the "could not be sourced" breadcrumb is the positive proof.
+CIREV_CONE="$(mktemp -d)"
+mkdir -p "$CIREV_CONE/scripts" "$CIREV_CONE/lib"
+cp "$LIB/../scripts/post-ci-review-trigger.sh" "$LIB/../scripts/post-issue-comment.sh" "$CIREV_CONE/scripts/"
+cp "$LIB/resolve-gh.sh" "$LIB/resolve-bin.sh" "$CIREV_CONE/lib/"
+CIREV_CONE_ERR="$(env -u DEVFLOW_GH MODE=compose PR=7 HEAD_SHA="$PCRT_SHA" bash "$CIREV_CONE/scripts/post-ci-review-trigger.sh" 2>&1 1>/dev/null)"
+assert_eq "pcrt #990-16: helper sources resolve-gh.sh under the vendored cone (no degraded bare-gh breadcrumb)" \
+  "no" "$(printf '%s' "$CIREV_CONE_ERR" | grep -qF 'resolve-gh.sh could not be sourced' && echo yes || echo no)"
+rm -rf "$CIREV_CONE"
+
 # DELIBERATELY NOT COVERED, and the absence is the decision (the issue-#843 rule).
-# The calling job's eligibility guards — the fork gate, the draft test, the two
-# `needs.*.result` tests — are GitHub-evaluated expressions. No tool or consumer in
-# this repository reads them, the suite cannot evaluate one, and a source-presence
-# pin over them would be exactly the wording-only pin #375/#666/#810 prohibit. The
-# compensating control is the review pass that reads the workflow, not a pin. What
-# IS covered here is everything a program does read: the payload the detector parses
-# and the post-or-skip arms.
+# The calling job's eligibility guards — the fork gate, the draft test — the
+# `!cancelled()` job `if:`, and the `concurrency` group added in issue #990 are all
+# GitHub-evaluated expressions. No tool or consumer in this repository reads them,
+# the suite cannot evaluate one, and a source-presence pin over them would be exactly
+# the wording-only pin #375/#666/#810 prohibit. The compensating control is the
+# review pass that reads the workflow, not a pin. What IS covered here is everything
+# a program does read: the payload the detector parses, the post-or-skip arms, the
+# author scoping, the announcement selection, and the doc↔job agreement predicate.
