@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1145",
+  "generated_at": "2026-08-02T15:46:14Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.47",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 11.249100749999998,
+    "tokens": {
+      "input_tokens": 62,
+      "output_tokens": 31627,
+      "cache_read_input_tokens": 4707161,
+      "cache_creation_input_tokens": 201852,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 209,
+        "outputTokens": 84836,
+        "cacheReadInputTokens": 9732159,
+        "cacheCreationInputTokens": 560661,
+        "webSearchRequests": 0,
+        "costUSD": 11.249100749999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 42,
+    "duration_ms": 721351
+  },
+  "permission_denials": {
+    "count": 22,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-<none>} ATTEMPT=${GITHUB_RUN_ATTEMPT:-<none>} ACTIONS=${GITHUB_ACTIONS:-<none>} REPO=${GITHUB_REPOSITORY:-<none>}\"; git status --porcelain; echo \"---branch---\"; git branch --show-current",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1083 --pr 1145 2>.prflow/tmp/review/pr-1145/30754600351-1/acs.err ; echo \"acs-rc=$?\"",
+      "gh pr diff 1145 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1145/30754600351-1/diff.patch; wc -l .prflow/tmp/review/pr-1145/30754600351-1/diff.patch",
+      "git status --porcelain -z > .prflow/tmp/review-dirty-tree-before 2>/dev/null && git hash-object .prflow/tmp/review-dirty-tree-before; echo \"snap-rc=$?\"",
+      "cd /tmp\nprog='\n            if type != \"object\" then \"\"\n            else\n              (keys) as $k\n              | (any($k[]; test(\"^prflow(_|$)\"))) as $has_canon\n              | if $has_canon then ($k | map(select(test(\"^devflow(_|$)\"))) | join(\" \")) else \"\" end\n            end'\nfor input in '{\"prflow\":{},\"devflow\":{}}' '{\"prflow\":{},\"prflow_version\":\"x\",\"devflow\":{},\"devflow_version\":\"y\"}' '{\"devflow\":{},\"devflow_version\":\"x\"}' '{\"prflow\":{},\"devflow\":false}' '[\"a\"]' 'null' '{}' '{\"prflowish\": …[per-command-truncated]",
+      "cd /tmp\ncat > prog.jq <<'EOF'\nif type != \"object\" then \"\"\nelse\n  (keys) as $k\n  | (any($k[]; test(\"^prflow(_|$)\"))) as $has_canon\n  | if $has_canon then ($k | map(select(test(\"^devflow(_|$)\"))) | join(\" \")) else \"\" end\nend\nEOF\nwhile IFS= read -r input; do\n  out=$(printf '%s' \"$input\" | jq -rf prog.jq 2>&1)\n  printf '%-55s => [%s]\\n' \"$input\" \"$out\"\ndone <<'INPUTS'\n{\"prflow\":{},\"devflow\":{}}\n{\"prflow\":{},\"prflow_version\":\"x\",\"devflow\":{},\"devflow_version\":\"y\"}\n{\"devflow\":{},\"devflow_version\":\"x\"} …[per-command-truncated]",
+      "cd /tmp\nprintf 'if type != \"object\" then \"\"\\nelse\\n  (keys) as $k\\n  | (any($k[]; test(\"^prflow(_|$)\"))) as $has_canon\\n  | if $has_canon then ($k | map(select(test(\"^devflow(_|$)\"))) | join(\" \")) else \"\" end\\nend\\n' > prog.jq\nprintf '%s\\n' 'A {\"prflow\":{},\"devflow\":{}}' > /dev/null\njq -rf prog.jq <<'E1'\n{\"prflow\":{},\"devflow\":{}}\nE1\necho \"---multi---\"\njq -rf prog.jq <<'E2'\n{\"prflow\":{},\"prflow_version\":\"x\",\"devflow\":{},\"devflow_version\":\"y\"}\nE2\necho \"---unmigrated---\"\njq -rf prog.jq <<'E3'\n{\"de …[per-command-truncated]",
+      "cd /tmp && cat > t.py <<'PY'\nimport subprocess\nprog='''if type != \"object\" then \"\"\nelse\n  (keys) as $k\n  | (any($k[]; test(\"^prflow(_|$)\"))) as $has_canon\n  | if $has_canon then ($k | map(select(test(\"^devflow(_|$)\"))) | join(\" \")) else \"\" end\nend'''\ncases=['{\"prflow\":{},\"devflow\":{}}',\n'{\"prflow\":{},\"prflow_version\":\"x\",\"devflow\":{},\"devflow_version\":\"y\"}',\n'{\"devflow\":{},\"devflow_version\":\"x\"}',\n'{\"prflow\":{},\"devflow\":false}',\n'[\"a\"]','null','{}',\n'{\"prflowish\":{},\"devflowish\":{}}']\nfor c in  …[per-command-truncated]",
+      "printf '%s\\n' 'import subprocess' > /tmp/t.py\nprintf '%s\\n' 'prog = open(\"/tmp/prog.jq\").read()' >> /tmp/t.py\nprintf '%s\\n' 'cases = open(\"/tmp/cases.txt\").read().splitlines()' >> /tmp/t.py\nprintf '%s\\n' 'for c in cases:' >> /tmp/t.py\nprintf '%s\\n' '    r = subprocess.run([\"jq\",\"-r\",prog],input=c,capture_output=True,text=True)' >> /tmp/t.py\nprintf '%s\\n' '    print(repr(c),\"=>\",repr(r.stdout.strip()),\"ERR\"+r.stderr if r.returncode else \"\")' >> /tmp/t.py\ncat /tmp/t.py",
+      "cat > /tmp/prog.jq <<'ENDJQ'\nif type != \"object\" then \"\"\nelse\n  (keys) as $k\n  | (any($k[]; test(\"^prflow(_|$)\"))) as $has_canon\n  | if $has_canon then ($k | map(select(test(\"^devflow(_|$)\"))) | join(\" \")) else \"\" end\nend\nENDJQ\necho done; cat /tmp/prog.jq",
+      "cat > /tmp/prog.jq <<'ENDJQ'\nif type != \"object\" then \"\"\nelse\n  (keys) as $k\n  | (any($k[]; test(\"^prflow(_|$)\"))) as $has_canon\n  | if $has_canon then ($k | map(select(test(\"^devflow(_|$)\"))) | join(\" \")) else \"\" end\nend\nENDJQ\nprintf '%s' \"file written\"",
+      "mkdir -p .prflow/tmp/rev && cat > .prflow/tmp/rev/prog.jq <<'ENDJQ'\nif type != \"object\" then \"\"\nelse\n  (keys) as $k\n  | (any($k[]; test(\"^prflow(_|$)\"))) as $has_canon\n  | if $has_canon then ($k | map(select(test(\"^devflow(_|$)\"))) | join(\" \")) else \"\" end\nend\nENDJQ\ncat > .prflow/tmp/rev/cases.txt <<'ENDC'\n{\"prflow\":{},\"devflow\":{}}\n{\"prflow\":{},\"prflow_version\":\"x\",\"devflow\":{},\"devflow_version\":\"y\"}\n{\"devflow\":{},\"devflow_version\":\"x\"}\n{\"prflow\":{},\"devflow\":false}\n[\"a\"]\nnull\n{}\n{\"prflowish\":{ …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow; ls .changeset/ 2>/dev/null; echo ---; grep -rn \"type\" scripts/consolidate-changesets.py | head; echo ---example---; for f in .changeset/*.md; do [ \"$f\" != \".changeset/issue-1083-stray-superseded-config-family.md\" ] && echo \"== $f ==\" && head -6 \"$f\" && break; done",
+      "cat > /tmp/block.txt <<'EOF'\n          # STRAY SUPERSEDED FAMILY DETECTION (issue #1083) — advisory, deliberately NOT gated\n          # on the enable read. A stray superseded top-level family present beside a canonical\n          # prflow* family is a half-migrated config: the stray family's keys resolve to their\n          # `// default` everywhere, so any tool grant, allowlist narrowing, or provider\n          # selection written under it silently does nothing. The fully-un-migrated shape (no\n    …[per-command-truncated]",
+      "mkdir -p .prflow/tmp/rev && cat > .prflow/tmp/rev/cases.txt <<'ENDC'\n{\"prflow\":{},\"devflow\":{}}\n{\"prflow\":{},\"prflow_version\":\"x\",\"devflow\":{},\"devflow_version\":\"y\"}\n{\"devflow\":{},\"devflow_version\":\"x\"}\n{\"prflow\":{},\"devflow\":false}\n[\"a\"]\nnull\n{}\n{\"prflowish\":{},\"devflowish\":{}}\n{\"prflow\":{},\"devflow_*\":{}}\nENDC\nprintf 'ok\\n'",
+      "cd /home/runner/work/prflow/prflow; git apply --check .prflow/tmp/review/pr-1145/30754600351-1/diff.patch 2>&1 && echo \"APPLIES CLEAN\" || echo \"APPLY FAILED\"",
+      "git apply .prflow/tmp/review/pr-1145/30754600351-1/diff.patch && echo APPLIED",
+      "git apply /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1145/30754600351-1/diff.patch",
+      "cd /home/runner/work/prflow/prflow\nPROG='if type != \"object\" then \"\"\nelse\n  (keys) as $k\n  | (any($k[]; test(\"^prflow(_|$)\"))) as $has_canon\n  | if $has_canon then ($k | map(select(test(\"^devflow(_|$)\"))) | join(\" \")) else \"\" end\nend'\nrun() { printf '%s' \"$1\" | jq -r \"$PROG\" 2>&1; }\necho \"beside:    [$(run '{\"prflow\":{},\"devflow\":{}}')]\"\necho \"multi:     [$(run '{\"prflow\":{},\"prflow_version\":\"x\",\"devflow\":{},\"devflow_version\":\"y\"}')]\"\necho \"falsy:     [$(run '{\"prflow\":{},\"devflow\":false}')]\"\nec …[per-command-truncated]",
+      "ls .changeset/ 2>/dev/null | head; echo \"---\"; head -12 $(ls .changeset/*.md 2>/dev/null | grep -v 1083 | head -1) 2>/dev/null",
+      "cd /home/runner/work/prflow/prflow\ncat > /tmp/prog.jq <<'EOF'\nif type != \"object\" then \"\"\nelse\n  (keys) as $k\n  | (any($k[]; test(\"^prflow(_|$)\"))) as $has_canon\n  | if $has_canon then ($k | map(select(test(\"^devflow(_|$)\"))) | join(\" \")) else \"\" end\nend\nEOF\nfor j in '{\"prflow\":{},\"devflow\":{}}' '{\"prflow\":{},\"prflow_version\":\"x\",\"devflow\":{},\"devflow_version\":\"y\"}' '{\"prflow\":{},\"devflow\":false}' '{\"prflow\":{},\"devflow_runner\":0}' '{\"devflow\":{},\"devflow_version\":\"x\"}' '{\"prflow\":{},\"prflow_ver …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nprintf '%s\\n' 'if type != \"object\" then \"\"' 'else' '(keys) as $k' '| (any($k[]; test(\"^prflow(_|$)\"))) as $c' '| if $c then ($k | map(select(test(\"^devflow(_|$)\"))) | join(\" \")) else \"\" end' 'end' > /tmp/prog.jq\npython3 - <<'PY'\nimport subprocess\ncases=['{\"prflow\":{},\"devflow\":{}}','{\"prflow\":{},\"prflow_version\":\"x\",\"devflow\":{},\"devflow_version\":\"y\"}','{\"prflow\":{},\"devflow\":false}','{\"prflow\":{},\"devflow_runner\":0}','{\"devflow\":{},\"devflow_version\":\"x\"}','{\"p …[per-command-truncated]"
+    ],
+    "total": 22,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
