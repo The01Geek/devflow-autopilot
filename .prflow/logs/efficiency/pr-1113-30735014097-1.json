@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1113",
+  "generated_at": "2026-08-02T06:08:21Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.29",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 8.69159275,
+    "tokens": {
+      "input_tokens": 1319,
+      "output_tokens": 20116,
+      "cache_read_input_tokens": 3602514,
+      "cache_creation_input_tokens": 165298,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 1406,
+        "outputTokens": 50499,
+        "cacheReadInputTokens": 6397303,
+        "cacheCreationInputTokens": 576571,
+        "webSearchRequests": 0,
+        "costUSD": 8.69159275,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 33,
+    "duration_ms": 606113
+  },
+  "permission_denials": {
+    "count": 9,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "scripts/workpad.py acs-resolve 1104 --pr 1113 2>.prflow/tmp/review/pr-1113/local-20260802T055851Z-1/acs.err ; echo \"acs-rc=$?\"",
+      "scripts/workpad.py acs-resolve 1104 --pr 1113 2>&1 ; echo \"acs-rc=$?\"",
+      "git show pr-1113-head:lib/test/modules/issue-audit-state.sh > /tmp/ias.sh\ngrep -n \"record-dispatch.*--arm file\\|--arm file\" /tmp/ias.sh | wc -l\necho \"=== file-arm record-dispatch lines and whether preceding line stages ===\"\ngrep -n \"arm file\" /tmp/ias.sh",
+      "git show pr-1113-head:lib/test/modules/issue-audit-state.sh > /tmp/ias.sh; grep -c \"arm file\" /tmp/ias.sh",
+      "git show pr-1113-head:lib/test/modules/issue-audit-state.sh > /tmp/ias.sh",
+      "git show pr-1113-head:lib/test/modules/issue-audit-state.sh > ./ias_tmp.sh; grep -n \"arm file\" ias_tmp.sh | head -60",
+      "scripts/dismiss-stale-rejections.sh \"1113\" 2>&1; echo \"dismiss-rc=$?\"",
+      "scripts/dismiss-stale-rejections.sh 1113"
+    ],
+    "total": 9,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
