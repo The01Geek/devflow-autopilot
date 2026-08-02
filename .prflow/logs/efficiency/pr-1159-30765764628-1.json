@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1159",
+  "generated_at": "2026-08-02T20:40:14Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.55",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.944557549999998,
+    "tokens": {
+      "input_tokens": 33,
+      "output_tokens": 15379,
+      "cache_read_input_tokens": 2096144,
+      "cache_creation_input_tokens": 173024,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 33,
+        "outputTokens": 15379,
+        "cacheReadInputTokens": 2096144,
+        "cacheCreationInputTokens": 173024,
+        "webSearchRequests": 0,
+        "costUSD": 3.162952,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 80,
+        "outputTokens": 35657,
+        "cacheReadInputTokens": 3460831,
+        "cacheCreationInputTokens": 322203,
+        "webSearchRequests": 0,
+        "costUSD": 2.781605550000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 21,
+    "duration_ms": 409952
+  },
+  "permission_denials": {
+    "count": 14,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review; echo \"ext-rc=$?\"",
+      "/home/runner/work/prflow/prflow/scripts/load-prompt-extension.sh review",
+      "git fetch origin pull/1159/head:pr-1159-local 2>&1 | tail -5; git show pr-1159-local:.github/workflows/devflow.yml > /tmp/devflow.yml 2>&1; wc -l /tmp/devflow.yml; grep -n \"runs-on\\|actions/checkout\" /tmp/devflow.yml | head -30",
+      "git show pr-1159-local:.github/workflows/devflow.yml > /tmp/devflow.yml 2>&1; wc -l /tmp/devflow.yml",
+      "git show pr-1159-local:.github/workflows/devflow.yml > /tmp/devflow.yml",
+      "git show pr-1159-local:.github/workflows/devflow.yml > /home/runner/work/prflow/prflow/.prflow/tmp/devflow-pr1159.yml; wc -l /home/runner/work/prflow/prflow/.prflow/tmp/devflow-pr1159.yml",
+      "git apply --check .prflow/tmp/review/pr-1159/local/diff.patch 2>&1 | head -30",
+      "set -e\nTMPD=$(mktemp -d)\ngit worktree add -q \"$TMPD\" main 2>&1 | tail -5\ncd \"$TMPD\"\ngit apply .prflow/tmp/review/../../../../../home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1159/local/diff.patch 2>&1 | tail -20 || true\necho done",
+      "TMPD=$(mktemp -d) && echo \"$TMPD\" > /tmp/tmpd_path.txt && git worktree add -q \"$TMPD\" main && cp .prflow/tmp/review/pr-1159/local/diff.patch \"$TMPD/diff.patch\"",
+      "git worktree add -q /tmp/tmp.LQl8HqxjMS main",
+      "git worktree add -q /tmp/tmp.LQl8HqxjMS main",
+      "TMPD=/tmp/tmp.LQl8HqxjMS\nrm -rf \"$TMPD\"\nmkdir -p \"$TMPD\"\ngit archive main | (cd \"$TMPD\" && tar x)\ncp .prflow/tmp/review/pr-1159/local/diff.patch \"$TMPD/diff.patch\"\ncd \"$TMPD\" && git init -q && git add -A && git commit -q -m base\npatch -p1 < diff.patch\necho APPLIED_OK",
+      "mkdir -p /tmp/tmp.LQl8HqxjMS",
+      "mkdir -p /home/runner/work/prflow/prflow/.prflow/tmp/pr1159check\ngit -C /home/runner/work/prflow/prflow archive main --output=/home/runner/work/prflow/prflow/.prflow/tmp/pr1159check/base.tar\ntar -C /home/runner/work/prflow/prflow/.prflow/tmp/pr1159check -xf /home/runner/work/prflow/prflow/.prflow/tmp/pr1159check/base.tar\nrm /home/runner/work/prflow/prflow/.prflow/tmp/pr1159check/base.tar\necho done"
+    ],
+    "total": 14,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
