@@ -33,6 +33,7 @@ kind: growth
   names (line numbers rot). Both paragraphs are repo-agnostic — the agents ship into consumer
   repos through the plugin vendor channel — so they carry no PRFlow-internal paths. The
   explorer's larger delta is the extra scoping sentence it alone carries.
+  The architect's current contract is stricter about its available instruments: it has no command-execution tool, and `Grep` count mode is not accepted as a quantitative measurement because it counts matching lines rather than occurrences.
 - **`skills/implement/phases/phase-2-implement.md` (+1637 bytes).** §2.2 Path B gains one
   re-derivation paragraph directly after the blueprint-hold line: the orchestrator
   independently re-derives any Phase-2 subagent quantitative claim (explorer and architect,
