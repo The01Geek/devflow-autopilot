@@ -1,0 +1,67 @@
+{
+  "iter": 1,
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "fix_commit_sha": "review-iter-1",
+  "fix_files": [
+    "agents/code-reviewer.md",
+    "agents/comment-analyzer.md",
+    "agents/silent-failure-hunter.md",
+    "agents/pr-test-analyzer.md",
+    "agents/type-design-analyzer.md"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:comment-analyzer",
+    "prflow:silent-failure-hunter",
+    "prflow:pr-test-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "agent-body prose grouped cd and git -C as 'both refused'; cd is not reliably matcher-refused",
+      "defect_signature": {
+        "file": "agents/code-reviewer.md",
+        "line_range": null,
+        "kind": "documented_falsehood"
+      },
+      "fix_decision": "applied"
+    }
+  ],
+  "shadow": {
+    "ran_at": "iter-1-convergence",
+    "coverage": "full",
+    "verdict": "APPROVE",
+    "reviewers_dispatched": [
+      "prflow:code-reviewer",
+      "prflow:comment-analyzer",
+      "prflow:silent-failure-hunter",
+      "prflow:pr-test-analyzer"
+    ],
+    "phase3_findings": [
+      {
+        "agent": "prflow:comment-analyzer",
+        "severity": "Important",
+        "description": "cd/git -C conflation remained in render-grounding-block.sh, docs/cloud-allowlist.md, and phase-3-agents.md after the agent-body fix",
+        "defect_signature": {
+          "file": "scripts/render-grounding-block.sh",
+          "line_range": [
+            237,
+            237
+          ],
+          "kind": "documented_falsehood"
+        }
+      }
+    ],
+    "promoted_to_iter_next": true
+  },
+  "telemetry": "unavailable"
+}

@@ -1,0 +1,47 @@
+{
+  "iter": 2,
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "current_step": "loop-exit",
+  "fix_commit_sha": "review-iter-2",
+  "fix_files": [
+    "scripts/render-grounding-block.sh",
+    "docs/cloud-allowlist.md",
+    "skills/review/phases/phase-3-agents.md"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:comment-analyzer",
+    "prflow:silent-failure-hunter",
+    "prflow:pr-test-analyzer"
+  ],
+  "phase3_findings": [],
+  "fix_decisions": [
+    {
+      "finding_id": "shadow-important-1",
+      "decision": "applied",
+      "commit": "review-iter-2"
+    }
+  ],
+  "shadow": {
+    "ran_at": "iter-2-convergence",
+    "coverage": "full",
+    "verdict": "APPROVE",
+    "reviewers_dispatched": [
+      "prflow:code-reviewer",
+      "prflow:comment-analyzer",
+      "prflow:silent-failure-hunter",
+      "prflow:pr-test-analyzer"
+    ],
+    "phase3_findings": [],
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
