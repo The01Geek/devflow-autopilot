@@ -405,6 +405,11 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/implement-context-eval.py": {
+      "focused_test": "lib/test/test_implement_context_eval.py",
+      "note": "issue #1209 implement runtime-context eval; maintainer-only instrument, tested directly by lib/test/test_implement_context_eval.py (serial)",
+      "owner": "unmodularized"
+    },
     "scripts/import-workflow-transcript.py": {
       "focused_test": "lib/test/test_workflow_flight_recorder.py",
       "note": "",
@@ -871,6 +876,10 @@
       "owner": "review-stall-backstop"
     },
     "1196": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1209": {
       "note": "",
       "owner": "unmodularized"
     },

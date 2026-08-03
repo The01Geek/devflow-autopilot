@@ -1,0 +1,7 @@
+Positive-control fixture for the secret-shape detector in
+lib/test/test_implement_context_eval.py. This file DELIBERATELY carries an
+owner-specific transcript-path shape so the detector's test proves it fires on the
+shape it guards, rather than merely passing on a clean tree. It is excluded by name
+from the clean-scan. Do not "fix" it.
+
+Planted shape: /Users/the01geek/repos/prflow/.claude-3/jobs/session.jsonl

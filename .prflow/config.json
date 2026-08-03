@@ -40,6 +40,7 @@
       "Bash(lib/test/test_workflow_analyzer.py:*)",
       "Bash(lib/test/test_verification_baseline.py:*)",
       "Bash(lib/test/test_create_issue_context_eval.py:*)",
+      "Bash(lib/test/test_implement_context_eval.py:*)",
       "Bash(lib/test/coverage_map_guard.py:*)",
       "Bash(lib/preflight.sh:*)",
       "Bash(shellcheck:*)",
