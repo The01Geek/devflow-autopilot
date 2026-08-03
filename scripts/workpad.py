@@ -2507,13 +2507,19 @@ def _plan_buffer_replay(comment_id, body, args) -> bool:
 
     A buffered note/reflection whose text is already present in the live `body`
     is SKIPPED — the idempotency that keeps a replay from duplicating content.
-    Anything not yet present is appended to `args.note` / `args.reflection` (only
-    when the target section exists in the body, so a replay never turns a valid
-    call into a structural abort). Returns True when at least one buffer record
-    existed, so the caller clears the buffer after a successful PATCH. A buffered
-    reflection replays under the CALL's kind rather than its own: the record's
-    durability matters more than its sub-section placement on this degraded
-    path."""
+    Anything not yet present is appended to `args.note` / `args.reflection`, but
+    ONLY when the target section (`## Progress` for notes, `## Devflow Reflection`
+    for reflections) exists in the body — so a replay never turns a valid call
+    into a structural abort against a truncated/malformed workpad.
+
+    Returns True ONLY when every buffered item is now accounted for — either
+    already present in the live body, or foldable because its section exists.
+    Returns False when a buffered item could NOT be folded (its section is absent
+    from this body), so the caller must NOT clear the buffer: the content stays
+    buffered for a later, healthy body to replay, rather than being silently
+    dropped along with the buffer file. A buffered reflection replays under the
+    CALL's kind rather than its own: the record's durability matters more than
+    its sub-section placement on this degraded path."""
     records = _read_workpad_buffer(comment_id)
     if not records:
         return False
@@ -2528,11 +2534,19 @@ def _plan_buffer_replay(comment_id, body, args) -> bool:
         for rfl in rec.get('reflections') or []:
             if isinstance(rfl, str) and rfl and rfl not in body:
                 add_reflections.append(rfl)
-    if add_notes and '## Progress' in body:
+    notes_replayable = '## Progress' in body
+    reflections_replayable = '## Devflow Reflection' in body
+    if add_notes and notes_replayable:
         args.note = list(args.note or []) + add_notes
-    if add_reflections and '## Devflow Reflection' in body:
+    if add_reflections and reflections_replayable:
         args.reflection = list(args.reflection or []) + add_reflections
-    return True
+    # Safe to clear only when nothing was left un-replayed: any not-yet-present
+    # item whose target section is absent stays buffered (return False).
+    fully_replayed = (
+        (not add_notes or notes_replayable)
+        and (not add_reflections or reflections_replayable)
+    )
+    return fully_replayed
 
 
 def _clear_workpad_buffer(comment_id) -> None:
@@ -2626,10 +2640,12 @@ def cmd_update(args):
     # replayed content `_plan_buffer_replay` is about to fold in. Then fold any
     # previously-buffered content for this comment into `args` so it replays on
     # this (successful) PATCH, idempotently.
-    _own_notes = [n for n in (args.note or []) if n]
+    # Kept as raw lists symmetric with `_own_reflections`; `_buffer_failed_change`
+    # applies the single empty-string filter for both.
+    _own_notes = list(args.note or [])
     _own_reflections = list(args.reflection or [])
     _own_kind = args.reflection_kind or _DEFAULT_REFLECTION_KIND
-    _buffer_had_records = _plan_buffer_replay(comment_id, body, args)
+    _buffer_safe_to_clear = _plan_buffer_replay(comment_id, body, args)
 
     # `failed_ticks` collects *volatile* per-row tick misses (see _TickMatchError):
     # the call still applies and PATCHes every other mutation, then exits non-zero
@@ -2715,11 +2731,14 @@ def cmd_update(args):
         _fail('update patch', e)
     finally:
         Path(tmp_path).unlink(missing_ok=True)
-    # The PATCH succeeded: any content buffered by an earlier failed call has now
-    # been replayed (folded into this body by `_plan_buffer_replay`), so drop the
-    # buffer file. Idempotency is already guaranteed by the presence check, so a
-    # missed clear would at worst replay-and-skip next time, never duplicate.
-    if _buffer_had_records:
+    # The PATCH succeeded: drop the buffer file ONLY when `_plan_buffer_replay`
+    # reported that every buffered item is now accounted for (folded into this
+    # body or already present). When a buffered item could not be folded — its
+    # target section was absent from this (truncated/malformed) body — the buffer
+    # is left intact so a later healthy body replays it, never dropping content
+    # along with the file. Idempotency is guaranteed by the presence check, so a
+    # retained-and-later-replayed item is replay-and-skip, never a duplicate.
+    if _buffer_safe_to_clear:
         _clear_workpad_buffer(comment_id)
     # Issue #814: the patched body is echoed only under `--print-body`, or on the
     # volatile-tick-miss path below. This one statement is reached by BOTH the clean

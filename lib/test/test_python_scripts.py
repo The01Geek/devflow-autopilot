@@ -19497,6 +19497,30 @@ assert_eq("#1214 AC9: an already-applied replay still exits 0", 0, _code)
 assert_eq("#1214 AC9: the already-present note is NOT duplicated on replay",
           1, (_pb or '').count(_dupnote))
 
+# Regression (review finding): when the live body is missing the target section,
+# a buffered item cannot be folded — so it must NOT be dropped along with the
+# buffer file. The buffer survives for a later healthy body to replay.
+_bufdir3 = tempfile.mkdtemp(prefix='wp1214-buf3-')
+(Path(_bufdir3) / '55512.json').write_text(
+    _json.dumps([{'notes': ['survivor-note'], 'reflections': [], 'reflection_kind': 'note'}]),
+    encoding='utf-8')
+# A body with NO '## Progress' section (truncated/malformed workpad), but still a
+# valid Last updated line so the update itself PATCHes successfully.
+_body_no_progress = (
+    "<!-- prflow:workpad -->\n"
+    "**Status:** 🚀 Setup\n"
+    "**Last updated:** 2026-01-01 00:00 UTC\n\n"
+    "## Acceptance Criteria\n- [ ] a\n"
+)
+_code, _pb, _n = _run_cmd_update(
+    _update_args(),
+    live_body=_body_no_progress, patch_fails=False, buffer_dir=_bufdir3)
+assert_eq("#1214 regression: update against a section-less body still exits 0", 0, _code)
+assert_eq("#1214 regression: an unfoldable buffered item is NOT dropped (buffer survives)",
+          True, (Path(_bufdir3) / '55512.json').exists())
+assert_eq("#1214 regression: the surviving buffer still carries the note",
+          True, 'survivor-note' in (Path(_bufdir3) / '55512.json').read_text(encoding='utf-8'))
+
 
 # AC11: a 503 response does not match the credential-failure pattern in gh-fresh.sh.
 _ghfresh_src = (SCRIPTS / 'gh-fresh.sh').read_text(encoding='utf-8')
