@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1182",
+  "generated_at": "2026-08-03T03:28:14Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.61",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 9.729235249999997,
+    "tokens": {
+      "input_tokens": 8493,
+      "output_tokens": 22066,
+      "cache_read_input_tokens": 3214834,
+      "cache_creation_input_tokens": 186396,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 8595,
+        "outputTokens": 68195,
+        "cacheReadInputTokens": 6793838,
+        "cacheCreationInputTokens": 621677,
+        "webSearchRequests": 0,
+        "costUSD": 9.729235249999997,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 28,
+    "duration_ms": 579188
+  },
+  "permission_denials": {
+    "count": 15,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none}\"; mkdir -p .prflow/tmp/review/pr-1182/local; gh pr diff 1182 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1182/local/diff.patch | wc -l",
+      "gh pr view 1182 --json body --jq '.body' | head -60; echo \"===SNAP===\"; mkdir -p .prflow/tmp; rm -f .prflow/tmp/review-dirty-tree-before .prflow/tmp/review-dirty-tree-disabled 2>/dev/null; git status --porcelain -z > .prflow/tmp/review-dirty-tree-before && git hash-object .prflow/tmp/review-dirty-tree-before",
+      "git status --porcelain -z > .prflow/tmp/review-dirty-tree-before; echo \"rc=$?\"; git hash-object .prflow/tmp/review-dirty-tree-before",
+      "cd /home/runner/work/prflow/prflow; for f in skills/docs-release-notes/SKILL.md skills/docs-sync-external/SKILL.md skills/implement/phases/phase-4-documentation.md; do printf '%s  ' \"$(sha256sum \"$f\" | cut -d' ' -f1)\"; echo \"$f\"; done",
+      "cd /home/runner/work/prflow/prflow; tmp=$(mktemp -d); cp -r skills \"$tmp/\"; cp .prflow/tmp/review/pr-1182/local/diff.patch \"$tmp/d.patch\"; cd \"$tmp\"; git apply --include='skills/*' d.patch 2>&1 | head; echo \"exit $?\"; sha256sum skills/docs-release-notes/SKILL.md skills/docs-sync-external/SKILL.md skills/implement/phases/phase-4-documentation.md",
+      "tmp=$(mktemp -d) && git -C /home/runner/work/prflow/prflow apply --3way=never -p1 --directory=\"$tmp\" --unsafe-paths .prflow/tmp/review/pr-1182/local/diff.patch 2>&1 | head; echo done",
+      "mkdir -p /tmp/pt && cp .prflow/tmp/review/pr-1182/local/diff.patch /tmp/pt/d.patch && cd /tmp/pt && git -C /home/runner/work/prflow/prflow archive HEAD skills | tar -x -C /tmp/pt && git --git-dir=/home/runner/work/prflow/prflow/.git apply --unsafe-paths --directory=/tmp/pt -p1 --include=skills/docs-release-notes/SKILL.md --include=skills/docs-sync-external/SKILL.md --include=skills/implement/phases/phase-4-documentation.md /tmp/pt/d.patch && sha256sum skills/docs-release-notes/SKILL.md skills/do …[per-command-truncated]",
+      "rm -rf /tmp/pt; mkdir -p /tmp/pt; git -C /home/runner/work/prflow/prflow archive HEAD skills | tar -x -C /tmp/pt; git --git-dir=/home/runner/work/prflow/prflow/.git apply --unsafe-paths --directory=/tmp/pt -p1 --include='skills/docs-release-notes/SKILL.md' --include='skills/docs-sync-external/SKILL.md' --include='skills/implement/phases/phase-4-documentation.md' /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1182/local/diff.patch; echo \"apply exit $?\"; sha256sum /tmp/pt/skills/docs-releas …[per-command-truncated]",
+      "rm -rf /tmp/pt && mkdir -p /tmp/pt",
+      "rm -rf /tmp/pt",
+      "git -C /home/runner/work/prflow/prflow archive HEAD skills > /home/runner/work/prflow/prflow/.prflow/tmp/pt/s.tar",
+      "git -C /home/runner/work/prflow/prflow archive HEAD skills > /home/runner/work/prflow/prflow/.prflow/tmp/pt/s.tar; tar -x -C /home/runner/work/prflow/prflow/.prflow/tmp/pt -f /home/runner/work/prflow/prflow/.prflow/tmp/pt/s.tar; echo extracted",
+      "git -C /home/runner/work/prflow/prflow archive HEAD skills > /home/runner/work/prflow/prflow/.prflow/tmp/pt/s.tar",
+      "cp -r /home/runner/work/prflow/prflow/skills /home/runner/work/prflow/prflow/.prflow/tmp/pt/skills",
+      "cp -r /home/runner/work/prflow/prflow/skills /home/runner/work/prflow/prflow/.prflow/tmp/pt/skills"
+    ],
+    "total": 15,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
