@@ -617,13 +617,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          # Matches devflow.yml. /devflow:implement reads the diff via
-          # three-dot notation against `origin/main` (`git diff
-          # origin/main...HEAD`), which internally computes a merge-base.
-          # Depth 50 covers the realistic case (PRs typically ≤ a few
-          # dozen commits behind main); long-lived branches that drift
-          # past that will error out visibly on the missing merge-base.
-          fetch-depth: 50
+          # fetch-depth: 0 (all history) — matches devflow.yml and ci.yml.
+          # Two requirements, and the second is the binding one (issue #1219):
+          #  1. Diff base. /prflow:implement reads the diff via three-dot
+          #     notation against `origin/main` (`git diff origin/main...HEAD`),
+          #     which computes a merge-base. A bounded depth (this was
+          #     `fetch-depth: 50`) covers that for a typical PR.
+          #  2. Historical baseline. This job runs the project's own test suite
+          #     in-env, and lib/test/run.sh's #719 baseline-corpus control reads
+          #     blobs at a FIXED past commit via `git show <ref>:<path>`. That
+          #     commit only moves further behind the branch tip, so no bounded
+          #     depth keeps resolving it; when it stops, the control self-skips
+          #     `blocking-gate` — and a skip exits 0, so the failure is silent
+          #     until the run's completion gate refuses the evidence. Evidence
+          #     of record: Actions run 30832631347 discarded a 4 min 20 s shard
+          #     run and repeated it after `git fetch --unshallow`.
+          #     Requirement 1 alone cannot justify a number that satisfies 2.
+          # Chosen mechanism: full history rather than a targeted fetch of the
+          # required commits. The targeted fetch does work (verified: a
+          # `git fetch --depth=1 origin <sha>` onto a depth-50 clone makes
+          # `git show <sha>:<path>` resolve while the repo stays shallow) and is
+          # cheaper, but it would couple this workflow to `_WSR_RETIRED_REFS`
+          # inside lib/test/run.sh — a second copy of that SHA list here would
+          # silently stop covering the suite the day a retirement adds a
+          # different ref. Cost was NOT re-measured on a runner for this change;
+          # issue #1219's figures stand (+9 to +16 s of checkout at this
+          # repository's size).
+          fetch-depth: 0
           # LOAD-BEARING (issue #357): the credential actions/checkout persists
           # here is what `git push` actually authenticates with — NOT the
           # `github_token` handed to claude-code-action below. checkout@v6 writes

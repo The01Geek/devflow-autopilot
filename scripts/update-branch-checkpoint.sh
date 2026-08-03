@@ -323,7 +323,7 @@ _merge_and_dispatch
 # (8) Shallow-history arm: no merge base was reachable (the merge above returned without a
 # MERGE_HEAD). Unshallow exactly once and retry the merge once; an unrecoverable history is
 # a clean UNVERIFIED with the tree untouched. Target the base with the same explicit
-# destination refspec as step 4: the cloud checkout uses fetch-depth:50 and DOWNLOADS only
+# destination refspec as step 4: a depth-limited cloud checkout DOWNLOADS only
 # the feature ref's history, so a bare `git fetch --unshallow origin` need not deepen the
 # base ref and the merge base could still lie beyond the shallow boundary — the explicit
 # refspec both deepens the right ref and keeps origin/$BASE resolution independent of the

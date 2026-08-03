@@ -1280,6 +1280,16 @@ the execution path — invoked by their **direct leading-token** form (the
   during that PR's own implementing run; grant the command in a prior (merged)
   change, or defer that verification to after merge.
 
+- **The jobs that run your commands check out full history**, so a check of
+  yours that reads history older than the last few dozen commits still resolves
+  in-env. Both `devflow-implement.yml`'s `claude` job and `devflow.yml`'s
+  `command` job use `fetch-depth: 0` (issue #1219 — before that they were
+  depth-bounded, which silently turned this repository's own history-reading
+  gate into a self-skip rather than a failure). A consumer whose copies
+  `install.sh` still manages picks the new depth up on its next install run;
+  a locally modified workflow keeps your copy, as the installer's preserve arm
+  intends, so raise the depth yourself there if such a check matters to you.
+
 (This repo's own `.prflow/config.json` grants `Bash(lib/test/run.sh:*)`,
 `Bash(lib/test/run-parallel.sh:*)`, `Bash(lib/test/run-module.sh:*)`,
 `Bash(lib/test/run-shard.sh:*)`, `Bash(lib/test/shard-tally.py:*)`,
