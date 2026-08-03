@@ -1389,7 +1389,8 @@ jobs:
           # exceed 10 min). So every coordinator invocation was killed at 10 min with NO
           # output and the same work was redone shard by shard (~28% of measured run
           # wall-clock wasted). This sets a DELIBERATELY BOUNDED 20-minute (1200000 ms)
-          # ceiling: comfortable headroom above the ~13–14 min coordinator floor while
+          # ceiling: headroom above the coordinator floor bracketed above — whose
+          # post-#1180 figure is a sleep-stub measurement rather than an in-env one — while
           # still killing a genuinely hung command well inside the job budget. It is a
           # bound, NOT a removal — an unbounded/very-large ceiling would convert a hang
           # into a job-timeout-length stall with no diagnostic.
@@ -1411,12 +1412,24 @@ jobs:
           # base-action/src/parse-sdk-options.ts passes
           # settingSources: ["user", "project", "local"] to the Agent SDK, so the user file
           # this input writes and the project file carrying those hooks are loaded
-          # together. There is therefore no merge-vs-overwrite exposure for those three
-          # hooks here, and a copy of them does not belong in this block — copying them in
-          # would register each of the three twice (once per settings source) and fire the
-          # stall backstop and the telemetry persist twice per stop. Re-verify the three
-          # source facts cited above after a claude-code-action major upgrade before
-          # relying on this paragraph.
+          # together. On that reading there is no merge-vs-overwrite exposure for those
+          # three hooks here, and a copy of them does not belong in this block — copying
+          # them in would register each of the three twice (once per settings source) and
+          # fire the stall backstop and the telemetry persist twice per stop.
+          #
+          # REGISTER OF THE PARAGRAPH ABOVE (PR #1205 review round 2). It is a READ of
+          # claude-code-action's source — not a measurement taken here, and not a documented
+          # input contract — held to the same standard as the runner-source inference
+          # further down. The `uses:` on this step floats at `@v1`, so a minor or patch
+          # release moves that source with nothing here to notice it: re-verify those source
+          # facts after ANY claude-code-action upgrade, not only a major one. Leaving the
+          # action unpinned is the deliberate choice — a SHA pin would freeze the source
+          # this paragraph reads, but it would also drop the automatic patch pickup `@v1`
+          # gives every other input on this step, and which `uses:` form this repo wants is
+          # a repo-wide policy question rather than one for this block to settle. The open
+          # measurement tracked in #919 (matcher-probe.yml's `pretooluse-probe`) answers a
+          # DIFFERENT question — whether a settings-input hook fires — so it neither
+          # confirms nor refutes the scope read above, and this block does not wait on it.
           #
           # Two residuals for a future editor. (1) The merge is shallow, so a second
           # top-level key added here REPLACES (never deep-merges) a same-named key already
@@ -1440,9 +1453,9 @@ jobs:
           # parse-sdk-options.ts then hands the Agent SDK {...process.env}) — but that is
           # inference from an unpinned runner implementation, not a documented contract
           # and not a measurement taken here, so it does not clear #1179's bar. The
-          # settings `env` object is the route the action documents as an input, and with
-          # the scope question above resolved it carries no unresolved hazard — so there
-          # is nothing to gain by moving the value.
+          # settings `env` object is the route the action documents as an input, and the
+          # scope question above is answered for it as far as a source read can answer one
+          # — so there is nothing to gain by moving the value.
           #
           # The #1132 shard-decomposition fallback stays the in-run route if a command
           # is ever terminated at this raised ceiling.
