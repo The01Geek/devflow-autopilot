@@ -110,6 +110,13 @@ for body, rc_exp, out_exp, label in _read_fail_cases:
     check(f"read fail-closed [{label}] out", out_exp, out)
     check(f"read fail-closed [{label}] not CLEAN-FULL", False, out.startswith("CLEAN-FULL"))
 
+# A nonexistent file path is an AC5 safe-direction branch: it must route to the prose
+# fallback (NO-MARKER / rc 2), never to a clean verdict.
+rc, out, _ = _run(["read", "/no/such/loop-verdict-file-1212"])
+check("read nonexistent file rc", 2, rc)
+check("read nonexistent file out", "NO-MARKER\n", out)
+check("read nonexistent file not CLEAN-FULL", False, out.startswith("CLEAN-FULL"))
+
 # A file argument path is exercised too (round-trips through compose).
 import tempfile
 

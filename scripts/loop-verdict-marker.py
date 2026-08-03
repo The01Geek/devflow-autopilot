@@ -38,11 +38,11 @@ RESULT tokens (closed vocabulary — the six loop-level results, space-free so a
     APPROVE WITH UNRESOLVED SHADOW FINDINGS -> approve-unresolved-shadow-findings
     REJECT                                  -> reject
 
-COVERAGE tokens: `full` ONLY when the loop's `{shadow status}` phrase is exactly
-`shadow agreed, full coverage`; every other phrase (any `shadow agreement not
-verified …` variant, an empty phrase, an unrecognized one) normalizes to
-`not-verified`. This direction is deliberate and fail-safe: the marker never
-over-claims full coverage.
+COVERAGE tokens: `full` ONLY when the loop's `{shadow status}` phrase, after
+case-folding and whitespace-collapse, equals `shadow agreed, full coverage`;
+every other phrase (any `shadow agreement not verified …` variant, an empty
+phrase, an unrecognized one) normalizes to `not-verified`. This direction is
+deliberate and fail-safe: the marker never over-claims full coverage.
 
 Two subcommands, both stdlib-only, no config / gh / network / git:
 
@@ -92,17 +92,29 @@ _RESULT_TO_TOKEN = {
 
 _RESULT_TOKENS = frozenset(_RESULT_TO_TOKEN.values())
 _COVERAGE_TOKENS = frozenset({"full", "not-verified"})
-# The clean approve family: every approve-family result EXCEPT the unresolved-shadow
-# one, which is emphatically not a clean approval.
-_CLEAN_APPROVE_TOKENS = frozenset(
-    {
-        "approve",
-        "approve-with-notes",
-        "approve-with-caveat",
-        "approve-with-advisory-notes",
-    }
-)
+# The clean approve family: every result token EXCEPT the two known non-clean ones
+# (`reject` and the unresolved-shadow one, which is emphatically not a clean approval).
+# Derived from _RESULT_TOKENS so a genuinely-clean approve result added to
+# _RESULT_TO_TOKEN joins this set automatically — no second literal list to keep in
+# sync — while the read routing still fails CLOSED on any token that is somehow in
+# neither bucket.
+_CLEAN_APPROVE_TOKENS = _RESULT_TOKENS - {"reject", "approve-unresolved-shadow-findings"}
 
+# The read subcommand's closed OUTPUT vocabulary — the routing tokens the reader in
+# skills/implement/phases/phase-3-review.md §3.3 consumes. The consumer is agent prose
+# and cannot import these, so the coupling is by contract + the unit test; naming them
+# here keeps the producer's emitted vocabulary self-documenting and typo-resistant. The
+# reader routes on this STDOUT token; the exit code is advisory (exit 0 spans CLEAN,
+# AWUSF, and REJECT alike, so it cannot authorize on its own).
+ROUTE_CLEAN_FULL = "CLEAN-FULL"
+ROUTE_CLEAN_NOT_VERIFIED = "CLEAN-NOT-VERIFIED"
+ROUTE_AWUSF = "AWUSF"
+ROUTE_REJECT = "REJECT"
+ROUTE_NO_MARKER = "NO-MARKER"
+ROUTE_MALFORMED = "MALFORMED"
+
+# `full` requires the loop's {shadow status} phrase to equal this after case-folding and
+# whitespace-collapse (see _normalize_coverage); every other phrase → not-verified.
 _FULL_COVERAGE_PHRASE = "shadow agreed, full coverage"
 
 _MARKER_RE = re.compile(
@@ -150,7 +162,7 @@ def _cmd_read(args: argparse.Namespace) -> int:
         except (OSError, UnicodeDecodeError) as exc:
             # An unreadable/undecodable input is not a decided verdict: route to the
             # prose fallback, never to clean.
-            print("NO-MARKER")
+            print(ROUTE_NO_MARKER)
             sys.stderr.write("loop-verdict-marker: could not read input: %s\n" % exc)
             return 2
 
@@ -160,39 +172,39 @@ def _cmd_read(args: argparse.Namespace) -> int:
     line1 = lines[0] if lines else ""
 
     if not line1.startswith(MARKER_PREFIX):
-        print("NO-MARKER")
+        print(ROUTE_NO_MARKER)
         return 2
 
     m = _MARKER_RE.match(line1)
     if m is None:
-        print("MALFORMED marker-shaped-line-1-does-not-match-the-marker-grammar")
+        print("%s marker-shaped-line-1-does-not-match-the-marker-grammar" % ROUTE_MALFORMED)
         return 3
 
     result = m.group("result")
     coverage = m.group("coverage")
     if result not in _RESULT_TOKENS:
-        print("MALFORMED unknown-result-token=%s" % result)
+        print("%s unknown-result-token=%s" % (ROUTE_MALFORMED, result))
         return 3
     if coverage not in _COVERAGE_TOKENS:
-        print("MALFORMED unknown-coverage-token=%s" % coverage)
+        print("%s unknown-coverage-token=%s" % (ROUTE_MALFORMED, coverage))
         return 3
 
     if result == "reject":
-        print("REJECT")
+        print(ROUTE_REJECT)
         return 0
     if result == "approve-unresolved-shadow-findings":
-        print("AWUSF %s" % coverage)
+        print("%s %s" % (ROUTE_AWUSF, coverage))
         return 0
     # A clean approve-family result — decided against the single-source set, never by
     # exclusion, so a future result token that is in _RESULT_TOKENS but in none of the
     # buckets above fails CLOSED to MALFORMED rather than being classified CLEAN.
     if result in _CLEAN_APPROVE_TOKENS:
         if coverage == "full":
-            print("CLEAN-FULL %s" % result)
+            print("%s %s" % (ROUTE_CLEAN_FULL, result))
         else:
-            print("CLEAN-NOT-VERIFIED %s" % result)
+            print("%s %s" % (ROUTE_CLEAN_NOT_VERIFIED, result))
         return 0
-    print("MALFORMED unrouted-result-token=%s" % result)
+    print("%s unrouted-result-token=%s" % (ROUTE_MALFORMED, result))
     return 3
 
 
