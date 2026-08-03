@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1176",
+  "generated_at": "2026-08-03T01:27:58Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.60",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.4002044999999996,
+    "tokens": {
+      "input_tokens": 30,
+      "output_tokens": 11256,
+      "cache_read_input_tokens": 1833274,
+      "cache_creation_input_tokens": 117269,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 48,
+        "outputTokens": 17812,
+        "cacheReadInputTokens": 2197824,
+        "cacheCreationInputTokens": 226559,
+        "webSearchRequests": 0,
+        "costUSD": 3.4002044999999996,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 20,
+    "duration_ms": 265610
+  },
+  "permission_denials": {
+    "count": 3,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "gh pr diff 1176 > .prflow/tmp/review/pr-1176/local-run/diff.full 2>&1; wc -l .prflow/tmp/review/pr-1176/local-run/diff.full; echo \"---\"; tail -60 .prflow/tmp/review/pr-1176/local-run/diff.full",
+      "added=$(grep -cE '^\\+[^+]' .prflow/tmp/review/pr-1176/local-run/diff.patch); added_all=$(grep -cE '^\\+' .prflow/tmp/review/pr-1176/local-run/diff.patch); removed=$(grep -cE '^-[^-]' .prflow/tmp/review/pr-1176/local-run/diff.patch); echo \"added(non+++):$added removed(non---):$removed total_changed:$((added+removed))\""
+    ],
+    "total": 3,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
