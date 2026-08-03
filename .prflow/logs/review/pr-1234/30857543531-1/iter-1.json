@@ -1,0 +1,79 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-03T22:40:00Z",
+  "fix_commit_sha": "885b569",
+  "fix_files": ["lib/test/profile-suite.py", "lib/test/test_module_harness.py"],
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": null,
+  "sweep_defs_read": ["phase-2-implement.md"],
+  "sweep_evidence": {"status": "run"},
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:pr-test-analyzer",
+    "prflow:comment-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Critical",
+      "description": "profile-suite.py _exit_status deleted (by the /simplify pass) but test_profile_suite.py:441 ExitStatusTests still calls profiler._exit_status — AttributeError, suite RED",
+      "defect_signature": {"file": "lib/test/profile-suite.py", "line_range": [100, 100], "kind": "coupled_invariant_break"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "AC6 new-session isolation (start_new_session) is untested",
+      "defect_signature": {"file": "lib/test/test_module_harness.py", "line_range": [2360, 2400], "kind": "coverage_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "AC4/AC5 SIGQUIT arm of warn-ignored-signals.sh never exercised",
+      "defect_signature": {"file": "lib/test/test_module_harness.py", "line_range": [2410, 2440], "kind": "coverage_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "AC3 exec-shim four-signal restoration only asserted for SIGINT",
+      "defect_signature": {"file": "lib/test/test_module_harness.py", "line_range": [2318, 2352], "kind": "coverage_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "885b569"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "885b569"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "885b569"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "885b569"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 60,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "refixed", "reason": null}},
+  "shadow": {"ran_at": "2026-08-03T22:55:00Z", "reviewed_sha": "885b569", "verdict": "APPROVE", "coverage": "full", "reviewers_dispatched": ["prflow:code-reviewer", "prflow:silent-failure-hunter"], "expected_reviewers": ["prflow:code-reviewer", "prflow:silent-failure-hunter"], "phase3_findings": [{"agent": "prflow:silent-failure-hunter", "severity": "Suggestion", "description": "test_shim_restores_default_sigint is partially self-vacuous (CPython reinstalls SIGINT handler regardless) but fully compensated by test_shim_restores_all_four_default_signals; optional polish, not a defect", "fix_decision": "advisory"}], "phase2_fails": [], "comparison": {"shadow_total": 1, "overlap_with_iter_N": 0, "new": 1, "new_critical": 0, "new_important": 0}, "promoted_to_iter_next": false},
+  "telemetry": {
+    "phase_3": {"calls": 5, "tokens": 338000, "wall_clock_s": 140}
+  }
+}
