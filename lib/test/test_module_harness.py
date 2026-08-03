@@ -2352,6 +2352,28 @@ class DefaultSignalSpawnHelperTests(unittest.TestCase):
                 f"$! ({pidcap.strip()}) must name the exec'd coordinator ({self_pid})",
             )
 
+    def test_shim_restores_all_four_default_signals(self) -> None:
+        # The shim routes through restore_default_signals, which covers HUP/INT/QUIT/
+        # TERM. With the parent ignoring all four, the shimmed child must see every one
+        # default. SIGQUIT is the interesting sibling of SIGINT — the other signal a
+        # job-control-off `&` forces to ignore, which bash also cannot un-ignore.
+        report = 'for s in HUP INT QUIT TERM; do d="$(trap -p "$s")"; [ -z "$d" ] && echo "SIG$s DFL" || echo "SIG$s IGN"; done'
+        with tempfile.TemporaryDirectory() as t:
+            out = Path(t) / "child-out"
+            script = Path(t) / "parent.sh"
+            script.write_text(
+                "#!/usr/bin/env bash\n"
+                "set +m\n"
+                "trap '' HUP INT QUIT TERM\n"
+                f'( exec python3 "{SIGNAL_SPAWN_SHIM}" bash -c \'{report}\' > "{out}" 2>&1 ) &\n'
+                "wait \"$!\"\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["bash", str(script)], check=True)
+            child_out = out.read_text(encoding="utf-8")
+        for name in ("SIGHUP", "SIGINT", "SIGQUIT", "SIGTERM"):
+            self.assertIn(f"{name} DFL", child_out, child_out)
+
 
 @unittest.skipUnless(
     POSIX_SIGNAL_MATRIX_AVAILABLE,
@@ -2402,6 +2424,25 @@ class DetachedLauncherTests(unittest.TestCase):
         )
         self.assertEqual(r.returncode, 128 + int(signal.SIGTERM), r.stderr)
 
+    def test_child_is_placed_in_a_new_session(self) -> None:
+        # The launcher's second promise: the child is in its own session, so a
+        # signal to the launcher's process group does not tear it down mid-run.
+        # A child in a new session is its own session leader, so os.getsid(0)
+        # equals its own pid. Pass-through (no start_new_session) would leave the
+        # child in the launcher's session, failing this.
+        r = subprocess.run(
+            ["python3", str(DETACHED_LAUNCHER), "python3", "-c",
+             "import os; print(os.getpid(), os.getsid(0))"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        pid, sid = r.stdout.split()
+        self.assertEqual(pid, sid, f"child ({pid}) is not its own session leader (sid {sid})")
+        self.assertNotEqual(
+            sid, str(os.getsid(0)),
+            "child shares this process's session — start_new_session did not take effect",
+        )
+
 
 @unittest.skipUnless(
     POSIX_SIGNAL_MATRIX_AVAILABLE,
@@ -2412,32 +2453,42 @@ class IgnoredSignalDiagnosticTests(unittest.TestCase):
     and silent otherwise, and it is advisory — identical exit code and (empty) skip
     tally on both arms."""
 
-    def _run(self, *, ignore_int: bool) -> subprocess.CompletedProcess[str]:
+    def _run(self, *, ignore=()) -> subprocess.CompletedProcess[str]:
+        # `ignore` is a tuple of signal.Signals to set SIG_IGN in the child before it
+        # runs the diagnostic (simulating the affected-host inherited-ignore state).
         preexec = None
-        if ignore_int:
-            preexec = lambda: signal.signal(signal.SIGINT, signal.SIG_IGN)  # noqa: E731
+        if ignore:
+            preexec = lambda: [signal.signal(s, signal.SIG_IGN) for s in ignore]  # noqa: E731
         return subprocess.run(
             ["bash", str(WARN_IGNORED_SIGNALS)],
             capture_output=True, text=True, preexec_fn=preexec,
         )
 
     def test_default_arm_is_silent(self) -> None:
-        r = self._run(ignore_int=False)
+        r = self._run()
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout, "", r.stdout)
         self.assertEqual(r.stderr, "", r.stderr)
 
-    def test_ignored_arm_is_loud_and_advisory(self) -> None:
-        r = self._run(ignore_int=True)
+    def test_ignored_sigint_arm_is_loud_and_advisory(self) -> None:
+        r = self._run(ignore=(signal.SIGINT,))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("SIGINT", r.stderr, r.stderr)
         # advisory: nothing on stdout, so it cannot contribute a PASS/FAIL/skip line
         # to a caller folding its stdout into a tally.
         self.assertEqual(r.stdout, "", r.stdout)
 
+    def test_ignored_sigquit_arm_is_loud(self) -> None:
+        # The QUIT arm is independent of the INT arm; a regression dropping the
+        # `_devflow_warn_ignored_signal QUIT` line would pass every INT-only test.
+        r = self._run(ignore=(signal.SIGQUIT,))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("SIGQUIT", r.stderr, r.stderr)
+        self.assertEqual(r.stdout, "", r.stdout)
+
     def test_exit_code_and_skip_tally_identical_across_arms(self) -> None:
-        default = self._run(ignore_int=False)
-        ignored = self._run(ignore_int=True)
+        default = self._run()
+        ignored = self._run(ignore=(signal.SIGINT,))
         self.assertEqual(default.returncode, ignored.returncode)
         # The diagnostic registers no skip: it writes to no SKIPS_FILE and emits
         # nothing on stdout in either arm, so the skip tally is zero in both.

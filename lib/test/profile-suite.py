@@ -97,7 +97,7 @@ from pathlib import Path
 # child's output) cannot provide — but it shares the signal handling below.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from signal_launcher import (  # noqa: E402
-    exit_status as _shared_exit_status,
+    exit_status as _exit_status,
     restore_default_signals,
 )
 
@@ -501,8 +501,10 @@ def _run(args: argparse.Namespace) -> int:
     # second, disagreeing account of one event. The shared `exit_status` (issue
     # #1216) owns the signal-death → `128 + N` translation: `wait()` reports a
     # signal death as `-N`, and `sys.exit(-15)` would wrap modulo 256 to 241 where
-    # `bash lib/test/run.sh` killed by that SIGTERM exits 143.
-    rc = _shared_exit_status(proc.wait())
+    # `bash lib/test/run.sh` killed by that SIGTERM exits 143. `_exit_status` is the
+    # shared `signal_launcher.exit_status` imported under the profile-suite-local name
+    # its `ExitStatusTests` translation-table test (test_profile_suite.py) drives.
+    rc = _exit_status(proc.wait())
     end = time.monotonic()
     prof.close(end - prev)
     total = end - t0
