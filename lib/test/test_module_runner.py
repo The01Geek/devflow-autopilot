@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import os
 from pathlib import Path
@@ -1499,7 +1500,33 @@ class ModuleRunnerTests(unittest.TestCase):
         HostCapabilitySkipChannelTests), so this equality is a statement about the
         focused runner, not about every tier. The harness guard module retains its
         bounded heavy-unit mode here so the pooled suite does not duplicate the full
-        Python corpus already owned by the modules shard."""
+        Python corpus already owned by the modules shard.
+
+        WHY THE MODULE SUBPROCESSES RUN CONCURRENTLY (issue #1181). Attribution of the
+        `python-pool` shard (a past-time snapshot measured 2026-08 on the cloud implement
+        tier, 4 vCPU — motivating figures, not a maintained contract, so nothing enforces
+        them) put this single test at ~266s — 60% of test_module_runner.py's whole ~448s
+        wall-clock, and the shard's wall-clock is the wall-clock of test_module_runner.py,
+        its slower member. The cost is not one hotspot but ~5 subprocess-heavy modules run
+        one after another (installer-wiring 67s, issue-audit-state 55s,
+        efficiency-trace-telemetry 51s, create-issue-contract 32s, harness-python-guards
+        26s, the rest <=15s). Each module runs the real focused runner in its OWN process
+        with its OWN log dir and its OWN copied environment, and the heavy modules
+        allocate their own mktemp scratch/sandbox roots and only read the shared tree, so
+        there is no shared mutable state across iterations
+        (test_concurrent_runs_use_distinct_complete_logs pins the narrower guarantee that
+        the runner keeps its logs distinct across concurrent runs) — so the loop is
+        embarrassingly parallel.
+        Running the subprocess fan-out through a bounded thread pool collapses the wall
+        of this test from the SUM of the module runtimes to roughly the longest single
+        module, without dropping, weakening, or reordering a single assertion: the static
+        run.sh call-site checks run first, serially, in the main thread, and every
+        per-module verdict below is asserted in the main thread from the collected
+        result, still inside `self.subTest(module=...)`. `subprocess.run` and
+        `tempfile.TemporaryDirectory` release the GIL / do their own I/O, so a thread
+        pool (not a process pool) is the right primitive; the worker performs no unittest
+        assertion, only the process launch and the log-dir observation, so the pool never
+        touches the non-thread-safe TestResult."""
         registry = json.loads(
             (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
                 encoding="utf-8"
@@ -1512,9 +1539,19 @@ class ModuleRunnerTests(unittest.TestCase):
             if mapping.get("assertion_floor_policy") == "exact"
         }
         self.assertTrue(exact_modules)
+
+        # Static run.sh call-site checks first, serially, before any subprocess is
+        # launched: a floor literal that drifted from the registry must fail here
+        # regardless of how the module executions are scheduled. The surviving
+        # (module_id, floor) pairs are the fan-out work list.
+        work: list[tuple[str, int]] = []
         for module_id, mapping in exact_modules.items():
-            with self.subTest(module=module_id):
-                floor = mapping["minimum_assertions"]
+            # Bind floor OUTSIDE the subTest so the work.append below can never see an
+            # unbound name: a subTest swallows an exception in its body, so binding floor
+            # inside it would let a (registry-invalid) missing minimum_assertions leave
+            # floor unbound and NameError the append with no module attribution.
+            floor = mapping["minimum_assertions"]
+            with self.subTest(module=module_id, phase="run.sh call-site"):
                 self.assertIn(
                     f'devflow_run_full_suite_module "$LIB/test/modules/{module_id}.sh"',
                     run_text,
@@ -1524,49 +1561,74 @@ class ModuleRunnerTests(unittest.TestCase):
                     floor_match, f"no run.sh call-site floor literal for {module_id}"
                 )
                 self.assertEqual(int(floor_match.group(1)), floor)
-                environment = os.environ.copy()
-                environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
-                if temp_root := environment.get("TMPDIR"):
-                    environment["TMPDIR"] = temp_root.rstrip("/") or "/"
-                with tempfile.TemporaryDirectory() as log_dir:
-                    runner_argv = [
-                        "bash",
-                        str(RUNNER_SOURCE),
-                        "--log-dir",
-                        log_dir,
-                    ]
-                    if module_id == "harness-python-guards":
-                        runner_argv.extend(("--heavy-units", "smoke"))
-                    runner_argv.append(module_id)
-                    result = subprocess.run(
-                        runner_argv,
-                        cwd=ROOT,
-                        env=environment,
-                        text=True,
-                        capture_output=True,
-                        check=False,
-                    )
+            work.append((module_id, floor))
 
-                    self.assertEqual(
-                        result.returncode,
-                        0,
-                        result.stdout[-4000:] + result.stderr[-4000:],
+        def _run_one(item: tuple[str, int]) -> tuple[str, int, int, str, str, bool]:
+            module_id, floor = item
+            environment = os.environ.copy()
+            environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+            if temp_root := environment.get("TMPDIR"):
+                environment["TMPDIR"] = temp_root.rstrip("/") or "/"
+            with tempfile.TemporaryDirectory() as log_dir:
+                runner_argv = [
+                    "bash",
+                    str(RUNNER_SOURCE),
+                    "--log-dir",
+                    log_dir,
+                ]
+                if module_id == "harness-python-guards":
+                    runner_argv.extend(("--heavy-units", "smoke"))
+                runner_argv.append(module_id)
+                result = subprocess.run(
+                    runner_argv,
+                    cwd=ROOT,
+                    env=environment,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                # Observe the log dir INSIDE the context manager, before the temp dir is
+                # torn down, and return the boolean — the assertion lives in the main
+                # thread below.
+                log_had_files = bool(list(Path(log_dir).iterdir()))
+            return (
+                module_id,
+                floor,
+                result.returncode,
+                result.stdout,
+                result.stderr,
+                log_had_files,
+            )
+
+        # Bound the fan-out to the host's CPUs (a thread per module otherwise). The pool
+        # shares its runner with test_python_scripts.py, so this stays modest rather than
+        # unbounded; pool.map preserves input order, so results iterate deterministically.
+        max_workers = min(len(work), (os.cpu_count() or 2))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+            results = list(pool.map(_run_one, work))
+
+        for module_id, floor, returncode, stdout, stderr, log_had_files in results:
+            with self.subTest(module=module_id):
+                self.assertEqual(
+                    returncode,
+                    0,
+                    stdout[-4000:] + stderr[-4000:],
+                )
+                # Membership in the LINE list, not a substring of the whole stdout —
+                # a bare substring match would also accept a summary line that grew a
+                # trailing clause (a skip tally, say; a skipped assertion is never a
+                # clean pass, issue #456), so this pins the runner's exact format.
+                self.assertIn(
+                    f"Module {module_id}: {floor} passed, 0 failed",
+                    stdout.splitlines(),
+                )
+                if module_id == "harness-python-guards":
+                    self.assertRegex(
+                        stdout,
+                        r"test_pin_corpus_lint\.py: .*BOUNDED smoke subset "
+                        r"— the full population did NOT run",
                     )
-                    # Membership in the LINE list, not a substring of the whole stdout —
-                    # a bare substring match would also accept a summary line that grew a
-                    # trailing clause (a skip tally, say; a skipped assertion is never a
-                    # clean pass, issue #456), so this pins the runner's exact format.
-                    self.assertIn(
-                        f"Module {module_id}: {floor} passed, 0 failed",
-                        result.stdout.splitlines(),
-                    )
-                    if module_id == "harness-python-guards":
-                        self.assertRegex(
-                            result.stdout,
-                            r"test_pin_corpus_lint\.py: .*BOUNDED smoke subset "
-                            r"— the full population did NOT run",
-                        )
-                    self.assertTrue(list(Path(log_dir).iterdir()))
+                self.assertTrue(log_had_files)
 
     def test_create_issue_self_allocated_root_rejects_unsafe_mktemp_output(self) -> None:
         source = CREATE_ISSUE_MODULE_SOURCE.read_text(encoding="utf-8")
