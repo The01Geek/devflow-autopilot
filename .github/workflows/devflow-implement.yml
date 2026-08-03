@@ -1375,6 +1375,35 @@ jobs:
           additional_permissions: |
             actions: read
 
+          # Raise the Bash tool's per-command ceiling on THIS tier (issue #1179).
+          # Claude Code's BASH_MAX_TIMEOUT_MS defaults to 600000 ms (10 min). The
+          # parallel verification coordinator (lib/test/run-parallel.sh, #1086) — the
+          # run's final whole-suite gate — could not finish inside that window on the
+          # ubuntu-latest 4 vCPU runner this job resolves to: at BUDGET=4 its estimated
+          # floor is ~13–14 min (the pre-#1180 packing; #1180 lowered
+          # POOL_RESERVATION_CEILING to 2 so it now packs three shards at BUDGET=4, but
+          # the post-#1180 stub measurement of ~7.9 min is optimistic — it does not
+          # reproduce 4-core contention, and the real in-env total can still approach or
+          # exceed 10 min). So every coordinator invocation was killed at 10 min with NO
+          # output and the same work was redone shard by shard (~28% of measured run
+          # wall-clock wasted). This sets a DELIBERATELY BOUNDED 20-minute (1200000 ms)
+          # ceiling: comfortable headroom above the ~13–14 min coordinator floor while
+          # still killing a genuinely hung command well inside the job budget. It is a
+          # bound, NOT a removal — an unbounded/very-large ceiling would convert a hang
+          # into a job-timeout-length stall with no diagnostic. The `settings` input
+          # (claude-code-action) carries a Claude Code settings JSON; its `env` object
+          # is applied to the CLI session and reaches the Bash tool subprocess, which is
+          # what makes the override take effect (option 1 in issue #1179 — no reliance on
+          # a step-level `env:` whose propagation into the CLI process is unconfirmed).
+          # The #1132 shard-decomposition fallback stays the in-run route if a command
+          # is ever terminated at this raised ceiling.
+          settings: |
+            {
+              "env": {
+                "BASH_MAX_TIMEOUT_MS": "1200000"
+              }
+            }
+
           # Composed by the `Compose plugin inputs` step above (issue #505): the
           # baked baseline (byte-identical across the three call sites — run.sh
           # pins it) PLUS the entries .claude/settings.json declares. Kept in sync

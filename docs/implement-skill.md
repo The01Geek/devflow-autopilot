@@ -226,9 +226,13 @@ documents, because on that tier the shell that *runs* a `.sh` helper is chosen a
 invocation boundary.
 
 **When the ceiling terminates the coordinator, decompose it (issue #1132).** The cloud
-implement tier terminates any single command at roughly ten minutes, and that ceiling is not
-escapable in-run: `devflow-implement.yml` sets `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"`,
-the tree carries no `BASH_MAX_TIMEOUT_MS` override, and `nohup` is ungranted. A run in that
+implement tier terminates any single command at the ceiling `devflow-implement.yml` sets on
+the Claude step — `BASH_MAX_TIMEOUT_MS`, raised via the step's `settings` input to 20 minutes
+(issue #1179) from Claude Code's 600000 ms default so the coordinator can run to a verdict.
+That value is fixed at *authoring* time by the workflow, but it is not escapable *in-run*: an
+agent mid-run cannot raise its own ceiling (`devflow-implement.yml` sets
+`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"` and `nohup` is ungranted), so decomposition stays
+the in-run route whenever a command is terminated at whatever ceiling the workflow set. A run in that
 position does **not** downgrade its evidence to a focused module — the Phase 4.3 completion
 gate takes a whole-suite result, and the prompt extensions state that scope once. It instead
 does what CI already does to satisfy the same required check: enumerate the partition with
