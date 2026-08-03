@@ -19337,6 +19337,21 @@ assert_eq("#1214 AC5 acs-gate: fallback-also-unavailable exit code is 4", 4, _c)
 assert_eq("#1214 AC5 acs-gate: fallback-also-unavailable names source: unestablished",
           True, 'source: unestablished' in _o)
 
+# Review finding (PR #1227, test-coverage gap): the `None`-vs-`""` discriminator is
+# the "unknown is not zero" boundary of this gate, and only the `None` side was
+# driven. An issue body that is REACHABLE but carries no criteria is an ESTABLISHED
+# negative — it routes to `workpad-read-failed` (exit 3), never to `unestablished`
+# (exit 4). Without this row, collapsing `if body_md is None` into `if not body_md`
+# reroutes an established negative to unestablished and the suite stays green.
+_c, _o = _run_acs_gate('transport', fallback='')
+assert_eq("#1214 acs-gate: a reachable-but-empty issue body still does not pass",
+          True, _c != 0)
+assert_eq("#1214 acs-gate: a reachable-but-empty issue body is exit 3, NOT unestablished 4",
+          3, _c)
+assert_eq("#1214 acs-gate: a reachable-but-empty issue body names workpad-read-failed",
+          True, 'source: workpad-read-failed' in _o
+          and 'source: unestablished' not in _o)
+
 
 # AC3 (real fallback via parse-acs.py) + AC10 (unknown vs negative recovery poll).
 # `_acs_gate_issue_body_criteria` shells out to the REAL scripts/parse-acs.py with a
@@ -19520,6 +19535,116 @@ assert_eq("#1214 regression: an unfoldable buffered item is NOT dropped (buffer 
           True, (Path(_bufdir3) / '55512.json').exists())
 assert_eq("#1214 regression: the surviving buffer still carries the note",
           True, 'survivor-note' in (Path(_bufdir3) / '55512.json').read_text(encoding='utf-8'))
+
+# Review finding (PR #1227, finding 1): the FILE-sourced reflection is the feature's
+# motivating case — `skills/implement/SKILL.md` mandates that a stop path deliver its
+# Blocked reflection in a separate `--reflection-file` call carrying no inline
+# `--note`/`--reflection`, and its documented inline fallback covers only a
+# *structural* error, never a PATCH failure. So a `--reflection-file`-only call whose
+# PATCH fails must buffer the payload, or the one reflection issue #1214 exists to
+# rescue is the one it silently drops.
+_bufdir4 = tempfile.mkdtemp(prefix='wp1214-buf4-')
+_rfl_payload = 'blocked: the run stopped on a 503 from the workpad PATCH'
+_rfl_file = Path(_bufdir4) / 'payload.md'
+_rfl_file.write_text(_rfl_payload + '\n', encoding='utf-8')
+_code, _pb, _n = _run_cmd_update(
+    _update_args(reflection_file=str(_rfl_file), reflection_kind='blocked'),
+    live_body=_WP1214, patch_fails=True, buffer_dir=_bufdir4)
+_buf_file4 = Path(_bufdir4) / '55512.json'
+assert_eq("#1214 file-reflection: a PATCH failure still fails loudly (non-zero exit)",
+          True, _code != 0)
+assert_eq("#1214 file-reflection: the dropped --reflection-file payload IS buffered",
+          True, _buf_file4.exists()
+          and _rfl_payload in _buf_file4.read_text(encoding='utf-8'))
+# ...and replays into the Devflow Reflection section on the next successful call,
+# under the kind the *replaying* call carries (the documented degraded-path rule).
+_code, _pb, _n = _run_cmd_update(
+    _update_args(status='Reviewing'),
+    live_body=_WP1214, patch_fails=False, buffer_dir=_bufdir4)
+assert_eq("#1214 file-reflection: the replaying update exits 0", 0, _code)
+assert_eq("#1214 file-reflection: the buffered file payload is replayed into the body",
+          True, _pb is not None and _rfl_payload in _pb)
+assert_eq("#1214 file-reflection: the buffer is cleared after the replay",
+          False, _buf_file4.exists())
+
+# Review finding (PR #1227, finding 2): idempotency must hold ACROSS buffered
+# records, not only against the live body. Two failed calls carrying the same
+# `--note` (a retry during an outage) buffer separate records; deduping only against
+# the body folds each of them and renders the same bullet more than once.
+_bufdir5 = tempfile.mkdtemp(prefix='wp1214-buf5-')
+_dup_across = 'duplicate-across-buffered-records'
+(Path(_bufdir5) / '55512.json').write_text(
+    _json.dumps([
+        {'notes': [_dup_across], 'reflections': [], 'reflection_kind': 'note'},
+        {'notes': [_dup_across], 'reflections': [], 'reflection_kind': 'note'},
+    ]),
+    encoding='utf-8')
+_code, _pb, _n = _run_cmd_update(
+    _update_args(status='Reviewing'),
+    live_body=_WP1214, patch_fails=False, buffer_dir=_bufdir5)
+assert_eq("#1214 within-pass dedup: the duplicate-record replay exits 0", 0, _code)
+assert_eq("#1214 within-pass dedup: two identical buffered records render ONE bullet",
+          1, (_pb or '').count(_dup_across))
+assert_eq("#1214 within-pass dedup: the fully-replayed buffer is still cleared",
+          False, (Path(_bufdir5) / '55512.json').exists())
+
+# The same class one hop over: a buffered item identical to the text THIS call
+# already carries inline. The buffered copy must be skipped, not folded alongside it.
+_bufdir6 = tempfile.mkdtemp(prefix='wp1214-buf6-')
+_dup_inline = 'duplicate-with-this-calls-own-note'
+(Path(_bufdir6) / '55512.json').write_text(
+    _json.dumps([{'notes': [_dup_inline], 'reflections': [], 'reflection_kind': 'note'}]),
+    encoding='utf-8')
+_code, _pb, _n = _run_cmd_update(
+    _update_args(note=[_dup_inline]),
+    live_body=_WP1214, patch_fails=False, buffer_dir=_bufdir6)
+assert_eq("#1214 within-pass dedup: the inline-retry replay exits 0", 0, _code)
+assert_eq("#1214 within-pass dedup: a buffered item this call re-sends inline renders ONCE",
+          1, (_pb or '').count(_dup_inline))
+# ...and the same for a reflection, whose replay path is otherwise untested.
+_bufdir7 = tempfile.mkdtemp(prefix='wp1214-buf7-')
+_dup_rfl = 'duplicate-across-buffered-reflections'
+(Path(_bufdir7) / '55512.json').write_text(
+    _json.dumps([
+        {'notes': [], 'reflections': [_dup_rfl], 'reflection_kind': 'blocked'},
+        {'notes': [], 'reflections': [_dup_rfl], 'reflection_kind': 'blocked'},
+    ]),
+    encoding='utf-8')
+_code, _pb, _n = _run_cmd_update(
+    _update_args(status='Reviewing'),
+    live_body=_WP1214, patch_fails=False, buffer_dir=_bufdir7)
+assert_eq("#1214 within-pass dedup: the duplicate-reflection replay exits 0", 0, _code)
+assert_eq("#1214 within-pass dedup: two identical buffered reflections render ONE bullet",
+          1, (_pb or '').count(_dup_rfl))
+
+# Review finding (PR #1227, test-coverage gap): the MIXED partial-replay case. One
+# buffered section is foldable and the other is not, so `fully_replayed` must be
+# False and the buffer must survive — the conjunct that a body-with-Progress-only
+# body exercises and a fully-foldable or fully-unfoldable body does not.
+_bufdir8 = tempfile.mkdtemp(prefix='wp1214-buf8-')
+(Path(_bufdir8) / '55512.json').write_text(
+    _json.dumps([{'notes': ['mixed-note'], 'reflections': ['mixed-reflection'],
+                  'reflection_kind': 'note'}]),
+    encoding='utf-8')
+# `## Progress` present, `## Devflow Reflection` absent: the note folds, the
+# reflection cannot.
+_body_no_reflection = (
+    "<!-- prflow:workpad -->\n"
+    "**Status:** 🚀 Setup\n"
+    "**Last updated:** 2026-01-01 00:00 UTC\n\n"
+    "## Progress\n- [ ] **Setup**\n\n"
+    "## Acceptance Criteria\n- [ ] a\n"
+)
+_code, _pb, _n = _run_cmd_update(
+    _update_args(),
+    live_body=_body_no_reflection, patch_fails=False, buffer_dir=_bufdir8)
+assert_eq("#1214 mixed replay: the partially-foldable update still exits 0", 0, _code)
+assert_eq("#1214 mixed replay: the foldable note IS replayed", True,
+          _pb is not None and 'mixed-note' in _pb)
+assert_eq("#1214 mixed replay: the unfoldable reflection is NOT written into the body",
+          True, _pb is not None and 'mixed-reflection' not in _pb)
+assert_eq("#1214 mixed replay: the buffer SURVIVES (fully_replayed is False)",
+          True, (Path(_bufdir8) / '55512.json').exists())
 
 
 # AC11: a 503 response does not match the credential-failure pattern in gh-fresh.sh.

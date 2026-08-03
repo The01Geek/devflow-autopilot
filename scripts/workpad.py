@@ -2391,6 +2391,25 @@ def _read_reflection_payload(path: str) -> str:
     return text
 
 
+def _reflection_file_payload(args) -> str:
+    """Read `--reflection-file`'s payload at most once per invocation, memoized on
+    `args`.
+
+    Two consumers need the SAME text: `_apply_mutations`, which renders the bullet,
+    and `cmd_update`'s failed-write buffering (issue #1214), which must persist it
+    when the PATCH drops it. The `-`/stdin arm can only be read once — a second read
+    returns empty and would raise the empty-payload `_UpdateError` against a payload
+    that was in fact fine — so the first read is cached and a later caller is served
+    from that cache. Failure modes are `_read_reflection_payload`'s unchanged
+    `_UpdateError` contract; only a SUCCESSFUL read is cached, so a caller that
+    retries after a failure re-reads rather than seeing a half-populated cache."""
+    cached = getattr(args, '_reflection_file_payload_cache', None)
+    if cached is None:
+        cached = _read_reflection_payload(args.reflection_file)
+        args._reflection_file_payload_cache = cached
+    return cached
+
+
 class _UpdateError(Exception):
     """Raised by mutation helpers in `_apply_mutations` to signal a *structural*
     failure — a missing target section, a missing `Status`/`Last updated` line, an
@@ -2465,9 +2484,36 @@ def _read_workpad_buffer(comment_id) -> list:
         return []
     try:
         data = json.loads(raw)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        # Loud, not silent: the caller goes on to append to an empty list and
+        # overwrite this file, so an undiagnosed malformed buffer is buffered
+        # content discarded without a trace. `_write_workpad_buffer` writes
+        # atomically, so this shape is not one this helper can produce itself.
+        sys.stderr.write(
+            f"workpad.py: the workpad buffer for comment {comment_id} is not valid "
+            f"JSON ({e}); treating it as empty — any records it held are not "
+            f"replayable and the next buffered write replaces it.\n")
         return []
-    return data if isinstance(data, list) else []
+    if not isinstance(data, list):
+        sys.stderr.write(
+            f"workpad.py: the workpad buffer for comment {comment_id} is a "
+            f"{type(data).__name__}, not a list of records; treating it as empty.\n")
+        return []
+    return data
+
+
+def _write_workpad_buffer(path: Path, records: list) -> None:
+    """Write the buffer file atomically: a temp file in the same directory, then an
+    `os.replace`. A plain `write_text` can be interrupted mid-write during the very
+    outage this buffer exists for, leaving partial JSON that the next read cannot
+    parse — so the durability guarantee would fail exactly when it is needed. The
+    rename is atomic on POSIX and on Windows (`os.replace` overwrites), so a reader
+    observes the prior contents or the new contents, not a half-written state.
+    Raises `OSError` for the caller's existing best-effort handling."""
+    tmp = path.with_name(f'{path.name}.tmp')
+    tmp.write_text(
+        json.dumps(records, ensure_ascii=False, indent=2), encoding='utf-8')
+    os.replace(tmp, path)
 
 
 def _buffer_failed_change(comment_id, notes, reflections, kind) -> "Path | None":
@@ -2492,8 +2538,7 @@ def _buffer_failed_change(comment_id, notes, reflections, kind) -> "Path | None"
         path.parent.mkdir(parents=True, exist_ok=True)
         existing = _read_workpad_buffer(comment_id)
         existing.append(record)
-        path.write_text(
-            json.dumps(existing, ensure_ascii=False, indent=2), encoding='utf-8')
+        _write_workpad_buffer(path, existing)
     except OSError as e:
         sys.stderr.write(
             f"workpad.py update: could not buffer the failed change: {e}\n")
@@ -2501,12 +2546,18 @@ def _buffer_failed_change(comment_id, notes, reflections, kind) -> "Path | None"
     return path
 
 
-def _plan_buffer_replay(comment_id, body, args) -> bool:
+def _plan_buffer_replay(comment_id, body, args,
+                        pending_notes=None, pending_reflections=None) -> bool:
     """Fold any buffered failed-write content for this comment into `args` so it
     replays on THIS successful update, idempotently (AC8/AC9).
 
-    A buffered note/reflection whose text is already present in the live `body`
-    is SKIPPED — the idempotency that keeps a replay from duplicating content.
+    Idempotency has THREE sources, not one, and all three are needed for the
+    "a replay never duplicates content" guarantee to hold. A buffered item is
+    skipped when its text is (a) already present in the live `body`, (b) already
+    carried inline by THIS call (`pending_notes`/`pending_reflections` — the shape a
+    retry of the same update takes during an outage), or (c) already queued by an
+    earlier buffered record in this same pass (two failed calls carrying the same
+    `--note` buffer two records, and deduping against the body alone folds both).
     Anything not yet present is appended to `args.note` / `args.reflection`, but
     ONLY when the target section (`## Progress` for notes, `## Devflow Reflection`
     for reflections) exists in the body — so a replay never turns a valid call
@@ -2525,14 +2576,23 @@ def _plan_buffer_replay(comment_id, body, args) -> bool:
         return False
     add_notes = []
     add_reflections = []
+    # This call's own inline content. Deduping against it is what keeps the
+    # retry-the-same-update shape from rendering the item twice — once from the
+    # buffer, once from the flag. Only the BUFFERED copy is ever skipped; a caller
+    # that deliberately passes the same `--note` twice in one call still gets both.
+    _pending_notes = list(pending_notes or [])
+    _pending_reflections = list(pending_reflections or [])
     for rec in records:
         if not isinstance(rec, dict):
             continue
         for n in rec.get('notes') or []:
-            if isinstance(n, str) and n and n not in body:
+            if (isinstance(n, str) and n and n not in body
+                    and n not in _pending_notes and n not in add_notes):
                 add_notes.append(n)
         for rfl in rec.get('reflections') or []:
-            if isinstance(rfl, str) and rfl and rfl not in body:
+            if (isinstance(rfl, str) and rfl and rfl not in body
+                    and rfl not in _pending_reflections
+                    and rfl not in add_reflections):
                 add_reflections.append(rfl)
     notes_replayable = '## Progress' in body
     reflections_replayable = '## Devflow Reflection' in body
@@ -2645,7 +2705,26 @@ def cmd_update(args):
     _own_notes = list(args.note or [])
     _own_reflections = list(args.reflection or [])
     _own_kind = args.reflection_kind or _DEFAULT_REFLECTION_KIND
-    _buffer_safe_to_clear = _plan_buffer_replay(comment_id, body, args)
+    if args.reflection_file:
+        # A file-sourced reflection is buffered exactly like an inline one. This is
+        # the case issue #1214 exists for: the mandated stop-path recipe delivers the
+        # Blocked reflection in its OWN `--reflection-file` call carrying no inline
+        # --note/--reflection, and that recipe's documented inline fallback covers a
+        # *structural* error only — never a PATCH failure — so leaving the payload
+        # uncaptured drops the run's terminal reflection on the one path the feature
+        # was built to rescue. The read is memoized (see `_reflection_file_payload`),
+        # so `_apply_mutations` below reuses this text rather than re-reading, which
+        # is also what keeps the `-`/stdin arm single-read. Pulling the read forward
+        # of `_apply_mutations` means a bad payload now reports before a
+        # co-occurring structural fault rather than after it; both still abort the
+        # whole call with exit 1 and no PATCH, which is the contract that matters.
+        try:
+            _own_reflections.append(_reflection_file_payload(args))
+        except _UpdateError as e:
+            sys.stderr.write(f"workpad.py update: {e}\n")
+            sys.exit(1)
+    _buffer_safe_to_clear = _plan_buffer_replay(
+        comment_id, body, args, _own_notes, _own_reflections)
 
     # `failed_ticks` collects *volatile* per-row tick misses (see _TickMatchError):
     # the call still applies and PATCHes every other mutation, then exits non-zero
@@ -2671,6 +2750,15 @@ def cmd_update(args):
             "workpad.py update: checkpoint replay — all requested checkpoint "
             "key(s) already present; no Last updated refresh, no PATCH.\n"
         )
+        # Reclaim the buffer on this arm too. Reaching here means the call carried no
+        # non-checkpoint mutation, and `args.note`/`args.reflection` are part of that
+        # enumeration — so if the replay above had folded anything, this arm would not
+        # have been taken. A True flag here therefore means every buffered item was
+        # already present in the live body: reclaimable, and nothing is being dropped
+        # by clearing. Without this the buffer file survives an arbitrary number of
+        # checkpoint-replay calls before a later non-noop update collects it.
+        if _buffer_safe_to_clear:
+            _clear_workpad_buffer(comment_id)
         if args.print_body:
             sys.stdout.write(body)
         return
@@ -3778,10 +3866,12 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         # The --reflection-file bullet appends AFTER the inline --reflection
         # bullets, under the same kind. Its reader raises _UpdateError (unreadable
         # path, undecodable payload, empty/whitespace-only) before the PATCH, so a
-        # bad payload aborts the whole call with no partial write.
+        # bad payload aborts the whole call with no partial write. The read goes
+        # through the memo so `cmd_update`'s failed-write buffering sees the same
+        # text without re-reading (and without re-consuming stdin on the `-` arm).
         if args.reflection_file:
             content = _append_reflection(
-                content, kind, _read_reflection_payload(args.reflection_file))
+                content, kind, _reflection_file_payload(args))
         sections[idx] = (heading, content)
 
     # Record the reproduce-first content classification (issue #449) as a
