@@ -6794,8 +6794,10 @@ _suite_tmp_dir "$E484"
 #   gh pr checkout — the inline engine is already on the branch; checking out a PR
 #     head would move the tree under Phase 3's fix loop and Phase 4's doc pass.
 #   git rev-list — the Phase 1 behind-by capture is refused and degrades gracefully;
-#     granting this head alone would not make that capture executable, and at
-#     fetch-depth 50 its count can be plausible-but-wrong across the graft boundary.
+#     granting this head alone would not make that capture executable, and under any
+#     depth-limited checkout its count can be plausible-but-wrong across the graft
+#     boundary (this workflow's own checkout is full-history since #1219, but the
+#     rationale is not conditioned on that — a consumer's installed copy may be older).
 #   mktemp — invoked only from leading VAR=$(…) capture shapes the matcher refuses
 #     regardless of a head grant; granting it would be a no-op greening the guard
 #     on a still-denied path.
@@ -25612,7 +25614,7 @@ _wsr_run_baseline_corpus_control() {
       case "$tok" in
         OK) cur_ref="$ref" ;;
         BADREF)
-          skip "$name — baseline ref '$ref'" blocking-gate "ref does not resolve (shallow clone?); baseline-corpus gate could not run here — CI's full-history checkout is authoritative"
+          skip "$name — baseline ref '$ref'" blocking-gate "ref does not resolve (shallow clone?); baseline-corpus gate could not run here — CI's full-history checkout is authoritative. To run it here, check out with fetch-depth: 0 or run 'git fetch --unshallow' first (issue #1219)"
           rm -f "$corpus"; return 0 ;;
         NOBLOB:*|EMPTY:*)
           # RED naming the unresolved input — never allowed to pass by counting zero literals.
@@ -39695,15 +39697,29 @@ assert_eq "#456 both #434 self-scan arms are blocking-gate skips through skip()"
 # `\.` is undefined there — gawk preserves it, mawk (Debian/Ubuntu's default awk, i.e.
 # CI's) strips it and leaves a wildcard. Call sites therefore use bracket classes (`[.]`),
 # which are escape-free and identical across every awk.
+# The implementation is job-parameterized (devflow_wf_job_has, defined below and used by the
+# #1219 pins); this stays as the shard-job-scoped wrapper — ci.yml by default, file
+# overridable via $2, which is exactly how the #671 mutation controls drive their mutated
+# copies. One parser, so a fix to the fail-closed contract or the awk escape rule cannot
+# reach one copy and miss the other.
 devflow_ci_shard_has() {  # $1 = ERE, matched only against UNCOMMENTED lines of the shard job
-  local _f="${2:-$LIB/../.github/workflows/ci.yml}" _out
-  [ -s "$_f" ] || { printf 'unreadable'; return; }
-  _out="$(awk -v pat="$1" '
-    /^  shard:/{ins=1; next}
-    /^  [a-z]/{ins=0}
+  devflow_wf_job_has shard "$1" "${2:-$LIB/../.github/workflows/ci.yml}"
+}
+# `no` is a CONFLATED answer — it means "the job was scanned and the pattern was absent" OR
+# "the job header never matched, so nothing was scanned". A malformed ERE fails closed
+# (`awk-failed`), but a valid-but-wrong one yields a permanent vacuous `no`. So every
+# `no`-valued pin must be paired with a `yes`-valued pin over the SAME job and file, which
+# goes RED first when the anchor stops matching; the #1219 call sites below do that, and
+# additionally drive the negative pattern to `yes` against a mutated copy.
+devflow_wf_job_has() {  # $1 = job name, $2 = ERE, $3 = workflow file; UNCOMMENTED lines of that job only
+  local _out
+  [ -s "$3" ] || { printf 'unreadable'; return; }
+  _out="$(awk -v job="^  $1:[[:space:]]*$" -v pat="$2" '
+    $0 ~ job {ins=1; next}
+    /^  [A-Za-z_][A-Za-z0-9_-]*:/{ins=0}
     ins && /^[[:space:]]*#/{next}
     ins && $0 ~ pat {f=1}
-    END{print (f?"yes":"no")}' "$_f")" || { printf 'awk-failed'; return; }
+    END{print (f?"yes":"no")}' "$3")" || { printf 'awk-failed'; return; }
   case "$_out" in
     yes|no) printf '%s' "$_out" ;;
     *)      printf 'unexpected-output' ;;
@@ -39716,6 +39732,92 @@ devflow_ci_shard_has() {  # $1 = ERE, matched only against UNCOMMENTED lines of 
 # the shard job that actually runs lib/test/run.sh.
 assert_eq "#456 ci.yml: the shard job checkout sets fetch-depth: 0" "yes" \
   "$(devflow_ci_shard_has 'fetch-depth: 0')"
+#
+# ── #1219 the two agent-running cloud jobs check out FULL history ──
+# Same failure class as the ci.yml pin above, in the two workflows install.sh actually
+# ships. Both jobs run this suite in-env, and the #719 baseline-corpus control resolves a
+# FIXED past commit through `git show <ref>:<path>`; that commit only moves further behind
+# the branch tip, so any bounded depth is a number that goes stale. What makes the
+# regression silent is that it presents as a *skip*, which exits 0 — nothing else turns
+# red, and scripts/check-completion-evidence.py's _validate_implement_record then refuses
+# the run's completion evidence for a suite pass that otherwise looks clean.
+# Job-scoped rather than file-scoped: each of these workflows has several jobs with their own
+# checkouts, and only the agent-running job runs the suite.
+_I1219_IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+_I1219_CMD_YML="$LIB/../.github/workflows/devflow.yml"
+# Both patterns are ANCHORED on the VALUE, not merely prefix-matched, because an unanchored
+# pair is defeated by a single input: `fetch-depth: 050` matches `fetch-depth: 0` as a
+# PREFIX (so the positive pin answers yes) while `[[:space:]]*[1-9]` never sees a digit in
+# 1-9 immediately after the space (so the negative pin answers no) — both pins green with a
+# bounded depth in force. So the positive pin requires the value to BE `0` (end of line) and
+# the negative pin tolerates leading zeros before the first nonzero digit. A trailing
+# comment or a quoted `'0'` makes the positive pin answer no, i.e. RED — the fail-closed
+# direction, and the reason the value pattern is stated once here rather than loosened.
+# structural-pin-ok: cross-file-phase-contract -- the executed checkout line is what supplies the history the #719 baseline-corpus gate needs; bounding it makes that gate self-skip while the workflow stays green
+assert_eq "#1219 devflow-implement.yml: the claude job checkout sets fetch-depth: 0" "yes" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_IMPL_YML")"
+# A PLAIN revert to a bounded depth is already caught by the positive pin above, which goes
+# RED on its own the moment `fetch-depth: 0` is gone — the negative pin's job is the narrower
+# one the positive pin cannot do: forbid a SECOND, bounded fetch-depth line added BESIDE a
+# retained `fetch-depth: 0`, whose effective value is parser-dependent and which a line
+# matcher cannot rank. The optional quote is load-bearing there: `'50'` and `"50"` are valid
+# YAML scalars actions/checkout accepts, and a bare `[1-9]` would let the added line through
+# while the retained `0` kept the positive pin green.
+# structural-pin-ok: cross-file-phase-contract -- a bounded depth anywhere in this job re-arms the shallow-checkout failure the positive pin above exists to prevent
+assert_eq "#1219 devflow-implement.yml: the claude job checkout sets no bounded fetch-depth" "no" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_IMPL_YML")"
+# structural-pin-ok: cross-file-phase-contract -- the command job hosts /prflow:review-and-fix, whose in-env verification runs the same suite under the same no-skip accounting
+assert_eq "#1219 devflow.yml: the command job checkout sets fetch-depth: 0" "yes" \
+  "$(devflow_wf_job_has command 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_CMD_YML")"
+# structural-pin-ok: cross-file-phase-contract -- a bounded depth anywhere in this job re-arms the shallow-checkout failure the positive pin above exists to prevent
+assert_eq "#1219 devflow.yml: the command job checkout sets no bounded fetch-depth" "no" \
+  "$(devflow_wf_job_has command 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_CMD_YML")"
+# Discriminating controls for the helper itself, so a `no`/`yes` above is evidence rather
+# than an artifact of a matcher that can only answer one way: an absent job must answer
+# `no` (not `yes`, and not the job-agnostic whole-file answer), and an unreadable file must
+# answer `unreadable` (not `no`, which would let a mistyped path pass every pin above).
+assert_eq "#1219 devflow_wf_job_has control: an absent job answers no" "no" \
+  "$(devflow_wf_job_has no_such_job 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_IMPL_YML")"
+assert_eq "#1219 devflow_wf_job_has control: an unreadable file answers unreadable" "unreadable" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_IMPL_YML.nope")"
+# Positive control for the NEGATIVE pattern itself — the norm the #671 block states below
+# ("`no` is the value the arm's assertion accepts, so [something] that silently produced an
+# unusable [input] would satisfy every arm while proving nothing"), applied here. Without
+# it a valid-but-wrong ERE (a typo'd bracket class, a `;` for `:`) yields a permanent
+# vacuous `no` and the two negative pins above forbid nothing.
+# git_sandbox, not probe_tmp: this needs a temp DIRECTORY to hold the mutated copies, and
+# probe_tmp allocates a FILE — redirecting into `<file>/bare.yml` is ENOTDIR, so the copies
+# would never exist and the matcher would answer `unreadable` against the expected `yes`.
+# (Learned the hard way: the first authoring used probe_tmp and went RED in CI.) On failure
+# git_sandbox records its own suite FAIL and returns a /dev/null-rooted sentinel, so the
+# redirects below fail closed rather than writing anywhere real.
+_I1219_MUT="$(git_sandbox '#1219 negative-pattern positive control')"
+_suite_tmp_dir "$_I1219_MUT"
+# One planted copy per spelling the two patterns CLAIM to handle — bare, single-quoted,
+# double-quoted, and leading-zero. A claimed spelling with no planted copy is an unproven
+# claim: the pattern could be wrong for that arm alone and every assertion would stay green,
+# which is exactly how the pre-anchoring `050` hole survived its own review.
+sed 's/^          fetch-depth: 0$/          fetch-depth: 50/' "$_I1219_IMPL_YML" > "$_I1219_MUT/bare.yml" 2>/dev/null
+sed "s/^          fetch-depth: 0$/          fetch-depth: '50'/" "$_I1219_IMPL_YML" > "$_I1219_MUT/squoted.yml" 2>/dev/null
+sed 's/^          fetch-depth: 0$/          fetch-depth: "50"/' "$_I1219_IMPL_YML" > "$_I1219_MUT/dquoted.yml" 2>/dev/null
+sed 's/^          fetch-depth: 0$/          fetch-depth: 050/' "$_I1219_IMPL_YML" > "$_I1219_MUT/leadzero.yml" 2>/dev/null
+assert_eq "#1219 negative-pattern control: a planted bare bounded depth answers yes" "yes" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_MUT/bare.yml")"
+assert_eq "#1219 negative-pattern control: a planted SINGLE-quoted bounded depth answers yes" "yes" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_MUT/squoted.yml")"
+assert_eq "#1219 negative-pattern control: a planted DOUBLE-quoted bounded depth answers yes" "yes" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_MUT/dquoted.yml")"
+# The leading-zero arm is the one the unanchored pair let through: BOTH pins must react to
+# it, so it is the only planted copy asserted against both patterns.
+assert_eq "#1219 negative-pattern control: a planted LEADING-ZERO bounded depth answers yes" "yes" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_MUT/leadzero.yml")"
+assert_eq "#1219 positive-pin control: a planted LEADING-ZERO depth is NOT read as fetch-depth 0" "no" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_MUT/leadzero.yml")"
+# The mutated copies must otherwise still parse as the same job, or the `yes` answers above
+# could come from a `sed` that mangled the file rather than from the planted line.
+assert_eq "#1219 negative-pattern control: the bare mutated copy lost its fetch-depth: 0" "no" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_MUT/bare.yml")"
+unset _I1219_IMPL_YML _I1219_CMD_YML _I1219_MUT
 #
 # ci.yml: the shard job installs the Claude Code CLI, which is what ARMS the #671
 # `claude plugin validate --strict` gate earlier in this file. Same failure class as the
@@ -39789,8 +39891,11 @@ for ci671_pat in 'fetch-depth: 0' 'curl -fsSL https://claude.ai/install.sh' 'ech
 done
 # The matcher's OTHER limb — job scoping — needs its own control: the arms above drive
 # only comment-skipping. Move the CLI's PATH export out of `shard:` into the `test:` job
-# and the pin must stop seeing it, which exercises both the `/^  shard:/` anchor and the
-# `/^  [a-z]/` reset. Without this, a matcher that scanned the whole file would stay green.
+# and the pin must stop seeing it, which exercises both the matcher's end-anchored
+# `^  <job>:` job anchor and its `^  <key>:` next-top-level-key reset. (The awk on the next
+# line is the FIXTURE generator, not the matcher — its own `/^  shard:/` and `/^  [a-z]/`
+# patterns are its business and are correct as written; do not read them as the matcher's.)
+# Without this, a matcher that scanned the whole file would stay green.
 awk '/^  shard:/{ins=1} /^  [a-z]/{if (!/^  shard:/) ins=0}
      ins && index($0, "echo \"$HOME/.local/bin\""){next}
      {print}
@@ -39996,7 +40101,7 @@ assert_eq "#671 retry: an empty command fails closed (exit 2)" "2" \
   "$(devflow_rwb_rc 3 0 '')"
 rm -rf "$RWB_TMP"
 unset -f devflow_rwb_rc
-unset -f devflow_acv_rc devflow_ci_shard_has
+unset -f devflow_acv_rc devflow_ci_shard_has devflow_wf_job_has
 assert_eq "#456 ci.yml: shipped lib/test orchestrators are added to shellcheck scope" "yes" \
   "$(grep -qF 'lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh' \
        "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"
