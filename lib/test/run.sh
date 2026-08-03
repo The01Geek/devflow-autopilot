@@ -45679,7 +45679,6 @@ PY
 # landing pages are repository behavior rather than deployment-time convention.
 PUBLIC_SITE_ROOT="$LIB/../docs/external"
 PUBLIC_SITE_CONFIG="$PUBLIC_SITE_ROOT/docs.json"
-PUBLIC_DOCS_ROOT="$PUBLIC_SITE_ROOT/docs"
 PUBLIC_RUN_JQ="$LIB/../scripts/run-jq.sh"
 
 public_nav_routes() {
@@ -45763,30 +45762,40 @@ PY
 }
 
 public_directories_have_index() {
-  [ -d "$PUBLIC_DOCS_ROOT" ] || { printf 'no\n'; return; }
-  local directory
+  local site_root docs_root directory
+  site_root="${1:-$PUBLIC_SITE_ROOT}"
+  docs_root="${2:-$site_root/docs}"
+  [ -d "$docs_root" ] || { printf 'no\n'; return; }
   while IFS= read -r directory; do
     [ -f "$directory/index.md" ] || { printf 'no\n'; return; }
-  done < <(find "$PUBLIC_DOCS_ROOT" -type d -print) # tree-walk-ok: validate category indexes in the unstaged local public-doc tree
+  done < <(find "$docs_root" -type d -print) # tree-walk-ok: validate category indexes in the unstaged local public-doc tree
   printf 'yes\n'
 }
 
 public_docs_stay_shallow() {
-  [ -d "$PUBLIC_DOCS_ROOT" ] || { printf 'no\n'; return; }
-  local file relative
+  local site_root docs_root file relative
+  site_root="${1:-$PUBLIC_SITE_ROOT}"
+  docs_root="${2:-$site_root/docs}"
+  [ -d "$docs_root" ] || { printf 'no\n'; return; }
   while IFS= read -r file; do
-    relative="${file#"$PUBLIC_DOCS_ROOT/"}"
+    relative="${file#"$docs_root/"}"
     if [ "$(awk -F/ '{ print NF }' <<< "$relative")" -gt 3 ]; then
       printf 'no\n'
       return
     fi
-  done < <(find "$PUBLIC_DOCS_ROOT" -type f \( -name '*.md' -o -name '*.mdx' \) -print) # tree-walk-ok: enforce depth for unstaged public pages before they enter the index
+  done < <(find "$docs_root" -type f \( -name '*.md' -o -name '*.mdx' \) -print) # tree-walk-ok: enforce depth for unstaged public pages before they enter the index
   printf 'yes\n'
 }
 
 public_site_has_no_build_output() {
-  [ -d "$PUBLIC_SITE_ROOT" ] || { printf 'no\n'; return; }
-  if find "$PUBLIC_SITE_ROOT" \( -type d -name node_modules -o -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name package.json -o -name package-lock.json -o -name pnpm-lock.yaml -o -name yarn.lock -o -name bun.lock -o -name bun.lockb \) \) -print -quit | grep -q .; then # tree-walk-ok: reject generated or dependency output even while the public site is unstaged
+  # `find`'s own status is read directly rather than a tail-of-pipe `grep -q`: piping made a
+  # failed walk indistinguishable from a clean one (empty stdout -> `yes`), so the guard failed
+  # OPEN on exactly the traversal errors it should refuse.
+  local site_root hit
+  site_root="${1:-$PUBLIC_SITE_ROOT}"
+  [ -d "$site_root" ] || { printf 'no\n'; return; }
+  hit="$(find "$site_root" \( -type d -name node_modules -o -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name package.json -o -name package-lock.json -o -name pnpm-lock.yaml -o -name yarn.lock -o -name bun.lock -o -name bun.lockb \) \) -print -quit)" || { printf 'no\n'; return; } # tree-walk-ok: reject generated or dependency output even while the public site is unstaged
+  if [ -n "$hit" ]; then
     printf 'no\n'
   else
     printf 'yes\n'
@@ -45862,6 +45871,72 @@ assert_eq "public site guard: a missing root-relative link target is rejected" "
 printf '# Present\n' > "$PUBLIC_LINK_FIXTURE/docs/missing.md"
 assert_eq "public site guard: the same link fixture passes when its target exists" "yes" \
   "$(public_internal_links_resolve "$PUBLIC_LINK_FIXTURE")"
+
+# The four guards below were hardcoded to the live tree and observed only its passing state, so
+# each could have returned `yes` unconditionally without any assertion noticing. Every fixture
+# here asserts the PASSING state first and then breaks exactly one property, so the `no` is
+# attributable to that property rather than to the fixture merely existing.
+PUBLIC_INDEX_FIXTURE="$(mktemp -d)"
+_suite_tmp_dir "$PUBLIC_INDEX_FIXTURE"
+mkdir -p "$PUBLIC_INDEX_FIXTURE/docs/category"
+printf '# Docs\n' > "$PUBLIC_INDEX_FIXTURE/docs/index.md"
+printf '# Category\n' > "$PUBLIC_INDEX_FIXTURE/docs/category/index.md"
+assert_eq "public site guard: a tree whose every documentation directory has index.md passes" "yes" \
+  "$(public_directories_have_index "$PUBLIC_INDEX_FIXTURE")"
+mkdir -p "$PUBLIC_INDEX_FIXTURE/docs/orphan"
+printf '# Page\n' > "$PUBLIC_INDEX_FIXTURE/docs/orphan/page.md"
+assert_eq "public site guard: a documentation directory with no index.md is rejected" "no" \
+  "$(public_directories_have_index "$PUBLIC_INDEX_FIXTURE")"
+
+PUBLIC_DEPTH_FIXTURE="$(mktemp -d)"
+_suite_tmp_dir "$PUBLIC_DEPTH_FIXTURE"
+mkdir -p "$PUBLIC_DEPTH_FIXTURE/docs/category/subcategory"
+printf '# Docs\n' > "$PUBLIC_DEPTH_FIXTURE/docs/index.md"
+printf '# Page\n' > "$PUBLIC_DEPTH_FIXTURE/docs/category/subcategory/page.md"
+assert_eq "public site guard: category/subcategory/page nesting is accepted at the depth limit" "yes" \
+  "$(public_docs_stay_shallow "$PUBLIC_DEPTH_FIXTURE")"
+mkdir -p "$PUBLIC_DEPTH_FIXTURE/docs/category/subcategory/deeper"
+printf '# Too deep\n' > "$PUBLIC_DEPTH_FIXTURE/docs/category/subcategory/deeper/page.md"
+assert_eq "public site guard: a page one level past category/subcategory/page is rejected" "no" \
+  "$(public_docs_stay_shallow "$PUBLIC_DEPTH_FIXTURE")"
+
+PUBLIC_BUILD_FIXTURE="$(mktemp -d)"
+_suite_tmp_dir "$PUBLIC_BUILD_FIXTURE"
+mkdir -p "$PUBLIC_BUILD_FIXTURE/docs"
+printf '# Docs\n' > "$PUBLIC_BUILD_FIXTURE/docs/index.md"
+assert_eq "public site guard: a source-only tree carries no build output" "yes" \
+  "$(public_site_has_no_build_output "$PUBLIC_BUILD_FIXTURE")"
+printf '{}\n' > "$PUBLIC_BUILD_FIXTURE/package.json"
+assert_eq "public site guard: a dependency manifest in the site root is rejected" "no" \
+  "$(public_site_has_no_build_output "$PUBLIC_BUILD_FIXTURE")"
+rm -f "$PUBLIC_BUILD_FIXTURE/package.json"
+mkdir -p "$PUBLIC_BUILD_FIXTURE/node_modules"
+assert_eq "public site guard: a node_modules directory is rejected" "no" \
+  "$(public_site_has_no_build_output "$PUBLIC_BUILD_FIXTURE")"
+rmdir "$PUBLIC_BUILD_FIXTURE/node_modules"
+printf '<html></html>\n' > "$PUBLIC_BUILD_FIXTURE/docs/index.html"
+assert_eq "public site guard: generated HTML output below the site root is rejected" "no" \
+  "$(public_site_has_no_build_output "$PUBLIC_BUILD_FIXTURE")"
+# Covers the absent-root arm only. The sibling arm this change added — `find` exiting nonzero
+# mid-walk, which the previous tail-of-pipe `grep -q` status swallowed into `yes` — is NOT driven
+# here: the portable way to provoke it is an unreadable directory, and whether that errors at all
+# depends on the runner's uid, so an assertion over it would pass locally and be vacuous under a
+# root CI container. Stated rather than silently left uncovered.
+assert_eq "public site guard: an absent site root fails closed rather than reporting clean" "no" \
+  "$(public_site_has_no_build_output "$PUBLIC_BUILD_FIXTURE/absent")"
+
+# count > 1 is the case "exactly once" exists to catch; the pre-existing fixture covered only
+# count == 0, so a regression that saturated the counter at its first match would have passed.
+PUBLIC_DUPE_FIXTURE="$(mktemp -d)"
+_suite_tmp_dir "$PUBLIC_DUPE_FIXTURE"
+mkdir -p "$PUBLIC_DUPE_FIXTURE/docs"
+printf '{"navigation":{"pages":["docs/index"]}}\n' > "$PUBLIC_DUPE_FIXTURE/docs.json"
+printf '# Docs\n' > "$PUBLIC_DUPE_FIXTURE/docs/index.md"
+assert_eq "public site guard: a page navigated exactly once passes completeness" "yes" \
+  "$(public_docs_pages_are_navigated_once "$PUBLIC_DUPE_FIXTURE")"
+printf '{"navigation":{"pages":["docs/index",{"pages":["docs/index"]}]}}\n' > "$PUBLIC_DUPE_FIXTURE/docs.json"
+assert_eq "public site guard: a page navigated twice fails completeness" "no" \
+  "$(public_docs_pages_are_navigated_once "$PUBLIC_DUPE_FIXTURE")"
 
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
