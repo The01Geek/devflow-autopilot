@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 HELPER = str(Path(__file__).resolve().parent.parent.parent / "scripts" / "loop-verdict-marker.py")
@@ -118,8 +119,6 @@ check("read nonexistent file out", "NO-MARKER\n", out)
 check("read nonexistent file not CLEAN-FULL", False, out.startswith("CLEAN-FULL"))
 
 # A file argument path is exercised too (round-trips through compose).
-import tempfile
-
 with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
     fh.write(_marker("reject", "not-verified") + "\nsome report body\n")
     _path = fh.name
