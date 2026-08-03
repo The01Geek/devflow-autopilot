@@ -6794,8 +6794,10 @@ _suite_tmp_dir "$E484"
 #   gh pr checkout — the inline engine is already on the branch; checking out a PR
 #     head would move the tree under Phase 3's fix loop and Phase 4's doc pass.
 #   git rev-list — the Phase 1 behind-by capture is refused and degrades gracefully;
-#     granting this head alone would not make that capture executable, and at
-#     fetch-depth 50 its count can be plausible-but-wrong across the graft boundary.
+#     granting this head alone would not make that capture executable, and under any
+#     depth-limited checkout its count can be plausible-but-wrong across the graft
+#     boundary (this workflow's own checkout is full-history since #1219, but the
+#     rationale is not conditioned on that — a consumer's installed copy may be older).
 #   mktemp — invoked only from leading VAR=$(…) capture shapes the matcher refuses
 #     regardless of a head grant; granting it would be a no-op greening the guard
 #     on a still-denied path.
@@ -25612,7 +25614,7 @@ _wsr_run_baseline_corpus_control() {
       case "$tok" in
         OK) cur_ref="$ref" ;;
         BADREF)
-          skip "$name — baseline ref '$ref'" blocking-gate "ref does not resolve (shallow clone?); baseline-corpus gate could not run here — CI's full-history checkout is authoritative"
+          skip "$name — baseline ref '$ref'" blocking-gate "ref does not resolve (shallow clone?); baseline-corpus gate could not run here — CI's full-history checkout is authoritative. To run it here, check out with fetch-depth: 0 or run 'git fetch --unshallow' first (issue #1219)"
           rm -f "$corpus"; return 0 ;;
         NOBLOB:*|EMPTY:*)
           # RED naming the unresolved input — never allowed to pass by counting zero literals.
@@ -39695,15 +39697,29 @@ assert_eq "#456 both #434 self-scan arms are blocking-gate skips through skip()"
 # `\.` is undefined there — gawk preserves it, mawk (Debian/Ubuntu's default awk, i.e.
 # CI's) strips it and leaves a wildcard. Call sites therefore use bracket classes (`[.]`),
 # which are escape-free and identical across every awk.
+# The implementation is job-parameterized (devflow_wf_job_has, defined below and used by the
+# #1219 pins); this stays as the shard-job-scoped wrapper — ci.yml by default, file
+# overridable via $2, which is exactly how the #671 mutation controls drive their mutated
+# copies. One parser, so a fix to the fail-closed contract or the awk escape rule cannot
+# reach one copy and miss the other.
 devflow_ci_shard_has() {  # $1 = ERE, matched only against UNCOMMENTED lines of the shard job
-  local _f="${2:-$LIB/../.github/workflows/ci.yml}" _out
-  [ -s "$_f" ] || { printf 'unreadable'; return; }
-  _out="$(awk -v pat="$1" '
-    /^  shard:/{ins=1; next}
-    /^  [a-z]/{ins=0}
+  devflow_wf_job_has shard "$1" "${2:-$LIB/../.github/workflows/ci.yml}"
+}
+# `no` is a CONFLATED answer — it means "the job was scanned and the pattern was absent" OR
+# "the job header never matched, so nothing was scanned". A malformed ERE fails closed
+# (`awk-failed`), but a valid-but-wrong one yields a permanent vacuous `no`. So every
+# `no`-valued pin must be paired with a `yes`-valued pin over the SAME job and file, which
+# goes RED first when the anchor stops matching; the #1219 call sites below do that, and
+# additionally drive the negative pattern to `yes` against a mutated copy.
+devflow_wf_job_has() {  # $1 = job name, $2 = ERE, $3 = workflow file; UNCOMMENTED lines of that job only
+  local _out
+  [ -s "$3" ] || { printf 'unreadable'; return; }
+  _out="$(awk -v job="^  $1:[[:space:]]*$" -v pat="$2" '
+    $0 ~ job {ins=1; next}
+    /^  [A-Za-z_][A-Za-z0-9_-]*:/{ins=0}
     ins && /^[[:space:]]*#/{next}
     ins && $0 ~ pat {f=1}
-    END{print (f?"yes":"no")}' "$_f")" || { printf 'awk-failed'; return; }
+    END{print (f?"yes":"no")}' "$3")" || { printf 'awk-failed'; return; }
   case "$_out" in
     yes|no) printf '%s' "$_out" ;;
     *)      printf 'unexpected-output' ;;
@@ -39716,6 +39732,72 @@ devflow_ci_shard_has() {  # $1 = ERE, matched only against UNCOMMENTED lines of 
 # the shard job that actually runs lib/test/run.sh.
 assert_eq "#456 ci.yml: the shard job checkout sets fetch-depth: 0" "yes" \
   "$(devflow_ci_shard_has 'fetch-depth: 0')"
+#
+# ── #1219 the two agent-running cloud jobs check out FULL history ──
+# Same failure class as the ci.yml pin above, in the two workflows install.sh actually
+# ships. Both jobs run this suite in-env, and the #719 baseline-corpus control resolves a
+# FIXED past commit through `git show <ref>:<path>`; that commit only moves further behind
+# the branch tip, so any bounded depth is a number that goes stale. What makes the
+# regression silent is that it presents as a *skip*, which exits 0 — nothing else turns
+# red, and scripts/check-completion-evidence.py's _validate_implement_record then refuses
+# the run's completion evidence for a suite pass that otherwise looks clean.
+# Job-scoped rather than file-scoped: each of these workflows has several jobs with their own
+# checkouts, and only the agent-running job runs the suite.
+_I1219_IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+_I1219_CMD_YML="$LIB/../.github/workflows/devflow.yml"
+# structural-pin-ok: cross-file-phase-contract -- the executed checkout line is what supplies the history the #719 baseline-corpus gate needs; bounding it makes that gate self-skip while the workflow stays green
+assert_eq "#1219 devflow-implement.yml: the claude job checkout sets fetch-depth: 0" "yes" \
+  "$(devflow_wf_job_has claude 'fetch-depth: 0' "$_I1219_IMPL_YML")"
+# A PLAIN revert to a bounded depth is already caught by the positive pin above, which goes
+# RED on its own the moment `fetch-depth: 0` is gone — the negative pin's job is the narrower
+# one the positive pin cannot do: forbid a SECOND, bounded fetch-depth line added BESIDE a
+# retained `fetch-depth: 0`, whose effective value is parser-dependent and which a line
+# matcher cannot rank. The optional quote in the pattern is load-bearing there: `'50'` and
+# `"50"` are valid YAML scalars actions/checkout accepts, and a bare `[1-9]` would let the
+# added line through while the retained `0` kept the positive pin green.
+# structural-pin-ok: cross-file-phase-contract -- a bounded depth anywhere in this job re-arms the shallow-checkout failure the positive pin above exists to prevent
+assert_eq "#1219 devflow-implement.yml: the claude job checkout sets no bounded fetch-depth" "no" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_IMPL_YML")"
+# structural-pin-ok: cross-file-phase-contract -- the command job hosts /prflow:review-and-fix, whose in-env verification runs the same suite under the same no-skip accounting
+assert_eq "#1219 devflow.yml: the command job checkout sets fetch-depth: 0" "yes" \
+  "$(devflow_wf_job_has command 'fetch-depth: 0' "$_I1219_CMD_YML")"
+# structural-pin-ok: cross-file-phase-contract -- a bounded depth anywhere in this job re-arms the shallow-checkout failure the positive pin above exists to prevent
+assert_eq "#1219 devflow.yml: the command job checkout sets no bounded fetch-depth" "no" \
+  "$(devflow_wf_job_has command 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_CMD_YML")"
+# Discriminating controls for the helper itself, so a `no`/`yes` above is evidence rather
+# than an artifact of a matcher that can only answer one way: an absent job must answer
+# `no` (not `yes`, and not the job-agnostic whole-file answer), and an unreadable file must
+# answer `unreadable` (not `no`, which would let a mistyped path pass every pin above).
+assert_eq "#1219 devflow_wf_job_has control: an absent job answers no" "no" \
+  "$(devflow_wf_job_has no_such_job 'fetch-depth: 0' "$_I1219_IMPL_YML")"
+assert_eq "#1219 devflow_wf_job_has control: an unreadable file answers unreadable" "unreadable" \
+  "$(devflow_wf_job_has claude 'fetch-depth: 0' "$_I1219_IMPL_YML.nope")"
+# Positive control for the NEGATIVE pattern itself — the norm the #671 block states below
+# ("`no` is the value the arm's assertion accepts, so [something] that silently produced an
+# unusable [input] would satisfy every arm while proving nothing"), applied here. Without
+# it a valid-but-wrong ERE (a typo'd bracket class, a `;` for `:`) yields a permanent
+# vacuous `no` and the two negative pins above forbid nothing. Plant a bounded depth into a
+# copy of the claude job in BOTH spellings the widened pattern now covers and require the
+# same pattern to answer `yes`; the copy is discarded, so the real workflow is untouched.
+# git_sandbox, not probe_tmp: this needs a temp DIRECTORY to hold two mutated copies, and
+# probe_tmp allocates a FILE — redirecting into `<file>/bare.yml` is ENOTDIR, so the copies
+# would never exist and the matcher would answer `unreadable` against the expected `yes`.
+# (Learned the hard way: the first authoring used probe_tmp and went RED in CI.) On failure
+# git_sandbox records its own suite FAIL and returns a /dev/null-rooted sentinel, so the
+# redirects below fail closed rather than writing anywhere real.
+_I1219_MUT="$(git_sandbox '#1219 negative-pattern positive control')"
+_suite_tmp_dir "$_I1219_MUT"
+sed 's/^          fetch-depth: 0$/          fetch-depth: 50/' "$_I1219_IMPL_YML" > "$_I1219_MUT/bare.yml" 2>/dev/null
+sed "s/^          fetch-depth: 0$/          fetch-depth: '50'/" "$_I1219_IMPL_YML" > "$_I1219_MUT/quoted.yml" 2>/dev/null
+assert_eq "#1219 negative-pattern control: a planted bare bounded depth answers yes" "yes" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_MUT/bare.yml")"
+assert_eq "#1219 negative-pattern control: a planted QUOTED bounded depth answers yes" "yes" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_MUT/quoted.yml")"
+# The mutated copies must otherwise still parse as the same job, or the two `yes` answers
+# above could come from a `sed` that mangled the file rather than from the planted line.
+assert_eq "#1219 negative-pattern control: the bare mutated copy lost its fetch-depth: 0" "no" \
+  "$(devflow_wf_job_has claude 'fetch-depth: 0' "$_I1219_MUT/bare.yml")"
+unset _I1219_IMPL_YML _I1219_CMD_YML _I1219_MUT
 #
 # ci.yml: the shard job installs the Claude Code CLI, which is what ARMS the #671
 # `claude plugin validate --strict` gate earlier in this file. Same failure class as the
@@ -39789,8 +39871,11 @@ for ci671_pat in 'fetch-depth: 0' 'curl -fsSL https://claude.ai/install.sh' 'ech
 done
 # The matcher's OTHER limb — job scoping — needs its own control: the arms above drive
 # only comment-skipping. Move the CLI's PATH export out of `shard:` into the `test:` job
-# and the pin must stop seeing it, which exercises both the `/^  shard:/` anchor and the
-# `/^  [a-z]/` reset. Without this, a matcher that scanned the whole file would stay green.
+# and the pin must stop seeing it, which exercises both the matcher's end-anchored
+# `^  <job>:` job anchor and its `^  <key>:` next-top-level-key reset. (The awk on the next
+# line is the FIXTURE generator, not the matcher — its own `/^  shard:/` and `/^  [a-z]/`
+# patterns are its business and are correct as written; do not read them as the matcher's.)
+# Without this, a matcher that scanned the whole file would stay green.
 awk '/^  shard:/{ins=1} /^  [a-z]/{if (!/^  shard:/) ins=0}
      ins && index($0, "echo \"$HOME/.local/bin\""){next}
      {print}
@@ -39996,7 +40081,7 @@ assert_eq "#671 retry: an empty command fails closed (exit 2)" "2" \
   "$(devflow_rwb_rc 3 0 '')"
 rm -rf "$RWB_TMP"
 unset -f devflow_rwb_rc
-unset -f devflow_acv_rc devflow_ci_shard_has
+unset -f devflow_acv_rc devflow_ci_shard_has devflow_wf_job_has
 assert_eq "#456 ci.yml: shipped lib/test orchestrators are added to shellcheck scope" "yes" \
   "$(grep -qF 'lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh' \
        "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"
@@ -45403,31 +45488,362 @@ assert_eq "#908 AC1: the settings input registers a PreToolUse hook naming the g
 # `settings:` key (this literal is generic YAML, not unique to hook registration)
 # would falsely flip this RED for a non-defect, and a differently-spelled
 # registration would evade it entirely. Parse the YAML with PyYAML instead and check,
-# structurally, that no step anywhere in the file carries a `with.settings` key and no
-# step's `with` values mention "PreToolUse" — the same precision the #460 errexit
-# fixture above uses to extract a step's `run:` body, applied here to a `with:` key
-# check instead. Falls back to the previous (imprecise but not silently skipped)
-# grep when python3/PyYAML is unavailable, so the assertion still runs somewhere.
+# structurally, that no step registers a PreToolUse hook — the same precision the #460
+# errexit fixture above uses to extract a step's `run:` body, applied here to a `with:`
+# key check instead. The property #908 protects on the implement tier is "no PreToolUse
+# guard" (that shape guard is review-tier-only), NOT "no settings input at all": issue
+# #1179 legitimately adds an env-only `settings` block here to raise BASH_MAX_TIMEOUT_MS,
+# which registers no hook. So a `settings` block is allowed IFF it declares no `hooks`
+# key and no `with` value mentions "PreToolUse". Falls back to a PreToolUse-only grep
+# when python3/PyYAML is unavailable, so the assertion still runs somewhere.
+#
+# WHY THESE EXTRACTORS ARE FILES DRIVEN OVER A FIXTURE MATRIX (PR #1205 review round 2).
+# This guard and the #1179 ceiling guard below it used to parse a single input: the live
+# devflow-implement.yml, whose shape is the happy path — an env-only settings block, no
+# hook, a value inside the bound. That input reached a refusal branch in neither guard, so
+# the mapping-form hook scan and either numeric bound could be deleted with the suite
+# still green (measured, not assumed). Each extractor is now written out once, to a file,
+# and driven over the live workflow — the real-world check, unchanged in meaning — plus
+# synthetic workflow fixtures shaped to reach the refusal branches. Extracting to a file
+# rather than re-inlining the program per input is what makes a fixture verdict evidence
+# about the shipped guard instead of about a paraphrase of it.
+#
+# The degraded arm's grep is factored out here so the armed arm can drive it over the same
+# fixtures. It needs one: a whole-file grep is comment-blind, and devflow-implement.yml's
+# own authoring prose names both `PreToolUse` and the guard script while registering
+# neither — under an unfiltered match that prose read as a registration and reported the
+# workflow non-compliant on exactly the hosts that have nothing better to fall back to.
+# Dropping full-line YAML comments before matching removes that reading; a real
+# registration lives inside the `settings:` block scalar, which carries no `#` prefix. The
+# residual is the mirror image and is accepted for a degraded arm: a guard named ONLY in a
+# comment, with the real registration removed, would read as compliant here. The
+# PyYAML-armed arm parses structure rather than text and has no such blind spot.
+#
+# It fails CLOSED on an input it cannot read (PR #1205 review round 3). The bare pipeline
+# below prints `yes` — compliant — when grep can open nothing, so an absent or unreadable
+# workflow read as a clean pass on exactly the degraded hosts this arm exists to serve. The
+# readability probe emits a third token instead, which satisfies neither the `yes` nor the
+# `no` assertions and therefore goes RED, mirroring the armed arm's `extractor-failed`.
+_wfg_grep_fallback() {
+  [ -r "$1" ] || { echo unreadable; return 0; }
+  grep -vE '^[[:space:]]*#' "$1" | grep -qE 'PreToolUse|pretooluse-shape-guard' && echo no || echo yes
+}
+# Both directions of that guard, driven on EVERY host (they need neither python3/PyYAML nor
+# scratch space, so they stay outside the armed/degraded split below): an unreadable input
+# yields the non-passing token, and a readable one still resolves to a real verdict.
+assert_eq "#908 fallback: an unreadable input fails closed rather than reading as compliant" "unreadable" \
+  "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML.no-such-file")"
+assert_eq "#908 fallback: a readable input still resolves to a real verdict" "yes" \
+  "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML")"
+_WFG_D=""
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
-  _908_IMPL_CHECK=$(python3 - "$_908_IMPLEMENT_YML" <<'PY'
-import sys, yaml
+  _WFG_D="$(mktemp -d 2>/dev/null || true)"
+  [ -n "$_WFG_D" ] && [ -d "$_WFG_D" ] || _WFG_D=""
+fi
+if [ -n "$_WFG_D" ]; then
+  cat > "$_WFG_D/hook-check.py" <<'PY'
+import sys, yaml, json
 doc = yaml.safe_load(open(sys.argv[1]))
 hit = False
 for job in doc.get("jobs", {}).values():
     for s in job.get("steps", []) or []:
         with_block = s.get("with") or {}
-        if "settings" in with_block:
-            hit = True
+        settings = with_block.get("settings")
+        if settings is not None:
+            # A settings block is permitted ONLY for non-hook configuration (issue
+            # #1179's env override). Normalize it to a Python object and fail CLOSED
+            # (hit) unless it is an object carrying no `hooks` key. A `settings: |`
+            # block-scalar is a JSON string; a native YAML mapping is already a dict —
+            # GitHub stringifies a mapping-form input at runtime, but PyYAML hands it
+            # to THIS test as a dict, so the check must inspect that form too or a
+            # mapping-form hook registration would slip past a green suite (a
+            # string-only guard was the fail-open gap the #1179 review caught). An
+            # empty settings string carries no hook (allowed); a scalar/list, or an
+            # unparseable JSON string (e.g. a settings-file path we cannot inspect),
+            # is anomalous → fail closed.
+            if isinstance(settings, dict):
+                parsed = settings
+            elif isinstance(settings, str):
+                stripped = settings.strip()
+                if stripped:
+                    try:
+                        parsed = json.loads(stripped)
+                    except (ValueError, TypeError):
+                        parsed = None
+                else:
+                    parsed = {}
+            else:
+                parsed = None
+            if not isinstance(parsed, dict) or "hooks" in parsed:
+                hit = True
+            # Serialize-scan the whole settings for a PreToolUse mention so a hook
+            # nested inside a mapping-form settings block — which the value loop below
+            # only sees for string with-values — is still caught.
+            if "PreToolUse" in json.dumps(settings, default=str):
+                hit = True
         for v in with_block.values():
             if isinstance(v, str) and "PreToolUse" in v:
                 hit = True
 print("no" if hit else "yes")
 PY
-) || _908_IMPL_CHECK="extractor-failed"   # fail CLOSED: a YAML parse error or an unexpected shape must never yield the passing value (issue #908 confirmatory review; mirrors the _908_PROBE_JOB extractor's discipline)
-  assert_eq "#908 AC1: devflow-implement.yml registers no settings input / PreToolUse guard" "yes" "$_908_IMPL_CHECK"
+  # issue #1179: the implement tier raises the Bash per-command ceiling through the
+  # claude-code-action step's `settings` input (env.BASH_MAX_TIMEOUT_MS) so the parallel
+  # verification coordinator (lib/test/run-parallel.sh) can run to a verdict instead of
+  # being killed at Claude Code's 600000 ms default. This BEHAVIORAL check (not a wording
+  # pin — the literal value may change without breaking it) parses the resolved settings
+  # env and asserts a FINITE value strictly greater than that default reaches the CLI
+  # through that channel (AC1: finite, > 600000 ms, mechanism visible in the workflow).
+  cat > "$_WFG_D/ceiling-check.py" <<'PY'
+import sys, yaml, json
+
+doc = yaml.safe_load(open(sys.argv[1]))
+# One entry per claude-code-action step, rather than letting a later step's value
+# overwrite an earlier one (PR #1205 review, Minor finding). With a single such step the
+# verdict is identical either way; with a second step present, an order-dependent
+# last-write read could report a bounded ceiling while the other step carried none.
+# Collecting instead makes the verdict order-independent.
+#
+# The all() below is therefore INTENTIONALLY per-step, not "some step is bounded": a second
+# claude-code-action step added without its own BASH_MAX_TIMEOUT_MS runs the agent under the
+# 600000 ms default, which is the gap #1179 closes and not a false positive. A future editor
+# who adds one and sees this go RED should set the ceiling on that step too, or narrow this
+# extractor to the step it means (matching on `id:`), rather than relaxing all() to any().
+vals = []
+for job in doc.get("jobs", {}).values():
+    for s in job.get("steps", []) or []:
+        if str(s.get("uses") or "").startswith("anthropics/claude-code-action"):
+            settings = (s.get("with") or {}).get("settings")
+            # Read the env from either the `settings: |` JSON block-scalar (a string)
+            # or a native YAML mapping (a dict), mirroring the hook check's form-
+            # robustness so a re-authored mapping form does not RED a valid config.
+            parsed = None
+            if isinstance(settings, dict):
+                parsed = settings
+            elif isinstance(settings, str) and settings.strip():
+                try:
+                    parsed = json.loads(settings)
+                except (ValueError, TypeError):
+                    parsed = None
+            env = parsed.get("env") if isinstance(parsed, dict) else None
+            vals.append(env.get("BASH_MAX_TIMEOUT_MS") if isinstance(env, dict) else None)
+
+
+def bounded(val):
+    # Accept only a finite integer-valued string strictly above the 600000 ms CLI default
+    # (the < 10**9 bound enforces "bounded, not a removal" — issue #1179's deliberate
+    # cap). An absent or non-numeric value is refused here, never coerced to a default.
+    try:
+        return val is not None and 600000 < int(val) < 10**9
+    except (ValueError, TypeError):
+        return False
+
+
+print("ok" if vals and all(bounded(v) for v in vals) else "no")
+PY
+  # Both runners fail CLOSED: a YAML parse error or an otherwise unhandled shape exits
+  # nonzero, and the caller substitutes a value that satisfies no assertion below (issue
+  # #908 confirmatory review; mirrors the _908_PROBE_JOB extractor's discipline).
+  _wfg_hook() { local o; o="$(python3 "$_WFG_D/hook-check.py" "$1" 2>/dev/null)" || o="extractor-failed"; printf '%s\n' "$o"; }
+  _wfg_ceiling() { local o; o="$(python3 "$_WFG_D/ceiling-check.py" "$1" 2>/dev/null)" || o="extractor-failed"; printf '%s\n' "$o"; }
+  # Compose a synthetic workflow fixture named $1 whose single claude-code-action step
+  # carries the `with:` body supplied on stdin (indented to its position under `with:`).
+  # The result is a real YAML document reaching the extractors through the same entry
+  # point the live workflow does, so a fixture verdict is evidence about the program the
+  # suite ships rather than about a stub standing in for it.
+  _wfg_fx() {
+    { printf 'jobs:\n  claude:\n    steps:\n      - uses: anthropics/claude-code-action@v1\n        with:\n'
+      cat
+    } > "$_WFG_D/$1.yml"
+  }
+  # ── Shapes the hook guard must ALLOW ──────────────────────────────────────
+  _wfg_fx env-string <<'YML'
+          settings: |
+            {"env": {"BASH_MAX_TIMEOUT_MS": "1200000"}}
+YML
+  _wfg_fx env-mapping <<'YML'
+          settings:
+            env:
+              BASH_MAX_TIMEOUT_MS: "1200000"
+YML
+  _wfg_fx no-settings <<'YML'
+          github_token: placeholder
+YML
+  _wfg_fx empty-settings <<'YML'
+          settings: ""
+YML
+  # ── Shapes the hook guard must REFUSE ─────────────────────────────────────
+  _wfg_fx hook-string <<'YML'
+          settings: |
+            {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": []}]}}
+YML
+  _wfg_fx hook-mapping <<'YML'
+          settings:
+            hooks:
+              PreToolUse:
+                - matcher: Bash
+YML
+  _wfg_fx hooks-key-quiet <<'YML'
+          settings:
+            hooks:
+              Stop: []
+YML
+  _wfg_fx nested-pretooluse <<'YML'
+          settings:
+            extraSettings:
+              hooks:
+                PreToolUse:
+                  - matcher: Bash
+YML
+  _wfg_fx pretooluse-other-input <<'YML'
+          claude_args: '--settings {"hooks": {"PreToolUse": []}}'
+YML
+  _wfg_fx scalar-settings <<'YML'
+          settings: 42
+YML
+  _wfg_fx list-settings <<'YML'
+          settings:
+            - a
+            - b
+YML
+  _wfg_fx unparseable-settings <<'YML'
+          settings: "not json at all"
+YML
+  # A settings string that DOES parse as JSON but not to an object. The hook check's
+  # non-dict-parse arm is the one that refuses it; without this fixture that arm could be
+  # deleted with the suite still green (PR #1205 review round 3).
+  _wfg_fx json-non-object-settings <<'YML'
+          settings: "[1, 2]"
+YML
+  # ── Shapes the ceiling guard must REFUSE ──────────────────────────────────
+  _wfg_fx ceiling-at-default <<'YML'
+          settings: |
+            {"env": {"BASH_MAX_TIMEOUT_MS": "600000"}}
+YML
+  _wfg_fx ceiling-unbounded <<'YML'
+          settings: |
+            {"env": {"BASH_MAX_TIMEOUT_MS": "1000000000"}}
+YML
+  _wfg_fx ceiling-non-int <<'YML'
+          settings: |
+            {"env": {"BASH_MAX_TIMEOUT_MS": "twenty-minutes"}}
+YML
+  _wfg_fx ceiling-absent-key <<'YML'
+          settings: |
+            {"env": {"SOME_OTHER_KEY": "1"}}
+YML
+  # `env` present but not an object — the ceiling check's isinstance(env, dict) arm, which
+  # no other fixture reaches (PR #1205 review round 3).
+  _wfg_fx ceiling-env-not-dict <<'YML'
+          settings: |
+            {"env": "1200000"}
+YML
+  # A bounded value on a step that is NOT claude-code-action must not satisfy the ceiling
+  # guard: the raise reaches the CLI only through the action's own input. This fixture also
+  # covers the workflow that carries no claude-code-action step at all — the empty-vals
+  # case, which must read as unsatisfied rather than as vacuously true.
+  cat > "$_WFG_D/ceiling-other-step.yml" <<'YML'
+jobs:
+  claude:
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          settings: |
+            {"env": {"BASH_MAX_TIMEOUT_MS": "1200000"}}
+YML
+  # Order-independence: an unbounded step FIRST and a bounded one second is the ordering a
+  # last-write read reports as satisfied. The collecting form refuses it.
+  cat > "$_WFG_D/ceiling-two-steps.yml" <<'YML'
+jobs:
+  claude:
+    steps:
+      - uses: anthropics/claude-code-action@v1
+        with:
+          settings: |
+            {"env": {"BASH_MAX_TIMEOUT_MS": "600000"}}
+      - uses: anthropics/claude-code-action@v1
+        with:
+          settings: |
+            {"env": {"BASH_MAX_TIMEOUT_MS": "1200000"}}
+YML
+  # ── The live workflow (the real-world check) ──────────────────────────────
+  assert_eq "#908 AC1: devflow-implement.yml registers no PreToolUse guard (env-only settings allowed)" "yes" \
+    "$(_wfg_hook "$_908_IMPLEMENT_YML")"
+  assert_eq "#1179: devflow-implement.yml sets a finite BASH_MAX_TIMEOUT_MS > 600000 ms via the claude-code-action settings env (AC1)" "ok" \
+    "$(_wfg_ceiling "$_908_IMPLEMENT_YML")"
+  # ── The hook guard over the fixture matrix ────────────────────────────────
+  assert_eq "#908 matrix: an env-only settings block in string form is allowed" "yes" \
+    "$(_wfg_hook "$_WFG_D/env-string.yml")"
+  assert_eq "#908 matrix: an env-only settings block in mapping form is allowed" "yes" \
+    "$(_wfg_hook "$_WFG_D/env-mapping.yml")"
+  assert_eq "#908 matrix: a step carrying no settings input at all is allowed" "yes" \
+    "$(_wfg_hook "$_WFG_D/no-settings.yml")"
+  assert_eq "#908 matrix: an empty settings string registers nothing and is allowed" "yes" \
+    "$(_wfg_hook "$_WFG_D/empty-settings.yml")"
+  assert_eq "#908 matrix: a string-form settings block declaring hooks is refused" "no" \
+    "$(_wfg_hook "$_WFG_D/hook-string.yml")"
+  assert_eq "#908 matrix: a mapping-form PreToolUse registration is refused (the fail-open gap the #1179 review caught)" "no" \
+    "$(_wfg_hook "$_WFG_D/hook-mapping.yml")"
+  assert_eq "#908 matrix: a hooks key naming no PreToolUse hook is still refused" "no" \
+    "$(_wfg_hook "$_WFG_D/hooks-key-quiet.yml")"
+  assert_eq "#908 matrix: a PreToolUse hook nested under a non-hooks settings key is refused" "no" \
+    "$(_wfg_hook "$_WFG_D/nested-pretooluse.yml")"
+  assert_eq "#908 matrix: a PreToolUse registration routed through another with-input is refused" "no" \
+    "$(_wfg_hook "$_WFG_D/pretooluse-other-input.yml")"
+  assert_eq "#908 matrix: a scalar settings value is anomalous and refused" "no" \
+    "$(_wfg_hook "$_WFG_D/scalar-settings.yml")"
+  assert_eq "#908 matrix: a list settings value is anomalous and refused" "no" \
+    "$(_wfg_hook "$_WFG_D/list-settings.yml")"
+  assert_eq "#908 matrix: an unparseable settings string is anomalous and refused" "no" \
+    "$(_wfg_hook "$_WFG_D/unparseable-settings.yml")"
+  assert_eq "#908 matrix: a settings string parsing to JSON that is not an object is refused" "no" \
+    "$(_wfg_hook "$_WFG_D/json-non-object-settings.yml")"
+  # The degraded-host arm, driven here so it is not left to the hosts that cannot report a
+  # failure usefully. Its comment blindness was a live false-RED on this workflow until the
+  # filter landed, which is why both directions are asserted.
+  assert_eq "#908 matrix: the degraded-host grep fallback clears a workflow whose only guard mentions are comments" "yes" \
+    "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML")"
+  assert_eq "#908 matrix: the degraded-host grep fallback still catches a real PreToolUse registration" "no" \
+    "$(_wfg_grep_fallback "$_WFG_D/hook-mapping.yml")"
+  # ── The ceiling guard over the fixture matrix ─────────────────────────────
+  assert_eq "#1179 matrix: a bounded ceiling in string form satisfies the guard" "ok" \
+    "$(_wfg_ceiling "$_WFG_D/env-string.yml")"
+  assert_eq "#1179 matrix: a bounded ceiling in mapping form satisfies the guard" "ok" \
+    "$(_wfg_ceiling "$_WFG_D/env-mapping.yml")"
+  assert_eq "#1179 matrix: a claude-code-action step with no settings input fails the guard" "no" \
+    "$(_wfg_ceiling "$_WFG_D/no-settings.yml")"
+  assert_eq "#1179 matrix: a value equal to the 600000 ms default gives no headroom and fails" "no" \
+    "$(_wfg_ceiling "$_WFG_D/ceiling-at-default.yml")"
+  assert_eq "#1179 matrix: an effectively unbounded value (>= 10**9) fails the bounded-not-removed cap" "no" \
+    "$(_wfg_ceiling "$_WFG_D/ceiling-unbounded.yml")"
+  assert_eq "#1179 matrix: a non-integer value fails rather than crashing the extractor" "no" \
+    "$(_wfg_ceiling "$_WFG_D/ceiling-non-int.yml")"
+  assert_eq "#1179 matrix: a settings env carrying no BASH_MAX_TIMEOUT_MS key fails" "no" \
+    "$(_wfg_ceiling "$_WFG_D/ceiling-absent-key.yml")"
+  assert_eq "#1179 matrix: an env that is not an object fails rather than being indexed" "no" \
+    "$(_wfg_ceiling "$_WFG_D/ceiling-env-not-dict.yml")"
+  # No ceiling rows for the scalar-settings / list-settings fixtures, deliberately (PR #1205
+  # review round 3 asked for them). Mutation-tested at the desk: every mutation that reaches
+  # the ceiling check's non-str/non-dict settings arm is already caught by an existing row,
+  # and plausible refactors of it (treating a non-str settings as already-parsed; coercing a
+  # failed parse to {}) survive those two inputs entirely — the arm is defended both by the
+  # isinstance dispatch and by the isinstance(parsed, dict) guard on the env lookup, so a
+  # scalar or list settings value cannot reach a wrong verdict through it. Such rows would
+  # restate `no-settings` rather than protect anything, so they are omitted rather than
+  # shipped as rows a future editor would read as coverage.
+  assert_eq "#1179 matrix: a bounded value on a non-claude-code-action step does not satisfy the guard" "no" \
+    "$(_wfg_ceiling "$_WFG_D/ceiling-other-step.yml")"
+  assert_eq "#1179 matrix: an unbounded step ahead of a bounded one fails (order-independence)" "no" \
+    "$(_wfg_ceiling "$_WFG_D/ceiling-two-steps.yml")"
+  rm -rf "$_WFG_D"
 else
-  assert_eq "#908 AC1: devflow-implement.yml registers no settings input / PreToolUse guard" "yes" \
-    "$(grep -qE 'settings:|PreToolUse' "$_908_IMPLEMENT_YML" && echo no || echo yes)"
+  assert_eq "#908 AC1: devflow-implement.yml registers no PreToolUse guard (env-only settings allowed)" "yes" \
+    "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML")"
+  # No grep fallback is meaningful for "finite int > 600000", so on a host lacking
+  # python3/PyYAML (or lacking scratch space for the fixtures) these guards SELF-SKIP as
+  # host-capability rather than vanishing into a clean pass (#456: a silently-absent guard
+  # is never a clean pass). PyYAML is a suite prerequisite, so CI always arms them.
+  skip "#1179 finite BASH_MAX_TIMEOUT_MS > 600000 via settings env (AC1)" host-capability "python3/PyYAML or scratch space unavailable — cannot parse the workflow settings env"
+  skip "#908/#1179 workflow-settings guard adversarial fixture matrix" host-capability "python3/PyYAML or scratch space unavailable — cannot compose or parse the synthetic workflow fixtures"
 fi
 assert_eq "#908 AC2: HOOK_TARGETS (harden-stop-hooks.sh) already lists the guard script" "yes" \
   "$(grep -qF 'stop-hook-probe.sh scripts/pretooluse-shape-guard.py' "$LIB/../scripts/harden-stop-hooks.sh" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- pins the guard's adjacency inside the HOOK_ENTRY_TARGETS/HOOK_TARGETS assignment lines specifically (a code-only substring, never the file's prose comments mentioning the same script name), the AC2 precondition that makes the settings-input hook inert unless the script is a hardened/trusted target
