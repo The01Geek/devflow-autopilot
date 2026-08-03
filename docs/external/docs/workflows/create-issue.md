@@ -21,4 +21,6 @@ You do not need to write formal acceptance criteria. A concise request is enough
 - The desired outcome
 - Any important constraint or example
 
-PRFlow turns that context into an implementation boundary and testable acceptance criteria. After creation, pass the issue number to [the implementation workflow](/docs/workflows/implement).
+PRFlow turns that context into an implementation boundary and testable acceptance criteria. When a criterion uses a number, PRFlow names the exact command or counting rule that measures it. If it cannot establish the instrument, it records the measurement as unestablished instead of publishing an ambiguous threshold.
+
+After creation, pass the issue number to [the implementation workflow](/docs/workflows/implement).
