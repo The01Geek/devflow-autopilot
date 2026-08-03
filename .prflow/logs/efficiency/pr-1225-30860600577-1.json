@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1225",
+  "generated_at": "2026-08-03T23:05:03Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.71",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.57316375,
+    "tokens": {
+      "input_tokens": 1903,
+      "output_tokens": 15304,
+      "cache_read_input_tokens": 1734360,
+      "cache_creation_input_tokens": 147407,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 1949,
+        "outputTokens": 38828,
+        "cacheReadInputTokens": 2925735,
+        "cacheCreationInputTokens": 412332,
+        "webSearchRequests": 0,
+        "costUSD": 5.57316375,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 21,
+    "duration_ms": 320138
+  },
+  "permission_denials": {
+    "count": 2,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "mkdir -p /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1225/local\ncd /home/runner/work/prflow/prflow\ngh pr diff 1225 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1225/local/diff.patch > /dev/null\necho \"=== files changed ===\"\ngrep '^diff --git' .prflow/tmp/review/pr-1225/local/diff.patch\necho \"=== line count ===\"\nwc -l .prflow/tmp/review/pr-1225/local/diff.patch"
+    ],
+    "total": 2,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
