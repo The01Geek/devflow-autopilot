@@ -58,7 +58,17 @@ character the path does not contain.
 to both argvs below, rather than the per-consumer fix PR #1201 set as a precedent for
 `lint-windows-uncheckoutable-path.py`. A per-consumer fix is precisely how the defect
 spread: these constants would stay a trap for the next lint that names one. Fixing the
-reader once makes the enumeration uniform and no future caller can forget it.
+reader once makes the enumeration uniform for every caller that goes through it.
+
+**Non-reader callers exist, and the reader is NOT a complete point of control.** Two
+`lib/test/` lints enumerate through their own `git -C <root> …` wrapper rather than
+through `enumerate_population`, so the argvs below cannot reach them: `pin-corpus-lint.py`
+(three `_run_git` `ls-files` call sites) and `coverage_map_guard.py` (`_git_tracked` and
+`_git_executable`). Do not read the paragraph above as "the flag is handled centrally, so
+a new `git ls-files` call inherits it" — it is handled centrally only for callers that
+name `LS_FILES_INDEX`/`LS_FILES_WORKING_TREE`. Those four sites splice the exported
+`QUOTE_PATH_OFF` pair instead, which is why that constant exists: the *literal* has one
+home even where the *argv* cannot. A new enumeration must do one or the other.
 
 **The residual `core.quotePath=false` leaves.** It removes only the *non-ASCII*
 escaping. A path containing a **backslash**, a **double quote**, a **control
@@ -91,13 +101,22 @@ from pathlib import Path
 #: files (`--others`), which sweeps sibling worktrees and is chosen only when a
 #: caller must see files not yet in the index.
 #:
-#: Both carry `-c core.quotePath=false` (issue #1217) so a tracked non-ASCII path
-#: arrives as its raw bytes rather than git's C-quoted rendering. See the module
-#: docstring for why this over `-z`, and for the residual it leaves. The flag changes
-#: only how a path is PRINTED, so neither argv's index-vs-working-tree identity moves.
-LS_FILES_INDEX = ("git", "-c", "core.quotePath=false", "ls-files")
+#: Both are built from `QUOTE_PATH_OFF` below, so a tracked non-ASCII path arrives as
+#: its raw bytes rather than git's C-quoted rendering. See the module docstring for why
+#: this over `-z`, and for the residual it leaves. The flag changes only how a path is
+#: PRINTED, so neither argv's index-vs-working-tree identity moves.
+
+#: The `git`-level option pair that disables C-style path quoting (issue #1217), exported
+#: so the literal has exactly ONE home in the tree. The two argvs below splice it, and so
+#: do the `lib/test/` lints that cannot use those argvs because they compose their own
+#: `git -C <root> …` prefix (`pin-corpus-lint.py`, `coverage_map_guard.py`) — see the
+#: module docstring's *non-reader callers* note. A caller adding a new `git ls-files`
+#: enumeration splices this rather than re-spelling the flag.
+QUOTE_PATH_OFF = ("-c", "core.quotePath=false")
+
+LS_FILES_INDEX = ("git", *QUOTE_PATH_OFF, "ls-files")
 LS_FILES_WORKING_TREE = (
-    "git", "-c", "core.quotePath=false",
+    "git", *QUOTE_PATH_OFF,
     "ls-files", "--cached", "--others", "--exclude-standard",
 )
 

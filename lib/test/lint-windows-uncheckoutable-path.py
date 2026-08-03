@@ -108,27 +108,19 @@ EnumerationError = _pop.EnumerationError
 
 TOOL = "lint-windows-uncheckoutable-path"
 
-#: Why this guard cares that the enumeration is unquoted, even though it no longer owns
-#: the flag (issue #1217 retired the module-private `_LS_FILES_INDEX_UNQUOTED` PR #1201
-#: added here, because `lint_population.LS_FILES_INDEX` now carries
-#: `-c core.quotePath=false` for every caller).
-#:
-#: `core.quotePath` defaults to **true**, under which git renders any non-ASCII path in
-#: C-quoted form: a legal, Windows-checkout-able `café.md` would arrive here as the literal
-#: string `"caf\303\251.md"` — surrounding double quotes and two backslash escapes that are
-#: not in the path at all. Fed to `check_path()`, that string trips the absolute backslash
-#: rule applied before the split on `/`, so the first legitimately-named non-ASCII tracked
-#: path anyone commits would take the whole suite RED for a character the path does not
-#: contain — and this guard deliberately offers no `# …-ok:` declaration marker, so there
-#: would be nothing to wave it through with. The shared constant's flag hands the raw path
-#: bytes to the judgement functions, which is what they are written to judge.
-#:
-#: The flag does not silence quoting altogether, and it must not: it drops only the
-#: *non-ASCII* escaping, while a path containing a backslash, a double quote, or a control
-#: character is still C-quoted. Those are exactly the paths this guard must reject, and the
-#: quoted rendering still carries a backslash, so each stays RED — only the reason string
-#: may name the backslash rule rather than the underlying one, which is a diagnostic nuance
-#: on an already-correct verdict rather than a missed violation.
+#: This guard depends on the enumeration being unquoted, but no longer owns the flag:
+#: issue #1217 retired the module-private `_LS_FILES_INDEX_UNQUOTED` PR #1201 added here,
+#: because `lint_population.LS_FILES_INDEX` now carries `-c core.quotePath=false` for every
+#: caller. The mechanism and the `-z` trade-off are stated once, in that module's docstring.
+#: What is specific to THIS guard is the residual: the flag drops only the *non-ASCII*
+#: escaping, so a path containing a backslash, a double quote, or a control character is
+#: still C-quoted — and those are exactly the paths this guard must reject. The quoted
+#: rendering still carries a backslash, so each stays RED; only the reason string may name
+#: the backslash rule rather than the underlying one, a diagnostic nuance on an
+#: already-correct verdict rather than a missed violation. Were the flag ever dropped, a
+#: legitimately-named non-ASCII path would take the whole suite RED for a character it does
+#: not contain, and this guard deliberately offers no `# …-ok:` declaration marker to wave
+#: that through.
 
 #: Forbidden characters in a path component (git's Windows rule). `:` is included, which
 #: also subsumes a leading DOS drive prefix (`C:`), so no separate drive-prefix arm exists.

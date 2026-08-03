@@ -120,12 +120,10 @@ def agent_leaves(plugin_root: Path) -> frozenset[str]:
     dispatchable. An empty result is fatal: with no leaves nothing could match and the
     audit would pass vacuously over every prompt surface.
     """
-    # Issue #1217: this argv used to be an inline literal, so the shared reader's
-    # `-c core.quotePath=false` never reached it and a tracked non-ASCII `agents/`
-    # path arrived C-quoted — losing its `agents/` prefix and being silently dropped
-    # from the leaf set. It now composes the shared INDEX constant (the #711
-    # index-read choice is still stated here, by naming that constant) and appends
-    # only the pathspec this call site needs.
+    # Composes the shared INDEX constant — which states the #711 index-read choice and
+    # carries `-c core.quotePath=false` (issue #1217), without which a tracked non-ASCII
+    # `agents/` path arrives C-quoted, loses its `agents/` prefix, and drops out of the
+    # leaf set silently — and appends only the pathspec this call site needs.
     paths = _pop.enumerate_population(
         plugin_root, None, ls_files_argv=(*_pop.LS_FILES_INDEX, "--", "agents/*.md")
     )
@@ -177,10 +175,8 @@ def audit(root: Path, files_from: Path | None) -> tuple[list[str], int]:
     # plugin (and keeps the leaf enumeration on the real index, per issue #711).
     leaves = agent_leaves(_PLUGIN_ROOT)
 
-    # Issue #1217: likewise an inline literal until now, so this audited-surface
-    # enumeration also enumerated with quoting on and silently dropped a tracked
-    # non-ASCII prompt surface. Routed through the shared INDEX constant, which
-    # both states the #711 index read and carries `-c core.quotePath=false`.
+    # The shared INDEX constant again: same #711 index read, same issue-#1217 quoting
+    # fix, so a tracked non-ASCII prompt surface is audited rather than dropped.
     population = _pop.enumerate_population(
         root, files_from, ls_files_argv=_pop.LS_FILES_INDEX
     )

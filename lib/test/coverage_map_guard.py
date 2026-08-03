@@ -23,11 +23,26 @@ error), 0 when clean.
 from __future__ import annotations
 
 import functools
+import importlib.util
 import json
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+# The `-c core.quotePath=false` option pair, imported from the shared population reader
+# (issue #1217) rather than re-spelled here, so the literal keeps one home in the tree.
+# This module builds its own `git -C <root> …` argvs, so it cannot use that module's
+# ready-made argvs — only the option pair they are built from. Without it, git's default
+# C-quoting returns a tracked non-ASCII path as a string that names no real file, and a
+# coverage-map entry for that path would read as untracked.
+_POP_PATH = Path(__file__).resolve().parent / "lint_population.py"
+_pop_spec = importlib.util.spec_from_file_location("lint_population", _POP_PATH)
+_pop = importlib.util.module_from_spec(_pop_spec)
+_pop_spec.loader.exec_module(_pop)
+if not hasattr(_pop, "QUOTE_PATH_OFF"):
+    raise SystemExit("lint_population.py is missing the expected `QUOTE_PATH_OFF` interface")
+QUOTE_PATH_OFF = tuple(_pop.QUOTE_PATH_OFF)
 
 MAP_REL = "lib/test/modules/coverage-map.json"
 REGISTRY_REL = "scripts/workflow-flight-recorder-registry.json"
@@ -794,11 +809,10 @@ def _arm11(map_value, map_raw_text, map_raw_error):
 def _git_tracked(repo_root: Path):
     """git-tracked repo-relative paths (index read; reads no history).
 
-    `-c core.quotePath=false` (issue #1217): git's default C-quoting would return a
-    tracked non-ASCII path as a string that names no real file, so a coverage-map entry
-    for it would read as untracked."""
+    `QUOTE_PATH_OFF` (issue #1217) keeps a tracked non-ASCII path raw; see its
+    definition above for why."""
     result = subprocess.run(
-        ["git", "-C", str(repo_root), "-c", "core.quotePath=false", "ls-files"],
+        ["git", "-C", str(repo_root), *QUOTE_PATH_OFF, "ls-files"],
         capture_output=True,
         text=True,
         check=True,
@@ -810,7 +824,7 @@ def _git_executable(repo_root: Path):
     """git-tracked repo-relative paths whose INDEX mode is executable, or None.
 
     `git ls-files -s` prints `<mode> <object> <stage>\\tpath`; mode 100755 is the
-    executable regular-file mode. `-c core.quotePath=false` (issue #1217) keeps a tracked
+    executable regular-file mode. `QUOTE_PATH_OFF` (issue #1217) keeps a tracked
     non-ASCII path raw, so its mode row still joins against `_git_tracked`'s path.
     Returning None on any failure (rather than an empty
     set) keeps the unestablished case distinguishable from "nothing is executable" —
@@ -818,7 +832,7 @@ def _git_executable(repo_root: Path):
     working-tree mode, is the comparand: the index is what ships."""
     try:
         result = subprocess.run(
-            ["git", "-C", str(repo_root), "-c", "core.quotePath=false", "ls-files", "-s"],
+            ["git", "-C", str(repo_root), *QUOTE_PATH_OFF, "ls-files", "-s"],
             capture_output=True,
             text=True,
             check=True,

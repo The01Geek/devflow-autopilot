@@ -45,10 +45,24 @@ The verdict line is printed to stdout (`OK` / `FAIL: <reason>`); details go to s
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+# Reuse the shared git-ls-files population reader's index argv (issue #724), loaded by
+# path exactly as the sibling #711 lints do. Naming the constant is what states the
+# index-read choice, and it is what carries `-c core.quotePath=false` (issue #1217) so a
+# tracked non-ASCII `lib/test/` script arrives as its raw bytes — with git's default
+# quoting it would come back C-quoted, which no longer carries the `lib/test/` prefix
+# this guard reconciles on, and would drop out of the audit silently.
+_POP_PATH = Path(__file__).resolve().parent / "lint_population.py"
+_pop_spec = importlib.util.spec_from_file_location("lint_population", _POP_PATH)
+_pop = importlib.util.module_from_spec(_pop_spec)
+_pop_spec.loader.exec_module(_pop)
+if not hasattr(_pop, "LS_FILES_INDEX"):
+    raise SystemExit("lint_population.py is missing the expected `LS_FILES_INDEX` interface")
 
 # The single declared exempt prefix. A tracked lib/test file under this prefix is
 # deliberately unlinted (adversarial/malformed fixtures live here); anything else
@@ -189,15 +203,10 @@ def derive_ci_linted(ci_text: str) -> set[str]:
 def tracked_lib_test_scripts(repo_root: Path) -> list[str]:
     """Enumerate tracked lib/test/**/*.sh via index-reading `git ls-files` (issue
     #711: never a recursive filesystem walk, which would descend into sibling
-    worktrees under .claude/worktrees/ and count their copies).
-
-    `-c core.quotePath=false` (issue #1217) so a tracked non-ASCII `lib/test/` script
-    arrives as its raw bytes; with git's default quoting it would come back as
-    `"lib/test/caf\\303\\251.sh"`, which no longer carries the `lib/test/` prefix this
-    guard's own reconciliation matches on, and would silently drop out of the audit."""
+    worktrees under .claude/worktrees/ and count their copies). The argv composes the
+    shared `LS_FILES_INDEX` constant; see its import above."""
     out = subprocess.run(
-        ["git", "-c", "core.quotePath=false", "ls-files",
-         "lib/test/*.sh", "lib/test/**/*.sh"],
+        [*_pop.LS_FILES_INDEX, "lib/test/*.sh", "lib/test/**/*.sh"],
         cwd=str(repo_root),
         capture_output=True,
         text=True,

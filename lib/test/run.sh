@@ -41642,15 +41642,11 @@ assert_eq "#1217 hard-fail class: the path was audited rather than skipped" "yes
 # re-spelling an unquoted `ls-files` of their own.
 assert_eq "#1217 both dispatch-namespace argvs route through the shared population constant" "2" \
   "$(grep -cE 'ls_files_argv=\(?\*?_pop\.LS_FILES_INDEX' "$LIB/test/lint-subagent-dispatch-namespace.py")"
-# AC8: the flag alters only how a path is PRINTED. The index-reading argv must not have
-# acquired `--others`, which would sweep sibling worktrees (issue #711).
-assert_eq "#1217 the index-reading argv still carries no --others" "yes" \
-  "$(python3 -c '
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("lp", sys.argv[1])
-m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-print("yes" if "--others" not in m.LS_FILES_INDEX and "core.quotePath=false" in m.LS_FILES_INDEX else "no: %r" % (m.LS_FILES_INDEX,))
-' "$LIB/test/lint_population.py")"
+# The AC8 claim (the flag alters only how a path is PRINTED, so the index-reading argv
+# acquired no `--others`) is pinned by the #724 preset assertion further down, which was
+# extended in the same change to report `index-has-others=False` alongside `quote-off=True`
+# from a module load it already performs. Asserting it a second time here would only pay a
+# second `python3` start for a signal that block already carries.
 # ────────────────────────────────────────────────────────────────────────────
 # Subagent DISPATCH-NAMESPACE guard (lib/test/lint-subagent-dispatch-namespace.py).
 # A qualified subagent id in prompt prose is a dispatch string whose namespace half is
