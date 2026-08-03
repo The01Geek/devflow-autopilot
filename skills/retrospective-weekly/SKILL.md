@@ -22,7 +22,7 @@ implement → review pipeline, not landed as an autonomous PR.
 
 **`$LIB` notation (textual, not a shell variable).** Throughout this skill, `$LIB` in a command denotes the resolved path `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib` — expand it textually (with the anchor already resolved for this runner) when composing each command you actually run. Never rely on a shell variable named `LIB` persisting from one statement or block to another — each Bash call is a fresh shell, and the *Portable helper anchor* note below explains why even same-command variable reuse is unsafe on some runners.
 
-**Working-directory contract.** This skill's `lib/`/`scripts/` helper paths are repo-relative literals resolving against the repository root; no fence emits a leading `cd`. See [`docs/working-directory-contract.md`](../../docs/working-directory-contract.md).
+**Working-directory contract.** This skill's `lib/`/`scripts/` helper paths are repo-relative literals resolving against the repository root; no fence emits a leading `cd`.
 
 Every `jq` in this skill is invoked through the execution-verified wrapper
 `$LIB/../scripts/run-jq.sh` (`$LIB/../scripts` is the `scripts/` dir beside
@@ -486,7 +486,10 @@ The assembler is idempotent (one line per merged PR, keyed by PR number) and inc
 (it processes merged PRs absent from `.prflow/learnings/experiment-records.jsonl` plus
 any passed via `--prs`, never a full-history sweep), so re-running is safe and cheap. It
 runs on the **local/interactive retrospective tier only** — it is never invoked from a
-workflow. See `docs/efficiency-trace.md` for the store schema and the abandoned-run bias.
+workflow. Because the store is keyed on merged PRs, an abandoned run contributes no cost
+row, so the cost side carries a survivorship bias. That is deliberate, not a defect to
+correct — the experiment measures cost-vs-outcome for PRs that shipped. The record's own
+shape is documented in `scripts/build-experiment-records.py`'s module docstring.
 
 ---
 
