@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1231",
+  "generated_at": "2026-08-03T23:18:33Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.71",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.280211499999999,
+    "tokens": {
+      "input_tokens": 41,
+      "output_tokens": 17195,
+      "cache_read_input_tokens": 2866523,
+      "cache_creation_input_tokens": 141687,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 41,
+        "outputTokens": 17195,
+        "cacheReadInputTokens": 2866523,
+        "cacheCreationInputTokens": 141687,
+        "webSearchRequests": 0,
+        "costUSD": 3.280211499999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 28,
+    "duration_ms": 274984
+  },
+  "permission_denials": {
+    "count": 5,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review",
+      "gh pr diff 1231 > .prflow/tmp/pr-1231.diff 2>&1; wc -l .prflow/tmp/pr-1231.diff; echo \"---FILES---\"; grep '^diff --git' .prflow/tmp/pr-1231.diff",
+      "git show d29453689a49f4ae401fda8cb09b4c9b2143de1c:scripts/devflow-cloud-writer-contract.json | grep -c 'agents/' ; echo \"--- agent-body identical check (added section) ---\"; for f in code-reviewer comment-analyzer pr-test-analyzer silent-failure-hunter type-design-analyzer; do git show d29453689a49f4ae401fda8cb09b4c9b2143de1c:agents/$f.md | grep -A9 '## Command-shape discipline (cloud runs)' | sha256sum | sed \"s|-|$f|\"; done",
+      "for f in code-reviewer comment-analyzer pr-test-analyzer silent-failure-hunter type-design-analyzer; do printf '%s ' \"$f\"; git show d29453689a49f4ae401fda8cb09b4c9b2143de1c:agents/$f.md | grep -A9 '## Command-shape discipline (cloud runs)' | sha256sum; done"
+    ],
+    "total": 5,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
