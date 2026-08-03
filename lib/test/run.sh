@@ -12852,6 +12852,167 @@ assert_eq "apply-labels: no porcelain fallback on the FAILURE path (no gh issue/
   "$(! grep -qE 'issue edit|pr edit' "$AL_TMP/fail-args" && echo yes || echo no)"
 rm -rf "$AL_TMP"
 
+# ── apply-pr-triggerer.sh: best-effort PR assignment to the triggerer (#1165) ──
+# Closed outcome contract: prints exactly ONE `assignment: applied <login>` /
+# `assignment: skipped <reason>` token to STDOUT, ALWAYS exits 0, breadcrumbs to
+# STDERR. Cloud tier (GITHUB_RUN_ID set) reads DEVFLOW_TRIGGERING_USER fail-closed;
+# local tier resolves `gh api user --jq .login`. Confirms the login is present in
+# the add-assignee response before reporting `applied`. The gh boundary is stubbed;
+# the helper under test is never mocked. The `apply_pr_triggerer_matrix` below is
+# closed by construction over the documented + adversarial response shapes.
+# The scratch root is deliberately named with the `TMP_` prefix: the greps below read the
+# argv this run's stubbed `gh` captured, not repository source, so they are executable
+# assertions rather than source-presence pins — and the `TMP_`/`TEMP_` name is the
+# declaration the issue-810 mutation-routing classifier reads to tell the two apart.
+# Renaming it to anything else re-classifies every grep over it as a repository pin.
+TMP_APT_SCRATCH="$(mktemp -d)"
+# One stub, branched by GH_MODE. Records argv to $TMP_APT_SCRATCH/args so "no GitHub call on
+# invalid input" is provable. `api user` returns a bare login (real gh applies --jq);
+# the POST returns a raw JSON body (the helper pipes it to real jq for confirmation).
+cat > "$TMP_APT_SCRATCH/gh" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$(dirname "$0")/args"
+case "$*" in
+  *"api user"*)
+    case "${GH_MODE:-}" in
+      idfail)  echo "gh: authentication failed" >&2; exit 1 ;;
+      idempty) printf '' ;;
+      *)       printf '%s' "${WANT:-localdev}" ;;
+    esac ;;
+  *"issues/"*"/assignees"*)
+    case "${GH_MODE:-}" in
+      apifail)     echo "HTTP 500: server error" >&2; exit 1 ;;
+      omit)        echo '{"number":42,"assignees":[{"login":"someoneelse"}]}' ;;
+      noassignees) echo '{"number":42}' ;;
+      wrongtype)   echo '{"number":42,"assignees":"nope"}' ;;
+      arrayroot)   echo '[1,2,3]' ;;
+      scalarroot)  echo '"a string"' ;;
+      falsyroot)   echo 'false' ;;
+      already)     echo '{"number":42,"assignees":[{"login":"otheruser"},{"login":"'"${WANT:-localdev}"'"}]}' ;;
+      *)           echo '{"number":42,"assignees":[{"login":"'"${WANT:-localdev}"'"}]}' ;;
+    esac ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$TMP_APT_SCRATCH/gh"
+APT="$LIB/../scripts/apply-pr-triggerer.sh"
+# Helper: run the script capturing stdout token + exit code into APT_OUT / APT_RC.
+apt_run() { APT_OUT="$(env DEVFLOW_GH="$TMP_APT_SCRATCH/gh" "$@" bash "$APT" "${APT_PR:-42}" 2>/dev/null)"; APT_RC=$?; }
+
+# 1) local lookup success → applied <login>, exit 0
+: > "$TMP_APT_SCRATCH/args"; APT_PR=42 apt_run GITHUB_RUN_ID= WANT=localdev
+assert_eq "apply-pr-triggerer: local lookup success → applied" "assignment: applied localdev" "$APT_OUT"
+assert_eq "apply-pr-triggerer: local success exits 0" "0" "$APT_RC"
+assert_eq "apply-pr-triggerer: local success POSTs to REST issues/{n}/assignees" "yes" \
+  "$(grep -qF -- 'api --method POST repos/{owner}/{repo}/issues/42/assignees' "$TMP_APT_SCRATCH/args" && echo yes || echo no)"
+assert_eq "apply-pr-triggerer: login rides as an assignees[] field" "yes" \
+  "$(grep -qF -- 'assignees[]=localdev' "$TMP_APT_SCRATCH/args" && echo yes || echo no)"
+assert_eq "apply-pr-triggerer: never uses gh pr edit --add-assignee porcelain" "yes" \
+  "$(! grep -qE 'pr edit|add-assignee' "$TMP_APT_SCRATCH/args" && echo yes || echo no)"
+
+# 2) cloud sender success → applied (reads DEVFLOW_TRIGGERING_USER, no `api user`)
+: > "$TMP_APT_SCRATCH/args"; APT_PR=42 apt_run GITHUB_RUN_ID=99 DEVFLOW_TRIGGERING_USER=cloudy WANT=cloudy
+assert_eq "apply-pr-triggerer: cloud sender success → applied" "assignment: applied cloudy" "$APT_OUT"
+assert_eq "apply-pr-triggerer: cloud tier does NOT call 'gh api user'" "yes" \
+  "$(! grep -qF -- 'api user' "$TMP_APT_SCRATCH/args" && echo yes || echo no)"
+# The cloud path is the security-sensitive one: assert the propagated DEVFLOW_TRIGGERING_USER
+# actually reaches the POST as assignees[]=<login>, so a propagation→POST wiring regression
+# is caught (the stub echoes WANT regardless of argv, so the applied token alone cannot).
+assert_eq "apply-pr-triggerer: cloud POST carries the propagated login as assignees[]" "yes" \
+  "$(grep -qF -- 'assignees[]=cloudy' "$TMP_APT_SCRATCH/args" && echo yes || echo no)"
+
+# 3) missing cloud sender → skipped no-triggering-user; no other account substituted
+: > "$TMP_APT_SCRATCH/args"; APT_PR=42 apt_run GITHUB_RUN_ID=99 DEVFLOW_TRIGGERING_USER= GITHUB_ACTOR=tokenowner
+assert_eq "apply-pr-triggerer: missing cloud sender → skipped no-triggering-user" "assignment: skipped no-triggering-user" "$APT_OUT"
+assert_eq "apply-pr-triggerer: cloud skew makes NO assignment POST (no account substituted)" "yes" \
+  "$(! grep -qF -- 'assignees' "$TMP_APT_SCRATCH/args" && echo yes || echo no)"
+assert_eq "apply-pr-triggerer: cloud skew never substitutes GITHUB_ACTOR" "yes" \
+  "$(! grep -qF -- 'tokenowner' "$TMP_APT_SCRATCH/args" && echo yes || echo no)"
+
+# 3b) cloud sender entirely unset (older workflow) → same skew-safe skip
+APT_PR=42 apt_run GITHUB_RUN_ID=99
+assert_eq "apply-pr-triggerer: unset cloud sender (old workflow) → skipped no-triggering-user" "assignment: skipped no-triggering-user" "$APT_OUT"
+
+# 4) local lookup failure → skipped identity-lookup-failed
+APT_PR=42 apt_run GITHUB_RUN_ID= GH_MODE=idfail
+assert_eq "apply-pr-triggerer: local lookup failure → skipped identity-lookup-failed" "assignment: skipped identity-lookup-failed" "$APT_OUT"
+
+# 5) empty local lookup → skipped empty-identity
+APT_PR=42 apt_run GITHUB_RUN_ID= GH_MODE=idempty
+assert_eq "apply-pr-triggerer: empty local identity → skipped empty-identity" "assignment: skipped empty-identity" "$APT_OUT"
+
+# 6) invalid PR number (non-numeric AND missing) → skipped invalid-input, NO GitHub call
+: > "$TMP_APT_SCRATCH/args"; APT_PR=abc apt_run GITHUB_RUN_ID=
+assert_eq "apply-pr-triggerer: non-numeric PR number → skipped invalid-input" "assignment: skipped invalid-input" "$APT_OUT"
+assert_eq "apply-pr-triggerer: invalid input makes NO GitHub call at all" "yes" \
+  "$([ ! -s "$TMP_APT_SCRATCH/args" ] && echo yes || echo no)"
+APT_MISS="$(env DEVFLOW_GH="$TMP_APT_SCRATCH/gh" GITHUB_RUN_ID= bash "$APT" 2>/dev/null)"
+assert_eq "apply-pr-triggerer: missing PR number → skipped invalid-input" "assignment: skipped invalid-input" "$APT_MISS"
+APT_EMPTY="$(env DEVFLOW_GH="$TMP_APT_SCRATCH/gh" GITHUB_RUN_ID= bash "$APT" '' 2>/dev/null)"
+assert_eq "apply-pr-triggerer: empty PR number → skipped invalid-input" "assignment: skipped invalid-input" "$APT_EMPTY"
+
+# 7) API failure → skipped api-failure (PR preserved)
+APT_PR=42 apt_run GITHUB_RUN_ID= GH_MODE=apifail
+assert_eq "apply-pr-triggerer: add-assignee API failure → skipped api-failure" "assignment: skipped api-failure" "$APT_OUT"
+assert_eq "apply-pr-triggerer: API failure still exits 0 (best-effort)" "0" "$APT_RC"
+
+# 8) documented response object containing the requested login → applied
+APT_PR=42 apt_run GITHUB_RUN_ID= WANT=localdev
+assert_eq "apply-pr-triggerer: response object with the login → applied" "assignment: applied localdev" "$APT_OUT"
+
+# 9) documented response object omitting the requested login → skipped unconfirmed
+APT_PR=42 apt_run GITHUB_RUN_ID= GH_MODE=omit
+assert_eq "apply-pr-triggerer: response omits the login → skipped unconfirmed" "assignment: skipped unconfirmed" "$APT_OUT"
+
+# 10–14) adversarial response shapes all route to unconfirmed, never a false applied
+for _m in noassignees wrongtype arrayroot scalarroot falsyroot; do
+  APT_PR=42 apt_run GITHUB_RUN_ID= GH_MODE="$_m"
+  assert_eq "apply-pr-triggerer: response shape '$_m' → skipped unconfirmed (never a false applied)" "assignment: skipped unconfirmed" "$APT_OUT"
+  assert_eq "apply-pr-triggerer: response shape '$_m' exits 0" "0" "$APT_RC"
+done
+
+# 15) idempotency: already-assigned response containing the login → applied (does not remove others)
+: > "$TMP_APT_SCRATCH/args"; APT_PR=42 apt_run GITHUB_RUN_ID= GH_MODE=already WANT=localdev
+assert_eq "apply-pr-triggerer: already-assigned response with the login → applied (idempotent)" "assignment: applied localdev" "$APT_OUT"
+assert_eq "apply-pr-triggerer: idempotent add uses POST add-assignees (never DELETE/PUT that would remove others)" "yes" \
+  "$(grep -qF -- '--method POST' "$TMP_APT_SCRATCH/args" && ! grep -qE -- '--method (DELETE|PUT)' "$TMP_APT_SCRATCH/args" && echo yes || echo no)"
+
+# 16) silent refusal is the ONLY empty-stdout outcome — every handled path prints a token
+assert_eq "apply-pr-triggerer: every handled path prints a non-empty outcome token (silent = refusal only)" "yes" \
+  "$([ -n "$APT_OUT" ] && echo yes || echo no)"
+rm -rf "$TMP_APT_SCRATCH"
+
+# ── Phase 3.1.1 integration: the emitted helper invocation ──────────────────────
+# ONE pin here, and it is the emitted command fence — the shape the agent harness
+# actually executes as a leading token. The two companion pins that used to sit
+# below it (over the "CREATE arm ONLY" heading and the "reflection-kind
+# dropped-failed" routing sentence) were retired: both literals resolve into
+# agent-executed prompt PROSE that no tool reads, which is the class issues
+# #375/#666/#810 prohibit and the #843/#876 recorded decision leaves uncovered by
+# design. Their compensating control is the review pass that reads the prose, not a
+# wording pin — do not re-add them. The behaviour they gestured at is covered where
+# a program can see it: the helper's own closed outcome-token matrix above, and
+# workpad.py's `--reflection-kind dropped-failed` rendering in
+# lib/test/test_python_scripts.py.
+P3_ASSIGN="$LIB/../skills/implement/phases/phase-3-review.md"
+assert_eq "phase-3 #1165: CREATE arm invokes apply-pr-triggerer.sh as a leading-token helper" "yes" \
+  "$(grep -qF 'scripts/apply-pr-triggerer.sh <draft-pr-number>' "$P3_ASSIGN" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- the leading-token helper invocation is a dispatch instruction the agent harness executes
+
+# ── #1165 grants: propagation env + all three leading-token grant forms ──────────
+IMPL_WF="$LIB/../.github/workflows/devflow-implement.yml"
+PROBE_WF="$LIB/../.github/workflows/matcher-probe.yml"
+PROFILES="$LIB/../lib/capability-profiles.json"
+assert_eq "#1165: devflow-implement.yml propagates DEVFLOW_TRIGGERING_USER from github.event.sender.login" "yes" \
+  "$(grep -qF 'DEVFLOW_TRIGGERING_USER: ${{ github.event.sender.login }}' "$IMPL_WF" && echo yes || echo no)"  # structural-pin-ok: security-credential-boundary -- the propagated triggering-user identity is the trust boundary the helper reads fail-closed
+assert_eq "#1165: implement profile grants the vendored apply-pr-triggerer.sh leading token" "yes" \
+  "$(grep -qF 'Bash(.prflow/vendor/prflow/scripts/apply-pr-triggerer.sh:*)' "$PROFILES" && echo yes || echo no)"  # structural-pin-ok: security-credential-boundary -- the capability manifest grant is an executable allowlist trust boundary
+assert_eq "#1165: baked implement allowlist grants the vendored apply-pr-triggerer.sh leading token" "yes" \
+  "$(grep -qF 'Bash(.prflow/vendor/prflow/scripts/apply-pr-triggerer.sh:*)' "$IMPL_WF" && echo yes || echo no)"  # structural-pin-ok: security-credential-boundary -- the baked workflow allowlist is the executable cloud grant trust boundary
+assert_eq "#1165: matcher-probe grants the repo-root self-repo apply-pr-triggerer.sh form" "yes" \
+  "$(grep -qF 'Bash(scripts/apply-pr-triggerer.sh:*)' "$PROBE_WF" && echo yes || echo no)"  # structural-pin-ok: security-credential-boundary -- the probe/self-repo allowlist is an executable grant trust boundary
+assert_eq "#1165: matcher-probe grants the absolute self-repo apply-pr-triggerer.sh form" "yes" \
+  "$(grep -qF 'Bash(${{ github.workspace }}/scripts/apply-pr-triggerer.sh:*)' "$PROBE_WF" && echo yes || echo no)"  # structural-pin-ok: security-credential-boundary -- the workspace-absolute grant is the trust boundary for GitHub-hosted self-repo runs
+
 # ── scan.sh: union detection predicate (label / closes-issue / audit / prefix) ─
 S97="$(mktemp -d)"
 cat > "$S97/cfg.json" <<'CFG'

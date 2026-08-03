@@ -376,12 +376,40 @@ never loaded.
 **The evidence contract.** After any trigger-file edit, the workpad carries a line **containing**
 the exact marker literal `Writing-skills evidence:`, recorded via the sanctioned `workpad.py
 update --note` path (whose rendering prepends `  - HH:MM:SS — ` to every note, which is why the
-contract is *containment*, never line-start). The line records: the trigger files touched, the
-mode (`subagent` for the dispatch path, `inline-degraded` for the fallback), the quoted
-available-skills check outcome, and the RED/GREEN/no-guidance micro-test outcomes. This
-`Writing-skills evidence:` marker literal is the exact string the review-gate criterion matches
-(also as containment) — a coupled site, pinned in lockstep across `review-and-fix.md` and
-`review.md`.
+contract is *containment*, never line-start). This `Writing-skills evidence:` marker literal is
+the exact string the review-gate criterion matches (also as containment) — a coupled site,
+pinned in lockstep across `review-and-fix.md` and `review.md`.
+
+**The line's shape.** After the marker literal the line names the trigger files touched and
+`mode=` (`subagent` for the dispatch path, `inline-degraded` for the fallback), then carries all
+four slots below. Each slot is written `<slot>=yes` or `<slot>=no` followed by one clause in
+parentheses:
+
+| Slot | A `yes` clause states | A `no` clause states |
+|---|---|---|
+| `skill-loaded` | the quoted available-skills check outcome, which reported the skill present | why it did not load — that same check reported it absent, or could not be made |
+| `guidance-applied` | which named guidance was applied | why none was |
+| `pressure-scenario` | the subagent scenario run, and the baseline rationalization it captured verbatim | why the cycle does not fit this edit |
+| `micro-tests` | the reps run and the no-guidance control | why not |
+
+A worked line for the hardest case — a one-sentence factual correction to reference prose:
+
+> Writing-skills evidence: skills/review/phases/phase-3-agents.md mode=subagent
+> skill-loaded=yes (available-skills list reported `superpowers:writing-skills` PRESENT)
+> guidance-applied=yes (Match the Form to the Failure — a stale fact is corrected in place, so
+> the form stays a plain statement) pressure-scenario=no (the edit adds and relaxes no rule, so
+> there is no discipline failure for a scenario to elicit) micro-tests=no (a corrected fact
+> shapes no behavior, so a no-guidance control has no failure to exhibit)
+
+**`no` is a discharging value.** `pressure-scenario=no` with its reason discharges that slot
+exactly as `yes` does, and recording `no` is the expected outcome for an edit the cycle does not
+fit. Neither this rule nor the review gate treats an unrun cycle as a defect; what both require
+is a stated disposition, never a particular one.
+
+**What `pressure-scenario=yes` asserts.** Record `yes` when a subagent ran against the *unedited*
+text without the guidance and its rationalizations were captured verbatim — that run is the
+observable event the slot names. When no such run happened the slot is `no`, because analysis of
+what the edited text would do on some path is reasoning about the artifact, not that run.
 
 ## Merge conflicts in generated artifacts
 

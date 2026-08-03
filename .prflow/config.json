@@ -50,6 +50,8 @@
       "Bash(/home/runner/work/prflow/prflow/lib/efficiency-trace.sh:*)",
       "Bash(scripts/apply-labels.sh:*)",
       "Bash(/home/runner/work/prflow/prflow/scripts/apply-labels.sh:*)",
+      "Bash(scripts/apply-pr-triggerer.sh:*)",
+      "Bash(/home/runner/work/prflow/prflow/scripts/apply-pr-triggerer.sh:*)",
       "Bash(scripts/branch-for-issue.py:*)",
       "Bash(/home/runner/work/prflow/prflow/scripts/branch-for-issue.py:*)",
       "Bash(scripts/check-completion-evidence.py:*)",

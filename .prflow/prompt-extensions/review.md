@@ -79,6 +79,23 @@ because the read could not be established — the review reports a **FAIL** find
 rule (fail **closed** — an absent, malformed, or misspelled marker, and an unestablished read,
 all read as absent).
 
+**What the gate checks — shape, not mere presence.** A marker found on either surface discharges
+the gate only when it carries all four slots the `implement.md` evidence contract names —
+`skill-loaded`, `guidance-applied`, `pressure-scenario`, `micro-tests` — each with an explicit
+`=yes` or `=no`. Read the four dispositions and report them in the review.
+
+**A slot whose disposition is absent is undischarged, never compliant.** Silence about a slot is
+an unestablished measurement, not a `no`; this repo's *unknown is not zero* rule forbids
+collapsing it onto either value. When a slot is missing, or carries a value outside `yes`/`no`,
+raise the same **FAIL** finding this rule already carries and list the slots at issue. The remedy
+is to restate the marker with those dispositions, **not** to perform the step — a restatement
+recording `pressure-scenario=no` with its reason discharges the gate in full.
+
+**A `no` never draws a finding on its own.** A marker whose four dispositions are all recorded is
+discharged whatever they say. The gate reads them so a reader can weigh whether a step suited the
+edit; it never requires the subagent pressure-scenario cycle, whose expected disposition on a
+small factual correction to prose is `no`.
+
 ## Verification-evidence marker advisory (tier-scoped, non-blocking)
 
 DevFlow-repo policy: a second marker gate on the **same shared review-engine surface** as the `Writing-skills evidence:` gate above — the gate that already reads the linked issue's workpad and the PR description. It adds a **tier-scoped advisory** for the `Verification evidence:` marker that local/interactive `/prflow:implement`, `/prflow:review-and-fix`, and direct-reception passes record (per `.prflow/prompt-extensions/implement.md`, `review-and-fix.md`, and `receiving-code-review.md`). Unlike the `Writing-skills evidence:` gate, this clause is **advisory (non-blocking)**: it never raises the review verdict to a FAIL/REJECT on its own — it only informs the reader that a completion/PR-ready claim was made with no captured verification run.
