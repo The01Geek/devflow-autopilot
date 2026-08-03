@@ -3,8 +3,8 @@
   "source": "review-and-fix",
   "started_at": "2026-08-03T19:41:29Z",
   "loop_role": "fix",
-  "current_step": "4.5",
-  "current_substep": "iteration_convergence_check",
+  "current_step": "2.6",
+  "current_substep": "early_shadow_review",
   "pending_dispatch": null,
   "fix_commit_sha": "e4338f17a48b97be73d40e6fd190cfd574fc33e1",
   "fix_files": [
@@ -102,6 +102,15 @@
       "original_severity": "Important",
       "calibrated_severity": "important",
       "evidence": "The checklist enters the drafting agent's context and can independently steer consumer issue validation; a stale secondary copy can accept an AC the canonical rule rejects."
+    },
+    {
+      "finding_id": "SHADOW-1",
+      "decision": "severity-calibrated",
+      "source_file": ".prflow/prompt-extensions/create-issue.md",
+      "claim_text": "The template-unreadable fallback loses the pointer-only quantitative-AC contract and can publish an unnamed quantitative criterion.",
+      "original_severity": "Important",
+      "calibrated_severity": "important",
+      "evidence": "Over-grade shape 3 matched because this was an uncorroborated silent-failure-hunter finding with no Phase-2 FAIL. The grade remains Important: skills/create-issue/SKILL.md explicitly continues filing after an unreadable template, the reduced fallback does not enforce the named-counter/unestablished contract, and the resulting failure is fail-open against AC1 and AC3 rather than a loud bounded stop."
     }
   ],
   "sweep_defs_read": [
@@ -174,5 +183,64 @@
     {"agent":"prflow:comment-analyzer","phase":"3","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"per-agent effort low resolved but was not applied; the agent inherits the session effort"},
     {"agent":"prflow:requesting-code-review","phase":"3","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"per-agent effort low resolved but was not applied; the agent inherits the session effort"}
   ],
+  "shadow": {
+    "ran_at": "2026-08-03T20:41:40Z",
+    "reviewed_sha": "e4338f17a48b97be73d40e6fd190cfd574fc33e1",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "prompt_addenda": [
+      "Codex compatibility prompt told the final-pass reviewer not to seek workpad content; this over-constrained the repository extension's independent marker lookup and its resulting marker-absent finding is not trusted."
+    ],
+    "reviewers_dispatched": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:comment-analyzer",
+      "prflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:comment-analyzer",
+      "prflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "finding_id": "SHADOW-1",
+        "agent": "prflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "Replacing the private rule with a pointer makes the template-unreadable fallback lose the quantitative-AC contract and permits publishing an unnamed counter.",
+        "defect_signature": {
+          "file": ".prflow/prompt-extensions/create-issue.md",
+          "line_range": [274, 274],
+          "kind": "logic_error"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "finding_id": "SHADOW-2",
+        "agent": "prflow:requesting-code-review",
+        "severity": "Important",
+        "description": "Writing-skills evidence is unestablished.",
+        "defect_signature": {
+          "file": "skills/create-issue/references/issue-template.md",
+          "line_range": [201, 201],
+          "kind": "test_gap"
+        },
+        "corroboration_count": 1,
+        "adjudication": "overlap with iter-1 F-1 by Phase-3.2 signature; independently refuted by issue workpad comment 5170702421, which contains the complete four-slot Writing-skills evidence marker"
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 2,
+      "overlap_with_iter_N": 1,
+      "new": 1,
+      "new_critical": 0,
+      "new_important": 1
+    },
+    "promoted_to_iter_next": true
+  },
   "telemetry": "unavailable"
 }
