@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1201",
+  "generated_at": "2026-08-03T18:04:24Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.66",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.791330250000001,
+    "tokens": {
+      "input_tokens": 3233,
+      "output_tokens": 37302,
+      "cache_read_input_tokens": 5382573,
+      "cache_creation_input_tokens": 182894,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 3261,
+        "outputTokens": 63409,
+        "cacheReadInputTokens": 5901458,
+        "cacheCreationInputTokens": 408515,
+        "webSearchRequests": 0,
+        "costUSD": 7.791330250000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 42,
+    "duration_ms": 698009
+  },
+  "permission_denials": {
+    "count": 9,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "gh pr diff 1201 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1201/run1/diff.patch; wc -l .prflow/tmp/review/pr-1201/run1/diff.patch",
+      "cat -n /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1201/run1/diff.patch | head -50; echo \"---DIFF STAT---\"; git -C /home/runner/work/prflow/prflow apply --stat .prflow/tmp/review/pr-1201/run1/diff.patch 2>/dev/null",
+      "cd /home/runner/work/prflow/prflow\n# Check default quoting behavior of git ls-files with a non-ASCII path (simulate via ls-files on a temp index is heavy; instead test the documented behavior directly)\nprintf 'café.md\\n' > /tmp/x 2>/dev/null || echo \"tmp blocked\"\n# Demonstrate quotePath default: create a throwaway file listing through git check-attr is not it. Use git ls-files -z vs default on a crafted path via git hash-object + update-index in a scratch — too heavy. Instead assert config defau …[per-command-truncated]",
+      "D=$(mktemp -d); git -C \"$D\" init -q; git -C \"$D\" config user.email a@b.c; git -C \"$D\" config user.name t; touch \"$D/café.md\"; git -C \"$D\" add -A; echo \"--- default ls-files ---\"; git -C \"$D\" ls-files; echo \"--- quotePath=false ---\"; git -C \"$D\" -c core.quotePath=false ls-files; rm -rf \"$D\"",
+      "D=$(mktemp -d); git -C \"$D\" init -q; git -C \"$D\" config user.email a@b.c; git -C \"$D\" config user.name t; name=$(printf 'caf\\303\\251.md'); touch \"$D/$name\"; git -C \"$D\" add -A; echo \"--- default ls-files ---\"; git -C \"$D\" ls-files; echo \"--- quotePath=false ---\"; git -C \"$D\" -c core.quotePath=false ls-files; rm -rf \"$D\"",
+      "S=.prflow/tmp/review/pr-1201/run1/scratch; mkdir -p \"$S\"; git show b67c986:lib/test/lint-windows-uncheckoutable-path.py > \"$S/lint-windows-uncheckoutable-path.py\"; cp lib/test/lint_population.py \"$S/lint_population.py\"; python3 \"$S/lint-windows-uncheckoutable-path.py\" --root . --files-from .prflow/tmp/review/pr-1201/run1/quoted-list.txt; echo \"exit=$?\"",
+      "S=.prflow/tmp/review/pr-1201/run1/scratch; mkdir -p \"$S\"; git show b67c986:lib/test/lint-windows-uncheckoutable-path.py | tee \"$S/lint-windows-uncheckoutable-path.py\" >/dev/null; cp lib/test/lint_population.py \"$S/lint_population.py\"; python3 \"$S/lint-windows-uncheckoutable-path.py\" --root . --files-from .prflow/tmp/review/pr-1201/run1/quoted-list.txt; echo \"exit=$?\"",
+      ".prflow/vendor/prflow/scripts/config-get.sh .prflow_review.verdict_severity_threshold critical 2>/dev/null || scripts/config-get.sh .prflow_review.verdict_severity_threshold critical 2>/dev/null || jq -r '.prflow_review.verdict_severity_threshold // \"critical (default)\"' .prflow/config.json"
+    ],
+    "total": 9,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
