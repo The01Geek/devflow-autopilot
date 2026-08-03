@@ -1,0 +1,9 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-03T19:41:29Z",
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "run_engine",
+  "pending_dispatch": null,
+  "telemetry": "unavailable"
+}
