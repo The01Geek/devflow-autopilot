@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1224",
+  "generated_at": "2026-08-03T22:01:59Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.68",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.07487625,
+    "tokens": {
+      "input_tokens": 34,
+      "output_tokens": 15237,
+      "cache_read_input_tokens": 2367255,
+      "cache_creation_input_tokens": 140414,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 86,
+        "outputTokens": 34779,
+        "cacheReadInputTokens": 3929350,
+        "cacheCreationInputTokens": 274199,
+        "webSearchRequests": 0,
+        "costUSD": 5.07487625,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 21,
+    "duration_ms": 394733
+  },
+  "permission_denials": {
+    "count": 3,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "cd /home/runner/work/prflow/prflow\necho \"=== remaining uncommented fetch-depth across shipped workflows at PR head ===\"\nfor f in devflow-implement.yml devflow.yml ci.yml devflow-runner.yml; do\n  echo \"--- $f ---\"\n  git cat-file -p 58a66b7:.github/workflows/$f 2>/dev/null | grep -nE '^[[:space:]]*fetch-depth:' | grep -v '#'\ndone",
+      "for v in 'fetch-depth: 0' 'fetch-depth: 50' \"fetch-depth: '50'\" 'fetch-depth: \"50\"' '          #     `fetch-depth: 50`) covers'; do printf '%-40s -> ' \"$v\"; echo \"$v\" | grep -qE \"fetch-depth:[[:space:]]*['\\\"]?[1-9]\" && echo MATCH || echo no; done",
+      "printf '%s\\n' 'fetch-depth: 0' 'fetch-depth: 50' \"fetch-depth: '50'\" 'fetch-depth: \"50\"' | while IFS= read -r v; do printf '%-24s -> ' \"$v\"; printf '%s' \"$v\" | grep -qE \"fetch-depth:[[:space:]]*['\\\"]?[1-9]\" && echo MATCH || echo no; done"
+    ],
+    "total": 3,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
