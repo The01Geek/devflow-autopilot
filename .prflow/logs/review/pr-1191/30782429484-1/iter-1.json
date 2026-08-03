@@ -1,0 +1,102 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-03T04:30:00Z",
+  "fix_commit_sha": "1f299761",
+  "fix_files": ["lib/test/test_module_runner.py"],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": "run_shadow_fanout",
+  "pending_dispatch": null,
+  "checklist": [],
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:pr-test-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_findings": [
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "Static run.sh call-site checks moved out of subTest, losing per-module diagnostic attribution",
+      "defect_signature": {"file": "lib/test/test_module_runner.py", "line_range": [1539, 1555], "kind": "diagnostics_regression"},
+      "corroboration_count": 3,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "Comment referenced non-existent variable 'ex.map' (the executor is named 'pool')",
+      "defect_signature": {"file": "lib/test/test_module_runner.py", "line_range": [1560, 1560], "kind": "comment_inaccuracy"},
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "Cited wall-clock timings risk becoming stale without a snapshot/provenance marker",
+      "defect_signature": {"file": "lib/test/test_module_runner.py", "line_range": [1505, 1511], "kind": "stale_figure_risk"},
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "Docstring overstated concurrency isolation vs what the cited test proves",
+      "defect_signature": {"file": "lib/test/test_module_runner.py", "line_range": [1513, 1515], "kind": "doc_overstatement"},
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "1f299761"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "1f299761"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "1f299761"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "1f299761"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 14,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "clean", "reason": null}},
+  "shadow": {
+    "ran_at": "2026-08-03T04:45:00Z",
+    "reviewed_sha": "1f299761",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:pr-test-analyzer",
+      "prflow:comment-analyzer"
+    ],
+    "expected_reviewers": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:pr-test-analyzer",
+      "prflow:comment-analyzer"
+    ],
+    "reason": null,
+    "phase3_findings": [
+      {"agent": "prflow:code-reviewer", "severity": "Suggestion", "description": "floor bound inside subTest could leave work.append with unbound name on registry-invalid input", "defect_signature": {"file": "lib/test/test_module_runner.py", "line_range": [1544, 1560], "kind": "unbound_name_edge"}}
+    ],
+    "comparison": {"shadow_total": 1, "overlap_with_iter_N": 0, "new": 1, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 1},
+    "phase_1": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_3": {"calls": 4, "tokens": 301000, "wall_clock_s": 63},
+    "step_2_6": {"calls": 0, "tokens": 0, "wall_clock_s": 0}
+  }
+}
