@@ -75,7 +75,31 @@ DETAIL_CAP=20
 # and the nested Python pool multiplies the pressure.
 BUDGET_CEILING=8
 # The most slots the nested `python-pool` reservation may take (its own width cap).
-POOL_RESERVATION_CEILING=4
+#
+# Two, because the pool has exactly TWO members: `devflow_python_suite_pool_open` in
+# lib/test/module-harness.sh registers `test_module_runner.py` and `test_python_scripts.py`
+# and nothing else, and this reservation is what the shard exports as `DEVFLOW_POOL_WIDTH`.
+# A cap above the membership therefore reserves slots the pool can never turn into a
+# concurrent member, while the launch loop below still charges them against the budget —
+# so the surplus is subtracted from the other shards and bought nothing.
+#
+# Measured, not inferred (issue #1180): the real scheduler was driven through its own two
+# documented seams — `DEVFLOW_SUITE_PROCESS_BUDGET=4` to force the runner's budget, and
+# `DEVFLOW_SHARD_DISPATCHER` pointed at a stub sleeping a time-scaled model of each shard's
+# measured duration — on the host shape this coordinator actually runs on in the cloud,
+# `ubuntu-latest` at 4 vCPU, i.e. `BUDGET = min(cpu_count, 8) = 4`. At ceiling 4 the
+# reservation resolves to 3, `monolith` + `python-pool` fill all four slots and the
+# remaining three shards serialize behind one freed slot: 11.4 min, over the tier's
+# 10-minute per-command ceiling. At ceiling 2 a third shard launches at t=0 and the rest
+# pipeline: 7.9 min. The packing change is what the focused module asserts; the minutes are
+# a stub model that sleeps rather than consuming CPU, so they understate real contention and
+# are recorded here as the measurement that justified the constant, not as a prediction.
+#
+# It is a global cap, so it also binds a host with more cores, where `BUDGET - 1` would
+# otherwise have selected 3 or more. That is the same over-reservation argument, not a
+# regression: the pool cannot run a third member on any host, and every slot the cap
+# releases goes to a shard that can use it.
+POOL_RESERVATION_CEILING=2
 
 die() { # message
   printf 'run-parallel: %s\n' "$1" >&2

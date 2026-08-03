@@ -264,11 +264,23 @@ wins**. Only arm 2 authorizes a *pin-only* removal; arm 1 permits removal solely
 alongside a copy deletion, and arms 0 and 3 retain outright — so an unanswered
 question always retains:
 
+**Which corpus these arms govern (issue #1061).** They range over the **existence-pin
+census** and nothing else — the sites `lib/test/pin-corpus-classifier.py`'s
+`extract_existence_sites` yields, which are the calls to its `EXISTENCE_HELPERS` names
+plus the presence-suffixed module wrappers `source_existence_helpers` admits. A pin of
+any other shape — a count-family helper (`pin_count`, `devflow_module_pin_count`) or a
+raw `grep -qF` presence check — is not a member and never has been, so **no arm below
+decides it, arm 0's *retain* included**. Its disposition is the separate rule under
+*Disposing of a pin outside the existence census*, after the arms.
+
 0. **No row** — the census is a **frozen snapshot**, not a live index, so a pin added
    since its `# revision:` line has none. This is the normal state between refreshes,
    and it means the census *cannot answer*, **never** that the answer is "no".
-   Either regenerate the census (below) and re-read, or **retain the pin**. Do not
-   hand-count: the deciding number excludes the census's own
+   Either regenerate the census (below) and re-read, or **retain the pin**. This arm
+   is about a row that is *absent* — obtainable, just not taken yet — and never about
+   one that is **unobtainable** because the pin is not in this corpus at all; that is
+   the case the scoping paragraph above routes elsewhere. Do not hand-count: the
+   deciding number excludes the census's own
    `# counted-file-exclusions` set (`lib/test/`, `.prflow/learnings/`,
    `.prflow/logs/`, `.changeset/`, `CHANGELOG.md`), so a `git grep` over-counts.
 1. **`counted_occurrences >= 2`** — remove the pin only in the same change that
@@ -303,6 +315,45 @@ question always retains:
 Adjudications are *read* from the inventory but *changed* in
 `lib/test/pin-corpus-adjudications.tsv` (the delta-gated table), then regenerated;
 never hand-edit the generated inventory.
+
+**Disposing of a pin outside the existence census (issue #1061).** Such a pin is
+**outside the ledger's domain**, and each ledger disposition is structurally
+unavailable to it rather than merely unused:
+
+- **No census row is obtainable.** `extract_existence_sites` yields a site only for a
+  helper in the existence set, and `source_existence_helpers` deliberately declines to
+  admit count-family wrappers — a recorded decision its own docstring states. So such a
+  literal has no site at any revision and therefore no adjudication key at all. Its row
+  is not missing; it cannot be produced.
+- **No row may be added by hand.** `pin-corpus-classifier.py` requires the adjudication
+  table's key set to be exactly closed over the sites it extracts and fails generation
+  on any key it cannot match, and
+  `test_current_worktree_adjudications_close_the_classifier_corpus` in
+  `lib/test/test_red_on_removal_retirement_manifest.py` enforces that against the
+  working tree. **Do not add rows for non-existence literals** — that closure stays as
+  it is.
+- **A `# structural-pin-ok:` declaration does not rescue one whose literal resolves
+  into prose.** The routing ladder weighs prose resolution *before* the bare
+  declaration pass, and helper identity buys no exemption (issue #925), so a
+  declaration clears a prose-resolving literal only in company with a `boundary` ledger
+  row — the row the point above says cannot be minted.
+
+The disposition is therefore taken **directly under the parent prose-pin policy**
+(`CLAUDE.md`'s *Recorded decision* bullet for issues #843/#876), on that policy's own
+question: does any tool or consumer read the pinned content? If one does — and the
+routing ladder's step 1 will usually have said so already — the pin is **retained**
+under the `# structural-pin-ok:` rule above, and nothing here authorizes removing it.
+If none does, the target is agent-executed prose, retirement owes no replacement
+coverage, and the pin is retired on that basis with **its disposition and the evidence
+for it recorded in prose** — the issue or pull request that retires it — never as a
+ledger row. That record carries the consumer search establishing no reader (run over
+the consumer surface the lint's own `machine_consumer_evidence` reads, so it is the
+same question the gate asks) and names what stops being asserted afterwards; the
+compensating control is the review pass that reads the prose, which narrows the gap
+and does not close it. Issue #1007's two literals are the worked case: both were
+count-helper or raw-`grep -qF` pins, and PR #1067 retired them under exactly this rule,
+with the per-literal consumer search and the accepted trade-off recorded on the issue
+instead of in the table.
 
 **Worked cases — the `#291` boundaries, which split across two arms.** Two of the
 three `#291` sites (`291(AC1)` and the `291(AC4)` severity-calibrated-eval pin) carry
