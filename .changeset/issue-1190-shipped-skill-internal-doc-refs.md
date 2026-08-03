@@ -14,6 +14,6 @@ type: Fixed
   grades, the base-branch `CLAUDE.md` restore that scopes a review-path self-supply hazard, the
   experiment store's deliberate abandoned-run survivorship bias — that backing is restated inline
   rather than dropped, and where a pointer still helps it now names an artifact the consumer
-  actually has (`lib/efficiency-trace.jq`'s header, `scripts/build-experiment-records.py`'s
-  docstring). Three PRFlow-internal PR numbers no longer ship inside the review engine. No behavior
+  actually has — e.g. `config.schema.json`, `lib/efficiency-trace.jq`'s header, or
+  `scripts/build-experiment-records.py`'s docstring. Three PRFlow-internal PR numbers no longer ship inside the review engine. No behavior
   changes and no frontmatter is touched. (#1190)

@@ -9811,12 +9811,14 @@ assert_eq("#855: every scanned implement-profile prompt surface teaches no denie
           [], _wd_dirty)
 
 # Pointer-population sweep (issue #855). Which SKILLS emit a bare repo-relative path
-# in a command inside a ```bash fence — the population that therefore takes a pointer
-# to the working-directory contract page (AC pointer recipients: implement,
-# retrospective-weekly, review, review-and-fix). This asserts POPULATION MEMBERSHIP
-# only, not that each skill carries the pointer text (a pointer-literal pin would be
-# the prose-presence shape this issue declines everywhere, and the literal changes
-# with the relative-link depth — that is a reviewer-checklist item). A skill that
+# in a command inside a ```bash fence — the population that therefore states the
+# working-directory contract (implement, retrospective-weekly, review,
+# review-and-fix). Those skills once closed that statement with a pointer to the
+# contract page under docs/; issue #1190 removed every such pointer, because a
+# shipped skill body installs verbatim into a consumer repository where the path does
+# not resolve — so do NOT restore one. This asserts POPULATION MEMBERSHIP
+# only, never pointer text (a pointer-literal pin would be
+# the prose-presence shape this issue declines everywhere). A skill that
 # LATER begins emitting a bare repo-relative path in a command joins the set and turns
 # this RED at the desk.
 #
