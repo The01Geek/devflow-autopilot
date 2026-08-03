@@ -29,6 +29,7 @@
             "pages": [
               "docs/getting-started/index",
               "docs/getting-started/installation",
+              "docs/getting-started/migrate-from-devflow",
               "docs/getting-started/first-run"
             ]
           },

@@ -4,52 +4,37 @@
 
 [![CI](https://github.com/The01Geek/prflow/actions/workflows/ci.yml/badge.svg)](https://github.com/The01Geek/prflow/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Built on Claude Code](https://img.shields.io/badge/built%20on-Claude%20Code-d97757.svg)](https://code.claude.com)
+![Built on Claude Code](https://img.shields.io/badge/built%20on-Claude%20Code-d97757.svg)
 
-**AI coding agents dazzle on a demo repo, then stall on a real ticket in a large production codebase.** PRFlow is the [Claude Code](https://code.claude.com) plugin that closes that gap — it carries one feature request all the way to a **complete, tested, reviewed, documented pull request**, so you do the final review and merge, not the cleanup.
-
-<!--
-  DEMO SLOT — highest-impact addition per README research (see docs/demo-gif.private.md).
-  Record a ~20-30s terminal GIF of the headline flow and drop it in here:
-    /prflow:implement 42  →  branch → plan → code+tests → draft PR → review-and-fix → ready PR
-  Keep it < 3 MB, loop-friendly, captioned. Replace this comment with:
-    ![PRFlow turning issue #42 into a ready PR](docs/demo.gif)
--->
+**AI coding agents dazzle on a demo repo, then stall on a real ticket in a large production codebase.** PRFlow is the Claude Code plugin that closes that gap — it carries one feature request all the way to a **complete, tested, reviewed, documented pull request**, so you do the final review and merge, not the cleanup.
 
 <a name="install"></a>
 
 ## Quick start
 
 > [!TIP]
-> **Just ask your agent.** Paste this into Claude Code and it handles steps 1 and 2 for you — the install, the setup, and the PATH dependencies `/plugin install` doesn't cover. Then ship your first PR with step 3.
+> **Just ask your agent.** Paste this into Claude Code and it handles step 1 for you — the install, the setup, and the PATH dependencies `/plugin install` doesn't cover. Then ship your first PR with step 2.
 >
 > ```text
 > Read https://github.com/The01Geek/prflow#quick-start and install PRFlow and its dependencies.
 > ```
 
-**1. Install** (two commands — run in order; works in any shell):
+**1. Install and set up** — run these commands in order:
 
 ```bash
 claude plugin marketplace add The01Geek/prflow
 claude plugin install prflow@devflow-marketplace
-```
-
-> **Why `prflow@devflow-marketplace`?** The plugin is `prflow`; the marketplace it is published in is still named `devflow-marketplace`. That is deliberate, not a half-finished rename — Claude Code's plugin `renames` map is scoped *per marketplace*, so renaming the marketplace would break the upgrade path for everyone who already installed the plugin from it. The marketplace name stays; the plugin name is `prflow`.
-
-**2. Set up** — launch Claude Code and scaffold your config:
-
-```bash
 claude /prflow:init   # launches Claude Code and scaffolds your config
 ```
 
-**3. Ship a PR** — turn a feature request into a reviewed, documented pull request:
+**2. Ship a PR** — turn a feature request into a reviewed, documented pull request:
 
 ```text
 /prflow:create-issue <user_story>
 /prflow:implement <issue_number>
 ```
 
-The local tier runs **with zero configuration** — every value already has a built-in default. `/prflow:init` is recommended: it registers the marketplace so Claude Code keeps the plugin auto-updated (an unpinned registration that tracks the plugin repo's default branch) and writes a `.prflow/config.json` you can tweak. See **[Installing & updating](docs/install.md)** for the full options (the zero-dependency install, PyYAML, the cloud tier) and [Requirements](#requirements) for the handful of tools it expects on your PATH.
+The local tier runs **with zero configuration** — every value already has a built-in default. `/prflow:init` is recommended: it registers the marketplace so Claude Code keeps the plugin auto-updated (an unpinned registration that tracks the plugin repo's default branch) and writes a `.prflow/config.json` you can tweak. See **[Installing and updating](https://prflow.ai/docs/getting-started/installation)** for the full options and [Requirements](#requirements) for the handful of tools it expects on your PATH.
 
 ## Why PRFlow
 
@@ -57,9 +42,9 @@ The local tier runs **with zero configuration** — every value already has a bu
 - **Review that fixes what it finds — and audits itself** — the review-and-fix loop applies fixes and re-reviews until it approves, then a structurally-independent **shadow pass** re-checks the approval. [Skills and agents →](#skills-and-agents)
 - **Docs stay in sync** — internal docs, external docs, and release notes kept aligned with the code in the same run.
 - **It learns every week** — a [retrospective loop](#the-self-improving-loop) reads the trail of merged PRs and files human-reviewed issues that prevent the next recurring failure.
-- **Zero-config to start** — the local tier runs entirely inside Claude Code with no infrastructure; an optional [cloud tier](docs/cloud-setup.md) runs it autonomously on GitHub.
+- **Zero-config to start** — the local tier runs entirely inside Claude Code with no infrastructure; an optional [cloud tier](https://prflow.ai/docs/runs/cloud/setup) runs it autonomously on GitHub.
 
-> ▶ **[Read the PRFlow documentation →](https://prflow.ai/)**
+> ▶ **[Read the PRFlow documentation →](https://prflow.ai/docs)**
 
 <details>
 <summary>Contents</summary>
@@ -108,11 +93,11 @@ The intended way to drive PRFlow — from a feature request to a reviewed pull r
 ```
 
 1. **Create the issue.** `/prflow:create-issue Add CSV export to the reports page` interviews you until the issue is unambiguous, shows you the draft, and files it **only after you confirm**. Say it lands as **#42**.
-2. **Start implementation.** Run `/prflow:implement 42` in Claude Code — or, on the cloud tier, comment `/prflow:implement 42` on the issue (`gh issue comment 42 --body '/prflow:implement 42'`). Because *you* posted the comment, GitHub fires the workflow natively (no `@claude`, bot comment, or PAT needed — see [cloud setup](docs/cloud-setup.md#triggering-prflowimplement)).
+2. **Start implementation.** Run `/prflow:implement 42` in Claude Code — or, on the cloud tier, comment `/prflow:implement 42` on the issue (`gh issue comment 42 --body '/prflow:implement 42'`). Because *you* posted the comment, GitHub fires the workflow natively (no `@claude`, bot comment or PAT needed — see [cloud triggers](https://prflow.ai/docs/runs/cloud/triggers#implement-an-issue)).
 3. **PRFlow implements it.** It creates a branch, plans against your codebase, writes the code and tests, opens a **draft PR**, self-reviews with `/simplify`, runs `/prflow:review-and-fix`, files follow-up issues for deferred findings, updates the docs, and flips the PR to **ready**.
 4. **Review and merge.** On the cloud tier, `/prflow:review` runs as a gate and posts its verdict on the PR. You do the final human review and merge.
 
-> The cloud tier (steps 2–4 running automatically on GitHub) needs only a `CLAUDE_CODE_OAUTH_TOKEN` secret **by default** (routing a workflow through an optional third-party model provider adds one more, `DEVFLOW_PROVIDER_API_KEY`) — see [`docs/cloud-setup.md`](docs/cloud-setup.md). Everything else runs locally inside Claude Code with no infrastructure.
+> The cloud tier (steps 2–4 running automatically on GitHub) needs only a `CLAUDE_CODE_OAUTH_TOKEN` secret **by default** (routing a workflow through an optional third-party model provider adds one more, `DEVFLOW_PROVIDER_API_KEY`) — see [Cloud setup](https://prflow.ai/docs/runs/cloud/setup). Everything else runs locally inside Claude Code with no infrastructure.
 
 ## Requirements
 
@@ -127,9 +112,9 @@ The intended way to drive PRFlow — from a feature request to a reviewed pull r
 
 **PyYAML is on the list, but it is the one item that degrades rather than breaks** — worth knowing before you block an install on it. Exactly one runtime helper imports it, `match-deferrals.py`, and only lazily, on the path where a pull-request body already carries a deferred-findings block. Without PyYAML that helper exits with an error the review engine logs and steps over, continuing with **all findings intact**; what you lose is the severity demotion of findings you previously deferred, which fails in the safe direction — it surfaces more, never fewer findings. That safety is not free: because the re-surfaced findings are re-fixed (not merely reported) in `/prflow:review-and-fix` and in `/prflow:implement`'s inline fix loop, a PyYAML-less run can churn on work a prior run deliberately deferred behind follow-up issues. Implement, review, docs and config all work without it. On the local tier `bash lib/preflight.sh` reports a missing PyYAML as an **advisory** gap and exits 0 — it prints a distinct advisory final line naming the `pip install` remedy rather than treating the gap as a hard stop. (The test suite, CI, and the cloud tiers still require it.)
 
-On **Windows** any POSIX **bash** works — **WSL bash**, **Git Bash**, or **MSYS2 bash** (PRFlow mandates none); point PRFlow at the one you want with **`DEVFLOW_BASH`**, and in a checkout of this repo `bash lib/preflight.sh` prints a `devflow-bash:` breadcrumb confirming which bash is in use (a host with *no* POSIX bash at all is out of scope). A non-executable `gh` or `jq` shim can also shadow the real binary on `PATH`; PRFlow resolves the first `gh`/`gh.exe` (and `jq`/`jq.exe`) that actually runs (execution-verified via the shared `lib/resolve-bin.sh` resolver), and you can force a specific binary by setting **`DEVFLOW_GH`** / **`DEVFLOW_JQ`** to the working one. Windows-form paths are normalized to the running shell's POSIX form by `lib/normalize-path.sh`. See [Windows: choosing the bash PRFlow runs under](docs/install.md#windows-choosing-the-bash-prflow-runs-under-devflow_bash), [Windows: resolving `gh`](docs/install.md#windows-resolving-gh), and [Windows: resolving `jq`](docs/install.md#windows-resolving-jq).
+On **Windows** any POSIX **bash** works — **WSL bash**, **Git Bash**, or **MSYS2 bash** (PRFlow mandates none); point PRFlow at the one you want with **`DEVFLOW_BASH`**, and in a checkout of this repo `bash lib/preflight.sh` prints a `devflow-bash:` breadcrumb confirming which bash is in use (a host with *no* POSIX bash at all is out of scope). A non-executable `gh` or `jq` shim can also shadow the real binary on `PATH`; PRFlow resolves the first `gh`/`gh.exe` (and `jq`/`jq.exe`) that actually runs (execution-verified via the shared `lib/resolve-bin.sh` resolver), and you can force a specific binary by setting **`DEVFLOW_GH`** / **`DEVFLOW_JQ`** to the working one. Windows-form paths are normalized to the running shell's POSIX form by `lib/normalize-path.sh`. See [Installation problems](https://prflow.ai/docs/troubleshooting/installation) for Windows and missing-dependency guidance.
 
-**Cloud tier** — nothing to install on your machine; the GitHub Actions runner provisions its own toolchain. By default every job runs on `ubuntu-latest`, but the runner is configurable via the `DEVFLOW_RUNNER` repository/organization variable (a bare label or a JSON label array), which dispatch-enables **self-hosted / Windows runners** — read the prerequisites and the smoke-test boundary in [`docs/cloud-setup.md`](docs/cloud-setup.md) before treating a non-Linux runner as production-ready.
+**Cloud tier** — nothing to install on your machine; the GitHub Actions runner provisions its own toolchain. By default every job runs on `ubuntu-latest`, but the runner is configurable via the `DEVFLOW_RUNNER` repository/organization variable (a bare label or a JSON label array), which dispatch-enables **self-hosted / Windows runners** — read [Cloud setup](https://prflow.ai/docs/runs/cloud/setup) before treating a non-Linux runner as production-ready.
 
 ### Withheld: automatic review on pull request
 
@@ -148,10 +133,9 @@ dismissed.
 receives those workflow files, so the flaw is not reachable. Review still works: a
 repository collaborator comments `/prflow:review` on a pull request and the review runs,
 gated by an actor-authorization check. An outside fork contributor cannot self-trigger one.
-You can *additionally* opt into having that `/prflow:review` posted **automatically once CI
-is green** by copying the documented `pull_request` snippet in
-[`docs/workflow-triggers.md`](docs/workflow-triggers.md) — it never grants a fork access to
-secrets (the head-repo clause excludes fork pull requests before any token is minted).
+You can *additionally* configure an automatic `/prflow:review` request after CI passes; see
+[Cloud triggers](https://prflow.ai/docs/runs/cloud/triggers). Automatic requests must exclude
+fork pull requests before any token is minted.
 
 **If you installed an earlier version that did ship the tier,** you still have the files
 and re-running the installer deliberately leaves them alone. To remove them, run
@@ -160,8 +144,8 @@ and re-running the installer deliberately leaves them alone. To remove them, run
 sets `workflows["prflow-review"]` to `false` in `.prflow/config.json`. Then remove the
 `Devflow Review` context from any branch protection rule or ruleset that requires it —
 no installer can do that step for you, and skipping it wedges every later pull request
-behind a required check nothing will report. Full procedure and rationale:
-[`docs/workflow-triggers.md`](docs/workflow-triggers.md#withheld-from-this-release-the-automatic-pull-request-triggered-review-tier).
+behind a required check nothing will report. After removal, use the supported review commands
+in [Cloud triggers](https://prflow.ai/docs/runs/cloud/triggers).
 
 ## Skills and agents
 
@@ -182,13 +166,13 @@ behind a required check nothing will report. Full procedure and rationale:
 
 > **Namespacing matters where names collide with built-ins.** `/review`, `/init`, and `/security-review` are *built-in* Claude Code commands — always use the `/prflow:`-prefixed form to reach PRFlow's engine (a bare `/review` reaches Claude Code's reviewer, not PRFlow's). **Local slash commands are `/prflow:` only** — the plugin was renamed from `devflow`, and the old `/devflow:*` local commands do not survive that rename. **Cloud comment triggers still accept both**: a GitHub comment reading `/devflow:implement 42` or `/prflow:implement 42` fires the same workflow, so existing automation and muscle memory keep working there. Either way the trigger is a **bare** comment (no `@claude`), so PRFlow coexists with Anthropic's Claude GitHub App, which owns plain `@claude` mentions and `/security-review`.
 
-> **No companion plugins.** PRFlow declares **zero** companion-plugin dependencies — `/plugin install prflow@devflow-marketplace` resolves on its own, with no `claude-plugins-official` prerequisite and none of the old `dependency-unsatisfied` Errors-tab friction. Every external asset its engine once dispatched is now a first-party PRFlow file: the `pr-review-toolkit` review agents and the `feature-dev` `code-explorer`/`code-architect` subagents under `agents/`, and the `superpowers` final-pass reviewer (`requesting-code-review`) and fix-loop `receiving-code-review` skills under `skills/` — all hard-forked with upstream licenses retained verbatim under `LICENSES/`. See [Installing & updating](docs/install.md#no-companion-plugins-to-add). `/simplify` is a built-in Claude Code skill.
+> **No companion plugins.** PRFlow declares **zero** companion-plugin dependencies — `/plugin install prflow@devflow-marketplace` resolves on its own, with no `claude-plugins-official` prerequisite and none of the old `dependency-unsatisfied` Errors-tab friction. Every external asset its engine once dispatched is now a first-party PRFlow file: the `pr-review-toolkit` review agents and the `feature-dev` `code-explorer`/`code-architect` subagents under `agents/`, and the `superpowers` final-pass reviewer (`requesting-code-review`) and fix-loop `receiving-code-review` skills under `skills/` — all hard-forked with upstream licenses retained verbatim under `LICENSES/`. See [Installation](https://prflow.ai/docs/getting-started/installation). `/simplify` is a built-in Claude Code skill.
 
 ## Project configuration
 
 The local tier needs **no config** — every value has a built-in default. To customize, run `/prflow:init` to scaffold `.prflow/config.json` from PRFlow's shipped template (it never clobbers a config you've filled in) and refresh `.prflow/config.schema.json` (your editor reads it for autocomplete + field descriptions).
 
-Common keys the skills read: documentation paths (`docs.internal`, `docs.external`, `docs.release_notes_file`, `docs.changelog_file`, `docs.labels`), the workpad marker (`prflow.workpad_marker`), the bot allowlist (`prflow.allowed_bots`), the review base (`base_branch`), retrospective settings (`prflow_retrospective.*`), and — cloud tier only — runtime provisioning (`setup.*`) and the plugin ref (`prflow_version`). Full reference: **[System overview §17](docs/DEVFLOW_SYSTEM_OVERVIEW.md#17-configuration-reference)**.
+Common keys the skills read: documentation paths (`docs.internal`, `docs.external`, `docs.release_notes_file`, `docs.changelog_file`, `docs.labels`), the workpad marker (`prflow.workpad_marker`), the bot allowlist (`prflow.allowed_bots`), the review base (`base_branch`), retrospective settings (`prflow_retrospective.*`), and — cloud tier only — runtime provisioning (`setup.*`) and the plugin ref (`prflow_version`). See [Configuration settings](https://prflow.ai/docs/configuration/settings).
 
 ## The self-improving loop
 
@@ -200,15 +184,14 @@ Every bot-authored PR leaves evidence — review comments, post-bot commits, CI 
 
 Run it interactively from the repo root, ideally weekly; it confirms a clean default branch, runs the full pipeline, and prints a status report with the issues to triage. Deterministic scripts handle all scanning, gating, and git/issue mechanics — the LLM is invoked **only** at the two genuine-judgment points (per-PR retrospective and per-pattern issue-spec drafting). The loop **proposes, it does not dispose**: it files one well-formed GitHub issue per actionable pattern and lets the normal implement → review pipeline execute it, rather than auto-editing the repo.
 
-Full mechanics — the pipeline, the data files, how patterns become issues: **[System overview §12](docs/DEVFLOW_SYSTEM_OVERVIEW.md#12-deep-dive-the-retrospective-loop)**.
+See [PRFlow workflows](https://prflow.ai/docs/workflows) for the supported user-facing workflow guides.
 
 ## Learn more
 
-- **[Public documentation](https://prflow.ai/)** — installation, workflows, local and cloud runs, configuration and troubleshooting.
-- **[System overview](docs/DEVFLOW_SYSTEM_OVERVIEW.md)** — the complete system reference (architecture, every deep dive, the [Scope-Acknowledged Findings contract §13](docs/DEVFLOW_SYSTEM_OVERVIEW.md#13-the-scope-acknowledged-findings-contract), the [security model §15](docs/DEVFLOW_SYSTEM_OVERVIEW.md#15-security-model)).
-- **[Installing & updating](docs/install.md)** — all install paths, dependency resolution, both-tier updates.
-- **[Cloud setup](docs/cloud-setup.md)** — secrets, triggers, runtime provisioning for the autonomous tier.
-- **[Shadow review](docs/shadow-review.md)** · **[Review-agent overrides](docs/review-agent-overrides.md)** · **[Efficiency traces](docs/efficiency-trace.md)** · **[Workflow triggers](docs/workflow-triggers.md)**
+- **[Public documentation](https://prflow.ai/docs)** — installation, workflows, local and cloud runs, configuration and troubleshooting.
+- **[Installing and updating](https://prflow.ai/docs/getting-started/installation)** — supported clients, initialization and updates.
+- **[Cloud setup](https://prflow.ai/docs/runs/cloud/setup)** — credentials and repository setup for autonomous runs.
+- **[Review and fix](https://prflow.ai/docs/workflows/review-and-fix)** · **[Review-agent configuration](https://prflow.ai/docs/configuration/review-agents)** · **[Cloud triggers](https://prflow.ai/docs/runs/cloud/triggers)**
 - **[Changelog](CHANGELOG.md)** — release history.
 
 ## Repository layout
