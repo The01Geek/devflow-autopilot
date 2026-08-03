@@ -6794,8 +6794,10 @@ _suite_tmp_dir "$E484"
 #   gh pr checkout — the inline engine is already on the branch; checking out a PR
 #     head would move the tree under Phase 3's fix loop and Phase 4's doc pass.
 #   git rev-list — the Phase 1 behind-by capture is refused and degrades gracefully;
-#     granting this head alone would not make that capture executable, and at
-#     fetch-depth 50 its count can be plausible-but-wrong across the graft boundary.
+#     granting this head alone would not make that capture executable, and under any
+#     depth-limited checkout its count can be plausible-but-wrong across the graft
+#     boundary (this workflow's own checkout is full-history since #1219, but the
+#     rationale is not conditioned on that — a consumer's installed copy may be older).
 #   mktemp — invoked only from leading VAR=$(…) capture shapes the matcher refuses
 #     regardless of a head grant; granting it would be a no-op greening the guard
 #     on a still-denied path.
@@ -39716,6 +39718,65 @@ devflow_ci_shard_has() {  # $1 = ERE, matched only against UNCOMMENTED lines of 
 # the shard job that actually runs lib/test/run.sh.
 assert_eq "#456 ci.yml: the shard job checkout sets fetch-depth: 0" "yes" \
   "$(devflow_ci_shard_has 'fetch-depth: 0')"
+#
+# ── #1219 the two agent-running cloud jobs check out FULL history ──
+# Same failure class as the ci.yml pin above, in the two workflows install.sh actually
+# ships. Both jobs run lib/test/run.sh in-env, and the #719 baseline-corpus control
+# resolves a FIXED past commit through `git show <ref>:<path>`. Under a bounded
+# fetch-depth that ref does not resolve, the control takes its BADREF arm and emits two
+# `blocking-gate` self-skips — and scripts/check-completion-evidence.py's
+# _validate_implement_record admits no skip population at all, so the implement
+# completion gate cannot be met on that run's first suite pass and the whole shard run is
+# discarded and repeated. The baseline ref is already hundreds of commits behind main and
+# the gap only widens, so any bounded depth is a number that goes stale silently: the
+# regression is a *skip*, which exits 0, so nothing else turns red.
+# These are machine-consumed lines — GitHub Actions executes them, and their absence
+# DISARMS the #719 gate on those tiers rather than changing any prose — so they sit inside
+# the `# structural-pin-ok:` regime, declared per site below.
+# Job-scoped rather than file-scoped: each of these workflows has several jobs with their
+# own checkouts (`config`, `gate`, `review_dedupe`), and only the agent-running job runs
+# the suite. Same awk shape and same three-token contract as devflow_ci_shard_has above,
+# including the bracket-class rule for EREs that reach awk through `-v`.
+devflow_wf_job_has() {  # $1 = job name, $2 = ERE, $3 = workflow file; UNCOMMENTED lines of that job only
+  local _out
+  [ -s "$3" ] || { printf 'unreadable'; return; }
+  _out="$(awk -v job="^  $1:[[:space:]]*$" -v pat="$2" '
+    $0 ~ job {ins=1; next}
+    /^  [A-Za-z_][A-Za-z0-9_-]*:/{ins=0}
+    ins && /^[[:space:]]*#/{next}
+    ins && $0 ~ pat {f=1}
+    END{print (f?"yes":"no")}' "$3")" || { printf 'awk-failed'; return; }
+  case "$_out" in
+    yes|no) printf '%s' "$_out" ;;
+    *)      printf 'unexpected-output' ;;
+  esac
+}
+_I1219_IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+_I1219_CMD_YML="$LIB/../.github/workflows/devflow.yml"
+# structural-pin-ok: cross-file-phase-contract -- the executed checkout line is what supplies the history the #719 baseline-corpus gate needs; bounding it makes that gate self-skip while the workflow stays green
+assert_eq "#1219 devflow-implement.yml: the claude job checkout sets fetch-depth: 0" "yes" \
+  "$(devflow_wf_job_has claude 'fetch-depth: 0' "$_I1219_IMPL_YML")"
+# The positive pin alone would still be satisfied by a SECOND, bounded fetch-depth line
+# added beside it (last-writer-wins in YAML), so each job is also asserted to carry no
+# bounded depth at all. This is what actually forbids the pre-#1219 `fetch-depth: 50`.
+# structural-pin-ok: cross-file-phase-contract -- a bounded depth anywhere in this job re-arms the shallow-checkout failure the positive pin above exists to prevent
+assert_eq "#1219 devflow-implement.yml: the claude job checkout sets no bounded fetch-depth" "no" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*[1-9]' "$_I1219_IMPL_YML")"
+# structural-pin-ok: cross-file-phase-contract -- the command job hosts /prflow:review-and-fix, whose in-env verification runs the same suite under the same no-skip accounting
+assert_eq "#1219 devflow.yml: the command job checkout sets fetch-depth: 0" "yes" \
+  "$(devflow_wf_job_has command 'fetch-depth: 0' "$_I1219_CMD_YML")"
+# structural-pin-ok: cross-file-phase-contract -- a bounded depth anywhere in this job re-arms the shallow-checkout failure the positive pin above exists to prevent
+assert_eq "#1219 devflow.yml: the command job checkout sets no bounded fetch-depth" "no" \
+  "$(devflow_wf_job_has command 'fetch-depth:[[:space:]]*[1-9]' "$_I1219_CMD_YML")"
+# Discriminating controls for the helper itself, so a `no`/`yes` above is evidence rather
+# than an artifact of a matcher that can only answer one way: an absent job must answer
+# `no` (not `yes`, and not the job-agnostic whole-file answer), and an unreadable file must
+# answer `unreadable` (not `no`, which would let a mistyped path pass every pin above).
+assert_eq "#1219 devflow_wf_job_has control: an absent job answers no" "no" \
+  "$(devflow_wf_job_has no_such_job 'fetch-depth: 0' "$_I1219_IMPL_YML")"
+assert_eq "#1219 devflow_wf_job_has control: an unreadable file answers unreadable" "unreadable" \
+  "$(devflow_wf_job_has claude 'fetch-depth: 0' "$_I1219_IMPL_YML.nope")"
+unset _I1219_IMPL_YML _I1219_CMD_YML
 #
 # ci.yml: the shard job installs the Claude Code CLI, which is what ARMS the #671
 # `claude plugin validate --strict` gate earlier in this file. Same failure class as the

@@ -617,13 +617,38 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          # Matches devflow.yml. /devflow:implement reads the diff via
-          # three-dot notation against `origin/main` (`git diff
-          # origin/main...HEAD`), which internally computes a merge-base.
-          # Depth 50 covers the realistic case (PRs typically ≤ a few
-          # dozen commits behind main); long-lived branches that drift
-          # past that will error out visibly on the missing merge-base.
-          fetch-depth: 50
+          # fetch-depth: 0 (all history) — matches devflow.yml and ci.yml.
+          # TWO requirements, and the second is the binding one (issue #1219):
+          #  1. Diff base. /prflow:implement reads the diff via three-dot
+          #     notation against `origin/main` (`git diff origin/main...HEAD`),
+          #     which internally computes a merge-base. A bounded depth (this
+          #     was `fetch-depth: 50`) covers that for a typical PR.
+          #  2. HISTORICAL BASELINE. This job runs the project's own test suite
+          #     in-env, and lib/test/run.sh's #719 baseline-corpus control reads
+          #     the swept files' blobs at a FIXED past commit via
+          #     `git show <ref>:<path>`. That ref is already hundreds of
+          #     commits behind main and the gap only widens, so any bounded
+          #     depth eventually fails to resolve it. The control then takes its
+          #     BADREF arm and emits two `blocking-gate` self-skips — and
+          #     scripts/check-completion-evidence.py's _validate_implement_record
+          #     admits NO skip population, so the run's completion gate could not
+          #     be met on that first suite pass and the whole shard run was
+          #     discarded and repeated after a `git fetch --unshallow` (measured:
+          #     4 min 20 s of discarded work on Actions run 30832631347).
+          #     Requirement 1 alone cannot justify a number that satisfies 2.
+          # CHOSEN MECHANISM: full history, not a targeted fetch of the required
+          # commits. A targeted fetch works (verified: `git fetch --depth=1
+          # origin <sha>` onto a depth-50 clone makes `git show <sha>:<path>`
+          # resolve while the repo stays shallow) and is cheaper, but it couples
+          # this workflow to `_WSR_RETIRED_REFS` inside lib/test/run.sh — it
+          # would have to hardcode a second copy of that SHA list or read the
+          # test file's internals, and would silently stop covering the suite the
+          # day a new retirement adds a different ref. Full history has no such
+          # coupling and no list to keep in step. Cost was NOT re-measured on a
+          # GitHub runner for this change; the figures of record are issue
+          # #1219's (+9 to +16 s of checkout on this repository's size), against
+          # the 5 min 24 s of discarded work above.
+          fetch-depth: 0
           # LOAD-BEARING (issue #357): the credential actions/checkout persists
           # here is what `git push` actually authenticates with — NOT the
           # `github_token` handed to claude-code-action below. checkout@v6 writes

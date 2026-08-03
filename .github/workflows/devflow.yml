@@ -752,16 +752,31 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          # /devflow:review and /devflow:pr-description read the diff via
-          # three-dot notation against `origin/main` (`git diff
-          # origin/main...HEAD`), which internally computes a merge-base —
-          # an ancestor walk on both sides. Depth 50 covers the realistic
-          # case (PRs typically ≤ a few dozen commits behind main); long-
-          # lived branches that drift past that will error out visibly on
-          # the missing merge-base rather than silently produce wrong
-          # output. Bump to `fetch-depth: 0` if that becomes a recurring
-          # problem.
-          fetch-depth: 50
+          # fetch-depth: 0 (all history) — matches devflow-implement.yml and
+          # ci.yml. TWO requirements, and the second is the binding one
+          # (issue #1219):
+          #  1. Diff base. /prflow:review and /prflow:pr-description read the
+          #     diff via three-dot notation against `origin/main` (`git diff
+          #     origin/main...HEAD`), which internally computes a merge-base —
+          #     an ancestor walk on both sides. A bounded depth (this was
+          #     `fetch-depth: 50`) covers that for a typical PR.
+          #  2. HISTORICAL BASELINE. This job also hosts /prflow:review-and-fix,
+          #     whose in-env verification runs the project's own test suite under
+          #     the same no-skip accounting as the implement tier. lib/test/run.sh's
+          #     #719 baseline-corpus control reads the swept files' blobs at a
+          #     FIXED past commit via `git show <ref>:<path>`; under a bounded
+          #     depth that ref does not resolve, the control takes its BADREF arm
+          #     and emits two `blocking-gate` self-skips, and a skip is never a
+          #     clean pass (issue #456). The ref is already hundreds of
+          #     commits behind main and the gap only widens, so any fixed number
+          #     is a number that goes stale.
+          # Changed together with devflow-implement.yml deliberately: the same
+          # suite runs behind both, so leaving this one bounded would reproduce
+          # the identical failure on the review-and-fix path. The rejected
+          # alternative — a targeted fetch of the required commits — is recorded
+          # in devflow-implement.yml's checkout comment; it is cheaper but
+          # couples the workflow to `_WSR_RETIRED_REFS` inside lib/test/run.sh.
+          fetch-depth: 0
           # LOAD-BEARING (issue #357): the credential actions/checkout persists
           # here is what /devflow:review-and-fix's `git push` actually
           # authenticates with — NOT the `github_token` handed to
