@@ -2,15 +2,20 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 # render-grounding-block.sh — print the `> [!IMPORTANT]` engine-ground-truth block
-# prepended to the review engine's prompt (issue #363).
+# prepended to a cloud engine's prompt (issue #363; the implement tier since #1170).
 #
-# TWO workflows run skills/review/SKILL.md and both must prepend this block:
-# devflow-runner.yml's `Compose review prompt` (the automated review path) and
-# devflow.yml's `Compose review grounding block` (the manual `/devflow:review`
-# comment path). The block carries the prompt-injection defense that tells the
-# engine a check name is data, never instruction — security-sensitive prose that
-# must never drift between the two callers. It therefore lives here, once, rather
-# than as hand-copied heredocs in two YAML files (CLAUDE.md's coupled-mirror rule).
+# THREE cloud prompt-composition sites call this renderer and prepend its output:
+#   - devflow-runner.yml's `Compose review prompt` (the automated review path)
+#   - devflow.yml's `Compose review grounding block` (the manual `/devflow:review`
+#     comment path)
+#   - devflow-implement.yml's `Compose implement grounding block`, which reaches
+#     this renderer through scripts/compose-implement-prompt.sh in `MODE=implement`
+#     (issue #1170)
+# The first two compose the prompt for skills/review/SKILL.md; the third composes
+# the implement engine's. The block carries the prompt-injection defense that tells
+# the engine a check name is data, never instruction — security-sensitive prose that
+# must never drift between the callers. It therefore lives here, once, rather than
+# as hand-copied heredocs at each call site (CLAUDE.md's coupled-mirror rule).
 #
 # Reads from the environment:
 #   HEAD_SHA       the reviewed commit; renders as `unknown` when empty.

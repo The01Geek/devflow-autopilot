@@ -41,7 +41,9 @@ automatic snippet does not reach (see that section's coverage boundary).
 `prune_stale_devflow_workflows()` is deliberately not extended, so re-running the installer
 leaves the three files in place and your auto-review keeps working. That continues to hold
 across a plugin upgrade only because **every helper those workflows call is still shipped**
-even though nothing in PRFlow's own tree reaches them any more: `install.sh` re-stamps
+even though the withheld tier no longer reaches them (and, save `derive-review-verdict.sh` —
+which the shipped dead-run verdict-presence gate reaches again, issue #1172 — nothing else in
+PRFlow's own tree reaches them either): `install.sh` re-stamps
 `prflow_version` to the installed commit, so re-running the installer keeps your workflow
 files while vendoring a newer plugin, and a helper deleted as "unreachable" would go missing
 underneath them — `finalize_check` fails **closed** when `derive-review-verdict.sh` is absent,
@@ -684,7 +686,21 @@ marker derivation and marker/body agreement.
   `scripts/describe-dead-run-cause.sh` rather than by inline workflow shell.
   A command that seeds no progress comment (`/prflow:pr-description`) is screened
   out before the upsert, and a consumer whose vendored plugin pin predates the
-  cause helper degrades with a warning rather than failing the step. A repository
+  cause helper degrades with a warning rather than failing the step.
+
+  Removing the outcome gate had a cost issue #1172 later corrected: an
+  `always()` step that acts irrespective of outcome also fires on a clean-exit
+  run that *did* post a verdict, stamping a false `❌ Review failed` banner
+  (measured 16 false banners against 15 real verdicts in one day, 0 observed
+  precision). The step now asks whether a verdict exists before writing:
+  `scripts/dead-run-verdict-present.sh` reuses the HEAD-scoped, fail-closed
+  `scripts/derive-review-verdict.sh` — consulting both channels the verdict
+  marker is written to (the formal review and this run's run-keyed progress
+  comment) — and prints present/absent. A *positively-determined* verdict
+  suppresses the flip; every other outcome (no verdict, an engine error, an
+  unresolvable HEAD, a query failure, a missing helper) still writes the banner,
+  so a genuinely verdict-less run keeps getting it. This also restores
+  `derive-review-verdict.sh` to a live in-tree call path. A repository
   that retained the withheld `devflow-review.yml` keeps that installed file's
   existing `finalize_check` call site; this change does not add new workflow
   wiring to that preserved copy.

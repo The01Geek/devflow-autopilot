@@ -595,9 +595,9 @@ normalizer statement outright — leaving the resolved labels non-empty but the
 **normalized list empty**, so the applies silently did nothing (caught at the
 desk). Use the granted `tr` / `sed` / `grep` instead.
 
-Consequence for the label call sites: `devflow-implement.yml`'s baked literal
-grants `apply-labels.sh` / `ensure-label.sh` explicitly, and **all four label call
-sites** — Phase 3.1's `PRFlow` provenance apply, Phase 4.0/4.0.5's
+Consequence for the label call sites: `devflow-implement.yml`'s generated
+`implement` literal grants `apply-labels.sh` / `ensure-label.sh` explicitly, and
+**all four label call sites** — Phase 3.1's `PRFlow` provenance apply, Phase 4.0/4.0.5's
 `deferred.labels` applies, and Phase 4.1's `Documented` apply — are reworked to
 **agent-level single-leading-token calls that read their inputs from printed tool
 output** (a shell variable does not survive into a later separate command).
@@ -611,7 +611,8 @@ source (#275) and resolves it at runtime — so it stays **prose-discipline**.
 ## Implement-profile head guard + inline-engine surface (issue #484)
 
 Phase 3 of `/prflow:implement` runs the review engine **inline** under
-`devflow-implement.yml`'s baked `--allowed-tools` (**not** the review profile), so
+`devflow-implement.yml`'s resolved `--allowed-tools` — the `Resolve allowed-tools`
+step's hoisted `TOOLS='…'` output (**not** the review profile) — so
 **every helper the normal inline flow can reach needs an implement-profile
 grant** — the review engine is shared.
 
@@ -742,7 +743,9 @@ vendored-literal token
 leading-token form) to the `implement` profile in `lib/capability-profiles.json`
 and regenerating. That **one edit** rewrites:
 
-- `devflow-implement.yml`'s baked `--allowed-tools` baseline, **and**
+- `devflow-implement.yml`'s generated `implement` region — the `Resolve
+  allowed-tools` step's `TOOLS='…'` baseline, which `claude_args`'s
+  `--allowed-tools` consumes — **and**
 - `matcher-probe.yml`'s `IMPLEMENT` baseline
 
 in lockstep — so the probe's baseline can never drift from the tier it is probing —
@@ -799,9 +802,12 @@ cloud runs.
 ### Config-supplied helper grants and the repository rename (issue #928, deferred half)
 
 `prflow_implement.allowed_tools` is not a generated literal — the `config` job
-extracts it with `jq` and splices it verbatim onto `devflow-implement.yml`'s baked
-`--allowed-tools`. Two path shapes reach it, both **measured emissions** rather than
-design choices: cloud implement run **30183387509** (issue #802) recorded 43
+extracts it as `allowed_tools_extra` with `jq`, and `devflow-implement.yml`'s
+`Resolve allowed-tools` step appends it verbatim to the generated `implement`
+region (`${TOOLS}${EXTRA}`), so the one resolved string both `--allowed-tools` and
+the grounding block quote carries it. Two path shapes reach it, both **measured
+emissions** rather than design choices: cloud implement run **30183387509**
+(issue #802) recorded 43
 permission denials in which the engine invoked bundled helpers as
 `/home/runner/work/<repo>/<repo>/scripts/<helper>` (workspace-absolute) and as
 `scripts/<helper>` (repo-root-relative), because `.claude-plugin/marketplace.json`
