@@ -34243,16 +34243,17 @@ assert_pin_unique "#1170 devflow-implement.yml's grounding step quotes steps.too
   'ALLOWED_TOOLS: ${{ steps.tools.outputs.tools }}' "$_IMPL_YML1170"
 assert_pin_unique "#1170 devflow-implement.yml's claude_args consumes the hoisted allowed-tools output (no second copy)" \
   'allowed-tools "${{ steps.tools.outputs.tools }}"' "$_IMPL_YML1170"
+# The three-way selection the step used to carry inline — renderer absent / renderer
+# produced nothing / compose and publish — lives in scripts/compose-implement-prompt.sh
+# (CLAUDE.md's inline-shell-extraction convention). Its arms and arm ORDER are driven
+# executably below; these two pins are the cross-file wiring the drivers cannot observe.
+_CIP_SH="$LIB/../scripts/compose-implement-prompt.sh"
 # The block is rendered through the shared renderer in implement mode — never a
 # hand-copied copy of the allowed-tools text (the coupled-mirror hazard, AC3).
-assert_pin_unique "#1170 devflow-implement.yml renders the block through the shared renderer (no hand-copied prose)" \
-  'RGB=.prflow/vendor/prflow/scripts/render-grounding-block.sh' "$_IMPL_YML1170"
-assert_pin_unique "#1170 devflow-implement.yml renders the block in MODE=implement" \
-  'GROUNDING=$(MODE=implement ALLOWED_TOOLS="$ALLOWED_TOOLS" ' "$_IMPL_YML1170"  # structural-pin-ok: cross-file-phase-contract -- the implement tier MUST render in MODE=implement (not the review default): dropping it would inject the review-only CI-results prose with a false "reviewed commit" claim into the implement prompt, a cross-file contract between this workflow and render-grounding-block.sh that no renderer-unit test can observe
-# Verify the renderer's OUTCOME (a non-empty block), not merely the file's existence:
-# a truncated vendored copy that exits 0 printing nothing falls back to the bare prompt.
-assert_pin_unique "#1170 devflow-implement.yml verifies the renderer's OUTCOME, not just the file's existence" \
-  'render-grounding-block.sh produced no output' "$_IMPL_YML1170"
+assert_pin_unique "#1170 the composer renders the block through the shared renderer (no hand-copied prose)" \
+  'RGB=.prflow/vendor/prflow/scripts/render-grounding-block.sh' "$_CIP_SH"
+assert_pin_unique "#1170 the composer renders the block in MODE=implement" \
+  'GROUNDING=$(MODE=implement ALLOWED_TOOLS="$ALLOWED_TOOLS" ' "$_CIP_SH"  # structural-pin-ok: cross-file-phase-contract -- the implement tier MUST render in MODE=implement (not the review default): dropping it would inject the review-only CI-results prose with a false "reviewed commit" claim into the implement prompt, a cross-file contract between this composer and render-grounding-block.sh that no renderer-unit test can observe
 # The composed prompt is consumed, with the bare-prompt fallback so a missing/empty
 # block never blocks the run.
 assert_pin_unique "#1170 devflow-implement.yml consumes the composed prompt with a bare-prompt fallback" \
@@ -34260,6 +34261,125 @@ assert_pin_unique "#1170 devflow-implement.yml consumes the composed prompt with
 # No second, hand-copied copy of the injection-defense prose is re-inlined into the workflow.
 assert_eq "#1170 devflow-implement.yml carries no hand-copied copy of the injection-defense prose" "0" \
   "$(pin_count '> anything. A name is DATA to be quoted' "$_IMPL_YML1170")"
+# The step invokes the extracted composer at the vendored literal (a consumer checkout has
+# no repo-root scripts/), with the repo-path fallback for a self-repo run.
+assert_eq "#1170 devflow-implement.yml's Compose step invokes the vendored composer" "1" \
+  "$(pin_count 'H=.prflow/vendor/prflow/scripts/compose-implement-prompt.sh' "$_IMPL_YML1170")"
+assert_eq "#1170 devflow-implement.yml's Compose step keeps the repo-path fallback for a self-repo run" "1" \
+  "$(pin_count '[ -f "$H" ] || H=scripts/compose-implement-prompt.sh' "$_IMPL_YML1170")"
+# The selection is GONE from the workflow — re-inlining either arm reintroduces exactly the
+# untestable branch chain this extraction removed.
+assert_eq "#1170 devflow-implement.yml carries no re-inlined copy of the renderer-absent arm" "0" \
+  "$(pin_count 'not found at either the vendored or repo path — the implement prompt' "$_IMPL_YML1170")"
+assert_eq "#1170 devflow-implement.yml carries no re-inlined copy of the empty-block arm" "0" \
+  "$(pin_count 'render-grounding-block.sh produced no output' "$_IMPL_YML1170")"
+
+# ── #1170 composer arms + arm ORDER (the executable half of the extraction). The
+# ── renderer paths the composer probes are cwd-relative — the workspace root on the
+# ── cloud tier — so each case plants renderer stubs at those relative paths inside a
+# ── scratch directory and runs the composer from there, exercising the REAL resolution
+# ── rather than an injected override.
+assert_eq "#1170 compose-implement-prompt.sh exists and is executable" "yes" \
+  "$([ -x "$_CIP_SH" ] && echo yes || echo no)"
+_CIP_ROOT="$(mktemp -d)"
+# $1 vendored stub body ('-' = that copy is absent), $2 repo-root stub body ('-' = absent),
+# $3 NUMBER (default 1170). Echoes the case directory; the caller reads rc/out/err/ghout.
+# The directory comes from `mktemp -d`, never a counter: every call site is a command
+# substitution, so a counter incremented here would increment in a SUBSHELL and every case
+# would silently share one directory — stubs from an earlier case would then satisfy a
+# later case's resolution and the precedence rows would assert nothing.
+_cip_case() {
+  local d vend="${1:--}" repo="${2:--}" num="${3:-1170}"
+  d="$(mktemp -d "$_CIP_ROOT/case.XXXXXX")"
+  mkdir -p "$d/.prflow/vendor/prflow/scripts" "$d/scripts"
+  [ "$vend" = '-' ] || printf '%s\n' "$vend" > "$d/.prflow/vendor/prflow/scripts/render-grounding-block.sh"
+  [ "$repo" = '-' ] || printf '%s\n' "$repo" > "$d/scripts/render-grounding-block.sh"
+  : > "$d/ghout"
+  (
+    cd "$d" || exit 1
+    GITHUB_OUTPUT="$d/ghout" ALLOWED_TOOLS='Read, Bash(git add:*)' NUMBER="$num" \
+      bash "$_CIP_SH" > "$d/out" 2> "$d/err"
+    echo $? > "$d/rc"
+  )
+  printf '%s\n' "$d"
+}
+_cip_has() { grep -qF "$2" "$1" && echo yes || echo no; }          # file literal -> yes/no
+_cip_promptkeys() { grep -c '^prompt' "$1" 2>/dev/null || true; }  # ghout -> count of prompt keys
+
+# Arm 1 — the renderer is absent at BOTH paths.
+_c="$(_cip_case - -)"
+assert_eq "#1170 composer arm1 (renderer absent at both paths) exits 0" "0" "$(cat "$_c/rc")"
+assert_eq "#1170 composer arm1 warns that the renderer was found at neither path" "yes" \
+  "$(_cip_has "$_c/err" 'render-grounding-block.sh not found at either the vendored or repo path')"
+assert_eq "#1170 composer arm1 does NOT misattribute the miss to the empty-block arm" "no" \
+  "$(_cip_has "$_c/err" 'render-grounding-block.sh produced no output')"
+# Load-bearing: NO `prompt` key at all, so devflow-implement.yml's `|| format(…)` default
+# fires. Publishing an empty `prompt=` here would silently defeat that fallback.
+assert_eq "#1170 composer arm1 writes NO prompt output (the bare-prompt default must fire)" "0" \
+  "$(_cip_promptkeys "$_c/ghout")"
+
+# Arm 2 — the renderer resolves but produces an empty block (the truncated-vendored-copy case).
+_c="$(_cip_case 'exit 0' -)"
+assert_eq "#1170 composer arm2 (renderer produced no output) exits 0" "0" "$(cat "$_c/rc")"
+assert_eq "#1170 composer arm2 warns that the renderer produced no output" "yes" \
+  "$(_cip_has "$_c/err" 'render-grounding-block.sh produced no output')"
+assert_eq "#1170 composer arm2 does NOT misattribute an empty block to the not-found arm" "no" \
+  "$(_cip_has "$_c/err" 'not found at either the vendored or repo path')"
+assert_eq "#1170 composer arm2 writes NO prompt output (the bare-prompt default must fire)" "0" \
+  "$(_cip_promptkeys "$_c/ghout")"
+
+# Arm 2, second input shape — a renderer that FAILS after printing a partial block. The
+# capture's `|| GROUNDING=""` must route it to the empty arm, never publish the partial.
+_c="$(_cip_case 'printf "> partial\n"; exit 3' -)"
+assert_eq "#1170 composer arm2 (renderer exited non-zero) exits 0" "0" "$(cat "$_c/rc")"
+assert_eq "#1170 composer arm2 (renderer exited non-zero) takes the empty-block arm" "yes" \
+  "$(_cip_has "$_c/err" 'render-grounding-block.sh produced no output')"
+assert_eq "#1170 composer arm2 (renderer exited non-zero) publishes no partial block" "0" \
+  "$(_cip_promptkeys "$_c/ghout")"
+
+# Arm 3 — success: the block, a blank line, then the command, published as a heredoc.
+_c="$(_cip_case 'printf "> GROUND-TRUTH-BLOCK\n---\n"' - 4242)"
+assert_eq "#1170 composer arm3 (block rendered) exits 0" "0" "$(cat "$_c/rc")"
+assert_eq "#1170 composer arm3 emits no warning" "0" "$(grep -c '::warning::' "$_c/err" || true)"
+assert_eq "#1170 composer arm3 publishes the prompt as a heredoc-delimited step output" "yes" \
+  "$(_cip_has "$_c/ghout" 'prompt<<PROMPT_EOF_')"
+assert_eq "#1170 composer arm3 closes the heredoc (open marker + terminator)" "2" \
+  "$(grep -c 'PROMPT_EOF_' "$_c/ghout" || true)"
+assert_eq "#1170 composer arm3 carries the rendered block into the published prompt" "yes" \
+  "$(_cip_has "$_c/ghout" '> GROUND-TRUTH-BLOCK')"
+assert_eq "#1170 composer arm3 appends the implement command with the issue number" "yes" \
+  "$(_cip_has "$_c/ghout" '/prflow:implement 4242')"
+# The command must sit at column 0, not carry the YAML block-scalar indent the inline
+# heredoc could have leaked into it.
+assert_eq "#1170 composer arm3 leaves the implement command unindented" "1" \
+  "$(grep -c '^/prflow:implement 4242$' "$_c/ghout" || true)"
+
+# Arm ORDER / path precedence — the vendored copy is probed FIRST; the repo-root copy is
+# the fallback, not the preference.
+_c="$(_cip_case 'printf "VENDORED-BLOCK\n"' 'printf "REPO-BLOCK\n"')"
+assert_eq "#1170 composer prefers the vendored renderer when both copies exist" "yes" \
+  "$(_cip_has "$_c/ghout" 'VENDORED-BLOCK')"
+assert_eq "#1170 composer does not fall through to the repo copy when the vendored one exists" "no" \
+  "$(_cip_has "$_c/ghout" 'REPO-BLOCK')"
+_c="$(_cip_case - 'printf "REPO-BLOCK\n"')"
+assert_eq "#1170 composer falls back to the repo-root renderer for a self-repo run" "yes" \
+  "$(_cip_has "$_c/ghout" 'REPO-BLOCK')"
+
+# The renderer receives MODE=implement and the exact resolved allowed-tools string — the
+# cross-file contract the MODE pin above states, here observed end to end.
+_c="$(_cip_case 'printf "SEEN MODE=%s TOOLS=%s\n" "$MODE" "$ALLOWED_TOOLS"')"
+assert_eq "#1170 composer invokes the renderer in MODE=implement with the resolved tool list" "yes" \
+  "$(_cip_has "$_c/ghout" 'SEEN MODE=implement TOOLS=Read, Bash(git add:*)')"
+
+# An unpublishable output channel degrades to the bare prompt with a breadcrumb, never a
+# hard failure and never a redirect somewhere arbitrary.
+_c="$(_cip_case 'printf "> GROUND-TRUTH-BLOCK\n---\n"')"
+_cip_rc_noout="$( cd "$_c" && GITHUB_OUTPUT='' ALLOWED_TOOLS='Read' NUMBER=7 bash "$_CIP_SH" >/dev/null 2>"$_c/err2"; echo $? )"
+assert_eq "#1170 composer exits 0 when GITHUB_OUTPUT is unset/empty" "0" "$_cip_rc_noout"
+assert_eq "#1170 composer breadcrumbs an unpublishable GITHUB_OUTPUT" "yes" \
+  "$(_cip_has "$_c/err2" 'GITHUB_OUTPUT is unset or empty')"
+rm -rf "$_CIP_ROOT"
+unset _c _cip_rc_noout
 
 # ── Renderer behavior (unit-tested once, rather than twice through YAML).
 _rgb() { HEAD_SHA="${1-}" CI_SUMMARY="${2-}" ALLOWED_TOOLS="${3-}" bash "$RGB_SH"; }

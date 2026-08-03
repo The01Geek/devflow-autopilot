@@ -42,16 +42,20 @@ pointed at alternatives — either similar permitted commands, or a resource lis
 the complete set of allowed commands so it can pick a permitted one and retry.
 
 The refusal itself happens inside `claude-code-action`'s tool matcher, *before the
-command runs*, and nothing in this repository can change what the agent receives at
-the moment of refusal. What **is** achievable — and is the maintainer's stated
-fallback — is to put the complete allowed-command list in front of the agent
-**up front**, so a refused shape is a lookup against a list it already has rather
-than a guess.
+command runs*, and **the grounding block does not change the matcher's response** — it
+is a prompt-side remedy, not a change to the harness. Whether *anything* can reach the
+agent at the moment of refusal is a separate question, and it is **unestablished rather
+than settled** — see the limits paragraph below, which scopes it. What this remedy
+**does** achieve — and is the maintainer's stated fallback — is to put the complete
+allowed-command list in front of the agent **up front**, so a refused shape is a lookup
+against a list it already has rather than a guess.
 
 `scripts/render-grounding-block.sh` injects the **exact resolved `--allowed-tools`
-string** (section 2 of the block) plus the command-shape rules (section 3) and the
-headless-run discipline (section 4). It is rendered **once**, by that one helper, and
-prepended to the prompt on **every** tier:
+string** (section 2 of the review-tier block) plus the command-shape rules (section 3)
+and the headless-run discipline (section 4). Those three section numbers are the
+review-tier numbering; the implement tier omits two sections and renumbers the survivors
+1/2/3, as the `MODE=implement` bullet below records. It is rendered **once**, by that one
+helper, and prepended to the prompt on **every** tier:
 
 - **`/prflow:review`** — `devflow.yml`'s `Compose review grounding block` step.
 - **Auto-review** — `devflow-runner.yml`'s `Compose review prompt` step.
@@ -69,9 +73,21 @@ avoid; `lib/test/run.sh` pins all three workflows to carry no second copy).
 **The limits, stated plainly.** This does **not** make a denial visible at the moment
 it happens, and it does **not** change the matcher's response — a refused command
 still produces no output and burns budget. It only gives the agent the list to check
-against, up front. Making denials visible *after* a run is the separate concern of
-issue #1064 (durable denial forensics); the two are complementary and neither
-substitutes for the other.
+against, up front.
+
+Read that as a limit of **this** remedy, not as a repository-wide impossibility. The
+in-the-moment channel is **unestablished, not ruled out**: `scripts/pretooluse-shape-guard.py`
+is an in-tree `PreToolUse` hook built for exactly that purpose — it returns a `deny`
+whose `permissionDecisionReason` names the permitted alternative for the denied shape —
+and #919 records, on repeated same-repo probe runs, that a hook registered through the
+action's `settings:` input **does fire** under `claude-code-action`. What is genuinely
+open is narrower: whether `permissionDecisionReason` survives to the engine transcript on
+the **`deny`** path is unmeasured (every recorded observation is on the probe's own
+`allow` path, for which the reason is specified to be ignored), and the guard is wired to
+no runnable tier. Both are tracked — see #1047 (residual item 2) and #919, and the
+*PreToolUse probe evidence* section further down for the recorded verdicts. Making
+denials visible *after* a run is a third, separate concern — issue #1064 (durable denial
+forensics). The three are complementary and none substitutes for the others.
 
 ### The head guard
 
