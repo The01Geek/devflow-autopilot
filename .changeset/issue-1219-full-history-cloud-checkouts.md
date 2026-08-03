@@ -14,6 +14,8 @@ type: Fixed
   use `fetch-depth: 0`, matching `ci.yml`. A targeted fetch of the required commits was
   rejected because it would couple the workflow to the ref list inside the test suite and
   silently stop covering it whenever that list changes; the reasoning is recorded in each
-  checkout's own comment. Consumer repositories inherit the new depth on their next
-  `install.sh` run, which fixes the same class of failure for any check of their own that
-  needs history older than the last 50 commits. (#1219)
+  checkout's own comment. A consumer repository whose copy `install.sh` still manages
+  inherits the new depth on its next install run — one that has locally modified either
+  workflow keeps its own copy, as `install_managed`'s preserve arm intends — which fixes the
+  same class of failure for any check of their own that needs history older than the last 50
+  commits. (#1219)

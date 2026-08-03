@@ -39698,12 +39698,19 @@ assert_eq "#456 both #434 self-scan arms are blocking-gate skips through skip()"
 # CI's) strips it and leaves a wildcard. Call sites therefore use bracket classes (`[.]`),
 # which are escape-free and identical across every awk.
 # The implementation is job-parameterized (devflow_wf_job_has, defined below and used by the
-# #1219 pins); this stays as the ci.yml-scoped spelling every existing call site and every
-# #671 mutation control below already uses. One parser, so a fix to the fail-closed contract
-# or the awk escape rule cannot reach one copy and miss the other.
+# #1219 pins); this stays as the shard-job-scoped wrapper — ci.yml by default, file
+# overridable via $2, which is exactly how the #671 mutation controls drive their mutated
+# copies. One parser, so a fix to the fail-closed contract or the awk escape rule cannot
+# reach one copy and miss the other.
 devflow_ci_shard_has() {  # $1 = ERE, matched only against UNCOMMENTED lines of the shard job
   devflow_wf_job_has shard "$1" "${2:-$LIB/../.github/workflows/ci.yml}"
 }
+# `no` is a CONFLATED answer — it means "the job was scanned and the pattern was absent" OR
+# "the job header never matched, so nothing was scanned". A malformed ERE fails closed
+# (`awk-failed`), but a valid-but-wrong one yields a permanent vacuous `no`. So every
+# `no`-valued pin must be paired with a `yes`-valued pin over the SAME job and file, which
+# goes RED first when the anchor stops matching; the #1219 call sites below do that, and
+# additionally drive the negative pattern to `yes` against a mutated copy.
 devflow_wf_job_has() {  # $1 = job name, $2 = ERE, $3 = workflow file; UNCOMMENTED lines of that job only
   local _out
   [ -s "$3" ] || { printf 'unreadable'; return; }
@@ -39741,18 +39748,22 @@ _I1219_CMD_YML="$LIB/../.github/workflows/devflow.yml"
 # structural-pin-ok: cross-file-phase-contract -- the executed checkout line is what supplies the history the #719 baseline-corpus gate needs; bounding it makes that gate self-skip while the workflow stays green
 assert_eq "#1219 devflow-implement.yml: the claude job checkout sets fetch-depth: 0" "yes" \
   "$(devflow_wf_job_has claude 'fetch-depth: 0' "$_I1219_IMPL_YML")"
-# The positive pin alone would still be satisfied by a SECOND, bounded fetch-depth line
-# added beside it (last-writer-wins in YAML), so each job is also asserted to carry no
-# bounded depth at all. This is what actually forbids the pre-#1219 `fetch-depth: 50`.
+# A PLAIN revert to a bounded depth is already caught by the positive pin above, which goes
+# RED on its own the moment `fetch-depth: 0` is gone — the negative pin's job is the narrower
+# one the positive pin cannot do: forbid a SECOND, bounded fetch-depth line added BESIDE a
+# retained `fetch-depth: 0`, whose effective value is parser-dependent and which a line
+# matcher cannot rank. The optional quote in the pattern is load-bearing there: `'50'` and
+# `"50"` are valid YAML scalars actions/checkout accepts, and a bare `[1-9]` would let the
+# added line through while the retained `0` kept the positive pin green.
 # structural-pin-ok: cross-file-phase-contract -- a bounded depth anywhere in this job re-arms the shallow-checkout failure the positive pin above exists to prevent
 assert_eq "#1219 devflow-implement.yml: the claude job checkout sets no bounded fetch-depth" "no" \
-  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*[1-9]' "$_I1219_IMPL_YML")"
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_IMPL_YML")"
 # structural-pin-ok: cross-file-phase-contract -- the command job hosts /prflow:review-and-fix, whose in-env verification runs the same suite under the same no-skip accounting
 assert_eq "#1219 devflow.yml: the command job checkout sets fetch-depth: 0" "yes" \
   "$(devflow_wf_job_has command 'fetch-depth: 0' "$_I1219_CMD_YML")"
 # structural-pin-ok: cross-file-phase-contract -- a bounded depth anywhere in this job re-arms the shallow-checkout failure the positive pin above exists to prevent
 assert_eq "#1219 devflow.yml: the command job checkout sets no bounded fetch-depth" "no" \
-  "$(devflow_wf_job_has command 'fetch-depth:[[:space:]]*[1-9]' "$_I1219_CMD_YML")"
+  "$(devflow_wf_job_has command 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_CMD_YML")"
 # Discriminating controls for the helper itself, so a `no`/`yes` above is evidence rather
 # than an artifact of a matcher that can only answer one way: an absent job must answer
 # `no` (not `yes`, and not the job-agnostic whole-file answer), and an unreadable file must
@@ -39761,7 +39772,30 @@ assert_eq "#1219 devflow_wf_job_has control: an absent job answers no" "no" \
   "$(devflow_wf_job_has no_such_job 'fetch-depth: 0' "$_I1219_IMPL_YML")"
 assert_eq "#1219 devflow_wf_job_has control: an unreadable file answers unreadable" "unreadable" \
   "$(devflow_wf_job_has claude 'fetch-depth: 0' "$_I1219_IMPL_YML.nope")"
-unset _I1219_IMPL_YML _I1219_CMD_YML
+# Positive control for the NEGATIVE pattern itself — the norm the #671 block states below
+# ("`no` is the value the arm's assertion accepts, so [something] that silently produced an
+# unusable [input] would satisfy every arm while proving nothing"), applied here. Without
+# it a valid-but-wrong ERE (a typo'd bracket class, a `;` for `:`) yields a permanent
+# vacuous `no` and the two negative pins above forbid nothing. Plant a bounded depth into a
+# copy of the claude job in BOTH spellings the widened pattern now covers and require the
+# same pattern to answer `yes`; the copy is discarded, so the real workflow is untouched.
+_I1219_MUT="$(probe_tmp '#1219 negative-pattern positive control')" || _I1219_MUT=""
+if [ -n "$_I1219_MUT" ] && [ "$_I1219_MUT" != /dev/null ]; then
+  sed 's/^          fetch-depth: 0$/          fetch-depth: 50/' "$_I1219_IMPL_YML" > "$_I1219_MUT/bare.yml"
+  sed "s/^          fetch-depth: 0$/          fetch-depth: '50'/" "$_I1219_IMPL_YML" > "$_I1219_MUT/quoted.yml"
+  assert_eq "#1219 negative-pattern control: a planted bare bounded depth answers yes" "yes" \
+    "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_MUT/bare.yml")"
+  assert_eq "#1219 negative-pattern control: a planted QUOTED bounded depth answers yes" "yes" \
+    "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_MUT/quoted.yml")"
+  # The mutated copies must otherwise still parse as the same job, or the two `yes` answers
+  # above could come from a `sed` that mangled the file rather than from the planted line.
+  assert_eq "#1219 negative-pattern control: the bare mutated copy lost its fetch-depth: 0" "no" \
+    "$(devflow_wf_job_has claude 'fetch-depth: 0' "$_I1219_MUT/bare.yml")"
+else
+  skip "#1219 negative-pattern positive control" host-capability \
+    "could not allocate a scratch dir for the mutated workflow copies"
+fi
+unset _I1219_IMPL_YML _I1219_CMD_YML _I1219_MUT
 #
 # ci.yml: the shard job installs the Claude Code CLI, which is what ARMS the #671
 # `claude plugin validate --strict` gate earlier in this file. Same failure class as the
@@ -39835,8 +39869,11 @@ for ci671_pat in 'fetch-depth: 0' 'curl -fsSL https://claude.ai/install.sh' 'ech
 done
 # The matcher's OTHER limb — job scoping — needs its own control: the arms above drive
 # only comment-skipping. Move the CLI's PATH export out of `shard:` into the `test:` job
-# and the pin must stop seeing it, which exercises both the `/^  shard:/` anchor and the
-# `/^  [a-z]/` reset. Without this, a matcher that scanned the whole file would stay green.
+# and the pin must stop seeing it, which exercises both the matcher's end-anchored
+# `^  <job>:` job anchor and its `^  <key>:` next-top-level-key reset. (The awk on the next
+# line is the FIXTURE generator, not the matcher — its own `/^  shard:/` and `/^  [a-z]/`
+# patterns are its business and are correct as written; do not read them as the matcher's.)
+# Without this, a matcher that scanned the whole file would stay green.
 awk '/^  shard:/{ins=1} /^  [a-z]/{if (!/^  shard:/) ins=0}
      ins && index($0, "echo \"$HOME/.local/bin\""){next}
      {print}
