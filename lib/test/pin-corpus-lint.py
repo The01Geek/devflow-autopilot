@@ -5285,6 +5285,12 @@ def load_machine_consumer_sources(repo_root, git_runner=subprocess.run):
     listing = _run_git(
         git_runner,
         repo_root,
+        # `-c core.quotePath=false` (issue #1217): this enumeration selects by path
+        # PREFIX, and git's default C-quoting puts the opening double quote at the
+        # front of the whole path — so a tracked non-ASCII machine-consumer file
+        # would stop matching its own prefix and drop out of the corpus silently.
+        "-c",
+        "core.quotePath=false",
         "ls-files",
         "--",
         *MACHINE_CONSUMER_PATH_PREFIXES,
@@ -5690,6 +5696,10 @@ def scan_static_pin_changes(
             _run_git(
                 git_runner,
                 repo_root,
+                # `-c core.quotePath=false` (issue #1217) — same prefix-matching
+                # exposure as the tracked enumeration above.
+                "-c",
+                "core.quotePath=false",
                 "ls-files",
                 "--others",
                 "--exclude-standard",
@@ -5753,6 +5763,10 @@ def scan_static_pin_changes(
             _run_git(
                 git_runner,
                 repo_root,
+                # `-c core.quotePath=false` (issue #1217) — same prefix-matching
+                # exposure as the tracked enumeration above.
+                "-c",
+                "core.quotePath=false",
                 "ls-files",
                 "--others",
                 "--exclude-standard",

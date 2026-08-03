@@ -39,6 +39,43 @@ own name via the `tool` argument, so a diagnostic still says which lint spoke.
 
 Each lint imports this module with the same `importlib.util.spec_from_file_location`
 idiom the directory already uses for `extract-command-heads.py`.
+
+Path quoting (issue #1217) — the decision and its residual
+----------------------------------------------------------
+`git`'s `core.quotePath` **defaults to on**, under which a tracked path containing a
+non-ASCII byte is printed in C-quoted form: a legal `café.md` comes out as the literal
+eleven-character string ``"caf\303\251.md"`` — surrounding double quotes and backslash
+escapes that are not in the path. That string names no real file, and the lints that
+share this reader mishandle it in two different ways: one that selects by **path
+prefix** stops recognising the file (git puts the opening quote at the *front* of the
+whole path, so `skills/café.md` becomes ``"skills/caf\303\251.md"``, which no longer
+starts with `skills/`) and silently drops it while still reporting `audited 0 of 0` at
+exit 0 — a **false clean**; one that selects **everything minus an exclusion list**
+keeps the string, fails to open it, records a skip, and exits 1 — a **false RED** for a
+character the path does not contain.
+
+**The chosen approach is a shared-reader fix using `-c core.quotePath=false`**, applied
+to both argvs below, rather than the per-consumer fix PR #1201 set as a precedent for
+`lint-windows-uncheckoutable-path.py`. A per-consumer fix is precisely how the defect
+spread: these constants would stay a trap for the next lint that names one. Fixing the
+reader once makes the enumeration uniform and no future caller can forget it.
+
+**The residual `core.quotePath=false` leaves.** It removes only the *non-ASCII*
+escaping. A path containing a **backslash**, a **double quote**, a **control
+character**, or an **embedded newline** is still C-quoted and still reaches a caller as
+a string that names no real file. Removing quoting *entirely* needs `git ls-files -z`,
+which was weighed and deliberately not taken here: `-z` changes the output delimiter
+from newline to NUL, so `enumerate_population` could no longer split on `"\n"`, and the
+`--files-from` list it also accepts is newline-separated — the two input paths would
+have to be reconciled rather than sharing one splitter. That is a larger change for a
+residual whose remaining cases are already barred from this repository by the issue-#1196
+Windows-uncheckoutable-path guard (which rejects a tracked path carrying a backslash, a
+double quote, or a control character outright). Completeness was traded against blast
+radius, knowingly.
+
+Both argvs keep their index-vs-working-tree identity unchanged (issue #711): the flag is
+a `git`-level `-c` option that alters only how a path is *printed*, never which paths are
+enumerated, and no `--others` was added to the index-reading argv.
 """
 
 from __future__ import annotations
@@ -53,8 +90,16 @@ from pathlib import Path
 #: bare clone; `LS_FILES_WORKING_TREE` additionally lists untracked-but-unignored
 #: files (`--others`), which sweeps sibling worktrees and is chosen only when a
 #: caller must see files not yet in the index.
-LS_FILES_INDEX = ("git", "ls-files")
-LS_FILES_WORKING_TREE = ("git", "ls-files", "--cached", "--others", "--exclude-standard")
+#:
+#: Both carry `-c core.quotePath=false` (issue #1217) so a tracked non-ASCII path
+#: arrives as its raw bytes rather than git's C-quoted rendering. See the module
+#: docstring for why this over `-z`, and for the residual it leaves. The flag changes
+#: only how a path is PRINTED, so neither argv's index-vs-working-tree identity moves.
+LS_FILES_INDEX = ("git", "-c", "core.quotePath=false", "ls-files")
+LS_FILES_WORKING_TREE = (
+    "git", "-c", "core.quotePath=false",
+    "ls-files", "--cached", "--others", "--exclude-standard",
+)
 
 
 class EnumerationError(Exception):

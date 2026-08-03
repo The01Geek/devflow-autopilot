@@ -189,9 +189,15 @@ def derive_ci_linted(ci_text: str) -> set[str]:
 def tracked_lib_test_scripts(repo_root: Path) -> list[str]:
     """Enumerate tracked lib/test/**/*.sh via index-reading `git ls-files` (issue
     #711: never a recursive filesystem walk, which would descend into sibling
-    worktrees under .claude/worktrees/ and count their copies)."""
+    worktrees under .claude/worktrees/ and count their copies).
+
+    `-c core.quotePath=false` (issue #1217) so a tracked non-ASCII `lib/test/` script
+    arrives as its raw bytes; with git's default quoting it would come back as
+    `"lib/test/caf\\303\\251.sh"`, which no longer carries the `lib/test/` prefix this
+    guard's own reconciliation matches on, and would silently drop out of the audit."""
     out = subprocess.run(
-        ["git", "ls-files", "lib/test/*.sh", "lib/test/**/*.sh"],
+        ["git", "-c", "core.quotePath=false", "ls-files",
+         "lib/test/*.sh", "lib/test/**/*.sh"],
         cwd=str(repo_root),
         capture_output=True,
         text=True,

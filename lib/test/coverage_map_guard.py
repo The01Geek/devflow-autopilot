@@ -792,9 +792,13 @@ def _arm11(map_value, map_raw_text, map_raw_error):
 
 
 def _git_tracked(repo_root: Path):
-    """git-tracked repo-relative paths (index read; reads no history)."""
+    """git-tracked repo-relative paths (index read; reads no history).
+
+    `-c core.quotePath=false` (issue #1217): git's default C-quoting would return a
+    tracked non-ASCII path as a string that names no real file, so a coverage-map entry
+    for it would read as untracked."""
     result = subprocess.run(
-        ["git", "-C", str(repo_root), "ls-files"],
+        ["git", "-C", str(repo_root), "-c", "core.quotePath=false", "ls-files"],
         capture_output=True,
         text=True,
         check=True,
@@ -806,13 +810,15 @@ def _git_executable(repo_root: Path):
     """git-tracked repo-relative paths whose INDEX mode is executable, or None.
 
     `git ls-files -s` prints `<mode> <object> <stage>\\tpath`; mode 100755 is the
-    executable regular-file mode. Returning None on any failure (rather than an empty
+    executable regular-file mode. `-c core.quotePath=false` (issue #1217) keeps a tracked
+    non-ASCII path raw, so its mode row still joins against `_git_tracked`'s path.
+    Returning None on any failure (rather than an empty
     set) keeps the unestablished case distinguishable from "nothing is executable" —
     arm 10 reports the former once and makes no per-entry claim. Index mode, not the
     working-tree mode, is the comparand: the index is what ships."""
     try:
         result = subprocess.run(
-            ["git", "-C", str(repo_root), "ls-files", "-s"],
+            ["git", "-C", str(repo_root), "-c", "core.quotePath=false", "ls-files", "-s"],
             capture_output=True,
             text=True,
             check=True,
