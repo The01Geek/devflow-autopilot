@@ -69,9 +69,10 @@ module instead of paying the complete suite again. Selection stays explicit —
 consult `lib/test/modules/coverage-map.json` to find a candidate and confirm a
 module ID in the registry; changed files never auto-route to a module. The complete suite
 remains the final gate and is not weakened, only overlapped: before calling a
-branch done or PR-ready, push (which starts CI) and start the complete suite
-plus the lint gates locally at the same time, without waiting for the local run
-to finish first. The push is not gated on that run, but calling the branch done
+branch done or PR-ready, issue the push (which starts CI) and the complete suite
+plus the lint gates locally **in a single assistant turn** so they run in
+parallel, without waiting for the local run to finish first. The push is not
+gated on that run, but calling the branch done
 is: read the local run's summary before you claim it. The local run stays the
 signal you troubleshoot from, because
 its failure detail is richer than CI's, and the issue-#456 skip accounting is
@@ -83,7 +84,12 @@ clear it. When the complete suite does run and fails, read its terminal
 `Failure recap` from the captured output rather than relaunching it. The operative statement of this
 policy for agent runs lives in the prompt extensions under
 `.prflow/prompt-extensions/`; the cloud `/prflow:implement` in-env gate
-(issue #405) is untouched by it.
+(issue #405) is untouched by it. Those extensions are also the one home of the
+**focused-first precondition** on the mid-iteration full-suite launch — every
+touched surface with a covering focused test invocable on the tier is run first,
+with a total four-ground exempt set governing the rest — and of the **single-turn
+push/verify** co-issue; this section points at them for the full statement and
+carries only the compact restatement above.
 
 Each module is also executed by the full suite through the fail-closed
 `devflow_run_full_suite_module` boundary, and shares the namespaced pin helpers in
@@ -725,7 +731,7 @@ resolve the portable `${CLAUDE_SKILL_DIR:-…}` anchor at runtime.
 
 1. Branch and make focused changes, iterating on the module that covers the
    surface you touched (see *Running the tests*). Before opening the PR, push
-   and start `bash lib/test/run.sh` locally at the same time — the two run in
+   and start `bash lib/test/run.sh` locally in one step — the two run in
    parallel, and the local run is the one you troubleshoot from. The push does
    not wait for it; marking the PR ready does — read its summary first.
 2. Open a PR with a clear description. If your change reaches consumers (the engine surface —

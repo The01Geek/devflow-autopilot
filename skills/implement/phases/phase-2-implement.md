@@ -564,6 +564,8 @@ Treat a cardinality-sensitive collection output shipped with only a single-eleme
 
 Run the project's test and lint commands (check `CLAUDE.md` or `README`). Issue both Bash calls in a single assistant turn so they run in parallel.
 
+**Run the narrowest covering test before the broadest.** When more than one automated test bears on the change, run the test that covers only the changed surface before the whole suite: a narrow test establishes or refutes the change faster than a broad one, so the broad run confirms what the narrow ones already indicated rather than standing in for them.
+
 - If **both pass** → proceed to committing.
 - If **either fails** → fix the failing tests/lint errors yourself (you wrote the code, you have full context). Re-run the failing command(s) to verify.
 
