@@ -6,9 +6,9 @@
   "current_step": "1",
   "current_substep": "phase_1_checklist_generator",
   "pending_dispatch": {
-    "kind": "checklist_generator",
-    "roster": ["prflow:checklist-generator"],
-    "dispatched_at": "2026-08-03T20:55:00Z"
+    "kind": "checklist_verifier_batch",
+    "roster": ["VC-1","VC-2","VC-3"],
+    "dispatched_at": "2026-08-03T20:59:00Z"
   },
   "fix_commit_sha": null,
   "fix_files": [],
@@ -31,7 +31,18 @@
     "rows": [],
     "exit_status": 0
   },
-  "checklist": [],
+  "checklist": [
+    {"id":"VC-1","category":"issue_acceptance","claim":"AC1 requires `skills/create-issue/references/issue-template.md` to state that every acceptance criterion expressing a number names the exact command or counting rule used to measure it.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","source_line":201,"verification_mode":"agent","claim_signature":"issue_acceptance:issue-template.md:ac1-numeric-measurement-rule","verdict":null},
+    {"id":"VC-2","category":"issue_acceptance","claim":"AC2 requires the shipped quantitative-criterion statement to include at least one concrete example of a named counter.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","source_line":201,"verification_mode":"agent","claim_signature":"issue_acceptance:issue-template.md:ac2-concrete-counter-example","verdict":null},
+    {"id":"VC-3","category":"issue_acceptance","claim":"AC3 requires the shipped statement to prescribe what is recorded when a measurement command or rule cannot be established and to reject an unnamed counter as an accepted outcome.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","source_line":201,"verification_mode":"agent","claim_signature":"issue_acceptance:issue-template.md:ac3-unestablished-reject-unnamed","verdict":null},
+    {"id":"VC-4","category":"issue_acceptance","claim":"AC4 requires the shipped quantitative-criterion rule to remain consumer-repository meaningful by avoiding DevFlow-internal step numbers, paths under `lib/test`, and internal check names.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","source_line":201,"verification_mode":"agent","claim_signature":"issue_acceptance:issue-template.md:ac4-consumer-neutral-guidance","verdict":null},
+    {"id":"VC-5","category":"issue_acceptance","claim":"AC5 requires the GNU/BSD `wc -w` motivating example to live outside `.prflow/prompt-extensions/create-issue.md` and requires that file's replacement pointer to resolve to the new location.","claim_provenance":"generated_paraphrase","source_file":".prflow/prompt-extensions/create-issue.md","source_line":274,"verification_mode":"agent","claim_signature":"issue_acceptance:create-issue.md:ac5-motivation-pointer-resolves","verdict":null},
+    {"id":"VC-6","category":"issue_acceptance","claim":"AC6 requires `.prflow/prompt-extensions/create-issue.md` to stop claiming that the motivating defect class is recorded in a `CLAUDE.md` bullet that does not contain it.","claim_provenance":"generated_paraphrase","source_file":".prflow/prompt-extensions/create-issue.md","source_line":274,"verification_mode":"agent","claim_signature":"issue_acceptance:create-issue.md:ac6-stale-claude-pointer-removed","verdict":null},
+    {"id":"VC-7","category":"issue_acceptance","claim":"AC7 requires `agents/code-architect.md` to state explicitly that the planning agent has no command-execution tool.","claim_provenance":"generated_paraphrase","source_file":"agents/code-architect.md","source_line":41,"verification_mode":"agent","claim_signature":"issue_acceptance:code-architect.md:ac7-no-command-execution","verdict":null},
+    {"id":"VC-8","category":"issue_acceptance","claim":"AC8 requires `agents/code-architect.md` to state that `Grep` count mode is not an accepted measurement instrument for the agent's quantitative claims.","claim_provenance":"generated_paraphrase","source_file":"agents/code-architect.md","source_line":41,"verification_mode":"agent","claim_signature":"issue_acceptance:code-architect.md:ac8-grep-count-disqualified","verdict":null},
+    {"id":"VC-9","category":"issue_acceptance","claim":"AC9 requires the `tools:` frontmatter in `agents/code-architect.md` to grant exactly the same tool set before and after this change.","claim_provenance":"generated_paraphrase","source_file":"agents/code-architect.md","source_line":4,"verification_mode":"agent","claim_signature":"issue_acceptance:code-architect.md:ac9-tool-grants-unchanged","verdict":null},
+    {"id":"VC-10","category":"issue_acceptance","claim":"AC10 requires this change not to add any source-presence regression pin over prose executed by an agent.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","source_line":201,"verification_mode":"agent","claim_signature":"issue_acceptance:issue-template.md:ac10-no-prose-presence-pin","verdict":null}
+  ],
   "phase3_dispatched": [],
   "phase3_findings": [],
   "fix_decisions": [],
