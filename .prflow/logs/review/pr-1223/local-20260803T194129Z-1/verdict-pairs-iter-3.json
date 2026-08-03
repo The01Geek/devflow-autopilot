@@ -1,0 +1,42 @@
+{"pairs":[
+  {
+    "item":{"id":"VC-1","category":"issue_acceptance","claim":"AC1 requires `skills/create-issue/references/issue-template.md` to state that every acceptance criterion expressing a number names the exact command or counting rule used to measure it.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","claim_signature":"issue_acceptance:issue-template.md:ac1-numeric-measurement-rule"},
+    "verdict_path":".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-3/VC-1-F0EA36E8-9283-4183-A66B-0F6203CE2977.json","response_text":""
+  },
+  {
+    "item":{"id":"VC-2","category":"issue_acceptance","claim":"AC2 requires the shipped quantitative-criterion statement to include at least one concrete example of a named counter.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","claim_signature":"issue_acceptance:issue-template.md:ac2-concrete-counter-example"},
+    "verdict_path":".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-3/VC-2-90A4B6C6-5766-4FA1-800B-C757B2ED039F.json","response_text":""
+  },
+  {
+    "item":{"id":"VC-3","category":"issue_acceptance","claim":"AC3 requires the shipped statement to prescribe what is recorded when a measurement command or rule cannot be established and to reject an unnamed counter as an accepted outcome.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","claim_signature":"issue_acceptance:issue-template.md:ac3-unestablished-reject-unnamed"},
+    "verdict_path":".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-3/VC-3-CD946CF6-D24A-4620-8B97-1589CB217F4F.json","response_text":""
+  },
+  {
+    "item":{"id":"VC-4","category":"issue_acceptance","claim":"AC4 requires the shipped quantitative-criterion rule to remain consumer-repository meaningful by avoiding DevFlow-internal step numbers, paths under `lib/test`, and internal check names.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","claim_signature":"issue_acceptance:issue-template.md:ac4-consumer-neutral-guidance"},
+    "verdict_path":".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-3/VC-4-4939916A-3455-45F2-9C82-56F47AD108C1.json","response_text":""
+  },
+  {
+    "item":{"id":"VC-5","category":"issue_acceptance","claim":"AC5 requires the GNU/BSD `wc -w` motivating example to live outside `.prflow/prompt-extensions/create-issue.md` and requires that file's replacement pointer to resolve to the new location.","claim_provenance":"generated_paraphrase","source_file":".prflow/prompt-extensions/create-issue.md","claim_signature":"issue_acceptance:create-issue.md:ac5-motivation-pointer-resolves"},
+    "verdict_path":".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-3/VC-5-80761F60-8AA6-4AA7-B43A-E619421C9B08.json","response_text":""
+  },
+  {
+    "item":{"id":"VC-6","category":"issue_acceptance","claim":"AC6 requires `.prflow/prompt-extensions/create-issue.md` to stop claiming that the motivating defect class is recorded in a `CLAUDE.md` bullet that does not contain it.","claim_provenance":"generated_paraphrase","source_file":".prflow/prompt-extensions/create-issue.md","claim_signature":"issue_acceptance:create-issue.md:ac6-stale-claude-pointer-removed"},
+    "verdict_path":".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-3/VC-6-C7F0924C-659F-4AC0-94C9-0AB14B25B9D8.json","response_text":""
+  },
+  {
+    "item":{"id":"VC-7","category":"issue_acceptance","claim":"AC7 requires `agents/code-architect.md` to state explicitly that the planning agent has no command-execution tool.","claim_provenance":"generated_paraphrase","source_file":"agents/code-architect.md","claim_signature":"issue_acceptance:code-architect.md:ac7-no-command-execution"},
+    "verdict_path":".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-3/VC-7-30BDD417-3C4B-4431-A2DF-CA4F5935326F.json","response_text":""
+  },
+  {
+    "item":{"id":"VC-8","category":"issue_acceptance","claim":"AC8 requires `agents/code-architect.md` to state that `Grep` count mode is not an accepted measurement instrument for the agent's quantitative claims.","claim_provenance":"generated_paraphrase","source_file":"agents/code-architect.md","claim_signature":"issue_acceptance:code-architect.md:ac8-grep-count-disqualified"},
+    "verdict_path":".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-3/VC-8-76CD2734-6FD1-452D-9513-75001EDF957B.json","response_text":""
+  },
+  {
+    "item":{"id":"VC-9","category":"issue_acceptance","claim":"AC9 requires the `tools:` frontmatter in `agents/code-architect.md` to grant exactly the same tool set before and after this change.","claim_provenance":"generated_paraphrase","source_file":"agents/code-architect.md","claim_signature":"issue_acceptance:code-architect.md:ac9-tool-grants-unchanged"},
+    "verdict_path":".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-3/VC-9-A8F51C66-C0B1-44A8-9D72-8C68607B1E60.json","response_text":""
+  },
+  {
+    "item":{"id":"VC-10","category":"issue_acceptance","claim":"AC10 requires this change not to add any source-presence regression pin over prose executed by an agent.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","claim_signature":"issue_acceptance:issue-template.md:ac10-no-prose-presence-pin"},
+    "verdict_path":".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-3/VC-10-8374F5CC-FA39-4F8C-9979-26AB773DE0B2.json","response_text":""
+  }
+]}
