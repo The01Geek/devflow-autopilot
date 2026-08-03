@@ -234,8 +234,8 @@ ${ALLOWED_TOOLS}
 >   capture a command's output with \`VAR=\$(cmd)\`; an in-workspace \`>\`/\`2>\` redirect
 >   of a granted head.
 > - **Denied — do not emit:** a leading \`VAR=value\` assignment or env-prefix
->   (\`M=x cmd\`); a leading \`cd\`; \`git -C <path> <subcommand>\` (refused the same way a
->   leading \`cd\` is — the run starts at the repository root and the working directory
+>   (\`M=x cmd\`); a leading \`cd\`; \`git -C <path> <subcommand>\` (you never need
+>   the \`-C\` path — the run starts at the repository root and the working directory
 >   persists across calls, so emit the bare \`git <subcommand>\` from where you already
 >   are); a \`>\`/\`>>\` redirect (or any other authoring)
 >   targeting \`/tmp\`; the Write tool outside \`.prflow/tmp/\`; a \`cat\`-headed heredoc

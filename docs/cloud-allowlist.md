@@ -141,7 +141,7 @@ Refused shapes in the cloud **review** runner:
 
 - leading `VAR=value` assignments,
 - leading `cd`,
-- `git -C <path> <subcommand>` (the same class as a leading `cd`; see the run-30832631347 note below),
+- `git -C <path> <subcommand>` (a working-directory-flag shape; see the run-30832631347 note below),
 - `>` / `2>` redirects targeting `/tmp`,
 - `cat`-heredoc writes,
 - interpreter heads (`python3`),
@@ -1124,7 +1124,9 @@ figures are never "corrected" or re-measured.
 
 `git -C <path> <subcommand>` was the single largest cause in that population — **15 of 42**
 refusals, **13** of them emitted by dispatched review subagents rather than the top-level
-run. It is refused as a *shape*, in the same class as a leading `cd`: the run begins at the
+run. It is refused as a *shape*, like a leading `cd` before it (the working-directory
+contract bans a leading `cd` as an authoring rule — see *Leading `cd` and the working-directory
+contract* — while `git -C` is matcher-refused): the run begins at the
 repository root and the Bash tool's working directory persists across calls, so the path
 argument is never needed.
 
