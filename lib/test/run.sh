@@ -35243,6 +35243,13 @@ assert_eq "#1222 isg: foreign-owner arm names the issue number in its breadcrumb
   "$(printf '%s' "${ISG_R#*|}" | grep -qF '#604' && echo yes || echo no)"
 assert_eq "#1222 isg: foreign-owner arm states another session owns the run" "yes" \
   "$(printf '%s' "${ISG_R#*|}" | grep -qF 'owned by another session' && echo yes || echo no)"
+# Pin BOTH interpolated identities (owner and stopper), so a garbled/ swapped/ dropped
+# operand in the breadcrumb is caught — a bare 'owned by another session' substring would
+# survive dropping $MARKER_OWNER or $SESSION_ID.
+assert_eq "#1222 isg: foreign-owner breadcrumb names the recorded owner" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'owner-session-A' && echo yes || echo no)"
+assert_eq "#1222 isg: foreign-owner breadcrumb names the stopping session" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'stopper-session-B' && echo yes || echo no)"
 assert_eq "#1222 isg: foreign-owner arm surfaces the interim status word (the 'may be stuck' signal survives)" "yes" \
   "$(printf '%s' "${ISG_R#*|}" | grep -qF 'Reviewing' && echo yes || echo no)"
 assert_eq "#1222 isg: foreign-owner arm writes NO sentinel for the stopping session" "no" \
@@ -35343,6 +35350,28 @@ ISG_R="$(isg_run "$ISG_D" '{"session_id":"stopper-session-B"}' \
 assert_eq "#1222 isg: a foreign-owned terminal marker still allows the stop (exit 0)" "0" "${ISG_R%%|*}"
 assert_eq "#1222 isg: a foreign-owned terminal marker still self-heals (deleted regardless of owner)" "no" \
   "$([ -e "$ISG_D/.prflow/tmp/implement-active-603" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# The headline #1222 scenario: MULTIPLE concurrent live sessions in one checkout, none
+# owned by the stopper. Every interim marker is foreign-owned, so the stopper is blocked by
+# none of them and the scan ends by ALLOWING the stop (exit 0) with no sentinel written —
+# the exact false-positive the issue reports. Two foreign markers (613, 614) prove the skip
+# CONTINUEs past the first foreign marker to the second rather than stopping the scan.
+sed 's/#604/#613/' "$ISG_GHD/interim.md" > "$ISG_GHD/interim613.md"
+sed 's/#604/#614/' "$ISG_GHD/interim.md" > "$ISG_GHD/interim614.md"
+ISG_D="$(isg_repo "isg: all-foreign multi-session scan")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+printf '%s\n' "owner-session-A" > "$ISG_D/.prflow/tmp/implement-active-613"   # foreign -> skip
+printf '%s\n' "owner-session-C" > "$ISG_D/.prflow/tmp/implement-active-614"   # foreign -> skip
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"stopper-session-B"}' "DEVFLOW_GH=$ISG_GHD/gh" \
+  "ISG_BODY_613=$ISG_GHD/interim613.md" "ISG_BODY_614=$ISG_GHD/interim614.md")"
+assert_eq "#1222 isg: every interim marker foreign-owned -> allow the stop (exit 0), the reported false-positive is gone" "0" "${ISG_R%%|*}"
+assert_eq "#1222 isg: all-foreign scan writes NO sentinel for the stopping session" "no" \
+  "$([ -e "$ISG_D/.prflow/tmp/stop-guard-stopper-session-B" ] && echo yes || echo no)"
+assert_eq "#1222 isg: all-foreign scan skips the SECOND foreign marker too (continue, not stop-scan)" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#614' && echo yes || echo no)"
+assert_eq "#1222 isg: all-foreign scan leaves both foreign markers in place" "yes" \
+  "$([ -e "$ISG_D/.prflow/tmp/implement-active-613" ] && [ -e "$ISG_D/.prflow/tmp/implement-active-614" ] && echo yes || echo no)"
 rm -rf "$ISG_D"
 
 # ── allow: the sentinel write itself fails (read-only .prflow/tmp). The guard
