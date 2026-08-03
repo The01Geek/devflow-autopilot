@@ -57,13 +57,97 @@ summary** for the verdict table. A human then:
 
 ## Recorded result
 
-**NOT YET RUN — pending dispatch.** As of issue #610, the probe workflow and its
-deterministic verdict helper are authored, but the probe has not been dispatched in the
-real cloud action and no `SEAM_PROVEN` evidence exists. Therefore the seam is **unproven**,
-the cloud per-agent-effort row remains **honest fallback identical to local**, and **no
-per-agent effort application code ships** — exactly AC1's "otherwise" branch. When the
-probe is dispatched, append the run link and the adjudicated verdict here.
+**DISPATCHED — highest recorded verdict `SEAM_FORWARDED`. Fact (ii) is NOT adjudicated,
+so the seam is NOT proven, the cloud per-agent-effort row remains honest fallback
+identical to local, and no per-agent effort application code ships** — still exactly
+AC1's "otherwise" branch.
 
-| Date | Run link | Verdict | Fact (i) | Fact (ii) self-report | Adjudication |
+The probe was dispatched **nine times on 2026-07-21**, every run via `workflow_dispatch`
+from `main` at commit `93e5cd13`. Eight completed with conclusion `success`; one
+(`29872281102`) was `cancelled` by this workflow's own `cancel-in-progress` concurrency
+group when the next dispatch started, but its `if: always()` verdict step still produced
+a complete measurement, so it is listed and counted separately below.
+
+Every figure in this section is a **past-time snapshot** of runs that cannot be
+re-derived once the logs age out — the checked-in-literal exemption in `CLAUDE.md`'s
+"prefer generated evidence" convention. Do not machine-render it; that would overwrite
+the record.
+
+| Date (UTC) | Run link | Verdict | Fact (i) | Fact (ii) self-report | Adjudication |
 |---|---|---|---|---|---|
-| _(pending)_ | _(pending)_ | `NOT YET RUN` | — | — | — |
+| 2026-07-21 21:47 | [29871350774](https://github.com/The01Geek/prflow/actions/runs/29871350774) | `SEAM_UNPROVEN` | marker not recorded | _unobserved_ | not adjudicated |
+| 2026-07-21 21:49 | [29871446151](https://github.com/The01Geek/prflow/actions/runs/29871446151) | `SEAM_FORWARDED` | **marker recorded** | `low` | not adjudicated |
+| 2026-07-21 21:50 | [29871519987](https://github.com/The01Geek/prflow/actions/runs/29871519987) | `SEAM_UNPROVEN` | marker not recorded | _unobserved_ | not adjudicated |
+| 2026-07-21 22:02 | [29872281102](https://github.com/The01Geek/prflow/actions/runs/29872281102) (run `cancelled`) | `SEAM_FORWARDED` | **marker recorded** | `low` | not adjudicated |
+| 2026-07-21 22:02 | [29872320341](https://github.com/The01Geek/prflow/actions/runs/29872320341) | `SEAM_FORWARDED` | **marker recorded** | `low` | not adjudicated |
+| 2026-07-21 22:04 | [29872398980](https://github.com/The01Geek/prflow/actions/runs/29872398980) | `SEAM_UNPROVEN` | marker not recorded | _unobserved_ | not adjudicated |
+| 2026-07-21 22:04 | [29872451024](https://github.com/The01Geek/prflow/actions/runs/29872451024) | `SEAM_UNPROVEN` | marker not recorded | _unobserved_ | not adjudicated |
+| 2026-07-21 22:05 | [29872503054](https://github.com/The01Geek/prflow/actions/runs/29872503054) | `SEAM_FORWARDED` | **marker recorded** | `low` | not adjudicated |
+| 2026-07-21 22:06 | [29872570287](https://github.com/The01Geek/prflow/actions/runs/29872570287) | `SEAM_FORWARDED` | **marker recorded** | `low` | not adjudicated |
+
+### What the runs measured
+
+**Fact (i) — forwarding: positively established, in 4 of the 8 successful runs (5 of 9
+including the cancelled one).** In those runs the top-level session recorded a `Bash`
+`tool_use` whose input is `printf '%s\n' 'SEAM_PROBE_FORWARDED_OK SEAM_PROBE_EFFORT=low'`.
+Per the decision rule above, that marker cannot be produced unless the startup `--agents`
+block was forwarded and `seam-probe-agent` was recognized, so a single such observation
+establishes fact (i); four independent ones corroborate it.
+
+**The four `SEAM_UNPROVEN` runs are not counter-evidence — they are instrument
+non-fires.** Each recorded exactly one `tool_use`, the `Agent` dispatch itself
+(`"subagent_type": "seam-probe-agent"`), then ended at `num_turns: 2` with
+`subtype: success`. The prompt's Step 2 was simply never executed, so nothing was echoed
+through `Bash` and the deterministic instrument had nothing to read. Two independent
+checks confirm no refusal occurred: the prompt's unknown-subagent-type refusal line
+(`seam-probe-agent dispatch refused: unknown subagent_type`) appears in **no** run, and
+every one of the nine runs reports `permission_denials_count: 0` with `is_error: false`.
+So those runs are **uninformative in either direction** about fact (i). The verdict helper
+correctly reports `SEAM_UNPROVEN` for them, because its rule is "dispatched, no marker" —
+that is a statement about the measurement, not about the platform.
+
+**Fact (ii) — governance: 4 corroborating self-reports out of the 4 successful runs that
+produced one (5 of 5 including the cancelled run), and 0 contrary reports.** Every run
+that got as far as the echo reported `SEAM_PROBE_EFFORT=low` while the session itself ran
+at `--effort high`. This is the evidence the decision rule asks a human to adjudicate; it
+is a model self-report and remains a weak signal by construction.
+
+**No run has ever produced `SEAM_PROVEN`.** That verdict requires a human to re-run
+`scripts/agents-seam-probe-verdict.py` with `--adjudicated-governed` after adjudicating
+fact (ii), and no such adjudication is recorded. The highest verdict any dispatch reached
+is `SEAM_FORWARDED`, whose decision is explicitly **DO NOT SHIP the applied arm**.
+
+### Scope of this record — evidence only, arm unbuilt
+
+This section records **probe evidence only**. The spike-gated applied arm remains
+**unbuilt**: no workflow step composes a resolved per-agent effort into a process-start
+agent-definition, no applier→recorder sidecar exists, `resolve-review-overrides.py` still
+lists `agent-definition` in its `EFFORT_APPLICATION_POINTS` vocabulary while emitting only
+`session-fallback` and `session-inheritance` (its own comment records why: the other two
+values belong to a pre-launch component, never this in-session resolver), and the review
+skill's statement that per-agent effort is not deliverable per-agent is still accurate. A later reader must not read this recorded evidence as the arm having shipped —
+the two are independent, and only the first has happened.
+
+Consequently `docs/review-agent-overrides.md` is unchanged and remains correct: the probe
+is still "not yet dispatched to a `SEAM_PROVEN` verdict", and every tier still records
+honest fallback.
+
+### Provenance and how to re-check
+
+The nine runs executed the probe at commit `93e5cd13`. The only change to
+`.github/workflows/agents-seam-probe.yml` between that commit and the current default
+branch is the issue #1002/#1003 rename (the `plugins:` entry and the `Write` grant's state
+directory). The measurement mechanism — the `--agents` agent-definition with
+`"effort":"low"`, the session's `--effort high`, the model pin, the marker strings, and
+the verdict step — is byte-identical, so this evidence still describes the probe as it
+stands today.
+
+To re-check a row while the logs survive, read the run's **Compute seam-probe verdict**
+step: it prints the verdict table, the `forwarded(marker)=` evidence string, and the raw
+`tool_use` entries the verdict was computed from.
+
+> [!NOTE]
+> The issue #669 workpad comment recorded a conflicting claim — 8 dispatches, "fact i
+> forwarding 8/8", and an adjudicated `SEAM_PROVEN`. Re-reading the run logs does not
+> support it: fact (i) was recorded in 4 of 8 successful runs, and no run reached
+> `SEAM_PROVEN`. This section, derived from the logs, supersedes that claim.
