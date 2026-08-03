@@ -41456,8 +41456,22 @@ fi
 assert_eq "#1196 mutation: reserved stem with an extension (nul.md)" "rc=1" "$(e1196_rc skills/nul.md)"
 assert_eq "#1196 mutation: bare reserved stem (nul)" "rc=1" "$(e1196_rc skills/nul)"
 assert_eq "#1196 mutation: reserved stem in a NON-final component (nul/x.md)" "rc=1" "$(e1196_rc skills/nul/x.md)"
-assert_eq "#1196 mutation: reserved stem with a trailing space (nul )" "rc=1" "$(e1196_rc 'skills/nul ')"
-assert_eq "#1196 mutation: reserved name followed by : (nul:ads)" "rc=1" "$(e1196_rc skills/nul:ads)"
+# These two cases each have a violating input that a SECOND, independent rule also catches,
+# so an exit-code comparand passes them for the wrong reason (the PR #1201 review's finding
+# 1): `:` is independently a member of _FORBIDDEN_CHARS, and a trailing space is independently
+# caught by the trailing-space arm — so `nul:ads` and `nul ` both stay rc=1 with the
+# reserved-name rule's terminator handling (its `:` terminator and its trailing-space skip)
+# deleted outright. Measured before this change: with both deleted, the whole block was green.
+# The discriminating comparand is the REASON the guard reports, which names the rule that
+# actually fired. Under that deletion it becomes forbidden-character(':') / trailing-space
+# instead of reserved-device-name(NUL), so these two go RED where the exit code could not.
+# `rc=1|` is matched too, so each still subsumes the exit-code check it replaces.
+E1196_TSP="$(e1196_run 'skills/nul ')"
+assert_eq "#1196 mutation: reserved stem with a trailing space (nul ) fires the RESERVED-NAME rule" "yes" \
+  "$(case "$E1196_TSP" in "rc=1|"*"'nul ' reserved-device-name(NUL)"*) echo yes ;; *) echo "no: $E1196_TSP" ;; esac)"
+E1196_ADS="$(e1196_run skills/nul:ads)"
+assert_eq "#1196 mutation: reserved name followed by : (nul:ads) fires the RESERVED-NAME rule" "yes" \
+  "$(case "$E1196_ADS" in "rc=1|"*"'nul:ads' reserved-device-name(NUL)"*) echo yes ;; *) echo "no: $E1196_ADS" ;; esac)"
 # A `:` in a NON-reserved component reaches the forbidden-character arm (nul:ads above is caught
 # by the reserved-device branch first), so this is the case that goes RED if `:` were dropped
 # from _FORBIDDEN_CHARS — and it is the DOS-drive-prefix protection the guard subsumes via `:`.
@@ -41479,6 +41493,16 @@ assert_eq "#1196 negative controls are not flagged" "rc=0" \
 # COM/LPT asymmetry (AC7), demonstrated in BOTH directions: com0 not flagged, lpt0 flagged.
 assert_eq "#1196 asymmetry: com0.md is NOT flagged" "rc=0" "$(e1196_rc skills/com0.md)"
 assert_eq "#1196 asymmetry: lpt0.md IS flagged" "rc=1" "$(e1196_rc skills/lpt0.md)"
+# ...plus the POSITIVE half of the COM range (the PR #1201 review's finding 2). com0 being
+# clean pins only where the range STARTS: a regression that emptied _RESERVED_STEMS of every
+# COM member would leave BOTH assertions above passing, since neither reads a reserved COM.
+# The comparand is the guard's own violation TALLY over all nine, not the exit code — rc=1
+# over a nine-path list is satisfied by a single surviving member, so one hit could carry the
+# whole set; `9 violation(s)` cannot be satisfied by fewer than nine.
+E1196_COM="$(e1196_run skills/com1.md skills/com2.md skills/com3.md skills/com4.md skills/com5.md \
+                       skills/com6.md skills/com7.md skills/com8.md skills/com9.md)"
+assert_eq "#1196 asymmetry: every one of COM1-COM9 IS flagged" "yes" \
+  "$(case "$E1196_COM" in *"audited 9 tracked path(s), 9 violation(s)"*) echo yes ;; *) echo "no: $E1196_COM" ;; esac)"
 
 # ── Path-quoting regression (PR #1201 review finding 1) ──────────────────────
 # `core.quotePath` defaults to TRUE, under which git emits a non-ASCII path in C-QUOTED form:
@@ -41535,7 +41559,15 @@ assert_eq "#1196 the non-ASCII sandbox run audited its one tracked path" "yes" \
 # non-zero "enumeration unusable", never a clean pass — "audited nothing" ≠ "found nothing".
 E1196_EMPTY="$(probe_tmp '#1196 empty population')" || E1196_EMPTY=""
 case "$E1196_EMPTY" in
-  ""|/dev/null) : ;;
+  # probe_tmp has already recorded its own allocation FAIL, so this host is not silently
+  # green — but the NAMED check below would still vanish from the registered-check
+  # population here, and the #456 rule is that the population stays STABLE across
+  # environments: a host that cannot allocate scratch must report the same check name a
+  # host that can does. Emit it through the sole sanctioned skip emitter (the same way the
+  # historical block above handles its unreachable-commit host), rather than dropping it.
+  ""|/dev/null)
+     skip "#1196 an empty population fails closed (not a clean pass)" host-capability \
+       "probe_tmp allocated no usable scratch file for the empty --files-from list" ;;
   *) : > "$E1196_EMPTY"
      E1196_EOUT="$(python3 "$E1196_LINT" --root "$LIB/.." --files-from "$E1196_EMPTY" 2>&1)"; E1196_ERC=$?
      rm -f "$E1196_EMPTY"
