@@ -4,12 +4,8 @@
   "started_at": "2026-08-03T20:54:22Z",
   "loop_role": "review",
   "current_step": "2.6",
-  "current_substep": "run_shadow_phase1",
-  "pending_dispatch": {
-    "kind": "shadow_checklist_generator",
-    "roster": ["prflow:checklist-generator"],
-    "dispatched_at": "2026-08-03T21:15:00Z"
-  },
+  "current_substep": "shadow_outcome_1_persisted",
+  "pending_dispatch": null,
   "fix_commit_sha": null,
   "fix_files": [],
   "promotion_provenance": null,
@@ -44,7 +40,7 @@
     {"id":"VC-10","category":"issue_acceptance","claim":"AC10 requires this change not to add any source-presence regression pin over prose executed by an agent.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","source_line":201,"verification_mode":"agent","claim_signature":"issue_acceptance:issue-template.md:ac10-no-prose-presence-pin","verdict":"PASS"}
   ],
   "phase2_summary": {"passed":10,"failed":0,"inconclusive":0,"lite":0,"agent":10,"normalized":0,"field_defect_fails":0,"pairs_rewritten_once":true},
-  "phase3_dispatched": [],
+  "phase3_dispatched": ["prflow:silent-failure-hunter","prflow:comment-analyzer","prflow:requesting-code-review"],
   "phase3_findings": [],
   "engine_verdict": "APPROVE",
   "convergence_inputs": {
@@ -61,7 +57,30 @@
     "phase1": {"status":"verified","root_hash":"bc44849db4f773d42b798b76770608aa8373b202","reference_hash":"be68734e7e6137cbe0712cea3398dd279d3a95b4"}
     ,"phase2": {"status":"verified","root_hash":"bc44849db4f773d42b798b76770608aa8373b202","reference_hash":"871cedc24b88a688b7edfeeda3352a9a599b1ec4"}
     ,"phase3": {"status":"verified","root_hash":"bc44849db4f773d42b798b76770608aa8373b202","reference_hash":"16383c03f8dd9a001c73393ff129b955d864af64"}
+    ,"phase4": {"status":"verified","root_hash":"bc44849db4f773d42b798b76770608aa8373b202","reference_hash":"0db178e3e96e2155e70ae5a1ac7ad19b70ceb2b2"}
   },
   "cap_drops": {"count":0,"by_category":{}},
-  "telemetry": "unavailable"
+  "telemetry": "unavailable",
+  "shadow_phase2_summary": {"passed":10,"failed":0,"inconclusive":0,"lite":0,"agent":10,"normalized":0},
+  "shadow": {
+    "ran_at": "2026-08-03T21:19:03Z",
+    "reviewed_sha": "02d6e369ebd0e10b575879b464cef0c16f477b5f",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["prflow:code-reviewer","prflow:silent-failure-hunter","prflow:comment-analyzer","prflow:requesting-code-review"],
+    "expected_reviewers": ["prflow:code-reviewer","prflow:silent-failure-hunter","prflow:comment-analyzer","prflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total":0,"overlap_with_iter_N":0,"new":0,"new_critical":0,"new_important":0},
+    "promoted_to_iter_next": false
+  },
+  "park_calibration": null,
+  "parked_class_sweep": {
+    "classes": [],
+    "truncation": null,
+    "dispatch": "verified"
+  }
 }
