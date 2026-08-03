@@ -93,10 +93,17 @@ if [ -n "$REPO" ] && [ -n "$PR_NUMBER" ]; then
   HEAD_SHA="$("$DEVFLOW_GH" api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha' 2>/dev/null || true)"
 fi
 
-# Run the deriver. It emits two lines (verdict=…, verdict_determined=…) and always
-# exits 0. Only a POSITIVELY-determined verdict suppresses the banner.
+# Run the deriver. It emits two lines (verdict=…, verdict_determined=…) on stdout and
+# always exits 0. Only a POSITIVELY-determined verdict suppresses the banner.
+# The deriver's stderr is DELIBERATELY NOT suppressed: it emits a SPECIFIC breadcrumb
+# for each fail-closed condition (reviews API query failed, empty HEAD_SHA, the two
+# verdict keys disagree, no verdict for HEAD, …), and those are the diagnostic surface
+# that lets an operator tell a genuine infrastructure failure apart from an expected
+# verdict-less run on the common `absent` path. Only stdout is captured here (and by the
+# workflow gate's own `$(…)`), so letting stderr flow reaches the step log without
+# polluting GATE_OUT.
 GATE_OUT="$(HEAD_SHA="$HEAD_SHA" ENGINE_ERROR="$ENGINE_IS_ERROR" PR_NUMBER="$PR_NUMBER" REPO="$REPO" \
-  bash "$DERIVER" 2>/dev/null || true)"
+  bash "$DERIVER" || true)"
 case "$GATE_OUT" in
   *verdict_determined=true*)
     printf 'present\n'

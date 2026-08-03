@@ -3426,14 +3426,24 @@ j="$*"
 case "$j" in
   *"/reviews"*)  cat "$S1172_STATE/reviews.json"; exit 0 ;;
   *"/comments"*) cat "$S1172_STATE/comments.json"; exit 0 ;;
-  *"/pulls/"*)   cat "$S1172_STATE/headsha"; exit 0 ;;
+  *"/pulls/"*)
+    # Serve the PR object as realistic JSON and HONOR the --jq filter the caller passed,
+    # so the helper's `--jq '.head.sha'` extraction expression is actually exercised — a
+    # wrong path (.head.ref, a typo) yields empty here and the gate goes `absent`, rather
+    # than being masked by a bare-sha echo that ignores the filter entirely.
+    _f='.'; _prev=
+    for _a in "$@"; do [ "$_prev" = "--jq" ] && _f="$_a"; _prev="$_a"; done
+    jq -r "$_f" "$S1172_STATE/pull.json"
+    exit 0 ;;
 esac
 echo '[]'
 STUB
 chmod +x "$S1172_ROOT/gh"
 # Seed helpers. reviews/comments default to empty; an override sets only what it needs.
+# The PR object is seeded as {"head":{"sha":<arg>}} so the head-sha lookup runs the real
+# --jq path against realistic JSON (empty arg → {"head":{"sha":""}} → empty sha → absent).
 s1172_seed() {  # <head-sha-or-empty>
-  printf '%s' "$1" > "$S1172_STATE/headsha"
+  jq -n --arg s "$1" '{head:{sha:$s}}' > "$S1172_STATE/pull.json"
   printf '[]' > "$S1172_STATE/reviews.json"
   printf '[]' > "$S1172_STATE/comments.json"
 }
@@ -3476,8 +3486,9 @@ assert_eq "#1172 gate: a genuinely verdict-less run reports absent (the banner s
 # review present: the deriver cannot scope the verdict to HEAD, so absent.
 s1172_seed ""; s1172_review APPROVED
 assert_eq "#1172 gate: an unresolvable HEAD sha fails closed to absent even with a review present" "absent" "$(s1172_gate false)"
-# An engine-error run short-circuits in the deriver before any reviews query — the
-# deliberately-scoped #1172 caveat: an engine-error run always banners.
+# An engine-error run short-circuits to `absent` — the wrapper returns before invoking
+# the deriver at all (mirroring the deriver's own step-1 incomplete short-circuit before
+# any reviews query) — the deliberately-scoped #1172 caveat: an engine-error run always banners.
 s1172_seed "$S1172_HEAD"; s1172_review APPROVED
 assert_eq "#1172 gate: an engine-error run is absent (banners) even with a HEAD verdict — the scoped caveat" "absent" "$(s1172_gate true)"
 
@@ -3526,9 +3537,14 @@ printf '%s|%s|%s\n' "$1" "$2" "$3" >> "$S1172_WF_RECORD"
 exit 0
 SH
 chmod +x "$S1172_WF/.prflow/vendor/prflow/scripts/flip-review-progress-failed.sh"
-# Controllable verdict-presence stub: echoes $S1172_FAKE_VERDICT (present/absent).
+# Controllable verdict-presence stub: echoes $S1172_FAKE_VERDICT (present/absent) and
+# RECORDS its positional args, so the wiring test can assert the workflow passes them in
+# the helper's <repo> <pr_number> <engine_is_error> order (a swapped/dropped arg in the
+# workflow gate would otherwise stay green — the real helper's own tests call it correctly,
+# which proves the helper, never the caller).
 cat > "$S1172_WF/.prflow/vendor/prflow/scripts/dead-run-verdict-present.sh" <<'SH'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >> "$S1172_WF_ARGS"
 printf '%s\n' "${S1172_FAKE_VERDICT:-absent}"
 exit 0
 SH
@@ -3542,20 +3558,27 @@ exit 0
 SH
 chmod +x "$S1172_WF/.prflow/vendor/prflow/scripts/run-review-progress-diagnosis.sh"
 S1172_WF_RECORD="$S1172_WF/record"
+S1172_WF_ARGS="$S1172_WF/verdict-args"
 s1172_wf() {  # <fake-verdict> -> runs the block on a clean-exit review run, prints stdout
   ( cd "$S1172_WF" && COMMAND='/prflow:review 55' CLAUDE_OUTCOME=success ENGINE_ERROR=false \
       CONTEXT_NUMBER=55 REPO=o/r GH_TOKEN=secret S1172_FAKE_VERDICT="$1" \
       GITHUB_RUN_ID=1172 GITHUB_RUN_ATTEMPT=1 S1172_WF_RECORD="$S1172_WF_RECORD" \
+      S1172_WF_ARGS="$S1172_WF_ARGS" \
       bash "$S1172_WF/upsert-block.sh" )
 }
 
 # present → the flip helper is NEVER reached and the step says it suppressed.
-: > "$S1172_WF_RECORD"
+: > "$S1172_WF_RECORD"; : > "$S1172_WF_ARGS"
 S1172_WF_OUT="$(s1172_wf present)"
 assert_eq "#1172 wiring: a present verdict suppresses the flip — the flip helper is never reached" "0" \
   "$(grep -c . "$S1172_WF_RECORD" || true)"
 assert_eq "#1172 wiring: the suppressed path emits its own notice" "1" \
   "$(grep -cF 'suppressing the dead-run' <<<"$S1172_WF_OUT" || true)"
+# The workflow passes the verdict helper its args in <repo> <pr_number> <engine_is_error>
+# order — a swapped/dropped arg here would silently break the real gate while every other
+# wiring assertion stayed green.
+assert_eq "#1172 wiring: the gate calls the verdict helper with repo, target number, engine-error in that order" \
+  "o/r 55 false" "$(sed -n '1p' "$S1172_WF_ARGS")"
 
 # absent → the flip helper IS reached with this run's marker and cause (the banner writes).
 : > "$S1172_WF_RECORD"
