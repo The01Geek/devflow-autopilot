@@ -6775,8 +6775,9 @@ echo "implement-profile head guard (#484)"
 # is neither granted nor exactly withheld. A separate removal pin below protects
 # the instruction that inline bare-workpad source shorthand expands before emission.
 # The allowlist is assembled from
-# the workflow's baked block
-# ALONE (implement-block mode), never from .prflow/config.json — a consumer repo
+# the workflow's resolved `TOOLS='...'` allowlist line
+# ALONE (tools-line mode; the implement region was hoisted into a `Resolve
+# allowed-tools` step by issue #1170), never from .prflow/config.json — a consumer repo
 # does not carry this repo's config extras, so a head reachable only via config is
 # reported ungranted here (the fail-closed direction). WITHOUT --strict the extractor
 # prints ungranted heads and exits 0 either way (issue #687: --strict is opt-in and NOT
@@ -6838,46 +6839,38 @@ _manual_ungranted() {  # <skill-file> <allowlist> <mode>
       done
 }
 
-# AC: a Bash(...) spec cited only in a YAML comment is NOT a grant — implement-block
-# scopes to the --allowed-tools quoted block, so the cited spec is unreachable. This
+# AC: a Bash(...) spec cited only in a YAML comment is NOT a grant — tools-line
+# scopes to the resolved TOOLS='...' line, so the cited spec is unreachable. This
 # is the fail-OPEN shape (a whole-file parse reading a comment as a grant) the guard
 # exists to eliminate.
 printf '%s\n' '```bash' 'make build' '```' > "$E484/cited.md"
-{ printf '%s\n' 'steps:' '  - run: |' '      # Emits ",Bash(make:*),"' '      --allowed-tools' '      "Read,Bash(echo:*)"'; } > "$E484/cited.yml"
-assert_eq "#484 a Bash(...) spec cited in a YAML comment is not a grant (implement-block scopes to the quoted block)" \
-  "make" "$(python3 "$ECH" ungranted "$E484/cited.md" "$E484/cited.yml" implement-block)"
+{ printf '%s\n' 'steps:' '  - run: |' '      # Emits ",Bash(make:*),"' "      TOOLS='Read, Bash(echo:*)'"; } > "$E484/cited.yml"
+assert_eq "#484 a Bash(...) spec cited in a YAML comment is not a grant (tools-line scopes to the TOOLS line)" \
+  "make" "$(python3 "$ECH" ungranted "$E484/cited.md" "$E484/cited.yml" tools-line)"
 
 # AC: an absent/unreadable workflow is a FAILURE, not zero findings (fail-closed —
 # never the empty allowlist the default mode would silently yield).
 assert_eq "#484 an absent workflow file is reported, not read as zero findings (fail-closed)" "yes" \
-  "$(python3 "$ECH" ungranted "$E484/cited.md" "$E484/does-not-exist.yml" implement-block >/dev/null 2>&1 && echo no || echo yes)"
+  "$(python3 "$ECH" ungranted "$E484/cited.md" "$E484/does-not-exist.yml" tools-line >/dev/null 2>&1 && echo no || echo yes)"
 
 printf '%s\n' 'name: marker-free workflow' > "$E484/no-marker.yml"
-assert_eq "#484 a readable workflow with no --allowed-tools marker fails closed" \
-  "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/no-marker.yml" implement-block)"
+assert_eq "#484 a readable workflow with no TOOLS='...' line fails closed" \
+  "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/no-marker.yml" tools-line)"
 
 # Malformed-but-present workflows must also make the contract guard visibly RED.
-# These exercise the two parser failures that previously vanished through the
-# `_impl_ungranted` pipeline and masqueraded as an empty ungranted-head set.
-{ printf '%s\n' '--allowed-tools' '"Read"' '--allowed-tools' '"Write"'; } > "$E484/duplicate-marker.yml"
-assert_eq "#484 duplicate --allowed-tools markers fail the implement contract guard closed" \
-  "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/duplicate-marker.yml" implement-block)"
-{ printf '%s\n' '--allowed-tools' '"Read,Bash(echo:*)'; } > "$E484/unterminated-quote.yml"
-assert_eq "#484 an unterminated --allowed-tools quote fails the implement contract guard closed" \
-  "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/unterminated-quote.yml" implement-block)"
-{ printf '%s\n' 'claude_args: >-' '  --allowed-tools' '  "Read,' '  Bash(make:*)' '# dedented later prose says "oops"'; } > "$E484/unterminated-before-later-quote.yml"
-assert_eq "#484 a dedented later quote cannot close an unterminated allowlist scalar" \
-  "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/unterminated-before-later-quote.yml" implement-block)"
-{ printf '%s\n' '--allowed-tools' 'not-a-quoted-value' '# later prose cites "Read,Bash(make:*)"'; } > "$E484/detached-quote.yml"
-assert_eq "#484 a detached later quote cannot masquerade as the allowlist value" \
-  "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/detached-quote.yml" implement-block)"
+# A duplicate TOOLS='...' line is the fail-open vector tools-line refuses: a later
+# widened copy would win at runtime while a first-match parse audited the canonical
+# leading one.
+{ printf '%s\n' "  TOOLS='Read'" "  TOOLS='Write'"; } > "$E484/duplicate-marker.yml"
+assert_eq "#484 duplicate TOOLS='...' lines fail the implement contract guard closed" \
+  "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/duplicate-marker.yml" tools-line)"
 assert_eq "#484 an unknown allowlist parse mode fails closed instead of scanning the whole file" \
   "yes" "$(python3 "$ECH" ungranted "$E484/cited.md" "$E484/cited.yml" misspelled-mode >/dev/null 2>&1 && echo no || echo yes)"
 
 # AC: a head that merely begins with a suppressed builtin survives (exact, not prefix).
 printf '%s\n' '```bash' 'set-something.sh --x' '```' > "$E484/prefix.md"
 assert_eq "#484 set-something.sh survives the suppression list (exact-match, not prefix)" \
-  "set-something.sh" "$(python3 "$ECH" ungranted "$E484/prefix.md" "$E484/cited.yml" implement-block)"
+  "set-something.sh" "$(python3 "$ECH" ungranted "$E484/prefix.md" "$E484/cited.yml" tools-line)"
 
 # AC: the withheld list is exactly {gh pr checkout, git rev-list, mktemp} — it cannot
 # silently grow into a suppression that hollows the guard out.
@@ -6910,7 +6903,7 @@ assert_eq "#539 recursive roster includes the review-and-fix step references" "y
 assert_eq "#550 recursive roster includes the receiving-code-review skill" "yes" \
   "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/receiving-code-review/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: roster membership assertion is scoped to the extractor input
 assert_eq "#484 every implement-tier head is granted or withheld (zero ungranted real heads)" "" \
-  "$(for f in $_impl_files; do _impl_ungranted "$f" "$IMPL_YML" implement-block; done | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+  "$(for f in $_impl_files; do _impl_ungranted "$f" "$IMPL_YML" tools-line; done | sort -u | tr '\n' ' ' | sed 's/ *$//')"
 
 # AC (#484 + #530): the WHOLE review-and-fix bundle — thin root + every references/*.md —
 # against devflow.yml's hoisted TOOLS. $MAXI_SKILL is the root+references concatenation
@@ -6945,11 +6938,13 @@ for docs_key in .docs.internal .docs.external .docs.release_notes_file .docs.cha
     "config-get.sh $docs_key" "$E484_PHASE4"
 done
 
-# Disposable-mutant regression: drop the grant from a scratch workflow and
-# confirm the extractor reports the stale-prose-lint.py head ungranted.
-sed -E '/Bash\(\.prflow\/vendor\/prflow\/scripts\/stale-prose-lint\.py:\*\)/d' "$IMPL_YML" > "$E484/impl-no-spl.yml"
+# Disposable-mutant regression: drop the grant TOKEN (not the whole TOOLS line) from a
+# scratch workflow and confirm the extractor reports the stale-prose-lint.py head
+# ungranted. The token is removed in place (the region is a single TOOLS='...' line since
+# issue #1170, so a line-delete would drop the entire allowlist and fail closed instead).
+sed -E 's/, Bash\(\.prflow\/vendor\/prflow\/scripts\/stale-prose-lint\.py:\*\)//' "$IMPL_YML" > "$E484/impl-no-spl.yml"
 assert_eq "#484 guard-behavior: with the stale-prose-lint.py grant removed the extractor reports it ungranted over review/SKILL.md" \
-  "yes" "$(python3 "$ECH" ungranted "$REVIEW_BUNDLE" "$E484/impl-no-spl.yml" implement-block 2>/dev/null | grep -qF 'stale-prose-lint.py' && echo yes || echo no)"
+  "yes" "$(python3 "$ECH" ungranted "$REVIEW_BUNDLE" "$E484/impl-no-spl.yml" tools-line 2>/dev/null | grep -qF 'stale-prose-lint.py' && echo yes || echo no)"
 
 # Implement flip: the function + each of its fail-loud call sites (at least the four
 # pinned below), guarded on interim. Each pin quotes that site's unique cause string,
@@ -34240,8 +34235,184 @@ assert_pin_unique "#363 devflow.yml gates the block on /devflow:review (trailing
 assert_pin_unique "#363 devflow.yml falls back to the bare command when no block is composed" \
   'prompt: ${{ steps.reviewcompose.outputs.prompt || needs.gate.outputs.command }}' "$DEVFLOW_YML"
 
+# ── #1170 implement-tier grounding block. The implement tier now carries the exact
+# ── resolved allowed-command list in its own prompt, rendered by the SAME shared
+# ── helper (MODE=implement) — no second copy of the allowed-tools text. Asserted at
+# ── the workflow's executable surface (the wiring), not by grepping prompt wording.
+_IMPL_YML1170="$LIB/../.github/workflows/devflow-implement.yml"
+# The hoisted TOOLS='...' step output feeds BOTH the grounding block and claude_args,
+# so the block quotes the exact resolved string by construction (single source, AC1/AC3).
+assert_pin_unique "#1170 devflow-implement.yml's grounding step quotes steps.tools.outputs.tools verbatim" \
+  'ALLOWED_TOOLS: ${{ steps.tools.outputs.tools }}' "$_IMPL_YML1170"
+assert_pin_unique "#1170 devflow-implement.yml's claude_args consumes the hoisted allowed-tools output (no second copy)" \
+  'allowed-tools "${{ steps.tools.outputs.tools }}"' "$_IMPL_YML1170"
+# The three-way selection the step used to carry inline — renderer absent / renderer
+# produced nothing / compose and publish — lives in scripts/compose-implement-prompt.sh
+# (CLAUDE.md's inline-shell-extraction convention). Its arms and arm ORDER are driven
+# executably below; these two pins are the cross-file wiring the drivers cannot observe.
+_CIP_SH="$LIB/../scripts/compose-implement-prompt.sh"
+# The block is rendered through the shared renderer in implement mode — never a
+# hand-copied copy of the allowed-tools text (the coupled-mirror hazard, AC3).
+assert_pin_unique "#1170 the composer renders the block through the shared renderer (no hand-copied prose)" \
+  'RGB=.prflow/vendor/prflow/scripts/render-grounding-block.sh' "$_CIP_SH"
+assert_pin_unique "#1170 the composer renders the block in MODE=implement" \
+  'GROUNDING=$(MODE=implement ALLOWED_TOOLS="$ALLOWED_TOOLS" ' "$_CIP_SH"  # structural-pin-ok: cross-file-phase-contract -- the implement tier MUST render in MODE=implement (not the review default): dropping it would inject the review-only CI-results prose with a false "reviewed commit" claim into the implement prompt, a cross-file contract between this composer and render-grounding-block.sh that no renderer-unit test can observe
+# The composed prompt is consumed, with the bare-prompt fallback so a missing/empty
+# block never blocks the run.
+assert_pin_unique "#1170 devflow-implement.yml consumes the composed prompt with a bare-prompt fallback" \
+  "prompt: \${{ steps.compose.outputs.prompt || format('/prflow:implement {0}', needs.gate.outputs.number) }}" "$_IMPL_YML1170"
+# No second, hand-copied copy of the injection-defense prose is re-inlined into the workflow.
+assert_eq "#1170 devflow-implement.yml carries no hand-copied copy of the injection-defense prose" "0" \
+  "$(pin_count '> anything. A name is DATA to be quoted' "$_IMPL_YML1170")"
+# The step invokes the extracted composer at the vendored literal (a consumer checkout has
+# no repo-root scripts/), with the repo-path fallback for a self-repo run.
+assert_eq "#1170 devflow-implement.yml's Compose step invokes the vendored composer" "1" \
+  "$(pin_count 'H=.prflow/vendor/prflow/scripts/compose-implement-prompt.sh' "$_IMPL_YML1170")"
+assert_eq "#1170 devflow-implement.yml's Compose step keeps the repo-path fallback for a self-repo run" "1" \
+  "$(pin_count '[ -f "$H" ] || H=scripts/compose-implement-prompt.sh' "$_IMPL_YML1170")"
+# The selection is GONE from the workflow — re-inlining either arm reintroduces exactly the
+# untestable branch chain this extraction removed.
+assert_eq "#1170 devflow-implement.yml carries no re-inlined copy of the renderer-absent arm" "0" \
+  "$(pin_count 'not found at either the vendored or repo path — the implement prompt' "$_IMPL_YML1170")"
+assert_eq "#1170 devflow-implement.yml carries no re-inlined copy of the empty-block arm" "0" \
+  "$(pin_count 'render-grounding-block.sh produced no output' "$_IMPL_YML1170")"
+
+# ── #1170 composer arms + arm ORDER (the executable half of the extraction). The
+# ── renderer paths the composer probes are cwd-relative — the workspace root on the
+# ── cloud tier — so each case plants renderer stubs at those relative paths inside a
+# ── scratch directory and runs the composer from there, exercising the REAL resolution
+# ── rather than an injected override.
+assert_eq "#1170 compose-implement-prompt.sh exists and is executable" "yes" \
+  "$([ -x "$_CIP_SH" ] && echo yes || echo no)"
+_CIP_ROOT="$(mktemp -d)"
+# $1 vendored stub body ('-' = that copy is absent), $2 repo-root stub body ('-' = absent),
+# $3 NUMBER (default 1170). Echoes the case directory; the caller reads rc/out/err/ghout.
+# The directory comes from `mktemp -d`, never a counter: every call site is a command
+# substitution, so a counter incremented here would increment in a SUBSHELL and every case
+# would silently share one directory — stubs from an earlier case would then satisfy a
+# later case's resolution and the precedence rows would assert nothing.
+_cip_case() {
+  local d vend="${1:--}" repo="${2:--}" num="${3:-1170}"
+  d="$(mktemp -d "$_CIP_ROOT/case.XXXXXX")"
+  mkdir -p "$d/.prflow/vendor/prflow/scripts" "$d/scripts"
+  [ "$vend" = '-' ] || printf '%s\n' "$vend" > "$d/.prflow/vendor/prflow/scripts/render-grounding-block.sh"
+  [ "$repo" = '-' ] || printf '%s\n' "$repo" > "$d/scripts/render-grounding-block.sh"
+  : > "$d/ghout"
+  (
+    cd "$d" || exit 1
+    GITHUB_OUTPUT="$d/ghout" ALLOWED_TOOLS='Read, Bash(git add:*)' NUMBER="$num" \
+      bash "$_CIP_SH" > "$d/out" 2> "$d/err"
+    echo $? > "$d/rc"
+  )
+  printf '%s\n' "$d"
+}
+_cip_has() { grep -qF "$2" "$1" && echo yes || echo no; }          # file literal -> yes/no
+_cip_promptkeys() { grep -c '^prompt' "$1" 2>/dev/null || true; }  # ghout -> count of prompt keys
+
+# Arm 1 — the renderer is absent at BOTH paths.
+_c="$(_cip_case - -)"
+assert_eq "#1170 composer arm1 (renderer absent at both paths) exits 0" "0" "$(cat "$_c/rc")"
+assert_eq "#1170 composer arm1 warns that the renderer was found at neither path" "yes" \
+  "$(_cip_has "$_c/err" 'render-grounding-block.sh not found at either the vendored or repo path')"
+assert_eq "#1170 composer arm1 does NOT misattribute the miss to the empty-block arm" "no" \
+  "$(_cip_has "$_c/err" 'render-grounding-block.sh produced no output')"
+# Load-bearing: NO `prompt` key at all, so devflow-implement.yml's `|| format(…)` default
+# fires. Publishing an empty `prompt=` here would silently defeat that fallback.
+assert_eq "#1170 composer arm1 writes NO prompt output (the bare-prompt default must fire)" "0" \
+  "$(_cip_promptkeys "$_c/ghout")"
+
+# Arm 2 — the renderer resolves but produces an empty block (the truncated-vendored-copy case).
+_c="$(_cip_case 'exit 0' -)"
+assert_eq "#1170 composer arm2 (renderer produced no output) exits 0" "0" "$(cat "$_c/rc")"
+assert_eq "#1170 composer arm2 warns that the renderer produced no output" "yes" \
+  "$(_cip_has "$_c/err" 'render-grounding-block.sh produced no output')"
+assert_eq "#1170 composer arm2 does NOT misattribute an empty block to the not-found arm" "no" \
+  "$(_cip_has "$_c/err" 'not found at either the vendored or repo path')"
+assert_eq "#1170 composer arm2 writes NO prompt output (the bare-prompt default must fire)" "0" \
+  "$(_cip_promptkeys "$_c/ghout")"
+
+# Arm 2, second input shape — a renderer that FAILS after printing a partial block. The
+# capture's `|| GROUNDING=""` must route it to the empty arm, never publish the partial.
+_c="$(_cip_case 'printf "> partial\n"; exit 3' -)"
+assert_eq "#1170 composer arm2 (renderer exited non-zero) exits 0" "0" "$(cat "$_c/rc")"
+assert_eq "#1170 composer arm2 (renderer exited non-zero) takes the empty-block arm" "yes" \
+  "$(_cip_has "$_c/err" 'render-grounding-block.sh produced no output')"
+assert_eq "#1170 composer arm2 (renderer exited non-zero) publishes no partial block" "0" \
+  "$(_cip_promptkeys "$_c/ghout")"
+
+# Arm 3 — success: the block, a blank line, then the command, published as a heredoc.
+_c="$(_cip_case 'printf "> GROUND-TRUTH-BLOCK\n---\n"' - 4242)"
+assert_eq "#1170 composer arm3 (block rendered) exits 0" "0" "$(cat "$_c/rc")"
+assert_eq "#1170 composer arm3 emits no warning" "0" "$(grep -c '::warning::' "$_c/err" || true)"
+assert_eq "#1170 composer arm3 publishes the prompt as a heredoc-delimited step output" "yes" \
+  "$(_cip_has "$_c/ghout" 'prompt<<PROMPT_EOF_')"
+assert_eq "#1170 composer arm3 closes the heredoc (open marker + terminator)" "2" \
+  "$(grep -c 'PROMPT_EOF_' "$_c/ghout" || true)"
+assert_eq "#1170 composer arm3 carries the rendered block into the published prompt" "yes" \
+  "$(_cip_has "$_c/ghout" '> GROUND-TRUTH-BLOCK')"
+assert_eq "#1170 composer arm3 appends the implement command with the issue number" "yes" \
+  "$(_cip_has "$_c/ghout" '/prflow:implement 4242')"
+# The command must sit at column 0, not carry the YAML block-scalar indent the inline
+# heredoc could have leaked into it.
+assert_eq "#1170 composer arm3 leaves the implement command unindented" "1" \
+  "$(grep -c '^/prflow:implement 4242$' "$_c/ghout" || true)"
+
+# Arm ORDER / path precedence — the vendored copy is probed FIRST; the repo-root copy is
+# the fallback, not the preference.
+_c="$(_cip_case 'printf "VENDORED-BLOCK\n"' 'printf "REPO-BLOCK\n"')"
+assert_eq "#1170 composer prefers the vendored renderer when both copies exist" "yes" \
+  "$(_cip_has "$_c/ghout" 'VENDORED-BLOCK')"
+assert_eq "#1170 composer does not fall through to the repo copy when the vendored one exists" "no" \
+  "$(_cip_has "$_c/ghout" 'REPO-BLOCK')"
+_c="$(_cip_case - 'printf "REPO-BLOCK\n"')"
+assert_eq "#1170 composer falls back to the repo-root renderer for a self-repo run" "yes" \
+  "$(_cip_has "$_c/ghout" 'REPO-BLOCK')"
+
+# The renderer receives MODE=implement and the exact resolved allowed-tools string — the
+# cross-file contract the MODE pin above states, here observed end to end.
+_c="$(_cip_case 'printf "SEEN MODE=%s TOOLS=%s\n" "$MODE" "$ALLOWED_TOOLS"')"
+assert_eq "#1170 composer invokes the renderer in MODE=implement with the resolved tool list" "yes" \
+  "$(_cip_has "$_c/ghout" 'SEEN MODE=implement TOOLS=Read, Bash(git add:*)')"
+
+# An unpublishable output channel degrades to the bare prompt with a breadcrumb, never a
+# hard failure and never a redirect somewhere arbitrary.
+_c="$(_cip_case 'printf "> GROUND-TRUTH-BLOCK\n---\n"')"
+_cip_rc_noout="$( cd "$_c" && GITHUB_OUTPUT='' ALLOWED_TOOLS='Read' NUMBER=7 bash "$_CIP_SH" >/dev/null 2>"$_c/err2"; echo $? )"
+assert_eq "#1170 composer exits 0 when GITHUB_OUTPUT is unset/empty" "0" "$_cip_rc_noout"
+assert_eq "#1170 composer breadcrumbs an unpublishable GITHUB_OUTPUT" "yes" \
+  "$(_cip_has "$_c/err2" 'GITHUB_OUTPUT is unset or empty')"
+rm -rf "$_CIP_ROOT"
+unset _cip_rc_noout
+
 # ── Renderer behavior (unit-tested once, rather than twice through YAML).
 _rgb() { HEAD_SHA="${1-}" CI_SUMMARY="${2-}" ALLOWED_TOOLS="${3-}" bash "$RGB_SH"; }
+# MODE=implement renders the allowed-tools + shapes + headless sections only —
+# omitting the review-only CI and trusted-source-displacement sections — and
+# renumbers the survivors 1/2/3 (issue #1170).
+_rgbm() { MODE="${1-}" HEAD_SHA="${2-}" CI_SUMMARY="${3-}" ALLOWED_TOOLS="${4-}" HARDENED_PATHS="${5-}" bash "$RGB_SH"; }
+assert_eq "#1170 implement mode rc 0 (always-exit-0)" "0" \
+  "$(_rgbm implement '' '' 'Read, Write' >/dev/null 2>&1; echo $?)"
+assert_eq "#1170 implement mode carries the permitted-commands section with the exact allowed-tools list" "yes" \
+  "$(_rgbm implement '' '' 'Read, Bash(git add:*)' | grep -qF 'Read, Bash(git add:*)' && echo yes || echo no)"
+assert_eq "#1170 implement mode states a no-output command may have been refused (not returned empty)" "yes" \
+  "$(_rgbm implement '' '' 'Read' | grep -qF 'it does not fail' && echo yes || echo no)"
+assert_eq "#1170 implement mode OMITS the review-only CI-results section" "0" \
+  "$(_rgbm implement deadbeef 'lint: success' 'Read' | grep -c 'CI results already observed')"
+assert_eq "#1170 implement mode OMITS the review-only displaced-paths section even if HARDENED_PATHS is set" "0" \
+  "$(_rgbm implement deadbeef 'lint: success' 'Read' 'lib/x.sh' | grep -c 'Trusted-source displacement')"
+assert_eq "#1170 implement mode renumbers the permitted-commands section to 1 (no CI section above it)" "yes" \
+  "$(_rgbm implement '' '' 'Read' | grep -qF '**1. The exact commands this run is permitted to execute.' && echo yes || echo no)"
+assert_eq "#1170 implement mode renumbers the command-shapes section to 2" "yes" \
+  "$(_rgbm implement '' '' 'Read' | grep -qF '**2. Command shapes this run' && echo yes || echo no)"
+assert_eq "#1170 implement mode renumbers the headless section to 3" "yes" \
+  "$(_rgbm implement '' '' 'Read' | grep -qF '**3. This is a headless run' && echo yes || echo no)"
+# An empty resolved list renders "grants nothing", never "unrestricted".
+assert_eq "#1170 implement mode with an empty allowed-tools list grants nothing (never unrestricted)" "yes" \
+  "$(_rgbm implement '' '' '' | grep -qF '(no commands are granted to this run)' && echo yes || echo no)"
+# The default MODE (unset) is review, byte-identical to the pre-#1170 renderer — proven
+# by the CI section being present when MODE is unset.
+assert_eq "#1170 default MODE (unset) is review — the CI section is present" "yes" \
+  "$(_rgb deadbeef 'lint: success' 'Read' | grep -qF 'CI results already observed' && echo yes || echo no)"
 
 # ── #504 renderer displaced-paths section (AC3/AC4). HARDENED_PATHS renders a
 # ── displaced-paths section ONLY when it carries a non-whitespace path;

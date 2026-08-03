@@ -66,6 +66,17 @@ HARDENED_PATHS="${HARDENED_PATHS//\`/}"
 # inline-code span, rather than relying on the caller only ever passing a real SHA.
 HEAD_SHA="${HEAD_SHA//\`/}"
 
+# MODE selects the tier the block is rendered for. `review` (the default, and the
+# value any unrecognized MODE falls back to) renders the full block byte-for-byte
+# as before. `implement` renders the tier-agnostic sections only — the permitted
+# commands, the command shapes, and the headless-run discipline — omitting the CI
+# section (the implement tier has no reviewed commit to observe) and the
+# trusted-source-displacement section (a review-only concept), and renumbering the
+# survivors. The section PROSE is single-sourced across both tiers (issue #1170):
+# the implement tier reuses this one renderer rather than a second hand-copied copy
+# of the allowed-tools text — the coupled-mirror hazard the block was built to avoid.
+MODE="${MODE:-review}"
+
 # An empty CI summary must read as UNKNOWN, never as "no problems found". The
 # caller normally supplies summarize-ci-checks.sh's own fail-closed literal; this
 # is the backstop for a caller that supplied nothing at all.
@@ -86,7 +97,7 @@ HEAD_SHA="${HEAD_SHA//\`/}"
 # section here degrades to today's behavior (no displaced-paths ground truth),
 # never to a wrong claim.
 DISPLACED_SECTION=''
-if [ -n "${HARDENED_PATHS//[[:space:]]/}" ]; then
+if [ "$MODE" != implement ] && [ -n "${HARDENED_PATHS//[[:space:]]/}" ]; then
   # Format the newline-separated paths as a markdown bullet list of inline-code
   # paths. Blank interior lines and whitespace-only lines collapse to nothing; a
   # backtick-bearing path already had its backticks stripped above, so it cannot
@@ -143,10 +154,31 @@ __DISP_PROSE_EOF__
 ${DISPLACED_LIST}>"
 fi
 
+# Section numbers depend on the tier. The implement block omits the CI section and
+# the trusted-source-displacement section, so its survivors renumber 1/2/3; the
+# review block keeps 2/3/4, so its rendered bytes are unchanged (the placeholders
+# below resolve to the same digits it always emitted). The block is assembled from
+# three `cat` heredocs (header, the review-only CI section, then the shared
+# permitted-commands/shapes/headless tail) rather than one — their concatenated
+# stdout is byte-identical to the former single heredoc for the review tier.
+if [ "$MODE" = implement ]; then
+  N_TOOLS=1; N_SHAPES=2; N_HEADLESS=3
+else
+  N_TOOLS=2; N_SHAPES=3; N_HEADLESS=4
+fi
+
 cat <<EOF
 > [!IMPORTANT]
 > **Engine ground truth for this run. Read this before planning any command.**
 >
+EOF
+
+# Section 1 — CI results. Review tier only: the implement tier has no reviewed
+# commit, so "CI already observed for the reviewed commit" would be a false claim
+# there. Its trailing blank line is emitted inside this heredoc so the tail below
+# follows it exactly as the former single heredoc did.
+if [ "$MODE" != implement ]; then
+cat <<EOF
 > **1. CI results already observed for the reviewed commit (\`${HEAD_SHA:-unknown}\`).**
 > DevFlow read these conclusions from the GitHub API for this exact commit and
 > wrote them here. Where the fence below names a check with a conclusion beside it,
@@ -173,7 +205,11 @@ cat <<EOF
 ${CI_SUMMARY}
 \`\`\`
 
-> **2. The exact commands this run is permitted to execute.**
+EOF
+fi
+
+cat <<EOF
+> **${N_TOOLS}. The exact commands this run is permitted to execute.**
 > Any command that does not match one of these rules is denied by the harness.
 > Attempting one consumes budget and produces no execution — it does not fail
 > loudly, it is simply refused. Plan only commands this list grants.
@@ -182,7 +218,7 @@ ${CI_SUMMARY}
 ${ALLOWED_TOOLS}
 \`\`\`
 
-> **3. Command shapes this run's harness accepts.** A granted command *head* is not
+> **${N_SHAPES}. Command shapes this run's harness accepts.** A granted command *head* is not
 > enough: the harness also denies whole command *shapes* — silently, consuming budget
 > and returning nothing, exactly like an ungranted command. When you improvise a
 > command, keep it to a PERMITTED shape:
@@ -212,7 +248,7 @@ ${ALLOWED_TOOLS}
 >   — never iterate variants of the denied shape.** Iterating denied variants is what
 >   exhausts the run and ends it with no verdict.
 >
-> **4. This is a headless run: ending your turn ends the process.** There is no
+> **${N_HEADLESS}. This is a headless run: ending your turn ends the process.** There is no
 > re-invocation here — do NOT end your turn while any dispatched agent has not
 > returned, and treat \`ScheduleWakeup\` and any future task-notification as
 > UNAVAILABLE (their "you'll be re-invoked" promise is false under \`claude -p\`);

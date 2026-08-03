@@ -1247,6 +1247,71 @@ jobs:
           bash "$HELPER" --login "$SENDER_LOGIN" --config-file "$CFG" >> "$GITHUB_ENV" \
             || echo "::warning::devflow commit attribution: the identity helper exited non-zero; continuing with current authorship (attribution never gates the run)."
 
+      # Resolve the allowed-tools string ONCE, as a step output (issue #1170). It used
+      # to be an inline literal inside `claude_args` below, which the grounding block
+      # could not read — and a second, hand-copied list would drift from the real one
+      # the moment either changed. Hoisting it lets the block quote the exact string
+      # this run resolved, by construction (the same single-source shape the
+      # `command`/`runner-review` regions already use in devflow.yml/devflow-runner.yml).
+      #
+      # The TOOLS='…' literal below is a GENERATED region — do NOT hand-edit it. It is
+      # compiled from the `implement` profile in lib/capability-profiles.json by
+      # lib/generate-capability-profiles.py; change a grant there and regenerate. The
+      # banner comment above the assignment carries the manifest_version + the region's
+      # sha256, and lib/test/run.sh's --check turns any manifest↔literal drift RED. The
+      # step appends `allowed_tools_extra` (`${TOOLS}${EXTRA}`) so the resolved output
+      # is the exact string the agent runs under, extras included.
+      - name: Resolve allowed-tools
+        id: tools
+        env:
+          EXTRA: ${{ needs.config.outputs.allowed_tools_extra }}
+        run: |
+          set -euo pipefail
+          # devflow-capability-manifest: region=implement manifest_version=17 sha256=c78d54331922d3e740e9b094a00c2dc4736587a791287c1ec127d8eda923e776
+          TOOLS='Read, Write, Edit, Glob, Grep, LS, Skill, Agent, TodoWrite, EnterPlanMode, ExitPlanMode, WebFetch, WebSearch, Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git pull:*), Bash(git fetch:*), Bash(git ls-remote:*), Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git show:*), Bash(git hash-object:*), Bash(git checkout:*), Bash(git branch:*), Bash(git stash:*), Bash(git rm:*), Bash(git mv:*), Bash(git restore:*), Bash(git revert:*), Bash(git blame:*), Bash(git ls-files:*), Bash(git rev-parse:*), Bash(git merge-base:*), Bash(git merge:*), Bash(gh pr create:*), Bash(gh pr edit:*), Bash(gh pr comment:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh pr ready:*), Bash(gh pr list:*), Bash(gh pr checks:*), Bash(gh pr status:*), Bash(gh pr reopen:*), Bash(gh issue view:*), Bash(gh issue comment:*), Bash(gh issue list:*), Bash(gh issue edit:*), Bash(gh issue create:*), Bash(gh issue reopen:*), Bash(gh issue status:*), Bash(gh search:*), Bash(gh label list:*), Bash(gh repo view:*), Bash(gh run view:*), Bash(gh run list:*), Bash(gh workflow view:*), Bash(gh workflow list:*), Bash(gh api:*), Bash(jq:*), Bash(.prflow/vendor/prflow/scripts/run-jq.sh:*), Bash(.prflow/vendor/prflow/scripts/config-get.sh:*), Bash(.prflow/vendor/prflow/scripts/workpad.py:*), Bash(.prflow/vendor/prflow/scripts/seed-review-progress.sh:*), Bash(.prflow/vendor/prflow/scripts/verification-flight.py:*), Bash(.prflow/vendor/prflow/scripts/reception-record.py:*), Bash(.prflow/vendor/prflow/scripts/check-completion-evidence.py:*), Bash(.prflow/vendor/prflow/scripts/parse-acs.py:*), Bash(.prflow/vendor/prflow/scripts/check-verified-premises.py:*), Bash(.prflow/vendor/prflow/scripts/preflight.py:*), Bash(.prflow/vendor/prflow/scripts/branch-for-issue.py:*), Bash(.prflow/vendor/prflow/scripts/update-branch-checkpoint.sh:*), Bash(.prflow/vendor/prflow/scripts/file-deferrals.py:*), Bash(.prflow/vendor/prflow/scripts/discover-deferral-manifests.py:*), Bash(.prflow/vendor/prflow/scripts/match-deferrals.py:*), Bash(.prflow/vendor/prflow/scripts/resolve-review-overrides.py:*), Bash(.prflow/vendor/prflow/scripts/apply-labels.sh:*), Bash(.prflow/vendor/prflow/scripts/ensure-label.sh:*), Bash(.prflow/vendor/prflow/scripts/apply-pr-triggerer.sh:*), Bash(.prflow/vendor/prflow/scripts/apply-issue-dependencies.py:*), Bash(.prflow/vendor/prflow/scripts/resolve-existing-pr.sh:*), Bash(.prflow/vendor/prflow/lib/efficiency-trace.sh:*), Bash(.prflow/vendor/prflow/scripts/stale-prose-lint.py:*), Bash(.prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh:*), Bash(.prflow/vendor/prflow/scripts/post-review-verdict.sh:*), Bash(.prflow/vendor/prflow/scripts/match-lint-adjudications.py:*), Bash(.prflow/vendor/prflow/scripts/normalize-verdicts.py:*), Bash(.prflow/vendor/prflow/scripts/load-prompt-extension.sh:*), Bash(.prflow/vendor/prflow/scripts/react-to-trigger.sh:*), Bash(.prflow/vendor/prflow/scripts/extract-doc-needed-paths.sh:*), Bash(pip install:*), Bash(pip:*), Bash(python:*), Bash(python3:*), Bash(python -m:*), Bash(python3 -m:*), Bash(ruff:*), Bash(ruff check:*), Bash(ruff format:*), Bash(pytest:*), Bash(mypy:*), Bash(grep:*), Bash(rg:*), Bash(find:*), Bash(wc:*), Bash(sort:*), Bash(uniq:*), Bash(cut:*), Bash(tr:*), Bash(xargs:*), Bash(awk:*), Bash(sed:*), Bash(diff:*), Bash(cmp:*), Bash(comm:*), Bash(cat:*), Bash(head:*), Bash(tail:*), Bash(less:*), Bash(ls:*), Bash(tree:*), Bash(file:*), Bash(stat:*), Bash(date:*), Bash(pwd:*), Bash(realpath:*), Bash(dirname:*), Bash(basename:*), Bash(which:*), Bash(type:*), Bash(env:*), Bash(echo:*), Bash(printf:*), Bash(test:*), Bash(touch:*), Bash(mkdir:*), Bash(rmdir:*), Bash(rm:*), Bash(mv:*), Bash(cp:*), Bash(tee:*)'
+          # Randomized-delimiter heredoc, not `tools=<value>`: EXTRA is config-derived
+          # (`prflow_implement.allowed_tools`), so a newline anywhere in it would truncate
+          # the appended value at that point and silently shorten the allowlist feeding
+          # BOTH `--allowed-tools` and the injected grounding block. Parity with the
+          # `Compose implement grounding block` step's own append. Defense in depth — the
+          # generated TOOLS region is newline-free by construction.
+          tdelim="TOOLS_EOF_$(date +%s%N)_$$"
+          { printf 'tools<<%s\n' "$tdelim"; printf '%s\n' "${TOOLS}${EXTRA}"; printf '%s\n' "$tdelim"; } >> "$GITHUB_OUTPUT"
+
+      # Compose the implement-tier prompt (issue #1170): prepend the engine-ground-truth
+      # block so the agent carries the exact resolved allowed-command list in its own
+      # prompt and can self-diagnose a silently-refused command against it, instead of
+      # guessing. Rendered through the SAME shared helper the review tiers use
+      # (scripts/render-grounding-block.sh), in MODE=implement — so there is no second
+      # copy of the allowed-tools text (the coupled-mirror hazard the block avoids). The
+      # implement mode omits the review-only CI and trusted-source-displacement sections.
+      # Verify the OUTCOME (a non-empty block), not the file's existence: a truncated
+      # vendored copy that exits 0 printing nothing falls back to the bare prompt — the
+      # pre-#1170 behavior — rather than shipping an empty block. This does NOT make a
+      # denial visible at the moment it happens and does not change the matcher's
+      # response; it only gives the agent the list to check against.
+      #
+      # The three-way selection (renderer absent / renderer produced nothing / compose
+      # and publish) lives in scripts/compose-implement-prompt.sh, NOT inline here, so the
+      # suite can drive each arm and the arm ORDER — CLAUDE.md's inline-shell-extraction
+      # convention: a grep-pin on one of the two ::warning:: literals is not coverage of
+      # the selection that chooses between them. Vendored copy, repo-path fallback for a
+      # self-repo run, exactly like the Stop-refresher step below.
+      - name: Compose implement grounding block
+        id: compose
+        env:
+          ALLOWED_TOOLS: ${{ steps.tools.outputs.tools }}
+          NUMBER: ${{ needs.gate.outputs.number }}
+        run: |
+          set -euo pipefail
+          H=.prflow/vendor/prflow/scripts/compose-implement-prompt.sh
+          [ -f "$H" ] || H=scripts/compose-implement-prompt.sh
+          # The helper always exits 0 by contract (a missing/empty block degrades to the
+          # bare prompt, it never fails the job), so this tail can only absorb a composer
+          # absent from BOTH paths — a partial vendor slice — which must degrade the same
+          # way rather than failing the step under the runner's `-e` shell.
+          bash "$H" || echo "::warning::devflow: compose-implement-prompt.sh could not be invoked at either the vendored or repo path — the implement prompt carries no engine-ground-truth block this run" >&2
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
@@ -1296,7 +1361,11 @@ jobs:
           # action never depends on `@claude` or on reading the raw body.
           # Anthropic's stock claude.yml (tag mode) therefore never double-fires
           # on a bare `/devflow:implement <n>` comment.
-          prompt: ${{ format('/prflow:implement {0}', needs.gate.outputs.number) }}
+          # The `Compose implement grounding block` step prepends the
+          # engine-ground-truth block (issue #1170); it falls back to the bare
+          # `/prflow:implement <n>` prompt whenever the block could not be composed,
+          # so a missing/empty renderer never blocks the run.
+          prompt: ${{ steps.compose.outputs.prompt || format('/prflow:implement {0}', needs.gate.outputs.number) }}
 
           # Agent mode is silent by default; surface a progress comment so the
           # requester sees the run was picked up (applies to all paths now).
@@ -1333,167 +1402,19 @@ jobs:
           path_to_claude_code_executable: ${{ needs.config.outputs.claude_code_executable }}
           # claude_args head is a COMPUTED string (steps.cargs): --model always,
           # --effort conditional on effort_supported (issue #313). The --allowed-tools
-          # tail below is a GENERATED region — do NOT hand-edit it. It is compiled from
-          # the `implement` profile in lib/capability-profiles.json by
-          # lib/generate-capability-profiles.py; change a grant there and regenerate.
-          # The banner comment on the line above carries the manifest_version + the
-          # region's sha256; lib/test/run.sh's --check turns any drift RED before merge
-          # (devflow-runner.yml/devflow.yml/matcher-probe.yml are generated from the same
-          # manifest, so the former "keep in sync by hand" copies no longer exist).
-          # allowed_tools_extra splices inside the closing quote.
-          # Reachable bundled helpers from skills/review*/SKILL.md are granted here as
-          # vendored literals because Phase 3 runs the review engine INLINE under this
-          # allowlist (#484) — otherwise the engine silently refuses them (#363). The
-          # lib/test/run.sh #484 guard deliberately audits all shared fenced source,
-          # including standalone-only Phase 4.4, so every audited head is granted or
-          # withheld with rationale even when normal inline control flow cannot reach it.
-          # devflow-capability-manifest: region=implement manifest_version=17 sha256=c78d54331922d3e740e9b094a00c2dc4736587a791287c1ec127d8eda923e776
+          # tail consumes the `Resolve allowed-tools` step's output (issue #1170) —
+          # the hoisted, GENERATED `implement` region now lives in that step, so the
+          # grounding block and this flag quote the SAME resolved string and cannot
+          # drift. Change a grant in lib/capability-profiles.json and regenerate; the
+          # banner + --check gate live with the TOOLS='…' assignment in the step above
+          # (devflow-runner.yml/devflow.yml/matcher-probe.yml are generated from the
+          # same manifest). Reachable bundled helpers from skills/review*/SKILL.md are
+          # granted in that region as vendored literals because Phase 3 runs the review
+          # engine INLINE under this allowlist (#484) — otherwise the engine silently
+          # refuses them (#363).
           claude_args: >-
             ${{ steps.cargs.outputs.args }}
-            --allowed-tools
-            "Read,
-            Write,
-            Edit,
-            Glob,
-            Grep,
-            LS,
-            Skill,
-            Agent,
-            TodoWrite,
-            EnterPlanMode,
-            ExitPlanMode,
-            WebFetch,
-            WebSearch,
-            Bash(git add:*),
-            Bash(git commit:*),
-            Bash(git push:*),
-            Bash(git pull:*),
-            Bash(git fetch:*),
-            Bash(git ls-remote:*),
-            Bash(git status:*),
-            Bash(git diff:*),
-            Bash(git log:*),
-            Bash(git show:*),
-            Bash(git hash-object:*),
-            Bash(git checkout:*),
-            Bash(git branch:*),
-            Bash(git stash:*),
-            Bash(git rm:*),
-            Bash(git mv:*),
-            Bash(git restore:*),
-            Bash(git revert:*),
-            Bash(git blame:*),
-            Bash(git ls-files:*),
-            Bash(git rev-parse:*),
-            Bash(git merge-base:*),
-            Bash(git merge:*),
-            Bash(gh pr create:*),
-            Bash(gh pr edit:*),
-            Bash(gh pr comment:*),
-            Bash(gh pr diff:*),
-            Bash(gh pr view:*),
-            Bash(gh pr ready:*),
-            Bash(gh pr list:*),
-            Bash(gh pr checks:*),
-            Bash(gh pr status:*),
-            Bash(gh pr reopen:*),
-            Bash(gh issue view:*),
-            Bash(gh issue comment:*),
-            Bash(gh issue list:*),
-            Bash(gh issue edit:*),
-            Bash(gh issue create:*),
-            Bash(gh issue reopen:*),
-            Bash(gh issue status:*),
-            Bash(gh search:*),
-            Bash(gh label list:*),
-            Bash(gh repo view:*),
-            Bash(gh run view:*),
-            Bash(gh run list:*),
-            Bash(gh workflow view:*),
-            Bash(gh workflow list:*),
-            Bash(gh api:*),
-            Bash(jq:*),
-            Bash(.prflow/vendor/prflow/scripts/run-jq.sh:*),
-            Bash(.prflow/vendor/prflow/scripts/config-get.sh:*),
-            Bash(.prflow/vendor/prflow/scripts/workpad.py:*),
-            Bash(.prflow/vendor/prflow/scripts/seed-review-progress.sh:*),
-            Bash(.prflow/vendor/prflow/scripts/verification-flight.py:*),
-            Bash(.prflow/vendor/prflow/scripts/reception-record.py:*),
-            Bash(.prflow/vendor/prflow/scripts/check-completion-evidence.py:*),
-            Bash(.prflow/vendor/prflow/scripts/parse-acs.py:*),
-            Bash(.prflow/vendor/prflow/scripts/check-verified-premises.py:*),
-            Bash(.prflow/vendor/prflow/scripts/preflight.py:*),
-            Bash(.prflow/vendor/prflow/scripts/branch-for-issue.py:*),
-            Bash(.prflow/vendor/prflow/scripts/update-branch-checkpoint.sh:*),
-            Bash(.prflow/vendor/prflow/scripts/file-deferrals.py:*),
-            Bash(.prflow/vendor/prflow/scripts/discover-deferral-manifests.py:*),
-            Bash(.prflow/vendor/prflow/scripts/match-deferrals.py:*),
-            Bash(.prflow/vendor/prflow/scripts/resolve-review-overrides.py:*),
-            Bash(.prflow/vendor/prflow/scripts/apply-labels.sh:*),
-            Bash(.prflow/vendor/prflow/scripts/ensure-label.sh:*),
-            Bash(.prflow/vendor/prflow/scripts/apply-pr-triggerer.sh:*),
-            Bash(.prflow/vendor/prflow/scripts/apply-issue-dependencies.py:*),
-            Bash(.prflow/vendor/prflow/scripts/resolve-existing-pr.sh:*),
-            Bash(.prflow/vendor/prflow/lib/efficiency-trace.sh:*),
-            Bash(.prflow/vendor/prflow/scripts/stale-prose-lint.py:*),
-            Bash(.prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh:*),
-            Bash(.prflow/vendor/prflow/scripts/post-review-verdict.sh:*),
-            Bash(.prflow/vendor/prflow/scripts/match-lint-adjudications.py:*),
-            Bash(.prflow/vendor/prflow/scripts/normalize-verdicts.py:*),
-            Bash(.prflow/vendor/prflow/scripts/load-prompt-extension.sh:*),
-            Bash(.prflow/vendor/prflow/scripts/react-to-trigger.sh:*),
-            Bash(.prflow/vendor/prflow/scripts/extract-doc-needed-paths.sh:*),
-            Bash(pip install:*),
-            Bash(pip:*),
-            Bash(python:*),
-            Bash(python3:*),
-            Bash(python -m:*),
-            Bash(python3 -m:*),
-            Bash(ruff:*),
-            Bash(ruff check:*),
-            Bash(ruff format:*),
-            Bash(pytest:*),
-            Bash(mypy:*),
-            Bash(grep:*),
-            Bash(rg:*),
-            Bash(find:*),
-            Bash(wc:*),
-            Bash(sort:*),
-            Bash(uniq:*),
-            Bash(cut:*),
-            Bash(tr:*),
-            Bash(xargs:*),
-            Bash(awk:*),
-            Bash(sed:*),
-            Bash(diff:*),
-            Bash(cmp:*),
-            Bash(comm:*),
-            Bash(cat:*),
-            Bash(head:*),
-            Bash(tail:*),
-            Bash(less:*),
-            Bash(ls:*),
-            Bash(tree:*),
-            Bash(file:*),
-            Bash(stat:*),
-            Bash(date:*),
-            Bash(pwd:*),
-            Bash(realpath:*),
-            Bash(dirname:*),
-            Bash(basename:*),
-            Bash(which:*),
-            Bash(type:*),
-            Bash(env:*),
-            Bash(echo:*),
-            Bash(printf:*),
-            Bash(test:*),
-            Bash(touch:*),
-            Bash(mkdir:*),
-            Bash(rmdir:*),
-            Bash(rm:*),
-            Bash(mv:*),
-            Bash(cp:*),
-            Bash(tee:*)${{ needs.config.outputs.allowed_tools_extra }}"
+            --allowed-tools "${{ steps.tools.outputs.tools }}"
 
       # Retire the detached credential refresher (issue #487). Best-effort,
       # always() so it runs on every exit path. The kill-by-pidfile, log-tail, and
