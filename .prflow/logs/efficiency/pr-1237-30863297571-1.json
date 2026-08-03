@@ -123,5 +123,57 @@
       "iter": 5,
       "phases": "unavailable"
     }
-  ]
+  ],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.72",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 10.188327000000001,
+    "tokens": {
+      "input_tokens": 91,
+      "output_tokens": 32191,
+      "cache_read_input_tokens": 7911425,
+      "cache_creation_input_tokens": 223363,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 144,
+        "outputTokens": 51566,
+        "cacheReadInputTokens": 9313879,
+        "cacheCreationInputTokens": 544625,
+        "webSearchRequests": 0,
+        "costUSD": 10.188327000000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 54,
+    "duration_ms": 638574
+  },
+  "permission_denials": {
+    "count": 4,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "printf 'run=%s attempt=%s\\n' \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1207 --pr 1237 2>.prflow/tmp/review/pr-1237/30863297571-1/acs.err ; echo \"acs-rc=$?\"",
+      "mkdir -p .prflow/tmp\nrm -f .prflow/tmp/review-dirty-tree-before .prflow/tmp/review-dirty-tree-disabled 2>/dev/null\ngit status --porcelain -z > .prflow/tmp/review-dirty-tree-before\ngit hash-object .prflow/tmp/review-dirty-tree-before"
+    ],
+    "total": 4,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
 }
