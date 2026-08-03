@@ -436,19 +436,6 @@ def _report(out: Path, top: int, run_sh: "Path | None") -> int:
     return 0
 
 
-def _exit_status(wait_status: int) -> int:
-    """`Popen.wait()`'s status as a SHELL exit status.
-
-    Delegates to the shared `signal_launcher.exit_status` (issue #1216) so the
-    signal-death → `128 + N` translation has a single source. `wait()` reports a
-    signal death as `-N`, and `sys.exit(-15)` wraps modulo 256 to 241 — where
-    `bash lib/test/run.sh` killed by that same SIGTERM exits 143. Left
-    untranslated, a profiled run does NOT fail the way an unprofiled one does,
-    which is the promise the module docstring makes.
-    """
-    return _shared_exit_status(wait_status)
-
-
 def _run(args: argparse.Namespace) -> int:
     root = _repo_root(Path(__file__).resolve().parent)
     run_sh = root / "lib" / "test" / "run.sh"
@@ -511,8 +498,11 @@ def _run(args: argparse.Namespace) -> int:
     # One conversion, here, so the `run` subcommand, the emitted run.json, the
     # printed report and main()'s return are all the SAME number — a re-rendered
     # report that said `rc=-15` about a process the shell saw exit 143 would be a
-    # second, disagreeing account of one event.
-    rc = _exit_status(proc.wait())
+    # second, disagreeing account of one event. The shared `exit_status` (issue
+    # #1216) owns the signal-death → `128 + N` translation: `wait()` reports a
+    # signal death as `-N`, and `sys.exit(-15)` would wrap modulo 256 to 241 where
+    # `bash lib/test/run.sh` killed by that SIGTERM exits 143.
+    rc = _shared_exit_status(proc.wait())
     end = time.monotonic()
     prof.close(end - prev)
     total = end - t0
