@@ -45651,10 +45651,49 @@ assert_eq "#1072 lint: the same list plus one audited path audits 1 of 1 (floor 
 assert_eq "#1072 lint: an agents/ path is audited (second prefix, reported like skills/)" "yes" \
   "$(case "$(sp_run "$SP_SIMPLE" agents/unmarked-agent.md)" in "rc=1|"*"agents/unmarked-agent.md:1:"*) echo yes ;; *) echo no ;; esac)"
 # A NUL-carrying file is a fail-closed skip, never absorbed into a clean pass.
-assert_eq "#1072 lint: a NUL-carrying file is a fail-closed skip" "yes" \
-  "$(case "$(sp_run "$SP_SIMPLE" skills/nul.md)" in "rc=1|"*"SKIPPED skills/nul.md"*) echo yes ;; *) echo no ;; esac)"
-assert_eq "#1072 fixture integrity: the NUL fixture still carries a NUL byte" "yes" \
-  "$(python3 -c 'import pathlib,sys; print("yes" if b"\x00" in pathlib.Path(sys.argv[1]).read_bytes() else "no")' "$SP_FX/skills/nul.md")"
+#
+# The NUL fixture is GENERATED here rather than tracked. Its former tracked path was
+# lib/test/fixtures/shipped-pruned-path/skills/nul.md, and BOTH of that path's properties are
+# hazards to a consumer: `nul` is a Windows reserved device-name stem, which git's own checkout
+# path validation refuses there (`error: invalid path '<path>'`), and the file's bytes carry a
+# NUL. This repository is published as a marketplace whose plugin `source` is `./`, so the whole
+# tree is the plugin — one unwriteable path takes `claude plugin marketplace add/update` down for
+# every consumer on that platform, and lib/test being pruned from the vendor slice does not help,
+# because the refusal happens at clone/checkout time, before any pruning. Generating the fixture
+# removes both properties from the index at once: nothing about this assertion needs the file to
+# be tracked, only for a file whose bytes carry a NUL to exist when the lint reads it.
+#
+# The root comes from git_sandbox for its fail-closed sentinel (no git is run inside it): on an
+# mktemp failure the mkdir below fails with ENOTDIR, the lint then reports an `unreadable` skip
+# rather than the NUL skip, and the reason-specific assertion goes RED instead of passing on a
+# fixture that never materialized.
+SP_NUL_ROOT="$(git_sandbox '#1072 generated NUL fixture root')"
+mkdir -p "$SP_NUL_ROOT/skills" 2>/dev/null
+printf 'refers to lib/test/run.sh\000 with a NUL byte\n' > "$SP_NUL_ROOT/skills/nul-byte.md" 2>/dev/null
+# The control writes the SAME line with the NUL byte removed, so the pair differs in exactly one
+# byte. It is what attributes the skip to the NUL rather than to the generated root, the file
+# name, or the --files-from plumbing: without the NUL the file is scanned to completion and its
+# `lib/test` reference is REPORTED, which a skipped file's output can never look like.
+printf 'refers to lib/test/run.sh with a NUL byte\n' > "$SP_NUL_ROOT/skills/no-nul.md" 2>/dev/null
+sp_run_root() {  # <root> <slice> <path…> -> "rc=<n>|<stdout+stderr>"
+  local root="$1" slice="$2"; shift 2
+  local list out rc
+  list="$(probe_tmp '#1072 generated fixture list')" || return 0
+  printf '%s\n' "$@" > "$list"
+  out="$(python3 "$SP_LINT" --root "$root" --files-from "$list" --slice-source "$slice" 2>&1)"; rc=$?
+  rm -f "$list"
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+assert_eq "#1072 lint: a NUL-carrying file is a fail-closed skip naming the NUL reason" "yes" \
+  "$(case "$(sp_run_root "$SP_NUL_ROOT" "$SP_SIMPLE" skills/nul-byte.md)" in
+       "rc=1|"*"SKIPPED skills/nul-byte.md: not a UTF-8-superset text file (NUL bytes"*) echo yes ;;
+       *) echo no ;; esac)"
+assert_eq "#1072 lint: the same line without the NUL byte is scanned and reported (NUL-skip control)" "yes" \
+  "$(case "$(sp_run_root "$SP_NUL_ROOT" "$SP_SIMPLE" skills/no-nul.md)" in
+       *"SKIPPED"*) echo no ;;
+       "rc=1|skills/no-nul.md:1: references pruned path 'lib/test'"*) echo yes ;;
+       *) echo no ;; esac)"
+rm -rf "$SP_NUL_ROOT"
 # test_slice_source_independent_of_root (AC12): the run reads the FIXTURE slice, not the repo's —
 # proven by the reported prune set being the fixture's single member, not the repo's three.
 assert_eq "#1072 lint: --slice-source is read independently of --root" "yes" \
