@@ -45114,12 +45114,21 @@ for job in doc.get("jobs", {}).values():
     for s in job.get("steps", []) or []:
         if str(s.get("uses") or "").startswith("anthropics/claude-code-action"):
             settings = (s.get("with") or {}).get("settings")
-            if isinstance(settings, str) and settings.strip():
+            # Read the env from either the `settings: |` JSON block-scalar (a string)
+            # or a native YAML mapping (a dict), mirroring the #908 block's form-
+            # robustness so a re-authored mapping form does not RED a valid config.
+            parsed = None
+            if isinstance(settings, dict):
+                parsed = settings
+            elif isinstance(settings, str) and settings.strip():
                 try:
-                    env = (json.loads(settings) or {}).get("env") or {}
-                    val = env.get("BASH_MAX_TIMEOUT_MS")
+                    parsed = json.loads(settings)
                 except (ValueError, TypeError):
-                    val = None
+                    parsed = None
+            if isinstance(parsed, dict):
+                env = parsed.get("env") or {}
+                if isinstance(env, dict):
+                    val = env.get("BASH_MAX_TIMEOUT_MS")
 # Accept only a finite integer-valued string strictly above the 600000 ms CLI default
 # (the < 10**9 bound enforces "bounded, not a removal" — issue #1179's deliberate cap).
 try:
@@ -45129,6 +45138,12 @@ except (ValueError, TypeError):
 PY
 ) || _1179_CEILING="extractor-failed"   # fail CLOSED: a parse error/unexpected shape must never yield the passing value
   assert_eq "#1179: devflow-implement.yml sets a finite BASH_MAX_TIMEOUT_MS > 600000 ms via the claude-code-action settings env (AC1)" "ok" "$_1179_CEILING"
+else
+  # No grep fallback is meaningful for "finite int > 600000", so on a host lacking
+  # python3/PyYAML this guard SELF-SKIPS as host-capability rather than vanishing into
+  # a clean pass (#456: a silently-absent guard is never a clean pass). PyYAML is a
+  # suite prerequisite, so CI always arms it.
+  skip "#1179 finite BASH_MAX_TIMEOUT_MS > 600000 via settings env (AC1)" host-capability "python3/PyYAML unavailable — cannot parse the workflow settings env"
 fi
 assert_eq "#908 AC2: HOOK_TARGETS (harden-stop-hooks.sh) already lists the guard script" "yes" \
   "$(grep -qF 'stop-hook-probe.sh scripts/pretooluse-shape-guard.py' "$LIB/../scripts/harden-stop-hooks.sh" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- pins the guard's adjacency inside the HOOK_ENTRY_TARGETS/HOOK_TARGETS assignment lines specifically (a code-only substring, never the file's prose comments mentioning the same script name), the AC2 precondition that makes the settings-input hook inert unless the script is a hardened/trusted target
