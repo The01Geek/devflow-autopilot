@@ -164,7 +164,7 @@
       "owner": "review-stall-backstop"
     },
     "scripts/agents-seam-probe-verdict.py": {
-      "note": "issue #610 cloud seam-probe verdict core; driven directly in lib/test/run.sh (asv arms + fail-open matrix)",
+      "note": "issue #610 cloud seam-probe verdict core; every arm is driven from the review-stall-backstop module's probe-verdict section (asv arms + fail-open matrix + the issue #1177 INSTRUMENT_NOT_FIRED / verdict-inert-diagnostic arms) via `lib/test/run-module.sh review-stall-backstop`",
       "owner": "unmodularized"
     },
     "scripts/analyze-implement-runs.py": {
@@ -865,6 +865,10 @@
     "1175": {
       "note": "issue #1175: the workflow-side stale-REJECT dismissal net (scripts/dismiss-stale-rejections-net.sh + devflow.yml command-job wiring); reuses the HEAD-scoped, fail-closed derive-review-verdict.sh and dispatches dismiss-stale-rejections.sh only on a positively-determined APPROVE, driven per gate arm in the #1175 section of lib/test/modules/review-trigger-helpers.sh",
       "owner": "review-trigger-helpers"
+    },
+    "1177": {
+      "note": "",
+      "owner": "review-stall-backstop"
     },
     "126": {
       "note": "",

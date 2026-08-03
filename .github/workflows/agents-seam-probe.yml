@@ -31,8 +31,16 @@ name: Agents seam probe
 #   SEAM_PROVEN    (both facts; requires the human --adjudicated-governed flag) → SHIP
 #                  the applied arm and flip the cloud per-agent row off honest fallback.
 #   SEAM_FORWARDED (fact i proven, fact ii pending human adjudication) → DO NOT SHIP.
-#   SEAM_UNPROVEN  (--agents not forwarded) → DO NOT SHIP; honest fallback stays.
-#   INCONCLUSIVE   (nothing measured) → re-run.
+#   SEAM_UNPROVEN  (--agents affirmatively NOT forwarded — the refusal marker reached the
+#                  record, or a denial named the probe subagent) → DO NOT SHIP; honest
+#                  fallback stays.
+#   INSTRUMENT_NOT_FIRED (issue #1177 — the subagent was dispatched but NEITHER marker
+#                  reached the record, so Step 2 below never executed) → NOTHING was
+#                  measured about the seam in either direction; re-dispatch. This is
+#                  deliberately NOT reported as a seam negative: both of Step 2's arms run
+#                  through a model-issued Bash echo the model may skip, and four of the
+#                  eight successful 2026-07-21 dispatches did exactly that.
+#   INCONCLUSIVE   (nothing measured, no dispatch even attempted) → re-run.
 # Until a dispatch records SEAM_PROVEN, the applied arm does NOT ship and every tier
 # records the honest fallback documented in docs/review-agent-overrides.md. The current
 # recorded result and the decision rule live in docs/agents-seam-probe.md — the evidence
