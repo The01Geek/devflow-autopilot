@@ -1,0 +1,116 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-03T23:30:00Z",
+  "fix_commit_sha": "6d40ed22",
+  "fix_files": [
+    ".prflow/prompt-extensions/implement.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:comment-analyzer",
+    "prflow:silent-failure-hunter",
+    "prflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "'the coordinator's process group is the handle' conflates per-shard groups with the coordinator's; each shard is its own process-group leader and the coordinator's traps forward the signal",
+      "defect_signature": {
+        "file": ".prflow/prompt-extensions/implement.md",
+        "line_range": [
+          209,
+          210
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 3,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "'directory name is the PID' imprecise; it is run-<pid>-<n>",
+      "defect_signature": {
+        "file": ".prflow/prompt-extensions/implement.md",
+        "line_range": [
+          209,
+          209
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "ps cross-check bounds risk to an old orphaned process but does not itself prove coordinator identity on a recycled PID; fails safe (leave alone if unresolved)",
+      "defect_signature": {
+        "file": ".prflow/prompt-extensions/implement.md",
+        "line_range": [
+          212,
+          212
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "6d40ed22"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "6d40ed22"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "advisory",
+      "source_file": ".prflow/prompt-extensions/implement.md",
+      "claim_text": "ps recipe does not itself confirm childless / coordinator identity on a recycled PID",
+      "skip_category": "uncategorized",
+      "evidence": "below fix threshold (important); fails safe per the section's own 'leave the process alone if the cross-check does not resolve'; the ps command form and its three attributes are the wording issue AC7 prescribes verbatim, so it is preserved as specified"
+    }
+  ],
+  "shadow": {
+    "ran_at": "2026-08-03T23:40:00Z",
+    "reviewed_sha": "6d40ed22",
+    "verdict": "APPROVE",
+    "coverage": "not_verified",
+    "reviewers_dispatched": [
+      "prflow:requesting-code-review"
+    ],
+    "reason": "budget-scoped shadow: one fresh independent final-pass reviewer over the post-fix committed diff; re-verified all run-parallel.sh claims TRUE against HEAD and confirmed no regression from the iteration-1 fix; no new findings",
+    "phase3_findings": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 2,
+    "new_corroborated_critical_count": 0
+  },
+  "telemetry": "unavailable"
+}
