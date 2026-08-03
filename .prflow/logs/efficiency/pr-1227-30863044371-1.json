@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1227",
+  "generated_at": "2026-08-03T23:59:55Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.72",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 14.349935000000004,
+    "tokens": {
+      "input_tokens": 71,
+      "output_tokens": 44851,
+      "cache_read_input_tokens": 6735731,
+      "cache_creation_input_tokens": 247722,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 228,
+        "outputTokens": 100060,
+        "cacheReadInputTokens": 13035825,
+        "cacheCreationInputTokens": 704068,
+        "webSearchRequests": 0,
+        "costUSD": 14.349935000000004,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 49,
+    "duration_ms": 1094367
+  },
+  "permission_denials": {
+    "count": 22,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review; echo \"ext-rc=$?\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "/home/runner/work/prflow/prflow/scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review",
+      "echo \"run-id=${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}\"; echo \"actions=$GITHUB_ACTIONS\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/seed-review-progress.sh \"1227\" \"\" .prflow/tmp/review/pr-1227/30863044371-1/review-wp.md ; echo \"seed-rc=$?\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/seed-review-progress.sh \"1227\" \"\" .prflow/tmp/review/pr-1227/30863044371-1/review-wp.md",
+      "mkdir -p .prflow/tmp\ngit status --porcelain -z > .prflow/tmp/review-dirty-tree-before && git hash-object .prflow/tmp/review-dirty-tree-before",
+      "for f in scripts/workpad.py skills/implement/phases/phase-3-review.md skills/review-and-fix/SKILL.md; do printf \"%s  \" \"$f\"; sha256sum \"$f\" | cut -d' ' -f1; done",
+      "cd /tmp && rm -rf pr1227chk && cp -r /home/runner/work/prflow/prflow pr1227chk 2>/dev/null; cd pr1227chk && git apply /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1227/30863044371-1/diff.patch && echo \"APPLIED OK\" && sha256sum scripts/workpad.py skills/implement/phases/phase-3-review.md skills/review-and-fix/SKILL.md",
+      "rm -rf /tmp/pr1227chk && mkdir -p /tmp/pr1227chk && git archive HEAD | tar -x -C /tmp/pr1227chk && git apply --directory=/tmp/pr1227chk /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1227/30863044371-1/diff.patch 2>&1 | head; echo \"apply rc done\"",
+      "rm -rf /tmp/pr1227chk; mkdir -p /tmp/pr1227chk",
+      "rm -rf /tmp/pr1227chk",
+      "D=.prflow/tmp/pr1227chk; rm -rf \"$D\"; mkdir -p \"$D\"; git archive HEAD | tar -x -C \"$D\"; git apply --directory=\"$D\" .prflow/tmp/review/pr-1227/30863044371-1/diff.patch && echo APPLIED_OK",
+      "git archive HEAD -o .prflow/tmp/pr1227chk/head.tar",
+      "git show HEAD:scripts/workpad.py > .prflow/tmp/pr1227chk/workpad.py",
+      "git archive HEAD | tar -x -C .prflow/tmp/pr1227chk && echo EXTRACTED",
+      "git archive HEAD | tar -x -C .prflow/tmp/pr1227chk",
+      "git apply .prflow/tmp/review/pr-1227/30863044371-1/diff.patch",
+      "git apply --directory=.prflow/tmp/pr1227chk --include='scripts/workpad.py' --include='skills/*' --include='docs/*' --include='lib/*' --include='.changeset/*' .prflow/tmp/review/pr-1227/30863044371-1/diff.patch",
+      "cd .prflow/tmp/pr1227chk && patch -p1 --dry-run < ../review/pr-1227/30863044371-1/diff.patch",
+      "patch -d .prflow/tmp/pr1227chk -p1 -i /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1227/30863044371-1/diff.patch"
+    ],
+    "total": 22,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
