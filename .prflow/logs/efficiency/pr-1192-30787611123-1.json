@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1192",
+  "generated_at": "2026-08-03T05:43:14Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.63",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.9566384999999995,
+    "tokens": {
+      "input_tokens": 1058,
+      "output_tokens": 17867,
+      "cache_read_input_tokens": 2344501,
+      "cache_creation_input_tokens": 159755,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 1090,
+        "outputTokens": 28143,
+        "cacheReadInputTokens": 3366302,
+        "cacheCreationInputTokens": 314461,
+        "webSearchRequests": 0,
+        "costUSD": 4.9566384999999995,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 24,
+    "duration_ms": 373728
+  },
+  "permission_denials": {
+    "count": 9,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review",
+      "echo \"=== base (main) phase-4-documentation.md size ===\"\ngit cat-file -p 52ec9acb295d89648529c478b2b075e5c060f866:skills/implement/phases/phase-4-documentation.md | wc -c\necho \"=== base implement.md ===\"\ngit cat-file -p 52ec9acb295d89648529c478b2b075e5c060f866:.prflow/prompt-extensions/implement.md | wc -c\necho \"=== head implement.md ===\"\ngit cat-file -p 74908354d8e054160897ff8e0d7917d2bbd024a7:.prflow/prompt-extensions/implement.md | wc -c\necho \"=== base review-and-fix.md / head ===\"\ngit cat-fi …[per-command-truncated]",
+      "echo \"=== sha256 of edited pinned files at PR head vs contract ===\"\nfor f in skills/implement/phases/phase-2-implement.md skills/implement/phases/phase-3-review.md skills/implement/phases/phase-4-documentation.md skills/review-and-fix/references/fixing.md; do\n  h=$(git cat-file -p \"74908354d8e054160897ff8e0d7917d2bbd024a7:$f\" | sha256sum | cut -d' ' -f1)\n  c=$(git show \"74908354d8e054160897ff8e0d7917d2bbd024a7:scripts/devflow-cloud-writer-contract.json\" | grep \"\\\"$f\\\"\" | grep -oE '[0-9a-f]{64}') …[per-command-truncated]",
+      "cd /tmp && cp /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1192/local/diff.patch d.patch && git apply --3way --include='skills/implement/phases/phase-4-documentation.md' /tmp/d.patch 2>&1 | head; wc -c < skills/implement/phases/phase-4-documentation.md; git checkout -- skills/implement/phases/phase-4-documentation.md 2>/dev/null; echo done",
+      "tmp=$(mktemp -d); cp /home/runner/work/prflow/prflow/skills/implement/phases/phase-4-documentation.md \"$tmp/f.md\"; git -C /home/runner/work/prflow/prflow apply --include='skills/implement/phases/phase-4-documentation.md' --directory=\"$tmp\" 2>&1 | head; echo \"---\"; wc -c < \"$tmp/f.md\" 2>/dev/null || echo \"apply failed\"",
+      "cd /tmp || exit; f=/home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1192/local/diff.patch; grep -n '^-' \"$f\" | grep 'Establish final-tree completion evidence' ; echo \"==REMOVED==\"; grep '^-.*Establish final-tree' \"$f\" | sed 's/^-//' | wc -c; echo \"==ADDED==\"; grep '^+.*Establish final-tree' \"$f\" | sed 's/^+//' | wc -c",
+      "for x in skills/implement/phases/phase-2-implement.md skills/implement/phases/phase-3-review.md skills/review-and-fix/references/fixing.md; do printf '%s ' \"$x\"; wc -c < \"$x\"; done"
+    ],
+    "total": 9,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
