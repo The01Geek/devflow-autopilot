@@ -2022,8 +2022,12 @@ jobs:
           fi
           # The helper reports one token on stdout and its diagnostics on stderr; it
           # always exits 0. The token is the observable outcome — echo it as a notice,
-          # and warn on the arms where a REJECT may still block the pull request so a
-          # maintainer sees it without reading the step log.
+          # and warn on the UNEXPECTED arms where a REJECT may still block the pull
+          # request (a genuine dismiss failure, a refused dismissal, or a missing helper)
+          # so a maintainer sees it without reading the step log. The legitimate-refusal
+          # tokens are deliberately NOT warned: no-dismiss-reject is a live change-request
+          # that must stand, and no-dismiss-undetermined is the expected verdict-less run —
+          # warning on either would spam every ordinary review.
           OUTCOME=$(bash "$NET" "$REPO" "$PR_NUMBER" "${ENGINE_ERROR:-false}" || true)
           echo "::notice::stale-REJECT net: ${OUTCOME:-<no output>} (PR #$PR_NUMBER)"
           case "$OUTCOME" in

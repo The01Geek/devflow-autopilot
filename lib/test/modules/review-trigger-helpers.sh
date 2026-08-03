@@ -3629,7 +3629,7 @@ for _a in "$@"; do [ "$_prev" = "--jq" ] && _f="$_a"; _prev="$_a"; done
 emit() { if [ -n "$_f" ]; then jq -r "$_f" "$1"; else cat "$1"; fi; }
 j="$*"
 case "$j" in
-  *"/dismissals"*) echo "DISMISSED $*" >> "$S1175_STATE/dismissals.log"; exit 0 ;;
+  *"/dismissals"*) echo "DISMISSED $*" >> "$S1175_STATE/dismissals.log"; exit "${S1175_DISMISS_PUT_RC:-0}" ;;
   *"/reviews"*)  emit "$S1175_STATE/reviews.json"; exit 0 ;;
   *"/comments"*) emit "$S1175_STATE/comments.json"; exit 0 ;;
   *"/pulls/"*)   emit "$S1175_STATE/pull.json"; exit 0 ;;
@@ -3653,7 +3653,16 @@ s1175_approve_with_stale_reject() {
 }
 s1175_net() {  # <engine-is-error> -> prints the outcome token
   env DEVFLOW_GH="$S1175_ROOT/gh" S1175_STATE="$S1175_STATE" GITHUB_RUN_ID=RUN1175 \
+    S1175_DISMISS_PUT_RC="${S1175_DISMISS_PUT_RC:-0}" \
     bash "$S1175_NET" o/r 55 "$1" 2>/dev/null
+}
+# An APPROVED review on HEAD (last, so the deriver reads approve) PLUS an own-marker
+# REJECT on the CURRENT head — which the dismisser refuses as not-superseded (exit 3).
+s1175_approve_with_unsupersedable_reject() {
+  jq -n --arg h "$S1175_HEAD" \
+    '[{"id":55,"commit_id":$h,"state":"CHANGES_REQUESTED","body":("<!-- prflow:review-verdict head="+$h+" verdict=REJECT -->")},
+      {"id":56,"commit_id":$h,"state":"APPROVED","body":""}]' \
+    > "$S1175_STATE/reviews.json"
 }
 s1175_dismissals() { awk 'END{print NR}' "$S1175_STATE/dismissals.log" 2>/dev/null || echo 0; }
 
@@ -3696,22 +3705,51 @@ s1175_seed ""; jq -n --arg h "$S1175_HEAD" '[{"id":44,"commit_id":$h,"state":"AP
 assert_eq "#1175 net: an unresolvable HEAD sha refuses even with an APPROVE present" \
   "no-dismiss-undetermined" "$(s1175_net false)"
 
+# ── Exit-code→token mapping arms (the post-gate outcome tokens the deriver-gate arms
+# above never reach): a determined APPROVE whose dismisser exits 3 (a REJECT it cannot
+# show superseded — issue #1029) maps to `dismiss-refused`, and one whose dismissal PUT
+# fails (dismisser exit 1) maps to `dismiss-failed`. Without these, a swapped `3)`/`*)`
+# arm in the helper's exit-code case would ship green.
+s1175_seed "$S1175_HEAD"; s1175_approve_with_unsupersedable_reject
+assert_eq "#1175 net: a determined APPROVE whose REJECT is on the current head maps to dismiss-refused (dismisser exit 3)" \
+  "dismiss-refused" "$(s1175_net false)"
+assert_eq "#1175 net: the dismiss-refused arm dismissed nothing (the live REJECT stands)" "0" "$(s1175_dismissals)"
+
+s1175_seed "$S1175_HEAD"; s1175_approve_with_stale_reject
+assert_eq "#1175 net: a determined APPROVE whose dismissal PUT fails maps to dismiss-failed (dismisser exit 1)" \
+  "dismiss-failed" "$(S1175_DISMISS_PUT_RC=1 s1175_net false)"
+
 # ── Always exits 0 (it runs under the workflow step's always()).
 s1175_seed "$S1175_HEAD"; s1175_approve_with_stale_reject
 S1175_RC=0; s1175_net false >/dev/null 2>&1 || S1175_RC=$?
 assert_eq "#1175 net: always exits 0" "0" "$S1175_RC"
 
 # ── Partial-copy degradation: the net present without a required sibling must refuse
-# (unavailable) and say so, never dismiss on an unestablished verdict.
+# (unavailable) and say so, never dismiss on an unestablished verdict. Two distinct
+# partial-copy shapes, because the two sibling-existence checks fire in order and the
+# first would otherwise mask the second:
+#   (a) DERIVER absent (the net alone in an empty dir) — the first check fires.
 S1175_ORPHAN="$(mktemp -d)"
 cp "$S1175_NET" "$S1175_ORPHAN/dismiss-stale-rejections-net.sh"
 S1175_ORPHAN_OUT="$(env DEVFLOW_GH="$S1175_ROOT/gh" GITHUB_RUN_ID=RUN1175 \
   bash "$S1175_ORPHAN/dismiss-stale-rejections-net.sh" o/r 55 false 2>&1)"
-assert_eq "#1175 net: a missing sibling helper degrades to unavailable (no dismissal)" "yes" \
+assert_eq "#1175 net: a missing deriver sibling degrades to unavailable (no dismissal)" "yes" \
   "$(printf '%s\n' "$S1175_ORPHAN_OUT" | grep -qx 'unavailable' && echo yes || echo no)"
-assert_eq "#1175 net: the missing-sibling degradation names the cause on stderr" "yes" \
-  "$(printf '%s\n' "$S1175_ORPHAN_OUT" | grep -qF 'missing/unreadable' && echo yes || echo no)"
+assert_eq "#1175 net: the missing-deriver degradation names the cause on stderr" "yes" \
+  "$(printf '%s\n' "$S1175_ORPHAN_OUT" | grep -qF 'derive-review-verdict.sh missing/unreadable' && echo yes || echo no)"
 rm -rf "$S1175_ORPHAN"
+#   (b) DERIVER present but DISMISSER absent — the SECOND check fires (the (a) shape
+#   masks it, so a swapped/dropped dismisser check would ship green without this arm).
+S1175_ORPHAN2="$(mktemp -d)"
+cp "$S1175_NET" "$S1175_ORPHAN2/dismiss-stale-rejections-net.sh"
+cp "$LIB/../scripts/derive-review-verdict.sh" "$S1175_ORPHAN2/derive-review-verdict.sh"
+S1175_ORPHAN2_OUT="$(env DEVFLOW_GH="$S1175_ROOT/gh" GITHUB_RUN_ID=RUN1175 \
+  bash "$S1175_ORPHAN2/dismiss-stale-rejections-net.sh" o/r 55 false 2>&1)"
+assert_eq "#1175 net: a missing dismisser sibling (deriver present) degrades to unavailable" "yes" \
+  "$(printf '%s\n' "$S1175_ORPHAN2_OUT" | grep -qx 'unavailable' && echo yes || echo no)"
+assert_eq "#1175 net: the missing-dismisser degradation names the dismisser on stderr" "yes" \
+  "$(printf '%s\n' "$S1175_ORPHAN2_OUT" | grep -qF 'dismiss-stale-rejections.sh missing/unreadable' && echo yes || echo no)"
+rm -rf "$S1175_ORPHAN2"
 rm -rf "$S1175_ROOT"
 
 # ── devflow.yml wiring, executed rather than grepped. Extract the shipped net block and
@@ -3763,6 +3801,17 @@ assert_eq "#1175 wiring: the outcome token is surfaced in a notice" "1" \
 S1175_WF_OUT="$(s1175_wf dismiss-failed)"
 assert_eq "#1175 wiring: a dismiss-failed outcome warns the PR may still be blocked" "1" \
   "$(grep -cF '::warning::stale-REJECT net' <<<"$S1175_WF_OUT" || true)"
+
+# The legitimate-refusal tokens (a live REJECT that must stand, an expected verdict-less
+# run) must NOT warn — they are the common, correct outcomes, and a case-label edit that
+# added them to the warn set would spam a maintainer on every ordinary review. Lock the
+# no-warning behavior for both.
+S1175_WF_OUT="$(s1175_wf no-dismiss-reject)"
+assert_eq "#1175 wiring: a no-dismiss-reject outcome emits no warning (the change-request is live, not stale)" "0" \
+  "$(grep -cF '::warning::' <<<"$S1175_WF_OUT" || true)"
+S1175_WF_OUT="$(s1175_wf no-dismiss-undetermined)"
+assert_eq "#1175 wiring: a no-dismiss-undetermined outcome emits no warning (the expected verdict-less run)" "0" \
+  "$(grep -cF '::warning::' <<<"$S1175_WF_OUT" || true)"
 
 # A missing net helper DEGRADES: warn, and never fail the step (Phase 4.4 stays the path).
 rm -f "$S1175_WF/.prflow/vendor/prflow/scripts/dismiss-stale-rejections-net.sh"
