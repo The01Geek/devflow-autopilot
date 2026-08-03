@@ -39779,22 +39779,24 @@ assert_eq "#1219 devflow_wf_job_has control: an unreadable file answers unreadab
 # vacuous `no` and the two negative pins above forbid nothing. Plant a bounded depth into a
 # copy of the claude job in BOTH spellings the widened pattern now covers and require the
 # same pattern to answer `yes`; the copy is discarded, so the real workflow is untouched.
-_I1219_MUT="$(probe_tmp '#1219 negative-pattern positive control')" || _I1219_MUT=""
-if [ -n "$_I1219_MUT" ] && [ "$_I1219_MUT" != /dev/null ]; then
-  sed 's/^          fetch-depth: 0$/          fetch-depth: 50/' "$_I1219_IMPL_YML" > "$_I1219_MUT/bare.yml"
-  sed "s/^          fetch-depth: 0$/          fetch-depth: '50'/" "$_I1219_IMPL_YML" > "$_I1219_MUT/quoted.yml"
-  assert_eq "#1219 negative-pattern control: a planted bare bounded depth answers yes" "yes" \
-    "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_MUT/bare.yml")"
-  assert_eq "#1219 negative-pattern control: a planted QUOTED bounded depth answers yes" "yes" \
-    "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_MUT/quoted.yml")"
-  # The mutated copies must otherwise still parse as the same job, or the two `yes` answers
-  # above could come from a `sed` that mangled the file rather than from the planted line.
-  assert_eq "#1219 negative-pattern control: the bare mutated copy lost its fetch-depth: 0" "no" \
-    "$(devflow_wf_job_has claude 'fetch-depth: 0' "$_I1219_MUT/bare.yml")"
-else
-  skip "#1219 negative-pattern positive control" host-capability \
-    "could not allocate a scratch dir for the mutated workflow copies"
-fi
+# git_sandbox, not probe_tmp: this needs a temp DIRECTORY to hold two mutated copies, and
+# probe_tmp allocates a FILE — redirecting into `<file>/bare.yml` is ENOTDIR, so the copies
+# would never exist and the matcher would answer `unreadable` against the expected `yes`.
+# (Learned the hard way: the first authoring used probe_tmp and went RED in CI.) On failure
+# git_sandbox records its own suite FAIL and returns a /dev/null-rooted sentinel, so the
+# redirects below fail closed rather than writing anywhere real.
+_I1219_MUT="$(git_sandbox '#1219 negative-pattern positive control')"
+_suite_tmp_dir "$_I1219_MUT"
+sed 's/^          fetch-depth: 0$/          fetch-depth: 50/' "$_I1219_IMPL_YML" > "$_I1219_MUT/bare.yml" 2>/dev/null
+sed "s/^          fetch-depth: 0$/          fetch-depth: '50'/" "$_I1219_IMPL_YML" > "$_I1219_MUT/quoted.yml" 2>/dev/null
+assert_eq "#1219 negative-pattern control: a planted bare bounded depth answers yes" "yes" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_MUT/bare.yml")"
+assert_eq "#1219 negative-pattern control: a planted QUOTED bounded depth answers yes" "yes" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_MUT/quoted.yml")"
+# The mutated copies must otherwise still parse as the same job, or the two `yes` answers
+# above could come from a `sed` that mangled the file rather than from the planted line.
+assert_eq "#1219 negative-pattern control: the bare mutated copy lost its fetch-depth: 0" "no" \
+  "$(devflow_wf_job_has claude 'fetch-depth: 0' "$_I1219_MUT/bare.yml")"
 unset _I1219_IMPL_YML _I1219_CMD_YML _I1219_MUT
 #
 # ci.yml: the shard job installs the Claude Code CLI, which is what ARMS the #671
