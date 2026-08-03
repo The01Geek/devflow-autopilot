@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1201",
+  "generated_at": "2026-08-03T18:29:17Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.66",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.20219325,
+    "tokens": {
+      "input_tokens": 2517,
+      "output_tokens": 17907,
+      "cache_read_input_tokens": 2120671,
+      "cache_creation_input_tokens": 160078,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 6016,
+        "outputTokens": 43135,
+        "cacheReadInputTokens": 2648858,
+        "cacheCreationInputTokens": 340275,
+        "webSearchRequests": 0,
+        "costUSD": 5.159895250000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 39933,
+        "outputTokens": 473,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.042298,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 21,
+    "duration_ms": 426974
+  },
+  "permission_denials": {
+    "count": 2,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=$GITHUB_RUN_ID ATTEMPT=$GITHUB_RUN_ATTEMPT ACTIONS=$GITHUB_ACTIONS REPO=$GITHUB_REPOSITORY\"; echo \"---base---\"; /home/runner/work/prflow/prflow/scripts/config-get.sh .base_branch main; echo \"---prview---\"; gh pr view 1201 --json headRefName,baseRefName,baseRefOid,headRefOid,body,title,state --jq '.'",
+      "RID=$(printf '%s' \"${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}\"); echo \"runid=$RID\"; mkdir -p \".prflow/tmp/review/pr-1201/$RID\"; gh pr diff 1201 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee \".prflow/tmp/review/pr-1201/$RID/diff.patch\" | wc -l"
+    ],
+    "total": 2,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
