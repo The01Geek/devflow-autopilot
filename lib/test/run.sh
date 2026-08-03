@@ -12934,8 +12934,12 @@ assert_eq "apply-pr-triggerer: cloud skew makes NO assignment POST (no account s
 assert_eq "apply-pr-triggerer: cloud skew never substitutes GITHUB_ACTOR" "yes" \
   "$(! grep -qF -- 'tokenowner' "$TMP_APT_SCRATCH/args" && echo yes || echo no)"
 
-# 3b) cloud sender entirely unset (older workflow) → same skew-safe skip
-APT_PR=42 apt_run GITHUB_RUN_ID=99
+# 3b) cloud sender entirely unset (older workflow) → same skew-safe skip.
+# DEVFLOW_TRIGGERING_USER is cleared explicitly (like case 3 above) rather than
+# left to ambient env: a live cloud run exports it (the triggering user), so an
+# inherited value would leak in and make the helper APPLY instead of skip — a
+# test-isolation leak, not a helper regression.
+APT_PR=42 apt_run GITHUB_RUN_ID=99 DEVFLOW_TRIGGERING_USER=
 assert_eq "apply-pr-triggerer: unset cloud sender (old workflow) → skipped no-triggering-user" "assignment: skipped no-triggering-user" "$APT_OUT"
 
 # 4) local lookup failure → skipped identity-lookup-failed
