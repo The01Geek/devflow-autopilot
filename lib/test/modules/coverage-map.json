@@ -249,6 +249,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/compose-implement-prompt.sh": {
+      "note": "issue #1170 implement-tier prompt composer (renderer-absent / empty-block / compose-and-publish selection extracted out of devflow-implement.yml); every arm and the arm order driven by the #1170 block in lib/test/run.sh",
+      "owner": "unmodularized"
+    },
     "scripts/compose-vendor-marketplace.sh": {
       "note": "issue #1049 implement-tier vendored-marketplace composition; covered by the #1049 block in lib/test/run.sh",
       "owner": "unmodularized"
@@ -845,6 +849,10 @@
     "1165": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "1170": {
+      "note": "",
+      "owner": "capability-profiles"
     },
     "1172": {
       "note": "",

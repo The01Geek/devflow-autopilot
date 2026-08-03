@@ -9286,11 +9286,11 @@ finally:
 assert_eq("#678 AC9-residual: ROOTS['review'] workflow restored after the undecodable arm",
           [], cwc.check_grant_sync())
 
-# (g) The IMPLEMENT profile binds a DIFFERENT scoper (implement_allowlist_block,
-# not tools_allowlist_line), so its refusal path is a separate arm — arms (b)/(c)
-# prove nothing about it. A refusal signalled by any mechanism other than
-# SystemExit would escape check_grant_sync as a traceback rather than a reported
-# violation, which is exactly what the conversion exists to prevent.
+# (g) The IMPLEMENT profile binds tools_allowlist_line since issue #1170 (its
+# allowlist was hoisted into a `Resolve allowed-tools` TOOLS='...' step), so its
+# region-scoping refusal path is exercised through the implement ROOTS entry here:
+# a workflow with no TOOLS='...' line must be reported as a violation (not a
+# traceback), naming its own extractor and cause.
 _gsr_impl = cwc.REPO_ROOT / ".prflow" / "tmp" / "gsr-678-noblock.yml"
 _gsr_orig_impl_wf = cwc.ROOTS["implement"]["workflow"]
 try:
@@ -9301,8 +9301,8 @@ try:
     assert_eq("#678 AC9-residual: the implement scoper's refusal is reported as a "
               "violation (not a traceback) and names its own extractor",
               True, any("grant source unavailable" in e
-                        and "implement_allowlist_block" in e
-                        and "no `--allowed-tools` allowlist block found" in e
+                        and "tools_allowlist_line" in e
+                        and "no `TOOLS='...'` allowlist line found" in e
                         for e in cwc.check_grant_sync()))
 finally:
     cwc.ROOTS["implement"]["workflow"] = _gsr_orig_impl_wf
@@ -9310,19 +9310,17 @@ finally:
 assert_eq("#678 AC9-residual: ROOTS['implement'] workflow restored after the implement-scoper arm",
           [], cwc.check_grant_sync())
 
-# (h) The MALFORMED-VALUE refusal shapes — a present-but-corrupt allowlist region
-# is the hand-corruptible input CLAUDE.md's adversarial-shape matrix governs, and
-# it is the shape a real bad edit most likely produces. Each must fail closed with
-# its own cause rather than yielding a partial region.
+# (h) The DUPLICATE-region refusal shape — a present-but-corrupt allowlist region is
+# the hand-corruptible input CLAUDE.md's adversarial-shape matrix governs. Since issue
+# #1170 the implement scoper is tools_allowlist_line (its allowlist is the hoisted
+# TOOLS='...' step), whose two refusal shapes are "no line" (arm (g) above) and "more
+# than one line": a second widened TOOLS='...' copy wins at runtime while a first-match
+# parse would audit the canonical leading one, so it must fail closed naming its cause.
 for _gsr_body, _gsr_label, _gsr_phrase in (
-        ("jobs:\n  a:\n    steps:\n      - run: x\n        args:\n          --allowed-tools\n"
-         "          Bash(git:*)\n",
-         "a value that does not begin with a quote",
-         "must begin with a quote"),
-        ("jobs:\n  a:\n    steps:\n      - run: x\n        args:\n          --allowed-tools\n"
-         '          "Bash(git:*)\n',
-         "an unterminated quoted value",
-         "no closing quote"),
+        ("jobs:\n  a:\n    steps:\n      - run: |\n          TOOLS='Read'\n"
+         "          TOOLS='Read, Bash(git:*)'\n",
+         "a duplicated TOOLS='...' line",
+         "expected exactly one"),
 ):
     try:
         _gsr_impl.parent.mkdir(parents=True, exist_ok=True)

@@ -37,10 +37,6 @@ WF = REPO_ROOT / ".github" / "workflows"
 
 REVIEW_LEADING = ["Read", "Glob", "Grep"]
 
-# The extras splice that terminates the implement --allowed-tools base list; preserved
-# verbatim (consumer-facing surface — must not change bytes).
-IMPLEMENT_SPLICE = '${{ needs.config.outputs.allowed_tools_extra }}"'
-
 BANNER_PREFIX = "# devflow-capability-manifest:"
 _BANNER_RE_TMPL = (
     r"# devflow-capability-manifest: region={rid} "
@@ -234,13 +230,11 @@ def banner_text(rid, version, tokens):
     )
 
 
-def serialize(tokens, style, indent=""):
+def serialize(tokens, style):
     if style == "comma":
         return ",".join(tokens)
     if style == "comma_space":
         return ", ".join(tokens)
-    if style == "implement":
-        return (",\n" + indent).join(tokens)
     die(f"internal: unknown serialization style {style!r}")
 
 
@@ -263,10 +257,18 @@ REGIONS = [
         "style": "comma_space",
     },
     {
+        # Hoisted from the `claude_args` inline `--allowed-tools` literal into a
+        # `Resolve allowed-tools` step output (issue #1170), so the implement tier's
+        # grounding block can quote the exact resolved list by construction — the same
+        # single-source shape the `command`/`runner-review` regions already use. The
+        # step appends `allowed_tools_extra` in shell (`${TOOLS}${EXTRA}`) and both the
+        # `claude_args` `--allowed-tools` and the grounding block consume that one output.
         "id": "implement",
         "file": WF / "devflow-implement.yml",
         "profile": "implement",
-        "kind": "implement",
+        "kind": "assign",
+        "var": "TOOLS",
+        "style": "comma_space",
     },
     {
         "id": "probe-review",
@@ -325,9 +327,6 @@ def _count_replacement_assignments(text, var):
             continue  # a derivation of the existing value, not a replacement
         count += 1
     return count
-
-
-IMPLEMENT_MARKER_RE = re.compile(r'--allowed-tools\n[ \t]*"')
 
 
 def _strip_banner_line(text, span):
@@ -422,69 +421,6 @@ def parse_assign_tokens(text, region):
     return body.split(",")
 
 
-IMPLEMENT_OPEN_RE = re.compile(
-    r'(--allowed-tools\n)([ \t]*)(")(.*?)(' + re.escape(IMPLEMENT_SPLICE) + r")",
-    re.S,
-)
-
-
-def process_implement(text, region, tokens, version):
-    rid = region["id"]
-    # Anchor uniqueness on the --allowed-tools marker (the flag on its own line
-    # immediately followed by the opening quote — NOT a mention in a comment).
-    marker_count = len(IMPLEMENT_MARKER_RE.findall(text))
-    if marker_count == 0:
-        die(f"region {rid}: anchor '--allowed-tools' not found in {region['file'].name}")
-    if marker_count > 1:
-        die(
-            f"region {rid}: anchor '--allowed-tools' is duplicated "
-            f"({marker_count} matches) in {region['file'].name}"
-        )
-    m = IMPLEMENT_OPEN_RE.search(text)
-    if not m:
-        die(
-            f"region {rid}: could not parse the quoted --allowed-tools base list up to "
-            "the extras splice (unterminated quote or missing "
-            "'${{ needs.config.outputs.allowed_tools_extra }}\"' splice)"
-        )
-    indent = m.group(2)
-    _check_no_crlf(m.group(4), rid)
-    new_body = serialize(tokens, "implement", indent)
-    text = (
-        text[: m.start()]
-        + m.group(1)
-        + indent
-        + '"'
-        + new_body
-        + IMPLEMENT_SPLICE
-        + text[m.end():]
-    )
-
-    # Banner: YAML comment immediately above the `claude_args:` key.
-    claude_re = re.compile(r"^([ \t]*)claude_args:", re.M)
-    cm_matches = list(claude_re.finditer(text))
-    if not cm_matches:
-        die(f"region {rid}: 'claude_args:' key not found in {region['file'].name}")
-    if len(cm_matches) > 1:
-        die(f"region {rid}: 'claude_args:' key is duplicated in {region['file'].name}")
-    cm = cm_matches[0]
-    bindent = cm.group(1)
-    banner = bindent + banner_text(rid, version, tokens)
-    ban_span = _existing_banner(text, bindent, rid)
-    if ban_span is not None:
-        text = _strip_banner_line(text, ban_span)
-        cm = claude_re.search(text)
-    return text[: cm.start()] + banner + "\n" + text[cm.start():]
-
-
-def parse_implement_tokens(text):
-    m = IMPLEMENT_OPEN_RE.search(text)
-    if not m:
-        return None
-    body = m.group(4)
-    return [t.strip() for t in body.split(",")]
-
-
 def parse_banner(text, rid):
     valid_re = re.compile(
         r"^[ \t]*" + _BANNER_RE_TMPL.format(rid=re.escape(rid)) + r"$", re.M
@@ -511,10 +447,7 @@ def compute_new_texts(version, resolved):
     for region in REGIONS:
         fp = region["file"]
         tokens = resolved[region["profile"]]
-        if region["kind"] == "assign":
-            new[fp] = process_assign(new[fp], region, tokens, version)
-        else:
-            new[fp] = process_implement(new[fp], region, tokens, version)
+        new[fp] = process_assign(new[fp], region, tokens, version)
     return originals, new
 
 
@@ -550,10 +483,7 @@ def do_check(version, resolved):
         # the still-canonical leading copy and pass clean. Refuse to verify an ambiguous
         # region exactly as generate refuses to write one, so an injected duplicate cannot
         # silently widen the reviewer boundary past the --check gate.
-        if region["kind"] == "assign":
-            ndup = _count_replacement_assignments(text, region["var"])
-        else:
-            ndup = len(IMPLEMENT_MARKER_RE.findall(text))
+        ndup = _count_replacement_assignments(text, region["var"])
         if ndup > 1:
             die(
                 f"region {rid}: anchor is duplicated ({ndup} matches) in {fp.name} during "
@@ -561,10 +491,7 @@ def do_check(version, resolved):
                 "duplicate assignment would win at bash runtime)"
             )
 
-        if region["kind"] == "assign":
-            found_tokens = parse_assign_tokens(text, region)
-        else:
-            found_tokens = parse_implement_tokens(text)
+        found_tokens = parse_assign_tokens(text, region)
         found_banner = parse_banner(text, rid)
 
         if found_tokens is None:

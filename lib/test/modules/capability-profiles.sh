@@ -120,8 +120,10 @@ _cap_fail "#561 reviewer boundary: widening token is named in the breadcrumb" re
 # non-zero + breadcrumb + the target files left byte-unchanged after the failed run.
 _cap_fail "#561 T7 region: anchor absent"                anchor-absent          generate "anchor REVIEW=' not found" unchanged
 _cap_fail "#561 T7 region: anchor duplicated"            anchor-duplicated      generate "is duplicated" unchanged
-_cap_fail "#561 T7 region: implement quote unterminated" implement-unterminated generate "unterminated quote or missing" unchanged
-_cap_fail "#561 T7 region: splice expression absent"     splice-absent          generate "unterminated quote or missing" unchanged
+# The implement region is a plain TOOLS=' assignment since issue #1170 (hoisted into
+# devflow-implement.yml's `Resolve allowed-tools` step), so it is covered by the same
+# duplicate-anchor refusal the other assign regions get — here on devflow-implement.yml.
+_cap_fail "#1170 T7 region: implement anchor duplicated" implement-anchor-duplicated generate "is duplicated" unchanged
 _cap_fail "#561 T7 region: CRLF line ending in a region" crlf-in-region         generate "CRLF line ending" unchanged
 _cap_fail "#561 T7 region: target workflow file absent"  target-file-absent     generate "target workflow file absent" unchanged
 _cap_fail "#561 T7 region: banner present but malformed" banner-malformed       generate "banner line for this region is present but malformed" unchanged
@@ -302,13 +304,20 @@ assert_eq "#561 T8 assertion does NOT fire on a comment naming the manifest (neg
 rm -f "$CAP_RT_POS" "$CAP_RT_NEG"
 
 # T13 — #561 review-follow-up hardening (PR #588 review-and-fix).
-# T13a/b: an injected DUPLICATE anchor (a second `TOOLS='…widened…'` assign, or a second
-# `--allowed-tools` marker) wins at bash/action runtime while a first-match parse would
-# inspect only the canonical leading copy. generate already refuses this ("refusing to
-# guess"); --check must refuse it too or the reviewer boundary widens past the gate. Both
-# region kinds (assign + implement) are exercised so neither dup-guard branch is vacuous.
+# T13a/b: an injected DUPLICATE anchor (a second `TOOLS='…widened…'` assign) wins at
+# bash/action runtime while a first-match parse would inspect only the canonical leading
+# copy. generate already refuses this ("refusing to guess"); --check must refuse it too or
+# the reviewer boundary widens past the gate. Both
+# exercised on two different files (devflow-runner.yml and the #1170-hoisted implement
+# region in devflow-implement.yml) so the dup-guard is not vacuous on a single file.
 _cap_fail "#561 T13a --check refuses a duplicated assign anchor (reviewer-boundary vector)" anchor-duplicated    check "is duplicated"
-_cap_fail "#561 T13b --check refuses a duplicated implement marker"                        implement-marker-dup check "is duplicated"
+_cap_fail "#1170 T13b --check refuses a duplicated implement TOOLS anchor"                 implement-anchor-duplicated check "is duplicated"
+# #1170: the implement allowlist is now the single hoisted TOOLS='...' assign in
+# devflow-implement.yml (a `Resolve allowed-tools` step output), NOT the former inline
+# claude_args --allowed-tools literal. Pin exactly one such line so a regression that
+# reintroduces a second (or drops the hoist) is caught as a structural change.
+assert_eq "#1170 devflow-implement.yml carries exactly one hoisted TOOLS='...' allowlist line" "1" \
+  "$(grep -cE "^[[:space:]]*TOOLS='" "$CAP_WF_DIR/devflow-implement.yml" || true)"
 # T13c: manifest_version bumped without regenerating → token lists still match and the
 # banner sha still matches, so ONLY the found_ver==version conjunct catches it. Without
 # this row that conjunct is vacuously covered (a regression dropping it would stay green).
