@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1225",
+  "generated_at": "2026-08-03T22:03:09Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.68",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 9.815218749999996,
+    "tokens": {
+      "input_tokens": 54,
+      "output_tokens": 25228,
+      "cache_read_input_tokens": 4109355,
+      "cache_creation_input_tokens": 182176,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 151,
+        "outputTokens": 79248,
+        "cacheReadInputTokens": 7174920,
+        "cacheCreationInputTokens": 570023,
+        "webSearchRequests": 0,
+        "costUSD": 9.815218749999996,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 36,
+    "duration_ms": 563404
+  },
+  "permission_denials": {
+    "count": 10,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"$CLAUDE_SKILL_DIR\"",
+      "rm -f .prflow/tmp/review/pr-1225/local/diff.patch\ngh pr diff 1225 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1225/local/diff.patch\necho \"diff-git-count: $(grep -c '^diff --git' .prflow/tmp/review/pr-1225/local/diff.patch)\"\necho \"lines: $(wc -l < .prflow/tmp/review/pr-1225/local/diff.patch)\"\necho \"added(non+++): $(grep -cE '^\\+([^+]|$)' .prflow/tmp/review/pr-1225/local/diff.patch)\"",
+      "d=$(mktemp -d); git -C \"$d\" init -q; git -C \"$d\" config core.quotePath true\nmkdir -p \"$d/lib/test\"; printf 'x\\n' > \"$d/lib/test/$(printf 'caf\\303\\251').py\"; git -C \"$d\" add -A\necho \"=== default (quoting on) ===\"; git -C \"$d\" ls-files\necho \"=== with -c core.quotePath=false BEFORE subcommand ===\"; git -C \"$d\" -c core.quotePath=false ls-files\necho \"=== ordering as spliced: -C d -c ... ls-files ===\"; git -C \"$d\" -c core.quotePath=false ls-files -s\nrm -rf \"$d\"",
+      "d=.prflow/tmp/qptest; rm -rf \"$d\"; mkdir -p \"$d/lib/test\"; git -C \"$d\" init -q; git -C \"$d\" config core.quotePath true\ntouch \"$d/lib/test/café.py\"; git -C \"$d\" add -A\nprintf '=== default (quoting on):\\n'; git -C \"$d\" ls-files\nprintf '=== -c core.quotePath=false before subcommand:\\n'; git -C \"$d\" -c core.quotePath=false ls-files\nprintf '=== -s form:\\n'; git -C \"$d\" -c core.quotePath=false ls-files -s\nrm -rf \"$d\"",
+      "for f in coverage_map_guard lint-carveout-guard lint-subagent-dispatch-namespace lint-windows-uncheckoutable-path pin-corpus-lint; do\n  python3 \"lib/test/$f.py\" >/dev/null 2>&1; echo \"$f: rc=$?\"\ndone\necho \"--- shape-guard: neuter QUOTE_PATH_OFF to () and confirm coverage_map_guard fails closed ---\"\npython3 -c '\nimport importlib.util\ns = importlib.util.spec_from_file_location(\"lp\",\"lib/test/lint_population.py\")\nm = importlib.util.module_from_spec(s); s.loader.exec_module(m)\nm.QUOTE_PATH_OFF = ()\n …[per-command-truncated]",
+      "cd /tmp && rm -rf qptest && mkdir qptest && cd qptest && git init -q && git config core.quotePath true\nname=\"$(printf 'a\\177b.md')\"\nprintf 'x\\n' > \"$name\" 2>/dev/null && git add -A -f 2>/dev/null\necho \"=== quotePath default (true) ===\"; git ls-files\necho \"=== quotePath=false ===\"; git -c core.quotePath=false ls-files\necho \"=== non-ascii cafe with quotePath=false ===\"\ncd /tmp && rm -rf qptest2 && mkdir qptest2 && cd qptest2 && git init -q\nprintf 'x\\n' > \"$(printf 'caf\\303\\251.md')\" && git add -A  …[per-command-truncated]",
+      "cd /tmp && rm -rf qptest && mkdir qptest && cd qptest && git init -q && git config core.quotePath true && printf 'x\\n' > \"$(printf 'a\\177b.md')\" && git add -A -f && echo \"DEFAULT:\" && git ls-files && echo \"QPOFF:\" && git -c core.quotePath=false ls-files",
+      "printf '#!/bin/bash\\ncd /tmp && rm -rf qptest && mkdir qptest && cd qptest && git init -q && git config core.quotePath true\\nn=$(printf \"a\\\\177b.md\")\\nprintf \"x\\\\n\" > \"$n\" && git add -A -f\\necho DEFAULT:; git ls-files\\necho QPOFF:; git -c core.quotePath=false ls-files\\ncd /tmp && rm -rf qp2 && mkdir qp2 && cd qp2 && git init -q\\nc=$(printf \"caf\\\\303\\\\251.md\")\\nprintf \"x\\\\n\" > \"$c\" && git add -A -f\\necho CAFE-QPOFF:; git -c core.quotePath=false ls-files\\n' > /tmp/qp.sh && bash /tmp/qp.sh",
+      "bash /tmp/qp.sh 2>&1 || echo \"no script\""
+    ],
+    "total": 10,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
