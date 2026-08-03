@@ -1503,16 +1503,20 @@ class ModuleRunnerTests(unittest.TestCase):
         Python corpus already owned by the modules shard.
 
         WHY THE MODULE SUBPROCESSES RUN CONCURRENTLY (issue #1181). Attribution of the
-        `python-pool` shard measured this single test at ~266s — 60% of
-        test_module_runner.py's whole ~448s wall-clock, and the shard's wall-clock is the
-        wall-clock of test_module_runner.py, its slower member. The cost is not one
-        hotspot but ~5 subprocess-heavy modules run one after another
-        (installer-wiring 67s, issue-audit-state 55s, efficiency-trace-telemetry 51s,
-        create-issue-contract 32s, harness-python-guards 26s, the rest <=15s). Each
-        module runs the real focused runner in its OWN process with its OWN log dir and
-        its OWN copied environment — there is no shared mutable state across iterations
-        (test_concurrent_runs_use_distinct_complete_logs pins that the runner keeps its
-        logs distinct across concurrent runs) — so the loop is embarrassingly parallel.
+        `python-pool` shard (a past-time snapshot measured 2026-08 on the cloud implement
+        tier, 4 vCPU — motivating figures, not a maintained contract, so nothing enforces
+        them) put this single test at ~266s — 60% of test_module_runner.py's whole ~448s
+        wall-clock, and the shard's wall-clock is the wall-clock of test_module_runner.py,
+        its slower member. The cost is not one hotspot but ~5 subprocess-heavy modules run
+        one after another (installer-wiring 67s, issue-audit-state 55s,
+        efficiency-trace-telemetry 51s, create-issue-contract 32s, harness-python-guards
+        26s, the rest <=15s). Each module runs the real focused runner in its OWN process
+        with its OWN log dir and its OWN copied environment, and the heavy modules
+        allocate their own mktemp scratch/sandbox roots and only read the shared tree, so
+        there is no shared mutable state across iterations
+        (test_concurrent_runs_use_distinct_complete_logs pins the narrower guarantee that
+        the runner keeps its logs distinct across concurrent runs) — so the loop is
+        embarrassingly parallel.
         Running the subprocess fan-out through a bounded thread pool collapses the wall
         of this test from the SUM of the module runtimes to roughly the longest single
         module, without dropping, weakening, or reordering a single assertion: the static
@@ -1542,16 +1546,17 @@ class ModuleRunnerTests(unittest.TestCase):
         # (module_id, floor) pairs are the fan-out work list.
         work: list[tuple[str, int]] = []
         for module_id, mapping in exact_modules.items():
-            floor = mapping["minimum_assertions"]
-            self.assertIn(
-                f'devflow_run_full_suite_module "$LIB/test/modules/{module_id}.sh"',
-                run_text,
-            )
-            floor_match = re.search(rf'"{module_id}" ([0-9]+); then', run_text)
-            self.assertIsNotNone(
-                floor_match, f"no run.sh call-site floor literal for {module_id}"
-            )
-            self.assertEqual(int(floor_match.group(1)), floor)
+            with self.subTest(module=module_id, phase="run.sh call-site"):
+                floor = mapping["minimum_assertions"]
+                self.assertIn(
+                    f'devflow_run_full_suite_module "$LIB/test/modules/{module_id}.sh"',
+                    run_text,
+                )
+                floor_match = re.search(rf'"{module_id}" ([0-9]+); then', run_text)
+                self.assertIsNotNone(
+                    floor_match, f"no run.sh call-site floor literal for {module_id}"
+                )
+                self.assertEqual(int(floor_match.group(1)), floor)
             work.append((module_id, floor))
 
         def _run_one(item: tuple[str, int]) -> tuple[str, int, int, str, str, bool]:
@@ -1593,7 +1598,7 @@ class ModuleRunnerTests(unittest.TestCase):
 
         # Bound the fan-out to the host's CPUs (a thread per module otherwise). The pool
         # shares its runner with test_python_scripts.py, so this stays modest rather than
-        # unbounded; ex.map preserves input order, so results iterate deterministically.
+        # unbounded; pool.map preserves input order, so results iterate deterministically.
         max_workers = min(len(work), (os.cpu_count() or 2))
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
             results = list(pool.map(_run_one, work))
