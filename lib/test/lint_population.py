@@ -43,9 +43,9 @@ idiom the directory already uses for `extract-command-heads.py`.
 Path quoting (issue #1217) — the decision and its residual
 ----------------------------------------------------------
 `git`'s `core.quotePath` **defaults to on**, under which a tracked path containing a
-non-ASCII byte is printed in C-quoted form: a legal `café.md` comes out as the literal
-eleven-character string ``"caf\303\251.md"`` — surrounding double quotes and backslash
-escapes that are not in the path. That string names no real file, and the lints that
+non-ASCII byte is printed in C-quoted form: a legal `café.md` comes out as the longer
+literal string ``"caf\303\251.md"`` — surrounding double quotes and backslash escapes
+that are not in the path. That string names no real file, and the lints that
 share this reader mishandle it in two different ways: one that selects by **path
 prefix** stops recognising the file (git puts the opening quote at the *front* of the
 whole path, so `skills/café.md` becomes ``"skills/caf\303\251.md"``, which no longer
