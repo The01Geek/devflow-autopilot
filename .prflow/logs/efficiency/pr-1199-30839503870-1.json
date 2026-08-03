@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1199",
+  "generated_at": "2026-08-03T18:11:32Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.66",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.149166249999999,
+    "tokens": {
+      "input_tokens": 53,
+      "output_tokens": 21856,
+      "cache_read_input_tokens": 4274937,
+      "cache_creation_input_tokens": 171310,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 65,
+        "outputTokens": 25978,
+        "cacheReadInputTokens": 4597845,
+        "cacheCreationInputTokens": 249289,
+        "webSearchRequests": 0,
+        "costUSD": 5.149166249999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 34,
+    "duration_ms": 410586
+  },
+  "permission_denials": {
+    "count": 7,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/scripts/load-prompt-extension.sh review",
+      "gh pr diff 1199 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee /tmp/pr1199.diff | wc -l; echo \"=== files ===\"; grep '^diff --git' /tmp/pr1199.diff",
+      "grep '^diff --git' /tmp/pr1199.diff",
+      "cd /home/runner/work/prflow/prflow\nNAMES=$(git ls-files 'docs/*' | grep -vE '^docs/(external|site|superpowers|evidence)/' | sed 's|^docs/||; s|[.]|[.]|g' | tr '\\n' '|' | sed 's/|$//')\necho \"=== skills/ + agents/ internal-doc refs (AC4) ===\"\ngit grep -nE \"docs/($NAMES)\" -- skills/ agents/ ; echo \"grep-rc=$?\"\necho \"=== AC3: docs/internal refs ===\"\ngit grep -nE 'docs/internal/' -- skills/ agents/ ; echo \"grep-rc=$?\"",
+      "NAMES=$(git ls-files 'docs/*' | grep -vE '^docs/(external|site|superpowers|evidence)/' | sed 's|^docs/||; s|[.]|[.]|g' | tr '\\n' '|' | sed 's/|$//'); git grep -nE \"docs/($NAMES)\" -- skills/ agents/; echo \"AC4-measurement-rc=$?\"",
+      "git grep -nE \"docs/($(git ls-files 'docs/*' | grep -vE '^docs/(external|site|superpowers|evidence)/' | sed 's|^docs/||; s|[.]|[.]|g' | tr '\\n' '|' | sed 's/|$//'))\" -- skills/ agents/",
+      "cat > /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1199/local-run/verdict.md <<'EOF'\n## ✅ `/prflow:review` — APPROVE\n\n**PR #1199** · `worktree-issue-1190` → `main` · reviewed HEAD `0e41c9d` · closes #1190\n\nRemoves 26 references to PRFlow-internal `docs/*.md` from 13 shipped first-party `skills/**` bodies (each installs verbatim into consumer repos, where those paths don't resolve). Diff classified `engine_self_modifying` → full checklist.\n\n### Verdict basis\n- **All 26 references disposi …[per-command-truncated]"
+    ],
+    "total": 7,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
