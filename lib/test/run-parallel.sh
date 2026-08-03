@@ -90,7 +90,9 @@ BUDGET_CEILING=8
 # `ubuntu-latest` at 4 vCPU, i.e. `BUDGET = min(cpu_count, 8) = 4`. At ceiling 4 the
 # reservation resolves to 3, `monolith` + `python-pool` fill all four slots and the
 # remaining three shards serialize behind one freed slot: 11.4 min, over the tier's
-# 10-minute per-command ceiling. At ceiling 2 a third shard launches at t=0 and the rest
+# then-10-minute per-command ceiling (raised to 20 min by devflow-implement.yml in
+# issue #1179; these figures are the #1180 measurement snapshot against the 10-min
+# ceiling of the time, left unrewritten). At ceiling 2 a third shard launches at t=0 and the rest
 # pipeline: 7.9 min. The packing change is what the focused module asserts; the minutes are
 # a stub model that sleeps rather than consuming CPU, so they understate real contention and
 # are recorded here as the measurement that justified the constant, not as a prediction.

@@ -1380,7 +1380,9 @@ jobs:
           # parallel verification coordinator (lib/test/run-parallel.sh, #1086) — the
           # run's final whole-suite gate — could not finish inside that window on the
           # ubuntu-latest 4 vCPU runner this job resolves to: at BUDGET=4 its estimated
-          # floor is ~13–14 min (the pre-#1180 packing; #1180 lowered
+          # floor is ~13–14 min (the pre-#1180 packing — the contention-adjusted
+          # estimate above lib/test/run-parallel.sh's 11.4-min sleep-stub model, which
+          # by its own note understates real contention; #1180 lowered
           # POOL_RESERVATION_CEILING to 2 so it now packs three shards at BUDGET=4, but
           # the post-#1180 stub measurement of ~7.9 min is optimistic — it does not
           # reproduce 4-core contention, and the real in-env total can still approach or

@@ -45053,16 +45053,37 @@ for job in doc.get("jobs", {}).values():
     for s in job.get("steps", []) or []:
         with_block = s.get("with") or {}
         settings = with_block.get("settings")
-        if isinstance(settings, str) and settings.strip():
+        if settings is not None:
             # A settings block is permitted ONLY for non-hook configuration (issue
-            # #1179's env override). Parse it and fail CLOSED (hit) if it cannot be
-            # read as a JSON object with no `hooks` key — an unparseable value (e.g. a
-            # settings-file path we cannot inspect) or a hook registration both flip RED.
-            try:
-                parsed = json.loads(settings)
-            except (ValueError, TypeError):
+            # #1179's env override). Normalize it to a Python object and fail CLOSED
+            # (hit) unless it is an object carrying no `hooks` key. A `settings: |`
+            # block-scalar is a JSON string; a native YAML mapping is already a dict —
+            # GitHub stringifies a mapping-form input at runtime, but PyYAML hands it
+            # to THIS test as a dict, so the check must inspect that form too or a
+            # mapping-form hook registration would slip past a green suite (a
+            # string-only guard was the fail-open gap the #1179 review caught). An
+            # empty settings string carries no hook (allowed); a scalar/list, or an
+            # unparseable JSON string (e.g. a settings-file path we cannot inspect),
+            # is anomalous → fail closed.
+            if isinstance(settings, dict):
+                parsed = settings
+            elif isinstance(settings, str):
+                stripped = settings.strip()
+                if stripped:
+                    try:
+                        parsed = json.loads(stripped)
+                    except (ValueError, TypeError):
+                        parsed = None
+                else:
+                    parsed = {}
+            else:
                 parsed = None
             if not isinstance(parsed, dict) or "hooks" in parsed:
+                hit = True
+            # Serialize-scan the whole settings for a PreToolUse mention so a hook
+            # nested inside a mapping-form settings block — which the value loop below
+            # only sees for string with-values — is still caught.
+            if "PreToolUse" in json.dumps(settings, default=str):
                 hit = True
         for v in with_block.values():
             if isinstance(v, str) and "PreToolUse" in v:
@@ -45074,6 +45095,40 @@ PY
 else
   assert_eq "#908 AC1: devflow-implement.yml registers no PreToolUse guard (env-only settings allowed)" "yes" \
     "$(grep -qE 'PreToolUse|pretooluse-shape-guard' "$_908_IMPLEMENT_YML" && echo no || echo yes)"
+fi
+# issue #1179: the implement tier raises the Bash per-command ceiling through the
+# claude-code-action step's `settings` input (env.BASH_MAX_TIMEOUT_MS) so the parallel
+# verification coordinator (lib/test/run-parallel.sh) can run to a verdict instead of
+# being killed at Claude Code's 600000 ms default. This BEHAVIORAL check (not a wording
+# pin — the literal value may change without breaking it) parses the resolved settings
+# env and asserts a FINITE value strictly greater than that default reaches the CLI
+# through that channel (AC1: finite, > 600000 ms, mechanism visible in the workflow). It
+# runs only when python3/PyYAML is available (same availability as the #908 block above);
+# PyYAML is a suite prerequisite, so CI always evaluates it.
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+  _1179_CEILING=$(python3 - "$_908_IMPLEMENT_YML" <<'PY'
+import sys, yaml, json
+doc = yaml.safe_load(open(sys.argv[1]))
+val = None
+for job in doc.get("jobs", {}).values():
+    for s in job.get("steps", []) or []:
+        if str(s.get("uses") or "").startswith("anthropics/claude-code-action"):
+            settings = (s.get("with") or {}).get("settings")
+            if isinstance(settings, str) and settings.strip():
+                try:
+                    env = (json.loads(settings) or {}).get("env") or {}
+                    val = env.get("BASH_MAX_TIMEOUT_MS")
+                except (ValueError, TypeError):
+                    val = None
+# Accept only a finite integer-valued string strictly above the 600000 ms CLI default
+# (the < 10**9 bound enforces "bounded, not a removal" — issue #1179's deliberate cap).
+try:
+    print("ok" if val is not None and 600000 < int(val) < 10**9 else "no")
+except (ValueError, TypeError):
+    print("no")
+PY
+) || _1179_CEILING="extractor-failed"   # fail CLOSED: a parse error/unexpected shape must never yield the passing value
+  assert_eq "#1179: devflow-implement.yml sets a finite BASH_MAX_TIMEOUT_MS > 600000 ms via the claude-code-action settings env (AC1)" "ok" "$_1179_CEILING"
 fi
 assert_eq "#908 AC2: HOOK_TARGETS (harden-stop-hooks.sh) already lists the guard script" "yes" \
   "$(grep -qF 'stop-hook-probe.sh scripts/pretooluse-shape-guard.py' "$LIB/../scripts/harden-stop-hooks.sh" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- pins the guard's adjacency inside the HOOK_ENTRY_TARGETS/HOOK_TARGETS assignment lines specifically (a code-only substring, never the file's prose comments mentioning the same script name), the AC2 precondition that makes the settings-input hook inert unless the script is a hardened/trusted target
