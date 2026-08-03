@@ -1977,6 +1977,63 @@ jobs:
           fi
           exit 0
 
+      # ── Stale-REJECT dismissal net (issue #1175). ────────────────────────────
+      # Stale-REJECT dismissal is normally the reviewing agent's Phase 4.4 step
+      # (skills/review/phases/phase-4-4-github-post.md → dismiss-stale-rejections.sh).
+      # When the agent never reaches Phase 4.4 — the clean-exit failure mode issue
+      # #1156 records — a subsequent APPROVE leaves the pull request wedged behind a
+      # superseded CHANGES_REQUESTED, with nothing else able to clear it. This
+      # workflow-side step is the net for exactly that gap.
+      #
+      # THE GATE IS LOAD-BEARING (issue #1175). Dismissal fires ONLY when the verdict
+      # for the reviewed HEAD was POSITIVELY DETERMINED as APPROVE. The whole decision
+      # — read the HEAD-scoped, fail-closed verdict via derive-review-verdict.sh, gate
+      # on its `verdict_determined`, and dispatch dismiss-stale-rejections.sh only on a
+      # determined APPROVE — lives in scripts/dismiss-stale-rejections-net.sh, which the
+      # suite drives per arm (determined-APPROVE → dismiss, determined-REJECT → refuse,
+      # defaulted/undetermined → refuse, engine-error → refuse, missing-sibling →
+      # unavailable). Gating on `verdict_determined` is what makes a correlated GitHub
+      # API degradation that DEFAULTS the verdict unable to silently dismiss a live
+      # REJECT — the failure mode that makes an unconditional workflow-side dismissal
+      # WORSE than none at all. This step only runs the helper and annotates its token.
+      #
+      # It is a NET, not a replacement: dismiss-stale-rejections.sh is idempotent and
+      # HEAD-scoped, so the agent's Phase 4.4 run and this run never double-dismiss or
+      # fight (AC3). Same `/prflow:review ` PR-mode gate as the reach-record step above
+      # (the trailing space excludes /prflow:review-and-fix, which skips Phase 4.4 by
+      # design); the command job already holds pull-requests: write, so no new
+      # permission is required. always() so a clean-exit run that skipped Phase 4.4 is
+      # still covered; the helper always exits 0 and never changes the job result.
+      - name: Dismiss superseded REJECT on a determined APPROVE
+        if: ${{ always() && startsWith(needs.gate.outputs.command, '/prflow:review ') && (github.event.issue.pull_request || github.event.pull_request.number) && (github.event.issue.number || github.event.pull_request.number) }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          ENGINE_ERROR: ${{ steps.engine.outputs.is_error }}
+        run: |
+          set -uo pipefail
+          # stale-REJECT dismissal net BEGIN
+          NET=.prflow/vendor/prflow/scripts/dismiss-stale-rejections-net.sh
+          [ -f "$NET" ] || NET=scripts/dismiss-stale-rejections-net.sh
+          if [ ! -f "$NET" ]; then
+            echo "::warning::stale-REJECT net: dismiss-stale-rejections-net.sh absent at $NET; a superseded REJECT (if any) is NOT dismissed by the workflow — Phase 4.4 remains the only path (upgrade the vendored plugin pin)"
+            exit 0
+          fi
+          # The helper reports one token on stdout and its diagnostics on stderr; it
+          # always exits 0. The token is the observable outcome — echo it as a notice,
+          # and warn on the arms where a REJECT may still block the pull request so a
+          # maintainer sees it without reading the step log.
+          OUTCOME=$(bash "$NET" "$REPO" "$PR_NUMBER" "${ENGINE_ERROR:-false}" || true)
+          echo "::notice::stale-REJECT net: ${OUTCOME:-<no output>} (PR #$PR_NUMBER)"
+          case "$OUTCOME" in
+            dismiss-failed|dismiss-refused|unavailable)
+              echo "::warning::stale-REJECT net: outcome '$OUTCOME' for PR #$PR_NUMBER — a superseded REJECT may still block it; dismiss it manually if appropriate"
+              ;;
+          esac
+          # stale-REJECT dismissal net END
+          exit 0
+
       # ── Execution-transcript artifact channel (issue #1064 D3) ──────────────
       # INCLUDE on this file: devflow.yml runs the same shared review engine on the
       # surviving manual /prflow:* path, so a silent denial here produces the same
