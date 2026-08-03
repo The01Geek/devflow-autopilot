@@ -39753,41 +39753,47 @@ assert_eq "#456 ci.yml: the shard job checkout sets fetch-depth: 0" "yes" \
 # checkouts, and only the agent-running job runs the suite.
 _I1219_IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
 _I1219_CMD_YML="$LIB/../.github/workflows/devflow.yml"
+# Both patterns are ANCHORED on the VALUE, not merely prefix-matched, because an unanchored
+# pair is defeated by a single input: `fetch-depth: 050` matches `fetch-depth: 0` as a
+# PREFIX (so the positive pin answers yes) while `[[:space:]]*[1-9]` never sees a digit in
+# 1-9 immediately after the space (so the negative pin answers no) — both pins green with a
+# bounded depth in force. So the positive pin requires the value to BE `0` (end of line) and
+# the negative pin tolerates leading zeros before the first nonzero digit. A trailing
+# comment or a quoted `'0'` makes the positive pin answer no, i.e. RED — the fail-closed
+# direction, and the reason the value pattern is stated once here rather than loosened.
 # structural-pin-ok: cross-file-phase-contract -- the executed checkout line is what supplies the history the #719 baseline-corpus gate needs; bounding it makes that gate self-skip while the workflow stays green
 assert_eq "#1219 devflow-implement.yml: the claude job checkout sets fetch-depth: 0" "yes" \
-  "$(devflow_wf_job_has claude 'fetch-depth: 0' "$_I1219_IMPL_YML")"
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_IMPL_YML")"
 # A PLAIN revert to a bounded depth is already caught by the positive pin above, which goes
 # RED on its own the moment `fetch-depth: 0` is gone — the negative pin's job is the narrower
 # one the positive pin cannot do: forbid a SECOND, bounded fetch-depth line added BESIDE a
 # retained `fetch-depth: 0`, whose effective value is parser-dependent and which a line
-# matcher cannot rank. The optional quote in the pattern is load-bearing there: `'50'` and
-# `"50"` are valid YAML scalars actions/checkout accepts, and a bare `[1-9]` would let the
-# added line through while the retained `0` kept the positive pin green.
+# matcher cannot rank. The optional quote is load-bearing there: `'50'` and `"50"` are valid
+# YAML scalars actions/checkout accepts, and a bare `[1-9]` would let the added line through
+# while the retained `0` kept the positive pin green.
 # structural-pin-ok: cross-file-phase-contract -- a bounded depth anywhere in this job re-arms the shallow-checkout failure the positive pin above exists to prevent
 assert_eq "#1219 devflow-implement.yml: the claude job checkout sets no bounded fetch-depth" "no" \
-  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_IMPL_YML")"
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_IMPL_YML")"
 # structural-pin-ok: cross-file-phase-contract -- the command job hosts /prflow:review-and-fix, whose in-env verification runs the same suite under the same no-skip accounting
 assert_eq "#1219 devflow.yml: the command job checkout sets fetch-depth: 0" "yes" \
-  "$(devflow_wf_job_has command 'fetch-depth: 0' "$_I1219_CMD_YML")"
+  "$(devflow_wf_job_has command 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_CMD_YML")"
 # structural-pin-ok: cross-file-phase-contract -- a bounded depth anywhere in this job re-arms the shallow-checkout failure the positive pin above exists to prevent
 assert_eq "#1219 devflow.yml: the command job checkout sets no bounded fetch-depth" "no" \
-  "$(devflow_wf_job_has command 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_CMD_YML")"
+  "$(devflow_wf_job_has command 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_CMD_YML")"
 # Discriminating controls for the helper itself, so a `no`/`yes` above is evidence rather
 # than an artifact of a matcher that can only answer one way: an absent job must answer
 # `no` (not `yes`, and not the job-agnostic whole-file answer), and an unreadable file must
 # answer `unreadable` (not `no`, which would let a mistyped path pass every pin above).
 assert_eq "#1219 devflow_wf_job_has control: an absent job answers no" "no" \
-  "$(devflow_wf_job_has no_such_job 'fetch-depth: 0' "$_I1219_IMPL_YML")"
+  "$(devflow_wf_job_has no_such_job 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_IMPL_YML")"
 assert_eq "#1219 devflow_wf_job_has control: an unreadable file answers unreadable" "unreadable" \
-  "$(devflow_wf_job_has claude 'fetch-depth: 0' "$_I1219_IMPL_YML.nope")"
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_IMPL_YML.nope")"
 # Positive control for the NEGATIVE pattern itself — the norm the #671 block states below
 # ("`no` is the value the arm's assertion accepts, so [something] that silently produced an
 # unusable [input] would satisfy every arm while proving nothing"), applied here. Without
 # it a valid-but-wrong ERE (a typo'd bracket class, a `;` for `:`) yields a permanent
-# vacuous `no` and the two negative pins above forbid nothing. Plant a bounded depth into a
-# copy of the claude job in BOTH spellings the widened pattern now covers and require the
-# same pattern to answer `yes`; the copy is discarded, so the real workflow is untouched.
-# git_sandbox, not probe_tmp: this needs a temp DIRECTORY to hold two mutated copies, and
+# vacuous `no` and the two negative pins above forbid nothing.
+# git_sandbox, not probe_tmp: this needs a temp DIRECTORY to hold the mutated copies, and
 # probe_tmp allocates a FILE — redirecting into `<file>/bare.yml` is ENOTDIR, so the copies
 # would never exist and the matcher would answer `unreadable` against the expected `yes`.
 # (Learned the hard way: the first authoring used probe_tmp and went RED in CI.) On failure
@@ -39795,16 +39801,30 @@ assert_eq "#1219 devflow_wf_job_has control: an unreadable file answers unreadab
 # redirects below fail closed rather than writing anywhere real.
 _I1219_MUT="$(git_sandbox '#1219 negative-pattern positive control')"
 _suite_tmp_dir "$_I1219_MUT"
+# One planted copy per spelling the two patterns CLAIM to handle — bare, single-quoted,
+# double-quoted, and leading-zero. A claimed spelling with no planted copy is an unproven
+# claim: the pattern could be wrong for that arm alone and every assertion would stay green,
+# which is exactly how the pre-anchoring `050` hole survived its own review.
 sed 's/^          fetch-depth: 0$/          fetch-depth: 50/' "$_I1219_IMPL_YML" > "$_I1219_MUT/bare.yml" 2>/dev/null
-sed "s/^          fetch-depth: 0$/          fetch-depth: '50'/" "$_I1219_IMPL_YML" > "$_I1219_MUT/quoted.yml" 2>/dev/null
+sed "s/^          fetch-depth: 0$/          fetch-depth: '50'/" "$_I1219_IMPL_YML" > "$_I1219_MUT/squoted.yml" 2>/dev/null
+sed 's/^          fetch-depth: 0$/          fetch-depth: "50"/' "$_I1219_IMPL_YML" > "$_I1219_MUT/dquoted.yml" 2>/dev/null
+sed 's/^          fetch-depth: 0$/          fetch-depth: 050/' "$_I1219_IMPL_YML" > "$_I1219_MUT/leadzero.yml" 2>/dev/null
 assert_eq "#1219 negative-pattern control: a planted bare bounded depth answers yes" "yes" \
-  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_MUT/bare.yml")"
-assert_eq "#1219 negative-pattern control: a planted QUOTED bounded depth answers yes" "yes" \
-  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_MUT/quoted.yml")"
-# The mutated copies must otherwise still parse as the same job, or the two `yes` answers
-# above could come from a `sed` that mangled the file rather than from the planted line.
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_MUT/bare.yml")"
+assert_eq "#1219 negative-pattern control: a planted SINGLE-quoted bounded depth answers yes" "yes" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_MUT/squoted.yml")"
+assert_eq "#1219 negative-pattern control: a planted DOUBLE-quoted bounded depth answers yes" "yes" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_MUT/dquoted.yml")"
+# The leading-zero arm is the one the unanchored pair let through: BOTH pins must react to
+# it, so it is the only planted copy asserted against both patterns.
+assert_eq "#1219 negative-pattern control: a planted LEADING-ZERO bounded depth answers yes" "yes" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_MUT/leadzero.yml")"
+assert_eq "#1219 positive-pin control: a planted LEADING-ZERO depth is NOT read as fetch-depth 0" "no" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_MUT/leadzero.yml")"
+# The mutated copies must otherwise still parse as the same job, or the `yes` answers above
+# could come from a `sed` that mangled the file rather than from the planted line.
 assert_eq "#1219 negative-pattern control: the bare mutated copy lost its fetch-depth: 0" "no" \
-  "$(devflow_wf_job_has claude 'fetch-depth: 0' "$_I1219_MUT/bare.yml")"
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_MUT/bare.yml")"
 unset _I1219_IMPL_YML _I1219_CMD_YML _I1219_MUT
 #
 # ci.yml: the shard job installs the Claude Code CLI, which is what ARMS the #671
@@ -41669,6 +41689,144 @@ case "$E1196_EMPTY" in
      ;;
 esac
 
+
+# ────────────────────────────────────────────────────────────────────────────
+# Shared-population PATH-QUOTING regression (issue #1217).
+# `core.quotePath` defaults to ON, so `git ls-files` renders a tracked non-ASCII path in
+# C-quoted form: a legal `café.md` comes back as the literal string `"caf\303\251.md"`.
+# That string names no real file, and the lints sharing `lib/test/lint_population.py`
+# mishandled it in two distinct ways, so BOTH classes are pinned here:
+#   * SILENT-DROP — a lint selecting by path PREFIX stops recognising the file (git puts
+#     the opening quote at the FRONT of the whole path, so `lib/test/café.py` becomes
+#     `"lib/test/caf\303\251.py"`, which no longer starts with `lib/test/`). It drops the
+#     file before opening it, reports `audited 0 of 0` and exits 0 — a FALSE CLEAN. The
+#     comparand here is therefore the lint's own audited TALLY, never its exit code: the
+#     buggy behaviour already exits 0, so an exit-code assertion could not go RED first.
+#   * HARD-FAIL — a lint selecting everything MINUS an exclusion list keeps the string,
+#     fails to open it, records a skip and exits 1 — a FALSE RED for a character the path
+#     does not contain, which would take the whole suite (and CI's required check) down
+#     until someone renamed a perfectly legal file.
+# Both are driven through a THROWAWAY git repo (git_sandbox — never the real one) because
+# each is a property of the live `git ls-files` call, which `--files-from` bypasses
+# entirely. The fixture name is built from `printf` octal escapes so the bytes under test
+# are fixed here rather than inherited from whatever encoding this file is read with, and
+# NO exotically-named file is committed to this repository (issue #1196).
+echo "#1217 shared-population path-quoting"
+E1217_SB="$(git_sandbox '#1217 path-quoting sandbox')" || E1217_SB=""
+E1217_DROP="rc=sandbox-unavailable|git_sandbox allocated no usable directory"
+E1217_HARD="$E1217_DROP"
+case "$E1217_SB" in
+  ""|/dev/null*) : ;;
+  *)
+    E1217_NAME="$(printf 'caf\303\251')"
+    # `core.quotePath` defaults to true, but it is a SETTABLE option: on a host that sets it
+    # false globally the pre-fix behaviour is unreproducible and every assertion below would
+    # pass with the splice deleted — a RED-first claim silently degrading to a tautology.
+    # Pin the defect precondition in the sandbox's own config rather than inheriting it. The
+    # command-line `-c core.quotePath=false` still wins over a repo-local setting, so only the
+    # negative control is affected, never the post-fix assertion.
+    if git -C "$E1217_SB" init -q 2>/dev/null &&
+       git -C "$E1217_SB" config core.quotePath true 2>/dev/null &&
+       mkdir -p "$E1217_SB/lib/test" "$E1217_SB/scripts" 2>/dev/null &&
+       printf 'x\n' > "$E1217_SB/lib/test/$E1217_NAME.py" 2>/dev/null &&
+       printf 'x\n' > "$E1217_SB/scripts/$E1217_NAME.sh" 2>/dev/null &&
+       git -C "$E1217_SB" add -A -f >/dev/null 2>&1; then
+      E1217_DOUT="$(python3 "$LIB/test/lint-tree-enumeration.py" --root "$E1217_SB" 2>&1)"
+      E1217_DROP="rc=$?|$E1217_DOUT"
+      E1217_HOUT="$(python3 "$LIB/test/lint-gh-api-repo-path.py" --root "$E1217_SB" 2>&1)"
+      E1217_HARD="rc=$?|$E1217_HOUT"
+    else
+      # A setup that did not complete must not read as a pass: route it to a sentinel that
+      # is neither "rc=0" nor a matching tally, so each assertion goes RED naming the cause.
+      E1217_DROP="rc=sandbox-setup-failed|could not stage the non-ASCII fixtures in the sandbox"
+      E1217_HARD="$E1217_DROP"
+    fi
+    rm -rf "$E1217_SB"
+    ;;
+esac
+# SILENT-DROP class. The tally is the discriminating comparand (see above): before the fix
+# this reads `audited 0 of 0 files` at rc=0, which no exit-code assertion can distinguish
+# from a clean run.
+assert_eq "#1217 silent-drop class: the non-ASCII tracked path is actually audited" "yes" \
+  "$(case "$E1217_DROP" in *"audited 1 of 1 files"*) echo yes ;; *) echo "no: $E1217_DROP" ;; esac)"
+assert_eq "#1217 silent-drop class: the run still exits clean" "rc=0" "${E1217_DROP%%|*}"
+# HARD-FAIL class. Here the exit code IS discriminating — rc=1 before the fix — and the
+# tally is asserted too so a run that exits 0 having audited nothing cannot satisfy it.
+assert_eq "#1217 hard-fail class: no false RED for a character the path does not contain" "rc=0" \
+  "${E1217_HARD%%|*}"
+assert_eq "#1217 hard-fail class: the path was audited rather than skipped" "yes" \
+  "$(case "$E1217_HARD" in *SKIPPED*) echo "no (skipped): $E1217_HARD" ;; *"audited 1 of 1 files"*) echo yes ;; *) echo "no: $E1217_HARD" ;; esac)"
+# Two more enumeration classes are exercised BEHAVIOURALLY rather than by a source-shape
+# grep, because a grep over a Python literal breaks on a cosmetic reformat while passing if
+# the constant later loses the flag — and because a source-presence pin is what issue #810
+# prohibits. Both classes reinstate the original defect when their splice is deleted, with
+# nothing else in the suite noticing:
+#   * lint-subagent-dispatch-namespace.py's audited-surface argv (the second of the two
+#     formerly-inline argvs a constants-only fix would have missed, issue #1217 AC3). Its
+#     `is_audited` selects by the `skills/` prefix, so a C-quoted surface drops and the
+#     tally falls to `audited 0 prompt surfaces` — the same silent-drop shape as above.
+#   * coverage_map_guard.py's `_git_tracked` AND `_git_executable`, two of the non-reader call
+#     sites that splice QUOTE_PATH_OFF by hand. Both are called directly (they are importable
+#     helpers) and their RETURNED PATHS are the comparand: pre-fix each is the C-quoted
+#     spelling. `_git_executable` is driven as well as `_git_tracked` because its own docstring
+#     states the concrete regression — its mode row must still join against `_git_tracked`'s
+#     path — and a splice deleted from only one of the two silently breaks that join, grading a
+#     non-ASCII coverage-map-referenced script as non-executable rather than unestablished.
+#     pin-corpus-lint.py's three splices are deliberately NOT driven here (they need a far
+#     richer sandbox); lint_population.py's docstring records that they are review-gated.
+E1217_SB2="$(git_sandbox '#1217 non-reader splice sandbox')" || E1217_SB2=""
+E1217_NS="rc=sandbox-unavailable|git_sandbox allocated no usable directory"
+E1217_CMG="sandbox-unavailable"
+case "$E1217_SB2" in
+  ""|/dev/null*) : ;;
+  *)
+    # Same host-independence pin as the sandbox above.
+    if git -C "$E1217_SB2" init -q 2>/dev/null &&
+       git -C "$E1217_SB2" config core.quotePath true 2>/dev/null &&
+       mkdir -p "$E1217_SB2/skills" "$E1217_SB2/bin" 2>/dev/null &&
+       printf 'no qualified ids here\n' > "$E1217_SB2/skills/$(printf 'caf\303\251').md" 2>/dev/null &&
+       printf '#!/bin/sh\n' > "$E1217_SB2/bin/$(printf 'caf\303\251').sh" 2>/dev/null &&
+       chmod +x "$E1217_SB2/bin/$(printf 'caf\303\251').sh" 2>/dev/null &&
+       git -C "$E1217_SB2" add -A -f >/dev/null 2>&1; then
+      E1217_NSOUT="$(python3 "$LIB/test/lint-subagent-dispatch-namespace.py" --root "$E1217_SB2" 2>&1)"
+      E1217_NS="rc=$?|$E1217_NSOUT"
+      # `_git_tracked` is imported and called directly; the assertion is that the returned
+      # path is the RAW spelling, i.e. it does not begin with git's C-quoting double quote.
+      E1217_CMG="$(E1217_SB2="$E1217_SB2" python3 -c '
+import importlib.util, os, sys
+from pathlib import Path
+s = importlib.util.spec_from_file_location("g", sys.argv[1])
+g = importlib.util.module_from_spec(s); s.loader.exec_module(g)
+root = Path(os.environ["E1217_SB2"])
+tracked = g._git_tracked(root)
+execs = g._git_executable(root)
+q = chr(34)
+bad = [p for p in tracked if p.startswith(q)] + [p for p in (execs or ()) if p.startswith(q)]
+if bad:
+    print("quoted: %r" % (bad,))
+elif execs is None:
+    print("exec-unestablished")
+elif not (set(execs) <= set(tracked)) or not execs:
+    print("join-broken: tracked=%r execs=%r" % (tracked, sorted(execs)))
+else:
+    print("raw")
+' "$LIB/test/coverage_map_guard.py" 2>&1)"
+    else
+      E1217_NS="rc=sandbox-setup-failed|could not stage the non-ASCII prompt surface"
+      E1217_CMG="sandbox-setup-failed"
+    fi
+    rm -rf "$E1217_SB2"
+    ;;
+esac
+assert_eq "#1217 the dispatch-namespace audited-surface argv enumerates the non-ASCII surface" "yes" \
+  "$(case "$E1217_NS" in *"audited 1 prompt surface"*) echo yes ;; *) echo "no: $E1217_NS" ;; esac)"
+assert_eq "#1217 coverage_map_guard returns raw paths and its mode row still joins against them" \
+  "raw" "$E1217_CMG"
+# The AC8 claim (the flag alters only how a path is PRINTED, so the index-reading argv
+# acquired no `--others`) is pinned by the #724 preset assertion further down, which
+# already reported `index-has-others=False` and gained a `quote-off=True` conjunct in the
+# same change, from a module load it already performs. Asserting it a second time here
+# would only pay a second `python3` start for a signal that block already carries.
 # ────────────────────────────────────────────────────────────────────────────
 # Subagent DISPATCH-NAMESPACE guard (lib/test/lint-subagent-dispatch-namespace.py).
 # A qualified subagent id in prompt prose is a dispatch string whose namespace half is
@@ -42207,15 +42365,21 @@ print(" ".join(n for n in names if hasattr(m, n)))
 ')"
 # The two ls-files argv presets are the parameterisation axis (AC2): they must differ, and the
 # index preset must carry no --others (its worktree immunity is exactly that absence).
-assert_eq "#724 the index and working-tree ls-files presets are distinct, and only the working-tree one lists untracked files" \
-  "index=('git', 'ls-files') wt-has-others=True index-has-others=False distinct=True" \
+# The expected `index=` tuple is a coupled literal: issue #1217 inserted
+# `-c core.quotePath=false` into BOTH presets (raw path bytes rather than git's C-quoted
+# rendering), so this expectation moved with the constant in that same change. The
+# `quote-off=` conjunct pins the flag on both presets, which is what keeps a future edit
+# that drops it from one of them silent-passing here.
+assert_eq "#724 the index and working-tree ls-files presets are distinct, only the working-tree one lists untracked files, and both disable path quoting" \
+  "index=('git', '-c', 'core.quotePath=false', 'ls-files') wt-has-others=True index-has-others=False distinct=True quote-off=True" \
   "$(E724_POP="$E724_POP" python3 -c '
 import importlib.util, os
 s = importlib.util.spec_from_file_location("lint_population", os.environ["E724_POP"])
 m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
-print("index=%r wt-has-others=%s index-has-others=%s distinct=%s" % (
+print("index=%r wt-has-others=%s index-has-others=%s distinct=%s quote-off=%s" % (
   tuple(m.LS_FILES_INDEX), "--others" in m.LS_FILES_WORKING_TREE,
-  "--others" in m.LS_FILES_INDEX, m.LS_FILES_INDEX != m.LS_FILES_WORKING_TREE))
+  "--others" in m.LS_FILES_INDEX, m.LS_FILES_INDEX != m.LS_FILES_WORKING_TREE,
+  "core.quotePath=false" in m.LS_FILES_INDEX and "core.quotePath=false" in m.LS_FILES_WORKING_TREE))
 ')"
 # enumerate_population fail-closed arms: an unreadable --files-from, an empty population, and a
 # failing ls-files argv each raise EnumerationError (never a silent empty list read as clean).

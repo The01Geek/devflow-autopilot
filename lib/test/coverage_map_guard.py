@@ -23,11 +23,43 @@ error), 0 when clean.
 from __future__ import annotations
 
 import functools
+import importlib.util
 import json
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+# The `-c core.quotePath=false` option pair, imported from the shared population reader
+# (issue #1217) rather than re-spelled here, so the literal keeps one home in the tree.
+# This module builds its own `git -C <root> …` argvs, so it cannot use that module's
+# ready-made argvs — only the option pair they are built from. Without it, git's default
+# C-quoting returns a tracked non-ASCII path as a string that names no real file, and a
+# coverage-map entry for that path would read as untracked.
+_POP_PATH = Path(__file__).resolve().parent / "lint_population.py"
+try:
+    _pop_spec = importlib.util.spec_from_file_location("lint_population", _POP_PATH)
+    if _pop_spec is None or _pop_spec.loader is None:
+        raise ImportError(f"no loadable spec for {_POP_PATH}")
+    _pop = importlib.util.module_from_spec(_pop_spec)
+    _pop_spec.loader.exec_module(_pop)
+except Exception as _exc:
+    raise SystemExit(
+        f"coverage_map_guard: the shared population reader {_POP_PATH} could not be "
+        f"loaded ({_exc.__class__.__name__}: {_exc}); refusing to audit"
+    ) from _exc
+# Validate the SHAPE, not just presence: `hasattr` is satisfied by an emptied
+# `QUOTE_PATH_OFF = ()`, which splices nothing and silently reinstates the defect, and by a
+# bare string, which `tuple()` would explode into one argv element per character. Comparing
+# against the expected pair makes either failure name the constant rather than surfacing as
+# a green run or an unrecognised-git-option error.
+_qp = getattr(_pop, "QUOTE_PATH_OFF", None)
+if _qp != ("-c", "core.quotePath=false"):
+    raise SystemExit(
+        f"coverage_map_guard: {_POP_PATH}'s `QUOTE_PATH_OFF` is not the expected "
+        f"`-c core.quotePath=false` option pair (got {_qp!r}); refusing to audit"
+    )
+QUOTE_PATH_OFF = tuple(_qp)
 
 MAP_REL = "lib/test/modules/coverage-map.json"
 REGISTRY_REL = "scripts/workflow-flight-recorder-registry.json"
@@ -792,9 +824,12 @@ def _arm11(map_value, map_raw_text, map_raw_error):
 
 
 def _git_tracked(repo_root: Path):
-    """git-tracked repo-relative paths (index read; reads no history)."""
+    """git-tracked repo-relative paths (index read; reads no history).
+
+    `QUOTE_PATH_OFF` (issue #1217) keeps a tracked non-ASCII path raw; see its
+    definition above for why."""
     result = subprocess.run(
-        ["git", "-C", str(repo_root), "ls-files"],
+        ["git", "-C", str(repo_root), *QUOTE_PATH_OFF, "ls-files"],
         capture_output=True,
         text=True,
         check=True,
@@ -806,13 +841,15 @@ def _git_executable(repo_root: Path):
     """git-tracked repo-relative paths whose INDEX mode is executable, or None.
 
     `git ls-files -s` prints `<mode> <object> <stage>\\tpath`; mode 100755 is the
-    executable regular-file mode. Returning None on any failure (rather than an empty
+    executable regular-file mode. `QUOTE_PATH_OFF` (issue #1217) keeps a tracked
+    non-ASCII path raw, so its mode row still joins against `_git_tracked`'s path.
+    Returning None on any failure (rather than an empty
     set) keeps the unestablished case distinguishable from "nothing is executable" —
     arm 10 reports the former once and makes no per-entry claim. Index mode, not the
     working-tree mode, is the comparand: the index is what ships."""
     try:
         result = subprocess.run(
-            ["git", "-C", str(repo_root), "ls-files", "-s"],
+            ["git", "-C", str(repo_root), *QUOTE_PATH_OFF, "ls-files", "-s"],
             capture_output=True,
             text=True,
             check=True,
