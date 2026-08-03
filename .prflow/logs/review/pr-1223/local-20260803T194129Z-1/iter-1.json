@@ -1,78 +1,179 @@
 {
   "iter": 1,
+  "source": "review-and-fix",
   "started_at": "2026-08-03T19:41:29Z",
   "loop_role": "fix",
-  "current_step": "loop-control",
-  "current_substep": "phase3_review_agents",
+  "current_step": "3.5",
+  "current_substep": "fix_delta_blinded_review",
   "pending_dispatch": {
-    "kind": "phase3_reviewer_fanout",
-    "roster": [
-      "prflow:requesting-code-review"
-    ],
-    "dispatched_at": "2026-08-03T20:13:00Z"
+    "kind": "fix_delta_gate",
+    "roster": ["general-purpose"],
+    "dispatched_at": "2026-08-03T20:38:00Z"
   },
+  "fix_commit_sha": "e4338f17a48b97be73d40e6fd190cfd574fc33e1",
+  "fix_files": [
+    "agents/code-architect.md",
+    "skills/create-issue/references/issue-template.md"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": true,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist": [
+    {"id":"VC-1","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:issue-template.md:ac1-named-measurement-rule:199","reused_from_iter_prev":false},
+    {"id":"VC-2","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:issue-template.md:ac2-concrete-counter-example:199","reused_from_iter_prev":false},
+    {"id":"VC-3","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:issue-template.md:ac3-unestablished-not-unnamed:199","reused_from_iter_prev":false},
+    {"id":"VC-4","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:issue-template.md:ac4-consumer-meaningful-guidance:199","reused_from_iter_prev":false},
+    {"id":"VC-5","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:create-issue.md:ac5-motivating-example-pointer:274","reused_from_iter_prev":false},
+    {"id":"VC-6","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:create-issue.md:ac6-stale-claude-pointer-removed:274","reused_from_iter_prev":false},
+    {"id":"VC-7","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:code-architect.md:ac7-no-command-execution-tool:41","reused_from_iter_prev":false},
+    {"id":"VC-8","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:code-architect.md:ac8-grep-count-rejected:41","reused_from_iter_prev":false},
+    {"id":"VC-9","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:code-architect.md:ac9-tool-grants-unchanged:4","reused_from_iter_prev":false},
+    {"id":"VC-10","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:issue-template.md:ac10-no-prompt-prose-pin","reused_from_iter_prev":false}
+  ],
   "phase3_dispatched": [
     "prflow:code-reviewer",
     "prflow:silent-failure-hunter",
     "prflow:comment-analyzer",
     "prflow:requesting-code-review"
   ],
-  "git_snapshot_before_oid": "c140e0179a10adb98ba63fd0cf81a3931a303efa",
-  "dispatched_effort": [
+  "phase3_findings": [
     {
-      "agent": "prflow:checklist-generator",
-      "phase": "1",
-      "requested": "low",
-      "resolved": "low",
-      "application_point": "session-fallback",
-      "effective": null,
-      "fallback_reason": "per-agent effort low resolved but was not applied; the agent inherits the session effort"
-    },
-    {
-      "agent": "prflow:checklist-verifier",
-      "phase": "2",
-      "requested": "low",
-      "resolved": "low",
-      "application_point": "session-fallback",
-      "effective": null,
-      "fallback_reason": "per-agent effort low resolved but was not applied; the agent inherits the session effort"
-    },
-    {
+      "finding_id": "F-1",
       "agent": "prflow:code-reviewer",
-      "phase": "3",
-      "requested": "low",
-      "resolved": "low",
-      "application_point": "session-fallback",
-      "effective": null,
-      "fallback_reason": "per-agent effort low resolved but was not applied; Codex mapped the unavailable claude-opus-4-8 model override to gpt-5.6-sol"
+      "severity": "Important",
+      "description": "The new authoritative quantitative-AC prose should receive source-presence pins.",
+      "defect_signature": {"file":"skills/create-issue/references/issue-template.md","line_range":[201,201],"kind":"test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "pushed_back"
     },
     {
+      "finding_id": "F-2",
       "agent": "prflow:silent-failure-hunter",
-      "phase": "3",
-      "requested": "low",
-      "resolved": "low",
-      "application_point": "session-fallback",
-      "effective": null,
-      "fallback_reason": "per-agent effort low resolved but was not applied; the agent inherits the session effort"
+      "severity": "Suggestion",
+      "description": "A complete Grep count-mode result could fall through to the tool-derived verified branch because the explicit unverified disposition was lost.",
+      "defect_signature": {"file":"agents/code-architect.md","line_range":[41,41],"kind":"logic_error"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
     },
     {
-      "agent": "prflow:comment-analyzer",
-      "phase": "3",
-      "requested": "low",
-      "resolved": "low",
-      "application_point": "session-fallback",
-      "effective": null,
-      "fallback_reason": "per-agent effort low resolved but was not applied; the agent inherits the session effort"
-    },
-    {
+      "finding_id": "F-3",
       "agent": "prflow:requesting-code-review",
-      "phase": "3",
-      "requested": "low",
-      "resolved": "low",
-      "application_point": "session-fallback",
-      "effective": null,
-      "fallback_reason": "per-agent effort low resolved but was not applied; the agent inherits the session effort"
+      "severity": "Important",
+      "description": "The quality-checklist row restated the new canonical measurement-instrument contract instead of pointing to it.",
+      "defect_signature": {"file":"skills/create-issue/references/issue-template.md","line_range":[465,465],"kind":"comment_drift"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
     }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "pushed_back",
+      "source_file": "skills/create-issue/references/issue-template.md",
+      "claim_text": "Add source-presence pins for the new authoritative quantitative-AC prose.",
+      "skip_category": "claim-quality",
+      "evidence": "Issue #1215 AC10 and its Testing Strategy explicitly prohibit new source-presence pins over this agent-executed prompt prose; fixing the finding would violate the specification and the pin-corpus boundary.",
+      "parking_evidence": {
+        "basis": "The claimed coverage gap is an explicitly required no-pin design, not a defect.",
+        "failing_input": "Deletion or rewording of agent-executed prompt prose with no executable behavior boundary.",
+        "source": ".prflow/tmp/issue-body/issue-1215.md — AC10 and Testing Strategy",
+        "finding_ref": {"iter":1,"index":0}
+      }
+    },
+    {
+      "finding_id": "F-1",
+      "decision": "severity-calibrated",
+      "source_file": "skills/create-issue/references/issue-template.md",
+      "claim_text": "Missing source-presence pins",
+      "original_severity": "Important",
+      "calibrated_severity": "suggestion",
+      "evidence": "No behavioral failure exists: the requested pins are forbidden by AC10. The finding is pushed back rather than treated as a blocker."
+    },
+    {"finding_id":"F-2","decision":"applied","commit":"e4338f17a48b97be73d40e6fd190cfd574fc33e1"},
+    {"finding_id":"F-3","decision":"applied","commit":"e4338f17a48b97be73d40e6fd190cfd574fc33e1"},
+    {
+      "finding_id": "F-3",
+      "decision": "severity-calibrated",
+      "source_file": "skills/create-issue/references/issue-template.md",
+      "claim_text": "A second operative checklist copy can drift from the canonical rule.",
+      "original_severity": "Important",
+      "calibrated_severity": "important",
+      "evidence": "The checklist enters the drafting agent's context and can independently steer consumer issue validation; a stale secondary copy can accept an AC the canonical rule rejects."
+    }
+  ],
+  "sweep_defs_read": [
+    "skills/implement/phases/phase-2-implement.md#2.3.0",
+    "skills/implement/phases/phase-2-implement.md#2.3.0a",
+    "skills/implement/phases/phase-2-implement.md#2.3.0b",
+    "skills/implement/phases/phase-2-implement.md#2.3.0c",
+    "skills/implement/phases/phase-2-implement.md#2.3.0d",
+    "skills/implement/phases/phase-2-implement.md#2.3.1",
+    "skills/implement/phases/phase-2-implement.md#2.3.2",
+    "skills/implement/phases/phase-2-implement.md#2.3.3",
+    "skills/implement/phases/phase-2-implement.md#2.3.4",
+    "skills/implement/phases/phase-2-implement.md#2.3.4a",
+    "skills/implement/phases/phase-2-implement.md#2.3.4b",
+    "skills/implement/phases/phase-2-implement.md#2.3.5",
+    "skills/implement/phases/phase-2-implement.md#2.3.6",
+    "skills/implement/phases/phase-2-implement.md#2.3.7"
+  ],
+  "sweep_evidence": {
+    "status": "run",
+    "diff_shape": "prompt-contract clarification and duplicate-contract collapse to pointer",
+    "selected": ["2.3.0","2.3.0c","2.3.0d","2.3.3","2.3.4","2.3.4a","2.3.4b","2.3.5","2.3.6"],
+    "result": "clean",
+    "evidence": "Tracked-file searches found zero surviving old checklist copies, one canonical quantitative rule plus one pointer, and one explicit code-architect Grep rule. The stale-prose authoring scan examined two hunks and returned zero rows with rc 0."
+  },
+  "test_first_gate": [
+    {
+      "decision": "model-context-red-green-control",
+      "command": "three context-isolated subagent pressure scenarios",
+      "result": "pass",
+      "evidence": "Checklist RED/control accepted a command with missing inputs and aggregation while GREEN rejected it through the canonical pointer. Predicate-bound Grep RED/control published the complete count as verified while GREEN marked it unverified; an earlier non-predicate-bound Grep batch was invalidated because all arms caught the issue."
+    }
+  ],
+  "verification_evidence": {
+    "command": "bash lib/test/run-module.sh create-issue-contract",
+    "result": "pass",
+    "duration_s": 15.8124,
+    "skipped_checks": []
+  },
+  "verification_flight": {
+    "flight_key": "30f4d324ce2e49e2511529f3bce3ccb8f1d9f87a15ac59e5a5b025aba8f62182",
+    "state": "passed",
+    "candidate_identity": "9e5e47e1fdf71a8f444263f1df88ad7346cf867e"
+  },
+  "stale_prose_check": {
+    "command": "git diff 4929bb7fb0035bd4c1301627d21be56cdf092b94...HEAD | scripts/stale-prose-lint.py --rev HEAD",
+    "result": "clean",
+    "rows": [],
+    "exit_status": 0
+  },
+  "base_checkpoint": {"token":"UP_TO_DATE","behind_by":null},
+  "checkpoint_push": {"result":"pushed","destination":"origin/issue-1215-a-quantitative-acceptance-criterion-never-has-to"},
+  "convergence_inputs": {
+    "engine_verdict": "APPROVE with notes",
+    "fix_threshold": "suggestion",
+    "verdict_threshold": "critical",
+    "phase2": {"passed":10,"failed":0,"inconclusive":0},
+    "phase3_returned": 4,
+    "phase3_failed": 0
+  },
+  "cap_drops": {"count":0,"by_category":{}},
+  "dispatched_effort": [
+    {"agent":"prflow:checklist-generator","phase":"1","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"per-agent effort low resolved but was not applied; the agent inherits the session effort"},
+    {"agent":"prflow:checklist-verifier","phase":"2","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"per-agent effort low resolved but was not applied; the agent inherits the session effort"},
+    {"agent":"prflow:code-reviewer","phase":"3","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"per-agent effort low resolved but was not applied; Codex mapped the unavailable claude-opus-4-8 model override to gpt-5.6-sol"},
+    {"agent":"prflow:silent-failure-hunter","phase":"3","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"per-agent effort low resolved but was not applied; the agent inherits the session effort"},
+    {"agent":"prflow:comment-analyzer","phase":"3","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"per-agent effort low resolved but was not applied; the agent inherits the session effort"},
+    {"agent":"prflow:requesting-code-review","phase":"3","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"per-agent effort low resolved but was not applied; the agent inherits the session effort"}
   ],
   "telemetry": "unavailable"
 }

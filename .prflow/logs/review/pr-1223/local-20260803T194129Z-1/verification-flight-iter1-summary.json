@@ -1,0 +1,8 @@
+{
+  "command": "bash lib/test/run-module.sh create-issue-contract",
+  "exit_status": 0,
+  "totals": {"passed": 231, "failed": 0, "skipped": 0},
+  "failure_text": "",
+  "skipped_checks": [],
+  "candidate_identity": "9e5e47e1fdf71a8f444263f1df88ad7346cf867e"
+}
