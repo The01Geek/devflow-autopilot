@@ -39,6 +39,16 @@ granted helper literal is repo-relative with **no re-anchored form the matcher
 accepts**. There is no cloud-permitted spelling that would let a helper resolve
 from some other directory, so the only safe posture is to never leave the root.
 
+The same pairing is why a second working-directory-flag shape, `git -C <path>
+<subcommand>`, is **matcher-refused** on the cloud review runner: the path
+argument is never needed when the run already begins at the root, and no git
+grant in `lib/capability-profiles.json` matches a `-C`-prefixed subcommand. Emit
+the bare `git <subcommand>` (`git diff`, `git show <ref>:<path>`, `git log`) from
+where you already are — never `git -C` and never behind a leading `cd`. Unlike
+the no-`cd` rule, this one is a matcher refusal rather than an authoring lint; the
+run-30832631347 evidence and the per-git-subcommand grant reasoning are in
+[`docs/cloud-allowlist.md`](cloud-allowlist.md).
+
 ## Local and interactive tier — no working-directory guarantee
 
 The local and interactive tier carries **no** such guarantee. A consumer invokes
