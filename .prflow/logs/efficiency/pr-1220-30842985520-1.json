@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1220",
+  "generated_at": "2026-08-03T18:56:52Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.67",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.121357249999999,
+    "tokens": {
+      "input_tokens": 1857,
+      "output_tokens": 19664,
+      "cache_read_input_tokens": 2811373,
+      "cache_creation_input_tokens": 140652,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 1895,
+        "outputTokens": 36380,
+        "cacheReadInputTokens": 3617887,
+        "cacheCreationInputTokens": 298559,
+        "webSearchRequests": 0,
+        "costUSD": 5.121357249999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 27,
+    "duration_ms": 383759
+  },
+  "permission_denials": {
+    "count": 4,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review",
+      "scripts/post-review-verdict.sh 1220 APPROVE .prflow/tmp/review/pr-1220/local/verdict.md d5dd19ec384ccd456237d745763ff09897fad194 2>&1; echo \"post-rc=$?\"",
+      "scripts/post-review-verdict.sh 1220 APPROVE .prflow/tmp/review/pr-1220/local/verdict.md d5dd19ec384ccd456237d745763ff09897fad194"
+    ],
+    "total": 4,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
