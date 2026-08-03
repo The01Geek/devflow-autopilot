@@ -3401,6 +3401,181 @@ assert_eq "#1154 wiring: an absent upsert helper warns" "1" \
 rm -rf "$S1154_WF"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "dead-run verdict-presence gate: dead-run-verdict-present.sh + devflow.yml wiring (#1172)"
+# ────────────────────────────────────────────────────────────────────────────
+# The dead-run backstop wrote "the run wrote no verdict" beside reviews that DID
+# post one (PR #1169 run 30772170838: APPROVED at 23:31:06, banner 19s later),
+# because the flip step asked no verdict question at all. Issue #1172 wires
+# scripts/dead-run-verdict-present.sh — which reuses the HEAD-scoped, fail-closed
+# derive-review-verdict.sh — into the flip step's gate. Everything below drives
+# real processes: the presence helper end to end against a stubbed gh over every
+# arm (AC5, both-channels + truly-absent), and the shipped workflow block against
+# a recording flip stub so the suppress/write selection is executed, not grepped.
+
+S1172_DRVP="$LIB/../scripts/dead-run-verdict-present.sh"
+S1172_ROOT="$(mktemp -d)"
+S1172_STATE="$S1172_ROOT/state"
+mkdir -p "$S1172_STATE"
+S1172_HEAD='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+# One gh stub serving the three endpoints the gate touches: the PR head sha, the
+# reviews API, and the issue comments. Order matters — the reviews/comments paths
+# are more specific than the bare pull path, so they are matched first.
+cat > "$S1172_ROOT/gh" <<'STUB'
+#!/usr/bin/env bash
+j="$*"
+case "$j" in
+  *"/reviews"*)  cat "$S1172_STATE/reviews.json"; exit 0 ;;
+  *"/comments"*) cat "$S1172_STATE/comments.json"; exit 0 ;;
+  *"/pulls/"*)   cat "$S1172_STATE/headsha"; exit 0 ;;
+esac
+echo '[]'
+STUB
+chmod +x "$S1172_ROOT/gh"
+# Seed helpers. reviews/comments default to empty; an override sets only what it needs.
+s1172_seed() {  # <head-sha-or-empty>
+  printf '%s' "$1" > "$S1172_STATE/headsha"
+  printf '[]' > "$S1172_STATE/reviews.json"
+  printf '[]' > "$S1172_STATE/comments.json"
+}
+s1172_review() {  # <state> — a single review on HEAD with that reviews-API state
+  jq -n --arg h "$S1172_HEAD" --arg s "$1" \
+    '[{"commit_id":$h,"state":$s,"body":""}]' > "$S1172_STATE/reviews.json"
+}
+s1172_progress_comment() {  # <verdict> — this run's run-keyed progress comment carrying the verdict marker
+  jq -n --arg h "$S1172_HEAD" --arg v "$1" \
+    '[{"body": ("<!-- prflow:review-progress run=RUN1172-1 -->\n<!-- prflow:review-verdict head=" + $h + " verdict=" + $v + " -->\nfull report")}]' \
+    > "$S1172_STATE/comments.json"
+}
+s1172_gate() {  # <engine-is-error> -> prints present/absent
+  env DEVFLOW_GH="$S1172_ROOT/gh" S1172_STATE="$S1172_STATE" GITHUB_RUN_ID=RUN1172 \
+    bash "$S1172_DRVP" o/r 55 "$1" 2>/dev/null
+}
+
+# ── Channel 1: the formal review. An APPROVED review on HEAD is a verdict, so the
+# banner is suppressed.
+s1172_seed "$S1172_HEAD"; s1172_review APPROVED
+assert_eq "#1172 gate: an APPROVED formal review on HEAD reports the verdict present" "present" "$(s1172_gate false)"
+# A REJECT (CHANGES_REQUESTED) is equally a verdict — a rejected run is not verdict-less.
+s1172_seed "$S1172_HEAD"; s1172_review CHANGES_REQUESTED
+assert_eq "#1172 gate: a CHANGES_REQUESTED review on HEAD is a verdict too (present)" "present" "$(s1172_gate false)"
+
+# ── Channel 2 (the both-channels case AC5 names): NO HEAD review, but this run's
+# run-keyed progress comment carries the verdict marker — the shape the review
+# POST-refused comment-fallback channel leaves. The gate must still see it.
+s1172_seed "$S1172_HEAD"; s1172_progress_comment APPROVE
+assert_eq "#1172 gate: a verdict reachable ONLY via this run's run-keyed progress comment is present (both-channels)" \
+  "present" "$(s1172_gate false)"
+
+# ── Truly absent (AC5): no HEAD review and no run-keyed verdict comment — the
+# genuinely verdict-less run the banner exists for. The gate must NOT suppress it.
+s1172_seed "$S1172_HEAD"
+assert_eq "#1172 gate: a genuinely verdict-less run reports absent (the banner still writes — AC4)" "absent" "$(s1172_gate false)"
+
+# ── Fail-closed operands, each independently → absent (banner still writes).
+# An unresolvable HEAD sha (an issue-number target / non-PR event) even with a
+# review present: the deriver cannot scope the verdict to HEAD, so absent.
+s1172_seed ""; s1172_review APPROVED
+assert_eq "#1172 gate: an unresolvable HEAD sha fails closed to absent even with a review present" "absent" "$(s1172_gate false)"
+# An engine-error run short-circuits in the deriver before any reviews query — the
+# deliberately-scoped #1172 caveat: an engine-error run always banners.
+s1172_seed "$S1172_HEAD"; s1172_review APPROVED
+assert_eq "#1172 gate: an engine-error run is absent (banners) even with a HEAD verdict — the scoped caveat" "absent" "$(s1172_gate true)"
+
+# ── Always exits 0 (it runs under the flip step's always()).
+s1172_seed "$S1172_HEAD"; s1172_review APPROVED
+S1172_RC=0; s1172_gate false >/dev/null 2>&1 || S1172_RC=$?
+assert_eq "#1172 gate: always exits 0" "0" "$S1172_RC"
+
+# ── Partial-copy degradation: this file present without its sibling deriver must
+# fail toward the banner (absent) and say so, never suppress on an unestablished
+# verdict.
+S1172_ORPHAN="$(mktemp -d)"
+cp "$S1172_DRVP" "$S1172_ORPHAN/dead-run-verdict-present.sh"
+S1172_ORPHAN_OUT="$(env DEVFLOW_GH="$S1172_ROOT/gh" GITHUB_RUN_ID=RUN1172 \
+  bash "$S1172_ORPHAN/dead-run-verdict-present.sh" o/r 55 false 2>&1)"
+assert_eq "#1172 gate: a missing sibling deriver degrades to absent (banner not suppressed)" "yes" \
+  "$(printf '%s\n' "$S1172_ORPHAN_OUT" | grep -qx 'absent' && echo yes || echo no)"
+assert_eq "#1172 gate: the missing-sibling degradation names the cause on stderr" "yes" \
+  "$(printf '%s\n' "$S1172_ORPHAN_OUT" | grep -qF 'derive-review-verdict.sh missing' && echo yes || echo no)"
+rm -rf "$S1172_ORPHAN"
+rm -rf "$S1172_ROOT"
+
+# ── devflow.yml wiring, executed rather than grepped. Extract the shipped upsert
+# block and run it against a recording flip stub and a controllable verdict-presence
+# stub, so the suppress-vs-write selection and its degraded arm are real branches.
+S1172_WF="$(mktemp -d)"
+mkdir -p "$S1172_WF/.prflow/vendor/prflow/scripts"
+python3 - "$RDWF" "$S1172_WF/upsert-block.sh" <<'PY'
+import sys
+import textwrap
+
+text = open(sys.argv[1], encoding="utf-8").read()
+begin = text.index("          # dead-run review-progress upsert BEGIN")
+end = text.index("          # dead-run review-progress upsert END", begin)
+block = text[begin:end].splitlines()[1:]
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    handle.write("set -euo pipefail\n")
+    handle.write(textwrap.dedent("\n".join(block)))
+    handle.write("\n")
+PY
+# Recording flip stub: writes its args so a "flip reached" / "flip not reached"
+# assertion is proven, not assumed.
+cat > "$S1172_WF/.prflow/vendor/prflow/scripts/flip-review-progress-failed.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s|%s|%s\n' "$1" "$2" "$3" >> "$S1172_WF_RECORD"
+exit 0
+SH
+chmod +x "$S1172_WF/.prflow/vendor/prflow/scripts/flip-review-progress-failed.sh"
+# Controllable verdict-presence stub: echoes $S1172_FAKE_VERDICT (present/absent).
+cat > "$S1172_WF/.prflow/vendor/prflow/scripts/dead-run-verdict-present.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "${S1172_FAKE_VERDICT:-absent}"
+exit 0
+SH
+chmod +x "$S1172_WF/.prflow/vendor/prflow/scripts/dead-run-verdict-present.sh"
+cp "$S1154_CAUSE" "$S1172_WF/.prflow/vendor/prflow/scripts/describe-dead-run-cause.sh"
+# The diagnosis dispatcher is invoked after the upsert; stub it to a no-op so the
+# block runs without needing the real one.
+cat > "$S1172_WF/.prflow/vendor/prflow/scripts/run-review-progress-diagnosis.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "$S1172_WF/.prflow/vendor/prflow/scripts/run-review-progress-diagnosis.sh"
+S1172_WF_RECORD="$S1172_WF/record"
+s1172_wf() {  # <fake-verdict> -> runs the block on a clean-exit review run, prints stdout
+  ( cd "$S1172_WF" && COMMAND='/prflow:review 55' CLAUDE_OUTCOME=success ENGINE_ERROR=false \
+      CONTEXT_NUMBER=55 REPO=o/r GH_TOKEN=secret S1172_FAKE_VERDICT="$1" \
+      GITHUB_RUN_ID=1172 GITHUB_RUN_ATTEMPT=1 S1172_WF_RECORD="$S1172_WF_RECORD" \
+      bash "$S1172_WF/upsert-block.sh" )
+}
+
+# present → the flip helper is NEVER reached and the step says it suppressed.
+: > "$S1172_WF_RECORD"
+S1172_WF_OUT="$(s1172_wf present)"
+assert_eq "#1172 wiring: a present verdict suppresses the flip — the flip helper is never reached" "0" \
+  "$(grep -c . "$S1172_WF_RECORD" || true)"
+assert_eq "#1172 wiring: the suppressed path emits its own notice" "1" \
+  "$(grep -cF 'suppressing the dead-run' <<<"$S1172_WF_OUT" || true)"
+
+# absent → the flip helper IS reached with this run's marker and cause (the banner writes).
+: > "$S1172_WF_RECORD"
+s1172_wf absent >/dev/null
+assert_eq "#1172 wiring: an absent verdict reaches the flip helper with this run's marker and the no-verdict cause" \
+  "55|<!-- prflow:review-progress run=1172-1 -->|claude step success but the run wrote no verdict (engine reported no error)" \
+  "$(sed -n '1p' "$S1172_WF_RECORD")"
+
+# A missing verdict-presence helper DEGRADES: warn, and still reach the flip (the
+# banner must never be silently dropped on an unestablished verdict).
+rm -f "$S1172_WF/.prflow/vendor/prflow/scripts/dead-run-verdict-present.sh"
+: > "$S1172_WF_RECORD"
+S1172_WF_OUT="$(s1172_wf present)"
+assert_eq "#1172 wiring: an absent verdict-presence helper warns instead of suppressing" "1" \
+  "$(grep -cF 'dead-run-verdict-present.sh absent' <<<"$S1172_WF_OUT" || true)"
+assert_eq "#1172 wiring: with the presence helper absent the flip is still reached (fail toward the banner)" "1" \
+  "$(grep -c . "$S1172_WF_RECORD" || true)"
+rm -rf "$S1172_WF"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "authorize-actor.sh (allowed_users filter)"
 # ────────────────────────────────────────────────────────────────────────────
 AUTH="$LIB/../scripts/authorize-actor.sh"
