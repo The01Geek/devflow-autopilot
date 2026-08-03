@@ -2148,6 +2148,16 @@ NV_P4="$LIB/../skills/review/phases/phase-4-verdict.md"
 if python3 "$NV_TEST" >/dev/null 2>&1; then _NV_UNIT=ok; else _NV_UNIT=FAILED; fi
 assert_eq "#556 T-1/T-3/T-6: normalize-verdicts helper unit tests pass over the fixture matrix" "ok" "$_NV_UNIT"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# #1212: the review-and-fix loop-verdict marker. scripts/loop-verdict-marker.py
+# composes the producer marker and reads line 1 of the loop's chat output; the
+# standalone test drives the compose matrix, the read routing tokens, and every
+# AC5 safe-direction branch (no marker / malformed / unknown token never yields
+# CLEAN-FULL). Exit 0 == all green, mirroring the normalize-verdicts idiom above.
+LVM_TEST="$LIB/test/loop-verdict-marker-test.py"
+if python3 "$LVM_TEST" >/dev/null 2>&1; then _LVM_UNIT=ok; else _LVM_UNIT=FAILED; fi
+assert_eq "#1212: loop-verdict-marker helper unit tests pass over the compose/read/safe-direction matrix" "ok" "$_LVM_UNIT"
+
 # T-4 (AC5) — the removed PASS-with-note softener must be ABSENT from the 2.1b dispatch prompt.
 assert_eq "#556 T-4(AC5): the 'Reserve FAIL' softener is gone from phase-2-verification.md" \
   "0" "$(pin_count 'Reserve FAIL for cases where the code itself is wrong' "$NV_P2")"
