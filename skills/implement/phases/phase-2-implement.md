@@ -183,6 +183,16 @@ Reconciliation steps:
 
 If the rewrite would relax the AC (drop a guarantee, weaken a check, remove a verification surface), STOP — apply 2.2.5 (defer the AC to a follow-up issue) or revert the structural change instead.
 
+#### 2.2.7 Pre-flight coupled-site map (before any Phase 2.3 edit)
+
+When the plan touches a value, contract, or literal that lives in more than one place — the class the §2.3 "Sweep selection" preamble defines by *what the change replicates across sites, not whether it is code* — **list those other places before you start editing**, not after. The §2.3 relocation and contract-completeness sweeps make this same check *after* the edits are written; doing it first is what stops a missed copy from surfacing only when the test suite goes red or a reviewer rejects the change.
+
+Enumerate the sites with searches you actually run, in the granted forms and preference order the §2.3 preamble already lists, and record both the commands you ran and what they found through a workpad `--note` before the first edit. Do not attest a search you did not run.
+
+A search that errors, is refused, or returns no output at all is a **gap**, not an empty result: record it as a gap naming that command, and build the map only from searches that observably ran — a refused search never counts as "there were no other places." Follow the §2.3 preamble's "confirm the search actually ran" rule here rather than restating it.
+
+If your project publishes a coupled-site registry — a checked-in list of which sites must change together — consult it as well; a project that publishes none is simply unconstrained by it.
+
 ### 2.3 Implement
 
 `workpad.py update $ISSUE_NUMBER --status Implementing`.
