@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1199",
+  "generated_at": "2026-08-03T18:44:43Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.66",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.65770275,
+    "tokens": {
+      "input_tokens": 1234,
+      "output_tokens": 17577,
+      "cache_read_input_tokens": 2161051,
+      "cache_creation_input_tokens": 138217,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 1274,
+        "outputTokens": 35543,
+        "cacheReadInputTokens": 3485838,
+        "cacheCreationInputTokens": 400244,
+        "webSearchRequests": 0,
+        "costUSD": 5.65770275,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 25,
+    "duration_ms": 362515
+  },
+  "permission_denials": {
+    "count": 5,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none}\"; git rev-parse HEAD; git log --oneline -1 35745c45c99fb49e344963e87f64deef674d9097 2>&1 | head -1",
+      "cd /home/runner/work/prflow/prflow; cat > .prflow/tmp/review/pr-1199/30842087876-1/verdict.md <<'EOF'\n<!-- prflow:review-verdict head=35745c45c99fb49e344963e87f64deef674d9097 verdict=APPROVE -->\n## ✅ PRFlow Review — PR #1199 — APPROVE\n\n**Reviewed HEAD:** `35745c45c99fb49e344963e87f64deef674d9097`\n**Diff profile:** `engine_self_modifying` (full checklist; Phase 3 roster gated by applicability)\n\nProse-only change (issue #1190): removes PRFlow-internal `docs/*.md` references from shipped `skills/** …[per-command-truncated]"
+    ],
+    "total": 5,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
