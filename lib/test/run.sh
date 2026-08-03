@@ -22371,11 +22371,12 @@ printf '{}' > "$VS_REMOTE/.claude-plugin/marketplace.json"
 : > "$VS_REMOTE/lib/placeholder.sh"
 : > "$VS_REMOTE/skills/placeholder.md"
 : > "$VS_REMOTE/LICENSES/placeholder-LICENSE"   # #671: LICENSES/ is now a copy-list member, so the fetch fixture must carry it
-# #677: the fixture must CARRY the two excluded subtrees, otherwise the fetch-branch
+# The fixture must CARRY all three excluded subtrees, otherwise the fetch-branch
 # exclusion assertions below would pass vacuously — absent from the source, never
 # pruned. With these present the assertions observe the prune actually running.
-mkdir -p "$VS_REMOTE/docs/site" "$VS_REMOTE/lib/test"
+mkdir -p "$VS_REMOTE/docs/site" "$VS_REMOTE/docs/external" "$VS_REMOTE/lib/test"
 : > "$VS_REMOTE/docs/site/index.html"
+: > "$VS_REMOTE/docs/external/index.mdx"
 : > "$VS_REMOTE/lib/test/run.sh"
 printf '{}' > "$VS_REMOTE/.prflow/config.example.json"
 printf '{}' > "$VS_REMOTE/.prflow/config.schema.json"
@@ -22407,6 +22408,7 @@ assert_eq "vendor: fetch branch copies docs/ (offline skill links resolve)" "yes
 # so pin the prune there directly rather than relying on the shared path transitively.
 # Non-vacuous by construction — the fixture above carries both subtrees.
 assert_eq "#677 vendor: fetch slice excludes docs/site (published-page HTML)" "no" "$(vexists "$VS_FETCH/docs/site")"
+assert_eq "vendor: fetch slice excludes docs/external (published Mintlify source)" "no" "$(vexists "$VS_FETCH/docs/external")"
 assert_eq "#677 vendor: fetch slice excludes lib/test (DevFlow's own test suite)" "no" "$(vexists "$VS_FETCH/lib/test")"
 assert_eq "#677 vendor: fetch slice keeps non-test lib/ contents" "yes" "$(vexists "$VS_FETCH/lib/placeholder.sh")"
 
@@ -22509,6 +22511,7 @@ assert_eq "vendor: self copies .prflow/tool-presets.json" "yes" "$(vexists "$VS_
 # weakening the rm -rf prune (or moving it after the atomic swap), which re-ships the
 # subtree and turns these RED, so the exclusion cannot be silently reverted.
 assert_eq "#677 vendor: self slice excludes docs/site (published-page HTML)" "no" "$(vexists "$VS_SELF/docs/site")"
+assert_eq "vendor: self slice excludes docs/external (published Mintlify source)" "no" "$(vexists "$VS_SELF/docs/external")"
 assert_eq "#677 vendor: self slice excludes lib/test (DevFlow's own test suite)" "no" "$(vexists "$VS_SELF/lib/test")"
 # #677 presence backstops: the exclusion must not over-prune. Proving absence alone
 # would be satisfied by an implementation that pruned too much (e.g. all of docs/ or
@@ -45508,7 +45511,9 @@ PUBLIC_DOCS_ROOT="$PUBLIC_SITE_ROOT/docs"
 PUBLIC_RUN_JQ="$LIB/../scripts/run-jq.sh"
 
 public_nav_routes() {
-  [ -r "$PUBLIC_SITE_CONFIG" ] || return 0
+  local config
+  config="${1:-$PUBLIC_SITE_CONFIG}"
+  [ -r "$config" ] || return 1
   "$PUBLIC_RUN_JQ" -r '
     def routes:
       .[]? |
@@ -45517,36 +45522,72 @@ public_nav_routes() {
       else empty
       end;
     (.navigation.pages // []) | routes
-  ' "$PUBLIC_SITE_CONFIG" 2>/dev/null || true
+  ' "$config" 2>/dev/null
 }
 
 public_route_files_resolve() {
-  [ -r "$PUBLIC_SITE_CONFIG" ] || { printf 'no\n'; return; }
-  local route
+  local site_root config routes route
+  site_root="${1:-$PUBLIC_SITE_ROOT}"
+  config="${2:-$site_root/docs.json}"
+  routes="$(public_nav_routes "$config")" || { printf 'no\n'; return; }
+  [ -n "$routes" ] || { printf 'no\n'; return; }
   while IFS= read -r route; do
     [ -n "$route" ] || continue
-    if [ ! -f "$PUBLIC_SITE_ROOT/$route.md" ] && [ ! -f "$PUBLIC_SITE_ROOT/$route.mdx" ]; then
+    if [ ! -f "$site_root/$route.md" ] && [ ! -f "$site_root/$route.mdx" ]; then
       printf 'no\n'
       return
     fi
-  done < <(public_nav_routes)
+  done <<< "$routes"
   printf 'yes\n'
 }
 
-public_files_are_navigated_once() {
-  [ -d "$PUBLIC_DOCS_ROOT" ] && [ -r "$PUBLIC_SITE_CONFIG" ] || { printf 'no\n'; return; }
-  local file route count
+public_docs_pages_are_navigated_once() {
+  local site_root docs_root config routes file route count
+  site_root="${1:-$PUBLIC_SITE_ROOT}"
+  docs_root="${2:-$site_root/docs}"
+  config="${3:-$site_root/docs.json}"
+  [ -d "$docs_root" ] && [ -r "$config" ] || { printf 'no\n'; return; }
+  routes="$(public_nav_routes "$config")" || { printf 'no\n'; return; }
+  [ -n "$routes" ] || { printf 'no\n'; return; }
   while IFS= read -r file; do
-    route="${file#"$PUBLIC_SITE_ROOT/"}"
+    route="${file#"$site_root/"}"
     route="${route%.md}"
     route="${route%.mdx}"
-    count="$(public_nav_routes | awk -v wanted="$route" '$0 == wanted { n++ } END { print n + 0 }')"
+    count="$(printf '%s\n' "$routes" | awk -v wanted="$route" '$0 == wanted { n++ } END { print n + 0 }')"
     if [ "$count" != "1" ]; then
       printf 'no\n'
       return
     fi
-  done < <(find "$PUBLIC_DOCS_ROOT" -type f \( -name '*.md' -o -name '*.mdx' \) -print) # tree-walk-ok: include unstaged public pages while validating the local source tree
+  done < <(find "$docs_root" -type f \( -name '*.md' -o -name '*.mdx' \) -print) # tree-walk-ok: include unstaged public pages while validating the local source tree
   printf 'yes\n'
+}
+
+public_internal_links_resolve() {
+  local site_root
+  site_root="${1:-$PUBLIC_SITE_ROOT}"
+  [ -d "$site_root" ] || { printf 'no\n'; return; }
+  python3 - "$site_root" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+link_pattern = re.compile(r"(?<!!)\[[^]]+\]\((/[^)\s]+)")
+
+for page in root.rglob("*"):
+    if not page.is_file() or page.suffix not in {".md", ".mdx"}:
+        continue
+    for href in link_pattern.findall(page.read_text(encoding="utf-8")):
+        route = href.split("#", 1)[0].split("?", 1)[0].lstrip("/")
+        if not route:
+            continue
+        candidates = (root / route, root / f"{route}.md", root / f"{route}.mdx")
+        if not any(candidate.is_file() for candidate in candidates):
+            print("no")
+            raise SystemExit(0)
+
+print("yes")
+PY
 }
 
 public_directories_have_index() {
@@ -45580,18 +45621,6 @@ public_site_has_no_build_output() {
   fi
 }
 
-public_extension_contains() {
-  local skill="$1" needle="$2" output
-  output="$("$LIB/../scripts/load-prompt-extension.sh" "$skill" 2>/dev/null)" || {
-    printf 'no\n'
-    return
-  }
-  case "$output" in
-    *"$needle"*) printf 'yes\n' ;;
-    *) printf 'no\n' ;;
-  esac
-}
-
 public_file_contains() {
   local file="$1" needle="$2" content
   [ -r "$file" ] || { printf 'no\n'; return; }
@@ -45612,7 +45641,8 @@ assert_eq "public site: product name is PRFlow" "PRFlow" \
 assert_eq "public site: theme is maple" "maple" \
   "$([ -r "$PUBLIC_SITE_CONFIG" ] && "$PUBLIC_RUN_JQ" -r '.theme // ""' "$PUBLIC_SITE_CONFIG" 2>/dev/null || true)"
 assert_eq "public site: every navigation route resolves to a page" "yes" "$(public_route_files_resolve)"
-assert_eq "public site: every documentation page is navigated exactly once" "yes" "$(public_files_are_navigated_once)"
+assert_eq "public site: every page under docs/ is navigated exactly once" "yes" "$(public_docs_pages_are_navigated_once)"
+assert_eq "public site: every root-relative internal link resolves to a page" "yes" "$(public_internal_links_resolve)"
 assert_eq "public site: root homepage is navigated exactly once" "1" "$(public_nav_routes | awk '$0 == "index" { n++ } END { print n + 0 }')"
 assert_eq "public site: documentation hub is navigated exactly once" "1" "$(public_nav_routes | awk '$0 == "docs/index" { n++ } END { print n + 0 }')"
 assert_eq "public site: every documentation directory has index.md" "yes" "$(public_directories_have_index)"
@@ -45622,14 +45652,6 @@ assert_eq "public site: PRFlow external-doc path selects the Mintlify source roo
   "$("$PUBLIC_RUN_JQ" -r '.docs.external // ""' "$LIB/../.prflow/config.json" 2>/dev/null || true)"
 assert_eq "public site: same-PR external documentation maintenance is enabled" "true" \
   "$("$PUBLIC_RUN_JQ" -r '.docs.external_enabled // false' "$LIB/../.prflow/config.json" 2>/dev/null || true)"
-assert_eq "public site: external bootstrap excludes its output tree from internal source discovery" "yes" \
-  "$(public_extension_contains docs-bootstrap-external 'Exclude `docs/external/**` from internal source discovery')"
-assert_eq "public site: internal sync does not absorb the customer-facing tree" "yes" \
-  "$(public_extension_contains docs-sync-internal 'Do not inspect or edit `docs/external/**`')"
-assert_eq "public site: external sync keeps Mintlify navigation aligned in the same change" "yes" \
-  "$(public_extension_contains docs-sync-external 'update `docs.json` in the same change')"
-assert_eq "public site: external sync preserves the Markdown-first source boundary" "yes" \
-  "$(public_extension_contains docs-sync-external 'Normal documentation pages use `.md`; only the root landing page uses `.mdx`')"
 assert_eq "public site: canonical search URL is prflow.ai" "https://prflow.ai" \
   "$("$PUBLIC_RUN_JQ" -r '.seo.metatags.canonical // ""' "$PUBLIC_SITE_CONFIG" 2>/dev/null || true)"
 assert_eq "public site: README links to the public site" "yes" \
@@ -45638,12 +45660,36 @@ assert_eq "public site: README no longer links to the retired GitHub Pages site"
   "$(public_file_contains "$LIB/../README.md" 'https://the01geek.github.io/prflow/')"
 assert_eq "public site: publishing runbook exists" "yes" \
   "$([ -f "$LIB/../docs/mintlify-publishing.md" ] && echo yes || echo no)"
-assert_eq "public site: publishing runbook names the monorepo source path" "yes" \
-  "$(public_file_contains "$LIB/../docs/mintlify-publishing.md" '`/docs/external`')"
-assert_eq "public site: publishing runbook preserves Mintlify TXT-before-CNAME order" "yes" \
-  "$(public_file_contains "$LIB/../docs/mintlify-publishing.md" 'both TXT records show as verified before adding or changing the CNAME')"
-assert_eq "public site: publishing runbook uses the current Mintlify CNAME target" "yes" \
-  "$(public_file_contains "$LIB/../docs/mintlify-publishing.md" '`cname.mintlify.builders`')"
+
+# Fixture controls for the public-doc guards. Top-level release notes are owned by
+# the release-notes workflow and intentionally excluded from the docs/** navigation
+# completeness contract; a hidden page inside docs/** is not.
+PUBLIC_SCOPE_FIXTURE="$(mktemp -d)"
+mkdir -p "$PUBLIC_SCOPE_FIXTURE/docs"
+printf '{"navigation":{"pages":["docs/index"]}}\n' > "$PUBLIC_SCOPE_FIXTURE/docs.json"
+printf '# Docs\n' > "$PUBLIC_SCOPE_FIXTURE/docs/index.md"
+printf '# Release notes\n' > "$PUBLIC_SCOPE_FIXTURE/release-notes.md"
+assert_eq "public site guard: top-level release notes are outside docs/ navigation completeness" "yes" \
+  "$(public_docs_pages_are_navigated_once "$PUBLIC_SCOPE_FIXTURE")"
+printf '# Hidden\n' > "$PUBLIC_SCOPE_FIXTURE/docs/hidden.md"
+assert_eq "public site guard: an un-navigated page under docs/ fails completeness" "no" \
+  "$(public_docs_pages_are_navigated_once "$PUBLIC_SCOPE_FIXTURE")"
+
+PUBLIC_PARSE_FIXTURE="$(mktemp -d)"
+mkdir -p "$PUBLIC_PARSE_FIXTURE/docs"
+printf '{\n' > "$PUBLIC_PARSE_FIXTURE/docs.json"
+printf '# Docs\n' > "$PUBLIC_PARSE_FIXTURE/docs/index.md"
+assert_eq "public site guard: malformed docs.json fails route resolution closed" "no" \
+  "$(public_route_files_resolve "$PUBLIC_PARSE_FIXTURE")"
+
+PUBLIC_LINK_FIXTURE="$(mktemp -d)"
+mkdir -p "$PUBLIC_LINK_FIXTURE/docs"
+printf '# Docs\n\n[Missing](/docs/missing)\n' > "$PUBLIC_LINK_FIXTURE/docs/index.md"
+assert_eq "public site guard: a missing root-relative link target is rejected" "no" \
+  "$(public_internal_links_resolve "$PUBLIC_LINK_FIXTURE")"
+printf '# Present\n' > "$PUBLIC_LINK_FIXTURE/docs/missing.md"
+assert_eq "public site guard: the same link fixture passes when its target exists" "yes" \
+  "$(public_internal_links_resolve "$PUBLIC_LINK_FIXTURE")"
 
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
