@@ -41354,6 +41354,109 @@ assert_eq "#711 the growth artifact exists" "yes" \
   "$([ -f "$E711_GROWTH" ] && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
+# Windows-uncheckoutable tracked-path guard (lib/test/lint-windows-uncheckoutable-path.py).
+# The plugin `source` is `./`, so the whole repository is cloned by every consumer; git's
+# Windows reserved-name/path validation is compiled OUT on the linux/macOS platforms we test
+# on, so a path that aborts every Windows clone ships green here (issue #1196). The guard is a
+# member of the desk-time static-lint family (extract-command-heads.py, pin-corpus-lint.py,
+# lint-gh-api-repo-path.py, lint-tree-enumeration.py, …) and is driven the same way: the real
+# tree as the live gate, plus the real pre-fix tree and synthetic fixtures via --files-from.
+# ────────────────────────────────────────────────────────────────────────────
+echo "#1196 Windows-uncheckoutable tracked-path guard"
+E1196_LINT="$LIB/test/lint-windows-uncheckoutable-path.py"
+
+# Real tree: clean, AND a positive audited tally so a collapsed enumeration (a broken
+# population, an ls-files that yielded nothing) cannot read as clean. Comparand is the exit
+# code alone — the audited count drifts with every file added, so the positive-tally check is
+# a SEPARATE assertion reading the same rc=0 run.
+E1196_OUT="$(python3 "$E1196_LINT" --root "$LIB/.." 2>&1)"; E1196_RC=$?
+assert_eq "#1196 the real tree audits clean" "rc=0" \
+  "$([ "$E1196_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$E1196_RC" "$E1196_OUT")"
+assert_eq "#1196 the real-tree run audited a positive number of paths" "yes" \
+  "$(printf '%s' "$E1196_OUT" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) tracked", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+
+# Fixture driver — feed a synthetic path list through --files-from (never plant a reserved-name
+# file on disk: a tracked nul.md would re-break every Windows clone while the guard reported
+# green, the exact incident this guard prevents). Prints "rc=<n>|<stdout+stderr>".
+e1196_run() {  # <path…>  -> "rc=<n>|<output>"
+  local list out rc
+  list="$(probe_tmp '#1196 fixture list')" || list=""
+  case "$list" in
+    ""|/dev/null) printf 'rc=probe-unavailable|fixture list could not be allocated'; return 0 ;;
+  esac
+  printf '%s\n' "$@" > "$list"
+  out="$(python3 "$E1196_LINT" --root "$LIB/.." --files-from "$list" 2>&1)"; rc=$?
+  rm -f "$list"
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+
+# Historical regression case (AC4): the pre-fix parent 5179c5a1 of merge 1753565e tracks
+# lib/test/fixtures/shipped-pruned-path/skills/nul.md — a real positive case, not synthetic.
+# Fed from that tree's own path list (git ls-tree), so no Windows host and no checkout of the
+# offending path is needed. Self-skips when the commit is unreachable (a shallow local clone);
+# CI checks out full history (fetch-depth: 0), so the gate runs there.
+if git cat-file -e 5179c5a1 2>/dev/null; then
+  E1196_HIST_LIST="$(probe_tmp '#1196 historical path list')" || E1196_HIST_LIST=""
+  case "$E1196_HIST_LIST" in
+    ""|/dev/null) E1196_HIST="rc=probe-unavailable|list unallocatable" ;;
+    *)
+      git ls-tree -r 5179c5a1 --name-only > "$E1196_HIST_LIST" 2>/dev/null
+      E1196_HIST_OUT="$(python3 "$E1196_LINT" --root "$LIB/.." --files-from "$E1196_HIST_LIST" 2>&1)"
+      E1196_HIST_RC=$?
+      rm -f "$E1196_HIST_LIST"
+      E1196_HIST="rc=$E1196_HIST_RC|$E1196_HIST_OUT"
+      ;;
+  esac
+  assert_eq "#1196 the pre-fix tree 5179c5a1 goes RED" "yes" \
+    "$(case "$E1196_HIST" in "rc=1|"*) echo yes ;; *) echo "no: $E1196_HIST" ;; esac)"
+  assert_eq "#1196 the pre-fix RED names the reserved-name fixture" "yes" \
+    "$(case "$E1196_HIST" in *"lib/test/fixtures/shipped-pruned-path/skills/nul.md"*) echo yes ;; *) echo "no: $E1196_HIST" ;; esac)"
+else
+  skip "#1196 the pre-fix tree 5179c5a1 goes RED" host-capability \
+    "commit 5179c5a1 is unreachable in this checkout (shallow clone); CI runs with full history"
+fi
+
+# Mutation check (AC5): every rule the guard implements, one synthetic violating path each. A
+# component judged by a rule must go RED; the same set with the offending path removed is GREEN.
+assert_eq "#1196 mutation: reserved stem with an extension (nul.md)" "rc=1" "$(printf '%s' "$(e1196_run skills/nul.md)" | cut -d'|' -f1)"
+assert_eq "#1196 mutation: bare reserved stem (nul)" "rc=1" "$(printf '%s' "$(e1196_run skills/nul)" | cut -d'|' -f1)"
+assert_eq "#1196 mutation: reserved stem in a NON-final component (nul/x.md)" "rc=1" "$(printf '%s' "$(e1196_run skills/nul/x.md)" | cut -d'|' -f1)"
+assert_eq "#1196 mutation: reserved stem with a trailing space (nul )" "rc=1" "$(printf '%s' "$(e1196_run 'skills/nul ')" | cut -d'|' -f1)"
+assert_eq "#1196 mutation: reserved name followed by : (nul:ads)" "rc=1" "$(printf '%s' "$(e1196_run skills/nul:ads)" | cut -d'|' -f1)"
+assert_eq "#1196 mutation: CONIN\$ reserved name" "rc=1" "$(printf '%s' "$(e1196_run 'skills/CONIN$')" | cut -d'|' -f1)"
+assert_eq "#1196 mutation: component with a trailing dot (foo.)" "rc=1" "$(printf '%s' "$(e1196_run skills/foo./x.md)" | cut -d'|' -f1)"
+assert_eq "#1196 mutation: component with a trailing space (foo )" "rc=1" "$(printf '%s' "$(e1196_run 'skills/foo /x.md')" | cut -d'|' -f1)"
+assert_eq "#1196 mutation: forbidden character (<)" "rc=1" "$(printf '%s' "$(e1196_run 'skills/a<b.md')" | cut -d'|' -f1)"
+assert_eq "#1196 mutation: control character (0x01)" "rc=1" "$(printf '%s' "$(e1196_run "$(printf 'skills/a\001b.md')")" | cut -d'|' -f1)"
+assert_eq "#1196 mutation: backslash in path" "rc=1" "$(printf '%s' "$(e1196_run 'docs/a\b.md')" | cut -d'|' -f1)"
+# Removing the offending path leaves a clean population (RED→GREEN, the AC5 pairing).
+assert_eq "#1196 mutation: the same set MINUS the violation is GREEN" "rc=0" \
+  "$(printf '%s' "$(e1196_run skills/normal.md docs/readme.md)" | cut -d'|' -f1)"
+
+# Negative controls (AC6): look-alikes that must NOT be flagged.
+assert_eq "#1196 negative controls are not flagged" "rc=0" \
+  "$(printf '%s' "$(e1196_run skills/nulls.md skills/console.md skills/common.md skills/com0.md skills/a.b.c.md)" | cut -d'|' -f1)"
+
+# COM/LPT asymmetry (AC7), demonstrated in BOTH directions: com0 not flagged, lpt0 flagged.
+assert_eq "#1196 asymmetry: com0.md is NOT flagged" "rc=0" "$(printf '%s' "$(e1196_run skills/com0.md)" | cut -d'|' -f1)"
+assert_eq "#1196 asymmetry: lpt0.md IS flagged" "rc=1" "$(printf '%s' "$(e1196_run skills/lpt0.md)" | cut -d'|' -f1)"
+
+# Fail-closed on an unestablished population (AC8): an empty --files-from list must be a
+# non-zero "enumeration unusable", never a clean pass — "audited nothing" ≠ "found nothing".
+E1196_EMPTY="$(probe_tmp '#1196 empty population')" || E1196_EMPTY=""
+case "$E1196_EMPTY" in
+  ""|/dev/null) : ;;
+  *) : > "$E1196_EMPTY"
+     E1196_EOUT="$(python3 "$E1196_LINT" --root "$LIB/.." --files-from "$E1196_EMPTY" 2>&1)"; E1196_ERC=$?
+     rm -f "$E1196_EMPTY"
+     assert_eq "#1196 an empty population fails closed (not a clean pass)" "yes" \
+       "$(case "$E1196_ERC:$E1196_EOUT" in 0:*) echo "no: exited 0" ;; *"enumeration unusable"*) echo yes ;; *) echo "no: $E1196_ERC|$E1196_EOUT" ;; esac)"
+     ;;
+esac
+
+# ────────────────────────────────────────────────────────────────────────────
 # Subagent DISPATCH-NAMESPACE guard (lib/test/lint-subagent-dispatch-namespace.py).
 # A qualified subagent id in prompt prose is a dispatch string whose namespace half is
 # the plugin name, so a plugin rename that misses one ships a review engine whose
