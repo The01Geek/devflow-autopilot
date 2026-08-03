@@ -209,6 +209,12 @@ class RunAccumulator:
         self.per_turn_context = []
         self.compact_boundary_count = 0
         self.attributed = False
+        # Attributed main-thread turns that carried NO `usage` object at all. Such a turn
+        # has no recorded residency, so it is tallied here rather than folded into
+        # per_turn_context as a 0 (which would collapse an unmeasured turn onto a real
+        # value and drag the run's peak down — the silent-zero this instrument exists to
+        # avoid, one level below the empty-population guard).
+        self.usage_missing_turns = 0
         # phase label -> number of Read tool_use blocks that read that phase file.
         self.phase_reads = {label: 0 for label in PHASE_READ_LABELS}
 
@@ -232,7 +238,15 @@ class RunAccumulator:
         if not isinstance(message, dict):
             message = {}
         usage = message.get("usage")
-        self.per_turn_context.append(_context_tokens(usage))
+        if isinstance(usage, dict):
+            # A usage object is present: sum its residency sub-fields (an absent SUB-field
+            # is a legitimate 0 — see _usage_field).
+            self.per_turn_context.append(_context_tokens(usage))
+        else:
+            # No usage object at all on an attributed turn: residency was never recorded.
+            # Tally it instead of appending a 0, so an all-usage-absent run reports an
+            # UNESTABLISHED peak (see result()) rather than a real-looking 0.
+            self.usage_missing_turns += 1
 
         content = message.get("content")
         if not isinstance(content, list):
@@ -254,9 +268,15 @@ class RunAccumulator:
                     self.phase_reads[label] += 1
 
     def result(self):
-        """The run record's own fields."""
-        peak = max(self.per_turn_context) if self.per_turn_context else 0
-        final = self.per_turn_context[-1] if self.per_turn_context else 0
+        """The run record's own fields.
+
+        An attributed run whose every turn lacked a `usage` object has an empty
+        `per_turn_context`, so its peak/final read UNESTABLISHED (never 0): the residency
+        was never measured, and a real-looking 0 there is exactly the unknown-onto-zero
+        collapse this instrument guards against. `usage_missing_turns` surfaces the gap.
+        """
+        peak = max(self.per_turn_context) if self.per_turn_context else UNESTABLISHED
+        final = self.per_turn_context[-1] if self.per_turn_context else UNESTABLISHED
         # Emit the per-phase counts in the canonical sorted label order so the JSON /
         # text output is byte-stable across runs.
         phase_reads = {label: self.phase_reads[label] for label in PHASE_READ_LABELS}
@@ -267,6 +287,8 @@ class RunAccumulator:
             "peak_context": peak,
             "final_context": final,
             "compact_boundary_count": self.compact_boundary_count,
+            # Attributed turns whose residency was never recorded (no usage object).
+            "usage_missing_turns": self.usage_missing_turns,
             # Phase-file re-read axis (issue #1209 axis 2) — reported SEPARATELY from the
             # peak because they are different quantities (AC2).
             "phase_reads": phase_reads,
@@ -388,18 +410,34 @@ def aggregate(runs):
     which field they are looking at to tell "measured zero" from "no population".
     `run_count` is the one deliberate exception: `0` is its measurement, not a collapsed
     unknown.
+
+    A run whose peak is `UNESTABLISHED` (every attributed turn lacked a usage object) is
+    excluded from the peak population — it stays counted in `run_count` and surfaced via
+    `total_usage_missing_turns`, but is never averaged in as a real-looking 0.
+
+    **Soundness of the int/`unestablished` union:** it holds only while every reader is a
+    pure formatter (`render_text`, `json.dumps` — both treat each value opaquely); a
+    future field consumer doing arithmetic must first branch on `UNESTABLISHED`. A median
+    can also be a float on an even population (see `_median`), so the median fields are
+    `int | float | str`.
     """
-    peaks = [r["peak_context"] for r in runs]
+    # Exclude UNESTABLISHED peaks (usage-less runs) from the peak population — never
+    # coerce them to 0. `peaks` non-empty therefore means "at least one run with a
+    # measured peak", which is the population the buckets below guard on.
+    peaks = [r["peak_context"] for r in runs if r["peak_context"] != UNESTABLISHED]
     summary = {
         "run_count": len(runs),
+        # Attributed turns across the corpus whose residency was never recorded.
+        "total_usage_missing_turns": _sum_or_unestablished(
+            [r["usage_missing_turns"] for r in runs]),
         # Residency axis (issue #1209 axis 1) — median AND max, so tail behaviour is
         # visible and not hidden by an average (AC3).
         "median_peak_context": _median_or_unestablished(peaks),
         "max_peak_context": _max_or_unestablished(peaks),
-        # These count OVER a non-empty `peaks` population, so they guard on `peaks`
-        # (not the filtered list): with runs present but none over threshold the answer
-        # is a real 0, never `unestablished` — so `_sum_or_unestablished` (which keys on
-        # its own argument being empty) is deliberately NOT used here.
+        # These count OVER the measured-peak population, so they guard on `peaks`
+        # (not the filtered list): with measured runs present but none over threshold the
+        # answer is a real 0, never `unestablished` — so `_sum_or_unestablished` (which
+        # keys on its own argument being empty) is deliberately NOT used here.
         "runs_over_200k": (sum(1 for p in peaks if p > BUCKET_200K)
                            if peaks else UNESTABLISHED),
         "runs_over_400k": (sum(1 for p in peaks if p > BUCKET_400K)
@@ -433,8 +471,8 @@ def _render_run_line(r):
         "{}={}".format(label, r["phase_reads"][label]) for label in PHASE_READ_LABELS)
     return (
         "- {source}: turns={turn_count} peak={peak_context} final={final_context} "
-        "compactions={compact_boundary_count} phase_reads=[{phase}] "
-        "total_phase_reads={total_phase_reads}".format(phase=phase, **r)
+        "compactions={compact_boundary_count} usage_missing={usage_missing_turns} "
+        "phase_reads=[{phase}] total_phase_reads={total_phase_reads}".format(phase=phase, **r)
     )
 
 

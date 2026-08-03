@@ -72,11 +72,12 @@ def _expected_from_fixture(session_paths):
                 if rec.get("attributionSkill") not in ICE.ATTRIBUTION:
                     continue
                 attributed = True
-                usage = rec["message"].get("usage") or {}
-                peaks.append(
-                    (usage.get("input_tokens") or 0)
-                    + (usage.get("cache_read_input_tokens") or 0)
-                    + (usage.get("cache_creation_input_tokens") or 0))
+                usage = rec["message"].get("usage")
+                if isinstance(usage, dict):
+                    peaks.append(
+                        (usage.get("input_tokens") or 0)
+                        + (usage.get("cache_read_input_tokens") or 0)
+                        + (usage.get("cache_creation_input_tokens") or 0))
                 for block in rec["message"].get("content") or []:
                     if block.get("type") == "tool_use" and block.get("name") == "Read":
                         fp = block.get("input", {}).get("file_path", "")
@@ -86,7 +87,7 @@ def _expected_from_fixture(session_paths):
         if attributed:
             runs.append({
                 "source": os.path.basename(path),
-                "peak_context": max(peaks) if peaks else 0,
+                "peak_context": max(peaks) if peaks else ICE.UNESTABLISHED,
                 "phase_reads": phase,
                 "total_phase_reads": sum(phase.values()),
             })
@@ -235,6 +236,41 @@ class BoundaryTest(_SingleSessionMixin, unittest.TestCase):
         ])
         self.assertEqual(runs[0]["compact_boundary_count"], 1)
 
+    def test_usage_absent_turn_is_tallied_not_zeroed(self):
+        # An attributed run whose every turn lacks a usage object has NO measured
+        # residency: its peak/final read UNESTABLISHED (never a real-looking 0), and the
+        # missing turns are tallied — the silent-zero this instrument guards against.
+        runs, _ = self._run_one([
+            '{"type":"assistant","attributionSkill":"prflow:implement","message":{}}',
+            '{"type":"assistant","attributionSkill":"prflow:implement","message":{}}',
+        ])
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["peak_context"], ICE.UNESTABLISHED)
+        self.assertEqual(runs[0]["final_context"], ICE.UNESTABLISHED)
+        self.assertEqual(runs[0]["usage_missing_turns"], 2)
+
+    def test_partial_usage_missing_keeps_measured_peak(self):
+        # A run with one usage-less turn and one usage-bearing turn keeps the measured
+        # peak from the turn that HAD usage — the missing one is tallied, not folded in
+        # as a 0 that would drag the peak down.
+        runs, _ = self._run_one([
+            '{"type":"assistant","attributionSkill":"prflow:implement","message":{}}',
+            '{"type":"assistant","attributionSkill":"prflow:implement",'
+            '"message":{"usage":{"input_tokens":50}}}',
+        ])
+        self.assertEqual(runs[0]["peak_context"], 50)
+        self.assertEqual(runs[0]["usage_missing_turns"], 1)
+
+    def test_usage_present_all_null_subfields_is_a_real_zero(self):
+        # A usage OBJECT present with all-null sub-fields is a legitimate measured 0 (not
+        # a missing measurement): it appends 0 and is NOT tallied as usage-missing.
+        runs, _ = self._run_one([
+            '{"type":"assistant","attributionSkill":"prflow:implement",'
+            '"message":{"usage":{"input_tokens":null}}}',
+        ])
+        self.assertEqual(runs[0]["peak_context"], 0)
+        self.assertEqual(runs[0]["usage_missing_turns"], 0)
+
 
 class AdversarialTest(_SingleSessionMixin, unittest.TestCase):
     def test_malformed_records_degrade_and_are_reported(self):
@@ -336,6 +372,61 @@ class AdversarialTest(_SingleSessionMixin, unittest.TestCase):
         self.assertEqual(a, b)
         self.assertEqual(sa, sb)
 
+    def test_symlink_escape_is_not_read_and_is_tallied(self):
+        # The escaped_path guard is a security control: a symlink whose realpath escapes
+        # the corpus root must never be read, and the drop must be tallied +
+        # breadcrumbed, not silent.
+        with tempfile.TemporaryDirectory() as outside:
+            with open(os.path.join(outside, "secret.jsonl"), "w", encoding="utf-8") as fh:
+                fh.write('{"type":"assistant","attributionSkill":"prflow:implement",'
+                         '"message":{"usage":{"input_tokens":7}}}\n')
+            with tempfile.TemporaryDirectory() as corpus:
+                link = os.path.join(corpus, "escape.jsonl")
+                try:
+                    os.symlink(os.path.join(outside, "secret.jsonl"), link)
+                except (OSError, NotImplementedError):
+                    self.skipTest("symlinks unavailable on this host")
+                err = io.StringIO()
+                saved = sys.stderr
+                sys.stderr = err
+                try:
+                    runs, skipped = ICE.eval_corpus(corpus)
+                finally:
+                    sys.stderr = saved
+                self.assertEqual(runs, [], "eval read a file outside the corpus root")
+                self.assertEqual(skipped["escaped_path"], 1)
+                self.assertIn("escape.jsonl", err.getvalue())
+
+    def test_walk_error_is_recorded(self):
+        # An os.walk that cannot descend a directory (permission denied) is tallied under
+        # walk_error via the onerror callback — default onerror=None would swallow it.
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("running as root: chmod-based permission block is ineffective")
+        with tempfile.TemporaryDirectory() as corpus:
+            blocked = os.path.join(corpus, "blocked")
+            os.makedirs(blocked)
+            with open(os.path.join(blocked, "s.jsonl"), "w", encoding="utf-8") as fh:
+                fh.write('{"type":"assistant","attributionSkill":"prflow:implement",'
+                         '"message":{"usage":{"input_tokens":1}}}\n')
+            os.chmod(blocked, 0o000)
+            try:
+                try:
+                    os.listdir(blocked)
+                    self.skipTest("host does not enforce dir permission block")
+                except OSError:
+                    pass
+                err = io.StringIO()
+                saved = sys.stderr
+                sys.stderr = err
+                try:
+                    _runs, skipped = ICE.eval_corpus(corpus)
+                finally:
+                    sys.stderr = saved
+                self.assertEqual(skipped["walk_error"], 1)
+                self.assertIn("blocked", err.getvalue())
+            finally:
+                os.chmod(blocked, 0o700)
+
 
 class AggregateEmptyPopulationTest(unittest.TestCase):
     def test_empty_corpus_reads_unestablished_except_run_count(self):
@@ -346,6 +437,35 @@ class AggregateEmptyPopulationTest(unittest.TestCase):
                 continue
             self.assertEqual(value, ICE.UNESTABLISHED,
                              "{} must be unestablished on an empty population".format(key))
+
+    def test_usage_less_run_excluded_from_peak_population(self):
+        # A run whose peak is UNESTABLISHED (no usage on any turn) is counted in
+        # run_count but must not enter the peak median/max as a 0.
+        with tempfile.TemporaryDirectory() as d:
+            _write(d, "measured.jsonl", [
+                '{"type":"assistant","attributionSkill":"prflow:implement",'
+                '"message":{"usage":{"input_tokens":300000}}}'])
+            _write(d, "usageless.jsonl", [
+                '{"type":"assistant","attributionSkill":"prflow:implement","message":{}}'])
+            runs, _ = ICE.eval_corpus(d)
+            summary = ICE.aggregate(runs)
+            self.assertEqual(summary["run_count"], 2)
+            # Only the measured run enters the peak stats — not a 0 from the usage-less one.
+            self.assertEqual(summary["median_peak_context"], 300000)
+            self.assertEqual(summary["max_peak_context"], 300000)
+            self.assertEqual(summary["runs_over_200k"], 1)
+            self.assertEqual(summary["total_usage_missing_turns"], 1)
+
+    def test_all_runs_usage_less_reads_unestablished_peak_not_zero(self):
+        with tempfile.TemporaryDirectory() as d:
+            _write(d, "a.jsonl", [
+                '{"type":"assistant","attributionSkill":"prflow:implement","message":{}}'])
+            runs, _ = ICE.eval_corpus(d)
+            summary = ICE.aggregate(runs)
+            self.assertEqual(summary["run_count"], 1)
+            self.assertEqual(summary["median_peak_context"], ICE.UNESTABLISHED)
+            self.assertEqual(summary["max_peak_context"], ICE.UNESTABLISHED)
+            self.assertEqual(summary["runs_over_200k"], ICE.UNESTABLISHED)
 
 
 class RenderAndCliTest(unittest.TestCase):
@@ -443,26 +563,46 @@ class PhaseFileSetCouplingTest(unittest.TestCase):
 class NoAutoInvocationTest(unittest.TestCase):
     """AC1 + T3: nothing invokes the script automatically; only its own test does."""
 
-    def test_only_the_focused_test_references_the_script(self):
+    # References that NAME the script but do not INVOKE it are allowed: the script's own
+    # file (its Usage docstring names itself), its own focused test, and the coverage-map
+    # registration (a data file mapping the script to its focused test). Everything else
+    # matching the basename would be an auto-invoker and fails the invariant.
+    _ALLOWED_REFERENCES = frozenset({
+        "scripts/implement-context-eval.py",
+        "lib/test/test_implement_context_eval.py",
+        "lib/test/modules/coverage-map.json",
+        # run.sh names the script in its block comment but INVOKES the test, not the
+        # script — a description, not an auto-invocation.
+        "lib/test/run.sh",
+    })
+
+    def test_nothing_but_the_focused_test_invokes_the_script(self):
+        # AC1/T3: search the trees an auto-invoker could live in — skills/,
+        # .github/ (workflows AND composite actions), scripts/, and lib/ (which includes
+        # lib/test/, where T3 expects the test + registration to be the only hits) — and
+        # confirm the only files naming the script are the allowed registration/self set.
         needle = "implement-context-eval.py"
         offenders = []
-        for sub in ("skills", ".github/workflows", "scripts"):
+        for sub in ("skills", ".github", "scripts", "lib"):
             root = os.path.join(_REPO, sub)
-            for dirpath, dirs, files in os.walk(root):  # tree-walk-ok: rooted at fixed subtrees (skills/.github/scripts), not the repo root
+            if not os.path.isdir(root):
+                continue
+            for dirpath, dirs, files in os.walk(root):  # tree-walk-ok: rooted at fixed subtrees (skills/.github/scripts/lib), not the repo root
                 dirs[:] = [d for d in dirs if d != "__pycache__"]
                 for f in files:
                     p = os.path.join(dirpath, f)
-                    if os.path.basename(p) == "implement-context-eval.py":
-                        continue  # the script defining itself is not an invocation
+                    rel = os.path.relpath(p, _REPO)
+                    if rel in self._ALLOWED_REFERENCES:
+                        continue
                     try:
                         with open(p, encoding="utf-8", errors="replace") as fh:
                             if needle in fh.read():
-                                offenders.append(os.path.relpath(p, _REPO))
+                                offenders.append(rel)
                     except OSError:
                         continue
-        self.assertEqual(offenders, [],
+        self.assertEqual(sorted(offenders), [],
                          "unexpected reference(s) to the maintainer-only script: "
-                         "{}".format(offenders))
+                         "{}".format(sorted(offenders)))
 
 
 if __name__ == "__main__":

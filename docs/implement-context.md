@@ -47,7 +47,7 @@ Each reads, verbatim (Phase N, `<name>`):
 
 A run enters one phase at a time and reads that one phase file when it does. It never
 holds all four at once. So the highest phase-file cost at any single phase entry is
-roughly **94–131 KB** (the largest single phase file), not the ~455 KB sum of the four —
+roughly **94–131 KB** (whichever single phase file that entry loads — the four span ~94 KB to ~131 KB), not the ~455 KB sum of the four —
 with the always-loaded `SKILL.md` (~77 KB) resident alongside it. Optimising against
 the 455 KB total would be optimising a cost that does not exist.
 
@@ -89,7 +89,10 @@ rather than buffering a whole session, degrades per malformed record without det
 and never reads a file whose real path escapes the supplied corpus directory.
 
 **Per-run metrics:** turn count; per-turn main-thread context; peak and final context;
-`compact_boundary` count; and — reported **separately from the peak, because they are
+`compact_boundary` count; a count of attributed turns that carried no `usage` object
+(`usage_missing_turns` — such a turn's residency was never recorded, so it is tallied
+rather than folded in as a `0`, and a run whose every turn lacks usage reports its peak
+as `unestablished`); and — reported **separately from the peak, because they are
 different quantities** — a per-phase-file read count for each of the four phase files,
 plus their per-run total. A phase-file read is a `Read` tool_use whose
 `input.file_path` basename is one of the four phase file names; the basename is matched
@@ -98,11 +101,13 @@ plus their per-run total. A phase-file read is a `Read` tool_use whose
 path on the interactive tier and a vendored `.prflow/vendor/prflow/skills/implement/…`
 path on the cloud tier.
 
-**Aggregate summary:** run count; median and max peak context; count of runs exceeding
-200K and 400K; and per phase, the median, max, and corpus total read count, plus the
-median and max per-run total phase reads. Every run-derived field reads `unestablished`
-(never `0`) on an empty run population; `run_count` is the one field whose `0` is a
-measurement.
+**Aggregate summary:** run count; corpus total of usage-missing turns; median and max
+peak context (over the runs with a measured peak — a usage-less run is counted in
+`run_count` but excluded from the peak population, never averaged in as a `0`); count of
+runs exceeding 200K and 400K; and per phase, the median, max, and corpus total read
+count, plus the median and max per-run total phase reads. Every run-derived field reads
+`unestablished` (never `0`) on an empty run population; `run_count` is the one field
+whose `0` is a measurement.
 
 ## Explicit non-goal: splitting the phase files by tier
 
