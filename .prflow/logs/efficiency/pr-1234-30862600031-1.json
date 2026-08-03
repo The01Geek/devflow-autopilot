@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1234",
+  "generated_at": "2026-08-03T23:43:59Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.72",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.5048455,
+    "tokens": {
+      "input_tokens": 4934,
+      "output_tokens": 26945,
+      "cache_read_input_tokens": 3507759,
+      "cache_creation_input_tokens": 176743,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 5002,
+        "outputTokens": 57083,
+        "cacheReadInputTokens": 5874386,
+        "cacheCreationInputTokens": 392445,
+        "webSearchRequests": 0,
+        "costUSD": 7.5048455,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 35,
+    "duration_ms": 609836
+  },
+  "permission_denials": {
+    "count": 9,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "scripts/load-prompt-extension.sh review; echo \"ext-rc=$?\"",
+      "scripts/load-prompt-extension.sh review",
+      "gh issue view 1216 --comments --json comments --jq '.comments[].body' > .prflow/tmp/i1216.txt 2>&1; echo \"bytes=$(wc -c < .prflow/tmp/i1216.txt)\"; echo \"--- Writing-skills evidence count:\"; grep -c \"Writing-skills evidence\" .prflow/tmp/i1216.txt; echo \"--- context:\"; grep -iE -A6 \"Writing-skills evidence\" .prflow/tmp/i1216.txt | head -40",
+      "git grep -ln \"signal_launcher\\|exec-with-default-signals\\|launch-detached\" -- lib/test/modules/coverage-map.json lib/test/*.py 2>/dev/null | head; echo \"---imports-ok---\"; python3 -c \"import sys; sys.path.insert(0,'lib/test'); import signal_launcher; print('import ok', signal_launcher.DEFAULT_SUITE_SIGNALS)\"",
+      "sed -n '1,60p' scripts/post-review-verdict.sh 2>&1 | grep -iE \"usage|Usage|^#|argv|\\\\$1|\\\\$2|head=|verdict=\" | head -40",
+      "scripts/post-review-verdict.sh 1234 \"APPROVE WITH ADVISORY NOTES\" .prflow/tmp/review/pr-1234/verdict-body.md 5652d11ce5d5e1c13c4ada56ded6193f46bf0af0 ; echo \"post-rc=$?\"",
+      "printf '%s\\n' '<!-- prflow:review-verdict head=5652d11ce5d5e1c13c4ada56ded6193f46bf0af0 verdict=APPROVE -->' | tee .prflow/tmp/review/pr-1234/final-body.md >/dev/null && cat .prflow/tmp/review/pr-1234/verdict-body.md >> .prflow/tmp/review/pr-1234/final-body.md; echo \"rc=$?\"; head -2 .prflow/tmp/review/pr-1234/final-body.md"
+    ],
+    "total": 9,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
