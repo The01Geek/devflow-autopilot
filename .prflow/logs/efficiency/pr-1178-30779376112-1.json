@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1178",
+  "generated_at": "2026-08-03T02:42:06Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.60",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 8.947597250000001,
+    "tokens": {
+      "input_tokens": 5753,
+      "output_tokens": 20019,
+      "cache_read_input_tokens": 2207415,
+      "cache_creation_input_tokens": 180112,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 5851,
+        "outputTokens": 58179,
+        "cacheReadInputTokens": 6615907,
+        "cacheCreationInputTokens": 556879,
+        "webSearchRequests": 0,
+        "costUSD": 8.947597250000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 25,
+    "duration_ms": 745525
+  },
+  "permission_denials": {
+    "count": 16,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review",
+      "cd /home/runner/work/prflow/prflow\n# render current review-mode output\nHEAD_SHA=deadbeef CI_SUMMARY='lint: success' ALLOWED_TOOLS='Read, Write' HARDENED_PATHS='lib/x.sh\nlib/y.sh' bash scripts/render-grounding-block.sh > /tmp/new_review.txt 2>&1\n# get the pre-PR version of the script\ngit show origin/main:scripts/render-grounding-block.sh > /tmp/old_rgb.sh 2>/dev/null || git show HEAD~1:scripts/render-grounding-block.sh > /tmp/old_rgb.sh\nHEAD_SHA=deadbeef CI_SUMMARY='lint: success' ALLOWED_TOOLS=' …[per-command-truncated]",
+      "git show origin/main:scripts/render-grounding-block.sh > /tmp/old_rgb.sh 2>/dev/null; wc -l /tmp/old_rgb.sh",
+      "git show origin/main:scripts/render-grounding-block.sh > /tmp/old_rgb.sh",
+      "mkdir -p .prflow/tmp/r1178 && git show origin/main:scripts/render-grounding-block.sh > .prflow/tmp/r1178/old_rgb.sh && echo ok",
+      "mkdir -p .prflow/tmp/r1178 && git show origin/main:scripts/render-grounding-block.sh > .prflow/tmp/r1178/old_rgb.sh && echo ok",
+      "git show origin/main:scripts/render-grounding-block.sh > /home/runner/work/prflow/prflow/old_rgb.sh; echo \"exit=$?\"; wc -l old_rgb.sh",
+      "git show origin/main:scripts/render-grounding-block.sh | HEAD_SHA=deadbeef CI_SUMMARY='lint: success' ALLOWED_TOOLS='Read, Write' HARDENED_PATHS='lib/x.sh\nlib/y.sh' bash /dev/stdin > /tmp/old_r.txt; HEAD_SHA=deadbeef CI_SUMMARY='lint: success' ALLOWED_TOOLS='Read, Write' HARDENED_PATHS='lib/x.sh\nlib/y.sh' bash scripts/render-grounding-block.sh > /tmp/new_r.txt; diff /tmp/old_r.txt /tmp/new_r.txt && echo IDENTICAL",
+      "git show origin/main:scripts/render-grounding-block.sh | env HEAD_SHA=deadbeef CI_SUMMARY='lint: success' ALLOWED_TOOLS='Read, Write' HARDENED_PATHS='lib/x.sh\nlib/y.sh' bash /dev/stdin > /tmp/old_r.txt 2>&1; echo done",
+      "diff <(git show origin/main:scripts/render-grounding-block.sh | env HEAD_SHA=deadbeef CI_SUMMARY='lint: success' ALLOWED_TOOLS='Read, Write' HARDENED_PATHS=$'lib/x.sh\\nlib/y.sh' bash /dev/stdin) <(env HEAD_SHA=deadbeef CI_SUMMARY='lint: success' ALLOWED_TOOLS='Read, Write' HARDENED_PATHS=$'lib/x.sh\\nlib/y.sh' bash scripts/render-grounding-block.sh) && echo IDENTICAL-WITH-PATHS",
+      "cmp <(git show origin/main:scripts/render-grounding-block.sh | env HEAD_SHA=x CI_SUMMARY=y ALLOWED_TOOLS='Read, Write' bash /dev/stdin) <(env HEAD_SHA=x CI_SUMMARY=y ALLOWED_TOOLS='Read, Write' bash scripts/render-grounding-block.sh) && echo IDENTICAL-NOPATHS",
+      "OLD=$(git show origin/main:scripts/render-grounding-block.sh | env HEAD_SHA=x CI_SUMMARY=y ALLOWED_TOOLS='Read, Write' HARDENED_PATHS=$'a.sh\\nb.sh' bash /dev/stdin); NEW=$(env HEAD_SHA=x CI_SUMMARY=y ALLOWED_TOOLS='Read, Write' HARDENED_PATHS=$'a.sh\\nb.sh' bash scripts/render-grounding-block.sh); if [ \"$OLD\" = \"$NEW\" ]; then echo IDENTICAL; else echo DIFFERENT; fi",
+      "PATHS=$(printf 'a.sh\\nb.sh'); OLD=$(git show origin/main:scripts/render-grounding-block.sh | env HEAD_SHA=x CI_SUMMARY=y ALLOWED_TOOLS='Read, Write' HARDENED_PATHS=\"$PATHS\" bash /dev/stdin); NEW=$(env HEAD_SHA=x CI_SUMMARY=y ALLOWED_TOOLS='Read, Write' HARDENED_PATHS=\"$PATHS\" bash scripts/render-grounding-block.sh); if [ \"$OLD\" = \"$NEW\" ]; then echo IDENTICAL; else echo DIFFERENT; printf '%s' \"$OLD\" | md5sum; printf '%s' \"$NEW\" | md5sum; fi",
+      "python3 lib/generate-capability-profiles.py --check 2>&1 | tail -20; echo \"exit=${PIPESTATUS[0]}\"",
+      "cat > .prflow/tmp/review/pr-1178/local/verdict.md <<'EOF'\n<!-- prflow:review-progress run=local-manual -->\n# PRFlow Review — PR #1178 — ✅ APPROVE\n\n**Issue:** #1170 — inject the resolved allowed-command list on the implement tier\n**Reviewed HEAD:** `6315afeea8b5a32934c0867c8dbffc09014b1494`\n**Diff profile:** engine_self_modifying (full checklist) · has_new_types=false (type-design skipped) · no prompt-surface trigger globs touched (Writing-skills gate no-op)\n**CI (from engine ground truth for thi …[per-command-truncated]"
+    ],
+    "total": 16,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
