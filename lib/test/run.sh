@@ -33372,8 +33372,19 @@ fi
 # a reference it only knows to load after deciding is not read at all. That is the same
 # unconditional-reading argument #1087 made for the gate these two amend. Raise the ceiling
 # to the exact post-#1132 measurement, with no slack.
+# Issue #1053 makes the single-turn push/verify co-issue a mandate in the prompt extensions,
+# and that mandate reaches this file: a run reading only §4.3 could take the new licence to
+# parallelize as licence to relax the two suite runs that stay serialized before their commit
+# or publish (checkpoint 4's post-merge re-run, and the fix loop's conflict path). The
+# non-relaxation sentence is therefore read on the way INTO the same flight item 1 launches,
+# so it cannot be routed behind a conditional progressively-loaded reference for exactly the
+# #1132 reason above — a reference a run only knows to load after it has already parallelized
+# is not read at all. Its SCOPE half was deliberately dropped rather than carried here: item 1
+# below already single-sources scope to the same extension statement, so the sentence states
+# only parallelization and the two serialized runs. Raise the ceiling to the exact post-#1053
+# measurement, with no slack.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
-  "$([ "$(wc -c < "$I480_P4")" -le 105849 ] && echo yes || echo no)"
+  "$([ "$(wc -c < "$I480_P4")" -le 106299 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
 # the reference through this file's own entry-gate anchor, and degrades rather than halting
 # on a failed read — carry NO pin. Every mutation those sentences admit rewrites the one

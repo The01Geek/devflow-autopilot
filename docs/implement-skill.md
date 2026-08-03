@@ -710,6 +710,14 @@ iteration* section (the canonical description of the tiers). In outline:
   iteratively-fixed surface extracts once.
 - **The full-suite fallback stays a closed set**, and a run that takes it records a
   `## Devflow Reflection` bullet naming which case applied.
+- **Focused-first binds as a precondition on the mid-iteration full-suite launch.**
+  Before a mid-iteration full-suite launch, every touched surface with a covering
+  focused test invocable on the tier is run first; the exempt set is total over four
+  grounds (no coverage-map entry — the map covers only `lib/`/`scripts/`; a declared
+  exempt subtree; an `unmodularized` entry with no `focused_test`; or a tier-ungranted
+  covering test), and a covering test that ran and failed discharges the precondition
+  for a diagnostic launch. The precondition binds the mid-iteration launch only, never
+  the final completion gate.
 
 **The same command must work on both tiers**, so a focused Python test is invoked as a
 **direct leading token** (`lib/test/test_python_scripts.py <selector>`) — never `python3
@@ -733,7 +741,13 @@ grant history.
 
 **None of this weakens the gate.** The final completion claim still runs the full suite,
 and the #456 skip accounting is unchanged — a nonempty skip tally is not clean, and a
-focused module may not self-skip. A mid-iteration #434 stale-prose `blocking-gate` skip
+focused module may not self-skip. Before a completion or PR-ready claim the CI-triggering
+push and the full local run are issued **in a single assistant turn** so they run in
+parallel (the push is not gated on the local run; the claim is). A suite result is
+established from the runner's **terminal summary line** — wherever the runner writes it —
+never from a bare process or wrapper exit status when a tally was printed; a command
+silent on success is established from its own exit status, and a command that never ran
+is established as nothing. A mid-iteration #434 stale-prose `blocking-gate` skip
 on a dirty tree is expected and clears on commit; it is not a reason to relaunch.
 
 **Diagnosis reads the capture, not a relaunch.** On a failing run `lib/test/run.sh`
