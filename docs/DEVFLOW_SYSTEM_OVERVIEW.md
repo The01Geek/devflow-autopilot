@@ -393,6 +393,10 @@ A receiving-review completion claim is now gated on a **producer-owned completio
 
 The plugin tree (the validator + skill bodies + tests) ships via the `prflow_version` vendor fetch; the two workflow allowlist grants ship via `install.sh` file-copy — the two-halves upgrade coupling applies. A consumer that upgrades one half gets a silently-denied validator on cloud runs, which the no-output-is-degraded rule converts into a visible `degraded: unvalidated` outcome, never a silent pass.
 
+### Runtime main-thread context (issue #1209)
+
+Separate from the phase files' *static shipped size*, a long `/prflow:implement` run accumulates a large **runtime main-thread context** across its many turns — and, because each phase file is loaded one at a time at phase entry and mandatorily re-read on every re-entry and after every nested-skill return, the **re-read count** is the multiplier worth measuring, not the once-off byte size. The behavioral instrument `scripts/implement-context-eval.py` (maintainer-run over a transcript corpus; never on the skill's runtime path, so no new tool grant) measures both the peak main-thread context per run and the per-phase-file read counts. It is the implement-side counterpart of the create-issue instrument (§11); the findings, the two corrections, the tier-split non-goal, and any recorded snapshot live in [`docs/implement-context.md`](implement-context.md), the single source of truth for this axis. It is not paraphrased here.
+
 ---
 
 ## 8. Deep dive: the review engine
