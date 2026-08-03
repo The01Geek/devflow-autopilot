@@ -4,19 +4,30 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.69] — 2026-08-03
+
+### Fixed
+- **The two agent-running cloud jobs now check out full history, so the test suite's
+  historical-baseline gate can actually run.** `devflow-implement.yml`'s `claude` job and
+  `devflow.yml`'s `command` job both ran the suite in-env from a `fetch-depth: 50` checkout.
+  The suite's baseline-corpus control resolves a fixed past commit through
+  `git show <ref>:<path>`; under a bounded depth that commit does not resolve, so the control
+  self-skipped with kind `blocking-gate` — and the implement completion gate admits no skip
+  population at all, so the run could not finish on that result and had to unshallow and
+  repeat the whole shard (4 min 20 s of discarded work on the measured run). Both jobs now
+  use `fetch-depth: 0`, matching `ci.yml`. A targeted fetch of the required commits was
+  rejected because it would couple the workflow to the ref list inside the test suite and
+  silently stop covering it whenever that list changes; the reasoning is recorded in each
+  checkout's own comment. A consumer repository whose copy `install.sh` still manages
+  inherits the new depth on its next install run — one that has locally modified either
+  workflow keeps its own copy, as `install_managed`'s preserve arm intends — which fixes the
+  same class of failure for any check of their own that needs history older than the last 50
+  commits. (#1219)
+
 ## [2.30.68] — 2026-08-03
 
-### Added
-- **Add a behavioral eval (`scripts/implement-context-eval.py`) that measures the
-  runtime main-thread context cost of `/prflow:implement` runs from a transcript
-  corpus, plus a findings doc (`docs/implement-context.md`).** The instrument reports,
-  per run, the peak main-thread context and — as a separate axis — how many times each
-  of the four phase files was read, the multiplier the skill's cost shape is dominated
-  by; it aggregates a median and max across a corpus. It is maintainer-run only: no
-  skill, workflow, or test-suite gate invokes it, and it adds no size gate or threshold.
-  The doc records the two corrections issue #1209 makes (the phase files load one per
-  phase entry, and the re-read on every re-entry and after every nested-skill return is
-  what matters) and declares a tier-conditional phase-file split a non-goal. (#1209)
+### Changed
+- **Raise the implement tier's per-command Bash ceiling so the parallel verification coordinator can run to a verdict.** `devflow-implement.yml`'s `Run Claude Code` step now sets a deliberately bounded `BASH_MAX_TIMEOUT_MS` of 20 minutes (via the `settings` input's `env` object), above Claude Code's 600000 ms default. Previously the parallel coordinator (`lib/test/run-parallel.sh`) was killed at 10 minutes on the 4 vCPU runner before printing anything, wasting ~28% of measured run wall-clock before the same work was redone shard by shard. The `#1132` shard-decomposition path stays the in-run fallback. The "not escapable in-run" prose in `.prflow/prompt-extensions/implement.md`, `docs/implement-skill.md`, and `CLAUDE.md` is scoped to the run and now names `devflow-implement.yml` as where the ceiling is set. (#1179)
 
 ## [2.30.67] — 2026-08-03
 
