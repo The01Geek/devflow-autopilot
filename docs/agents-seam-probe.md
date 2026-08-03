@@ -33,13 +33,50 @@ unit-tested helper [`scripts/agents-seam-probe-verdict.py`](../scripts/agents-se
 |---|---|---|
 | `SEAM_PROVEN` | Fact (i) forwarding proven **and** a human adjudicated fact (ii) as GOVERNED (passing `--adjudicated-governed`). | **Yes** — implement the applied arm; flip the cloud per-agent row off honest fallback. |
 | `SEAM_FORWARDED` | Fact (i) proven; fact (ii) not yet adjudicated. | No — honest fallback stays until a human adjudicates the recorded self-report. |
-| `SEAM_UNPROVEN` | The subagent type was dispatched but no seam marker appeared (the `--agents` block was not forwarded). | No — honest fallback stays. |
+| `SEAM_UNPROVEN` | The subagent type was dispatched, no seam marker appeared, **and** the record carries an affirmative non-forwarding signal — the prompt's refusal marker reached a tool call, or a `permission_denials` entry names the probe subagent. A statement about **the seam**. | No — honest fallback stays. |
+| `INSTRUMENT_NOT_FIRED` | The subagent was dispatched but **neither** marker reached the record, so the prompt's Step 2 never executed. A statement about **the instrument**, not the seam: the run is uninformative in either direction (issue #1177). | No — but for want of a measurement, **not** because the seam failed. Re-dispatch. |
 | `INCONCLUSIVE` | Nothing conclusive was measured (execution file absent/unparseable, or no dispatch attempted). | No — re-run the probe. |
+
+Decision rule, in order: an unparseable/absent file → `INCONCLUSIVE`; the seam marker →
+`SEAM_PROVEN` (only with the human flag) else `SEAM_FORWARDED`; a dispatch **plus** an
+affirmative non-forwarding signal → `SEAM_UNPROVEN`; a dispatch alone →
+`INSTRUMENT_NOT_FIRED`; otherwise `INCONCLUSIVE`.
 
 **The applied arm ships only on `SEAM_PROVEN` — i.e. only when BOTH facts are proven.**
 This is issue #610 AC1's contingency: *"The per-agent applied arm is implemented only if
 the probe proves both facts; otherwise the cloud per-agent row is honest fallback
 identical to local, and no per-agent effort application code ships."*
+
+### Why `INSTRUMENT_NOT_FIRED` exists (issue #1177)
+
+The probe's only instrument is a **prose instruction the top-level model may skip**: both
+arms of the prompt's Step 2 — the success marker and the refusal marker alike — are
+produced by a model-issued `Bash` echo, and nothing in the harness produces either one. A
+run in which the model dispatched the subagent and then simply stopped therefore records
+no marker at all, and the pre-#1177 rule ("dispatched, no marker") scored it
+`SEAM_UNPROVEN` — a statement about the *seam* about a run in which the seam was never
+measured. Such runs are uninformative in **either** direction, and are now reported that
+way. `SEAM_PROVEN` is unaffected: it still requires the human `--adjudicated-governed`
+re-run, and no non-fire can reach it.
+
+Every dispatch also prints a **verdict-inert diagnostic**,
+`dispatch_result_channel=…; forwarded_marker_in_result_channel=…`. Nothing reads it — the
+verdict is computed from recorded `tool_use` *inputs* and `permission_denials` only — but
+it answers, on whatever dispatch is next paid for, the premise the cleanest remedy would
+need: *does the execution record carry a dispatched subagent's returned text?* That is
+**unestablished** here ([`docs/execution-file-shape.md`](execution-file-shape.md) records
+`tool_use_result` as present but states that a field's presence is not proof of its
+attribution, and its local-transcript row must not be cited for the execution file), so
+the helper measures it rather than designing on it.
+
+**What this does not fix.** The instrument's *fire rate* is unchanged — roughly half of
+the recorded dispatches produced no marker, and each such dispatch still spends its budget.
+Removing that failure mode rather than reporting it needs one of the two heavier remedies
+issue #1177 identifies, each blocked on its own unestablished premise: reading the
+subagent's return value from the harness record (the premise above), or having the subagent
+emit the marker itself (which depends on what a dispatched subagent is permitted to do —
+the issue #858 probe that would measure it is built but, per
+[`docs/cloud-allowlist.md`](cloud-allowlist.md), still **PENDING** its first run).
 
 ## How to dispatch
 
@@ -105,6 +142,20 @@ every one of the nine runs reports `permission_denials_count: 0` with `is_error:
 So those runs are **uninformative in either direction** about fact (i). The verdict helper
 correctly reports `SEAM_UNPROVEN` for them, because its rule is "dispatched, no marker" —
 that is a statement about the measurement, not about the platform.
+
+> [!NOTE]
+> **Vocabulary mapping (issue #1177) — the rows above are NOT re-scored.** The `Verdict`
+> column records what the helper actually returned for each run at the revision that ran
+> it, and the quoted "dispatched, no marker" rule describes the helper *as it stood then*;
+> both are past-time snapshot, and neither is edited. Issue #1177 split that rule, because
+> reporting a non-measurement as `SEAM_UNPROVEN` is exactly the defect this paragraph had
+> to explain in prose. Under the current vocabulary the four rows whose signature is
+> "dispatched, neither marker recorded, no `Bash` `tool_use` at all"
+> (`29871350774`, `29871519987`, `29872398980`, `29872451024`) classify as
+> **`INSTRUMENT_NOT_FIRED`**, which is the verdict a re-run of the helper over those
+> execution files would now print. The other rows are unaffected: `SEAM_FORWARDED` is
+> reached by the same rule as before, and no row's underlying observation changes. Nothing
+> here promotes any run — no dispatch has ever produced `SEAM_PROVEN`.
 
 **Fact (ii) — governance: 4 corroborating self-reports out of the 4 successful runs that
 produced one (5 of 5 including the cancelled run), and 0 contrary reports.** Every run
