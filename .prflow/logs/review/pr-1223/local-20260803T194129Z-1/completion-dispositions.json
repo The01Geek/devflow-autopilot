@@ -1,0 +1,9 @@
+{
+  "fix_decisions": [
+    {"finding_id": "F-1"},
+    {"finding_id": "F-2"},
+    {"finding_id": "F-3"},
+    {"finding_id": "SHADOW-1"},
+    {"finding_id": "SHADOW-2"}
+  ]
+}

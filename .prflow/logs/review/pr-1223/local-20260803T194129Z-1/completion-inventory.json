@@ -1,0 +1,10 @@
+{
+  "claim_context_token": "local-20260803T194129Z-1",
+  "findings": [
+    {"finding_id": "F-1", "in_fix_set": true},
+    {"finding_id": "F-2", "in_fix_set": true},
+    {"finding_id": "F-3", "in_fix_set": true},
+    {"finding_id": "SHADOW-1", "in_fix_set": true},
+    {"finding_id": "SHADOW-2", "in_fix_set": true}
+  ]
+}
