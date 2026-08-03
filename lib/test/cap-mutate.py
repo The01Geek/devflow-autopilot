@@ -200,29 +200,18 @@ def main(argv):
             return text[: m.end()] + m.group(0) + text[m.end() :]
 
         edit_wf(root, "devflow-runner.yml", dup)
-    elif mut == "implement-marker-dup":
-        # Inject a SECOND `--allowed-tools\n  "…"` marker above the real one. At action
-        # runtime a later duplicate could win; --check must refuse the ambiguity, not
-        # verify only the first (still-canonical) copy.
-        def dup_marker(text):
-            m = re.search(r'--allowed-tools\n[ \t]*"', text)
+    elif mut == "implement-anchor-duplicated":
+        # The implement region is a plain TOOLS=' assignment since issue #1170 (hoisted
+        # into devflow-implement.yml's `Resolve allowed-tools` step). Duplicate that
+        # assignment: at action runtime a later duplicate wins, so --check must refuse
+        # the ambiguity rather than verify only the first (still-canonical) copy.
+        def dup_impl(text):
+            m = re.search(r"^[ \t]*TOOLS='[^']*'\n", text, re.M)
             if not m:
                 return text
-            return text[: m.start()] + '--allowed-tools\n          "Bash(INJECTED:*)"\n' + text[m.start() :]
+            return text[: m.end()] + m.group(0) + text[m.end() :]
 
-        edit_wf(root, "devflow-implement.yml", dup_marker)
-    elif mut == "implement-unterminated":
-        edit_wf(
-            root,
-            "devflow-implement.yml",
-            lambda s: s.replace('${{ needs.config.outputs.allowed_tools_extra }}"', "", 1),
-        )
-    elif mut == "splice-absent":
-        edit_wf(
-            root,
-            "devflow-implement.yml",
-            lambda s: s.replace('${{ needs.config.outputs.allowed_tools_extra }}"', '"', 1),
-        )
+        edit_wf(root, "devflow-implement.yml", dup_impl)
     elif mut == "crlf-in-region":
         edit_wf(
             root,

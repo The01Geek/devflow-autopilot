@@ -1705,11 +1705,14 @@ for _ra_1055_ext in implement review-and-fix receiving-code-review; do
   done
 done
 RA_1055_BASE_UNGRANTED="$(python3 "$LIB/test/extract-command-heads.py" ungranted \
-  "$RA_1055_PROMPT" "$RA_REPO/.github/workflows/devflow-implement.yml" implement-block)"
+  "$RA_1055_PROMPT" "$RA_REPO/.github/workflows/devflow-implement.yml" tools-line)"
 assert_eq "#1055 the generated consumer baseline does not grant the self-repository helper" \
   "lib/test/regenerate-artifacts.py" "$RA_1055_BASE_UNGRANTED"
 {
-  sed -n '/--allowed-tools "/,/" \\/p' "$RA_REPO/.github/workflows/devflow-implement.yml"
+  # The implement allowlist is the single `TOOLS='...'` line in the hoisted
+  # `Resolve allowed-tools` step (issue #1170); concatenate it with the config
+  # so the whole-file parse below sees the base grants PLUS the config extras.
+  grep -E "^[[:space:]]*TOOLS='" "$RA_REPO/.github/workflows/devflow-implement.yml"
   cat "$RA_REPO/.prflow/config.json"
 } > "$RA_1055_RESOLVED"
 RA_1055_RESOLVED_UNGRANTED="$(python3 "$LIB/test/extract-command-heads.py" ungranted \
