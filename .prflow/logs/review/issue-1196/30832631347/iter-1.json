@@ -1,0 +1,121 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-03T17:00:00Z",
+  "fix_commit_sha": "b67c986",
+  "fix_files": [
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "checklist": [
+    {
+      "id": "VC-1",
+      "claim": "guard fails closed on empty/unestablished population via EnumerationError",
+      "file": "lib/test/lint-windows-uncheckoutable-path.py",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "evidence": "main() catches EnumerationError -> return 1; AC8 test asserts 'enumeration unusable' non-zero"
+    },
+    {
+      "id": "VC-2",
+      "claim": "no assertion-deciding value uses a non-preflight PATH tool (guard-class 2)",
+      "file": "lib/test/run.sh",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "evidence": "e1196_rc uses ${out%%|*}; real-tree tally parsed with python3; cut removed"
+    },
+    {
+      "id": "VC-3",
+      "claim": "COM/LPT asymmetry matches git (COM1-9 not COM0; LPT0-9 incl LPT0)",
+      "file": "lib/test/lint-windows-uncheckoutable-path.py",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "evidence": "_RESERVED_STEMS uses '123456789' for com, '0123456789' for lpt; AC7 tests both directions"
+    }
+  ],
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:pr-test-analyzer",
+    "prflow:comment-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": false
+  },
+  "phase3_findings": [
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "forbidden-character ':' arm untested (nul:ads caught by reserved branch); a regression dropping ':' from _FORBIDDEN_CHARS ships green",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          41435,
+          41435
+        ],
+        "kind": "test_coverage_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "historical git ls-tree rc unchecked; empty list makes 'goes RED' assertion pass for wrong reason",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          41413,
+          41421
+        ],
+        "kind": "vacuous_assertion"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "b67c986"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "b67c986"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 20,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": "2026-08-03T17:05:00Z",
+    "reviewed_sha": "b67c986",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "prflow:code-reviewer"
+    ],
+    "phase3_findings": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
