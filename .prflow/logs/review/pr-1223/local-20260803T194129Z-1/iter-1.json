@@ -3,18 +3,29 @@
   "started_at": "2026-08-03T19:41:29Z",
   "loop_role": "fix",
   "current_step": "loop-control",
-  "current_substep": "phase1_checklist_generator",
+  "current_substep": "phase2_checklist_verification",
   "pending_dispatch": {
-    "kind": "checklist_generator",
+    "kind": "checklist_verifier_batch",
     "roster": [
-      "prflow:checklist-generator"
+      "VC-1",
+      "VC-2",
+      "VC-3"
     ],
-    "dispatched_at": "2026-08-03T19:50:00Z"
+    "dispatched_at": "2026-08-03T19:57:00Z"
   },
   "dispatched_effort": [
     {
       "agent": "prflow:checklist-generator",
       "phase": "1",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort low resolved but was not applied; the agent inherits the session effort"
+    },
+    {
+      "agent": "prflow:checklist-verifier",
+      "phase": "2",
       "requested": "low",
       "resolved": "low",
       "application_point": "session-fallback",
