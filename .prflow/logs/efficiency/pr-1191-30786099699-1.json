@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1191",
+  "generated_at": "2026-08-03T05:10:17Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.62",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.455951249999999,
+    "tokens": {
+      "input_tokens": 27,
+      "output_tokens": 13639,
+      "cache_read_input_tokens": 1727773,
+      "cache_creation_input_tokens": 131126,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 55,
+        "outputTokens": 31265,
+        "cacheReadInputTokens": 2221070,
+        "cacheCreationInputTokens": 331487,
+        "webSearchRequests": 0,
+        "costUSD": 4.455951249999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 21,
+    "duration_ms": 294664
+  },
+  "permission_denials": {
+    "count": 2,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none}\"; mkdir -p .prflow/tmp/review/pr-1191/local ; gh pr diff 1191 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1191/local/diff.patch | head -5; echo \"---DIFFSTAT---\"; gh pr diff 1191 --name-only"
+    ],
+    "total": 2,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
