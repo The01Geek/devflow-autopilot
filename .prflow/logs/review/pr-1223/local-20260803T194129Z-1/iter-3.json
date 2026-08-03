@@ -1,0 +1,45 @@
+{
+  "iter": 3,
+  "source": "review-and-fix",
+  "started_at": "2026-08-03T20:54:22Z",
+  "loop_role": "review",
+  "current_step": "1",
+  "current_substep": "phase_1_checklist_generator",
+  "pending_dispatch": {
+    "kind": "checklist_generator",
+    "roster": ["prflow:checklist-generator"],
+    "dispatched_at": "2026-08-03T20:55:00Z"
+  },
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "promotion_provenance": null,
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": true,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": false,
+    "checklist_skipped": null,
+    "changed_files": 5,
+    "changed_lines": 24
+  },
+  "acceptance_criteria_source": "workpad",
+  "stale_prose_check": {
+    "command": "cat diff.patch | scripts/stale-prose-lint.py --rev HEAD",
+    "result": "clean",
+    "severity": "important",
+    "rows": [],
+    "exit_status": 0
+  },
+  "checklist": [],
+  "phase3_dispatched": [],
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "reference_reads": {
+    "phase0": {"status":"verified","root_hash":"bc44849db4f773d42b798b76770608aa8373b202","reference_hash":"7e687a163ed924cdffda15f4ea0416bbaaee616c"},
+    "phase0_6": {"status":"verified","root_hash":"bc44849db4f773d42b798b76770608aa8373b202","reference_hash":"201e5f6a2e241330fa7291d4c8dedb1107cbe468"},
+    "phase1": {"status":"verified","root_hash":"bc44849db4f773d42b798b76770608aa8373b202","reference_hash":"be68734e7e6137cbe0712cea3398dd279d3a95b4"}
+  },
+  "cap_drops": {"count":0,"by_category":{}},
+  "telemetry": "unavailable"
+}
