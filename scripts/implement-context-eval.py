@@ -163,6 +163,18 @@ def _max_or_unestablished(values):
     return max(values) if values else UNESTABLISHED
 
 
+def _sum_or_unestablished(values):
+    """The sum of a non-empty list, else the UNESTABLISHED sentinel.
+
+    The "empty population -> UNESTABLISHED, never 0" invariant is load-bearing (a
+    real `0` and "no runs" must never be the same output), so the sum/count fields go
+    through this helper rather than an inline `sum(...) if values else UNESTABLISHED`
+    ternary repeated per field — one chokepoint, so a field added later cannot quietly
+    reintroduce a 0-collapse.
+    """
+    return sum(values) if values else UNESTABLISHED
+
+
 def _usage_field(usage, key):
     """Read one usage sub-field, treating null/missing/non-numeric as 0."""
     if not isinstance(usage, dict):
@@ -384,6 +396,10 @@ def aggregate(runs):
         # visible and not hidden by an average (AC3).
         "median_peak_context": _median_or_unestablished(peaks),
         "max_peak_context": _max_or_unestablished(peaks),
+        # These count OVER a non-empty `peaks` population, so they guard on `peaks`
+        # (not the filtered list): with runs present but none over threshold the answer
+        # is a real 0, never `unestablished` — so `_sum_or_unestablished` (which keys on
+        # its own argument being empty) is deliberately NOT used here.
         "runs_over_200k": (sum(1 for p in peaks if p > BUCKET_200K)
                            if peaks else UNESTABLISHED),
         "runs_over_400k": (sum(1 for p in peaks if p > BUCKET_400K)
@@ -395,8 +411,7 @@ def aggregate(runs):
         counts = [r["phase_reads"][label] for r in runs]
         summary["median_{}_reads".format(label)] = _median_or_unestablished(counts)
         summary["max_{}_reads".format(label)] = _max_or_unestablished(counts)
-        summary["total_{}_reads".format(label)] = (
-            sum(counts) if counts else UNESTABLISHED)
+        summary["total_{}_reads".format(label)] = _sum_or_unestablished(counts)
     totals = [r["total_phase_reads"] for r in runs]
     summary["median_total_phase_reads"] = _median_or_unestablished(totals)
     summary["max_total_phase_reads"] = _max_or_unestablished(totals)

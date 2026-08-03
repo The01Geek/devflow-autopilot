@@ -141,8 +141,6 @@ class PhaseReadCountTest(unittest.TestCase):
             self.assertIn("peak_context", r)
             self.assertIn("phase_reads", r)
             self.assertEqual(set(r["phase_reads"]), set(ICE.PHASE_READ_LABELS))
-            # The two axes are independent keys — neither is derived from the other.
-            self.assertNotEqual("peak_context", "phase_reads")
 
     def test_phase3_reentry_counts_every_reentry(self):
         # T2: a run that re-enters Phase 3 several times; the phase-3 count reflects
@@ -417,6 +415,29 @@ class SecretDetectorTest(unittest.TestCase):
             with open(path, encoding="utf-8") as fh:
                 hits = _scan_for_secrets(fh.read())
             self.assertFalse(hits, "owner-id/transcript shape {} found in {}".format(hits, path))
+
+
+class PhaseFileSetCouplingTest(unittest.TestCase):
+    """PHASE_FILES is a standalone mirror of the four implement phase files (the eval
+    imports nothing from the skill). Reconcile it against the on-disk phases/ directory
+    so a phase-file rename/add/remove goes RED here rather than silently under-reporting
+    that phase's read count as 0 — the same silent-zero failure mode the derived
+    ATTRIBUTION set is built to avoid.
+    """
+
+    def test_phase_files_match_the_on_disk_phase_dir(self):
+        phase_dir = os.path.join(_REPO, "skills", "implement", "phases")
+        on_disk = {f for f in os.listdir(phase_dir) if f.endswith(".md")}
+        self.assertEqual(
+            set(ICE.PHASE_FILES), on_disk,
+            "PHASE_FILES must exactly mirror skills/implement/phases/*.md; a phase "
+            "rename/add/remove was not mirrored into scripts/implement-context-eval.py")
+
+    def test_phase_read_labels_are_unique_and_cover_every_phase_file(self):
+        # The label set must be a 1:1 image of the basenames — a duplicated label would
+        # silently merge two phases' counts into one reported axis.
+        self.assertEqual(len(set(ICE.PHASE_FILES.values())), len(ICE.PHASE_FILES))
+        self.assertEqual(set(ICE.PHASE_READ_LABELS), set(ICE.PHASE_FILES.values()))
 
 
 class NoAutoInvocationTest(unittest.TestCase):
