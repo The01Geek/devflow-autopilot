@@ -2015,6 +2015,10 @@ SERIAL_BY_EXCLUSION_SUITES = (
     # the main shell (invoked directly by run.sh, like test_module_harness.py above),
     # not through the pool or a full-suite module.
     "test_create_issue_context_eval.py",
+    # issue #1209: the implement context eval's focused unittest runs serially on the
+    # main shell (invoked directly by run.sh, like test_create_issue_context_eval.py
+    # above), not through the pool or a full-suite module.
+    "test_implement_context_eval.py",
 )
 MODULE_DRIVEN_SUITES = (
     "test_reconcile_module_floors.py",
