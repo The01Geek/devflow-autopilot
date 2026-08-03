@@ -274,6 +274,10 @@
       "note": "issue #767 create-issue runtime-context eval; tested directly by lib/test/test_create_issue_context_eval.py (serial)",
       "owner": "unmodularized"
     },
+    "scripts/dead-run-verdict-present.sh": {
+      "note": "issue #1172: the verdict-presence gate for devflow.yml's dead-run flip step; reuses derive-review-verdict.sh and is driven per arm (both-channels + truly-absent) in the #1172 section of lib/test/modules/review-trigger-helpers.sh",
+      "owner": "review-trigger-helpers"
+    },
     "scripts/dedupe-implement-run.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -287,7 +291,7 @@
       "owner": "review-trigger-helpers"
     },
     "scripts/derive-review-verdict.sh": {
-      "note": "retained unreachable-in-tree: called only by the withheld auto-review tier's workflow, kept so an installed consumer copy still resolves it (issue #936)",
+      "note": "retained unreachable-in-tree: called only by the withheld auto-review tier's workflow, kept so an installed consumer copy still resolves it (issue #936); now ALSO reached by scripts/dead-run-verdict-present.sh, wired into devflow.yml's dead-run flip gate (issue #1172)",
       "owner": "review-trigger-helpers"
     },
     "scripts/describe-dead-run-cause.sh": {
@@ -849,6 +853,10 @@
     "1170": {
       "note": "",
       "owner": "capability-profiles"
+    },
+    "1172": {
+      "note": "",
+      "owner": "review-trigger-helpers"
     },
     "126": {
       "note": "",
