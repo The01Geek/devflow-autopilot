@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1178",
+  "generated_at": "2026-08-03T01:56:50Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.60",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.781197,
+    "tokens": {
+      "input_tokens": 4177,
+      "output_tokens": 28442,
+      "cache_read_input_tokens": 3069716,
+      "cache_creation_input_tokens": 177803,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 4243,
+        "outputTokens": 55276,
+        "cacheReadInputTokens": 5668879,
+        "cacheCreationInputTokens": 460301,
+        "webSearchRequests": 0,
+        "costUSD": 7.781197,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 33,
+    "duration_ms": 666391
+  },
+  "permission_denials": {
+    "count": 13,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      ".prflow/vendor/prflow/scripts/config-get.sh .base_branch main 2>/dev/null || echo \"main\"; echo \"---RUNENV---\"; echo \"GITHUB_RUN_ID=${GITHUB_RUN_ID:-<empty>}\"; echo \"GITHUB_RUN_ATTEMPT=${GITHUB_RUN_ATTEMPT:-<empty>}\"",
+      "printf 'RUN_ID=%s ATTEMPT=%s\\n' \"${GITHUB_RUN_ID:-none}\" \"${GITHUB_RUN_ATTEMPT:-none}\"",
+      "cd /home/runner/work/prflow/prflow\necho \"=== review default vs explicit review byte-diff ===\"\nHEAD_SHA=deadbeef CI_SUMMARY='lint: success' ALLOWED_TOOLS='Read, Bash(git add:*)' bash scripts/render-grounding-block.sh > /tmp/r_default.txt\nMODE=review HEAD_SHA=deadbeef CI_SUMMARY='lint: success' ALLOWED_TOOLS='Read, Bash(git add:*)' bash scripts/render-grounding-block.sh > /tmp/r_explicit.txt\ndiff /tmp/r_default.txt /tmp/r_explicit.txt && echo \"IDENTICAL default==review\"\necho \"=== implement mode st …[per-command-truncated]",
+      "env HEAD_SHA=deadbeef CI_SUMMARY='lint: success' ALLOWED_TOOLS='Read, Bash(git add:*)' bash scripts/render-grounding-block.sh > /tmp/r_default.txt\nenv MODE=review HEAD_SHA=deadbeef CI_SUMMARY='lint: success' ALLOWED_TOOLS='Read, Bash(git add:*)' bash scripts/render-grounding-block.sh > /tmp/r_explicit.txt\ndiff /tmp/r_default.txt /tmp/r_explicit.txt && echo \"IDENTICAL: default==review\"",
+      "env MODE=implement ALLOWED_TOOLS='Read, Bash(git add:*)' HEAD_SHA=deadbeef CI_SUMMARY='lint: success' HARDENED_PATHS='lib/x.sh' bash scripts/render-grounding-block.sh > /tmp/impl.txt\necho \"CI-section-count=$(grep -c 'CI results already observed' /tmp/impl.txt)\"\necho \"displaced-count=$(grep -c 'Trusted-source displacement' /tmp/impl.txt)\"\necho \"section-headers:\"; grep -nE '^> \\*\\*[0-9]\\.' /tmp/impl.txt\necho \"empty-tools-grants-nothing=$(env MODE=implement ALLOWED_TOOLS='' bash scripts/render-grou …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\necho \"=== REVIEW (default) ===\"; MODE= HEAD_SHA=deadbeef CI_SUMMARY='lint: success' ALLOWED_TOOLS='Read, Bash(git add:*)' bash scripts/render-grounding-block.sh | grep -nE '^\\> \\*\\*[0-9]\\.' \necho \"=== IMPLEMENT ===\"; MODE=implement ALLOWED_TOOLS='Read, Bash(git add:*)' HARDENED_PATHS='lib/x.sh' bash scripts/render-grounding-block.sh | grep -nE '^\\> \\*\\*[0-9]\\.'",
+      "MODE= HEAD_SHA=deadbeef CI_SUMMARY='lint: success' ALLOWED_TOOLS='Read' bash /home/runner/work/prflow/prflow/scripts/render-grounding-block.sh > /tmp/rev.txt 2>&1; MODE=implement ALLOWED_TOOLS='Read' HARDENED_PATHS='lib/x.sh' bash /home/runner/work/prflow/prflow/scripts/render-grounding-block.sh > /tmp/impl.txt 2>&1; grep -nE '^> \\*\\*[0-9]\\.' /tmp/rev.txt; echo \"==IMPL==\"; grep -nE '^> \\*\\*[0-9]\\.' /tmp/impl.txt; echo \"==CI in impl?==\"; grep -c 'CI results already observed' /tmp/impl.txt; echo \" …[per-command-truncated]",
+      "MODE=implement ALLOWED_TOOLS='Read' HARDENED_PATHS='lib/x.sh' bash /home/runner/work/prflow/prflow/scripts/render-grounding-block.sh",
+      "bash /home/runner/work/prflow/prflow/lib/test/run-module.sh capability-profiles 2>&1 | tail -20",
+      "lib/test/test_python_scripts.py 2>&1 | tail -5",
+      "lib/test/test_python_scripts.py > /tmp/tps.log; echo \"EXIT:$?\"; tail -3 /tmp/tps.log",
+      "lib/test/test_python_scripts.py"
+    ],
+    "total": 13,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
