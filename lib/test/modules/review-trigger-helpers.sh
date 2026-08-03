@@ -1922,7 +1922,19 @@ rm -rf "$RIT_NOSED_DIR"; rm -f "$RIT_NOSED_ERR" "$RIT_NOSED_OUT"
 # OWN breadcrumb rather than being misreported as a clean no-command decline.
 RIT_BADDET_DIR="$(mktemp -d)"
 cp "$RIT" "$RIT_BADDET_DIR/resolve-implement-trigger.sh"
-printf '#!/usr/bin/env bash\nprintf "number=5\\n"\n' > "$RIT_BADDET_DIR/detect-standalone-command.sh"
+# The stub violates the detector's OUTPUT contract (no `command=` line) — that is the
+# whole point of this arm — but it must still honour the INPUT one and drain stdin, as
+# the real detector's awk does. The resolver feeds it through a pipe under
+# `set -o pipefail`; a stub that exits WITHOUT reading leaves the writing `printf` to
+# take SIGPIPE whenever the scheduler runs the reader to completion first, so the
+# pipeline reports failure and the resolver takes its "detector failed to run" arm
+# instead of the output-contract arm this test measures. Both arms are fail-closed
+# (`should_run=false`, rc 0), so only the breadcrumb assertion below would go red —
+# and only under load, which is exactly what happened once lib/test/test_module_runner.py
+# began running the exact-floor modules concurrently (issue #1181) on a saturated
+# 4-vCPU runner. Drain with a builtin loop so the stub cannot fail on a host missing
+# `cat`; do not "simplify" the drain away.
+printf '#!/usr/bin/env bash\nwhile IFS= read -r _drain; do :; done\nprintf "number=5\\n"\n' > "$RIT_BADDET_DIR/detect-standalone-command.sh"
 chmod +x "$RIT_BADDET_DIR/detect-standalone-command.sh"
 RIT_BADDET_ERR="$(mktemp)"
 OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' STUB_PERM='write' \
@@ -4254,7 +4266,11 @@ rm -rf "$RCT_NOSED_DIR"; rm -f "$RCT_NOSED_ERR" "$RCT_NOSED_OUT"
 RCT_BADDET_DIR="$(mktemp -d)"
 cp "$RCT" "$RCT_BADDET_DIR/resolve-command-trigger.sh"
 cp "$LIB/../scripts/authorize-actor.sh" "$RCT_BADDET_DIR/authorize-actor.sh"
-printf '#!/usr/bin/env bash\nprintf "number=5\\n"\n' > "$RCT_BADDET_DIR/detect-standalone-command.sh"
+# Drains stdin for the same reason the rit bad-detector stub above does: a stub that
+# ignores stdin lets the resolver's `printf | bash "$detector"` pipeline take SIGPIPE
+# under `pipefail`, diverting it to the "failed to run" arm and silently unmeasuring the
+# output-contract breadcrumb this arm asserts. Keep the drain.
+printf '#!/usr/bin/env bash\nwhile IFS= read -r _drain; do :; done\nprintf "number=5\\n"\n' > "$RCT_BADDET_DIR/detect-standalone-command.sh"
 chmod +x "$RCT_BADDET_DIR/detect-standalone-command.sh"
 RCT_BADDET_ERR="$(mktemp)"
 RCT_BADDET_OUT="$(mktemp)"
