@@ -22399,9 +22399,11 @@ VS_FETCH="$(mktemp -d)/dest"
     bash "$VENDOR" >/dev/null 2>&1 )
 assert_eq "vendor: fetch branch clones the pinned ref and copies the slice" "yes" "$(vexists "$VS_FETCH/scripts/resolve-implement-trigger.sh")"
 assert_eq "vendor: fetch branch drops the vendored marketplace.json" "no" "$(vexists "$VS_FETCH/.claude-plugin/marketplace.json")"
-# docs/ must travel with the slice so skills' relative ../../docs/… links resolve
-# offline in the materialized plugin (no web access in the runner sandbox).
-assert_eq "vendor: fetch branch copies docs/ (offline skill links resolve)" "yes" "$(vexists "$VS_FETCH/docs/efficiency-trace.md")"
+# docs/ must travel with the slice so a consumer maintainer reading the materialized
+# plugin has the reference tree offline (no web access in the runner sandbox). Issue
+# #1190 removed the last shipped skill-body link into docs/, so this no longer guards
+# a link resolution — it guards against over-pruning until the prune follow-up lands.
+assert_eq "vendor: fetch branch copies docs/" "yes" "$(vexists "$VS_FETCH/docs/efficiency-trace.md")"
 # #677 on the CONSUMER-FACING branch: the self-branch assertions further below cover
 # the same shared devflow_copy_slice, but `fetch` is what a real thin consumer runs,
 # so pin the prune there directly rather than relying on the shared path transitively.
@@ -22495,8 +22497,9 @@ assert_eq "vendor: committed branch beats self (precedence)" "yes" "$(vexists "$
 # silently ship a plugin missing agents/lib/skills or the tool registry).
 assert_eq "vendor: self copies agents/" "yes" "$(vexists "$VS_SELF/agents")"
 assert_eq "vendor: self copies docs/" "yes" "$(vexists "$VS_SELF/docs")"
-# A known doc lands, so the skills' relative ../../docs/efficiency-trace.md link
-# resolves to a real file in the materialized plugin.
+# A known doc lands, so an over-prune of docs/ contents is caught rather than only an
+# absent docs/ directory. (Before issue #1190 this named the shipped skill link into
+# this file; that link is gone, and the over-prune guard is what survives.)
 assert_eq "vendor: self copies docs/efficiency-trace.md" "yes" "$(vexists "$VS_SELF/docs/efficiency-trace.md")"
 assert_eq "vendor: self copies lib/" "yes" "$(vexists "$VS_SELF/lib")"
 assert_eq "vendor: self copies skills/" "yes" "$(vexists "$VS_SELF/skills")"
@@ -22515,8 +22518,11 @@ assert_eq "#677 vendor: self slice excludes lib/test (DevFlow's own test suite)"
 # #677 presence backstops: the exclusion must not over-prune. Proving absence alone
 # would be satisfied by an implementation that pruned too much (e.g. all of docs/ or
 # all of lib/), so pair each excluded subtree with the reachable siblings that MUST
-# survive: the docs/ files shipped skill bodies link to (each pinned individually
-# below), the non-test lib/ contents, and the load-bearing top-level members. The
+# survive: the docs/ files that were reachable from shipped skill bodies when these
+# pins were written and still ship today (each pinned individually below — issue #1190
+# removed those links, so the set is now a historical selection this guard holds in
+# place until the prune follow-up revisits it), the non-test lib/ contents, and the
+# load-bearing top-level members. The
 # per-file pins matter — the "vendor: self copies docs/" assertion above only checks
 # the docs/ directory exists, so an over-prune of a single linked doc would slip past
 # it but not past these.
