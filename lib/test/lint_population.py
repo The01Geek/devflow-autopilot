@@ -39,6 +39,86 @@ own name via the `tool` argument, so a diagnostic still says which lint spoke.
 
 Each lint imports this module with the same `importlib.util.spec_from_file_location`
 idiom the directory already uses for `extract-command-heads.py`.
+
+Path quoting (issue #1217) — the decision and its residual
+----------------------------------------------------------
+`git`'s `core.quotePath` **defaults to on**, under which a tracked path containing a
+non-ASCII byte is printed in C-quoted form: a legal `café.md` comes out as the longer
+literal string ``"caf\303\251.md"`` — surrounding double quotes and backslash escapes
+that are not in the path. That string names no real file, and the lints that
+share this reader mishandle it in two different ways: one that selects by **path
+prefix** stops recognising the file (git puts the opening quote at the *front* of the
+whole path, so `skills/café.md` becomes ``"skills/caf\303\251.md"``, which no longer
+starts with `skills/`) and silently drops it while still exiting 0 with a tally that counts
+only the surviving paths (`audited 0 of 0` when the dropped file is the sandbox's only one,
+`audited N of N` in a real tree) — a **false clean**; one that selects **everything minus an exclusion list**
+keeps the string, fails to open it, records a skip, and exits 1 — a **false RED** for a
+character the path does not contain.
+
+**The chosen approach is a shared-reader fix using `-c core.quotePath=false`**, applied
+to both argvs below, rather than the per-consumer fix PR #1201 set as a precedent for
+`lint-windows-uncheckoutable-path.py`. A per-consumer fix is precisely how the defect
+spread: these constants would stay a trap for the next lint that names one. Fixing the
+reader once makes the enumeration uniform for every caller that goes through it.
+
+**Non-reader callers exist, and the reader is NOT a complete point of control.** Do not
+read the paragraph above as "the flag is handled centrally, so a new `git ls-files` call
+inherits it" — it is handled centrally only for callers that name
+`LS_FILES_INDEX`/`LS_FILES_WORKING_TREE`. State the rule rather than a census, because a
+transcribed count of call sites rots on the next edit:
+
+* A caller that names one of the two argvs above inherits the flag. Nothing to do.
+* A caller that passes **`-z`** needs nothing either — NUL-delimited output is never
+  C-quoted, so `core.quotePath` is inert for it. `pin-corpus-lint.py`'s `_git_ls_files`
+  and `mutation-pin-census.py` are in this category, which is why neither appears below.
+* **Every other caller must splice the exported `QUOTE_PATH_OFF` pair itself.** That is
+  why the constant exists: the *literal* has one home even where the *argv* cannot reach.
+  The `lib/test/` callers in this category compose their own `git -C <root> …` prefix and so
+  cannot use the ready-made argvs: `pin-corpus-lint.py`'s `_run_git` `ls-files` sites and
+  `coverage_map_guard.py`'s `_git_tracked`/`_git_executable`.
+
+**Scope of that third bullet: `lib/test/` only.** It enumerates the callers *this reader
+serves*, not every `git ls-files` in the repository. `lib/` carries at least one enumeration
+outside that scope with the same exposure — `generate-env-freeze-advisory.py`'s
+`tracked_files` — which is neither served by this reader nor covered by issue #1217's
+`lib/test/`-scoped surface. Read the bullet as "the `lib/test/` callers", never as a
+repository-wide census.
+
+**How much of the third bullet is guarded mechanically — one site, not five.** `lib/test/run.sh`'s
+`#1217` block drives **`coverage_map_guard`'s `_git_tracked` and `_git_executable`**
+behaviourally over a sandbox repository, so deleting a splice from either turns the suite RED.
+**`pin-corpus-lint.py`'s three `_run_git` sites carry NO behavioural guard**: deleting a splice
+there reinstates the defect with the suite fully green, because that lint needs a far richer
+sandbox than the block stands up and its own test stubs match argv substrings that are
+insensitive to the flag. Treat a change to those three argvs as **review-gated, not
+suite-gated** — and do not read the sentence above as covering them, which is the failure
+mode this paragraph exists to prevent (a docstring promising a mechanical control disarms the
+human one).
+
+**The residual `core.quotePath=false` leaves.** It removes only the *non-ASCII*
+escaping. A path containing a **backslash**, a **double quote**, a **control
+character**, or an **embedded newline** is still C-quoted and still reaches a caller as
+a string that names no real file. Removing quoting *entirely* needs `git ls-files -z`,
+which was weighed and deliberately not taken here: `-z` changes the output delimiter
+from newline to NUL, so `enumerate_population` could no longer split on `"\n"`, and the
+`--files-from` list it also accepts is newline-separated — the two input paths would
+have to be reconciled rather than sharing one splitter. Completeness was traded against
+blast radius, knowingly.
+
+**How much of that residual another guard already bars — stated exactly, because the
+closure is partial.** The issue-#1196 Windows-uncheckoutable-path guard rejects a tracked
+path carrying a backslash, a double quote, or a control character in `0x01`–`0x1F`
+(`check_component`'s range test), and an embedded newline is `0x0A`, inside that range. So
+those cases cannot reach a caller here *in this repository*. **`0x7F` (DEL) is the
+exception and is NOT barred:** it is outside the guard's `0x01`–`0x1F` range and absent
+from `_FORBIDDEN_CHARS`, yet git still C-quotes it under `core.quotePath=false` — measured,
+`a\x7fb.md` prints as `"a\177b.md"`. A tracked path containing it would therefore still
+reach a caller quoted. Do not read the trade-off above as resting on a complete closure;
+`0x7F` is the disclosed hole in it.
+
+Both argvs keep their index-vs-working-tree identity unchanged (issue #711): the flag is
+a `git`-level `-c` option that alters only how a path is *printed*, never which paths are
+enumerated, and no `--others` was added to the index-reading argv.
 """
 
 from __future__ import annotations
@@ -53,8 +133,25 @@ from pathlib import Path
 #: bare clone; `LS_FILES_WORKING_TREE` additionally lists untracked-but-unignored
 #: files (`--others`), which sweeps sibling worktrees and is chosen only when a
 #: caller must see files not yet in the index.
-LS_FILES_INDEX = ("git", "ls-files")
-LS_FILES_WORKING_TREE = ("git", "ls-files", "--cached", "--others", "--exclude-standard")
+#:
+#: Both are built from `QUOTE_PATH_OFF` below, so a tracked non-ASCII path arrives as
+#: its raw bytes rather than git's C-quoted rendering. See the module docstring for why
+#: this over `-z`, and for the residual it leaves. The flag changes only how a path is
+#: PRINTED, so neither argv's index-vs-working-tree identity moves.
+
+#: The `git`-level option pair that disables C-style path quoting (issue #1217), exported
+#: so the literal has exactly ONE home in the tree. The two argvs below splice it, and so
+#: do the `lib/test/` lints that cannot use those argvs because they compose their own
+#: `git -C <root> …` prefix (`pin-corpus-lint.py`, `coverage_map_guard.py`) — see the
+#: module docstring's *non-reader callers* note. A caller adding a new `git ls-files`
+#: enumeration splices this rather than re-spelling the flag.
+QUOTE_PATH_OFF = ("-c", "core.quotePath=false")
+
+LS_FILES_INDEX = ("git", *QUOTE_PATH_OFF, "ls-files")
+LS_FILES_WORKING_TREE = (
+    "git", *QUOTE_PATH_OFF,
+    "ls-files", "--cached", "--others", "--exclude-standard",
+)
 
 
 class EnumerationError(Exception):

@@ -45,10 +45,49 @@ The verdict line is printed to stdout (`OK` / `FAIL: <reason>`); details go to s
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+# Reuse the shared git-ls-files population reader's index argv (issue #724), loaded by
+# path exactly as the sibling #711 lints do. Naming the constant is what states the
+# index-read choice, and it is what carries `-c core.quotePath=false` (issue #1217) so a
+# tracked non-ASCII `lib/test/` script arrives as its raw bytes.
+#
+# The failure mode here is a FALSE RED, not a silent drop — this guard's selection is a git
+# PATHSPEC (`lib/test/*.sh`), which matches the real path bytes and is unaffected by
+# quoting, so the file is still enumerated, C-quoted spelling and all. It then reaches
+# `check()`, where the quoted spelling matches neither `EXEMPT_PREFIX` nor any CI-linted
+# literal, so a legally-named fixture is reported as an unlinted OFFENDER. (The silent-drop
+# mechanism issue #1217 describes belongs to the prefix-FILTERING lints, e.g.
+# `lint-subagent-dispatch-namespace.py`'s `startswith("agents/")` — not to this one.)
+_POP_PATH = Path(__file__).resolve().parent / "lint_population.py"
+try:
+    _pop_spec = importlib.util.spec_from_file_location("lint_population", _POP_PATH)
+    if _pop_spec is None or _pop_spec.loader is None:
+        raise ImportError(f"no loadable spec for {_POP_PATH}")
+    _pop = importlib.util.module_from_spec(_pop_spec)
+    _pop_spec.loader.exec_module(_pop)
+except Exception as _exc:
+    # Print the documented stdout verdict before exiting: this module's contract is
+    # `OK` / `FAIL: <reason>` on stdout, and run.sh's driver reads `${out%%:*}` from a
+    # capture that discards stderr — a bare SystemExit would leave it with no cause at all.
+    print(
+        f"FAIL: the shared population reader {_POP_PATH} could not be loaded "
+        f"({_exc.__class__.__name__}: {_exc}); refusing to audit"
+    )
+    raise SystemExit(
+        f"lint-carveout-guard: the shared population reader {_POP_PATH} could not be "
+        f"loaded ({_exc.__class__.__name__}: {_exc}); refusing to audit"
+    ) from _exc
+if not hasattr(_pop, "LS_FILES_INDEX"):
+    print(f"FAIL: {_POP_PATH} no longer provides `LS_FILES_INDEX`; refusing to audit")
+    raise SystemExit(
+        f"lint-carveout-guard: {_POP_PATH} no longer provides `LS_FILES_INDEX`; "
+        "refusing to audit"
+    )
 
 # The single declared exempt prefix. A tracked lib/test file under this prefix is
 # deliberately unlinted (adversarial/malformed fixtures live here); anything else
@@ -189,9 +228,10 @@ def derive_ci_linted(ci_text: str) -> set[str]:
 def tracked_lib_test_scripts(repo_root: Path) -> list[str]:
     """Enumerate tracked lib/test/**/*.sh via index-reading `git ls-files` (issue
     #711: never a recursive filesystem walk, which would descend into sibling
-    worktrees under .claude/worktrees/ and count their copies)."""
+    worktrees under .claude/worktrees/ and count their copies). The argv composes the
+    shared `LS_FILES_INDEX` constant; see its import above."""
     out = subprocess.run(
-        ["git", "ls-files", "lib/test/*.sh", "lib/test/**/*.sh"],
+        [*_pop.LS_FILES_INDEX, "lib/test/*.sh", "lib/test/**/*.sh"],
         cwd=str(repo_root),
         capture_output=True,
         text=True,

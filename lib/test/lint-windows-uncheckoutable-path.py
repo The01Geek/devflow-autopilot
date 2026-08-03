@@ -56,9 +56,10 @@ Population. The tracked paths come from an **index-reading `git ls-files` with n
 convention: a repository-root-anchored recursive walk would descend into sibling git
 worktrees under `.claude/worktrees/` and audit other checkouts' copies, going red
 locally with a per-run-varying count while CI (a fresh checkout with no worktrees)
-stays green. That enumeration runs with **`core.quotePath=false`**; see
-`_LS_FILES_INDEX_UNQUOTED` for why the default would turn every legally-named
-non-ASCII path into a false RED. This guard judges path **strings**, never filesystem
+stays green. That enumeration runs with **`core.quotePath=false`**, which since issue
+#1217 the shared constant itself carries; see the note beside `TOOL` below for why the
+default would turn every legally-named non-ASCII path into a false RED, and for the
+`0x7F` residual it leaves. This guard judges path **strings**, never filesystem
 entries: the whole point is to flag a path that *cannot exist on the host running the
 guard*, and the `--files-from` harness feeds synthetic path strings (a reserved-name
 fixture must never be planted on disk — that is the very incident this guard
@@ -108,34 +109,27 @@ EnumerationError = _pop.EnumerationError
 
 TOOL = "lint-windows-uncheckoutable-path"
 
-#: The index-reading argv this guard enumerates with, with C-style path quoting disabled.
-#:
-#: `core.quotePath` defaults to **true**, under which git renders any non-ASCII path in
-#: C-quoted form: a legal, Windows-checkout-able `café.md` arrives here as the literal
-#: string `"caf\303\251.md"` — surrounding double quotes and two backslash escapes that are
-#: not in the path at all. Fed to `check_path()`, that string trips the absolute backslash
-#: rule applied before the split on `/`, so the first legitimately-named non-ASCII tracked
-#: path anyone commits would take the whole suite RED for a character the path does not
-#: contain — and this guard deliberately offers no `# …-ok:` declaration marker, so there
-#: would be nothing to wave it through with.
-#: Disabling the quoting hands the raw path bytes to the judgement functions, which is what
-#: they are written to judge.
-#:
-#: This does not silence quoting altogether, and it must not: `core.quotePath=false` drops
-#: only the *non-ASCII* escaping, while a path containing a backslash, a double quote, or a
-#: control character is still C-quoted. Those are exactly the paths this guard must reject,
-#: and the quoted rendering still carries a backslash, so each stays RED — only the reason
-#: string may name the backslash rule rather than the underlying one, which is a diagnostic
-#: nuance on an already-correct verdict rather than a missed violation.
-#:
-#: The index-vs-working-tree choice (issue #711) is still made by naming the shared constant,
-#: so this stays coupled to `lint_population`'s decision rather than re-spelling `ls-files`.
-_LS_FILES_INDEX_UNQUOTED = (
-    _pop.LS_FILES_INDEX[0],
-    "-c",
-    "core.quotePath=false",
-    *_pop.LS_FILES_INDEX[1:],
-)
+# This guard depends on the enumeration being unquoted, but no longer owns the flag: issue
+# #1217 retired the module-private `_LS_FILES_INDEX_UNQUOTED` PR #1201 added here, because
+# `lint_population.LS_FILES_INDEX` now carries `-c core.quotePath=false` for every caller.
+# The mechanism and the `-z` trade-off are stated once, in that module's docstring.
+#
+# What is specific to THIS guard is the residual, and it splits two ways:
+#
+#   * A backslash, a double quote, or a control character in `0x01`-`0x1F` is still
+#     C-quoted, and those ARE paths this guard must reject. The quoted rendering still
+#     carries a backslash, so each stays RED; only the reason string may name the backslash
+#     rule rather than the underlying one — a diagnostic nuance on an already-correct
+#     verdict, not a missed violation.
+#   * `0x7F` (DEL) is still C-quoted too, but this guard does NOT reject it: it is outside
+#     `check_component`'s `0x01`-`0x1F` range and absent from `_FORBIDDEN_CHARS`, and git's
+#     own `is_valid_win32_path()` likewise rejects only `< 0x20`. So a tracked `a\x7fb.md`
+#     arrives here as `"a\177b.md"`, whose backslash trips the pre-split rule and yields a
+#     FALSE RED for a path git would check out. That is a real residual, not a nuance.
+#
+# Were the flag ever dropped, every legitimately-named non-ASCII path would take the whole
+# suite RED for a character it does not contain, and this guard deliberately offers no
+# `# ...-ok:` declaration marker to wave that through.
 
 #: Forbidden characters in a path component (git's Windows rule). `:` is included, which
 #: also subsumes a leading DOS drive prefix (`C:`), so no separate drive-prefix arm exists.
@@ -238,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
         population = _pop.enumerate_population(
             root,
             Path(args.files_from) if args.files_from else None,
-            ls_files_argv=_LS_FILES_INDEX_UNQUOTED,
+            ls_files_argv=_pop.LS_FILES_INDEX,
         )
     except EnumerationError as exc:
         print(f"{TOOL}: enumeration unusable: {exc}", file=sys.stderr)
