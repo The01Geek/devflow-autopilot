@@ -63,7 +63,9 @@ behavior). This repair reaches your repository on upgrade, because `install.sh` 
 `prune_stale_devflow_workflows()` is deliberately not extended, so re-running the installer
 leaves the three files in place and your auto-review keeps working. That continues to hold
 across a plugin upgrade only because **every helper those workflows call is still shipped**
-even though nothing in PRFlow's own tree reaches them any more: `install.sh` re-stamps
+even though the withheld tier no longer reaches them (and, save `derive-review-verdict.sh` —
+which the shipped dead-run verdict-presence gate reaches again, issue #1172 — nothing else in
+PRFlow's own tree reaches them either): `install.sh` re-stamps
 `prflow_version` to the installed commit, so re-running the installer keeps your workflow
 files while vendoring a newer plugin, and a helper deleted as "unreachable" would go missing
 underneath them — `finalize_check` fails **closed** when `derive-review-verdict.sh` is absent,
