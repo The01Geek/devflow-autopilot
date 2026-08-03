@@ -3,7 +3,24 @@
   "started_at": "2026-08-03T19:41:29Z",
   "loop_role": "fix",
   "current_step": "loop-control",
-  "current_substep": "run_engine",
-  "pending_dispatch": null,
+  "current_substep": "phase1_checklist_generator",
+  "pending_dispatch": {
+    "kind": "checklist_generator",
+    "roster": [
+      "prflow:checklist-generator"
+    ],
+    "dispatched_at": "2026-08-03T19:50:00Z"
+  },
+  "dispatched_effort": [
+    {
+      "agent": "prflow:checklist-generator",
+      "phase": "1",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort low resolved but was not applied; the agent inherits the session effort"
+    }
+  ],
   "telemetry": "unavailable"
 }
