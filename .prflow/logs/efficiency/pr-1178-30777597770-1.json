@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1178",
+  "generated_at": "2026-08-03T01:58:38Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.60",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 11.023176749999996,
+    "tokens": {
+      "input_tokens": 56,
+      "output_tokens": 30534,
+      "cache_read_input_tokens": 4936850,
+      "cache_creation_input_tokens": 177138,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 120,
+        "outputTokens": 93178,
+        "cacheReadInputTokens": 7577756,
+        "cacheCreationInputTokens": 678397,
+        "webSearchRequests": 0,
+        "costUSD": 11.023176749999996,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 36,
+    "duration_ms": 770224
+  },
+  "permission_denials": {
+    "count": 11,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "git status --porcelain; echo \"---ENV---\"; echo \"run_id=$GITHUB_RUN_ID attempt=$GITHUB_RUN_ATTEMPT actions=$GITHUB_ACTIONS\"",
+      "RUN_ID=\"${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1}\"; printf 'run-id=%s\\n' \"$RUN_ID\"; mkdir -p \".prflow/tmp/review/pr-1178/$RUN_ID\"; printf '%s' \"$RUN_ID\" | tee .prflow/tmp/review/pr-1178/current-run-id.txt >/dev/null; echo done",
+      ".prflow/vendor/prflow/scripts/config-get.sh .prflow_review.agent_overrides '{}' 2>/dev/null; echo \"---\"; mkdir -p .prflow/tmp; git status --porcelain -z > .prflow/tmp/review-dirty-tree-before && git hash-object .prflow/tmp/review-dirty-tree-before",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1170 --pr 1178 2>.prflow/tmp/review/pr-1178/30777597770-1/acs.err ; echo \"acs-rc=$?\"",
+      "ls .changeset/ 2>/dev/null; echo \"---existing changeset sample---\"; for f in .changeset/*.md; do [ \"$(basename \"$f\")\" = \"README.md\" ] && continue; echo \"== $f ==\"; head -8 \"$f\"; done 2>/dev/null | head -40; echo \"---consolidator frontmatter handling---\"; grep -n \"type\\|bump\\|frontmatter\\|_FIELD\\|allowed_keys\\|unknown\" scripts/consolidate-changesets.py | head -30",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>/tmp/ext_err >/tmp/ext_out; echo \"exit=$?\"; echo \"--- stdout bytes: $(wc -c </tmp/ext_out) ---\"; cat /tmp/ext_out; echo \"--- stderr ---\"; cat /tmp/ext_err",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>/tmp/ext_err >/tmp/ext_out\necho \"exit=$?\"\necho \"stdout_bytes=$(wc -c </tmp/ext_out)\"\necho \"=== STDOUT ===\"; cat /tmp/ext_out\necho \"=== STDERR ===\"; cat /tmp/ext_err",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review >/tmp/ext_out 2>/tmp/ext_err; echo \"exit=$? stdout_bytes=$(wc -c </tmp/ext_out)\"",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review >.prflow/tmp/ext_out 2>.prflow/tmp/ext_err; echo \"exit=$? stdout_bytes=$(wc -c <.prflow/tmp/ext_out)\"",
+      "mkdir -p .prflow/tmp; .prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review >.prflow/tmp/ext_out 2>.prflow/tmp/ext_err; echo \"exit=$? stdout_bytes=$(wc -c <.prflow/tmp/ext_out)\""
+    ],
+    "total": 11,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
