@@ -52,14 +52,17 @@ component and case-insensitive):
   `verify_path_internal` under `GIT_WINDOWS_NATIVE || __CYGWIN__`).
 
 Population. The tracked paths come from an **index-reading `git ls-files` with no
-`--others`** (`lint_population.LS_FILES_INDEX`) — the issue-#711 convention: a
-repository-root-anchored recursive walk would descend into sibling git worktrees
-under `.claude/worktrees/` and audit other checkouts' copies, going red locally
-with a per-run-varying count while CI (a fresh checkout with no worktrees) stays
-green. This guard judges path **strings**, never filesystem entries: the whole
-point is to flag a path that *cannot exist on the host running the guard*, and the
-`--files-from` harness feeds synthetic path strings (a reserved-name fixture must
-never be planted on disk — that is the very incident this guard prevents).
+`--others`** (derived from `lint_population.LS_FILES_INDEX`) — the issue-#711
+convention: a repository-root-anchored recursive walk would descend into sibling git
+worktrees under `.claude/worktrees/` and audit other checkouts' copies, going red
+locally with a per-run-varying count while CI (a fresh checkout with no worktrees)
+stays green. That enumeration runs with **`core.quotePath=false`**; see
+`_LS_FILES_INDEX_UNQUOTED` for why the default would turn every legally-named
+non-ASCII path into a false RED. This guard judges path **strings**, never filesystem
+entries: the whole point is to flag a path that *cannot exist on the host running the
+guard*, and the `--files-from` harness feeds synthetic path strings (a reserved-name
+fixture must never be planted on disk — that is the very incident this guard
+prevents).
 
 Fail-closed (issue #724 `EnumerationError`): a population that cannot be
 established, or that is empty before any judgement, exits non-zero — "audited
@@ -105,6 +108,35 @@ EnumerationError = _pop.EnumerationError
 
 TOOL = "lint-windows-uncheckoutable-path"
 
+#: The index-reading argv this guard enumerates with, with C-style path quoting disabled.
+#:
+#: `core.quotePath` defaults to **true**, under which git renders any non-ASCII path in
+#: C-quoted form: a legal, Windows-checkout-able `café.md` arrives here as the literal
+#: string `"caf\303\251.md"` — surrounding double quotes and two backslash escapes that are
+#: not in the path at all. Fed to `check_path()`, that string trips the absolute backslash
+#: rule applied before the split on `/`, so the first legitimately-named non-ASCII tracked
+#: path anyone commits would take the whole suite RED for a character the path does not
+#: contain — and this guard deliberately offers no `# …-ok:` declaration marker, so there
+#: would be nothing to wave it through with.
+#: Disabling the quoting hands the raw path bytes to the judgement functions, which is what
+#: they are written to judge.
+#:
+#: This does not silence quoting altogether, and it must not: `core.quotePath=false` drops
+#: only the *non-ASCII* escaping, while a path containing a backslash, a double quote, or a
+#: control character is still C-quoted. Those are exactly the paths this guard must reject,
+#: and the quoted rendering still carries a backslash, so each stays RED — only the reason
+#: string may name the backslash rule rather than the underlying one, which is a diagnostic
+#: nuance on an already-correct verdict rather than a missed violation.
+#:
+#: The index-vs-working-tree choice (issue #711) is still made by naming the shared constant,
+#: so this stays coupled to `lint_population`'s decision rather than re-spelling `ls-files`.
+_LS_FILES_INDEX_UNQUOTED = (
+    _pop.LS_FILES_INDEX[0],
+    "-c",
+    "core.quotePath=false",
+    *_pop.LS_FILES_INDEX[1:],
+)
+
 #: Forbidden characters in a path component (git's Windows rule). `:` is included, which
 #: also subsumes a leading DOS drive prefix (`C:`), so no separate drive-prefix arm exists.
 _FORBIDDEN_CHARS = frozenset('<>:"|?*')
@@ -147,10 +179,11 @@ def check_component(component: str) -> str | None:
         if "\x01" <= ch <= "\x1f":
             return f"control-character(0x{ord(ch):02x})"
 
-    # Forbidden characters (< > : " | ? *). Reported before the reserved-name check for
-    # a plain-forbidden component, but a reserved name with a `:` suffix is named as the
-    # reserved-device violation below (checked first) so the diagnostic points at the
-    # dominant cause.
+    # Reserved device names are checked BEFORE the forbidden-character arm below, so a
+    # reserved name carrying a `:` suffix (`nul:ads`) is reported as the reserved-device
+    # violation rather than as a stray `:` — the diagnostic then points at the dominant
+    # cause. A component with a forbidden character and no reserved stem falls through to
+    # the forbidden-character arm unchanged.
     reserved = _is_reserved_stem(component.lower())
     if reserved is not None:
         return f"reserved-device-name({reserved})"
@@ -205,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
         population = _pop.enumerate_population(
             root,
             Path(args.files_from) if args.files_from else None,
-            ls_files_argv=_pop.LS_FILES_INDEX,
+            ls_files_argv=_LS_FILES_INDEX_UNQUOTED,
         )
     except EnumerationError as exc:
         print(f"{TOOL}: enumeration unusable: {exc}", file=sys.stderr)

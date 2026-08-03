@@ -41416,7 +41416,12 @@ if git cat-file -e 5179c5a1 2>/dev/null; then
       # (enumeration-unusable, not a detected reserved name). Route that to a sentinel that
       # matches neither "rc=1|" nor the fixture-name test, so both assertions fail on the real
       # cause instead of one passing coincidentally.
-      if git ls-tree -r 5179c5a1 --name-only > "$E1196_HIST_LIST" 2>/dev/null && [ -s "$E1196_HIST_LIST" ]; then
+      # `-c core.quotePath=false` for the same reason the guard's own live enumeration carries
+      # it: under git's default a non-ASCII path is emitted C-QUOTED, and the guard would flag
+      # the escape backslashes as a backslash-in-path violation. This tree's path of interest
+      # is ASCII, so the flag changes nothing observable here today — it is carried so the two
+      # enumerations that feed this guard cannot disagree about what a path looks like.
+      if git -c core.quotePath=false ls-tree -r 5179c5a1 --name-only > "$E1196_HIST_LIST" 2>/dev/null && [ -s "$E1196_HIST_LIST" ]; then
         E1196_HIST_OUT="$(python3 "$E1196_LINT" --root "$LIB/.." --files-from "$E1196_HIST_LIST" 2>&1)"
         E1196_HIST_RC=$?
         E1196_HIST="rc=$E1196_HIST_RC|$E1196_HIST_OUT"
@@ -41431,7 +41436,12 @@ if git cat-file -e 5179c5a1 2>/dev/null; then
   assert_eq "#1196 the pre-fix RED names the reserved-name fixture" "yes" \
     "$(case "$E1196_HIST" in *"lib/test/fixtures/shipped-pruned-path/skills/nul.md"*) echo yes ;; *) echo "no: $E1196_HIST" ;; esac)"
 else
+  # BOTH historical assertions self-skip together — the #456 registered-check population must
+  # be stable across environments, so a shallow clone must report the same two check names a
+  # full-history clone reports, one per skip line, rather than silently dropping the second.
   skip "#1196 the pre-fix tree 5179c5a1 goes RED" host-capability \
+    "commit 5179c5a1 is unreachable in this checkout (shallow clone); CI runs with full history"
+  skip "#1196 the pre-fix RED names the reserved-name fixture" host-capability \
     "commit 5179c5a1 is unreachable in this checkout (shallow clone); CI runs with full history"
 fi
 
@@ -41463,6 +41473,57 @@ assert_eq "#1196 negative controls are not flagged" "rc=0" \
 # COM/LPT asymmetry (AC7), demonstrated in BOTH directions: com0 not flagged, lpt0 flagged.
 assert_eq "#1196 asymmetry: com0.md is NOT flagged" "rc=0" "$(e1196_rc skills/com0.md)"
 assert_eq "#1196 asymmetry: lpt0.md IS flagged" "rc=1" "$(e1196_rc skills/lpt0.md)"
+
+# ── Path-quoting regression (PR #1201 review finding 1) ──────────────────────
+# `core.quotePath` defaults to TRUE, under which git emits a non-ASCII path in C-QUOTED form:
+# a legal, Windows-checkout-able `café.md` comes out as the literal string `"caf\303\251.md"`
+# — surrounding double quotes and backslash escapes that are not in the path. Fed to the
+# guard, that string trips its absolute backslash rule, so the first legitimately-named
+# non-ASCII tracked path anyone commits would take the WHOLE SUITE RED for a character the
+# path does not contain, and this guard deliberately ships no declaration marker to wave
+# it through.
+# The guard therefore enumerates with `core.quotePath=false`.
+#
+# Two assertions, covering the two halves separately:
+#   (a) the JUDGEMENT half — an unquoted non-ASCII path string is clean. Reached via
+#       --files-from, which bypasses the enumeration entirely, so this one holds with or
+#       without the flag; it pins the intended verdict the enumeration must deliver.
+#   (b) the ENUMERATION half — the guard run over a real repository whose index carries such
+#       a path. This is the seam --files-from cannot reach, and it is RED without the flag.
+assert_eq "#1196 negative control: an unquoted non-ASCII path is not flagged" "rc=0" \
+  "$(e1196_rc "$(printf 'docs/caf\303\251.md')" skills/normal.md)"
+
+# (b) is driven through a THROWAWAY git repo (git_sandbox — never the real one) because it is
+# a property of the live `git ls-files` call. The fixture name is ordinary and fully
+# Windows-checkout-able, so nothing exotic is planted anywhere: the no-reserved-name-on-disk
+# rule above is about the violating names this guard hunts, not about non-ASCII text.
+E1196_SB="$(git_sandbox '#1196 non-ASCII enumeration sandbox')" || E1196_SB=""
+case "$E1196_SB" in
+  ""|/dev/null*) E1196_NA="rc=sandbox-unavailable|git_sandbox allocated no usable directory" ;;
+  *)
+    # Octal escapes rather than a literal é: the bytes under test are fixed here instead of
+    # being inherited from whatever encoding this file is read with.
+    E1196_NA_NAME="$(printf 'caf\303\251.md')"
+    if git -C "$E1196_SB" init -q 2>/dev/null &&
+       printf 'x\n' > "$E1196_SB/$E1196_NA_NAME" 2>/dev/null &&
+       git -C "$E1196_SB" add -A -f >/dev/null 2>&1; then
+      E1196_NA_OUT="$(python3 "$E1196_LINT" --root "$E1196_SB" 2>&1)"; E1196_NA_RC=$?
+      E1196_NA="rc=$E1196_NA_RC|$E1196_NA_OUT"
+    else
+      # A setup that did not complete must not read as a pass: route it to a sentinel that
+      # is not "rc=0", so the assertion goes RED naming the real cause.
+      E1196_NA="rc=sandbox-setup-failed|could not stage the non-ASCII fixture in the sandbox"
+    fi
+    rm -rf "$E1196_SB"
+    ;;
+esac
+assert_eq "#1196 the live enumeration does not flag a legally-named non-ASCII tracked path" \
+  "rc=0" "${E1196_NA%%|*}"
+# The population was really established — an EnumerationError would also have to be excluded
+# before "rc=0" could be read as "the path was judged and found clean", but rc=0 is only
+# reachable through a non-empty population, so assert the tally the run actually reported.
+assert_eq "#1196 the non-ASCII sandbox run audited its one tracked path" "yes" \
+  "$(case "$E1196_NA" in *"audited 1 tracked path(s), 0 violation(s)"*) echo yes ;; *) echo "no: $E1196_NA" ;; esac)"
 
 # Fail-closed on an unestablished population (AC8): an empty --files-from list must be a
 # non-zero "enumeration unusable", never a clean pass — "audited nothing" ≠ "found nothing".
