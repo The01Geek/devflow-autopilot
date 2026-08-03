@@ -1,0 +1,67 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "eac60f0",
+  "fix_files": [
+    "scripts/loop-verdict-marker.py",
+    "lib/test/loop-verdict-marker-test.py"
+  ],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:pr-test-analyzer",
+    "prflow:comment-analyzer",
+    "prflow:type-design-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "unreadable/undecodable file read AC5 branch untested",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "coverage docstring says 'exactly' but code is case/whitespace-insensitive",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "emitted route vocabulary stringly-typed/scattered; _CLEAN_APPROVE_TOKENS hand-maintained",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "eac60f0"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "eac60f0"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "eac60f0"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 40,
+    "new_corroborated_critical_count": 0
+  },
+  "telemetry": "unavailable"
+}
