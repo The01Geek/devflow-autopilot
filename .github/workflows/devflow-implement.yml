@@ -1376,24 +1376,28 @@ jobs:
             actions: read
 
           # Raise the Bash tool's per-command ceiling on THIS tier (issue #1179).
-          # Claude Code's BASH_MAX_TIMEOUT_MS defaults to 600000 ms (10 min). The
-          # parallel verification coordinator (lib/test/run-parallel.sh, #1086) — the
-          # run's final whole-suite gate — could not finish inside that window on the
-          # ubuntu-latest 4 vCPU runner this job resolves to: at BUDGET=4 its estimated
-          # floor is ~13–14 min (the pre-#1180 packing — the contention-adjusted
-          # estimate above lib/test/run-parallel.sh's 11.4-min sleep-stub model, which
-          # by its own note understates real contention; #1180 lowered
-          # POOL_RESERVATION_CEILING to 2 so it now packs three shards at BUDGET=4, but
-          # the post-#1180 stub measurement of ~7.9 min is optimistic — it does not
-          # reproduce 4-core contention, and the real in-env total can still approach or
-          # exceed 10 min). So every coordinator invocation was killed at 10 min with NO
-          # output and the same work was redone shard by shard (~28% of measured run
-          # wall-clock wasted). This sets a DELIBERATELY BOUNDED 20-minute (1200000 ms)
-          # ceiling: headroom above the coordinator floor bracketed above — whose
-          # post-#1180 figure is a sleep-stub measurement rather than an in-env one — while
-          # still killing a genuinely hung command well inside the job budget. It is a
-          # bound, NOT a removal — an unbounded/very-large ceiling would convert a hang
-          # into a job-timeout-length stall with no diagnostic.
+          # Claude Code's BASH_MAX_TIMEOUT_MS defaults to 600000 ms (10 min). Observed on
+          # this tier (5 of 5 implement runs analysed 2026-08-02 for #1179): that wall
+          # killed the parallel verification coordinator (lib/test/run-parallel.sh, #1086)
+          # — the run's final whole-suite gate — with NO output, and the same work was then
+          # redone shard by shard, so ~28% of measured run wall-clock produced nothing.
+          #
+          # The value is sized against a MEASUREMENT, not an estimate. Issue #1180 lowered
+          # POOL_RESERVATION_CEILING to 2 and measured the coordinator end to end at
+          # 7.9 min at BUDGET=4 — the budget this job's ubuntu-latest 4 vCPU runner yields
+          # — against that 10-minute ceiling. That 7.9 min is
+          # optimistic in one named way: #1180's stub dispatcher SLEEPS rather than
+          # consuming CPU, so it reproduces the scheduler's packing decisions exactly but
+          # NOT the contention between shards sharing four cores. The real in-env total is
+          # therefore above 7.9 min by an unmeasured amount, against a 10-minute wall —
+          # thin, never-observed headroom, and protecting it is what this raise is for.
+          #
+          # So: a DELIBERATELY BOUNDED 20-minute (1200000 ms) ceiling — room for the
+          # unmeasured contention gap above that 7.9-min measurement without the
+          # coordinator being killed mid-run, while still terminating a genuinely hung
+          # command well inside the job budget. It is a bound, NOT a removal: an unbounded
+          # or very large ceiling would convert a hang into a job-timeout-length stall with
+          # no diagnostic.
           #
           # MECHANISM — AND WHY THIS CANNOT DROP THE BASE `.claude/settings.json` HOOKS.
           # This is the PR-#1205 review's blocking question, and it is answered from

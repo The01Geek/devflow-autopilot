@@ -231,8 +231,10 @@ the Claude step — `BASH_MAX_TIMEOUT_MS`, raised via the step's `settings` inpu
 (issue #1179) from Claude Code's 600000 ms default so the coordinator can run to a verdict.
 That value is fixed at *authoring* time by the workflow, but it is not escapable *in-run*: an
 agent mid-run cannot raise its own ceiling (`devflow-implement.yml` sets
-`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"` and `nohup` is ungranted), so decomposition stays
-the in-run route whenever a command is terminated at whatever ceiling the workflow set. A run in that
+`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"`, and `nohup` is ungranted **to the agent's Bash
+tool** — the workflow's own `run:` steps are a different execution context and do use it, for
+the credential refresher), so decomposition stays the in-run route whenever a command is
+terminated at whatever ceiling the workflow set. A run in that
 position does **not** downgrade its evidence to a focused module — the Phase 4.3 completion
 gate takes a whole-suite result, and the prompt extensions state that scope once. It instead
 does what CI already does to satisfy the same required check: enumerate the partition with

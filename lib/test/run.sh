@@ -45289,9 +45289,23 @@ assert_eq "#908 AC1: the settings input registers a PreToolUse hook naming the g
 # residual is the mirror image and is accepted for a degraded arm: a guard named ONLY in a
 # comment, with the real registration removed, would read as compliant here. The
 # PyYAML-armed arm parses structure rather than text and has no such blind spot.
+#
+# It fails CLOSED on an input it cannot read (PR #1205 review round 3). The bare pipeline
+# below prints `yes` — compliant — when grep can open nothing, so an absent or unreadable
+# workflow read as a clean pass on exactly the degraded hosts this arm exists to serve. The
+# readability probe emits a third token instead, which satisfies neither the `yes` nor the
+# `no` assertions and therefore goes RED, mirroring the armed arm's `extractor-failed`.
 _wfg_grep_fallback() {
+  [ -r "$1" ] || { echo unreadable; return 0; }
   grep -vE '^[[:space:]]*#' "$1" | grep -qE 'PreToolUse|pretooluse-shape-guard' && echo no || echo yes
 }
+# Both directions of that guard, driven on EVERY host (they need neither python3/PyYAML nor
+# scratch space, so they stay outside the armed/degraded split below): an unreadable input
+# yields the non-passing token, and a readable one still resolves to a real verdict.
+assert_eq "#908 fallback: an unreadable input fails closed rather than reading as compliant" "unreadable" \
+  "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML.no-such-file")"
+assert_eq "#908 fallback: a readable input still resolves to a real verdict" "yes" \
+  "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML")"
 _WFG_D=""
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
   _WFG_D="$(mktemp -d 2>/dev/null || true)"
@@ -45359,6 +45373,12 @@ doc = yaml.safe_load(open(sys.argv[1]))
 # verdict is identical either way; with a second step present, an order-dependent
 # last-write read could report a bounded ceiling while the other step carried none.
 # Collecting instead makes the verdict order-independent.
+#
+# The all() below is therefore INTENTIONALLY per-step, not "some step is bounded": a second
+# claude-code-action step added without its own BASH_MAX_TIMEOUT_MS runs the agent under the
+# 600000 ms default, which is the gap #1179 closes and not a false positive. A future editor
+# who adds one and sees this go RED should set the ceiling on that step too, or narrow this
+# extractor to the step it means (matching on `id:`), rather than relaxing all() to any().
 vals = []
 for job in doc.get("jobs", {}).values():
     for s in job.get("steps", []) or []:
@@ -45459,6 +45479,12 @@ YML
   _wfg_fx unparseable-settings <<'YML'
           settings: "not json at all"
 YML
+  # A settings string that DOES parse as JSON but not to an object. The hook check's
+  # non-dict-parse arm is the one that refuses it; without this fixture that arm could be
+  # deleted with the suite still green (PR #1205 review round 3).
+  _wfg_fx json-non-object-settings <<'YML'
+          settings: "[1, 2]"
+YML
   # ── Shapes the ceiling guard must REFUSE ──────────────────────────────────
   _wfg_fx ceiling-at-default <<'YML'
           settings: |
@@ -45475,6 +45501,12 @@ YML
   _wfg_fx ceiling-absent-key <<'YML'
           settings: |
             {"env": {"SOME_OTHER_KEY": "1"}}
+YML
+  # `env` present but not an object — the ceiling check's isinstance(env, dict) arm, which
+  # no other fixture reaches (PR #1205 review round 3).
+  _wfg_fx ceiling-env-not-dict <<'YML'
+          settings: |
+            {"env": "1200000"}
 YML
   # A bounded value on a step that is NOT claude-code-action must not satisfy the ceiling
   # guard: the raise reaches the CLI only through the action's own input. This fixture also
@@ -45534,6 +45566,8 @@ YML
     "$(_wfg_hook "$_WFG_D/list-settings.yml")"
   assert_eq "#908 matrix: an unparseable settings string is anomalous and refused" "no" \
     "$(_wfg_hook "$_WFG_D/unparseable-settings.yml")"
+  assert_eq "#908 matrix: a settings string parsing to JSON that is not an object is refused" "no" \
+    "$(_wfg_hook "$_WFG_D/json-non-object-settings.yml")"
   # The degraded-host arm, driven here so it is not left to the hosts that cannot report a
   # failure usefully. Its comment blindness was a live false-RED on this workflow until the
   # filter landed, which is why both directions are asserted.
@@ -45556,6 +45590,17 @@ YML
     "$(_wfg_ceiling "$_WFG_D/ceiling-non-int.yml")"
   assert_eq "#1179 matrix: a settings env carrying no BASH_MAX_TIMEOUT_MS key fails" "no" \
     "$(_wfg_ceiling "$_WFG_D/ceiling-absent-key.yml")"
+  assert_eq "#1179 matrix: an env that is not an object fails rather than being indexed" "no" \
+    "$(_wfg_ceiling "$_WFG_D/ceiling-env-not-dict.yml")"
+  # No ceiling rows for the scalar-settings / list-settings fixtures, deliberately (PR #1205
+  # review round 3 asked for them). Mutation-tested at the desk: every mutation that reaches
+  # the ceiling check's non-str/non-dict settings arm is already caught by an existing row,
+  # and plausible refactors of it (treating a non-str settings as already-parsed; coercing a
+  # failed parse to {}) survive those two inputs entirely — the arm is defended both by the
+  # isinstance dispatch and by the isinstance(parsed, dict) guard on the env lookup, so a
+  # scalar or list settings value cannot reach a wrong verdict through it. Such rows would
+  # restate `no-settings` rather than protect anything, so they are omitted rather than
+  # shipped as rows a future editor would read as coverage.
   assert_eq "#1179 matrix: a bounded value on a non-claude-code-action step does not satisfy the guard" "no" \
     "$(_wfg_ceiling "$_WFG_D/ceiling-other-step.yml")"
   assert_eq "#1179 matrix: an unbounded step ahead of a bounded one fails (order-independence)" "no" \
