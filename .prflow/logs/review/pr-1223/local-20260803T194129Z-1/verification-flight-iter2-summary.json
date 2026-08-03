@@ -1,0 +1,10 @@
+{
+  "command": "bash lib/test/run-module.sh create-issue-contract",
+  "exit_status": 0,
+  "passed": 231,
+  "failed": 0,
+  "skipped": 0,
+  "skipped_checks": [],
+  "failure_text": "",
+  "log": "/Users/the01geek/repos/devflow-autopilot/.prflow/tmp/test-module-logs/create-issue-contract.log.WnI0kR"
+}

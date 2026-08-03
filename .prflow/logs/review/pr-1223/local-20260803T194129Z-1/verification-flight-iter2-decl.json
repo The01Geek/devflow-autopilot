@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "profile": {
+    "profile_version": "1",
+    "argv": ["bash", "lib/test/run-module.sh", "create-issue-contract"],
+    "cwd": "/Users/the01geek/repos/devflow-autopilot",
+    "environment": {},
+    "toolchain": {"shell": "zsh"},
+    "dependencies": {},
+    "output_roots": [],
+    "external_services": "none"
+  },
+  "checkout": {
+    "checkout_id": "/Users/the01geek/repos/devflow-autopilot",
+    "head": "e4338f17a48b97be73d40e6fd190cfd574fc33e1",
+    "index_digest": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "tracked_digest": "416f4011b14c1e84b3369e5ec08461ee38324d6e",
+    "untracked_digest": "416f4011b14c1e84b3369e5ec08461ee38324d6e"
+  },
+  "candidate_identity": "416f4011b14c1e84b3369e5ec08461ee38324d6e"
+}
