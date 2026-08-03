@@ -134,9 +134,9 @@ def _cmd_compose(args: argparse.Namespace) -> int:
         )
         return 3
     coverage = _normalize_coverage(args.coverage)
-    sys.stdout.write(
-        "<!-- prflow:loop-verdict result=%s coverage=%s -->\n" % (token, coverage)
-    )
+    # Reuse MARKER_PREFIX so the producer and the reader's _MARKER_RE can never drift
+    # on the marker's leading literal.
+    sys.stdout.write("%sresult=%s coverage=%s -->\n" % (MARKER_PREFIX, token, coverage))
     return 0
 
 
@@ -183,12 +183,17 @@ def _cmd_read(args: argparse.Namespace) -> int:
     if result == "approve-unresolved-shadow-findings":
         print("AWUSF %s" % coverage)
         return 0
-    # A clean approve-family result.
-    if coverage == "full":
-        print("CLEAN-FULL %s" % result)
-    else:
-        print("CLEAN-NOT-VERIFIED %s" % result)
-    return 0
+    # A clean approve-family result — decided against the single-source set, never by
+    # exclusion, so a future result token that is in _RESULT_TOKENS but in none of the
+    # buckets above fails CLOSED to MALFORMED rather than being classified CLEAN.
+    if result in _CLEAN_APPROVE_TOKENS:
+        if coverage == "full":
+            print("CLEAN-FULL %s" % result)
+        else:
+            print("CLEAN-NOT-VERIFIED %s" % result)
+        return 0
+    print("MALFORMED unrouted-result-token=%s" % result)
+    return 3
 
 
 def main(argv: list[str] | None = None) -> int:
