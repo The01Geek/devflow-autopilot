@@ -9,6 +9,23 @@
   "fix_commit_sha": null,
   "fix_files": [],
   "promotion_provenance": null,
+  "sweep_defs_read": [
+    "skills/implement/phases/phase-2-implement.md#2.3.0",
+    "skills/implement/phases/phase-2-implement.md#2.3.0a",
+    "skills/implement/phases/phase-2-implement.md#2.3.0b",
+    "skills/implement/phases/phase-2-implement.md#2.3.0c",
+    "skills/implement/phases/phase-2-implement.md#2.3.0d",
+    "skills/implement/phases/phase-2-implement.md#2.3.1",
+    "skills/implement/phases/phase-2-implement.md#2.3.2",
+    "skills/implement/phases/phase-2-implement.md#2.3.3",
+    "skills/implement/phases/phase-2-implement.md#2.3.4",
+    "skills/implement/phases/phase-2-implement.md#2.3.4a",
+    "skills/implement/phases/phase-2-implement.md#2.3.4b",
+    "skills/implement/phases/phase-2-implement.md#2.3.5",
+    "skills/implement/phases/phase-2-implement.md#2.3.6",
+    "skills/implement/phases/phase-2-implement.md#2.3.7"
+  ],
+  "sweep_evidence": {"status":"not_applicable","diff_shape":"no-fix convergence review iteration","selected":[],"result":"clean","evidence":"Iteration 3 applied no fixes; no fix-triggered sibling sweep was required. The separate parked-class convergence sweep completed with no new siblings."},
   "diff_profile": {
     "small_diff": false,
     "config_only": true,
@@ -41,6 +58,13 @@
   ],
   "phase2_summary": {"passed":10,"failed":0,"inconclusive":0,"lite":0,"agent":10,"normalized":0,"field_defect_fails":0,"pairs_rewritten_once":true},
   "phase3_dispatched": ["prflow:silent-failure-hunter","prflow:comment-analyzer","prflow:requesting-code-review"],
+  "dispatched_effort": [
+    {"agent":"prflow:checklist-generator","phase":"1","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null},
+    {"agent":"prflow:checklist-verifier","phase":"2","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null},
+    {"agent":"prflow:silent-failure-hunter","phase":"3","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null},
+    {"agent":"prflow:comment-analyzer","phase":"3","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null},
+    {"agent":"prflow:requesting-code-review","phase":"3","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null}
+  ],
   "phase3_findings": [],
   "engine_verdict": "APPROVE",
   "convergence_inputs": {

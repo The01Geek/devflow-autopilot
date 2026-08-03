@@ -9,6 +9,7 @@
   "fix_commit_sha": "02d6e369ebd0e10b575879b464cef0c16f477b5f",
   "fix_files": ["skills/create-issue/SKILL.md"],
   "promotion_provenance": "shadow",
+  "diff_profile": {"small_diff":false,"config_only":true,"has_new_types":false,"engine_self_modifying":true,"detect_all_audit":false,"checklist_skipped":null,"changed_files":5,"changed_lines":24},
   "prior_phase3_findings": [
     {
       "finding_id": "F-1",
@@ -42,6 +43,12 @@
     "prflow:silent-failure-hunter",
     "prflow:comment-analyzer",
     "prflow:requesting-code-review"
+  ],
+  "dispatched_effort": [
+    {"agent":"prflow:code-reviewer","phase":"3","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null},
+    {"agent":"prflow:silent-failure-hunter","phase":"3","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null},
+    {"agent":"prflow:comment-analyzer","phase":"3","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null},
+    {"agent":"prflow:requesting-code-review","phase":"3","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null}
   ],
   "phase3_findings": [
     {
