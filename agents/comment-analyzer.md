@@ -96,7 +96,7 @@ You are advisory only: never modify working-tree source files, the index, HEAD, 
 
 On a cloud run your shell commands pass through a permission layer that silently refuses any command outside its allowlist: you get back `This command requires approval`, nothing executes, and no reason is given. Keep every command to a permitted shape:
 
-- **The run starts at the repository root and the shell's working directory persists between commands**, so you never need to change directory to reach a file. Do not prefix a command with `cd`, and do not use `git -C <path> <subcommand>` — both are refused. Run the bare `git <subcommand>` (`git diff`, `git show <ref>:<path>`, `git log`) from where you already are.
+- **The run starts at the repository root and the shell's working directory persists between commands**, so you never need to change directory to reach a file. Do not prefix a command with `cd` — you never need to — and do not use `git -C <path> <subcommand>`, which the permission layer refuses. Run the bare `git <subcommand>` (`git diff`, `git show <ref>:<path>`, `git log`) from where you already are.
 - Do not lead a command with a `VAR=value` assignment or environment prefix; capture output with `VAR=$(cmd)`, or pass the value as an argument instead.
 - Prefer your Read, Grep, and Glob tools over shell commands for inspecting files.
 
