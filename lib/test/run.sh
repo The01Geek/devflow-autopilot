@@ -45497,6 +45497,154 @@ r_skip = run(lambda root, ff, *, ls_files_argv: ["skills/x.md"],
 print(r_enum, r_skip)
 PY
 )"
+
+# ── Public documentation source contract ────────────────────────────────────
+# The public site is source-only: Markdown/MDX plus docs.json. Mintlify reads
+# this subtree directly, so route membership, file membership and category
+# landing pages are repository behavior rather than deployment-time convention.
+PUBLIC_SITE_ROOT="$LIB/../docs/external"
+PUBLIC_SITE_CONFIG="$PUBLIC_SITE_ROOT/docs.json"
+PUBLIC_DOCS_ROOT="$PUBLIC_SITE_ROOT/docs"
+PUBLIC_RUN_JQ="$LIB/../scripts/run-jq.sh"
+
+public_nav_routes() {
+  [ -r "$PUBLIC_SITE_CONFIG" ] || return 0
+  "$PUBLIC_RUN_JQ" -r '
+    def routes:
+      .[]? |
+      if type == "string" then .
+      elif type == "object" then ((.pages // []) | routes)
+      else empty
+      end;
+    (.navigation.pages // []) | routes
+  ' "$PUBLIC_SITE_CONFIG" 2>/dev/null || true
+}
+
+public_route_files_resolve() {
+  [ -r "$PUBLIC_SITE_CONFIG" ] || { printf 'no\n'; return; }
+  local route
+  while IFS= read -r route; do
+    [ -n "$route" ] || continue
+    if [ ! -f "$PUBLIC_SITE_ROOT/$route.md" ] && [ ! -f "$PUBLIC_SITE_ROOT/$route.mdx" ]; then
+      printf 'no\n'
+      return
+    fi
+  done < <(public_nav_routes)
+  printf 'yes\n'
+}
+
+public_files_are_navigated_once() {
+  [ -d "$PUBLIC_DOCS_ROOT" ] && [ -r "$PUBLIC_SITE_CONFIG" ] || { printf 'no\n'; return; }
+  local file route count
+  while IFS= read -r file; do
+    route="${file#"$PUBLIC_SITE_ROOT/"}"
+    route="${route%.md}"
+    route="${route%.mdx}"
+    count="$(public_nav_routes | awk -v wanted="$route" '$0 == wanted { n++ } END { print n + 0 }')"
+    if [ "$count" != "1" ]; then
+      printf 'no\n'
+      return
+    fi
+  done < <(find "$PUBLIC_DOCS_ROOT" -type f \( -name '*.md' -o -name '*.mdx' \) -print) # tree-walk-ok: include unstaged public pages while validating the local source tree
+  printf 'yes\n'
+}
+
+public_directories_have_index() {
+  [ -d "$PUBLIC_DOCS_ROOT" ] || { printf 'no\n'; return; }
+  local directory
+  while IFS= read -r directory; do
+    [ -f "$directory/index.md" ] || { printf 'no\n'; return; }
+  done < <(find "$PUBLIC_DOCS_ROOT" -type d -print) # tree-walk-ok: validate category indexes in the unstaged local public-doc tree
+  printf 'yes\n'
+}
+
+public_docs_stay_shallow() {
+  [ -d "$PUBLIC_DOCS_ROOT" ] || { printf 'no\n'; return; }
+  local file relative
+  while IFS= read -r file; do
+    relative="${file#"$PUBLIC_DOCS_ROOT/"}"
+    if [ "$(awk -F/ '{ print NF }' <<< "$relative")" -gt 3 ]; then
+      printf 'no\n'
+      return
+    fi
+  done < <(find "$PUBLIC_DOCS_ROOT" -type f \( -name '*.md' -o -name '*.mdx' \) -print) # tree-walk-ok: enforce depth for unstaged public pages before they enter the index
+  printf 'yes\n'
+}
+
+public_site_has_no_build_output() {
+  [ -d "$PUBLIC_SITE_ROOT" ] || { printf 'no\n'; return; }
+  if find "$PUBLIC_SITE_ROOT" \( -type d -name node_modules -o -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name package.json -o -name package-lock.json -o -name pnpm-lock.yaml -o -name yarn.lock -o -name bun.lock -o -name bun.lockb \) \) -print -quit | grep -q .; then # tree-walk-ok: reject generated or dependency output even while the public site is unstaged
+    printf 'no\n'
+  else
+    printf 'yes\n'
+  fi
+}
+
+public_extension_contains() {
+  local skill="$1" needle="$2" output
+  output="$("$LIB/../scripts/load-prompt-extension.sh" "$skill" 2>/dev/null)" || {
+    printf 'no\n'
+    return
+  }
+  case "$output" in
+    *"$needle"*) printf 'yes\n' ;;
+    *) printf 'no\n' ;;
+  esac
+}
+
+public_file_contains() {
+  local file="$1" needle="$2" content
+  [ -r "$file" ] || { printf 'no\n'; return; }
+  content="$(cat "$file")"
+  case "$content" in
+    *"$needle"*) printf 'yes\n' ;;
+    *) printf 'no\n' ;;
+  esac
+}
+
+assert_eq "public site: docs.json exists" "yes" "$([ -f "$PUBLIC_SITE_CONFIG" ] && echo yes || echo no)"
+assert_eq "public site: docs.json parses" "yes" \
+  "$([ -r "$PUBLIC_SITE_CONFIG" ] && "$PUBLIC_RUN_JQ" -e . "$PUBLIC_SITE_CONFIG" >/dev/null 2>&1 && echo yes || echo no)"
+assert_eq "public site: docs.json uses the Mintlify schema" "https://mintlify.com/docs.json" \
+  "$([ -r "$PUBLIC_SITE_CONFIG" ] && "$PUBLIC_RUN_JQ" -r '."$schema" // ""' "$PUBLIC_SITE_CONFIG" 2>/dev/null || true)"
+assert_eq "public site: product name is PRFlow" "PRFlow" \
+  "$([ -r "$PUBLIC_SITE_CONFIG" ] && "$PUBLIC_RUN_JQ" -r '.name // ""' "$PUBLIC_SITE_CONFIG" 2>/dev/null || true)"
+assert_eq "public site: theme is maple" "maple" \
+  "$([ -r "$PUBLIC_SITE_CONFIG" ] && "$PUBLIC_RUN_JQ" -r '.theme // ""' "$PUBLIC_SITE_CONFIG" 2>/dev/null || true)"
+assert_eq "public site: every navigation route resolves to a page" "yes" "$(public_route_files_resolve)"
+assert_eq "public site: every documentation page is navigated exactly once" "yes" "$(public_files_are_navigated_once)"
+assert_eq "public site: root homepage is navigated exactly once" "1" "$(public_nav_routes | awk '$0 == "index" { n++ } END { print n + 0 }')"
+assert_eq "public site: documentation hub is navigated exactly once" "1" "$(public_nav_routes | awk '$0 == "docs/index" { n++ } END { print n + 0 }')"
+assert_eq "public site: every documentation directory has index.md" "yes" "$(public_directories_have_index)"
+assert_eq "public site: documentation nesting is at most category/subcategory/page" "yes" "$(public_docs_stay_shallow)"
+assert_eq "public site: no generated site output or dependency manifest is present" "yes" "$(public_site_has_no_build_output)"
+assert_eq "public site: PRFlow external-doc path selects the Mintlify source root" "docs/external/" \
+  "$("$PUBLIC_RUN_JQ" -r '.docs.external // ""' "$LIB/../.prflow/config.json" 2>/dev/null || true)"
+assert_eq "public site: same-PR external documentation maintenance is enabled" "true" \
+  "$("$PUBLIC_RUN_JQ" -r '.docs.external_enabled // false' "$LIB/../.prflow/config.json" 2>/dev/null || true)"
+assert_eq "public site: external bootstrap excludes its output tree from internal source discovery" "yes" \
+  "$(public_extension_contains docs-bootstrap-external 'Exclude `docs/external/**` from internal source discovery')"
+assert_eq "public site: internal sync does not absorb the customer-facing tree" "yes" \
+  "$(public_extension_contains docs-sync-internal 'Do not inspect or edit `docs/external/**`')"
+assert_eq "public site: external sync keeps Mintlify navigation aligned in the same change" "yes" \
+  "$(public_extension_contains docs-sync-external 'update `docs.json` in the same change')"
+assert_eq "public site: external sync preserves the Markdown-first source boundary" "yes" \
+  "$(public_extension_contains docs-sync-external 'Normal documentation pages use `.md`; only the root landing page uses `.mdx`')"
+assert_eq "public site: canonical search URL is prflow.ai" "https://prflow.ai" \
+  "$("$PUBLIC_RUN_JQ" -r '.seo.metatags.canonical // ""' "$PUBLIC_SITE_CONFIG" 2>/dev/null || true)"
+assert_eq "public site: README links to the public site" "yes" \
+  "$(public_file_contains "$LIB/../README.md" 'https://prflow.ai/')"
+assert_eq "public site: README no longer links to the retired GitHub Pages site" "no" \
+  "$(public_file_contains "$LIB/../README.md" 'https://the01geek.github.io/prflow/')"
+assert_eq "public site: publishing runbook exists" "yes" \
+  "$([ -f "$LIB/../docs/mintlify-publishing.md" ] && echo yes || echo no)"
+assert_eq "public site: publishing runbook names the monorepo source path" "yes" \
+  "$(public_file_contains "$LIB/../docs/mintlify-publishing.md" '`/docs/external`')"
+assert_eq "public site: publishing runbook preserves Mintlify TXT-before-CNAME order" "yes" \
+  "$(public_file_contains "$LIB/../docs/mintlify-publishing.md" 'both TXT records show as verified before adding or changing the CNAME')"
+assert_eq "public site: publishing runbook uses the current Mintlify CNAME target" "yes" \
+  "$(public_file_contains "$LIB/../docs/mintlify-publishing.md" '`cname.mintlify.builders`')"
+
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)

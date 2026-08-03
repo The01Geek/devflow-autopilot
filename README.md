@@ -1,6 +1,6 @@
 # PRFlow — agentic coding that ships on real codebases
 
-[![PRFlow — Ship the PR, not the cleanup. A Claude Code plugin that turns one request into one merge-ready pull request across four phases: Setup (/prflow:create-issue), Implement (/prflow:implement), Review & fix (/prflow:review-and-fix), and Document (/prflow:docs).](docs/ship-pr.png)](https://the01geek.github.io/prflow/)
+[![PRFlow — Ship the PR, not the cleanup. A Claude Code plugin that turns one request into one merge-ready pull request across four phases: Setup (/prflow:create-issue), Implement (/prflow:implement), Review & fix (/prflow:review-and-fix), and Document (/prflow:docs).](docs/ship-pr.png)](https://prflow.ai/)
 
 [![CI](https://github.com/The01Geek/prflow/actions/workflows/ci.yml/badge.svg)](https://github.com/The01Geek/prflow/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -59,7 +59,7 @@ The local tier runs **with zero configuration** — every value already has a bu
 - **It learns every week** — a [retrospective loop](#the-self-improving-loop) reads the trail of merged PRs and files human-reviewed issues that prevent the next recurring failure.
 - **Zero-config to start** — the local tier runs entirely inside Claude Code with no infrastructure; an optional [cloud tier](docs/cloud-setup.md) runs it autonomously on GitHub.
 
-> ▶ **[See the full loop in the interactive one-pager →](https://the01geek.github.io/prflow/)**
+> ▶ **[Read the PRFlow documentation →](https://prflow.ai/)**
 
 <details>
 <summary>Contents</summary>
@@ -204,6 +204,7 @@ Full mechanics — the pipeline, the data files, how patterns become issues: **[
 
 ## Learn more
 
+- **[Public documentation](https://prflow.ai/)** — installation, workflows, local and cloud runs, configuration and troubleshooting.
 - **[System overview](docs/DEVFLOW_SYSTEM_OVERVIEW.md)** — the complete system reference (architecture, every deep dive, the [Scope-Acknowledged Findings contract §13](docs/DEVFLOW_SYSTEM_OVERVIEW.md#13-the-scope-acknowledged-findings-contract), the [security model §15](docs/DEVFLOW_SYSTEM_OVERVIEW.md#15-security-model)).
 - **[Installing & updating](docs/install.md)** — all install paths, dependency resolution, both-tier updates.
 - **[Cloud setup](docs/cloud-setup.md)** — secrets, triggers, runtime provisioning for the autonomous tier.

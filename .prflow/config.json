@@ -163,9 +163,9 @@
   },
   "docs": {
     "internal": "docs/",
-    "external": "docs/",
+    "external": "docs/external/",
     "internal_enabled": true,
-    "external_enabled": false,
+    "external_enabled": true,
     "release_notes_file": "",
     "changelog_file": "CHANGELOG.md",
     "labels": "PRFlow"
