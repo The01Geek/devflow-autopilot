@@ -216,11 +216,19 @@ Each is combinable with the `--record-classification` / `--reconcile-reproductio
 
 **The marker classifies the WORKPAD, not the repository — and it decides no branch (issue #1134).** It is derived from workpad content alone, and its only reader is the §2.0 gate. It does **not** decide which branch this run works on: §1.4's resume pre-check, reading observable repository state, governs branch adoption, and **no value of this marker waives it**. Read `fresh` precisely — it says *this workpad carries no record of a prior attempt*, never *no prior attempt exists*. A run whose workpad writes were dropped produces `fresh` while its first attempt's branch and open pull request sit on the remote, so `fresh` is the value under which §1.4's pre-check matters most. The marker is deliberately **not** fed from that observable state: a terminal re-trigger routinely still has an open pull request closing the issue, so promoting that PR into the classification would relabel that whole population `in-flight` and arm conjunct (a) over the prior run's stale Plan — the failure conjunct (a) exists to prevent. The three tokens above stay the whole vocabulary, compared by exact value.
 
-**Write the run marker (both arms — fresh create and resume).** Immediately after the workpad exists (created above, or detected on the resume arm), write an empty run-marker file so a local-tier Stop-hook guard knows an implement run is in flight for this issue. The workpad remains the source of truth for the run's `Status`; the marker only gates *whether* the guard queries it, so ordinary sessions never pay a network call on stop. It lives under the gitignored `.prflow/tmp/`, anchored to the repo (or worktree) root, and is removed at every terminal `Status` transition by the *Outcome reaction* block in the orchestrator:
+**Write the run marker (both arms — fresh create and resume).** Immediately after the workpad exists (created above, or detected on the resume arm), write the run-marker file so a local-tier Stop-hook guard knows an implement run is in flight for this issue. The workpad remains the source of truth for the run's `Status`; the marker only gates *whether* the guard queries it, so ordinary sessions never pay a network call on stop. It lives under the gitignored `.prflow/tmp/`, anchored to the repo (or worktree) root, and is removed at every terminal `Status` transition by the *Outcome reaction* block in the orchestrator.
+
+**Record this run's owner as the marker's first line.** When the runner exports a session id — Claude Code sets `CLAUDE_CODE_SESSION_ID`, and that value is the same one the Stop-hook payload carries as `session_id`, so the guard can compare owner to stopper — write it as the marker's first line; when the runner supplies none, write an empty marker (today's shape). This lets the guard tell *this* run's marker apart from another concurrent session's in the same checkout: a marker owned by a different live session never blocks an unrelated session's stop, while a marker owned by this run — or one with no recorded owner — still blocks exactly as before. The write stays best-effort: a missing or empty marker only means the guard falls back to blocking on presence alone.
 
 ```bash
 DEVFLOW_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-mkdir -p "$DEVFLOW_ROOT/.prflow/tmp" && : > "$DEVFLOW_ROOT/.prflow/tmp/implement-active-$ISSUE_NUMBER"
+mkdir -p "$DEVFLOW_ROOT/.prflow/tmp"
+MARKER="$DEVFLOW_ROOT/.prflow/tmp/implement-active-$ISSUE_NUMBER"
+if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+  printf '%s\n' "$CLAUDE_CODE_SESSION_ID" > "$MARKER"   # first line = owning session id
+else
+  : > "$MARKER"                                          # runner supplies no session id → empty marker (today's shape)
+fi
 ```
 
 This is best-effort: if the write fails, note it and continue — a missing marker only means the Stop-hook backstop stays silent for this run. A marker whose run reached a terminal `Status` — or whose workpad no longer exists — self-heals, because the guard deletes it on the next Stop event. A marker left by a run that *died with its workpad still interim* does **not** self-heal: that is the state the backstop exists to surface, so it keeps blocking one stop per new session until the workpad is driven to a terminal `Status` or the marker is removed by hand.
