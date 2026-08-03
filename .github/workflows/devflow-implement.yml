@@ -1392,11 +1392,58 @@ jobs:
           # ceiling: comfortable headroom above the ~13–14 min coordinator floor while
           # still killing a genuinely hung command well inside the job budget. It is a
           # bound, NOT a removal — an unbounded/very-large ceiling would convert a hang
-          # into a job-timeout-length stall with no diagnostic. The `settings` input
-          # (claude-code-action) carries a Claude Code settings JSON; its `env` object
-          # is applied to the CLI session and reaches the Bash tool subprocess, which is
-          # what makes the override take effect (option 1 in issue #1179 — no reliance on
-          # a step-level `env:` whose propagation into the CLI process is unconfirmed).
+          # into a job-timeout-length stall with no diagnostic.
+          #
+          # MECHANISM — AND WHY THIS CANNOT DROP THE BASE `.claude/settings.json` HOOKS.
+          # This is the PR-#1205 review's blocking question, and it is answered from
+          # claude-code-action's own source rather than left as the "merge or overwrite?"
+          # unknown devflow-runner.yml records. The input is written to the USER settings
+          # file, NOT to this repo's project settings: base-action/src/index.ts calls
+          # setupClaudeCodeSettings(INPUT_SETTINGS, undefined /* homeDir */), and
+          # base-action/src/setup-claude-code-settings.ts resolves that undefined homeDir
+          # to os.homedir(), i.e. $HOME/.claude/settings.json, merging the input over
+          # whatever that file already held with a shallow top-level spread. The repo's
+          # three `Stop` hooks — lib/efficiency-trace.sh --persist (whose PUSH this job
+          # authorizes via the job-level DEVFLOW_TELEMETRY_PUSH), lib/implement-stop-guard.sh
+          # (the #356/#498 stall/dead-run backstop) and scripts/stop-hook-probe.sh — live in
+          # the PROJECT settings file, $GITHUB_WORKSPACE/.claude/settings.json, which the
+          # action restores from the base branch and which this input never opens. And
+          # base-action/src/parse-sdk-options.ts passes
+          # settingSources: ["user", "project", "local"] to the Agent SDK, so the user file
+          # this input writes and the project file carrying those hooks are loaded
+          # together. There is therefore no merge-vs-overwrite exposure for those three
+          # hooks here, and a copy of them does not belong in this block — copying them in
+          # would register each of the three twice (once per settings source) and fire the
+          # stall backstop and the telemetry persist twice per stop. Re-verify the three
+          # source facts cited above after a claude-code-action major upgrade before
+          # relying on this paragraph.
+          #
+          # Two residuals for a future editor. (1) The merge is shallow, so a second
+          # top-level key added here REPLACES (never deep-merges) a same-named key already
+          # in the user settings file. (2) A `hooks` key added to THIS block would register
+          # ADDITIVELY alongside the project hooks rather than replacing them — which is why
+          # lib/test/run.sh's #908 AC1 guard permits an env-only settings block on this tier
+          # and fails closed on any `hooks`/PreToolUse shape.
+          #
+          # Why the settings `env` object and not a step-level `env:` (issue #1179's
+          # option 2): #1179 makes option 1 the default unless a step-level `env:` is
+          # DEMONSTRATED to reach the CLI process the composite action spawns. GitHub
+          # documents NOTHING either way for the step-level-env -> composite-action case
+          # (the `env` context reference and `steps[*].env` never join the two; the
+          # explicit non-propagation sentence GitHub does publish is about REUSABLE
+          # WORKFLOWS, not composite actions), and claude-code-action's own action.yml
+          # steers callers to job-level `env:` / $GITHUB_ENV for variables it does not
+          # itself forward — which is why this repo sets DEVFLOW_TELEMETRY_PUSH at JOB
+          # level for its own subprocess reach. Reading actions/runner source suggests a
+          # step-level `env:` WOULD in fact arrive (CompositeActionHandler.cs merges the
+          # calling step's env overrides into each embedded step's env context, and
+          # parse-sdk-options.ts then hands the Agent SDK {...process.env}) — but that is
+          # inference from an unpinned runner implementation, not a documented contract
+          # and not a measurement taken here, so it does not clear #1179's bar. The
+          # settings `env` object is the route the action documents as an input, and with
+          # the scope question above resolved it carries no unresolved hazard — so there
+          # is nothing to gain by moving the value.
+          #
           # The #1132 shard-decomposition fallback stays the in-run route if a command
           # is ever terminated at this raised ceiling.
           settings: |
