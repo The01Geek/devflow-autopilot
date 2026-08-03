@@ -61,8 +61,9 @@ class CoverageMapGuardTest(unittest.TestCase):
         # #1217) rather than a locally-spelled `git ls-files`: `_git_tracked` enumerates
         # unquoted, so a hardcoded quoted spelling here would build a population spelled
         # differently from the guard's for exactly the non-ASCII path class that fix
-        # addresses, and the mode row would fail to join. Splitting on "\n" rather than
-        # whitespace for the same reason a real path may contain spaces.
+        # addresses, and the mode row would fail to join. Split on "\n" rather than
+        # whitespace because a real path may contain spaces, which bare .split() would
+        # shred into fragments.
         tracked = [
             line
             for line in subprocess.run(

@@ -41606,7 +41606,14 @@ case "$E1217_SB" in
   ""|/dev/null*) : ;;
   *)
     E1217_NAME="$(printf 'caf\303\251')"
+    # `core.quotePath` defaults to true, but it is a SETTABLE option: on a host that sets it
+    # false globally the pre-fix behaviour is unreproducible and every assertion below would
+    # pass with the splice deleted — a RED-first claim silently degrading to a tautology.
+    # Pin the defect precondition in the sandbox's own config rather than inheriting it. The
+    # command-line `-c core.quotePath=false` still wins over a repo-local setting, so only the
+    # negative control is affected, never the post-fix assertion.
     if git -C "$E1217_SB" init -q 2>/dev/null &&
+       git -C "$E1217_SB" config core.quotePath true 2>/dev/null &&
        mkdir -p "$E1217_SB/lib/test" "$E1217_SB/scripts" 2>/dev/null &&
        printf 'x\n' > "$E1217_SB/lib/test/$E1217_NAME.py" 2>/dev/null &&
        printf 'x\n' > "$E1217_SB/scripts/$E1217_NAME.sh" 2>/dev/null &&
@@ -41645,19 +41652,28 @@ assert_eq "#1217 hard-fail class: the path was audited rather than skipped" "yes
 #     formerly-inline argvs a constants-only fix would have missed, issue #1217 AC3). Its
 #     `is_audited` selects by the `skills/` prefix, so a C-quoted surface drops and the
 #     tally falls to `audited 0 prompt surfaces` — the same silent-drop shape as above.
-#   * coverage_map_guard.py's `_git_tracked`, one of the non-reader call sites that splices
-#     QUOTE_PATH_OFF by hand. It is called directly (it is an importable pure-ish helper)
-#     and its RETURNED PATH is the comparand: pre-fix it is the C-quoted spelling, which a
-#     coverage-map entry for the real file would then fail to join against.
+#   * coverage_map_guard.py's `_git_tracked` AND `_git_executable`, two of the non-reader call
+#     sites that splice QUOTE_PATH_OFF by hand. Both are called directly (they are importable
+#     helpers) and their RETURNED PATHS are the comparand: pre-fix each is the C-quoted
+#     spelling. `_git_executable` is driven as well as `_git_tracked` because its own docstring
+#     states the concrete regression — its mode row must still join against `_git_tracked`'s
+#     path — and a splice deleted from only one of the two silently breaks that join, grading a
+#     non-ASCII coverage-map-referenced script as non-executable rather than unestablished.
+#     pin-corpus-lint.py's three splices are deliberately NOT driven here (they need a far
+#     richer sandbox); lint_population.py's docstring records that they are review-gated.
 E1217_SB2="$(git_sandbox '#1217 non-reader splice sandbox')" || E1217_SB2=""
 E1217_NS="rc=sandbox-unavailable|git_sandbox allocated no usable directory"
 E1217_CMG="sandbox-unavailable"
 case "$E1217_SB2" in
   ""|/dev/null*) : ;;
   *)
+    # Same host-independence pin as the sandbox above.
     if git -C "$E1217_SB2" init -q 2>/dev/null &&
-       mkdir -p "$E1217_SB2/skills" 2>/dev/null &&
+       git -C "$E1217_SB2" config core.quotePath true 2>/dev/null &&
+       mkdir -p "$E1217_SB2/skills" "$E1217_SB2/bin" 2>/dev/null &&
        printf 'no qualified ids here\n' > "$E1217_SB2/skills/$(printf 'caf\303\251').md" 2>/dev/null &&
+       printf '#!/bin/sh\n' > "$E1217_SB2/bin/$(printf 'caf\303\251').sh" 2>/dev/null &&
+       chmod +x "$E1217_SB2/bin/$(printf 'caf\303\251').sh" 2>/dev/null &&
        git -C "$E1217_SB2" add -A -f >/dev/null 2>&1; then
       E1217_NSOUT="$(python3 "$LIB/test/lint-subagent-dispatch-namespace.py" --root "$E1217_SB2" 2>&1)"
       E1217_NS="rc=$?|$E1217_NSOUT"
@@ -41668,8 +41684,19 @@ import importlib.util, os, sys
 from pathlib import Path
 s = importlib.util.spec_from_file_location("g", sys.argv[1])
 g = importlib.util.module_from_spec(s); s.loader.exec_module(g)
-paths = g._git_tracked(Path(os.environ["E1217_SB2"]))
-print("raw" if len(paths) == 1 and not paths[0].startswith(chr(34)) else "quoted-or-lost: %r" % (paths,))
+root = Path(os.environ["E1217_SB2"])
+tracked = g._git_tracked(root)
+execs = g._git_executable(root)
+q = chr(34)
+bad = [p for p in tracked if p.startswith(q)] + [p for p in (execs or ()) if p.startswith(q)]
+if bad:
+    print("quoted: %r" % (bad,))
+elif execs is None:
+    print("exec-unestablished")
+elif not (set(execs) <= set(tracked)) or not execs:
+    print("join-broken: tracked=%r execs=%r" % (tracked, sorted(execs)))
+else:
+    print("raw")
 ' "$LIB/test/coverage_map_guard.py" 2>&1)"
     else
       E1217_NS="rc=sandbox-setup-failed|could not stage the non-ASCII prompt surface"
@@ -41680,7 +41707,7 @@ print("raw" if len(paths) == 1 and not paths[0].startswith(chr(34)) else "quoted
 esac
 assert_eq "#1217 the dispatch-namespace audited-surface argv enumerates the non-ASCII surface" "yes" \
   "$(case "$E1217_NS" in *"audited 1 prompt surface"*) echo yes ;; *) echo "no: $E1217_NS" ;; esac)"
-assert_eq "#1217 coverage_map_guard._git_tracked returns the raw path, not git's C-quoted form" \
+assert_eq "#1217 coverage_map_guard returns raw paths and its mode row still joins against them" \
   "raw" "$E1217_CMG"
 # The AC8 claim (the flag alters only how a path is PRINTED, so the index-reading argv
 # acquired no `--others`) is pinned by the #724 preset assertion further down, which

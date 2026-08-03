@@ -191,12 +191,18 @@ except Exception as _exc_pc:
         f"pin-corpus-lint: the shared population reader {_POP_PATH_PC} could not be "
         f"loaded ({_exc_pc.__class__.__name__}: {_exc_pc}); refusing to audit"
     ) from _exc_pc
-if not hasattr(_pop_pc, "QUOTE_PATH_OFF"):
+# Validate the SHAPE, not just presence: `hasattr` is satisfied by an emptied
+# `QUOTE_PATH_OFF = ()`, which splices nothing and silently reinstates the defect, and by a
+# bare string, which `tuple()` would explode into one argv element per character. Comparing
+# against the expected pair makes either failure name the constant rather than surfacing as
+# a green run or an unrecognised-git-option error.
+_qp = getattr(_pop_pc, "QUOTE_PATH_OFF", None)
+if _qp != ("-c", "core.quotePath=false"):
     raise SystemExit(
-        f"pin-corpus-lint: {_POP_PATH_PC} no longer provides `QUOTE_PATH_OFF`; "
-        "refusing to audit"
+        f"pin-corpus-lint: {_POP_PATH_PC}'s `QUOTE_PATH_OFF` is not the expected "
+        f"`-c core.quotePath=false` option pair (got {_qp!r}); refusing to audit"
     )
-QUOTE_PATH_OFF = tuple(_pop_pc.QUOTE_PATH_OFF)
+QUOTE_PATH_OFF = tuple(_qp)
 
 # Non-source trees always excluded from the relocation search set (issue #661): a
 # committed vendored plugin copy and the run's own draft/derivation artifacts both

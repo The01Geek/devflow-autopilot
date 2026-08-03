@@ -49,8 +49,9 @@ that are not in the path. That string names no real file, and the lints that
 share this reader mishandle it in two different ways: one that selects by **path
 prefix** stops recognising the file (git puts the opening quote at the *front* of the
 whole path, so `skills/café.md` becomes ``"skills/caf\303\251.md"``, which no longer
-starts with `skills/`) and silently drops it while still reporting `audited 0 of 0` at
-exit 0 — a **false clean**; one that selects **everything minus an exclusion list**
+starts with `skills/`) and silently drops it while still exiting 0 with a tally that counts
+only the surviving paths (`audited 0 of 0` when the dropped file is the sandbox's only one,
+`audited N of N` in a real tree) — a **false clean**; one that selects **everything minus an exclusion list**
 keeps the string, fails to open it, records a skip, and exits 1 — a **false RED** for a
 character the path does not contain.
 
@@ -72,13 +73,27 @@ transcribed count of call sites rots on the next edit:
   and `mutation-pin-census.py` are in this category, which is why neither appears below.
 * **Every other caller must splice the exported `QUOTE_PATH_OFF` pair itself.** That is
   why the constant exists: the *literal* has one home even where the *argv* cannot reach.
-  The callers in this category today are `pin-corpus-lint.py`'s `_run_git` `ls-files` sites
-  and `coverage_map_guard.py`'s `_git_tracked`/`_git_executable`, each of which composes its
-  own `git -C <root> …` prefix and so cannot use the ready-made argvs.
+  The `lib/test/` callers in this category compose their own `git -C <root> …` prefix and so
+  cannot use the ready-made argvs: `pin-corpus-lint.py`'s `_run_git` `ls-files` sites and
+  `coverage_map_guard.py`'s `_git_tracked`/`_git_executable`.
 
-`lib/test/run.sh`'s `#1217` block drives the second category behaviourally over a sandbox
-repository, so a splice deleted from one of those argvs turns the suite RED rather than
-silently reinstating the defect.
+**Scope of that third bullet: `lib/test/` only.** It enumerates the callers *this reader
+serves*, not every `git ls-files` in the repository. `lib/` carries at least one enumeration
+outside that scope with the same exposure — `generate-env-freeze-advisory.py`'s
+`tracked_files` — which is neither served by this reader nor covered by issue #1217's
+`lib/test/`-scoped surface. Read the bullet as "the `lib/test/` callers", never as a
+repository-wide census.
+
+**How much of the third bullet is guarded mechanically — one site, not five.** `lib/test/run.sh`'s
+`#1217` block drives **`coverage_map_guard`'s `_git_tracked` and `_git_executable`**
+behaviourally over a sandbox repository, so deleting a splice from either turns the suite RED.
+**`pin-corpus-lint.py`'s three `_run_git` sites carry NO behavioural guard**: deleting a splice
+there reinstates the defect with the suite fully green, because that lint needs a far richer
+sandbox than the block stands up and its own test stubs match argv substrings that are
+insensitive to the flag. Treat a change to those three argvs as **review-gated, not
+suite-gated** — and do not read the sentence above as covering them, which is the failure
+mode this paragraph exists to prevent (a docstring promising a mechanical control disarms the
+human one).
 
 **The residual `core.quotePath=false` leaves.** It removes only the *non-ASCII*
 escaping. A path containing a **backslash**, a **double quote**, a **control
