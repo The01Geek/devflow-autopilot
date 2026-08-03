@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1193",
+  "generated_at": "2026-08-03T06:58:26Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.62",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 55.94899100000001,
+    "tokens": {
+      "input_tokens": 6788,
+      "output_tokens": 127551,
+      "cache_read_input_tokens": 80221167,
+      "cache_creation_input_tokens": 487127,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 6891,
+        "outputTokens": 177511,
+        "cacheReadInputTokens": 82998207,
+        "cacheCreationInputTokens": 1304149,
+        "webSearchRequests": 0,
+        "costUSD": 55.94899100000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 259,
+    "duration_ms": 8848113
+  },
+  "permission_denials": {
+    "count": 19,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"GITHUB_ACTIONS=$GITHUB_ACTIONS\"; echo \"RUN_ID=$GITHUB_RUN_ID\"; echo \"REPO=$GITHUB_REPOSITORY\"; git branch --show-current; git status --short | head; echo \"---base---\"; scripts/config-get.sh .base_branch main",
+      "DEVFLOW_ROOT=\"$(git rev-parse --show-toplevel)\"; mkdir -p \"$DEVFLOW_ROOT/.prflow/tmp\"; scripts/parse-acs.py --issue 1175 | tee \"$DEVFLOW_ROOT/.prflow/tmp/acs-1175.md\"",
+      "scripts/parse-acs.py --issue 1175 > .prflow/tmp/acs-1175.md; cat .prflow/tmp/acs-1175.md",
+      "scripts/parse-acs.py --issue 1175 > .prflow/tmp/acs-1175.md; cat .prflow/tmp/acs-1175.md",
+      "scripts/update-branch-checkpoint.sh 2>&1 | tail -5; echo \"exit=${PIPESTATUS[0]}\"",
+      "ROOT=$(mktemp -d); STATE=\"$ROOT/state\"; mkdir -p \"$STATE\"; HEAD='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; OLD='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'\ncat > \"$ROOT/gh\" <<'STUB'\n#!/usr/bin/env bash\nj=\"$*\"\ncase \"$j\" in\n  *\"/reviews\"*) cat \"$S/reviews.json\"; exit 0 ;;\n  *\"/comments\"*) cat \"$S/comments.json\"; exit 0 ;;\n  *\"/dismissals\"*) echo \"DISMISSED $*\" >> \"$S/dismissals.log\"; exit 0 ;;\n  *\"/pulls/\"*)\n    _f='.'; _prev=; for _a in \"$@\"; do [ \"$_prev\" = \"--jq\" ] && _f=\"$_a\"; _prev=\"$_a\"; done …[per-command-truncated]",
+      "git ls-files '*.sh' | grep -v '^lib/test/' | xargs -r shellcheck --severity=warning -e SC1091 2>&1 | tail -5; echo \"shellcheck-exit=${PIPESTATUS[1]:-0}\"; echo \"=== module ===\"; lib/test/run-module.sh review-trigger-helpers 2>&1 | tail -3",
+      "lib/test/coverage_map_guard.py 2>&1 | tail -5; echo \"guard-exit=$?\"; lib/test/test_coverage_map_guard.py 2>&1 | tail -3",
+      "lib/test/test_module_runner.py 2>&1 | tail -30",
+      "RUN_URL=\"https://github.com/The01Geek/prflow/actions/runs/30784595757\"\nBODY=$(cat <<EOF\nWork in progress — automated review pending.\n\nResolves #1175\n[View run]($RUN_URL)\n\nGenerated via \\`/prflow:implement 1175\\`\nEOF\n)\nif gh pr create --base main --draft --title \"Add a workflow-side stale-REJECT dismissal net gated on a determined APPROVE (#1175)\" --body \"$BODY\"; then printf 'create: ok\\n'; else printf 'create: failed\\n'; fi",
+      "ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); mkdir -p \"$ROOT/.prflow/tmp\"; set -- \"$ROOT\"/.prflow/tmp/review/*/*/iter-*.json; { [ -e \"$1\" ] && printf '%s\\n' \"$@\" | sort; } > \"$ROOT/.prflow/tmp/.phase33-iters-before\" || :; echo \"snapshot rows: $(wc -l < \"$ROOT/.prflow/tmp/.phase33-iters-before\")\"",
+      "ROOT=$(git rev-parse --show-toplevel); mkdir -p \"$ROOT/.prflow/tmp/review\"; find \"$ROOT/.prflow/tmp/review\" -path '*/iter-*.json' 2>/dev/null | sort > \"$ROOT/.prflow/tmp/.phase33-iters-before\"; echo \"snapshot rows: $(wc -l < \"$ROOT/.prflow/tmp/.phase33-iters-before\")\"",
+      "mkdir -p .prflow/tmp/review && find .prflow/tmp/review -path '*/iter-*.json' 2>/dev/null | sort > .prflow/tmp/.phase33-iters-before; wc -l < .prflow/tmp/.phase33-iters-before",
+      "echo \"head=$(git rev-parse HEAD)\"; echo \"tree=$(git rev-parse HEAD^{tree})\"; echo \"index=$(git write-tree)\"; echo \"root=$(git rev-parse --show-toplevel)\"",
+      "grep -n \"registry_path\\|REGISTRY\\|test-module-registry\\|\\.json\" lib/test/run-module.sh | grep -i registry | head; echo \"=== reconcile help ===\"; lib/test/reconcile-module-floors.py --help 2>&1 | head -20",
+      "lib/test/reconcile-module-floors.py --help 2>&1 | head -25",
+      "lib/test/reconcile-module-floors.py --help",
+      "if gh pr ready 1193; then echo \"PR_OUTCOME=published\"; elif [ \"$(gh pr view 1193 --json isDraft --jq '.isDraft' 2>/dev/null)\" = \"false\" ]; then echo \"PR_OUTCOME=published (already non-draft)\"; else echo \"PR_OUTCOME=publish_failed\"; fi",
+      "TRIGGER_COMMENT_ID=$(gh api \"repos/{owner}/{repo}/issues/1175/comments?per_page=100\" --jq 'map(select((.body | contains(\"/prflow:implement\")) and ((.body | test(\"(pr|dev)flow:workpad\")) | not))) | last | .id' 2>/dev/null || true)\necho \"trigger comment: [$TRIGGER_COMMENT_ID]\"\nif [ -n \"$TRIGGER_COMMENT_ID\" ] && [ -z \"${TRIGGER_COMMENT_ID//[0-9]/}\" ]; then\n  scripts/react-to-trigger.sh --repo \"$GITHUB_REPOSITORY\" --event issue_comment --comment \"$TRIGGER_COMMENT_ID\" --reaction hooray --report-failu …[per-command-truncated]"
+    ],
+    "total": 19,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
