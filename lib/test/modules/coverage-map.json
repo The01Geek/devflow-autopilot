@@ -343,6 +343,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/dismiss-stale-rejections-net.sh": {
+      "note": "issue #1175: the workflow-side stale-REJECT dismissal net; reuses the HEAD-scoped, fail-closed derive-review-verdict.sh and dispatches dismiss-stale-rejections.sh only on a positively-determined APPROVE, driven per gate arm in the #1175 section of lib/test/modules/review-trigger-helpers.sh",
+      "owner": "review-trigger-helpers"
+    },
     "scripts/dismiss-stale-rejections.sh": {
       "note": "#1030 added the prflow:review-verdict marker arm and the unselected-review count, driven over the checked-in census corpus lib/test/fixtures/review-verdict-census.json.",
       "owner": "unmodularized"
@@ -856,6 +860,10 @@
     },
     "1172": {
       "note": "",
+      "owner": "review-trigger-helpers"
+    },
+    "1175": {
+      "note": "issue #1175: the workflow-side stale-REJECT dismissal net (scripts/dismiss-stale-rejections-net.sh + devflow.yml command-job wiring); reuses the HEAD-scoped, fail-closed derive-review-verdict.sh and dispatches dismiss-stale-rejections.sh only on a positively-determined APPROVE, driven per gate arm in the #1175 section of lib/test/modules/review-trigger-helpers.sh",
       "owner": "review-trigger-helpers"
     },
     "1177": {

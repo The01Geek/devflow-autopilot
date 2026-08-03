@@ -3599,6 +3599,228 @@ assert_eq "#1172 wiring: with the presence helper absent the flip is still reach
 rm -rf "$S1172_WF"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "stale-REJECT dismissal net: dismiss-stale-rejections-net.sh + devflow.yml wiring (#1175)"
+# ────────────────────────────────────────────────────────────────────────────
+# Phase 4.4's agent-run dismissal is the primary path; when the agent never reaches
+# Phase 4.4 (the clean-exit failure mode issue #1156 records) a superseded REJECT stays
+# the pull request's reviewDecision even after a fresh APPROVE. Issue #1175 adds the
+# workflow-side net scripts/dismiss-stale-rejections-net.sh, which reuses the HEAD-scoped,
+# fail-closed derive-review-verdict.sh and dispatches dismiss-stale-rejections.sh ONLY on
+# a positively-determined APPROVE. Everything below drives real processes: the net helper
+# end to end against a stubbed gh over every gate arm (AC4), and the shipped workflow block
+# against a recording net stub so the annotate branch is executed, not grepped.
+
+S1175_NET="$LIB/../scripts/dismiss-stale-rejections-net.sh"
+S1175_ROOT="$(mktemp -d)"
+S1175_STATE="$S1175_ROOT/state"
+mkdir -p "$S1175_STATE"
+S1175_HEAD='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+S1175_OLD='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+# One gh stub serving the endpoints the whole chain touches (deriver + dismisser): the
+# PR head sha, the reviews API, the issue comments, and the dismissals PUT. It honors a
+# --jq filter when one is passed (the dismisser uses `gh api --jq`; the deriver pipes raw
+# reviews through its own jq), and RECORDS every dismissal so "dismissed" is proven, not
+# assumed.
+cat > "$S1175_ROOT/gh" <<'STUB'
+#!/usr/bin/env bash
+_f=''
+_prev=
+for _a in "$@"; do [ "$_prev" = "--jq" ] && _f="$_a"; _prev="$_a"; done
+emit() { if [ -n "$_f" ]; then jq -r "$_f" "$1"; else cat "$1"; fi; }
+j="$*"
+case "$j" in
+  *"/dismissals"*) echo "DISMISSED $*" >> "$S1175_STATE/dismissals.log"; exit "${S1175_DISMISS_PUT_RC:-0}" ;;
+  *"/reviews"*)  emit "$S1175_STATE/reviews.json"; exit 0 ;;
+  *"/comments"*) emit "$S1175_STATE/comments.json"; exit 0 ;;
+  *"/pulls/"*)   emit "$S1175_STATE/pull.json"; exit 0 ;;
+esac
+echo '[]'
+STUB
+chmod +x "$S1175_ROOT/gh"
+s1175_seed() {  # <head-sha-or-empty>
+  jq -n --arg s "$1" '{head:{sha:$s}}' > "$S1175_STATE/pull.json"
+  printf '[]' > "$S1175_STATE/reviews.json"
+  printf '[]' > "$S1175_STATE/comments.json"
+  : > "$S1175_STATE/dismissals.log"
+}
+# An APPROVED review on HEAD, plus a stale own-marker REJECT on an OLDER commit that the
+# dismisser is licensed to clear.
+s1175_approve_with_stale_reject() {
+  jq -n --arg h "$S1175_HEAD" --arg o "$S1175_OLD" \
+    '[{"id":11,"commit_id":$h,"state":"APPROVED","body":""},
+      {"id":22,"commit_id":$o,"state":"CHANGES_REQUESTED","body":("<!-- prflow:review-verdict head="+$o+" verdict=REJECT -->")}]' \
+    > "$S1175_STATE/reviews.json"
+}
+s1175_net() {  # <engine-is-error> -> prints the outcome token
+  env DEVFLOW_GH="$S1175_ROOT/gh" S1175_STATE="$S1175_STATE" GITHUB_RUN_ID=RUN1175 \
+    S1175_DISMISS_PUT_RC="${S1175_DISMISS_PUT_RC:-0}" \
+    bash "$S1175_NET" o/r 55 "$1" 2>/dev/null
+}
+# An APPROVED review on HEAD (last, so the deriver reads approve) PLUS an own-marker
+# REJECT on the CURRENT head — which the dismisser refuses as not-superseded (exit 3).
+s1175_approve_with_unsupersedable_reject() {
+  jq -n --arg h "$S1175_HEAD" \
+    '[{"id":55,"commit_id":$h,"state":"CHANGES_REQUESTED","body":("<!-- prflow:review-verdict head="+$h+" verdict=REJECT -->")},
+      {"id":56,"commit_id":$h,"state":"APPROVED","body":""}]' \
+    > "$S1175_STATE/reviews.json"
+}
+s1175_dismissals() { awk 'END{print NR}' "$S1175_STATE/dismissals.log" 2>/dev/null || echo 0; }
+
+# ── Arm 1 (the reason this net exists): a positively-determined APPROVE dismisses the
+# superseded REJECT.
+s1175_seed "$S1175_HEAD"; s1175_approve_with_stale_reject
+assert_eq "#1175 net: a determined APPROVE dismisses the superseded REJECT" "dismissed" "$(s1175_net false)"
+s1175_seed "$S1175_HEAD"; s1175_approve_with_stale_reject
+s1175_net false >/dev/null
+assert_eq "#1175 net: the determined-APPROVE arm actually issued the dismissal" "1" "$(s1175_dismissals)"
+
+# ── Arm 2 (AC1/the defaulted-verdict arm AC4 names): a genuinely verdict-less run — the
+# reviews/comments queries return nothing, so derive-review-verdict.sh defaults nothing
+# and reports incomplete/false — REFUSES and dismisses nothing.
+s1175_seed "$S1175_HEAD"
+assert_eq "#1175 net: an undetermined verdict refuses (no dismissal on a defaulted verdict)" \
+  "no-dismiss-undetermined" "$(s1175_net false)"
+s1175_seed "$S1175_HEAD"; s1175_net false >/dev/null
+assert_eq "#1175 net: the undetermined arm dismissed nothing" "0" "$(s1175_dismissals)"
+
+# ── Arm 3 (AC3, the change-request must stand): a positively-determined REJECT on HEAD
+# refuses — the net never clears a live block.
+s1175_seed "$S1175_HEAD"
+jq -n --arg h "$S1175_HEAD" '[{"id":33,"commit_id":$h,"state":"CHANGES_REQUESTED","body":""}]' > "$S1175_STATE/reviews.json"
+assert_eq "#1175 net: a determined REJECT refuses (the change-request must stand)" \
+  "no-dismiss-reject" "$(s1175_net false)"
+assert_eq "#1175 net: the determined-REJECT arm dismissed nothing" "0" "$(s1175_dismissals)"
+
+# ── Arm 4 (AC2, an API/engine failure → no dismissal): an engine-error run refuses even
+# with an APPROVE on HEAD — derive-review-verdict.sh short-circuits to incomplete on
+# ENGINE_ERROR=true, so the verdict is never positively determined.
+s1175_seed "$S1175_HEAD"; s1175_approve_with_stale_reject
+assert_eq "#1175 net: an engine-error run refuses even with a HEAD APPROVE (AC2)" \
+  "no-dismiss-undetermined" "$(s1175_net true)"
+assert_eq "#1175 net: the engine-error arm dismissed nothing" "0" "$(s1175_dismissals)"
+
+# ── Arm 5 (AC2, an unresolvable HEAD sha): an issue-number target / non-PR event yields
+# an empty head sha, which the deriver fails closed on — refuse, dismiss nothing.
+s1175_seed ""; jq -n --arg h "$S1175_HEAD" '[{"id":44,"commit_id":$h,"state":"APPROVED","body":""}]' > "$S1175_STATE/reviews.json"
+assert_eq "#1175 net: an unresolvable HEAD sha refuses even with an APPROVE present" \
+  "no-dismiss-undetermined" "$(s1175_net false)"
+
+# ── Exit-code→token mapping arms (the post-gate outcome tokens the deriver-gate arms
+# above never reach): a determined APPROVE whose dismisser exits 3 (a REJECT it cannot
+# show superseded — issue #1029) maps to `dismiss-refused`, and one whose dismissal PUT
+# fails (dismisser exit 1) maps to `dismiss-failed`. Without these, a swapped `3)`/`*)`
+# arm in the helper's exit-code case would ship green.
+s1175_seed "$S1175_HEAD"; s1175_approve_with_unsupersedable_reject
+assert_eq "#1175 net: a determined APPROVE whose REJECT is on the current head maps to dismiss-refused (dismisser exit 3)" \
+  "dismiss-refused" "$(s1175_net false)"
+assert_eq "#1175 net: the dismiss-refused arm dismissed nothing (the live REJECT stands)" "0" "$(s1175_dismissals)"
+
+s1175_seed "$S1175_HEAD"; s1175_approve_with_stale_reject
+assert_eq "#1175 net: a determined APPROVE whose dismissal PUT fails maps to dismiss-failed (dismisser exit 1)" \
+  "dismiss-failed" "$(S1175_DISMISS_PUT_RC=1 s1175_net false)"
+
+# ── Always exits 0 (it runs under the workflow step's always()).
+s1175_seed "$S1175_HEAD"; s1175_approve_with_stale_reject
+S1175_RC=0; s1175_net false >/dev/null 2>&1 || S1175_RC=$?
+assert_eq "#1175 net: always exits 0" "0" "$S1175_RC"
+
+# ── Partial-copy degradation: the net present without a required sibling must refuse
+# (unavailable) and say so, never dismiss on an unestablished verdict. Two distinct
+# partial-copy shapes, because the two sibling-existence checks fire in order and the
+# first would otherwise mask the second:
+#   (a) DERIVER absent (the net alone in an empty dir) — the first check fires.
+S1175_ORPHAN="$(mktemp -d)"
+cp "$S1175_NET" "$S1175_ORPHAN/dismiss-stale-rejections-net.sh"
+S1175_ORPHAN_OUT="$(env DEVFLOW_GH="$S1175_ROOT/gh" GITHUB_RUN_ID=RUN1175 \
+  bash "$S1175_ORPHAN/dismiss-stale-rejections-net.sh" o/r 55 false 2>&1)"
+assert_eq "#1175 net: a missing deriver sibling degrades to unavailable (no dismissal)" "yes" \
+  "$(printf '%s\n' "$S1175_ORPHAN_OUT" | grep -qx 'unavailable' && echo yes || echo no)"
+assert_eq "#1175 net: the missing-deriver degradation names the cause on stderr" "yes" \
+  "$(printf '%s\n' "$S1175_ORPHAN_OUT" | grep -qF 'derive-review-verdict.sh missing/unreadable' && echo yes || echo no)"
+rm -rf "$S1175_ORPHAN"
+#   (b) DERIVER present but DISMISSER absent — the SECOND check fires (the (a) shape
+#   masks it, so a swapped/dropped dismisser check would ship green without this arm).
+S1175_ORPHAN2="$(mktemp -d)"
+cp "$S1175_NET" "$S1175_ORPHAN2/dismiss-stale-rejections-net.sh"
+cp "$LIB/../scripts/derive-review-verdict.sh" "$S1175_ORPHAN2/derive-review-verdict.sh"
+S1175_ORPHAN2_OUT="$(env DEVFLOW_GH="$S1175_ROOT/gh" GITHUB_RUN_ID=RUN1175 \
+  bash "$S1175_ORPHAN2/dismiss-stale-rejections-net.sh" o/r 55 false 2>&1)"
+assert_eq "#1175 net: a missing dismisser sibling (deriver present) degrades to unavailable" "yes" \
+  "$(printf '%s\n' "$S1175_ORPHAN2_OUT" | grep -qx 'unavailable' && echo yes || echo no)"
+assert_eq "#1175 net: the missing-dismisser degradation names the dismisser on stderr" "yes" \
+  "$(printf '%s\n' "$S1175_ORPHAN2_OUT" | grep -qF 'dismiss-stale-rejections.sh missing/unreadable' && echo yes || echo no)"
+rm -rf "$S1175_ORPHAN2"
+rm -rf "$S1175_ROOT"
+
+# ── devflow.yml wiring, executed rather than grepped. Extract the shipped net block and
+# run it against a recording net stub, so the notice/warning annotate selection is a real
+# branch and the args are passed in <repo> <pr_number> <engine_is_error> order.
+S1175_WF="$(mktemp -d)"
+mkdir -p "$S1175_WF/.prflow/vendor/prflow/scripts"
+python3 - "$RDWF" "$S1175_WF/net-block.sh" <<'PY'
+import sys
+import textwrap
+
+text = open(sys.argv[1], encoding="utf-8").read()
+begin = text.index("          # stale-REJECT dismissal net BEGIN")
+end = text.index("          # stale-REJECT dismissal net END", begin)
+block = text[begin:end].splitlines()[1:]
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    handle.write("set -uo pipefail\n")
+    handle.write(textwrap.dedent("\n".join(block)))
+    handle.write("\n")
+PY
+# Controllable net stub: echoes $S1175_FAKE_TOKEN and RECORDS its positional args, so the
+# wiring test proves the workflow passes them in <repo> <pr_number> <engine_is_error>
+# order (a swapped/dropped arg would silently break the real gate while staying green).
+cat > "$S1175_WF/.prflow/vendor/prflow/scripts/dismiss-stale-rejections-net.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$S1175_WF_ARGS"
+printf '%s\n' "${S1175_FAKE_TOKEN:-no-dismiss-undetermined}"
+exit 0
+SH
+chmod +x "$S1175_WF/.prflow/vendor/prflow/scripts/dismiss-stale-rejections-net.sh"
+S1175_WF_ARGS="$S1175_WF/net-args"
+s1175_wf() {  # <fake-token> -> runs the block, prints stdout
+  ( cd "$S1175_WF" && REPO=o/r PR_NUMBER=55 ENGINE_ERROR=false \
+      GH_TOKEN=secret S1175_FAKE_TOKEN="$1" S1175_WF_ARGS="$S1175_WF_ARGS" \
+      bash "$S1175_WF/net-block.sh" )
+}
+
+# dismissed → a plain notice, no warning; args passed in the documented order.
+: > "$S1175_WF_ARGS"
+S1175_WF_OUT="$(s1175_wf dismissed)"
+assert_eq "#1175 wiring: the net is called with repo, pr number, engine-error in that order" \
+  "o/r 55 false" "$(sed -n '1p' "$S1175_WF_ARGS")"
+assert_eq "#1175 wiring: a dismissed outcome emits a notice and no warning" "0" \
+  "$(grep -cF '::warning::' <<<"$S1175_WF_OUT" || true)"
+assert_eq "#1175 wiring: the outcome token is surfaced in a notice" "1" \
+  "$(grep -cF 'stale-REJECT net: dismissed' <<<"$S1175_WF_OUT" || true)"
+
+# dismiss-failed → warns that a REJECT may still block.
+S1175_WF_OUT="$(s1175_wf dismiss-failed)"
+assert_eq "#1175 wiring: a dismiss-failed outcome warns the PR may still be blocked" "1" \
+  "$(grep -cF '::warning::stale-REJECT net' <<<"$S1175_WF_OUT" || true)"
+
+# The legitimate-refusal tokens (a live REJECT that must stand, an expected verdict-less
+# run) must NOT warn — they are the common, correct outcomes, and a case-label edit that
+# added them to the warn set would spam a maintainer on every ordinary review. Lock the
+# no-warning behavior for both.
+S1175_WF_OUT="$(s1175_wf no-dismiss-reject)"
+assert_eq "#1175 wiring: a no-dismiss-reject outcome emits no warning (the change-request is live, not stale)" "0" \
+  "$(grep -cF '::warning::' <<<"$S1175_WF_OUT" || true)"
+S1175_WF_OUT="$(s1175_wf no-dismiss-undetermined)"
+assert_eq "#1175 wiring: a no-dismiss-undetermined outcome emits no warning (the expected verdict-less run)" "0" \
+  "$(grep -cF '::warning::' <<<"$S1175_WF_OUT" || true)"
+
+# A missing net helper DEGRADES: warn, and never fail the step (Phase 4.4 stays the path).
+rm -f "$S1175_WF/.prflow/vendor/prflow/scripts/dismiss-stale-rejections-net.sh"
+S1175_WF_OUT="$(s1175_wf dismissed)"
+assert_eq "#1175 wiring: an absent net helper warns instead of failing" "1" \
+  "$(grep -cF 'dismiss-stale-rejections-net.sh absent' <<<"$S1175_WF_OUT" || true)"
+rm -rf "$S1175_WF"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "authorize-actor.sh (allowed_users filter)"
 # ────────────────────────────────────────────────────────────────────────────
 AUTH="$LIB/../scripts/authorize-actor.sh"
