@@ -1784,7 +1784,37 @@ jobs:
             echo "::warning::flip review-progress: describe-dead-run-cause.sh absent at $CAUSE_HELPER; falling back to an undifferentiated cause (upgrade the vendored plugin pin)"
             CAUSE="claude step ${CLAUDE_OUTCOME:-unavailable} (engine is_error=${ENGINE_ERROR:-false})"
           fi
-          if [ -f "$FLIP_HELPER" ]; then
+          # Verdict-presence gate (issue #1172). The flip/create must never fabricate
+          # a "no verdict" banner beside a verdict THIS SAME run already posted for the
+          # reviewed HEAD. Before writing, ask the HEAD-scoped, fail-closed verdict
+          # deriver — via scripts/dead-run-verdict-present.sh, which reuses
+          # derive-review-verdict.sh and so reads BOTH channels post-review-verdict.sh
+          # writes (the formal review AND this run's run-keyed progress comment) —
+          # whether a verdict EXISTS. Only a positively-determined verdict suppresses
+          # the write; everything else (no HEAD sha, deriver absent, query failure,
+          # genuinely no verdict, or an engine error) reports `absent` and the banner
+          # still writes, so a genuinely verdict-less run keeps getting it (the fix must
+          # not be "stop emitting it"). The selection lives in the helper, not here, so
+          # the suite drives it per arm — the both-channels case and the truly-absent
+          # case among them — rather than an untestable inline query.
+          VERDICT_HELPER=.prflow/vendor/prflow/scripts/dead-run-verdict-present.sh
+          [ -f "$VERDICT_HELPER" ] || VERDICT_HELPER=scripts/dead-run-verdict-present.sh
+          SUPPRESS_FLIP=no
+          if [ -f "$VERDICT_HELPER" ]; then
+            if [ "$(bash "$VERDICT_HELPER" "$REPO" "$TARGET_NUMBER" "${ENGINE_ERROR:-false}")" = present ]; then
+              SUPPRESS_FLIP=yes
+            fi
+          else
+            # A consumer's installed devflow.yml and their vendored scripts/ upgrade on
+            # independent schedules, so a pin predating this helper must DEGRADE rather
+            # than silently drop the banner: warn, and fall through to writing it (the
+            # fail-toward-the-banner direction — never suppress on an unestablished
+            # verdict).
+            echo "::warning::flip review-progress: dead-run-verdict-present.sh absent at $VERDICT_HELPER; cannot check for a posted verdict, so the dead-run banner is NOT suppressed (upgrade the vendored plugin pin)"
+          fi
+          if [ "$SUPPRESS_FLIP" = yes ]; then
+            echo "::notice::flip review-progress: a verdict for the reviewed HEAD was posted by this run; suppressing the dead-run '❌ Review failed' write (issue #1172)"
+          elif [ -f "$FLIP_HELPER" ]; then
             bash "$FLIP_HELPER" "$TARGET_NUMBER" "$FLIP_MARKER" "$CAUSE" || true
           else
             echo "::warning::flip review-progress: flip-review-progress-failed.sh absent at $FLIP_HELPER; review-progress comment not flipped to '❌ Review failed'"

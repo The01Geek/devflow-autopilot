@@ -12929,8 +12929,12 @@ assert_eq "apply-pr-triggerer: cloud skew makes NO assignment POST (no account s
 assert_eq "apply-pr-triggerer: cloud skew never substitutes GITHUB_ACTOR" "yes" \
   "$(! grep -qF -- 'tokenowner' "$TMP_APT_SCRATCH/args" && echo yes || echo no)"
 
-# 3b) cloud sender entirely unset (older workflow) → same skew-safe skip
-APT_PR=42 apt_run GITHUB_RUN_ID=99
+# 3b) cloud sender entirely unset (older workflow) → same skew-safe skip.
+# DEVFLOW_TRIGGERING_USER is cleared explicitly (like case 3 above) rather than
+# left to ambient env: a live cloud run exports it (the triggering user), so an
+# inherited value would leak in and make the helper APPLY instead of skip — a
+# test-isolation leak, not a helper regression.
+APT_PR=42 apt_run GITHUB_RUN_ID=99 DEVFLOW_TRIGGERING_USER=
 assert_eq "apply-pr-triggerer: unset cloud sender (old workflow) → skipped no-triggering-user" "assignment: skipped no-triggering-user" "$APT_OUT"
 
 # 4) local lookup failure → skipped identity-lookup-failed
@@ -15822,7 +15826,7 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # together, or test_module_runner.py's tranche test goes RED.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 722; then
+  "review-trigger-helpers" 737; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
@@ -22366,11 +22370,12 @@ printf '{}' > "$VS_REMOTE/.claude-plugin/marketplace.json"
 : > "$VS_REMOTE/lib/placeholder.sh"
 : > "$VS_REMOTE/skills/placeholder.md"
 : > "$VS_REMOTE/LICENSES/placeholder-LICENSE"   # #671: LICENSES/ is now a copy-list member, so the fetch fixture must carry it
-# #677: the fixture must CARRY the two excluded subtrees, otherwise the fetch-branch
+# The fixture must CARRY all three excluded subtrees, otherwise the fetch-branch
 # exclusion assertions below would pass vacuously — absent from the source, never
 # pruned. With these present the assertions observe the prune actually running.
-mkdir -p "$VS_REMOTE/docs/site" "$VS_REMOTE/lib/test"
+mkdir -p "$VS_REMOTE/docs/site" "$VS_REMOTE/docs/external" "$VS_REMOTE/lib/test"
 : > "$VS_REMOTE/docs/site/index.html"
+: > "$VS_REMOTE/docs/external/index.mdx"
 : > "$VS_REMOTE/lib/test/run.sh"
 printf '{}' > "$VS_REMOTE/.prflow/config.example.json"
 printf '{}' > "$VS_REMOTE/.prflow/config.schema.json"
@@ -22402,6 +22407,7 @@ assert_eq "vendor: fetch branch copies docs/ (offline skill links resolve)" "yes
 # so pin the prune there directly rather than relying on the shared path transitively.
 # Non-vacuous by construction — the fixture above carries both subtrees.
 assert_eq "#677 vendor: fetch slice excludes docs/site (published-page HTML)" "no" "$(vexists "$VS_FETCH/docs/site")"
+assert_eq "vendor: fetch slice excludes docs/external (published Mintlify source)" "no" "$(vexists "$VS_FETCH/docs/external")"
 assert_eq "#677 vendor: fetch slice excludes lib/test (DevFlow's own test suite)" "no" "$(vexists "$VS_FETCH/lib/test")"
 assert_eq "#677 vendor: fetch slice keeps non-test lib/ contents" "yes" "$(vexists "$VS_FETCH/lib/placeholder.sh")"
 
@@ -22497,13 +22503,14 @@ assert_eq "vendor: self copies skills/" "yes" "$(vexists "$VS_SELF/skills")"
 assert_eq "vendor: self copies .prflow/tool-presets.json" "yes" "$(vexists "$VS_SELF/.prflow/tool-presets.json")"
 
 # #677 exclusions: the produced slice must ship neither the published GitHub Pages
-# HTML (docs/site) nor DevFlow's own test suite (lib/test) — neither is reachable on
-# any consumer path, and both dominate the payload. These observe the PRODUCED tree,
+# HTML (docs/site), the Mintlify source (docs/external), nor DevFlow's own test suite
+# (lib/test) — none is reachable on any consumer path. These observe the PRODUCED tree,
 # not just that the helper exited zero. docs/ and lib/ are copied WHOLESALE, so
 # neither subtree has its own copy-list entry — the reachable mutation is deleting or
 # weakening the rm -rf prune (or moving it after the atomic swap), which re-ships the
 # subtree and turns these RED, so the exclusion cannot be silently reverted.
 assert_eq "#677 vendor: self slice excludes docs/site (published-page HTML)" "no" "$(vexists "$VS_SELF/docs/site")"
+assert_eq "vendor: self slice excludes docs/external (published Mintlify source)" "no" "$(vexists "$VS_SELF/docs/external")"
 assert_eq "#677 vendor: self slice excludes lib/test (DevFlow's own test suite)" "no" "$(vexists "$VS_SELF/lib/test")"
 # #677 presence backstops: the exclusion must not over-prune. Proving absence alone
 # would be satisfied by an implementation that pruned too much (e.g. all of docs/ or
@@ -45483,7 +45490,8 @@ PY
 # ────────────────────────────────────────────────────────────────────────────
 
 # ── #1072 shipped-pruned-path lint (lib/test/lint-shipped-pruned-path.py) ──
-# The vendor slice prunes lib/test / docs/site / .claude-plugin/marketplace.json from the
+# The vendor slice prunes lib/test / docs/site / docs/external /
+# .claude-plugin/marketplace.json from the
 # vendored plugin, so a shipped prompt sentence naming one of them resolves against a consumer
 # tree where it does not exist. This lint derives the prune set from vendor-slice.sh itself (not
 # a hardcoded literal) and audits skills/** + agents/** for an unmarked reference. It joins the
@@ -45508,7 +45516,7 @@ print("yes" if m and int(m.group(1)) > 0 else "no")')"
 # one live member (lib/test) still leaves a non-empty set, so a bare non-empty check would pass
 # over a population it no longer covers. Reading the live vendor-slice.sh through --print-prune-set.
 assert_eq "#1072 lint: derived prune set matches the checked-in expectation" \
-  ".claude-plugin/marketplace.json docs/site lib/test" \
+  ".claude-plugin/marketplace.json docs/external docs/site lib/test" \
   "$(cd "$LIB/.." && python3 "$SP_LINT" --print-prune-set | python3 -c 'import sys; print(" ".join(sys.stdin.read().split()))')"
 
 # Prune-set derivation over synthetic slices, driven through --slice-source (AC10 matrix).
@@ -45668,6 +45676,272 @@ r_skip = run(lambda root, ff, *, ls_files_argv: ["skills/x.md"],
 print(r_enum, r_skip)
 PY
 )"
+
+# ── Public documentation source contract ────────────────────────────────────
+# The public site is source-only: Markdown/MDX plus docs.json. Mintlify reads
+# this subtree directly, so route membership, file membership and category
+# landing pages are repository behavior rather than deployment-time convention.
+PUBLIC_SITE_ROOT="$LIB/../docs/external"
+PUBLIC_SITE_CONFIG="$PUBLIC_SITE_ROOT/docs.json"
+PUBLIC_RUN_JQ="$LIB/../scripts/run-jq.sh"
+
+public_nav_routes() {
+  local config
+  config="${1:-$PUBLIC_SITE_CONFIG}"
+  [ -r "$config" ] || return 1
+  "$PUBLIC_RUN_JQ" -r '
+    def routes:
+      .[]? |
+      if type == "string" then .
+      elif type == "object" then ((.pages // []) | routes)
+      else empty
+      end;
+    (.navigation.pages // []) | routes
+  ' "$config" 2>/dev/null
+}
+
+public_route_files_resolve() {
+  local site_root config routes route
+  site_root="${1:-$PUBLIC_SITE_ROOT}"
+  config="${2:-$site_root/docs.json}"
+  routes="$(public_nav_routes "$config")" || { printf 'no\n'; return; }
+  [ -n "$routes" ] || { printf 'no\n'; return; }
+  while IFS= read -r route; do
+    [ -n "$route" ] || continue
+    if [ ! -f "$site_root/$route.md" ] && [ ! -f "$site_root/$route.mdx" ]; then
+      printf 'no\n'
+      return
+    fi
+  done <<< "$routes"
+  printf 'yes\n'
+}
+
+public_docs_pages_are_navigated_once() {
+  local site_root docs_root config routes file route count
+  site_root="${1:-$PUBLIC_SITE_ROOT}"
+  docs_root="${2:-$site_root/docs}"
+  config="${3:-$site_root/docs.json}"
+  [ -d "$docs_root" ] && [ -r "$config" ] || { printf 'no\n'; return; }
+  routes="$(public_nav_routes "$config")" || { printf 'no\n'; return; }
+  [ -n "$routes" ] || { printf 'no\n'; return; }
+  while IFS= read -r file; do
+    route="${file#"$site_root/"}"
+    route="${route%.md}"
+    route="${route%.mdx}"
+    count="$(printf '%s\n' "$routes" | awk -v wanted="$route" '$0 == wanted { n++ } END { print n + 0 }')"
+    if [ "$count" != "1" ]; then
+      printf 'no\n'
+      return
+    fi
+  done < <(find "$docs_root" -type f \( -name '*.md' -o -name '*.mdx' \) -print) # tree-walk-ok: include unstaged public pages while validating the local source tree
+  printf 'yes\n'
+}
+
+public_internal_links_resolve() {
+  local site_root
+  site_root="${1:-$PUBLIC_SITE_ROOT}"
+  [ -d "$site_root" ] || { printf 'no\n'; return; }
+  python3 - "$site_root" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+link_pattern = re.compile(r"(?<!!)\[[^]]+\]\((/[^)\s]+)")
+
+for page in root.rglob("*"):  # tree-walk-ok: scoped to the selected public-site source root, including unstaged Markdown pages but never repository worktrees
+    if not page.is_file() or page.suffix not in {".md", ".mdx"}:
+        continue
+    for href in link_pattern.findall(page.read_text(encoding="utf-8")):
+        route = href.split("#", 1)[0].split("?", 1)[0].lstrip("/")
+        if not route:
+            continue
+        candidates = (root / route, root / f"{route}.md", root / f"{route}.mdx")
+        if not any(candidate.is_file() for candidate in candidates):
+            print("no")
+            raise SystemExit(0)
+
+print("yes")
+PY
+}
+
+public_directories_have_index() {
+  local site_root docs_root directory
+  site_root="${1:-$PUBLIC_SITE_ROOT}"
+  docs_root="${2:-$site_root/docs}"
+  [ -d "$docs_root" ] || { printf 'no\n'; return; }
+  while IFS= read -r directory; do
+    [ -f "$directory/index.md" ] || { printf 'no\n'; return; }
+  done < <(find "$docs_root" -type d -print) # tree-walk-ok: validate category indexes in the unstaged local public-doc tree
+  printf 'yes\n'
+}
+
+public_docs_stay_shallow() {
+  local site_root docs_root file relative
+  site_root="${1:-$PUBLIC_SITE_ROOT}"
+  docs_root="${2:-$site_root/docs}"
+  [ -d "$docs_root" ] || { printf 'no\n'; return; }
+  while IFS= read -r file; do
+    relative="${file#"$docs_root/"}"
+    if [ "$(awk -F/ '{ print NF }' <<< "$relative")" -gt 3 ]; then
+      printf 'no\n'
+      return
+    fi
+  done < <(find "$docs_root" -type f \( -name '*.md' -o -name '*.mdx' \) -print) # tree-walk-ok: enforce depth for unstaged public pages before they enter the index
+  printf 'yes\n'
+}
+
+public_site_has_no_build_output() {
+  # `find`'s own status is read directly rather than a tail-of-pipe `grep -q`: piping made a
+  # failed walk indistinguishable from a clean one (empty stdout -> `yes`), so the guard failed
+  # OPEN on exactly the traversal errors it should refuse.
+  local site_root hit
+  site_root="${1:-$PUBLIC_SITE_ROOT}"
+  [ -d "$site_root" ] || { printf 'no\n'; return; }
+  hit="$(find "$site_root" \( -type d -name node_modules -o -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name package.json -o -name package-lock.json -o -name pnpm-lock.yaml -o -name yarn.lock -o -name bun.lock -o -name bun.lockb \) \) -print -quit)" || { printf 'no\n'; return; } # tree-walk-ok: reject generated or dependency output even while the public site is unstaged
+  if [ -n "$hit" ]; then
+    printf 'no\n'
+  else
+    printf 'yes\n'
+  fi
+}
+
+public_file_contains() {
+  local file="$1" needle="$2" content
+  [ -r "$file" ] || { printf 'no\n'; return; }
+  content="$(cat "$file")"
+  case "$content" in
+    *"$needle"*) printf 'yes\n' ;;
+    *) printf 'no\n' ;;
+  esac
+}
+
+assert_eq "public site: docs.json exists" "yes" "$([ -f "$PUBLIC_SITE_CONFIG" ] && echo yes || echo no)"
+assert_eq "public site: docs.json parses" "yes" \
+  "$([ -r "$PUBLIC_SITE_CONFIG" ] && "$PUBLIC_RUN_JQ" -e . "$PUBLIC_SITE_CONFIG" >/dev/null 2>&1 && echo yes || echo no)"
+assert_eq "public site: docs.json uses the Mintlify schema" "https://mintlify.com/docs.json" \
+  "$([ -r "$PUBLIC_SITE_CONFIG" ] && "$PUBLIC_RUN_JQ" -r '."$schema" // ""' "$PUBLIC_SITE_CONFIG" 2>/dev/null || true)"
+assert_eq "public site: product name is PRFlow" "PRFlow" \
+  "$([ -r "$PUBLIC_SITE_CONFIG" ] && "$PUBLIC_RUN_JQ" -r '.name // ""' "$PUBLIC_SITE_CONFIG" 2>/dev/null || true)"
+assert_eq "public site: theme is maple" "maple" \
+  "$([ -r "$PUBLIC_SITE_CONFIG" ] && "$PUBLIC_RUN_JQ" -r '.theme // ""' "$PUBLIC_SITE_CONFIG" 2>/dev/null || true)"
+assert_eq "public site: every navigation route resolves to a page" "yes" "$(public_route_files_resolve)"
+assert_eq "public site: every page under docs/ is navigated exactly once" "yes" "$(public_docs_pages_are_navigated_once)"
+assert_eq "public site: every root-relative internal link resolves to a page" "yes" "$(public_internal_links_resolve)"
+assert_eq "public site: root homepage is navigated exactly once" "1" "$(public_nav_routes | awk '$0 == "index" { n++ } END { print n + 0 }')"
+assert_eq "public site: documentation hub is navigated exactly once" "1" "$(public_nav_routes | awk '$0 == "docs/index" { n++ } END { print n + 0 }')"
+assert_eq "public site: every documentation directory has index.md" "yes" "$(public_directories_have_index)"
+assert_eq "public site: documentation nesting is at most category/subcategory/page" "yes" "$(public_docs_stay_shallow)"
+assert_eq "public site: no generated site output or dependency manifest is present" "yes" "$(public_site_has_no_build_output)"
+assert_eq "public site: PRFlow external-doc path selects the Mintlify source root" "docs/external/" \
+  "$("$PUBLIC_RUN_JQ" -r '.docs.external // ""' "$LIB/../.prflow/config.json" 2>/dev/null || true)"
+assert_eq "public site: same-PR external documentation maintenance is enabled" "true" \
+  "$("$PUBLIC_RUN_JQ" -r '.docs.external_enabled // false' "$LIB/../.prflow/config.json" 2>/dev/null || true)"
+assert_eq "public site: canonical search URL is prflow.ai" "https://prflow.ai" \
+  "$("$PUBLIC_RUN_JQ" -r '.seo.metatags.canonical // ""' "$PUBLIC_SITE_CONFIG" 2>/dev/null || true)"
+assert_eq "public site: README links to the public site" "yes" \
+  "$(public_file_contains "$LIB/../README.md" 'https://prflow.ai/')"
+assert_eq "public site: README no longer links to the retired GitHub Pages site" "no" \
+  "$(public_file_contains "$LIB/../README.md" 'https://the01geek.github.io/prflow/')"
+assert_eq "public site: publishing runbook exists" "yes" \
+  "$([ -f "$LIB/../docs/mintlify-publishing.md" ] && echo yes || echo no)"
+
+# Fixture controls for the public-doc guards. Top-level release notes are owned by
+# the release-notes workflow and intentionally excluded from the docs/** navigation
+# completeness contract; a hidden page inside docs/** is not.
+PUBLIC_SCOPE_FIXTURE="$(mktemp -d)"
+mkdir -p "$PUBLIC_SCOPE_FIXTURE/docs"
+printf '{"navigation":{"pages":["docs/index"]}}\n' > "$PUBLIC_SCOPE_FIXTURE/docs.json"
+printf '# Docs\n' > "$PUBLIC_SCOPE_FIXTURE/docs/index.md"
+printf '# Release notes\n' > "$PUBLIC_SCOPE_FIXTURE/release-notes.md"
+assert_eq "public site guard: top-level release notes are outside docs/ navigation completeness" "yes" \
+  "$(public_docs_pages_are_navigated_once "$PUBLIC_SCOPE_FIXTURE")"
+printf '# Hidden\n' > "$PUBLIC_SCOPE_FIXTURE/docs/hidden.md"
+assert_eq "public site guard: an un-navigated page under docs/ fails completeness" "no" \
+  "$(public_docs_pages_are_navigated_once "$PUBLIC_SCOPE_FIXTURE")"
+
+PUBLIC_PARSE_FIXTURE="$(mktemp -d)"
+mkdir -p "$PUBLIC_PARSE_FIXTURE/docs"
+printf '{\n' > "$PUBLIC_PARSE_FIXTURE/docs.json"
+printf '# Docs\n' > "$PUBLIC_PARSE_FIXTURE/docs/index.md"
+assert_eq "public site guard: malformed docs.json fails route resolution closed" "no" \
+  "$(public_route_files_resolve "$PUBLIC_PARSE_FIXTURE")"
+
+PUBLIC_LINK_FIXTURE="$(mktemp -d)"
+mkdir -p "$PUBLIC_LINK_FIXTURE/docs"
+printf '# Docs\n\n[Missing](/docs/missing)\n' > "$PUBLIC_LINK_FIXTURE/docs/index.md"
+assert_eq "public site guard: a missing root-relative link target is rejected" "no" \
+  "$(public_internal_links_resolve "$PUBLIC_LINK_FIXTURE")"
+printf '# Present\n' > "$PUBLIC_LINK_FIXTURE/docs/missing.md"
+assert_eq "public site guard: the same link fixture passes when its target exists" "yes" \
+  "$(public_internal_links_resolve "$PUBLIC_LINK_FIXTURE")"
+
+# The four guards below were hardcoded to the live tree and observed only its passing state, so
+# each could have returned `yes` unconditionally without any assertion noticing. Every fixture
+# here asserts the PASSING state first and then breaks exactly one property, so the `no` is
+# attributable to that property rather than to the fixture merely existing.
+PUBLIC_INDEX_FIXTURE="$(mktemp -d)"
+_suite_tmp_dir "$PUBLIC_INDEX_FIXTURE"
+mkdir -p "$PUBLIC_INDEX_FIXTURE/docs/category"
+printf '# Docs\n' > "$PUBLIC_INDEX_FIXTURE/docs/index.md"
+printf '# Category\n' > "$PUBLIC_INDEX_FIXTURE/docs/category/index.md"
+assert_eq "public site guard: a tree whose every documentation directory has index.md passes" "yes" \
+  "$(public_directories_have_index "$PUBLIC_INDEX_FIXTURE")"
+mkdir -p "$PUBLIC_INDEX_FIXTURE/docs/orphan"
+printf '# Page\n' > "$PUBLIC_INDEX_FIXTURE/docs/orphan/page.md"
+assert_eq "public site guard: a documentation directory with no index.md is rejected" "no" \
+  "$(public_directories_have_index "$PUBLIC_INDEX_FIXTURE")"
+
+PUBLIC_DEPTH_FIXTURE="$(mktemp -d)"
+_suite_tmp_dir "$PUBLIC_DEPTH_FIXTURE"
+mkdir -p "$PUBLIC_DEPTH_FIXTURE/docs/category/subcategory"
+printf '# Docs\n' > "$PUBLIC_DEPTH_FIXTURE/docs/index.md"
+printf '# Page\n' > "$PUBLIC_DEPTH_FIXTURE/docs/category/subcategory/page.md"
+assert_eq "public site guard: category/subcategory/page nesting is accepted at the depth limit" "yes" \
+  "$(public_docs_stay_shallow "$PUBLIC_DEPTH_FIXTURE")"
+mkdir -p "$PUBLIC_DEPTH_FIXTURE/docs/category/subcategory/deeper"
+printf '# Too deep\n' > "$PUBLIC_DEPTH_FIXTURE/docs/category/subcategory/deeper/page.md"
+assert_eq "public site guard: a page one level past category/subcategory/page is rejected" "no" \
+  "$(public_docs_stay_shallow "$PUBLIC_DEPTH_FIXTURE")"
+
+PUBLIC_BUILD_FIXTURE="$(mktemp -d)"
+_suite_tmp_dir "$PUBLIC_BUILD_FIXTURE"
+mkdir -p "$PUBLIC_BUILD_FIXTURE/docs"
+printf '# Docs\n' > "$PUBLIC_BUILD_FIXTURE/docs/index.md"
+assert_eq "public site guard: a source-only tree carries no build output" "yes" \
+  "$(public_site_has_no_build_output "$PUBLIC_BUILD_FIXTURE")"
+printf '{}\n' > "$PUBLIC_BUILD_FIXTURE/package.json"
+assert_eq "public site guard: a dependency manifest in the site root is rejected" "no" \
+  "$(public_site_has_no_build_output "$PUBLIC_BUILD_FIXTURE")"
+rm -f "$PUBLIC_BUILD_FIXTURE/package.json"
+mkdir -p "$PUBLIC_BUILD_FIXTURE/node_modules"
+assert_eq "public site guard: a node_modules directory is rejected" "no" \
+  "$(public_site_has_no_build_output "$PUBLIC_BUILD_FIXTURE")"
+rmdir "$PUBLIC_BUILD_FIXTURE/node_modules"
+printf '<html></html>\n' > "$PUBLIC_BUILD_FIXTURE/docs/index.html"
+assert_eq "public site guard: generated HTML output below the site root is rejected" "no" \
+  "$(public_site_has_no_build_output "$PUBLIC_BUILD_FIXTURE")"
+# Covers the absent-root arm only. The sibling arm this change added — `find` exiting nonzero
+# mid-walk, which the previous tail-of-pipe `grep -q` status swallowed into `yes` — is NOT driven
+# here: the portable way to provoke it is an unreadable directory, and whether that errors at all
+# depends on the runner's uid, so an assertion over it would pass locally and be vacuous under a
+# root CI container. Stated rather than silently left uncovered.
+assert_eq "public site guard: an absent site root fails closed rather than reporting clean" "no" \
+  "$(public_site_has_no_build_output "$PUBLIC_BUILD_FIXTURE/absent")"
+
+# count > 1 is the case "exactly once" exists to catch; the pre-existing fixture covered only
+# count == 0, so a regression that saturated the counter at its first match would have passed.
+PUBLIC_DUPE_FIXTURE="$(mktemp -d)"
+_suite_tmp_dir "$PUBLIC_DUPE_FIXTURE"
+mkdir -p "$PUBLIC_DUPE_FIXTURE/docs"
+printf '{"navigation":{"pages":["docs/index"]}}\n' > "$PUBLIC_DUPE_FIXTURE/docs.json"
+printf '# Docs\n' > "$PUBLIC_DUPE_FIXTURE/docs/index.md"
+assert_eq "public site guard: a page navigated exactly once passes completeness" "yes" \
+  "$(public_docs_pages_are_navigated_once "$PUBLIC_DUPE_FIXTURE")"
+printf '{"navigation":{"pages":["docs/index",{"pages":["docs/index"]}]}}\n' > "$PUBLIC_DUPE_FIXTURE/docs.json"
+assert_eq "public site guard: a page navigated twice fails completeness" "no" \
+  "$(public_docs_pages_are_navigated_once "$PUBLIC_DUPE_FIXTURE")"
+
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
