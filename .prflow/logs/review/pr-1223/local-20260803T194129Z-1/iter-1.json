@@ -3,13 +3,9 @@
   "source": "review-and-fix",
   "started_at": "2026-08-03T19:41:29Z",
   "loop_role": "fix",
-  "current_step": "3.5",
-  "current_substep": "fix_delta_blinded_review",
-  "pending_dispatch": {
-    "kind": "fix_delta_gate",
-    "roster": ["general-purpose"],
-    "dispatched_at": "2026-08-03T20:38:00Z"
-  },
+  "current_step": "4.5",
+  "current_substep": "iteration_convergence_check",
+  "pending_dispatch": null,
   "fix_commit_sha": "e4338f17a48b97be73d40e6fd190cfd574fc33e1",
   "fix_files": [
     "agents/code-architect.md",
@@ -158,6 +154,9 @@
   },
   "base_checkpoint": {"token":"UP_TO_DATE","behind_by":null},
   "checkpoint_push": {"result":"pushed","destination":"origin/issue-1215-a-quantitative-acceptance-criterion-never-has-to"},
+  "reference_reads": {
+    "fix_delta": {"status":"verified","outcome":"clean","reason":null}
+  },
   "convergence_inputs": {
     "engine_verdict": "APPROVE with notes",
     "fix_threshold": "suggestion",
