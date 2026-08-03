@@ -464,8 +464,11 @@ assert_eq "#610 asv: SEAM_FORWARDED (no ship) when marker present but fact (ii) 
 # Same fixture WITH --adjudicated-governed → SEAM_PROVEN, ships the applied arm.
 assert_eq "#610 asv: SEAM_PROVEN (ship) only when a human adjudicated fact (ii) via --adjudicated-governed" "yes" \
   "$(asv_has_row_adj "$ASV_F" '| **SEAM_PROVEN** | yes |')"
-# Arm: SEAM_UNPROVEN — the subagent type was dispatched but no seam marker appeared (the
-# `--agents` startup block was not forwarded / the type was unrecognized). Does NOT ship.
+# Arm: SEAM_UNPROVEN — the subagent type was dispatched and the record carries an
+# AFFIRMATIVE non-forwarding signal (the prompt's refusal arm reached a tool call), so the
+# `--agents` startup block was not forwarded / the type was unrecognized. Does NOT ship.
+# Post-#1177 this arm requires that affirmative signal: "dispatched, nothing recorded" is
+# INSTRUMENT_NOT_FIRED below, not a statement about the seam.
 printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s seam-probe-agent dispatch refused: unknown subagent_type"}}]' > "$ASV_F"
 assert_eq "#610 asv: SEAM_UNPROVEN (no ship) when the subagent type was dispatched but emitted no seam marker" "yes" \
   "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
@@ -518,13 +521,14 @@ assert_eq "#610 asv: helper exits 0 even on an absent execution file" "0" \
   "$(python3 "$ASV_PY" /no/such/execfile.json >/dev/null 2>&1; echo $?)"
 # Fail-open regression (input-less tool_use): a dispatch tool_use recorded under the probe
 # subagent NAME but carrying NO `input` key must still read as dispatch_attempted (-> the
-# no-marker case resolves SEAM_UNPROVEN), never be dropped (which would fail OPEN into the
-# INCONCLUSIVE "measured nothing" floor). collect() records a tool_use even without `input`
+# no-marker case resolves INSTRUMENT_NOT_FIRED post-#1177), never be dropped (which would
+# fail OPEN into the INCONCLUSIVE "measured nothing" floor — a different claim: never even
+# dispatched). collect() records a tool_use even without `input`
 # (the named fail-open guard); this fixture pins it. Every other fixture carries an `input`,
 # so without this the guard is untested and a regression stays green (PR #667 review, pr-test-analyzer Important).
 printf '%s' '[{"type":"tool_use","name":"seam-probe-agent"}]' > "$ASV_F"
-assert_eq "#610 asv: input-less probe-subagent tool_use still reads dispatch_attempted -> SEAM_UNPROVEN, not a fail-open INCONCLUSIVE" "yes" \
-  "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
+assert_eq "#610 asv: input-less probe-subagent tool_use still reads dispatch_attempted -> INSTRUMENT_NOT_FIRED, not a fail-open INCONCLUSIVE" "yes" \
+  "$(asv_has_row "$ASV_F" '| **INSTRUMENT_NOT_FIRED** | no |')"
 # dispatch_attempted via the permission_denials arm (the realistic "dispatch refused" shape):
 # the probe agent name appears ONLY in a permission_denials node, never in a tool_use command
 # string — exercises the `AGENT_NAME in denial_text` half of the OR (PR #667 review, pr-test-analyzer suggestion).
@@ -532,10 +536,11 @@ printf '%s' '[{"permission_denials":[{"tool":"Task","reason":"unknown subagent_t
 assert_eq "#610 asv: probe name only in permission_denials still reads dispatch_attempted -> SEAM_UNPROVEN" "yes" \
   "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
 # Case-insensitivity of the AGENT_NAME match (its own .lower(), distinct from the marker's):
-# a MIXED-case dispatch name still reads dispatch_attempted -> SEAM_UNPROVEN (PR #667 review, pr-test-analyzer suggestion).
+# a MIXED-case dispatch name still reads dispatch_attempted -> INSTRUMENT_NOT_FIRED, never
+# the never-dispatched INCONCLUSIVE floor (PR #667 review, pr-test-analyzer suggestion).
 printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"SEAM-Probe-Agent"}}]' > "$ASV_F"
-assert_eq "#610 asv: mixed-case probe subagent name still reads dispatch_attempted -> SEAM_UNPROVEN" "yes" \
-  "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
+assert_eq "#610 asv: mixed-case probe subagent name still reads dispatch_attempted -> INSTRUMENT_NOT_FIRED" "yes" \
+  "$(asv_has_row "$ASV_F" '| **INSTRUMENT_NOT_FIRED** | no |')"
 # Present-but-unreadable execution file (PermissionError / TOCTOU) must route to the
 # INCONCLUSIVE floor and still exit 0 — honoring "always exits 0" — never raise an uncaught
 # traceback (which under the workflow's `set -euo pipefail` verdict step yields a red step
@@ -556,6 +561,96 @@ else
 fi
 chmod 644 "$ASV_UNREAD" 2>/dev/null || true
 rm -f "$ASV_UNREAD"
+
+# ── #1177 instrument non-fire: both arms of the probe prompt's Step 2 run through a
+# ── model-issued Bash echo the model may simply skip, so a run that dispatched the
+# ── subagent and then stopped used to be scored SEAM_UNPROVEN — a statement ABOUT THE
+# ── SEAM about a run in which nothing was measured. The verdict vocabulary now separates
+# ── "measured false" from "not measured". Fixtures only; no cloud dispatch.
+# The exact shape observed in the four non-fire runs of 2026-07-21 (run 29871350774's
+# recorded tool_use dump: one entry, NAME=Agent, subagent_type seam-probe-agent, zero
+# denials). This is the run class the issue was filed about.
+printf '%s' '[{"type":"tool_use","name":"Agent","input":{"description":"Cloud seam probe dispatch","subagent_type":"seam-probe-agent","prompt":"Report your seam marker line."}}]' > "$ASV_F"
+assert_eq "#1177 asv: dispatched with no Bash tool_use at all -> INSTRUMENT_NOT_FIRED (no ship), not SEAM_UNPROVEN" "yes" \
+  "$(asv_has_row "$ASV_F" '| **INSTRUMENT_NOT_FIRED** | no |')"
+# The whole point of the new verdict: its rendered text must NOT tell the reader anything
+# about the seam's status. Negative control on the SEAM_UNPROVEN decision sentence, which
+# is what this run used to print.
+assert_eq "#1177 asv: a non-fire does NOT render the seam-was-not-forwarded decision text" "no" \
+  "$(asv_has "$ASV_F" 'the startup `--agents` seam was not forwarded')"
+assert_eq "#1177 asv: a non-fire renders the no-measurement decision instead" "yes" \
+  "$(asv_has "$ASV_F" 'NO SEAM MEASUREMENT was taken')"
+assert_eq "#1177 asv: a non-fire is reported as uninformative in EITHER direction" "yes" \
+  "$(asv_has "$ASV_F" 'uninformative in EITHER direction')"
+# The Bash-reached fact is REPORTED (it is the observed signature) but is never what
+# selects the verdict — a dispatched run that ran some unrelated Bash call and still put
+# neither marker in the record is equally a non-measurement (issue #1177 AC1 says "emits no
+# Bash MARKER", not "emits no Bash call"). A Bash-presence-only rule would miss this row.
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}},{"type":"tool_use","name":"Bash","input":{"command":"ls -la"}}]' > "$ASV_F"
+assert_eq "#1177 asv: dispatched + an unrelated Bash call but neither marker -> still INSTRUMENT_NOT_FIRED" "yes" \
+  "$(asv_has_row "$ASV_F" '| **INSTRUMENT_NOT_FIRED** | no |')"
+assert_eq "#1177 asv: the bash_tool_use_recorded evidence fact reports that Bash was reached" "yes" \
+  "$(asv_has "$ASV_F" 'bash_tool_use_recorded=yes')"
+# AC4 — the human-adjudication gate is unweakened by the new arm: --adjudicated-governed
+# on a non-fire must NOT promote it (fact (i) is a hard prerequisite the flag cannot supply).
+assert_eq "#1177 asv: --adjudicated-governed cannot promote a non-fire (SEAM_PROVEN stays unreachable)" "yes" \
+  "$(asv_has_row_adj "$ASV_F" '| **INSTRUMENT_NOT_FIRED** | no |')"
+# A harness-recorded dispatch REFUSAL keeps its seam meaning: the permission_denials arm is
+# an affirmative non-forwarding signal, so it must NOT be swept into the non-fire bucket.
+printf '%s' '[{"permission_denials":[{"tool":"Task","reason":"unknown subagent_type seam-probe-agent"}]}]' > "$ASV_F"
+assert_eq "#1177 asv: a denial naming the probe subagent stays SEAM_UNPROVEN, not INSTRUMENT_NOT_FIRED" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
+# Cross-file contract, driven rather than transcribed: the two literals the helper matches
+# are EMITTED by agents-seam-probe.yml's own prompt. Each fixture's Bash command is the
+# workflow's own emitting line, extracted here — so a drift on either side changes a
+# VERDICT (this is a behavioral test of the parser, not a wording pin on the workflow).
+asv_fixture_from_workflow() {  # <needle> <out-file>; rc 3 when the workflow line is gone
+  python3 -c 'import json, sys
+src, needle, out = sys.argv[1], sys.argv[2], sys.argv[3]
+lines = [l.strip() for l in open(src, encoding="utf-8") if needle in l and "printf" in l]
+if not lines:
+    sys.exit(3)
+json.dump([{"type": "tool_use", "name": "Task", "input": {"subagent_type": "seam-probe-agent"}},
+           {"type": "tool_use", "name": "Bash", "input": {"command": lines[0]}}],
+          open(out, "w", encoding="utf-8"))' "$ASPROBE" "$1" "$2"
+}
+# Guard against a vacuous pass: extraction must actually find each emitting line.
+assert_eq "#1177 asv: the workflow still carries the seam-marker emitting line" "0" \
+  "$(asv_fixture_from_workflow 'SEAM_PROBE_FORWARDED_OK' "$ASV_F" >/dev/null 2>&1; echo $?)"
+assert_eq "#1177 asv: the workflow's own seam-marker line, fed back through the helper, reads SEAM_FORWARDED" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_FORWARDED** | no |')"
+assert_eq "#1177 asv: the workflow still carries the dispatch-refusal emitting line" "0" \
+  "$(asv_fixture_from_workflow 'dispatch refused: unknown subagent_type' "$ASV_F" >/dev/null 2>&1; echo $?)"
+assert_eq "#1177 asv: the workflow's own refusal line, fed back through the helper, reads SEAM_UNPROVEN" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
+# Verdict-INERT diagnostic. The premise issue #1177's cleanest remedy would rest on —
+# whether the execution record carries a dispatched subagent's returned text — is
+# unestablished, so the helper MEASURES it instead of acting on it. The decisive assertion
+# is the inertness one: a result payload carrying the seam marker must be REPORTED and must
+# still leave the verdict at INSTRUMENT_NOT_FIRED, even with the human flag. Without that,
+# this diagnostic would be an auto-promotion path to SEAM_PROVEN.
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"},"tool_use_result":"SEAM_PROBE_FORWARDED_OK SEAM_PROBE_EFFORT=low"}]' > "$ASV_F"
+assert_eq "#1177 asv: a seam marker in the result channel is reported by the diagnostic" "yes" \
+  "$(asv_has "$ASV_F" 'dispatch_result_channel=recorded; forwarded_marker_in_result_channel=yes')"
+assert_eq "#1177 asv: the result-channel diagnostic is verdict-INERT (stays INSTRUMENT_NOT_FIRED)" "yes" \
+  "$(asv_has_row "$ASV_F" '| **INSTRUMENT_NOT_FIRED** | no |')"
+assert_eq "#1177 asv: the result-channel diagnostic cannot reach SEAM_PROVEN even with --adjudicated-governed" "yes" \
+  "$(asv_has_row_adj "$ASV_F" '| **INSTRUMENT_NOT_FIRED** | no |')"
+# The tool_result-typed content-block shape is accepted too (the execution-file schema is a
+# dated observation, not a contract — docs/execution-file-shape.md).
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}},{"type":"tool_result","content":"SEAM_PROBE_FORWARDED_OK SEAM_PROBE_EFFORT=low"}]' > "$ASV_F"
+assert_eq "#1177 asv: a tool_result-typed content block is read by the diagnostic channel too" "yes" \
+  "$(asv_has "$ASV_F" 'forwarded_marker_in_result_channel=yes')"
+# Unknown is not zero: with NO result payload recorded at all, the diagnostic reports
+# `unestablished`, never `no` (which would assert the marker was absent from a channel that
+# was never observed).
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}}]' > "$ASV_F"
+assert_eq "#1177 asv: an absent result channel reports unestablished, never a false 'no'" "yes" \
+  "$(asv_has "$ASV_F" 'dispatch_result_channel=absent; forwarded_marker_in_result_channel=unestablished')"
+# A result payload that does NOT carry the marker is a real `no` (the channel was observed).
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"},"tool_use_result":"ok"}]' > "$ASV_F"
+assert_eq "#1177 asv: an observed result channel without the marker reports a real 'no'" "yes" \
+  "$(asv_has "$ASV_F" 'dispatch_result_channel=recorded; forwarded_marker_in_result_channel=no')"
 rm -f "$ASV_F"
 
 # mktemp-guard breadcrumb: after #414 the `BODY_FILE="$(mktemp)"` guard lives ONCE in the
