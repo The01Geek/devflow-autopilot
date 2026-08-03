@@ -58,7 +58,8 @@ worktrees under `.claude/worktrees/` and audit other checkouts' copies, going re
 locally with a per-run-varying count while CI (a fresh checkout with no worktrees)
 stays green. That enumeration runs with **`core.quotePath=false`**, which since issue
 #1217 the shared constant itself carries; see the note beside `TOOL` below for why the
-default would turn every legally-named non-ASCII path into a false RED. This guard judges path **strings**, never filesystem
+default would turn every legally-named non-ASCII path into a false RED, and for the
+`0x7F` residual it leaves. This guard judges path **strings**, never filesystem
 entries: the whole point is to flag a path that *cannot exist on the host running the
 guard*, and the `--files-from` harness feeds synthetic path strings (a reserved-name
 fixture must never be planted on disk — that is the very incident this guard
@@ -108,19 +109,27 @@ EnumerationError = _pop.EnumerationError
 
 TOOL = "lint-windows-uncheckoutable-path"
 
-#: This guard depends on the enumeration being unquoted, but no longer owns the flag:
-#: issue #1217 retired the module-private `_LS_FILES_INDEX_UNQUOTED` PR #1201 added here,
-#: because `lint_population.LS_FILES_INDEX` now carries `-c core.quotePath=false` for every
-#: caller. The mechanism and the `-z` trade-off are stated once, in that module's docstring.
-#: What is specific to THIS guard is the residual: the flag drops only the *non-ASCII*
-#: escaping, so a path containing a backslash, a double quote, or a control character is
-#: still C-quoted — and those are exactly the paths this guard must reject. The quoted
-#: rendering still carries a backslash, so each stays RED; only the reason string may name
-#: the backslash rule rather than the underlying one, a diagnostic nuance on an
-#: already-correct verdict rather than a missed violation. Were the flag ever dropped, a
-#: legitimately-named non-ASCII path would take the whole suite RED for a character it does
-#: not contain, and this guard deliberately offers no `# …-ok:` declaration marker to wave
-#: that through.
+# This guard depends on the enumeration being unquoted, but no longer owns the flag: issue
+# #1217 retired the module-private `_LS_FILES_INDEX_UNQUOTED` PR #1201 added here, because
+# `lint_population.LS_FILES_INDEX` now carries `-c core.quotePath=false` for every caller.
+# The mechanism and the `-z` trade-off are stated once, in that module's docstring.
+#
+# What is specific to THIS guard is the residual, and it splits two ways:
+#
+#   * A backslash, a double quote, or a control character in `0x01`-`0x1F` is still
+#     C-quoted, and those ARE paths this guard must reject. The quoted rendering still
+#     carries a backslash, so each stays RED; only the reason string may name the backslash
+#     rule rather than the underlying one — a diagnostic nuance on an already-correct
+#     verdict, not a missed violation.
+#   * `0x7F` (DEL) is still C-quoted too, but this guard does NOT reject it: it is outside
+#     `check_component`'s `0x01`-`0x1F` range and absent from `_FORBIDDEN_CHARS`, and git's
+#     own `is_valid_win32_path()` likewise rejects only `< 0x20`. So a tracked `a\x7fb.md`
+#     arrives here as `"a\177b.md"`, whose backslash trips the pre-split rule and yields a
+#     FALSE RED for a path git would check out. That is a real residual, not a nuance.
+#
+# Were the flag ever dropped, every legitimately-named non-ASCII path would take the whole
+# suite RED for a character it does not contain, and this guard deliberately offers no
+# `# ...-ok:` declaration marker to wave that through.
 
 #: Forbidden characters in a path component (git's Windows rule). `:` is included, which
 #: also subsumes a leading DOS drive prefix (`C:`), so no separate drive-prefix arm exists.

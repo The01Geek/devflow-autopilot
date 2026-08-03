@@ -57,9 +57,22 @@ class CoverageMapGuardTest(unittest.TestCase):
     def test_green_shipped_tree(self):
         map_value = json.loads((ROOT / guard.MAP_REL).read_text(encoding="utf-8"))
         registry_value = json.loads((ROOT / guard.REGISTRY_REL).read_text(encoding="utf-8"))
-        tracked = subprocess.run(
-            ["git", "-C", str(ROOT), "ls-files"], capture_output=True, text=True, check=True
-        ).stdout.split()
+        # The argv is composed from the module under test's own `QUOTE_PATH_OFF` (issue
+        # #1217) rather than a locally-spelled `git ls-files`: `_git_tracked` enumerates
+        # unquoted, so a hardcoded quoted spelling here would build a population spelled
+        # differently from the guard's for exactly the non-ASCII path class that fix
+        # addresses, and the mode row would fail to join. Splitting on "\n" rather than
+        # whitespace for the same reason a real path may contain spaces.
+        tracked = [
+            line
+            for line in subprocess.run(
+                ["git", "-C", str(ROOT), *guard.QUOTE_PATH_OFF, "ls-files"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.split("\n")
+            if line
+        ]
         # `executable_files` is passed from the real index (issue #789) because arm 10's
         # unestablished-mode-set breadcrumb is a violation: omitting it here would grade the
         # shipped tree against a measurement that never ran.

@@ -60,15 +60,25 @@ to both argvs below, rather than the per-consumer fix PR #1201 set as a preceden
 spread: these constants would stay a trap for the next lint that names one. Fixing the
 reader once makes the enumeration uniform for every caller that goes through it.
 
-**Non-reader callers exist, and the reader is NOT a complete point of control.** Two
-`lib/test/` lints enumerate through their own `git -C <root> …` wrapper rather than
-through `enumerate_population`, so the argvs below cannot reach them: `pin-corpus-lint.py`
-(three `_run_git` `ls-files` call sites) and `coverage_map_guard.py` (`_git_tracked` and
-`_git_executable`). Do not read the paragraph above as "the flag is handled centrally, so
-a new `git ls-files` call inherits it" — it is handled centrally only for callers that
-name `LS_FILES_INDEX`/`LS_FILES_WORKING_TREE`. Those four sites splice the exported
-`QUOTE_PATH_OFF` pair instead, which is why that constant exists: the *literal* has one
-home even where the *argv* cannot. A new enumeration must do one or the other.
+**Non-reader callers exist, and the reader is NOT a complete point of control.** Do not
+read the paragraph above as "the flag is handled centrally, so a new `git ls-files` call
+inherits it" — it is handled centrally only for callers that name
+`LS_FILES_INDEX`/`LS_FILES_WORKING_TREE`. State the rule rather than a census, because a
+transcribed count of call sites rots on the next edit:
+
+* A caller that names one of the two argvs above inherits the flag. Nothing to do.
+* A caller that passes **`-z`** needs nothing either — NUL-delimited output is never
+  C-quoted, so `core.quotePath` is inert for it. `pin-corpus-lint.py`'s `_git_ls_files`
+  and `mutation-pin-census.py` are in this category, which is why neither appears below.
+* **Every other caller must splice the exported `QUOTE_PATH_OFF` pair itself.** That is
+  why the constant exists: the *literal* has one home even where the *argv* cannot reach.
+  The callers in this category today are `pin-corpus-lint.py`'s `_run_git` `ls-files` sites
+  and `coverage_map_guard.py`'s `_git_tracked`/`_git_executable`, each of which composes its
+  own `git -C <root> …` prefix and so cannot use the ready-made argvs.
+
+`lib/test/run.sh`'s `#1217` block drives the second category behaviourally over a sandbox
+repository, so a splice deleted from one of those argvs turns the suite RED rather than
+silently reinstating the defect.
 
 **The residual `core.quotePath=false` leaves.** It removes only the *non-ASCII*
 escaping. A path containing a **backslash**, a **double quote**, a **control
@@ -77,11 +87,19 @@ a string that names no real file. Removing quoting *entirely* needs `git ls-file
 which was weighed and deliberately not taken here: `-z` changes the output delimiter
 from newline to NUL, so `enumerate_population` could no longer split on `"\n"`, and the
 `--files-from` list it also accepts is newline-separated — the two input paths would
-have to be reconciled rather than sharing one splitter. That is a larger change for a
-residual whose remaining cases are already barred from this repository by the issue-#1196
-Windows-uncheckoutable-path guard (which rejects a tracked path carrying a backslash, a
-double quote, or a control character outright). Completeness was traded against blast
-radius, knowingly.
+have to be reconciled rather than sharing one splitter. Completeness was traded against
+blast radius, knowingly.
+
+**How much of that residual another guard already bars — stated exactly, because the
+closure is partial.** The issue-#1196 Windows-uncheckoutable-path guard rejects a tracked
+path carrying a backslash, a double quote, or a control character in `0x01`–`0x1F`
+(`check_component`'s range test), and an embedded newline is `0x0A`, inside that range. So
+those cases cannot reach a caller here *in this repository*. **`0x7F` (DEL) is the
+exception and is NOT barred:** it is outside the guard's `0x01`–`0x1F` range and absent
+from `_FORBIDDEN_CHARS`, yet git still C-quotes it under `core.quotePath=false` — measured,
+`a\x7fb.md` prints as `"a\177b.md"`. A tracked path containing it would therefore still
+reach a caller quoted. Do not read the trade-off above as resting on a complete closure;
+`0x7F` is the disclosed hole in it.
 
 Both argvs keep their index-vs-working-tree identity unchanged (issue #711): the flag is
 a `git`-level `-c` option that alters only how a path is *printed*, never which paths are

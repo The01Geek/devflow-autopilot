@@ -41636,17 +41636,57 @@ assert_eq "#1217 hard-fail class: no false RED for a character the path does not
   "${E1217_HARD%%|*}"
 assert_eq "#1217 hard-fail class: the path was audited rather than skipped" "yes" \
   "$(case "$E1217_HARD" in *SKIPPED*) echo "no (skipped): $E1217_HARD" ;; *"audited 1 of 1 files"*) echo yes ;; *) echo "no: $E1217_HARD" ;; esac)"
-# The shared constants are what deliver the two verdicts above, and the two formerly-inline
-# argvs in lint-subagent-dispatch-namespace.py are the sites a constants-only fix would have
-# missed (issue #1217 AC3). Pin that they now compose the shared constant rather than
-# re-spelling an unquoted `ls-files` of their own.
-assert_eq "#1217 both dispatch-namespace argvs route through the shared population constant" "2" \
-  "$(grep -cE 'ls_files_argv=\(?\*?_pop\.LS_FILES_INDEX' "$LIB/test/lint-subagent-dispatch-namespace.py")"
+# Two more enumeration classes are exercised BEHAVIOURALLY rather than by a source-shape
+# grep, because a grep over a Python literal breaks on a cosmetic reformat while passing if
+# the constant later loses the flag — and because a source-presence pin is what issue #810
+# prohibits. Both classes reinstate the original defect when their splice is deleted, with
+# nothing else in the suite noticing:
+#   * lint-subagent-dispatch-namespace.py's audited-surface argv (the second of the two
+#     formerly-inline argvs a constants-only fix would have missed, issue #1217 AC3). Its
+#     `is_audited` selects by the `skills/` prefix, so a C-quoted surface drops and the
+#     tally falls to `audited 0 prompt surfaces` — the same silent-drop shape as above.
+#   * coverage_map_guard.py's `_git_tracked`, one of the non-reader call sites that splices
+#     QUOTE_PATH_OFF by hand. It is called directly (it is an importable pure-ish helper)
+#     and its RETURNED PATH is the comparand: pre-fix it is the C-quoted spelling, which a
+#     coverage-map entry for the real file would then fail to join against.
+E1217_SB2="$(git_sandbox '#1217 non-reader splice sandbox')" || E1217_SB2=""
+E1217_NS="rc=sandbox-unavailable|git_sandbox allocated no usable directory"
+E1217_CMG="sandbox-unavailable"
+case "$E1217_SB2" in
+  ""|/dev/null*) : ;;
+  *)
+    if git -C "$E1217_SB2" init -q 2>/dev/null &&
+       mkdir -p "$E1217_SB2/skills" 2>/dev/null &&
+       printf 'no qualified ids here\n' > "$E1217_SB2/skills/$(printf 'caf\303\251').md" 2>/dev/null &&
+       git -C "$E1217_SB2" add -A -f >/dev/null 2>&1; then
+      E1217_NSOUT="$(python3 "$LIB/test/lint-subagent-dispatch-namespace.py" --root "$E1217_SB2" 2>&1)"
+      E1217_NS="rc=$?|$E1217_NSOUT"
+      # `_git_tracked` is imported and called directly; the assertion is that the returned
+      # path is the RAW spelling, i.e. it does not begin with git's C-quoting double quote.
+      E1217_CMG="$(E1217_SB2="$E1217_SB2" python3 -c '
+import importlib.util, os, sys
+from pathlib import Path
+s = importlib.util.spec_from_file_location("g", sys.argv[1])
+g = importlib.util.module_from_spec(s); s.loader.exec_module(g)
+paths = g._git_tracked(Path(os.environ["E1217_SB2"]))
+print("raw" if len(paths) == 1 and not paths[0].startswith(chr(34)) else "quoted-or-lost: %r" % (paths,))
+' "$LIB/test/coverage_map_guard.py" 2>&1)"
+    else
+      E1217_NS="rc=sandbox-setup-failed|could not stage the non-ASCII prompt surface"
+      E1217_CMG="sandbox-setup-failed"
+    fi
+    rm -rf "$E1217_SB2"
+    ;;
+esac
+assert_eq "#1217 the dispatch-namespace audited-surface argv enumerates the non-ASCII surface" "yes" \
+  "$(case "$E1217_NS" in *"audited 1 prompt surface"*) echo yes ;; *) echo "no: $E1217_NS" ;; esac)"
+assert_eq "#1217 coverage_map_guard._git_tracked returns the raw path, not git's C-quoted form" \
+  "raw" "$E1217_CMG"
 # The AC8 claim (the flag alters only how a path is PRINTED, so the index-reading argv
-# acquired no `--others`) is pinned by the #724 preset assertion further down, which was
-# extended in the same change to report `index-has-others=False` alongside `quote-off=True`
-# from a module load it already performs. Asserting it a second time here would only pay a
-# second `python3` start for a signal that block already carries.
+# acquired no `--others`) is pinned by the #724 preset assertion further down, which
+# already reported `index-has-others=False` and gained a `quote-off=True` conjunct in the
+# same change, from a module load it already performs. Asserting it a second time here
+# would only pay a second `python3` start for a signal that block already carries.
 # ────────────────────────────────────────────────────────────────────────────
 # Subagent DISPATCH-NAMESPACE guard (lib/test/lint-subagent-dispatch-namespace.py).
 # A qualified subagent id in prompt prose is a dispatch string whose namespace half is

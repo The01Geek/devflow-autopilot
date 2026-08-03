@@ -37,11 +37,22 @@ from pathlib import Path
 # C-quoting returns a tracked non-ASCII path as a string that names no real file, and a
 # coverage-map entry for that path would read as untracked.
 _POP_PATH = Path(__file__).resolve().parent / "lint_population.py"
-_pop_spec = importlib.util.spec_from_file_location("lint_population", _POP_PATH)
-_pop = importlib.util.module_from_spec(_pop_spec)
-_pop_spec.loader.exec_module(_pop)
+try:
+    _pop_spec = importlib.util.spec_from_file_location("lint_population", _POP_PATH)
+    if _pop_spec is None or _pop_spec.loader is None:
+        raise ImportError(f"no loadable spec for {_POP_PATH}")
+    _pop = importlib.util.module_from_spec(_pop_spec)
+    _pop_spec.loader.exec_module(_pop)
+except Exception as _exc:
+    raise SystemExit(
+        f"coverage_map_guard: the shared population reader {_POP_PATH} could not be "
+        f"loaded ({_exc.__class__.__name__}: {_exc}); refusing to audit"
+    ) from _exc
 if not hasattr(_pop, "QUOTE_PATH_OFF"):
-    raise SystemExit("lint_population.py is missing the expected `QUOTE_PATH_OFF` interface")
+    raise SystemExit(
+        f"coverage_map_guard: {_POP_PATH} no longer provides `QUOTE_PATH_OFF`; "
+        "refusing to audit"
+    )
 QUOTE_PATH_OFF = tuple(_pop.QUOTE_PATH_OFF)
 
 MAP_REL = "lib/test/modules/coverage-map.json"

@@ -174,15 +174,28 @@ from typing import NamedTuple
 # This module composes its own `git -C <root> …` prefix through `_run_git`, so it cannot
 # use `lint_population`'s ready-made argvs — only the option pair they are built from.
 # Without it, git's default C-quoting returns a tracked non-ASCII path as a string that
-# names no real file, and every enumeration below selects by path PREFIX (git puts the
-# opening double quote at the front of the whole path), so such a file would silently
-# drop out of the corpus.
+# names no real file. Each enumeration below then selects by an EXACT path form — a prefix
+# test (`is_machine_consumer_path`), a `re.fullmatch`, or membership in
+# `AUDITED_PIN_SOURCES` — none of which the C-quoted spelling satisfies, so such a file
+# would silently drop out of the corpus. (The `_git_ls_files` enumeration further down
+# passes `-z` and is unquoted by construction, so it needs no splice.)
 _POP_PATH_PC = Path(__file__).resolve().parent / "lint_population.py"
-_pop_spec_pc = importlib.util.spec_from_file_location("lint_population", _POP_PATH_PC)
-_pop_pc = importlib.util.module_from_spec(_pop_spec_pc)
-_pop_spec_pc.loader.exec_module(_pop_pc)
+try:
+    _pop_spec_pc = importlib.util.spec_from_file_location("lint_population", _POP_PATH_PC)
+    if _pop_spec_pc is None or _pop_spec_pc.loader is None:
+        raise ImportError(f"no loadable spec for {_POP_PATH_PC}")
+    _pop_pc = importlib.util.module_from_spec(_pop_spec_pc)
+    _pop_spec_pc.loader.exec_module(_pop_pc)
+except Exception as _exc_pc:
+    raise SystemExit(
+        f"pin-corpus-lint: the shared population reader {_POP_PATH_PC} could not be "
+        f"loaded ({_exc_pc.__class__.__name__}: {_exc_pc}); refusing to audit"
+    ) from _exc_pc
 if not hasattr(_pop_pc, "QUOTE_PATH_OFF"):
-    raise SystemExit("lint_population.py is missing the expected `QUOTE_PATH_OFF` interface")
+    raise SystemExit(
+        f"pin-corpus-lint: {_POP_PATH_PC} no longer provides `QUOTE_PATH_OFF`; "
+        "refusing to audit"
+    )
 QUOTE_PATH_OFF = tuple(_pop_pc.QUOTE_PATH_OFF)
 
 # Non-source trees always excluded from the relocation search set (issue #661): a
