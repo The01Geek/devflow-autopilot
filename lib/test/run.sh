@@ -34379,7 +34379,7 @@ assert_eq "#1170 composer exits 0 when GITHUB_OUTPUT is unset/empty" "0" "$_cip_
 assert_eq "#1170 composer breadcrumbs an unpublishable GITHUB_OUTPUT" "yes" \
   "$(_cip_has "$_c/err2" 'GITHUB_OUTPUT is unset or empty')"
 rm -rf "$_CIP_ROOT"
-unset _c _cip_rc_noout
+unset _cip_rc_noout
 
 # ── Renderer behavior (unit-tested once, rather than twice through YAML).
 _rgb() { HEAD_SHA="${1-}" CI_SUMMARY="${2-}" ALLOWED_TOOLS="${3-}" bash "$RGB_SH"; }
