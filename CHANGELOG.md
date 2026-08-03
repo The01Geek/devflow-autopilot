@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.65] — 2026-08-03
+
+### Added
+- **Workflow-side stale-REJECT dismissal net.** Stale-REJECT dismissal used to run only as the reviewing agent's Phase 4.4 step, so a standalone `/prflow:review` that reached a verdict but never reached Phase 4.4 left the pull request wedged behind a superseded `CHANGES_REQUESTED` after a fresh APPROVE. `devflow.yml`'s `command` job now runs `scripts/dismiss-stale-rejections-net.sh` as a net for that gap, dismissing the stale REJECT **only when the verdict for the reviewed HEAD was positively determined as APPROVE** (gated on `derive-review-verdict.sh`'s `verdict_determined`, so a defaulted or API-degraded verdict never dismisses a live REJECT). It is idempotent and HEAD-scoped, so it never double-dismisses or fights the agent's unchanged Phase 4.4 dismissal. (#1175)
+
 ## [2.30.64] — 2026-08-03
 
 ### Changed
