@@ -569,6 +569,15 @@ _ACS_SOURCE_NONE = 'none'
 # all, exactly what `resolver-unavailable` names — so it reuses that existing token
 # rather than widening the `acceptance_criteria_source` vocabulary Phase 4 renders.
 _ACS_SOURCE_RESOLVER_UNAVAILABLE = 'resolver-unavailable'
+# The /prflow:implement Phase 3.4 gate's defined-degradation read (`acs-gate`,
+# issue #1214). `workpad-absent` names a CLEAN absence (no workpad) — kept
+# distinct from `workpad-read-failed` (a transport/parse failure) so the gate
+# never reroutes a benign first-run absence onto the transport-failure label
+# (AC6). `unestablished` names the both-surfaces-down shape: the workpad read
+# failed AND the issue-body fallback also failed, so no criteria could be
+# resolved and the gate must not pass (AC5).
+_ACS_SOURCE_WORKPAD_ABSENT = 'workpad-absent'
+_ACS_SOURCE_UNESTABLISHED = 'unestablished'
 
 _ACS_SECTION = 'Acceptance Criteria'
 
@@ -670,6 +679,101 @@ def cmd_acs(args):
         out.append(rendered)
     if out:
         print('\n'.join(out))
+
+
+# Exit codes for the degrading Phase 3.4 acceptance-criteria read (issue #1214).
+# Each shape carries a distinct code AND a distinct `source:` token so the gate
+# can tell a clean read from a transport-degraded fallback from an unestablished
+# measurement — and never read any degraded shape as a passing gate.
+_ACS_GATE_OK = 0             # workpad read cleanly; criteria + tick state authoritative
+_ACS_GATE_ABSENT = 2         # clean absence — no workpad (the existing benign shape; AC6)
+_ACS_GATE_DEGRADED = 3       # workpad read FAILED; criteria recovered from the issue body
+_ACS_GATE_UNESTABLISHED = 4  # workpad read FAILED and the issue-body fallback also failed
+
+
+def _acs_gate_issue_body_criteria(issue: str) -> "str | None":
+    """Recover the acceptance criteria from the issue BODY via `parse-acs.py`.
+
+    The issue body is read through a DIFFERENT GitHub endpoint than the workpad
+    comment-listing address, so it stays reachable during the one-endpoint outage
+    the gate degradation exists to survive. AC3 names `scripts/parse-acs.py` as
+    the fallback source, so this shells out to the sibling script (via the current
+    interpreter — never a `.sh`/porcelain hop) rather than re-deriving the parse.
+
+    Returns the rendered `md` criteria (an empty string when the issue carries no
+    `## Acceptance Criteria` section), or `None` when the issue body itself could
+    not be read. That None-on-failure is the recovery-poll discipline (issue
+    #1214, and the model `check-completion-evidence.py`'s `_probe_remote` sets): a
+    non-zero exit or an exec failure means GitHub was not reached, so the criteria
+    are UNKNOWN — never collapsed onto "the issue has no criteria".
+    """
+    parse_acs = str(Path(__file__).resolve().parent / 'parse-acs.py')
+    try:
+        r = subprocess.run(
+            [sys.executable, parse_acs, '--issue', str(issue), '--format', 'md'],
+            capture_output=True, text=True, check=False,
+        )
+    except OSError:
+        return None
+    if r.returncode != 0:
+        return None
+    return r.stdout.strip('\n')
+
+
+def cmd_acs_gate(args):
+    """Acceptance-criteria read for the /prflow:implement Phase 3.4 gate, with a
+    DEFINED degradation when the workpad cannot be read (issue #1214).
+
+    The gate reads the workpad's `## Acceptance Criteria` section to confirm every
+    non-post-merge criterion is ticked. A GitHub fault confined to the
+    comment-listing endpoint fails that read while the issue body itself stays
+    reachable — so, exactly as `cmd_acs_resolve` already does for the review
+    engine, a workpad read failure is ROUTED to a distinct label and the criteria
+    are recovered from the issue body via `scripts/parse-acs.py`, NEVER read as a
+    passing gate.
+
+    Line 1 of stdout is always `source: <token>`; the rendered criteria follow.
+    The (code, token) pairs are:
+      0  source: workpad             — clean workpad read; tick state authoritative.
+      2  source: workpad-absent      — clean absence, no workpad. The existing
+                                        absent-case shape, kept distinct from the
+                                        transport-failure label (AC6).
+      3  source: workpad-read-failed — the workpad read failed (transport/parse);
+                                        criteria recovered from the issue body. The
+                                        gate must NOT pass — the tick state could
+                                        not be established (AC3/AC4).
+      4  source: unestablished       — the workpad read failed AND the issue-body
+                                        fallback also failed; no criteria could be
+                                        resolved (AC5). The gate must NOT pass.
+    """
+    _require_section_parse('acs-gate')
+    try:
+        _, _section_lines, items = _acs_read_workpad('acs-gate', str(args.issue))
+    except SystemExit as e:
+        if e.code == 2:
+            # Clean absence — the existing benign shape. Kept distinct from the
+            # transport-failure label (AC6); the exit-2 contract is preserved.
+            print(f'source: {_ACS_SOURCE_WORKPAD_ABSENT}')
+            sys.exit(_ACS_GATE_ABSENT)
+        if e.code == 3:
+            # A transport/parse failure reaching the workpad. Fall back to the
+            # issue body — the endpoint the outage did not touch.
+            body_md = _acs_gate_issue_body_criteria(str(args.issue))
+            if body_md is None:
+                print(f'source: {_ACS_SOURCE_UNESTABLISHED}')
+                sys.exit(_ACS_GATE_UNESTABLISHED)
+            print(f'source: {_ACS_SOURCE_WORKPAD_READ_FAILED}')
+            if body_md:
+                print(body_md)
+            sys.exit(_ACS_GATE_DEGRADED)
+        # Any other SystemExit is an unexpected shape this handler must not absorb.
+        raise
+    # Clean workpad read: render the section exactly as `acs` does (unfiltered,
+    # tick state and (post-merge) tags preserved), prefixed with the source token.
+    print(f'source: {_ACS_SOURCE_WORKPAD}')
+    rendered = _acs_render(items, exclude_post_merge=False, neutralize_boxes=False)
+    if rendered:
+        print(rendered)
 
 
 def _acs_diverge(issue_items: list[dict], workpad_items: list[dict],
@@ -2320,6 +2424,125 @@ def _report_failed_ticks(failed_ticks, preamble):
         sys.stderr.write(f"  - {ft}\n")
 
 
+# ---------------------------------------------------------------------------
+# Failed-write buffering and replay (issue #1214, part (c))
+# ---------------------------------------------------------------------------
+# When a workpad PATCH fails (a GitHub fault confined to the comment endpoint),
+# the append-only history the call intended — its `--note` bullets and its
+# `## Devflow Reflection` bullets — is otherwise lost, exactly the stranded state
+# issue #1214 describes (a run that cannot record its Blocked reflection or its
+# completion evidence). So a failed call BUFFERS that append-only content to
+# local storage under the gitignored `.prflow/tmp/`, and the next successful
+# `update` — which includes every terminal-status transition, since that is
+# itself an `update` — REPLAYS the buffered content idempotently: a buffered
+# bullet whose text is already present in the live body is skipped, so a replay
+# never duplicates content (AC9). Status and tick mutations are deliberately NOT
+# buffered — they are transient state a later call re-establishes, whereas a
+# dropped note/reflection is a permanent hole in the run's record.
+
+_WORKPAD_BUFFER_DIRNAME = 'workpad-buffer'
+
+
+def _workpad_buffer_path(comment_id) -> Path:
+    """Local buffer file for one workpad comment's failed-write records.
+
+    Anchored under the repo-root `.prflow/tmp/` (gitignored in this repo and in
+    every install.sh-scaffolded consumer), so a buffered record never lands as a
+    tracked file. Keyed by comment id so two issues' buffers never collide.
+    """
+    root = _repo_root() or str(Path.cwd())
+    return (Path(root) / '.prflow' / 'tmp' / _WORKPAD_BUFFER_DIRNAME
+            / f'{comment_id}.json')
+
+
+def _read_workpad_buffer(comment_id) -> list:
+    """Return the list of buffered records for a comment (empty on any degraded
+    shape — absent file, unreadable, malformed, or a non-list payload). A read
+    failure never raises: buffering is a best-effort safety net."""
+    try:
+        raw = _workpad_buffer_path(comment_id).read_text(encoding='utf-8')
+    except OSError:
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _buffer_failed_change(comment_id, notes, reflections, kind) -> "Path | None":
+    """Persist the append-only content of a FAILED update so it is not lost (AC7).
+
+    Records only `--note` and `--reflection` bullets (with their kind); status and
+    tick mutations are transient and not buffered. Best-effort: returns the buffer
+    path on a successful write, or None when there was nothing to buffer or the
+    write itself failed — a buffering failure never changes the caller's own
+    fail-loud outcome."""
+    notes = [n for n in (notes or []) if n]
+    reflections = [r for r in (reflections or []) if r]
+    if not notes and not reflections:
+        return None
+    record = {
+        'notes': notes,
+        'reflections': reflections,
+        'reflection_kind': kind or _DEFAULT_REFLECTION_KIND,
+    }
+    path = _workpad_buffer_path(comment_id)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existing = _read_workpad_buffer(comment_id)
+        existing.append(record)
+        path.write_text(
+            json.dumps(existing, ensure_ascii=False, indent=2), encoding='utf-8')
+    except OSError as e:
+        sys.stderr.write(
+            f"workpad.py update: could not buffer the failed change: {e}\n")
+        return None
+    return path
+
+
+def _plan_buffer_replay(comment_id, body, args) -> bool:
+    """Fold any buffered failed-write content for this comment into `args` so it
+    replays on THIS successful update, idempotently (AC8/AC9).
+
+    A buffered note/reflection whose text is already present in the live `body`
+    is SKIPPED — the idempotency that keeps a replay from duplicating content.
+    Anything not yet present is appended to `args.note` / `args.reflection` (only
+    when the target section exists in the body, so a replay never turns a valid
+    call into a structural abort). Returns True when at least one buffer record
+    existed, so the caller clears the buffer after a successful PATCH. A buffered
+    reflection replays under the CALL's kind rather than its own: the record's
+    durability matters more than its sub-section placement on this degraded
+    path."""
+    records = _read_workpad_buffer(comment_id)
+    if not records:
+        return False
+    add_notes = []
+    add_reflections = []
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        for n in rec.get('notes') or []:
+            if isinstance(n, str) and n and n not in body:
+                add_notes.append(n)
+        for rfl in rec.get('reflections') or []:
+            if isinstance(rfl, str) and rfl and rfl not in body:
+                add_reflections.append(rfl)
+    if add_notes and '## Progress' in body:
+        args.note = list(args.note or []) + add_notes
+    if add_reflections and '## Devflow Reflection' in body:
+        args.reflection = list(args.reflection or []) + add_reflections
+    return True
+
+
+def _clear_workpad_buffer(comment_id) -> None:
+    """Remove a comment's buffer file after its records have been replayed."""
+    try:
+        _workpad_buffer_path(comment_id).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def cmd_update(args):
     # Resolve comment ID from the issue. update is stateless for callers.
     # cmd_id prints + sys.exits; we inline the lookup to capture the ID.
@@ -2398,6 +2621,16 @@ def cmd_update(args):
             )
             sys.exit(4)
 
+    # Failed-write buffering/replay (issue #1214). Capture THIS call's own
+    # append-only content first, so a PATCH failure buffers exactly it — never the
+    # replayed content `_plan_buffer_replay` is about to fold in. Then fold any
+    # previously-buffered content for this comment into `args` so it replays on
+    # this (successful) PATCH, idempotently.
+    _own_notes = [n for n in (args.note or []) if n]
+    _own_reflections = list(args.reflection or [])
+    _own_kind = args.reflection_kind or _DEFAULT_REFLECTION_KIND
+    _buffer_had_records = _plan_buffer_replay(comment_id, body, args)
+
     # `failed_ticks` collects *volatile* per-row tick misses (see _TickMatchError):
     # the call still applies and PATCHes every other mutation, then exits non-zero
     # naming the ticks that did not land. A *structural* _UpdateError still aborts
@@ -2467,9 +2700,27 @@ def cmd_update(args):
                 f"the PATCH itself failed, so NO workpad change was persisted; "
                 f"these {len(failed_ticks)} tick(s) had also not resolved",
             )
+        # Buffer this call's OWN append-only content before failing (issue #1214),
+        # so the note/reflection the PATCH dropped survives to be replayed by the
+        # next successful call. Any previously-buffered records stay buffered (the
+        # buffer is only cleared on a successful PATCH), so no content is lost.
+        _buf_path = _buffer_failed_change(
+            comment_id, _own_notes, _own_reflections, _own_kind)
+        if _buf_path is not None:
+            sys.stderr.write(
+                f"workpad.py update: buffered this call's note/reflection content "
+                f"to {_buf_path} for replay on the next successful update "
+                f"(issue #1214).\n"
+            )
         _fail('update patch', e)
     finally:
         Path(tmp_path).unlink(missing_ok=True)
+    # The PATCH succeeded: any content buffered by an earlier failed call has now
+    # been replayed (folded into this body by `_plan_buffer_replay`), so drop the
+    # buffer file. Idempotency is already guaranteed by the presence check, so a
+    # missed clear would at worst replay-and-skip next time, never duplicate.
+    if _buffer_had_records:
+        _clear_workpad_buffer(comment_id)
     # Issue #814: the patched body is echoed only under `--print-body`, or on the
     # volatile-tick-miss path below. This one statement is reached by BOTH the clean
     # return and the miss exit (the `failed_ticks` branch is evaluated after it), so
@@ -3649,6 +3900,20 @@ def main():
                         'issue-body), so the un-mirrored placeholder is '
                         'distinguishable from a legitimately empty section.')
     s.set_defaults(func=cmd_acs)
+
+    s = sub.add_parser(
+        'acs-gate',
+        help="Read the workpad's ## Acceptance Criteria for the /prflow:implement "
+             'Phase 3.4 gate WITH a defined degradation (issue #1214). Line 1 of '
+             'stdout is always "source: <token>". Exit/token pairs: 0 source: '
+             'workpad (clean read); 2 source: workpad-absent (clean absence, the '
+             'existing benign shape); 3 source: workpad-read-failed (workpad read '
+             'failed, criteria recovered from the issue body via parse-acs.py — the '
+             'gate must NOT pass); 4 source: unestablished (workpad read failed AND '
+             'the issue-body fallback also failed — the gate must NOT pass).',
+    )
+    s.add_argument('issue', type=int)
+    s.set_defaults(func=cmd_acs_gate)
 
     s = sub.add_parser(
         'acs-resolve',
