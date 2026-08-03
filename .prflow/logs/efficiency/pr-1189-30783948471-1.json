@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1189",
+  "generated_at": "2026-08-03T04:30:18Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.62",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 9.93871975,
+    "tokens": {
+      "input_tokens": 71,
+      "output_tokens": 35023,
+      "cache_read_input_tokens": 5900940,
+      "cache_creation_input_tokens": 207859,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 154,
+        "outputTokens": 73390,
+        "cacheReadInputTokens": 8001757,
+        "cacheCreationInputTokens": 531656,
+        "webSearchRequests": 0,
+        "costUSD": 9.93871975,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 45,
+    "duration_ms": 762555
+  },
+  "permission_denials": {
+    "count": 10,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"run=${GITHUB_RUN_ID:-none} attempt=${GITHUB_RUN_ATTEMPT:-none}\"; mkdir -p .prflow/tmp/review/pr-1189/local; echo ok",
+      "gh pr diff 1189 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1189/30783948471-1/diff.patch; wc -l .prflow/tmp/review/pr-1189/30783948471-1/diff.patch",
+      ".prflow/vendor/prflow/scripts/workpad.py patch 5162245798 .prflow/tmp/review/pr-1189/30783948471-1/review-wp.md 2>.prflow/tmp/review/pr-1189/30783948471-1/rv-patch.err && echo \"patch-ok\" || echo \"patch-rc=$?\"; echo \"=== snapshot ===\"; mkdir -p .prflow/tmp; rm -f .prflow/tmp/review-dirty-tree-before .prflow/tmp/review-dirty-tree-disabled 2>/dev/null; git status --porcelain -z > .prflow/tmp/review-dirty-tree-before && git hash-object .prflow/tmp/review-dirty-tree-before",
+      ".prflow/vendor/prflow/scripts/workpad.py patch 5162245798 .prflow/tmp/review/pr-1189/30783948471-1/review-wp.md 2>.prflow/tmp/review/pr-1189/30783948471-1/rv-patch.err; echo \"patch-rc=$?\"",
+      "cd /tmp && cp /home/runner/work/prflow/prflow/lib/test/run.sh run_base.sh && cp run_base.sh run_head.sh && git -C /home/runner/work/prflow/prflow apply --check .prflow/tmp/review/pr-1189/30783948471-1/diff.patch 2>&1 | head; echo \"apply-check:$?\"",
+      "git -C /home/runner/work/prflow/prflow apply --check .prflow/tmp/review/pr-1189/30783948471-1/diff.patch && echo APPLIES-CLEAN",
+      "git -C /home/runner/work/prflow/prflow apply --check .prflow/tmp/review/pr-1189/30783948471-1/diff.patch",
+      "cp /home/runner/work/prflow/prflow/lib/test/run.sh /tmp/run_head.sh && python3 -c \"\nimport subprocess\nr=subprocess.run(['patch','/tmp/run_head.sh','/home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1189/30783948471-1/diff.patch'],capture_output=True,text=True)\nprint(r.stdout,r.stderr)\n\" ; bash -n /tmp/run_head.sh && echo SYNTAX-OK",
+      "grep -n 'public_nav_routes()\\|^PUBLIC_SITE_ROOT\\|^assert_eq \"public site: every page\\|navigated twice fails completeness' /tmp/run_head.sh"
+    ],
+    "total": 10,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
