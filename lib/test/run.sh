@@ -45036,31 +45036,44 @@ assert_eq "#908 AC1: the settings input registers a PreToolUse hook naming the g
 # `settings:` key (this literal is generic YAML, not unique to hook registration)
 # would falsely flip this RED for a non-defect, and a differently-spelled
 # registration would evade it entirely. Parse the YAML with PyYAML instead and check,
-# structurally, that no step anywhere in the file carries a `with.settings` key and no
-# step's `with` values mention "PreToolUse" — the same precision the #460 errexit
-# fixture above uses to extract a step's `run:` body, applied here to a `with:` key
-# check instead. Falls back to the previous (imprecise but not silently skipped)
-# grep when python3/PyYAML is unavailable, so the assertion still runs somewhere.
+# structurally, that no step registers a PreToolUse hook — the same precision the #460
+# errexit fixture above uses to extract a step's `run:` body, applied here to a `with:`
+# key check instead. The property #908 protects on the implement tier is "no PreToolUse
+# guard" (that shape guard is review-tier-only), NOT "no settings input at all": issue
+# #1179 legitimately adds an env-only `settings` block here to raise BASH_MAX_TIMEOUT_MS,
+# which registers no hook. So a `settings` block is allowed IFF it declares no `hooks`
+# key and no `with` value mentions "PreToolUse". Falls back to a PreToolUse-only grep
+# when python3/PyYAML is unavailable, so the assertion still runs somewhere.
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
   _908_IMPL_CHECK=$(python3 - "$_908_IMPLEMENT_YML" <<'PY'
-import sys, yaml
+import sys, yaml, json
 doc = yaml.safe_load(open(sys.argv[1]))
 hit = False
 for job in doc.get("jobs", {}).values():
     for s in job.get("steps", []) or []:
         with_block = s.get("with") or {}
-        if "settings" in with_block:
-            hit = True
+        settings = with_block.get("settings")
+        if isinstance(settings, str) and settings.strip():
+            # A settings block is permitted ONLY for non-hook configuration (issue
+            # #1179's env override). Parse it and fail CLOSED (hit) if it cannot be
+            # read as a JSON object with no `hooks` key — an unparseable value (e.g. a
+            # settings-file path we cannot inspect) or a hook registration both flip RED.
+            try:
+                parsed = json.loads(settings)
+            except (ValueError, TypeError):
+                parsed = None
+            if not isinstance(parsed, dict) or "hooks" in parsed:
+                hit = True
         for v in with_block.values():
             if isinstance(v, str) and "PreToolUse" in v:
                 hit = True
 print("no" if hit else "yes")
 PY
 ) || _908_IMPL_CHECK="extractor-failed"   # fail CLOSED: a YAML parse error or an unexpected shape must never yield the passing value (issue #908 confirmatory review; mirrors the _908_PROBE_JOB extractor's discipline)
-  assert_eq "#908 AC1: devflow-implement.yml registers no settings input / PreToolUse guard" "yes" "$_908_IMPL_CHECK"
+  assert_eq "#908 AC1: devflow-implement.yml registers no PreToolUse guard (env-only settings allowed)" "yes" "$_908_IMPL_CHECK"
 else
-  assert_eq "#908 AC1: devflow-implement.yml registers no settings input / PreToolUse guard" "yes" \
-    "$(grep -qE 'settings:|PreToolUse' "$_908_IMPLEMENT_YML" && echo no || echo yes)"
+  assert_eq "#908 AC1: devflow-implement.yml registers no PreToolUse guard (env-only settings allowed)" "yes" \
+    "$(grep -qE 'PreToolUse|pretooluse-shape-guard' "$_908_IMPLEMENT_YML" && echo no || echo yes)"
 fi
 assert_eq "#908 AC2: HOOK_TARGETS (harden-stop-hooks.sh) already lists the guard script" "yes" \
   "$(grep -qF 'stop-hook-probe.sh scripts/pretooluse-shape-guard.py' "$LIB/../scripts/harden-stop-hooks.sh" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- pins the guard's adjacency inside the HOOK_ENTRY_TARGETS/HOOK_TARGETS assignment lines specifically (a code-only substring, never the file's prose comments mentioning the same script name), the AC2 precondition that makes the settings-input hook inert unless the script is a hardened/trusted target
