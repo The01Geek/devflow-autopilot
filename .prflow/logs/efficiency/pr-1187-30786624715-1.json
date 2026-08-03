@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1187",
+  "generated_at": "2026-08-03T05:29:17Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.62",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 9.504834249999996,
+    "tokens": {
+      "input_tokens": 4948,
+      "output_tokens": 34020,
+      "cache_read_input_tokens": 5488235,
+      "cache_creation_input_tokens": 220196,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 4987,
+        "outputTokens": 62697,
+        "cacheReadInputTokens": 6495916,
+        "cacheCreationInputTokens": 614205,
+        "webSearchRequests": 0,
+        "costUSD": 9.504834249999996,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 42,
+    "duration_ms": 793512
+  },
+  "permission_denials": {
+    "count": 10,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "printf '%s\\n' \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review",
+      "mkdir -p .prflow/tmp/review/pr-1187/local\ngh pr diff 1187 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1187/local/diff.patch\necho \"=== changed files ===\"; grep '^diff --git' .prflow/tmp/review/pr-1187/local/diff.patch | sed -E 's#^diff --git a/(.*) b/.*#\\1#'\necho \"=== stats ===\"; wc -l .prflow/tmp/review/pr-1187/local/diff.patch; echo \"added lines:\"; grep -c '^+' .prflow/tmp/review/pr-1187/local/diff.patch; echo \"removed lines:\"; grep -c '^-' .prflow/ …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\necho \"=== has_new_types scan (added code lines) ===\"\ngrep -E '^\\+[[:space:]]*((final|abstract|readonly|export|public|pub)[[:space:]]+)*(class|interface|type|enum|struct|trait)[[:space:]]+[A-Za-z_]' .prflow/tmp/review/pr-1187/local/diff.patch | grep -vE '\\.(md|json|yml|yaml|toml|ini|lock|txt):' | head; echo \"rc=$? (grep: 1=none found)\"\necho \"=== acs-resolve attempt ===\"\n.prflow/vendor/prflow/scripts/workpad.py acs-resolve 1177 --pr 1187 2>.prflow/tmp/review/pr-1 …[per-command-truncated]",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1177 --pr 1187 2>.prflow/tmp/review/pr-1187/local/acs.err ; echo \"acs-rc=$?\"",
+      "(cat ruff.toml 2>/dev/null; cat .ruff.toml 2>/dev/null; sed -n '/\\[tool.ruff/,/^\\[/p' pyproject.toml 2>/dev/null) | head -40; echo \"---\"; ruff check scripts/agents-seam-probe-verdict.py 2>&1 | head -30",
+      "scripts/load-prompt-extension.sh requesting-code-review",
+      "scripts/post-review-verdict.sh \"1187\" \"APPROVE with notes\" .prflow/tmp/review-verdict-body.md \"0eda61ebe2f6da5afd44d7adaf67a4e4fa8568cd\" \"\""
+    ],
+    "total": 10,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
