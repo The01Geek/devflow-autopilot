@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1227",
+  "generated_at": "2026-08-03T23:11:47Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.71",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.55507525,
+    "tokens": {
+      "input_tokens": 45,
+      "output_tokens": 30742,
+      "cache_read_input_tokens": 3437395,
+      "cache_creation_input_tokens": 192454,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 101,
+        "outputTokens": 59350,
+        "cacheReadInputTokens": 5340923,
+        "cacheCreationInputTokens": 428585,
+        "webSearchRequests": 0,
+        "costUSD": 7.55507525,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 32,
+    "duration_ms": 636542
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review 2>&1 || echo \"rc=$?\"",
+      "git status --porcelain 2>&1 | head; echo \"---\"; echo \"run_id=${GITHUB_RUN_ID:-none} attempt=${GITHUB_RUN_ATTEMPT:-none} actions=${GITHUB_ACTIONS:-none}\"",
+      "mkdir -p .prflow/tmp/review/pr-1227/local-run && gh pr diff 1227 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1227/local-run/diff.patch > /dev/null; echo \"rc=${PIPESTATUS[0]}\"; echo \"--- files changed:\"; grep -c '^diff --git' .prflow/tmp/review/pr-1227/local-run/diff.patch; echo \"--- lines:\"; wc -l .prflow/tmp/review/pr-1227/local-run/diff.patch",
+      "scripts/post-review-verdict.sh \"1227\" \"REJECT\" .prflow/tmp/review-verdict-body.md \"25b913438ee71e693a7733ba64fb09b25de861a3\" \"\"",
+      "gh pr review 1227 --request-changes --body-file .prflow/tmp/review-verdict-body.md 2>&1; echo \"rc=$?\""
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
