@@ -198,6 +198,7 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
   discipline at draft time — a polished, comprehensive-looking list earns the same scrutiny a
   terse story gets.
 - Specific and implementable — a developer knows exactly when it's met.
+- **A quantitative AC names its measurement instrument.** When an AC expresses a number — a word, byte, or line ceiling, a count, a coverage threshold, or a percentage tolerance — state the exact command or counting rule that produces the measured value. Name the counter, not merely the unit; for example, specify Python `str.split()` over the UTF-8 contents of the files named by the AC, summed once per file. If the command or rule cannot be established, record `unestablished` for that criterion and do not publish an unnamed counter as an accepted quantitative AC. GNU and BSD `wc -w` can disagree in both directions on the same prompt corpus, so an unnamed word counter can flip the threshold verdict.
 - **A value-comparison AC states its comparison in the producing surface's observed-output
   terms — in the AC's own language.** When an AC (or a Testing-Strategy assertion) compares a
   produced value against a literal, phrase the comparison in the terms the producing surface
@@ -461,6 +462,7 @@ incomplete issues.
 - [ ] Open cross-issue prerequisites are listed in `## Dependencies` as `Blocked by #N — <reason>` lines (rendered above Problem Statement, only when a prerequisite is still open at drafting time; already-closed prerequisites recorded as Technical Context provenance instead)
 - [ ] For a user-visible UI change, the Visual Specification section records a screenshot/mockup or a verbally-verified placement spec (screenshot preferred, verbal verification an accepted substitute); non-UI issues omit the section entirely
 - [ ] Acceptance criteria are measurable, testable, and unconditional
+- [ ] Quantitative ACs satisfy the measurement-instrument rule in the Acceptance Criteria guidance above
 - [ ] Value-comparison ACs/assertions state the comparison in the producing surface's observed-output terms, grounded by a boundary-covering probe (exercising the type-boundary fixture the comparison distinguishes) or a named implementer obligation carrying its execution-tier constraint — adjective-only or probe-silent-on-the-axis comparison language is non-conforming
 - [ ] Every universal quantifier ("never/always/each/every/all/cannot") the body asserts about the system under change, outside `## 🚫 Blocked`, is grounded — pinned per-arm/per-element (an accepted-loss/suppression claim pinned by a fixture in which the suppressed input is present), scoped to the mechanism's supported form, or removed — with only mandated-verbatim boilerplate and rule-text-shipped-as-artifact-content exempt, and detector-coverage claims additionally carrying a planted-defect positive-control obligation
 - [ ] No AC forbids a surface (a path, a file class, a tier) that another AC's discharge must touch — the ACs are mutually consistent
