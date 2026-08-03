@@ -4,6 +4,27 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.71] — 2026-08-03
+
+### Fixed
+- **The `#1219` checkout-depth pins are anchored on the value, closing a spelling that
+  satisfied both of them at once.** As merged, the positive pin matched `fetch-depth: 0` as a
+  *prefix* and the negative pin looked for a `1-9` digit immediately after the space — so
+  `fetch-depth: 050` answered `yes` to the positive pin and `no` to the negative one, leaving
+  both green with a bounded depth in force. The positive pin now requires the value to *be*
+  `0`, and the negative pin tolerates leading zeros before the first nonzero digit. The
+  mutation control gained planted copies for every spelling the patterns claim to handle —
+  bare, single-quoted, double-quoted, and leading-zero — because a claimed spelling with no
+  planted copy is an unproven claim, which is exactly how this hole survived its own review.
+  (#1219)
+
+## [2.30.70] — 2026-08-03
+
+### Changed
+- **Require quantitative acceptance criteria to name their measurement instrument.** The
+  create-issue guidance now rejects unnamed counters, documents the GNU/BSD `wc -w`
+  portability risk, and keeps planning-agent estimates explicitly unverified. (#1223)
+
 ## [2.30.69] — 2026-08-03
 
 ### Fixed
