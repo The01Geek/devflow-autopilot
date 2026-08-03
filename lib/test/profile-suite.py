@@ -85,11 +85,21 @@ import argparse
 import json
 import os
 import re
-import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+# issue #1216: consume the extracted signal-restoration + exit-status helpers so
+# there is one source of that logic rather than two divergent copies. profile-suite
+# does NOT consume the run_detached launcher itself — it must stream the child's
+# stdout line-by-line for timing, which run_detached (which does not capture the
+# child's output) cannot provide — but it shares the signal handling below.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from signal_launcher import (  # noqa: E402
+    exit_status as _shared_exit_status,
+    restore_default_signals,
+)
 
 # An assertion result line as printed by run.sh's assert_eq / assert_pin_unique /
 # check / the harness FAIL sites, and by skip(). Two-space indent, a status word,
@@ -429,13 +439,14 @@ def _report(out: Path, top: int, run_sh: "Path | None") -> int:
 def _exit_status(wait_status: int) -> int:
     """`Popen.wait()`'s status as a SHELL exit status.
 
-    `wait()` reports a signal death as `-N`, and `sys.exit(-15)` wraps modulo 256 to
-    241 — where `bash lib/test/run.sh` killed by that same SIGTERM exits 143. Left
-    untranslated, a profiled run does NOT fail the way an unprofiled one does, which
-    is the promise the module docstring makes. Non-signal statuses (including 0) pass
-    through untouched.
+    Delegates to the shared `signal_launcher.exit_status` (issue #1216) so the
+    signal-death → `128 + N` translation has a single source. `wait()` reports a
+    signal death as `-N`, and `sys.exit(-15)` wraps modulo 256 to 241 — where
+    `bash lib/test/run.sh` killed by that same SIGTERM exits 143. Left
+    untranslated, a profiled run does NOT fail the way an unprofiled one does,
+    which is the promise the module docstring makes.
     """
-    return 128 + (-wait_status) if wait_status < 0 else wait_status
+    return _shared_exit_status(wait_status)
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -461,11 +472,14 @@ def _run(args: argparse.Namespace) -> int:
     prof = Profile(banners)
     log_path = out / "log.txt"
 
-    # start_new_session + SIGINT restored to SIG_DFL in the child: the suite carries
-    # signal-trap assertions that fail spuriously when SIGINT arrives as SIG_IGN
-    # (which is what a backgrounded launch hands a child), and a child left in this
-    # process's group gets SIGTERM'd mid-run. Both are the documented way to launch
-    # this suite from a wrapper.
+    # start_new_session + default signal dispositions restored in the child: the
+    # suite carries signal-trap assertions that fail spuriously when SIGINT/SIGQUIT
+    # arrive as SIG_IGN (which is what a backgrounded launch hands a child), and a
+    # child left in this process's group gets SIGTERM'd mid-run. Both are the
+    # documented way to launch this suite from a wrapper. issue #1216: the
+    # restoration now runs through the shared `restore_default_signals` (which
+    # covers SIGHUP/SIGINT/SIGQUIT/SIGTERM, widening this from the former SIGINT-only
+    # reset) so there is one source of that logic, not two divergent copies.
     proc = subprocess.Popen(  # noqa: S603 - argv list, no shell
         cmd,
         cwd=str(root),
@@ -475,7 +489,7 @@ def _run(args: argparse.Namespace) -> int:
         text=True,
         bufsize=1,
         start_new_session=True,
-        preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL),  # noqa: PLW1509
+        preexec_fn=restore_default_signals,  # noqa: PLW1509 - POSIX-only by design
     )
     t0 = time.monotonic()
     prev = t0
