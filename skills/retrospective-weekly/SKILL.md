@@ -486,10 +486,10 @@ The assembler is idempotent (one line per merged PR, keyed by PR number) and inc
 (it processes merged PRs absent from `.prflow/learnings/experiment-records.jsonl` plus
 any passed via `--prs`, never a full-history sweep), so re-running is safe and cheap. It
 runs on the **local/interactive retrospective tier only** — it is never invoked from a
-workflow. The store is keyed on **merged** PRs, so a run whose slug never produced a
-merged PR (an abandoned branch) contributes no cost row: the cost side carries a
-survivorship bias, with abandoned-run cost invisible to the join. That is deliberate —
-the experiment measures cost-vs-outcome for PRs that shipped — not a defect to correct.
+workflow. Because the store is keyed on merged PRs, an abandoned run contributes no cost
+row, so the cost side carries a survivorship bias. That is deliberate, not a defect to
+correct — the experiment measures cost-vs-outcome for PRs that shipped. The record's own
+shape is documented in `scripts/build-experiment-records.py`'s module docstring.
 
 ---
 

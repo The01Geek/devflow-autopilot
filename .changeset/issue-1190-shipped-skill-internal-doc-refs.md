@@ -13,7 +13,7 @@ type: Fixed
   backing for a claim — the cloud allowlist's `unestablished` and `inference, not measurement`
   grades, the base-branch `CLAUDE.md` restore that scopes a review-path self-supply hazard, the
   experiment store's deliberate abandoned-run survivorship bias — that backing is restated inline
-  rather than dropped, and pointers that a consumer *can* resolve (`config.schema.json`,
-  `lib/efficiency-trace.jq`, both of which ship) replace those that it cannot. Three PRFlow-internal
-  PR numbers no longer ship inside the review engine. No behavior changes and no frontmatter is
-  touched. (#1190)
+  rather than dropped, and where a pointer still helps it now names an artifact the consumer
+  actually has (`lib/efficiency-trace.jq`'s header, `scripts/build-experiment-records.py`'s
+  docstring). Three PRFlow-internal PR numbers no longer ship inside the review engine. No behavior
+  changes and no frontmatter is touched. (#1190)
