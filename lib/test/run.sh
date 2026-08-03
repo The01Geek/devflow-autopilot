@@ -41391,6 +41391,14 @@ e1196_run() {  # <path…>  -> "rc=<n>|<output>"
   rm -f "$list"
   printf 'rc=%s|%s' "$rc" "$out"
 }
+e1196_rc() {  # <path…> -> prints just "rc=<n>"
+  # Pure parameter expansion strips everything from the FIRST `|` on (greedy `%%`), so a
+  # multi-line RED report after the `rc=<n>|` prefix is dropped cleanly — never `cut`, whose
+  # per-line split would leak the report lines AND which is a non-preflight PATH tool this
+  # assertion-deciding value must not depend on (CLAUDE.md guard-class 2).
+  local out; out="$(e1196_run "$@")"
+  printf '%s' "${out%%|*}"
+}
 
 # Historical regression case (AC4): the pre-fix parent 5179c5a1 of merge 1753565e tracks
 # lib/test/fixtures/shipped-pruned-path/skills/nul.md — a real positive case, not synthetic.
@@ -41420,28 +41428,28 @@ fi
 
 # Mutation check (AC5): every rule the guard implements, one synthetic violating path each. A
 # component judged by a rule must go RED; the same set with the offending path removed is GREEN.
-assert_eq "#1196 mutation: reserved stem with an extension (nul.md)" "rc=1" "$(printf '%s' "$(e1196_run skills/nul.md)" | cut -d'|' -f1)"
-assert_eq "#1196 mutation: bare reserved stem (nul)" "rc=1" "$(printf '%s' "$(e1196_run skills/nul)" | cut -d'|' -f1)"
-assert_eq "#1196 mutation: reserved stem in a NON-final component (nul/x.md)" "rc=1" "$(printf '%s' "$(e1196_run skills/nul/x.md)" | cut -d'|' -f1)"
-assert_eq "#1196 mutation: reserved stem with a trailing space (nul )" "rc=1" "$(printf '%s' "$(e1196_run 'skills/nul ')" | cut -d'|' -f1)"
-assert_eq "#1196 mutation: reserved name followed by : (nul:ads)" "rc=1" "$(printf '%s' "$(e1196_run skills/nul:ads)" | cut -d'|' -f1)"
-assert_eq "#1196 mutation: CONIN\$ reserved name" "rc=1" "$(printf '%s' "$(e1196_run 'skills/CONIN$')" | cut -d'|' -f1)"
-assert_eq "#1196 mutation: component with a trailing dot (foo.)" "rc=1" "$(printf '%s' "$(e1196_run skills/foo./x.md)" | cut -d'|' -f1)"
-assert_eq "#1196 mutation: component with a trailing space (foo )" "rc=1" "$(printf '%s' "$(e1196_run 'skills/foo /x.md')" | cut -d'|' -f1)"
-assert_eq "#1196 mutation: forbidden character (<)" "rc=1" "$(printf '%s' "$(e1196_run 'skills/a<b.md')" | cut -d'|' -f1)"
-assert_eq "#1196 mutation: control character (0x01)" "rc=1" "$(printf '%s' "$(e1196_run "$(printf 'skills/a\001b.md')")" | cut -d'|' -f1)"
-assert_eq "#1196 mutation: backslash in path" "rc=1" "$(printf '%s' "$(e1196_run 'docs/a\b.md')" | cut -d'|' -f1)"
+assert_eq "#1196 mutation: reserved stem with an extension (nul.md)" "rc=1" "$(e1196_rc skills/nul.md)"
+assert_eq "#1196 mutation: bare reserved stem (nul)" "rc=1" "$(e1196_rc skills/nul)"
+assert_eq "#1196 mutation: reserved stem in a NON-final component (nul/x.md)" "rc=1" "$(e1196_rc skills/nul/x.md)"
+assert_eq "#1196 mutation: reserved stem with a trailing space (nul )" "rc=1" "$(e1196_rc 'skills/nul ')"
+assert_eq "#1196 mutation: reserved name followed by : (nul:ads)" "rc=1" "$(e1196_rc skills/nul:ads)"
+assert_eq "#1196 mutation: CONIN\$ reserved name" "rc=1" "$(e1196_rc 'skills/CONIN$')"
+assert_eq "#1196 mutation: component with a trailing dot (foo.)" "rc=1" "$(e1196_rc skills/foo./x.md)"
+assert_eq "#1196 mutation: component with a trailing space (foo )" "rc=1" "$(e1196_rc 'skills/foo /x.md')"
+assert_eq "#1196 mutation: forbidden character (<)" "rc=1" "$(e1196_rc 'skills/a<b.md')"
+assert_eq "#1196 mutation: control character (0x01)" "rc=1" "$(e1196_rc "$(printf 'skills/a\001b.md')")"
+assert_eq "#1196 mutation: backslash in path" "rc=1" "$(e1196_rc 'docs/a\b.md')"
 # Removing the offending path leaves a clean population (RED→GREEN, the AC5 pairing).
 assert_eq "#1196 mutation: the same set MINUS the violation is GREEN" "rc=0" \
-  "$(printf '%s' "$(e1196_run skills/normal.md docs/readme.md)" | cut -d'|' -f1)"
+  "$(e1196_rc skills/normal.md docs/readme.md)"
 
 # Negative controls (AC6): look-alikes that must NOT be flagged.
 assert_eq "#1196 negative controls are not flagged" "rc=0" \
-  "$(printf '%s' "$(e1196_run skills/nulls.md skills/console.md skills/common.md skills/com0.md skills/a.b.c.md)" | cut -d'|' -f1)"
+  "$(e1196_rc skills/nulls.md skills/console.md skills/common.md skills/com0.md skills/a.b.c.md)"
 
 # COM/LPT asymmetry (AC7), demonstrated in BOTH directions: com0 not flagged, lpt0 flagged.
-assert_eq "#1196 asymmetry: com0.md is NOT flagged" "rc=0" "$(printf '%s' "$(e1196_run skills/com0.md)" | cut -d'|' -f1)"
-assert_eq "#1196 asymmetry: lpt0.md IS flagged" "rc=1" "$(printf '%s' "$(e1196_run skills/lpt0.md)" | cut -d'|' -f1)"
+assert_eq "#1196 asymmetry: com0.md is NOT flagged" "rc=0" "$(e1196_rc skills/com0.md)"
+assert_eq "#1196 asymmetry: lpt0.md IS flagged" "rc=1" "$(e1196_rc skills/lpt0.md)"
 
 # Fail-closed on an unestablished population (AC8): an empty --files-from list must be a
 # non-zero "enumeration unusable", never a clean pass — "audited nothing" ≠ "found nothing".
