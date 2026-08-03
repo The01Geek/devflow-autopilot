@@ -41354,6 +41354,191 @@ assert_eq "#711 the growth artifact exists" "yes" \
   "$([ -f "$E711_GROWTH" ] && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
+# Windows-uncheckoutable tracked-path guard (lib/test/lint-windows-uncheckoutable-path.py).
+# The plugin `source` is `./`, so the whole repository is cloned by every consumer; git's
+# Windows reserved-name/path validation is compiled OUT on the linux/macOS platforms we test
+# on, so a path that aborts every Windows clone ships green here (issue #1196). The guard is a
+# member of the desk-time static-lint family (extract-command-heads.py, pin-corpus-lint.py,
+# lint-gh-api-repo-path.py, lint-tree-enumeration.py, …) and is driven the same way: the real
+# tree as the live gate, plus the real pre-fix tree and synthetic fixtures via --files-from.
+# ────────────────────────────────────────────────────────────────────────────
+echo "#1196 Windows-uncheckoutable tracked-path guard"
+E1196_LINT="$LIB/test/lint-windows-uncheckoutable-path.py"
+
+# Real tree: clean, AND a positive audited tally so a collapsed enumeration (a broken
+# population, an ls-files that yielded nothing) cannot read as clean. Comparand is the exit
+# code alone — the audited count drifts with every file added, so the positive-tally check is
+# a SEPARATE assertion reading the same rc=0 run.
+E1196_OUT="$(python3 "$E1196_LINT" --root "$LIB/.." 2>&1)"; E1196_RC=$?
+assert_eq "#1196 the real tree audits clean" "rc=0" \
+  "$([ "$E1196_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$E1196_RC" "$E1196_OUT")"
+assert_eq "#1196 the real-tree run audited a positive number of paths" "yes" \
+  "$(printf '%s' "$E1196_OUT" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) tracked", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+
+# Fixture driver — feed a synthetic path list through --files-from (never plant a reserved-name
+# file on disk: a tracked nul.md would re-break every Windows clone while the guard reported
+# green, the exact incident this guard prevents). Prints "rc=<n>|<stdout+stderr>".
+e1196_run() {  # <path…>  -> "rc=<n>|<output>"
+  local list out rc
+  list="$(probe_tmp '#1196 fixture list')" || list=""
+  case "$list" in
+    ""|/dev/null) printf 'rc=probe-unavailable|fixture list could not be allocated'; return 0 ;;
+  esac
+  printf '%s\n' "$@" > "$list"
+  out="$(python3 "$E1196_LINT" --root "$LIB/.." --files-from "$list" 2>&1)"; rc=$?
+  rm -f "$list"
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+e1196_rc() {  # <path…> -> prints just "rc=<n>"
+  # Pure parameter expansion strips everything from the FIRST `|` on (greedy `%%`), so a
+  # multi-line RED report after the `rc=<n>|` prefix is dropped cleanly — never `cut`, whose
+  # per-line split would leak the report lines AND which is a non-preflight PATH tool this
+  # assertion-deciding value must not depend on (CLAUDE.md guard-class 2).
+  local out; out="$(e1196_run "$@")"
+  printf '%s' "${out%%|*}"
+}
+
+# Historical regression case (AC4): the pre-fix parent 5179c5a1 of merge 1753565e tracks
+# lib/test/fixtures/shipped-pruned-path/skills/nul.md — a real positive case, not synthetic.
+# Fed from that tree's own path list (git ls-tree), so no Windows host and no checkout of the
+# offending path is needed. Self-skips when the commit is unreachable (a shallow local clone);
+# CI checks out full history (fetch-depth: 0), so the gate runs there.
+if git cat-file -e 5179c5a1 2>/dev/null; then
+  E1196_HIST_LIST="$(probe_tmp '#1196 historical path list')" || E1196_HIST_LIST=""
+  case "$E1196_HIST_LIST" in
+    ""|/dev/null) E1196_HIST="rc=probe-unavailable|list unallocatable" ;;
+    *)
+      # Guard the ls-tree rc AND a non-empty result: an empty/truncated list would make the
+      # guard raise EnumerationError (rc=1), and the "goes RED" assertion below matches "rc=1|"
+      # — so an unchecked degraded ls-tree would pass assertion 1 for the WRONG reason
+      # (enumeration-unusable, not a detected reserved name). Route that to a sentinel that
+      # matches neither "rc=1|" nor the fixture-name test, so both assertions fail on the real
+      # cause instead of one passing coincidentally.
+      # `-c core.quotePath=false` for the same reason the guard's own live enumeration carries
+      # it: under git's default a non-ASCII path is emitted C-QUOTED, and the guard would flag
+      # the escape backslashes as a backslash-in-path violation. This tree's path of interest
+      # is ASCII, so the flag changes nothing observable here today — it is carried so the two
+      # enumerations that feed this guard cannot disagree about what a path looks like.
+      if git -c core.quotePath=false ls-tree -r 5179c5a1 --name-only > "$E1196_HIST_LIST" 2>/dev/null && [ -s "$E1196_HIST_LIST" ]; then
+        E1196_HIST_OUT="$(python3 "$E1196_LINT" --root "$LIB/.." --files-from "$E1196_HIST_LIST" 2>&1)"
+        E1196_HIST_RC=$?
+        E1196_HIST="rc=$E1196_HIST_RC|$E1196_HIST_OUT"
+      else
+        E1196_HIST="rc=hist-list-unavailable|git ls-tree produced no path list for 5179c5a1"
+      fi
+      rm -f "$E1196_HIST_LIST"
+      ;;
+  esac
+  assert_eq "#1196 the pre-fix tree 5179c5a1 goes RED" "yes" \
+    "$(case "$E1196_HIST" in "rc=1|"*) echo yes ;; *) echo "no: $E1196_HIST" ;; esac)"
+  assert_eq "#1196 the pre-fix RED names the reserved-name fixture" "yes" \
+    "$(case "$E1196_HIST" in *"lib/test/fixtures/shipped-pruned-path/skills/nul.md"*) echo yes ;; *) echo "no: $E1196_HIST" ;; esac)"
+else
+  # BOTH historical assertions self-skip together — the #456 registered-check population must
+  # be stable across environments, so a shallow clone must report the same two check names a
+  # full-history clone reports, one per skip line, rather than silently dropping the second.
+  skip "#1196 the pre-fix tree 5179c5a1 goes RED" host-capability \
+    "commit 5179c5a1 is unreachable in this checkout (shallow clone); CI runs with full history"
+  skip "#1196 the pre-fix RED names the reserved-name fixture" host-capability \
+    "commit 5179c5a1 is unreachable in this checkout (shallow clone); CI runs with full history"
+fi
+
+# Mutation check (AC5): every rule the guard implements, one synthetic violating path each. A
+# component judged by a rule must go RED; the same set with the offending path removed is GREEN.
+assert_eq "#1196 mutation: reserved stem with an extension (nul.md)" "rc=1" "$(e1196_rc skills/nul.md)"
+assert_eq "#1196 mutation: bare reserved stem (nul)" "rc=1" "$(e1196_rc skills/nul)"
+assert_eq "#1196 mutation: reserved stem in a NON-final component (nul/x.md)" "rc=1" "$(e1196_rc skills/nul/x.md)"
+assert_eq "#1196 mutation: reserved stem with a trailing space (nul )" "rc=1" "$(e1196_rc 'skills/nul ')"
+assert_eq "#1196 mutation: reserved name followed by : (nul:ads)" "rc=1" "$(e1196_rc skills/nul:ads)"
+# A `:` in a NON-reserved component reaches the forbidden-character arm (nul:ads above is caught
+# by the reserved-device branch first), so this is the case that goes RED if `:` were dropped
+# from _FORBIDDEN_CHARS — and it is the DOS-drive-prefix protection the guard subsumes via `:`.
+assert_eq "#1196 mutation: forbidden : in a non-reserved component (DOS-drive-prefix class)" "rc=1" "$(e1196_rc skills/a:b.md)"
+assert_eq "#1196 mutation: CONIN\$ reserved name" "rc=1" "$(e1196_rc 'skills/CONIN$')"
+assert_eq "#1196 mutation: component with a trailing dot (foo.)" "rc=1" "$(e1196_rc skills/foo./x.md)"
+assert_eq "#1196 mutation: component with a trailing space (foo )" "rc=1" "$(e1196_rc 'skills/foo /x.md')"
+assert_eq "#1196 mutation: forbidden character (<)" "rc=1" "$(e1196_rc 'skills/a<b.md')"
+assert_eq "#1196 mutation: control character (0x01)" "rc=1" "$(e1196_rc "$(printf 'skills/a\001b.md')")"
+assert_eq "#1196 mutation: backslash in path" "rc=1" "$(e1196_rc 'docs/a\b.md')"
+# Removing the offending path leaves a clean population (RED→GREEN, the AC5 pairing).
+assert_eq "#1196 mutation: the same set MINUS the violation is GREEN" "rc=0" \
+  "$(e1196_rc skills/normal.md docs/readme.md)"
+
+# Negative controls (AC6): look-alikes that must NOT be flagged.
+assert_eq "#1196 negative controls are not flagged" "rc=0" \
+  "$(e1196_rc skills/nulls.md skills/console.md skills/common.md skills/com0.md skills/a.b.c.md)"
+
+# COM/LPT asymmetry (AC7), demonstrated in BOTH directions: com0 not flagged, lpt0 flagged.
+assert_eq "#1196 asymmetry: com0.md is NOT flagged" "rc=0" "$(e1196_rc skills/com0.md)"
+assert_eq "#1196 asymmetry: lpt0.md IS flagged" "rc=1" "$(e1196_rc skills/lpt0.md)"
+
+# ── Path-quoting regression (PR #1201 review finding 1) ──────────────────────
+# `core.quotePath` defaults to TRUE, under which git emits a non-ASCII path in C-QUOTED form:
+# a legal, Windows-checkout-able `café.md` comes out as the literal string `"caf\303\251.md"`
+# — surrounding double quotes and backslash escapes that are not in the path. Fed to the
+# guard, that string trips its absolute backslash rule, so the first legitimately-named
+# non-ASCII tracked path anyone commits would take the WHOLE SUITE RED for a character the
+# path does not contain, and this guard deliberately ships no declaration marker to wave
+# it through.
+# The guard therefore enumerates with `core.quotePath=false`.
+#
+# Two assertions, covering the two halves separately:
+#   (a) the JUDGEMENT half — an unquoted non-ASCII path string is clean. Reached via
+#       --files-from, which bypasses the enumeration entirely, so this one holds with or
+#       without the flag; it pins the intended verdict the enumeration must deliver.
+#   (b) the ENUMERATION half — the guard run over a real repository whose index carries such
+#       a path. This is the seam --files-from cannot reach, and it is RED without the flag.
+assert_eq "#1196 negative control: an unquoted non-ASCII path is not flagged" "rc=0" \
+  "$(e1196_rc "$(printf 'docs/caf\303\251.md')" skills/normal.md)"
+
+# (b) is driven through a THROWAWAY git repo (git_sandbox — never the real one) because it is
+# a property of the live `git ls-files` call. The fixture name is ordinary and fully
+# Windows-checkout-able, so nothing exotic is planted anywhere: the no-reserved-name-on-disk
+# rule above is about the violating names this guard hunts, not about non-ASCII text.
+E1196_SB="$(git_sandbox '#1196 non-ASCII enumeration sandbox')" || E1196_SB=""
+case "$E1196_SB" in
+  ""|/dev/null*) E1196_NA="rc=sandbox-unavailable|git_sandbox allocated no usable directory" ;;
+  *)
+    # Octal escapes rather than a literal é: the bytes under test are fixed here instead of
+    # being inherited from whatever encoding this file is read with.
+    E1196_NA_NAME="$(printf 'caf\303\251.md')"
+    if git -C "$E1196_SB" init -q 2>/dev/null &&
+       printf 'x\n' > "$E1196_SB/$E1196_NA_NAME" 2>/dev/null &&
+       git -C "$E1196_SB" add -A -f >/dev/null 2>&1; then
+      E1196_NA_OUT="$(python3 "$E1196_LINT" --root "$E1196_SB" 2>&1)"; E1196_NA_RC=$?
+      E1196_NA="rc=$E1196_NA_RC|$E1196_NA_OUT"
+    else
+      # A setup that did not complete must not read as a pass: route it to a sentinel that
+      # is not "rc=0", so the assertion goes RED naming the real cause.
+      E1196_NA="rc=sandbox-setup-failed|could not stage the non-ASCII fixture in the sandbox"
+    fi
+    rm -rf "$E1196_SB"
+    ;;
+esac
+assert_eq "#1196 the live enumeration does not flag a legally-named non-ASCII tracked path" \
+  "rc=0" "${E1196_NA%%|*}"
+# The population was really established — an EnumerationError would also have to be excluded
+# before "rc=0" could be read as "the path was judged and found clean", but rc=0 is only
+# reachable through a non-empty population, so assert the tally the run actually reported.
+assert_eq "#1196 the non-ASCII sandbox run audited its one tracked path" "yes" \
+  "$(case "$E1196_NA" in *"audited 1 tracked path(s), 0 violation(s)"*) echo yes ;; *) echo "no: $E1196_NA" ;; esac)"
+
+# Fail-closed on an unestablished population (AC8): an empty --files-from list must be a
+# non-zero "enumeration unusable", never a clean pass — "audited nothing" ≠ "found nothing".
+E1196_EMPTY="$(probe_tmp '#1196 empty population')" || E1196_EMPTY=""
+case "$E1196_EMPTY" in
+  ""|/dev/null) : ;;
+  *) : > "$E1196_EMPTY"
+     E1196_EOUT="$(python3 "$E1196_LINT" --root "$LIB/.." --files-from "$E1196_EMPTY" 2>&1)"; E1196_ERC=$?
+     rm -f "$E1196_EMPTY"
+     assert_eq "#1196 an empty population fails closed (not a clean pass)" "yes" \
+       "$(case "$E1196_ERC:$E1196_EOUT" in 0:*) echo "no: exited 0" ;; *"enumeration unusable"*) echo yes ;; *) echo "no: $E1196_ERC|$E1196_EOUT" ;; esac)"
+     ;;
+esac
+
+# ────────────────────────────────────────────────────────────────────────────
 # Subagent DISPATCH-NAMESPACE guard (lib/test/lint-subagent-dispatch-namespace.py).
 # A qualified subagent id in prompt prose is a dispatch string whose namespace half is
 # the plugin name, so a plugin rename that misses one ships a review engine whose
