@@ -34087,7 +34087,7 @@ assert_pin_unique "#1170 devflow-implement.yml's claude_args consumes the hoiste
 assert_pin_unique "#1170 devflow-implement.yml renders the block through the shared renderer (no hand-copied prose)" \
   'RGB=.prflow/vendor/prflow/scripts/render-grounding-block.sh' "$_IMPL_YML1170"
 assert_pin_unique "#1170 devflow-implement.yml renders the block in MODE=implement" \
-  'GROUNDING=$(MODE=implement ALLOWED_TOOLS="$ALLOWED_TOOLS" ' "$_IMPL_YML1170"
+  'GROUNDING=$(MODE=implement ALLOWED_TOOLS="$ALLOWED_TOOLS" ' "$_IMPL_YML1170"  # structural-pin-ok: cross-file-phase-contract -- the implement tier MUST render in MODE=implement (not the review default): dropping it would inject the review-only CI-results prose with a false "reviewed commit" claim into the implement prompt, a cross-file contract between this workflow and render-grounding-block.sh that no renderer-unit test can observe
 # Verify the renderer's OUTCOME (a non-empty block), not merely the file's existence:
 # a truncated vendored copy that exits 0 printing nothing falls back to the bare prompt.
 assert_pin_unique "#1170 devflow-implement.yml verifies the renderer's OUTCOME, not just the file's existence" \
