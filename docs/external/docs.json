@@ -1,0 +1,120 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "maple",
+  "name": "PRFlow",
+  "colors": {
+    "primary": "#635BFF",
+    "light": "#7C73FF",
+    "dark": "#4B45CC"
+  },
+  "seo": {
+    "metatags": {
+      "canonical": "https://prflow.ai"
+    }
+  },
+  "navigation": {
+    "pages": [
+      {
+        "group": "PRFlow",
+        "pages": [
+          "index"
+        ]
+      },
+      {
+        "group": "Documentation",
+        "pages": [
+          "docs/index",
+          {
+            "group": "Getting started",
+            "pages": [
+              "docs/getting-started/index",
+              "docs/getting-started/installation",
+              "docs/getting-started/first-run"
+            ]
+          },
+          {
+            "group": "Workflows",
+            "pages": [
+              "docs/workflows/index",
+              "docs/workflows/create-issue",
+              "docs/workflows/implement",
+              "docs/workflows/review-and-fix",
+              "docs/workflows/documentation"
+            ]
+          },
+          {
+            "group": "Runs",
+            "pages": [
+              "docs/runs/index",
+              {
+                "group": "Local runs",
+                "pages": [
+                  "docs/runs/local/index",
+                  "docs/runs/local/permissions"
+                ]
+              },
+              {
+                "group": "Cloud runs",
+                "pages": [
+                  "docs/runs/cloud/index",
+                  "docs/runs/cloud/setup",
+                  "docs/runs/cloud/triggers",
+                  "docs/runs/cloud/recovery"
+                ]
+              }
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "docs/configuration/index",
+              "docs/configuration/settings",
+              "docs/configuration/review-agents"
+            ]
+          },
+          {
+            "group": "Troubleshooting",
+            "pages": [
+              "docs/troubleshooting/index",
+              "docs/troubleshooting/installation",
+              "docs/troubleshooting/commands",
+              "docs/troubleshooting/cloud-runs"
+            ]
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "GitHub",
+          "href": "https://github.com/The01Geek/prflow",
+          "icon": "github"
+        },
+        {
+          "anchor": "Releases",
+          "href": "https://github.com/The01Geek/prflow/releases",
+          "icon": "tag"
+        }
+      ]
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Documentation",
+        "href": "/docs/getting-started/index"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "View on GitHub",
+      "href": "https://github.com/The01Geek/prflow"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/The01Geek/prflow"
+    }
+  }
+}

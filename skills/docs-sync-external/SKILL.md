@@ -4,7 +4,7 @@ description: Use when customer-facing or public documentation needs to catch up 
 ---
 > **Configuration:** Read documentation paths from `.prflow/config.json`:
 > - Internal: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/`
-> - External: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.external docs/external/`
+> - External: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.external docs/external/` <!-- pruned-path-ok: this is the configurable consumer-owned external-doc root, not a path expected inside the vendored plugin -->
 >
 > The helper falls back to the default value when the config file is missing or the key is absent. Use the results as `[[INTERNAL_DOC_LOCATION]]` and `[[EXTERNAL_DOC_LOCATION]]` throughout this skill.
 

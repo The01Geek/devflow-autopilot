@@ -6,7 +6,8 @@ prunes (issue #1072).
 
 Why this exists: `.github/actions/vendor-plugin/vendor-slice.sh`'s
 `devflow_copy_slice()` deletes subtrees from the vendored plugin before it lands in
-a consumer (`lib/test`, `docs/site`, `.claude-plugin/marketplace.json`). A shipped
+a consumer (`lib/test`, `docs/site`, `docs/external`,
+`.claude-plugin/marketplace.json`). A shipped
 prompt sentence that names one of those paths as an instruction to *run* — or even
 merely mentions it — resolves against a consumer's own tree, where the path does not
 exist. The guards that predated this lint were hand-written per-file negatives over
