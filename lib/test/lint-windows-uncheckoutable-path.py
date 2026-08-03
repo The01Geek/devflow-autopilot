@@ -112,22 +112,23 @@ _FORBIDDEN_CHARS = frozenset('<>:"|?*')
 #: Reserved device-name stems with no numeric suffix (compared case-insensitively).
 _FIXED_RESERVED = frozenset({"aux", "con", "prn", "nul", "conin$", "conout$"})
 
+#: Every reserved device-name stem (lowercased), computed once. The COM/LPT asymmetry is
+#: modelled exactly as git does it: COM1..COM9 — NOT COM0 (git tests c < '1' || c > '9'),
+#: LPT0..LPT9 — LPT0 IS reserved (git tests isdigit()).
+_RESERVED_STEMS = frozenset(
+    _FIXED_RESERVED
+    | {"com" + d for d in "123456789"}
+    | {"lpt" + d for d in "0123456789"}
+)
+
 
 def _is_reserved_stem(lc_component: str) -> str | None:
     """Return the matched reserved stem, or None.
 
     A component matches when it begins with a reserved stem and — after skipping any
-    trailing spaces — is at end-of-component or is followed by `.` or `:`. The
-    `COM`/`LPT` asymmetry is modelled exactly as git does it: `COM` + digit `1`–`9`
-    (COM0 not reserved), `LPT` + digit `0`–`9` (LPT0 reserved).
+    trailing spaces — is at end-of-component or is followed by `.` or `:`.
     """
-    candidates = set(_FIXED_RESERVED)
-    for d in "123456789":  # COM1..COM9 — NOT COM0 (git tests c < '1' || c > '9')
-        candidates.add("com" + d)
-    for d in "0123456789":  # LPT0..LPT9 — LPT0 IS reserved (git tests isdigit())
-        candidates.add("lpt" + d)
-
-    for stem in candidates:
+    for stem in _RESERVED_STEMS:
         if not lc_component.startswith(stem):
             continue
         rest = lc_component[len(stem):].lstrip(" ")
