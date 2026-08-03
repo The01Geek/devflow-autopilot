@@ -63,6 +63,16 @@ if [ ! -f "$DERIVER" ] || [ ! -r "$DERIVER" ]; then
   emit_absent
 fi
 
+# Engine-error short-circuit (issue #1172's scoped caveat). derive-review-verdict.sh
+# returns incomplete on ENGINE_ERROR=true in its step 1, BEFORE any query, so an
+# engine-error run is always `absent` here (it still banners). Return now to skip the
+# HEAD-sha gh round-trip and the deriver invocation entirely — the outcome is identical,
+# and this makes the scoped caveat explicit rather than an emergent property of the
+# deriver's own ordering.
+if [ "$ENGINE_IS_ERROR" = "true" ]; then
+  emit_absent
+fi
+
 # Resolve the gh binary through the same execution-verified resolver the deriver
 # uses (guarded source — a partial copy without lib/resolve-gh.sh degrades to bare
 # `gh` with a breadcrumb, never an empty DEVFLOW_GH that would misdirect the query).
