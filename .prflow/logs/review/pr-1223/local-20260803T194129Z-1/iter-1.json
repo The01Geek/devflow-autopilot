@@ -3,14 +3,21 @@
   "started_at": "2026-08-03T19:41:29Z",
   "loop_role": "fix",
   "current_step": "loop-control",
-  "current_substep": "phase2_checklist_verification",
+  "current_substep": "phase3_review_agents",
   "pending_dispatch": {
-    "kind": "checklist_verifier_batch",
+    "kind": "phase3_reviewer_fanout",
     "roster": [
-      "VC-10"
+      "prflow:requesting-code-review"
     ],
-    "dispatched_at": "2026-08-03T20:06:00Z"
+    "dispatched_at": "2026-08-03T20:13:00Z"
   },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:requesting-code-review"
+  ],
+  "git_snapshot_before_oid": "c140e0179a10adb98ba63fd0cf81a3931a303efa",
   "dispatched_effort": [
     {
       "agent": "prflow:checklist-generator",
@@ -24,6 +31,42 @@
     {
       "agent": "prflow:checklist-verifier",
       "phase": "2",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort low resolved but was not applied; the agent inherits the session effort"
+    },
+    {
+      "agent": "prflow:code-reviewer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort low resolved but was not applied; Codex mapped the unavailable claude-opus-4-8 model override to gpt-5.6-sol"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort low resolved but was not applied; the agent inherits the session effort"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort low resolved but was not applied; the agent inherits the session effort"
+    },
+    {
+      "agent": "prflow:requesting-code-review",
+      "phase": "3",
       "requested": "low",
       "resolved": "low",
       "application_point": "session-fallback",

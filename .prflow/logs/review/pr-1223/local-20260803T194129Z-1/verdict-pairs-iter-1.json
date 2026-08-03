@@ -1,0 +1,52 @@
+{"pairs": [
+  {
+    "item": {"id":"VC-1","category":"issue_acceptance","claim":"AC1 — The shipped issue template requires every acceptance criterion expressing a number to name the exact command or counting rule used to measure it.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","source_line":199,"verification_mode":"agent","claim_signature":"issue_acceptance:issue-template.md:ac1-named-measurement-rule:199"},
+    "verdict_path": ".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-1/VC-1-149db3617070c93c89eecf7c.json",
+    "response_text": ""
+  },
+  {
+    "item": {"id":"VC-2","category":"issue_acceptance","claim":"AC2 — The shipped quantitative-criterion statement includes at least one concrete example of a named counter.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","source_line":199,"verification_mode":"agent","claim_signature":"issue_acceptance:issue-template.md:ac2-concrete-counter-example:199"},
+    "verdict_path": ".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-1/VC-2-eccc3b7c56f58b51cc78a1b5.json",
+    "response_text": ""
+  },
+  {
+    "item": {"id":"VC-3","category":"issue_acceptance","claim":"AC3 — The shipped statement specifies what to record when no measurement command or rule can be established and rejects leaving the counter unnamed.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","source_line":199,"verification_mode":"agent","claim_signature":"issue_acceptance:issue-template.md:ac3-unestablished-not-unnamed:199"},
+    "verdict_path": ".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-1/VC-3-c0929cffa6eecec93fe97a29.json",
+    "response_text": ""
+  },
+  {
+    "item": {"id":"VC-4","category":"issue_acceptance","claim":"AC4 — The shipped quantitative-criterion guidance is consumer-meaningful and does not depend on a DevFlow-internal step number, a path under `lib/test`, or an internal check name.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","source_line":199,"verification_mode":"agent","claim_signature":"issue_acceptance:issue-template.md:ac4-consumer-meaningful-guidance:199"},
+    "verdict_path": ".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-1/VC-4-084bd9f4c07590c7f027bec2.json",
+    "response_text": ""
+  },
+  {
+    "item": {"id":"VC-5","category":"issue_acceptance","claim":"AC5 — The motivating GNU/BSD counting example is stored outside the prompt extension, and the prompt extension's pointer resolves to that new location.","claim_provenance":"generated_paraphrase","source_file":".prflow/prompt-extensions/create-issue.md","source_line":274,"verification_mode":"agent","claim_signature":"issue_acceptance:create-issue.md:ac5-motivating-example-pointer:274"},
+    "verdict_path": ".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-1/VC-5-629b1d25f848bc2b0a0f3378.json",
+    "response_text": ""
+  },
+  {
+    "item": {"id":"VC-6","category":"issue_acceptance","claim":"AC6 — The prompt extension no longer attributes the motivating defect class to a `CLAUDE.md` review-bundle bullet that does not contain it.","claim_provenance":"generated_paraphrase","source_file":".prflow/prompt-extensions/create-issue.md","source_line":274,"verification_mode":"agent","claim_signature":"issue_acceptance:create-issue.md:ac6-stale-claude-pointer-removed:274"},
+    "verdict_path": ".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-1/VC-6-471c1bf4df91d9ae9636e078.json",
+    "response_text": ""
+  },
+  {
+    "item": {"id":"VC-7","category":"issue_acceptance","claim":"AC7 — The code-architect instructions explicitly state that the agent has no command-execution tool.","claim_provenance":"generated_paraphrase","source_file":"agents/code-architect.md","source_line":41,"verification_mode":"agent","claim_signature":"issue_acceptance:code-architect.md:ac7-no-command-execution-tool:41"},
+    "verdict_path": ".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-1/VC-7-2ba1c48ee5f59cf1e252cb3c.json",
+    "response_text": ""
+  },
+  {
+    "item": {"id":"VC-8","category":"issue_acceptance","claim":"AC8 — The code-architect instructions explicitly reject `Grep` count mode as a measurement instrument for quantitative claims.","claim_provenance":"generated_paraphrase","source_file":"agents/code-architect.md","source_line":41,"verification_mode":"agent","claim_signature":"issue_acceptance:code-architect.md:ac8-grep-count-rejected:41"},
+    "verdict_path": ".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-1/VC-8-c55ae0d7454caa2920dd9360.json",
+    "response_text": ""
+  },
+  {
+    "item": {"id":"VC-9","category":"issue_acceptance","claim":"AC9 — The `tools:` frontmatter entry in the code-architect agent grants exactly the same tool set before and after the change.","claim_provenance":"generated_paraphrase","source_file":"agents/code-architect.md","source_line":4,"verification_mode":"agent","claim_signature":"issue_acceptance:code-architect.md:ac9-tool-grants-unchanged:4"},
+    "verdict_path": ".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-1/VC-9-19ffcd7207188733f2ce03c3.json",
+    "response_text": ""
+  },
+  {
+    "item": {"id":"VC-10","category":"issue_acceptance","claim":"AC10 — This change adds no source-presence pin over the agent-executed prompt prose introduced or revised for the quantitative-counter guidance.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","verification_mode":"agent","claim_signature":"issue_acceptance:issue-template.md:ac10-no-prompt-prose-pin"},
+    "verdict_path": ".prflow/tmp/review/pr-1223/local-20260803T194129Z-1/verdicts/iter-1/VC-10-2f8af7ec70b56e9c86b561fe.json",
+    "response_text": ""
+  }
+]}
