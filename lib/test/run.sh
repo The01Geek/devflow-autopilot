@@ -41410,11 +41410,20 @@ if git cat-file -e 5179c5a1 2>/dev/null; then
   case "$E1196_HIST_LIST" in
     ""|/dev/null) E1196_HIST="rc=probe-unavailable|list unallocatable" ;;
     *)
-      git ls-tree -r 5179c5a1 --name-only > "$E1196_HIST_LIST" 2>/dev/null
-      E1196_HIST_OUT="$(python3 "$E1196_LINT" --root "$LIB/.." --files-from "$E1196_HIST_LIST" 2>&1)"
-      E1196_HIST_RC=$?
+      # Guard the ls-tree rc AND a non-empty result: an empty/truncated list would make the
+      # guard raise EnumerationError (rc=1), and the "goes RED" assertion below matches "rc=1|"
+      # — so an unchecked degraded ls-tree would pass assertion 1 for the WRONG reason
+      # (enumeration-unusable, not a detected reserved name). Route that to a sentinel that
+      # matches neither "rc=1|" nor the fixture-name test, so both assertions fail on the real
+      # cause instead of one passing coincidentally.
+      if git ls-tree -r 5179c5a1 --name-only > "$E1196_HIST_LIST" 2>/dev/null && [ -s "$E1196_HIST_LIST" ]; then
+        E1196_HIST_OUT="$(python3 "$E1196_LINT" --root "$LIB/.." --files-from "$E1196_HIST_LIST" 2>&1)"
+        E1196_HIST_RC=$?
+        E1196_HIST="rc=$E1196_HIST_RC|$E1196_HIST_OUT"
+      else
+        E1196_HIST="rc=hist-list-unavailable|git ls-tree produced no path list for 5179c5a1"
+      fi
       rm -f "$E1196_HIST_LIST"
-      E1196_HIST="rc=$E1196_HIST_RC|$E1196_HIST_OUT"
       ;;
   esac
   assert_eq "#1196 the pre-fix tree 5179c5a1 goes RED" "yes" \
@@ -41433,6 +41442,10 @@ assert_eq "#1196 mutation: bare reserved stem (nul)" "rc=1" "$(e1196_rc skills/n
 assert_eq "#1196 mutation: reserved stem in a NON-final component (nul/x.md)" "rc=1" "$(e1196_rc skills/nul/x.md)"
 assert_eq "#1196 mutation: reserved stem with a trailing space (nul )" "rc=1" "$(e1196_rc 'skills/nul ')"
 assert_eq "#1196 mutation: reserved name followed by : (nul:ads)" "rc=1" "$(e1196_rc skills/nul:ads)"
+# A `:` in a NON-reserved component reaches the forbidden-character arm (nul:ads above is caught
+# by the reserved-device branch first), so this is the case that goes RED if `:` were dropped
+# from _FORBIDDEN_CHARS — and it is the DOS-drive-prefix protection the guard subsumes via `:`.
+assert_eq "#1196 mutation: forbidden : in a non-reserved component (DOS-drive-prefix class)" "rc=1" "$(e1196_rc skills/a:b.md)"
 assert_eq "#1196 mutation: CONIN\$ reserved name" "rc=1" "$(e1196_rc 'skills/CONIN$')"
 assert_eq "#1196 mutation: component with a trailing dot (foo.)" "rc=1" "$(e1196_rc skills/foo./x.md)"
 assert_eq "#1196 mutation: component with a trailing space (foo )" "rc=1" "$(e1196_rc 'skills/foo /x.md')"
