@@ -88,7 +88,8 @@ policy for agent runs lives in the prompt extensions under
 **focused-first precondition** on the mid-iteration full-suite launch — every
 touched surface with a covering focused test invocable on the tier is run first,
 with a total four-ground exempt set governing the rest — and of the **single-turn
-push/verify** co-issue; this section points at them rather than restating either.
+push/verify** co-issue; this section points at them for the full statement and
+carries only the compact restatement above.
 
 Each module is also executed by the full suite through the fail-closed
 `devflow_run_full_suite_module` boundary, and shares the namespaced pin helpers in
@@ -730,7 +731,7 @@ resolve the portable `${CLAUDE_SKILL_DIR:-…}` anchor at runtime.
 
 1. Branch and make focused changes, iterating on the module that covers the
    surface you touched (see *Running the tests*). Before opening the PR, push
-   and start `bash lib/test/run.sh` locally at the same time — the two run in
+   and start `bash lib/test/run.sh` locally in one step — the two run in
    parallel, and the local run is the one you troubleshoot from. The push does
    not wait for it; marking the PR ready does — read its summary first.
 2. Open a PR with a clear description. If your change reaches consumers (the engine surface —
