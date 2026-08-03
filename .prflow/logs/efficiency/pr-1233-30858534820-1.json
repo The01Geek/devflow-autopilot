@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1233",
+  "generated_at": "2026-08-03T22:33:49Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.69",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.7836075000000005,
+    "tokens": {
+      "input_tokens": 37,
+      "output_tokens": 24771,
+      "cache_read_input_tokens": 2999011,
+      "cache_creation_input_tokens": 203162,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 88,
+        "outputTokens": 59684,
+        "cacheReadInputTokens": 4173395,
+        "cacheCreationInputTokens": 550802,
+        "webSearchRequests": 0,
+        "costUSD": 7.7836075000000005,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 30,
+    "duration_ms": 455745
+  },
+  "permission_denials": {
+    "count": 10,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "git status --porcelain; echo \"---RUN---\"; echo \"run_id=${GITHUB_RUN_ID:-none} attempt=${GITHUB_RUN_ATTEMPT:-none}\"",
+      "MARKER=$(printf '%s' \"<!-- prflow:review-progress run=local-$(date -u +%Y%m%dT%H%M%SZ)-1 -->\"); echo \"$MARKER\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/seed-review-progress.sh 1233 \"<!-- prflow:review-progress run=local-20260803T222727Z-1 -->\" .prflow/tmp/review/pr-1233/local-run/review-wp.md ; echo \"seed-rc=$?\"",
+      "git status --porcelain -z > .prflow/tmp/review-dirty-tree-before && git hash-object .prflow/tmp/review-dirty-tree-before",
+      "/home/runner/work/prflow/prflow/scripts/load-prompt-extension.sh review-and-fix",
+      "test_ere() {\nfor v in \"          fetch-depth: 0\" \"          fetch-depth: 050\" \"          fetch-depth: 50\" \"          fetch-depth: '50'\" \"          fetch-depth: \\\"50\\\"\" \"          fetch-depth: '0'\" \"          fetch-depth: 00\" \"          fetch-depth: 0  # comment\"; do\n  pos=$(printf '%s\\n' \"$v\" | grep -E 'fetch-depth:[[:space:]]*0[[:space:]]*$' >/dev/null && echo YES || echo no)\n  neg=$(printf '%s\\n' \"$v\" | grep -E \"fetch-depth:[[:space:]]*['\\\"]?0*[1-9]\" >/dev/null && echo YES || echo no)\n  printf …[per-command-truncated]",
+      "POS='fetch-depth:[[:space:]]*0[[:space:]]*$'\nNEG='fetch-depth:[[:space:]]*['\\''\"]?0*[1-9]'\nwhile IFS= read -r v; do\n  p=no; n=no\n  printf '%s\\n' \"$v\" | grep -Eq \"$POS\" && p=YES\n  printf '%s\\n' \"$v\" | grep -Eq \"$NEG\" && n=YES\n  printf 'pos=%s neg=%s  <%s>\\n' \"$p\" \"$n\" \"$v\"\ndone <<'EOF'\n          fetch-depth: 0\n          fetch-depth: 050\n          fetch-depth: 50\n          fetch-depth: '50'\n          fetch-depth: \"50\"\n          fetch-depth: '0'\n          fetch-depth: 00\n          fetch-depth: 0  # …[per-command-truncated]",
+      "cat > /tmp/t.sh <<'SCRIPT'\nPOS='fetch-depth:[[:space:]]*0[[:space:]]*$'\nNEG='fetch-depth:[[:space:]]*['\\''\"]?0*[1-9]'\nwhile IFS= read -r v; do\n  p=no; n=no\n  printf '%s\\n' \"$v\" | grep -Eq \"$POS\" && p=YES\n  printf '%s\\n' \"$v\" | grep -Eq \"$NEG\" && n=YES\n  printf 'pos=%s neg=%s  <%s>\\n' \"$p\" \"$n\" \"$v\"\ndone <<'EOF'\n          fetch-depth: 0\n          fetch-depth: 050\n          fetch-depth: 50\n          fetch-depth: '50'\n          fetch-depth: \"50\"\n          fetch-depth: '0'\n          fetch-depth: 00\n …[per-command-truncated]",
+      "bash /tmp/t.sh"
+    ],
+    "total": 10,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
