@@ -141,6 +141,7 @@ Refused shapes in the cloud **review** runner:
 
 - leading `VAR=value` assignments,
 - leading `cd`,
+- `git -C <path> <subcommand>` (the same class as a leading `cd`; see the run-30832631347 note below),
 - `>` / `2>` redirects targeting `/tmp`,
 - `cat`-heredoc writes,
 - interpreter heads (`python3`),
@@ -1111,3 +1112,35 @@ audit has none left to add. Every other ungranted head is one-off introspection
 (`scripts/efficiency-trace.sh`); granting those, or defeating the deliberately-denied shape
 family, would widen the profile against its own discipline. The correct, principled
 disposition for this population is the recorded "no change," which this section is.
+
+## `git -C <path> <subcommand>` is a refused form — run 30832631347 (issue #1221)
+
+**This subsection is a past-time observation of one run, not a re-derivable figure.** The
+counts below were read once from the `permission_denials` array of the
+`claude-execution-transcript-30832631347-1` artifact published by cloud implement-tier run
+`30832631347` (issue #1196). That array carried **42** refusals across the run's `194`
+turns. It is immutable history: a different run would show a different population, so these
+figures are never "corrected" or re-measured.
+
+`git -C <path> <subcommand>` was the single largest cause in that population — **15 of 42**
+refusals, **13** of them emitted by dispatched review subagents rather than the top-level
+run. It is refused as a *shape*, in the same class as a leading `cd`: the run begins at the
+repository root and the Bash tool's working directory persists across calls, so the path
+argument is never needed.
+
+**Why it cannot be granted.** Every git grant in `lib/capability-profiles.json` names a
+subcommand — `Bash(git rev-parse:*)`, `Bash(git show:*)`, and so on. In
+`git -C /path rev-parse …` the token after `git` is `-C`, so no subcommand token matches;
+the only token that would is `Bash(git -C:*)`, which matches **every** git subcommand behind
+a `-C`, including the write subcommands the read-only review profile's lock
+(`lib/review-profile.tokens`) exists to exclude. So the correct disposition is
+documentation, not a grant — consistent with the #1135 audit's model, and with the fact that
+no prompt surface authors the `git -C` form (it was agent improvisation).
+
+**The permitted alternative.** Because the cloud tiers begin at the repository root and the
+Bash working directory persists across calls, the bare `git <subcommand>` form (`git diff`,
+`git show <ref>:<path>`, `git log`) is the one to emit — run from where you already are, with
+no `-C` path argument and no leading `cd`. This is the same alternative the grounding block's
+denied-shape list (`scripts/render-grounding-block.sh`) and the review-agent definitions
+(`agents/*.md`) now name, so an agent told not to `cd` no longer reaches for `git -C` and
+lands on an undocumented refusal.
