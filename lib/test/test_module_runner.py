@@ -1546,8 +1546,12 @@ class ModuleRunnerTests(unittest.TestCase):
         # (module_id, floor) pairs are the fan-out work list.
         work: list[tuple[str, int]] = []
         for module_id, mapping in exact_modules.items():
+            # Bind floor OUTSIDE the subTest so the work.append below can never see an
+            # unbound name: a subTest swallows an exception in its body, so binding floor
+            # inside it would let a (registry-invalid) missing minimum_assertions leave
+            # floor unbound and NameError the append with no module attribution.
+            floor = mapping["minimum_assertions"]
             with self.subTest(module=module_id, phase="run.sh call-site"):
-                floor = mapping["minimum_assertions"]
                 self.assertIn(
                     f'devflow_run_full_suite_module "$LIB/test/modules/{module_id}.sh"',
                     run_text,
