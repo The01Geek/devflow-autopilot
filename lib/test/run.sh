@@ -45259,31 +45259,362 @@ assert_eq "#908 AC1: the settings input registers a PreToolUse hook naming the g
 # `settings:` key (this literal is generic YAML, not unique to hook registration)
 # would falsely flip this RED for a non-defect, and a differently-spelled
 # registration would evade it entirely. Parse the YAML with PyYAML instead and check,
-# structurally, that no step anywhere in the file carries a `with.settings` key and no
-# step's `with` values mention "PreToolUse" — the same precision the #460 errexit
-# fixture above uses to extract a step's `run:` body, applied here to a `with:` key
-# check instead. Falls back to the previous (imprecise but not silently skipped)
-# grep when python3/PyYAML is unavailable, so the assertion still runs somewhere.
+# structurally, that no step registers a PreToolUse hook — the same precision the #460
+# errexit fixture above uses to extract a step's `run:` body, applied here to a `with:`
+# key check instead. The property #908 protects on the implement tier is "no PreToolUse
+# guard" (that shape guard is review-tier-only), NOT "no settings input at all": issue
+# #1179 legitimately adds an env-only `settings` block here to raise BASH_MAX_TIMEOUT_MS,
+# which registers no hook. So a `settings` block is allowed IFF it declares no `hooks`
+# key and no `with` value mentions "PreToolUse". Falls back to a PreToolUse-only grep
+# when python3/PyYAML is unavailable, so the assertion still runs somewhere.
+#
+# WHY THESE EXTRACTORS ARE FILES DRIVEN OVER A FIXTURE MATRIX (PR #1205 review round 2).
+# This guard and the #1179 ceiling guard below it used to parse a single input: the live
+# devflow-implement.yml, whose shape is the happy path — an env-only settings block, no
+# hook, a value inside the bound. That input reached a refusal branch in neither guard, so
+# the mapping-form hook scan and either numeric bound could be deleted with the suite
+# still green (measured, not assumed). Each extractor is now written out once, to a file,
+# and driven over the live workflow — the real-world check, unchanged in meaning — plus
+# synthetic workflow fixtures shaped to reach the refusal branches. Extracting to a file
+# rather than re-inlining the program per input is what makes a fixture verdict evidence
+# about the shipped guard instead of about a paraphrase of it.
+#
+# The degraded arm's grep is factored out here so the armed arm can drive it over the same
+# fixtures. It needs one: a whole-file grep is comment-blind, and devflow-implement.yml's
+# own authoring prose names both `PreToolUse` and the guard script while registering
+# neither — under an unfiltered match that prose read as a registration and reported the
+# workflow non-compliant on exactly the hosts that have nothing better to fall back to.
+# Dropping full-line YAML comments before matching removes that reading; a real
+# registration lives inside the `settings:` block scalar, which carries no `#` prefix. The
+# residual is the mirror image and is accepted for a degraded arm: a guard named ONLY in a
+# comment, with the real registration removed, would read as compliant here. The
+# PyYAML-armed arm parses structure rather than text and has no such blind spot.
+#
+# It fails CLOSED on an input it cannot read (PR #1205 review round 3). The bare pipeline
+# below prints `yes` — compliant — when grep can open nothing, so an absent or unreadable
+# workflow read as a clean pass on exactly the degraded hosts this arm exists to serve. The
+# readability probe emits a third token instead, which satisfies neither the `yes` nor the
+# `no` assertions and therefore goes RED, mirroring the armed arm's `extractor-failed`.
+_wfg_grep_fallback() {
+  [ -r "$1" ] || { echo unreadable; return 0; }
+  grep -vE '^[[:space:]]*#' "$1" | grep -qE 'PreToolUse|pretooluse-shape-guard' && echo no || echo yes
+}
+# Both directions of that guard, driven on EVERY host (they need neither python3/PyYAML nor
+# scratch space, so they stay outside the armed/degraded split below): an unreadable input
+# yields the non-passing token, and a readable one still resolves to a real verdict.
+assert_eq "#908 fallback: an unreadable input fails closed rather than reading as compliant" "unreadable" \
+  "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML.no-such-file")"
+assert_eq "#908 fallback: a readable input still resolves to a real verdict" "yes" \
+  "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML")"
+_WFG_D=""
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
-  _908_IMPL_CHECK=$(python3 - "$_908_IMPLEMENT_YML" <<'PY'
-import sys, yaml
+  _WFG_D="$(mktemp -d 2>/dev/null || true)"
+  [ -n "$_WFG_D" ] && [ -d "$_WFG_D" ] || _WFG_D=""
+fi
+if [ -n "$_WFG_D" ]; then
+  cat > "$_WFG_D/hook-check.py" <<'PY'
+import sys, yaml, json
 doc = yaml.safe_load(open(sys.argv[1]))
 hit = False
 for job in doc.get("jobs", {}).values():
     for s in job.get("steps", []) or []:
         with_block = s.get("with") or {}
-        if "settings" in with_block:
-            hit = True
+        settings = with_block.get("settings")
+        if settings is not None:
+            # A settings block is permitted ONLY for non-hook configuration (issue
+            # #1179's env override). Normalize it to a Python object and fail CLOSED
+            # (hit) unless it is an object carrying no `hooks` key. A `settings: |`
+            # block-scalar is a JSON string; a native YAML mapping is already a dict —
+            # GitHub stringifies a mapping-form input at runtime, but PyYAML hands it
+            # to THIS test as a dict, so the check must inspect that form too or a
+            # mapping-form hook registration would slip past a green suite (a
+            # string-only guard was the fail-open gap the #1179 review caught). An
+            # empty settings string carries no hook (allowed); a scalar/list, or an
+            # unparseable JSON string (e.g. a settings-file path we cannot inspect),
+            # is anomalous → fail closed.
+            if isinstance(settings, dict):
+                parsed = settings
+            elif isinstance(settings, str):
+                stripped = settings.strip()
+                if stripped:
+                    try:
+                        parsed = json.loads(stripped)
+                    except (ValueError, TypeError):
+                        parsed = None
+                else:
+                    parsed = {}
+            else:
+                parsed = None
+            if not isinstance(parsed, dict) or "hooks" in parsed:
+                hit = True
+            # Serialize-scan the whole settings for a PreToolUse mention so a hook
+            # nested inside a mapping-form settings block — which the value loop below
+            # only sees for string with-values — is still caught.
+            if "PreToolUse" in json.dumps(settings, default=str):
+                hit = True
         for v in with_block.values():
             if isinstance(v, str) and "PreToolUse" in v:
                 hit = True
 print("no" if hit else "yes")
 PY
-) || _908_IMPL_CHECK="extractor-failed"   # fail CLOSED: a YAML parse error or an unexpected shape must never yield the passing value (issue #908 confirmatory review; mirrors the _908_PROBE_JOB extractor's discipline)
-  assert_eq "#908 AC1: devflow-implement.yml registers no settings input / PreToolUse guard" "yes" "$_908_IMPL_CHECK"
+  # issue #1179: the implement tier raises the Bash per-command ceiling through the
+  # claude-code-action step's `settings` input (env.BASH_MAX_TIMEOUT_MS) so the parallel
+  # verification coordinator (lib/test/run-parallel.sh) can run to a verdict instead of
+  # being killed at Claude Code's 600000 ms default. This BEHAVIORAL check (not a wording
+  # pin — the literal value may change without breaking it) parses the resolved settings
+  # env and asserts a FINITE value strictly greater than that default reaches the CLI
+  # through that channel (AC1: finite, > 600000 ms, mechanism visible in the workflow).
+  cat > "$_WFG_D/ceiling-check.py" <<'PY'
+import sys, yaml, json
+
+doc = yaml.safe_load(open(sys.argv[1]))
+# One entry per claude-code-action step, rather than letting a later step's value
+# overwrite an earlier one (PR #1205 review, Minor finding). With a single such step the
+# verdict is identical either way; with a second step present, an order-dependent
+# last-write read could report a bounded ceiling while the other step carried none.
+# Collecting instead makes the verdict order-independent.
+#
+# The all() below is therefore INTENTIONALLY per-step, not "some step is bounded": a second
+# claude-code-action step added without its own BASH_MAX_TIMEOUT_MS runs the agent under the
+# 600000 ms default, which is the gap #1179 closes and not a false positive. A future editor
+# who adds one and sees this go RED should set the ceiling on that step too, or narrow this
+# extractor to the step it means (matching on `id:`), rather than relaxing all() to any().
+vals = []
+for job in doc.get("jobs", {}).values():
+    for s in job.get("steps", []) or []:
+        if str(s.get("uses") or "").startswith("anthropics/claude-code-action"):
+            settings = (s.get("with") or {}).get("settings")
+            # Read the env from either the `settings: |` JSON block-scalar (a string)
+            # or a native YAML mapping (a dict), mirroring the hook check's form-
+            # robustness so a re-authored mapping form does not RED a valid config.
+            parsed = None
+            if isinstance(settings, dict):
+                parsed = settings
+            elif isinstance(settings, str) and settings.strip():
+                try:
+                    parsed = json.loads(settings)
+                except (ValueError, TypeError):
+                    parsed = None
+            env = parsed.get("env") if isinstance(parsed, dict) else None
+            vals.append(env.get("BASH_MAX_TIMEOUT_MS") if isinstance(env, dict) else None)
+
+
+def bounded(val):
+    # Accept only a finite integer-valued string strictly above the 600000 ms CLI default
+    # (the < 10**9 bound enforces "bounded, not a removal" — issue #1179's deliberate
+    # cap). An absent or non-numeric value is refused here, never coerced to a default.
+    try:
+        return val is not None and 600000 < int(val) < 10**9
+    except (ValueError, TypeError):
+        return False
+
+
+print("ok" if vals and all(bounded(v) for v in vals) else "no")
+PY
+  # Both runners fail CLOSED: a YAML parse error or an otherwise unhandled shape exits
+  # nonzero, and the caller substitutes a value that satisfies no assertion below (issue
+  # #908 confirmatory review; mirrors the _908_PROBE_JOB extractor's discipline).
+  _wfg_hook() { local o; o="$(python3 "$_WFG_D/hook-check.py" "$1" 2>/dev/null)" || o="extractor-failed"; printf '%s\n' "$o"; }
+  _wfg_ceiling() { local o; o="$(python3 "$_WFG_D/ceiling-check.py" "$1" 2>/dev/null)" || o="extractor-failed"; printf '%s\n' "$o"; }
+  # Compose a synthetic workflow fixture named $1 whose single claude-code-action step
+  # carries the `with:` body supplied on stdin (indented to its position under `with:`).
+  # The result is a real YAML document reaching the extractors through the same entry
+  # point the live workflow does, so a fixture verdict is evidence about the program the
+  # suite ships rather than about a stub standing in for it.
+  _wfg_fx() {
+    { printf 'jobs:\n  claude:\n    steps:\n      - uses: anthropics/claude-code-action@v1\n        with:\n'
+      cat
+    } > "$_WFG_D/$1.yml"
+  }
+  # ── Shapes the hook guard must ALLOW ──────────────────────────────────────
+  _wfg_fx env-string <<'YML'
+          settings: |
+            {"env": {"BASH_MAX_TIMEOUT_MS": "1200000"}}
+YML
+  _wfg_fx env-mapping <<'YML'
+          settings:
+            env:
+              BASH_MAX_TIMEOUT_MS: "1200000"
+YML
+  _wfg_fx no-settings <<'YML'
+          github_token: placeholder
+YML
+  _wfg_fx empty-settings <<'YML'
+          settings: ""
+YML
+  # ── Shapes the hook guard must REFUSE ─────────────────────────────────────
+  _wfg_fx hook-string <<'YML'
+          settings: |
+            {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": []}]}}
+YML
+  _wfg_fx hook-mapping <<'YML'
+          settings:
+            hooks:
+              PreToolUse:
+                - matcher: Bash
+YML
+  _wfg_fx hooks-key-quiet <<'YML'
+          settings:
+            hooks:
+              Stop: []
+YML
+  _wfg_fx nested-pretooluse <<'YML'
+          settings:
+            extraSettings:
+              hooks:
+                PreToolUse:
+                  - matcher: Bash
+YML
+  _wfg_fx pretooluse-other-input <<'YML'
+          claude_args: '--settings {"hooks": {"PreToolUse": []}}'
+YML
+  _wfg_fx scalar-settings <<'YML'
+          settings: 42
+YML
+  _wfg_fx list-settings <<'YML'
+          settings:
+            - a
+            - b
+YML
+  _wfg_fx unparseable-settings <<'YML'
+          settings: "not json at all"
+YML
+  # A settings string that DOES parse as JSON but not to an object. The hook check's
+  # non-dict-parse arm is the one that refuses it; without this fixture that arm could be
+  # deleted with the suite still green (PR #1205 review round 3).
+  _wfg_fx json-non-object-settings <<'YML'
+          settings: "[1, 2]"
+YML
+  # ── Shapes the ceiling guard must REFUSE ──────────────────────────────────
+  _wfg_fx ceiling-at-default <<'YML'
+          settings: |
+            {"env": {"BASH_MAX_TIMEOUT_MS": "600000"}}
+YML
+  _wfg_fx ceiling-unbounded <<'YML'
+          settings: |
+            {"env": {"BASH_MAX_TIMEOUT_MS": "1000000000"}}
+YML
+  _wfg_fx ceiling-non-int <<'YML'
+          settings: |
+            {"env": {"BASH_MAX_TIMEOUT_MS": "twenty-minutes"}}
+YML
+  _wfg_fx ceiling-absent-key <<'YML'
+          settings: |
+            {"env": {"SOME_OTHER_KEY": "1"}}
+YML
+  # `env` present but not an object — the ceiling check's isinstance(env, dict) arm, which
+  # no other fixture reaches (PR #1205 review round 3).
+  _wfg_fx ceiling-env-not-dict <<'YML'
+          settings: |
+            {"env": "1200000"}
+YML
+  # A bounded value on a step that is NOT claude-code-action must not satisfy the ceiling
+  # guard: the raise reaches the CLI only through the action's own input. This fixture also
+  # covers the workflow that carries no claude-code-action step at all — the empty-vals
+  # case, which must read as unsatisfied rather than as vacuously true.
+  cat > "$_WFG_D/ceiling-other-step.yml" <<'YML'
+jobs:
+  claude:
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          settings: |
+            {"env": {"BASH_MAX_TIMEOUT_MS": "1200000"}}
+YML
+  # Order-independence: an unbounded step FIRST and a bounded one second is the ordering a
+  # last-write read reports as satisfied. The collecting form refuses it.
+  cat > "$_WFG_D/ceiling-two-steps.yml" <<'YML'
+jobs:
+  claude:
+    steps:
+      - uses: anthropics/claude-code-action@v1
+        with:
+          settings: |
+            {"env": {"BASH_MAX_TIMEOUT_MS": "600000"}}
+      - uses: anthropics/claude-code-action@v1
+        with:
+          settings: |
+            {"env": {"BASH_MAX_TIMEOUT_MS": "1200000"}}
+YML
+  # ── The live workflow (the real-world check) ──────────────────────────────
+  assert_eq "#908 AC1: devflow-implement.yml registers no PreToolUse guard (env-only settings allowed)" "yes" \
+    "$(_wfg_hook "$_908_IMPLEMENT_YML")"
+  assert_eq "#1179: devflow-implement.yml sets a finite BASH_MAX_TIMEOUT_MS > 600000 ms via the claude-code-action settings env (AC1)" "ok" \
+    "$(_wfg_ceiling "$_908_IMPLEMENT_YML")"
+  # ── The hook guard over the fixture matrix ────────────────────────────────
+  assert_eq "#908 matrix: an env-only settings block in string form is allowed" "yes" \
+    "$(_wfg_hook "$_WFG_D/env-string.yml")"
+  assert_eq "#908 matrix: an env-only settings block in mapping form is allowed" "yes" \
+    "$(_wfg_hook "$_WFG_D/env-mapping.yml")"
+  assert_eq "#908 matrix: a step carrying no settings input at all is allowed" "yes" \
+    "$(_wfg_hook "$_WFG_D/no-settings.yml")"
+  assert_eq "#908 matrix: an empty settings string registers nothing and is allowed" "yes" \
+    "$(_wfg_hook "$_WFG_D/empty-settings.yml")"
+  assert_eq "#908 matrix: a string-form settings block declaring hooks is refused" "no" \
+    "$(_wfg_hook "$_WFG_D/hook-string.yml")"
+  assert_eq "#908 matrix: a mapping-form PreToolUse registration is refused (the fail-open gap the #1179 review caught)" "no" \
+    "$(_wfg_hook "$_WFG_D/hook-mapping.yml")"
+  assert_eq "#908 matrix: a hooks key naming no PreToolUse hook is still refused" "no" \
+    "$(_wfg_hook "$_WFG_D/hooks-key-quiet.yml")"
+  assert_eq "#908 matrix: a PreToolUse hook nested under a non-hooks settings key is refused" "no" \
+    "$(_wfg_hook "$_WFG_D/nested-pretooluse.yml")"
+  assert_eq "#908 matrix: a PreToolUse registration routed through another with-input is refused" "no" \
+    "$(_wfg_hook "$_WFG_D/pretooluse-other-input.yml")"
+  assert_eq "#908 matrix: a scalar settings value is anomalous and refused" "no" \
+    "$(_wfg_hook "$_WFG_D/scalar-settings.yml")"
+  assert_eq "#908 matrix: a list settings value is anomalous and refused" "no" \
+    "$(_wfg_hook "$_WFG_D/list-settings.yml")"
+  assert_eq "#908 matrix: an unparseable settings string is anomalous and refused" "no" \
+    "$(_wfg_hook "$_WFG_D/unparseable-settings.yml")"
+  assert_eq "#908 matrix: a settings string parsing to JSON that is not an object is refused" "no" \
+    "$(_wfg_hook "$_WFG_D/json-non-object-settings.yml")"
+  # The degraded-host arm, driven here so it is not left to the hosts that cannot report a
+  # failure usefully. Its comment blindness was a live false-RED on this workflow until the
+  # filter landed, which is why both directions are asserted.
+  assert_eq "#908 matrix: the degraded-host grep fallback clears a workflow whose only guard mentions are comments" "yes" \
+    "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML")"
+  assert_eq "#908 matrix: the degraded-host grep fallback still catches a real PreToolUse registration" "no" \
+    "$(_wfg_grep_fallback "$_WFG_D/hook-mapping.yml")"
+  # ── The ceiling guard over the fixture matrix ─────────────────────────────
+  assert_eq "#1179 matrix: a bounded ceiling in string form satisfies the guard" "ok" \
+    "$(_wfg_ceiling "$_WFG_D/env-string.yml")"
+  assert_eq "#1179 matrix: a bounded ceiling in mapping form satisfies the guard" "ok" \
+    "$(_wfg_ceiling "$_WFG_D/env-mapping.yml")"
+  assert_eq "#1179 matrix: a claude-code-action step with no settings input fails the guard" "no" \
+    "$(_wfg_ceiling "$_WFG_D/no-settings.yml")"
+  assert_eq "#1179 matrix: a value equal to the 600000 ms default gives no headroom and fails" "no" \
+    "$(_wfg_ceiling "$_WFG_D/ceiling-at-default.yml")"
+  assert_eq "#1179 matrix: an effectively unbounded value (>= 10**9) fails the bounded-not-removed cap" "no" \
+    "$(_wfg_ceiling "$_WFG_D/ceiling-unbounded.yml")"
+  assert_eq "#1179 matrix: a non-integer value fails rather than crashing the extractor" "no" \
+    "$(_wfg_ceiling "$_WFG_D/ceiling-non-int.yml")"
+  assert_eq "#1179 matrix: a settings env carrying no BASH_MAX_TIMEOUT_MS key fails" "no" \
+    "$(_wfg_ceiling "$_WFG_D/ceiling-absent-key.yml")"
+  assert_eq "#1179 matrix: an env that is not an object fails rather than being indexed" "no" \
+    "$(_wfg_ceiling "$_WFG_D/ceiling-env-not-dict.yml")"
+  # No ceiling rows for the scalar-settings / list-settings fixtures, deliberately (PR #1205
+  # review round 3 asked for them). Mutation-tested at the desk: every mutation that reaches
+  # the ceiling check's non-str/non-dict settings arm is already caught by an existing row,
+  # and plausible refactors of it (treating a non-str settings as already-parsed; coercing a
+  # failed parse to {}) survive those two inputs entirely — the arm is defended both by the
+  # isinstance dispatch and by the isinstance(parsed, dict) guard on the env lookup, so a
+  # scalar or list settings value cannot reach a wrong verdict through it. Such rows would
+  # restate `no-settings` rather than protect anything, so they are omitted rather than
+  # shipped as rows a future editor would read as coverage.
+  assert_eq "#1179 matrix: a bounded value on a non-claude-code-action step does not satisfy the guard" "no" \
+    "$(_wfg_ceiling "$_WFG_D/ceiling-other-step.yml")"
+  assert_eq "#1179 matrix: an unbounded step ahead of a bounded one fails (order-independence)" "no" \
+    "$(_wfg_ceiling "$_WFG_D/ceiling-two-steps.yml")"
+  rm -rf "$_WFG_D"
 else
-  assert_eq "#908 AC1: devflow-implement.yml registers no settings input / PreToolUse guard" "yes" \
-    "$(grep -qE 'settings:|PreToolUse' "$_908_IMPLEMENT_YML" && echo no || echo yes)"
+  assert_eq "#908 AC1: devflow-implement.yml registers no PreToolUse guard (env-only settings allowed)" "yes" \
+    "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML")"
+  # No grep fallback is meaningful for "finite int > 600000", so on a host lacking
+  # python3/PyYAML (or lacking scratch space for the fixtures) these guards SELF-SKIP as
+  # host-capability rather than vanishing into a clean pass (#456: a silently-absent guard
+  # is never a clean pass). PyYAML is a suite prerequisite, so CI always arms them.
+  skip "#1179 finite BASH_MAX_TIMEOUT_MS > 600000 via settings env (AC1)" host-capability "python3/PyYAML or scratch space unavailable — cannot parse the workflow settings env"
+  skip "#908/#1179 workflow-settings guard adversarial fixture matrix" host-capability "python3/PyYAML or scratch space unavailable — cannot compose or parse the synthetic workflow fixtures"
 fi
 assert_eq "#908 AC2: HOOK_TARGETS (harden-stop-hooks.sh) already lists the guard script" "yes" \
   "$(grep -qF 'stop-hook-probe.sh scripts/pretooluse-shape-guard.py' "$LIB/../scripts/harden-stop-hooks.sh" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- pins the guard's adjacency inside the HOOK_ENTRY_TARGETS/HOOK_TARGETS assignment lines specifically (a code-only substring, never the file's prose comments mentioning the same script name), the AC2 precondition that makes the settings-input hook inert unless the script is a hardened/trusted target

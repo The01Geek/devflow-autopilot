@@ -2408,8 +2408,9 @@ jobs:
           # Registers the PreToolUse shape guard (issue #908, follow-up to #805/#906).
           # This file's `on: workflow_call` is the review tier's reusable workflow
           # (devflow-implement.yml carries its own separate claude-code-action
-          # invocation with no `settings:` input — grepped, zero hits), so no tier
-          # conditional is needed here.
+          # invocation, which since issue #1179 passes an ENV-ONLY `settings:` input —
+          # BASH_MAX_TIMEOUT_MS, no hooks — so this PreToolUse registration remains
+          # review-tier-only), so no tier conditional is needed here.
           #
           # CONSUMER-TIER RESOLUTION AND FAIL-OPEN-ON-ABSENCE (issue #908 confirmatory
           # review, Critical/security). install.sh ships THIS workflow verbatim into
@@ -2442,17 +2443,21 @@ jobs:
           # incorrectly named HOOK_TARGETS closure membership alone as sufficient, which
           # the harden_guard step's own review finding shows it is not, since harden_hooks
           # can skip entirely).
-          # CAVEAT (undocumented upstream): whether this `settings` input MERGES with or
-          # OVERWRITES the base-restored `.claude/settings.json` hooks is unmeasured. The
-          # base settings today carries only a `Stop` key, so the ambiguity is
-          # undetectable by collision here — but NOT harmless: under an overwrite
-          # semantics, the restored `.claude/settings.json`'s three `Stop` hooks
-          # (`lib/efficiency-trace.sh --persist`, `lib/implement-stop-guard.sh`,
-          # `scripts/stop-hook-probe.sh`) plus its `enabledPlugins` block would silently
-          # stop applying on this review tier — a live, concrete consequence, not a
-          # theoretical one. The matcher-probe.yml `pretooluse-probe` job (AC7) exists in
-          # part to observe this mechanism empirically; re-check this caveat once that
-          # evidence lands (tracked in #919).
+          # SETTINGS-INPUT SCOPE (was an open "merges or overwrites?" caveat here; answered
+          # while fixing PR #1205). A read of claude-code-action's source reports that this
+          # input lands at USER scope and is loaded ALONGSIDE — not instead of — the
+          # base-restored PROJECT `.claude/settings.json`, so that file's `Stop` hooks and
+          # its `enabledPlugins` block keep applying on this review tier. The mechanism, the
+          # source files it was read from, the residuals it carries, and the register that
+          # read is stated in — a source read over a floating action ref, not a measurement
+          # — live in ONE place: beside the `settings:` input in devflow-implement.yml. This
+          # is a pointer; keep the two in step by editing THAT block, never by re-deriving
+          # the mechanism here. Consequence for THIS block: the PreToolUse hook below
+          # registers ADDITIVELY at user scope — it does not displace a project hook, and a
+          # project-scope PreToolUse hook would run alongside it. The matcher-probe.yml
+          # `pretooluse-probe` job (AC7) still measures a separate question — whether a
+          # settings-input hook actually FIRES and delivers its permissionDecisionReason
+          # (tracked in #919); that measurement is unaffected by the scope answer above.
           settings: |
             {
               "hooks": {
