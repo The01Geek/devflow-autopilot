@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1232",
+  "generated_at": "2026-08-03T23:40:48Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.72",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 8.73164025,
+    "tokens": {
+      "input_tokens": 5902,
+      "output_tokens": 23035,
+      "cache_read_input_tokens": 2782030,
+      "cache_creation_input_tokens": 201645,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 6002,
+        "outputTokens": 59486,
+        "cacheReadInputTokens": 6314373,
+        "cacheCreationInputTokens": 528180,
+        "webSearchRequests": 0,
+        "costUSD": 8.73164025,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 26,
+    "duration_ms": 577109
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "cd /home/runner/work/prflow/prflow\necho \"=== loop-verdict-marker-test.py ===\"; python3 lib/test/loop-verdict-marker-test.py; echo \"rc=$?\"\necho \"=== capability --check ===\"; python3 lib/generate-capability-profiles.py --check 2>&1 | tail -20; echo \"rc=${PIPESTATUS[0]}\"\necho \"=== cloud_writer_contract verify ===\"; python3 lib/test/cloud_writer_contract.py verify 2>&1 | tail -20; echo \"rc=${PIPESTATUS[0]}\"\necho \"=== ruff on new files ===\"; ruff check scripts/loop-verdict-marker.py lib/test/loop-ver …[per-command-truncated]",
+      "git log --oneline --first-parent -15 25b6cbd9; echo ===; git log --oneline 25b6cbd9 --not $(git rev-list --max-count=1 25b6cbd9^2 2>/dev/null) 2>/dev/null | head",
+      "printf '\\xff\\xfe not utf8\\n<!-- prflow:loop-verdict result=approve coverage=full -->' > /tmp/lvm_bad.md\npython3 scripts/loop-verdict-marker.py read /tmp/lvm_bad.md; echo \"rc=$?\"\necho \"--- locale check for stdin errors handler ---\"\npython3 -c \"import sys; print(sys.stdin.errors)\"",
+      "cd /home/runner/work/prflow/prflow\nprintf '\\xff\\xfe not utf8\\nsecond line\\n' > .prflow/tmp/lvm_bad.md 2>/dev/null || { mkdir -p .prflow/tmp; printf '\\xff\\xfe not utf8\\nsecond line\\n' > .prflow/tmp/lvm_bad.md; }\npython3 scripts/loop-verdict-marker.py read .prflow/tmp/lvm_bad.md; echo \"file rc=$?\"\npython3 -c \"import sys; print('stdin.errors=', sys.stdin.errors)\"\nrm -f .prflow/tmp/lvm_bad.md",
+      "mkdir -p .prflow/tmp && printf '\\xff\\xfe bad\\nsecond\\n' > .prflow/tmp/lvm_bad.md && python3 scripts/loop-verdict-marker.py read .prflow/tmp/lvm_bad.md; echo \"file rc=$?\"; python3 -c \"import sys; print('stdin.errors=', sys.stdin.errors)\"; rm -f .prflow/tmp/lvm_bad.md",
+      "cd /home/runner/work/prflow/prflow\nscripts/post-review-verdict.sh \"1232\" \"APPROVE with notes\" .prflow/tmp/review-verdict-body.md \"25b6cbd9eea8f06ebdc763290b6be406a593ea06\" \"\"\necho \"post-rc=$?\""
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
