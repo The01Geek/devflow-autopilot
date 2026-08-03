@@ -189,7 +189,7 @@ When the plan touches a value, contract, or literal that lives in more than one 
 
 Enumerate the sites with searches you actually run, in the granted forms and preference order the §2.3 preamble already lists, and record both the commands you ran and what they found through a workpad `--note` before the first edit. Do not attest a search you did not run.
 
-A search that errors, is refused, or returns no output at all is a **gap**, not an empty result: record it as a gap naming that command, and build the map only from searches that observably ran — a refused search never counts as "there were no other places." Follow the §2.3 preamble's "confirm the search actually ran" rule here rather than restating it.
+A search that errors, is refused, or otherwise cannot be confirmed to have run is a **gap**, not evidence of no other places: record it as a gap naming that command, and build the map only from searches that observably ran — a refused search never counts as "there were no other places." Whether a given empty result is an honest zero-match or a search that never ran is exactly what the §2.3 preamble's "confirm the search actually ran" rule decides; apply it here rather than restating it.
 
 If your project publishes a coupled-site registry — a checked-in list of which sites must change together — consult it as well; a project that publishes none is simply unconstrained by it.
 
