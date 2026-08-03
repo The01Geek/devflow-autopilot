@@ -22499,8 +22499,8 @@ assert_eq "vendor: self copies skills/" "yes" "$(vexists "$VS_SELF/skills")"
 assert_eq "vendor: self copies .prflow/tool-presets.json" "yes" "$(vexists "$VS_SELF/.prflow/tool-presets.json")"
 
 # #677 exclusions: the produced slice must ship neither the published GitHub Pages
-# HTML (docs/site) nor DevFlow's own test suite (lib/test) — neither is reachable on
-# any consumer path, and both dominate the payload. These observe the PRODUCED tree,
+# HTML (docs/site), the Mintlify source (docs/external), nor DevFlow's own test suite
+# (lib/test) — none is reachable on any consumer path. These observe the PRODUCED tree,
 # not just that the helper exited zero. docs/ and lib/ are copied WHOLESALE, so
 # neither subtree has its own copy-list entry — the reachable mutation is deleting or
 # weakening the rm -rf prune (or moving it after the atomic swap), which re-ships the
@@ -45486,7 +45486,8 @@ PY
 # ────────────────────────────────────────────────────────────────────────────
 
 # ── #1072 shipped-pruned-path lint (lib/test/lint-shipped-pruned-path.py) ──
-# The vendor slice prunes lib/test / docs/site / .claude-plugin/marketplace.json from the
+# The vendor slice prunes lib/test / docs/site / docs/external /
+# .claude-plugin/marketplace.json from the
 # vendored plugin, so a shipped prompt sentence naming one of them resolves against a consumer
 # tree where it does not exist. This lint derives the prune set from vendor-slice.sh itself (not
 # a hardcoded literal) and audits skills/** + agents/** for an unmarked reference. It joins the
@@ -45511,7 +45512,7 @@ print("yes" if m and int(m.group(1)) > 0 else "no")')"
 # one live member (lib/test) still leaves a non-empty set, so a bare non-empty check would pass
 # over a population it no longer covers. Reading the live vendor-slice.sh through --print-prune-set.
 assert_eq "#1072 lint: derived prune set matches the checked-in expectation" \
-  ".claude-plugin/marketplace.json docs/site lib/test" \
+  ".claude-plugin/marketplace.json docs/external docs/site lib/test" \
   "$(cd "$LIB/.." && python3 "$SP_LINT" --print-prune-set | python3 -c 'import sys; print(" ".join(sys.stdin.read().split()))')"
 
 # Prune-set derivation over synthetic slices, driven through --slice-source (AC10 matrix).
@@ -45745,7 +45746,7 @@ from pathlib import Path
 root = Path(sys.argv[1])
 link_pattern = re.compile(r"(?<!!)\[[^]]+\]\((/[^)\s]+)")
 
-for page in root.rglob("*"):
+for page in root.rglob("*"):  # tree-walk-ok: scoped to the selected public-site source root, including unstaged Markdown pages but never repository worktrees
     if not page.is_file() or page.suffix not in {".md", ".mdx"}:
         continue
     for href in link_pattern.findall(page.read_text(encoding="utf-8")):

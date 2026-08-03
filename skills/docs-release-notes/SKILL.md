@@ -4,8 +4,8 @@ description: Use when a change needs a user-visible release-note, changelog, or 
 ---
 > **Configuration:** Read paths from `.prflow/config.json`:
 > - Internal docs: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/`
-> - External docs: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.external docs/external/`
-> - Release notes file: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.release_notes_file docs/external/release-notes.md`
+> - External docs: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.external docs/external/` <!-- pruned-path-ok: this is the configurable consumer-owned external-doc root, not a path expected inside the vendored plugin -->
+> - Release notes file: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.release_notes_file docs/external/release-notes.md` <!-- pruned-path-ok: this is the configurable consumer-owned release-notes default, not a path expected inside the vendored plugin -->
 > - CHANGELOG file: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.changelog_file CHANGELOG.md`
 > - PR number: `gh pr view --json number -q '.number'` (resolves from current branch)
 >
