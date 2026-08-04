@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1282",
+  "generated_at": "2026-08-04T17:27:24Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.92",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.29591225,
+    "tokens": {
+      "input_tokens": 38,
+      "output_tokens": 15503,
+      "cache_read_input_tokens": 2941901,
+      "cache_creation_input_tokens": 162188,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 70,
+        "outputTokens": 23613,
+        "cacheReadInputTokens": 4051802,
+        "cacheCreationInputTokens": 331381,
+        "webSearchRequests": 0,
+        "costUSD": 5.29591225,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 23,
+    "duration_ms": 323240
+  },
+  "permission_denials": {
+    "count": 5,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "git fetch origin ed3980fcfdf263896a660d70696adbfd06c58bfe 2>&1 | tail -1\necho \"=== docs/*.md refs at PR HEAD in shipped scripts/ + lib/ (excl lib/test, excl .example) ===\"\nfor f in $(git ls-tree -r --name-only ed3980fcfdf263896a660d70696adbfd06c58bfe -- scripts/ lib/ | grep -vE '^lib/test/|\\.example$'); do\n  git show \"ed3980fcfdf263896a660d70696adbfd06c58bfe:$f\" 2>/dev/null | grep -nE 'docs/[a-zA-Z0-9_/.-]+' | sed \"s|^|$f:|\"\ndone",
+      "ls .prflow/prompt-extensions/*.md.example | sed 's|.*/||;s|.md.example||' | sort > /tmp/have; grep -vE '^\\s*#|PE_SKILLS' scripts/scaffold-config.sh | sed -n '277,294p' 2>/dev/null; awk -F'|' '/^[a-z].*\\|/{print $1}' scripts/scaffold-config.sh | sort > /tmp/want; echo \"=== in generator not committed ===\"; comm -23 /tmp/want /tmp/have; echo \"=== committed not in generator ===\"; comm -13 /tmp/want /tmp/have",
+      "cd /home/runner/work/prflow/prflow; comm -23 <(awk -F'|' '/^[a-z-]+\\|/{print $1}' scripts/scaffold-config.sh | sort -u) <(ls .prflow/prompt-extensions/*.md.example | sed 's|.*/||;s|.md.example||' | sort -u); echo \"---done---\"",
+      "cd /home/runner/work/prflow/prflow; ls .prflow/prompt-extensions/*.md.example | wc -l; ls .prflow/prompt-extensions/*.md.example | sed 's|.*/||;s|\\.md\\.example||' | sort | tr '\\n' ' '",
+      ".prflow/vendor/prflow/scripts/post-review-verdict.sh 1282 APPROVE .prflow/tmp/review/pr-1282/local-run/verdict.md ed3980fcfdf263896a660d70696adbfd06c58bfe 2>.prflow/tmp/review/pr-1282/local-run/post.err ; echo \"post-rc=$?\"; echo \"---stderr---\"; cat .prflow/tmp/review/pr-1282/local-run/post.err"
+    ],
+    "total": 5,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
