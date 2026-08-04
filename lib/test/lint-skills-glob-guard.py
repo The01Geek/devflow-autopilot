@@ -38,6 +38,9 @@ Audited population, closed by enumeration:
   `git ls-files` with no `--others` (issue #711: a repository-root-anchored
   recursive walk descends into every sibling worktree under `.claude/worktrees/`
   and reports a number that varies between runs on the same commit).
+* `agents/**` is a shipped prompt surface too and is deliberately NOT audited — a
+  disclosed scope limit, not an oversight. It carries no violation today, so the
+  limit is currently inert; widening the population is a separate decision.
 
 Candidate shape, closed by enumeration — ALL of these must hold:
 
@@ -47,32 +50,49 @@ Candidate shape, closed by enumeration — ALL of these must hold:
 * the line is not inside a **quoted** heredoc body (data the shell never expands),
   and its `#`-introduced trailing comment has been stripped quote-aware before the
   scan — prose in a comment is not a command;
-* the line is not a `case` branch (a line carrying `;;`, or a leading label token
-  followed by `)`) — `*)` and `''|*[!0-9]*)` are branch patterns, not globs;
-* the line contains a whitespace-delimited token, appearing **outside** any single
-  or double quotes, that carries an unquoted `*` **and** a `/`. Requiring the `/`
-  is what keeps `--include=*.py`, `Bash(gh:*)` and bare `*)` out of the candidate
-  set; requiring the token to be unquoted is what keeps `find . -name "*.sql"` out,
-  since a quoted pattern is never expanded by the shell;
+* the line contains a whitespace-delimited token lying wholly **outside** every
+  single- and double-quoted span, that carries a `*` **and** a `/`. Requiring the
+  `/` is what keeps `--include=*.py`, `Bash(gh:*)` and bare `*)` out of the
+  candidate set; requiring the token to be outside quotes is what keeps
+  `find . -name "*.sql"` — and a pattern in the *interior* of a multi-word quoted
+  string — out, since a quoted pattern is never expanded by the shell;
 * the token contains no `(`, `)` or `$` — a permission-grant literal written in
-  prose (`Bash(lib/test/run.sh:*)`) and a parameter expansion are not filename
-  patterns the shell will glob at this site;
+  prose (`Bash(lib/test/run.sh:*)`), a `case` branch label (`*)`, `''|*[!0-9]*)`,
+  `claude/issue-*|issue-*)` — every label ends in `)`) and a parameter expansion are
+  not filename patterns the shell will glob at this site. This one exclusion is
+  what makes a separate `case`-branch predicate unnecessary;
 * the token contains no `**` — markdown emphasis written inside a fence
   (`**Relevant Classes/Files**`) is not a pattern any skill fence's shell expands,
   since POSIX shells have no `**` operator and bash gives it recursive meaning only
   under `shopt -s globstar`, which no skill fence sets.
 
-Accepted residuals, stated rather than papered over: a glob assembled through a
-variable, a glob inside an untagged fence, a glob in a `for … in` list spanning
-lines, and a glob written with `?` or `[…]` and no `*` are all outside the shape
-and are not detected. The written convention in `CLAUDE.md` is the primary control;
-this check is the narrow mechanical backstop for the commonest shape.
+Accepted residuals, stated rather than papered over — this list is the single home
+for them, so `CLAUDE.md` points here rather than carrying a second copy:
+
+* a glob assembled through a variable;
+* a glob inside an untagged fence;
+* a glob written with `?` or `[…]` and no `*`;
+* a glob with **no path separator** (`wc -l *.py`) — zsh refuses that one too, but
+  requiring the `/` is what keeps `--include=*.py` and `Bash(gh:*)` out, and that
+  trade is taken deliberately;
+* a heredoc whose quoted delimiter is not identifier-shaped (`<<'MY-EOF'`), whose
+  body is therefore scanned as code;
+* a `#` inside an unterminated multi-line quoted string, where the single-line
+  comment strip mis-reads the line;
+* a `# glob-ok:` marker text appearing inside a quoted string on the same line,
+  which discharges that line — the marker is deliberately read from the RAW line
+  (stripping the comment would remove the declaration along with it).
+
+The written convention in `CLAUDE.md` is the primary control; this check is the
+narrow mechanical backstop for the commonest shape.
 
 Violation condition: a candidate token whose line carries no `# glob-ok: <reason>`
-marker and whose fence carries no `setopt nonomatch` guard on an earlier line. The
-guard never judges what a marker's reason claims — what it buys is a reviewable,
-greppable declaration at the desk, exactly like the sibling markers
-`# structural-pin-ok:`, `# tree-walk-ok:`, `# pruned-path-ok:` and `# argjson-ok:`.
+marker and whose fence carries no `setopt nonomatch` guard on an earlier line (the
+guard is matched against the comment-stripped line, so prose *naming* the remedy
+does not stand in for it). The guard never judges what a marker's reason claims —
+what it buys is a reviewable, greppable declaration at the desk, exactly like the
+sibling markers `# structural-pin-ok:`, `# tree-walk-ok:`, `# pruned-path-ok:` and
+`# argjson-ok:`.
 
 Usage:
     lint-skills-glob-guard.py [--root DIR] [--files-from FILE]
@@ -112,17 +132,13 @@ if _pop_missing:
         f"{', '.join(_pop_missing)}; refusing to audit"
     )
 
-# The marker must carry a NON-EMPTY reason, matching the shape the sibling
-# declaration markers use in `lint-shipped-pruned-path.py` — a bare `# glob-ok:`
-# with nothing after it is not a declaration and does not discharge a violation.
+# The marker must carry a NON-EMPTY reason — the `(\S.*?)` shape the repo's other
+# declaration markers use. A bare `# glob-ok:` with nothing after it is not a
+# declaration and does not discharge a violation.
 MARKER = "# glob-ok:"
 MARKER_RE = re.compile(r"#\s*glob-ok:\s*(\S.*?)\s*$")
 ZSH_GUARD = "setopt nonomatch"
 SHELL_INFO_WORDS = {"bash", "sh", "shell", "zsh"}
-# A `case` branch label: a leading token (no whitespace) followed by `)`. `*)`,
-# `''|*[!0-9]*)` and `claude/issue-*|issue-*)` all match; an ordinary command line
-# that merely closes a `$( … )` does not.
-_CASE_LABEL = re.compile(r"^\(?[^\s()]+\)(\s|$)")
 # A quoted heredoc introducer: `<<'EOF'` / `<<"EOF"` / `<<-'EOF'`. A heredoc body is
 # data the shell never expands as a filename pattern, so it is skipped to the closing
 # delimiter. Only the QUOTED form is recognised — an unquoted heredoc still undergoes
@@ -135,58 +151,67 @@ def is_audited(relative: str) -> bool:
     return relative.startswith("skills/") and relative.endswith(".md")
 
 
-def _unquoted_tokens(line: str) -> list[str]:
-    """Split a line into whitespace-delimited tokens, dropping every token that
-    carries a quote character.
+def _scan_quotes(line: str) -> tuple[str, list[bool]]:
+    """Walk a line once, returning its comment-stripped code and a per-character
+    "this character sits inside a quoted span" mask over that code.
 
-    A token is dropped rather than unquoted: a partially-quoted token
-    (`--name="*.sql"`) still has its pattern protected from the shell, and a
-    token that opens a quote is not a bare filename pattern. This is a textual
-    approximation of shell word-splitting, which is all the narrow candidate
-    shape needs — it never has to reconstruct what the shell would actually run.
-    """
-    return [t for t in line.split() if "'" not in t and '"' not in t]
+    One walk serves the three consumers that all need the same answer — the
+    trailing-comment strip, the token filter, and the heredoc-introducer test —
+    so they cannot disagree about where the quotes are. Without the comment
+    strip, a line reading `ls . # see docs/site/*/ for the layout` reports a
+    violation for a pattern the shell never sees; without the mask, a pattern in
+    the interior of a multi-word quoted string (`echo "see docs/site/*/ here"`)
+    carries no quote character of its own and is flagged the same way.
 
-
-def _is_case_branch(line: str) -> bool:
-    """A `case` branch label, whose `*` is a match pattern rather than a glob.
-
-    Deliberately narrow. An earlier draft also treated any line ending in `)` as a
-    branch, and any line ending in ` in` as a `case` header; both are fail-OPEN
-    (they silence a real glob on an ordinary line closing a `$( … )` or a
-    `for f in …` list). Only the two shapes that are unambiguous survive: a line
-    carrying `;;`, and a leading label token followed by `)`.
-    """
-    stripped = line.strip()
-    if ";;" in stripped:
-        return True
-    return bool(_CASE_LABEL.match(stripped))
-
-
-def _strip_trailing_comment(line: str) -> str:
-    """Drop a `#`-introduced trailing comment, quote-aware.
-
-    Without this a `#` comment's own prose is scanned as code, so a line reading
-    `ls . # see docs/site/*/ for the layout` reports a violation for a pattern the
-    shell never sees. The scan is a single-line quote tracker, which is all this
-    narrow shape needs — a `#` inside an unterminated multi-line quote is an
-    accepted residual, the same class as every other disclosed miss.
+    Single-line only, which is all the narrow shape needs: a `#` or a quote
+    inside an unterminated multi-line string is an accepted, disclosed residual.
     """
     quote = ""
+    code: list[str] = []
+    quoted: list[bool] = []
     for index, char in enumerate(line):
         if quote:
+            code.append(char)
+            quoted.append(True)
             if char == quote:
                 quote = ""
-        elif char in "'\"":
+            continue
+        if char in "'\"":
             quote = char
-        elif char == "#" and (index == 0 or line[index - 1] in " \t"):
-            return line[:index]
-    return line
+            code.append(char)
+            quoted.append(True)
+            continue
+        if char == "#" and (index == 0 or line[index - 1] in " \t"):
+            break
+        code.append(char)
+        quoted.append(False)
+    return "".join(code), quoted
 
 
-def _candidate_tokens(line: str) -> list[str]:
+def _unquoted_tokens(code: str, quoted: list[bool]) -> list[str]:
+    """Whitespace-delimited tokens of `code` that lie wholly outside every quoted
+    span — a textual approximation of shell word-splitting, which is all the narrow
+    candidate shape needs; it never has to reconstruct what the shell would run.
+    """
+    tokens: list[str] = []
+    start = 0
+    length = len(code)
+    while start < length:
+        if code[start].isspace():
+            start += 1
+            continue
+        end = start
+        while end < length and not code[end].isspace():
+            end += 1
+        if not any(quoted[start:end]):
+            tokens.append(code[start:end])
+        start = end
+    return tokens
+
+
+def _candidate_tokens(code: str, quoted: list[bool]) -> list[str]:
     found = []
-    for token in _unquoted_tokens(line):
+    for token in _unquoted_tokens(code, quoted):
         if "*" not in token or "/" not in token:
             continue
         if any(ch in token for ch in "()$"):
@@ -229,21 +254,30 @@ def scan_file(text: str, path: str) -> list[str]:
             if stripped == heredoc_delimiter:
                 heredoc_delimiter = ""
             continue
-        if ZSH_GUARD in line:
+        code, quoted = _scan_quotes(line)
+        # The guard is read from the COMMENT-STRIPPED, unquoted code, never the raw
+        # line: prose that merely NAMES the remedy ("we deliberately do not use
+        # setopt nonomatch here") would otherwise discharge every later glob in the
+        # fence — a guard that looks present and checks nothing, which is the exact
+        # failure signature this whole change exists to remove.
+        guard = code.find(ZSH_GUARD)
+        if guard != -1 and not any(quoted[guard : guard + len(ZSH_GUARD)]):
             fence_guarded = True
             continue
-        # The marker is read from the RAW line — stripping the trailing comment
-        # would remove the declaration along with the prose it introduces.
+        # The marker, by contrast, IS read from the raw line — stripping the trailing
+        # comment would remove the declaration along with the prose it introduces.
         declared = bool(MARKER_RE.search(line))
-        code = _strip_trailing_comment(line)
         heredoc = _HEREDOC.search(code)
-        if heredoc:
+        # An introducer inside a quoted string is a mention, not a heredoc; honouring
+        # it would skip the rest of the fence (fail-open) waiting for a delimiter line
+        # that never arrives. Only the `<<` position is tested — the delimiter's own
+        # quotes are quote characters by construction, so testing the whole match
+        # would reject every real quoted heredoc.
+        if heredoc and not quoted[heredoc.start()]:
             heredoc_delimiter = heredoc.group(2)
         if not code.strip():
             continue
-        if _is_case_branch(code):
-            continue
-        tokens = _candidate_tokens(code)
+        tokens = _candidate_tokens(code, quoted)
         if not tokens:
             continue
         if fence_guarded or declared:
@@ -277,6 +311,17 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     audited = [path for path in population if is_audited(path)]
+    if not audited:
+        # `enumerate_population` fails closed only on a PRE-filter empty set. A
+        # population that survives enumeration but has nothing under `skills/` is
+        # equally an unestablished measurement — a caller scoping the run to a
+        # changed-file list would otherwise get a green run over nothing.
+        print(
+            f"{TOOL}: enumeration yielded {len(population)} path(s) but none under "
+            "skills/ — refusing to report clean over an empty audited population",
+            file=sys.stderr,
+        )
+        return 1
 
     violations: list[str] = []
     skipped: list[tuple[str, str]] = []
