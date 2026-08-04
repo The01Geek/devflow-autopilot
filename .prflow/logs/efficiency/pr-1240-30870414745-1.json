@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1240",
+  "generated_at": "2026-08-04T02:05:00Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.76",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.5832945,
+    "tokens": {
+      "input_tokens": 38,
+      "output_tokens": 13498,
+      "cache_read_input_tokens": 2616263,
+      "cache_creation_input_tokens": 153061,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 42,
+        "outputTokens": 15692,
+        "cacheReadInputTokens": 2662174,
+        "cacheCreationInputTokens": 205715,
+        "webSearchRequests": 0,
+        "costUSD": 3.5832945,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 27,
+    "duration_ms": 258108
+  },
+  "permission_denials": {
+    "count": 3,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "for f in skills/implement/phases/phase-3-review.md skills/review-and-fix/SKILL.md skills/review-and-fix/references/loop-exit.md; do\n  printf '%s  ' \"$(git hash-object -t blob \"$f\" 2>/dev/null)\"; echo \"$f (git blob sha1)\"\ndone\necho \"--- sha256 as pinned in contract ---\"\nfor f in skills/implement/phases/phase-3-review.md skills/review-and-fix/SKILL.md skills/review-and-fix/references/loop-exit.md; do\n  s=$(python3 -c \"import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest …[per-command-truncated]",
+      "for f in skills/implement/phases/phase-3-review.md skills/review-and-fix/SKILL.md skills/review-and-fix/references/loop-exit.md; do\n  git cat-file blob 876af477:\"$f\" | python3 -c \"import hashlib,sys;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())\"\ndone\necho \"--- manifest at PR head ---\"\ngit cat-file blob 876af477:scripts/devflow-cloud-writer-contract.json | grep -E 'phase-3-review.md|review-and-fix/SKILL.md|loop-exit.md'"
+    ],
+    "total": 3,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
