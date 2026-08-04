@@ -14,7 +14,7 @@ Compute `RUN_ID` **once at loop start, before iteration 1, and hold the literal 
 
 **All in-run scratch is run-scoped** — `diff.patch`, `iter-*.json`, and `deferrals.json` all live under `.prflow/tmp/review/<slug>/<run-id>/`, so two runs on the same PR never clobber any of them. The cached diff is at `.prflow/tmp/review/<slug>/<run-id>/diff.patch` — the full diff written by Phase 0.2 of `/prflow:review` on every iteration (overwritten within a run, but never across runs). Phase 3 agents Read this file directly via the `{DIFF_PATH}` substitution Phase 0.2 fills in, instead of re-running `gh pr diff` / `git diff` 4–5 times in parallel — so they pick up the run-scoped path automatically with no per-agent-prompt change. **Run-id consistency across the wrapper and the engine:** so the engine's Phase 0.2 and this wrapper agree on one `<run-id>` for the whole run (rather than `/prflow:review` computing a fresh timestamp-based id on each inline invocation), the wrapper passes its held `RUN_ID` into the engine's Phase 0.2 (see Step 1's head-override paragraph, which already plumbs caller inputs into Phase 0.2). See `/prflow:review`'s Phase 0.2 for the write logic.
 
-**Important.** Only `.prflow/tmp/` is ephemeral working state — the rest of `.prflow/` (`config.json`, `learnings/`, the schema/example) is intentionally tracked. The scaffolder (`scripts/scaffold-config.sh`, run by `install.sh` / `/prflow:init`) writes a scoped `.prflow/.gitignore` that ignores only `tmp/`. This skill does NOT manage that entry itself (it's a repo-level concern); flag missing coverage in the chat output only if `.prflow/tmp/` is not already ignored.
+**Important.** Only `.prflow/tmp/` is ephemeral working state — the rest of `.prflow/` (`config.json`, `learnings/`, the schema/example) is intentionally tracked. The scaffolder (`scripts/scaffold-config.sh`, run by `install.sh` / `/prflow:init`) writes a scoped `.prflow/.gitignore` that ignores only `tmp/`. This skill does NOT manage that entry itself (it's a repo-level concern).
 
 ## Schema field semantics
 
@@ -113,13 +113,13 @@ If N ≥ 2: read `iter-<N-1>.json` from the workpad before proceeding.
 
 Skip this step entirely in current-branch mode (no `$PR_NUMBER`) — that mode already commits to and diffs against the checked-out branch.
 
-In PR mode, this step makes the loop's local fix commits and the engine's diff agree. On **iteration 1**, ensure the PR's head branch is the checked-out branch, so Step 3's fix commits land on the PR's branch and local `HEAD` *is* the PR head:
+In PR mode, this step is a **gate**, not an optimization: before any Phase 0.2 diff or review work runs, it must prove that the checked-out branch is the PR's head branch — so Step 3's fix commits land on the PR's branch and local `HEAD` *is* the PR head. The loop does not proceed past this step until that assertion holds. On **iteration 1**, check out the PR's head branch:
 
 ```bash
 gh pr checkout $PR_NUMBER   # checks out (and tracks) the PR's head branch
 ```
 
-If you are already on the PR's head branch (compare `git branch --show-current` against the `headRefName` resolved in the engine's Phase 0.2), this is a fast no-op. If `gh pr checkout` fails (e.g. dirty working tree, detached HEAD), **stop and report** — do not commit fixes onto the wrong branch.
+Then **assert**, before any Phase 0.2 diff work runs, that the checkout landed on the PR head: compare `git branch --show-current` against the PR's head ref — the `headRefName` the engine resolves in Phase 0.2, which you resolve here with `gh pr view $PR_NUMBER --json headRefName --jq '.headRefName'`. Proceeding past this step is conditional on that assertion holding — this is a gate, not an optimization. If the two differ, **stop and report** a message naming the mismatch, the expected head ref, and the branch actually checked out — do not proceed to review, commit, or push (a diff or fix computed against the wrong branch is the failure this gate exists to prevent). If `gh pr checkout` fails (e.g. dirty working tree, detached HEAD), likewise **stop and report** naming that failure — do not commit fixes onto the wrong branch. Neither stop arm proceeds to review, commit, or push.
 
 Keeping local `HEAD` equal to the PR head is what lets Step 1's head-override (passed on every PR-mode iteration) diff against the fix commits this loop makes — see that step for the rationale.
 
