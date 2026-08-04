@@ -324,10 +324,12 @@ is filled from this**: the four-way question (`BOTH_HOPS` / `ORCHESTRATOR_ONLY` 
 `NEITHER_HOP`) remains open, and `ORCHESTRATOR_ONLY` in particular must not be inferred
 from a silent hop one.
 
-What this changes is the remedy. The observation suggests the probe needs a **design
-fix** before it can yield a verdict — hop one's report is not reaching the execution
-file the helper reads — so a blind re-dispatch would most likely return `INCONCLUSIVE`
-again. Diagnosing and repairing the probe's hop-one reporting path (a `matcher-probe.yml`
+What this changes is the remedy. The probe most likely needs a **design fix** before it
+can yield a verdict, so a blind re-run would probably return `INCONCLUSIVE` again. What
+is established is only that hop one produced **no reading at all** in the execution file
+the helper reads; *why* — the hop's command never ran, ran and emitted nothing, or ran
+and its output never reached that file — is itself unestablished and is the first thing
+to determine. Diagnosing and repairing the hop-one reporting path (a `matcher-probe.yml`
 change) is the actual next step, not another run.
 
 Until a verdict exists, the claim that a consumer's committed base-ref
