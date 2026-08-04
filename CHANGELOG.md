@@ -4,6 +4,50 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.87] — 2026-08-04
+
+### Fixed
+- **Phase 4.4 now states one tier-agnostic verdict-post procedure and a desk lint catches a reintroduced ungranted helper spelling.** Phase 4.4 previously offered the verdict-post/dismissal helpers at two spellings — the granted vendored literal in its fence and an ungranted repo-relative `scripts/…` form in a "on the local tier, invoke …" parenthetical — leaving the agent to classify its own tier; a cloud run that picked the ungranted spelling was silently denied and finished with no verdict marker (three completed review runs). The parentheticals are replaced by a single procedure that emits the vendored literal first on every tier and falls back to the helper's repo-root path **only on an observable not-found/rc-127 reading** of that attempt, never on a tier judgement — reaching a working path in this repo's local tree, a consumer's local tree, and the cloud tiers alike. The three name-only mentions of the helpers now use the bare filename. A new suite-driven lint, `lib/test/lint-ungranted-helper-spelling.py` (sibling of the #1072 pruned-path lint), audits `skills/**`/`agents/**` for the ungranted repo-relative spelling of the two verdict-post helpers — its forbidden set derived from `lib/capability-profiles.json` (vendored-only) so `extract-command-heads.py`'s fence-only blind spot no longer lets the spelling ship. No capability-manifest grant moves. (#1248)
+
+## [2.30.86] — 2026-08-04
+
+### Fixed
+- **`parse-acs.py` now distinguishes an unreadable acceptance-criteria section from an absent one.** A `## Acceptance Criteria` section that is present and correctly named but writes its criteria as bold paragraphs or a numbered list parses to zero checkbox items, exactly like a section that does not exist — collapsing "the parser could not read the criteria" onto "this issue has no criteria". `scripts/parse-acs.py` now emits an item-shape stderr diagnostic and sets `acceptance_criteria_unreadable: true` in its `--format json` output for that case, while still exiting 0 (so the implement skill's fail-closed §1.2 fence does not halt the run). The accepted item shape is unchanged. The implement skill's Phase 1.2 routes on that signal: the run continues, the criteria are hand-extracted into the workpad, and a friction (`issue-accuracy`) reflection records the event so it surfaces in the weekly retrospective. The misdirecting near-miss diagnostic (which blamed a heading that already matched) is fixed. (#1198)
+
+## [2.30.85] — 2026-08-04
+
+### Added
+- **Give the focused-first and single-flight rules a named place to record what the run did.**
+  Added `scripts/focused_selection.py`, a named, round-trippable producer/reader for the
+  focused-first selection record: per touched surface it records either the coverage-map entry
+  consulted and the target selected (a discharging focused result) or the exemption ground that
+  applied, plus whether the `scripts/verification-flight.py` single flight was consulted before a
+  full-suite relaunch. The implement/review-and-fix/receiving-code-review prompt extensions now
+  name that sink (the issue workpad for an implement run, `iter-<N>.json`'s
+  `verification_evidence.focused_selection` for a standalone fix loop), complete the stale-prose
+  rule with its positive action (commit the tree, then continue), and state that the single flight
+  is consulted before a relaunch. `skills/implement/phases/phase-3-review.md` §3.2 now states that
+  no verification round is owed between the `/simplify` commit and §3.3 — the `/simplify` edits
+  ride into §3.3's first verification. No launch counter, launch ordinal, or mechanical
+  changed-file-to-module routing is introduced. Its `encode` command rejects unparseable stdin,
+  an unclassifiable surface entry, an unrecognized top-level key, and a missing `surfaces` with a
+  one-line message rather than an unhandled traceback or a valid-looking marker for an empty
+  record — so a run that followed the rule and one that was called wrongly cannot emit the same
+  bytes (an empty record states itself as `{"surfaces": []}`; `single_flight_consulted` stays
+  optional). Its read path validates the record shape without normalizing it: `decode_markers`
+  now returns only well-shaped records, so a caller can index one safely, and the new
+  `decode_marker_outcomes` keeps a marker that was present but rejected distinguishable from no
+  marker at all and from a producer-recorded null, naming why it was rejected (the `decode`
+  command breadcrumbs that to stderr). Unknown keys are tolerated on the read path so a record
+  written by a later producer still reads back. (#1229)
+
+## [2.30.84] — 2026-08-04
+
+### Changed
+Fix: use the verdict marker's `head=` as the reviewed-tree comparand in the stale-REJECT dismisser and the Phase 0.3.6 blocker-recheck fast path
+
+A pull-request review's reviews-API `commit_id` is not stable — GitHub can change it after the review is submitted, to a commit that did not exist at review time (observed on PR #1234). `scripts/dismiss-stale-rejections.sh` now reads the reviewed tree from the producer-emitted `prflow:review-verdict` marker's `head=` when the review carries one, falling back to `commit_id` only for a markerless review, so a genuinely-superseded REJECT whose `commit_id` GitHub advanced to the current head becomes dismissible again (and, inversely, a review whose marker head is the current head is no longer wrongly dismissed). The Phase 0.3.6 blocker-recheck fast path derives `$REJECTED_HEAD` the same way. `scripts/derive-review-verdict.sh` keeps failing closed on a head/`commit_id` disagreement by decision. The surrounding contract statements (docs, script headers, CLAUDE.md) are corrected to describe `commit_id` as mutable rather than authoritative, and the disagreement as ordinary GitHub behavior rather than a producer defect.
+
 ## [2.30.83] — 2026-08-04
 
 ### Changed
