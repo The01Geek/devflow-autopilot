@@ -123,5 +123,73 @@
       "iter": 5,
       "phases": "unavailable"
     }
-  ]
+  ],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.98",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 17.068231250000004,
+    "tokens": {
+      "input_tokens": 6226,
+      "output_tokens": 47524,
+      "cache_read_input_tokens": 9849254,
+      "cache_creation_input_tokens": 278246,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 6319,
+        "outputTokens": 108488,
+        "cacheReadInputTokens": 13234488,
+        "cacheCreationInputTokens": 1011187,
+        "webSearchRequests": 0,
+        "costUSD": 16.72438025,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 2,
+        "outputTokens": 10266,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 50628,
+        "webSearchRequests": 0,
+        "costUSD": 0.343851,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 63,
+    "duration_ms": 1079507
+  },
+  "permission_denials": {
+    "count": 8,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh review 2>&1 || scripts/load-prompt-extension.sh review 2>&1; echo \"ext-rc=$?\"",
+      "scripts/load-prompt-extension.sh review; echo \"ext-rc=$?\"",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none}\"; echo \"---status---\"; git status --porcelain",
+      ".prflow/vendor/prflow/scripts/resolve-review-overrides.py \"prflow:checklist-generator\" 2>.prflow/tmp/review/pr-1270/30943849857-1/rv-ovr.phase1.err; echo \"ovr-rc=$?\"; echo \"---stderr---\"; cat .prflow/tmp/review/pr-1270/30943849857-1/rv-ovr.phase1.err",
+      "D=.prflow/tmp/review/pr-1270/30943849857-1\nawk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e' $D/diff.patch > $D/batch-1.patch && test -s $D/batch-1.patch && echo \"slice-ok: batch-1\" || echo \"slice-failed: batch-1\"\nawk -v s=11 -v e=20 '/^diff --git/{n++} n>=s && n<=e' $D/diff.patch > $D/batch-2.patch && test -s $D/batch-2.patch && echo \"slice-ok: batch-2\" || echo \"slice-failed: batch-2\"\nawk -v s=21 -v e=30 '/^diff --git/{n++} n>=s && n<=e' $D/diff.patch > $D/batch-3.patch && test -s $D/batch-3 …[per-command-truncated]",
+      "awk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/review/pr-1270/30943849857-1/diff.patch > .prflow/tmp/review/pr-1270/30943849857-1/batch-1.patch && test -s .prflow/tmp/review/pr-1270/30943849857-1/batch-1.patch && echo \"slice-ok: batch-1\" || echo \"slice-failed: batch-1\"",
+      "for f in .github/workflows/devflow-implement.yml .github/workflows/devflow.yml .github/workflows/matcher-probe.yml; do echo \"=== $f ===\"; grep -cF 'phase2-durability-checkpoint.sh' \"$f\"; done\necho \"=== ci.yml (fixed) ===\"; grep -nF 'phase2-durability-checkpoint' .github/workflows/ci.yml",
+      "H=33422052a8bfe91a832c40471042ca20706c556f\necho \"=== devflow.yml command grant ===\"; git show \"$H:.github/workflows/devflow.yml\" | grep -cF 'phase2-durability-checkpoint.sh'\necho \"=== matcher-probe.yml ===\"; git show \"$H:.github/workflows/matcher-probe.yml\" | grep -cF 'phase2-durability-checkpoint.sh'\necho \"=== devflow-runner.yml (review, MUST be 0) ===\"; git show \"$H:.github/workflows/devflow-runner.yml\" | grep -cF 'phase2-durability-checkpoint'\necho \"=== review-profile.tokens (MUST be 0) ===\"; …[per-command-truncated]"
+    ],
+    "total": 8,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
 }
