@@ -1,0 +1,22 @@
+{
+  "iter": 1,
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": true
+  },
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "verification_evidence": {
+    "note": "Pure prompt-prose diff (AC9: review pass is the compensating control). Inline review run via prflow:code-reviewer against CLAUDE.md conventions and issue #1253 ACs; factual claims verified against the tree (monolith is a real shard; the two selectors no-op the named run.sh call sites). No defects found."
+  },
+  "shadow": {
+    "coverage": "not_verified",
+    "reason": "headless cloud implement run; inline focused project-guidelines review substituted for the full multi-round engine to avoid stranding the run — recorded as a caveat, not a clean-full approve"
+  },
+  "telemetry": "unavailable"
+}
