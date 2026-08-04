@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1263",
+  "generated_at": "2026-08-04T08:53:34Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.88",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.525460749999998,
+    "tokens": {
+      "input_tokens": 2210,
+      "output_tokens": 26294,
+      "cache_read_input_tokens": 3159171,
+      "cache_creation_input_tokens": 216866,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 2274,
+        "outputTokens": 51100,
+        "cacheReadInputTokens": 4622399,
+        "cacheCreationInputTokens": 497943,
+        "webSearchRequests": 0,
+        "costUSD": 7.525460749999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 25,
+    "duration_ms": 533369
+  },
+  "permission_denials": {
+    "count": 14,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "git fetch origin issue-1194-coverage-map-json-conflicts-on-every-concurrent 2>&1 | tail -2; git show 79ebc5232c00c6051e1147a8080286c5d84f88cf:lib/test/coverage-map-retention-check.py > /tmp/retention.py 2>&1; git show 79ebc5232c00c6051e1147a8080286c5d84f88cf:lib/test/coverage-map-merge-driver.py > /tmp/merge.py 2>&1; wc -l /tmp/retention.py /tmp/merge.py",
+      "git show 79ebc5232c00c6051e1147a8080286c5d84f88cf:lib/test/coverage-map-retention-check.py > /tmp/retention.py; git show 79ebc5232c00c6051e1147a8080286c5d84f88cf:lib/test/coverage-map-merge-driver.py > /tmp/merge.py; wc -l /tmp/retention.py /tmp/merge.py",
+      "git show 79ebc5232c00c6051e1147a8080286c5d84f88cf:lib/test/coverage-map-retention-check.py > /tmp/retention.py",
+      "git show 79ebc5232c00c6051e1147a8080286c5d84f88cf:lib/test/coverage-map-merge-driver.py > /tmp/merge.py",
+      "git show 79ebc5232c00c6051e1147a8080286c5d84f88cf:lib/test/coverage-map-retention-check.py > .prflow/tmp_retention.py 2>&1; git show 79ebc5232c00c6051e1147a8080286c5d84f88cf:lib/test/coverage-map-merge-driver.py > .prflow/tmp_merge.py 2>&1; echo done",
+      "git show 79ebc5232c00c6051e1147a8080286c5d84f88cf:lib/test/coverage-map-retention-check.py > .prflow/tmp_retention.py",
+      "git show 79ebc5232c00c6051e1147a8080286c5d84f88cf:lib/test/coverage-map-merge-driver.py > .prflow/tmp_merge.py",
+      "git show FETCH_HEAD:lib/test/test_coverage_map_merge.py > /tmp/test_cmm.py 2>&1; git show FETCH_HEAD:lib/test/coverage-map-merge-driver.py > /tmp/driver.py 2>&1; git show FETCH_HEAD:lib/test/coverage-map-retention-check.py > /tmp/retention.py 2>&1; wc -l /tmp/test_cmm.py /tmp/driver.py /tmp/retention.py",
+      "git show FETCH_HEAD:lib/test/test_coverage_map_merge.py > /tmp/test_cmm.py",
+      "git show FETCH_HEAD:lib/test/coverage-map-merge-driver.py > /tmp/driver.py",
+      "git show FETCH_HEAD:lib/test/coverage-map-retention-check.py > /tmp/retention.py",
+      "mkdir -p .prflow/tmp/rev && git show FETCH_HEAD:lib/test/test_coverage_map_merge.py > .prflow/tmp/rev/test_cmm.py && git show FETCH_HEAD:lib/test/coverage-map-merge-driver.py > .prflow/tmp/rev/driver.py && git show FETCH_HEAD:lib/test/coverage-map-retention-check.py > .prflow/tmp/rev/retention.py && wc -l .prflow/tmp/rev/*.py",
+      "mkdir -p .prflow/tmp/rev; git show FETCH_HEAD:lib/test/test_coverage_map_merge.py > .prflow/tmp/rev/test_cmm.py"
+    ],
+    "total": 14,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
