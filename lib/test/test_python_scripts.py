@@ -24008,6 +24008,78 @@ finally:
     workpad._completion_evidence_verdict = lambda args, prog_content: None
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# focused_selection (issue #1229) — the named focused-first selection record
+# producer/reader. AC2: writes a focused-selection record through the producer and
+# reads it back, asserting per-surface entries survive intact and that three cases
+# are distinguishable (a record naming one or more surfaces, a record naming no
+# surface, and no record at all). AC3: the record holds both a discharging
+# focused-result shape and an exemption-ground shape, distinguishably. AC4: the
+# single-flight consultation round-trips in the same record.
+# ─────────────────────────────────────────────────────────────────────────────
+focused_selection = _load('focused_selection', SCRIPTS / 'focused_selection.py')
+import json as _json1229  # noqa: E402
+
+# A record naming one or more surfaces, mixing both entry shapes (AC3): one a
+# discharging focused result, one an exemption ground.
+_rec_surfaces = focused_selection.build_record(
+    surfaces=[
+        {"surface": "scripts/foo.py", "coverage_map_entry": "test_python_scripts.py::Foo",
+         "target": "lib/test/test_python_scripts.py Foo.test_bar"},
+        {"surface": "docs/thing.md", "exemption_ground": "no-coverage-map-entry"},
+    ],
+    single_flight_consulted={"flight_key": "abc123", "reused_clean_result": True},
+)
+
+# JSON round-trip (the standalone-fix-loop sink embeds this dict as
+# verification_evidence.focused_selection — a plain JSON value).
+assert_eq("#1229 record is JSON round-trippable (standalone verification_evidence sink)",
+          _rec_surfaces, _json1229.loads(_json1229.dumps(_rec_surfaces)))
+
+# Marker round-trip (the implement workpad sink carries it as a named marker note).
+_body_surfaces = "## Progress\n- [x] step\n  - 01:02:03 — " + \
+    focused_selection.encode_marker(_rec_surfaces) + "\n"
+_decoded = focused_selection.decode_markers(_body_surfaces)
+assert_eq("#1229 marker round-trip: exactly one record decoded", 1, len(_decoded))
+assert_eq("#1229 marker round-trip: per-surface entries survive intact",
+          _rec_surfaces, _decoded[0])
+
+# AC3: both entry shapes survive and are distinguishable from each other.
+_entries = _decoded[0]["surfaces"]
+assert_eq("#1229 focused-result entry classified as focused-result", "focused-result",
+          focused_selection.classify_entry(_entries[0]))
+assert_eq("#1229 exemption entry classified as exemption", "exemption",
+          focused_selection.classify_entry(_entries[1]))
+
+# AC4: the single-flight consultation round-trips in the same record.
+assert_eq("#1229 single-flight consultation survives the round-trip",
+          {"flight_key": "abc123", "reused_clean_result": True},
+          _decoded[0]["single_flight_consulted"])
+
+# Case 2: a record naming NO surface — a real record whose surfaces list is empty.
+_rec_none = focused_selection.build_record(surfaces=[], single_flight_consulted=None)
+_body_none = "note carrying " + focused_selection.encode_marker(_rec_none)
+_decoded_none = focused_selection.decode_markers(_body_none)
+assert_eq("#1229 no-surface case: still one record decoded", 1, len(_decoded_none))
+assert_eq("#1229 no-surface case: surfaces list is empty", [], _decoded_none[0]["surfaces"])
+assert_eq("#1229 no-surface case: single_flight_consulted is null", None,
+          _decoded_none[0]["single_flight_consulted"])
+
+# Case 3: NO record at all — decoding text with no marker yields the empty list,
+# distinguishable from case 2 (which yields one record with an empty surfaces list).
+assert_eq("#1229 no-record case: no markers decode to the empty list", [],
+          focused_selection.decode_markers("## Progress\n- [x] a plain note, no marker\n"))
+assert_eq("#1229 three cases distinguishable: no-surface record != no record at all",
+          True, len(_decoded_none) == 1 and len(focused_selection.decode_markers("")) == 0)
+
+# A malformed surface entry (neither a focused result nor an exemption) is rejected
+# at build time — the record cannot silently carry an unclassifiable surface.
+assert_raises("#1229 build_record rejects an unclassifiable surface entry",
+              ValueError,
+              lambda: focused_selection.build_record(
+                  surfaces=[{"surface": "scripts/x.py"}], single_flight_consulted=None))
+
+
 print()
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)
