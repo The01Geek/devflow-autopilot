@@ -26,9 +26,10 @@ Field derivations (each stated here exactly once — this header is the single s
   head             `git rev-parse HEAD` — the checked-out commit. Forty zeros on an unborn
                    HEAD (a repo with no commits). Changes on commit / merge / rebase / checkout.
   index_digest     `git write-tree` — the tree object of the current index (STAGED content).
-  tracked_digest   `git write-tree` over a scratch index seeded from the real index and then
-                   `git add -u`'d — the working-tree content of TRACKED files, capturing
-                   unstaged edits the index does not. Changes on any edit to a tracked file.
+  tracked_digest   `git write-tree` over a scratch index seeded from the real index, backdated
+                   to arm git's racy-stat rule (issue #1117), and then `git add -u`'d — the
+                   working-tree content of TRACKED files, capturing unstaged edits the index
+                   does not. Changes on any edit to a tracked file.
   untracked_digest `git write-tree` over a fresh EMPTY scratch index into which the untracked,
                    non-ignored files are added — the empty-tree id when there are none.
                    Changes when an untracked (non-ignored) file is added, edited, or removed.
@@ -49,6 +50,13 @@ import sys
 import tempfile
 
 _ZERO_SHA1 = "0" * 40
+# Honor the DEVFLOW_GIT override without probing, mirroring the DEVFLOW_GH escape
+# hatch and scripts/reception_identity.py's sibling GIT resolution.
+_GIT = os.environ.get("DEVFLOW_GIT") or "git"
+# The whole-second mtime the seeded scratch index is backdated to (issue #1117). 1,
+# not 0: git reads a zero index timestamp as "unset" and short-circuits its racy-stat
+# rule, so 1 is the smallest value that arms it. See _tracked_digest.
+_INDEX_BACKDATE_SECONDS = 1
 
 
 class _GitError(Exception):
@@ -57,7 +65,7 @@ class _GitError(Exception):
 
 def _git(args: list[str], cwd: str, env: dict | None = None, check: bool = True) -> str:
     proc = subprocess.run(
-        ["git", *args],
+        [_GIT, *args],
         cwd=cwd,
         env=env,
         capture_output=True,
@@ -71,7 +79,7 @@ def _git(args: list[str], cwd: str, env: dict | None = None, check: bool = True)
 
 def _toplevel() -> str:
     proc = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
+        [_GIT, "rev-parse", "--show-toplevel"],
         capture_output=True,
         text=True,
         check=False,
@@ -88,7 +96,7 @@ def _head(top: str) -> str:
     # An unborn HEAD (no commits yet) is not an error here — it is a real, stable
     # checkout state, so it records the all-zero object id rather than failing.
     proc = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
+        [_GIT, "rev-parse", "HEAD"],
         cwd=top,
         capture_output=True,
         text=True,
@@ -109,13 +117,30 @@ def _write_tree(top: str, env: dict | None = None) -> str:
 def _tracked_digest(top: str) -> str:
     """Working-tree content of tracked files (staged + unstaged), via a scratch index."""
     real_index = _git(["rev-parse", "--git-path", "index"], cwd=top).strip()
+    src = real_index if os.path.isabs(real_index) else os.path.join(top, real_index)
     with tempfile.TemporaryDirectory() as td:
         scratch = os.path.join(td, "index")
         # Seed the scratch index from the real one when it exists (an unborn/empty
         # checkout may have none — then start from an empty index).
-        if real_index and os.path.exists(os.path.join(top, real_index) if not os.path.isabs(real_index) else real_index):
-            src = real_index if os.path.isabs(real_index) else os.path.join(top, real_index)
+        if real_index and os.path.exists(src):
             shutil.copyfile(src, scratch)
+            # Backdate the seeded index so git's racy-index rule forces `git add -u`
+            # to re-hash every tracked entry instead of trusting the copied pre-edit
+            # stat data — otherwise a tracked file rewritten to the SAME size within
+            # the mtime tick the index cached reads as clean and the tree carries the
+            # stale blob (issue #1117). This mirrors scripts/reception_identity.py's
+            # hardened derivation, whose docstring carries the full rationale. The
+            # stored value is verified because os.utime reports only that the syscall
+            # succeeded while the filesystem decides what it keeps; a filesystem that
+            # stores 0 ("unset") or a later value silently disarms the rule, so a
+            # mismatch fails closed rather than fingerprinting from unprotected stat data.
+            os.utime(scratch, (_INDEX_BACKDATE_SECONDS, _INDEX_BACKDATE_SECONDS))
+            stored = int(os.stat(scratch).st_mtime)
+            if stored != _INDEX_BACKDATE_SECONDS:
+                raise _GitError(
+                    f"index backdate ineffective (stored mtime {stored}); tracked_digest "
+                    "could carry a stale blob on this filesystem (issue #1117)"
+                )
         env = {**os.environ, "GIT_INDEX_FILE": scratch}
         # add -u updates ONLY already-tracked entries to their working-tree content;
         # it never introduces untracked files, keeping this field tracked-only.

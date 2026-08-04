@@ -603,18 +603,33 @@ def _satisfies(flight: dict) -> bool:
     return flight["state"] == "passed" and _zero_exit_status(flight.get("suite_summary"))
 
 
+def _effective_pass(flight: dict, checkout_verified: bool, allow_unverified: bool) -> bool:
+    """The status/wait pass verdict: state pass AND the checkout was verified.
+
+    The single home of issue #1243's checkout AND, so `cmd_status` and `cmd_wait`
+    cannot drift on the security-relevant rule. A `passed` handle whose working tree
+    this read did not confirm is not a reusable pass unless the caller explicitly
+    opted into the weaker state-only read via `--allow-unverified-checkout`.
+    """
+    return _satisfies(flight) and (checkout_verified or allow_unverified)
+
+
 def _public_view(flight: dict) -> dict:
     """A token-redacted view for status/wait/attach output."""
     view = dict(flight)
     view["token_digest"] = "REDACTED"
+    # This base view carries only the STATE dimension (passed + zero exit). `claim`
+    # attach emits it as-is, and it is deliberately never a reusable pass on its own:
+    # attach cannot verify the working tree, so a consume must re-anchor via
+    # status/wait with `--current-checkout-file`. `cmd_status`/`cmd_wait` OVERRIDE
+    # both fields below with the effective verdict from `_effective_pass`, which folds
+    # in the checkout dimension (issue #1243) — so on those paths the AND is already
+    # enforced in the value, not left as a caller obligation.
     view["satisfies_verification"] = _satisfies(flight)
     # `reuse_ready` is the explicit, unambiguously-named operand a caller reads to
     # decide reuse (issue #579 review): it mirrors `satisfies_verification` so no
     # caller is tempted to branch on the process exit code — which is deliberately
-    # role-only on `claim`/attach (EXIT_OK regardless of the attached state). A SAFE
-    # consume additionally requires `checkout_verified` (surfaced by status/wait),
-    # true only when the read was given `--current-checkout-file` and the stored
-    # checkout matched — i.e. reuse iff `reuse_ready and checkout_verified`.
+    # role-only on `claim`/attach (EXIT_OK regardless of the attached state).
     view["reuse_ready"] = _satisfies(flight)
     return view
 
@@ -1068,13 +1083,10 @@ def cmd_status(args) -> int:
         # that a future edit introducing a (None, EXIT_OK) path degrades to a non-pass
         # instead of returning success with no flight. No test can cover it by design.
         return code if code != EXIT_OK else EXIT_UNREADABLE
-    # #1243: the checkout AND is enforced HERE, not left as a caller obligation. A
-    # read that did not verify the working tree (no `--current-checkout-file`, or a
-    # mismatch that already flipped the handle non-pass) never reports a pass or
-    # exits 0 — a `passed` handle over a tree this read could not confirm is not a
-    # reusable pass. `--allow-unverified-checkout` is the explicit, opt-in weaker
-    # read for a caller that genuinely wants the state/exit dimension alone.
-    effective = _satisfies(flight) and (checkout_verified or args.allow_unverified_checkout)
+    # #1243: the checkout AND is enforced HERE (via _effective_pass), not left as a
+    # caller obligation. A read that did not verify the working tree never reports a
+    # pass or exits 0 unless --allow-unverified-checkout opted into the weaker read.
+    effective = _effective_pass(flight, checkout_verified, args.allow_unverified_checkout)
     _print_public(
         flight, checkout_verified=checkout_verified,
         satisfies_verification=effective, reuse_ready=effective,
@@ -1111,11 +1123,11 @@ def cmd_wait(args) -> int:
                     current_checkout is not None
                     and flight.get("checkout") == current_checkout
                 )
-                # #1243 checkout AND — same enforcement as cmd_status: a terminal
-                # `passed` handle whose tree this wait could not confirm is not a
-                # reusable pass unless --allow-unverified-checkout was requested.
-                effective = _satisfies(flight) and (
-                    checkout_verified or args.allow_unverified_checkout
+                # #1243 checkout AND — same enforcement as cmd_status, via the shared
+                # _effective_pass: a terminal `passed` handle whose tree this wait could
+                # not confirm is not a reusable pass unless --allow-unverified-checkout.
+                effective = _effective_pass(
+                    flight, checkout_verified, args.allow_unverified_checkout
                 )
                 _print_public(
                     flight, checkout_verified=checkout_verified,
@@ -1180,6 +1192,24 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--state-dir", default=None, help="Override the flight state directory (default: <cwd>/.prflow/tmp/verification-flights).")
         p.add_argument("--logs-dir", default=None, help="Override the telemetry logs directory.")
 
+    def add_checkout_read_args(p):
+        # Shared by `status` and `wait` so their checkout-read contract cannot drift.
+        p.add_argument(
+            "--current-checkout-file", default=None,
+            help="A fresh checkout fingerprint for the CURRENT tree (produced by "
+                 "scripts/checkout-fingerprint.py). Required for a pass: without it "
+                 "`checkout_verified` is False and the helper reports non-pass / exits "
+                 "non-zero, because a `passed` handle whose tree has since drifted must "
+                 "not read as reusable (issues #528/#579/#1243).",
+        )
+        p.add_argument(
+            "--allow-unverified-checkout", action="store_true",
+            help="Explicit opt-in weaker read (issue #1243): report the state/exit "
+                 "dimension alone (passed + zero exit) WITHOUT requiring the working "
+                 "tree to be verified. For a caller that genuinely wants the weaker read; "
+                 "a reuse decision must not use it.",
+        )
+
     p_desc = sub.add_parser("descriptor", help="Print the descriptor digest + flight key for a declaration.")
     p_desc.add_argument("--input-file", required=True)
     add_common(p_desc)
@@ -1213,21 +1243,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_stat = sub.add_parser("status", help="Read a flight; report whether it satisfies verification.")
     p_stat.add_argument("--flight", required=True)
-    p_stat.add_argument(
-        "--current-checkout-file", default=None,
-        help="A fresh checkout fingerprint for the CURRENT tree (produced by "
-             "scripts/checkout-fingerprint.py). Required for a pass: without it "
-             "`checkout_verified` is False and the helper reports non-pass / exits "
-             "non-zero, because a `passed` handle whose tree has since drifted must "
-             "not read as reusable (issues #528/#579/#1243).",
-    )
-    p_stat.add_argument(
-        "--allow-unverified-checkout", action="store_true",
-        help="Explicit opt-in weaker read (issue #1243): report the state/exit "
-             "dimension alone (passed + zero exit) WITHOUT requiring the working "
-             "tree to be verified. For a caller that genuinely wants the weaker read; "
-             "a reuse decision must not use it.",
-    )
+    add_checkout_read_args(p_stat)
     add_common(p_stat)
     p_stat.set_defaults(func=cmd_status)
 
@@ -1239,21 +1255,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_wait.add_argument("--flight", required=True)
     p_wait.add_argument("--timeout", type=float, required=True)
     p_wait.add_argument("--poll-interval", type=float, default=2.0)
-    p_wait.add_argument(
-        "--current-checkout-file", default=None,
-        help="A fresh checkout fingerprint for the CURRENT tree (produced by "
-             "scripts/checkout-fingerprint.py). Required for a pass: without it "
-             "`checkout_verified` is False and the helper reports non-pass / exits "
-             "non-zero, because a `passed` handle whose tree has since drifted must "
-             "not read as reusable (issues #528/#579/#1243).",
-    )
-    p_wait.add_argument(
-        "--allow-unverified-checkout", action="store_true",
-        help="Explicit opt-in weaker read (issue #1243): report the state/exit "
-             "dimension alone (passed + zero exit) WITHOUT requiring the working "
-             "tree to be verified. For a caller that genuinely wants the weaker read; "
-             "a reuse decision must not use it.",
-    )
+    add_checkout_read_args(p_wait)
     add_common(p_wait)
     p_wait.set_defaults(func=cmd_wait)
 
