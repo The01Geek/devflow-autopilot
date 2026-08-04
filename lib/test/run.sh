@@ -42406,42 +42406,40 @@ echo "#1211 skills/ shell fences: no unguarded filename pattern (zsh nomatch)"
 # harness supplies — commonly zsh, whose default `nomatch` SKIPS a command whose glob matched
 # nothing (it does not abort the block; no skill fence sets `set -e`). The result is a silently
 # empty enumeration the surrounding prose cannot tell from a legitimate empty answer. The guard
-# is narrow by design (issue #1211) — the shape it recognises is closed by enumeration in the
-# helper's own docstring, and everything outside it is a disclosed miss, never a completeness
-# claim. Fixtures are written into probe_tmp scratch rather than checked in: the audited
-# population is `skills/**/*.md`, so a tracked fixture carrying an unguarded glob would be
-# caught by the guard's own real-tree run.
+# is narrow by design (issue #1211): the recognised shape and the disclosed residuals are
+# enumerated in the helper's own docstring, which is their single home — this block asserts the
+# BEHAVIOUR at each boundary rather than restating the enumeration.
 E1211_LINT="$LIB/test/lint-skills-glob-guard.py"
 
 # Real-tree run: clean now, plus a POSITIVE tally so a collapsed audited set cannot read clean.
 E1211_OUT="$(python3 "$E1211_LINT" --root "$LIB/.." 2>&1)"; E1211_RC=$?
 assert_eq "#1211 the real tree audits clean" "rc=0" \
   "$([ "$E1211_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$E1211_RC" "$E1211_OUT")"
+# Bash `case` rather than a python3 -c re-match: the value decides an assertion, so it stays on
+# builtins (guard-class 2), and the assertion mechanism stops being heavier than what it asserts.
 assert_eq "#1211 the real-tree run audited a positive number of files" "yes" \
-  "$(printf '%s' "$E1211_OUT" | python3 -c 'import re,sys
-m = re.search(r"audited (\d+) of", sys.stdin.read())
-print("yes" if m and int(m.group(1)) > 0 else "no")')"
+  "$(case "$E1211_OUT" in *"audited 0 of"*) printf no ;; *"audited "*) printf yes ;; *) printf no ;; esac)"
 
-e1211_run() {  # <fence-body-file> -> "rc=<n>|<stdout+stderr>" for a one-file synthetic population
-  local body="$1"
-  local dir list out rc
-  dir="$(probe_tmp '#1211 fixture dir')" || return 0
-  case "$dir" in ""|/dev/null) printf 'rc=probe-unavailable|'; return 0 ;; esac
-  rm -f "$dir"; mkdir -p "$dir/skills/probe" || { printf 'rc=probe-unavailable|'; return 0; }
-  cp "$body" "$dir/skills/probe/SKILL.md"
-  list="$(probe_tmp '#1211 fixture list')" || { rm -rf "$dir"; return 0; }
-  case "$list" in ""|/dev/null) rm -rf "$dir"; printf 'rc=probe-unavailable|'; return 0 ;; esac
-  printf '%s\n' 'skills/probe/SKILL.md' > "$list"
-  out="$(python3 "$E1211_LINT" --root "$dir" --files-from "$list" 2>&1)"; rc=$?
-  rm -f "$list"; rm -rf "$dir"
-  printf 'rc=%s|%s' "$rc" "$out"
-}
-e1211_case() {  # <label-suffix-free body text> -> "rc=<n>"
-  local f; f="$(probe_tmp '#1211 fixture body')" || return 0
-  case "$f" in ""|/dev/null) printf 'rc=probe-unavailable'; return 0 ;; esac
-  printf '%s' "$1" > "$f"
-  local out; out="$(e1211_run "$f")"; rm -f "$f"
-  printf '%s' "${out%%|*}"
+# One scratch tree and one --files-from list for the whole shape matrix: the scaffolding is
+# byte-identical across every case, so allocating it per case bought ~8 process spawns each and
+# nothing else. Fixtures are synthetic rather than checked in because the population predicate is
+# a `skills/` PREFIX test — a fixture under lib/test/fixtures/ could never enter the real-tree
+# population, but a synthetic root also keeps each case's fence body beside its assertion.
+E1211_DIR="$(probe_tmp '#1211 fixture dir')"
+case "$E1211_DIR" in
+  ""|/dev/null) E1211_DIR="" ;;
+  *) rm -f "$E1211_DIR"
+     mkdir -p "$E1211_DIR/skills/probe" || E1211_DIR=""
+     ;;
+esac
+if [ -n "$E1211_DIR" ]; then
+  printf '%s\n' 'skills/probe/SKILL.md' > "$E1211_DIR/list"
+fi
+e1211_case() {  # <fence body text> -> "rc=<n>" (or a value no expectation can match)
+  [ -n "$E1211_DIR" ] || { printf 'rc=probe-unavailable'; return 0; }
+  printf '%s' "$1" > "$E1211_DIR/skills/probe/SKILL.md"
+  python3 "$E1211_LINT" --root "$E1211_DIR" --files-from "$E1211_DIR/list" >/dev/null 2>&1
+  printf 'rc=%s' "$?"
 }
 
 # Positive control: the exact shape the two shipped sites carried before this change.
@@ -42462,6 +42460,12 @@ assert_eq "#1211 a glob-ok declaration marker discharges it" "rc=0" \
 ls -d agents/*/   # glob-ok: illustrative, empty result is reported
 ```
 ')"
+# ...but the marker must carry a REASON, matching the sibling declaration-marker family.
+assert_eq "#1211 a bare glob-ok marker with no reason does NOT discharge it" "rc=1" \
+  "$(e1211_case '```bash
+ls -d agents/*/   # glob-ok:
+```
+')"
 # The guard is fence-scoped, not file-scoped: a guard in one fence must not silence the next.
 assert_eq "#1211 a guard in an EARLIER fence does not discharge a later fence" "rc=1" \
   "$(e1211_case '```bash
@@ -42473,7 +42477,7 @@ ls -d src/*/
 ls -d agents/*/
 ```
 ')"
-# Named false-alarm classes, each an assertion rather than an unproven claim in the docstring.
+# Boundary cases the shape excludes, each an assertion rather than an unproven docstring claim.
 assert_eq "#1211 an untagged fence is outside the audited population" "rc=0" \
   "$(e1211_case '```
 ls -d agents/*/
@@ -42501,6 +42505,36 @@ assert_eq "#1211 a permission-grant literal written in prose is not a candidate"
 # Bash(lib/test/run.sh:*) is granted
 ```
 ')"
+# Trailing-comment prose is not code: without the quote-aware strip this reported a violation
+# for a pattern the shell never sees.
+assert_eq "#1211 a pattern inside a trailing comment is not a candidate" "rc=0" \
+  "$(e1211_case '```bash
+ls .   # see docs/site/*/ for the layout
+```
+')"
+# A quoted heredoc body is data, not commands.
+assert_eq "#1211 a pattern inside a quoted heredoc body is not a candidate" "rc=0" \
+  "$(e1211_case '```bash
+cat > f <<'"'"'EOF'"'"'
+see docs/site/*/ here
+EOF
+```
+')"
+# Two fail-OPEN shapes an earlier draft of the case-branch predicate silenced. Both must FLAG:
+# a line closing a command substitution, and a `for … in` list, are ordinary code.
+assert_eq "#1211 a line closing a command substitution does not silence a later glob" "rc=1" \
+  "$(e1211_case '```bash
+x=$(echo hi
+)
+ls -d agents/*/
+```
+')"
+assert_eq "#1211 a for-in list carrying a glob is a violation, not a case header" "rc=1" \
+  "$(e1211_case '```bash
+for f in agents/*/
+do :; done
+```
+')"
 # A separator-free pattern is a DISCLOSED residual of the narrow shape, not a safe case:
 # zsh would refuse `*.py` too. The assertion records where the boundary actually sits.
 assert_eq "#1211 a pattern with no path separator is outside the narrow shape (disclosed residual)" "rc=0" \
@@ -42508,10 +42542,12 @@ assert_eq "#1211 a pattern with no path separator is outside the narrow shape (d
 wc -l *.py
 ```
 ')"
+case "$E1211_DIR" in ""|/dev/null) : ;; *) rm -rf "$E1211_DIR" ;; esac
+
 # Fail-closed arms: an unreadable path and an empty enumeration are UNESTABLISHED, never clean.
 assert_eq "#1211 an unreadable audited path fails closed rather than reporting clean" "yes" \
   "$(E1211_LINT="$E1211_LINT" python3 -c '
-import importlib.util, io, os, sys, tempfile, contextlib
+import importlib.util, io, os, tempfile, contextlib
 s = importlib.util.spec_from_file_location("g", os.environ["E1211_LINT"])
 m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
 d = tempfile.mkdtemp()

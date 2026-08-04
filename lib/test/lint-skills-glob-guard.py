@@ -44,9 +44,11 @@ Candidate shape, closed by enumeration — ALL of these must hold:
 * the line sits inside a fenced block whose info string's first word is one of
   `bash`, `sh`, `shell`, `zsh` (an untagged or differently-tagged fence is not
   audited);
-* the line is not wholly a comment, and is not a `case` branch (a line carrying
-  `;;`, or the `case … in` header itself) — `*)` and `''|*[!0-9]*)` are branch
-  patterns, not globs;
+* the line is not inside a **quoted** heredoc body (data the shell never expands),
+  and its `#`-introduced trailing comment has been stripped quote-aware before the
+  scan — prose in a comment is not a command;
+* the line is not a `case` branch (a line carrying `;;`, or a leading label token
+  followed by `)`) — `*)` and `''|*[!0-9]*)` are branch patterns, not globs;
 * the line contains a whitespace-delimited token, appearing **outside** any single
   or double quotes, that carries an unquoted `*` **and** a `/`. Requiring the `/`
   is what keeps `--include=*.py`, `Bash(gh:*)` and bare `*)` out of the candidate
@@ -84,6 +86,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -109,9 +112,22 @@ if _pop_missing:
         f"{', '.join(_pop_missing)}; refusing to audit"
     )
 
+# The marker must carry a NON-EMPTY reason, matching the shape the sibling
+# declaration markers use in `lint-shipped-pruned-path.py` — a bare `# glob-ok:`
+# with nothing after it is not a declaration and does not discharge a violation.
 MARKER = "# glob-ok:"
+MARKER_RE = re.compile(r"#\s*glob-ok:\s*(\S.*?)\s*$")
 ZSH_GUARD = "setopt nonomatch"
 SHELL_INFO_WORDS = {"bash", "sh", "shell", "zsh"}
+# A `case` branch label: a leading token (no whitespace) followed by `)`. `*)`,
+# `''|*[!0-9]*)` and `claude/issue-*|issue-*)` all match; an ordinary command line
+# that merely closes a `$( … )` does not.
+_CASE_LABEL = re.compile(r"^\(?[^\s()]+\)(\s|$)")
+# A quoted heredoc introducer: `<<'EOF'` / `<<"EOF"` / `<<-'EOF'`. A heredoc body is
+# data the shell never expands as a filename pattern, so it is skipped to the closing
+# delimiter. Only the QUOTED form is recognised — an unquoted heredoc still undergoes
+# expansion, and the narrow shape makes no claim about it either way.
+_HEREDOC = re.compile(r"<<-?\s*(['\"])([A-Za-z_][A-Za-z0-9_]*)\1")
 
 
 def is_audited(relative: str) -> bool:
@@ -133,13 +149,39 @@ def _unquoted_tokens(line: str) -> list[str]:
 
 
 def _is_case_branch(line: str) -> bool:
+    """A `case` branch label, whose `*` is a match pattern rather than a glob.
+
+    Deliberately narrow. An earlier draft also treated any line ending in `)` as a
+    branch, and any line ending in ` in` as a `case` header; both are fail-OPEN
+    (they silence a real glob on an ordinary line closing a `$( … )` or a
+    `for f in …` list). Only the two shapes that are unambiguous survive: a line
+    carrying `;;`, and a leading label token followed by `)`.
+    """
     stripped = line.strip()
     if ";;" in stripped:
         return True
-    if stripped.startswith("case ") or stripped.endswith(" in"):
-        return True
-    # A bare branch label on its own line: `*)` / `''|*[!0-9]*)` / `claude/issue-*|issue-*)`
-    return stripped.endswith(")") and "(" not in stripped
+    return bool(_CASE_LABEL.match(stripped))
+
+
+def _strip_trailing_comment(line: str) -> str:
+    """Drop a `#`-introduced trailing comment, quote-aware.
+
+    Without this a `#` comment's own prose is scanned as code, so a line reading
+    `ls . # see docs/site/*/ for the layout` reports a violation for a pattern the
+    shell never sees. The scan is a single-line quote tracker, which is all this
+    narrow shape needs — a `#` inside an unterminated multi-line quote is an
+    accepted residual, the same class as every other disclosed miss.
+    """
+    quote = ""
+    for index, char in enumerate(line):
+        if quote:
+            if char == quote:
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char == "#" and (index == 0 or line[index - 1] in " \t"):
+            return line[:index]
+    return line
 
 
 def _candidate_tokens(line: str) -> list[str]:
@@ -166,38 +208,45 @@ def scan_file(text: str, path: str) -> list[str]:
     fence_is_shell = False
     fence_marker = ""
     fence_guarded = False
+    heredoc_delimiter = ""
     for lineno, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
-        if in_fence:
-            if stripped.startswith(fence_marker) and stripped.strip("`~") == "":
-                in_fence = False
-                fence_is_shell = False
+        if not in_fence:
+            if stripped.startswith("```") or stripped.startswith("~~~"):
+                fence_marker = stripped[0] * 3
+                info = stripped.lstrip("`~").split()
+                in_fence = True
+                fence_is_shell = (info[0].lower() if info else "") in SHELL_INFO_WORDS
                 fence_guarded = False
-                continue
-        elif stripped.startswith("```") or stripped.startswith("~~~"):
-            fence_marker = stripped[0] * 3
-            info = stripped.lstrip("`~").strip()
-            first_word = info.split()[0].lower() if info.split() else ""
-            in_fence = True
-            fence_is_shell = first_word in SHELL_INFO_WORDS
-            fence_guarded = False
+                heredoc_delimiter = ""
             continue
-        else:
+        if stripped.startswith(fence_marker) and stripped.strip("`~") == "":
+            in_fence = False
             continue
-
         if not fence_is_shell:
+            continue
+        if heredoc_delimiter:
+            if stripped == heredoc_delimiter:
+                heredoc_delimiter = ""
             continue
         if ZSH_GUARD in line:
             fence_guarded = True
             continue
-        if stripped.startswith("#") or not stripped:
+        # The marker is read from the RAW line — stripping the trailing comment
+        # would remove the declaration along with the prose it introduces.
+        declared = bool(MARKER_RE.search(line))
+        code = _strip_trailing_comment(line)
+        heredoc = _HEREDOC.search(code)
+        if heredoc:
+            heredoc_delimiter = heredoc.group(2)
+        if not code.strip():
             continue
-        if _is_case_branch(line):
+        if _is_case_branch(code):
             continue
-        tokens = _candidate_tokens(line)
+        tokens = _candidate_tokens(code)
         if not tokens:
             continue
-        if fence_guarded or MARKER in line:
+        if fence_guarded or declared:
             continue
         violations.append(
             f"{path}:{lineno}: unguarded filename pattern {tokens[0]!r} in a "
