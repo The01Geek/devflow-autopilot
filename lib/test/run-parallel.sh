@@ -167,8 +167,10 @@ die() { # message
 # inconclusive/denied" share the return 0 / exit 0 code, so a caller reading ONLY the exit
 # status cannot tell them apart. That IS the fail-open posture — an unusable check must
 # never block — and the compensating control is the stderr channel above, which is silent
-# on clean and warns by name on every inconclusive arm, with the "no output at all = a
-# matcher denial" reading carried in the prompt-extension prose. Revisit only if a caller
+# on clean and warns by name on every inconclusive arm. A CLEAN run is therefore silent too,
+# so silence alone does not distinguish clean from a matcher denial — the prompt-extension
+# prose carries that ambiguity and its resolution (fall back and run the shards, which costs
+# nothing on a clean tree), rather than this exit contract. Revisit only if a caller
 # appears that must branch on the distinction and cannot read stderr.
 _artifact_preflight() {
   local preflight_cmd preflight_out preflight_rc drift line
