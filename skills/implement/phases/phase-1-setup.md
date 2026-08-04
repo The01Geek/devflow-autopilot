@@ -640,19 +640,22 @@ git ls-files 'skills/*/SKILL.md' | wc -l   # skill count
 # zsh and is a no-op elsewhere ($ZSH_VERSION unset -> `&&` short-circuits, `|| :` stays rc-0).
 # With nomatch off an unmatched glob leaves $1 the literal pattern, so `[ -e "$1" ]` decides
 # match-vs-no-match structurally: no `2>/dev/null` to hide a real error, and exactly one of
-# the three arms can print. A genuinely empty parent and an unlistable one both leave the
-# glob unmatched, so the second arm separates them -- an unestablished count is never
-# reported as zero. Listability needs BOTH the read bit (to name the entries) and the search
-# bit (to stat them for the trailing `/`), so the second arm tests both. All three arms print
-# on stdout so a caller capturing stdout can still tell "nothing here" from "could not look".
+# the three arms can print. A genuinely empty parent and a PERMISSION-unlistable one both
+# leave the glob unmatched, so the second arm separates those two -- it tests mode bits only,
+# so an entry or parent that fails for another reason (dead mount, EIO) still reaches the
+# empty arm. Listability needs BOTH the read bit (to name the entries) and the search bit (to
+# stat them for the trailing `/`), so that arm tests both. All three arms print on stdout so a
+# caller capturing stdout can still tell "nothing here" from "could not look".
 # Unhandled: bash's `failglob`, where an unmatched pattern aborts `set --` before it runs.
-# Substitute the directory the glob names for `agents` when adapting.
+# When adapting, change only the glob (keep the `<parent>/*/` shape): `d` is derived from it,
+# so the guard and the message cannot drift onto a directory the glob does not name.
 [ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
 set -- agents/*/
+d=${1%/*/}
 if [ -e "$1" ]; then
   printf '%s\n' "$@"
-elif [ -d agents ] && { [ ! -r agents ] || [ ! -x agents ]; }; then
-  echo "(agents/ is not listable - count NOT established)"
+elif [ -d "$d" ] && { [ ! -r "$d" ] || [ ! -x "$d" ]; }; then
+  echo "($d/ is not listable - count NOT established)"
 else
   echo "(no matching directories)"
 fi
