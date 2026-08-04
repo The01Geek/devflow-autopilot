@@ -463,7 +463,7 @@ by the manifest protocol, not by editing a refresh row.
 
 **Declaring a repository-tree walk (issue #711).** `# tree-walk-ok: <reason>` is a
 member of the same declaration-marker family (`# structural-pin-ok:`, `# raw-guard-ok:`,
-`# tree-walk-ok:`, `# argjson-ok:`, `# pruned-path-ok:`), in the same one-line-reason framing. A tracked `.py` or `.sh` file under `lib/test/`
+`# tree-walk-ok:`, `# argjson-ok:`, `# pruned-path-ok:`, `# glob-ok:`), in the same one-line-reason framing. A tracked `.py` or `.sh` file under `lib/test/`
 that enumerates with a recursive walk — `rglob(`, `os.walk(`, `iglob(`, a `recursive=True`
 call, a `glob(` whose pattern carries a `**` component or is not a string literal (these two
 are judged by a Python parse, so they apply to `.py` files only), or a shell `find` / `grep -r`
@@ -477,6 +477,29 @@ because a root-anchored walk descends into every sibling worktree under `.claude
 and reports a count that has nothing to do with the repository's state. `lib/test/lint-tree-enumeration.py`
 turns the suite RED for an undeclared walk; it never judges what a reason claims, so a marked
 walk still ships — it ships visibly.
+
+**Declaring an unguarded filename pattern in a shipped shell fence (issue #1211).**
+`# glob-ok: <reason>` is the newest member of that same family. A fenced shell snippet
+under `skills/` is prose an agent runs verbatim, in whatever shell its harness supplies —
+commonly zsh, whose default `nomatch` makes an unmatched filename pattern a refusal of
+*that one command*: the shell prints `zsh: no matches found: <pattern>` and skips it, then
+carries on with the rest of the block (no skill fence sets `set -e`). The harm is a
+silently empty enumeration — nothing distinguishes "there is nothing here" from "the shell
+declined to look". The standard remedy is one line beside the glob, inside the same fence:
+
+```bash
+[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
+```
+
+It is a no-op on every other shell (`$ZSH_VERSION` is unset, `&&` short-circuits, `|| :`
+holds the exit status at zero). Reporting the empty case explicitly is better still.
+`lib/test/lint-skills-glob-guard.py` (driven from `lib/test/run.sh`) is the mechanical
+backstop: it flags the narrow, high-confidence shape only, and is discharged by either
+that guard line earlier in the same fence or a `# glob-ok: <reason>` marker. It
+deliberately claims no completeness — its recognised shape and its accepted residuals are
+enumerated in the helper's own module docstring, which is the place to read them rather
+than a copy here that would drift. The written convention is the primary control; the
+check is the backstop for the commonest shape.
 
 ### Regenerating suite-owned artifacts
 
