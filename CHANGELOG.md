@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.102] — 2026-08-04
+
+### Changed
+- **Register the deferred cloud-writer helper heads and advance the legacy profile baseline.** `apply-issue-dependencies.py` (issue #1011) and `resolve-existing-pr.sh` (issue #782) are now members of `REQUIRED_HELPER_HEADS["implement"]`, and `LEGACY_PROFILE_BASELINE` advances from `2.15.13` to `2.30.100`, so the required-subset guarantee finally covers both heads. A cadence rule now lives at the constant's definition: the baseline advances — and the frozen legacy-grant snapshot re-snapshots with it — whenever a profile's granted helper-head set in `lib/capability-profiles.json` changes. (#1034)
+
 ## [2.30.101] — 2026-08-04
 
 ### Changed
