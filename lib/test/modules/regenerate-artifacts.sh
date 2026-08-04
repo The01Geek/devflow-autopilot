@@ -1568,6 +1568,18 @@ _ra_bind_fails_closed "an empty recipe" \
 _ra_bind_fails_closed "an unsupported row kind" \
   's/"kind": "mechanical"/"kind": "mechanicl"/' \
   "kind 'mechanicl'" "outside"
+# issue #1244: preflight eligibility is declared data, validated at bind time.
+# A non-bool `preflight_eligible` fails closed. `"preflight_eligible": False` occurs
+# exactly once (the ineligible exact-module-floors row); `0` is not a bool in Python.
+_ra_bind_fails_closed "a non-bool preflight_eligible" \
+  's/"preflight_eligible": False/"preflight_eligible": 0/' \
+  "not a bool"
+# The write-nothing invariant is enforced in data: deleting the cloud-writer row's
+# non-writing `preflight_argv` line (its `"verify"` tuple is the file's only `"verify"`)
+# leaves an eligible row that declares `writes` with no read-only preflight command.
+_ra_bind_fails_closed "an eligible writing row lacking a non-writing preflight_argv" \
+  '/"verify"/d' \
+  "no non-writing preflight_argv"
 
 # ── (f2) an underivable region set exits 2 (INFRASTRUCTURE), never 1 ────────────
 # `_capability_region_targets` documents that it RAISES rather than returning a partial set, and

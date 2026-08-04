@@ -899,6 +899,20 @@ def _validate_registry():
                 f"registry row {row['name']!r} declares preflight_eligible "
                 f"{row.get('preflight_eligible')!r}, which is not a bool"
             )
+        # Enforce the "preflight writes nothing" invariant in DATA, not prose (issue #1244).
+        # The coordinator's fail-closed refusal rests on the preflight being read-only, so a
+        # row that is eligible AND declares `writes` (its own `argv` mutates that output) must
+        # supply a non-writing `preflight_argv` — otherwise the read-only preflight would run
+        # the writing command. A row with no `writes` field declares no mutation, so its `argv`
+        # is the read-only check the preflight runs directly. Without this, a future eligible
+        # writing row that forgot `preflight_argv` would silently mutate the tree during the
+        # "read-only" preflight and no guard would catch it.
+        if row["preflight_eligible"] and row.get("writes") and "preflight_argv" not in row:
+            raise ValueError(
+                f"registry row {row['name']!r} is preflight_eligible and declares writes "
+                f"{row.get('writes')!r} but no non-writing preflight_argv; an eligible writing "
+                "row must name a read-only preflight command"
+            )
         # A row must declare SOME static path source, checked at this same import-time point
         # rather than left to KeyError inside emit_list: a row that reaches `--list` before
         # failing has already been handed to a consumer.
