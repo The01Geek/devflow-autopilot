@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1296",
+  "generated_at": "2026-08-04T22:14:33Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.101",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.186062749999998,
+    "tokens": {
+      "input_tokens": 45,
+      "output_tokens": 20389,
+      "cache_read_input_tokens": 3311812,
+      "cache_creation_input_tokens": 151113,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 95,
+        "outputTokens": 32918,
+        "cacheReadInputTokens": 4786128,
+        "cacheCreationInputTokens": 224464,
+        "webSearchRequests": 0,
+        "costUSD": 5.186062749999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 29,
+    "duration_ms": 637848
+  },
+  "permission_denials": {
+    "count": 10,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"plugin version:\"; jq -r .version .claude-plugin/plugin.json\necho \"=== regenerate contract and diff against committed ===\"\npython3 lib/test/cloud_writer_contract.py generate > .prflow/tmp/review/pr-1296/local-run/regen.json 2>.prflow/tmp/review/pr-1296/local-run/regen.err; echo \"gen-rc=$?\"\ndiff scripts/devflow-cloud-writer-contract.json .prflow/tmp/review/pr-1296/local-run/regen.json && echo \"ARTIFACT-MATCHES-REGEN\" || echo \"ARTIFACT-DIFFERS\"\nhead -5 .prflow/tmp/review/pr-1296/local-run/reg …[per-command-truncated]",
+      "echo \"plugin version:\"; jq -r .version .claude-plugin/plugin.json\npython3 lib/test/cloud_writer_contract.py generate 2>.prflow/tmp/review/pr-1296/local-run/regen.err | tee .prflow/tmp/review/pr-1296/local-run/regen.json >/dev/null; echo \"pipe done\"\ndiff scripts/devflow-cloud-writer-contract.json .prflow/tmp/review/pr-1296/local-run/regen.json && echo \"ARTIFACT-MATCHES-REGEN\" || echo \"ARTIFACT-DIFFERS\"\necho \"err:\"; head -5 .prflow/tmp/review/pr-1296/local-run/regen.err",
+      "echo \"plugin version:\"; jq -r .version .claude-plugin/plugin.json\nREGEN=$(python3 lib/test/cloud_writer_contract.py generate 2>&1); echo \"gen-rc=$?\"\nprintf '%s\\n' \"$REGEN\" | diff scripts/devflow-cloud-writer-contract.json - && echo \"ARTIFACT-MATCHES-REGEN\" || echo \"ARTIFACT-DIFFERS\"",
+      "echo \"=== plugin version at this commit ===\"; jq -r .version .claude-plugin/plugin.json\necho \"=== pairing-2 invariant + regen consistency ===\"\npython3 - <<'PY'\nimport json, re, hashlib, io, contextlib\nm = json.load(open('scripts/devflow-cloud-writer-contract.json'))\nreq = set(m['required_helper_heads']['implement'])\nsrc = open('lib/test/test_python_scripts.py').read()\nmobj = re.search(r'\"implement\":\\s*\\{(.*?)\\},\\n', src, re.S)\nblock = mobj.group(1)\nfrozen = set(\".prflow/vendor/prflow/scripts/\"+n …[per-command-truncated]",
+      "git stash list; git diff --stat; echo \"=== run focused cloud-writer test ===\"; timeout 300 lib/test/test_python_scripts.py 2>&1 | grep -iE \"AC18|AC19|pairing|legacy|FAIL|cloud.writer|frozen\" | head -40",
+      "timeout 400 lib/test/test_python_scripts.py 2>&1 | tail -20",
+      "lib/test/test_python_scripts.py 2>&1 | tail -15",
+      "lib/test/test_python_scripts.py",
+      "python3 - <<'PY'\nimport json\nj=json.load(open(\"scripts/devflow-cloud-writer-contract.json\"))\nreq=set(j[\"required_helper_heads\"][\"implement\"])\nfrozen={\n\"run-jq.sh\",\"config-get.sh\",\"workpad.py\",\"parse-acs.py\",\"branch-for-issue.py\",\n\"update-branch-checkpoint.sh\",\"resolve-existing-pr.sh\",\"file-deferrals.py\",\n\"discover-deferral-manifests.py\",\"match-deferrals.py\",\"resolve-review-overrides.py\",\n\"apply-labels.sh\",\"ensure-label.sh\",\"apply-issue-dependencies.py\",\"stale-prose-lint.py\",\n\"dismiss-stale-rejec …[per-command-truncated]",
+      "python3 lib/test/verify_pairing.py 2>/dev/null; cat > /tmp/vp.py <<'PY'\nimport json\nj=json.load(open(\"scripts/devflow-cloud-writer-contract.json\"))\nreq=set(j[\"required_helper_heads\"][\"implement\"])\nnames=[\"run-jq.sh\",\"config-get.sh\",\"workpad.py\",\"parse-acs.py\",\"branch-for-issue.py\",\n\"update-branch-checkpoint.sh\",\"resolve-existing-pr.sh\",\"file-deferrals.py\",\n\"discover-deferral-manifests.py\",\"match-deferrals.py\",\"resolve-review-overrides.py\",\n\"apply-labels.sh\",\"ensure-label.sh\",\"apply-issue-depende …[per-command-truncated]"
+    ],
+    "total": 10,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
