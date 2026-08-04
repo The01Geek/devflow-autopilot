@@ -19255,6 +19255,553 @@ assert_eq("#857 acs_resolve numeric happy path: it is NOT routed to resolver-una
 assert_eq("#857 acs_resolve numeric happy path: no non-numeric breadcrumb is emitted",
           False, 'is not numeric' in _run_acs_resolve_capture_err('857'))
 
+
+# ---------------------------------------------------------------------------
+# issue #1214: the /prflow:implement Phase 3.4 acceptance-criteria gate degrades
+# with a DISTINCT label instead of wedging (part b), and a failed workpad write
+# is BUFFERED locally and REPLAYED idempotently (part c).
+# ---------------------------------------------------------------------------
+print()
+print("issue #1214: acs-gate defined degradation + failed-write buffering/replay")
+
+import stat as _stat1214  # noqa: E402
+
+
+def _run_acs_gate(read_effect, fallback='(unset)'):
+    """Drive workpad.cmd_acs_gate with `_acs_read_workpad` stubbed to a clean read
+    / a clean absence (SystemExit 2) / a transport failure (SystemExit 3), and the
+    issue-body fallback stubbed to a value or None. Returns (exit_code, stdout)."""
+    saved = (workpad._acs_read_workpad, workpad._acs_gate_issue_body_criteria)
+    if read_effect == 'clean':
+        _items = parse_acs._parse_checkboxes(parse_acs.extract_section(
+            "## Acceptance Criteria\n- [x] alpha\n- [ ] beta\n", 'Acceptance Criteria'))
+        workpad._acs_read_workpad = lambda cmd, issue: (
+            "body", ["- [x] alpha", "- [ ] beta"], _items)
+    elif read_effect == 'absent':
+        def _r(cmd, issue):
+            raise SystemExit(2)
+        workpad._acs_read_workpad = _r
+    elif read_effect == 'transport':
+        def _r(cmd, issue):
+            raise SystemExit(3)
+        workpad._acs_read_workpad = _r
+    if fallback != '(unset)':
+        workpad._acs_gate_issue_body_criteria = lambda issue: fallback
+    out = io.StringIO()
+    code = 0
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            workpad.cmd_acs_gate(argparse.Namespace(issue=1214))
+    except SystemExit as e:
+        code = e.code if e.code is not None else 0
+    finally:
+        workpad._acs_read_workpad, workpad._acs_gate_issue_body_criteria = saved
+    return code, out.getvalue()
+
+
+# Clean workpad read → exit 0, `source: workpad`, criteria rendered.
+_c, _o = _run_acs_gate('clean')
+assert_eq("#1214 acs-gate: clean read exits 0", 0, _c)
+assert_eq("#1214 acs-gate: clean read names source: workpad", True, 'source: workpad\n' in _o)
+assert_eq("#1214 acs-gate: clean read renders the criteria", True, 'beta' in _o)
+
+# AC6: a clean ABSENCE keeps the existing benign shape (exit 2, `workpad-absent`)
+# and is NOT rerouted onto the transport-failure label.
+_c, _o = _run_acs_gate('absent')
+assert_eq("#1214 AC6 acs-gate: clean absence exits 2 (existing benign shape)", 2, _c)
+assert_eq("#1214 AC6 acs-gate: clean absence names source: workpad-absent",
+          True, 'source: workpad-absent' in _o)
+assert_eq("#1214 AC6 acs-gate: clean absence is NOT the transport-failure label",
+          False, 'workpad-read-failed' in _o)
+
+# AC4: a simulated transport failure produces the distinct `workpad-read-failed`
+# label, recovers criteria from the issue body, and NEVER passes (non-zero exit).
+_c, _o = _run_acs_gate('transport', fallback='- [ ] recovered-from-issue-body')
+assert_eq("#1214 AC4 acs-gate: transport failure never passes (non-zero exit)",
+          True, _c != 0)
+assert_eq("#1214 AC4 acs-gate: transport failure exit code is the distinct degraded 3",
+          3, _c)
+assert_eq("#1214 AC4 acs-gate: transport failure names source: workpad-read-failed",
+          True, 'source: workpad-read-failed' in _o)
+assert_eq("#1214 AC4 acs-gate: the label is distinct from a clean read and a clean absence",
+          True, 'source: workpad\n' not in _o and 'workpad-absent' not in _o)
+assert_eq("#1214 AC4 acs-gate: criteria recovered from the issue body are emitted",
+          True, 'recovered-from-issue-body' in _o)
+
+# AC5: when the issue-body fallback is ALSO unavailable, the result is reported as
+# `unestablished` and the gate does not pass.
+_c, _o = _run_acs_gate('transport', fallback=None)
+assert_eq("#1214 AC5 acs-gate: fallback-also-unavailable does not pass (non-zero exit)",
+          True, _c != 0)
+assert_eq("#1214 AC5 acs-gate: fallback-also-unavailable exit code is 4", 4, _c)
+assert_eq("#1214 AC5 acs-gate: fallback-also-unavailable names source: unestablished",
+          True, 'source: unestablished' in _o)
+
+# Review finding (PR #1227, test-coverage gap): the `None`-vs-`""` discriminator is
+# the "unknown is not zero" boundary of this gate, and only the `None` side was
+# driven. An issue body that is REACHABLE but carries no criteria is an ESTABLISHED
+# negative — it routes to `workpad-read-failed` (exit 3), never to `unestablished`
+# (exit 4). Without this row, collapsing `if body_md is None` into `if not body_md`
+# reroutes an established negative to unestablished and the suite stays green.
+_c, _o = _run_acs_gate('transport', fallback='')
+assert_eq("#1214 acs-gate: a reachable-but-empty issue body still does not pass",
+          True, _c != 0)
+assert_eq("#1214 acs-gate: a reachable-but-empty issue body is exit 3, NOT unestablished 4",
+          3, _c)
+assert_eq("#1214 acs-gate: a reachable-but-empty issue body names workpad-read-failed",
+          True, 'source: workpad-read-failed' in _o
+          and 'source: unestablished' not in _o)
+
+
+# AC3 (real fallback via parse-acs.py) + AC10 (unknown vs negative recovery poll).
+# `_acs_gate_issue_body_criteria` shells out to the REAL scripts/parse-acs.py with a
+# stubbed gh; it must return None (UNKNOWN) when gh cannot be reached — never
+# collapse that onto "no criteria" ("").
+def _mk_gh_stub(script):
+    f = tempfile.NamedTemporaryFile('w', suffix='-gh.sh', delete=False)
+    f.write("#!/usr/bin/env bash\n" + script)
+    f.close()
+    os.chmod(f.name, os.stat(f.name).st_mode | _stat1214.S_IEXEC | _stat1214.S_IRUSR)
+    return f.name
+
+
+def _fallback_with_gh(stub_script):
+    stub = _mk_gh_stub(stub_script)
+    saved = os.environ.get('DEVFLOW_GH')
+    os.environ['DEVFLOW_GH'] = stub
+    try:
+        return workpad._acs_gate_issue_body_criteria('1214')
+    finally:
+        if saved is None:
+            os.environ.pop('DEVFLOW_GH', None)
+        else:
+            os.environ['DEVFLOW_GH'] = saved
+        os.unlink(stub)
+
+
+_fb_ok = _fallback_with_gh(
+    'printf "## Acceptance Criteria\\n- [ ] real-fallback-criterion\\n"\n')
+assert_eq("#1214 AC3: the fallback really parses the issue body via parse-acs.py",
+          True, _fb_ok is not None and 'real-fallback-criterion' in _fb_ok)
+
+_fb_empty = _fallback_with_gh('printf "just a description, no criteria section\\n"\n')
+assert_eq("#1214 AC10: a reachable issue body with NO criteria is an ESTABLISHED "
+          "negative (not None)", True, _fb_empty is not None)
+
+_fb_unknown = _fallback_with_gh('printf "gh: HTTP 503 Service Unavailable\\n" >&2\nexit 1\n')
+assert_eq("#1214 AC10: an UNREACHABLE issue body is UNKNOWN (None), never collapsed "
+          "onto the empty negative", None, _fb_unknown)
+
+
+# Failed-write buffering and replay (part c). Drive cmd_update against a stubbed gh
+# layer, with the buffer path redirected to a throwaway directory so the test is
+# hermetic.
+_WP1214 = (
+    "<!-- prflow:workpad -->\n"
+    "# DevFlow Workpad — Issue #1214\n\n"
+    "**Status:** 🚀 Setup\n"
+    "**Branch:** `b`\n"
+    "**Last updated:** 2026-01-01 00:00 UTC\n\n"
+    "## Progress\n"
+    "- [ ] **Setup**\n\n"
+    "## Plan\n"
+    "- [ ] x\n\n"
+    "## Acceptance Criteria\n"
+    "- [ ] a\n\n"
+    "## Devflow Reflection\n"
+    "<details>\n"
+    "<summary>Devflow Reflection (click to expand)</summary>\n\n"
+    "</details>\n"
+)
+_MARK1214 = '<!-- prflow:workpad -->'
+
+
+def _update_args(**kw):
+    base = dict(
+        issue=1214, marker=None, status=None, branch=None, run_link=None,
+        pr_link=None, tick_progress=[], tick_plan=[], tick_plan_n=[], tick_ac=[],
+        tick_ac_n=[], rewrite_ac=[], note=[], reflection=[], reflection_file=None,
+        reflection_kind=None, replace_plan_file=None, replace_acs_file=None,
+        set_reproduction_file=None, checkpoint=None, record_completion_evidence=None,
+        record_classification=None, reconcile_reproduction=None, mark_deferred_filed=None,
+        bind_scope_decisions=None, scope_decision_deferred=None,
+        scope_decision_rewritten=None, print_body=False, expect_comment_id=None,
+        expect_status=None,
+    )
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+def _run_cmd_update(args, *, live_body, patch_fails, buffer_dir):
+    """Run cmd_update with a stateful gh stub: call 1 = id-lookup, call 2 =
+    body-fetch, call 3 = PATCH (captures the written body, or raises when
+    patch_fails). Returns (exit_code, captured_patch_body, calls)."""
+    saved = (workpad._run, workpad._repo_full, workpad._workpad_marker,
+             workpad._workpad_buffer_path)
+    workpad._repo_full = lambda *a, **kw: 'owner/repo'
+    workpad._workpad_marker = lambda explicit=None: _MARK1214
+    workpad._workpad_buffer_path = lambda cid: Path(buffer_dir) / f'{cid}.json'
+    state = {'n': 0, 'patch_body': None}
+
+    def _run(cmd, **kw):
+        state['n'] += 1
+        n = state['n']
+        if n == 1:
+            return _FakeRun(_json.dumps([{"id": 55512, "body": _MARK1214 + "\nx"}]))
+        if n == 2:
+            return _FakeRun(live_body)
+        # PATCH: capture the written body from the -F body=@<path> argument.
+        for a in cmd:
+            if isinstance(a, str) and a.startswith('body=@'):
+                state['patch_body'] = Path(a[len('body=@'):]).read_text(encoding='utf-8')
+        if patch_fails:
+            raise _subprocess.CalledProcessError(1, cmd, stderr='gh: HTTP 503')
+        return _FakeRun(state['patch_body'] or '')
+
+    workpad._run = _run
+    code = 0
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            workpad.cmd_update(args)
+    except SystemExit as e:
+        code = e.code if e.code is not None else 0
+    finally:
+        (workpad._run, workpad._repo_full, workpad._workpad_marker,
+         workpad._workpad_buffer_path) = saved
+    return code, state['patch_body'], state['n']
+
+
+# AC7: a workpad change that fails to persist is written to local storage, and the
+# stored record survives the failing call.
+_bufdir = tempfile.mkdtemp(prefix='wp1214-buf-')
+_code, _pb, _n = _run_cmd_update(
+    _update_args(note=['blocked: the run wedged on a 503']),
+    live_body=_WP1214, patch_fails=True, buffer_dir=_bufdir)
+assert_eq("#1214 AC7: a PATCH failure still fails loudly (non-zero exit)", True, _code != 0)
+_buf_file = Path(_bufdir) / '55512.json'
+assert_eq("#1214 AC7: the failed change is buffered under local storage",
+          True, _buf_file.exists())
+_buf_records = _json.loads(_buf_file.read_text(encoding='utf-8'))
+assert_eq("#1214 AC7: the buffered record carries the dropped note",
+          True, any('blocked: the run wedged on a 503' in n
+                    for r in _buf_records for n in r.get('notes', [])))
+
+# AC8: the stored record is replayed on the next SUCCESSFUL workpad call.
+_code, _pb, _n = _run_cmd_update(
+    _update_args(status='Reviewing'),
+    live_body=_WP1214, patch_fails=False, buffer_dir=_bufdir)
+assert_eq("#1214 AC8: the next successful update exits 0", 0, _code)
+assert_eq("#1214 AC8: the buffered note is replayed into the PATCHed body",
+          True, _pb is not None and 'blocked: the run wedged on a 503' in _pb)
+assert_eq("#1214 AC8: the buffer is cleared after a successful replay",
+          False, _buf_file.exists())
+
+# AC9: replaying an already-applied stored record does not duplicate content.
+_bufdir2 = tempfile.mkdtemp(prefix='wp1214-buf2-')
+_dupnote = 'idempotent-replay-note'
+(Path(_bufdir2) / '55512.json').write_text(
+    _json.dumps([{'notes': [_dupnote], 'reflections': [], 'reflection_kind': 'note'}]),
+    encoding='utf-8')
+# The live body ALREADY contains the buffered note (a prior replay landed it).
+_body_with_note = _WP1214.replace(
+    "- [ ] **Setup**\n", "- [ ] **Setup**\n  - 00:00:00 — %s\n" % _dupnote)
+_code, _pb, _n = _run_cmd_update(
+    _update_args(status='Reviewing'),
+    live_body=_body_with_note, patch_fails=False, buffer_dir=_bufdir2)
+assert_eq("#1214 AC9: an already-applied replay still exits 0", 0, _code)
+assert_eq("#1214 AC9: the already-present note is NOT duplicated on replay",
+          1, (_pb or '').count(_dupnote))
+
+# Regression (review finding): when the live body is missing the target section,
+# a buffered item cannot be folded — so it must NOT be dropped along with the
+# buffer file. The buffer survives for a later healthy body to replay.
+_bufdir3 = tempfile.mkdtemp(prefix='wp1214-buf3-')
+(Path(_bufdir3) / '55512.json').write_text(
+    _json.dumps([{'notes': ['survivor-note'], 'reflections': [], 'reflection_kind': 'note'}]),
+    encoding='utf-8')
+# A body with NO '## Progress' section (truncated/malformed workpad), but still a
+# valid Last updated line so the update itself PATCHes successfully.
+_body_no_progress = (
+    "<!-- prflow:workpad -->\n"
+    "**Status:** 🚀 Setup\n"
+    "**Last updated:** 2026-01-01 00:00 UTC\n\n"
+    "## Acceptance Criteria\n- [ ] a\n"
+)
+_code, _pb, _n = _run_cmd_update(
+    _update_args(),
+    live_body=_body_no_progress, patch_fails=False, buffer_dir=_bufdir3)
+assert_eq("#1214 regression: update against a section-less body still exits 0", 0, _code)
+assert_eq("#1214 regression: an unfoldable buffered item is NOT dropped (buffer survives)",
+          True, (Path(_bufdir3) / '55512.json').exists())
+assert_eq("#1214 regression: the surviving buffer still carries the note",
+          True, 'survivor-note' in (Path(_bufdir3) / '55512.json').read_text(encoding='utf-8'))
+
+# Review finding (PR #1227, finding 1): the FILE-sourced reflection is the feature's
+# motivating case — `skills/implement/SKILL.md` mandates that a stop path deliver its
+# Blocked reflection in a separate `--reflection-file` call carrying no inline
+# `--note`/`--reflection`, and its documented inline fallback covers only a
+# *structural* error, never a PATCH failure. So a `--reflection-file`-only call whose
+# PATCH fails must buffer the payload, or the one reflection issue #1214 exists to
+# rescue is the one it silently drops.
+_bufdir4 = tempfile.mkdtemp(prefix='wp1214-buf4-')
+_rfl_payload = 'blocked: the run stopped on a 503 from the workpad PATCH'
+_rfl_file = Path(_bufdir4) / 'payload.md'
+_rfl_file.write_text(_rfl_payload + '\n', encoding='utf-8')
+_code, _pb, _n = _run_cmd_update(
+    _update_args(reflection_file=str(_rfl_file), reflection_kind='blocked'),
+    live_body=_WP1214, patch_fails=True, buffer_dir=_bufdir4)
+_buf_file4 = Path(_bufdir4) / '55512.json'
+assert_eq("#1214 file-reflection: a PATCH failure still fails loudly (non-zero exit)",
+          True, _code != 0)
+assert_eq("#1214 file-reflection: the dropped --reflection-file payload IS buffered",
+          True, _buf_file4.exists()
+          and _rfl_payload in _buf_file4.read_text(encoding='utf-8'))
+# ...and replays into the Devflow Reflection section on the next successful call,
+# under the kind the *replaying* call carries (the documented degraded-path rule).
+_code, _pb, _n = _run_cmd_update(
+    _update_args(status='Reviewing'),
+    live_body=_WP1214, patch_fails=False, buffer_dir=_bufdir4)
+assert_eq("#1214 file-reflection: the replaying update exits 0", 0, _code)
+assert_eq("#1214 file-reflection: the buffered file payload is replayed into the body",
+          True, _pb is not None and _rfl_payload in _pb)
+assert_eq("#1214 file-reflection: the buffer is cleared after the replay",
+          False, _buf_file4.exists())
+
+# Review finding (PR #1227, finding 2): idempotency must hold ACROSS buffered
+# records, not only against the live body. Two failed calls carrying the same
+# `--note` (a retry during an outage) buffer separate records; deduping only against
+# the body folds each of them and renders the same bullet more than once.
+_bufdir5 = tempfile.mkdtemp(prefix='wp1214-buf5-')
+_dup_across = 'duplicate-across-buffered-records'
+(Path(_bufdir5) / '55512.json').write_text(
+    _json.dumps([
+        {'notes': [_dup_across], 'reflections': [], 'reflection_kind': 'note'},
+        {'notes': [_dup_across], 'reflections': [], 'reflection_kind': 'note'},
+    ]),
+    encoding='utf-8')
+_code, _pb, _n = _run_cmd_update(
+    _update_args(status='Reviewing'),
+    live_body=_WP1214, patch_fails=False, buffer_dir=_bufdir5)
+assert_eq("#1214 within-pass dedup: the duplicate-record replay exits 0", 0, _code)
+assert_eq("#1214 within-pass dedup: two identical buffered records render ONE bullet",
+          1, (_pb or '').count(_dup_across))
+assert_eq("#1214 within-pass dedup: the fully-replayed buffer is still cleared",
+          False, (Path(_bufdir5) / '55512.json').exists())
+
+# The same class one hop over: a buffered item identical to the text THIS call
+# already carries inline. The buffered copy must be skipped, not folded alongside it.
+_bufdir6 = tempfile.mkdtemp(prefix='wp1214-buf6-')
+_dup_inline = 'duplicate-with-this-calls-own-note'
+(Path(_bufdir6) / '55512.json').write_text(
+    _json.dumps([{'notes': [_dup_inline], 'reflections': [], 'reflection_kind': 'note'}]),
+    encoding='utf-8')
+_code, _pb, _n = _run_cmd_update(
+    _update_args(note=[_dup_inline]),
+    live_body=_WP1214, patch_fails=False, buffer_dir=_bufdir6)
+assert_eq("#1214 within-pass dedup: the inline-retry replay exits 0", 0, _code)
+assert_eq("#1214 within-pass dedup: a buffered item this call re-sends inline renders ONCE",
+          1, (_pb or '').count(_dup_inline))
+# ...and the same for a reflection, whose replay path is otherwise untested.
+_bufdir7 = tempfile.mkdtemp(prefix='wp1214-buf7-')
+_dup_rfl = 'duplicate-across-buffered-reflections'
+(Path(_bufdir7) / '55512.json').write_text(
+    _json.dumps([
+        {'notes': [], 'reflections': [_dup_rfl], 'reflection_kind': 'blocked'},
+        {'notes': [], 'reflections': [_dup_rfl], 'reflection_kind': 'blocked'},
+    ]),
+    encoding='utf-8')
+_code, _pb, _n = _run_cmd_update(
+    _update_args(status='Reviewing'),
+    live_body=_WP1214, patch_fails=False, buffer_dir=_bufdir7)
+assert_eq("#1214 within-pass dedup: the duplicate-reflection replay exits 0", 0, _code)
+assert_eq("#1214 within-pass dedup: two identical buffered reflections render ONE bullet",
+          1, (_pb or '').count(_dup_rfl))
+
+# Review finding (PR #1227, test-coverage gap): the MIXED partial-replay case. One
+# buffered section is foldable and the other is not, so `fully_replayed` must be
+# False and the buffer must survive — the conjunct that a body-with-Progress-only
+# body exercises and a fully-foldable or fully-unfoldable body does not.
+_bufdir8 = tempfile.mkdtemp(prefix='wp1214-buf8-')
+(Path(_bufdir8) / '55512.json').write_text(
+    _json.dumps([{'notes': ['mixed-note'], 'reflections': ['mixed-reflection'],
+                  'reflection_kind': 'note'}]),
+    encoding='utf-8')
+# `## Progress` present, `## Devflow Reflection` absent: the note folds, the
+# reflection cannot.
+_body_no_reflection = (
+    "<!-- prflow:workpad -->\n"
+    "**Status:** 🚀 Setup\n"
+    "**Last updated:** 2026-01-01 00:00 UTC\n\n"
+    "## Progress\n- [ ] **Setup**\n\n"
+    "## Acceptance Criteria\n- [ ] a\n"
+)
+_code, _pb, _n = _run_cmd_update(
+    _update_args(),
+    live_body=_body_no_reflection, patch_fails=False, buffer_dir=_bufdir8)
+assert_eq("#1214 mixed replay: the partially-foldable update still exits 0", 0, _code)
+assert_eq("#1214 mixed replay: the foldable note IS replayed", True,
+          _pb is not None and 'mixed-note' in _pb)
+assert_eq("#1214 mixed replay: the unfoldable reflection is NOT written into the body",
+          True, _pb is not None and 'mixed-reflection' not in _pb)
+assert_eq("#1214 mixed replay: the buffer SURVIVES (fully_replayed is False)",
+          True, (Path(_bufdir8) / '55512.json').exists())
+
+# Review finding (PR #1227 round 2, blocker): replay identity must be an EXACT
+# rendered-bullet match, never raw substring containment over the body. Under the
+# containment test a buffered item whose text happens to be a substring of unrelated
+# body content read as already-applied: it was neither folded into the PATCH nor kept,
+# because `fully_replayed` stayed True and the buffer file was deleted — silent loss
+# of the operator's record inside the feature built to prevent exactly that.
+#
+# `503` is the motivating shape: the failure that buffers the record is itself a 503,
+# so a run's Blocked reflection routinely mentions it, and the live body already
+# carries that digit string inside the earlier bullets the run wrote.
+_bufdir9 = tempfile.mkdtemp(prefix='wp1214-buf9-')
+_substr_note = '503'
+_substr_rfl = 'blocked'
+(Path(_bufdir9) / '55512.json').write_text(
+    _json.dumps([{'notes': [_substr_note], 'reflections': [_substr_rfl],
+                  'reflection_kind': 'blocked'}]),
+    encoding='utf-8')
+# A body in which BOTH buffered texts occur as strict substrings of unrelated
+# content — inside a longer Progress note and inside an existing reflection bullet —
+# but neither is present as its own rendered bullet.
+_body_substr = _WP1214.replace(
+    "- [ ] **Setup**\n",
+    "- [ ] **Setup**\n  - 00:00:00 — retrying after HTTP 503 from the comments endpoint\n"
+).replace(
+    "<summary>Devflow Reflection (click to expand)</summary>\n\n",
+    "<summary>Devflow Reflection (click to expand)</summary>\n\n"
+    "### ⚠️ Action required\n"
+    "- ⛔ **Blocked:** the implement run is blocked on a failing dependency\n\n"
+)
+# Precondition: both texts really are present in the body as substrings, so this
+# fixture drives the containment test's false-positive arm rather than passing
+# vacuously.
+assert_eq("#1214 exact-identity fixture: the buffered note text IS a body substring",
+          True, _substr_note in _body_substr)
+assert_eq("#1214 exact-identity fixture: the buffered reflection text IS a body substring",
+          True, _substr_rfl in _body_substr)
+_code, _pb, _n = _run_cmd_update(
+    _update_args(status='Reviewing'),
+    live_body=_body_substr, patch_fails=False, buffer_dir=_bufdir9)
+assert_eq("#1214 exact identity: the substring-collision replay exits 0", 0, _code)
+assert_eq("#1214 exact identity: a buffered note that is only a SUBSTRING of existing "
+          "content is still replayed as its own bullet",
+          True, _pb is not None
+          and re.search(r'^\s*-\s+\d{2}:\d{2}:\d{2}\s+—\s+503$', _pb, re.M) is not None)
+
+
+def _rendered_reflection_line(kind, text):
+    """The bullet `_insert_reflection_bullet` writes for (kind, text) — derived
+    from the shipped taxonomy so the expectation tracks the renderer."""
+    _glyph, _label, _ = workpad._REFLECTION_KINDS[kind]
+    return '- %s %s%s' % (_glyph, ('**%s:** ' % _label) if _label else '', text)
+
+
+# A replayed reflection is filed under the REPLAYING call's kind; this call passes
+# no --reflection-kind, so that is the default kind.
+_replay_kind = workpad._DEFAULT_REFLECTION_KIND
+assert_eq("#1214 exact identity: a buffered reflection that is only a SUBSTRING of an "
+          "existing bullet is still replayed as its own bullet",
+          True, _pb is not None
+          and _rendered_reflection_line(_replay_kind, _substr_rfl)
+          in [ln.strip() for ln in _pb.split('\n')])
+assert_eq("#1214 exact identity: the substring-collision buffer is cleared only "
+          "because both items really were written",
+          False, (Path(_bufdir9) / '55512.json').exists())
+
+# The converse must still hold: a genuinely already-rendered item is skipped. Drive
+# both halves so the fix cannot be "never dedup" — a rendered note bullet and a
+# rendered reflection bullet, each present verbatim, must not be written twice.
+_bufdir10 = tempfile.mkdtemp(prefix='wp1214-buf10-')
+_exact_note = 'exact-note-already-rendered'
+_exact_rfl = 'exact-reflection-already-rendered'
+(Path(_bufdir10) / '55512.json').write_text(
+    _json.dumps([{'notes': [_exact_note], 'reflections': [_exact_rfl],
+                  'reflection_kind': 'blocked'}]),
+    encoding='utf-8')
+# The reflection is rendered under the SAME kind the replay would use, so this is
+# the plain same-shape dedup; the cross-kind case is driven separately below.
+_body_exact = _WP1214.replace(
+    "- [ ] **Setup**\n", "- [ ] **Setup**\n  - 00:00:00 — %s\n" % _exact_note
+).replace(
+    "<summary>Devflow Reflection (click to expand)</summary>\n\n",
+    "<summary>Devflow Reflection (click to expand)</summary>\n\n"
+    "### ℹ️ Notes\n"
+    "%s\n\n" % _rendered_reflection_line(_replay_kind, _exact_rfl)
+)
+_code, _pb, _n = _run_cmd_update(
+    _update_args(status='Reviewing'),
+    live_body=_body_exact, patch_fails=False, buffer_dir=_bufdir10)
+assert_eq("#1214 exact identity: the already-rendered replay exits 0", 0, _code)
+assert_eq("#1214 exact identity: an already-rendered note is NOT duplicated",
+          1, (_pb or '').count(_exact_note))
+assert_eq("#1214 exact identity: an already-rendered reflection is NOT duplicated",
+          1, (_pb or '').count(_exact_rfl))
+assert_eq("#1214 exact identity: the already-rendered buffer is still cleared",
+          False, (Path(_bufdir10) / '55512.json').exists())
+
+# A reflection already rendered under a DIFFERENT kind than the one this replay
+# would file it under still counts as the same item — replay uses the replaying
+# call's kind, so the glyph/label the original write used is not knowable and every
+# kind's rendering has to dedup, or a run's terminal reflection is re-appended under
+# a second heading on the next update.
+_bufdir11 = tempfile.mkdtemp(prefix='wp1214-buf11-')
+_crosskind = 'cross-kind-rendered-reflection'
+(Path(_bufdir11) / '55512.json').write_text(
+    _json.dumps([{'notes': [], 'reflections': [_crosskind],
+                  'reflection_kind': 'blocked'}]),
+    encoding='utf-8')
+_body_crosskind = _WP1214.replace(
+    "<summary>Devflow Reflection (click to expand)</summary>\n\n",
+    "<summary>Devflow Reflection (click to expand)</summary>\n\n"
+    "### ⚠️ Action required\n"
+    "%s\n\n" % _rendered_reflection_line('blocked', _crosskind)
+)
+_code, _pb, _n = _run_cmd_update(
+    _update_args(status='Reviewing'),
+    live_body=_body_crosskind, patch_fails=False, buffer_dir=_bufdir11)
+assert_eq("#1214 exact identity: the cross-kind replay exits 0", 0, _code)
+assert_eq("#1214 exact identity: a reflection already rendered under ANOTHER kind is "
+          "NOT duplicated", 1, (_pb or '').count(_crosskind))
+
+# The section scoping half: a note text that appears verbatim as a whole line
+# OUTSIDE `## Progress` (here as an Acceptance Criteria row) is not a rendered
+# Progress bullet, so it must not authorize skipping-and-clearing.
+_bufdir12 = tempfile.mkdtemp(prefix='wp1214-buf12-')
+_offsection = 'text-that-lives-in-another-section'
+(Path(_bufdir12) / '55512.json').write_text(
+    _json.dumps([{'notes': [_offsection], 'reflections': [],
+                  'reflection_kind': 'note'}]),
+    encoding='utf-8')
+_body_offsection = _WP1214.replace(
+    "## Acceptance Criteria\n- [ ] a\n",
+    "## Acceptance Criteria\n- [ ] a\n- [ ] %s\n" % _offsection)
+_code, _pb, _n = _run_cmd_update(
+    _update_args(status='Reviewing'),
+    live_body=_body_offsection, patch_fails=False, buffer_dir=_bufdir12)
+assert_eq("#1214 exact identity: the off-section replay exits 0", 0, _code)
+assert_eq("#1214 exact identity: a match OUTSIDE '## Progress' does not count as "
+          "already-applied", True,
+          _pb is not None
+          and re.search(r'^\s*-\s+\d{2}:\d{2}:\d{2}\s+—\s+%s$' % re.escape(_offsection),
+                        _pb, re.M) is not None)
+
+
+# AC11: a 503 response does not match the credential-failure pattern in gh-fresh.sh.
+_ghfresh_src = (SCRIPTS / 'gh-fresh.sh').read_text(encoding='utf-8')
+_sig_m = re.search(r"SIG='([^']*)'", _ghfresh_src)
+assert_eq("#1214 AC11: the gh-fresh.sh SIG literal is present", True, _sig_m is not None)
+_SIG1214 = _sig_m.group(1)
+for _503 in ('gh: HTTP 503 Service Unavailable', 'HTTP 503', 'server returned 503'):
+    assert_eq("#1214 AC11: a 503 (%r) does NOT match the credential pattern" % _503,
+              None, re.search(_SIG1214, _503, re.IGNORECASE))
+# Positive control: the pattern still matches a real credential failure.
+assert_eq("#1214 AC11: a real 401/Bad credentials DOES still match (positive control)",
+          True, re.search(_SIG1214, 'gh: HTTP 401: Bad credentials', re.IGNORECASE) is not None)
+
+
 print()
 print("issue-audit-state: round resolution, next_call=, query-boundary (issue #795)")
 
@@ -23072,7 +23619,7 @@ assert_eq("#1011 section fn: returns only in-section numbers",
           ['99'],
           _preflight1011.dependency_section_numbers(
               "blocked by #11 and #10\n## Dependencies\n- #99\n## Next\nsee #7\n"))
-assert_eq("#1011 section fn: captures every #N in the section regardless of keyword",
+assert_eq("#1011 section fn: captures every #N on an inbound or direction-free section line",
           ['5', '7'],
           _preflight1011.dependency_section_numbers(
               "## Dependencies\n- Blocked by #5 — reason\nrandom #7\n## Next\n#9"))
@@ -23093,6 +23640,53 @@ _io1011 = io.StringIO()
 with contextlib.redirect_stderr(_io1011):
     _preflight1011.dependency_section_numbers("requires #12 outside a section")
 assert_eq("#1011 section fn: emits no stderr breadcrumb of its own", "", _io1011.getvalue())
+
+# ── issue #1197: outbound direction under `## Dependencies`, at the LINE level ──
+# The section limb used to capture every `#N` with no keyword test, so `Blocks #N` —
+# which declares THIS issue the prerequisite — registered as its exact inverse. The
+# stakes are highest on this entry point: apply-issue-dependencies.py consumes it and
+# POSTs a blocked_by relationship its own docstring says it does not remove, so an
+# inverted read here is a persistent GitHub write rather than a reversible gate stop.
+assert_eq("#1197 section fn: an outbound 'Blocks #N' contributes nothing",
+          [],
+          _preflight1011.dependency_section_numbers("## Dependencies\n- Blocks #5 — reason\n"))
+assert_eq("#1197 section fn: an outbound multi-number run drops the whole run",
+          [],
+          _preflight1011.dependency_section_numbers("## Dependencies\n- Blocks #5 and #6\n"))
+# Line-level, not per-number: the inbound half of a mixed line goes with the line. The
+# inbound number is listed SECOND so a per-number implementation would return ['6'] and
+# this assertion would catch it, rather than passing on an empty result either way.
+assert_eq("#1197 section fn: a mixed-direction line contributes NO numbers (line-level governance)",
+          [],
+          _preflight1011.dependency_section_numbers("## Dependencies\n- Blocks #5 but blocked by #6\n"))
+assert_eq("#1197 section fn: an inbound line beside an outbound line still contributes",
+          ['6'],
+          _preflight1011.dependency_section_numbers(
+              "## Dependencies\n- Blocks #5 — reason\n- Blocked by #6 — reason\n"))
+assert_eq("#1197 section fn: a direction-free bare bullet keeps today's behaviour",
+          ['5', '6'],
+          _preflight1011.dependency_section_numbers("## Dependencies\n- #5\n- Part of #6\n"))
+# The section entry point's no-stderr contract survives the new outbound arm: the
+# breadcrumb rides `dependency_numbers` only, so apply-issue-dependencies.py still
+# leaks no `preflight.py:` line into its own caller-facing output (issue #1197 AC7).
+_io1197 = io.StringIO()
+with contextlib.redirect_stderr(_io1197):
+    _preflight1197_out = _preflight1011.dependency_section_numbers("## Dependencies\n- Blocks #5\n")
+assert_eq("#1197 section fn: the outbound skip emits no stderr on the section-only path",
+          ([], ""), (_preflight1197_out, _io1197.getvalue()))
+# …and it IS observable on the entry point that owns a stderr surface.
+_io1197b = io.StringIO()
+with contextlib.redirect_stderr(_io1197b):
+    _preflight1011.dependency_numbers("## Dependencies\n- Blocks #5\n")
+assert_eq("#1197 full recognizer: the outbound skip breadcrumbs the dropped number",
+          True, "#5" in _io1197b.getvalue() and "preflight.py:" in _io1197b.getvalue())
+# The out-of-section limb is untouched — it parsed direction correctly all along, and
+# widening DECLARATIONS with an outbound keyword would have broken it. Out of section a
+# mixed line still yields its inbound half.
+assert_eq("#1197 full recognizer: out-of-section direction handling is unchanged",
+          ([], ['6']),
+          (_preflight1011.dependency_numbers("Blocks #5 outside a section"),
+           _preflight1011.dependency_numbers("Blocks #5 but blocked by #6, outside a section")))
 
 _HELPER1011 = SCRIPTS / 'apply-issue-dependencies.py'
 
@@ -23128,6 +23722,11 @@ for a in "$@"; do
       105) printf '%s\n' '## Dependencies' '- Blocked by #205' '- Blocked by #206' ;;
       106) printf '%s\n' 'blocked by #201 outside a section' ;;
       108) printf '%s\n' '## Dependencies' '- Blocked by #207' ;;
+      # issue #1197: outbound-only and mixed-direction sections. #201 resolves to a
+      # linkable id below, so a scanner that still reads direction-blind would POST a
+      # persistent (and inverted) blocked_by for either one.
+      109) printf '%s\n' '## Dependencies' '- **Blocks #201** — this issue is the prerequisite' ;;
+      110) printf '%s\n' '## Dependencies' '- Blocks #202 but blocked by #201' ;;
       200) exit 1 ;;
       *) printf '\n' ;;
     esac
@@ -23215,6 +23814,24 @@ _rc, _se = _run_deps(106)
 assert_eq("#1011 out-of-section: exit 0", 0, _rc)
 assert_eq("#1011 out-of-section: breadcrumb says no prerequisites in a section", True,
           "declares no prerequisites in a `## Dependencies` section" in _se)
+
+# ── issue #1197 AC6: no persistent blocked_by is registered for an OUTBOUND
+# declaration. Asserted end-to-end on the real helper over a stubbed gh — the derived
+# number set is empty, so the POST branch is never entered at all (there is no live
+# write, and none is attempted). #201 is a linkable id in the stub, so a direction-blind
+# scanner would have produced "linked #109 blocked_by #201." here; asserting that
+# literal's ABSENCE alongside the no-prerequisites breadcrumb keeps the row
+# discriminating rather than satisfied by any quiet run.
+_rc, _se = _run_deps(109)
+assert_eq("#1197 AC6: an outbound declaration registers nothing (exit 0, no POST attempted)",
+          (0, False, True),
+          (_rc, "linked #109 blocked_by" in _se,
+           "declares no prerequisites in a `## Dependencies` section" in _se))
+_rc, _se = _run_deps(110)
+assert_eq("#1197 AC6: a mixed-direction line registers nothing either (line-level governance)",
+          (0, False, True),
+          (_rc, "blocked_by #201" in _se,
+           "declares no prerequisites in a `## Dependencies` section" in _se))
 
 # body fetch failure.
 _rc, _se = _run_deps(200)

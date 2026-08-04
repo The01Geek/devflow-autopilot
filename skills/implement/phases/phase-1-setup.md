@@ -254,7 +254,10 @@ Read the helper's one-token stdout result and its exit code:
   `--note` that the early dependency preflight passed, then continue to §1.4.
 - `BLOCKED <numbers>` exits 2. The named dependencies are still open. Set the
   workpad to `Blocked` with a `blocked` reflection naming the numbers and the
-  remedy (merge/close them, or amend a stale dependency), emit the 👎 outcome
+  remedy (merge/close them, amend a stale dependency, or — because the helper's
+  outbound vocabulary is finite — correct a declaration whose **direction** is
+  inverted or phrased outside that vocabulary, which reads as a blocker of this
+  issue when it in fact declares the reverse ordering), emit the 👎 outcome
   reaction, remove the run marker, and stop. Do not start §1.4.
 - `UNAVAILABLE <reason-or-number>` exits 3. The dependency set or a declared
   dependency state could not be established. Take the same terminal Blocked
