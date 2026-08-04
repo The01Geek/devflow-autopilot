@@ -8738,14 +8738,17 @@ assert_eq "#1197 AC7: a direction word in neither vocabulary stays a blocker (do
 # is contributed. The OPEN number is the INBOUND one, so this cannot pass vacuously.
 _p1197_body mixed '- Blocks #11 but blocked by #10'
 assert_eq "#1197 AC4: a mixed-direction line contributes NO numbers (line-level, not per-run)" "PROCEED" "$(_p1197 mixed)"
-# Disclosed residual, asserted rather than left to be discovered: the scanner is not
-# markdown-aware, so an outbound word inside a code span or quoted evidence still
-# governs its line. Same family as the fenced-code-block gap (a `## Dependencies`
-# heading inside a fence still opens a section) — both are out of scope for #1197 and
-# recorded here so a later change that closes them flips a test rather than nothing.
+# issue #1267: the bounded-window narrowing closes this residual FOR THIS SPECIFIC
+# FIXTURE, not in general. The code-span `Blocks` no longer governs the line because no
+# number run follows it within the window, so the genuine inbound `blocked by #10` at
+# the end of the line now contributes its number. The scanner is STILL NOT
+# markdown-aware — a code-span outbound word written ADJACENT to a number would still
+# govern its line; only this fixture's far-separated shape flips. Same disclosed family
+# as the fenced-code-block gap (a `## Dependencies` heading inside a fence still opens a
+# section), which remains open.
 _p1197_body codespan '- The word `Blocks` is the outbound spelling — blocked by #10'
-assert_eq "#1197 residual: an outbound word inside a code span still governs its line (scanner is not markdown-aware)" \
-  "PROCEED" "$(_p1197 codespan)"
+assert_eq "#1267 residual (flipped): the bounded-window narrowing closes the code-span residual for this fixture — the far-separated outbound word no longer governs, so inbound #10 contributes (scanner still not markdown-aware)" \
+  "BLOCKED 10" "$(_p1197 codespan)"
 
 # ── The out-of-section limb is UNTOUCHED (it parsed direction correctly all along) ──
 # Written without the heading, so the same three shapes route through DECLARATIONS.
@@ -8778,6 +8781,124 @@ assert_eq "#1197 AC7: the breadcrumb names the outbound direction as the reason"
 # unconditional emit.
 assert_eq "#1197 AC7 control: an inbound section line emits no outbound breadcrumb" "" \
   "$(_p1197_err in_blockedby)"
+
+# ── issue #1267: the outbound word governs its line only when a number run FOLLOWS it ──
+# The shipped bare-keyword rule matched an outbound word ANYWHERE on the line, so a
+# template-shaped `Blocked by #N — <reason it must land first>` line whose reason prose
+# carried an outbound keyword ("must merge before", "blocks", …) dropped its number
+# (fail-open). The narrowing requires a following number run within a bounded window.
+# Every row below is DISCRIMINATING: #10 is OPEN in the stub, so a returned number
+# renders `BLOCKED 10` and a dropped one renders `PROCEED`.
+#
+# ── #1267 positive control: a template `Blocked by #N — <reason>` line RETURNS #N even
+# when the reason prose contains an outbound keyword. The seven reason wordings are the
+# exact ones the issue measured as dropped, so the reported regression is pinned
+# verbatim rather than paraphrased. This matrix is un-dischargeable by an implementation
+# that returns an empty list / hardcodes empty / drops everything: each asserts BLOCKED
+# 10, i.e. the specific number, not merely "non-empty".
+_p1197_body pc_mustmerge  'Blocked by #10 — it must merge before this refactor can start'
+_p1197_body pc_blocks     'Blocked by #10 — it blocks the schema change this depends on'
+_p1197_body pc_requiredby 'Blocked by #10 — the parser work is required by this one'
+_p1197_body pc_unblocks   'Blocked by #10 — unblocks the whole series'
+_p1197_body pc_blocking   'Blocked by #10 — this is blocking the release'
+_p1197_body pc_prereq     'Blocked by #10 — prerequisite for the cutover'
+_p1197_body pc_unblocking 'Blocked by #10 — it is unblocking the downstream cutover'
+assert_eq "#1267 positive control: reason prose 'must merge before' no longer drops the number" "BLOCKED 10" "$(_p1197 pc_mustmerge)"
+assert_eq "#1267 positive control: reason prose 'blocks' no longer drops the number" "BLOCKED 10" "$(_p1197 pc_blocks)"
+assert_eq "#1267 positive control: reason prose 'required by' no longer drops the number" "BLOCKED 10" "$(_p1197 pc_requiredby)"
+assert_eq "#1267 positive control: reason prose 'unblocks' no longer drops the number" "BLOCKED 10" "$(_p1197 pc_unblocks)"
+assert_eq "#1267 positive control: reason prose 'blocking' no longer drops the number" "BLOCKED 10" "$(_p1197 pc_blocking)"
+assert_eq "#1267 positive control: reason prose 'prerequisite for' no longer drops the number" "BLOCKED 10" "$(_p1197 pc_prereq)"
+assert_eq "#1267 positive control: reason prose 'unblocking' no longer drops the number" "BLOCKED 10" "$(_p1197 pc_unblocking)"
+
+# ── #1267 separator matrix: an outbound keyword ADJACENT to a number (across many
+# separators) still governs — returns NO number. Each shape returns no number correctly
+# on the shipped recognizer too. A rule that required whitespace between keyword and
+# number would start returning the number on these separator shapes (a false BLOCKED); a
+# rule that allowed only punctuation there would still miss `Blocks issue #N` /
+# `Blocks PR #N`, where the separator is a word. The bounded window handles them.
+_p1197_body sep_colon     '- Blocks: #10'
+_p1197_body sep_paren     '- Blocks (#10)'
+_p1197_body sep_emdash    '- Blocks — #10'
+_p1197_body sep_boldkw    '- **Blocks**: #10'
+_p1197_body sep_boldcolon '- **Blocks:** #10'
+_p1197_body sep_comma     '- Blocks, #10'
+_p1197_body sep_table     '| Blocks | #10 |'
+_p1197_body sep_issue     '- Blocks issue #10'
+_p1197_body sep_pr        '- Blocks PR #10'
+assert_eq "#1267 separator: 'Blocks: #N' still governs (no number)" "PROCEED" "$(_p1197 sep_colon)"
+assert_eq "#1267 separator: 'Blocks (#N)' still governs (no number)" "PROCEED" "$(_p1197 sep_paren)"
+assert_eq "#1267 separator: 'Blocks — #N' still governs (no number)" "PROCEED" "$(_p1197 sep_emdash)"
+assert_eq "#1267 separator: '**Blocks**: #N' still governs (no number)" "PROCEED" "$(_p1197 sep_boldkw)"
+assert_eq "#1267 separator: '**Blocks:** #N' still governs (no number)" "PROCEED" "$(_p1197 sep_boldcolon)"
+assert_eq "#1267 separator: 'Blocks, #N' still governs (no number)" "PROCEED" "$(_p1197 sep_comma)"
+assert_eq "#1267 separator: '| Blocks | #N |' (table cell) still governs (no number)" "PROCEED" "$(_p1197 sep_table)"
+assert_eq "#1267 separator: 'Blocks issue #N' still governs (no number)" "PROCEED" "$(_p1197 sep_issue)"
+assert_eq "#1267 separator: 'Blocks PR #N' still governs (no number)" "PROCEED" "$(_p1197 sep_pr)"
+
+# ── #1267 positive-polarity keyword coverage: each of the SEVEN outbound keywords,
+# written adjacent to a number, returns NO number. Six of the seven had no such
+# coverage anywhere before, so this is what stops an implementation that narrows the
+# VOCABULARY (rather than the match) from passing everything that already exists.
+_p1197_body pol_blocks     '- Blocks #10'
+_p1197_body pol_blocking   '- Blocking #10'
+_p1197_body pol_unblocks   '- Unblocks #10'
+_p1197_body pol_unblocking '- Unblocking #10'
+_p1197_body pol_prereq     '- prerequisite for #10'
+_p1197_body pol_requiredby '- required by #10'
+_p1197_body pol_mustmerge  '- must merge before #10'
+assert_eq "#1267 keyword: 'blocks' adjacent to #N governs (no number)" "PROCEED" "$(_p1197 pol_blocks)"
+assert_eq "#1267 keyword: 'blocking' adjacent to #N governs (no number)" "PROCEED" "$(_p1197 pol_blocking)"
+assert_eq "#1267 keyword: 'unblocks' adjacent to #N governs (no number)" "PROCEED" "$(_p1197 pol_unblocks)"
+assert_eq "#1267 keyword: 'unblocking' adjacent to #N governs (no number)" "PROCEED" "$(_p1197 pol_unblocking)"
+assert_eq "#1267 keyword: 'prerequisite for' adjacent to #N governs (no number)" "PROCEED" "$(_p1197 pol_prereq)"
+assert_eq "#1267 keyword: 'required by' adjacent to #N governs (no number)" "PROCEED" "$(_p1197 pol_requiredby)"
+assert_eq "#1267 keyword: 'must merge before' adjacent to #N governs (no number)" "PROCEED" "$(_p1197 pol_mustmerge)"
+
+# ── #1267 line-level governance retained: a governing outbound match drops EVERY number
+# on the line, including one appearing later outside any number run. #11 is CLOSED and
+# #10 OPEN; per-number governance would return the trailing #10 (→ BLOCKED 10), so this
+# row cannot pass vacuously — line-level governance renders PROCEED.
+_p1197_body line_level '- Blocks #11 — see also #10 for the follow-up'
+assert_eq "#1267 line-level: a governing outbound match drops a number later on the line too" "PROCEED" "$(_p1197 line_level)"
+
+# ── #1267 end-to-end through the subcommand (stdout + exit code, what §1.3.5 reads): a
+# template-shaped outbound-reason line naming an OPEN issue → BLOCKED/exit 2; naming a
+# CLOSED issue → a proceed result/exit 0.
+_p1197_body e2e_open   'Blocked by #10 — it must merge before this refactor can start'
+_p1197_body e2e_closed 'Blocked by #11 — it must merge before this refactor can start'
+P1267_E2E_OPEN="$(_p1197 e2e_open)"; P1267_E2E_OPEN_RC=$?
+assert_eq "#1267 e2e: an open-issue template-reason line prints BLOCKED <n>" "BLOCKED 10" "$P1267_E2E_OPEN"
+assert_eq "#1267 e2e: …and exits 2 (the BLOCKED class §1.3.5 routes on)" "2" "$P1267_E2E_OPEN_RC"
+P1267_E2E_CLOSED="$(_p1197 e2e_closed)"; P1267_E2E_CLOSED_RC=$?
+assert_eq "#1267 e2e: the same body naming a CLOSED issue prints a proceed result" "PROCEED 11" "$P1267_E2E_CLOSED"
+assert_eq "#1267 e2e: …and exits 0 (the proceed class)" "0" "$P1267_E2E_CLOSED_RC"
+
+# ── #1267 DISCLOSED RESIDUAL of the bounded window (asserted, not left to be found).
+# A genuinely-OUTBOUND free-prose line whose own number sits BEYOND the window is no
+# longer recognised as outbound, so its number is RETURNED — a spurious blocker the
+# shipped bare-keyword rule dropped. This is the unavoidable cost of ANY finite
+# character window (the mechanism issue #1267 selected) and is the same family as the
+# codespan residual above: the scanner is NOT markdown/semantic-aware. It is pinned here
+# so a later change that closes it (or a widened `_OUTBOUND_WINDOW`) flips a test rather
+# than silently changing behavior. #10 is OPEN, so the returned number renders
+# `BLOCKED 10`; the canonical `- Blocks #10` adjacent form (pinned above) is unaffected.
+# This row ALSO pins the window's UPPER bound: widening `_OUTBOUND_WINDOW` far enough to
+# span this gap would flip it back to PROCEED and turn this assertion RED.
+_p1197_body far_outbound '- Blocks the whole downstream release train, everyone waits on #10'
+assert_eq "#1267 residual: a far-separated outbound free-prose number is no longer governed (bounded-window cost; scanner not semantic-aware) — pinned, not overlooked" \
+  "BLOCKED 10" "$(_p1197 far_outbound)"
+
+# ── #1267 template mixed-number edge: a `Blocked by #N` line whose reason writes an
+# outbound ordering word ADJACENT to a *second* number is governed (line-level), so BOTH
+# numbers drop. #10 (the intended inbound) is OPEN and #11 (the outbound object) CLOSED,
+# so a per-number reading would return #10 → BLOCKED 10; line-level governance renders
+# PROCEED. This is the shape the issue-template clarification is careful to condition
+# ("a reason whose ordering words introduce no #N of their own"), pinned here.
+_p1197_body tmpl_mixed 'Blocked by #10 — must merge before #11 ships'
+assert_eq "#1267 template mixed-number: an ordering word adjacent to a second number governs the whole line (both numbers drop)" \
+  "PROCEED" "$(_p1197 tmpl_mixed)"
+
 rm -rf "$P1197"
 
 # ── PR #572 review (Approve-with-notes): main() top-level fail-closed catch-all ─

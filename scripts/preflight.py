@@ -110,8 +110,52 @@ _OUTBOUND_KEYWORDS = (
     r"required by",
     r"must merge before",
 )
+# An outbound keyword governs its line only when a NUMBER RUN follows it within the
+# same clause (issue #1267). The shipped bare-keyword form matched the keyword
+# ANYWHERE on the line — including inside the human reason prose of a template-shaped
+# `Blocked by #N — <one-line reason it must land first>` line, where "must merge
+# before" / "blocks" / "required by" / … routinely appear (the issue template's own
+# reason prompt invites them) — so a correctly-drafted INBOUND prerequisite silently
+# lost its number (fail-open: the early gate PROCEEDs, the native stamp registers
+# nothing). Requiring a following number run keeps every outbound spelling the shipped
+# recognizer treated as outbound — all of them place the number adjacent to, or a few
+# characters after, the keyword (`Blocks #N`, `Blocks: #N`, `**Blocks:** #N`,
+# `Blocks issue #N`, `| Blocks | #N |`) — while a keyword that introduces no number
+# run (a reason-prose occurrence) now governs nothing.
+#
+# The separator is a BOUNDED CHARACTER WINDOW, deliberately NOT whitespace-only: a
+# `\s+`-adjacency rule would fail to match `Blocks: #N` / `**Blocks:** #N` /
+# `Blocks issue #N` and start RETURNING their numbers — a false BLOCKED, which is
+# strictly worse than the fail-open bug because it ships a spurious stop to
+# auto-updating consumers (issue #1267's reverse axis, and why the `\s+` prototype was
+# rejected). The window bound (`_OUTBOUND_WINDOW`) is small enough that a reason-prose
+# keyword far from an unrelated later number does not match, and large enough for the
+# widest real separator (` issue ` / `| Blocks | `). Narrowing only ever REMOVES
+# matches versus the shipped rule, so it cannot drop a number the old rule returned — it
+# can only add numbers back. For the canonical outbound form (number adjacent to the
+# keyword) and for the matrix separator shapes, adding numbers back is pure recovery.
+#
+# The ONE place it is not pure recovery — a disclosed residual, same family as the
+# code-span residual pinned in lib/test/run.sh, because the scanner is not
+# markdown/semantic-aware — is a genuinely-OUTBOUND free-prose line whose own number
+# sits BEYOND the window: `- Blocks the whole downstream release train, see #10`. The
+# shipped bare-keyword rule dropped #10 (correct: this issue blocks #10, so #10 is not a
+# blocker of it); the narrowed rule no longer matches and returns #10 (a spurious
+# blocker, and — via `dependency_section_numbers` — a persistent inverted stamp). This
+# residual is accepted, not overlooked: it is the unavoidable cost of a bounded
+# character window (any finite bound has it), the issue selected the bounded window with
+# its reverse axis operationalized by the two lib/test/run.sh matrices (which this rule
+# passes), and the canonical `Blocks #N` outbound form places the number adjacent to the
+# keyword and is unaffected. It is pinned as a disclosed residual in lib/test/run.sh; the
+# remedy for a real far-separated outbound line is to write the number adjacent to the
+# keyword.
+#
+# Line-level governance is unchanged: when this matches, `_scan_dependencies` still drops
+# EVERY number on the line, including one repeated later outside any number run.
+_OUTBOUND_WINDOW = 30
 OUTBOUND_DECLARATION = re.compile(
-    rf"\b(?:{'|'.join(_OUTBOUND_KEYWORDS)})\b", re.IGNORECASE
+    rf"\b(?:{'|'.join(_OUTBOUND_KEYWORDS)})\b.{{0,{_OUTBOUND_WINDOW}}}?{_NUMBER_RUN}",
+    re.IGNORECASE,
 )
 # Dependency-flavoured phrasings the fixed vocabulary does NOT recognize. When a
 # `#N` sits next to one of these and no declaration matched the line, emit a
@@ -133,9 +177,14 @@ def _scan_dependencies(body: str, *, section_only: bool) -> list[str]:
     keywords.
 
     **Direction inside the section is governed at the LINE level** (issue #1197). A
-    section line carrying an OUTBOUND_DECLARATION word declares that THIS issue is the
+    section line matching OUTBOUND_DECLARATION declares that THIS issue is the
     prerequisite of the numbers it names, so that line contributes NO numbers at all —
-    not merely the number run adjacent to the outbound word. Per-number governance was
+    not merely the number run adjacent to the outbound word. An outbound keyword matches
+    only when a number run FOLLOWS it within a bounded same-clause window (issue #1267):
+    a keyword appearing only in the human reason prose of a ``Blocked by #N — <reason>``
+    line — with no number run it introduces — governs nothing, so a correctly-drafted
+    inbound prerequisite whose reason happens to say "must merge before" / "blocks" / …
+    keeps its number. Per-number governance was
     considered and rejected: it lets a mixed line partially contribute (more complex,
     harder to test, and the same ambiguity that produced the inversion this fixes), and
     it cannot handle the live case, whose outbound line repeats the same ``#N`` later in
