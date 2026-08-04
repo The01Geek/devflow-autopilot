@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1294",
+  "generated_at": "2026-08-04T21:08:21Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.100",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.4104725,
+    "tokens": {
+      "input_tokens": 51,
+      "output_tokens": 23799,
+      "cache_read_input_tokens": 3993125,
+      "cache_creation_input_tokens": 181868,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 51,
+        "outputTokens": 23799,
+        "cacheReadInputTokens": 3993125,
+        "cacheCreationInputTokens": 181868,
+        "webSearchRequests": 0,
+        "costUSD": 4.4104725,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 29,
+    "duration_ms": 431405
+  },
+  "permission_denials": {
+    "count": 5,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none}\"; mkdir -p .prflow/tmp/review/pr-1294/${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}; gh pr diff 1294 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1294/${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}/diff.patch | wc -l",
+      "RID=$(printf '%s' \"${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}\"); echo \"$RID\"",
+      "echo \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1288 --pr 1294 2>/tmp/acs.err; echo \"acs-rc=$?\"; echo \"---err---\"; cat /tmp/acs.err 2>/dev/null | head -5",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1288 --pr 1294 2>.prflow/tmp/acs.err; echo \"acs-rc=$?\""
+    ],
+    "total": 5,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
