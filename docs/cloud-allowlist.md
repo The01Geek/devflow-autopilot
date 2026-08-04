@@ -438,6 +438,19 @@ existed. It is transcribed here from run
 [`30956039324`](https://github.com/The01Geek/prflow/actions/runs/30956039324). No
 `workflow_dispatch` was involved.
 
+**The trigger mechanism, kept here in full because misreading it is what left this row
+and several others stale.** `matcher-probe.yml` fires on
+`workflow_dispatch` **and** on a same-repo `pull_request` filtered to its own path, and
+**the `paths:` filter does not narrow that to the pushed commit**: on a `pull_request`
+event GitHub evaluates `paths:` against the three-dot base…head diff — the files changed
+in the *whole PR* — so once a PR touches `matcher-probe.yml` at all, **every subsequent
+push re-fires all 12 paid probe jobs**, including the commit that records a verdict. Two
+consequences. A recorded head goes stale the moment another push lands, so a verdict is
+transcribed from a specific run id and head rather than from "the PR". And a PR that
+edits that workflow is expensive by construction — which is why a docs-only change
+recording already-produced verdicts costs nothing and a re-dispatch costs a full probe
+sweep.
+
 The recording requirements this section set for itself are met as follows. **Ref**,
 **run id**, **job id** and **head commit** are in the table below.
 `--permission-mode acceptEdits`, model `claude-haiku-4-5-20251001` and `--effort low`
