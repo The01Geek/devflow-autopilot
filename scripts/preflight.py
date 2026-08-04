@@ -85,6 +85,34 @@ DECLARATIONS = tuple(
 # `## Dependencies` section scan below still catches an in-section `after #N`
 # regardless of position.
 AFTER_DECLARATION = re.compile(rf"^[ \t>*\-]*after\s+{_NUMBER_RUN}", re.IGNORECASE)
+# OUTBOUND direction words (issue #1197). Every keyword above declares an INBOUND
+# relation — the named issue is a prerequisite OF THIS ONE. These declare the exact
+# inverse: THIS issue is the prerequisite of the named one, so the named one is not a
+# blocker and must not be reported as one. They are matched ONLY inside the
+# `## Dependencies` section, where the old scan captured every `#N` with no keyword
+# test at all and so read `Blocks #N` as its own opposite. The out-of-section limb
+# needs no counterpart and gets none: it recognizes an inbound keyword or nothing, so
+# an outbound line there already yields no number — and adding one of these words to
+# DECLARATIONS (the inbound vocabulary) would make that limb wrong in exactly the way
+# the section limb was.
+#
+# The vocabulary is deliberately TIGHT, because a false outbound match DROPS a real
+# blocker (fail-open) while a miss only leaves today's fail-closed behaviour. Every
+# entry is unambiguously outbound in English regardless of surrounding prose, and no
+# entry is a prefix of an inbound one — `blocks`/`blocking` cannot match `blocked by`,
+# and `required by` cannot match `requires`.
+_OUTBOUND_KEYWORDS = (
+    r"blocks",
+    r"blocking",
+    r"unblocks",
+    r"unblocking",
+    r"prerequisite for",
+    r"required by",
+    r"must merge before",
+)
+OUTBOUND_DECLARATION = re.compile(
+    rf"\b(?:{'|'.join(_OUTBOUND_KEYWORDS)})\b", re.IGNORECASE
+)
 # Dependency-flavoured phrasings the fixed vocabulary does NOT recognize. When a
 # `#N` sits next to one of these and no declaration matched the line, emit a
 # stderr breadcrumb so a missed declaration is observable (issue #547 Important
@@ -100,8 +128,29 @@ def _scan_dependencies(body: str, *, section_only: bool) -> list[str]:
     """Shared single-definition scanner for declared dependency numbers.
 
     This is the ONE definition of the declared-dependency vocabulary: the
-    ``## Dependencies`` section boundary (every ``#N`` on a line under that
-    heading, regardless of keyword) and the out-of-section declaration keywords.
+    ``## Dependencies`` section boundary (every ``#N`` on a line under that heading
+    whose direction is not OUTBOUND — see below) and the out-of-section declaration
+    keywords.
+
+    **Direction inside the section is governed at the LINE level** (issue #1197). A
+    section line carrying an OUTBOUND_DECLARATION word declares that THIS issue is the
+    prerequisite of the numbers it names, so that line contributes NO numbers at all —
+    not merely the number run adjacent to the outbound word. Per-number governance was
+    considered and rejected: it lets a mixed line partially contribute (more complex,
+    harder to test, and the same ambiguity that produced the inversion this fixes), and
+    it cannot handle the live case, whose outbound line repeats the same ``#N`` later in
+    its prose, outside any number run. The accepted cost is stated rather than hidden:
+    an INBOUND declaration sharing a line with an outbound word is dropped with the
+    line, so that one shape is fail-open; the ``dependency_numbers`` breadcrumb below
+    makes it observable, and the remedy is to declare each direction on its own line.
+
+    A line carrying NEITHER an inbound nor an outbound word — a bare ``- #N`` bullet,
+    ``Part of #N``, any unrecognised phrasing — keeps its pre-#1197 behaviour and is
+    still returned, because the section heading itself is the author's inbound
+    declaration and the template's sanctioned form lives under it. That is a decided
+    disposition, not a fall-through: the one thing this function must never do is
+    silently INVERT a direction it does not recognise.
+
     Both public entry points route through here — `dependency_section_numbers`
     with ``section_only=True`` (the section limb alone) and `dependency_numbers`
     with ``section_only=False`` (both limbs, plus the SOFT_KEYWORDS observability
@@ -128,7 +177,24 @@ def _scan_dependencies(body: str, *, section_only: bool) -> list[str]:
         if in_dependencies and HEADING.match(line):
             in_dependencies = False
         if in_dependencies:
-            for number in ISSUE_REF.findall(line):
+            numbers = ISSUE_REF.findall(line)
+            if numbers and OUTBOUND_DECLARATION.search(line):
+                # Line-level: the outbound word governs every number on the line.
+                # Breadcrumb only on the stderr-carrying entry point —
+                # `dependency_section_numbers` has a no-stderr contract its caller
+                # (apply-issue-dependencies.py) depends on.
+                if not section_only:
+                    for number in dict.fromkeys(numbers):
+                        print(
+                            f"preflight.py: skipped #{number} under `## Dependencies` — "
+                            f"the line declares an OUTBOUND relation (this issue is the "
+                            f"prerequisite), not a blocker of this one; if #{number} must "
+                            f"land first, restate it on its own line as "
+                            f"`blocked by #{number}`",
+                            file=sys.stderr,
+                        )
+                continue
+            for number in numbers:
                 add(number)
             continue
         if section_only:
@@ -164,6 +230,12 @@ def dependency_section_numbers(body: str) -> list[str]:
     also honours out-of-section declaration keywords because a false positive in
     the reversible implement gate costs only a human override, whereas a
     registered dependency is a persistent relationship. Emits no stderr of its own.
+
+    Direction is honoured here exactly as `_scan_dependencies` describes it (issue
+    #1197), and this is the entry point where it matters most: a persistent
+    ``blocked_by`` write registering the INVERSE of what the author declared is not a
+    stop a human can override away. The no-stderr contract survives that arm — the
+    outbound-skip breadcrumb rides `dependency_numbers` only.
     """
     return _scan_dependencies(body, section_only=True)
 
