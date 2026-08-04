@@ -47346,6 +47346,13 @@ assert_eq "#1124 lint: the RED report names the enrolled call site" "yes" \
 # GREEN fixture: both forms present at every enrolled site → rc=0.
 assert_eq "#1124 lint: a both-forms enrolled site passes (GREEN)" "yes" \
   "$(python3 "$AF_LINT" --root "$AF_FX/green" >/dev/null 2>&1 && echo yes || echo no)"
+# NEITHER fixture: an enrolled site carrying neither form is a stale inventory → fail
+# CLOSED (rc=1, naming the stale site), never a silent pass. Guards the fail-closed arm
+# most likely to regress into a silent skip.
+AF_NEITHER_OUT="$(python3 "$AF_LINT" --root "$AF_FX/neither" 2>&1)"; AF_NEITHER_RC=$?
+assert_eq "#1124 lint: an enrolled site carrying neither form fails closed (stale inventory)" "1" "$AF_NEITHER_RC"
+assert_eq "#1124 lint: the neither-form report names the stale enrolled site" "yes" \
+  "$(case "$AF_NEITHER_OUT" in *"carries NEITHER the anchor nor the vendored-literal"*) echo yes ;; *) echo no ;; esac)"
 
 # ── Public documentation source contract ────────────────────────────────────
 # The public site is source-only: Markdown/MDX plus docs.json. Mintlify reads
