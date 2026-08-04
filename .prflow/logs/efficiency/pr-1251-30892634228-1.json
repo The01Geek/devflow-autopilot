@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1251",
+  "generated_at": "2026-08-04T08:47:46Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.88",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 10.870562499999998,
+    "tokens": {
+      "input_tokens": 69,
+      "output_tokens": 28143,
+      "cache_read_input_tokens": 5768876,
+      "cache_creation_input_tokens": 216700,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 158,
+        "outputTokens": 66067,
+        "cacheReadInputTokens": 8862195,
+        "cacheCreationInputTokens": 635900,
+        "webSearchRequests": 0,
+        "costUSD": 10.870562499999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 43,
+    "duration_ms": 629552
+  },
+  "permission_denials": {
+    "count": 11,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=$GITHUB_RUN_ID ATTEMPT=${GITHUB_RUN_ATTEMPT:-1}\"; git status --porcelain | head; echo \"---BASE---\"; .prflow/vendor/prflow/scripts/config-get.sh .base_branch main 2>&1 | head",
+      "printf 'RUN_ID=%s ATTEMPT=%s\\n' \"$GITHUB_RUN_ID\" \"${GITHUB_RUN_ATTEMPT:-1}\"; git status --porcelain | head",
+      "printf 'run %s attempt %s\\n' \"$GITHUB_RUN_ID\" \"${GITHUB_RUN_ATTEMPT:-1}\"; git status --porcelain | head",
+      "gh pr diff 1251 > .prflow/tmp/review/pr-1251/30892634228-1/raw.patch 2>.prflow/tmp/review/pr-1251/30892634228-1/raw.err; echo \"rc=$?\"; wc -l .prflow/tmp/review/pr-1251/30892634228-1/raw.patch; echo \"--- err ---\"; cat .prflow/tmp/review/pr-1251/30892634228-1/raw.err; echo \"--- files in raw ---\"; grep -cE '^diff --git' .prflow/tmp/review/pr-1251/30892634228-1/raw.patch",
+      "mkdir -p .prflow/tmp\nprintf '' > .prflow/tmp/displaced-paths.txt\nrm -f .prflow/tmp/review-dirty-tree-before .prflow/tmp/review-dirty-tree-disabled 2>/dev/null\ngit status --porcelain -z > .prflow/tmp/review-dirty-tree-before && git hash-object .prflow/tmp/review-dirty-tree-before",
+      "printf '' > .prflow/tmp/displaced-paths.txt; git status --porcelain -z > .prflow/tmp/review-dirty-tree-before; git hash-object .prflow/tmp/review-dirty-tree-before",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review >/tmp/ext_out.txt 2>/tmp/ext_err.txt; echo \"EXIT=$?\"; echo \"---STDOUT---\"; cat /tmp/ext_out.txt; echo \"---STDERR---\"; cat /tmp/ext_err.txt",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review >/tmp/ext_out.txt 2>/tmp/ext_err.txt; echo \"EXIT=$?\"",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review >.prflow/tmp/ext_out.txt 2>.prflow/tmp/ext_err.txt; echo \"EXIT=$?\"",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>/dev/null | tee .prflow/tmp/ext_stdout.txt; echo \"EXIT=${PIPESTATUS[0]}\"",
+      ".prflow/vendor/prflow/scripts/workpad.py patch 5176603217 .prflow/tmp/review/pr-1251/30892634228-1/review-wp.md 2>.prflow/tmp/review/pr-1251/30892634228-1/rv-patch.err; echo \"patch-rc=$?\"; cat .prflow/tmp/review/pr-1251/30892634228-1/rv-patch.err"
+    ],
+    "total": 11,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
