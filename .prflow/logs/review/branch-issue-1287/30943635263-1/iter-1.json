@@ -1,0 +1,66 @@
+{
+  "iter": 1,
+  "loop_role": "fix",
+  "fix_commit_sha": "1755058d",
+  "fix_files": [
+    "lib/test/assertion-floor-retention-check.py",
+    "lib/test/test_assertion_floor_retention.py",
+    "lib/test/test_coverage_map_merge.py"
+  ],
+  "current_step": "loop-exit",
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:pr-test-analyzer",
+    "prflow:comment-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "fail-open: a live module whose head minimum_assertions became non-int/removed dropped out and was treated as retirement, silently stripping floor protection",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "_floors docstring contradicted the code; two stale _merge_base comments after extraction",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "substituted-comparand CLI wiring never exercised end-to-end for this check",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "1755058d"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "1755058d"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "1755058d"
+    }
+  ],
+  "shadow": {
+    "ran_at": "post-fix",
+    "reviewed_sha": "1755058d",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "prflow:silent-failure-hunter"
+    ],
+    "reason": "independent adversarial re-verification of the fail-open fix delta; enumerated every floor-reduction shape, allow-file interaction, empty-base degraded check, and all three _floors call sites — no defect, no regression",
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
