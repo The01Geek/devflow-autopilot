@@ -47249,6 +47249,19 @@ assert_eq "#1072 lint: an HTML comment that is not the marker does not suppress"
 # A clean file with no reference is silent.
 assert_eq "#1072 lint: a file with no reference is clean" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
   "$(sp_run "$SP_SIMPLE" skills/clean.md)"
+
+# ── #1241 citation check: PRFlow-internal issue/PR-number + acceptance-criterion references ──
+# skills/** and agents/** ship verbatim into a consumer, so a `#441`/`issue #441`/`AC5`
+# citation resolves against THIS repo's own tracker and points at nothing in a consumer.
+# The citation scan rides the SAME audited population and the SAME pruned-path-ok marker
+# family as the prune-path scan. Both directions are exercised (AC4): an unmarked citation
+# is reported, a marked one is suppressed; the AC-reference row covers the second shape.
+assert_eq "#1241 lint: an unmarked issue-number citation is reported" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/cite-unmarked.md)" in "rc=1|"*"skills/cite-unmarked.md:1:"*"cites PRFlow-internal '#441'"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1241 lint: a marked citation is not reported" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/cite-marked.md)"
+assert_eq "#1241 lint: an unmarked acceptance-criterion reference is reported" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/cite-ac.md)" in "rc=1|"*"skills/cite-ac.md:1:"*"cites PRFlow-internal 'AC5'"*) echo yes ;; *) echo no ;; esac)"
 # test_marker_in_emitted_fence + fence-state matrix (AC14/AC15). Each row states its own reason.
 while IFS='|' read -r _sp_file _sp_expect _sp_why; do
   [ -n "$_sp_file" ] || continue
