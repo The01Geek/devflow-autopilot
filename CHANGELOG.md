@@ -4,6 +4,18 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.84] — 2026-08-04
+
+### Changed
+Fix: use the verdict marker's `head=` as the reviewed-tree comparand in the stale-REJECT dismisser and the Phase 0.3.6 blocker-recheck fast path
+
+A pull-request review's reviews-API `commit_id` is not stable — GitHub can change it after the review is submitted, to a commit that did not exist at review time (observed on PR #1234). `scripts/dismiss-stale-rejections.sh` now reads the reviewed tree from the producer-emitted `prflow:review-verdict` marker's `head=` when the review carries one, falling back to `commit_id` only for a markerless review, so a genuinely-superseded REJECT whose `commit_id` GitHub advanced to the current head becomes dismissible again (and, inversely, a review whose marker head is the current head is no longer wrongly dismissed). The Phase 0.3.6 blocker-recheck fast path derives `$REJECTED_HEAD` the same way. `scripts/derive-review-verdict.sh` keeps failing closed on a head/`commit_id` disagreement by decision. The surrounding contract statements (docs, script headers, CLAUDE.md) are corrected to describe `commit_id` as mutable rather than authoritative, and the disagreement as ordinary GitHub behavior rather than a producer defect.
+
+## [2.30.83] — 2026-08-04
+
+### Changed
+- **Record a `Verification evidence:` marker on every tier that maintains a workpad, once per whole-suite launch.** The implement/review-and-fix/receiving-code-review prompt extensions now bind the `Verification evidence:` obligation to every tier — cloud `/prflow:implement` included, not only local/interactive — and require one record per whole-suite launch (distinguished by the coordinator's per-launch run root, with no launch counter), so a repeated or failed cloud launch is legible in the repository's own records rather than recoverable only from a run transcript. The shared review-engine advisory now acts on cloud-classified PRs too, and `lib/cheap-gate.jq`'s head comment is reconciled to drop the superseded population-coverage reason. (#1249)
+
 ## [2.30.82] — 2026-08-04
 
 ### Fixed

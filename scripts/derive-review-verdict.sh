@@ -57,8 +57,10 @@
 #   - a marker that does not match the exact literal shape (no `verdict=`, an out-of-enum
 #     token, a marker split across lines) is `unestablished`, never a guess;
 #   - a marker whose `head=` is not the HEAD under consideration is `unestablished` — the
-#     reviews-API `commit_id` stays authoritative for a review, so a disagreement between
-#     the two keys is a reportable producer defect, not a verdict to join on;
+#     marker head and the reviews-API `commit_id` can disagree as ordinary GitHub behavior
+#     (GitHub can change a review's `commit_id` after submission — issue #1247), so this
+#     deriver refuses to join on either key when they disagree and fails closed by decision,
+#     accepting a re-review round each time a branch is updated after review;
 #   - a marker the reviews-API `state` CONTRADICTS (marker REJECT on an APPROVED or
 #     COMMENTED review, marker APPROVE on a CHANGES_REQUESTED one) is `unestablished`.
 # Every one of those emits `incomplete`/`false` with its own breadcrumb.
