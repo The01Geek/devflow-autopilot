@@ -4,6 +4,16 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.80] — 2026-08-04
+
+### Fixed
+- **Phase 3.1 now ensures the feature branch is pushed before `gh pr create`, and the create fence names the cause when it fails.** `gh pr create` only defaults `--head` correctly when the branch is already pushed at the same commit; Phase 3.1 previously assumed this without stating or ensuring it, so an unpushed branch made `gh` refuse and the fence reported every failure as the single word `create: failed`. Phase 3.1 now pushes `HEAD` to an explicitly-named destination (`origin` + the branch's full ref, never a bare `git push`) right before the create, the create fence captures `gh`'s stderr and carries it into the `blocked` note, and the corrected cause is documented (a `gh` refusal that cannot confirm a pushed branch and cannot prompt — not a git-worktree effect, since `refs/remotes/*` is shared). Phase 2.5's commit-push now detects and acts on a failed push, naming the local permission-refusal and cloud `.github/workflows/`-only rejection modes. (#1210)
+
+## [2.30.79] — 2026-08-04
+
+### Fixed
+- **A `/prflow:implement` run no longer wedges when a workpad write fails.** Three changes give the run a defined degradation instead of a dead end. (1) The fix loop's local per-iteration JSON file is now named the *iteration record* in `skills/review-and-fix/SKILL.md`, so the term *workpad* no longer refers both to it and to the GitHub issue comment. (2) The Phase 3.4 acceptance-criteria gate reads through a new degrading `workpad.py acs-gate` subcommand: a workpad read that fails for a reason other than a clean absence is routed to a distinct `workpad-read-failed` label and the criteria are recovered from the issue body via `scripts/parse-acs.py` — never a silent pass — with `unestablished` when the issue body is also unreachable. (3) A workpad change that fails to PATCH is buffered under `.prflow/tmp/` and replayed on the next successful `workpad.py update`, so a dropped note or reflection — inline or read from a `--reflection-file` payload, the shape a stop-path Blocked reflection uses — survives an outage. The replay is idempotent against the live body, against the replaying call's own inline content, and across duplicate buffered records, so it never duplicates content — and "already in the live body" is an exact match against the bullet the workpad renderer writes, so a buffered note or reflection whose text merely occurs inside unrelated content is still replayed rather than dropped. The buffer file is written atomically and a malformed one is reported rather than silently discarded. (#1214)
+
 ## [2.30.78] — 2026-08-04
 
 ### Changed
