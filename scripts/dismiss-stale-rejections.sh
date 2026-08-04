@@ -39,24 +39,37 @@
 # untouched — an automated APPROVE must never silently clear a human's
 # block.
 #
-# Commit scoping (issue #1029) — the second half of "stale". The body marker
-# says WHOSE review it is; it says nothing about whether the review is
-# SUPERSEDED, and this script only ever has licence to clear a superseded one.
-# The reviews API is HEAD-scoped: every review carries the `commit_id` it was
-# recorded against. A CHANGES_REQUESTED review whose `commit_id` equals the
-# PR's CURRENT head is by definition not superseded — dismissing it discards a
-# live merge-blocking finding about the very commit the caller just approved.
-# That is reachable, not theoretical: two review passes 71s apart both judged
-# commit f798f2f6 of PR #999 and disagreed, and the later APPROVE-with-notes
-# was instructed to dismiss the earlier REJECT (it survived only because that
-# REJECT's body matched neither prefix above — a producer accident, not a
-# guard). So every candidate must be shown stale before it is dismissed:
-#   - `commit_id` != current head .. genuinely superseded .. DISMISS
-#   - `commit_id` == current head .. not superseded ......... REFUSE
-#   - `commit_id` absent/empty .... staleness unprovable .... REFUSE
+# Commit scoping (issue #1029, revised by #1247) — the second half of "stale".
+# The body marker says WHOSE review it is; it says nothing about whether the
+# review is SUPERSEDED, and this script only ever has licence to clear a
+# superseded one. Staleness needs the head the review actually reviewed.
+#
+# WHICH KEY records that head (issue #1247). GitHub can change a review's
+# reviews-API `commit_id` AFTER submission, to a commit that did not exist at
+# review time — observed on PR #1234, where the middle review's `commit_id` was
+# advanced to a head committed 35 minutes after the review was submitted. So
+# `commit_id` is NOT a reliable record of the reviewed tree. The verdict marker's
+# `head=` — stamped by scripts/post-review-verdict.sh at review time and never
+# rewritten (issue #1030) — is. So the comparand is the marker `head=` when the
+# review carries one, and `commit_id` only as the fallback for a MARKERLESS
+# review (posted before #1030, or by hand on the local tier), where it is the
+# only key there is. A disagreement between the two keys is ordinary GitHub
+# behavior, not a producer defect.
+#
+# A review whose reviewed-tree comparand equals the PR's CURRENT head is by
+# definition not superseded — dismissing it discards a live merge-blocking
+# finding about the very commit the caller just approved. That is reachable, not
+# theoretical: two review passes 71s apart both judged commit f798f2f6 of PR #999
+# and disagreed. So every candidate must be shown stale before it is dismissed
+# (comparand = marker head when present, else commit_id):
+#   - comparand != current head .. genuinely superseded .. DISMISS
+#   - comparand == current head .. not superseded ......... REFUSE
+#   - no comparand (markerless AND commit_id absent/empty) staleness unprovable REFUSE
 # The absent-comparand arm is the fail-CLOSED direction on purpose: a guard
 # that treats an unreadable comparand as "not equal" fails open exactly where
-# it claims to fail closed.
+# it claims to fail closed. A review carrying a marker head is decided on the
+# marker even when its `commit_id` is absent — the marker is a comparand, so
+# that is not the no-comparand arm.
 #
 # The caller decides WHEN to run this (APPROVE only — never on REJECT, the
 # changes-request must stand). This script does not inspect the verdict.
@@ -112,9 +125,9 @@ REPO="${2:-$("$DEVFLOW_GH" repo view --json nameWithOwner --jq .nameWithOwner)}"
 # recount round-trip is needed, and a list-call failure (exit 1, nothing
 # dismissed) stays distinct from a clean no-op (no matching reviews). The
 # body-marker filter is what scopes this to Devflow's own reviews; each row
-# also carries the review's `commit_id`, the comparand the staleness test
-# below needs (`// ""` so an absent/null one arrives as an empty field rather
-# than aborting the filter).
+# also carries the review's `commit_id` AND its verdict-marker `head=` — the
+# two candidate comparands the staleness test below chooses between (marker
+# head first, `commit_id` fallback — issue #1247).
 # Every row is emitted with an `own`/`other` KIND prefix rather than filtering the
 # unselected ones away, so a CHANGES_REQUESTED review this script declines to touch
 # is COUNTED instead of vanishing. That distinction is the whole point of issue
@@ -124,22 +137,37 @@ REPO="${2:-$("$DEVFLOW_GH" repo view --json nameWithOwner --jq .nameWithOwner)}"
 # The body type is tested BEFORE any string operation and `and` short-circuits, so a
 # non-string `body` (an API shape this script does not produce) grades `other`
 # instead of aborting the whole filter — CLAUDE.md's non-string-field guard.
+# The marker `head=` is captured by a SECOND, separately-guarded capture() over the
+# SAME line-1 string the ownership test() reads (not by extending that test(), which
+# yields a boolean and captures nothing), defaulted with `// "-"` so every row emits
+# exactly one line whatever its body shape — a body that carries no line-1 marker
+# (transitional prose, a human block, an APPROVE marker, a marker quoted below line 1)
+# yields the sentinel. `commit_id` is likewise encoded as the sentinel `-` (never a
+# valid SHA), so no field is ever positional-empty: default-IFS `read` collapses
+# whitespace runs, so an empty field in the MIDDLE of a row would shift the split.
+# Both `while read` loops map the sentinel back to the empty string with a `case`
+# builtin before use.
 if ! ROWS=$("$DEVFLOW_GH" api --paginate "repos/$REPO/pulls/$PR/reviews?per_page=100" \
              --jq 'def prflow_own_reject($b): ($b | type) == "string" and ((($b | split("\n") | (.[0] // "")) | test("^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=REJECT -->$")) or ($b | startswith("## Verdict: REJECT")) or ($b | startswith("# Review Report")));
-                   .[] | select(.state=="CHANGES_REQUESTED") | (prflow_own_reject(.body // "")) as $own | "\(if $own then "own" else "other" end) \(.id) \(.commit_id // "")"'); then
+                   def marker_head($b): ((($b | if type == "string" then . else "" end | split("\n") | (.[0] // "")) | capture("^<!-- prflow:review-verdict head=(?<h>[0-9a-fA-F]{40}) verdict=REJECT -->$") | .h) // "-");
+                   .[] | select(.state=="CHANGES_REQUESTED") | (prflow_own_reject(.body // "")) as $own | "\(if $own then "own" else "other" end) \(.id) \(.commit_id // "-") \(marker_head(.body))"'); then
   echo "WARNING: could not list reviews for PR #$PR — dismiss manually." >&2
   exit 1
 fi
 
 # Split the kind prefix off with `read` + `case` (builtins) so no selection value is
 # routed through a non-preflight PATH tool. CANDIDATES holds only this engine's own
-# rows, in their original order; UNSELECTED counts the rest.
+# rows, in their original order; UNSELECTED counts the rest. Each own row carries
+# three fields — id, the sentinel-encoded commit_id, and the sentinel-encoded marker
+# head — and the sentinels ride through UNCHANGED to CANDIDATES (they are mapped back
+# to the empty string only in the dismissal loop below), so no field is ever
+# positional-empty in this split either.
 CANDIDATES=""
 UNSELECTED=0
-while read -r RKIND RID RCOMMIT; do
+while read -r RKIND RID RCOMMIT RHEAD; do
   [ -n "$RID" ] || continue
   case "$RKIND" in
-    own) CANDIDATES="${CANDIDATES}${RID} ${RCOMMIT}"$'\n' ;;
+    own) CANDIDATES="${CANDIDATES}${RID} ${RCOMMIT} ${RHEAD}"$'\n' ;;
     *)   UNSELECTED=$((UNSELECTED + 1)) ;;
   esac
 done <<< "$ROWS"
@@ -179,26 +207,45 @@ if [ "$UNSELECTED" -gt 0 ]; then
 fi
 # Fields are split by `read` (a builtin) and compared with `[` — CLAUDE.md
 # guard-class 2: a value deciding a SELECTION is never routed through a
-# non-preflight PATH tool such as tr/sed/cut, which would come back empty on a
-# host that lacks it and select the wrong thing.
-while read -r RID RCOMMIT; do
+# non-preflight PATH tool such as tr/sed/cut/wc/head, which would come back empty
+# on a host that lacks it and select the wrong thing.
+#
+# Which tree was reviewed (issue #1247). GitHub can advance a review's `commit_id`
+# after submission to a commit that did not exist at review time, so `commit_id` is
+# NOT a reliable record of the reviewed tree. The verdict marker's `head=` — stamped
+# by scripts/post-review-verdict.sh at review time and never rewritten — is. So the
+# staleness comparand is the marker head when the review carries one, and `commit_id`
+# only as the fallback for a markerless review (posted before #1030, or by hand on
+# the local tier), where it is the only key there is. The sentinels are mapped back
+# to the empty string here with `case` builtins so no empty field was ever positional.
+while read -r RID RCOMMIT RHEAD; do
   [ -n "$RID" ] || continue
-  if [ -z "$RCOMMIT" ]; then
-    echo "WARNING: review $RID on PR #$PR records no commit_id, so it cannot be shown superseded — NOT dismissed. Dismiss it manually if it is stale." >&2
+  case "$RCOMMIT" in -) RCOMMIT="" ;; esac
+  case "$RHEAD" in -) RHEAD="" ;; esac
+  # Select the comparand: marker head first (the reviewed tree), commit_id fallback.
+  if [ -n "$RHEAD" ]; then
+    CMP="$RHEAD"; SRC="verdict-marker head="
+  else
+    CMP="$RCOMMIT"; SRC="reviews-API commit_id="
+  fi
+  if [ -z "$CMP" ]; then
+    echo "WARNING: review $RID on PR #$PR records neither a verdict-marker head nor a commit_id, so it cannot be shown superseded — NOT dismissed. Dismiss it manually if it is stale." >&2
     REFUSED=1
     continue
   fi
-  if [ "$RCOMMIT" = "$HEAD_SHA" ]; then
-    echo "WARNING: review $RID on PR #$PR was recorded against the PR's current head ($RCOMMIT), so it is not superseded — NOT dismissed. Its findings are about the commit being approved; resolve them, or dismiss it manually." >&2
+  if [ "$CMP" = "$HEAD_SHA" ]; then
+    echo "WARNING: review $RID on PR #$PR reviewed the PR's current head ($SRC$CMP), so it is not superseded — NOT dismissed. Its findings are about the commit being approved; resolve them, or dismiss it manually." >&2
     REFUSED=1
     continue
   fi
   # Capture stderr so a real failure cause (404/422/429/5xx) is surfaced
-  # rather than collapsed into a misleading permissions guess.
+  # rather than collapsed into a misleading permissions guess. The message names
+  # the key the decision used AND which field it came from, so a reader can tell a
+  # marker-driven dismissal from a commit_id-driven one.
   if ERR=$("$DEVFLOW_GH" api -X PUT "repos/$REPO/pulls/$PR/reviews/$RID/dismissals" \
-       -f message="Superseded by a later APPROVE verdict from Devflow Review (review $RID was recorded against commit $RCOMMIT, which is no longer this pull request's head $HEAD_SHA)." \
+       -f message="Superseded by a later APPROVE verdict from Devflow Review (review $RID reviewed commit $CMP [$SRC], which is no longer this pull request's head $HEAD_SHA)." \
        -f event=DISMISS 2>&1 >/dev/null); then
-    echo "Dismissed stale CHANGES_REQUESTED review $RID on PR #$PR (recorded against $RCOMMIT; head is now $HEAD_SHA)."
+    echo "Dismissed stale CHANGES_REQUESTED review $RID on PR #$PR (reviewed $CMP [$SRC]; head is now $HEAD_SHA)."
   else
     echo "WARNING: could not dismiss review $RID on PR #$PR — dismiss it manually. (${ERR:-no error output})" >&2
     FAILED=1

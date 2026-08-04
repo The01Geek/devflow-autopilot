@@ -13,11 +13,13 @@
 # nothing else in the system able to clear it. This helper is the net devflow.yml's
 # `command` job runs after the review engine to close that gap.
 #
-# It is a NET, not a replacement: dismiss-stale-rejections.sh is idempotent and
-# HEAD-scoped (a dismissed review becomes state DISMISSED and no longer matches;
-# a review recorded against the CURRENT head is refused, never dismissed), so the
-# agent's Phase 4.4 run and this workflow run never double-dismiss or fight — the
-# second pass over an already-dismissed review is a genuine no-op.
+# It is a NET, not a replacement: dismiss-stale-rejections.sh is idempotent and only
+# ever clears a SUPERSEDED review (a dismissed review becomes state DISMISSED and no
+# longer matches; a review whose reviewed tree is still the current head is refused,
+# never dismissed). It reads the reviewed tree from the verdict marker's `head=` when
+# the review carries one and falls back to `commit_id` only for a markerless review
+# (issue #1247), so the agent's Phase 4.4 run and this workflow run never double-dismiss
+# or fight — the second pass over an already-dismissed review is a genuine no-op.
 #
 # THE GATE (issue #1175, the load-bearing part). The dismissal fires ONLY when the
 # verdict for the reviewed HEAD was POSITIVELY DETERMINED as APPROVE. It reuses the

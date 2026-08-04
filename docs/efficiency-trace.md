@@ -898,9 +898,11 @@ joined fields:
   the **unestablished** tags enumerated below.
 - **`important_finding_count`** — parsed from the run-keyed progress comment joined via
   `review.commit_id` == the comment's `**Reviewed HEAD:**` line (the engine's own join — see
-  `skills/review/SKILL.md`, the normative source). `null` with provenance when no progress comment
-  joins to the review's commit_id (absent or superseded by a later run's comment), its findings
-  section is unparseable, or the comment could not be established.
+  `skills/review/SKILL.md`, the normative source). This is a measurement join, not a reviewed-tree
+  authority: `review.commit_id` is mutable (GitHub can change it after submission — issue #1247), so
+  the reviewed *tree* is identified elsewhere by the verdict marker's `head=`. `null` with provenance
+  when no progress comment joins to the review's commit_id (absent or superseded by a later run's
+  comment), its findings section is unparseable, or the comment could not be established.
 - **`permission_denials_count`** — read from the `Devflow Review` check-run `output[summary]`
   `permission_denials_count:` line (issue #431) for PRs after that change; for historical PRs it falls
   back to best-effort check-run **annotation** retrieval (provenance `check-run-annotation`), whose

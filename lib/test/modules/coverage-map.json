@@ -344,7 +344,7 @@
       "owner": "unmodularized"
     },
     "scripts/dismiss-stale-rejections-net.sh": {
-      "note": "issue #1175: the workflow-side stale-REJECT dismissal net; reuses the HEAD-scoped, fail-closed derive-review-verdict.sh and dispatches dismiss-stale-rejections.sh only on a positively-determined APPROVE, driven per gate arm in the #1175 section of lib/test/modules/review-trigger-helpers.sh",
+      "note": "issue #1175: the workflow-side stale-REJECT dismissal net; reuses the HEAD-scoped, fail-closed derive-review-verdict.sh and dispatches dismiss-stale-rejections.sh (which clears a review only when its reviewed tree — the verdict marker's head= first, commit_id fallback, issue #1247 — is superseded) only on a positively-determined APPROVE, driven per gate arm in the #1175 section of lib/test/modules/review-trigger-helpers.sh",
       "owner": "review-trigger-helpers"
     },
     "scripts/dismiss-stale-rejections.sh": {
@@ -867,7 +867,7 @@
       "owner": "review-trigger-helpers"
     },
     "1175": {
-      "note": "issue #1175: the workflow-side stale-REJECT dismissal net (scripts/dismiss-stale-rejections-net.sh + devflow.yml command-job wiring); reuses the HEAD-scoped, fail-closed derive-review-verdict.sh and dispatches dismiss-stale-rejections.sh only on a positively-determined APPROVE, driven per gate arm in the #1175 section of lib/test/modules/review-trigger-helpers.sh",
+      "note": "issue #1175: the workflow-side stale-REJECT dismissal net (scripts/dismiss-stale-rejections-net.sh + devflow.yml command-job wiring); reuses the HEAD-scoped, fail-closed derive-review-verdict.sh and dispatches dismiss-stale-rejections.sh (which clears a review only when its reviewed tree — the verdict marker's head= first, commit_id fallback, issue #1247 — is superseded) only on a positively-determined APPROVE, driven per gate arm in the #1175 section of lib/test/modules/review-trigger-helpers.sh",
       "owner": "review-trigger-helpers"
     },
     "1177": {
@@ -899,6 +899,14 @@
       "owner": "unmodularized"
     },
     "1222": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1234": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1247": {
       "note": "",
       "owner": "unmodularized"
     },

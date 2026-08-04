@@ -15527,7 +15527,7 @@ assert_eq "#1029 dismisser: a REJECT on the PR's current head is refused, not di
 assert_eq "#1029 dismisser: the refused current-head review gets no dismissals request" \
   "0" "$(dsr_calls 'dismissals')"
 assert_eq "#1029 dismisser: the current-head refusal names the head on stderr" \
-  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c "current head ($DSR_HEAD_SHA)")"
+  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c "current head (reviews-API commit_id=$DSR_HEAD_SHA)")"
 
 # One page carrying every shape at once. The exact dismissed set is the whole
 # claim: the two superseded Devflow reports go, and nothing else does.
@@ -15551,7 +15551,7 @@ assert_eq "#1029 dismisser: mixed page issues exactly two dismissals requests" \
 assert_eq "#1029 dismisser: mixed page exits 3 — something refused, nothing failed" \
   "3" "$DSR_RC"
 assert_eq "#1029 dismisser: an absent commit_id fails closed with an attributable warning" \
-  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c 'review 13 on PR .* records no commit_id')"
+  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c 'review 13 on PR .* records neither a verdict-marker head nor a commit_id')"
 
 dsr_run rev-mixed.json pull-head.json DSR_PUT_RC=1
 assert_eq "#1029 dismisser: a real dismissal failure outranks a refusal in the exit status" \
@@ -15653,6 +15653,60 @@ assert_eq "#1030 dismisser: a marker quoted in prose below line 1 is not selecte
 # review must not make the head read eager.
 assert_eq "#1030 dismisser: an unowned-only page still reads no head" \
   "0" "$(dsr_calls 'read-head')"
+
+# ── #1247: the marker `head=` is the reviewed-tree comparand; commit_id is fallback ──
+# GitHub can advance a review's reviews-API commit_id after submission to a commit that
+# did not exist at review time (observed on PR #1234). So the staleness comparand is the
+# verdict marker's head= when the review carries one, and commit_id only for a markerless
+# review. Each fixture below distinguishes the new marker-first logic from the old
+# commit_id-only logic, and the first three FAIL against pre-#1247 code by exhibiting the
+# wedge (or its inverse). DSR_HEAD_SHA is the current head; DSR_OLD_SHA a superseded tree.
+DSR_MARK_REJECT="<!-- prflow:review-verdict head=$DSR_OLD_SHA verdict=REJECT -->"
+DSR_MARK_REJECT_HEAD="<!-- prflow:review-verdict head=$DSR_HEAD_SHA verdict=REJECT -->"
+# (30) PR #1234 shape: marker head is the SUPERSEDED tree, commit_id was advanced to the
+# current head. Pre-#1247 compares commit_id, finds equality, and REFUSES with the
+# "current head" warning; #1247 compares the marker head (superseded) and DISMISSES.
+cat > "$DSR_SB/rev-marker-mutated.json" <<EOS
+[{"id":30,"state":"CHANGES_REQUESTED","commit_id":"$DSR_HEAD_SHA","body":"$DSR_MARK_REJECT\n## Verdict: REJECT (marker head superseded, commit_id mutated to head)"}]
+EOS
+dsr_run rev-marker-mutated.json pull-head.json
+assert_eq "#1247 dismisser: marker head superseded + commit_id==head → DISMISSED (PR #1234 shape)" \
+  "1-0" "$(dsr_calls 'reviews/30/dismissals')-$DSR_RC"
+# The dismissal's -f message= is recorded in the stub log, so the message naming the
+# key the decision used is an observation. A marker-driven dismissal names the marker head.
+assert_eq "#1247 dismisser: the marker-driven dismissal message names the verdict-marker head key" \
+  "1" "$(grep -c 'verdict-marker head=' "$DSR_SB/log")"
+# (31) inverse: marker head IS the current head, commit_id names a superseded tree.
+# Pre-#1247 compares commit_id, finds inequality, and DISMISSES a review about the tree
+# being merged; #1247 compares the marker head (== head) and REFUSES.
+cat > "$DSR_SB/rev-marker-athead.json" <<EOS
+[{"id":31,"state":"CHANGES_REQUESTED","commit_id":"$DSR_OLD_SHA","body":"$DSR_MARK_REJECT_HEAD\n## Verdict: REJECT (marker head == current head)"}]
+EOS
+dsr_run rev-marker-athead.json pull-head.json
+assert_eq "#1247 dismisser: marker head==head + commit_id superseded → REFUSED (exit 3, no dismissal)" \
+  "0-3" "$(dsr_calls 'reviews/31/dismissals')-$DSR_RC"
+assert_eq "#1247 dismisser: the marker-head refusal names the marker-head key on stderr" \
+  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c "current head (verdict-marker head=$DSR_HEAD_SHA)")"
+# (32) marker head present + commit_id NULL: decided on the marker, dismissed, and NO
+# "records no commit_id" warning. Pre-#1247 refuses with that warning.
+cat > "$DSR_SB/rev-marker-nullcommit.json" <<EOS
+[{"id":32,"state":"CHANGES_REQUESTED","commit_id":null,"body":"$DSR_MARK_REJECT\n## Verdict: REJECT (marker head superseded, no commit_id)"}]
+EOS
+dsr_run rev-marker-nullcommit.json pull-head.json
+assert_eq "#1247 dismisser: marker head + null commit_id → dismissed on the marker (exit 0)" \
+  "1-0" "$(dsr_calls 'reviews/32/dismissals')-$DSR_RC"
+assert_eq "#1247 dismisser: the marker-decided null-commit_id row emits no 'records no commit_id' warning" \
+  "0" "$(printf '%s\n' "$DSR_ERR" | grep -c 'records no commit_id\|records neither')"
+# (33) adversarial: an OWNED transitional-prose REJECT (line 1 == '## Verdict: REJECT')
+# that QUOTES a marker naming the CURRENT head below line 1. The quoted marker must NOT be
+# read as the head — line 1 is not a marker, so the row falls back to commit_id (superseded)
+# and is DISMISSED. Were the quoted head read, commit_id==head would refuse instead.
+cat > "$DSR_SB/rev-marker-quoted-head.json" <<EOS
+[{"id":33,"state":"CHANGES_REQUESTED","commit_id":"$DSR_OLD_SHA","body":"## Verdict: REJECT\n\nThe contract line is:\n\n$DSR_MARK_REJECT_HEAD"}]
+EOS
+dsr_run rev-marker-quoted-head.json pull-head.json
+assert_eq "#1247 dismisser: a marker quoted below line 1 is not read as the head (falls back to commit_id, dismissed)" \
+  "1-0" "$(dsr_calls 'reviews/33/dismissals')-$DSR_RC"
 
 rm -rf "$DSR_SB"
 
