@@ -208,11 +208,18 @@ fi
 # bash `case` (a builtin) — never `tr`/`sed`/`grep`, which are not preflight-
 # guaranteed and would silently empty the decision (CLAUDE.md's non-preflight-tool
 # rule, the same reason the idempotency decision below uses bash builtins only).
+# Capture gh's stderr (mirroring the idempotency read below) so a maintainer
+# investigating a silently-withheld auto-review sees the HTTP cause (403 rate-limit,
+# 404, auth), not just "could not read". mktemp-guarded to /dev/null so the read
+# still runs if scratch allocation fails.
+STATE_ERR="$(mktemp 2>/dev/null || echo /dev/null)"
 if ! PR_STATE="$("$DEVFLOW_GH" api "repos/{owner}/{repo}/pulls/${PR}" \
-      --jq 'if .merged then "merged" else (.state // "") end' 2>/dev/null)"; then
-  _note warning "ci auto-review trigger: could not read PR #$PR state to check whether it is still open; NOT posting (fail-closed — review spend on an already-merged or closed target is unrecoverable, a missed notification is not)."
+      --jq 'if .merged then "merged" else (.state // "") end' 2>"$STATE_ERR")"; then
+  _note warning "ci auto-review trigger: could not read PR #$PR state to check whether it is still open ($(tr '\n' ' ' < "$STATE_ERR")); NOT posting (fail-closed — review spend on an already-merged or closed target is unrecoverable, a missed notification is not)."
+  [ "$STATE_ERR" = /dev/null ] || rm -f "$STATE_ERR"
   exit 0
 fi
+[ "$STATE_ERR" = /dev/null ] || rm -f "$STATE_ERR"
 case "$PR_STATE" in
   open)
     : ;;  # still actionable — fall through to the idempotency read and post

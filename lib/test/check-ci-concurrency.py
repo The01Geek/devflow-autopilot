@@ -9,7 +9,7 @@ neither cancelled nor serialized. This is a `ci.yml`-scheduler behavior that can
 be executed locally, so this is the closest mechanical surface: a static check over
 the workflow file's own concurrency region.
 
-The three properties (AC2):
+The properties (AC2):
   1. a workflow-level `concurrency` key exists (a sibling of name/on/permissions/jobs);
   2. its `group` VARIES WITH THE PULL REQUEST — it references
      `github.event.pull_request.number` (so two runs on one PR branch share a group and

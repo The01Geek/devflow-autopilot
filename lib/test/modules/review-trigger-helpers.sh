@@ -4371,6 +4371,10 @@ case "$*" in
     [ "${PCRT_POST_RC:-0}" = 0 ] || { echo "HTTP 403" >&2; exit 1; }
     printf '{"id":1}\n'; exit 0 ;;
   *"pulls/"*)
+    # Serves the POST-jq state verbatim ($PCRT_PR_STATE), so the helper's own jq
+    # (`if .merged then "merged" else (.state // "") end`) runs server-side on real
+    # gh and is NOT exercised here — the merged-vs-closed disambiguation is a
+    # disclosed, accepted stub boundary; these arms test the case-word routing.
     [ "${PCRT_STATE_RC:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }
     printf '%s' "${PCRT_PR_STATE-open}"; exit 0 ;;
 esac
@@ -4495,6 +4499,46 @@ concurrency:
   cancel-in-progress: true
 jobs: {}
 EOY
+# A group that varies with the PR but carries NO github.run_id fallback: on a main
+# push github.event.pull_request.number is empty, so EVERY main run collapses into
+# one shared group and cancels/serializes — the "Design caution 4" bug. This is the
+# fixture that covers the second sub-check of property 2 (run_id present), which the
+# nonpr-group.yml fixture cannot reach (it fails the first sub-check).
+cat > "$CICC_SB/pr-no-runid.yml" <<'EOY'
+name: CI
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs: {}
+EOY
+# check-ci-concurrency.py is a best-effort parser over a human-mutable YAML file, so
+# the repo's adversarial-shape matrix applies: drive each fail-closed arm.
+cat > "$CICC_SB/scalar-conc.yml" <<'EOY'
+name: CI
+concurrency: enabled
+jobs: {}
+EOY
+cat > "$CICC_SB/no-group.yml" <<'EOY'
+name: CI
+concurrency:
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs: {}
+EOY
+cat > "$CICC_SB/no-cancel.yml" <<'EOY'
+name: CI
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+jobs: {}
+EOY
+: > "$CICC_SB/empty.yml"
+cat > "$CICC_SB/bad-yaml.yml" <<'EOY'
+name: CI
+concurrency: [unbalanced
+EOY
+cat > "$CICC_SB/list-doc.yml" <<'EOY'
+- a
+- b
+EOY
 
 cicc_run --ci-file "$CICC_SB/absent.yml"
 assert_eq "cicc #1236: an ABSENT workflow-level concurrency key fails (this is the pre-change ci.yml shape)" \
@@ -4507,6 +4551,30 @@ assert_eq "cicc #1236: a cancel-in-progress that would resolve true for a main p
   "fail|1" "$CICC_VERDICT|$CICC_RC"
 cicc_run --ci-file "$CICC_SB/does-not-exist.yml"
 assert_eq "cicc #1236: an unreadable workflow file fails CLOSED as unavailable, never a silent pass" \
+  "unavailable|3" "$CICC_VERDICT|$CICC_RC"
+# Property 2, second sub-check: a PR-varying group with no run_id fallback fails,
+# so a main push cannot collapse every run into one cancelled group (Design caution 4).
+cicc_run --ci-file "$CICC_SB/pr-no-runid.yml"
+assert_eq "cicc #1236: a PR-varying group with NO github.run_id fallback fails (main runs would collapse into one group)" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+# Adversarial-shape matrix over the parser's fail-closed arms.
+cicc_run --ci-file "$CICC_SB/scalar-conc.yml"
+assert_eq "cicc #1236: a scalar (non-mapping) concurrency fails" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/no-group.yml"
+assert_eq "cicc #1236: a concurrency mapping with no group fails" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/no-cancel.yml"
+assert_eq "cicc #1236: a concurrency mapping with no cancel-in-progress fails" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/empty.yml"
+assert_eq "cicc #1236: an empty workflow file fails CLOSED as unavailable" \
+  "unavailable|3" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/bad-yaml.yml"
+assert_eq "cicc #1236: an unparseable workflow file fails CLOSED as unavailable" \
+  "unavailable|3" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/list-doc.yml"
+assert_eq "cicc #1236: a non-mapping (list) document fails CLOSED as unavailable" \
   "unavailable|3" "$CICC_VERDICT|$CICC_RC"
 rm -rf "$CICC_SB"
 
