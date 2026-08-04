@@ -12,7 +12,11 @@ record then falsely stated it "left the reviews API and `reviewDecision` untouch
 
 - New `scripts/classify-head-reviews.sh`: a closed-vocabulary classifier
   (`none | marked | unmarked <id>… | unestablished <reason>`, always exit 0) over the
-  reviews recorded on the reviewed head, scoped to the run's own reviewer identity.
+  reviews recorded on the reviewed head, scoped to the run's own reviewer identity. It
+  places each review by the issue-#1247 precedence — the verdict marker's `head=` is
+  authoritative and the reviews-API `commit_id` is only a fallback — so a markerless own
+  review it cannot place off the head grades `review-placement-unprovable` instead of
+  reaching `none`, the one arm that reports the reviews API as untouched.
 - The `devflow.yml` reach-record step now queries the reviews API, classifies them, and
   passes the token to `scripts/describe-verdict-post-gap.sh`, which stops asserting the
   API was untouched when it was not, names the offending review on the unmarked arm, and

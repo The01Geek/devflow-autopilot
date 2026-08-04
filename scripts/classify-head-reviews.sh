@@ -20,9 +20,11 @@
 #
 # CONTRACT — exactly one stdout line, always exit 0:
 #
-#   none                    no review authored by REVIEWER_LOGIN is recorded against
-#                           HEAD_SHA (an empty list, a review by another login, or a
-#                           review on a different commit all resolve here)
+#   none                    no own-identity review is recorded against HEAD_SHA, AND every
+#                           own-identity review that exists was POSITIVELY placed on some
+#                           other tree (an empty list, a review by another login, or an
+#                           own review whose verdict marker names a different head all
+#                           resolve here)
 #   marked                  every own-identity review on the head carries the producer
 #                           marker on its FIRST line
 #   unmarked <id> [<id>…]   at least one own-identity review on the head carries no
@@ -31,11 +33,39 @@
 #   unestablished <reason>  the question could not be settled; <reason> is one closed
 #                           token from the list below
 #
+# WHICH KEY PLACES A REVIEW ON THE HEAD (issue #1247, the precedence PR #1255 established
+# for dismiss-stale-rejections.sh). GitHub can change a review's reviews-API `commit_id`
+# AFTER submission — observed on pull request #1234, where a review's `commit_id` was
+# advanced to a head committed 35 minutes later — so `commit_id` is NOT an authoritative
+# record of the reviewed tree. The verdict marker's `head=`, stamped by
+# scripts/post-review-verdict.sh at review time and never rewritten (issue #1030), IS. So
+# each own-identity review is placed by:
+#
+#   marker head present .. AUTHORITATIVE. Equal to HEAD_SHA -> on the head (and `marked`,
+#                          since the line-1 marker is exactly what makes it marked);
+#                          different -> positively OFF the head.
+#   marker absent ........ `commit_id` is the only key there is, and it is NOT
+#                          authoritative. Equal to HEAD_SHA -> on the head (and `unmarked`,
+#                          the bypass shape). Different, or absent -> the review CANNOT be
+#                          positively placed off the head, so it is INDETERMINATE.
+#
+# `none` is the ONE arm the caller renders as "this run left the reviews API and
+# `reviewDecision` untouched", so it is the one arm an indeterminate review must block: a
+# run that posted an unmarked bypass review and then saw the head advance before this
+# classification leaves exactly that shape behind, and grading it `none` would re-emit the
+# categorical false statement issue #1250 exists to remove. It grades
+# `unestablished review-placement-unprovable` instead — CLAUDE.md's "unknown is not zero".
+# DISCLOSED RESIDUAL: an indeterminate review does NOT displace `unmarked` or `marked`,
+# which assert that something EXISTS rather than that nothing does and so cannot be
+# falsified by a review this helper could not place. On those two arms an unplaceable
+# own-identity review goes unmentioned.
+#
 # Always exit 0 because the only caller is an `always()` post-run workflow step that
 # must never change its job's pass and never change its fail.
 #
 # UNKNOWN IS NOT ZERO. A payload that cannot be parsed, a head SHA that is absent, a
-# reviewer login that is absent, or an own-identity review whose `body` is not a string
+# reviewer login that is absent, an own-identity review whose `body` is not a string, or an
+# own-identity review this helper cannot positively place off the head
 # are each UNESTABLISHED — never `none`. Collapsing any of them onto `none` would let
 # the reach record assert "the reviews API is untouched" about a run it never actually
 # measured, which is CLAUDE.md's "unknown is not zero" rule (the named prior instance is
@@ -51,7 +81,12 @@
 #   payload-unreadable       the payload path is not a readable file
 #   payload-unparseable      the payload is not valid JSON
 #   payload-not-an-array     the payload parsed but its top level is not an array
-#   body-not-a-string        an own-identity review on the head has a non-string body
+#   body-not-a-string        an own-identity review has a non-string body (every own review
+#                            is body-read to place it, so this is not head-scoped)
+#   review-placement-unprovable
+#                            no own-identity review is placed on the head, but at least one
+#                            markerless own-identity review could not be placed OFF it
+#                            either (its only key is the non-authoritative `commit_id`)
 #   classify-failed          the classifier produced no line at all
 #
 # The reasons are CLOSED TOKENS and never quote the payload's bytes. The caller renders
@@ -112,31 +147,60 @@ fi
 #     `ERR <reason>` token that bash maps to a closed UNESTABLISHED reason. A jq parse
 #     failure (invalid JSON) exits non-zero and is caught below as payload-unparseable.
 #     `.user.login`/`.commit_id`/`.body` are indexed defensively: a missing object
-#     yields null (jq does not error), and select() drops a review whose login or commit
-#     does not match. The body-type check runs BEFORE any string op and short-circuits,
-#     so a non-string body grades ERR rather than aborting the whole filter.
+#     yields null (jq does not error), and select() drops a review by another login. The
+#     body-type check runs BEFORE any string op and short-circuits, so a non-string body
+#     grades ERR rather than aborting the whole filter.
+#
+#     Both candidate comparands are ascii_downcase-d against a downcased HEAD_SHA so a
+#     hand-authored uppercase marker head compares byte-exact against the lowercase SHA the
+#     API returns — normalized IN jq, never with a bash-4 `${var,,}` (macOS ships bash 3.2)
+#     and never with `tr`, which lib/preflight.sh does not guarantee and whose absence would
+#     empty the value and select the wrong arm.
 _CHR_PROG='
-  def marker_line1:
+  # The line-1 producer marker'"'"'s own head=, ascii_downcase-d — or "" when line 1 carries
+  # no well-formed marker. Readers scan line 1 ONLY, so a marker a finding quotes deeper in
+  # the body is prose and yields "". The shape test runs first and capture() re-reads the
+  # same line, so no head value ever enters a regex as data.
+  def marker_head:
     (.body | split("\n") | (.[0] // "")) as $l1
-    # The shape test validates the full marker format; the startswith BINDS the marker'"'"'s
-    # own head= field to the reviewed head. Otherwise a review recorded against the head but
-    # carrying a marker for a DIFFERENT head would read as `marked` here while the
-    # verdict-derivation consumers — which require the marker head to match — ignore it, so
-    # the reach record would report a recorded verdict for a review nothing reads (a residual
-    # of the very bypass this classifier flags). startswith is a literal string match, so the
-    # head value never enters a regex.
-    | ($l1 | test("^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=(APPROVE|REJECT) -->"))
-      and ($l1 | startswith("<!-- prflow:review-verdict head=" + $head + " verdict="));
+    | if ($l1 | test("^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=(APPROVE|REJECT) -->"))
+      then ($l1 | capture("^<!-- prflow:review-verdict head=(?<h>[0-9a-fA-F]{40}) verdict=(APPROVE|REJECT) -->") | .h | ascii_downcase)
+      else "" end;
+  # `commit_id` as a lowercase string, or "" for null/absent/non-string. Type-checked before
+  # ascii_downcase so a shape this helper does not produce cannot abort the whole filter.
+  def commit_key:
+    (.commit_id // "") as $c
+    | if ($c | type) == "string" then ($c | ascii_downcase) else "" end;
   if (type != "array") then "ERR payload-not-an-array"
   else
-    [ .[] | select((.commit_id == $head) and (.user.login == $login)) ] as $own
+    ($head | ascii_downcase) as $h
+    # Scoped by LOGIN only. Scoping by commit here was the defect: a review the head
+    # advanced past — or whose commit_id GitHub rewrote (issue #1247) — vanished from the
+    # set entirely and the empty set graded `none`, re-emitting the categorical "left the
+    # reviews API untouched" for a run that had posted an unmarked bypass review.
+    | [ .[] | select(.user.login == $login) ] as $own
     | if ($own | length) == 0 then "none"
       elif ($own | map(.body | type) | any(. != "string")) then "ERR body-not-a-string"
       else
-        [ $own[] | select(marker_line1 | not) | .id ] as $unmarked
+        # Place every own review: marker head first (authoritative), commit_id fallback
+        # (not authoritative, so it can place a review ON the head but never OFF it).
+        [ $own[]
+          | . as $r
+          | marker_head as $mh
+          | commit_key as $cid
+          | if $mh != "" then (if $mh == $h then {p:"on", marked:true, id:$r.id} else {p:"off"} end)
+            elif $cid != "" and $cid == $h then {p:"on", marked:false, id:$r.id}
+            else {p:"indeterminate"} end
+        ] as $placed
+        | [ $placed[] | select(.p == "on" and .marked == false) | .id ] as $unmarked
         | if ($unmarked | length) > 0
           then "unmarked " + ($unmarked | sort | map(tostring) | join(" "))
-          else "marked"
+          elif ([ $placed[] | select(.p == "on") ] | length) > 0 then "marked"
+          # Only `none` asserts that the API was untouched, so only `none` is blocked by a
+          # review that could not be positively placed off the head.
+          elif ([ $placed[] | select(.p == "indeterminate") ] | length) > 0
+          then "ERR review-placement-unprovable"
+          else "none"
           end
       end
   end

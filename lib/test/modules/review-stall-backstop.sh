@@ -1872,9 +1872,23 @@ assert_eq "#1250 classify arm d: a marker on line 2 is unmarked, not marked (lin
 # arm e — unmarked review by a login that is NOT the run's reviewer -> none
 assert_eq "#1250 classify arm e: an unmarked review by another login is none" \
   "none" "$(v1156_cls "$(v1156_cls_one 9 "$V1156_CSHA" "someone-else" '"no marker"')")"
-# arm f — own unmarked review whose commit_id is NOT the head -> none
-assert_eq "#1250 classify arm f: an own unmarked review on a different commit is none" \
-  "none" "$(v1156_cls "$(v1156_cls_one 9 "$V1156_COTHER" "$V1156_CLOGIN" '"no marker"')")"
+# arm f — own MARKERLESS review whose commit_id is NOT the head. `commit_id` is the only
+# key such a review carries and issue #1247 ruled it non-authoritative (GitHub rewrites it
+# after submission), so this review cannot be positively placed OFF the head — and `none`
+# is the one arm the renderer turns into "left the reviews API untouched". It is therefore
+# UNESTABLISHED, never `none`: a run that posted an unmarked bypass review and then saw the
+# head advance before this classification leaves exactly this shape behind.
+assert_eq "#1250 classify arm f: an own unmarked review this helper cannot place off the head is unestablished, never none" \
+  "unestablished review-placement-unprovable" "$(v1156_cls "$(v1156_cls_one 9 "$V1156_COTHER" "$V1156_CLOGIN" '"no marker"')")"
+# The same shape with NO usable commit_id at all — JSON null, the key absent, or a
+# non-string the API does not produce — is the same answer, and none of the three may abort
+# the filter: an absent comparand never reads as "off the head".
+printf '[{"id":9,"commit_id":null,"user":{"login":"%s"},"body":"no marker"}]' "$V1156_CLOGIN" > "$V1156_CLSD/cid-null.json"
+printf '[{"id":9,"user":{"login":"%s"},"body":"no marker"}]' "$V1156_CLOGIN" > "$V1156_CLSD/cid-absent.json"
+printf '[{"id":9,"commit_id":17,"user":{"login":"%s"},"body":"no marker"}]' "$V1156_CLOGIN" > "$V1156_CLSD/cid-number.json"
+assert_eq "#1250 classify arm f: a markerless own review with no usable commit_id (null/absent/non-string) is unestablished, never none" \
+  "unestablished review-placement-unprovable|unestablished review-placement-unprovable|unestablished review-placement-unprovable" \
+  "$(v1156_cls "$V1156_CLSD/cid-null.json")|$(v1156_cls "$V1156_CLSD/cid-absent.json")|$(v1156_cls "$V1156_CLSD/cid-number.json")"
 # arm g — unparseable payload -> unestablished <reason>
 printf 'not json{' > "$V1156_CLSD/bad.json"
 assert_eq "#1250 classify arm g: an unparseable payload is unestablished payload-unparseable" \
@@ -1888,6 +1902,12 @@ assert_eq "#1250 classify arm i: a non-string body is unestablished/none, never 
   "yes" "$(case "$V1156_CI" in 'unestablished '*|none) echo yes;; *) echo no;; esac)"
 assert_eq "#1250 classify arm i: a non-string body specifically reports body-not-a-string" \
   "unestablished body-not-a-string" "$V1156_CI"
+# The body-type guard covers EVERY own-identity review, not only the ones already known to
+# be on the head: since #1247 the body is what PLACES a review (its line-1 marker), so a
+# non-string body anywhere in the own set leaves the placement unreadable and must not be
+# passed over as "not on the head, so it does not matter".
+assert_eq "#1250 classify arm i: a non-string body on an OFF-head own review is still body-not-a-string" \
+  "unestablished body-not-a-string" "$(v1156_cls "$(v1156_cls_one 9 "$V1156_COTHER" "$V1156_CLOGIN" '123')")"
 # arm j — two unmarked own reviews -> both ids on the one line (sorted ascending)
 printf '[{"id":20,"commit_id":"%s","user":{"login":"%s"},"body":"a"},{"id":10,"commit_id":"%s","user":{"login":"%s"},"body":"b"}]' \
   "$V1156_CSHA" "$V1156_CLOGIN" "$V1156_CSHA" "$V1156_CLOGIN" > "$V1156_CLSD/two.json"
@@ -1937,11 +1957,42 @@ assert_eq "#1250 classify: an APPROVE-verdict line-1 marker is marked, exercisin
 # The stdin ('-') payload source is a distinct jq invocation; drive it once end to end.
 assert_eq "#1250 classify: the stdin ('-') payload source classifies identically to a file" \
   "none" "$(printf '[]' | bash "$V1156_CLS" - "$V1156_CSHA" "$V1156_CLOGIN" 2>/dev/null)"
-# The marker's own head= must equal the reviewed head to read as `marked`: a review recorded
-# ON the head but whose line-1 marker names a DIFFERENT head is `unmarked` (the consumers,
-# which bind marker-head to reviewed-head, do not read it as a verdict either).
-assert_eq "#1250 classify: a marker naming a DIFFERENT head is unmarked, not marked (marker head is bound to the reviewed head)" \
-  "unmarked 44" "$(v1156_cls "$(v1156_cls_one 44 "$V1156_CSHA" "$V1156_CLOGIN" "\"<!-- prflow:review-verdict head=$V1156_COTHER verdict=REJECT -->\\nbody\"")")"
+# ── issue #1247 precedence, the same one PR #1255 gave dismiss-stale-rejections.sh: the
+# verdict marker's `head=` is the AUTHORITATIVE record of the reviewed tree and the
+# reviews-API `commit_id` is not (GitHub rewrites it after submission — observed on pull
+# request #1234). So the marker decides placement whenever a review carries one, in BOTH
+# directions, and `commit_id` is consulted only for a markerless review.
+#
+# Direction 1 — the marker places a review ON the head that `commit_id` has moved off.
+# This is the shape the finding names: before the precedence the review vanished from the
+# scoped set and the empty set graded `none`, so the renderer asserted the reviews API was
+# untouched about a head it had a recorded verdict for.
+assert_eq "#1250 classify #1247: a marked review whose commit_id no longer names the head is placed by its MARKER, not by commit_id" \
+  "marked" "$(v1156_cls "$(v1156_cls_one 45 "$V1156_COTHER" "$V1156_CLOGIN" "\"<!-- prflow:review-verdict head=$V1156_CSHA verdict=APPROVE -->\\nok\"")")"
+# Direction 2 — the marker places a review OFF the head that `commit_id` claims is on it.
+# A review whose line-1 marker names another tree reviewed that tree, so it is positively
+# off this head and `none` stays reachable: this is what keeps the marker-first precedence
+# from collapsing `none` into a state nothing can reach.
+assert_eq "#1250 classify #1247: a marker naming a DIFFERENT head places the review OFF this head, so none stays reachable" \
+  "none" "$(v1156_cls "$(v1156_cls_one 44 "$V1156_CSHA" "$V1156_CLOGIN" "\"<!-- prflow:review-verdict head=$V1156_COTHER verdict=REJECT -->\\nbody\"")")"
+# The marker head is compared case-insensitively, so a hand-authored uppercase marker head
+# still places its review — normalized in jq, never through a non-preflight `tr` or a
+# bash-4 `${var,,}`. The head ARGUMENT is normalized the same way, from either side.
+assert_eq "#1250 classify #1247: marker-head placement is case-insensitive from both sides" \
+  "marked" "$(bash "$V1156_CLS" "$(v1156_cls_one 46 "$V1156_CSHA" "$V1156_CLOGIN" "\"<!-- prflow:review-verdict head=ABCDEF3333333333333333333333333333333333 verdict=REJECT -->\\nx\"")" \
+     abcdef3333333333333333333333333333333333 "$V1156_CLOGIN" 2>/dev/null)"
+# PRECEDENCE. An unplaceable review blocks ONLY `none` — the one arm the renderer turns
+# into "left the reviews API untouched". It never displaces `unmarked` or `marked`, which
+# assert that something EXISTS and so cannot be falsified by a review that could not be
+# placed. Both rows share the same unplaceable second review, so a change that hoisted the
+# indeterminate arm would flip them while arm f stayed green.
+printf '[{"id":60,"commit_id":"%s","user":{"login":"%s"},"body":"<!-- prflow:review-verdict head=%s verdict=APPROVE -->\\nm"},{"id":61,"commit_id":"%s","user":{"login":"%s"},"body":"no marker"}]' \
+  "$V1156_CSHA" "$V1156_CLOGIN" "$V1156_CSHA" "$V1156_COTHER" "$V1156_CLOGIN" > "$V1156_CLSD/marked-plus-unplaceable.json"
+printf '[{"id":62,"commit_id":"%s","user":{"login":"%s"},"body":"no marker"},{"id":61,"commit_id":"%s","user":{"login":"%s"},"body":"no marker"}]' \
+  "$V1156_CSHA" "$V1156_CLOGIN" "$V1156_COTHER" "$V1156_CLOGIN" > "$V1156_CLSD/unmarked-plus-unplaceable.json"
+assert_eq "#1250 classify: an unplaceable review blocks none but never displaces marked or unmarked" \
+  "marked|unmarked 62" \
+  "$(v1156_cls "$V1156_CLSD/marked-plus-unplaceable.json")|$(v1156_cls "$V1156_CLSD/unmarked-plus-unplaceable.json")"
 rm -rf "$V1156_CLSD"
 
 # ── AC6-AC10: the arm-dispatch helper. It selects the arm and composes every byte the
@@ -2087,6 +2138,21 @@ assert_eq "#1156 gap #1250: the unestablished class asserts neither 'untouched' 
   "no-no" "$V1156_A-$V1156_B"
 assert_eq "#1156 gap #1250: the unestablished class carries its closed reason token" \
   "yes" "$(v1156_has "$V1156_BODY" 'be established (body-not-a-string)')"
+# The classifier's #1247 placement reason travels the SAME path end to end: the token the
+# classifier really emits for an unplaceable review is fed to the renderer, which must
+# accept it as a closed token (assert nothing either way, carry the reason) rather than
+# drop it as unrecognized. This is the coupled contract between the two helpers'
+# vocabularies — a new reason token the renderer's validator rejected would degrade to the
+# unreasoned paragraph while both helpers' own tests stayed green.
+V1156_UNPL="$(mktemp -d)"
+printf '[{"id":9,"commit_id":"4444444444444444444444444444444444444444","user":{"login":"r[bot]"},"body":"no marker"}]' > "$V1156_UNPL/p.json"
+V1156_A="$(bash "$V1156_CLS" "$V1156_UNPL/p.json" 3333333333333333333333333333333333333333 'r[bot]' 2>/dev/null)"
+bash "$V1156_GAP" "NOT-REACHED" "$V1156_GRUN" 1150 "$V1156_GSHA" "$V1156_WARN" "$V1156_BODY" "$V1156_A" >/dev/null 2>&1
+V1156_B="$(v1156_has "$V1156_BODY" 'be established (review-placement-unprovable)')"
+assert_eq "#1250 end to end: an unplaceable own review reaches the renderer as a closed reason and asserts nothing about the API" \
+  "unestablished review-placement-unprovable-yes-no" \
+  "$V1156_A-$V1156_B-$(v1156_has "$V1156_BODY" 'left the reviews API and `reviewDecision` untouched')"
+rm -rf "$V1156_UNPL"
 # A reason outside the closed lowercase-token shape is dropped, never quoted into the body.
 bash "$V1156_GAP" "NOT-REACHED" "$V1156_GRUN" 1150 "$V1156_GSHA" "$V1156_WARN" "$V1156_BODY" 'unestablished $(id)' >/dev/null 2>&1
 assert_eq "#1156 gap #1250: an unsafe unestablished reason is never quoted into the body" "0" \
@@ -2227,6 +2293,14 @@ assert_eq "#1250 workflow: the step invokes the classifier at the vendored path 
   "True" "$(v1156_step '".prflow/vendor/prflow/scripts/classify-head-reviews.sh" in step["run"] and "CLS=scripts/classify-head-reviews.sh" in step["run"]')"
 assert_eq "#1250 workflow: the step queries the reviews recorded on the head" \
   "True" "$(v1156_step '"pulls/$PR_NUMBER/reviews" in step["run"]')"
+# --paginate is load-bearing, not cosmetic: without it the query returns only the first
+# page, so a bypass review sitting past it is absent from the payload, the classifier reads
+# an own set that does not contain it, and the renderer reaches the ONE arm licensed to
+# assert the reviews API was untouched — the exact false statement #1250 exists to remove.
+# Dropping the flag changes no helper and breaks no other assertion, so it is pinned here on
+# the reviews query itself, together with the explicit page size it pages over.
+assert_eq "#1250 workflow: the reviews query is paginated, so a bypass review past the first page is still seen" \
+  "True" "$(v1156_step '"gh api --paginate \"repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100\"" in step["run"]')"
 assert_eq "#1250 workflow: the step resolves the run's reviewer login and passes it to the classifier" \
   "True" "$(v1156_step '"REVIEWER_LOGIN" in step["env"] and "$REVIEWER_LOGIN" in step["run"]')"
 assert_eq "#1250 workflow: the reviewer login is the DevFlow-Reviewer bot when minted, github-actions[bot] otherwise" \
