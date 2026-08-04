@@ -1331,6 +1331,23 @@ def _render_deferred_filed(normalized_text: str) -> str:
     return f'<!-- prflow:deferred-filed text={_b64(normalized_text)} -->'
 
 
+def _single_section_content(
+    sections: list[tuple[str, str]], name: str
+) -> str | None:
+    """The content of the ONE section headed `## {name}`, or None when the body
+    presents zero or more than one of it.
+
+    The exactly-one rule is the load-bearing half: `_find_section` answers with
+    the FIRST match, so a duplicated section would otherwise read as a clean
+    single one and a reader built on it would silently speak for only half the
+    body. The heading compare matches `_find_section`'s — case-insensitive over
+    the whitespace-stripped heading line.
+    """
+    target = f'## {name}'.lower()
+    hits = [c for h, c in sections if h.strip().lower() == target]
+    return hits[0] if len(hits) == 1 else None
+
+
 def _progress_content_or_none(body: str) -> str | None:
     """The single canonical `## Progress` section's content, or None.
 
@@ -1342,15 +1359,7 @@ def _progress_content_or_none(body: str) -> str | None:
     stranding failure the three-state contract exists to avoid.
     """
     _, sections = _split_sections(body)
-    idx = _find_section(sections, 'Progress')
-    if idx is None:
-        return None
-    # `_find_section` answers with the FIRST match, so a duplicated section would
-    # otherwise read as a clean single one and this reader would silently speak
-    # for only half the body.
-    if sum(1 for h, _ in sections if h.strip().lower() == '## progress') != 1:
-        return None
-    return sections[idx][1]
+    return _single_section_content(sections, 'Progress')
 
 
 def _isolated_progress_markers(content: str, pattern: 're.Pattern[str]'):
@@ -2454,10 +2463,11 @@ def _report_failed_ticks(failed_ticks, preamble):
 # local storage under the gitignored `.prflow/tmp/`, and the next successful
 # `update` — which includes every terminal-status transition, since that is
 # itself an `update` — REPLAYS the buffered content idempotently: a buffered
-# bullet whose text is already present in the live body is skipped, so a replay
-# never duplicates content (AC9). Status and tick mutations are deliberately NOT
-# buffered — they are transient state a later call re-establishes, whereas a
-# dropped note/reflection is a permanent hole in the run's record.
+# item already RENDERED as its own bullet in the live body is skipped, so a
+# replay never duplicates content (AC9). Status and tick mutations are
+# deliberately NOT buffered — they are transient state a later call
+# re-establishes, whereas a dropped note/reflection is a permanent hole in the
+# run's record.
 
 _WORKPAD_BUFFER_DIRNAME = 'workpad-buffer'
 
@@ -2546,6 +2556,78 @@ def _buffer_failed_change(comment_id, notes, reflections, kind) -> "Path | None"
     return path
 
 
+# ── Replay identity: "already applied" is an EXACT rendered-bullet match ────
+#
+# A buffered item counts as already applied only when the live body carries the
+# bullet the RENDERER would have produced for it — never when its text merely
+# occurs somewhere in the body. The distinction is the whole safety property of
+# this feature: `fully_replayed` authorizes `_clear_workpad_buffer`, so a
+# false positive here does not merely skip an append, it DESTROYS the only
+# surviving copy of the item. A containment test (`text in body`) false-positives
+# on any item whose text is a substring of unrelated content — a terse Blocked
+# reflection, a status word, an error code, an AC-label fragment, or the same
+# text embedded inside a longer note — which is silent loss of the operator's
+# record inside the feature built to prevent exactly that.
+#
+# Both predicates below are therefore whole-LINE equality against the shapes the
+# two append helpers emit, scoped to the one section each writes into:
+#
+#   * a note      — `_append_progress_note` writes `{indent}- HH:MM:SS — {note}`
+#     into `## Progress`; the note text is the ENTIRE remainder of the line, so
+#     comparing that captured remainder for equality (plus, for a multi-line
+#     note, its continuation lines) cannot be satisfied by a line that merely
+#     contains the text.
+#   * a reflection — `_insert_reflection_bullet` writes `- {glyph} {label}{text}`
+#     into `## Devflow Reflection`, with the text collapsed to one line; the
+#     candidate set is built from `_REFLECTION_KINDS` itself, so it is exactly
+#     the finite set of renderings that text could have, and a whole-line
+#     equality against it cannot be satisfied by containment either.
+#
+# Both fail toward re-appending: an unresolvable section, a legacy un-kinded
+# bullet, or any shape the renderer does not emit reads as NOT-applied, which
+# risks a duplicate bullet and never a dropped record. That direction is chosen
+# deliberately — a visible duplicate is recoverable, a silent deletion is not.
+
+
+def _note_already_rendered(progress_content: "str | None", note: str) -> bool:
+    """True when `note` is already present in the resolved `## Progress` content
+    as a rendered note bullet — `_PROGRESS_BULLET_RE`'s captured text equal to
+    the whole note, with a multi-line note's continuation lines matching verbatim
+    on the lines that follow. None content (section absent or duplicated) reads
+    as not-present."""
+    if progress_content is None:
+        return False
+    want = note.split('\n')
+    lines = progress_content.split('\n')
+    for i, line in enumerate(lines):
+        m = _PROGRESS_BULLET_RE.match(line)
+        if m is None or m.group(1) != want[0]:
+            continue
+        if lines[i + 1:i + len(want)] == want[1:]:
+            return True
+    return False
+
+
+def _reflection_already_rendered(
+    reflection_content: "str | None", text: str
+) -> bool:
+    """True when `text` is already present in the resolved `## Devflow Reflection`
+    content as a bullet `_insert_reflection_bullet` could have written for it.
+
+    The comparison is whole-line equality against the candidate renderings for
+    every kind, because a replayed reflection is filed under the REPLAYING call's
+    kind rather than its own — so the glyph/label the original write used is not
+    knowable here and all of them must count as the same item."""
+    if reflection_content is None:
+        return False
+    one_line = ' '.join(text.splitlines())
+    candidates = {
+        f'- {glyph} ' + (f'**{label}:** ' if label else '') + one_line
+        for glyph, label, _ in _REFLECTION_KINDS.values()
+    }
+    return any(ln.strip() in candidates for ln in reflection_content.split('\n'))
+
+
 def _plan_buffer_replay(comment_id, body, args,
                         pending_notes=None, pending_reflections=None) -> bool:
     """Fold any buffered failed-write content for this comment into `args` so it
@@ -2553,8 +2635,11 @@ def _plan_buffer_replay(comment_id, body, args,
 
     Idempotency has THREE sources, not one, and all three are needed for the
     "a replay never duplicates content" guarantee to hold. A buffered item is
-    skipped when its text is (a) already present in the live `body`, (b) already
-    carried inline by THIS call (`pending_notes`/`pending_reflections` — the shape a
+    skipped when its text is (a) already RENDERED as its own bullet in the live
+    `body`'s target section — an exact whole-line identity, never a containment
+    test over the body; see the block comment above for why that distinction is
+    the difference between skipping an append and destroying the record —
+    (b) already carried inline by THIS call (`pending_notes`/`pending_reflections` — the shape a
     retry of the same update takes during an outage), or (c) already queued by an
     earlier buffered record in this same pass (two failed calls carrying the same
     `--note` buffer two records, and deduping against the body alone folds both).
@@ -2582,15 +2667,22 @@ def _plan_buffer_replay(comment_id, body, args,
     # that deliberately passes the same `--note` twice in one call still gets both.
     _pending_notes = list(pending_notes or [])
     _pending_reflections = list(pending_reflections or [])
+    # Resolve both target sections once, and read "already applied" out of the
+    # rendered bullets they hold rather than out of the raw body text.
+    _, _sections = _split_sections(body)
+    _progress = _single_section_content(_sections, 'Progress')
+    _reflections = _single_section_content(_sections, 'Devflow Reflection')
     for rec in records:
         if not isinstance(rec, dict):
             continue
         for n in rec.get('notes') or []:
-            if (isinstance(n, str) and n and n not in body
+            if (isinstance(n, str) and n
+                    and not _note_already_rendered(_progress, n)
                     and n not in _pending_notes and n not in add_notes):
                 add_notes.append(n)
         for rfl in rec.get('reflections') or []:
-            if (isinstance(rfl, str) and rfl and rfl not in body
+            if (isinstance(rfl, str) and rfl
+                    and not _reflection_already_rendered(_reflections, rfl)
                     and rfl not in _pending_reflections
                     and rfl not in add_reflections):
                 add_reflections.append(rfl)

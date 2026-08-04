@@ -19646,6 +19646,148 @@ assert_eq("#1214 mixed replay: the unfoldable reflection is NOT written into the
 assert_eq("#1214 mixed replay: the buffer SURVIVES (fully_replayed is False)",
           True, (Path(_bufdir8) / '55512.json').exists())
 
+# Review finding (PR #1227 round 2, blocker): replay identity must be an EXACT
+# rendered-bullet match, never raw substring containment over the body. Under the
+# containment test a buffered item whose text happens to be a substring of unrelated
+# body content read as already-applied: it was neither folded into the PATCH nor kept,
+# because `fully_replayed` stayed True and the buffer file was deleted — silent loss
+# of the operator's record inside the feature built to prevent exactly that.
+#
+# `503` is the motivating shape: the failure that buffers the record is itself a 503,
+# so a run's Blocked reflection routinely mentions it, and the live body already
+# carries that digit string inside the earlier bullets the run wrote.
+_bufdir9 = tempfile.mkdtemp(prefix='wp1214-buf9-')
+_substr_note = '503'
+_substr_rfl = 'blocked'
+(Path(_bufdir9) / '55512.json').write_text(
+    _json.dumps([{'notes': [_substr_note], 'reflections': [_substr_rfl],
+                  'reflection_kind': 'blocked'}]),
+    encoding='utf-8')
+# A body in which BOTH buffered texts occur as strict substrings of unrelated
+# content — inside a longer Progress note and inside an existing reflection bullet —
+# but neither is present as its own rendered bullet.
+_body_substr = _WP1214.replace(
+    "- [ ] **Setup**\n",
+    "- [ ] **Setup**\n  - 00:00:00 — retrying after HTTP 503 from the comments endpoint\n"
+).replace(
+    "<summary>Devflow Reflection (click to expand)</summary>\n\n",
+    "<summary>Devflow Reflection (click to expand)</summary>\n\n"
+    "### ⚠️ Action required\n"
+    "- ⛔ **Blocked:** the implement run is blocked on a failing dependency\n\n"
+)
+# Precondition: both texts really are present in the body as substrings, so this
+# fixture drives the containment test's false-positive arm rather than passing
+# vacuously.
+assert_eq("#1214 exact-identity fixture: the buffered note text IS a body substring",
+          True, _substr_note in _body_substr)
+assert_eq("#1214 exact-identity fixture: the buffered reflection text IS a body substring",
+          True, _substr_rfl in _body_substr)
+_code, _pb, _n = _run_cmd_update(
+    _update_args(status='Reviewing'),
+    live_body=_body_substr, patch_fails=False, buffer_dir=_bufdir9)
+assert_eq("#1214 exact identity: the substring-collision replay exits 0", 0, _code)
+assert_eq("#1214 exact identity: a buffered note that is only a SUBSTRING of existing "
+          "content is still replayed as its own bullet",
+          True, _pb is not None
+          and re.search(r'^\s*-\s+\d{2}:\d{2}:\d{2}\s+—\s+503$', _pb, re.M) is not None)
+
+
+def _rendered_reflection_line(kind, text):
+    """The bullet `_insert_reflection_bullet` writes for (kind, text) — derived
+    from the shipped taxonomy so the expectation tracks the renderer."""
+    _glyph, _label, _ = workpad._REFLECTION_KINDS[kind]
+    return '- %s %s%s' % (_glyph, ('**%s:** ' % _label) if _label else '', text)
+
+
+# A replayed reflection is filed under the REPLAYING call's kind; this call passes
+# no --reflection-kind, so that is the default kind.
+_replay_kind = workpad._DEFAULT_REFLECTION_KIND
+assert_eq("#1214 exact identity: a buffered reflection that is only a SUBSTRING of an "
+          "existing bullet is still replayed as its own bullet",
+          True, _pb is not None
+          and _rendered_reflection_line(_replay_kind, _substr_rfl)
+          in [ln.strip() for ln in _pb.split('\n')])
+assert_eq("#1214 exact identity: the substring-collision buffer is cleared only "
+          "because both items really were written",
+          False, (Path(_bufdir9) / '55512.json').exists())
+
+# The converse must still hold: a genuinely already-rendered item is skipped. Drive
+# both halves so the fix cannot be "never dedup" — a rendered note bullet and a
+# rendered reflection bullet, each present verbatim, must not be written twice.
+_bufdir10 = tempfile.mkdtemp(prefix='wp1214-buf10-')
+_exact_note = 'exact-note-already-rendered'
+_exact_rfl = 'exact-reflection-already-rendered'
+(Path(_bufdir10) / '55512.json').write_text(
+    _json.dumps([{'notes': [_exact_note], 'reflections': [_exact_rfl],
+                  'reflection_kind': 'blocked'}]),
+    encoding='utf-8')
+# The reflection is rendered under the SAME kind the replay would use, so this is
+# the plain same-shape dedup; the cross-kind case is driven separately below.
+_body_exact = _WP1214.replace(
+    "- [ ] **Setup**\n", "- [ ] **Setup**\n  - 00:00:00 — %s\n" % _exact_note
+).replace(
+    "<summary>Devflow Reflection (click to expand)</summary>\n\n",
+    "<summary>Devflow Reflection (click to expand)</summary>\n\n"
+    "### ℹ️ Notes\n"
+    "%s\n\n" % _rendered_reflection_line(_replay_kind, _exact_rfl)
+)
+_code, _pb, _n = _run_cmd_update(
+    _update_args(status='Reviewing'),
+    live_body=_body_exact, patch_fails=False, buffer_dir=_bufdir10)
+assert_eq("#1214 exact identity: the already-rendered replay exits 0", 0, _code)
+assert_eq("#1214 exact identity: an already-rendered note is NOT duplicated",
+          1, (_pb or '').count(_exact_note))
+assert_eq("#1214 exact identity: an already-rendered reflection is NOT duplicated",
+          1, (_pb or '').count(_exact_rfl))
+assert_eq("#1214 exact identity: the already-rendered buffer is still cleared",
+          False, (Path(_bufdir10) / '55512.json').exists())
+
+# A reflection already rendered under a DIFFERENT kind than the one this replay
+# would file it under still counts as the same item — replay uses the replaying
+# call's kind, so the glyph/label the original write used is not knowable and every
+# kind's rendering has to dedup, or a run's terminal reflection is re-appended under
+# a second heading on the next update.
+_bufdir11 = tempfile.mkdtemp(prefix='wp1214-buf11-')
+_crosskind = 'cross-kind-rendered-reflection'
+(Path(_bufdir11) / '55512.json').write_text(
+    _json.dumps([{'notes': [], 'reflections': [_crosskind],
+                  'reflection_kind': 'blocked'}]),
+    encoding='utf-8')
+_body_crosskind = _WP1214.replace(
+    "<summary>Devflow Reflection (click to expand)</summary>\n\n",
+    "<summary>Devflow Reflection (click to expand)</summary>\n\n"
+    "### ⚠️ Action required\n"
+    "%s\n\n" % _rendered_reflection_line('blocked', _crosskind)
+)
+_code, _pb, _n = _run_cmd_update(
+    _update_args(status='Reviewing'),
+    live_body=_body_crosskind, patch_fails=False, buffer_dir=_bufdir11)
+assert_eq("#1214 exact identity: the cross-kind replay exits 0", 0, _code)
+assert_eq("#1214 exact identity: a reflection already rendered under ANOTHER kind is "
+          "NOT duplicated", 1, (_pb or '').count(_crosskind))
+
+# The section scoping half: a note text that appears verbatim as a whole line
+# OUTSIDE `## Progress` (here as an Acceptance Criteria row) is not a rendered
+# Progress bullet, so it must not authorize skipping-and-clearing.
+_bufdir12 = tempfile.mkdtemp(prefix='wp1214-buf12-')
+_offsection = 'text-that-lives-in-another-section'
+(Path(_bufdir12) / '55512.json').write_text(
+    _json.dumps([{'notes': [_offsection], 'reflections': [],
+                  'reflection_kind': 'note'}]),
+    encoding='utf-8')
+_body_offsection = _WP1214.replace(
+    "## Acceptance Criteria\n- [ ] a\n",
+    "## Acceptance Criteria\n- [ ] a\n- [ ] %s\n" % _offsection)
+_code, _pb, _n = _run_cmd_update(
+    _update_args(status='Reviewing'),
+    live_body=_body_offsection, patch_fails=False, buffer_dir=_bufdir12)
+assert_eq("#1214 exact identity: the off-section replay exits 0", 0, _code)
+assert_eq("#1214 exact identity: a match OUTSIDE '## Progress' does not count as "
+          "already-applied", True,
+          _pb is not None
+          and re.search(r'^\s*-\s+\d{2}:\d{2}:\d{2}\s+—\s+%s$' % re.escape(_offsection),
+                        _pb, re.M) is not None)
+
 
 # AC11: a 503 response does not match the credential-failure pattern in gh-fresh.sh.
 _ghfresh_src = (SCRIPTS / 'gh-fresh.sh').read_text(encoding='utf-8')
