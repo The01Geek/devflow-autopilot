@@ -1,0 +1,93 @@
+{
+  "iter": 1,
+  "loop_role": "fix",
+  "fix_commit_sha": "d13cc197",
+  "fix_files": [
+    "scripts/preflight.py",
+    "skills/create-issue/references/step-4-present-create.md",
+    "skills/implement/references/deferred-ac-followups.md",
+    "lib/test/test_python_scripts.py",
+    "scripts/devflow-cloud-writer-contract.json"
+  ],
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:pr-test-analyzer",
+    "prflow:type-design-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "same number outbound on one line + inbound on another lands in both found and skipped -> false 'skipped #N no blocked_by registered' breadcrumb while it is actually registered",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "nested backticks in the two skill-doc enum additions break inline-code rendering",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "stale 'the only path that writes stderr' parenthetical in _scan_dependencies docstring (two stderr paths since #1197)",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "skipped source-order under-tested; mixed path did not assert every-dropped summary absent",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "prefer NamedTuple over positional 2-tuple of two list[str] to name found/skipped slots",
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "d13cc197"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "d13cc197"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "d13cc197"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "d13cc197"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "advisory",
+      "source_file": "scripts/preflight.py",
+      "claim_text": "prefer NamedTuple for (found, skipped)",
+      "skip_category": "advisory-parked",
+      "evidence": "below the 'important' fix threshold; issue ACs specify a plain 2-tuple with list[str] wrappers, single internal consumer; plain tuple is a legitimate pragmatic choice"
+    }
+  ],
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "clean",
+      "reason": "independent code-reviewer confirmed the disjointness fix eliminates the false breadcrumb with no regression and the tests exercise the fixed shape"
+    }
+  },
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "new_corroborated_critical_count": 0
+  },
+  "telemetry": "unavailable"
+}
