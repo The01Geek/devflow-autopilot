@@ -4,6 +4,29 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.82] — 2026-08-04
+
+### Fixed
+- **Stop spending CI capacity and review tokens on results nobody reads.** `ci.yml` gains a
+  workflow-level `concurrency:` key so a push that supersedes a still-running pull-request CI
+  run cancels it, while `main` pushes are neither cancelled nor serialized (each merged commit
+  is a distinct artifact). And `scripts/post-ci-review-trigger.sh` now checks the target pull
+  request's state before posting an automatic `/prflow:review` request: a pull request that was
+  merged or closed while CI was running gets no review request (its output would land on a dead
+  target), and an unestablished state fails closed to not-posting with a `::warning::`. (#1236)
+
+## [2.30.81] — 2026-08-04
+
+### Changed
+### Fixed
+
+- Two shipped skill snippets expanded an unquoted filename pattern with no guard, so under zsh's default `nomatch` the command was skipped and the enumeration came back silently empty in a consumer repo that lacked the matching directory. `skills/implement/phases/phase-1-setup.md`'s agent enumeration and `skills/docs-bootstrap-internal/SKILL.md`'s top-level structure survey now carry the `setopt nonomatch` guard and report the empty case explicitly.
+
+### Added
+
+- A written portability convention in `CLAUDE.md` stating that shell snippets in skill files must survive a non-bash interactive shell, naming the zsh unmatched-glob behaviour and giving the guard line as the standard remedy — plus a note that `\b` is a GNU extension BSD `sed`/`grep -E` accept while matching nothing, with `(^|[^a-zA-Z_])` as the portable replacement.
+- `lib/test/lint-skills-glob-guard.py`, a narrow marker-aware check that fails the suite when a fenced shell block under `skills/` expands an unguarded filename pattern. It recognises one high-confidence shape and is discharged by the `setopt nonomatch` guard or a `# glob-ok: <reason>` declaration marker.
+
 ## [2.30.80] — 2026-08-04
 
 ### Fixed

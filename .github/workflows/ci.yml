@@ -24,6 +24,34 @@ on:
 permissions:
   contents: read
 
+# Supersession-cancellation (issue #1236), WORKFLOW-LEVEL and deliberately distinct
+# from the job-scoped `auto_review_trigger` block far below. When a new commit is
+# pushed to a pull-request branch, the CI run for the now-superseded commit keeps
+# executing a full suite for a commit that has already been replaced, on runners the
+# new commit is waiting for — cancel it.
+#
+# This does NOT contradict the repository's standing doctrine that GitHub-native
+# `concurrency` is not a duplicate-SUPPRESSION primitive (scripts/dedupe-review-command.sh,
+# docs/workflow-triggers.md). That doctrine governs DUPLICATE COMMANDS — two requests for
+# the same work, where the wanted behavior is "ignore the second, leave the first
+# untouched", which neither `concurrency` mode expresses. Supersession is the opposite
+# shape: two CI runs for two DIFFERENT commits are not duplicates — the first has been made
+# obsolete by the second and the wanted behavior IS "cancel the in-flight one", which is the
+# one thing `cancel-in-progress: true` does natively well.
+#
+# The group is keyed on the pull request (its number), so two pushes to one PR branch
+# share a group and two DIFFERENT pull requests never do. On a `main` push
+# `github.event.pull_request.number` is empty, so `github.run_id` gives each main run its
+# OWN group — main runs are neither cancelled (each merged commit is a distinct artifact,
+# not a superseded draft; version-consolidate.yml pushes bump commits that arrive in bursts)
+# nor serialized behind one another. And `cancel-in-progress` resolves `true` ONLY for
+# `pull_request` events, a second guard on the same intent. This block stays on ci.yml ONLY:
+# a `concurrency` cancel on devflow.yml / devflow-implement.yml would feed a deliberate
+# cancel into the run-identity machinery (issues #498/#1054/#1172).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # The suite is split across concurrent SHARD jobs (issue #877) so wall-clock is
   # bounded by the slowest shard rather than the sum. Each shard runs a subset via
