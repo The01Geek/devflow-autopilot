@@ -1,0 +1,158 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-04T03:30:00Z",
+  "fix_commit_sha": "804adb09",
+  "fix_files": [
+    "scripts/dismiss-stale-rejections.sh",
+    "skills/review/phases/phase-0-3-6-blocker-recheck.md",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "lib/test/run.sh",
+    "scripts/devflow-cloud-writer-contract.json"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:pr-test-analyzer",
+    "prflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "marker_head capture is case-tolerant ([0-9a-fA-F]) but the staleness compare is byte-exact against lowercase HEAD_SHA; a hand-authored uppercase marker head could be wrongly dismissed (fail-open)",
+      "defect_signature": {
+        "file": "scripts/dismiss-stale-rejections.sh",
+        "line_range": [
+          152,
+          236
+        ],
+        "kind": "case_mismatch_fail_open"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "phase-0-3-6-blocker-recheck.md precondition 2 stale aside 'commit_id = $REJECTED_HEAD' now false for shape-(a) reviews",
+      "defect_signature": {
+        "file": "skills/review/phases/phase-0-3-6-blocker-recheck.md",
+        "line_range": [
+          15,
+          15
+        ],
+        "kind": "stale_prose"
+      },
+      "corroboration_count": 3,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "DEVFLOW_SYSTEM_OVERVIEW.md Phase 0.3.6 summary same stale join aside",
+      "defect_signature": {
+        "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+        "line_range": [
+          449,
+          449
+        ],
+        "kind": "stale_prose"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "commit_id-driven dismissal message SRC label unasserted; optional hardening",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          15530,
+          15530
+        ],
+        "kind": "test_coverage_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "804adb09"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "804adb09"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "804adb09"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "804adb09"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 40,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "clean",
+      "reason": null
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-08-04T03:45:00Z",
+    "reviewed_sha": "804adb09",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "general-purpose:shadow"
+    ],
+    "phase3_findings": [
+      {
+        "agent": "general-purpose:shadow",
+        "severity": "Suggestion",
+        "description": "SRC label renders '[verdict-marker head=]' with the SHA before the bracket; cosmetic",
+        "fix_decision": "pushed_back",
+        "skip_category": "claim-quality",
+        "evidence": "the label deliberately carries the literal machine field name (head=/commit_id=) to satisfy the AC 'names which field it came from'; reworking re-touches a SHA-pinned file, regenerates the manifest, and breaks test greps for cosmetic gain"
+      }
+    ],
+    "comparison": {
+      "shadow_total": 1,
+      "overlap_with_iter_N": 0,
+      "new": 1,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
