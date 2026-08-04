@@ -1,0 +1,64 @@
+{
+  "iter": 1,
+  "loop_role": "fix",
+  "fix_files": [
+    ".github/workflows/devflow.yml",
+    "scripts/classify-head-reviews.sh",
+    "scripts/describe-verdict-post-gap.sh",
+    "lib/test/modules/review-stall-backstop.sh",
+    "lib/test/run.sh",
+    "scripts/workflow-flight-recorder-registry.json"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Important",
+      "description": "reviews query fetched only the first page (per_page=100); a >100-review PR could miss the own head review and misclassify none -> false 'API untouched' claim",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "same first-page-only pagination gap (corroborated)",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "closed reason tokens payload-not-an-array/payload-unreadable/classify-failed and mixed marked+unmarked precedence untested",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "no blocking prose findings; corrected claims verified true",
+      "fix_decision": "advisory"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "new_corroborated_critical_count": 0
+  },
+  "shadow": {
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "prflow:code-reviewer"
+    ],
+    "phase3_findings": [
+      {
+        "severity": "Suggestion",
+        "description": "bind the marker head= to the reviewed head so marked matches consumer semantics",
+        "fix_decision": "applied"
+      }
+    ],
+    "comparison": {
+      "shadow_total": 1,
+      "new": 1,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": true
+  },
+  "telemetry": "unavailable"
+}
