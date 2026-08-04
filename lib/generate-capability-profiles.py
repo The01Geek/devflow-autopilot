@@ -286,6 +286,17 @@ REGIONS = [
         "var": "IMPLEMENT",
         "style": "comma",
     },
+    {
+        # issue #1152: the command-probe job's allowlist baseline, compiled from the
+        # existing `command` profile so it measures the tier that actually ships
+        # (devflow.yml's TOOLS is the same profile) and can never drift from it.
+        "id": "probe-command",
+        "file": WF / "matcher-probe.yml",
+        "profile": "command",
+        "kind": "assign",
+        "var": "COMMAND",
+        "style": "comma",
+    },
 ]
 
 

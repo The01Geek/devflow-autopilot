@@ -9541,10 +9541,11 @@ for _gsr_p in sorted(cwc.ROOTS):
 
 _shapes_mod = cwc._shapes
 
-# Every ROOTS profile declares which rule table governs it. `light-command` maps
-# to None BY DECLARATION: matcher-probe.yml records a REVIEW and an IMPLEMENT
-# baseline and no light-command one, so applying either table there would infer a
-# permitted form from evidence recorded on another profile — which AC4 forbids.
+# Every ROOTS profile declares which rule table governs it. All three now carry a
+# probe-anchored table: issue #1152 gave the `light-command` (command) tier its own
+# `command-probe` baseline and CR* rule set, so it is no longer `None` (a None entry
+# is still legal — it means "no probe-anchored table for that profile" — but no ROOTS
+# profile is None today).
 assert_eq("#678 AC4: every ROOTS profile declares a shape rule table (None == no "
           "probe-anchored table for that profile)",
           set(cwc.ROOTS), set(cwc.PROFILE_SHAPE_TABLES))
@@ -9651,9 +9652,15 @@ try:
         encoding="utf-8")
     cwc.SKILL_ASSETS["pr-description"] = list(_sc_orig_pd_long) + [".prflow/tmp/sc-678-long.md"]
     _sc_long_errs = [e for e in cwc.check_shape_conformance() if "sc-678-long.md" in e]
-    assert_eq("#678 AC4: the truncation plant produces exactly two violations "
-              "(one short, one long)", 2, len(_sc_long_errs))
-    _sc_renders = sorted((e.split("that reaches it: ", 1)[1] for e in _sc_long_errs), key=len)
+    # pr-description is reached under BOTH tabled profiles that audit it (implement,
+    # and — since issue #1152 gave the command tier a table — light-command), so each
+    # of the two planted statements produces one error PER auditing profile. The
+    # RENDERED oneline is identical across profiles (the rule id differs, IR* vs CR*,
+    # but the truncation this test exercises is on the statement text), so dedupe the
+    # rendered statements: exactly two distinct renders, one short and one long.
+    _sc_renders = sorted({e.split("that reaches it: ", 1)[1] for e in _sc_long_errs}, key=len)
+    assert_eq("#678 AC4: the truncation plant produces exactly two distinct rendered "
+              "statements (one short, one long)", 2, len(_sc_renders))
     # Positive control: the SHORT statement on the same fixture is rendered whole, so a
     # renderer that truncated everything could not satisfy both assertions.
     assert_eq("#678 AC4: a <=120-char statement is rendered whole, un-truncated",
@@ -9740,18 +9747,29 @@ assert_raises("#678: _load_sibling raises ImportError naming the path when impor
 assert_raises("#678: a merely-absent .py sibling fails at exec_module with a path-naming "
               "FileNotFoundError — the guard above is not what covers it",
               FileNotFoundError, lambda: cwc._load_sibling("nope", "no-such-sibling-678.py"))
-# light-command's declared None is honoured as "no rules to apply", NOT as a
-# silent pass-through to another profile's table. Drive it against text that DOES
-# violate both tables: a table-inheriting regression would report those hits.
+# light-command NOW has a probe-anchored table (issue #1152): its command rule set
+# (CR*) is the implement tier's denied shapes remapped. Drive it against text that
+# violates all three tables and confirm each profile reports under its OWN rule ids —
+# NOT a cross-profile inference. The `cd` and the label-helper capture are command-tier
+# denied shapes (CR4/CR3), so light-command reports them; `python3 -c pass` is an
+# interpreter head denied ONLY under the read-only review table (R4), so it is NOT a
+# command/implement hit — the command tier inherits the implement shapes, which carry
+# no interpreter rule.
 _sc_dirty = "```bash\ncd /tmp\npython3 -c pass\n" \
             'OUT=$(.prflow/vendor/prflow/scripts/apply-labels.sh 1 X)\n```\n'
-assert_eq("#678 AC4: light-command declares no probe-anchored table, so a shape denied "
-          "on BOTH other tiers yields no hit under it (no cross-profile inference)",
-          [], cwc.shape_violations_in("light-command", _sc_dirty))
+_sc_lc_hits = cwc.shape_violations_in("light-command", _sc_dirty)
+assert_eq("#678 AC4 (#1152): light-command has a table and reports the command-tier "
+          "denied shapes under its own CR* ids (cd -> CR4, label capture -> CR3)",
+          {"CR3", "CR4"}, {rule for _, rule, _ in _sc_lc_hits})
+assert_eq("#678 AC4 (#1152): light-command does NOT flag the interpreter head "
+          "(python3 is a review-only R4 shape; the command tier inherits the "
+          "implement shapes, which carry no interpreter rule)",
+          False, any(rule == "R4" for _, rule, _ in _sc_lc_hits))
 assert_eq("#678 AC4: the same text is NOT clean under the profiles that do have a table",
-          (True, True),
+          (True, True, True),
           (bool(cwc.shape_violations_in("review", _sc_dirty)),
-           bool(cwc.shape_violations_in("implement", _sc_dirty))))
+           bool(cwc.shape_violations_in("implement", _sc_dirty)),
+           bool(_sc_lc_hits)))
 
 # An unmapped profile fails CLOSED — a future cloud profile must not be audited
 # under a silently-chosen table nor skipped without saying so.
@@ -9780,6 +9798,14 @@ _sc_planted = {
     "IR3": 'OUT=$(.prflow/vendor/prflow/scripts/apply-labels.sh 1 X)',
     "IR4": "cd somewhere",
     "IR5": "printf hi > /tmp/devflow-915.txt",
+    # issue #1152: the command tier inherits the implement tier's denied shapes
+    # verbatim (CR* == the IR* shapes remapped), so its controls are the same
+    # planted violations under the command rule ids.
+    "CR1": 'for n in 1 2; do .prflow/vendor/prflow/scripts/apply-labels.sh "$n" X; done',
+    "CR2": 'while read -r n; do .prflow/vendor/prflow/scripts/apply-labels.sh "$n" X; done',
+    "CR3": 'OUT=$(.prflow/vendor/prflow/scripts/apply-labels.sh 1 X)',
+    "CR4": "cd somewhere",
+    "CR5": "printf hi > /tmp/devflow-1152.txt",
 }
 assert_eq("#678 AC8: a planted control exists for every rule id in every declared table",
           set(),
@@ -9806,25 +9832,34 @@ _sc_shapes_src = (cwc.REPO_ROOT / "lib/test/extract-command-shapes.py").read_tex
 # alone — one-directional, where the point is to catch drift both ways.
 _sc_shapes_emit_src = "\n".join(
     line for line in _sc_shapes_src.splitlines()
-    if not line.startswith(("REVIEW_RULES = ", "IMPLEMENT_RULES = "))
+    if not line.startswith(("REVIEW_RULES = ", "IMPLEMENT_RULES = ", "COMMAND_RULES = "))
 )
 assert_eq("#678 AC8: stripping the frozenset declarations actually removed them "
           "(otherwise the reconciliation below is self-satisfying)",
-          (False, False),
+          (False, False, False),
           ("REVIEW_RULES = " in _sc_shapes_emit_src,
-           "IMPLEMENT_RULES = " in _sc_shapes_emit_src))
+           "IMPLEMENT_RULES = " in _sc_shapes_emit_src,
+           "COMMAND_RULES = " in _sc_shapes_emit_src))
 _sc_src_review = set(re.findall(r'^\s*\("[^"]+",\s*"(R\d+)",', _sc_shapes_emit_src, re.M))
 _sc_src_implement = set(re.findall(r'"(IR\d+)"', _sc_shapes_emit_src))
+# issue #1152: the command ids (CR*) appear in source only as `_IR_TO_CR`'s values
+# ("IR1": "CR1", …), which is the map find_command_violations remaps THROUGH — so a
+# CR id added to that map without being in COMMAND_RULES (or vice versa) goes RED here.
+_sc_src_command = set(re.findall(r'"(CR\d+)"', _sc_shapes_emit_src))
 assert_eq("#678 AC8: REVIEW_RULES mirrors exactly the R-ids extract-command-shapes.py's "
           "review classifier emits (a rule added to the finder alone goes RED here)",
           _sc_src_review, set(_shapes_mod.REVIEW_RULES))
 assert_eq("#678 AC8: IMPLEMENT_RULES mirrors exactly the IR-ids extract-command-shapes.py "
           "carries (a rule added to the finder alone goes RED here)",
           _sc_src_implement, set(_shapes_mod.IMPLEMENT_RULES))
-# Non-vacuity of the two reconciliations above: the extracted sets are non-empty, so
+assert_eq("#678 AC8 (#1152): COMMAND_RULES mirrors exactly the CR-ids "
+          "extract-command-shapes.py remaps to (a rule added to the map alone goes RED here)",
+          _sc_src_command, set(_shapes_mod.COMMAND_RULES))
+# Non-vacuity of the three reconciliations above: the extracted sets are non-empty, so
 # a regex that silently stopped matching could not read as agreement.
-assert_eq("#678 AC8: the rule-id extraction is non-vacuous (both sets non-empty)",
-          (True, True), (bool(_sc_src_review), bool(_sc_src_implement)))
+assert_eq("#678 AC8: the rule-id extraction is non-vacuous (all three sets non-empty)",
+          (True, True, True),
+          (bool(_sc_src_review), bool(_sc_src_implement), bool(_sc_src_command)))
 
 for _sc_profile, _sc_table in sorted(cwc.PROFILE_SHAPE_TABLES.items()):
     if _sc_table is None:

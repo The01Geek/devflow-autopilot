@@ -964,7 +964,14 @@ def check_grant_sync(profile_grants=None):
 # a stale name string.
 PROFILE_SHAPE_TABLES = {
     "implement": {"rules": _shapes.IMPLEMENT_RULES, "finder": _shapes.find_implement_violations},
-    "light-command": None,
+    # issue #1152: the light-command (devflow.yml) tier now HAS a probe-anchored
+    # rule table. It was `None` on the stated ground that matcher-probe.yml recorded
+    # a REVIEW baseline and an IMPLEMENT baseline and no command one — so there was no
+    # probe-anchored table to apply and borrowing the review table would be the
+    # cross-profile inference AC4 rejects. This issue adds the `command-probe` job and
+    # its generated baseline, so the tier is now measured; its rule set (`CR*`) is the
+    # implement tier's denied shapes remapped (see extract-command-shapes.py).
+    "light-command": {"rules": _shapes.COMMAND_RULES, "finder": _shapes.find_command_violations},
     "review": {"rules": _shapes.REVIEW_RULES, "finder": _shapes.find_violations},
 }
 
