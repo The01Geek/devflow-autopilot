@@ -150,7 +150,6 @@ case "$_CHR_OUT" in
   none|marked) echo "$_CHR_OUT" ;;
   'unmarked '*) echo "$_CHR_OUT" ;;
   'ERR '*)      echo "unestablished ${_CHR_OUT#ERR }" ;;
-  '')           echo "unestablished classify-failed" ;;
-  *)            echo "unestablished classify-failed" ;;
+  *)            echo "unestablished classify-failed" ;;  # empty (jq ran, produced nothing) or an unexpected shape
 esac
 exit 0
