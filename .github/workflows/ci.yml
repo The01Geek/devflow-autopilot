@@ -271,6 +271,14 @@ jobs:
     steps:
       # fetch-depth: 0 so the coverage-map key-retention check (issue #1194) can resolve
       # the merge base against origin/<base_branch>; a single-commit checkout has no base.
+      #
+      # This coupling ENFORCES ITSELF — do not read the comment as its only guard. The
+      # check distinguishes "no key was lost" (exit 0) from "I could not establish whether
+      # a key was lost" (exit 3), so removing `fetch-depth: 0` cannot silently drop the
+      # protection: a shallow checkout leaves origin/<base_branch> unresolvable (exit 1)
+      # or the merge base uncomputable / its tree empty (exit 3), and either way the step
+      # below goes RED. `--allow-degraded-base` would suppress exit 3 and MUST NOT be
+      # added here — CI is exactly the caller that has a real comparand.
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0

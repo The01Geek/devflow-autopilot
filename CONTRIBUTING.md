@@ -207,6 +207,17 @@ python3 lib/test/coverage-map-retention-check.py .
 A genuinely legitimate removal (a deleted tracked file, a truly retired block) is declared
 with a non-empty reason in `lib/test/coverage-map-retention-allow.json`.
 
+It reports **three** outcomes, because "I could not establish whether a key was lost" is
+not "no key was lost": `0` clean, `1` a dropped key (or an input it could not read), and
+`3` **the base comparand could not be established**. Exit 3 is what you get on a shallow
+or partial clone, where `git merge-base` either fails outright or succeeds against a
+truncated commit graph and names a boundary commit whose tree predates the map — either
+way the comparison proves nothing, so it must not report green. The remedy is a real
+comparand (`git fetch --unshallow`, which is why CI checks out with `fetch-depth: 0`); if
+you are deliberately working in a shallow clone and want the run to exit 0 anyway, pass
+`--allow-degraded-base`, which still prints the reasons and reports the run as
+acknowledged-degraded rather than as a verified clean pass. Do not add that flag to CI.
+
 **Retired mutation-pin helpers (issue #810 follow-up).** The required
 `mutation-routing-worktree` gate builds the audited test-source census and requires
 both it and the checked-in inventory to remain empty. The former mutation-taking

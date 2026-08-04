@@ -24,7 +24,19 @@ remedy cannot restore. Two mechanisms now close the class:
   content — disappears in either half, covering the ~30 non-derivable `run_sh_blocks`
   keys no coverage-guard arm inspects and the web-conflict-editor path the driver cannot
   reach. Legitimate removals are declared with a non-empty reason in
-  `lib/test/coverage-map-retention-allow.json`.
+  `lib/test/coverage-map-retention-allow.json`. It reports **three** outcomes rather
+  than two, applying *unknown is not zero* to its own base comparand: `0` clean, `1` a
+  dropped key or an unreadable input, and `3` "the base comparand could not be
+  established". A shallow or partial clone previously reported the degraded comparand
+  only on stderr and exited `0`, laundering a genuinely merge-dropped key into a green
+  pass — including the shape that looks healthiest, where `git merge-base` *succeeds*
+  against a truncated commit graph and names a boundary commit whose tree predates the
+  map. Because a shallow clone is a legitimate desk workflow, the degraded case is not
+  an unconditional hard failure: `--allow-degraded-base` is an explicit per-invocation
+  acknowledgement that exits `0` while still printing the reasons and reporting the run
+  as acknowledged-degraded, never as a verified clean pass. This also makes CI's
+  `fetch-depth: 0` coupling self-enforcing — stripping it turns the step RED instead of
+  silently removing the protection.
 
 Both `--fix` remedy statements are corrected — `CONTRIBUTING.md`'s coverage-map section
 and module-authoring checklist, and `lib/test/regenerate-artifacts.py`'s

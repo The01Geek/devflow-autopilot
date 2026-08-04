@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -380,6 +381,352 @@ class RetentionCheckTest(unittest.TestCase):
                             "intact comparison must catch the drop")
         self.assertEqual(retain.detect_losses(head, head, None), [],
                          "defeated comparison (base==head) misses the drop")
+
+
+class RetentionOutcomeSelectionTest(unittest.TestCase):
+    """The three-outcome selector: a degraded base comparand must not report clean.
+
+    `classify_outcome` is the whole selection, so every arm AND the arm ORDER is driven
+    here from in-memory fixtures — a grep on a message literal is not coverage of the
+    branch that chooses it."""
+
+    KEY_LOSS = ["[retain] files key 'lib/x.sh' ... absent"]
+    WHY = ["the base map at abc123 carried no files/run_sh_blocks keys"]
+
+    def test_clean_requires_an_established_comparand(self):
+        status, lines = retain.classify_outcome([], [], False, "origin/main")
+        self.assertEqual(status, retain.EXIT_CLEAN)
+        self.assertTrue(
+            any("no coverage-map key or content was dropped" in line for line in lines), lines)
+
+    def test_unestablished_comparand_is_not_clean(self):
+        # The Important finding: a degraded base previously exited 0 with a stderr note.
+        status, lines = retain.classify_outcome([], self.WHY, False, "origin/main")
+        self.assertEqual(status, retain.EXIT_UNESTABLISHED)
+        self.assertNotEqual(status, retain.EXIT_CLEAN)
+        self.assertNotEqual(status, retain.EXIT_LOSS)
+        body = "\n".join(lines)
+        self.assertIn("NOT a clean pass", body)
+        self.assertIn(self.WHY[0], body)
+        self.assertIn(retain.ACK_FLAG, body)
+
+    def test_unestablished_status_is_distinct_from_both_other_outcomes(self):
+        # The distinguishability requirement, asserted as a property of the constants
+        # rather than of any one message: a caller must be able to tell all three apart.
+        self.assertEqual(
+            len({retain.EXIT_CLEAN, retain.EXIT_LOSS, retain.EXIT_UNESTABLISHED}), 3
+        )
+
+    def test_acknowledgement_downgrades_to_zero_but_still_reports(self):
+        status, lines = retain.classify_outcome([], self.WHY, True, "origin/main")
+        self.assertEqual(status, retain.EXIT_CLEAN)
+        body = "\n".join(lines)
+        # Acknowledged is never laundered into "verified clean": the reasons and the
+        # acknowledgement both stay on stdout.
+        self.assertIn(self.WHY[0], body)
+        self.assertIn("acknowledged degraded run, not a verified clean one", body)
+        self.assertNotIn("no coverage-map key or content was dropped", body)
+
+    def test_arm_order_loss_outranks_a_degraded_comparand(self):
+        # A detected loss is an ESTABLISHED fact, so it must win over "unestablished" —
+        # reordering the arms would report exit 3 for a run that actually found a loss.
+        status, lines = retain.classify_outcome(self.KEY_LOSS, self.WHY, False, "origin/main")
+        self.assertEqual(status, retain.EXIT_LOSS)
+        self.assertEqual(lines, self.KEY_LOSS)
+
+    def test_arm_order_loss_outranks_even_an_acknowledged_degraded_base(self):
+        # The acknowledgement flag must not be able to suppress a real finding.
+        status, lines = retain.classify_outcome(self.KEY_LOSS, self.WHY, True, "origin/main")
+        self.assertEqual(status, retain.EXIT_LOSS)
+        self.assertEqual(lines, self.KEY_LOSS)
+
+    def test_every_unestablished_reason_is_reported(self):
+        reasons = ["no merge base against origin/main", "base map was empty"]
+        _, lines = retain.classify_outcome([], reasons, False, "origin/main")
+        body = "\n".join(lines)
+        for reason in reasons:
+            self.assertIn(reason, body)
+
+
+class RetentionMergeBaseTest(_GitFixtureBase):
+    """`_merge_base`: the substitute comparand must be reported, never silent."""
+
+    prefix = "cm-mb-"
+
+    def setUp(self):
+        super().setUp()
+        self._write_map(_base_map(run_sh_blocks={"431": {"note": "n", "owner": "unmodularized"}}))
+        self._git("add", "-A")
+        self._git("commit", "-qm", "base")
+
+    def test_resolvable_base_reports_no_degradation(self):
+        base, error, degraded = retain._merge_base(self.repo, self._base_branch())
+        self.assertIsNone(error)
+        self.assertIsNone(degraded, "a real merge base must not be flagged degraded")
+        self.assertRegex(base, r"^[0-9a-f]{40}$")
+
+    def test_unresolvable_base_ref_falls_back_and_reports_it(self):
+        base, error, degraded = retain._merge_base(self.repo, "origin/never-fetched")
+        self.assertIsNone(error)
+        self.assertEqual(base, "origin/never-fetched")
+        self.assertIsNotNone(degraded, "the fallback substitute must be reported")
+        self.assertIn("could not compute a merge base", degraded)
+
+    def test_success_naming_no_commit_is_reported_as_degraded(self):
+        # `git merge-base` exiting 0 while naming NOTHING is the same silent substitution
+        # as the rc!=0 arm — BASE_REF's tip stands in for a merge base that was never
+        # computed. Driven through a stubbed subprocess because git does not produce this
+        # shape on demand; without it the branch is a fail-open nothing can reach.
+        stub = subprocess.CompletedProcess(args=[], returncode=0, stdout="  \n", stderr="")
+        with unittest.mock.patch.object(subprocess, "run", return_value=stub):
+            base, error, degraded = retain._merge_base(self.repo, "origin/main")
+        self.assertIsNone(error)
+        self.assertEqual(base, "origin/main")
+        self.assertIsNotNone(degraded, "an empty merge-base result must not pass as real")
+        self.assertIn("named no commit", degraded)
+
+    def test_unrelated_histories_fall_back_and_report_it(self):
+        # `git merge-base` exits nonzero with NO stderr when there is simply no common
+        # ancestor — the shape a shallow clone's truncated graph also produces.
+        trunk = self._base_branch()
+        self._git("checkout", "-q", "--orphan", "orphan")
+        self._git("rm", "-rq", "--cached", ".", check=False)
+        (self.repo / MAP_REL).unlink(missing_ok=True)
+        (self.repo / "OTHER.md").write_text("unrelated\n", encoding="utf-8")
+        self._git("add", "-A")
+        self._git("commit", "-qm", "orphan root")
+        # Back onto the trunk so HEAD and the orphan branch have no common ancestor.
+        self._git("checkout", "-qf", trunk)
+        base, error, degraded = retain._merge_base(self.repo, "orphan")
+        self.assertIsNone(error)
+        self.assertEqual(base, "orphan")
+        self.assertIsNotNone(degraded)
+
+
+class RetentionConfigBaseTest(_GitFixtureBase):
+    """`_read_config_base` + the default `origin/<base_branch>` — the path CI runs."""
+
+    prefix = "cm-cfgbase-"
+
+    def test_absent_resolver_falls_back_to_main(self):
+        # No scripts/config-get.sh in the fixture: the documented best-effort default.
+        self.assertEqual(retain._read_config_base(self.repo), "main")
+
+    def test_resolver_value_is_honored(self):
+        resolver = self.repo / "scripts" / "config-get.sh"
+        resolver.parent.mkdir(parents=True, exist_ok=True)
+        resolver.write_text("#!/bin/sh\necho develop\n", encoding="utf-8")
+        resolver.chmod(0o755)
+        self.assertEqual(retain._read_config_base(self.repo), "develop")
+
+    def test_empty_resolver_output_falls_back_to_main(self):
+        resolver = self.repo / "scripts" / "config-get.sh"
+        resolver.parent.mkdir(parents=True, exist_ok=True)
+        resolver.write_text("#!/bin/sh\necho\n", encoding="utf-8")
+        resolver.chmod(0o755)
+        self.assertEqual(retain._read_config_base(self.repo), "main")
+
+    def test_default_base_ref_is_origin_prefixed_and_unestablished_when_unfetched(self):
+        # With NO --base-ref (what CI passes) the check composes origin/<base_branch>.
+        # In this fixture there is no remote at all, so the run must fail closed rather
+        # than report clean — and the message must name the composed ref.
+        self._write_map(_base_map(run_sh_blocks={"431": {"note": "n", "owner": "unmodularized"}}))
+        self._git("add", "-A")
+        self._git("commit", "-qm", "base")
+        result = subprocess.run(
+            ["python3", str(RETAIN_SOURCE), str(self.repo)],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("origin/main", result.stdout + result.stderr)
+
+
+class RetentionUnreadableInputTest(_GitFixtureBase):
+    """The head-map and allow-file read branches: unreadable input is never 'empty'."""
+
+    prefix = "cm-unread-"
+
+    def setUp(self):
+        super().setUp()
+        self._write_map(_base_map(run_sh_blocks={"431": {"note": "n", "owner": "unmodularized"}}))
+        self._git("add", "-A")
+        self._git("commit", "-qm", "base")
+        self.base = self._base_branch()
+        self._git("checkout", "-qb", "feature")
+
+    def _run(self, *extra):
+        return subprocess.run(
+            ["python3", str(RETAIN_SOURCE), str(self.repo), "--base-ref", self.base, *extra],
+            capture_output=True, text=True, check=False,
+        )
+
+    def test_unparseable_head_map_fails_closed(self):
+        (self.repo / MAP_REL).write_text("{ not json", encoding="utf-8")
+        result = self._run()
+        self.assertEqual(result.returncode, retain.EXIT_LOSS, result.stdout + result.stderr)
+        self.assertIn("could not read the head", result.stdout)
+
+    def test_absent_head_map_fails_closed(self):
+        (self.repo / MAP_REL).unlink()
+        result = self._run()
+        self.assertEqual(result.returncode, retain.EXIT_LOSS, result.stdout + result.stderr)
+        self.assertIn("could not read the head", result.stdout)
+
+    def test_unparseable_allow_file_fails_closed_and_is_not_treated_as_empty(self):
+        (self.repo / "lib" / "test" / "coverage-map-retention-allow.json").write_text(
+            "[ {,", encoding="utf-8")
+        result = self._run()
+        self.assertEqual(result.returncode, retain.EXIT_LOSS, result.stdout + result.stderr)
+        self.assertIn("refusing to treat it as empty", result.stdout)
+
+    def test_absent_allow_file_is_not_an_error(self):
+        # The escape hatch is optional; its absence must not be confused with a bad one.
+        allow = self.repo / "lib" / "test" / "coverage-map-retention-allow.json"
+        self.assertFalse(allow.exists())
+        self.assertEqual(self._run().returncode, retain.EXIT_CLEAN)
+
+
+class RetentionShallowCloneTest(_GitFixtureBase):
+    """The Important finding, end to end: a real shallow clone must not report clean.
+
+    Builds an upstream whose history predates the coverage map, clones it shallowly, and
+    drops a key on the feature side — the exact input that previously exited 0."""
+
+    prefix = "cm-shallow-"
+
+    def setUp(self):
+        super().setUp()
+        # History BEFORE the map exists — a shallow boundary lands here.
+        (self.repo / "README.md").write_text("pad\n", encoding="utf-8")
+        self._git("add", "-A")
+        self._git("commit", "-qm", "pre-map")
+        self.premap = self._git("rev-parse", "HEAD").stdout.strip()
+        self._write_map(_base_map(run_sh_blocks={
+            "keep": {"note": "kept", "owner": "unmodularized"},
+            "drop": {"note": "dropped by a merge resolution", "owner": "unmodularized"},
+        }))
+        self._git("add", "-A")
+        self._git("commit", "-qm", "add map")
+        self.base = self._base_branch()
+        self._git("checkout", "-qb", "feature")
+        self._write_map(_base_map(run_sh_blocks={"keep": {"note": "kept", "owner": "unmodularized"}}))
+        self._git("commit", "-qam", "drop a key")
+
+        self.clone = self.tmp / "shallow"
+        subprocess.run(
+            ["git", "clone", "-q", "--depth", "1", "--branch", "feature",
+             str(self.repo), str(self.clone)],
+            capture_output=True, text=True, check=True,
+        )
+        # Shallow-fetch the base at a commit that predates the map: the truncated graph
+        # that makes `git merge-base` succeed while naming a useless boundary commit.
+        subprocess.run(
+            ["git", "-C", str(self.clone), "fetch", "-q", "--depth", "1", "origin",
+             f"+{self.premap}:refs/remotes/origin/{self.base}"],
+            capture_output=True, text=True, check=True,
+        )
+
+    def _run(self, *extra):
+        return subprocess.run(
+            ["python3", str(RETAIN_SOURCE), str(self.clone),
+             "--base-ref", f"origin/{self.base}", *extra],
+            capture_output=True, text=True, check=False,
+        )
+
+    def test_shallow_clone_with_a_dropped_key_does_not_report_clean(self):
+        result = self._run()
+        combined = result.stdout + result.stderr
+        self.assertEqual(result.returncode, retain.EXIT_UNESTABLISHED, combined)
+        self.assertIn("NOT a clean pass", result.stdout)
+        # The old fail-open wording must not be what a caller sees here.
+        self.assertNotIn("no coverage-map key or content was dropped", result.stdout)
+
+    def test_shallow_clone_acknowledged_exits_zero_but_says_so(self):
+        result = self._run(retain.ACK_FLAG)
+        self.assertEqual(result.returncode, retain.EXIT_CLEAN, result.stdout + result.stderr)
+        self.assertIn("acknowledged degraded run", result.stdout)
+
+    def test_unshallowed_clone_recovers_the_comparand_and_catches_the_loss(self):
+        # Negative control for the whole mechanism: once the history is real, the same
+        # inputs produce the ESTABLISHED loss verdict rather than exit 3. Without this,
+        # a check that always exited 3 would pass the assertions above.
+        subprocess.run(
+            ["git", "-C", str(self.clone), "fetch", "-q", "--unshallow", "origin"],
+            capture_output=True, text=True, check=False,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.clone), "fetch", "-q", "origin",
+             f"+refs/heads/{self.base}:refs/remotes/origin/{self.base}"],
+            capture_output=True, text=True, check=True,
+        )
+        result = self._run()
+        self.assertEqual(result.returncode, retain.EXIT_LOSS, result.stdout + result.stderr)
+        self.assertIn("'drop'", result.stdout)
+
+
+class MergeDriverErrorBranchTest(unittest.TestCase):
+    """`_run_merge`'s error branches — each must fail the merge, never merge silently."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cm-driver-err-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _path(self, name, value):
+        p = self.tmp / name
+        p.write_text(value if isinstance(value, str) else _serialize(value), encoding="utf-8")
+        return p
+
+    def test_too_few_arguments_is_a_merge_failure(self):
+        self.assertEqual(driver._run_merge([]), 2)
+        self.assertEqual(driver._run_merge(["a", "b"]), 2)
+
+    def test_missing_ours_input_is_a_merge_failure(self):
+        base = self._path("base.json", _base_map())
+        theirs = self._path("theirs.json", _base_map())
+        rc = driver._run_merge([str(base), str(self.tmp / "absent.json"), str(theirs)])
+        self.assertEqual(rc, 2)
+
+    def test_missing_theirs_input_is_a_merge_failure(self):
+        base = self._path("base2.json", _base_map())
+        ours = self._path("ours2.json", _base_map())
+        rc = driver._run_merge([str(base), str(ours), str(self.tmp / "absent2.json")])
+        self.assertEqual(rc, 2)
+
+    def test_absent_base_is_a_legitimate_two_way_add_not_a_failure(self):
+        # The one absent input that is NOT an error: an ancestor predating the map.
+        ours = self._path("ours3.json", _base_map(run_sh_blocks={"a": {"note": "n", "owner": "m"}}))
+        theirs = self._path("theirs3.json", _base_map(run_sh_blocks={"b": {"note": "n", "owner": "m"}}))
+        rc = driver._run_merge([str(self.tmp / "no-base.json"), str(ours), str(theirs)])
+        self.assertEqual(rc, 0)
+        merged = json.loads(ours.read_text(encoding="utf-8"))
+        self.assertEqual(sorted(merged["run_sh_blocks"]), ["a", "b"])
+
+    def test_unparseable_side_conflicts_rather_than_merging(self):
+        base = self._path("base4.json", _base_map())
+        ours = self._path("ours4.json", "{ not json")
+        theirs = self._path("theirs4.json", _base_map())
+        rc = driver._run_merge([str(base), str(ours), str(theirs)])
+        self.assertEqual(rc, 1, "an unparseable side must conflict, never merge silently")
+        self.assertIn("<<<<<<<", ours.read_text(encoding="utf-8"))
+
+    def test_canonical_write_failure_is_a_merge_failure(self):
+        # A clean merge whose result cannot be written must NOT report success — git
+        # would otherwise adopt the unmodified ours-path as the merge result.
+        base = self._path("base5.json", _base_map())
+        ours = self._path("ours5.json", _base_map(run_sh_blocks={"a": {"note": "n", "owner": "m"}}))
+        theirs = self._path("theirs5.json", _base_map(run_sh_blocks={"b": {"note": "n", "owner": "m"}}))
+        unwritable = self.tmp / "nodir" / "ours.json"
+        original_write = Path.write_bytes
+
+        def refuse(self_path, data):
+            if self_path == ours:
+                raise OSError("simulated write failure")
+            return original_write(self_path, data)
+
+        with unittest.mock.patch.object(Path, "write_bytes", refuse):
+            rc = driver._run_merge([str(base), str(ours), str(theirs)])
+        self.assertEqual(rc, 2)
+        self.assertFalse(unwritable.exists())
 
 
 class RetentionCheckGitFixtureTest(_GitFixtureBase):
