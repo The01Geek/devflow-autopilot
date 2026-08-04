@@ -380,8 +380,9 @@ def cmd_combine(args: argparse.Namespace) -> int:
     partition_covered = False
     if required:
         read_set = set(shard_names)
+        required_set = set(required)
         missing = [s for s in required if s not in read_set]
-        unexpected = [s for s in shard_names if s not in set(required)]
+        unexpected = sorted({s for s in shard_names if s not in required_set})
         duplicates = sorted({s for s in shard_names if shard_names.count(s) > 1})
         if missing:
             problems.append(
@@ -389,14 +390,14 @@ def cmd_combine(args: argparse.Namespace) -> int:
                 f"{', '.join(missing)} — refusing to report a green gate over a "
                 "partial partition"
             )
-        for s in sorted(set(unexpected)):
+        for s in unexpected:
             problems.append(
                 f"shard '{s}' is present but not in the required partition "
                 f"({', '.join(required)})"
             )
         if duplicates:
             problems.append(
-                "shard(s) recombined more than once: " f"{', '.join(duplicates)}"
+                f"shard(s) recombined more than once: {', '.join(duplicates)}"
             )
         partition_covered = not (missing or unexpected or duplicates)
 
