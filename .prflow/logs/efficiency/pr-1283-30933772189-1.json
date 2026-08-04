@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1283",
+  "generated_at": "2026-08-04T17:35:38Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.92",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.9541080000000015,
+    "tokens": {
+      "input_tokens": 59,
+      "output_tokens": 28085,
+      "cache_read_input_tokens": 4549011,
+      "cache_creation_input_tokens": 166166,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 97,
+        "outputTokens": 60097,
+        "cacheReadInputTokens": 5583726,
+        "cacheCreationInputTokens": 485794,
+        "webSearchRequests": 0,
+        "costUSD": 7.9541080000000015,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 42,
+    "duration_ms": 570227
+  },
+  "permission_denials": {
+    "count": 8,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "git status --porcelain; echo \"---ENV---\"; echo \"run_id=${GITHUB_RUN_ID:-none} attempt=${GITHUB_RUN_ATTEMPT:-none}\"",
+      "mkdir -p .prflow/tmp/review/pr-1283/${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}; echo \"runid=${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}\"",
+      "echo \"run=$GITHUB_RUN_ID attempt=$GITHUB_RUN_ATTEMPT\"",
+      "grep -n 'A focused result discharges intermediate iteration only' .prflow/prompt-extensions/review-and-fix.md; echo \"=== section byte-identity check (#506) ===\"; awk '/^## Prompt-surface edit routing evidence gate/{f=1} f' .prflow/prompt-extensions/review-and-fix.md > .prflow/tmp/review/pr-1283/r1/raf-section.txt; awk '/^## Prompt-surface edit routing evidence gate/{f=1} f' .prflow/prompt-extensions/review.md > .prflow/tmp/review/pr-1283/r1/rev-section.txt; diff .prflow/tmp/review/pr-1283/r1/raf …[per-command-truncated]",
+      "sed -n '271,$p' .prflow/prompt-extensions/review-and-fix.md > .prflow/tmp/review/pr-1283/r1/raf-sec.txt; sed -n '43,$p' .prflow/prompt-extensions/review.md > .prflow/tmp/review/pr-1283/r1/rev-sec.txt; diff .prflow/tmp/review/pr-1283/r1/raf-sec.txt .prflow/tmp/review/pr-1283/r1/rev-sec.txt && echo IDENTICAL",
+      "sed -n '271,$p' .prflow/prompt-extensions/review-and-fix.md > .prflow/tmp/review/pr-1283/r1/raf-sec.txt",
+      "sed -n '43,$p' .prflow/prompt-extensions/review.md > .prflow/tmp/review/pr-1283/r1/rev-sec.txt"
+    ],
+    "total": 8,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
