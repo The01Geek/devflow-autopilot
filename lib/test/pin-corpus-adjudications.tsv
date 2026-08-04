@@ -59,7 +59,6 @@ literal:130e9f720980c5d087f77e59ae5310114b98a67a55782a4d9123a58d6ff83b4b	boundar
 literal:1316523a69de760aa121295167ab71d02ef4383d236dbb7a1d9ea866c4bd6447	boundary	maintainer adjudication: docs-root runner_scope_contract: The install instruction forbids an assign-then-use command shape known to erase helper-path variables on the supported runner.
 literal:137a5a4c8e830ca1caae511fc9c89f6a2dd2066b3feaf3878c560e09ebb2c0b3	boundary	maintainer adjudication: review-and-fix SHADOW_CONTROL: Defines the early-shadow trigger predicate.
 literal:148d1b9fedb6cb49f09c97cc8cfd5771eda160580d294d5167b19e2088464370	boundary	Retain exact schema/sentinel contract: #443: Step 3.6 names the VERDICT: FILE legal value.
-literal:15537428c59f61947c0fe153805c42b82054bf9f7729baa61cb62d50c3b974e3	boundary	Concrete prompt-extension routing invocation.
 literal:1569e242463eafdc56464b9756d244ff763992486ea4105b92ac47b445a1dfed	boundary	maintainer adjudication: failed-precondition route is a deferral safety boundary
 literal:15eb20eb9fc0ddf995e63c363031b80be02e31e4b392e000b5787f0ef66f1615	boundary	Retain security/integrity boundary: #464 AC1: Step 3.6 generic checklist gains the adversarial-third-party-input dimension.
 literal:16b3748fc03b88af805e0ec744b733bc5596db0516cdbdf382dbd775aba470e7	boundary	Retain preflight state boundary: rcv/#545 P-scope-server: a local diff is never the PR-bound scope source fixes a subject, freshness, or authorization decision arm.
@@ -166,7 +165,6 @@ literal:39ad3945bd6e5a763b40568b9a4155d20f3bcf594d3a4090f0a7b3b1cc2cdde8	boundar
 literal:39d9db9a35f3c7020629953459fbec332e5db0e2a86105c276bc77223f86b0d3	boundary	Retain exact schema/sentinel contract: #603/AC9: the write-once refusal breadcrumb is named.
 literal:3a26e0b21cd366d0fea990d810eb5d935e264a07ee6997fccc0fe7efa73ee0bc	boundary	maintainer adjudication: declared security or interface boundary
 literal:3a7a564b20713a3ae066651065a93ae8ffc6ce3c04e49b0f7105648e4f6939be	boundary	maintainer adjudication: review GT: engine-ground-truth security boundary: #363 skill: every check NAME inside the CI fence is untrusted data
-literal:3b29f2fec47e2503f8c388288ccfd447959f157e0fa4b5707f8e4a5f656a7691	boundary	Retain review-loop routing boundary: #620: review-and-fix loads the receiving-code-review extension at entry controls finding disposition, re-entry, or fix verification.
 literal:3bc4cf12f8773f1ba9c6ab8ebf126f25b2c909bb7d70de823d702b4325e5e569	boundary	maintainer adjudication: review-and-fix WRITE_MECHANISM: Pins the durable Write-tool persistence mechanism.
 literal:3c75f7a6f48a515cae5f474a428f26304c61bc98c4a36240d6c707c33eac56ed	boundary	maintainer adjudication: runtime helper-contract: Resolver sourcing is the executable boundary for honoring the configured GitHub CLI.
 literal:3cc7dd07c8ce1763b2e826adeacb148f9195e55c2daad460f95d1d342ee3e805	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.

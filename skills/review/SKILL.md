@@ -65,13 +65,19 @@ When the block IS present:
 
 This discipline reduces the early-quit frequency; the workflow-level `prflow_review.stall_backstop` is the deterministic backstop guaranteeing convergence when a run stalls anyway (a bounded, App-token-authored `/prflow:review` re-trigger).
 
-**Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
+**Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run the **granted vendored-literal leading token** — the matcher denies the unexpanded anchor as a leading token (recorded in `CLAUDE.md`; run `30695072336` for the argument-position sibling), so on the cloud tiers this form is the one that executes:
+
+```bash
+.prflow/vendor/prflow/scripts/load-prompt-extension.sh review
+```
+
+**Tier-agnostic invocation procedure (the #1256/#1124 conditional form — do not classify your own tier).** Emit the vendored literal above first. If it reports the file was not found (`command not found` / `No such file` / exit 127 — this repository's own local tier and a `DEVFLOW_VENDOR` install both materialize `.prflow/vendor/` only at runtime, so it is absent in a working checkout), re-invoke **the same helper with the `.prflow/vendor/prflow/` prefix removed** (`scripts/load-prompt-extension.sh review`) as a single leading-token statement, then route on that invocation's outcome. If *that* is also not found (a non-Claude-Code runner — Copilot CLI, Cursor, Codex CLI, Gemini CLI — where neither repo-relative path exists), fall back to the portable anchor form below, which **preserves the helper's portability on those runners** (issues #241/#275: `${CLAUDE_SKILL_DIR}` is empty there and the runner reports a base directory the agent substitutes for the placeholder):
 
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh review
 ```
 
-If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message, don't silently proceed as if none existed. If it exits 0 and prints text **on stdout**, treat that stdout text as instructions appended to the end of this skill's own prompt for this run — upgrade-safe, consumer-owned customization committed under `.prflow/prompt-extensions/`. If it exits 0 and prints nothing **on stdout**, proceed unchanged. On the cloud review tier the helper may additionally write a **stderr** breadcrumb naming the extension directory it resolved; that breadcrumb is diagnostic output and is never extension content, so it never makes an empty extension count as printed text.
+If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent) on **every** form above, that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message, don't silently proceed as if none existed. If it exits 0 and prints text **on stdout**, treat that stdout text as instructions appended to the end of this skill's own prompt for this run — upgrade-safe, consumer-owned customization committed under `.prflow/prompt-extensions/`. If it exits 0 and prints nothing **on stdout**, proceed unchanged. On the cloud review tier the helper may additionally write a **stderr** breadcrumb naming the extension directory it resolved; that breadcrumb is diagnostic output and is never extension content, so it never makes an empty extension count as printed text.
 
 ## When NOT to use
 

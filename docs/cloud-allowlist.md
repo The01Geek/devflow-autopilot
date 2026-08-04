@@ -146,6 +146,26 @@ Refused shapes in the cloud **review** runner:
 - `cat`-heredoc writes,
 - interpreter heads (`python3`),
 - the unexpanded `"${CLAUDE_SKILL_DIR:-…}"` anchor as the **leading** token.
+- the unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor **in argument position under a separately-granted head** — see the dedicated subsection below (issue #1124).
+
+### The `${CLAUDE_SKILL_DIR:-…}` anchor — leading-token AND argument-position denials (issue #1124)
+
+The portable source anchor `"${CLAUDE_SKILL_DIR:-…}"/../../scripts/<helper>` (issues #241/#275) is denied by the cloud matcher in **two** distinct positions:
+
+- **Leading-token position** (long recorded, above and in `CLAUDE.md`): the anchor as a command's leading token is refused. The remedy is the #1256/#1124 **conditional form** — emit the granted vendored literal `.prflow/vendor/prflow/scripts/<helper>` as the leading token first, and keep the anchor line as the fallback arm for the local/editor and non-Claude-Code tiers where `.prflow/vendor/` does not exist (portability preserved). The three review-engine consumer-prompt-extension loads now emit this form; `lib/test/lint-anchor-fallback-arm.py` is the desk-time gate that fails when an **enrolled** cloud-reachable call site emits the anchor leading token with no vendored fallback arm.
+
+- **Argument-position denial — newly recorded.** In run **`30695072336`** (the `command` job of `devflow.yml`, `/prflow:review 1058`, 2026-08-01) the execution-diagnostics denial list contains verbatim:
+
+  ```
+  - `Bash`: {"command":"echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"","description":"Resolve review skill dir"}
+  ```
+
+  `Bash(echo:*)` was present in that run's resolved allowlist — **the head was granted and the command was still denied.** The distinguishing feature is the unexpanded `${VAR:-default}` expansion in the **argument**. That run recorded 21 denials in total and still completed, so the denial is individually invisible, not individually fatal. **Open question (issue #1124 Blocked section):** whether the matcher refuses all unexpanded parameter expansions in argument position, only the defaulted `${VAR:-default}` form, or only this variable, is **unestablished** — `matcher-probe.yml` carries no argument-position corpus row, so the answer needs a probe dispatch and is out of scope for the leading-token remedy.
+
+**Anchor invocation call-site census (issue #1124 AC2).** Re-derived at the issue's HEAD (index-sourced per issue #711): **118** anchor leading-token helper invocations across **34** `skills/*` files. Disposition:
+
+- The **3 review-engine consumer-prompt-extension loads** — `skills/review/SKILL.md` (`review`) and both loads in `skills/review-and-fix/SKILL.md` (`review-and-fix`, `receiving-code-review`) — were the evidenced denial class on the merge-gating cloud review tier; they are **converted here** to the conditional form and enrolled in `lint-anchor-fallback-arm.py`.
+- The remaining **~15** `load-prompt-extension.sh` loads (one per other `skills/*/SKILL.md`, plus the Phase-3 dispatch) and the **~100** other helper invocations (`workpad.py`, `config-get.sh`, `issue-audit-state.py`, …) are the sanctioned **#275/#701 anchor-source form**: `lib/test/extract-command-heads.py`'s `_normalize()` rewrites the anchor into the granted vendored literal before classifying, so these are the single-source form the head guard already accepts. They are **not** the "anchor with no fallback arm" denial class and are left unchanged; each follows the same conditional shape **as it becomes cloud-reachable** (ruling consequence 1), at which point it is enrolled in the lint. This is deliberately not a blanket sweep of the anchor (ruling consequence 2 / #1152/#1153).
 
 Permitted shapes (review tier) — **each with its own evidence status**, because the
 four do not rest on the same evidence and a single "probe-proven" heading over all of

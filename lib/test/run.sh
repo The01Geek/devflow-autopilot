@@ -2702,7 +2702,19 @@ done
 RCR_EXT="$LIB/../.prflow/prompt-extensions/receiving-code-review.md"
 RCR_PIN_MODULE='A reception pass iterates on a focused module only after recording the selected module ID'
 RCR_PIN_PUSH='A reception pass that pushes uses an explicit destination ref'
-RAF_PIN_LOAD='load-prompt-extension.sh receiving-code-review'
+# #1124: the review-and-fix loads now carry BOTH the granted vendored-literal leading
+# token (the cloud-emitted form) AND the portable anchor line (the fallback arm), so the
+# bare `load-prompt-extension.sh <name>` substring recurs (vendored line + anchor line +
+# an inline prose mention) and is no longer unique. Re-anchor these two entry-load pins on
+# the FULL portable-anchor literal — which matches ONLY the anchor line — exactly as the
+# #275 P3-live pins prepend $PORTABLE_ANCHOR_LITERAL to each helper path. The vendored
+# leading-token form is covered separately by lib/test/lint-anchor-fallback-arm.py.
+LPE_ANCHOR_PREFIX='"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh '
+# The assert_pin_unique literals below are written as FULLY STATIC single-quoted strings
+# (not variable-composed) so the pin corpus keys them by their stable literal hash rather
+# than a fragile file:line site key; the $LPE_ANCHOR_PREFIX variable is used only for the
+# runtime grep line-number lookups further down, where a site key is not derived.
+RAF_PIN_LOAD='"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh receiving-code-review'
 assert_pin_unique "#620: reception extension carries the focused-test-module iteration rule" \
   "$RCR_PIN_MODULE" "$RCR_EXT"
 assert_pin_unique "#620: reception extension carries the explicit push-destination-ref rule" \
@@ -2802,9 +2814,9 @@ assert_pin_unique "#620: interactive directives are non-binding on loop runs" \
 # The own-load literal needs its own uniqueness pin: `read` takes the FIRST match, so a later prose
 # mention of the same command earlier in the root would silently retarget the ordering check.
 assert_pin_unique "#620: the skill's own extension load is a single unambiguous fence" \
-  'load-prompt-extension.sh review-and-fix' "$MAXI_ROOT"
-IFS= read -r _r620_own < <(grep -n 'load-prompt-extension.sh review-and-fix' "$MAXI_ROOT") || _r620_own=""   # raw-guard-ok: line-number lookup
-IFS= read -r _r620_rcv < <(grep -n 'load-prompt-extension.sh receiving-code-review' "$MAXI_ROOT") || _r620_rcv=""   # raw-guard-ok: line-number lookup
+  '"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh review-and-fix' "$MAXI_ROOT"
+IFS= read -r _r620_own < <(grep -nF "${LPE_ANCHOR_PREFIX}review-and-fix" "$MAXI_ROOT") || _r620_own=""   # raw-guard-ok: line-number lookup (#1124: anchor-line form is unique; bare substring recurs across the vendored + anchor + prose forms)
+IFS= read -r _r620_rcv < <(grep -nF "${LPE_ANCHOR_PREFIX}receiving-code-review" "$MAXI_ROOT") || _r620_rcv=""   # raw-guard-ok: line-number lookup (#1124: anchor-line form is unique)
 IFS= read -r _r620_hdr < <(grep -n '^## Engine source of truth' "$MAXI_ROOT") || _r620_hdr=""   # raw-guard-ok: line-number lookup
 _r620_own="${_r620_own%%:*}"; _r620_rcv="${_r620_rcv%%:*}"; _r620_hdr="${_r620_hdr%%:*}"
 # Fail closed on a non-numeric/absent operand: an unresolved line number must read "no", never
@@ -47306,6 +47318,36 @@ assert_eq "#1248 AC5: the repo-root verdict-post helper resolves in this repo's 
   "$([ -x "$LIB/../scripts/post-review-verdict.sh" ] && echo yes || echo no)"
 assert_eq "#1248 AC5: the repo-root dismiss helper resolves in this repo's local tree" "yes" \
   "$([ -x "$LIB/../scripts/dismiss-stale-rejections.sh" ] && echo yes || echo no)"
+
+# ── #1124 anchor-fallback-arm lint (lib/test/lint-anchor-fallback-arm.py) ──────
+# The cloud matcher denies the unexpanded ${CLAUDE_SKILL_DIR:-…} anchor as a helper's
+# leading token (recorded in CLAUDE.md; run 30695072336 for the argument-position
+# sibling), so an ENROLLED cloud-reachable call site must emit the granted vendored
+# literal as the leading token (the #1256 tier-agnostic form) with the anchor line kept
+# as the fallback arm. This inventory-driven lint fails when an enrolled site carries the
+# anchor leading token with NO vendored-literal fallback arm. It is deliberately NOT a
+# blanket rule against the anchor (ruling consequence 2 / #1152/#1153: such a rule "would
+# flag every call site") — it audits only the enrolled review-engine loads. Driven the
+# same way as the #1248 sibling: real tree as the live gate, plus checked-in RED/GREEN
+# fixtures so the guard is proven non-vacuous.
+AF_LINT="$LIB/test/lint-anchor-fallback-arm.py"
+AF_FX="$LIB/test/fixtures/anchor-fallback-arm"
+# Real tree: the three enrolled review-engine loads now carry both forms → clean.
+AF_OUT="$(cd "$LIB/.." && python3 "$AF_LINT" 2>&1)"; AF_RC=$?
+assert_eq "#1124 lint: clean on the tree as it stands (enrolled loads carry the fallback arm)" "rc=0" \
+  "$([ "$AF_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$AF_RC" "$AF_OUT")"
+# RED fixture: enrolled sites emit the anchor leading token with no vendored fallback → rc=1.
+assert_eq "#1124 lint: an anchor-only enrolled site is reported (RED, non-vacuous)" "yes" \
+  "$(python3 "$AF_LINT" --root "$AF_FX/red" >/dev/null 2>&1 && echo no || echo yes)"
+# GREEN fixture: both forms present at every enrolled site → rc=0.
+assert_eq "#1124 lint: a both-forms enrolled site passes (GREEN)" "yes" \
+  "$(python3 "$AF_LINT" --root "$AF_FX/green" >/dev/null 2>&1 && echo yes || echo no)"
+# The RED fixture names the specific enrolled call site (not a generic failure).
+assert_eq "#1124 lint: the RED report names the enrolled call site" "yes" \
+  "$(case "$(python3 "$AF_LINT" --root "$AF_FX/red" 2>&1)" in *"skills/review/SKILL.md: 'load-prompt-extension.sh review' is invoked via the unexpanded"*) echo yes ;; *) echo no ;; esac)"
+# Inventory is non-empty (a vacuous inventory would make the lint audit nothing).
+assert_eq "#1124 lint: the enrolled inventory is non-empty" "yes" \
+  "$([ "$(python3 "$AF_LINT" --print-inventory | grep -c .)" -ge 1 ] && echo yes || echo no)"
 
 # ── Public documentation source contract ────────────────────────────────────
 # The public site is source-only: Markdown/MDX plus docs.json. Mintlify reads
