@@ -8,7 +8,7 @@
     },
     "phase2-durability-checkpoint": {
       "path": "lib/test/modules/phase2-durability-checkpoint.sh",
-      "minimum_assertions": 32,
+      "minimum_assertions": 70,
       "description": "Focused #1139 Phase 2 mid-run durability contract: scripts/phase2-durability-checkpoint.sh driven against a scratch git repository with a real bare remote (git plumbing not mocked). The AC1 RED control (no checkpoint leaves the branch zero commits ahead of base with the produced content absent from the remote, as observable git state) and its AC2 GREEN counterpart; the per-invocation behavior (one commit per call each carrying only the work since the previous call, and no empty commit when nothing is new); the cloud-tier workflow-edit guard's detect-and-do-not-stage half over a tracked edit and an untracked addition under the repo's own .github/workflows/ with the non-workflow work still landing; the §2.1.5 proof-edit exclusion by explicit scoping with no history rewrite; the AC6 explicit-path scoping (an unrelated untracked file not carried, and the stage-all tokens refused at the helper); the AC7 landing verification over both a rejected non-fast-forward and an Everything up-to-date no-op leaving HEAD unequal to @{u}; and AC8 idempotency (no empty commit on re-run and prior content seen exactly once)"
     },
     "tier1-rename-migration": {

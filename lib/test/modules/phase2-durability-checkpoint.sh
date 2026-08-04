@@ -164,11 +164,30 @@ W="$(_dc_newrig)"
   mkdir -p .github/workflows
   printf 'name: apptoken\n' > .github/workflows/wf.yml
   # Cloud tier, but with a workflow-capable App token (DEVFLOW_APP_ID set) — the
-  # other exemption. `_dc_cp` sets exactly this pair, so the guard must stay off.
+  # other exemption. Neither `_dc_cp` (GITHUB_ACTIONS=false) nor `_dc_cp_guard`
+  # (DEVFLOW_APP_ID empty) sets this pair, so the env is inlined here.
   GITHUB_ACTIONS=true DEVFLOW_APP_ID=present bash "$DC_HELPER" "feat: cp" .github/workflows/wf.yml >/dev/null 2>&1
 )
 assert_eq "#1139 AC4 negative control: on the cloud tier with DEVFLOW_APP_ID set a named workflow path IS committed and pushed" \
   "yes" "$(_dc_remote_has "$W" .github/workflows/wf.yml)"
+# The guard is anchored on the repo's OWN `.github/workflows/` prefix: a VENDORED
+# path that merely CONTAINS that segment is not the repo's own workflow and must
+# still land, even on a guard-active run. Asserted rather than left to prose,
+# because a future non-anchored glob (`*.github/workflows/*`) would silently drop
+# it while every other guard assertion here stayed green. The repo-own path in the
+# same call is the positive control for the guard still being active on this rig.
+W="$(_dc_newrig)"
+(
+  cd "$W" || exit 1
+  mkdir -p .prflow/vendor/prflow/.github/workflows .github/workflows
+  printf 'name: vendored\n' > .prflow/vendor/prflow/.github/workflows/v.yml
+  printf 'name: own\n' > .github/workflows/own.yml
+  _dc_cp_guard "feat: cp" .prflow/vendor/prflow/.github/workflows/v.yml .github/workflows/own.yml >/dev/null 2>&1
+)
+assert_eq "#1139 AC4: a vendored .prflow/vendor/.../.github/workflows/ path is NOT guarded and still lands" \
+  "yes" "$(_dc_remote_has "$W" .prflow/vendor/prflow/.github/workflows/v.yml)"
+assert_eq "#1139 AC4: positive control on the same call — the repo-own workflow path IS still excluded" \
+  "no" "$(_dc_remote_has "$W" .github/workflows/own.yml)"
 
 # A stage-all spelling must not become a guard BYPASS. `./` used to reach
 # `git add -- ./` because it matched no refusal pattern, and its `${arg#./}` form is the
