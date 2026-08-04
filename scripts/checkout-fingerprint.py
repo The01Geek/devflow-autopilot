@@ -44,12 +44,20 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 
 _ZERO_SHA1 = "0" * 40
+# The object-id shape the four content fields must satisfy — 40-hex (SHA-1) or
+# 64-hex (SHA-256). COUPLED with scripts/verification-flight.py's `_OBJECT_ID_RE`
+# (its `_validate_checkout` rejects anything else): this producer self-checks its
+# own output against the same shape below so it can never emit a fingerprint the
+# consumer would reject, keeping the two sides of the five-field contract in step.
+_OBJECT_ID_RE = re.compile(r"\A(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
+_OBJECT_ID_FIELDS = ("head", "index_digest", "tracked_digest", "untracked_digest")
 # Honor the DEVFLOW_GIT override without probing, mirroring the DEVFLOW_GH escape
 # hatch and scripts/reception_identity.py's sibling GIT resolution.
 _GIT = os.environ.get("DEVFLOW_GIT") or "git"
@@ -93,18 +101,32 @@ def _toplevel() -> str:
 
 
 def _head(top: str) -> str:
-    # An unborn HEAD (no commits yet) is not an error here — it is a real, stable
-    # checkout state, so it records the all-zero object id rather than failing.
+    # A committed HEAD resolves directly.
     proc = subprocess.run(
-        [_GIT, "rev-parse", "HEAD"],
+        [_GIT, "rev-parse", "--verify", "HEAD"],
         cwd=top,
         capture_output=True,
         text=True,
         check=False,
     )
-    if proc.returncode != 0:
+    if proc.returncode == 0:
+        return proc.stdout.strip() or _ZERO_SHA1
+    # A non-zero result is NOT blanket-treated as "unborn": that would let a corrupt
+    # ref store, an unreadable HEAD, or a broken DEVFLOW_GIT binary emit a shape-valid
+    # but factually wrong all-zero head while the other fields succeed, breaking the
+    # module's "any git failure prints no object and exits non-zero" contract. A
+    # genuinely unborn HEAD is a symbolic ref that resolves to no object; only that is
+    # the zero sentinel. Any other failure fails closed.
+    symref = subprocess.run(
+        [_GIT, "symbolic-ref", "-q", "HEAD"],
+        cwd=top,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if symref.returncode == 0 and symref.stdout.strip():
         return _ZERO_SHA1
-    return proc.stdout.strip() or _ZERO_SHA1
+    raise _GitError(f"could not resolve HEAD: {proc.stderr.strip()}")
 
 
 def _write_tree(top: str, env: dict | None = None) -> str:
@@ -117,6 +139,10 @@ def _write_tree(top: str, env: dict | None = None) -> str:
 def _tracked_digest(top: str) -> str:
     """Working-tree content of tracked files (staged + unstaged), via a scratch index."""
     real_index = _git(["rev-parse", "--git-path", "index"], cwd=top).strip()
+    if not real_index:
+        # git always names the index path; an empty result is an attributable failure,
+        # not a signal to copy the toplevel directory into the scratch index.
+        raise _GitError("git rev-parse --git-path index produced no path")
     src = real_index if os.path.isabs(real_index) else os.path.join(top, real_index)
     with tempfile.TemporaryDirectory() as td:
         scratch = os.path.join(td, "index")
@@ -165,13 +191,21 @@ def _untracked_digest(top: str) -> str:
 
 def build_fingerprint() -> dict:
     top = _toplevel()
-    return {
+    fp = {
         "checkout_id": _git(["rev-parse", "--absolute-git-dir"], cwd=top).strip(),
         "head": _head(top),
         "index_digest": _write_tree(top),
         "tracked_digest": _tracked_digest(top),
         "untracked_digest": _untracked_digest(top),
     }
+    # Self-check against the consumer's object-id contract (coupled _OBJECT_ID_RE):
+    # fail closed rather than emit a fingerprint verification-flight.py would reject,
+    # so a future derivation bug surfaces here at the producer rather than as an
+    # opaque `checkout_field_bad_shape` on the read side.
+    for key in _OBJECT_ID_FIELDS:
+        if not _OBJECT_ID_RE.match(fp[key]):
+            raise _GitError(f"derived {key} is not a git object id: {fp[key]!r}")
+    return fp
 
 
 def main(argv: list[str] | None = None) -> int:

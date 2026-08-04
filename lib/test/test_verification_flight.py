@@ -27,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -76,6 +77,15 @@ _SPEC = importlib.util.spec_from_file_location(
 )
 vf = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(vf)
+
+# The producer is hyphenated too — load it the same way for the unit-level tests
+# (the subprocess tests run it as a CLI; the backdate fail-closed test drives an
+# internal helper).
+_CF_SPEC = importlib.util.spec_from_file_location(
+    "checkout_fingerprint", ROOT / "scripts" / "checkout-fingerprint.py"
+)
+cf = importlib.util.module_from_spec(_CF_SPEC)
+_CF_SPEC.loader.exec_module(cf)
 
 
 # A valid checkout fingerprint (issue #1243): the four content fields are git object
@@ -1001,6 +1011,24 @@ class TestWait(Harness):
         self.assertEqual(code, vf.EXIT_OK)
         self.assertTrue(out["satisfies_verification"])
 
+    def test_wait_matching_checkout_passes(self):
+        # #1243: wait computes checkout_verified in its OWN block; drive its matching
+        # arm to EXIT_OK + checkout_verified True (the status path covers the same via
+        # the shared _effective_pass, but wait's verified-match branch needs its own).
+        _, owner = self.claim()
+        k, t = owner["flight_key"], owner["token"]
+        chk = self._write(_ck())
+        self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+        self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
+                      "--summary-file", self._write({"command": "x", "exit_status": 0, "skipped_checks": []}),
+                      "--state-dir", self.state, "--logs-dir", self.logs])
+        code, out = self.run_cmd(["wait", "--flight", k, "--timeout", "1",
+                                  "--poll-interval", "0", "--state-dir", self.state, "--logs-dir", self.logs,
+                                  "--current-checkout-file", chk])
+        self.assertEqual(code, vf.EXIT_OK)
+        self.assertTrue(out["checkout_verified"])
+        self.assertTrue(out["satisfies_verification"])
+
     def test_wait_expiry_non_mutating(self):
         _, owner = self.claim()
         k = owner["flight_key"]
@@ -1630,6 +1658,95 @@ class TestStaleFlightRegression(Harness):
         self.assertFalse(st_bad["reuse_ready"])
         self.assertFalse(st_bad["checkout_verified"])
         self.assertEqual(st_bad["state"], "passed")
+
+
+class TestCheckoutFingerprintProducer(Harness):
+    """Direct coverage of scripts/checkout-fingerprint.py's own contract (issue #1243):
+    its fail-closed behavior, the untracked field, and an unborn HEAD."""
+
+    def _run_producer(self, cwd):
+        return subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "checkout-fingerprint.py")],
+            cwd=cwd, capture_output=True, text=True,
+        )
+
+    def _git(self, repo, *args) -> None:
+        subprocess.run(["git", *args], cwd=repo, check=True,
+                       capture_output=True, text=True)
+
+    def _repo(self):
+        repo = os.path.join(self.tmp, f"repo-{os.urandom(4).hex()}")
+        os.makedirs(repo)
+        self._git(repo, "init", "-q")
+        self._git(repo, "config", "user.email", "t@example.invalid")
+        self._git(repo, "config", "user.name", "t")
+        return repo
+
+    def test_fails_closed_outside_git_repo(self):
+        # The producer's headline promise: any git failure prints NO object and exits
+        # non-zero. A non-git directory makes _toplevel() raise.
+        nongit = os.path.join(self.tmp, "not-a-repo")
+        os.makedirs(nongit)
+        proc = self._run_producer(nongit)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout.strip(), "", "must emit no fingerprint on failure")
+        self.assertIn("checkout-fingerprint", proc.stderr)
+
+    def test_untracked_change_moves_fingerprint_and_ignored_excluded(self):
+        repo = self._repo()
+        Path(repo, "tracked.txt").write_text("x\n", encoding="utf-8")
+        self._git(repo, "add", "tracked.txt")
+        self._git(repo, "commit", "-qm", "init")
+        before = json.loads(self._run_producer(repo).stdout)
+
+        # An untracked, non-ignored file moves the fingerprint (its untracked_digest).
+        Path(repo, "new-untracked.txt").write_text("hello\n", encoding="utf-8")
+        after = json.loads(self._run_producer(repo).stdout)
+        self.assertNotEqual(before["untracked_digest"], after["untracked_digest"])
+        self.assertNotEqual(before, after)
+
+        # A gitignored file does NOT move the fingerprint.
+        Path(repo, ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
+        self._git(repo, "add", ".gitignore")
+        self._git(repo, "commit", "-qm", "ignore")
+        baseline = json.loads(self._run_producer(repo).stdout)
+        Path(repo, "ignored.txt").write_text("secret\n", encoding="utf-8")
+        with_ignored = json.loads(self._run_producer(repo).stdout)
+        self.assertEqual(baseline["untracked_digest"], with_ignored["untracked_digest"],
+                         "a gitignored file must not change the fingerprint")
+
+    def test_unborn_head_emits_zero_sha(self):
+        # A fresh repo with no commit: head is the all-zero sentinel, and the
+        # fingerprint is still declaration-valid (40 zeros are object-id-shaped).
+        repo = self._repo()
+        proc = self._run_producer(repo)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        fp = json.loads(proc.stdout)
+        self.assertEqual(fp["head"], "0" * 40)
+        # It passes the consumer's shape gate.
+        self.assertEqual(vf._validate_checkout(dict(fp)), fp)
+
+
+class TestProducerBackdateFailClosed(Harness):
+    """The #1117 racy-stat hardening's fail-closed arm: when the filesystem does not
+    store the backdate, _tracked_digest raises rather than fingerprinting from
+    unprotected stat data."""
+
+    def test_ineffective_backdate_raises(self):
+        repo = os.path.join(self.tmp, "bd-repo")
+        os.makedirs(repo)
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "config", "user.email", "t@e"], cwd=repo, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True, capture_output=True, text=True)
+        Path(repo, "a.txt").write_text("one\n", encoding="utf-8")
+        subprocess.run(["git", "add", "a.txt"], cwd=repo, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "commit", "-qm", "c"], cwd=repo, check=True, capture_output=True, text=True)
+        # os.utime made a no-op: the scratch index keeps its real (current) mtime, so
+        # the stored second is NOT the requested backdate and the verify must fail closed.
+        with mock.patch.object(cf.os, "utime", lambda *a, **k: None), \
+                self.assertRaises(cf._GitError) as ctx:
+            cf._tracked_digest(repo)
+        self.assertIn("backdate ineffective", str(ctx.exception))
 
 
 if __name__ == "__main__":
