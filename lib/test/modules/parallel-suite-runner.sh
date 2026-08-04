@@ -21,6 +21,15 @@
 
 PSR_COORD="$LIB/test/run-parallel.sh"
 PSR_TALLY="$LIB/test/shard-tally.py"
+# issue #1216: the exec shim that restores SIGINT/SIGQUIT (and the other default
+# suite signals) before the coordinator's bash begins. The signal cases below
+# background the coordinator under the module worker's job-control-off shell,
+# which POSIX-forces SIGINT/SIGQUIT to SIG_IGN in the child; bash cannot un-ignore
+# them, so without this shim the coordinator can never trap SIGINT and the INT
+# cases fail (or hang in the launch window). The shim `execvp`s the coordinator,
+# so `$!` still names it — the identity `kill -s "$sig" "$coord"` relies on. An
+# absolute path so it resolves after the fixture `cd`s into its scratch tree.
+PSR_SIGSHIM="$LIB/test/exec-with-default-signals.py"
 PSR_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/devflow-psr.XXXXXX")"
 
 # ── fixture builders ─────────────────────────────────────────────────────────
@@ -407,6 +416,11 @@ assert_eq "psr failure: the duplicate refusal launches no shard at all" "yes" \
 # the second shard's directory creation then fails.
 PSR_T3B="$(psr_make_tree)"; psr_plant_dispatcher "$PSR_T3B"
 PSR_LF_WIN="$PSR_T3B/lf-win"
+# issue #1216: this backgrounded coordinator is DELIBERATELY not routed through
+# the SIGINT-restoring shim (unlike the signalled cases below). It is released
+# through its own window file and `wait`ed — it is never `kill`ed — so the
+# inherited-SIG_IGN defect that shim fixes cannot reach it. Left unchanged so the
+# launch-failure path under test stays byte-for-byte what it was.
 ( cd "$PSR_T3B" || exit 1
   export SYN_SHARDS="alpha beta" SYN_SLEEP=0.05 \
     DEVFLOW_TEST_LAUNCH_WINDOW_FILE="$PSR_LF_WIN" \
@@ -534,13 +548,13 @@ psr_signal_case() { # signal window(pre|post) -> prints "<rc>|<alive-count>|<ack
     ( cd "$PSR_T5" || exit 1
       export SYN_PIDFILE="$pidfile" DEVFLOW_TEST_LAUNCH_WINDOW_FILE="$winfile" \
         DEVFLOW_SHARD_DISPATCHER="$PSR_T5/dispatch.sh"
-      exec bash lib/test/run-parallel.sh > "$PSR_T5/out-$sig-$window" 2>&1 ) &
+      exec python3 "$PSR_SIGSHIM" bash lib/test/run-parallel.sh > "$PSR_T5/out-$sig-$window" 2>&1 ) &
     coord=$!
     while [ ! -e "$winfile" ]; do sleep 0.01; done
   else
     ( cd "$PSR_T5" || exit 1
       export SYN_PIDFILE="$pidfile" DEVFLOW_SHARD_DISPATCHER="$PSR_T5/dispatch.sh"
-      exec bash lib/test/run-parallel.sh > "$PSR_T5/out-$sig-$window" 2>&1 ) &
+      exec python3 "$PSR_SIGSHIM" bash lib/test/run-parallel.sh > "$PSR_T5/out-$sig-$window" 2>&1 ) &
     coord=$!
     # Wait until both shard children have published their PIDs, i.e. both are
     # registered. Counted with builtins, never a PATH tool (guard-class 2).
@@ -586,7 +600,7 @@ PSR_Q_PIDS="$PSR_T5/pids-queued"; : > "$PSR_Q_PIDS"
 ( cd "$PSR_T5" || exit 1
   export SYN_PIDFILE="$PSR_Q_PIDS" DEVFLOW_SHARD_DISPATCHER="$PSR_T5/dispatch.sh" \
     DEVFLOW_SUITE_PROCESS_BUDGET=1
-  exec bash lib/test/run-parallel.sh > "$PSR_T5/out-queued" 2>&1 ) &
+  exec python3 "$PSR_SIGSHIM" bash lib/test/run-parallel.sh > "$PSR_T5/out-queued" 2>&1 ) &
 PSR_Q_COORD=$!
 while [ "$(psr_count_matching "$PSR_Q_PIDS" "")" -lt 1 ]; do sleep 0.05; done
 kill -s TERM "$PSR_Q_COORD" 2>/dev/null || :
