@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1255",
+  "generated_at": "2026-08-04T05:17:47Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.83",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.4783945,
+    "tokens": {
+      "input_tokens": 38,
+      "output_tokens": 18814,
+      "cache_read_input_tokens": 2800989,
+      "cache_creation_input_tokens": 160736,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 38,
+        "outputTokens": 18814,
+        "cacheReadInputTokens": 2800989,
+        "cacheCreationInputTokens": 160736,
+        "webSearchRequests": 0,
+        "costUSD": 3.4783945,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 29,
+    "duration_ms": 294225
+  },
+  "permission_denials": {
+    "count": 4,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review; echo \"rc=$?\"",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-<none>} ATTEMPT=${GITHUB_RUN_ATTEMPT:-<none>} ACTIONS=${GITHUB_ACTIONS:-<none>}\"; echo \"---\"; git status --porcelain | head; echo \"---rc=$?\"",
+      "scripts/post-review-verdict.sh 1255 APPROVE .prflow/tmp/review/pr-1255/verdict-body.md f2093dc501bdb21e1500028778c1d222b3df81b7; echo \"post-rc=$?\""
+    ],
+    "total": 4,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
