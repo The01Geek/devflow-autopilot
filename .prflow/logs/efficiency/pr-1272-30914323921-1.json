@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1272",
+  "generated_at": "2026-08-04T13:50:26Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.89",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 13.312154499999998,
+    "tokens": {
+      "input_tokens": 74,
+      "output_tokens": 40312,
+      "cache_read_input_tokens": 6780496,
+      "cache_creation_input_tokens": 254149,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 185,
+        "outputTokens": 94777,
+        "cacheReadInputTokens": 11512804,
+        "cacheCreationInputTokens": 677175,
+        "webSearchRequests": 0,
+        "costUSD": 13.312154499999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 46,
+    "duration_ms": 988418
+  },
+  "permission_denials": {
+    "count": 15,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-unset} ATTEMPT=${GITHUB_RUN_ATTEMPT:-unset} ACTIONS=${GITHUB_ACTIONS:-unset}\"; echo \"SERVER=$GITHUB_SERVER_URL REPO=$GITHUB_REPOSITORY\"",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh review 2>.prflow/tmp/review/pr-1272/30914323921-1/ext.err ; echo \"ext-rc=$?\"; echo \"---FILES---\"; grep -E '^diff --git' .prflow/tmp/review/pr-1272/30914323921-1/diff.patch | sed -E 's#^diff --git a/(.*) b/.*#\\1#'",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1124 --pr 1272 2>.prflow/tmp/review/pr-1272/30914323921-1/acs.err ; echo \"acs-rc=$?\"",
+      "mkdir -p .prflow/tmp\nrm -f .prflow/tmp/review-dirty-tree-before .prflow/tmp/review-dirty-tree-disabled\ngit status --porcelain -z > .prflow/tmp/review-dirty-tree-before && git hash-object .prflow/tmp/review-dirty-tree-before\necho \"---OVERRIDES---\"\n.prflow/vendor/prflow/scripts/resolve-review-overrides.py \"prflow:code-reviewer\" \"prflow:silent-failure-hunter\" \"prflow:comment-analyzer\" \"prflow:pr-test-analyzer\" \"prflow:requesting-code-review\" ; echo \"ovr-rc=$?\"",
+      "ls -la lib/test/lint-anchor-fallback-arm.py 2>&1; echo \"---\"; git -c core.pager=cat show HEAD:lib/test/lint-anchor-fallback-arm.py >/dev/null 2>&1 && echo \"in HEAD\" || echo \"not in HEAD\"",
+      "cd /home/runner/work/prflow/prflow\nfor h in eec9526888563f0b093e01e90c028429f61c8b8f5982942b21d5bf9a648fb698 41ceb79045f88462db26fc047e297d967c09375b0b91b77629c1f040c3bc4220; do\n  echo \"== $h ==\"\n  grep -l \"$h\" lib/test/pin-corpus-*.tsv 2>/dev/null || echo \"NOT FOUND in adjudications/inventory\"\n  grep \"$h\" lib/test/pin-corpus-*.tsv 2>/dev/null | cut -c1-120\ndone",
+      "cd /home/runner/work/prflow/prflow\ngit show 355fb3cb:lib/test/pin-corpus-lint.py > /tmp/pcl_head.py 2>&1\nwc -l /tmp/pcl_head.py\ngrep -n \"AUDITED_PIN_SOURCES\\|assert_pin_unique\\|def _consumer\\|structural-pin-ok\\|adjudicat\" /tmp/pcl_head.py | head -50",
+      "git show 355fb3cb:lib/test/pin-corpus-lint.py > /tmp/pcl_head.py; wc -l /tmp/pcl_head.py",
+      "git -C /home/runner/work/prflow/prflow show 355fb3cb:lib/test/pin-corpus-lint.py > /tmp/pcl_head.py; wc -l /tmp/pcl_head.py",
+      "git -C /home/runner/work/prflow/prflow show 355fb3cb:lib/test/pin-corpus-lint.py > /tmp/pcl_head.py",
+      "git worktree add -q /tmp/pr1272 355fb3cb 2>&1 | tail; echo \"done\"; ls /tmp/pr1272 >/dev/null 2>&1 && echo \"worktree ok\"",
+      "git worktree add --detach .claude/worktrees/pr1272 355fb3cb",
+      "mkdir -p .prflow/tmp/pr1272 && git show 355fb3cb:lib/test/pin-corpus-lint.py > .prflow/tmp/pr1272/pcl.py && grep -n \"AUDITED_PIN_SOURCES\\s*=\" .prflow/tmp/pr1272/pcl.py",
+      "cd /home/runner/work/prflow/prflow\necho \"== anchor leading-token invocations across skills (base tree approximation) ==\"\ngit grep -hE '^\\s*\"\\$\\{CLAUDE_SKILL_DIR:-' 45705b5c -- 'skills/*' 2>/dev/null | wc -l\necho \"== files with such invocations ==\"\ngit grep -lE '^\\s*\"\\$\\{CLAUDE_SKILL_DIR:-' 45705b5c -- 'skills/*' 2>/dev/null | wc -l",
+      "cd /home/runner/work/prflow/prflow; git grep -cE '^\\s*\"\\$\\{CLAUDE_SKILL_DIR:-' 45705b5c -- 'skills/' | wc -l"
+    ],
+    "total": 15,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
