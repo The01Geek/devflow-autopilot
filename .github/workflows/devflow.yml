@@ -1945,12 +1945,22 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          # The login of THIS run's reviewer identity (issue #1250). On the
+          # /prflow:review path the agent runs under the downscoped DevFlow-Reviewer
+          # token, so any review it POSTs — including one written directly through the
+          # granted `gh api`, the #1250 bypass — is authored by that App's bot user.
+          # When the reviewer App is unconfigured the review runs under GITHUB_TOKEN,
+          # i.e. github-actions[bot]. The classifier scopes strictly to reviews by this
+          # login, so a human's review is never mistaken for the run's own.
+          REVIEWER_LOGIN: ${{ steps.reviewer-token.outputs.app-slug != '' && format('{0}[bot]', steps.reviewer-token.outputs.app-slug) || 'github-actions[bot]' }}
         run: |
           set -uo pipefail
           CHECK=.prflow/vendor/prflow/scripts/check-verdict-post-reached.sh
           [ -f "$CHECK" ] || CHECK=scripts/check-verdict-post-reached.sh
           GAP=.prflow/vendor/prflow/scripts/describe-verdict-post-gap.sh
           [ -f "$GAP" ] || GAP=scripts/describe-verdict-post-gap.sh
+          CLS=.prflow/vendor/prflow/scripts/classify-head-reviews.sh
+          [ -f "$CLS" ] || CLS=scripts/classify-head-reviews.sh
           if [ ! -f "$CHECK" ] || [ ! -f "$GAP" ]; then
             echo "::warning::verdict-post reach record: the check helpers are absent from this deployment (an older vendored tree); this run leaves no record of whether Phase 4.4's verdict emitter was reached."
             exit 0
@@ -1962,9 +1972,23 @@ jobs:
           # so a reader is not left wondering whether the failure was handled.
           HEAD_SHA=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha 2>/dev/null || true)
           LINE=$(bash "$CHECK" || true)
+          # Classify the reviews recorded on the head so the renderer can stop
+          # asserting the reviews API was untouched when it was NOT (issue #1250).
+          # The query and classification are best-effort: a failed query leaves an
+          # empty payload the classifier reads as `unestablished`, and an absent
+          # classifier (older vendored tree) leaves REVIEW_CLASS empty — either way
+          # the renderer degrades to asserting nothing about the API, never to a
+          # false claim. This step selects NOTHING on REVIEW_CLASS; it passes the
+          # opaque token straight to the arm-dispatch helper.
+          REVIEW_CLASS=""
+          if [ -f "$CLS" ]; then
+            REVIEWS_FILE="$RUNNER_TEMP/head-reviews.json"
+            gh api "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" > "$REVIEWS_FILE" 2>/dev/null || : > "$REVIEWS_FILE"
+            REVIEW_CLASS=$(bash "$CLS" "$REVIEWS_FILE" "$HEAD_SHA" "$REVIEWER_LOGIN" || true)
+          fi
           WARNING_FILE="$RUNNER_TEMP/verdict-post-gap-warning.txt"
           BODY_FILE="$RUNNER_TEMP/verdict-post-gap-body.md"
-          ARM=$(bash "$GAP" "$LINE" "${GITHUB_RUN_ID:-}" "$PR_NUMBER" "$HEAD_SHA" "$WARNING_FILE" "$BODY_FILE" || true)
+          ARM=$(bash "$GAP" "$LINE" "${GITHUB_RUN_ID:-}" "$PR_NUMBER" "$HEAD_SHA" "$WARNING_FILE" "$BODY_FILE" "$REVIEW_CLASS" || true)
           echo "::notice::verdict-post reach record: ${ARM:-ARM unreported} (check said: ${LINE:-<no output>})"
           if [ -s "$WARNING_FILE" ]; then
             while IFS= read -r WARNING_LINE; do

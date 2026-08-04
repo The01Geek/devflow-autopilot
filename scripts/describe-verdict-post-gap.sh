@@ -64,11 +64,18 @@
 # and whose absence yields an empty value and the wrong arm.
 #
 # Usage: describe-verdict-post-gap.sh READER_LINE RUN_ID PR_NUMBER HEAD_SHA \
-#                                     [WARNING_FILE] [BODY_FILE]
+#                                     [WARNING_FILE] [BODY_FILE] [REVIEW_CLASS]
 #   READER_LINE   check-verdict-post-reached.sh's single stdout line (possibly empty).
 #   WARNING_FILE  truncated on every arm; written with one line on the four non-reached
 #                 arms. Omit (or pass empty) to skip the write.
 #   BODY_FILE     truncated on every arm; written only on `not-reached`.
+#   REVIEW_CLASS  classify-head-reviews.sh's single line for the reviewed head — `none`,
+#                 `marked`, `unmarked <id>…`, `unestablished <reason>`, or empty (an
+#                 older deployment, or a step that did not classify). Selects the
+#                 not-reached body's middle paragraph and warning: the API is asserted
+#                 untouched only on `none`, the offending review is named on `unmarked`,
+#                 and nothing is asserted either way on `unestablished`/empty (issue
+#                 #1250). Ignored on every arm other than not-reached.
 # Prints one `ARM <arm>` line to stdout. Always exits 0 — the step that consumes this
 # must never change the invoking job's pass or its fail.
 set -u
@@ -79,12 +86,41 @@ PR_NUMBER="${3:-}"
 HEAD_SHA="${4:-}"
 WARNING_FILE="${5:-}"
 BODY_FILE="${6:-}"
+# REVIEW_CLASS is scripts/classify-head-reviews.sh's single line for the reviewed head
+# (issue #1250): `none`, `marked`, `unmarked <id>…`, `unestablished <reason>`, or empty
+# on an older deployment / a step that did not classify. It disambiguates the ONE
+# observation the reader gives on receipt absence — the reviews API was written to, or
+# not — so the not-reached body stops asserting the API was untouched when it was not.
+REVIEW_CLASS="${7:-}"
 
 # ── Field validation. `unavailable` is the single literal for every value that did not
 # resolve, matching the vocabulary permission_denials_count already publishes.
 [[ "$RUN_ID" =~ ^[0-9]+$ ]] || RUN_ID=unavailable
 [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || PR_NUMBER=unavailable
 [[ "$HEAD_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || HEAD_SHA=unavailable
+
+# ── Parse REVIEW_CLASS into a validated kind + safe payload. The classifier's vocabulary
+# is closed, but this parse never trusts that: the ids are re-validated as digit strings
+# and the reason as a lowercase token, so no payload byte can reach a `::warning::` or a
+# comment even if a future producer widened the vocabulary. An `unmarked` line with no
+# valid id, and any unrecognized kind, degrade to `unestablished` — the direction that
+# asserts nothing.
+RC_KIND="${REVIEW_CLASS%% *}"
+RC_REST="${REVIEW_CLASS#"$RC_KIND"}"
+RC_REST="${RC_REST# }"
+RC_IDS=""
+RC_REASON=""
+case "$RC_KIND" in
+  none|marked) : ;;
+  unmarked)
+    for _rc_tok in $RC_REST; do
+      [[ "$_rc_tok" =~ ^[0-9]+$ ]] && RC_IDS="${RC_IDS:+$RC_IDS }$_rc_tok"
+    done
+    [ -n "$RC_IDS" ] || RC_KIND=unestablished ;;
+  unestablished)
+    [[ "$RC_REST" =~ ^[a-z][a-z-]*$ ]] && RC_REASON="$RC_REST" ;;
+  *) RC_KIND=unestablished ;;
+esac
 
 # Truncate both sinks on EVERY arm, before any arm is selected: a stale file left by an
 # earlier step (or an earlier attempt of this one) would otherwise be read by the
@@ -108,42 +144,94 @@ _dvg_reset "$BODY_FILE"
 # RESIDUAL). A body asserting "the emitter did not run" would therefore publish a false
 # statement on a pull request whenever the second cause applies with a `POSTED review`
 # outcome — a formal review sitting in the reviews API while a public comment says the
-# API is unchanged. That is CLAUDE.md's "unknown is not zero" rule one level down: the
-# reader correctly refuses to collapse *unreadable* onto NOT-REACHED, so the comment
-# must not then collapse *write-failed* onto "did not run". It names the observation,
-# both causes, and the one check that separates them.
+# API is unchanged. Issue #1250 is the sharper version of the same failure: `gh api` is
+# granted in every capability profile, so a run that never reached the emitter can still
+# have POSTED a real, merge-blocking review directly through the reviews endpoint —
+# unmarked, so no verdict consumer reads it. The categorical "left the reviews API and
+# `reviewDecision` untouched" the earlier body carried was therefore observed FALSE on a
+# live run (30860699039 / review 4849248513). So the middle paragraph is now chosen from
+# REVIEW_CLASS — scripts/classify-head-reviews.sh's reading of the reviews actually
+# recorded on the head — and it asserts the API was untouched only on the `none` arm
+# where that was measured, names the offending review on the `unmarked` arm, and asserts
+# nothing either way on `unestablished`/empty. This is CLAUDE.md's "unknown is not zero"
+# rule two levels down.
 #
-# The tail is a single-quoted literal so no byte of it is expanded by the shell, and it
-# is emitted with `printf` — a BUILTIN — never through `cat`, which lib/preflight.sh
-# does not guarantee: a host without it would post a truncated body, and the body IS
-# the emitted result this whole step exists to produce.
-_DVG_BODY_TAIL='No run-scoped verdict-post receipt was found for this run: either Phase 4.4'"'"'s
+# Every paragraph is a single-quoted literal so no byte of it is expanded by the shell,
+# and the body is emitted with `printf` — a BUILTIN — never through `cat`, which
+# lib/preflight.sh does not guarantee: a host without it would post a truncated body,
+# and the body IS the emitted result this whole step exists to produce. The one
+# substituted value in the middle paragraph is RC_IDS, which the parse above reduced to
+# digit tokens.
+_DVG_INTRO='No run-scoped verdict-post receipt was found for this run: either Phase 4.4'"'"'s
 verdict emitter did not run, or it ran and could not write its receipt (look for a
-`could not write the verdict-post receipt` breadcrumb in the job log). If a formal
-review exists in the reviews API for the head above, the emitter ran.
+`could not write the verdict-post receipt` breadcrumb in the job log).'
 
-Those two causes differ in what they imply here, which is why this comment asserts
-neither. If the emitter did not run, it recorded no verdict anywhere and this run left
-the reviews API and `reviewDecision` untouched. If it ran but could not write its
-receipt, whatever it posted stands and this comment says nothing about it. Reading the
-reviews API for the head above is what tells them apart.
-
-Any verdict text this run published OUTSIDE the emitter — a plain pull-request comment,
-for example — carries no producer-emitted verdict marker, and the verdict-derivation
-consumers do not read it as a verdict.
+# The class-appropriate middle paragraph. Printed by _dvg_middle so the RC_IDS
+# substitution stays inside printf rather than a heredoc/expansion.
+_DVG_MID_MARKED='This run'"'"'s reviewer identity recorded a MARKED review in the reviews API for the
+head above: its first line carries the producer-emitted verdict marker, so the
+verdict-derivation consumers do read it as a verdict. Only the receipt is missing.'
+_DVG_MID_NONE='No review authored by this run'"'"'s reviewer identity is recorded in the reviews
+API for the head above, so this run left the reviews API and `reviewDecision` untouched.
+It recorded no verdict anywhere.'
+_DVG_MID_CLOSING='Any verdict text this run published OUTSIDE the emitter carries no producer-emitted verdict marker,
+and the verdict-derivation consumers do not read it as a verdict.
 
 This comment is a record of that gap. It is not a verdict, and it neither approves nor
 rejects this pull request.'
 
+_dvg_middle() {
+  case "$RC_KIND" in
+    unmarked)
+      printf 'This run'"'"'s reviewer identity DID write to the reviews API for the head above:\n'
+      printf 'review %s is recorded there and carries no producer-emitted verdict marker on its\n' "$RC_IDS"
+      printf 'first line. GitHub records it as a formal review that can set `reviewDecision`, but the\n'
+      printf 'verdict-derivation consumers do not read an unmarked review as a verdict, so PRFlow'"'"'s\n'
+      printf 'own tooling does not recognize it.\n'
+      ;;
+    marked)
+      printf '%s\n' "$_DVG_MID_MARKED"
+      ;;
+    none)
+      printf '%s\n' "$_DVG_MID_NONE"
+      ;;
+    *)  # unestablished / empty — assert NOTHING about the reviews API either way.
+      if [ -n "$RC_REASON" ]; then
+        printf 'Whether this run recorded any review in the reviews API for the head above could not\n'
+        printf 'be established (%s); this comment asserts nothing about the reviews API either way.\n' "$RC_REASON"
+      else
+        printf 'Whether this run recorded any review in the reviews API for the head above was not\n'
+        printf 'checked by this step; this comment asserts nothing about the reviews API either way.\n'
+      fi
+      printf 'Reading the reviews API for the head above is what settles it.\n'
+      ;;
+  esac
+}
+
 # The comment body. Its first line is a marker so the record is greppable, and it
 # carries NO producer verdict marker — this run reached no verdict this step can see.
-# The three validated fields are substituted by printf.
+# The validated fields are substituted by printf.
 _dvg_body() {
   printf '<!-- prflow:verdict-post-gap run=%s -->\n' "$RUN_ID"
   printf '**PRFlow review: no verdict-post receipt was found for this run.**\n\n'
   printf -- '- Actions run id: `%s`\n' "$RUN_ID"
   printf -- '- Pull-request head SHA this step resolved: `%s`\n\n' "$HEAD_SHA"
-  printf '%s\n' "$_DVG_BODY_TAIL"
+  printf '%s\n\n' "$_DVG_INTRO"
+  _dvg_middle
+  printf '\n%s\n' "$_DVG_MID_CLOSING"
+}
+
+# The not-reached WARNING names the offending review id on the `unmarked` arm (issue
+# #1250 AC6) — the one arm where a real merge-blocking review exists that no verdict
+# consumer reads — and otherwise states the observation and both causes.
+_dvg_notreached_warning() {
+  if [ "$RC_KIND" = unmarked ]; then
+    printf 'PRFlow review: run %s left an UNMARKED review (review %s) in the reviews API for pull request #%s while no verdict-post receipt was found — GitHub records it as a formal review that can set reviewDecision, but the verdict-derivation consumers do not read it as a verdict; the posted comment has the detail' \
+      "$RUN_ID" "$RC_IDS" "$PR_NUMBER"
+  else
+    printf 'PRFlow review: no run-scoped verdict-post receipt was found for Actions run %s on pull request #%s — either Phase 4.4'"'"'s verdict emitter did not run, or it ran and could not write its receipt; the posted comment names the check that tells them apart' \
+      "$RUN_ID" "$PR_NUMBER"
+  fi
 }
 
 case "$READER_LINE" in
@@ -151,7 +239,7 @@ case "$READER_LINE" in
     printf 'ARM %s\n' reached
     ;;
   'NOT-REACHED')
-    _dvg_write "$WARNING_FILE" "PRFlow review: no run-scoped verdict-post receipt was found for Actions run $RUN_ID on pull request #$PR_NUMBER — either Phase 4.4's verdict emitter did not run, or it ran and could not write its receipt; the posted comment names the check that tells them apart"
+    _dvg_write "$WARNING_FILE" "$(_dvg_notreached_warning)"
     if [ -n "$BODY_FILE" ]; then
       ( _dvg_body > "$BODY_FILE" ) 2>/dev/null || true
     fi
