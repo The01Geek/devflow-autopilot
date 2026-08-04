@@ -4253,7 +4253,7 @@ assert_eq("resolve: the canonical and alias namespaced code-reviewer ids are bot
            "devflow:code-reviewer" in _rro.KNOWN_AGENTS])
 
 # Migration guard (#141): the old code-reviewer override key (the pre-rename, externally
-# namespaced form) was renamed into the devflow: namespace. docs/review-agent-overrides.md
+# namespaced form) was renamed into the devflow: namespace. docs/internal/review-agent-overrides.md
 # + CHANGELOG promise that a STALE old key is treated as UNKNOWN (the resolver ignores it
 # with a `::warning::`; the override silently stops applying) rather than silently matching
 # the renamed agent. Pin that promise on the exact old string so the migration note is
@@ -4272,7 +4272,7 @@ assert_eq("#141 migration: main() warns the stale old key is not a known subagen
 
 # Migration guard (#142): seam 3 renamed the final-pass reviewer override key from its
 # pre-rename superpowers-namespaced form into the devflow: namespace. The 2.8.12 CHANGELOG
-# + docs/review-agent-overrides.md migration table make the same promise as #141's rename.
+# + docs/internal/review-agent-overrides.md migration table make the same promise as #141's rename.
 # This block pins the DISPATCHED-unknown path: a stale old key passed as a dispatched id is
 # UNKNOWN, so main() warns it is not a known subagent and exits 0 (never aborts). (The
 # config-layer silent-drop half — a stale override key left in agent_overrides — is pinned
@@ -9932,7 +9932,7 @@ assert_eq("#855: every scanned implement-profile prompt surface teaches no denie
 # `$VAR/…`-anchored, not `${CLAUDE_SKILL_DIR}`-anchored — those resolve independently
 # of cwd), in COMMAND position (not a pure `VAR=value` assignment value, not a
 # `for X in …` data list — those are data strings, not emitted command paths). The
-# pointer line itself (`…/docs/working-directory-contract.md`) is excluded from the
+# pointer line itself (`…/docs/internal/working-directory-contract.md`) is excluded from the
 # token scan so the change does not enlarge its own expected set.
 # A BARE repo-relative path token: one of the tokens preceded by a boundary char —
 # NOT a `$VAR/`-anchored (`/`, `$`), `${…}`-anchored (`{`, `}`), or word-internal
@@ -12350,7 +12350,7 @@ with tempfile.TemporaryDirectory() as _cw_main:
 _REPO = cwc.REPO_ROOT
 
 # The operator-facing refresh action AC19 requires the upgrade docs to state. This
-# literal is COUPLED to docs/install.md's cloud-writer upgrade note — the pairing-1
+# literal is COUPLED to docs/internal/install.md's cloud-writer upgrade note — the pairing-1
 # fixture below asserts the sentence is present there, so a docs reword that drops
 # it turns this block RED (the two are one edit).
 _CW_REFRESH_ACTION = ("refresh your installed workflows and vendored plugin content "
@@ -16763,7 +16763,7 @@ with tempfile.TemporaryDirectory() as _t705:
 # issue #743 — advisory/invalid per-finding adjudication records + calibration layer.
 # The state owner is the sole tested boundary for the deterministic recording floor and
 # the calibration derivation; the chat-surface rendering/election halves are discharged in
-# docs/advisory-adjudication-calibration.md (their self-attestation residual named there).
+# docs/internal/advisory-adjudication-calibration.md (their self-attestation residual named there).
 # Every row is test-first: its failing-first reason is stated inline.
 
 def _adj743(r, n, *, verdict='REVISE', must=1, advisory=0, invalid=0, unresolved='1',

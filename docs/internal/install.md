@@ -1,6 +1,6 @@
 # Installing & updating PRFlow
 
-The [README quick start](../README.md#quick-start) gets you running in one line. This page is the full reference: every install path, the now-zero companion-plugin dependency set, and how updates work for both tiers.
+The [README quick start](../../README.md#quick-start) gets you running in one line. This page is the full reference: every install path, the now-zero companion-plugin dependency set, and how updates work for both tiers.
 
 ## Local tier
 
@@ -47,7 +47,7 @@ PRFlow declares **zero companion-plugin dependencies** — every external asset 
 python3 -m pip install PyYAML
 ```
 
-On the local tier PyYAML is **advisory**: `bash lib/preflight.sh` reports a missing PyYAML and still exits 0 (with a distinct advisory final line naming the remedy), because that one helper degrades to a logged skip rather than breaking. Installing it only restores the severity demotion of previously-deferred findings. (On the cloud tier the workflows install PyYAML themselves — a `pip install` step in the workflow, not something `install.sh` does — and the test suite and CI still require it.) See [Requirements](../README.md#requirements) for the full PATH checklist; in a checkout of this repo, `bash lib/preflight.sh` verifies the required tools.
+On the local tier PyYAML is **advisory**: `bash lib/preflight.sh` reports a missing PyYAML and still exits 0 (with a distinct advisory final line naming the remedy), because that one helper degrades to a logged skip rather than breaking. Installing it only restores the severity demotion of previously-deferred findings. (On the cloud tier the workflows install PyYAML themselves — a `pip install` step in the workflow, not something `install.sh` does — and the test suite and CI still require it.) See [Requirements](../../README.md#requirements) for the full PATH checklist; in a checkout of this repo, `bash lib/preflight.sh` verifies the required tools.
 
 ### Windows: resolving `python3`
 
@@ -395,7 +395,7 @@ From this version, neither cloud tier that runs the review engine reads your `.p
 
 The **automated** runner (`devflow-runner.yml`) checks out the pull request's head, so it materializes `review.md` and `requesting-code-review.md` from your **trusted base ref** into a `$RUNNER_TEMP` closure, points the loader at it with `DEVFLOW_PROMPT_EXTENSION_ROOT`, and — unconditionally, including on a failed base-ref fetch, an empty base ref, and an unresolvable materialization helper — truncates the workspace copies so an older loader finds nothing.
 
-The **shipped comment-driven tier** (`devflow.yml`'s `command` job — `/prflow:review`, `/prflow:review-and-fix`, `/prflow:pr-description`) does the same materialization for all five extensions those commands can load, but reaches the problem differently: its own checkout is your default branch on an `issue_comment` trigger, and it is `/prflow:review-and-fix`'s branch sync that moves the working tree onto the pull-request head part-way through the run. Because that tier commits and pushes, it deliberately does **not** truncate your workspace copies (that would dirty the tree the branch sync requires clean, and the fix loop would commit the truncation); it warns loudly instead when the plugin version you pinned is too old to honor `DEVFLOW_PROMPT_EXTENSION_ROOT`. Consequence to expect on both tiers: a pull request that edits a prompt extension does **not** change its own review run — the change takes effect after merge. Residuals neither tier closes are enumerated in `docs/DEVFLOW_SYSTEM_OVERVIEW.md`'s base-ref-trust-boundary bullet.
+The **shipped comment-driven tier** (`devflow.yml`'s `command` job — `/prflow:review`, `/prflow:review-and-fix`, `/prflow:pr-description`) does the same materialization for all five extensions those commands can load, but reaches the problem differently: its own checkout is your default branch on an `issue_comment` trigger, and it is `/prflow:review-and-fix`'s branch sync that moves the working tree onto the pull-request head part-way through the run. Because that tier commits and pushes, it deliberately does **not** truncate your workspace copies (that would dirty the tree the branch sync requires clean, and the fix loop would commit the truncation); it warns loudly instead when the plugin version you pinned is too old to honor `DEVFLOW_PROMPT_EXTENSION_ROOT`. Consequence to expect on both tiers: a pull request that edits a prompt extension does **not** change its own review run — the change takes effect after merge. Residuals neither tier closes are enumerated in `docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`'s base-ref-trust-boundary bullet.
 
 This is a **two-halves** upgrade, and unlike most of the ones above the halves ship through *different* channels: the workflow arrives by re-running `install.sh` (a file copy), while the loader that honors the variable arrives by advancing `prflow_version` (the vendor fetch). Both halves are individually safe, but they are not equivalent:
 

@@ -32,7 +32,7 @@ kind: growth
 
 ## Deferred (recorded, not silently dropped)
 
-- `docs/DEVFLOW_SYSTEM_OVERVIEW.md` §16's synthesis-floor narrative still enumerates the
+- `docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md` §16's synthesis-floor narrative still enumerates the
   synthesized record as `iter` / `fix_commit_sha` / `fix_files` / `loop_role` /
   `synthesized: true`. That enumeration is now **incomplete** — the floor additionally stamps
   `sweep_defs_read`, `sweep_evidence`, and `reference_reads` with
@@ -53,7 +53,7 @@ kind: growth
   reconciled here, as are `loop-exit.md`, `error-handling.md`, `phase-3-review.md`, and the
   `synthesize_iter_workpads` header in `lib/efficiency-trace.sh`. The overview's entry is a
   narrative *restatement*, not a defining surface. The authoritative synthesized-record shape
-  is documented in full in [`docs/efficiency-trace.md`](../efficiency-trace.md).
+  is documented in full in [`docs/internal/efficiency-trace.md`](../efficiency-trace.md).
 
 ## Justification
 

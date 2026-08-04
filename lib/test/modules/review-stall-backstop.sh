@@ -637,7 +637,7 @@ assert_eq "#1177 asv: the result-channel diagnostic is verdict-INERT (stays INST
 assert_eq "#1177 asv: the result-channel diagnostic cannot reach SEAM_PROVEN even with --adjudicated-governed" "yes" \
   "$(asv_has_row_adj "$ASV_F" '| **INSTRUMENT_NOT_FIRED** | no |')"
 # The tool_result-typed content-block shape is accepted too (the execution-file schema is a
-# dated observation, not a contract — docs/execution-file-shape.md).
+# dated observation, not a contract — docs/internal/execution-file-shape.md).
 printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}},{"type":"tool_result","content":"SEAM_PROBE_FORWARDED_OK SEAM_PROBE_EFFORT=low"}]' > "$ASV_F"
 assert_eq "#1177 asv: a tool_result-typed content block is read by the diagnostic channel too" "yes" \
   "$(asv_has "$ASV_F" 'forwarded_marker_in_result_channel=yes')"
@@ -1306,7 +1306,7 @@ unset BGV_UNREAD BGV_F
 # structural-pin-ok: cross-file-phase-contract -- the matcher-probe.yml job (producer) and the
 # DEVFLOW_SYSTEM_OVERVIEW.md verdict record (consumer of that job's only output) are a
 # two-sided contract that no single-file assertion can hold; each half is separately mutable.
-DSO812="$REPO_ROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+DSO812="$REPO_ROOT/docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md"
 probe_row_present812() {  # file -> yes|no : the job exists AND carries the variable under test
   # The window ENDS on the job's own claude_args key, never on a generic job-header
   # pattern: `  background-tasks-probe:` would match such a pattern itself, collapsing the
@@ -1355,7 +1355,7 @@ rm -f "$_t812p" "$_t812d"
 unset _t812p _t812d
 
 # #839 AC1 — the recorded verdict has TWO docs mirrors, and only DEVFLOW_SYSTEM_OVERVIEW.md
-# was gated (recorded_verdict812 above). docs/implement-skill.md carries the SAME run
+# was gated (recorded_verdict812 above). docs/internal/implement-skill.md carries the SAME run
 # identifiers as a second copy of that dated observation — the coupled-mirror class CLAUDE.md
 # warns about — so a re-probe that updates one file and not the other would ship two
 # disagreeing dated observations with the suite green. Assert the two run identifiers recorded
@@ -1364,7 +1364,7 @@ unset _t812p _t812d
 # structural-pin-ok: cross-file-phase-contract -- the two docs mirrors of one dated probe
 # observation are a coupled pair; each file is separately mutable and neither alone holds the
 # contract.
-IMPL812="$REPO_ROOT/docs/implement-skill.md"
+IMPL812="$REPO_ROOT/docs/internal/implement-skill.md"
 impl_ids_agree812() {  # impl-file -> yes|no : both #812 run ids from the overview appear in the impl mirror's bg-tasks record
   local ids id f="$1"
   # Pull the run-id pair from the overview's #812 background-tasks FOREGROUND sentence, so the
@@ -1377,7 +1377,7 @@ impl_ids_agree812() {  # impl-file -> yes|no : both #812 run ids from the overvi
   # And the impl file must actually be the bg-tasks record, not merely contain the digits.
   grep -qF 'background-tasks-probe' "$f" && echo yes || echo no
 }
-assert_eq "#839 recorded-verdict: docs/implement-skill.md mirrors the overview's background-tasks run identifiers" \
+assert_eq "#839 recorded-verdict: docs/internal/implement-skill.md mirrors the overview's background-tasks run identifiers" \
   "yes" "$(impl_ids_agree812 "$IMPL812")"
 # Planted-defect control on a COPY: mutating implement-skill.md's run id breaks the agreement,
 # proving the added half turns RED.

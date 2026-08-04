@@ -204,6 +204,6 @@ _raf_pin_unique "raf continuation: loop role schema persists" \
 _raf_pin_unique "raf continuation: recovery uses the full shadow roster" \
   'keeps the full roster regardless of `iterations`' "$RAF_REVIEW_BUNDLE"
 _raf_pin_unique "raf prompt composition: topic priming stays visible in overview" \
-  'Topic-priming is a second, distinct leak channel' "$RAF_ROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+  'Topic-priming is a second, distinct leak channel' "$RAF_ROOT/docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md"
 _raf_pin_unique "raf prompt composition: receiving guidance remains coupled" \
   'mutation-check every new test before completion is claimed' "$RAF_RECEIVING_SKILL"

@@ -83,8 +83,12 @@ devflow_copy_slice() {
   find "$stage" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
   # Prune subtrees no consumer run reaches (issue #677): the published GitHub
   # Pages HTML under docs/site and the Mintlify source under docs/external (both
-  # are standalone published sites no shipped skill links to — the rest of docs/
-  # stays, since shipped skill bodies link into it), and DevFlow's own test suite
+  # standalone published sites), all of DevFlow's maintainer documentation under
+  # docs/internal (issue #1188 — #1190 removed the last shipped skill-body link
+  # into it, so nothing a consumer executes references it; pruning it here stops
+  # that reference tree shipping into every consumer and, because
+  # lint-shipped-pruned-path.py derives its forbidden set from these rm arguments,
+  # arms that lint against reintroduction), and DevFlow's own test suite
   # under lib/test (it asserts against install.sh and
   # .github/, which the slice does not copy, so it could only fail loudly in a
   # consumer tree). Placed after cp -R and before the sanity floor so the floor
@@ -98,7 +102,7 @@ devflow_copy_slice() {
   # (2>/dev/null || true) to stay best-effort, while marketplace.json's rm -f is
   # likewise unguarded against an unexpected error, differing only in that -f
   # ignores a missing file.
-  rm -rf "$stage/docs/site" "$stage/docs/external" "$stage/lib/test"
+  rm -rf "$stage/docs/site" "$stage/docs/external" "$stage/docs/internal" "$stage/lib/test"
   # Sanity floor before the swap: the load-bearing members must have landed.
   if [ ! -d "$stage/scripts" ] || [ ! -f "$stage/.claude-plugin/plugin.json" ] \
      || [ ! -f "$stage/.prflow/config.schema.json" ] || [ ! -d "$stage/LICENSES" ]; then

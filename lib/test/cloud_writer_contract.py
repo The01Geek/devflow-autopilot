@@ -89,7 +89,7 @@ PROTOCOL = "devflow-cloud-writer-contract-v1"
 
 # The immediately preceding supported workflow profile set (AC18
 # `legacy_profile_baseline`). Consumers older than this refresh workflows and
-# plugin content together before their next cloud-writer run (see docs/install.md).
+# plugin content together before their next cloud-writer run (see docs/internal/install.md).
 LEGACY_PROFILE_BASELINE = "2.15.13"
 
 # The one repo-relative prefix a cloud-reached bundled helper is granted under.
@@ -1064,7 +1064,7 @@ def check_shape_conformance():
 # the CALL-SITE side: for every cloud-reached fenced command that names a bundled
 # helper, the helper's vendored path must be the FIRST executable token.
 #
-# The #701 policy decision (recorded in docs/cloud-writer-boundary.md): the source
+# The #701 policy decision (recorded in docs/internal/cloud-writer-boundary.md): the source
 # keeps the portable `${CLAUDE_SKILL_DIR:-…}` anchor (#275), and this guard
 # measures the EMISSION-TIME normalized token — extract-command-heads.py's
 # `_normalize` reduces the well-formed anchor to the vendored literal, so the

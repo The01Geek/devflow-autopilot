@@ -8,7 +8,7 @@
 # (run 29201071531, anthropics/claude-code-action@v1, 2026-07-12).
 #
 # Committed deliberately: GitHub artifacts expire (~90 days), after which the
-# OBSERVED table in docs/execution-file-shape.md would become unfalsifiable —
+# OBSERVED table in docs/internal/execution-file-shape.md would become unfalsifiable —
 # a claim with no surviving evidence. This file is the evidence, and it is
 # redaction-safe by construction (every string VALUE leaf is reduced to its
 # type; keys are schema identifiers, fail-closed-filtered by the helper).

@@ -254,7 +254,7 @@ existing gate/pass sections (no-options gate, independent-derivation pass).
   behavioral verification (AC-B5): confirm the skill still triggers on a rough user story and that
   a seeded draft with a code-contradicted claim gets caught by the new step.
 
-**Documentation Needed** — `docs/DEVFLOW_SYSTEM_OVERVIEW.md` (review auto-trigger section) and any
+**Documentation Needed** — `docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md` (review auto-trigger section) and any
 internal workflow doc under `docs/internal/workflows/` describing the trigger policy must document
 the new preconditions, the neutral-check-with-re-trigger behavior, and the two config keys. The
 `CLAUDE.md` review-engine / gotchas notes should mention the preconditions if they become a

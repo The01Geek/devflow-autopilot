@@ -190,6 +190,6 @@ two-artifact skew of the #502/#455 class.
 - `lib/test/check-audit-lifecycle-contracts.py`, `lib/test/run.sh`,
   `lib/test/modules/create-issue-contract.sh`, `lib/test/test_python_scripts.py`,
   `lib/test/test_render_audit_prompt.py` — the guards, the pin deletions and the behavioral rows.
-- `docs/DEVFLOW_SYSTEM_OVERVIEW.md` §11 — the two-class-contract paraphrase, which carried the
+- `docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md` §11 — the two-class-contract paraphrase, which carried the
   same short read-back enumeration as a third uncovered carrier and is why that clause drifted
   unseen.

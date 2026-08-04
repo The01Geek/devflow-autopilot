@@ -4,7 +4,7 @@ This is the detailed forensic record for the CLAUDE.md "cloud allowlist" gotchas
 (issues #363, #392, #401, #455, #484, #561). The **operative invariants and their enforcing
 pins stay in CLAUDE.md** — this doc carries the evidence, the war-stories, the
 probe tables, and the reasoning that would otherwise bloat those bullets. When
-CLAUDE.md says "see `docs/cloud-allowlist.md`", this is where it points.
+CLAUDE.md says "see `docs/internal/cloud-allowlist.md`", this is where it points.
 
 Source-of-truth files referenced throughout (bare paths — line numbers rot):
 
@@ -128,7 +128,7 @@ on that tier (a leading `cd` was observed *executing* on the review tier in run
 30222310785, so an ungranted `cd` head does not imply a refused statement); the
 revocation removes the authoring affordance, and the leading-`cd` ban is enforced
 as a desk lint (`IR4`) rather than as a claimed matcher refusal. See
-[`docs/working-directory-contract.md`](working-directory-contract.md).
+[`docs/internal/working-directory-contract.md`](working-directory-contract.md).
 
 ---
 
@@ -416,7 +416,7 @@ can re-verify the chain against the execution file; a `DENIED`'s attribution res
 (the `permission_denials` per-entry shape is not yet recorded), and the run's **observed
 denial-entry shape** is recorded alongside — the read that upgrades the denial side from
 by-construction to measured. Commit the job's machine output beside
-`docs/execution-file-shape.observed.txt`, as that record establishes.
+`lib/test/fixtures/execution-file-shape.observed.txt`, as that record establishes.
 
 This verdict is version-dependent and establishes nothing for a differently-defined
 subagent type or a later `claude-code-action` version: **re-probe** after any upgrade.
@@ -449,7 +449,7 @@ A **repo-relative vendored-literal helper path resolves against the `actions/che
 workspace root** — the run begins there and the Bash tool's working directory
 persists across calls, so a leading `cd` moves every later helper's resolution base
 out from under it. The canonical statement of that contract, tier-scoped, is
-[`docs/working-directory-contract.md`](working-directory-contract.md).
+[`docs/internal/working-directory-contract.md`](working-directory-contract.md).
 
 `Bash(cd:*)`'s status on the implement tier is **revoked by policy (issue #855),
 unmeasured** — **never denied**. The revocation removes an authoring affordance; it
@@ -913,8 +913,8 @@ exercised as a leading token; until such a dispatch is recorded, treat both as
 The **workflow grants** ship to consumers via `install.sh` **file-copy**, while the
 **skill rework** ships via the `prflow_version` **vendor fetch**. These are **two
 independently-updated artifacts** whose skew silently **re-denies the applies**, so
-**the two halves must be upgraded together** (docs: `docs/install.md`,
-`docs/DEVFLOW_SYSTEM_OVERVIEW.md`).
+**the two halves must be upgraded together** (docs: `docs/internal/install.md`,
+`docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`).
 
 ## PreToolUse shape guard (issue #805)
 

@@ -1755,7 +1755,7 @@ def _normalize_retirement_target(token):
     manifest ``.devflow/...`` target and a live ``.prflow/...`` target for one
     asset compare equal. Only the state-directory prefix is rewritten -- never
     arbitrary ``devflow`` tokens inside a filename -- so a frozen path like
-    ``docs/DEVFLOW_SYSTEM_OVERVIEW.md`` is left byte-identical. The #1002 rename
+    ``docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`` is left byte-identical. The #1002 rename
     also moved the vendored plugin sub-path (``vendor/devflow`` -> ``vendor/prflow``);
     that is deliberately NOT normalized here because no pin ``resolved_target`` is a
     vendored path (confirmed against all three frozen manifests), and the safe

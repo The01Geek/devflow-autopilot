@@ -20,7 +20,7 @@ name: Matcher probe
 # devflow-implement.yml; it runs in its own job so the flag never perturbs the
 # matcher probe above. Two further #437 sibling jobs share the workflow: an
 # `execfile-shape-probe` job that captures a real run's execution_file as a
-# REDACTED shape artifact (docs/execution-file-shape.md), and a `hook-probe` job
+# REDACTED shape artifact (docs/internal/execution-file-shape.md), and a `hook-probe` job
 # that records whether a base-branch .claude/settings.json Stop hook fires under
 # claude-code-action. A `background-tasks-probe` job (issue #812) applies the same
 # execution-file measurement to `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"` — the
@@ -1051,7 +1051,7 @@ jobs:
 
   # issue #437 — capture the SHAPE of claude-code-action's execution_file and settle
   # the unproven "the token/wall-clock cost half is unreconstructable" claim in
-  # docs/efficiency-trace.md with real evidence. The prompt deliberately exercises the
+  # docs/internal/efficiency-trace.md with real evidence. The prompt deliberately exercises the
   # events the shape record cares about: a positive-control grep, ONE Task/subagent
   # dispatch (so a `subagent_type` field has something to carry), and one deliberately
   # ungranted command (so `permission_denials` has something to carry). The resulting
@@ -1065,7 +1065,7 @@ jobs:
   # that redacted record is uploaded — the raw execution file, which can carry prompt
   # text, repo content, and attacker-controlled check-run names, NEVER leaves the run
   # (issue #437 AC2). Re-run on demand after a claude-code-action upgrade to refresh
-  # docs/execution-file-shape.md.
+  # docs/internal/execution-file-shape.md.
   execfile-shape-probe:
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -1158,7 +1158,7 @@ jobs:
   # warns against). It writes the gitignored breadcrumb .prflow/tmp/stop-hook-probe-fired
   # (a COUPLED contract: renaming it on either side alone would silently read as "did not
   # fire" forever — lib/test/run.sh pins both). This job checks for that breadcrumb after
-  # the action. See docs/execution-file-shape.md.
+  # the action. See docs/internal/execution-file-shape.md.
   hook-probe:
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -1219,7 +1219,7 @@ jobs:
   # carrying a distinctive `devflow pretooluse-probe:` prefix so
   # describe-pretooluse-probe.sh can distinguish it from any other transcript text.
   # Recording the observed FIRED/NOT-FIRED + REASON-DELIVERED/REASON-ABSENT result
-  # against docs/cloud-allowlist.md's placeholder probe-evidence table is #919's job
+  # against docs/internal/cloud-allowlist.md's placeholder probe-evidence table is #919's job
   # (out of scope here) — this job ships the arm; a maintainer dispatches it.
   pretooluse-probe:
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
@@ -1336,8 +1336,8 @@ jobs:
   # Verdict → action mapping (issue #812 AC2/AC3, executed by the maintainer who reads the
   # run): FOREGROUND or BACKGROUNDED is a recordable observation and is transcribed, with
   # this job's run identifier and the re-probe caveat, into the prevention-layer paragraph of
-  # docs/DEVFLOW_SYSTEM_OVERVIEW.md's `prflow_implement.stall_backstop` bullet and the
-  # matching sentence in docs/implement-skill.md. NOT_DISPATCHED and INCONCLUSIVE record
+  # docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md's `prflow_implement.stall_backstop` bullet and the
+  # matching sentence in docs/internal/implement-skill.md. NOT_DISPATCHED and INCONCLUSIVE record
   # nothing and are re-run. Like every verdict in this file the result is version-dependent:
   # re-probe after a claude-code-action / Claude Code CLI upgrade before trusting it.
   background-tasks-probe:
@@ -1559,7 +1559,7 @@ jobs:
   #
   # Version-dependent, like every verdict here: re-probe after a claude-code-action / CLI
   # upgrade. The record (run id, job id, head commit, composed literal, and the machine
-  # output) goes into docs/cloud-allowlist.md from the FINAL pre-merge head — any push to
+  # output) goes into docs/internal/cloud-allowlist.md from the FINAL pre-merge head — any push to
   # this file re-fires the workflow and invalidates a recorded head commit.
   subagent-write-review-probe:
     needs: probe

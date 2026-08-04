@@ -539,7 +539,7 @@ def _interpreter_violation(statement: str) -> bool:
 # deny there would cost the engine a shape the harness permits. `classify()` collapses
 # both onto `R3`; `classify_arms()` keeps them apart. The arm identifiers are the JOIN KEY
 # between the guard's remediation table and the permitted alternatives
-# docs/cloud-allowlist.md records; every other rule maps one-to-one to an arm of the same
+# docs/internal/cloud-allowlist.md records; every other rule maps one-to-one to an arm of the same
 # name.
 _REVIEW_ARM_TABLE = (
     ("R1", "R1", _assignment_violation),
