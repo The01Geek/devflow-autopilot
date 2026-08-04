@@ -732,6 +732,23 @@ iteration* section (the canonical description of the tiers). In outline:
   covering test), and a covering test that ran and failed discharges the precondition
   for a diagnostic launch. The precondition binds the mid-iteration launch only, never
   the final completion gate.
+- **The run has a named place to record what it did (issue #1229).**
+  `scripts/focused_selection.py` is the round-trippable producer/reader for that
+  per-surface selection: each entry names either the discharging focused result (the
+  coverage-map entry consulted plus the target selected) or the exemption ground, plus a
+  `single_flight_consulted` field for whether the `scripts/verification-flight.py` flight
+  was consulted before a full-suite relaunch. An implement run sinks the
+  `<!-- prflow:focused-selection … -->` marker as a `## Progress` note via
+  `scripts/workpad.py`; a standalone fix loop stores the record verbatim as
+  `iter-<N>.json`'s `verification_evidence.focused_selection`. It is a record of what the
+  run did, never a launch counter or a changed-file-to-module routing table (AC7). The
+  three prompt extensions are its source of record.
+
+The `/simplify` commit that Phase 3.2 pushes owes **no** verification round of its own:
+Phase 3.3's `review-and-fix` loop runs a verification as its first act, so the just-committed
+`/simplify` edits ride into that first verification. A fresh commit does not, on its own,
+owe a verification round when the very next step verifies it — `skills/implement/phases/phase-3-review.md`
+§3.2 states this for the shipped skill.
 
 **The same command must work on both tiers**, so a focused Python test is invoked as a
 **direct leading token** (`lib/test/test_python_scripts.py <selector>`) — never `python3
