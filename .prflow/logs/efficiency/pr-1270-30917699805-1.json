@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1270",
+  "generated_at": "2026-08-04T14:22:08Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.90",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.533430899999999,
+    "tokens": {
+      "input_tokens": 32,
+      "output_tokens": 22038,
+      "cache_read_input_tokens": 2504994,
+      "cache_creation_input_tokens": 196006,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 32,
+        "outputTokens": 22038,
+        "cacheReadInputTokens": 2504994,
+        "cacheCreationInputTokens": 196006,
+        "webSearchRequests": 0,
+        "costUSD": 3.7636670000000003,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 72,
+        "outputTokens": 22779,
+        "cacheReadInputTokens": 2100168,
+        "cacheCreationInputTokens": 212750,
+        "webSearchRequests": 0,
+        "costUSD": 1.7697638999999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 26,
+    "duration_ms": 509069
+  },
+  "permission_denials": {
+    "count": 10,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none}\"",
+      "bash -c '\nNORM=\".github/workflows\"\ncase \"$NORM\" in\n  .github/workflows/*)\n    echo MATCH\n    ;;\n  *) echo NOMATCH ;;\nesac\n'",
+      "cat > /tmp/t.sh << 'EOF'\nNORM=\".github/workflows\"\ncase \"$NORM\" in\n  .github/workflows/*)\n    echo MATCH\n    ;;\n  *) echo NOMATCH ;;\nesac\nNORM2=\".github/workflows/\"\ncase \"$NORM2\" in\n  .github/workflows/*)\n    echo MATCH2\n    ;;\n  *) echo NOMATCH2 ;;\nesac\nEOF\nbash /tmp/t.sh",
+      "printf '%s\\n' 'NORM=\".github/workflows\"' 'case \"$NORM\" in .github/workflows/*) echo MATCH;; *) echo NOMATCH;; esac' | bash",
+      "printf '%s\\n' 'NORM=\".github/workflows\"' 'case \"$NORM\" in .github/workflows/*) echo MATCH;; *) echo NOMATCH;; esac' | bash",
+      "cd /tmp && rm -rf gittest && mkdir gittest && cd gittest && git init -q && echo x > a.txt && git add -- a.txt nonexistent.txt; echo \"rc=$?\"; git status --short",
+      "rm -rf /tmp/gittest && mkdir -p /tmp/gittest && git init -q /tmp/gittest && echo x > /tmp/gittest/a.txt && git -C /tmp/gittest add -- a.txt nonexistent.txt; echo \"rc=$?\"; git -C /tmp/gittest status --short",
+      "git show 5ee92d899bc0927b0c8d4534a95e1c03cb7b42f0:skills/implement/phases/phase-1-preflight.md 2>/dev/null | grep -n \"push -u\\|checkout -b\\|upstream\" | head -30\ngit ls-tree -r 5ee92d899bc0927b0c8d4534a95e1c03cb7b42f0 --name-only | grep \"phase-1\\|phase-0\"",
+      "git ls-tree -r 5ee92d899bc0927b0c8d4534a95e1c03cb7b42f0 --name-only -- skills/implement/phases/"
+    ],
+    "total": 10,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
