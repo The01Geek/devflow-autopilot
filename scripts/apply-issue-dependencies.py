@@ -19,9 +19,14 @@ it mirrors `scripts/ensure-label.sh` / `scripts/apply-labels.sh` clause for clau
     GitHub itself, so both call sites invoke it operand-free with just the number;
   * it derives prerequisite numbers by importing the section-scoped extraction
     function from `scripts/preflight.py` — it defines no second recognizer, no
-    second regex, and no second declaration vocabulary. The import is guarded so a
-    partial-copy deployment (an absent/unreadable sibling) breadcrumbs and exits 0
-    rather than raising at module load, before any handler exists.
+    second regex, and no second declaration vocabulary. It imports the
+    `(found, skipped)` accessor (`dependency_section_scan`, issue #1268) so a
+    number the recognizer dropped for OUTBOUND direction is named under this
+    helper's own prefix rather than dropped silently or misdescribed as "no
+    prerequisites"; the recognizer's section-only path still writes no stderr of
+    its own. The import is guarded so a partial-copy deployment (an
+    absent/unreadable sibling) breadcrumbs and exits 0 rather than raising at
+    module load, before any handler exists.
 
 The registered set is deliberately NARROWER than the reversible implement gate's:
 only prerequisites declared INSIDE the `## Dependencies` section register, because a
@@ -219,7 +224,7 @@ def main(argv: list[str]) -> int:
     # 0 rather than raising before any handler exists.
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from preflight import dependency_section_numbers
+        from preflight import dependency_section_scan
     except Exception as exc:  # noqa: BLE001 - best-effort: any import failure exits 0
         _err(
             f"could not import the dependency recognizer from scripts/preflight.py "
@@ -241,18 +246,42 @@ def main(argv: list[str]) -> int:
     # an implicit property of a sibling reached across the partial-copy-tolerant
     # import, not a guarantee this file controls).
     try:
-        numbers = dependency_section_numbers(body)
+        numbers, skipped = dependency_section_scan(body)
     except Exception as exc:  # noqa: BLE001 - best-effort: any recognizer failure exits 0
         _err(
             f"the dependency recognizer failed on issue #{number}'s body "
             f"({type(exc).__name__}: {exc}); no dependency registered."
         )
         return 0
-    if not numbers:
+
+    # A number dropped for OUTBOUND direction is now visible (issue #1268): the
+    # recognizer skipped it silently, so this helper — not the recognizer, whose
+    # section-only entry point keeps its no-stderr contract — names each skip under
+    # its own prefix on BOTH the every-entry-dropped and some-dropped-some-kept
+    # paths, so the "no silent path" docstring contract holds again.
+    for dropped in skipped:
         _err(
-            f"issue #{number} declares no prerequisites in a `## Dependencies` "
-            f"section; no dependency registered."
+            f"skipped #{dropped}: its `## Dependencies` line reads as an OUTBOUND "
+            f"relation (this issue is the prerequisite, not blocked by #{dropped}); "
+            f"no blocked_by registered — if #{dropped} must land first, restate it "
+            f"on its own line as `blocked by #{dropped}`."
         )
+
+    if not numbers:
+        if skipped:
+            # Do NOT claim the issue declared no prerequisites — it declared one (or
+            # more) that were skipped for direction. The per-skip breadcrumbs above
+            # name the numbers; this summary names the reason.
+            _err(
+                f"issue #{number} declares its `## Dependencies` prerequisite(s) only "
+                f"as OUTBOUND relations (all skipped for direction — see above); no "
+                f"dependency registered."
+            )
+        else:
+            _err(
+                f"issue #{number} declares no prerequisites in a `## Dependencies` "
+                f"section; no dependency registered."
+            )
         return 0
 
     return _register(number, numbers)
