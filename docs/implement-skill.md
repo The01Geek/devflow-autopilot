@@ -763,6 +763,19 @@ silent on success is established from its own exit status, and a command that ne
 is established as nothing. A mid-iteration #434 stale-prose `blocking-gate` skip
 on a dirty tree is expected and clears on commit; it is not a reason to relaunch.
 
+**Batching is what bounds how many passes are paid (issue #1252).** The two rules above
+govern relaunching over an *unchanged* tree; neither covers relaunching over a tree that
+changed by one small edit, which is the expensive case — on the run that motivated the
+rule, two whole-suite passes were launched 44 and 48 seconds after the previous one
+finished. So before launching a whole-suite pass the run applies every fix it already
+owes rather than launching one per fix, and where a covering focused test exists it is
+the instrument for confirming a single edit — mid-iteration only, never at the completion
+gate, which no focused result discharges. The operative statement lives in the three
+`.prflow/prompt-extensions/` files (`implement.md` is the single-source home;
+`review-and-fix.md` and `receiving-code-review.md` carry declared coupled copies), which
+also state what it does not override and how an unestablished owed-fix set resolves at
+each launch kind. This paragraph is a non-authoritative pointer to them.
+
 **Diagnosis reads the capture, not a relaunch.** On a failing run `lib/test/run.sh`
 prints a named `Failure recap` re-listing each failing assertion's identifier, built from
 an on-disk record every FAIL site appends to (so stderr-only failures are listed too).
