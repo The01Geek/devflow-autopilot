@@ -241,6 +241,22 @@ def _warn_unreadable_section(canonical: str) -> None:
     )
 
 
+def _diagnose_section(parsed, section_lines, body, canonical, needle) -> bool:
+    """Emit the right zero-item diagnostic for one section and report unreadability.
+
+    Case 1 (present-but-unreadable) takes precedence over case 2 (heading
+    near-miss): when the section IS matched, the heading is by definition not
+    the problem, so `_warn_near_miss` (which would otherwise fire on the
+    matching heading and misdirect) must not run for it. Returns whether the
+    section is present-but-unreadable, for the caller's JSON field.
+    """
+    if _is_unreadable_section(parsed, section_lines):
+        _warn_unreadable_section(canonical)
+        return True
+    _warn_near_miss(parsed, body, canonical, needle)
+    return False
+
+
 def _render_md(criteria: list[dict], test_plan: list[dict]) -> str:
     if not criteria and not test_plan:
         return '_(none provided in issue body)_'
@@ -292,26 +308,12 @@ def main():
     test_plan = _parse_checkboxes(tp_lines)
 
     # Two distinct zero-item failure modes, kept distinguishable (issue #1198):
-    #   1. Present-but-unreadable — the section was matched and has content, but
-    #      its items are in a shape this parser does not read (bold paragraphs,
-    #      numbered lists). Names item shape as the cause; the run continues and
-    #      the criteria are hand-extracted.
-    #   2. Heading near-miss — no section was matched because the heading has a
-    #      trailing colon / extra words (`## Acceptance Criteria:`, `## ACs`).
-    #      Names the heading as the cause (its pre-existing behavior).
-    # Case 1 takes precedence: when the section IS matched, the heading is by
-    # definition not the problem, so `_warn_near_miss` (which would otherwise
-    # fire on the matching heading and misdirect) must not run for it.
-    ac_unreadable = _is_unreadable_section(criteria, ac_lines)
-    tp_unreadable = _is_unreadable_section(test_plan, tp_lines)
-    if ac_unreadable:
-        _warn_unreadable_section('Acceptance Criteria')
-    else:
-        _warn_near_miss(criteria, body, 'Acceptance Criteria', 'acceptance')
-    if tp_unreadable:
-        _warn_unreadable_section('Test Plan')
-    else:
-        _warn_near_miss(test_plan, body, 'Test Plan', 'test plan')
+    # present-but-unreadable (matched section, unreadable item shape) vs heading
+    # near-miss (no section matched). `_diagnose_section` owns the precedence
+    # rule so it lives in one place; it returns whether the section was
+    # present-but-unreadable, for the JSON fields below.
+    ac_unreadable = _diagnose_section(criteria, ac_lines, body, 'Acceptance Criteria', 'acceptance')
+    tp_unreadable = _diagnose_section(test_plan, tp_lines, body, 'Test Plan', 'test plan')
 
     if args.format == 'json':
         # `acceptance_criteria_unreadable` / `test_plan_unreadable` are additive
