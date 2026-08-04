@@ -4,14 +4,18 @@
 # because all observable signals are clean. This is a pure filter with no
 # side-effects; it never touches disk or network.
 #
-# Deliberately UNWIRED to the `Verification evidence:` marker (issue #730): that
-# marker is recorded on the local/interactive tier only, but this gate's input
-# population — via lib/scan.sh — is merged, predominantly-cloud watched-author
-# PRs, the exact population the marker's local/interactive scoping excludes. A
-# clause reading it here would read as armed yet almost never legitimately fire.
-# The marker's runtime consumer is instead the shared review engine's tier-scoped
-# advisory (.prflow/prompt-extensions/review.md and its byte-identical twin
-# review-and-fix.md), whose per-PR input population contains those surfaces.
+# Deliberately UNWIRED to the `Verification evidence:` marker (issues #730, #1249).
+# Since issue #1249 that marker is recorded on EVERY tier that maintains a workpad
+# (cloud `/prflow:implement` included, not just local/interactive), so the old
+# population-coverage reason for leaving this gate unwired — that the marker's
+# scoping excluded this gate's merged, predominantly-cloud watched-author input
+# population (via lib/scan.sh) — no longer holds. Wiring the marker into this gate
+# would nonetheless change retrospective sampling for every merged PR, which is a
+# separate open decision (issue #1249 kept it explicitly out of scope) rather than
+# a consequence of that superseded coverage argument. The marker's runtime consumer
+# stays the shared review engine's non-blocking advisory
+# (.prflow/prompt-extensions/review.md and its byte-identical twin
+# review-and-fix.md), which reads it per-PR on both tiers.
 #
 # Invocation:
 #   jq -c -f lib/cheap-gate.jq <context-bundle.json
