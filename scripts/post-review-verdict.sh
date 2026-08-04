@@ -40,10 +40,13 @@
 # every approve-family verdict normalizes to `APPROVE` in the marker, matching what the
 # consumers already collapse to.
 #
-# HEAD FIELD. On a REVIEW artifact the reviews-API `commit_id` stays authoritative for the head
-# and the marker's `head=` is a cross-check a consumer compares against it (a disagreement is a
-# reportable defect, not a verdict). On a COMMENT the marker's `head=` is authoritative, because
-# an issue comment carries no API-side head.
+# HEAD FIELD. The marker's `head=` records the commit this review actually reviewed. On a
+# REVIEW artifact the reviews-API `commit_id` also names a commit, but GitHub can change that
+# `commit_id` after submission (issue #1247), so the two can disagree as ordinary GitHub
+# behavior — not a defect. The marker's `head=` is the field that records the reviewed tree; a
+# consumer that must know which tree was reviewed reads it (see scripts/dismiss-stale-rejections.sh).
+# On a COMMENT the marker's `head=` is authoritative, because an issue comment carries no
+# API-side head.
 #
 # It posts through `gh api` REST (POST repos/{owner}/{repo}/pulls/{n}/reviews) rather than
 # `gh pr review` porcelain, matching CLAUDE.md's rule for GitHub writes — the {owner}/{repo}

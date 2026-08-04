@@ -41,6 +41,20 @@ The parsing contract, stated once:
   * An indented, non-blank, non-checkbox line continues the preceding item (a
     criterion hard-wrapped at ~80 columns round-trips as one string); a blank
     line or a non-indented non-checkbox line closes it.
+
+Distinguishing "section absent" from "section present but unreadable" (issue
+#1198): only checkbox list items are recognised as items, so a section written
+as bold paragraphs (`**AC1 — …**`) or a numbered list (`1. …`) yields zero
+items even though it is present and full of content. That is a distinct state
+from a body that carries no such section at all, and the two must not be
+collapsed (the repo's *unknown is not zero* convention). This module does not
+own the signal — it keeps its two primitives orthogonal: `extract_section`
+returns `[]` for an absent section and a non-empty line list for a present one,
+`parse_checkboxes` returns the items. A caller distinguishes the unreadable case
+by combining them — a non-empty section-line list (with at least one non-blank
+line) plus zero parsed items — and `scripts/parse-acs.py` does exactly that,
+emitting an item-shape stderr diagnostic and an `acceptance_criteria_unreadable`
+JSON field for it while still exiting 0.
 """
 
 import re
