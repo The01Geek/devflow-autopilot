@@ -1236,6 +1236,50 @@ _ra_ok "#1244 AP10b a reconciled tree emits no preflight warning and no refusal"
        *) printf yes ;;
      esac)" \
   "a clean real preflight was reported as inconclusive or refused; output: $(printf '%s' "$RA_AP10B_OUT" | tr '\n' '|')"
+# AP10c/AP10d — the STANDALONE `--preflight` route (issue #1288) against the same REAL
+# default preflight, mirroring AP10a/AP10b. The `parallel-suite-runner` module drives every
+# `--preflight` arm through an injected stub, so the same two surfaces AP10a exists to bind
+# for the coordinator were unbound for this route: that an unset DEVFLOW_ARTIFACT_PREFLIGHT
+# resolves to the bundled helper on the `--preflight` case at all, and that the cross-file
+# verdict contract holds there. The route runs no shard, so no dispatcher is planted — a
+# launched shard would itself be a failure, and is asserted against.
+RA_AP10C_OUT="$( cd "$RA_AP8" && bash lib/test/run-parallel.sh --preflight 2>&1 )"; RA_AP10C_RC=$?
+_ra_ok "#1288 AP10c --preflight refuses (non-zero) on real drift with the DEFAULT preflight" \
+  "$([ "$RA_AP10C_RC" -ne 0 ] && printf yes || printf no)" \
+  "--preflight exited 0 on a drifted tree; output: $(printf '%s' "$RA_AP10C_OUT" | tr '\n' '|')"
+_ra_ok "#1288 AP10c --preflight refuses by name" \
+  "$(case "$RA_AP10C_OUT" in *"launching no shard"*) printf yes ;; *) printf no ;; esac)" \
+  "the refusal message is absent; output: $(printf '%s' "$RA_AP10C_OUT" | tr '\n' '|')"
+# The real helper's own row line: this is what proves the DEFAULT resolved to the bundled
+# helper on the `--preflight` case rather than to nothing (an empty default warns, proceeds,
+# and prints no row line at all).
+_ra_ok "#1288 AP10c the echoed report is the REAL helper's row output, not a stub's" \
+  "$(case "$RA_AP10C_OUT" in *"[plugin-identity-regions] DRIFT"*) printf yes ;; *) printf no ;; esac)" \
+  "--preflight printed no real preflight row line, so the default binding was not exercised"
+_ra_ok "#1288 AP10c --preflight never treated the real drift as inconclusive" \
+  "$(case "$RA_AP10C_OUT" in *"preflight was inconclusive"*) printf no ;; *) printf yes ;; esac)" \
+  "real drift took the fail-OPEN arm; output: $(printf '%s' "$RA_AP10C_OUT" | tr '\n' '|')"
+_ra_ok "#1288 AP10c --preflight launches NO shard on real drift" \
+  "$(case "$RA_AP10C_OUT" in *"launched shard"*) printf no ;; *) printf yes ;; esac)" \
+  "a shard was launched by the standalone route; output: $(printf '%s' "$RA_AP10C_OUT" | tr '\n' '|')"
+
+# AP10d — the reconciled counterpart (the positive control on the same fixture shape), so
+# AP10c's refusal is attributable to the planted drift rather than to `--preflight` refusing
+# on every tree. Reuses AP10b's already-reconciled fixture; its planted dispatcher is
+# irrelevant here because this route exits before the shard population is derived.
+RA_AP10D_OUT="$( cd "$RA_AP10B" && bash lib/test/run-parallel.sh --preflight 2>&1 )"; RA_AP10D_RC=$?
+_ra_same "#1288 AP10d --preflight on a reconciled tree with the DEFAULT preflight exits 0" \
+  "0" "$RA_AP10D_RC" "output: $(printf '%s' "$RA_AP10D_OUT" | tr '\n' '|')"
+_ra_ok "#1288 AP10d --preflight on a reconciled tree emits no warning and no refusal" \
+  "$(case "$RA_AP10D_OUT" in
+       *"generated-artifact preflight"*|*"launching no shard"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "a clean real preflight was reported as inconclusive or refused; output: $(printf '%s' "$RA_AP10D_OUT" | tr '\n' '|')"
+_ra_ok "#1288 AP10d --preflight on a reconciled tree launches no shard and claims no aggregate" \
+  "$(case "$RA_AP10D_OUT" in *"launched shard"*|*passed,*) printf no ;; *) printf yes ;; esac)" \
+  "the standalone route produced shard or aggregate output; output: $(printf '%s' "$RA_AP10D_OUT" | tr '\n' '|')"
+
 _ra_live_unchanged "#1244 AP10 live manifest byte-unchanged after the coordinator integration arms"
 
 # ── AP11 — an exit OUTSIDE the row's declared `exits` set ────────────────────

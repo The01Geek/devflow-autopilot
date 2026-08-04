@@ -4,6 +4,37 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.102] — 2026-08-04
+
+### Changed
+- **Register the deferred cloud-writer helper heads and advance the legacy profile baseline.** `apply-issue-dependencies.py` (issue #1011) and `resolve-existing-pr.sh` (issue #782) are now members of `REQUIRED_HELPER_HEADS["implement"]`, and `LEGACY_PROFILE_BASELINE` advances from `2.15.13` to `2.30.100`, so the required-subset guarantee finally covers both heads. A cadence rule now lives at the constant's definition: the baseline advances — and the frozen legacy-grant snapshot re-snapshots with it — whenever a profile's granted helper-head set in `lib/capability-profiles.json` changes. (#1034)
+
+## [2.30.101] — 2026-08-04
+
+### Changed
+Extend the read-only generated-artifact drift preflight to the sanctioned shard-decomposition route (issue #1288).
+
+The pre-launch drift preflight (issue #1244) was coordinator-only, so the #1132 decomposition route — the one a run takes when the tier terminates the parallel coordinator at its per-command execution ceiling — ran `lib/test/run-shard.sh` per shard and recombined without any pre-launch drift check, paying the full sharded suite to rediscover a stale generated artifact a sub-second read-only check would have named before launch.
+
+`lib/test/run-parallel.sh` now exposes the same check as a standalone `--preflight` mode: it launches no shard and exits with the coordinator's exact verdict contract — proceed on clean or a fail-open inconclusive result, refuse only on a positively-attributed drift. The verdict interpretation is factored into a single shared function so it stays single-sourced rather than duplicated into a second coupled shell copy. `.prflow/prompt-extensions/implement.md`'s decomposition route names `lib/test/run-parallel.sh --preflight` once before its shard loop.
+
+## [2.30.100] — 2026-08-04
+
+### Changed
+Reconcile `shard-tally.py combine` against the true shard partition by name (#1289, PR #1293)
+
+`combine` gains an optional `--require-shards` naming the shard partition a recombination must cover. It is checked by shard *name*, not only by the caller-supplied `--expect` count, so a recombination over a subset that satisfies `--expect` now fails closed naming the missing shard(s) instead of printing a whole-suite-shaped green summary. The parallel coordinator `run-parallel.sh` feeds it the authoritative `run-shard.sh --list-shards` population. `--expect 0` remains the documented explicit opt-out, and omitting the new flag leaves existing output unchanged.
+
+## [2.30.99] — 2026-08-04
+
+### Changed
+Phase 2 now makes mid-run work durable at each sub-step boundary. Previously an implement run held every change in an uncommitted working tree until Phase 2 §2.5 — its only commit and push — so a run that terminated earlier (an external interruption, an execution-ceiling kill) lost all of it. A new executable helper, `scripts/phase2-durability-checkpoint.sh`, commits and pushes explicitly-scoped paths at each Phase 2 sub-step boundary (and at §2.3's sweep boundaries), bounding the worst-case loss window to roughly ten minutes. The helper owns the cloud-tier workflow-edit guard's detect-and-do-not-stage behavior, refuses `git add -A`/`.`/intent-to-add, keeps §2.1.5 proof edits out of history by ordering, and treats a push as landed only when `git rev-parse HEAD` equals `@{u}`. (#1139)
+
+## [2.30.98] — 2026-08-04
+
+### Fixed
+- **Dispatching skills now assert that invoking them constitutes the user's request for subagent dispatch.** Recent Claude Code versions inject a conditional instruction ("do not call the AgentTool unless the user requested it") observed on Opus 5; because no skill asserted the condition was met, dispatch could silently collapse to inline work. Each dispatch-dependent skill (`implement`, `review`, `review-and-fix`, `create-issue`, `retrospective-weekly`, `requesting-code-review`) now carries a scoped authorizing clause naming only its own dispatch points, satisfying the injected condition without weakening the existing restrictive rules or granting dispatch for inline work. (#1200)
+
 ## [2.30.97] — 2026-08-04
 
 ### Changed
