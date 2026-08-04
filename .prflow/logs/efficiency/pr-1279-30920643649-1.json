@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1279",
+  "generated_at": "2026-08-04T14:54:04Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.92",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.0244434500000015,
+    "tokens": {
+      "input_tokens": 47,
+      "output_tokens": 21435,
+      "cache_read_input_tokens": 3796826,
+      "cache_creation_input_tokens": 185882,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 47,
+        "outputTokens": 21435,
+        "cacheReadInputTokens": 3796826,
+        "cacheCreationInputTokens": 185882,
+        "webSearchRequests": 0,
+        "costUSD": 4.293343000000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 14,
+        "outputTokens": 6818,
+        "cacheReadInputTokens": 323549,
+        "cacheCreationInputTokens": 141793,
+        "webSearchRequests": 0,
+        "costUSD": 0.7311004499999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 32,
+    "duration_ms": 375183
+  },
+  "permission_denials": {
+    "count": 5,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=$GITHUB_RUN_ID ATTEMPT=$GITHUB_RUN_ATTEMPT\"; echo \"---status---\"; git status --porcelain | head -20; echo \"---prview---\"; gh pr view 1279 --json headRefName,baseRefName,baseRefOid,headRefOid,body,closingIssuesReferences --jq '{headRefName,baseRefName,baseRefOid,headRefOid,closes:[.closingIssuesReferences[].number]}'",
+      "RUN_ID=$(printf '%s-%s' \"${GITHUB_RUN_ID:-local}\" \"${GITHUB_RUN_ATTEMPT:-1}\"); echo \"run-id=$RUN_ID\"; mkdir -p \".prflow/tmp/review/pr-1279/$RUN_ID\"; gh pr diff 1279 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee \".prflow/tmp/review/pr-1279/$RUN_ID/diff.patch\" | wc -l",
+      "mkdir -p \".prflow/tmp/review/pr-1279/$(printf '%s-%s' \"${GITHUB_RUN_ID:-local}\" \"${GITHUB_RUN_ATTEMPT:-1}\")\"; gh pr diff 1279 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee \".prflow/tmp/review/pr-1279/$(printf '%s-%s' \"${GITHUB_RUN_ID:-local}\" \"${GITHUB_RUN_ATTEMPT:-1}\")/diff.patch\" | wc -l",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/seed-review-progress.sh \"1279\" \"\" .prflow/tmp/review/pr-1279/r1/review-wp.md ; echo \"seed-rc=$?\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve \"1253\" --pr \"1279\" 2>.prflow/tmp/review/pr-1279/r1/acs.err ; echo \"acs-rc=$?\""
+    ],
+    "total": 5,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
