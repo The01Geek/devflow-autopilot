@@ -17,13 +17,17 @@ tests use elsewhere in this suite.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import io
 import json
 import os
 import stat
+import subprocess
+import sys
 import tempfile
 import unittest
+from unittest import mock
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -74,6 +78,39 @@ _SPEC = importlib.util.spec_from_file_location(
 vf = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(vf)
 
+# The producer is hyphenated too — load it the same way for the unit-level tests
+# (the subprocess tests run it as a CLI; the backdate fail-closed test drives an
+# internal helper).
+_CF_SPEC = importlib.util.spec_from_file_location(
+    "checkout_fingerprint", ROOT / "scripts" / "checkout-fingerprint.py"
+)
+cf = importlib.util.module_from_spec(_CF_SPEC)
+_CF_SPEC.loader.exec_module(cf)
+
+
+# A valid checkout fingerprint (issue #1243): the four content fields are git object
+# ids (40-hex here), the shape scripts/checkout-fingerprint.py emits and
+# _validate_checkout now REQUIRES. checkout_id is the opaque git-dir path, not shape-
+# checked, so it stays an arbitrary non-empty string. Pre-#1243 this helper wrote junk
+# like "abc"/"i1"; those are now rejected, so every checkout literal routes through here.
+_BASE_CHECKOUT = {
+    "checkout_id": "r1",
+    "head": "a" * 40,
+    "index_digest": "b" * 40,
+    "tracked_digest": "c" * 40,
+    "untracked_digest": "d" * 40,
+}
+
+
+def _hexid(seed) -> str:
+    """A distinct-but-valid 40-hex object id from an arbitrary seed (drift tests)."""
+    return hashlib.sha1(str(seed).encode("utf-8")).hexdigest()
+
+
+def _ck(**over) -> dict:
+    """A valid checkout dict, overriding fields (each override must be validly shaped)."""
+    return {**_BASE_CHECKOUT, **over}
+
 
 def _decl(**over):
     profile = {
@@ -86,13 +123,7 @@ def _decl(**over):
         "output_roots": [".prflow/tmp"],
         "external_services": "none",
     }
-    checkout = {
-        "checkout_id": "r1",
-        "head": "abc",
-        "index_digest": "i1",
-        "tracked_digest": "t1",
-        "untracked_digest": "u1",
-    }
+    checkout = dict(_BASE_CHECKOUT)
     d = {"schema_version": 1, "profile": profile, "checkout": checkout}
     for k, v in over.items():
         if k in ("profile", "checkout"):
@@ -170,7 +201,7 @@ class TestDescriptorAndKey(Harness):
     def test_checkout_drift_distinct_flight_key_same_descriptor(self):
         _, base = self.run_cmd(["descriptor", "--input-file", self._write(_decl())])
         _, moved = self.run_cmd(["descriptor", "--input-file",
-                                 self._write(_decl(checkout={"head": "def"}))])
+                                 self._write(_decl(checkout={"head": _hexid("def")}))])
         self.assertEqual(base["descriptor_digest"], moved["descriptor_digest"])
         self.assertNotEqual(base["flight_key"], moved["flight_key"])
 
@@ -290,33 +321,39 @@ class TestClaimAndAttach(Harness):
         self.assertFalse(st["reuse_ready"], "a running flight is never reuse_ready")
         self.assertEqual(code, vf.EXIT_NON_PASS)
 
-    def test_reuse_ready_mirrors_satisfies_and_checkout_verified_operands(self):
-        # issue #579 review (S2/S3): status exposes two machine operands so a caller
-        # never branches on the role-only attach exit code. `reuse_ready` mirrors
-        # `satisfies_verification`; `checkout_verified` is True only when a matching
-        # --current-checkout-file was supplied, so a safe consume is
-        # `reuse_ready and checkout_verified`.
+    def test_reuse_ready_requires_verified_checkout(self):
+        # issue #1243: status/wait enforce the checkout AND themselves — a bare
+        # status over a `passed` handle does NOT report a pass or exit 0, because the
+        # working tree was never verified. `reuse_ready` mirrors the effective
+        # verdict, and a safe consume (`reuse_ready and checkout_verified`) is the
+        # ONLY path to EXIT_OK unless the explicit weaker read is requested.
         _, owner = self.claim()
         k, t = owner["flight_key"], owner["token"]
-        chk = self._write({
-            "checkout_id": "r1", "head": "abc", "index_digest": "i1",
-            "tracked_digest": "t1", "untracked_digest": "u1",
-        })
+        chk = self._write(_ck())
         self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
         self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
                       "--summary-file", self._write({"command": "x", "exit_status": 0, "skipped_checks": []}),
                       "--state-dir", self.state, "--logs-dir", self.logs])
-        # No current-checkout: passed handle, but checkout_verified must be False.
+        # No current-checkout: the tree is unverified, so this is NOT a reusable pass.
         code, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
-        self.assertEqual(code, vf.EXIT_OK)
-        self.assertTrue(st["reuse_ready"])
+        self.assertEqual(code, vf.EXIT_NON_PASS)
+        self.assertFalse(st["reuse_ready"], "an unverified-checkout read is never reuse_ready")
         self.assertEqual(st["reuse_ready"], st["satisfies_verification"])
         self.assertFalse(st["checkout_verified"], "a bare status verifies no checkout")
-        # Matching current-checkout: checkout_verified flips True.
-        _, st2 = self.run_cmd(["status", "--flight", k, "--state-dir", self.state,
-                               "--current-checkout-file", chk])
+        # Matching current-checkout: checkout_verified True AND the flight passes.
+        code2, st2 = self.run_cmd(["status", "--flight", k, "--state-dir", self.state,
+                                   "--current-checkout-file", chk])
+        self.assertEqual(code2, vf.EXIT_OK)
         self.assertTrue(st2["checkout_verified"])
         self.assertTrue(st2["reuse_ready"])
+        self.assertTrue(st2["satisfies_verification"])
+        # Explicit weaker read: the state/evidence dimension alone, opt-in.
+        code3, st3 = self.run_cmd(["status", "--flight", k, "--state-dir", self.state,
+                                   "--allow-unverified-checkout"])
+        self.assertEqual(code3, vf.EXIT_OK)
+        self.assertTrue(st3["reuse_ready"])
+        self.assertFalse(st3["checkout_verified"],
+                         "the weaker read still reports the tree was not verified")
 
     def test_attach_to_passed_flight_consumes_prior_pass(self):
         # The ledger's raison d'être: a later same-checkout caller attaches to a
@@ -616,8 +653,7 @@ class TestReadShapeMatrix(Harness):
 class TestStaleDrift(Harness):
     def test_checkout_drift_marks_stale(self):
         _, owner = self.claim()
-        current = self._write({"checkout_id": "r1", "head": "DIFFERENT",
-                               "index_digest": "i1", "tracked_digest": "t1", "untracked_digest": "u1"})
+        current = self._write(_ck(head=_hexid("DIFFERENT")))
         code, out = self.run_cmd(["status", "--flight", owner["flight_key"],
                                   "--current-checkout-file", current, "--state-dir", self.state])
         self.assertEqual(out["state"], "stale")
@@ -626,8 +662,7 @@ class TestStaleDrift(Harness):
 
     def test_matching_checkout_no_stale(self):
         _, owner = self.claim()
-        current = self._write({"checkout_id": "r1", "head": "abc",
-                               "index_digest": "i1", "tracked_digest": "t1", "untracked_digest": "u1"})
+        current = self._write(_ck())
         _, out = self.run_cmd(["status", "--flight", owner["flight_key"],
                                "--current-checkout-file", current, "--state-dir", self.state])
         self.assertEqual(out["state"], "claimed")
@@ -674,7 +709,10 @@ class TestFinishPropagation(Harness):
     def test_passed_satisfies(self):
         k, code, _ = self._finish("passed", {"command": "run.sh", "exit_status": 0, "skipped_checks": []})
         self.assertEqual(code, vf.EXIT_OK)
-        c, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
+        # #1243: a bare status no longer passes; this asserts the state/evidence
+        # dimension via the explicit weaker read.
+        c, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state,
+                              "--allow-unverified-checkout"])
         self.assertEqual(c, vf.EXIT_OK)
         self.assertTrue(st["satisfies_verification"])
 
@@ -700,7 +738,7 @@ class TestFinishPropagation(Harness):
         # suite summary — writable without evidence, never a pass, and immutable.
         for result in ("timed_out", "cancelled"):
             # distinct checkout per iteration → distinct flight key (avoids attach)
-            _, owner = self.claim(_decl(checkout={"head": f"head-{result}"}))
+            _, owner = self.claim(_decl(checkout={"head": _hexid(f"head-{result}")}))
             k, t = owner["flight_key"], owner["token"]
             self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
             code, out = self.run_cmd(["finish", "--flight", k, "--token", t, "--result", result,
@@ -737,7 +775,7 @@ class TestFinishPropagation(Harness):
         # absent one and must become `incomplete`, never a clean `passed`.
         for i, payload in enumerate((42, "x", [], {})):
             # distinct checkout per iteration → distinct flight key (avoids attach)
-            _, owner = self.claim(_decl(checkout={"head": f"head-mal-{i}"}))
+            _, owner = self.claim(_decl(checkout={"head": _hexid(f"head-mal-{i}")}))
             k, t = owner["flight_key"], owner["token"]
             self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
             code, out = self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
@@ -777,7 +815,7 @@ class TestExitStatusBackstop(Harness):
 
     def _running(self, head="es-default"):
         """Claim + mark-running a flight with its own key, returning (key, token)."""
-        _, owner = self.claim(_decl(checkout={"head": head}))
+        _, owner = self.claim(_decl(checkout={"head": _hexid(head)}))
         k, t = owner["flight_key"], owner["token"]
         self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
         return k, t
@@ -794,7 +832,10 @@ class TestExitStatusBackstop(Harness):
         code, out = self._finish_passed(k, t, {"command": "run.sh", "exit_status": 0})
         self.assertEqual(code, vf.EXIT_OK)
         self.assertEqual(out["state"], "passed")
-        c, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
+        # #1243: a bare status no longer passes; this asserts the state/evidence
+        # dimension via the explicit weaker read.
+        c, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state,
+                              "--allow-unverified-checkout"])
         self.assertEqual(c, vf.EXIT_OK)
         self.assertTrue(st["satisfies_verification"])
 
@@ -965,8 +1006,27 @@ class TestWait(Harness):
                       "--summary-file", self._write({"command": "x", "exit_status": 0, "skipped_checks": []}),
                       "--state-dir", self.state, "--logs-dir", self.logs])
         code, out = self.run_cmd(["wait", "--flight", k, "--timeout", "1",
-                                  "--poll-interval", "0", "--state-dir", self.state, "--logs-dir", self.logs])
+                                  "--poll-interval", "0", "--state-dir", self.state, "--logs-dir", self.logs,
+                                  "--allow-unverified-checkout"])
         self.assertEqual(code, vf.EXIT_OK)
+        self.assertTrue(out["satisfies_verification"])
+
+    def test_wait_matching_checkout_passes(self):
+        # #1243: wait computes checkout_verified in its OWN block; drive its matching
+        # arm to EXIT_OK + checkout_verified True (the status path covers the same via
+        # the shared _effective_pass, but wait's verified-match branch needs its own).
+        _, owner = self.claim()
+        k, t = owner["flight_key"], owner["token"]
+        chk = self._write(_ck())
+        self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+        self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
+                      "--summary-file", self._write({"command": "x", "exit_status": 0, "skipped_checks": []}),
+                      "--state-dir", self.state, "--logs-dir", self.logs])
+        code, out = self.run_cmd(["wait", "--flight", k, "--timeout", "1",
+                                  "--poll-interval", "0", "--state-dir", self.state, "--logs-dir", self.logs,
+                                  "--current-checkout-file", chk])
+        self.assertEqual(code, vf.EXIT_OK)
+        self.assertTrue(out["checkout_verified"])
         self.assertTrue(out["satisfies_verification"])
 
     def test_wait_expiry_non_mutating(self):
@@ -1011,8 +1071,7 @@ class TestTelemetry(Harness):
 
     def test_drift_emits_flight_invalidated(self):
         _, owner = self.claim()
-        current = self._write({"checkout_id": "r1", "head": "DIFFERENT",
-                               "index_digest": "i1", "tracked_digest": "t1", "untracked_digest": "u1"})
+        current = self._write(_ck(head=_hexid("DIFFERENT")))
         self.run_cmd(["status", "--flight", owner["flight_key"],
                       "--current-checkout-file", current, "--state-dir", self.state,
                       "--logs-dir", self.logs])
@@ -1099,7 +1158,7 @@ class TestNoExecutionContract(unittest.TestCase):
         tree = ast.parse((ROOT / "scripts" / "verification-flight.py").read_text())
         allowed_imports = {
             "__future__", "argparse", "hashlib", "hmac", "json", "os",
-            "secrets", "sys", "time", "pathlib", "typing",
+            "re", "secrets", "sys", "time", "pathlib", "typing",
         }
         allowed_os_calls = {
             "os.chmod", "os.close", "os.getpid", "os.open", "os.replace", "os.write",
@@ -1336,9 +1395,7 @@ class TestWaitDriftAndInvalidCheckoutFile(Harness):
 
     def test_wait_detects_checkout_drift_mid_poll(self):
         _, owner = self.claim()
-        drifted = self._write({"checkout_id": "r1", "head": "MOVED",
-                               "index_digest": "i1", "tracked_digest": "t1",
-                               "untracked_digest": "u1"})
+        drifted = self._write(_ck(head=_hexid("MOVED")))
         code, out = self.run_cmd([
             "wait", "--flight", owner["flight_key"], "--state-dir", self.state,
             "--logs-dir", self.logs, "--timeout", "0",
@@ -1504,6 +1561,192 @@ class TestLedgerWriteFailure(Harness):
         self.assertEqual(out["result"], "write_failed")
         self.assertFalse(out["satisfies_verification"])
         self.assertNotEqual(code, vf.EXIT_OK)
+
+
+class TestCheckoutShapeGate(Harness):
+    """issue #1243: _validate_checkout requires the four content fields to be git
+    object ids (40/64-hex), so the junk strings pre-producer callers invented are
+    rejected instead of silently keying a flight over a fingerprint of nothing."""
+
+    def test_rejects_placeholder_checkout_values(self):
+        # The exact degenerate values the issue names, plus the {k: "v"} shape the
+        # old test_reception_identity fixture built.
+        for junk in ("v", "clean", "clean-no-untracked"):
+            code, out = self.claim(_decl(checkout={k: junk for k in vf._CHECKOUT_REQUIRED}))
+            self.assertEqual(code, vf.EXIT_INVALID, f"{junk!r} must be refused")
+            self.assertTrue(out["reason"].startswith("checkout_field_bad_shape:"),
+                            f"{junk!r} -> {out['reason']}")
+
+    def test_producer_shape_is_accepted(self):
+        # AC1<->AC2: the object-id shape the producer emits passes validation.
+        code, out = self.run_cmd(["descriptor", "--input-file",
+                                  self._write(_decl(checkout=_ck()))])
+        self.assertEqual(code, vf.EXIT_OK)
+        self.assertIn("flight_key", out)
+
+    def test_checkout_id_stays_loose(self):
+        # checkout_id is the producer's opaque --absolute-git-dir path, not an object
+        # id, so an arbitrary non-empty string is still accepted for it.
+        code, out = self.run_cmd(["descriptor", "--input-file",
+                                  self._write(_decl(checkout=_ck(checkout_id="/some/worktree/.git")))])
+        self.assertEqual(code, vf.EXIT_OK)
+
+
+class TestStaleFlightRegression(Harness):
+    """issue #1243 regression, driven by the REAL producer over a real git tree: a
+    passed flight over a tree that then moves must re-read as a non-pass."""
+
+    def _fingerprint(self, repo) -> dict:
+        proc = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "checkout-fingerprint.py")],
+            cwd=repo, capture_output=True, text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout)
+
+    def _git(self, repo, *args) -> None:
+        subprocess.run(["git", *args], cwd=repo, check=True,
+                       capture_output=True, text=True)
+
+    def test_passed_flight_over_moved_tree_is_non_pass(self):
+        repo = os.path.join(self.tmp, "repo")
+        os.makedirs(repo)
+        self._git(repo, "init", "-q")
+        self._git(repo, "config", "user.email", "t@example.invalid")
+        self._git(repo, "config", "user.name", "t")
+        Path(repo, "f.txt").write_text("one\n", encoding="utf-8")
+        self._git(repo, "add", "f.txt")
+        self._git(repo, "commit", "-qm", "init")
+
+        before = self._fingerprint(repo)
+        # The producer's fingerprint is itself declaration-valid (AC1<->AC2).
+        decl = {
+            "schema_version": vf.SCHEMA_VERSION,
+            "profile": _decl()["profile"],
+            "checkout": before,
+            "candidate_identity": "deadbeef" * 5,
+        }
+        code, owner = self.claim(decl)
+        self.assertEqual(owner["role"], "owner", (code, owner))
+        k, t = owner["flight_key"], owner["token"]
+        self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+        self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
+                      "--summary-file", self._write({"command": "run.sh", "exit_status": 0, "skipped_checks": []}),
+                      "--state-dir", self.state, "--logs-dir", self.logs])
+
+        # Same tree -> a verified, reusable pass.
+        code_ok, st_ok = self.run_cmd(["status", "--flight", k, "--state-dir", self.state,
+                                       "--current-checkout-file", self._write(before)])
+        self.assertEqual(code_ok, vf.EXIT_OK)
+        self.assertTrue(st_ok["satisfies_verification"])
+
+        # Mutate a tracked file, re-fingerprint: the checkout differs.
+        Path(repo, "f.txt").write_text("two\n", encoding="utf-8")
+        after = self._fingerprint(repo)
+        self.assertNotEqual(before, after, "editing a tracked file must change the fingerprint")
+
+        # The passed flight, re-read against the MOVED tree, is a non-pass. The
+        # handle itself is a terminal `passed` record and stays immutable — the
+        # non-pass comes from the checkout AND (issue #1243): the current tree does
+        # not match the recorded one, so `checkout_verified` is False and the read
+        # reports non-pass / exits non-zero rather than reusing a pass over a moved
+        # tree. This is the exact fail-open the issue is about.
+        code_bad, st_bad = self.run_cmd(["status", "--flight", k, "--state-dir", self.state,
+                                         "--current-checkout-file", self._write(after)])
+        self.assertEqual(code_bad, vf.EXIT_NON_PASS)
+        self.assertFalse(st_bad["satisfies_verification"])
+        self.assertFalse(st_bad["reuse_ready"])
+        self.assertFalse(st_bad["checkout_verified"])
+        self.assertEqual(st_bad["state"], "passed")
+
+
+class TestCheckoutFingerprintProducer(Harness):
+    """Direct coverage of scripts/checkout-fingerprint.py's own contract (issue #1243):
+    its fail-closed behavior, the untracked field, and an unborn HEAD."""
+
+    def _run_producer(self, cwd):
+        return subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "checkout-fingerprint.py")],
+            cwd=cwd, capture_output=True, text=True,
+        )
+
+    def _git(self, repo, *args) -> None:
+        subprocess.run(["git", *args], cwd=repo, check=True,
+                       capture_output=True, text=True)
+
+    def _repo(self):
+        repo = os.path.join(self.tmp, f"repo-{os.urandom(4).hex()}")
+        os.makedirs(repo)
+        self._git(repo, "init", "-q")
+        self._git(repo, "config", "user.email", "t@example.invalid")
+        self._git(repo, "config", "user.name", "t")
+        return repo
+
+    def test_fails_closed_outside_git_repo(self):
+        # The producer's headline promise: any git failure prints NO object and exits
+        # non-zero. A non-git directory makes _toplevel() raise.
+        nongit = os.path.join(self.tmp, "not-a-repo")
+        os.makedirs(nongit)
+        proc = self._run_producer(nongit)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout.strip(), "", "must emit no fingerprint on failure")
+        self.assertIn("checkout-fingerprint", proc.stderr)
+
+    def test_untracked_change_moves_fingerprint_and_ignored_excluded(self):
+        repo = self._repo()
+        Path(repo, "tracked.txt").write_text("x\n", encoding="utf-8")
+        self._git(repo, "add", "tracked.txt")
+        self._git(repo, "commit", "-qm", "init")
+        before = json.loads(self._run_producer(repo).stdout)
+
+        # An untracked, non-ignored file moves the fingerprint (its untracked_digest).
+        Path(repo, "new-untracked.txt").write_text("hello\n", encoding="utf-8")
+        after = json.loads(self._run_producer(repo).stdout)
+        self.assertNotEqual(before["untracked_digest"], after["untracked_digest"])
+        self.assertNotEqual(before, after)
+
+        # A gitignored file does NOT move the fingerprint.
+        Path(repo, ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
+        self._git(repo, "add", ".gitignore")
+        self._git(repo, "commit", "-qm", "ignore")
+        baseline = json.loads(self._run_producer(repo).stdout)
+        Path(repo, "ignored.txt").write_text("secret\n", encoding="utf-8")
+        with_ignored = json.loads(self._run_producer(repo).stdout)
+        self.assertEqual(baseline["untracked_digest"], with_ignored["untracked_digest"],
+                         "a gitignored file must not change the fingerprint")
+
+    def test_unborn_head_emits_zero_sha(self):
+        # A fresh repo with no commit: head is the all-zero sentinel, and the
+        # fingerprint is still declaration-valid (40 zeros are object-id-shaped).
+        repo = self._repo()
+        proc = self._run_producer(repo)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        fp = json.loads(proc.stdout)
+        self.assertEqual(fp["head"], "0" * 40)
+        # It passes the consumer's shape gate.
+        self.assertEqual(vf._validate_checkout(dict(fp)), fp)
+
+
+class TestProducerBackdateFailClosed(Harness):
+    """The #1117 racy-stat hardening's fail-closed arm: when the filesystem does not
+    store the backdate, _tracked_digest raises rather than fingerprinting from
+    unprotected stat data."""
+
+    def test_ineffective_backdate_raises(self):
+        repo = os.path.join(self.tmp, "bd-repo")
+        os.makedirs(repo)
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "config", "user.email", "t@e"], cwd=repo, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True, capture_output=True, text=True)
+        Path(repo, "a.txt").write_text("one\n", encoding="utf-8")
+        subprocess.run(["git", "add", "a.txt"], cwd=repo, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "commit", "-qm", "c"], cwd=repo, check=True, capture_output=True, text=True)
+        # os.utime made a no-op: the scratch index keeps its real (current) mtime, so
+        # the stored second is NOT the requested backdate and the verify must fail closed.
+        with mock.patch.object(cf.os, "utime", lambda *a, **k: None), \
+                self.assertRaises(cf._GitError) as ctx:
+            cf._tracked_digest(repo)
+        self.assertIn("backdate ineffective", str(ctx.exception))
 
 
 if __name__ == "__main__":
