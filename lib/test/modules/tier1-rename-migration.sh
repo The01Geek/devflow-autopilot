@@ -1195,7 +1195,7 @@ print(" ".join(sorted(r["name"] for r in b["adjudicated_out"])))' "$T1_MAP" 2>/d
 # tree happens to contain.
 _t1_env_fixture() { # <root> <workflow-body> <consumer-doc-body> <shipped-reader-body>
   local r="$1"
-  mkdir -p "$r/.github/workflows" "$r/docs" "$r/lib"
+  mkdir -p "$r/.github/workflows" "$r/docs/internal" "$r/lib"
   printf '%s\n' "$2" > "$r/.github/workflows/devflow.yml"
   printf 'name: b\n' > "$r/.github/workflows/devflow-implement.yml"
   printf '%s\n' "$3" > "$r/README.md"

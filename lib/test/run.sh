@@ -10005,7 +10005,7 @@ fx_paths="## Implementation Notes
 - **Documentation Needed** — update \`docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md\` and docs/internal/implement-skill.md; also \`README.md\` via the \`devflow:docs\` subagent.
 - **Potential Gotchas** — see path/to/ignored.py"
 assert_eq "#185A matrix: bullet-with-paths emits exactly the named paths (scoped, no skill token)" \
-  "$(printf 'README.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md\ndocs/implement-skill.md')" \
+  "$(printf 'README.md\ndocs/internal/DEVFLOW_SYSTEM_OVERVIEW.md\ndocs/internal/implement-skill.md')" \
   "$(printf '%s\n' "$fx_paths" | bash "$EXTRACT_HELPER")"
 
 # Case 2: a bullet with no file paths is a no-op (empty output).
@@ -10075,7 +10075,7 @@ fx_247="## Implementation Notes
     \`/claude-md-management:revise-claude-md\`.
 - **Potential Gotchas** — none."
 assert_eq "#254: the #247 body yields exactly CLAUDE.md, README.md, docs/internal/install.md (skill-ref dropped)" \
-  "$(printf 'CLAUDE.md\nREADME.md\ndocs/install.md')" \
+  "$(printf 'CLAUDE.md\nREADME.md\ndocs/internal/install.md')" \
   "$(printf '%s\n' "$fx_247" | bash "$EXTRACT_HELPER")"
 
 # Case 8 (issue #254): bare-directory tokens (trailing-slash and extensionless
@@ -10194,7 +10194,7 @@ load-bearing invariant. \`.prflow/config.example.json\` documents the keys inlin
 **Potential Gotchas.**
 - **Do not extract \`other/leak.md\` named in this closing bullet.**"
 assert_eq "#309: bare bold-paragraph (no '- ') em-dash Documentation Needed form IS extracted; dir/prose dropped, gotchas bullet closes scope" \
-  "$(printf '.prflow/config.example.json\nCLAUDE.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md')" \
+  "$(printf '.prflow/config.example.json\nCLAUDE.md\ndocs/internal/DEVFLOW_SYSTEM_OVERVIEW.md')" \
   "$(printf '%s\n' "$fx_309" | bash "$EXTRACT_HELPER")"
 
 # Case 15 (issue #309, review fail-open guard): a bold-emphasis span that BEGINS a
@@ -10233,7 +10233,7 @@ assert_eq "#309 fail-open guard: a bold-led continuation line does NOT close sco
 # directory ref is dropped (directories are not file deliverables) and the
 # parenthetical prose ("(review auto-trigger section)") yields no path tokens.
 assert_eq "#309 AC-1: verbatim issue #304 body emits exactly the three named doc files; dir ref dropped" \
-  "$(printf '.prflow/config.example.json\nCLAUDE.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md')" \
+  "$(printf '.prflow/config.example.json\nCLAUDE.md\ndocs/internal/DEVFLOW_SYSTEM_OVERVIEW.md')" \
   "$(bash "$EXTRACT_HELPER" "$LIB/test/fixtures/issue-304-body.md")"
 
 # Case 17 (issue #309 review — ACCEPTED-tradeoff pin, mirror of Case 15): a
@@ -16965,11 +16965,11 @@ _936_EXPECTED="$(cat <<'EOF'
 .prflow/config.schema.json
 CLAUDE.md
 README.md
+docs/external/release-notes.md
 docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md
 docs/internal/cloud-allowlist.md
 docs/internal/cloud-setup.md
 docs/internal/execution-file-shape.md
-docs/external/release-notes.md
 docs/internal/implement-skill.md
 docs/internal/install.md
 docs/internal/workflow-triggers.md
@@ -22290,7 +22290,7 @@ with open(fixture, encoding="utf-8") as fh:
 print("conforms")
 PY_CONF
 assert_eq "#858 subagent-write: the production-realistic fixture conforms to the committed execution-shape census" "conforms" \
-  "$(python3 "$SWV_TMP/conform.py" "$SWV_TMP/exec.jsonl" "$LIB/fixtures/execution-file-shape.observed.txt")"
+  "$(python3 "$SWV_TMP/conform.py" "$SWV_TMP/exec.jsonl" "$LIB/test/fixtures/execution-file-shape.observed.txt")"
 # COVERAGE, not just non-vacuity. The gate above proves the CENSUS is readable; it does not
 # prove the check covers the fixtures. Run against `permitted` alone it saw only the flat
 # record vocabulary — never `message`/`content` (produced only by the envelope scenarios, the
@@ -22301,7 +22301,7 @@ assert_eq "#858 subagent-write: the production-realistic fixture conforms to the
 for _scen in envelope_permitted denied; do
   devflow_swv_build_ok "$_scen"
   assert_eq "#858 subagent-write: the '$_scen' fixture also conforms to the committed execution-shape census" "conforms" \
-    "$(python3 "$SWV_TMP/conform.py" "$SWV_TMP/exec.jsonl" "$LIB/fixtures/execution-file-shape.observed.txt")"
+    "$(python3 "$SWV_TMP/conform.py" "$SWV_TMP/exec.jsonl" "$LIB/test/fixtures/execution-file-shape.observed.txt")"
 done
 # Restore the fixture the assertions after this point expect.
 devflow_swv_build_ok permitted
@@ -25582,7 +25582,7 @@ assert_eq "#141 docs/internal/review-agent-overrides.md operative example uses t
   "yes" "$(grep -qF '"devflow:code-reviewer": { "model"' "$FDROOT/docs/internal/review-agent-overrides.md" && echo yes || echo no)"
 for d in DEVFLOW_SYSTEM_OVERVIEW.md shadow-review.md; do
   assert_eq "#141 docs/$d describes the internalized first-party review roster (devflow:code-reviewer present)" \
-    "yes" "$(grep -qF 'devflow:code-reviewer' "$FDROOT/docs/$d" && echo yes || echo no)"
+    "yes" "$(grep -qF 'devflow:code-reviewer' "$FDROOT/docs/internal/$d" && echo yes || echo no)"
 done
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -25905,7 +25905,7 @@ _WSR_SWEPT_RELPATHS=(
   '.devflow/prompt-extensions/review-and-fix.md'
   '.devflow/prompt-extensions/receiving-code-review.md'
   'CLAUDE.md'
-  'docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md'
+  'docs/DEVFLOW_SYSTEM_OVERVIEW.md'
   'CONTRIBUTING.md'
 )
 # Build the baseline corpus for (repo, ref) over FILES into OUT (truncated first, so a re-run
@@ -26386,7 +26386,7 @@ assert_eq "#142 docs/internal/review-agent-overrides.md operative table uses the
   "yes" "$(grep -qF 'devflow:requesting-code-review' "$FDROOT/docs/internal/review-agent-overrides.md" && echo yes || echo no)"
 for d in DEVFLOW_SYSTEM_OVERVIEW.md shadow-review.md; do
   assert_eq "#142 docs/$d references the internalized devflow:requesting-code-review final-pass reviewer" \
-    "yes" "$(grep -qF 'devflow:requesting-code-review' "$FDROOT/docs/$d" && echo yes || echo no)"
+    "yes" "$(grep -qF 'devflow:requesting-code-review' "$FDROOT/docs/internal/$d" && echo yes || echo no)"
 done
 
 # (8) Positive pin for the implement skill's Phase-3 review-roster line (PR #143 review,
@@ -26903,8 +26903,8 @@ vp_index() { git -C "$1" add -A >/dev/null 2>&1; }
 
 vp_repo() {  # -> prints an isolated fake repo root carrying both pin forms
   local d; d="$(mktemp -d)"
-  mkdir -p "$d/.claude-plugin" "$d/docs" "$d/lib/test" "$d/.changeset" "$d/.prflow/logs" \
-           "$d/.prflow/vendor/prflow/docs" "$d/.prflow/learnings" "$d/.claude/worktrees/wt/docs"
+  mkdir -p "$d/.claude-plugin" "$d/docs/internal" "$d/lib/test" "$d/.changeset" "$d/.prflow/logs" \
+           "$d/.prflow/vendor/prflow/docs/internal" "$d/.prflow/learnings" "$d/.claude/worktrees/wt/docs/internal"
   printf '{\n  "name": "devflow",\n  "version": "3.1.4"\n}\n' > "$d/.claude-plugin/plugin.json"
   printf 'curl -fsSL https://raw.githubusercontent.com/o/r/v3.1.4/install.sh -o i.sh\nDEVFLOW_REF=v3.1.4 bash i.sh\n' \
     > "$d/docs/internal/install.md"
@@ -27000,7 +27000,7 @@ rm -rf "$VPD"
 # ── both when every pin agrees and when the derivation matched nothing at all, so a pattern
 # ── regression would silence this guard AND the merge-time render_rewrites at the same
 # ── moment — the guard passing loudest exactly where it has stopped working.
-VPD="$(mktemp -d)"; mkdir -p "$VPD/.claude-plugin" "$VPD/docs"
+VPD="$(mktemp -d)"; mkdir -p "$VPD/.claude-plugin" "$VPD/docs/internal"
 printf '{ "version": "3.1.4" }\n' > "$VPD/.claude-plugin/plugin.json"
 printf 'A documentation page with no release pin in either machine-recognizable form.\n' \
   > "$VPD/docs/internal/install.md"

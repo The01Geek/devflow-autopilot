@@ -12459,7 +12459,7 @@ with tempfile.TemporaryDirectory() as _sk_base:
 # upgrade docs (the surface a deploying consumer actually reads). AC19 requires
 # them; assert the docs carry the refresh action and name both contract states
 # (the pre-agent validator and the manifest's declared baseline).
-_install_md = (_REPO / "docs" / "install.md").read_text(encoding="utf-8")
+_install_md = (_REPO / "docs" / "internal" / "install.md").read_text(encoding="utf-8")
 assert_eq("#703 AC19: install.md states the refresh action for a below-baseline consumer",
           True, _CW_REFRESH_ACTION in _install_md)
 assert_eq("#703 AC19: install.md names both contract states (validator + legacy_profile_baseline)",
