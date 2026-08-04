@@ -8874,6 +8874,31 @@ P1267_E2E_CLOSED="$(_p1197 e2e_closed)"; P1267_E2E_CLOSED_RC=$?
 assert_eq "#1267 e2e: the same body naming a CLOSED issue prints a proceed result" "PROCEED 11" "$P1267_E2E_CLOSED"
 assert_eq "#1267 e2e: …and exits 0 (the proceed class)" "0" "$P1267_E2E_CLOSED_RC"
 
+# ── #1267 DISCLOSED RESIDUAL of the bounded window (asserted, not left to be found).
+# A genuinely-OUTBOUND free-prose line whose own number sits BEYOND the window is no
+# longer recognised as outbound, so its number is RETURNED — a spurious blocker the
+# shipped bare-keyword rule dropped. This is the unavoidable cost of ANY finite
+# character window (the mechanism issue #1267 selected) and is the same family as the
+# codespan residual above: the scanner is NOT markdown/semantic-aware. It is pinned here
+# so a later change that closes it (or a widened `_OUTBOUND_WINDOW`) flips a test rather
+# than silently changing behavior. #10 is OPEN, so the returned number renders
+# `BLOCKED 10`; the canonical `- Blocks #10` adjacent form (pinned above) is unaffected.
+# This row ALSO pins the window's UPPER bound: widening `_OUTBOUND_WINDOW` far enough to
+# span this gap would flip it back to PROCEED and turn this assertion RED.
+_p1197_body far_outbound '- Blocks the whole downstream release train, everyone waits on #10'
+assert_eq "#1267 residual: a far-separated outbound free-prose number is no longer governed (bounded-window cost; scanner not semantic-aware) — pinned, not overlooked" \
+  "BLOCKED 10" "$(_p1197 far_outbound)"
+
+# ── #1267 template mixed-number edge: a `Blocked by #N` line whose reason writes an
+# outbound ordering word ADJACENT to a *second* number is governed (line-level), so BOTH
+# numbers drop. #10 (the intended inbound) is OPEN and #11 (the outbound object) CLOSED,
+# so a per-number reading would return #10 → BLOCKED 10; line-level governance renders
+# PROCEED. This is the shape the issue-template clarification is careful to condition
+# ("a reason whose ordering words introduce no #N of their own"), pinned here.
+_p1197_body tmpl_mixed 'Blocked by #10 — must merge before #11 ships'
+assert_eq "#1267 template mixed-number: an ordering word adjacent to a second number governs the whole line (both numbers drop)" \
+  "PROCEED" "$(_p1197 tmpl_mixed)"
+
 rm -rf "$P1197"
 
 # ── PR #572 review (Approve-with-notes): main() top-level fail-closed catch-all ─

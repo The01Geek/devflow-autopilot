@@ -131,10 +131,27 @@ _OUTBOUND_KEYWORDS = (
 # rejected). The window bound (`_OUTBOUND_WINDOW`) is small enough that a reason-prose
 # keyword far from an unrelated later number does not match, and large enough for the
 # widest real separator (` issue ` / `| Blocks | `). Narrowing only ever REMOVES
-# matches versus the shipped rule, so it cannot drop a number the old rule returned —
-# it can only add numbers back (the recovery axis). Line-level governance is unchanged:
-# when this matches, `_scan_dependencies` still drops EVERY number on the line,
-# including one repeated later outside any number run.
+# matches versus the shipped rule, so it cannot drop a number the old rule returned — it
+# can only add numbers back. For the canonical outbound form (number adjacent to the
+# keyword) and for the matrix separator shapes, adding numbers back is pure recovery.
+#
+# The ONE place it is not pure recovery — a disclosed residual, same family as the
+# code-span residual pinned in lib/test/run.sh, because the scanner is not
+# markdown/semantic-aware — is a genuinely-OUTBOUND free-prose line whose own number
+# sits BEYOND the window: `- Blocks the whole downstream release train, see #10`. The
+# shipped bare-keyword rule dropped #10 (correct: this issue blocks #10, so #10 is not a
+# blocker of it); the narrowed rule no longer matches and returns #10 (a spurious
+# blocker, and — via `dependency_section_numbers` — a persistent inverted stamp). This
+# residual is accepted, not overlooked: it is the unavoidable cost of a bounded
+# character window (any finite bound has it), the issue selected the bounded window with
+# its reverse axis operationalized by the two lib/test/run.sh matrices (which this rule
+# passes), and the canonical `Blocks #N` outbound form places the number adjacent to the
+# keyword and is unaffected. It is pinned as a disclosed residual in lib/test/run.sh; the
+# remedy for a real far-separated outbound line is to write the number adjacent to the
+# keyword.
+#
+# Line-level governance is unchanged: when this matches, `_scan_dependencies` still drops
+# EVERY number on the line, including one repeated later outside any number run.
 _OUTBOUND_WINDOW = 30
 OUTBOUND_DECLARATION = re.compile(
     rf"\b(?:{'|'.join(_OUTBOUND_KEYWORDS)})\b.{{0,{_OUTBOUND_WINDOW}}}?{_NUMBER_RUN}",
