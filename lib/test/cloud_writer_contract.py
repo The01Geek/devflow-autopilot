@@ -90,7 +90,18 @@ PROTOCOL = "devflow-cloud-writer-contract-v1"
 # The immediately preceding supported workflow profile set (AC18
 # `legacy_profile_baseline`). Consumers older than this refresh workflows and
 # plugin content together before their next cloud-writer run (see docs/install.md).
-LEGACY_PROFILE_BASELINE = "2.15.13"
+#
+# Cadence rule (issue #1034): advance this baseline whenever a change alters the
+# granted helper-head set of any profile in lib/capability-profiles.json, and
+# re-snapshot the frozen legacy grants that move with it
+# (`_FROZEN_LEGACY_GRANTS` in lib/test/test_python_scripts.py) in the same change.
+# A newly-granted head becomes a REQUIRED_HELPER_HEADS member only once the
+# baseline advances past the release that first shipped it — deferring registration
+# until then is what keeps the AC19 pairing-2 invariant (an N-1 workflow paired
+# with the current plugin still validates cleanly) satisfiable. This is authoring
+# guidance at its single source; the mechanical gate is the pairing-2 fixture
+# going RED, not a wording pin.
+LEGACY_PROFILE_BASELINE = "2.30.99"
 
 # The one repo-relative prefix a cloud-reached bundled helper is granted under.
 VENDOR_PREFIX = ".prflow/vendor/prflow/"
@@ -225,21 +236,12 @@ REQUIRED_HELPER_HEADS = {
         ".prflow/vendor/prflow/scripts/parse-acs.py",
         ".prflow/vendor/prflow/scripts/branch-for-issue.py",
         ".prflow/vendor/prflow/scripts/update-branch-checkpoint.sh",
-        # NOT listed here: Phase 3.1's existing-PR resolver (scripts/resolve-existing-pr.sh,
-        # issue #782). A review pass asked for it, and the request is sound in isolation —
-        # membership would assert its vendored grant, audit its leading-token boundary, and
-        # byte-pin it in the runtime manifest. But this list is a REQUIRED SUBSET every
-        # SUPPORTED consumer workflow must grant, including the immediately-preceding one
-        # frozen at `LEGACY_PROFILE_BASELINE`, which predates the helper and cannot grant it.
-        # Adding a brand-new head therefore breaks the AC19 pairing-2 invariant (an N-1
-        # workflow paired with the current plugin still validates cleanly) — reproduced: the
-        # live manifest under the frozen legacy grants reports HEAD_ABSENT for exactly this
-        # path. A newly-added helper becomes required when the baseline advances past the
-        # release that ships it, not in the release that introduces it; registering it here
-        # is deferred to that baseline bump. The helper is still granted in the current
-        # `implement` profile (lib/capability-profiles.json + the generated literals), so a
-        # current-workflow consumer runs it — only the every-supported-workflow REQUIREMENT
-        # is deferred.
+        # Phase 3.1's existing-PR resolver (scripts/resolve-existing-pr.sh, issue #782),
+        # registered at the issue-#1034 baseline bump: the baseline now advances past the
+        # release that shipped it, so the AC19 pairing-2 invariant (an N-1 workflow paired
+        # with the current plugin still validates cleanly) is satisfied by the re-snapshotted
+        # frozen legacy grants rather than broken by this head.
+        ".prflow/vendor/prflow/scripts/resolve-existing-pr.sh",
         ".prflow/vendor/prflow/scripts/file-deferrals.py",
         # Phase 4.0.5's discovery step, invoked in the SAME fence as
         # file-deferrals.py above (issue #555). Registered alongside it so the
@@ -251,20 +253,12 @@ REQUIRED_HELPER_HEADS = {
         ".prflow/vendor/prflow/scripts/resolve-review-overrides.py",
         ".prflow/vendor/prflow/scripts/apply-labels.sh",
         ".prflow/vendor/prflow/scripts/ensure-label.sh",
-        # NOT listed here: Phase 4.0's GitHub-native blocked-by dependency stamp
-        # (scripts/apply-issue-dependencies.py, issue #1011). It IS granted in the
-        # current `implement` profile (lib/capability-profiles.json + the generated
-        # devflow-cloud-writer-contract.json helper heads), so a current-workflow
-        # consumer runs it. But this list is the REQUIRED SUBSET every SUPPORTED
-        # consumer workflow must grant, including the one frozen at
-        # `LEGACY_PROFILE_BASELINE`, which predates the helper and cannot grant it —
-        # so registering a brand-new head here breaks the AC19 pairing-2 invariant
-        # (the #703 test: an N-1 workflow paired with the current plugin must still
-        # validate cleanly; the frozen grants report HEAD_ABSENT for exactly this
-        # path). It becomes required when the baseline advances past the release
-        # that ships it — the identical deferral scripts/resolve-existing-pr.sh
-        # already carries above. Issue #1011's acceptance criterion that named this
-        # list predates the legacy baseline and could not honour that invariant.
+        # Phase 4.0's GitHub-native blocked-by dependency stamp
+        # (scripts/apply-issue-dependencies.py, issue #1011), registered at the
+        # issue-#1034 baseline bump alongside resolve-existing-pr.sh above: the
+        # baseline now advances past the release that shipped it, so the AC19
+        # pairing-2 invariant holds via the re-snapshotted frozen legacy grants.
+        ".prflow/vendor/prflow/scripts/apply-issue-dependencies.py",
         ".prflow/vendor/prflow/scripts/stale-prose-lint.py",
         ".prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh",
         ".prflow/vendor/prflow/scripts/match-lint-adjudications.py",
