@@ -779,11 +779,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          # Pin the default branch explicitly (issue #1163) — issue_comment already
-          # resolves GITHUB_REF to the default branch, so this states the trusted-tree
-          # property in the file. No fallback expression (an empty `ref` falls back to
-          # GITHUB_REF silently) and no literal branch name (a consumer's default may
-          # not be `main`).
+          # Pin the default branch explicitly (issue #1163) — see the config job's
+          # checkout comment; no fallback expression, no literal branch name.
           ref: ${{ github.event.repository.default_branch }}
           # fetch-depth: 0 (all history) — matches devflow-implement.yml and
           # ci.yml. Two requirements, and the second is the binding one
