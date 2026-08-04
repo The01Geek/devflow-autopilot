@@ -160,7 +160,17 @@ The portable source anchor `"${CLAUDE_SKILL_DIR:-…}"/../../scripts/<helper>` (
   - `Bash`: {"command":"echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"","description":"Resolve review skill dir"}
   ```
 
-  `Bash(echo:*)` was present in that run's resolved allowlist — **the head was granted and the command was still denied.** The distinguishing feature is the unexpanded `${VAR:-default}` expansion in the **argument**. That run recorded 21 denials in total and still completed, so the denial is individually invisible, not individually fatal. **Open question (issue #1124 Blocked section):** whether the matcher refuses all unexpanded parameter expansions in argument position, only the defaulted `${VAR:-default}` form, or only this variable, is **unestablished** — `matcher-probe.yml` carries no argument-position corpus row, so the answer needs a probe dispatch and is out of scope for the leading-token remedy.
+  `Bash(echo:*)` was present in that run's resolved allowlist — **the head was granted and the command was still denied.** The distinguishing feature is the unexpanded `${VAR:-default}` expansion in the **argument**. That run recorded 21 denials in total and still completed, so the denial is individually invisible, not individually fatal.
+
+  **Scope of the argument-position denial — three measurement rows now exist (issue #1152), verdict DISPATCHED-PENDING.** Whether the matcher refuses all unexpanded parameter expansions in argument position, only the defaulted `${VAR:-default}` form, or only this variable, was previously **unestablished** — `matcher-probe.yml` carried no argument-position corpus row. Issue #1152 adopted issue #1124's orphaned rows and added them to the new **`command-probe`** job (rows 8–10), which measures the same `command` tier the denial was recorded on:
+
+  | # | Argument-position shape | Verdict |
+  |---|-------------------------|---------|
+  | 8 | defaulted anchor expansion `echo "${CLAUDE_SKILL_DIR:-…}" …` (reproduces run `30695072336`) | **dispatched-pending** |
+  | 9 | bare anchor expansion `echo "${CLAUDE_SKILL_DIR}" …` | **dispatched-pending** |
+  | 10 | bare expansion of a **non-anchor** variable `echo "${GITHUB_ACTIONS}" …` (control — distinguishes "this variable" from "this expansion form") | **dispatched-pending** |
+
+  The rows and their generated baseline ship with this change; the verdicts land on a later `workflow_dispatch` of `matcher-probe.yml`. **A verdict is never written from inference** — matcher semantics are provable only in a real probe run. Read against each other once dispatched: if 9 is DENIED and 10 PERMITTED, the denial is specific to `CLAUDE_SKILL_DIR`; if both are denied, argument-position bare expansion is refused generally; if 8 is denied but 9 permitted, only the defaulted form is refused. Until then this remains out of scope for the leading-token remedy (issue #1124 / PR #1272), whose conditional call form addresses only the leading-token position.
 
 **Anchor invocation call-site census (issue #1124 AC2).** Re-derived at the issue's HEAD (index-sourced per issue #711): **118** anchor leading-token helper invocations across **34** `skills/*` files. Disposition:
 
@@ -604,6 +614,58 @@ after any `claude-code-action` upgrade.
 
 ---
 
+## Probe evidence (command tier) (issue #1152)
+
+The `devflow.yml` **command** tier — the manual `/prflow:review-and-fix` /
+`/prflow:pr-description` PR-comment path — is a **third** cloud allowlist alongside the
+read-only `review` tier and the read-write `implement` tier. Before issue #1152 its
+HEADS were scanned (run.sh's whole-bundle head scan against `devflow.yml`'s `TOOLS`) but
+its SHAPES were not: `lib/test/run.sh` linted the `review-and-fix` bundle under the
+`implement` profile as the closest **inferred** proxy, and `matcher-probe.yml` carried no
+command-tier job. On run `29854795625` (PR #684) a `prflow:review-and-fix` comment run
+took six Phase-0 permission denials, produced no verdict / commits / comment, and still
+exited `is_error=false` — every denial a *shape* refusal on the unmeasured tier.
+
+Issue #1152 closes both gaps:
+
+- **Desk lint.** `lib/test/extract-command-shapes.py --profile command` (rule set
+  `COMMAND_RULES` = `CR1`–`CR5`) applies the read-write `implement` tier's denied shapes
+  remapped to `CR*` ids (`command`-tier denied shapes ⊆ `implement`-tier denied shapes,
+  the assumption the old proxy already rested on; the `command-probe` job converts it from
+  inference to measurement). `lib/test/run.sh` drives it over the whole `review-and-fix`
+  bundle (root + every `references/*.md`) plus the shared review-engine files it executes
+  inline, and goes RED when any teaches a command-profile-denied shape. The unexpanded
+  `${CLAUDE_SKILL_DIR:-…}` anchor is deliberately **not** a rule (issue #275 / #1124 — its
+  argument-position denial is measured by the probe rows below, not modelled statically).
+- **Probe job.** `matcher-probe.yml`'s `command-probe` job measures the tier that ships:
+  its `--allowed-tools` baseline is a **generated region** (`region=probe-command`)
+  compiled from the `command` profile, banner-stamped with its sha256 exactly as the
+  `probe-review` / `probe-implement` baselines are, so it can never drift from the deployed
+  allowlist.
+
+**This measurement is DISPATCHED-PENDING** — the rows and their generated baseline ship
+with issue #1152; the verdicts land on a later `workflow_dispatch` (a verdict is never
+written from inference). Version-dependent: re-probe after any `claude-code-action`
+upgrade.
+
+| # | Shape | Verdict |
+|---|-------|---------|
+| 1 | granted vendored-literal helper path as a leading token (`config-get.sh`) | dispatched-pending |
+| 2 | resolved (expanded) skill-dir-anchored helper path as a leading token | dispatched-pending |
+| 3 | `>` redirect from a granted head into `.prflow/tmp/**` | dispatched-pending |
+| 4 | `.prflow/tmp/**` file authored with the **Write** tool | dispatched-pending |
+| 5 | `if VAR=$(granted-helper …)` command-substitution condition | dispatched-pending |
+| 6 | `;`-joined multi-statement sequence | dispatched-pending |
+| 7 | plainly granted single command (positive control) | dispatched-pending |
+| 8 | argument-position defaulted anchor expansion `${VAR:-default}` (reproduces run `30695072336`) | dispatched-pending |
+| 9 | argument-position bare anchor expansion `${VAR}` | dispatched-pending |
+| 10 | argument-position bare expansion of a non-anchor variable (control) | dispatched-pending |
+
+Rows 8–10 are the argument-position rows adopted from issue #1124's closure; their
+cross-reading is described in *The `${CLAUDE_SKILL_DIR:-…}` anchor* subsection above.
+
+---
+
 ## Grants are per-HEAD across the whole pipeline (the `paste` war-story)
 
 A repo rule from #363/#401 (**not** an implement-probe row): **grants are
@@ -679,10 +741,10 @@ manifest — never hand-edit them.**
 Groups are shared across profiles **only where the contiguous token runs are
 genuinely identical**; most runs are per-profile.
 
-### The five generated regions
+### The six generated regions
 
 `python3 lib/generate-capability-profiles.py` compiles the manifest into exactly
-**five** regions:
+**six** regions:
 
 1. `devflow-runner.yml`'s **review** `TOOLS='…'`,
 2. `devflow.yml`'s **command** `TOOLS='…'`,
@@ -690,7 +752,8 @@ genuinely identical**; most runs are per-profile.
    `${{ needs.config.outputs.allowed_tools_extra }}"` splice, which is preserved
    **verbatim** (consumer-facing surface),
 4. `matcher-probe.yml`'s `REVIEW='…'` baseline,
-5. `matcher-probe.yml`'s `IMPLEMENT='…'` baseline.
+5. `matcher-probe.yml`'s `IMPLEMENT='…'` baseline,
+6. `matcher-probe.yml`'s `COMMAND='…'` baseline (the `command-probe` job, issue #1152).
 
 Each region carries a **banner comment** with `manifest_version` + the **sha256**
 of that region's resolved token list. The banner is placed where it is

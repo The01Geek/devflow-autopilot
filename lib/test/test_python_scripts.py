@@ -9541,10 +9541,11 @@ for _gsr_p in sorted(cwc.ROOTS):
 
 _shapes_mod = cwc._shapes
 
-# Every ROOTS profile declares which rule table governs it. `light-command` maps
-# to None BY DECLARATION: matcher-probe.yml records a REVIEW and an IMPLEMENT
-# baseline and no light-command one, so applying either table there would infer a
-# permitted form from evidence recorded on another profile — which AC4 forbids.
+# Every ROOTS profile declares which rule table governs it. All three now carry a
+# probe-anchored table: issue #1152 gave the `light-command` (command) tier its own
+# `command-probe` baseline and CR* rule set, so it is no longer `None` (a None entry
+# is still legal — it means "no probe-anchored table for that profile" — but no ROOTS
+# profile is None today).
 assert_eq("#678 AC4: every ROOTS profile declares a shape rule table (None == no "
           "probe-anchored table for that profile)",
           set(cwc.ROOTS), set(cwc.PROFILE_SHAPE_TABLES))
@@ -9651,9 +9652,15 @@ try:
         encoding="utf-8")
     cwc.SKILL_ASSETS["pr-description"] = list(_sc_orig_pd_long) + [".prflow/tmp/sc-678-long.md"]
     _sc_long_errs = [e for e in cwc.check_shape_conformance() if "sc-678-long.md" in e]
-    assert_eq("#678 AC4: the truncation plant produces exactly two violations "
-              "(one short, one long)", 2, len(_sc_long_errs))
-    _sc_renders = sorted((e.split("that reaches it: ", 1)[1] for e in _sc_long_errs), key=len)
+    # pr-description is reached under BOTH tabled profiles that audit it (implement,
+    # and — since issue #1152 gave the command tier a table — light-command), so each
+    # of the two planted statements produces one error PER auditing profile. The
+    # RENDERED oneline is identical across profiles (the rule id differs, IR* vs CR*,
+    # but the truncation this test exercises is on the statement text), so dedupe the
+    # rendered statements: exactly two distinct renders, one short and one long.
+    _sc_renders = sorted({e.split("that reaches it: ", 1)[1] for e in _sc_long_errs}, key=len)
+    assert_eq("#678 AC4: the truncation plant produces exactly two distinct rendered "
+              "statements (one short, one long)", 2, len(_sc_renders))
     # Positive control: the SHORT statement on the same fixture is rendered whole, so a
     # renderer that truncated everything could not satisfy both assertions.
     assert_eq("#678 AC4: a <=120-char statement is rendered whole, un-truncated",
@@ -9740,18 +9747,29 @@ assert_raises("#678: _load_sibling raises ImportError naming the path when impor
 assert_raises("#678: a merely-absent .py sibling fails at exec_module with a path-naming "
               "FileNotFoundError — the guard above is not what covers it",
               FileNotFoundError, lambda: cwc._load_sibling("nope", "no-such-sibling-678.py"))
-# light-command's declared None is honoured as "no rules to apply", NOT as a
-# silent pass-through to another profile's table. Drive it against text that DOES
-# violate both tables: a table-inheriting regression would report those hits.
+# light-command NOW has a probe-anchored table (issue #1152): its command rule set
+# (CR*) is the implement tier's denied shapes remapped. Drive it against text that
+# violates all three tables and confirm each profile reports under its OWN rule ids —
+# NOT a cross-profile inference. The `cd` and the label-helper capture are command-tier
+# denied shapes (CR4/CR3), so light-command reports them; `python3 -c pass` is an
+# interpreter head denied ONLY under the read-only review table (R4), so it is NOT a
+# command/implement hit — the command tier inherits the implement shapes, which carry
+# no interpreter rule.
 _sc_dirty = "```bash\ncd /tmp\npython3 -c pass\n" \
             'OUT=$(.prflow/vendor/prflow/scripts/apply-labels.sh 1 X)\n```\n'
-assert_eq("#678 AC4: light-command declares no probe-anchored table, so a shape denied "
-          "on BOTH other tiers yields no hit under it (no cross-profile inference)",
-          [], cwc.shape_violations_in("light-command", _sc_dirty))
+_sc_lc_hits = cwc.shape_violations_in("light-command", _sc_dirty)
+assert_eq("#678 AC4 (#1152): light-command has a table and reports the command-tier "
+          "denied shapes under its own CR* ids (cd -> CR4, label capture -> CR3)",
+          {"CR3", "CR4"}, {rule for _, rule, _ in _sc_lc_hits})
+assert_eq("#678 AC4 (#1152): light-command does NOT flag the interpreter head "
+          "(python3 is a review-only R4 shape; the command tier inherits the "
+          "implement shapes, which carry no interpreter rule)",
+          False, any(rule == "R4" for _, rule, _ in _sc_lc_hits))
 assert_eq("#678 AC4: the same text is NOT clean under the profiles that do have a table",
-          (True, True),
+          (True, True, True),
           (bool(cwc.shape_violations_in("review", _sc_dirty)),
-           bool(cwc.shape_violations_in("implement", _sc_dirty))))
+           bool(cwc.shape_violations_in("implement", _sc_dirty)),
+           bool(_sc_lc_hits)))
 
 # An unmapped profile fails CLOSED — a future cloud profile must not be audited
 # under a silently-chosen table nor skipped without saying so.
@@ -9780,6 +9798,14 @@ _sc_planted = {
     "IR3": 'OUT=$(.prflow/vendor/prflow/scripts/apply-labels.sh 1 X)',
     "IR4": "cd somewhere",
     "IR5": "printf hi > /tmp/devflow-915.txt",
+    # issue #1152: the command tier inherits the implement tier's denied shapes
+    # verbatim (CR* == the IR* shapes remapped), so its controls are the same
+    # planted violations under the command rule ids.
+    "CR1": 'for n in 1 2; do .prflow/vendor/prflow/scripts/apply-labels.sh "$n" X; done',
+    "CR2": 'while read -r n; do .prflow/vendor/prflow/scripts/apply-labels.sh "$n" X; done',
+    "CR3": 'OUT=$(.prflow/vendor/prflow/scripts/apply-labels.sh 1 X)',
+    "CR4": "cd somewhere",
+    "CR5": "printf hi > /tmp/devflow-1152.txt",
 }
 assert_eq("#678 AC8: a planted control exists for every rule id in every declared table",
           set(),
@@ -9806,25 +9832,39 @@ _sc_shapes_src = (cwc.REPO_ROOT / "lib/test/extract-command-shapes.py").read_tex
 # alone — one-directional, where the point is to catch drift both ways.
 _sc_shapes_emit_src = "\n".join(
     line for line in _sc_shapes_src.splitlines()
-    if not line.startswith(("REVIEW_RULES = ", "IMPLEMENT_RULES = "))
+    if not line.startswith(("REVIEW_RULES = ", "IMPLEMENT_RULES = ", "COMMAND_RULES = "))
 )
 assert_eq("#678 AC8: stripping the frozenset declarations actually removed them "
           "(otherwise the reconciliation below is self-satisfying)",
-          (False, False),
+          (False, False, False),
           ("REVIEW_RULES = " in _sc_shapes_emit_src,
-           "IMPLEMENT_RULES = " in _sc_shapes_emit_src))
+           "IMPLEMENT_RULES = " in _sc_shapes_emit_src,
+           "COMMAND_RULES = " in _sc_shapes_emit_src))
 _sc_src_review = set(re.findall(r'^\s*\("[^"]+",\s*"(R\d+)",', _sc_shapes_emit_src, re.M))
 _sc_src_implement = set(re.findall(r'"(IR\d+)"', _sc_shapes_emit_src))
+# issue #1152: the command ids (CR*) appear in source only as `_IR_TO_CR`'s values
+# ("IR1": "CR1", …). COMMAND_RULES is `frozenset(_IR_TO_CR.values())`, so both sides
+# derive from that one dict — this is NOT the independent-drift check the IMPLEMENT
+# reconciliation above is (a new IR rule with no `_IR_TO_CR` mapping is caught THERE,
+# and by find_command_violations' KeyError, not here). What it DOES catch, because the
+# `COMMAND_RULES = ` declaration line is stripped from the scanned source at
+# `_sc_shapes_emit_src`, is COMMAND_RULES being re-typed as a hardcoded literal that
+# disagrees with the `_IR_TO_CR` values the finder actually remaps to.
+_sc_src_command = set(re.findall(r'"(CR\d+)"', _sc_shapes_emit_src))
 assert_eq("#678 AC8: REVIEW_RULES mirrors exactly the R-ids extract-command-shapes.py's "
           "review classifier emits (a rule added to the finder alone goes RED here)",
           _sc_src_review, set(_shapes_mod.REVIEW_RULES))
 assert_eq("#678 AC8: IMPLEMENT_RULES mirrors exactly the IR-ids extract-command-shapes.py "
           "carries (a rule added to the finder alone goes RED here)",
           _sc_src_implement, set(_shapes_mod.IMPLEMENT_RULES))
-# Non-vacuity of the two reconciliations above: the extracted sets are non-empty, so
+assert_eq("#678 AC8 (#1152): COMMAND_RULES mirrors exactly the CR-ids "
+          "extract-command-shapes.py remaps to (a rule added to the map alone goes RED here)",
+          _sc_src_command, set(_shapes_mod.COMMAND_RULES))
+# Non-vacuity of the three reconciliations above: the extracted sets are non-empty, so
 # a regex that silently stopped matching could not read as agreement.
-assert_eq("#678 AC8: the rule-id extraction is non-vacuous (both sets non-empty)",
-          (True, True), (bool(_sc_src_review), bool(_sc_src_implement)))
+assert_eq("#678 AC8: the rule-id extraction is non-vacuous (all three sets non-empty)",
+          (True, True, True),
+          (bool(_sc_src_review), bool(_sc_src_implement), bool(_sc_src_command)))
 
 for _sc_profile, _sc_table in sorted(cwc.PROFILE_SHAPE_TABLES.items()):
     if _sc_table is None:
@@ -23795,6 +23835,87 @@ assert_eq("#1197 full recognizer: out-of-section direction handling is unchanged
           (_preflight1011.dependency_numbers("Blocks #5 outside a section"),
            _preflight1011.dependency_numbers("Blocks #5 but blocked by #6, outside a section")))
 
+# ── issue #1268: a number skipped for outbound direction becomes DATA the
+# section-only caller can read, via a new `(found, skipped)` accessor, while the
+# two existing public wrappers keep their historic `list[str]` shape. ──
+# The new accessor over a body with one skipped (#202, outbound) and one kept
+# (#201, inbound) entry returns both lists.
+assert_eq("#1268 new accessor: returns (found, skipped) for a mixed body",
+          (['201'], ['202']),
+          _preflight1011.dependency_section_scan(
+              "## Dependencies\n- Blocks #202 — this issue is the prerequisite\n"
+              "- Blocked by #201 — b\n"))
+assert_eq("#1268 new accessor: both lists are unique in source order",
+          (['201'], ['202']),
+          _preflight1011.dependency_section_scan(
+              "## Dependencies\n- Blocked by #201\n- Blocked by #201 again\n"
+              "- Blocks #202\n- Blocks #202 again\n"))
+# Source order of the skipped list, distinct from mere uniqueness: two distinct
+# outbound numbers must appear in body order, and reverse in a reversed body — so a
+# reversed-order implementation would be caught rather than passing on a 1-element list.
+assert_eq("#1268 new accessor: skipped preserves body source order (distinct numbers)",
+          ([], ['301', '302']),
+          _preflight1011.dependency_section_scan(
+              "## Dependencies\n- Blocks #301\n- Blocks #302\n"))
+assert_eq("#1268 new accessor: skipped order reverses with a reversed body",
+          ([], ['302', '301']),
+          _preflight1011.dependency_section_scan(
+              "## Dependencies\n- Blocks #302\n- Blocks #301\n"))
+# Disjointness: a number governed OUTBOUND on one line but declared inbound on
+# another is registered (in `found`) and therefore must NOT also appear in `skipped`
+# — otherwise the helper would both register #5 and falsely report it unregistered.
+assert_eq("#1268 new accessor: a number rescued by an inbound line is not also skipped",
+          (['5'], []),
+          _preflight1011.dependency_section_scan(
+              "## Dependencies\n- Blocks #5\n- Blocked by #5\n"))
+# …and the disjointness filter is scoped PER NUMBER, not to the whole list. Every
+# fixture above has the rescued number as the only skipped entry, so an implementation
+# that cleared all of `skipped` on any overlap would pass them byte-for-byte. Combining
+# a rescued number (#5) with a distinct still-genuinely-skipped one (#6) is what pins
+# the per-number scoping: #6 must survive the filter that removes #5.
+assert_eq("#1268 new accessor: the disjointness filter strips only the rescued number",
+          (['5'], ['6']),
+          _preflight1011.dependency_section_scan(
+              "## Dependencies\n- Blocks #5\n- Blocked by #5\n- Blocks #6\n"))
+# A single outbound line carrying a multi-number run reports EVERY number it dropped —
+# the per-number `add_skipped` loop, exercised at the accessor rather than only at the
+# helper level, so a failure localises here.
+assert_eq("#1268 new accessor: a multi-number outbound line reports every dropped number",
+          ([], ['301', '302']),
+          _preflight1011.dependency_section_scan(
+              "## Dependencies\n- Blocks #301, #302\n"))
+# Both lists populated with 2+ interleaved entries: `found` and `skipped` order
+# independently, each in its own body order.
+assert_eq("#1268 new accessor: found and skipped order independently when interleaved",
+          (['401', '403'], ['402', '404']),
+          _preflight1011.dependency_section_scan(
+              "## Dependencies\n- Blocked by #401\n- Blocks #402\n"
+              "- Blocked by #403\n- Blocks #404\n"))
+# Boundary: a body with no `## Dependencies` section, and an empty body, each return
+# the empty pair rather than raising or returning a bare list.
+assert_eq("#1268 new accessor: a section-less body and an empty body both return ([], [])",
+          (([], []), ([], [])),
+          (_preflight1011.dependency_section_scan("Blocked by #7, but with no section\n"),
+           _preflight1011.dependency_section_scan("")))
+# The two existing wrappers still return list[str] with exactly today's contents —
+# assert the TYPE (not just the value), because a tuple pass-through is the exact
+# accidental shape the refactor could introduce.
+_1268_body = ("## Dependencies\n- Blocks #202 — this issue is the prerequisite\n"
+              "- Blocked by #201 — b\n")
+_1268_sect = _preflight1011.dependency_section_numbers(_1268_body)
+_1268_full = _preflight1011.dependency_numbers(_1268_body)
+assert_eq("#1268 dependency_section_numbers still returns list[str] with found only",
+          (list, ['201']), (type(_1268_sect), _1268_sect))
+assert_eq("#1268 dependency_numbers still returns list[str] with found only",
+          (list, ['201']), (type(_1268_full), _1268_full))
+# The new accessor writes NO stderr of its own, exactly like dependency_section_numbers —
+# the skip breadcrumb is the calling helper's responsibility (issue #1268 / AC6).
+_io1268 = io.StringIO()
+with contextlib.redirect_stderr(_io1268):
+    _1268_scan = _preflight1011.dependency_section_scan("## Dependencies\n- Blocks #5\n")
+assert_eq("#1268 new accessor: emits no stderr of its own on an outbound body",
+          (([], ['5']), ""), (_1268_scan, _io1268.getvalue()))
+
 _HELPER1011 = SCRIPTS / 'apply-issue-dependencies.py'
 
 
@@ -23834,6 +23955,12 @@ for a in "$@"; do
       # persistent (and inverted) blocked_by for either one.
       109) printf '%s\n' '## Dependencies' '- **Blocks #201** — this issue is the prerequisite' ;;
       110) printf '%s\n' '## Dependencies' '- Blocks #202 but blocked by #201' ;;
+      # issue #1268: some-dropped-some-kept — one outbound line (#202, skipped for
+      # direction) beside one inbound line (#201, kept and registered).
+      111) printf '%s\n' '## Dependencies' '- Blocks #202 — this issue is the prerequisite' '- Blocked by #201 — b' ;;
+      # issue #1268: the same number outbound on one line and inbound on another. It is
+      # rescued into `found` and must NOT also be reported as a skip (no false breadcrumb).
+      112) printf '%s\n' '## Dependencies' '- Blocks #201 — this issue is the prerequisite' '- Blocked by #201 — b' ;;
       200) exit 1 ;;
       *) printf '\n' ;;
     esac
@@ -23929,16 +24056,65 @@ assert_eq("#1011 out-of-section: breadcrumb says no prerequisites in a section",
 # scanner would have produced "linked #109 blocked_by #201." here; asserting that
 # literal's ABSENCE alongside the no-prerequisites breadcrumb keeps the row
 # discriminating rather than satisfied by any quiet run.
+# issue #1268 reconciles these two #1197 AC6 rows to the new breadcrumb: an outbound
+# number is now NAMED as a skip (with the direction as the reason) rather than
+# silently collapsed into the false "declares no prerequisites" line. The third
+# tuple slot flips from True (old literal present) to False (old literal absent), and
+# two new slots assert the skip breadcrumb and the outbound-only summary are present.
+# The genuinely-empty-section row (`#1011 out-of-section`, body 106) below keeps the
+# old literal — the three were distinguished, not swept together.
 _rc, _se = _run_deps(109)
-assert_eq("#1197 AC6: an outbound declaration registers nothing (exit 0, no POST attempted)",
-          (0, False, True),
-          (_rc, "linked #109 blocked_by" in _se,
-           "declares no prerequisites in a `## Dependencies` section" in _se))
+assert_eq("#1268/#1197 AC6: an outbound-only declaration registers nothing and is no longer "
+          "misdescribed as 'no prerequisites' (exit 0, no POST attempted)",
+          (0, False, False, True, True),
+          (_rc,
+           "linked #109 blocked_by" in _se,
+           "declares no prerequisites in a `## Dependencies` section" in _se,
+           "skipped #201" in _se and "OUTBOUND relation" in _se,
+           "only as OUTBOUND relations" in _se))
 _rc, _se = _run_deps(110)
-assert_eq("#1197 AC6: a mixed-direction line registers nothing either (line-level governance)",
-          (0, False, True),
-          (_rc, "blocked_by #201" in _se,
-           "declares no prerequisites in a `## Dependencies` section" in _se))
+assert_eq("#1268/#1197 AC6: a mixed-direction LINE registers nothing (line-level) and names "
+          "each dropped number instead of claiming no prerequisites",
+          (0, False, False, True, True),
+          (_rc,
+           "linked #110 blocked_by" in _se,
+           "declares no prerequisites in a `## Dependencies` section" in _se,
+           "skipped #202" in _se and "skipped #201" in _se,
+           "only as OUTBOUND relations" in _se))
+
+# issue #1268 — some-dropped-some-kept path (body 111: outbound #202 beside inbound
+# #201). This path produced NO output about the dropped number today; now it names it
+# under the helper's own prefix while still registering the kept prerequisite.
+_rc, _se = _run_deps(111)
+assert_eq("#1268 mixed path: exit 0", 0, _rc)
+assert_eq("#1268 mixed path: registers the kept inbound prerequisite", True,
+          "linked #111 blocked_by #201." in _se)
+assert_eq("#1268 mixed path: names the dropped outbound number (silent today)", True,
+          "skipped #202" in _se and "OUTBOUND relation" in _se)
+assert_eq("#1268 mixed path: does NOT claim the issue declared no prerequisites", True,
+          "declares no prerequisites" not in _se)
+assert_eq("#1268 mixed path: does NOT emit the every-dropped OUTBOUND summary (a kept one exists)",
+          True, "only as OUTBOUND relations" not in _se)
+assert_eq("#1268 mixed path: every stderr line still carries the helper prefix", True,
+          all(_l.startswith("apply-issue-dependencies.py:") for _l in _se.strip().splitlines()))
+
+# issue #1268 — negative control: an all-inbound section (body 100) produces NO skip
+# breadcrumb, so the assertions above are attributable to the outbound-skip predicate
+# rather than to an unconditional emit.
+_rc, _se = _run_deps(100)
+assert_eq("#1268 negative control: an all-inbound section produces no skip breadcrumb",
+          (0, False),
+          (_rc, "OUTBOUND relation" in _se))
+
+# issue #1268 — a number that is outbound on one line but inbound on another is
+# rescued into `found`, so it registers AND emits NO contradictory skip breadcrumb
+# (the false-breadcrumb defect the disjointness filter closes).
+_rc, _se = _run_deps(112)
+assert_eq("#1268 rescued number: exit 0", 0, _rc)
+assert_eq("#1268 rescued number: registers #201 (the inbound line wins)", True,
+          "linked #112 blocked_by #201." in _se)
+assert_eq("#1268 rescued number: emits NO false skip breadcrumb for the rescued number", True,
+          "skipped #201" not in _se and "OUTBOUND relation" not in _se)
 
 # body fetch failure.
 _rc, _se = _run_deps(200)

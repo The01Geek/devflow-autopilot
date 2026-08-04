@@ -934,6 +934,301 @@ jobs:
                   fh.write(table + "\n")
           PY
 
+  # issue #1152 — the devflow.yml `command` tier's command SHAPES, measured. This is
+  # the manual /prflow:review-and-fix / /prflow:pr-description PR-comment path — a
+  # THIRD cloud allowlist alongside the read-only `review` profile (the `probe` job)
+  # and the read-write `implement` profile (`implement-probe`). Its HEADS were already
+  # scanned; before this job its SHAPES were only INFERRED (run.sh linted the
+  # review-and-fix bundle under the implement profile as the closest measured proxy).
+  # This job measures the tier that actually ships: its --allowed-tools baseline is a
+  # GENERATED region compiled from the `command` profile (the same profile devflow.yml's
+  # TOOLS is generated from), so it can never drift from the deployed allowlist.
+  #
+  # The rows cover the forms the shipped review-and-fix Phase 0 path emits on the
+  # command tier (1–7) plus the argument-position anchor rows orphaned by #1124's
+  # closure (8–10), which establish the scope of the denial recorded in run
+  # 30695072336 (the `command` job of devflow.yml denied `echo "${CLAUDE_SKILL_DIR:-…}"`
+  # — a granted head, denied in ARGUMENT position). Verdict discipline mirrors the
+  # implement-probe job's exactly (permission_denials = DENIED, recorded tool_use =
+  # PERMITTED; the model's prose is never read).
+  command-probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # Compose --allowed-tools = the devflow.yml `command` profile. COMMAND is a
+      # GENERATED region (region=probe-command), compiled by
+      # `python3 lib/generate-capability-profiles.py` from lib/capability-profiles.json's
+      # `command` profile and banner-stamped with its sha256 — exactly as the
+      # probe-review (REVIEW) and probe-implement (IMPLEMENT) baselines are. Do NOT
+      # hand-edit the literal below: `--check` (wired into lib/test/run.sh) turns any
+      # manifest↔literal drift RED with a directional diff.
+      - name: Resolve allowed-tools (command profile)
+        id: tools
+        run: |
+          set -euo pipefail
+          # devflow-capability-manifest: region=probe-command manifest_version=20 sha256=ec912e572f7b869083c68fddc4024df527dc81bf16a677c290f5777bdea7d409
+          COMMAND='Read,Write,Edit,Glob,Grep,LS,Skill,Agent,TodoWrite,EnterPlanMode,ExitPlanMode,WebFetch,WebSearch,Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git pull:*),Bash(git fetch:*),Bash(git ls-remote:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git checkout:*),Bash(git cat-file:*),Bash(git hash-object:*),Bash(git branch:*),Bash(git stash:*),Bash(git rm:*),Bash(git mv:*),Bash(git restore:*),Bash(git revert:*),Bash(git blame:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git merge:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr ready:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh pr status:*),Bash(gh pr reopen:*),Bash(gh pr checkout:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh issue edit:*),Bash(gh issue create:*),Bash(gh issue reopen:*),Bash(gh issue status:*),Bash(gh search:*),Bash(gh label list:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh workflow view:*),Bash(gh workflow list:*),Bash(gh api:*),Bash(jq:*),Bash(.prflow/vendor/prflow/scripts/run-jq.sh:*),Bash(.prflow/vendor/prflow/scripts/config-get.sh:*),Bash(.prflow/vendor/prflow/scripts/workpad.py:*),Bash(.prflow/vendor/prflow/scripts/seed-review-progress.sh:*),Bash(.prflow/vendor/prflow/scripts/verification-flight.py:*),Bash(.prflow/vendor/prflow/scripts/reception-record.py:*),Bash(.prflow/vendor/prflow/scripts/checkout-fingerprint.py:*),Bash(.prflow/vendor/prflow/scripts/check-completion-evidence.py:*),Bash(.prflow/vendor/prflow/scripts/parse-acs.py:*),Bash(.prflow/vendor/prflow/scripts/check-verified-premises.py:*),Bash(.prflow/vendor/prflow/scripts/branch-for-issue.py:*),Bash(.prflow/vendor/prflow/scripts/update-branch-checkpoint.sh:*),Bash(.prflow/vendor/prflow/scripts/phase2-durability-checkpoint.sh:*),Bash(.prflow/vendor/prflow/scripts/file-deferrals.py:*),Bash(.prflow/vendor/prflow/scripts/match-deferrals.py:*),Bash(.prflow/vendor/prflow/scripts/match-lint-adjudications.py:*),Bash(.prflow/vendor/prflow/scripts/normalize-verdicts.py:*),Bash(.prflow/vendor/prflow/scripts/resolve-review-overrides.py:*),Bash(.prflow/vendor/prflow/scripts/stale-prose-lint.py:*),Bash(.prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh:*),Bash(.prflow/vendor/prflow/scripts/post-review-verdict.sh:*),Bash(.prflow/vendor/prflow/scripts/loop-verdict-marker.py:*),Bash(.prflow/vendor/prflow/lib/efficiency-trace.sh:*),Bash(pip install:*),Bash(pip:*),Bash(python:*),Bash(python3:*),Bash(python -m:*),Bash(python3 -m:*),Bash(ruff:*),Bash(ruff check:*),Bash(ruff format:*),Bash(pytest:*),Bash(mypy:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(less:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(touch:*),Bash(mkdir:*),Bash(rmdir:*),Bash(rm:*),Bash(mv:*),Bash(cp:*),Bash(mktemp:*),Bash(cmp:*),Bash(.prflow/vendor/prflow/scripts/load-prompt-extension.sh:*),Bash(*/load-prompt-extension.sh:*),Bash(tee:*)'
+          TOOLS="$COMMAND"
+          delim="TOOLS_EOF_$(date +%s%N)_$$"
+          {
+            printf 'tools<<%s\n' "$delim"
+            printf '%s\n' "$TOOLS"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude Code (command matcher probe)
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          allowed_bots: "*"
+          prompt: |
+            You are a PERMISSION-MATCHER PROBE. Your ONLY task is to attempt each of
+            the 10 numbered command shapes below EXACTLY ONCE, each in its OWN single
+            tool call, VERBATIM — do not modify, wrap, quote-escape, split, or combine
+            them, and do not add any command that is not listed. Attempt them in order
+            1 through 10. If a shape is DENIED or errors, do NOT retry it and do NOT try
+            a different formulation — move straight to the next number. Shape 4 uses the
+            Write tool; every other shape is a Bash command. After attempting all 10,
+            STOP and reply with the single word DONE.
+
+            Your text output is not measured. Only the harness record of which tool
+            calls the permission matcher allowed versus denied is measured. Attempt
+            every shape even if you expect it to fail — a denial is exactly the signal
+            being collected. Commands read side-effect-free config or write a DUMMY
+            marker file under .prflow/tmp/; a real effect is neither expected nor
+            measured.
+
+            Shape 1 — granted vendored-literal helper path as the LEADING TOKEN (Bash).
+            config-get.sh is granted as the vendored literal; the third argument is its
+            DEFAULT value, used here only as this row's unique marker:
+            .prflow/vendor/prflow/scripts/config-get.sh .base_branch cprobe01literal
+
+            Shape 2 — a RESOLVED (expanded) skill-dir-anchored helper path as the
+            leading token (Bash). This is what the `${CLAUDE_SKILL_DIR:-…}` anchor
+            resolves to at runtime on this tier; it tests whether the `../..` traversal
+            form matches the granted vendored literal as a leading token:
+            .prflow/vendor/prflow/skills/review-and-fix/../../scripts/config-get.sh .base_branch cprobe02resolved
+
+            Shape 3 — a `>` redirect from a granted head into `.prflow/tmp/**` (Bash):
+            echo cprobe03redir > .prflow/tmp/cprobe03redir
+
+            Shape 4 — a `.prflow/tmp/**` file authored with the WRITE TOOL (not Bash).
+            Use the Write tool to create the file `.prflow/tmp/cprobe04write` with the
+            exact contents `cprobe04write`.
+
+            Shape 5 — an `if VAR=$(granted-helper …)` command-substitution CONDITION
+            (Bash, one call, all on one line):
+            if OUT=$(.prflow/vendor/prflow/scripts/config-get.sh .base_branch cprobe05ifsub); then echo cprobe05ifsub; fi
+
+            Shape 6 — a `;`-joined multi-statement sequence (Bash, one call):
+            echo cprobe06a; echo cprobe06seq
+
+            Shape 7 — a plainly granted single command, positive control (Bash):
+            echo cprobe07control
+
+            Shape 8 — argument-position DEFAULTED anchor expansion `${VAR:-default}`
+            (Bash). This reproduces the exact denied form from run 30695072336, where a
+            granted `echo` head was refused because of the argument-position expansion.
+            The trailing literal is this row's marker:
+            echo "${CLAUDE_SKILL_DIR:-cprobe08adefault}" cprobe08adefault
+
+            Shape 9 — argument-position BARE anchor expansion `${VAR}` (Bash). Read
+            against shape 8 this separates "the defaulted form is denied" from "any
+            expansion of this variable is denied":
+            echo "${CLAUDE_SKILL_DIR}" cprobe09bbare
+
+            Shape 10 — argument-position bare expansion of a NON-ANCHOR variable
+            (Bash), the CONTROL that distinguishes "this variable" from "this expansion
+            form". If shape 9 is DENIED and this is PERMITTED, the denial is specific to
+            CLAUDE_SKILL_DIR; if both are denied, argument-position bare expansion is
+            refused generally:
+            echo "${GITHUB_ACTIONS}" cprobe10ccontrol
+
+          plugin_marketplaces: |
+            https://github.com/anthropics/claude-plugins-official.git
+            ./
+
+          plugins: |
+            prflow@devflow-marketplace
+
+          claude_args: >-
+            --model claude-haiku-4-5-20251001
+            --effort low
+            --permission-mode acceptEdits
+            --allowed-tools "${{ steps.tools.outputs.tools }}"
+
+      # Deterministic verdict — same execution-file measurement core as the probe /
+      # implement-probe jobs above (permission_denials = DENIED, recorded tool_use
+      # inputs = PERMITTED). The model's prose is never read. always() so the table is
+      # produced even if the engine ended in error.
+      - name: Compute per-shape verdict (command profile)
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -uo pipefail
+          python3 - <<'PY'
+          import json, os
+
+          exec_file = os.environ.get("EXECUTION_FILE", "") or ""
+          denials = []      # json-encoded permission_denials entries
+          tool_uses = []    # json-encoded tool_use inputs (+ tool name)
+          parsed = None
+          note_top = ""
+
+          if exec_file and os.path.isfile(exec_file):
+              raw = open(exec_file, encoding="utf-8", errors="replace").read()
+              try:
+                  parsed = json.loads(raw)
+              except Exception:
+                  parsed = []
+                  for line in raw.splitlines():
+                      s = line.strip()
+                      if not s:
+                          continue
+                      try:
+                          parsed.append(json.loads(s))
+                      except Exception:
+                          pass
+                  if not parsed:
+                      note_top = "execution file present but unparseable"
+          else:
+              note_top = "execution file absent or empty at '%s'" % exec_file
+
+          def walk(o):
+              if isinstance(o, dict):
+                  if o.get("type") == "tool_use" and "input" in o:
+                      tool_uses.append(json.dumps(o.get("input")))
+                  pd = o.get("permission_denials")
+                  if isinstance(pd, list):
+                      for d in pd:
+                          denials.append(json.dumps(d))
+                  for v in o.values():
+                      walk(v)
+              elif isinstance(o, list):
+                  for it in o:
+                      walk(it)
+
+          if parsed is not None:
+              walk(parsed)
+
+          # (num, description, marker, shape_discriminator). The marker (a unique dummy
+          # arg / path) identifies WHICH row a recorded call belongs to; the
+          # shape_discriminator is a substring the intended VERBATIM command carries
+          # that a model REFORMULATION would drop, so a PERMITTED verdict attests the
+          # intended shape/form actually ran. The argument-position rows (8–10) key on
+          # the expansion form itself, so a DENIED entry carrying that substring is the
+          # measurement they exist to collect.
+          rows = [
+              (1, "granted vendored-literal helper path as a leading token (config-get.sh)", "cprobe01literal", ".prflow/vendor/prflow/scripts/config-get.sh"),
+              (2, "resolved (expanded) skill-dir-anchored helper path as a leading token", "cprobe02resolved", "skills/review-and-fix/../../scripts/config-get.sh"),
+              (3, "`>` redirect from a granted head into `.prflow/tmp/**`", "cprobe03redir", "> .prflow/tmp/"),
+              (4, "`.prflow/tmp/**` file authored with the Write tool", "cprobe04write", ".prflow/tmp/cprobe04write"),
+              (5, "`if VAR=$(granted-helper …)` command-substitution condition", "cprobe05ifsub", "if OUT=$("),
+              (6, "`;`-joined multi-statement sequence", "cprobe06seq", "; echo"),
+              (7, "plainly granted single command (positive control)", "cprobe07control", None),
+              (8, "argument-position defaulted anchor expansion `${VAR:-default}`", "cprobe08adefault", "${CLAUDE_SKILL_DIR:-"),
+              (9, "argument-position bare anchor expansion `${VAR}`", "cprobe09bbare", "${CLAUDE_SKILL_DIR}"),
+              (10, "argument-position bare expansion of a non-anchor variable (control)", "cprobe10ccontrol", "${GITHUB_ACTIONS}"),
+          ]
+
+          # Rows whose evidence must establish the WHOLE requested command, not just a
+          # characteristic fragment — a fragment-only match could bless a reformulation
+          # that moved an assignment, dropped quoting, or changed the sequence shape.
+          exact_commands = {
+              3: "echo cprobe03redir > .prflow/tmp/cprobe03redir",
+              5: "if OUT=$(.prflow/vendor/prflow/scripts/config-get.sh .base_branch cprobe05ifsub); then echo cprobe05ifsub; fi",
+              6: "echo cprobe06a; echo cprobe06seq",
+              7: "echo cprobe07control",
+          }
+
+          def recorded_command(entry):
+              try:
+                  value = json.loads(entry)
+              except (TypeError, ValueError):
+                  return None
+              if not isinstance(value, dict):
+                  return None
+              tool_input = value.get("tool_input")
+              if isinstance(tool_input, dict):
+                  value = tool_input
+              command = value.get("command")
+              return command.strip() if isinstance(command, str) else None
+
+          def entry_matches_shape(entry, num, discrim):
+              if num in exact_commands:
+                  return recorded_command(entry) == exact_commands[num]
+              return discrim is None or discrim in entry
+
+          out = []
+          out.append("## Command-profile matcher-probe results")
+          out.append("")
+          out.append("Deterministic verdict computed from the execution file's "
+                     "`permission_denials` (DENIED) and recorded `tool_use` inputs "
+                     "(PERMITTED). The model's text output is never the measurement. "
+                     "The baseline is the GENERATED `command` profile (region "
+                     "probe-command), so it measures the tier devflow.yml actually "
+                     "ships. **REFORMULATED** means a call carrying the row's marker ran "
+                     "but NOT in the intended shape/form — treat it like UNATTEMPTED and "
+                     "re-run, never as evidence the intended form is PERMITTED.")
+          out.append("")
+          if note_top:
+              out.append("> [!WARNING]")
+              out.append("> %s — every row will read UNATTEMPTED; re-run the probe." % note_top)
+              out.append("")
+          out.append("| # | Shape | Verdict | Evidence |")
+          out.append("|---|-------|---------|----------|")
+
+          for num, desc, marker, discrim in rows:
+              marker_entries = [t for t in tool_uses if marker in t]
+              denial_entries = [d for d in denials if marker in d]
+              attempted = bool(marker_entries)
+              tool_shape_ok = any(
+                  entry_matches_shape(t, num, discrim) for t in marker_entries
+              )
+              denial_shape_ok = any(
+                  entry_matches_shape(d, num, discrim) for d in denial_entries
+              )
+              shape_ok = tool_shape_ok or denial_shape_ok
+              if denial_shape_ok:
+                  verdict = "DENIED"
+              elif attempted and tool_shape_ok:
+                  verdict = "PERMITTED"
+              elif attempted or denial_entries:
+                  verdict = "REFORMULATED"
+              else:
+                  verdict = "UNATTEMPTED"
+              ev = "denial=%s; tool_use=%s; shape=%s" % (
+                  "yes" if denial_entries else "no",
+                  "yes" if attempted else "no",
+                  "n/a" if discrim is None else ("ok" if shape_ok else "MISMATCH"),
+              )
+              out.append("| %d | %s | **%s** | %s |" % (num, desc, verdict, ev))
+
+          out.append("")
+          out.append("### Raw denial entries (%d)" % len(denials))
+          out.append("")
+          if denials:
+              out.append("```")
+              for d in denials:
+                  out.append(d[:400])
+              out.append("```")
+          else:
+              out.append("_No permission_denials entries found in the execution file._")
+
+          table = "\n".join(out)
+          print(table)
+          summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as fh:
+                  fh.write(table + "\n")
+          PY
+
   # issue #415 — probe whether claude-code-action's headless runner honors
   # `--disallowedTools ScheduleWakeup` (removes or denies the ScheduleWakeup tool).
   # The implement-tier early-quit (#408/#415) is the ScheduleWakeup tool result

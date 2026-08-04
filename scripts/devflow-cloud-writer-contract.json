@@ -1,7 +1,7 @@
 {
   "files": {
     "lib/efficiency-trace.sh": "6e9a05761926b84b9160a7755f53ce3cce658f260f74860176e56dab5bd1e7aa",
-    "scripts/apply-issue-dependencies.py": "292e24019e64a2dfb57bc1aabf224b9eb1be2eda18d3a4e4c8343d7c6b506c26",
+    "scripts/apply-issue-dependencies.py": "87724c993e84b3c45b2d1a703ba027f478bf70b7dd1bb498db5cccb4df29491b",
     "scripts/apply-labels.sh": "7ea8de21f888b038ab0d6a2324b197e6e865144caf51d8b7a765d06996ab3ad2",
     "scripts/branch-for-issue.py": "e44aa7e0d8e743c9ea6c0b650e39376b91cefb5ce7eaca22803f3f50f5a0f1a9",
     "scripts/check-completion-evidence.py": "64cd7d25800739d4c7829313ff27ef9986a5d50c86750917a3d09f299cac58e2",
@@ -33,7 +33,7 @@
     "skills/implement/phases/phase-2-implement.md": "1ef2acaaba02362c93542c2753cd52b4883f960420f18d95eae19de9db3d3f38",
     "skills/implement/phases/phase-3-review.md": "2d8b6ce4de47b193f0531dce872cdd4904b51fb01a649d1a69dceaa4897e1505",
     "skills/implement/phases/phase-4-documentation.md": "daf4458b525cb3b1e7931600c1c3c781aaaff30af5bd0a6f4c6f5f749168c2fb",
-    "skills/implement/references/deferred-ac-followups.md": "ef33ccb3024fb2a4651fed8c6a85905a41d10d00cb0f287df2e6a4accb821a9e",
+    "skills/implement/references/deferred-ac-followups.md": "2bc130d304cbba55dfe71b90e92ba556da81b2f9bb2bea9d9df5aee7e3d7e687",
     "skills/pr-description/SKILL.md": "f2c53d1f27e14ef53218f51432facdc5d8828abddca60f3e8cde64789e60bc8c",
     "skills/receiving-code-review/SKILL.md": "15c45186d86f17ea4b16f38f56e0b248129a97526731d8a38a47b30aad412c02",
     "skills/requesting-code-review/SKILL.md": "ac70eccb031cab4a200111291094109e392e49426e1ca70d4ee2006bce18244d",
