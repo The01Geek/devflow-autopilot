@@ -17544,10 +17544,14 @@ done
 # Docs carry the opt-in contract: the var, the secret, ALL five required App
 # permissions, and the per-site downscope story (no more "reviewer untouched").
 CS="$LIB/../docs/internal/cloud-setup.md"
-for tok in 'DEVFLOW_APP_ID' 'DEVFLOW_APP_PRIVATE_KEY'; do
-  assert_eq "app-token: cloud-setup.md documents $tok" "yes" \
-    "$(grep -qF "$tok" "$CS" && echo yes || echo no)"
-done
+# Issue #1188: unrolled from a `for tok in …` loop so the pinned literals are static
+# (the $CS path move brought this site into the #810 diff scope, where a loop-variable
+# literal is <unresolved-literal> and fails closed). Both tokens are machine-consumed in
+# .github/workflows/, so the classifier's Step-1 consumer check clears them.
+assert_eq "app-token: cloud-setup.md documents DEVFLOW_APP_ID" "yes" \
+  "$(grep -qF 'DEVFLOW_APP_ID' "$CS" && echo yes || echo no)"
+assert_eq "app-token: cloud-setup.md documents DEVFLOW_APP_PRIVATE_KEY" "yes" \
+  "$(grep -qF 'DEVFLOW_APP_PRIVATE_KEY' "$CS" && echo yes || echo no)"
 for perm in 'Contents:[[:space:]]*write' 'Workflows:[[:space:]]*write' 'Pull requests:[[:space:]]*write' 'Issues:[[:space:]]*write' 'Actions:[[:space:]]*read'; do
   assert_eq "app-token: cloud-setup.md documents App permission ${perm//\[\[:space:\]\]\*/ }" "yes" \
     "$(grep -qiE "$perm" "$CS" && echo yes || echo no)"
