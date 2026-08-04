@@ -1971,14 +1971,25 @@ jobs:
       # records against the pull request it was typed on. The PR-ness gate
       # narrows the worst version of that (an issue) out entirely.
       #
-      # THE STEP SELECTS NOTHING. check-verdict-post-reached.sh reduces the
-      # run-scoped receipt to one line; describe-verdict-post-gap.sh picks the
-      # arm and writes every byte that arm emits into two files. This step then
-      # warns iff the warning file is non-empty and comments iff the body file
-      # is non-empty — two mechanical consequences, so an arm reordering or a
-      # message change is caught by the focused module that drives the helper,
-      # not by a grep-pin on YAML. `exit 0` on every path: an always() record
-      # must never change the job's pass and never change its fail.
+      # THE STEP SELECTS NOTHING ABOUT THE RECORD. check-verdict-post-reached.sh
+      # reduces the run-scoped receipt to one line; describe-verdict-post-gap.sh
+      # picks the arm and writes every byte that arm emits into two files. This
+      # step then warns iff the warning file is non-empty and comments iff the
+      # body file is non-empty — mechanical consequences, so an arm reordering or
+      # a message change is caught by the focused module that drives the helper,
+      # not by a grep-pin on YAML.
+      #
+      # THE JOB-STATUS DECISION IS ALSO DELEGATED (issue #1271). Since issue #1271
+      # this step no longer exits 0 unconditionally: decide-verdict-gap-job-status.sh
+      # owns the arm-to-job-status decision (a FAIL/PASS token) and the step exits 1
+      # on the single conjunctive FAIL shape — the emitter not reached AND the
+      # head-scoped oracle positively established that no verdict exists AND the run
+      # is not cancelled — so a verdict-less review no longer launders itself as
+      # `success`. `exit 0` stays the terminal line on every other path, the
+      # cancellation carve-out is an argument (not a step condition, so the record
+      # above still emits on a cancelled run), and the helper's absence on an older
+      # vendored tree leaves the job status unchanged. The step never rescues a job
+      # that was already failing.
       - name: Record whether the verdict emitter was reached
         if: ${{ always() && startsWith(needs.gate.outputs.command, '/prflow:review ') && (github.event.issue.pull_request || github.event.pull_request.number) && (github.event.issue.number || github.event.pull_request.number) }}
         env:
@@ -1993,6 +2004,12 @@ jobs:
           # i.e. github-actions[bot]. The classifier scopes strictly to reviews by this
           # login, so a human's review is never mistaken for the run's own.
           REVIEWER_LOGIN: ${{ steps.reviewer-token.outputs.app-slug != '' && format('{0}[bot]', steps.reviewer-token.outputs.app-slug) || 'github-actions[bot]' }}
+          # The job's cancellation state, passed to the job-status helper as an ARGUMENT
+          # (issue #1271) — NOT expressed as a step-level `if: !cancelled()`, which would
+          # stop the whole step running on a cancelled run and remove its ::notice::,
+          # ::warning:: and cause-naming comment. A cancelled run legitimately never
+          # reaches Phase 4.4, so the helper short-circuits to PASS on `true`.
+          JOB_CANCELLED: ${{ job.status == 'cancelled' }}
         run: |
           set -uo pipefail
           CHECK=.prflow/vendor/prflow/scripts/check-verdict-post-reached.sh
@@ -2001,6 +2018,13 @@ jobs:
           [ -f "$GAP" ] || GAP=scripts/describe-verdict-post-gap.sh
           CLS=.prflow/vendor/prflow/scripts/classify-head-reviews.sh
           [ -f "$CLS" ] || CLS=scripts/classify-head-reviews.sh
+          # issue #1271: the job-status decision helper. Resolved with the same
+          # vendored-literal + repo-root fallback as its siblings. Its absence from an
+          # older vendored tree is handled at the decision point below (warn, status
+          # unchanged) rather than here, so the ::notice::/::warning::/comment record
+          # still emits on a deployment that predates it.
+          DECIDE=.prflow/vendor/prflow/scripts/decide-verdict-gap-job-status.sh
+          [ -f "$DECIDE" ] || DECIDE=scripts/decide-verdict-gap-job-status.sh
           if [ ! -f "$CHECK" ] || [ ! -f "$GAP" ]; then
             echo "::warning::verdict-post reach record: the check helpers are absent from this deployment (an older vendored tree); this run leaves no record of whether Phase 4.4's verdict emitter was reached."
             exit 0
@@ -2052,6 +2076,26 @@ jobs:
             else
               echo "::warning::verdict-post reach record: the cause-naming comment could not be posted on #$PR_NUMBER; the ::warning:: above is the only surviving record."
             fi
+          fi
+          # ── Job-status gate (issue #1271). Stop laundering a verdict-less review as
+          # `success`. The DECISION is owned entirely by the helper: it fires only when
+          # the emitter was not reached AND the head-scoped oracle POSITIVELY established
+          # that no verdict exists, and it passes on every could-not-tell arm and on a
+          # cancelled run (carve-out passed as the JOB_CANCELLED argument, not a step
+          # condition). The step selects nothing — it reads the helper's FAIL/PASS token
+          # and exits accordingly. The arm token drops the "ARM " prefix the renderer
+          # printed. When the helper is absent (an older vendored tree) the job status is
+          # left unchanged, mirroring every sibling helper-absence path in this step.
+          if [ ! -f "$DECIDE" ]; then
+            echo "::warning::verdict-post reach record: the job-status helper (decide-verdict-gap-job-status.sh) is absent from this deployment (an older vendored tree); the job status is left unchanged."
+            exit 0
+          fi
+          ARM_TOKEN="${ARM#ARM }"
+          DECISION=$(bash "$DECIDE" "$ARM_TOKEN" "$REVIEW_CLASS" "${JOB_CANCELLED:-false}" || true)
+          echo "::notice::verdict-post job-status decision: ${DECISION:-<none>}"
+          if [ "${DECISION%% *}" = "FAIL" ]; then
+            echo "::error::PRFlow review: this run reached no verdict any merge-gate consumer reads (reach record not-reached; the head-scoped review oracle established no verdict for the reviewed head). Failing the job so the gap is visible and retryable through the ordinary re-run affordance."
+            exit 1
           fi
           exit 0
 
