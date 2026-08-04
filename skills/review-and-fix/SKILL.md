@@ -338,5 +338,6 @@ The externally-visible terminal contract that downstream callers (e.g. `/prflow:
 | `REJECT` | non-clean — cap exhausted, convergence exit still REJECT, or a post-shadow Critical |
 | incomplete / not-verified (any fail-closed reference outcome above) | a generic non-clean message; **never** an APPROVE-family template |
 
+Alongside the human headline, the loop emits **one producer-emitted machine-readable marker line** carrying the same verdict + coverage facts, as line 1 of the chat output, so a caller need not string-match the prose across a plugin-version boundary (issue #1212). It is composed by `scripts/loop-verdict-marker.py`, never hand-written; the authoritative rendering rule (its fields, its fixed line-1 position, and the both-directions version-gap compatibility) lives in `references/loop-exit.md` under *Verdict → chat output*.
 
 Read `references/error-handling.md` at invocation, before the loop (*When NOT to use* gates applicability), and again on any tool/commit/test failure.
