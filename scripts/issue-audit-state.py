@@ -516,8 +516,7 @@ _ADJUDICATION_RECORD_CLASSES = ('advisory', 'invalid')
 # observe chat, so the run REPORTS whether it rendered the records to the user (the
 # `--write-landed` reported-observation pattern). `unreported` is the honest default until
 # the run reports the rendering; the summary and the calibration trigger surface an
-# unreported rendering rather than letting it pass silently. This self-attestation residual
-# is named in docs/advisory-adjudication-calibration.md.
+# unreported rendering rather than letting it pass silently.
 _ADJUDICATION_RENDER_STATES = ('reported', 'unreported')
 # The run-level calibration-backing tokens the derivation reports and the summary renders.
 # `clear` — every impact-bearing advisory record carries recorded evidence (or there are no
@@ -1196,7 +1195,7 @@ class _StateSection:
     CHANGE with its own failure modes, not a bug fix; do not introduce one without
     deciding that trade deliberately. The relation `stale_after_s < acquire_window_s` is
     the separate invariant that keeps a CRASHED writer from wedging the slug permanently;
-    see the acquire loop and docs/DEVFLOW_SYSTEM_OVERVIEW.md §11.
+    see the acquire loop.
     """
 
     def __init__(self, slug, root=None, *, acquire_window_s=45, stale_after_s=30):

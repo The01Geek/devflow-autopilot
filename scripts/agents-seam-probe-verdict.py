@@ -80,7 +80,7 @@ VERDICT-INERT DIAGNOSTIC (issue #1177). Issue #1177's cleanest remedy — read t
 subagent's returned line where the harness already wrote it, and stop depending on the
 top-level model to echo it — rests on a premise this repository has NOT established:
 whether the execution file carries a dispatched subagent's returned text at all.
-docs/execution-file-shape.md records `tool_use_result` as present but is explicit that
+the observed shape record notes `tool_use_result` as present but is explicit that
 presence of a field is not proof of its attribution, and its local-transcript row must not
 be cited for the execution file. So this helper does not act on the premise; it MEASURES
 it, verdict-inert, on whatever dispatch a maintainer next decides to pay for. It reports
@@ -176,8 +176,8 @@ def collect(parsed):
                 )
                 tool_names.append(str(o.get("name", "")))
             # Result-payload channel (diagnostic only). Two observed shapes are accepted
-            # because the execution-file schema is a dated observation, not a contract
-            # (docs/execution-file-shape.md): a node carrying a `tool_use_result` key, and
+            # because the execution-file schema is a dated observation, not a contract:
+            # a node carrying a `tool_use_result` key, and
             # a `tool_result`-typed content block. Only the payload is taken — never the
             # enclosing node — so a tool_use INPUT can never leak into this channel.
             if "tool_use_result" in o:
@@ -403,7 +403,7 @@ def render(exec_file, adjudicated_governed):
         "on whatever dispatch a maintainer next pays for, the premise issue #1177's "
         "\"read the subagent's return value from the harness record\" remedy would rest "
         "on — a premise this repository has NOT established "
-        "(`docs/execution-file-shape.md` records `tool_use_result` as present but states "
+        "(the observed shape record notes `tool_use_result` as present but states "
         "that a field's presence is not proof of its attribution). "
         "`forwarded_marker_in_result_channel=unestablished` means no result payload was "
         "found at all; it never means the marker was absent from one."

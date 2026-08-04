@@ -26,8 +26,12 @@
 # is a caller whose command is silently denied.
 #
 # `lib/test/run.sh` stays the serial primitive: the `monolith` shard runs it, and the
-# documented uncovered-surface fallback still names it. Focused modules
-# (`lib/test/run-module.sh <id>`) stay the iteration default. This script is the
+# documented uncovered-surface fallback still names it — and, mid-iteration on a tier
+# where this coordinator meaningfully exceeds a single shard (the cloud implement tier),
+# that `monolith` shard may stand in for the whole suite on a `run.sh`-resident surface
+# (`lib/test/run-shard.sh monolith`), which never discharges the completion gate this
+# script is (issue #1253; the operative rule lives in the prompt extensions). Focused
+# modules (`lib/test/run-module.sh <id>`) stay the iteration default. This script is the
 # FINAL gate, not the iteration loop.
 #
 # Differences from CI that the timing here does NOT let you infer:
