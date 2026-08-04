@@ -1,0 +1,80 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-04T20:50:00Z",
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": "run_shadow_fanout",
+  "sweep_defs_read": ["phase-2-implement.md"],
+  "sweep_evidence": {"status": "run"},
+  "checklist": [],
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:pr-test-analyzer",
+    "prflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "The cadence-rule sentence 'advance this baseline whenever a change alters the granted helper-head set of any profile in lib/capability-profiles.json' could be read as mandating an immediate bump on every grant edit; suggest clarifying the release-snapshot nature.",
+      "defect_signature": {"file": "lib/test/cloud_writer_contract.py", "line_range": [95, 96], "kind": "comment_clarity"},
+      "corroboration_count": 1,
+      "fix_decision": "pushed_back"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "pushed_back",
+      "source_file": "lib/test/cloud_writer_contract.py",
+      "claim_text": "cadence-rule sentence could read as per-grant-edit obligation",
+      "skip_category": "claim-quality",
+      "evidence": "AC5 mandates this exact operational trigger (grant-set change advances the baseline); the suggested reword ('when it should track a newly-released set') would make the rule discretionary and weaken AC5. The registration-deferral the reviewer worries about is already explained in the sentence immediately following the cadence rule ('A newly-granted head becomes a REQUIRED_HELPER_HEADS member only once the baseline advances past the release that first shipped it').",
+      "parking_evidence": {
+        "basis": "the ambiguity is resolved by the adjacent sentence, and rewording would weaken the AC5-mandated operational rule",
+        "failing_input": "a maintainer reading only the cadence sentence in isolation",
+        "source": "lib/test/cloud_writer_contract.py:94-102 (the full cadence comment including the decoupling sentence)",
+        "finding_ref": {"iter": 1, "index": 0}
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": {
+    "ran_at": "2026-08-04T21:05:00Z",
+    "reviewed_sha": "b41467ee",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["prflow:code-reviewer", "prflow:silent-failure-hunter"],
+    "expected_reviewers": ["prflow:code-reviewer", "prflow:silent-failure-hunter"],
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_3": {"calls": 5, "tokens": 350000, "wall_clock_s": 400}
+  }
+}
