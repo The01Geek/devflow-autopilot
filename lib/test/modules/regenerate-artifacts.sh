@@ -975,6 +975,59 @@ case "$RA_LIST" in
   *) assert_eq "#1244 AP3 cloud-writer preflight uses the read-only verify form" yes "no(cloud-writer preflight command is not the verify form)" ;;
 esac
 
+# AP4 — an eligible judgment row that cannot be checked routes to exit 2 (UNCHECKABLE),
+# driven by the REAL preflight (not a coordinator stub). A malformed lib/capability-profiles.json
+# makes `generate-capability-profiles.py --check` exit 1 with its `manifest malformed JSON:`
+# infra-marker, which the preflight classifies UNCHECKABLE. No row drifts, so exit 2.
+RA_AP4="$_ra_tmp_root/ap4"; _ra_fixture "$RA_AP4"
+printf 'not valid json {' > "$RA_AP4/lib/capability-profiles.json"
+RA_AP4_MAN_BEFORE="$(cat "$RA_AP4/scripts/devflow-cloud-writer-contract.json")"
+_ra_preflight "$RA_AP4"
+assert_eq "#1244 AP4 an uncheckable eligible row exits 2" "2" "$(_ra_prc "$RA_AP4")"
+_ra_has_file "#1244 AP4 the uncheckable row is reported UNCHECKABLE" "$RA_AP4/.rap.out" \
+  "[capability-profile-literals] UNCHECKABLE"
+_ra_has_file "#1244 AP4 the exit-2 summary names an uncheckable artifact" "$RA_AP4/.rap.out" \
+  "could not check at least one eligible artifact"
+_ra_same "#1244 AP4 preflight writes nothing on the uncheckable arm" \
+  "$RA_AP4_MAN_BEFORE" "$(cat "$RA_AP4/scripts/devflow-cloud-writer-contract.json")" \
+  "the read-only preflight mutated the manifest on the uncheckable arm"
+
+# AP5 — DRIFT takes precedence over UNCHECKABLE. With BOTH a drifted manifest (cloud-writer
+# verify exits 1 with its marker) AND an uncheckable capability row, the run must exit 1 (drift),
+# never 2 — the reverse of the batched pass's infra-over-drift ordering. A reversed comparand
+# in run_preflight would ship green without this.
+RA_AP5="$_ra_tmp_root/ap5"; _ra_fixture "$RA_AP5"
+printf '{"corrupted": true}\n' > "$RA_AP5/scripts/devflow-cloud-writer-contract.json"
+printf 'not valid json {' > "$RA_AP5/lib/capability-profiles.json"
+_ra_preflight "$RA_AP5"
+assert_eq "#1244 AP5 drift outranks uncheckable — exits 1, not 2" "1" "$(_ra_prc "$RA_AP5")"
+_ra_has_file "#1244 AP5 the drift summary line is printed, not the exit-2 summary" "$RA_AP5/.rap.out" \
+  "preflight detected drift"
+case "$(cat "$RA_AP5/.rap.out")" in
+  *"could not check at least one eligible artifact"*) assert_eq "#1244 AP5 the exit-2 summary is suppressed when drift dominates" yes "no(exit-2 summary printed despite drift)" ;;
+  *) assert_eq "#1244 AP5 the exit-2 summary is suppressed when drift dominates" yes yes ;;
+esac
+
+# AP6 — a crashing judgment generator (a traceback, exit 1, NO row infra-marker) routes to
+# UNCHECKABLE, not DRIFT. capability-profile-literals deliberately omits the traceback marker
+# from its batched-pass infra_markers, so this exercises the preflight's OWN universal
+# traceback→UNCHECKABLE guard (issue #1244 fail-open contract): without it this crash would be
+# misclassified DRIFT and the coordinator would block the whole suite.
+RA_AP6="$_ra_tmp_root/ap6"; _ra_fixture "$RA_AP6"
+cat > "$RA_AP6/lib/generate-capability-profiles.py" <<'PY'
+#!/usr/bin/env python3
+raise RuntimeError("simulated generator crash")
+PY
+chmod 755 "$RA_AP6/lib/generate-capability-profiles.py"
+_ra_preflight "$RA_AP6"
+assert_eq "#1244 AP6 a crashing judgment generator exits 2 (UNCHECKABLE, not drift)" "2" "$(_ra_prc "$RA_AP6")"
+_ra_has_file "#1244 AP6 the crash is reported as a crash, not drift" "$RA_AP6/.rap.out" \
+  "reporting a crash or input failure, not drift"
+case "$(cat "$RA_AP6/.rap.out")" in
+  *"preflight detected drift"*) assert_eq "#1244 AP6 a crash is never reported as drift" yes "no(a crash was misclassified as drift)" ;;
+  *) assert_eq "#1244 AP6 a crash is never reported as drift" yes yes ;;
+esac
+
 # The row integration itself has two non-clean states. A measured raise is a mechanical
 # reconciliation that changes the registry and `run.sh`; a measured decrease is a non-writing
 # judgment. The fake runner above supplies the actual summary boundary while these fixtures

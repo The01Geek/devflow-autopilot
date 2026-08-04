@@ -784,11 +784,22 @@ def run_preflight_row(row, root, report):
             f"    output: {output or '(none)'}"
         )
         return False, True
-    hit = _marker_hit(row.get("infra_markers", ()), output)
+    # A crash (an uncaught traceback) is never a reconcilable drift. The preflight fails
+    # OPEN on any unusable check (issue #1244 / AC5 — "a crash warns and proceeds"), so a
+    # traceback routes to UNCHECKABLE for EVERY judgment row regardless of that row's own
+    # `infra_markers` — which are tuned for the BATCHED pass, where two judgment rows
+    # (`capability-profile-literals`, `coverage-map-ratchet`) deliberately omit the traceback
+    # marker because there an unmarked exit-1 is a reportable JUDGMENT item, not a suite
+    # block. Here it would instead fail CLOSED and block the whole suite with a misleading
+    # "regenerate" message, so the universal traceback marker is added to the preflight's
+    # classification only. This is preflight-local: `run_row` (the batched pass) is unchanged.
+    hit = _marker_hit(
+        row.get("infra_markers", ()) + ("Traceback (most recent call last)",), output
+    )
     if hit is not None:
         report.append(
-            f"[{name}] UNCHECKABLE `{joined}` exited {proc.returncode} reporting an input "
-            f"failure, not drift (matched {hit!r}):\n    output: {output or '(none)'}"
+            f"[{name}] UNCHECKABLE `{joined}` exited {proc.returncode} reporting a crash or "
+            f"input failure, not drift (matched {hit!r}):\n    output: {output or '(none)'}"
         )
         return False, True
     report.append(
@@ -820,7 +831,20 @@ def run_preflight(root):
     for row in ROWS:
         if not row.get("preflight_eligible"):
             continue
-        row_drift, row_uncheckable = run_preflight_row(row, root, report)
+        # A row's classification must never abort the whole preflight: an unexpected raise
+        # AFTER an earlier row already set drift would otherwise propagate to the top-level
+        # net, exit 2 with no report and no drift summary, and the coordinator would then
+        # fail OPEN — losing a positively-detected drift (the fail-closed contract this
+        # function documents). Catch per row → that row is UNCHECKABLE, the loop continues,
+        # and any already-detected drift survives the drift-precedence check below.
+        try:
+            row_drift, row_uncheckable = run_preflight_row(row, root, report)
+        except Exception as error:  # noqa: BLE001 — defensive per-row net, mirrors main()'s
+            report.append(
+                f"[{row['name']}] UNCHECKABLE the preflight row raised "
+                f"{type(error).__name__}: {error} — nothing was established for it"
+            )
+            row_drift, row_uncheckable = False, True
         drift = row_drift or drift
         uncheckable = row_uncheckable or uncheckable
     for line in report:

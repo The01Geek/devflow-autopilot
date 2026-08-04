@@ -201,10 +201,12 @@ if [ -n "$ARTIFACT_PREFLIGHT" ]; then
     # Refuse ONLY on a positively-attributed drift: exit 1 AND the preflight's own drift
     # summary marker. Keying the refusal on the marker (a bash-builtin case, never a
     # non-preflight PATH tool per CLAUDE.md guard-class 2) rather than on the exit code
-    # alone is what makes a crash safe — a preflight that exits 1 from a traceback carries
-    # no marker and takes the fail-open warn-and-proceed arm, so an unusable check never
-    # blocks the suite (only a detected drift does). Exit 2 (uncheckable), rc 127
-    # (refused/absent), and any other non-zero all fall through to that same arm.
+    # alone is what makes a crash safe — the preflight itself routes a crashed row to
+    # UNCHECKABLE (a traceback in any row → exit 2, never the drift summary), and even a
+    # stub that exits 1 from a traceback carries no marker and takes the fail-open
+    # warn-and-proceed arm — so an unusable check never blocks the suite (only a detected
+    # drift does). Exit 2 (uncheckable), rc 127 (refused/absent), and any other non-zero
+    # all fall through to that same arm.
     case "$PREFLIGHT_OUT" in
       *"preflight detected drift"*) _preflight_drift=1 ;;
       *) _preflight_drift=0 ;;
