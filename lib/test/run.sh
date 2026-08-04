@@ -42515,9 +42515,17 @@ assert_eq "#1211 markdown emphasis inside a fence is not a candidate" "rc=0|scan
 # The paren/`$` exclusion, on a line carrying NO comment — so the case reaches the token filter
 # rather than being discharged earlier by the comment strip (the shape an earlier fixture, a
 # whole-line `# Bash(…:*)` comment, silently duplicated).
-assert_eq "#1211 a token carrying parens or a dollar is not a candidate" "rc=0|scanned" \
+assert_eq "#1211 a token carrying parens is not a candidate" "rc=0|scanned" \
   "$(e1211_case '```bash
 ls -d $(pwd)/agents/*/
+```
+')"
+# The bare-`$` arm, driven separately — the parens case above is discharged by the paren filter
+# before `$` is ever consulted. This shape is a REAL glob zsh refuses, so the expectation records
+# the largest disclosed residual rather than asserting the shell does not expand it.
+assert_eq "#1211 a token carrying a parameter expansion is outside the narrow shape (disclosed residual)" "rc=0|scanned" \
+  "$(e1211_case '```bash
+ls -d $ROOT/agents/*/
 ```
 ')"
 # Trailing-comment prose is not code: without the quote-aware strip this reported a violation
@@ -42587,8 +42595,39 @@ for f in agents/*/
 do :; done
 ```
 ')"
+# A fence QUOTED inside another fence (indented four spaces) must not desync the open/close
+# parity. Before this, a real shipped skill body ended inside an unterminated fence and the
+# scanner reported `audited N of N` having examined none of its shell lines — the change's own
+# thesis turned on itself. The trailing top-level fence is what discriminates: under the old
+# parity it was read inside-out and its violation was missed.
+assert_eq "#1211 a fence quoted inside another fence does not desync the scan" "rc=1|violation" \
+  "$(e1211_case '```
+here is how you write one:
+
+    ```bash
+    ls -d agents/*/
+    ```
+```
+
+```bash
+ls -d agents/*/
+```
+')"
+# ...and a parity desync that never recovers is an UNESTABLISHED scan, not a clean one.
+assert_eq "#1211 an unterminated fence at EOF fails closed rather than reporting clean" "rc=1|unestablished" \
+  "$(e1211_case '```bash
+echo hello
+')"
+# The quote mask honours backslash escapes; without that, `\"` toggles the state and masks the
+# rest of the line as quoted, hiding a real glob after it.
+assert_eq "#1211 a backslash-escaped quote does not mask a later real glob" "rc=1|violation" \
+  "$(e1211_case '```bash
+echo "a \" b" ; ls -d agents/*/
+```
+')"
 # A separator-free pattern is a DISCLOSED residual of the narrow shape, not a safe case:
-# zsh would refuse `*.py` too. The assertion records where the boundary actually sits.
+# zsh would refuse `*.py` too. The expectation is a boundary RECORD, to be updated on purpose
+# if the shape is ever widened — not an invariant that widening would be wrong to break.
 assert_eq "#1211 a pattern with no path separator is outside the narrow shape (disclosed residual)" "rc=0|scanned" \
   "$(e1211_case '```bash
 wc -l *.py

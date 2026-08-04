@@ -56,11 +56,14 @@ Candidate shape, closed by enumeration — ALL of these must hold:
   candidate set; requiring the token to be outside quotes is what keeps
   `find . -name "*.sql"` — and a pattern in the *interior* of a multi-word quoted
   string — out, since a quoted pattern is never expanded by the shell;
-* the token contains no `(`, `)` or `$` — a permission-grant literal written in
-  prose (`Bash(lib/test/run.sh:*)`), a `case` branch label (`*)`, `''|*[!0-9]*)`,
-  `claude/issue-*|issue-*)` — every label ends in `)`) and a parameter expansion are
-  not filename patterns the shell will glob at this site. This one exclusion is
-  what makes a separate `case`-branch predicate unnecessary;
+* the token contains no `(`, `)` or `$`. **This is false-alarm reduction, not a
+  claim about the shell** — `ls -d $ROOT/dir/*/` IS globbed, and zsh refuses it
+  exactly like a bare pattern. The exclusion buys three things cheaply: a
+  permission-grant literal written in prose (`Bash(lib/test/run.sh:*)`) and a
+  `case` branch label (`*)`, `''|*[!0-9]*)`, `claude/issue-*|issue-*)` — every
+  label ends in `)`) stop being candidates, which is what makes a separate
+  `case`-branch predicate unnecessary. What it costs is the parameter-expansion
+  residual disclosed below;
 * the token contains no `**` — markdown emphasis written inside a fence
   (`**Relevant Classes/Files**`) is not a pattern any skill fence's shell expands,
   since POSIX shells have no `**` operator and bash gives it recursive meaning only
@@ -69,9 +72,22 @@ Candidate shape, closed by enumeration — ALL of these must hold:
 Accepted residuals, stated rather than papered over — this list is the single home
 for them, so `CLAUDE.md` points here rather than carrying a second copy:
 
+* a glob whose token also carries a parameter expansion or a quoted leading
+  segment — `$ROOT/dir/*/`, `"$ROOT"/dir/*/`. These are **real, globbed patterns**
+  that zsh refuses; the narrow shape deliberately does not see them, because the
+  filters that exclude prose literals and `case` labels exclude these too. It is
+  the largest disclosed miss, and it is the commonest real shape in this
+  repository, so a fence built that way still needs the guard by hand;
 * a glob assembled through a variable;
-* a glob inside an untagged fence;
+* a glob inside an untagged fence, or inside a blockquoted (`> `-prefixed) fence;
+* a glob inside a **nested** fence — a fenced block quoted inside another fenced
+  block desyncs the open/close parity. A file whose parity never re-syncs ends
+  inside an unterminated fence, which this guard detects and reports as a SKIP
+  (fail-closed), so the desync is loud rather than a false clean; a file whose
+  parity re-syncs later is a silent miss for the affected span;
 * a glob written with `?` or `[…]` and no `*`;
+* a backslash-escaped quote (`echo "a \" b"`), which misaligns the single-line
+  quote mask for the rest of that line;
 * a glob with **no path separator** (`wc -l *.py`) — zsh refuses that one too, but
   requiring the `/` is what keeps `--include=*.py` and `Bash(gh:*)` out, and that
   trade is taken deliberately;
@@ -88,8 +104,9 @@ narrow mechanical backstop for the commonest shape.
 
 Violation condition: a candidate token whose line carries no `# glob-ok: <reason>`
 marker and whose fence carries no `setopt nonomatch` guard on an earlier line (the
-guard is matched against the comment-stripped line, so prose *naming* the remedy
-does not stand in for it). The guard never judges what a marker's reason claims —
+guard is matched against the comment-stripped, unquoted code, so a *commented or
+quoted* mention of the remedy does not stand in for it — an unquoted, uncommented
+`echo setopt nonomatch` still would, a disclosed residual). The guard never judges what a marker's reason claims —
 what it buys is a reviewable, greppable declaration at the desk, exactly like the
 sibling markers `# structural-pin-ok:`, `# tree-walk-ok:`, `# pruned-path-ok:` and
 `# argjson-ok:`.
@@ -169,7 +186,21 @@ def _scan_quotes(line: str) -> tuple[str, list[bool]]:
     quote = ""
     code: list[str] = []
     quoted: list[bool] = []
+    escaped = False
     for index, char in enumerate(line):
+        if escaped:
+            # A backslash-escaped character never opens or closes a quote. Without
+            # this, `echo "a \" b"` toggles the state and masks the rest of the line
+            # as quoted, hiding a real glob after it (fail-open).
+            escaped = False
+            code.append(char)
+            quoted.append(bool(quote))
+            continue
+        if char == "\\" and quote != "'":
+            escaped = True
+            code.append(char)
+            quoted.append(bool(quote))
+            continue
         if quote:
             code.append(char)
             quoted.append(True)
@@ -226,8 +257,18 @@ def _candidate_tokens(code: str, quoted: list[bool]) -> list[str]:
     return found
 
 
-def scan_file(text: str, path: str) -> list[str]:
-    """Return one violation string per offending line."""
+def scan_file(text: str, path: str) -> tuple[list[str], bool]:
+    """Return (one violation string per offending line, unclosed-fence-at-EOF).
+
+    The second member is the honest-coverage signal. A **nested** fence — a fenced
+    block quoted inside another fenced block, which several skill bodies carry —
+    desyncs the open/close parity, after which every later fence in the file is
+    read inside-out and its shell lines are never examined. A file whose parity
+    never re-syncs ends inside an unterminated fence, and reporting `audited N of
+    N` over it would be precisely the "audited nothing reads as audited
+    everything, found nothing" failure this whole change exists to remove. So the
+    caller treats it as a SKIP, which already fails closed.
+    """
     violations: list[str] = []
     in_fence = False
     fence_is_shell = False
@@ -236,8 +277,14 @@ def scan_file(text: str, path: str) -> list[str]:
     heredoc_delimiter = ""
     for lineno, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
+        # A fence delimiter carries at most three leading spaces (CommonMark); four or
+        # more makes the line literal content. That rule is what keeps a fence QUOTED
+        # inside another fence — several skill bodies indent an inner ```bash block by
+        # four spaces — from desyncing the open/close parity and silently taking the
+        # rest of the file out of the scan.
+        is_delimiter = len(line) - len(line.lstrip(" ")) <= 3
         if not in_fence:
-            if stripped.startswith("```") or stripped.startswith("~~~"):
+            if is_delimiter and (stripped.startswith("```") or stripped.startswith("~~~")):
                 fence_marker = stripped[0] * 3
                 info = stripped.lstrip("`~").split()
                 in_fence = True
@@ -245,7 +292,7 @@ def scan_file(text: str, path: str) -> list[str]:
                 fence_guarded = False
                 heredoc_delimiter = ""
             continue
-        if stripped.startswith(fence_marker) and stripped.strip("`~") == "":
+        if is_delimiter and stripped.startswith(fence_marker) and stripped.strip("`~") == "":
             in_fence = False
             continue
         if not fence_is_shell:
@@ -288,7 +335,7 @@ def scan_file(text: str, path: str) -> list[str]:
             f"nonomatch || :` guard beside it, or declare it with "
             f"`{MARKER} <reason>`"
         )
-    return violations
+    return violations, in_fence
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -331,8 +378,16 @@ def main(argv: list[str] | None = None) -> int:
         if text is None:
             skipped.append((relative, skip_reason or "unknown"))
             continue
+        file_violations, unclosed = scan_file(text, relative)
+        if unclosed:
+            # Not counted in read_ok: the file was read but not reliably scanned.
+            skipped.append(
+                (relative, "unterminated code fence at EOF — fence parity desynced "
+                 "(a nested fence?), so this file's shell lines were not reliably scanned")
+            )
+            continue
         read_ok += 1
-        violations.extend(scan_file(text, relative))
+        violations.extend(file_violations)
 
     for violation in violations:
         print(f"{TOOL}: {violation}", file=sys.stderr)
