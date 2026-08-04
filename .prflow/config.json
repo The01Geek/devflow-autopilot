@@ -4,8 +4,8 @@
   "claude_model": "claude-opus-4-8",
   "prflow_version": "main",
   "prflow": {
-    "allowed_bots": "claude,dependabot,prflow-implementer",
-    "allowed_users": "*",
+    "allowed_bots": "claude,prflow-implementer",
+    "allowed_users": "The01Geek",
     "workpad_marker": "<!-- prflow:workpad -->",
     "effort": "low",
     "allowed_tools": [
