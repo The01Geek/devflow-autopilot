@@ -23793,6 +23793,40 @@ assert_eq("#1197 full recognizer: out-of-section direction handling is unchanged
           (_preflight1011.dependency_numbers("Blocks #5 outside a section"),
            _preflight1011.dependency_numbers("Blocks #5 but blocked by #6, outside a section")))
 
+# ── issue #1268: a number skipped for outbound direction becomes DATA the
+# section-only caller can read, via a new `(found, skipped)` accessor, while the
+# two existing public wrappers keep their historic `list[str]` shape. ──
+# The new accessor over a body with one skipped (#202, outbound) and one kept
+# (#201, inbound) entry returns both lists.
+assert_eq("#1268 new accessor: returns (found, skipped) for a mixed body",
+          (['201'], ['202']),
+          _preflight1011.dependency_section_scan(
+              "## Dependencies\n- Blocks #202 — this issue is the prerequisite\n"
+              "- Blocked by #201 — b\n"))
+assert_eq("#1268 new accessor: both lists are unique in source order",
+          (['201'], ['202']),
+          _preflight1011.dependency_section_scan(
+              "## Dependencies\n- Blocked by #201\n- Blocked by #201 again\n"
+              "- Blocks #202\n- Blocks #202 again\n"))
+# The two existing wrappers still return list[str] with exactly today's contents —
+# assert the TYPE (not just the value), because a tuple pass-through is the exact
+# accidental shape the refactor could introduce.
+_1268_body = ("## Dependencies\n- Blocks #202 — this issue is the prerequisite\n"
+              "- Blocked by #201 — b\n")
+_1268_sect = _preflight1011.dependency_section_numbers(_1268_body)
+_1268_full = _preflight1011.dependency_numbers(_1268_body)
+assert_eq("#1268 dependency_section_numbers still returns list[str] with found only",
+          (list, ['201']), (type(_1268_sect), _1268_sect))
+assert_eq("#1268 dependency_numbers still returns list[str] with found only",
+          (list, ['201']), (type(_1268_full), _1268_full))
+# The new accessor writes NO stderr of its own, exactly like dependency_section_numbers —
+# the skip breadcrumb is the calling helper's responsibility (issue #1268 / AC6).
+_io1268 = io.StringIO()
+with contextlib.redirect_stderr(_io1268):
+    _1268_scan = _preflight1011.dependency_section_scan("## Dependencies\n- Blocks #5\n")
+assert_eq("#1268 new accessor: emits no stderr of its own on an outbound body",
+          (([], ['5']), ""), (_1268_scan, _io1268.getvalue()))
+
 _HELPER1011 = SCRIPTS / 'apply-issue-dependencies.py'
 
 
@@ -23832,6 +23866,9 @@ for a in "$@"; do
       # persistent (and inverted) blocked_by for either one.
       109) printf '%s\n' '## Dependencies' '- **Blocks #201** — this issue is the prerequisite' ;;
       110) printf '%s\n' '## Dependencies' '- Blocks #202 but blocked by #201' ;;
+      # issue #1268: some-dropped-some-kept — one outbound line (#202, skipped for
+      # direction) beside one inbound line (#201, kept and registered).
+      111) printf '%s\n' '## Dependencies' '- Blocks #202 — this issue is the prerequisite' '- Blocked by #201 — b' ;;
       200) exit 1 ;;
       *) printf '\n' ;;
     esac
@@ -23927,16 +23964,53 @@ assert_eq("#1011 out-of-section: breadcrumb says no prerequisites in a section",
 # scanner would have produced "linked #109 blocked_by #201." here; asserting that
 # literal's ABSENCE alongside the no-prerequisites breadcrumb keeps the row
 # discriminating rather than satisfied by any quiet run.
+# issue #1268 reconciles these two #1197 AC6 rows to the new breadcrumb: an outbound
+# number is now NAMED as a skip (with the direction as the reason) rather than
+# silently collapsed into the false "declares no prerequisites" line. The third
+# tuple slot flips from True (old literal present) to False (old literal absent), and
+# two new slots assert the skip breadcrumb and the outbound-only summary are present.
+# The genuinely-empty-section row (`#1011 out-of-section`, body 106) below keeps the
+# old literal — the three were distinguished, not swept together.
 _rc, _se = _run_deps(109)
-assert_eq("#1197 AC6: an outbound declaration registers nothing (exit 0, no POST attempted)",
-          (0, False, True),
-          (_rc, "linked #109 blocked_by" in _se,
-           "declares no prerequisites in a `## Dependencies` section" in _se))
+assert_eq("#1268/#1197 AC6: an outbound-only declaration registers nothing and is no longer "
+          "misdescribed as 'no prerequisites' (exit 0, no POST attempted)",
+          (0, False, False, True, True),
+          (_rc,
+           "linked #109 blocked_by" in _se,
+           "declares no prerequisites in a `## Dependencies` section" in _se,
+           "skipped #201" in _se and "OUTBOUND relation" in _se,
+           "only as OUTBOUND relations" in _se))
 _rc, _se = _run_deps(110)
-assert_eq("#1197 AC6: a mixed-direction line registers nothing either (line-level governance)",
-          (0, False, True),
-          (_rc, "blocked_by #201" in _se,
-           "declares no prerequisites in a `## Dependencies` section" in _se))
+assert_eq("#1268/#1197 AC6: a mixed-direction LINE registers nothing (line-level) and names "
+          "each dropped number instead of claiming no prerequisites",
+          (0, False, False, True, True),
+          (_rc,
+           "linked #110 blocked_by" in _se,
+           "declares no prerequisites in a `## Dependencies` section" in _se,
+           "skipped #202" in _se and "skipped #201" in _se,
+           "only as OUTBOUND relations" in _se))
+
+# issue #1268 — some-dropped-some-kept path (body 111: outbound #202 beside inbound
+# #201). This path produced NO output about the dropped number today; now it names it
+# under the helper's own prefix while still registering the kept prerequisite.
+_rc, _se = _run_deps(111)
+assert_eq("#1268 mixed path: exit 0", 0, _rc)
+assert_eq("#1268 mixed path: registers the kept inbound prerequisite", True,
+          "linked #111 blocked_by #201." in _se)
+assert_eq("#1268 mixed path: names the dropped outbound number (silent today)", True,
+          "skipped #202" in _se and "OUTBOUND relation" in _se)
+assert_eq("#1268 mixed path: does NOT claim the issue declared no prerequisites", True,
+          "declares no prerequisites" not in _se)
+assert_eq("#1268 mixed path: every stderr line still carries the helper prefix", True,
+          all(_l.startswith("apply-issue-dependencies.py:") for _l in _se.strip().splitlines()))
+
+# issue #1268 — negative control: an all-inbound section (body 100) produces NO skip
+# breadcrumb, so the assertions above are attributable to the outbound-skip predicate
+# rather than to an unconditional emit.
+_rc, _se = _run_deps(100)
+assert_eq("#1268 negative control: an all-inbound section produces no skip breadcrumb",
+          (0, False),
+          (_rc, "OUTBOUND relation" in _se))
 
 # body fetch failure.
 _rc, _se = _run_deps(200)
