@@ -11,7 +11,8 @@
 > repository (`The01Geek/prflow`): the README, the skill definitions
 > (`skills/*/SKILL.md`), the agent definitions (`agents/*.md`), the GitHub Actions
 > workflows (`.github/workflows/*.yml`), the composite actions, the config schema
-> (`.prflow/config.schema.json`), and the docs (`docs/*.md`). Where a number,
+> (`.prflow/config.schema.json`), and the docs (`docs/internal/*.md` and
+> `docs/external/`). Where a number,
 > file path, or named mechanism appears, it is quoted as-is so decks/videos don't
 > drift from reality. Internal/strategy material (the private roadmap) is
 > deliberately **excluded**.
