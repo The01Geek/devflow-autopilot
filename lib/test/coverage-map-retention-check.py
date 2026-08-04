@@ -10,10 +10,11 @@ nothing for a client that never registered it. This check covers that residual p
 It runs in CI (so it does not depend on any local configuration) and at the desk
 against the same inputs.
 
-It compares the coverage map at the merge base against the map at HEAD and fails
-when a key present in the base is absent from the head result — in EITHER half
-(`files` and `run_sh_blocks`), including the 30-odd `run_sh_blocks` keys with no live
-derivation that no coverage-guard arm reports — or when a key survived but its `note`
+It compares the coverage map at the merge base against the map in the working tree
+(which is HEAD in a fresh CI checkout) and fails when a key present in the base is
+absent from the head result — in EITHER half (`files` and `run_sh_blocks`), including
+the curated `run_sh_blocks` keys with no live derivation that no coverage-guard arm
+reports — or when a key survived but its `note`
 or `owner` content was DROPPED (non-empty at base, empty/absent at head). This is
 exactly the population no guard arm inspects, and it is where a semantic-free conflict
 resolved by taking one side silently discards a recorded coverage decision.
@@ -173,6 +174,19 @@ def _merge_base(repo_root: Path, base_ref: str) -> "tuple[str | None, str | None
     except (FileNotFoundError, OSError) as error:
         return None, f"git merge-base failed ({error})"
     if result.returncode != 0:
+        # A shallow clone (and any other git error) cannot produce a merge base. Fall
+        # back to BASE_REF's own tip, but say so on stderr: the substitute comparand is
+        # semantically different from the true merge base (BASE_REF may have advanced and
+        # removed a key on the trunk after the fork point), so a green result reached this
+        # way must carry that fact rather than launder a degraded comparand into a pass
+        # ("unknown is not zero"). Still returns the substitute so the check runs.
+        print(
+            f"[retain] note: could not compute a merge base against {base_ref} "
+            f"({result.stderr.strip() or 'git merge-base failed'}); comparing against "
+            f"{base_ref}'s tip instead — a shallow clone or git error, so the base "
+            "comparand is degraded",
+            file=sys.stderr,
+        )
         return base_ref, None
     base = result.stdout.strip()
     return (base or base_ref), None
@@ -220,6 +234,17 @@ def main(argv: "list[str]") -> int:
     if base_error is not None:
         print(f"[retain] could not read the base {MAP_REL}: {base_error}")
         return 1
+    # Make an empty base comparand visible: with no base keys the check inspects
+    # nothing and passes, which is correct when the map genuinely did not exist at the
+    # base but must not be silently laundered into a green result when it is the product
+    # of a degraded merge-base fallback (see _merge_base) or an unexpectedly absent path.
+    if isinstance(base_map, dict) and not base_map.get("files") and not base_map.get("run_sh_blocks"):
+        print(
+            f"[retain] note: the base {MAP_REL} at {merge_base} carried no files/run_sh_blocks "
+            "keys, so there is nothing to retain against — verify this is a genuinely absent "
+            "base map rather than a degraded comparand",
+            file=sys.stderr,
+        )
 
     head_path = repo_root / MAP_REL
     try:

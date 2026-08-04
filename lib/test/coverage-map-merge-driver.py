@@ -201,8 +201,19 @@ def _run_merge(argv: "list[str]") -> int:
             base = _load(base_path)
         except FileNotFoundError:
             base = {}
-        ours = _load(ours_path)
-        theirs = _load(theirs_path)
+        # ours/theirs are the working versions git always materializes; a genuinely
+        # missing one is an environment fault, so fail loudly with a clear message and a
+        # merge-failed exit (2) rather than an opaque traceback — never a silent merge.
+        try:
+            ours = _load(ours_path)
+            theirs = _load(theirs_path)
+        except FileNotFoundError as error:
+            print(
+                f"coverage-map-merge-driver: a merge input file is missing ({error}); "
+                f"cannot merge {MAP_REL}",
+                file=sys.stderr,
+            )
+            return 2
         merged = merge_maps(base, ours, theirs)
     except MergeConflict as mc:
         # Leave conflict markers in the ours-path and fail so git records the path as

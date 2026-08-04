@@ -125,7 +125,7 @@ extractions. Its `run_sh_blocks` half is **mostly derived** — a label asserted
 tree that carries no entry is added mechanically by `--fix` — but it is **not purely
 derived**: an entry whose assertions were later deleted or renamed has no live
 derivation behind it and becomes a **curated historical record** the guard deliberately
-neither reports nor removes (there are ~30 such `run_sh_blocks` keys today), and every
+neither reports nor removes (a few dozen such `run_sh_blocks` keys), and every
 `note` in both halves plus every `files`-row's content is curated. So treat the half as
 derived *for the ratchet's completeness arm* and curated *for the content a merge must
 not lose*. The coverage

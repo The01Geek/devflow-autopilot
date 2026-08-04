@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -113,10 +114,13 @@ class MergeDriverGitFixtureTest(_GitFixtureBase):
         # three so the fixture is self-contained and offline.
         for src in (DRIVER_SOURCE, GUARD_SOURCE, POP_SOURCE):
             shutil.copy(src, self.repo / "lib" / "test" / src.name)
-        self._write_map(_base_map(run_sh_blocks={
-            "1210": {"note": "n1210", "owner": "unmodularized"},
-            "1290": {"note": "n1290", "owner": "unmodularized"},
-        }))
+        self._write_map(_base_map(
+            run_sh_blocks={
+                "1210": {"note": "n1210", "owner": "unmodularized"},
+                "1290": {"note": "n1290", "owner": "unmodularized"},
+            },
+            files={"lib/aaa0.sh": {"note": "pre", "owner": "unmodularized"}},
+        ))
         (self.repo / ".gitattributes").write_text(
             f"{MAP_REL} merge=coverage-map-json\n", encoding="utf-8"
         )
@@ -165,8 +169,11 @@ class MergeDriverGitFixtureTest(_GitFixtureBase):
         result = self._two_distinct_keys("files", "lib/aaa.sh", "lib/aab.sh")
         self.assertEqual(result.returncode, 0, f"merge should be clean:\n{result.stderr}")
         m = self._read_map()
-        self.assertIn("lib/aaa.sh", m["files"])
-        self.assertIn("lib/aab.sh", m["files"])
+        # AC2 requires note/owner byte-intact — assert the full entries, not mere presence.
+        self.assertEqual(m["files"]["lib/aaa.sh"], {"note": "lib/aaa.sh note", "owner": "unmodularized"})
+        self.assertEqual(m["files"]["lib/aab.sh"], {"note": "lib/aab.sh note", "owner": "unmodularized"})
+        # The pre-existing files entry is untouched, byte-intact.
+        self.assertEqual(m["files"]["lib/aaa0.sh"], {"note": "pre", "owner": "unmodularized"})
 
     def test_AC3_same_key_divergence_conflicts(self):
         self._register_driver()
@@ -190,17 +197,71 @@ class MergeDriverGitFixtureTest(_GitFixtureBase):
             "with the driver UNREGISTERED the adjacent-key merge must conflict (the defect)",
         )
 
+    def _isolated_git_env(self):
+        """os.environ with GIT_CONFIG_GLOBAL/SYSTEM redirected to isolated empty files, so
+        a `--register` that writes global would be provably detectable and the host's real
+        global config can neither cause a false pass nor a false fail."""
+        empty_global = self.tmp / "isolated-global-gitconfig"
+        empty_system = self.tmp / "isolated-system-gitconfig"
+        empty_global.write_text("", encoding="utf-8")
+        empty_system.write_text("", encoding="utf-8")
+        env = dict(os.environ)
+        env["GIT_CONFIG_GLOBAL"] = str(empty_global)
+        env["GIT_CONFIG_SYSTEM"] = str(empty_system)
+        env["HOME"] = str(self.tmp)
+        return env, empty_global
+
+    def _driver(self, *args, env=None):
+        return subprocess.run(
+            ["python3", f"lib/test/{DRIVER_SOURCE.name}", *args],
+            cwd=str(self.repo), capture_output=True, text=True, check=False, env=env,
+        )
+
+    def test_AC6_register_and_check_modes(self):
+        env, empty_global = self._isolated_git_env()
+        # --check before registration fails RED and prints the exact registration command.
+        before = self._driver("--check", env=env)
+        self.assertEqual(before.returncode, 1, before.stdout + before.stderr)
+        self.assertIn("--register", before.stdout + before.stderr)
+        # --register succeeds...
+        reg = self._driver("--register", env=env)
+        self.assertEqual(reg.returncode, 0, reg.stdout + reg.stderr)
+        # ...and --check now passes.
+        after = self._driver("--check", env=env)
+        self.assertEqual(after.returncode, 0, after.stdout + after.stderr)
+        # AC4: registration wrote ONLY the repo-local config — the isolated global file
+        # is byte-empty, proving --register never wrote --global.
+        self.assertEqual(empty_global.read_text(encoding="utf-8"), "",
+                         "--register must never write the global git config")
+        # And a real end-to-end merge with the driver registered by --register (not the
+        # test helper) unions distinct keys cleanly.
+        result = self._two_distinct_keys("run_sh_blocks", "1211", "1212")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        m = self._read_map()
+        self.assertIn("1211", m["run_sh_blocks"])
+        self.assertIn("1212", m["run_sh_blocks"])
+
+    def test_AC6_check_detects_wrong_value(self):
+        env, _ = self._isolated_git_env()
+        self._git("config", "merge.coverage-map-json.driver", "some-other-driver %O %A %B")
+        result = self._driver("--check", env=env)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("--register", result.stdout + result.stderr)
+
     def test_AC4_no_global_git_config_written(self):
         # Registration writes only the fixture's local config; assert the driver key is
-        # absent from the global config after a full registered merge.
+        # absent from an ISOLATED global config after a full registered merge, so the
+        # assertion neither depends on nor perturbs the developer's real ~/.gitconfig.
+        env, empty_global = self._isolated_git_env()
         self._register_driver()
         self._two_distinct_keys("run_sh_blocks", "1211", "1212")
         globalcfg = subprocess.run(
             ["git", "config", "--global", "--get", "merge.coverage-map-json.driver"],
-            capture_output=True, text=True, check=False,
+            capture_output=True, text=True, check=False, env=env,
         )
         self.assertNotEqual(globalcfg.returncode, 0,
                             "the driver must never be written to the global git config")
+        self.assertEqual(empty_global.read_text(encoding="utf-8"), "")
 
 
 class MergeDriverUnitTest(unittest.TestCase):
@@ -289,6 +350,15 @@ class RetentionCheckTest(unittest.TestCase):
         allow = [{"half": "run_sh_blocks", "key": "431", "reason": "   "}]
         losses = retain.detect_losses(base, head, allow)
         # Both the malformed-entry breadcrumb AND the unpermitted removal are reported.
+        self.assertTrue(any("no non-empty 'reason'" in v for v in losses), losses)
+        self.assertTrue(any("absent" in v for v in losses), losses)
+
+    def test_escape_hatch_absent_reason_key_rejected(self):
+        base = _base_map(run_sh_blocks={"431": {"note": "n", "owner": "unmodularized"}})
+        head = _base_map(run_sh_blocks={})
+        # The 'reason' key is entirely absent (not merely blank) — a distinct limb.
+        allow = [{"half": "run_sh_blocks", "key": "431"}]
+        losses = retain.detect_losses(base, head, allow)
         self.assertTrue(any("no non-empty 'reason'" in v for v in losses), losses)
         self.assertTrue(any("absent" in v for v in losses), losses)
 
