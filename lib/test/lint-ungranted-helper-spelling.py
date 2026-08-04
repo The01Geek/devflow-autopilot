@@ -158,8 +158,8 @@ def _iter_grant_paths(obj) -> list[str]:
     return out
 
 
-def establish_forbidden(manifest_text: str) -> list[tuple[str, str]]:
-    """Return the sorted forbidden (segment, basename) pairs, or raise.
+def establish_forbidden(manifest_text: str) -> list[str]:
+    """Return the sorted forbidden repo-relative literals (`scripts/<name>`), or raise.
 
     A pair qualifies when its basename is in IN_SCOPE_BASENAMES AND the manifest grants
     it at the vendored literal AND grants no bare `scripts/`/`lib/` form of it. An
@@ -183,7 +183,7 @@ def establish_forbidden(manifest_text: str) -> list[tuple[str, str]]:
         if b:
             bare.add((b.group(1), b.group(2)))
 
-    forbidden: list[tuple[str, str]] = []
+    forbidden: list[str] = []
     for basename in IN_SCOPE_BASENAMES:
         matching = [(seg, name) for (seg, name) in vendored if name == basename]
         if not matching:
@@ -199,7 +199,7 @@ def establish_forbidden(manifest_text: str) -> list[tuple[str, str]]:
                     f"'{seg}/' form in the manifest — the repo-relative spelling is no "
                     "longer ungranted; revisit IN_SCOPE_BASENAMES"
                 )
-            forbidden.append((seg, name))
+            forbidden.append(f"{seg}/{name}")
     if not forbidden:
         raise ForbiddenSetError("no in-scope helper resolved to a forbidden spelling")
     return sorted(set(forbidden))
@@ -240,13 +240,12 @@ def _fence_states(lines: list[str]) -> list[bool]:
     return states
 
 
-def _compile_forbidden(forbidden: list[tuple[str, str]]) -> list[tuple[str, re.Pattern]]:
+def _compile_forbidden(forbidden: list[str]) -> list[tuple[str, re.Pattern]]:
     """One regex per forbidden literal, matched only when NOT `/`/`.`/`-`/word-preceded."""
-    out: list[tuple[str, re.Pattern]] = []
-    for seg, name in forbidden:
-        literal = f"{seg}/{name}"
-        out.append((literal, re.compile(r"(?<![\w./-])" + re.escape(literal))))
-    return out
+    return [
+        (literal, re.compile(r"(?<![\w./-])" + re.escape(literal)))
+        for literal in forbidden
+    ]
 
 
 def scan_text(text: str, patterns: list[tuple[str, re.Pattern]]) -> list[tuple[int, str]]:
@@ -316,7 +315,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    literals = [f"{seg}/{name}" for seg, name in forbidden]
+    literals = forbidden  # establish_forbidden already returns sorted repo-relative literals
     if args.print_forbidden_set:
         for literal in literals:
             print(literal)

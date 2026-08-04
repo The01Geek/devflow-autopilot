@@ -46856,6 +46856,9 @@ PY
 UH_LINT="$LIB/test/lint-ungranted-helper-spelling.py"
 UH_FX="$LIB/test/fixtures/ungranted-helper-spelling"
 UH_M="$UH_FX/manifests/vendored-only.json"
+# The clean single-file summary line (audited 1 of 1, both in-scope literals in the
+# forbidden set), reused by every green fixture assertion below so the format lives once.
+UH_CLEAN1="rc=0|lint-ungranted-helper-spelling: audited 1 of 1 files; forbidden set: scripts/dismiss-stale-rejections.sh scripts/post-review-verdict.sh"
 
 # Real-tree run: exits 0 AND audited a positive number of files (a green run whose count
 # had silently collapsed to zero would read as clean while auditing nothing).
@@ -46908,22 +46911,22 @@ uh_run() {  # <path…> -> "rc=<n>|<stdout+stderr>"
 assert_eq "#1248 lint: an unmarked reference is reported (AC3 RED)" "yes" \
   "$(case "$(uh_run skills/unmarked.md)" in "rc=1|"*"skills/unmarked.md:1:"*) echo yes ;; *) echo no ;; esac)"
 assert_eq "#1248 lint: a clean file with no reference is silent (AC3 GREEN)" \
-  "rc=0|lint-ungranted-helper-spelling: audited 1 of 1 files; forbidden set: scripts/dismiss-stale-rejections.sh scripts/post-review-verdict.sh" \
+  "$UH_CLEAN1" \
   "$(uh_run skills/clean.md)"
 # AC4 combined negative control: the vendored literal, a bare-filename naming sentence,
 # English prose containing "scripts", and the #275 anchor form all PASS in one file.
 assert_eq "#1248 lint: the AC4 combined negative control passes (vendored literal + bare name + English + anchor)" \
-  "rc=0|lint-ungranted-helper-spelling: audited 1 of 1 files; forbidden set: scripts/dismiss-stale-rejections.sh scripts/post-review-verdict.sh" \
+  "$UH_CLEAN1" \
   "$(uh_run skills/negative-control.md)"
 # A marker with a non-empty reason suppresses; an empty-reason marker does not.
 assert_eq "#1248 lint: a marked (HTML) reference is not reported" \
-  "rc=0|lint-ungranted-helper-spelling: audited 1 of 1 files; forbidden set: scripts/dismiss-stale-rejections.sh scripts/post-review-verdict.sh" \
+  "$UH_CLEAN1" \
   "$(uh_run skills/marked-html.md)"
 assert_eq "#1248 lint: a marker with an empty reason is reported" "yes" \
   "$(case "$(uh_run skills/marked-empty.md)" in "rc=1|"*"skills/marked-empty.md:1:"*) echo yes ;; *) echo no ;; esac)"
 # A # marker inside an emitted shell fence suppresses (fence-state tracking).
 assert_eq "#1248 lint: a # marker inside a backtick fence suppresses" \
-  "rc=0|lint-ungranted-helper-spelling: audited 1 of 1 files; forbidden set: scripts/dismiss-stale-rejections.sh scripts/post-review-verdict.sh" \
+  "$UH_CLEAN1" \
   "$(uh_run skills/fence-shell.md)"
 # The agents/ prefix (second audited prefix), reported like skills/.
 assert_eq "#1248 lint: an agents/ path is audited and reported like skills/" "yes" \
@@ -46934,7 +46937,7 @@ assert_eq "#1248 lint: an agents/ path is audited and reported like skills/" "ye
 assert_eq "#1248 lint: an enumeration selecting no skills/agents path refuses (empty-audited floor)" "yes" \
   "$(case "$(uh_run manifests/vendored-only.json)" in "rc=1|"*"selected no file under skills/ or agents/"*) echo yes ;; *) echo no ;; esac)"
 assert_eq "#1248 lint: the same list plus one audited path audits 1 of 1 (floor control + is_audited negative)" \
-  "rc=0|lint-ungranted-helper-spelling: audited 1 of 1 files; forbidden set: scripts/dismiss-stale-rejections.sh scripts/post-review-verdict.sh" \
+  "$UH_CLEAN1" \
   "$(uh_run manifests/vendored-only.json skills/clean.md)"
 
 # AC5: this repository's own local tier resolves the repo-root form (the vendored tree is
