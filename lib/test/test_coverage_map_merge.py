@@ -703,11 +703,27 @@ class MergeDriverErrorBranchTest(unittest.TestCase):
 
     def test_unparseable_side_conflicts_rather_than_merging(self):
         base = self._path("base4.json", _base_map())
-        ours = self._path("ours4.json", "{ not json")
-        theirs = self._path("theirs4.json", _base_map())
+        unparseable = "{ not json"
+        ours = self._path("ours4.json", unparseable)
+        theirs = self._path("theirs4.json", _base_map(
+            run_sh_blocks={"incoming": {"note": "from theirs", "owner": "m"}}))
+        theirs_text = theirs.read_text(encoding="utf-8")
+
         rc = driver._run_merge([str(base), str(ours), str(theirs)])
         self.assertEqual(rc, 1, "an unparseable side must conflict, never merge silently")
-        self.assertIn("<<<<<<<", ours.read_text(encoding="utf-8"))
+
+        # Assert the CONSEQUENCES of conflicting, not the presence of git's conflict-marker
+        # literal in the file text (which the #810 gate correctly classifies as a
+        # source-presence pin). Git adopts %A as the merge result, so all three of these
+        # are the behavior that matters: the driver replaced %A with a conflict body; that
+        # body does not parse as a coverage map (a parseable one there would BE the silent
+        # merge this test exists to prevent); and it carries the incoming side verbatim so
+        # a human can actually resolve it.
+        body = ours.read_text(encoding="utf-8")
+        self.assertNotEqual(body, unparseable, "the driver must write a conflict body into %A")
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(body)
+        self.assertIn(theirs_text, body)
 
     def test_canonical_write_failure_is_a_merge_failure(self):
         # A clean merge whose result cannot be written must NOT report success — git
