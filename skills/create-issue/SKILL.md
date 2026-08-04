@@ -67,6 +67,10 @@ These five hold on every path, including every degraded arm above, and are load-
 4. **The reserved `PRFlow` provenance label is applied best-effort after creation, and any degradation is reported explicitly** — a label hiccup never blocks creation, and a `PRFlow` label that could not be applied is named in the final outcome rather than passed over.
 5. **The self-assignment election runs after approval and before creation, on every path including every degraded arm.** After the user explicitly approves the full rendered draft and before any `gh issue create`, the run asks whether to assign the new issue to the user; an explicit **yes** adds `--assignee "@me"` to the create call, an explicit **no** creates it unassigned, and silence or any non-yes/non-no reply pauses and re-asks — no issue-creation command runs until the answer is an explicit yes or no. This election belongs to the interactive create path only; a draft-only request never reaches it.
 
+## Subagent dispatch is user-requested here (injection-condition clause)
+
+Invoking `/prflow:create-issue` **is** the user's request for subagent dispatch at this skill's two dispatch sites — the Step 1 `/prflow:docs-verify` peers and the Step 3.6 fresh-context audit subagent — thereby satisfying any injected "do not call the AgentTool unless the user requested it" condition there and nowhere else. This changes none of the degradation arms above: a dispatch that fails, is unavailable, or is refused still degrades best-effort onto its named fallback, and nothing blocks issue creation.
+
 ## Steps
 
 ### Step 1: Assess current state (read-only)
