@@ -2395,17 +2395,12 @@ assert_eq "#1271 helper: a non-'true' cancelled value is treated as not cancelle
 v1271_decide not-reached none false >/dev/null 2>&1
 assert_eq "#1271 helper: always exits 0 (the decision is the stdout token, not the exit code)" \
   "0" "$?"
-# Header residual/disposition disclosures (machine-consumed only in that a future edit that
-# drops them should turn RED): the completeness residual, the vacuous-carve-out premise, and
-# the two non-defect non-reaching dispositions are each STATED, per the issue's ACs.
-assert_eq "#1271 helper: header names the chosen oracle's completeness residual (progress-comment channel)" \
-  "yes" "$(grep -q "progress-comment" "$V1271_DECIDE" && echo yes || echo no)"
-assert_eq "#1271 helper: header states the cancellation carve-out may be vacuous (unverified premise)" \
-  "yes" "$(grep -q "VACUOUS" "$V1271_DECIDE" && echo yes || echo no)"
-assert_eq "#1271 helper: header states the engine is_error disposition" \
-  "yes" "$(grep -q "is_error" "$V1271_DECIDE" && echo yes || echo no)"
-assert_eq "#1271 helper: header states the Phase 4.4 no-output fallback-arm disposition" \
-  "yes" "$(grep -q "no output at all" "$V1271_DECIDE" && echo yes || echo no)"
+# The helper header's residual/disposition DISCLOSURES (the oracle completeness residual, the
+# possibly-vacuous cancellation premise, and the two non-defect non-reaching dispositions the
+# issue's ACs require) are prose read only by the reviewing agent, so they carry NO pin — a
+# comment-presence pin over them is exactly the class issues #375/#666/#810 prohibit for new
+# work, and the compensating control is the review pass, not a grep (the recorded #843/#876
+# decision). They are asserted nowhere here by design.
 
 # Structural workflow assertions (parsed YAML). The step must resolve the helper at the
 # vendored path with a repo-root fallback, pass the cancellation state as an ARGUMENT (via
