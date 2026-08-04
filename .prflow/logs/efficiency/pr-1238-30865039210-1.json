@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1238",
+  "generated_at": "2026-08-04T00:32:44Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.72",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 14.06002145000001,
+    "tokens": {
+      "input_tokens": 409,
+      "output_tokens": 43995,
+      "cache_read_input_tokens": 7983547,
+      "cache_creation_input_tokens": 227666,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 461,
+        "outputTokens": 72601,
+        "cacheReadInputTokens": 9326805,
+        "cacheCreationInputTokens": 551706,
+        "webSearchRequests": 0,
+        "costUSD": 10.7826425,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 142,
+        "outputTokens": 17143,
+        "cacheReadInputTokens": 3153164,
+        "cacheCreationInputTokens": 553029,
+        "webSearchRequests": 0,
+        "costUSD": 3.2773789499999992,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 64,
+    "duration_ms": 916102
+  },
+  "permission_denials": {
+    "count": 11,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-} ATTEMPT=${GITHUB_RUN_ATTEMPT:-} ACTIONS=${GITHUB_ACTIONS:-}\"; git status --porcelain | head -30; echo \"---base---\"; .prflow/vendor/prflow/scripts/config-get.sh .base_branch main 2>&1 || echo \"config-get-rc=$?\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve \"1202\" --pr \"1238\" 2>.prflow/tmp/review/pr-1238/30865039210-1/acs.err ; echo \"acs-rc=$?\"",
+      "mkdir -p /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1238/30865039210-1/verdicts/iter-1\ncat > /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1238/30865039210-1/verdicts/iter-1/VC-6-v9b3.json << 'EOF'\n{\"id\":\"VC-6\",\"verdict\":\"PASS\",\"evidence\":\"lib/test/run-parallel.sh:179 allocates run roots as parent/run-$$-$n under .prflow/tmp/parallel-suite (confirmed lines 174-206), matching the extension's stated 'run-$$-<n>' naming and PID-encoding claim at implement.md:209. Shard PIDs are t …[per-command-truncated]",
+      "for f in .prflow/tmp/review/pr-1238/30865039210-1/verdicts/iter-1/*.json; do echo \"=== $f ===\"; cat \"$f\"; echo; done",
+      "mkdir -p .prflow/tmp\nrm -f .prflow/tmp/review-dirty-tree-before .prflow/tmp/review-dirty-tree-disabled 2>/dev/null\ngit status --porcelain -z > .prflow/tmp/review-dirty-tree-before && git hash-object .prflow/tmp/review-dirty-tree-before\necho \"--- overrides ---\"\n.prflow/vendor/prflow/scripts/resolve-review-overrides.py \"prflow:code-reviewer\" \"prflow:silent-failure-hunter\" \"prflow:comment-analyzer\" \"prflow:requesting-code-review\" ; echo \"ovr-rc=$?\"",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review >/tmp/ext.out 2>/tmp/ext.err; echo \"EXIT=$?\"; echo \"--- STDOUT ---\"; cat /tmp/ext.out; echo \"--- STDERR ---\"; cat /tmp/ext.err",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review >/tmp/ext.out 2>/tmp/ext.err; echo \"EXIT=$?\"; echo \"STDOUT_BYTES=$(wc -c </tmp/ext.out)\"; echo \"STDERR:\"; cat /tmp/ext.err; echo \"STDOUT:\"; cat /tmp/ext.out",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review >/tmp/ext.out 2>/tmp/ext.err; echo \"EXIT=$?\"; echo \"STDOUT_BYTES=$(wc -c </tmp/ext.out)\"; echo \"STDERR_BYTES=$(wc -c </tmp/ext.err)\"",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review >.prflow/tmp/ext.out 2>.prflow/tmp/ext.err; echo \"EXIT=$?\"; echo \"STDOUT_BYTES=$(wc -c <.prflow/tmp/ext.out)\"; echo \"STDERR_BYTES=$(wc -c <.prflow/tmp/ext.err)\"",
+      "out=$(.prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>/dev/null); echo \"EXIT=$?\"; echo \"STDOUT_LEN=${#out}\"; printf '%s\\n' \"$out\" | head -40",
+      "ls .changeset/ 2>/dev/null; echo \"---\"; head -12 $(git ls-files '.changeset/*.md' | grep -v issue-1202 | head -1) 2>/dev/null"
+    ],
+    "total": 11,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
