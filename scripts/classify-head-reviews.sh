@@ -117,8 +117,16 @@ fi
 #     so a non-string body grades ERR rather than aborting the whole filter.
 _CHR_PROG='
   def marker_line1:
-    (.body | split("\n") | (.[0] // ""))
-    | test("^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=(APPROVE|REJECT) -->");
+    (.body | split("\n") | (.[0] // "")) as $l1
+    # The shape test validates the full marker format; the startswith BINDS the marker'"'"'s
+    # own head= field to the reviewed head. Otherwise a review recorded against the head but
+    # carrying a marker for a DIFFERENT head would read as `marked` here while the
+    # verdict-derivation consumers — which require the marker head to match — ignore it, so
+    # the reach record would report a recorded verdict for a review nothing reads (a residual
+    # of the very bypass this classifier flags). startswith is a literal string match, so the
+    # head value never enters a regex.
+    | ($l1 | test("^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=(APPROVE|REJECT) -->"))
+      and ($l1 | startswith("<!-- prflow:review-verdict head=" + $head + " verdict="));
   if (type != "array") then "ERR payload-not-an-array"
   else
     [ .[] | select((.commit_id == $head) and (.user.login == $login)) ] as $own

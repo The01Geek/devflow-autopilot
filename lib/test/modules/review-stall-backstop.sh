@@ -1937,6 +1937,11 @@ assert_eq "#1250 classify: an APPROVE-verdict line-1 marker is marked, exercisin
 # The stdin ('-') payload source is a distinct jq invocation; drive it once end to end.
 assert_eq "#1250 classify: the stdin ('-') payload source classifies identically to a file" \
   "none" "$(printf '[]' | bash "$V1156_CLS" - "$V1156_CSHA" "$V1156_CLOGIN" 2>/dev/null)"
+# The marker's own head= must equal the reviewed head to read as `marked`: a review recorded
+# ON the head but whose line-1 marker names a DIFFERENT head is `unmarked` (the consumers,
+# which bind marker-head to reviewed-head, do not read it as a verdict either).
+assert_eq "#1250 classify: a marker naming a DIFFERENT head is unmarked, not marked (marker head is bound to the reviewed head)" \
+  "unmarked 44" "$(v1156_cls "$(v1156_cls_one 44 "$V1156_CSHA" "$V1156_CLOGIN" "\"<!-- prflow:review-verdict head=$V1156_COTHER verdict=REJECT -->\\nbody\"")")"
 rm -rf "$V1156_CLSD"
 
 # ── AC6-AC10: the arm-dispatch helper. It selects the arm and composes every byte the
