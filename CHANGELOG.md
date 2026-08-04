@@ -4,6 +4,32 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.103] — 2026-08-04
+
+### Added
+- **Measure the `devflow.yml` command tier's command shapes.** The manual
+  `/prflow:review-and-fix` / `/prflow:pr-description` command tier is now linted and probed
+  on both axes the review and implement tiers already were: `extract-command-shapes.py`
+  gains a `--profile command` desk lint (rule set `CR1`–`CR5`, inheriting the implement
+  tier's denied shapes), and `matcher-probe.yml` gains a `command-probe` job whose
+  allowlist baseline is a generated region compiled from the `command` profile — so a
+  command-tier shape defect turns the suite RED at the desk instead of shipping as a burnt
+  budget with a green check. Adds no grant. (#1298)
+
+## [2.30.102] — 2026-08-04
+
+### Changed
+- **Register the deferred cloud-writer helper heads and advance the legacy profile baseline.** `apply-issue-dependencies.py` (issue #1011) and `resolve-existing-pr.sh` (issue #782) are now members of `REQUIRED_HELPER_HEADS["implement"]`, and `LEGACY_PROFILE_BASELINE` advances from `2.15.13` to `2.30.100`, so the required-subset guarantee finally covers both heads. A cadence rule now lives at the constant's definition: the baseline advances — and the frozen legacy-grant snapshot re-snapshots with it — whenever a profile's granted helper-head set in `lib/capability-profiles.json` changes. (#1034)
+
+## [2.30.101] — 2026-08-04
+
+### Changed
+Extend the read-only generated-artifact drift preflight to the sanctioned shard-decomposition route (issue #1288).
+
+The pre-launch drift preflight (issue #1244) was coordinator-only, so the #1132 decomposition route — the one a run takes when the tier terminates the parallel coordinator at its per-command execution ceiling — ran `lib/test/run-shard.sh` per shard and recombined without any pre-launch drift check, paying the full sharded suite to rediscover a stale generated artifact a sub-second read-only check would have named before launch.
+
+`lib/test/run-parallel.sh` now exposes the same check as a standalone `--preflight` mode: it launches no shard and exits with the coordinator's exact verdict contract — proceed on clean or a fail-open inconclusive result, refuse only on a positively-attributed drift. The verdict interpretation is factored into a single shared function so it stays single-sourced rather than duplicated into a second coupled shell copy. `.prflow/prompt-extensions/implement.md`'s decomposition route names `lib/test/run-parallel.sh --preflight` once before its shard loop.
+
 ## [2.30.100] — 2026-08-04
 
 ### Changed

@@ -32935,28 +32935,57 @@ assert_eq "#401 skills/review/SKILL.md teaches no proven-denied command shape" "
 assert_eq "#401 shape-lint exits 0 on the clean review skill" "0" \
   "$(python3 "$ECS" "${_review_members[@]}" >/dev/null 2>&1; echo $?)"
 
-# ── #530 review-and-fix bundle shape lint (thin root + every references/*.md) ──
+# ── #530/#1152 review-and-fix bundle shape lint (thin root + every references/*.md,
+# ── plus the shared review-engine files it executes inline) — the COMMAND profile ──
 # review-and-fix carried NO extract-command-shapes.py coverage before the #530 split.
-# The APPLICABLE shape gate is the IMPLEMENT profile: review-and-fix is dispatched inline
-# by /devflow:implement Phase 3 (implement tier) and via the manual /devflow:review-and-fix
-# comment path (devflow.yml) — it is NEVER dispatched on the read-only cloud `review`
-# profile (devflow-runner.yml). The default profile of extract-command-shapes.py encodes
-# that read-only review-runner matcher (R1–R4), which legitimately denies leading-`VAR=…$(…)`
-# assignments (e.g. the loop-start `RUN_ID=`) and the unexpanded `${CLAUDE_SKILL_DIR:-…}`
-# anchor-as-leading-token + redirect — source forms review-and-fix relies on and that ARE
-# permitted on the tiers it actually runs on (the implement-profile lint below is clean).
-# So the whole bundle is shape-linted under `--profile implement` (root + every reference).
-# The manual-command (devflow.yml) tier's SHAPES are unprobed — matcher-probe.yml carries no
-# manual-command-tier shape-probe job (its review probe and implement-probe jobs cover the two
-# cloud allowlist tiers) — so the implement profile
-# stands in as the closest MEASURED proxy for the manual push path (probe-inference, not
-# measurement; if a shape denial ever surfaces there the real fix is a manual-probe job, not
-# more lint). The manual tier's HEADS are separately covered by the whole-bundle head scan
-# against devflow.yml above. Grants are unchanged — desk-time coverage only.
-for f in "$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../skills/review-and-fix/references"/*.md; do
-  assert_eq "#530 review-and-fix shape-lint (implement profile): $(basename "$f") teaches no denied shape" "" \
-    "$(python3 "$ECS" --profile implement "$f" 2>&1)"
+# It is dispatched inline by /prflow:implement Phase 3 (implement tier) AND via the
+# manual /prflow:review-and-fix comment path — the devflow.yml `command` tier. That
+# manual-command tier is now DIRECTLY linted and probed (issue #1152): the whole bundle
+# is shape-linted here under `--profile command`, and matcher-probe.yml's `command-probe`
+# job (baseline generated from the `command` profile) MEASURES the same tier, so the desk
+# rule set is grounded in measurement rather than inferred from a sibling tier. The
+# command rule set inherits the implement tier's denied shapes (extract-command-shapes.py's
+# COMMAND_RULES == the IR* shapes remapped to CR*), so it legitimately permits the source
+# forms review-and-fix relies on (leading-`VAR=…$(…)` captures, the unexpanded
+# `${CLAUDE_SKILL_DIR:-…}` anchor in source) that the read-only review matcher (R1–R4)
+# would deny. Before #1152 this block ran `--profile implement` as the closest MEASURED
+# proxy for the manual push path; that proxy is retired now the command tier has its own
+# probe. The manual tier's HEADS remain covered by the whole-bundle head scan against
+# devflow.yml above. Grants are unchanged — desk-time coverage only.
+_raf_cmd_members=("$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../skills/review-and-fix/references"/*.md "${_review_members[@]}")
+for f in "${_raf_cmd_members[@]}"; do
+  assert_eq "#530/#1152 review-and-fix shape-lint (command profile): $(basename "$f") teaches no denied shape" "" \
+    "$(python3 "$ECS" --profile command "$f" 2>&1)"
 done
+
+# ── #1152 command-profile planted-defect controls (anti-vacuity): each CR rule must
+# ── be observed RED on a planted fence, and a clean fence must exit 0 with no output.
+# ── The controls inherit the implement tier's five denied shapes (a label-helper `for`
+# ── loop, a label-helper `while` loop, a label-helper capture, a leading `cd`, and a
+# ── `/tmp`-targeted redirect), one per rule id, following the $E363 fixture convention.
+printf '%s\n' '```bash' 'for L in a b; do .prflow/vendor/prflow/scripts/apply-labels.sh "$L" X; done' '```' > "$E363/cr1.md"
+printf '%s\n' '```bash' 'printf "a\nb\n" | while read -r L; do .prflow/vendor/prflow/scripts/apply-labels.sh "$L" X; done' '```' > "$E363/cr2.md"
+printf '%s\n' '```bash' 'OUT="$(.prflow/vendor/prflow/scripts/apply-labels.sh 9999 X)"' '```' > "$E363/cr3.md"
+printf '%s\n' '```bash' 'cd /tmp' '```' > "$E363/cr4.md"
+printf '%s\n' '```bash' 'echo hi > /tmp/cr5' '```' > "$E363/cr5.md"
+# The unexpanded anchor as a leading token is DELIBERATELY not a command-tier rule
+# (AC7, matching the implement table's #275 decision), so this fixture must be CLEAN.
+printf '%s\n' '```bash' '"${CLAUDE_SKILL_DIR:-x}"/../../scripts/config-get.sh .base_branch main' '```' > "$E363/cr-anchor-clean.md"
+printf '%s\n' '```bash' 'echo just a plainly granted command' '```' > "$E363/cr-clean.md"
+for _crn in CR1 CR2 CR3 CR4 CR5; do
+  # ${_crn,,} is a bash builtin lowercase — the fixture filename that SELECTS which
+  # planted fence to lint must not be derived through a non-preflight PATH tool like
+  # `tr` (guard-class 2), even in a test.
+  _crf="$E363/${_crn,,}.md"
+  assert_eq "#1152 command profile: a planted $_crn violation is observed RED" "yes" \
+    "$(python3 "$ECS" --profile command "$_crf" 2>/dev/null | grep -qF "  $_crn  " && echo yes || echo no)"
+done
+assert_eq "#1152 command profile: the unexpanded anchor as a leading token is NOT a rule (AC7)" "" \
+  "$(python3 "$ECS" --profile command "$E363/cr-anchor-clean.md" 2>&1)"
+assert_eq "#1152 command profile: a clean fence produces empty output" "" \
+  "$(python3 "$ECS" --profile command "$E363/cr-clean.md" 2>&1)"
+assert_eq "#1152 command profile: a clean fence exits 0 (negative control)" "0" \
+  "$(python3 "$ECS" --profile command "$E363/cr-clean.md" >/dev/null 2>&1; echo $?)"
 
 # #539 review (Important): the reference SET was only incidentally asserted — every #530 loop
 # enumerates references/*.md by GLOB, so deleting a whole reference file (e.g.
@@ -39083,33 +39112,49 @@ assert_eq "#438 describe-hook-probe: matcher-probe.yml routes the observation th
 # DERIVED on both sides (never a transcribed literal) so adding an 18th shape cannot rot it:
 # the count is read from the preamble and compared against the row-tuple count.
 _MP789_YML="$REPO_ROOT/.github/workflows/matcher-probe.yml"
-# Both derivations are scoped to the IMPLEMENT-probe job: the file carries a second,
-# independent review-tier probe with its own rows list and its own count phrasings, and an
-# unscoped read would compare one job's table against the other's prose.
-_MP789_ROWS="$(python3 - "$_MP789_YML" <<'PY789'
+# Both derivations are scoped to a SINGLE probe job: the file carries several
+# independent probe jobs, each with its own rows list and its own count phrasings, and
+# an unscoped read would compare one job's table against another's prose. The slice is
+# bounded to the job by cutting at the next top-level job key (2-space indent), so a
+# job that FOLLOWS the one under test (e.g. command-probe after implement-probe,
+# issue #1152) cannot bleed its own counts in. Checked for both the implement-probe and
+# command-probe jobs — each is a hand-maintained count↔rows coupled pair (#789/#1152).
+_mp789_check() {
+  local _job="$1"
+  local _out _rows _said
+  # One python pass computes the job slice once and prints `<rows>|<said>`: the
+  # row-tuple count and the set of count phrasings the prompt states. The shell splits
+  # the two fields with parameter expansion (bash builtins — no non-preflight PATH tool,
+  # guard-class 2).
+  _out="$(python3 - "$_MP789_YML" "$_job" <<'PY789'
 import re, sys
 text = open(sys.argv[1], encoding="utf-8").read()
-job = text[text.index("\n  implement-probe:"):]
+job = text[text.index("\n  " + sys.argv[2] + ":"):]
+# Bound to this job: cut at the next top-level job key (2-space indent, not this one).
+nxt = re.search(r"\n  [A-Za-z][\w-]*:\n", job[1:])
+if nxt:
+    job = job[: nxt.start() + 1]
 block = job[job.index("rows = ["):]
 block = block[: block.index("\n          ]")]
-print(len(re.findall(r"^\s*\(\s*\d+\s*,", block, re.M)))
-PY789
-)"
-_MP789_SAID="$(python3 - "$_MP789_YML" <<'PY789'
-import re, sys
-text = open(sys.argv[1], encoding="utf-8").read()
-job = text[text.index("\n  implement-probe:"):]
+rows = len(re.findall(r"^\s*\(\s*\d+\s*,", block, re.M))
 found = set(re.findall(r"the (\d+) numbered command shapes", job)) \
       | set(re.findall(r"1 through (\d+)\.", job)) \
       | set(re.findall(r"attempting all (\d+),", job))
-print(",".join(sorted(found)) if found else "UNRESOLVED")
+said = ",".join(sorted(found)) if found else "UNRESOLVED"
+print("%d|%s" % (rows, said))
 PY789
 )"
-# The implement-probe prompt is the only one carrying all three count phrasings, so the
-# resolved set must be a single value equal to the row count; anything else is drift.
-assert_eq "#789 matcher-probe: the prompt's attempt-count matches its row table (a listed-but-unattempted shape is silently unmeasured)" \
-  "$_MP789_ROWS" "$_MP789_SAID"
-unset _MP789_YML _MP789_ROWS _MP789_SAID
+  _rows="${_out%%|*}"
+  _said="${_out#*|}"
+  # The prompt carries all three count phrasings, so the resolved set must be a single
+  # value equal to the row count; anything else is drift.
+  assert_eq "#789 matcher-probe: the $_job prompt's attempt-count matches its row table (a listed-but-unattempted shape is silently unmeasured)" \
+    "$_rows" "$_said"
+}
+_mp789_check implement-probe
+_mp789_check command-probe
+unset _MP789_YML
+unset -f _mp789_check
 # #457: the docs AC6 record must state the observed FIRED result (with the run cited) and no
 # longer carry the stale 'unavailable (pending)' verdict.
 DHP_DOC="$REPO_ROOT/docs/execution-file-shape.md"
@@ -45026,7 +45071,7 @@ assert_eq "issue #767: create-issue context eval focused tests pass" "0" "$CICE_
 # this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/harness-python-guards.sh" \
-  "harness-python-guards" 44; then
+  "harness-python-guards" 45; then
   printf 'ERROR: harness-python-guards boundary could not record its result\n'
   exit 1
 fi

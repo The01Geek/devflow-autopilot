@@ -72,7 +72,7 @@ NON-GOALS (review profile, stated so a limit is never mistaken for coverage):
     question (matcher-probe.yml's review rows), not a static one this guard can answer.
 
 CLI:
-    extract-command-shapes.py [--profile review|implement] FILE...
+    extract-command-shapes.py [--profile review|implement|command] FILE...
         -> one `FILE:LINE  RULE  statement` per denied-shape hit, across every FILE
            (a reviewed surface is a BUNDLE — a skill root plus its phase references,
            issue #529 — and each hit stays attributed to the file it came from);
@@ -1146,7 +1146,71 @@ def find_implement_violations(text: str) -> list[tuple[int, str, str]]:
     return hits
 
 
-_USAGE = "usage: extract-command-shapes.py [--profile review|implement] FILE..."
+# ── Command-tier rules (issue #1152) ─────────────────────────────────────────
+# The `devflow.yml` `command` tier — the manual `/prflow:review-and-fix` /
+# `/prflow:pr-description` PR-comment path — is a THIRD cloud allowlist, distinct
+# from the read-only `review` profile and the read-write `implement` profile. Its
+# HEADS were already scanned (run.sh's whole-bundle head scan against devflow.yml's
+# TOOLS), but its SHAPES were not: run.sh linted the review-and-fix bundle under the
+# `implement` profile as the closest MEASURED proxy, an inference not a measurement
+# (its old `#530` comment said so). This issue converts that inference to a real
+# tier: a `--profile command` desk lint plus a `command-probe` matcher job
+# (matcher-probe.yml) that measures the tier that actually ships.
+#
+# INHERITANCE (AC2): the command tier's initial denied-shape content is inherited
+# VERBATIM from the read-write `implement` tier, on the recorded assumption that
+# `command`-tier denied shapes ⊆ `implement`-tier denied shapes (the same assumption
+# the old `#530` proxy comment already rested on). The `command-probe` job is what
+# converts that assumption from inference to measurement; a probe result that
+# disagrees is a follow-up issue TIGHTENING this rule set, never a silent regression.
+#
+# WHY A REMAP, NOT A THIRD COPY (AC2): rather than inline a third copy of the loop /
+# capture / redirect / leading-`cd` tests, `find_command_violations` DELEGATES to the
+# implement scan and remaps its `IR*` ids to `CR*`. This reuses the ENTIRE tested
+# implement scan — a fortiori the module-level shared predicates `_redirect_violation`
+# and `_leading_cd` the AC names — so the two tiers' notion of a denied redirect and of
+# a leading `cd` structurally CANNOT drift, and a future command-only tightening has a
+# single clean seam (this finder) to diverge at.
+#
+# THE ANCHOR IS DELIBERATELY NOT A RULE HERE (AC7), exactly as in the implement table
+# above: every legitimate helper call keeps the portable `${CLAUDE_SKILL_DIR:-…}`
+# anchor in source (issue #275) and resolves it to the vendored literal at runtime, so
+# a fence-static rule would flag every call site. This was RESOLVED in this issue's
+# favour when issue #1124 closed (PR #1272, 2026-08-04): its remedy is a *conditional
+# call form* plus the narrowly-scoped `lib/test/lint-anchor-fallback-arm.py` (enrolled
+# sites only), NOT a shape rule — and that lint owns enrolled-site call form while this
+# profile owns fence-static shape discipline, so the command rule set must NOT duplicate
+# what `lint-anchor-fallback-arm.py` already covers. The unexpanded anchor's argument-
+# position denial (run 30695072336) is measured by the `command-probe` job's
+# argument-position rows, not modelled as a static rule.
+_IR_TO_CR = {"IR1": "CR1", "IR2": "CR2", "IR3": "CR3", "IR4": "CR4", "IR5": "CR5"}
+
+# Exported beside REVIEW_RULES / IMPLEMENT_RULES so a consumer that must enumerate the
+# tables (cloud_writer_contract.py's AC4 shape-conformance guard and the `#678 AC8`
+# control loop in test_python_scripts.py) reads the command ids from here rather than a
+# second list that silently goes stale. Derived from `_IR_TO_CR`'s values so the set
+# cannot drift from what `find_command_violations` emits.
+COMMAND_RULES = frozenset(_IR_TO_CR.values())
+
+
+def find_command_violations(text: str) -> list[tuple[int, str, str]]:
+    """Every (approx line, rule, statement) command-tier denied-shape hit.
+
+    The command tier inherits the implement tier's denied shapes verbatim
+    (issue #1152), so this delegates to `find_implement_violations` and remaps its
+    `IR*` rule ids to the command tier's `CR*` ids — reusing the whole tested
+    implement scan (loop, capture, redirect, leading-`cd`) rather than inlining a
+    third copy, so the two tiers cannot drift. `_IR_TO_CR` is total over the ids
+    `find_implement_violations` can emit; a KeyError here would mean an implement rule
+    was added without a command mapping, which fails loud rather than silently
+    dropping a hit."""
+    return [
+        (lineno, _IR_TO_CR[rule], statement)
+        for lineno, rule, statement in find_implement_violations(text)
+    ]
+
+
+_USAGE = "usage: extract-command-shapes.py [--profile review|implement|command] FILE..."
 
 
 def main(argv: list[str]) -> int:
@@ -1158,13 +1222,18 @@ def main(argv: list[str]) -> int:
             return 2
         profile = args[1]
         args = args[2:]
-    if len(args) < 1 or profile not in ("review", "implement"):
+    if len(args) < 1 or profile not in ("review", "implement", "command"):
         print(_USAGE, file=sys.stderr)
         return 2
     # The reviewed surface is a bundle (a skill root plus its phase references),
     # so every source is scanned in one call and each hit stays attributed to the
     # file it came from — a moved fence must not escape the scan (issue #529).
-    finder = find_implement_violations if profile == "implement" else find_violations
+    _FINDERS = {
+        "review": find_violations,
+        "implement": find_implement_violations,
+        "command": find_command_violations,
+    }
+    finder = _FINDERS[profile]
     hits: list[tuple[str, int, str, str]] = []
     for path in args:
         with open(path, encoding="utf-8") as handle:
