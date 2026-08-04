@@ -1,0 +1,122 @@
+{
+  "iter": 1,
+  "loop_role": "fix",
+  "current_step": "3",
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:pr-test-analyzer",
+    "prflow:comment-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Important",
+      "description": "judgment-row crash (exit 1, no infra-marker) classified DRIFT → coordinator blocks the suite, violating AC5 fail-open-on-crash; capability-profile-literals and coverage-map-ratchet omit the traceback marker",
+      "defect_signature": {
+        "file": "lib/test/regenerate-artifacts.py",
+        "line_range": [
+          787,
+          799
+        ],
+        "kind": "fail_closed_too_aggressive"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "run_preflight lacked a per-row guard; a late-row exception after a detected drift would propagate to the top-level net (exit 2, no summary) and the coordinator would fail open, losing the drift",
+      "defect_signature": {
+        "file": "lib/test/regenerate-artifacts.py",
+        "line_range": [
+          818,
+          841
+        ],
+        "kind": "fail_open_on_exception"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "run_preflight exit-2 path, drift-over-uncheckable precedence, and the judgment-row UNCHECKABLE/crash arms were untested by the real Python (only coordinator stubs)",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.sh",
+        "line_range": [
+          900,
+          976
+        ],
+        "kind": "test_coverage_gap"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "run_preflight_row classifies preflight_argv exit codes against the row's argv-declared exits/clean sets; correct today because cloud-writer verify and generate share the (0,1)/(0,) contract",
+      "defect_signature": {
+        "file": "lib/test/regenerate-artifacts.py",
+        "line_range": [
+          745,
+          760
+        ],
+        "kind": "future_coupling"
+      },
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "target-absent error string names the helper script rather than the output artifact; cosmetic, on the already-uncheckable path",
+      "defect_signature": {
+        "file": "lib/test/regenerate-artifacts.py",
+        "line_range": [
+          748,
+          748
+        ],
+        "kind": "cosmetic"
+      },
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "evidence": "universal traceback→UNCHECKABLE guard in run_preflight_row (preflight-only, run_row unchanged); coordinator comment corrected; AP6 test drives it"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "evidence": "per-row try/except in run_preflight loop preserves already-detected drift"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "evidence": "added AP4 (exit-2 uncheckable), AP5 (drift-over-uncheckable precedence), AP6 (crash→uncheckable) real-Python arms"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "advisory",
+      "evidence": "only cloud-writer diverges and shares the exit contract; per-row preflight_exits is YAGNI"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "advisory",
+      "evidence": "cosmetic error string on an already-uncheckable path"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "new_corroborated_critical_count": 0
+  },
+  "telemetry": "unavailable"
+}
