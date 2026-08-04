@@ -24251,6 +24251,224 @@ assert_raises("#1229 CLI encode rejects an unclassifiable surface entry", System
 assert_eq("#1229 CLI encode's unclassifiable-entry rejection carries a message",
           True, isinstance(_fs_cli_exit_code(["encode"], _cli_bad_entry), str))
 
+# ─────────────────────────────────────────────────────────────────────────────
+# focused_selection's READ-path shape check (issue #1229 review finding 1). The
+# producer is strict — `build_record` forces `surfaces` to a list, classifies every
+# entry, and always emits both top-level keys — so a reader that validated only
+# object-ness was fail-OPEN against it: a payload decoding to `{}`, to
+# `{"surfaces": "not-a-list"}`, or to an object with no `surfaces` key was surfaced
+# as a "record", and a downstream `rec["surfaces"]` would KeyError while
+# `rec.get("single_flight_consulted")` conflated "producer recorded null" with "not a
+# real record". `record_shape_error` validates WITHOUT normalizing (routing a decoded
+# object through `build_record` would rewrite it, making the read path lossy), and
+# `decode_marker_outcomes` keeps a rejected marker distinguishable from an absent one.
+# ─────────────────────────────────────────────────────────────────────────────
+def _fs_marker(payload_obj):
+    """The marker literal carrying `payload_obj` as its base64 JSON payload — the
+    encoder's own wire format, reached without going through `build_record`, so a
+    wrong-shape payload can be planted exactly as a corrupted/foreign marker would
+    arrive in a workpad."""
+    return "<!-- prflow:focused-selection " + _b641229.b64encode(
+        _json1229.dumps(payload_obj).encode("utf-8")).decode("ascii") + " -->"
+
+
+# A reader must REJECT a wrong-shape payload, never raise out of it: a `surfaces`
+# that is a number is not iterable, so a checker that dropped the list-ness test would
+# crash its caller rather than reject the record. These wrappers turn such an escape
+# into a reportable FAIL instead of aborting this file mid-run.
+_FS_RAISED = "<<raised>>"
+
+
+def _fs_guard(fn, *a):
+    try:
+        return fn(*a)
+    except Exception as e:  # noqa: BLE001 - an escape IS the failure being asserted
+        return f"{_FS_RAISED} {type(e).__name__}: {e}"
+
+
+def _fs_rejected(obj):
+    """True when `record_shape_error` rejected `obj` by RETURNING a reason (an
+    exception that escaped is not a rejection — it is the crash a rejection prevents)."""
+    r = _fs_guard(focused_selection.record_shape_error, obj)
+    return isinstance(r, str) and not r.startswith(_FS_RAISED)
+
+
+# A well-shaped record passes the check, and passes it unchanged: validation must not
+# normalize (a returned record is the producer's bytes, not a rebuild of them).
+assert_eq("#1229 record_shape_error accepts a record the producer built",
+          None, focused_selection.record_shape_error(_rec_surfaces))
+assert_eq("#1229 decode returns the producer's record byte-for-byte (no normalizing)",
+          _rec_surfaces,
+          focused_selection.decode_markers(_fs_marker(_rec_surfaces))[0])
+
+# The wrong shapes named in the finding, each rejected rather than surfaced. The
+# `surfaces` rows span both iterable and non-iterable wrong types on purpose: a string
+# would be walked entry-by-entry and rejected incidentally, a number cannot be walked
+# at all, so only the second discriminates the list-ness check from its absence.
+_fs_wrong_shapes = [
+    ("empty object", {}),
+    ("surfaces is a string, not a list", {"surfaces": "not-a-list",
+                                          "single_flight_consulted": None}),
+    ("surfaces is a number, not a list", {"surfaces": 5,
+                                          "single_flight_consulted": None}),
+    ("surfaces is null, not a list", {"surfaces": None,
+                                      "single_flight_consulted": None}),
+    ("surfaces is an object, not a list", {"surfaces": {"scripts/x.py": "t"},
+                                           "single_flight_consulted": None}),
+    ("no surfaces key", {"single_flight_consulted": None}),
+    ("no single_flight_consulted key", {"surfaces": []}),
+    ("an unclassifiable surfaces entry",
+     {"surfaces": [{"surface": "scripts/x.py"}], "single_flight_consulted": None}),
+    ("a non-dict surfaces entry", {"surfaces": ["just a string"],
+                                   "single_flight_consulted": None}),
+]
+for _label, _shape in _fs_wrong_shapes:
+    assert_eq(f"#1229 record_shape_error rejects {_label} (returns a reason)",
+              True, _fs_rejected(_shape))
+    assert_eq(f"#1229 decode_markers surfaces no record for {_label}",
+              [], _fs_guard(focused_selection.decode_markers, _fs_marker(_shape)))
+    _fs_out = _fs_guard(focused_selection.decode_marker_outcomes, _fs_marker(_shape))
+    assert_eq(f"#1229 {_label}: reported as exactly one malformed outcome",
+              ["malformed"],
+              [o["status"] for o in _fs_out] if isinstance(_fs_out, list) else _fs_out)
+    assert_eq(f"#1229 {_label}: the malformed outcome names a reason", True,
+              isinstance(_fs_out, list) and len(_fs_out) == 1
+              and isinstance(_fs_out[0]["reason"], str) and bool(_fs_out[0]["reason"]))
+
+# The reason is the operator-facing half of the outcome (the CLI breadcrumbs it), so a
+# wrong-typed `surfaces` is diagnosed as such rather than as an entry-level defect.
+assert_eq("#1229 a wrong-typed `surfaces` is diagnosed as not being a list", True,
+          "not a list" in (focused_selection.record_shape_error(
+              {"surfaces": "not-a-list", "single_flight_consulted": None}) or ""))
+
+# Unknown is not zero: a marker that was PRESENT but rejected is distinguishable from
+# text that carried no marker at all, and both from a record whose producer recorded a
+# null `single_flight_consulted`. Collapsing any pair of these is the fail-open bug.
+assert_eq("#1229 no marker at all yields no outcome (distinct from a rejected marker)",
+          [], focused_selection.decode_marker_outcomes("a plain note, no marker\n"))
+assert_eq("#1229 a rejected marker is an outcome; an absent one is not",
+          True,
+          len(focused_selection.decode_marker_outcomes(_fs_marker({}))) == 1
+          and len(focused_selection.decode_marker_outcomes("")) == 0)
+_fs_null_flight = focused_selection.decode_marker_outcomes(
+    focused_selection.encode_marker(_rec_none))
+assert_eq("#1229 producer-recorded null is a record outcome, not a malformed one",
+          ["record"], [o["status"] for o in _fs_null_flight])
+assert_eq("#1229 producer-recorded null is readable as null, not as an absent key",
+          True,
+          "single_flight_consulted" in _fs_null_flight[0]["record"]
+          and _fs_null_flight[0]["record"]["single_flight_consulted"] is None)
+
+# Every record `decode_markers` returns is indexable — the guarantee the finding
+# asked for, asserted against a body mixing a good marker with a wrong-shape one.
+_fs_mixed = ("head " + focused_selection.encode_marker(_rec_surfaces)
+             + "\nmiddle " + _fs_marker({"surfaces": "not-a-list"})
+             + "\ntail " + focused_selection.encode_marker(_rec_none) + "\n")
+assert_eq("#1229 mixed body: only the well-shaped records are returned", 2,
+          len(focused_selection.decode_markers(_fs_mixed)))
+assert_eq("#1229 mixed body: every returned record is safely indexable", True,
+          all(isinstance(r["surfaces"], list) and "single_flight_consulted" in r
+              for r in focused_selection.decode_markers(_fs_mixed)))
+assert_eq("#1229 mixed body: outcomes keep all three markers in document order",
+          ["record", "malformed", "record"],
+          [o["status"] for o in focused_selection.decode_marker_outcomes(_fs_mixed)])
+
+# Forward compatibility, deliberately asymmetric with the strict producer path below:
+# a record written by a LATER producer that records an extra field still reads back
+# (rejecting it would lose an otherwise entirely valid record already in a consumer's
+# workpad), while `encode` rejects the same unknown key at composition time.
+_fs_future = dict(_rec_surfaces, some_later_field="written by a newer producer")
+assert_eq("#1229 read path tolerates an unknown top-level key (forward compatible)",
+          None, focused_selection.record_shape_error(_fs_future))
+assert_eq("#1229 read path returns such a record intact",
+          [_fs_future], focused_selection.decode_markers(_fs_marker(_fs_future)))
+
+# The CLI's decode surface: stdout stays the records array, and a rejected marker is
+# breadcrumbed to stderr rather than vanishing (on stdout alone it would be
+# indistinguishable from no marker at all). Reading stays exit 0.
+def _fs_cli_streams(argv, stdin_text=""):
+    """`(rc, stdout, stderr)` for a CLI invocation — the stderr capture `_fs_cli`
+    discards, needed to assert the malformed-marker breadcrumb."""
+    _saved_stdin = sys.stdin
+    sys.stdin = io.StringIO(stdin_text)
+    _o, _e = io.StringIO(), io.StringIO()
+    try:
+        with contextlib.redirect_stdout(_o), contextlib.redirect_stderr(_e):
+            _rc = focused_selection.main(argv)
+    except SystemExit as exc:
+        return (f"unexpected SystemExit: {exc.code}", _o.getvalue(), _e.getvalue())
+    finally:
+        sys.stdin = _saved_stdin
+    return _rc, _o.getvalue(), _e.getvalue()
+
+
+_rc_bad, _out_bad, _err_bad = _fs_cli_streams(["decode"], _fs_marker({}) + "\n")
+assert_eq("#1229 CLI decode returns 0 on a wrong-shape marker", 0, _rc_bad)
+assert_eq("#1229 CLI decode prints no record for a wrong-shape marker",
+          [], _fs_cli_json(_out_bad))
+assert_eq("#1229 CLI decode breadcrumbs the rejected marker to stderr",
+          True, "malformed marker" in _err_bad)
+_rc_ok2, _out_ok2, _err_ok2 = _fs_cli_streams(
+    ["decode"], focused_selection.encode_marker(_rec_surfaces) + "\n")
+assert_eq("#1229 CLI decode emits no breadcrumb for a well-shaped marker",
+          "", _err_ok2)
+assert_eq("#1229 CLI decode still prints the record for a well-shaped marker",
+          [_rec_surfaces], _fs_cli_json(_out_ok2))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# focused_selection's WRITE-path strictness (issue #1229 review finding 2). `encode`
+# pulled `surfaces` and `single_flight_consulted` by name and ignored every other
+# top-level key, so `{}` and a typo'd key both exited 0 with a valid-looking marker
+# for an empty/unconsulted record — making a followed rule and an ignored one
+# indistinguishable on exactly the producer path whose purpose is distinguishable
+# traces. Unknown keys and a MISSING `surfaces` are now loud rejections;
+# `single_flight_consulted` stays optional (its absence and an explicit null mean the
+# same recorded thing, and `build_record` emits the key either way).
+# ─────────────────────────────────────────────────────────────────────────────
+_fs_encode_rejects = [
+    ("an empty object", {}),
+    ("a typo'd `surfaces` key", {"surfacs": [], "single_flight_consulted": None}),
+    ("a typo'd `single_flight_consulted` key",
+     {"surfaces": [], "single_flight_consulted_": {"flight_key": "x"}}),
+    ("an unrecognized extra key alongside valid ones",
+     {"surfaces": [], "single_flight_consulted": None, "launch_count": 3}),
+]
+for _label, _payload in _fs_encode_rejects:
+    _text = _json1229.dumps(_payload)
+    assert_raises(f"#1229 CLI encode rejects {_label}", SystemExit,
+                  lambda t=_text: _fs_cli(["encode"], t))
+    assert_eq(f"#1229 CLI encode's rejection of {_label} carries a one-line message",
+              True, isinstance(_fs_cli_exit_code(["encode"], _text), str))
+
+# The rejection is loud, never a marker: nothing is printed on the refused paths.
+assert_eq("#1229 CLI encode prints no marker when it rejects an empty object",
+          "", _fs_cli_streams(["encode"], "{}")[1])
+
+# An empty record must SAY so — `{"surfaces": []}` is accepted and is the only way to
+# produce one, so "nothing was selected" and "the producer was called wrong" are not
+# the same bytes.
+_rc_empty, _out_empty = _fs_cli_ok(["encode"], _json1229.dumps({"surfaces": []}))
+assert_eq("#1229 CLI encode accepts an explicit empty `surfaces` list", 0, _rc_empty)
+assert_eq("#1229 CLI encode's explicit-empty record is the producer's own record",
+          focused_selection.encode_marker(
+              focused_selection.build_record([], None)) + "\n",
+          _out_empty)
+assert_eq("#1229 an explicitly-empty record and a refused `{}` are not the same bytes",
+          True, _out_empty.strip() != "" and isinstance(
+              _fs_cli_exit_code(["encode"], "{}"), str))
+
+# `single_flight_consulted` stays optional: omitting it still encodes, and the key is
+# present-and-null in the result (so a reader tests its value, never its presence).
+_rc_opt, _out_opt = _fs_cli_ok(
+    ["encode"], _json1229.dumps({"surfaces": [{"surface": "a",
+                                               "exemption_ground": "g"}]}))
+assert_eq("#1229 CLI encode still accepts an omitted `single_flight_consulted`",
+          0, _rc_opt)
+assert_eq("#1229 an omitted `single_flight_consulted` encodes as a present null", True,
+          "single_flight_consulted" in focused_selection.decode_markers(_out_opt)[0]
+          and focused_selection.decode_markers(_out_opt)[0][
+              "single_flight_consulted"] is None)
+
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

@@ -50,6 +50,23 @@ _MARKER_RE = re.compile(
 ENTRY_FOCUSED_RESULT = "focused-result"
 ENTRY_EXEMPTION = "exemption"
 
+# The record's top-level keys. `build_record` emits BOTH of them on every path (see
+# its docstring: `single_flight_consulted` is always present, defaulting to null), so
+# a reader may require both — that is the point of requiring them, since a record
+# missing one did not come from this producer. On the *stdin* side of `encode` only
+# `surfaces` is required; `single_flight_consulted` may be omitted and defaults to
+# null, which is the recorded value meaning "no relaunch consultation to record".
+RECORD_REQUIRED_KEYS = ("surfaces",)
+RECORD_OPTIONAL_KEYS = ("single_flight_consulted",)
+RECORD_KEYS = RECORD_REQUIRED_KEYS + RECORD_OPTIONAL_KEYS
+
+# The two `decode_marker_outcomes` statuses. A malformed marker is *reported*, never
+# silently indistinguishable from text that carried no marker at all (unknown is not
+# zero): "no marker occurrence" is the empty outcome list, "a marker that is not a
+# record" is a `malformed` outcome carrying its reason.
+MARKER_STATUS_RECORD = "record"
+MARKER_STATUS_MALFORMED = "malformed"
+
 
 def classify_entry(entry: dict) -> str:
     """Classify one per-surface entry as a discharging focused result or an
@@ -118,23 +135,87 @@ def encode_marker(record: dict) -> str:
     return f"<!-- {MARKER_PREFIX} {payload} -->"
 
 
-def decode_markers(text: str) -> list:
-    """Read every focused-selection record carried by `text` (a workpad body, a note,
-    or any string). Returns the list of decoded record dicts in document order — the
-    empty list when no marker is present (the "no record at all" case, distinct from
-    a real record whose `surfaces` list is empty). A malformed payload (bad base64,
-    non-JSON, or a non-object) is skipped, never surfaced as a spurious record —
-    fail closed toward "no record" rather than inventing one."""
+def record_shape_error(obj) -> str | None:
+    """Validate a decoded payload against the record shape and return `None` when it
+    is a well-shaped record, else a one-line reason it is not.
+
+    This *validates without normalizing*: it never rebuilds, reorders, or drops a
+    field, so a record that passes is returned to the caller byte-for-byte as the
+    producer wrote it. (Routing a decoded object through `build_record` would instead
+    rewrite it — that function normalizes each entry to only the fields its shape
+    carries — which would make this read path lossy rather than checked.)
+
+    What is required is exactly what `build_record` guarantees: both top-level keys
+    present, `surfaces` a list, and every entry classifiable by `classify_entry` as
+    one shape or the other. Unrecognized keys — top-level or per-entry — are
+    deliberately *tolerated here*, on the read path only: a marker already sitting in
+    a consumer's workpad may have been written by a later producer that records an
+    additional field, and rejecting it would lose a record that is otherwise entirely
+    valid. The `encode` producer path is strict about unknown keys instead, where an
+    unrecognized key means this run composed the record wrongly and nothing has been
+    persisted yet."""
+    if not isinstance(obj, dict):
+        return f"payload is a JSON {type(obj).__name__}, not an object"
+    missing = [k for k in RECORD_KEYS if k not in obj]
+    if missing:
+        return ("object is missing the record key(s) "
+                + ", ".join(repr(k) for k in missing))
+    if not isinstance(obj["surfaces"], list):
+        return (f"record's `surfaces` is a {type(obj['surfaces']).__name__}, "
+                f"not a list")
+    for i, entry in enumerate(obj["surfaces"]):
+        try:
+            classify_entry(entry)
+        except ValueError as e:
+            return f"record's surfaces[{i}] is not a valid entry: {e}"
+    return None
+
+
+def decode_marker_outcomes(text: str) -> list:
+    """Read `text` (a workpad body, a note, or any string) and report ONE outcome per
+    focused-selection marker occurrence, in document order. Each outcome is a dict:
+
+      * `{"status": "record", "record": <the decoded record>, "reason": None}`
+      * `{"status": "malformed", "record": None, "reason": "<why>"}`
+
+    The empty list means the text carried **no marker occurrence at all**. That is a
+    different fact from "a marker was present but was not a record", which is a
+    `malformed` outcome carrying its reason, and different again from a real record
+    whose `single_flight_consulted` the producer recorded as null — an unestablished
+    shape is never collapsed onto a valid empty one."""
     out = []
     for m in _MARKER_RE.finditer(text or ""):
         try:
             raw = base64.b64decode(m.group(1), validate=True)
             obj = json.loads(raw.decode("utf-8"))
-        except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+        except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as e:
+            out.append({"status": MARKER_STATUS_MALFORMED, "record": None,
+                        "reason": f"payload did not decode: {e}"})
             continue
-        if isinstance(obj, dict):
-            out.append(obj)
+        err = record_shape_error(obj)
+        if err is None:
+            out.append({"status": MARKER_STATUS_RECORD, "record": obj,
+                        "reason": None})
+        else:
+            out.append({"status": MARKER_STATUS_MALFORMED, "record": None,
+                        "reason": err})
     return out
+
+
+def decode_markers(text: str) -> list:
+    """Read every focused-selection record carried by `text`. Returns the list of
+    decoded record dicts in document order — and **only well-shaped records**, so a
+    caller may index `rec["surfaces"]` and test `rec["single_flight_consulted"]`
+    without a `KeyError` and without mistaking an absent key for a recorded null.
+
+    A marker whose payload does not decode (bad base64, non-JSON, non-object) *or*
+    decodes to an object that is not a record is excluded here — fail closed toward
+    "no record" rather than surfacing a spurious one. Because it is excluded, the
+    empty list here means "no well-shaped record", which is NOT the same fact as "no
+    marker was present": `decode_marker_outcomes` is the reader that tells those two
+    apart and names why a marker was rejected."""
+    return [o["record"] for o in decode_marker_outcomes(text)
+            if o["status"] == MARKER_STATUS_RECORD]
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -163,8 +244,31 @@ def _cmd_encode(_args) -> int:
     if not isinstance(obj, dict):
         raise SystemExit("encode expects a JSON object on stdin (with a `surfaces` "
                          "list and an optional `single_flight_consulted`)")
+    # An unrecognized top-level key is a caller error, not a field to ignore: a
+    # misspelled `surfaces` would otherwise default to `[]` and a misspelled
+    # `single_flight_consulted` to null, so a run that followed the rule and a run
+    # that ignored it would emit the same valid-looking marker — the exact collapse
+    # this record exists to prevent. Reject loudly instead.
+    unknown = sorted(k for k in obj if k not in RECORD_KEYS)
+    if unknown:
+        raise SystemExit(
+            "encode rejected the record: unrecognized top-level key(s) "
+            + ", ".join(repr(k) for k in unknown)
+            + "; accepted keys are "
+            + ", ".join(repr(k) for k in RECORD_KEYS))
+    # A MISSING `surfaces` is rejected for the same reason, so an empty record must
+    # say so explicitly (`{"surfaces": []}` — "nothing was selected") and cannot be
+    # produced by a caller that simply supplied nothing. `single_flight_consulted`
+    # stays OPTIONAL and defaults to null, which is its recorded value meaning "no
+    # relaunch consultation to record"; `build_record` always emits the key.
+    missing = [k for k in RECORD_REQUIRED_KEYS if k not in obj]
+    if missing:
+        raise SystemExit(
+            "encode rejected the record: stdin object is missing the required key(s) "
+            + ", ".join(repr(k) for k in missing)
+            + "; an empty record states it explicitly as {\"surfaces\": []}")
     try:
-        rec = build_record(obj.get("surfaces", []), obj.get("single_flight_consulted"))
+        rec = build_record(obj["surfaces"], obj.get("single_flight_consulted"))
     except ValueError as e:
         raise SystemExit(f"encode rejected the record: {e}") from e
     sys.stdout.write(encode_marker(rec) + "\n")
@@ -172,7 +276,18 @@ def _cmd_encode(_args) -> int:
 
 
 def _cmd_decode(_args) -> int:
-    sys.stdout.write(json.dumps(decode_markers(sys.stdin.read())) + "\n")
+    # stdout stays the JSON array of well-shaped records — the contract a caller
+    # parses. A marker that was present but is not a record is excluded from that
+    # array, so it is breadcrumbed to stderr rather than vanishing: on stdout alone a
+    # rejected marker and an absent one would look identical. Reading is best-effort,
+    # so this stays exit 0.
+    outcomes = decode_marker_outcomes(sys.stdin.read())
+    for o in outcomes:
+        if o["status"] == MARKER_STATUS_MALFORMED:
+            sys.stderr.write(
+                f"focused-selection: skipped a malformed marker ({o['reason']})\n")
+    sys.stdout.write(json.dumps([o["record"] for o in outcomes
+                                 if o["status"] == MARKER_STATUS_RECORD]) + "\n")
     return 0
 
 

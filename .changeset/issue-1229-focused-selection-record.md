@@ -15,6 +15,14 @@ type: Added
   is consulted before a relaunch. `skills/implement/phases/phase-3-review.md` §3.2 now states that
   no verification round is owed between the `/simplify` commit and §3.3 — the `/simplify` edits
   ride into §3.3's first verification. No launch counter, launch ordinal, or mechanical
-  changed-file-to-module routing is introduced. Its `encode` command rejects unparseable stdin
-  and an unclassifiable surface entry with the same one-line message its non-object guard already
-  emitted, rather than an unhandled traceback. (#1229)
+  changed-file-to-module routing is introduced. Its `encode` command rejects unparseable stdin,
+  an unclassifiable surface entry, an unrecognized top-level key, and a missing `surfaces` with a
+  one-line message rather than an unhandled traceback or a valid-looking marker for an empty
+  record — so a run that followed the rule and one that was called wrongly cannot emit the same
+  bytes (an empty record states itself as `{"surfaces": []}`; `single_flight_consulted` stays
+  optional). Its read path validates the record shape without normalizing it: `decode_markers`
+  now returns only well-shaped records, so a caller can index one safely, and the new
+  `decode_marker_outcomes` keeps a marker that was present but rejected distinguishable from no
+  marker at all and from a producer-recorded null, naming why it was rejected (the `decode`
+  command breadcrumbs that to stderr). Unknown keys are tolerated on the read path so a record
+  written by a later producer still reads back. (#1229)
