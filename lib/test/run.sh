@@ -46939,6 +46939,14 @@ assert_eq "#1248 lint: an enumeration selecting no skills/agents path refuses (e
 assert_eq "#1248 lint: the same list plus one audited path audits 1 of 1 (floor control + is_audited negative)" \
   "$UH_CLEAN1" \
   "$(uh_run manifests/vendored-only.json skills/clean.md)"
+# The read-failure/skip fail-closed arm (issue #1248 review): an audited-prefix path that
+# read_source cannot open is a SKIPPED refuse-to-report-clean (rc=1), never a silent
+# exclusion — the lint's core fail-closed guarantee. Without this, a regression converting
+# the terminal `if skipped: return 1` into a silent `continue` would leave every
+# readable-fixture assertion green while the refuse-on-unreadable guard was gone. The
+# clean.md alongside it proves the run still scanned the readable member (audited 1 of 2).
+assert_eq "#1248 lint: an unreadable/absent audited path is a fail-closed skip, not a silent exclusion" "yes" \
+  "$(case "$(uh_run skills/does-not-exist.md skills/clean.md)" in "rc=1|"*"SKIPPED skills/does-not-exist.md"*"refusing to report clean"*) echo yes ;; *) echo no ;; esac)"
 
 # AC5: this repository's own local tier resolves the repo-root form (the vendored tree is
 # materialized only at runtime and is absent from the working tree), so the repo-root
