@@ -148,6 +148,46 @@ atomic; and when a dependency (`test` or `lint`) concludes anything other than
 withheld the request — `lint` is **not** a required status check, so such a pull
 request is mergeable, and without the announcement its missing review would be silent.
 
+**It never posts to a dead target.** Because the trigger fires unconditionally once
+CI is green, a pull request that was merged or closed while CI was still running would
+otherwise receive an automatic review request whose run lands on a target nobody can
+act on — a full cloud agent run and its model tokens spent on output no one reads. So
+`scripts/post-ci-review-trigger.sh` (`MODE=post`) reads the pull request's state
+read-only and posts **only while it is still open**: a merged or closed target, or a
+state it cannot establish, each declines to post and emits its own distinct
+`::warning::` naming the condition. That decision is **fail-closed** — the same
+asymmetry as the helper's idempotency read (a missed notification is recoverable by
+hand; review spend on an already-merged target is not). The guard lives inside the
+helper, not in the job's `if:`, so the consumer snippet below is unchanged and a
+consumer inherits the behavior at its next vendor bump.
+
+### Superseding stale CI runs (`ci.yml`'s workflow-level `concurrency`)
+
+`ci.yml` also carries a **workflow-level** `concurrency:` key — distinct from the
+job-scoped one on `auto_review_trigger` above. It cancels a superseded pull-request CI
+run: when a new commit is pushed to a PR branch, the run for the commit it replaced is
+still executing a full suite for a commit nobody will merge, on runners the new commit
+is waiting for. The group is keyed on the pull request, so two pushes to one PR branch
+share it and two different pull requests never do; on a `main` push the pull-request
+number is empty, so `github.run_id` gives each main run its own group — main runs are
+neither cancelled (each merged commit is a distinct artifact, not a superseded draft)
+nor serialized behind one another — and `cancel-in-progress` resolves `true` only for
+`pull_request` events.
+
+This is **not** the duplicate-command case the repository's standing doctrine rules
+GitHub-native `concurrency` out of. That doctrine (see the duplicate-command sections
+above, and `scripts/dedupe-review-command.sh` / `scripts/dedupe-implement-run.sh`)
+governs two requests for the *same* work, where the wanted behavior is "ignore the
+second, leave the first untouched" — which neither `concurrency` mode expresses.
+Supersession is the opposite shape: two CI runs for two *different* commits are not
+duplicates, the first has been made obsolete by the second, and the wanted behavior
+**is** "cancel the in-flight one" — the one thing `cancel-in-progress: true` does
+natively well. The block stays on `ci.yml` only: a `concurrency` cancel on
+`devflow.yml` or `devflow-implement.yml` would feed a deliberate cancel into the
+run-identity machinery those workflows depend on. Like the job-scoped serialization
+above, the consumer snippet below omits this refinement — a consumer that wants it adds
+the workflow-level `concurrency:` key to their own CI.
+
 ### Consumer snippet
 
 Add this as a new workflow file (e.g. `.github/workflows/prflow-auto-review.yml`) in
