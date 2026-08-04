@@ -148,6 +148,19 @@ atomic; and when a dependency (`test` or `lint`) concludes anything other than
 withheld the request — `lint` is **not** a required status check, so such a pull
 request is mergeable, and without the announcement its missing review would be silent.
 
+**It never posts to a dead target.** Because the trigger fires unconditionally once
+CI is green, a pull request that was merged or closed while CI was still running would
+otherwise receive an automatic review request whose run lands on a target nobody can
+act on — a full cloud agent run and its model tokens spent on output no one reads. So
+`scripts/post-ci-review-trigger.sh` (`MODE=post`) reads the pull request's state
+read-only and posts **only while it is still open**: a merged or closed target, or a
+state it cannot establish, each declines to post and emits its own distinct
+`::warning::` naming the condition. That decision is **fail-closed** — the same
+asymmetry as the helper's idempotency read (a missed notification is recoverable by
+hand; review spend on an already-merged target is not). The guard lives inside the
+helper, not in the job's `if:`, so the consumer snippet below is unchanged and a
+consumer inherits the behavior at its next vendor bump.
+
 ### Superseding stale CI runs (`ci.yml`'s workflow-level `concurrency`)
 
 `ci.yml` also carries a **workflow-level** `concurrency:` key — distinct from the
