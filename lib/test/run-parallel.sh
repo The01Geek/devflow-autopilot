@@ -129,7 +129,7 @@ die() { # message
   exit 2
 }
 
-# ── Generated-artifact preflight (read-only; issue #1244) ────────────────────
+# ── Generated-artifact preflight — definition (read-only; issue #1244) ───────
 # The read-only, sub-second drift check the coordinator runs before launching any
 # shard. Factored into a function (issue #1288) so the SAME verdict interpretation
 # serves both the coordinator's main flow below AND the standalone `--preflight`
@@ -271,7 +271,7 @@ done
 [ "$SHARD_COUNT" -gt 0 ] || \
   die "the shard dispatcher returned an empty population; refusing to report a clean suite over zero shards"
 
-# ── Generated-artifact preflight (read-only; issue #1244) ────────────────────
+# ── Generated-artifact preflight — invocation (read-only; issue #1244) ───────
 # The shared `_artifact_preflight` function (defined above, near `die`, so the same
 # verdict interpretation also backs the `--preflight` mode the #1132 decomposition route
 # names) runs the sub-second read-only drift check before a single shard launches, and

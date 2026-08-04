@@ -1000,13 +1000,26 @@ assert_eq "#1288 --preflight: detected drift refuses by name" "yes" \
 assert_eq "#1288 --preflight: detected drift echoes the failing row's report" "yes" \
   "$(case "$PSR_PFO_OUT" in *"[cloud-writer-manifest] DRIFT"*) echo yes ;; *) echo no ;; esac)"
 
+# The refusal is keyed on the machine verdict LINE, never the human remedy prose beside it:
+# a preflight that prints ONLY that prose (the historical fail-open regression the line-exact
+# match was introduced to prevent) must proceed, not refuse. Ported to the standalone route
+# too so a --preflight-only regression re-introducing substring matching is pinned here.
+PSR_PFO_OUT="$(cd "$PSR_PT" && DEVFLOW_ARTIFACT_PREFLIGHT="$PSR_PF_PROSE_ONLY" \
+  bash lib/test/run-parallel.sh --preflight 2>&1)"; PSR_PFO_RC=$?
+assert_eq "#1288 --preflight: the human remedy prose alone does NOT refuse (exit 0)" "0" "$PSR_PFO_RC"
+assert_eq "#1288 --preflight: the human remedy prose alone is reported inconclusive, never a refusal" "yes" \
+  "$(case "$PSR_PFO_OUT" in *"launching no shard"*) echo no ;; *"preflight was inconclusive (exit 1"*) echo yes ;; *) echo no ;; esac)"
+
 # The verdict is matched LINE-EXACTLY here too: the same text quoted inside an indented row
-# diagnostic is data, not the verdict, so it must NOT refuse (fail-open, exit 0).
+# diagnostic is data, not the verdict, so it must NOT refuse (fail-open, exit 0). The stub
+# exits 1 with an `uncheckable` verdict, so it also takes the warn-and-proceed arm.
 PSR_PFO_OUT="$(cd "$PSR_PT" && DEVFLOW_ARTIFACT_PREFLIGHT="$PSR_PF_QUOTED" \
   bash lib/test/run-parallel.sh --preflight 2>&1)"; PSR_PFO_RC=$?
 assert_eq "#1288 --preflight: a verdict quoted inside a row diagnostic does NOT refuse (exit 0)" "0" "$PSR_PFO_RC"
 assert_eq "#1288 --preflight: a verdict quoted inside a row diagnostic refuses nothing by name" "yes" \
   "$(case "$PSR_PFO_OUT" in *"launching no shard"*) echo no ;; *) echo yes ;; esac)"
+assert_eq "#1288 --preflight: a verdict quoted inside a row diagnostic warns inconclusive" "yes" \
+  "$(case "$PSR_PFO_OUT" in *"preflight was inconclusive (exit 1"*) echo yes ;; *) echo no ;; esac)"
 
 # An exit-2 (uncheckable) preflight warns and proceeds (exit 0) — fail-open, same as the
 # coordinator.
