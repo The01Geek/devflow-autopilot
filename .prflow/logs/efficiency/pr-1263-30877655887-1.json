@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1263",
+  "generated_at": "2026-08-04T05:41:49Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.82",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 43.982858999999976,
+    "tokens": {
+      "input_tokens": 7308,
+      "output_tokens": 114996,
+      "cache_read_input_tokens": 60871666,
+      "cache_creation_input_tokens": 420293,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 7409,
+        "outputTokens": 164802,
+        "cacheReadInputTokens": 63835293,
+        "cacheCreationInputTokens": 1013123,
+        "webSearchRequests": 0,
+        "costUSD": 43.982858999999976,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 220,
+    "duration_ms": 4470488
+  },
+  "permission_denials": {
+    "count": 16,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"GITHUB_ACTIONS=${GITHUB_ACTIONS:-unset}\"; echo \"GITHUB_RUN_ID=${GITHUB_RUN_ID:-unset}\"; echo \"CLAUDE_SKILL_DIR=${CLAUDE_SKILL_DIR:-unset}\"; echo \"ISSUE=1194\"; git branch --show-current; git status --short | head; pwd",
+      "DEVFLOW_ROOT=\"$(git rev-parse --show-toplevel)\"\nmkdir -p \"$DEVFLOW_ROOT/.prflow/tmp/issue-body\"\nrm -f \"$DEVFLOW_ROOT/.prflow/tmp/issue-body/issue-1194.md\"\ngh issue view 1194 --json body --jq '.body' > \"$DEVFLOW_ROOT/.prflow/tmp/issue-body/issue-1194.md\" \\\n  || gh issue view 1194 --json body --jq '.body' > \"$DEVFLOW_ROOT/.prflow/tmp/issue-body/issue-1194.md\"\nwc -c \"$DEVFLOW_ROOT/.prflow/tmp/issue-body/issue-1194.md\"; head -c 40 \"$DEVFLOW_ROOT/.prflow/tmp/issue-body/issue-1194.md\"",
+      "mkdir -p /home/runner/work/prflow/prflow/.prflow/tmp/issue-body\nrm -f /home/runner/work/prflow/prflow/.prflow/tmp/issue-body/issue-1194.md\ngh issue view 1194 --json body --jq '.body' > /home/runner/work/prflow/prflow/.prflow/tmp/issue-body/issue-1194.md || gh issue view 1194 --json body --jq '.body' > /home/runner/work/prflow/prflow/.prflow/tmp/issue-body/issue-1194.md\nwc -c /home/runner/work/prflow/prflow/.prflow/tmp/issue-body/issue-1194.md",
+      "gh issue view 1194 --json body --jq '.body' > /home/runner/work/prflow/prflow/.prflow/tmp/issue-body/issue-1194.md\nwc -c /home/runner/work/prflow/prflow/.prflow/tmp/issue-body/issue-1194.md",
+      "gh issue view 1194 --json body --jq '.body' > .prflow/tmp/issue-body/issue-1194.md\nwc -c .prflow/tmp/issue-body/issue-1194.md",
+      ": > .prflow/tmp/implement-active-1194\n.prflow/vendor/prflow/scripts/preflight.py dependencies --body-file .prflow/tmp/issue-body/issue-1194.md; echo \"exit=$?\"",
+      "git fetch origin \"+refs/heads/main:refs/remotes/origin/main\"\nBRANCH=$(.prflow/vendor/prflow/scripts/branch-for-issue.py 1194 --title-file .prflow/tmp/devflow-issue-1194-title.txt)\necho \"BRANCH=$BRANCH\"\ngit checkout -b \"$BRANCH\" origin/main\ngit branch --show-current",
+      "cd /tmp && rm -rf cmtest && mkdir cmtest && cd cmtest && git init -q && git config user.email t@t && git config user.name t\nmkdir -p lib/test/modules\npython3 - <<'PY'\nimport json\nm={\"schema_version\":1,\"files\":{},\"run_sh_blocks\":{\"1210\":{\"note\":\"n1210\",\"owner\":\"unmodularized\"},\"1290\":{\"note\":\"n1290\",\"owner\":\"unmodularized\"}},\"non_code_exempt\":[],\"exempt_subtrees\":[],\"generated_by\":\"x\"}\nopen(\"lib/test/modules/coverage-map.json\",\"w\").write(json.dumps(m,indent=2,sort_keys=True,ensure_ascii=False)+\"\\ …[per-command-truncated]",
+      "ruff check lib/test/coverage-map-merge-driver.py lib/test/coverage-map-retention-check.py lib/test/test_coverage_map_merge.py 2>&1 | tail -20\necho \"=== driver --check (expect not-registered, exit 1) ===\"\nlib/test/coverage-map-merge-driver.py --check; echo \"exit=$?\"\necho \"=== retention check against origin/main ===\"\nlib/test/coverage-map-retention-check.py . --base-ref origin/main; echo \"exit=$?\"",
+      "lib/test/coverage-map-merge-driver.py --check; echo \"check-exit=$?\"",
+      "lib/test/coverage-map-merge-driver.py --check",
+      "python3 lib/test/test_module_runner.py 2>&1 | tail -8; echo \"rc=${PIPESTATUS[0]}\"",
+      "RUN_URL=\"https://github.com/The01Geek/prflow/actions/runs/30877655887\"\nBODY=$(printf '%s\\n' \"Work in progress — automated review pending.\" \"\" \"Resolves #1194\" \"[View run]($RUN_URL)\" \"\" \"Generated via \\`/prflow:implement 1194\\`\")\nif CREATE_OUT=$(gh pr create --base main --draft --title \"coverage-map.json conflicts on concurrent key insertion + lossy --fix remedy (#1194)\" --body \"$BODY\" 2>&1); then\n  printf '%s\\ncreate: ok\\n' \"$CREATE_OUT\"\nelse\n  printf '%s\\ncreate: failed\\n' \"$CREATE_OUT\"\nfi",
+      "python3 - <<'EOF'\nimport importlib.util,glob,json\nfrom pathlib import Path\nspec=importlib.util.spec_from_file_location(\"g\",\"lib/test/coverage_map_guard.py\")\ng=importlib.util.module_from_spec(spec);spec.loader.exec_module(g)\nm=json.load(open('lib/test/modules/coverage-map.json'))\n# derive labels from run.sh and modules\nderived=set()\nfor f in [\"lib/test/run.sh\"]+glob.glob(\"lib/test/modules/*.sh\"):\n    try:\n        derived|=g.derive_labels(Path(f).read_text())\n    except Exception as e:\n        pas …[per-command-truncated]",
+      "python3 lib/test/estimate_curated.py 2>/dev/null; cat > /tmp/est.py <<'PYEOF'\nimport importlib.util,glob,json\nfrom pathlib import Path\nspec=importlib.util.spec_from_file_location(\"g\",\"lib/test/coverage_map_guard.py\")\ng=importlib.util.module_from_spec(spec);spec.loader.exec_module(g)\nm=json.load(open('lib/test/modules/coverage-map.json'))\nderived=set()\nfor f in [\"lib/test/run.sh\"]+glob.glob(\"lib/test/modules/*.sh\"):\n    derived|=g.derive_labels(Path(f).read_text())\nkeys=set(m[\"run_sh_blocks\"])\ncu …[per-command-truncated]",
+      "python3 lib/test/test_coverage_map_merge.py 2>&1 | tail -20; echo \"EXIT: ${PIPESTATUS[0]}\""
+    ],
+    "total": 16,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
