@@ -2445,6 +2445,65 @@ class DetachedLauncherTests(unittest.TestCase):
 
 
 @unittest.skipUnless(
+    os.name == "posix",
+    "host-capability: POSIX exec-failure status semantics (126/127) are required",
+)
+class SpawnFailureFidelityTests(unittest.TestCase):
+    """Both entry points report a target they could not exec with the shell's own
+    status — 127 not found, 126 present but not executable — rather than collapsing
+    it onto a generic 1, which a target that actually ran could itself have
+    produced. The two statuses are the only thing that tells a caller the command
+    never started."""
+
+    MISSING = "/nonexistent-dir-1216/no-such-command"
+
+    @staticmethod
+    def _non_executable(tmp: str) -> str:
+        target = Path(tmp) / "present-but-not-executable"
+        target.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        target.chmod(0o644)
+        return str(target)
+
+    @staticmethod
+    def _run(launcher: Path, target: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["python3", str(launcher), target], capture_output=True, text=True
+        )
+
+    def _assert_spawn_failure(self, launcher: Path, target: str, expected: int) -> None:
+        r = self._run(launcher, target)
+        self.assertEqual(r.returncode, expected, r.stderr)
+        # A raw traceback is the other half of the defect: the diagnostic has to be
+        # the one-line form the empty-argv arm already emits, naming the target.
+        self.assertNotIn("Traceback", r.stderr, r.stderr)
+        self.assertIn(target, r.stderr, r.stderr)
+
+    def test_shim_reports_missing_target_as_127(self) -> None:
+        self._assert_spawn_failure(SIGNAL_SPAWN_SHIM, self.MISSING, 127)
+
+    def test_shim_reports_non_executable_target_as_126(self) -> None:
+        with tempfile.TemporaryDirectory() as t:
+            self._assert_spawn_failure(SIGNAL_SPAWN_SHIM, self._non_executable(t), 126)
+
+    def test_launcher_reports_missing_target_as_127(self) -> None:
+        self._assert_spawn_failure(DETACHED_LAUNCHER, self.MISSING, 127)
+
+    def test_launcher_reports_non_executable_target_as_126(self) -> None:
+        with tempfile.TemporaryDirectory() as t:
+            self._assert_spawn_failure(DETACHED_LAUNCHER, self._non_executable(t), 126)
+
+    def test_a_real_exit_1_stays_distinguishable_from_a_spawn_failure(self) -> None:
+        # The control for the collision above: exit 1 from a command that DID run
+        # must still arrive as 1, so 127/126 are a real discrimination and not a
+        # blanket remap of every failure.
+        r = subprocess.run(
+            ["python3", str(DETACHED_LAUNCHER), "bash", "-c", "exit 1"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(r.returncode, 1, r.stderr)
+
+
+@unittest.skipUnless(
     POSIX_SIGNAL_MATRIX_AVAILABLE,
     "host-capability: POSIX signals and process groups are required",
 )

@@ -29,6 +29,7 @@ mechanics built on it:
 
 from __future__ import annotations
 
+import errno
 import os
 import signal
 import subprocess
@@ -55,18 +56,48 @@ def restore_default_signals() -> None:
         signal.signal(sig, signal.SIG_DFL)
 
 
+def _spawn_failure_status(exc: OSError) -> int:
+    """A failed spawn's SHELL exit status: 127 not found, 126 cannot execute.
+
+    These are the statuses a shell reports for the same two conditions, and the
+    reason to translate at all: an uncaught exec error exits **1**, which is
+    indistinguishable from a genuine exit 1 produced by a command that actually
+    ran — so the caller cannot tell "your target never started" from "your target
+    ran and failed". ``ENOENT`` is the not-found case; every other exec-time
+    ``OSError`` (``EACCES``, ``ENOEXEC``, ``ENOTDIR``, …) is the found-but-
+    unusable case a shell reports as 126.
+    """
+    return 127 if exc.errno == errno.ENOENT else 126
+
+
+def _fail_spawn(prog: str, argv0: str, exc: OSError) -> SystemExit:
+    """Emit the one-line spawn diagnostic and build the matching ``SystemExit``.
+
+    Mirrors the empty-argv arm's shape (``<prog>: <what> <target>``) so both
+    refusals read the same and neither is a raw traceback.
+    """
+    detail = exc.strerror or type(exc).__name__
+    print(f"{prog}: cannot execute {argv0}: {detail}", file=sys.stderr)
+    return SystemExit(_spawn_failure_status(exc))
+
+
 def exec_with_default_signals(argv: list[str]) -> None:
     """Restore default signal dispositions, then ``execvp`` ``argv``.
 
     Never returns on success — the current process is replaced, so its PID (the
     ``$!`` the spawning shell recorded) becomes the exec'd command. Raises
-    ``SystemExit`` with a diagnostic when ``argv`` is empty.
+    ``SystemExit`` with a diagnostic when ``argv`` is empty, and — when the target
+    cannot be exec'd — with the shell status :func:`_spawn_failure_status`
+    selects, so the caller can tell an unstartable target from one that ran.
     """
     if not argv:
         print("exec-with-default-signals: no command given", file=sys.stderr)
         raise SystemExit(2)
     restore_default_signals()
-    os.execvp(argv[0], argv)
+    try:
+        os.execvp(argv[0], argv)
+    except OSError as exc:
+        raise _fail_spawn("exec-with-default-signals", argv[0], exc) from None
 
 
 def exit_status(wait_status: int) -> int:
@@ -84,16 +115,21 @@ def run_detached(argv: list[str]) -> int:
 
     Returns the child's real exit status (signal deaths translated by
     :func:`exit_status`). Raises ``SystemExit`` with a diagnostic when ``argv``
-    is empty.
+    is empty, and — when the child cannot be spawned — with the shell status
+    :func:`_spawn_failure_status` selects, so a target that never started is not
+    reported as a target that ran and exited 1.
     """
     if not argv:
         print("launch-detached: no command given", file=sys.stderr)
         raise SystemExit(2)
-    proc = subprocess.Popen(  # noqa: S603 - argv list, no shell
-        argv,
-        start_new_session=True,
-        preexec_fn=restore_default_signals,  # noqa: PLW1509 - POSIX-only by design
-    )
+    try:
+        proc = subprocess.Popen(  # noqa: S603 - argv list, no shell
+            argv,
+            start_new_session=True,
+            preexec_fn=restore_default_signals,  # noqa: PLW1509 - POSIX-only by design
+        )
+    except OSError as exc:
+        raise _fail_spawn("launch-detached", argv[0], exc) from None
     return exit_status(proc.wait())
 
 
