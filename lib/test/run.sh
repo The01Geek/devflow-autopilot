@@ -7183,6 +7183,15 @@ assert_eq "#814: a PATCH-call failure exits non-zero" "no" \
   "$([ "$_c" = "0" ] && echo yes || echo no)"
 assert_eq "#814: a PATCH-call failure writes nothing to stdout and no success breadcrumb" "yes" \
   "$([ ! -s "$S356/out8" ] && [ "$(grep -c '^workpad.py update: PATCHed comment' "$S356/err8")" = "0" ] && echo yes || echo no)"
+# That failing PATCH is a real failed write, so issue #1214's replay buffer captured
+# its `--note` into the CHECKOUT's own `.prflow/tmp/workpad-buffer/<comment-id>.json`
+# — the buffer is anchored on the repo root, not on this block's $S356 sandbox, and
+# nothing else here would reclaim it. Every later block driving `workpad.py update`
+# against a stub that answers with the SAME comment id would then have that note
+# replayed into its call (the stub ids are fixture constants, unique only in
+# production), which is a cross-block fixture leak, not a product behavior. Drop it
+# with the rest of this block's state.
+rm -f "$LIB/../.prflow/tmp/workpad-buffer/7.json"
 
 rm -rf "$S356"
 
@@ -7932,6 +7941,13 @@ printf '\n## Devflow Reflection\n- existing bullet\n' >> "$S338/base-refl.md"
 sed 's/- \[ \] AC two/- [x] AC two/' "$S338/base.md" > "$S338/base-ticked.md"
 # ...and one whose ticked AC two is already tagged (for the tag-preserving no-false-fire control).
 sed 's/- \[ \] AC two/- [x] AC two (post-merge)/' "$S338/base.md" > "$S338/base-ticked-tagged.md"
+
+# These cases turn on whether the call carries a non-empty --note, and issue #1214's
+# replay FOLDS a buffered note into `args.note` — so a replay buffer left over for the
+# comment id this block's stub answers with (7) would satisfy the very guard T1 asserts
+# fires. The producing block reclaims its own buffer; clear it here too so this block's
+# precondition is stated where it is relied on rather than 700 lines away.
+rm -f "$LIB/../.prflow/tmp/workpad-buffer/7.json"
 
 # run338 <body-file> <args...> → prints the exit code; leaves out/err/patchlog on disk.
 run338() {
