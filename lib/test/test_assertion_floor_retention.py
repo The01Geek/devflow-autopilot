@@ -290,15 +290,35 @@ class RetentionCheckGitFixtureTest(_GitFixtureBase):
         result = self._run_cli("--base-ref", "origin/does-not-exist")
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_cli_acknowledged_degraded_base_exits_0(self):
-        # Unresolvable base ref + --allow-degraded-base ⇒ acknowledged, exit 0.
-        self._seed_base({"m": 68})
+    def _seed_registry_absent_at_base(self):
+        # A base commit with NO registry, then a feature commit that ADDS it. The merge base
+        # (the base commit) carries no test-module floors, so the base comparand is empty —
+        # a genuine degraded comparand (the shallow-clone shape), reached deterministically
+        # without a real shallow clone.
+        (self.repo / "README").write_text("seed\n", encoding="utf-8")
+        self._write_allow([])
+        self._git("add", "-A")
+        self._git("commit", "-qm", "base (no registry)")
+        base = self._base_branch()
         self._git("checkout", "-qb", "feature")
-        result = self._run_cli("--base-ref", "origin/does-not-exist", "--allow-degraded-base")
-        # An unresolvable ref that has no tip at all still fails closed (exit 1) — the
-        # acknowledgement only downgrades the exit-3 degraded-comparand arm. Assert the
-        # non-clean direction holds and the flag is at least honored when a tip exists.
-        self.assertIn(result.returncode, (0, 1, 3), result.stdout + result.stderr)
+        self._write_registry({"m": 68})
+        self._git("add", "-A")
+        self._git("commit", "-qm", "add registry")
+        return base
+
+    def test_cli_degraded_base_fails_closed_exit_3(self):
+        # Empty base comparand, unacknowledged ⇒ unestablished (exit 3), never a clean 0.
+        base = self._seed_registry_absent_at_base()
+        result = self._run_cli("--base-ref", base)
+        self.assertEqual(result.returncode, check.EXIT_UNESTABLISHED, result.stdout + result.stderr)
+
+    def test_cli_acknowledged_degraded_base_exits_0(self):
+        # The SAME empty-base scenario + --allow-degraded-base ⇒ acknowledged exit 0, and the
+        # run is reported as acknowledged-degraded rather than a clean pass.
+        base = self._seed_registry_absent_at_base()
+        result = self._run_cli("--base-ref", base, "--allow-degraded-base")
+        self.assertEqual(result.returncode, check.EXIT_CLEAN, result.stdout + result.stderr)
+        self.assertIn("acknowledged", result.stdout)
 
 
 if __name__ == "__main__":
