@@ -31115,6 +31115,20 @@ if ! devflow_run_full_suite_module "$LIB/test/modules/review-stall-backstop.sh" 
   exit 1
 fi
 # ────────────────────────────────────────────────────────────────────────────
+echo "#1139 Phase 2 mid-run durability checkpoint"
+# ────────────────────────────────────────────────────────────────────────────
+# scripts/phase2-durability-checkpoint.sh driven against a scratch git repository
+# with a real bare remote (git plumbing not mocked): the AC1 RED control and its AC2
+# GREEN counterpart, per-invocation commit behavior, the cloud-tier workflow-edit
+# guard's detect-and-do-not-stage half, §2.1.5 proof-edit exclusion, AC6 explicit-path
+# scoping, AC7 landing verification (HEAD==@{u}), and AC8 idempotency. See its
+# .inventory.md for the coverage map back to this location.
+if ! devflow_run_full_suite_module "$LIB/test/modules/phase2-durability-checkpoint.sh" \
+  "phase2-durability-checkpoint" 78; then
+  printf 'ERROR: phase2-durability-checkpoint boundary could not record its result\n'
+  exit 1
+fi
+# ────────────────────────────────────────────────────────────────────────────
 echo "#312: workflow endpoint↔permission lint"
 # ────────────────────────────────────────────────────────────────────────────
 # A devflow workflow job must declare the token permission every `gh api` endpoint
