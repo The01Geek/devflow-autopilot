@@ -16,6 +16,14 @@ set -u
 
 LIB="$(cd "$(dirname "$0")/.." && pwd)"
 
+# issue #1216 (AC4/AC5): before any trap is installed, detect a SIGINT/SIGQUIT
+# that arrived already ignored (SIG_IGN) — bash cannot un-ignore it, so the
+# suite's signal-trap assertions would fail or hang for an otherwise invisible
+# reason. This is strictly ADVISORY: the helper always exits 0, writes only to
+# stderr, and registers no skipped check, so it cannot change the suite's exit
+# code or skip tally. Best-effort — a missing/denied helper never blocks the run.
+bash "$LIB/test/warn-ignored-signals.sh" >&2 || true
+
 # issue #533 (AC13): clear an INHERITED DEVFLOW_GH before any fixture runs. The
 # resolvers treat a non-empty DEVFLOW_GH as the strongest explicit override (no
 # probe), so a value leaked in from the invoking environment — historically the
@@ -8642,6 +8650,135 @@ P547R_EMPTYBF="$(PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --
 assert_eq "#547/#572 Suggestion 2: empty '--body-file \"\"' fails closed on the body path (UNAVAILABLE body)" "UNAVAILABLE body" "$P547R_EMPTYBF"
 assert_eq "#547/#572 Suggestion 2: the empty-body-file failure returns the unavailable exit class" "3" "$P547R_EMPTYBF_RC"
 rm -rf "$P547R"
+
+# ── issue #1197: direction is governed inside `## Dependencies`, at the LINE level ──
+# The defect: the in-section limb captured every `#N` with NO keyword test, so an
+# OUTBOUND declaration (`Blocks #N` — meaning THIS issue is the prerequisite) was read
+# as its exact inverse and BLOCKED the run on a dependency that does not exist, while
+# the out-of-section limb parsed direction correctly all along.
+#
+# The ruling this matrix encodes (issue #1197 AC4): direction governs the WHOLE LINE.
+# A section line carrying an outbound direction word contributes NO numbers — not
+# merely the number run adjacent to that word. Per-number governance cannot satisfy
+# AC2 (issue #1190's real body repeats `#1188` later on the same outbound line,
+# outside any number run) and would let a mixed line partially contribute.
+#
+# Every row is DISCRIMINATING by construction: the OPEN number is #10, so "captured"
+# renders `BLOCKED 10` and "not captured" renders `PROCEED`. The stub resolves state
+# only — bodies come from --body-file fixtures — and #1188 is OPEN so the real-body
+# fixture below reads `BLOCKED 1188` on the pre-fix scanner (the RED it was written
+# against) rather than degrading to UNAVAILABLE.
+P1197="$(mktemp -d)"
+mkdir -p "$P1197/bin"
+cat > "$P1197/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+# argv: issue view <number> --json state -q .state
+case "${3:-}" in
+  10|1188) printf '%s\n' OPEN ;;
+  11) printf '%s\n' CLOSED ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$P1197/bin/gh"
+P1197_HELPER="$LIB/../scripts/preflight.py"
+# Each fixture is one `## Dependencies` section holding exactly the shape under test,
+# followed by a `## Notes` heading so the section exit is exercised too.
+_p1197_body() {  # <name> <section-line…>
+  local _name="$1"; shift
+  { printf '%s\n' '## Dependencies'
+    printf '%s\n' "$@"
+    printf '%s\n' '## Notes' 'nothing further'
+  } > "$P1197/$_name.md"
+}
+_p1197() { PATH="$P1197/bin:$PATH" python3 "$P1197_HELPER" dependencies --body-file "$P1197/$1.md" 2>/dev/null; }
+# stderr only: the `{ …; } 2>&1` grouping is the unambiguous spelling of "drop stdout,
+# keep stderr" (a bare `2>&1 >/dev/null` is SC2069).
+_p1197_err() { { PATH="$P1197/bin:$PATH" python3 "$P1197_HELPER" dependencies --body-file "$P1197/$1.md" >/dev/null; } 2>&1; }
+
+# ── AC1: outbound declarations under the heading contribute nothing ──
+_p1197_body outbound '- Blocks #10'
+_p1197_body outbound_bold '- **Blocks #10** — the reason it must land first'
+_p1197_body outbound_run '- Blocks #10 and #11'
+_p1197_body outbound_upper '- BLOCKS #10'
+P1197_OUT="$(_p1197 outbound)"; P1197_OUT_RC=$?
+assert_eq "#1197 AC1: an outbound 'Blocks #N' under the heading is not a blocker" "PROCEED" "$P1197_OUT"
+assert_eq "#1197 AC1: the outbound line proceeds (exit 0), not the BLOCKED class" "0" "$P1197_OUT_RC"
+assert_eq "#1197 AC1: the bold/em-dash authoring variant is outbound too" "PROCEED" "$(_p1197 outbound_bold)"
+assert_eq "#1197 AC1: an outbound multi-number run drops the whole run, both numbers" "PROCEED" "$(_p1197 outbound_run)"
+assert_eq "#1197 AC1: outbound matching is case-insensitive" "PROCEED" "$(_p1197 outbound_upper)"
+
+# ── AC3: every inbound declaration under the heading is unchanged ──
+_p1197_body in_blockedby '- Blocked by #10 — still a real prerequisite'
+_p1197_body in_dependson '- Depends on #10'
+_p1197_body in_mustmerge '- Must merge after #10'
+_p1197_body in_followup '- Follow-up to #10'
+_p1197_body in_after '- After #10 lands, ship this'
+assert_eq "#1197 AC3: in-section 'Blocked by #N' still blocks" "BLOCKED 10" "$(_p1197 in_blockedby)"
+assert_eq "#1197 AC3: in-section 'Depends on #N' still blocks" "BLOCKED 10" "$(_p1197 in_dependson)"
+assert_eq "#1197 AC3: in-section 'Must merge after #N' still blocks" "BLOCKED 10" "$(_p1197 in_mustmerge)"
+assert_eq "#1197 AC3: in-section 'Follow-up to #N' still blocks" "BLOCKED 10" "$(_p1197 in_followup)"
+assert_eq "#1197 AC3: in-section line-anchored 'After #N' still blocks" "BLOCKED 10" "$(_p1197 in_after)"
+
+# ── AC4: the decided dispositions for the direction-word-free and mixed shapes ──
+# bare `- #N` and `Part of #N` carry no direction word, so the section heading's own
+# inbound implication stands and today's behaviour is KEPT — a stated decision, not an
+# inherited one. `Related to #N` is the AC7 class (a direction-flavoured phrase the fix
+# recognises as neither inbound nor outbound): also a blocker, deliberately, never
+# silently inverted.
+_p1197_body bare '- #10'
+_p1197_body partof '- Part of #10'
+_p1197_body unknown_direction '- Related to #10 in some unspecified way'
+assert_eq "#1197 AC4: a bare '- #N' bullet keeps today's behaviour (still a blocker)" "BLOCKED 10" "$(_p1197 bare)"
+assert_eq "#1197 AC4: 'Part of #N' keeps today's behaviour (still a blocker)" "BLOCKED 10" "$(_p1197 partof)"
+assert_eq "#1197 AC7: a direction word in neither vocabulary stays a blocker (documented choice, never inverted)" "BLOCKED 10" \
+  "$(_p1197 unknown_direction)"
+# The mixed line — the row that DISCRIMINATES line-level governance from per-number
+# governance. Under per-number governance the trailing `blocked by #10` would still
+# block; under the ruling the line's outbound word governs the whole line, so nothing
+# is contributed. The OPEN number is the INBOUND one, so this cannot pass vacuously.
+_p1197_body mixed '- Blocks #11 but blocked by #10'
+assert_eq "#1197 AC4: a mixed-direction line contributes NO numbers (line-level, not per-run)" "PROCEED" "$(_p1197 mixed)"
+# Disclosed residual, asserted rather than left to be discovered: the scanner is not
+# markdown-aware, so an outbound word inside a code span or quoted evidence still
+# governs its line. Same family as the fenced-code-block gap (a `## Dependencies`
+# heading inside a fence still opens a section) — both are out of scope for #1197 and
+# recorded here so a later change that closes them flips a test rather than nothing.
+_p1197_body codespan '- The word `Blocks` is the outbound spelling — blocked by #10'
+assert_eq "#1197 residual: an outbound word inside a code span still governs its line (scanner is not markdown-aware)" \
+  "PROCEED" "$(_p1197 codespan)"
+
+# ── The out-of-section limb is UNTOUCHED (it parsed direction correctly all along) ──
+# Written without the heading, so the same three shapes route through DECLARATIONS.
+printf '%s\n' 'Blocks #10' > "$P1197/oos_outbound.md"
+printf '%s\n' 'blocked by #10' > "$P1197/oos_inbound.md"
+printf '%s\n' 'Blocks #11 but blocked by #10' > "$P1197/oos_mixed.md"
+assert_eq "#1197: an out-of-section 'Blocks #N' was already ignored and still is" "PROCEED" "$(_p1197 oos_outbound)"
+assert_eq "#1197: an out-of-section 'blocked by #N' still blocks" "BLOCKED 10" "$(_p1197 oos_inbound)"
+assert_eq "#1197: the line-level rule is IN-SECTION only — an out-of-section mixed line still blocks on its inbound half" \
+  "BLOCKED 10" "$(_p1197 oos_mixed)"
+
+# ── AC2: issue #1190's real body, captured verbatim as a fixture ──
+# The live case. `BLOCKED 1188` / exit 2 before the fix (the stub resolves #1188 OPEN),
+# `PROCEED` / exit 0 after — an issue that declares itself the PREREQUISITE of #1188 and
+# states it has no blocker is no longer reported as blocked by the issue it unblocks.
+P1197_REAL="$(PATH="$P1197/bin:$PATH" python3 "$P1197_HELPER" dependencies --body-file "$LIB/test/fixtures/issue-1190-body.md" 2>/dev/null)"; P1197_REAL_RC=$?
+assert_eq "#1197 AC2: the live case's captured real body proceeds (it declares itself the prerequisite, not the dependent)" "PROCEED" "$P1197_REAL"
+assert_eq "#1197 AC2: the real-body fixture returns the proceed exit class" "0" "$P1197_REAL_RC"
+
+# ── AC7: the outbound skip is OBSERVABLE on the stderr-carrying entry point ──
+# The dropped-number direction is fail-open (a mixed line's inbound half goes with it),
+# so the skip must not be silent. The breadcrumb names the skipped number and rides the
+# existing `preflight.py:` prefix, alongside the SOFT_KEYWORDS observability arm.
+assert_eq "#1197 AC7: an outbound skip emits a preflight.py breadcrumb naming the skipped number" "yes" \
+  "$(_p1197_err outbound | grep -q '^preflight.py: .*#10' && echo yes || echo no)"
+assert_eq "#1197 AC7: the breadcrumb names the outbound direction as the reason" "yes" \
+  "$(_p1197_err outbound | grep -qi 'outbound' && echo yes || echo no)"
+# Negative control: an INBOUND section line emits no outbound breadcrumb, so the
+# assertion above is attributable to the outbound predicate rather than to any
+# unconditional emit.
+assert_eq "#1197 AC7 control: an inbound section line emits no outbound breadcrumb" "" \
+  "$(_p1197_err in_blockedby)"
+rm -rf "$P1197"
 
 # ── PR #572 review (Approve-with-notes): main() top-level fail-closed catch-all ─
 # main() wraps args.func(args) in `except Exception → UNAVAILABLE/exit 3`, so an

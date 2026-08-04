@@ -23619,7 +23619,7 @@ assert_eq("#1011 section fn: returns only in-section numbers",
           ['99'],
           _preflight1011.dependency_section_numbers(
               "blocked by #11 and #10\n## Dependencies\n- #99\n## Next\nsee #7\n"))
-assert_eq("#1011 section fn: captures every #N in the section regardless of keyword",
+assert_eq("#1011 section fn: captures every #N on an inbound or direction-free section line",
           ['5', '7'],
           _preflight1011.dependency_section_numbers(
               "## Dependencies\n- Blocked by #5 — reason\nrandom #7\n## Next\n#9"))
@@ -23640,6 +23640,53 @@ _io1011 = io.StringIO()
 with contextlib.redirect_stderr(_io1011):
     _preflight1011.dependency_section_numbers("requires #12 outside a section")
 assert_eq("#1011 section fn: emits no stderr breadcrumb of its own", "", _io1011.getvalue())
+
+# ── issue #1197: outbound direction under `## Dependencies`, at the LINE level ──
+# The section limb used to capture every `#N` with no keyword test, so `Blocks #N` —
+# which declares THIS issue the prerequisite — registered as its exact inverse. The
+# stakes are highest on this entry point: apply-issue-dependencies.py consumes it and
+# POSTs a blocked_by relationship its own docstring says it does not remove, so an
+# inverted read here is a persistent GitHub write rather than a reversible gate stop.
+assert_eq("#1197 section fn: an outbound 'Blocks #N' contributes nothing",
+          [],
+          _preflight1011.dependency_section_numbers("## Dependencies\n- Blocks #5 — reason\n"))
+assert_eq("#1197 section fn: an outbound multi-number run drops the whole run",
+          [],
+          _preflight1011.dependency_section_numbers("## Dependencies\n- Blocks #5 and #6\n"))
+# Line-level, not per-number: the inbound half of a mixed line goes with the line. The
+# inbound number is listed SECOND so a per-number implementation would return ['6'] and
+# this assertion would catch it, rather than passing on an empty result either way.
+assert_eq("#1197 section fn: a mixed-direction line contributes NO numbers (line-level governance)",
+          [],
+          _preflight1011.dependency_section_numbers("## Dependencies\n- Blocks #5 but blocked by #6\n"))
+assert_eq("#1197 section fn: an inbound line beside an outbound line still contributes",
+          ['6'],
+          _preflight1011.dependency_section_numbers(
+              "## Dependencies\n- Blocks #5 — reason\n- Blocked by #6 — reason\n"))
+assert_eq("#1197 section fn: a direction-free bare bullet keeps today's behaviour",
+          ['5', '6'],
+          _preflight1011.dependency_section_numbers("## Dependencies\n- #5\n- Part of #6\n"))
+# The section entry point's no-stderr contract survives the new outbound arm: the
+# breadcrumb rides `dependency_numbers` only, so apply-issue-dependencies.py still
+# leaks no `preflight.py:` line into its own caller-facing output (issue #1197 AC7).
+_io1197 = io.StringIO()
+with contextlib.redirect_stderr(_io1197):
+    _preflight1197_out = _preflight1011.dependency_section_numbers("## Dependencies\n- Blocks #5\n")
+assert_eq("#1197 section fn: the outbound skip emits no stderr on the section-only path",
+          ([], ""), (_preflight1197_out, _io1197.getvalue()))
+# …and it IS observable on the entry point that owns a stderr surface.
+_io1197b = io.StringIO()
+with contextlib.redirect_stderr(_io1197b):
+    _preflight1011.dependency_numbers("## Dependencies\n- Blocks #5\n")
+assert_eq("#1197 full recognizer: the outbound skip breadcrumbs the dropped number",
+          True, "#5" in _io1197b.getvalue() and "preflight.py:" in _io1197b.getvalue())
+# The out-of-section limb is untouched — it parsed direction correctly all along, and
+# widening DECLARATIONS with an outbound keyword would have broken it. Out of section a
+# mixed line still yields its inbound half.
+assert_eq("#1197 full recognizer: out-of-section direction handling is unchanged",
+          ([], ['6']),
+          (_preflight1011.dependency_numbers("Blocks #5 outside a section"),
+           _preflight1011.dependency_numbers("Blocks #5 but blocked by #6, outside a section")))
 
 _HELPER1011 = SCRIPTS / 'apply-issue-dependencies.py'
 
@@ -23675,6 +23722,11 @@ for a in "$@"; do
       105) printf '%s\n' '## Dependencies' '- Blocked by #205' '- Blocked by #206' ;;
       106) printf '%s\n' 'blocked by #201 outside a section' ;;
       108) printf '%s\n' '## Dependencies' '- Blocked by #207' ;;
+      # issue #1197: outbound-only and mixed-direction sections. #201 resolves to a
+      # linkable id below, so a scanner that still reads direction-blind would POST a
+      # persistent (and inverted) blocked_by for either one.
+      109) printf '%s\n' '## Dependencies' '- **Blocks #201** — this issue is the prerequisite' ;;
+      110) printf '%s\n' '## Dependencies' '- Blocks #202 but blocked by #201' ;;
       200) exit 1 ;;
       *) printf '\n' ;;
     esac
@@ -23762,6 +23814,24 @@ _rc, _se = _run_deps(106)
 assert_eq("#1011 out-of-section: exit 0", 0, _rc)
 assert_eq("#1011 out-of-section: breadcrumb says no prerequisites in a section", True,
           "declares no prerequisites in a `## Dependencies` section" in _se)
+
+# ── issue #1197 AC6: no persistent blocked_by is registered for an OUTBOUND
+# declaration. Asserted end-to-end on the real helper over a stubbed gh — the derived
+# number set is empty, so the POST branch is never entered at all (there is no live
+# write, and none is attempted). #201 is a linkable id in the stub, so a direction-blind
+# scanner would have produced "linked #109 blocked_by #201." here; asserting that
+# literal's ABSENCE alongside the no-prerequisites breadcrumb keeps the row
+# discriminating rather than satisfied by any quiet run.
+_rc, _se = _run_deps(109)
+assert_eq("#1197 AC6: an outbound declaration registers nothing (exit 0, no POST attempted)",
+          (0, False, True),
+          (_rc, "linked #109 blocked_by" in _se,
+           "declares no prerequisites in a `## Dependencies` section" in _se))
+_rc, _se = _run_deps(110)
+assert_eq("#1197 AC6: a mixed-direction line registers nothing either (line-level governance)",
+          (0, False, True),
+          (_rc, "blocked_by #201" in _se,
+           "declares no prerequisites in a `## Dependencies` section" in _se))
 
 # body fetch failure.
 _rc, _se = _run_deps(200)
