@@ -763,9 +763,9 @@ silent on success is established from its own exit status, and a command that ne
 is established as nothing. A mid-iteration #434 stale-prose `blocking-gate` skip
 on a dirty tree is expected and clears on commit; it is not a reason to relaunch.
 
-**Batching is what bounds how many passes are paid (issue #1252).** The two rules above
-govern relaunching over an *unchanged* tree; neither covers relaunching over a tree that
-changed by one small edit, which is the expensive case — on the run that motivated the
+**Batching is what bounds how many passes are paid (issue #1252).** The relaunch rules above
+govern relaunching over an *unchanged* tree; none of them covers relaunching over a tree
+that changed by one small edit, which is the expensive case — on the run that motivated the
 rule, two whole-suite passes were launched 44 and 48 seconds after the previous one
 finished. So before launching a whole-suite pass the run applies every fix it already
 owes rather than launching one per fix, and where a covering focused test exists it is
