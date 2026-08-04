@@ -240,7 +240,15 @@ the credential refresher), so decomposition stays the in-run route whenever a co
 terminated at whatever ceiling the workflow set. A run in that
 position does **not** downgrade its evidence to a focused module — the Phase 4.3 completion
 gate takes a whole-suite result, and the prompt extensions state that scope once. It instead
-does what CI already does to satisfy the same required check: enumerate the partition with
+does what CI already does to satisfy the same required check: **first run the pre-launch
+generated-artifact drift preflight once with `lib/test/run-parallel.sh --preflight`** (issue
+#1288) — a read-only, sub-second check nowhere near the ceiling that launches no shard and
+carries the SAME verdict contract the coordinator applies before its own launch, so the
+recombined whole-suite result carries the same drift check the coordinator does. It exits 0 to
+proceed (clean, or a fail-open inconclusive result) or non-zero on a positively-attributed
+drift, in which case you regenerate the artifact(s) under their governing policy and commit
+before launching any shard, rather than paying the full sharded suite to rediscover the drift
+as an ordinary shard-assertion failure. Then enumerate the partition with
 `lib/test/run-shard.sh --list-shards`, run each shard as its own command (CI observes
 1m44s–4m48s per shard, comfortably inside the ceiling), and recombine the run's own tally
 paths through `lib/test/shard-tally.py combine`. Both helpers are granted in
