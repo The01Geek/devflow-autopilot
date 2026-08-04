@@ -42,8 +42,24 @@ When no `## Acceptance Criteria` section exists, prints the literal sentinel
 `_(none provided in issue body)_` (md) or an empty array (json). Never
 invents criteria.
 
+Present-but-unreadable section (issue #1198): a `## Acceptance Criteria`
+section that is present and correctly named but carries its criteria in a shape
+this parser does not read — bold paragraphs (`**AC1 — …**`) or a numbered list
+(`1. …`) rather than checkbox rows — parses to zero items, exactly like a
+genuinely absent section. That collapses "no criteria were parsed" onto "this
+issue has no criteria", which the repo's *unknown is not zero* convention
+forbids. So the two cases are made distinguishable at this interface WITHOUT
+changing the accepted item shape (still only checkbox list items) and WITHOUT
+blocking: a present-but-unreadable section emits a distinct item-shape stderr
+diagnostic and sets `acceptance_criteria_unreadable: true` in the `--format
+json` output, and the helper STILL exits 0 (a non-zero exit would trip the
+implement skill's fail-closed §1.2 fence and halt the run, which the owner
+ruling forbids — the run must continue and hand-extract). The `--format md`
+output is unchanged for that case (still the sentinel), because stdout is
+redirected into the mirrored section and must not carry a diagnostic.
+
 Exit codes:
-  0  parsed and printed
+  0  parsed and printed (INCLUDING the present-but-unreadable-section case)
   1  body fetch failed
   2  bad arguments
 """
@@ -192,6 +208,39 @@ def _warn_near_miss(parsed: list, body: str, canonical: str, needle: str) -> Non
         )
 
 
+def _is_unreadable_section(parsed: list, section_lines: list) -> bool:
+    """True for the present-but-unreadable case (issue #1198).
+
+    The section was matched (`extract_section` returned a non-empty line list)
+    and carries at least one non-blank line, yet `parse_checkboxes` found zero
+    items — its criteria are written in a shape this parser does not read. This
+    is deliberately distinct from a genuinely absent section, for which
+    `section_lines` is empty; the two must not be collapsed (*unknown is not
+    zero*). A present-but-empty section (heading immediately followed by another
+    heading) has no content and is NOT unreadable — there is nothing to read.
+    """
+    return not parsed and any(line.strip() for line in section_lines)
+
+
+def _warn_unreadable_section(canonical: str) -> None:
+    """Item-shape diagnostic for the present-but-unreadable case (issue #1198).
+
+    Deliberately names ITEM SHAPE as the cause and does NOT send the reader to
+    inspect the heading (which already matches) — that is the misdirection the
+    old `_warn_near_miss` message produced when it fired on this case. The
+    reader/agent hand-extracts the criteria from the issue body.
+    """
+    sys.stderr.write(
+        f"parse-acs.py: the '## {canonical}' section is present and correctly "
+        f"named, but zero items were parsed from it because its items are "
+        f"written in a shape this parser does not read. Only markdown checkbox "
+        f"list items ('- [ ]', '- [x]', '* [ ]', '* [x]') are recognised as "
+        f"{canonical} items; bold paragraphs ('**AC1 - ...**') and numbered "
+        f"lists ('1. ...') are not. Extract the items by hand from the issue "
+        f"body — do not treat this as an issue with no {canonical}.\n"
+    )
+
+
 def _render_md(criteria: list[dict], test_plan: list[dict]) -> str:
     if not criteria and not test_plan:
         return '_(none provided in issue body)_'
@@ -239,19 +288,39 @@ def main():
 
     ac_lines = extract_section(body, 'Acceptance Criteria')
     criteria = _parse_checkboxes(ac_lines)
-    test_plan = _parse_checkboxes(extract_section(body, 'Test Plan'))
+    tp_lines = extract_section(body, 'Test Plan')
+    test_plan = _parse_checkboxes(tp_lines)
 
-    # Heading match in section_parse.extract_section is case-insensitive but otherwise
-    # exact. `## acceptance criteria` (any casing) now matches, but
-    # `## Acceptance Criteria:` (trailing colon) or `## ACs` still produce zero
-    # items — and the implement skill's post-merge-exempt gate would trivially
-    # pass. Surface the near-miss so the orchestrator can correct it. Same risk
-    # applies to `## Test Plans` (plural) / `## Tests`.
-    _warn_near_miss(criteria, body, 'Acceptance Criteria', 'acceptance')
-    _warn_near_miss(test_plan, body, 'Test Plan', 'test plan')
+    # Two distinct zero-item failure modes, kept distinguishable (issue #1198):
+    #   1. Present-but-unreadable — the section was matched and has content, but
+    #      its items are in a shape this parser does not read (bold paragraphs,
+    #      numbered lists). Names item shape as the cause; the run continues and
+    #      the criteria are hand-extracted.
+    #   2. Heading near-miss — no section was matched because the heading has a
+    #      trailing colon / extra words (`## Acceptance Criteria:`, `## ACs`).
+    #      Names the heading as the cause (its pre-existing behavior).
+    # Case 1 takes precedence: when the section IS matched, the heading is by
+    # definition not the problem, so `_warn_near_miss` (which would otherwise
+    # fire on the matching heading and misdirect) must not run for it.
+    ac_unreadable = _is_unreadable_section(criteria, ac_lines)
+    tp_unreadable = _is_unreadable_section(test_plan, tp_lines)
+    if ac_unreadable:
+        _warn_unreadable_section('Acceptance Criteria')
+    else:
+        _warn_near_miss(criteria, body, 'Acceptance Criteria', 'acceptance')
+    if tp_unreadable:
+        _warn_unreadable_section('Test Plan')
+    else:
+        _warn_near_miss(test_plan, body, 'Test Plan', 'test plan')
 
     if args.format == 'json':
-        print(json.dumps({'acceptance_criteria': criteria, 'test_plan': test_plan},
+        # `acceptance_criteria_unreadable` / `test_plan_unreadable` are additive
+        # fields: the present-but-unreadable signal (issue #1198) for a consumer
+        # reading JSON rather than stderr. Absent-section and parsed-section
+        # cases both report false.
+        print(json.dumps({'acceptance_criteria': criteria, 'test_plan': test_plan,
+                          'acceptance_criteria_unreadable': ac_unreadable,
+                          'test_plan_unreadable': tp_unreadable},
                          indent=2))
     else:
         print(_render_md(criteria, test_plan))
