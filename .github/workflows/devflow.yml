@@ -1,7 +1,8 @@
 name: DevFlow
 
 # DevFlow-owned LIGHT COMMAND LISTENER. Fires on a BARE `/devflow:review`,
-# `/devflow:review-and-fix`, or `/devflow:pr-description` comment/review and runs
+# `/devflow:review-and-fix`, or `/devflow:pr-description` comment (issue #1163: the
+# sole trigger is issue_comment; a review-submission or inline-diff body no longer fires) and runs
 # claude-code-action in AGENT mode with a synthesised prompt (jobs: `config` /
 # `review_dedupe` / `gate` / `command`). This is the body that used to live in
 # the standalone claude.yml.
