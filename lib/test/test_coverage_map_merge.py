@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import shutil
 import subprocess
 import tempfile
@@ -47,9 +46,10 @@ def _load(name, path):
 driver = _load("coverage_map_merge_driver", DRIVER_SOURCE)
 retain = _load("coverage_map_retention_check", RETAIN_SOURCE)
 
-
-def _serialize(map_value) -> str:
-    return json.dumps(map_value, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+# Reuse the ONE canonical serializer (issue #1065's `_serialize_map`, which the driver
+# re-exports) rather than re-spelling `json.dumps(...)` here — a third copy of the pinned
+# shape would let these fixtures silently drift from what the driver/guard produce.
+_serialize = driver._serialize_map
 
 
 def _base_map(run_sh_blocks=None, files=None):
@@ -63,21 +63,52 @@ def _base_map(run_sh_blocks=None, files=None):
     }
 
 
-class MergeDriverGitFixtureTest(unittest.TestCase):
-    """AC1–AC5: the driver against real offline `git merge`s."""
+class _GitFixtureBase(unittest.TestCase):
+    """Shared offline-git-repo scaffolding for the two fixture classes below.
+
+    Holds the fixture contract once — the `mkdtemp` + repository-LOCAL `git init`
+    (never the developer's global config, AC4), the `git -C` wrapper, the map
+    writer, and the default-branch probe — so a change to it (e.g. another
+    host-independence `git config`) is made in exactly one place."""
+
+    prefix = "cm-fixture-"
 
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="cm-merge-"))
+        self.tmp = Path(tempfile.mkdtemp(prefix=self.prefix))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.repo = self.tmp / "repo"
-        self.repo.mkdir()
+        (self.repo / "lib" / "test" / "modules").mkdir(parents=True)
         self._git("init", "-q")
         self._git("config", "user.email", "t@t")
         self._git("config", "user.name", "t")
-        # A repository-local git config only — never the developer's global config (AC4).
         # commit.gpgsign off so signing config on the host machine cannot break fixtures.
         self._git("config", "commit.gpgsign", "false")
-        (self.repo / "lib" / "test" / "modules").mkdir(parents=True)
+
+    def _git(self, *args, check=True):
+        return subprocess.run(
+            ["git", "-C", str(self.repo), *args],
+            capture_output=True,
+            text=True,
+            check=check,
+        )
+
+    def _write_map(self, map_value):
+        (self.repo / MAP_REL).write_text(_serialize(map_value), encoding="utf-8")
+
+    def _has_main(self):
+        return self._git("rev-parse", "--verify", "main", check=False).returncode == 0
+
+    def _base_branch(self):
+        return "main" if self._has_main() else "master"
+
+
+class MergeDriverGitFixtureTest(_GitFixtureBase):
+    """AC1–AC5: the driver against real offline `git merge`s."""
+
+    prefix = "cm-merge-"
+
+    def setUp(self):
+        super().setUp()
         # The driver imports the coverage guard, which imports lint_population; copy all
         # three so the fixture is self-contained and offline.
         for src in (DRIVER_SOURCE, GUARD_SOURCE, POP_SOURCE):
@@ -91,17 +122,6 @@ class MergeDriverGitFixtureTest(unittest.TestCase):
         )
         self._git("add", "-A")
         self._git("commit", "-qm", "base")
-
-    def _git(self, *args, check=True):
-        return subprocess.run(
-            ["git", "-C", str(self.repo), *args],
-            capture_output=True,
-            text=True,
-            check=check,
-        )
-
-    def _write_map(self, map_value):
-        (self.repo / MAP_REL).write_text(_serialize(map_value), encoding="utf-8")
 
     def _read_map(self):
         return json.loads((self.repo / MAP_REL).read_text(encoding="utf-8"))
@@ -123,13 +143,6 @@ class MergeDriverGitFixtureTest(unittest.TestCase):
         m[section][key] = entry
         self._write_map(m)
         self._git("commit", "-qam", f"{branch} adds {key}")
-
-    def _has_main(self):
-        r = self._git("rev-parse", "--verify", "main", check=False)
-        return r.returncode == 0
-
-    def _default_branch(self):
-        return "main" if self._has_main() else "master"
 
     def _two_distinct_keys(self, section, key_a, key_b):
         self._add_key_on_branch("A", section, key_a, {"note": f"{key_a} note", "owner": "unmodularized"})
@@ -299,36 +312,10 @@ class RetentionCheckTest(unittest.TestCase):
                          "defeated comparison (base==head) misses the drop")
 
 
-class RetentionCheckGitFixtureTest(unittest.TestCase):
+class RetentionCheckGitFixtureTest(_GitFixtureBase):
     """The retention CLI end-to-end against an offline git repo (desk == CI inputs)."""
 
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="cm-retain-"))
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        self.repo = self.tmp / "repo"
-        (self.repo / "lib" / "test" / "modules").mkdir(parents=True)
-        self._git("init", "-q")
-        self._git("config", "user.email", "t@t")
-        self._git("config", "user.name", "t")
-        self._git("config", "commit.gpgsign", "false")
-
-    def _git(self, *args, check=True):
-        return subprocess.run(["git", "-C", str(self.repo), *args],
-                              capture_output=True, text=True, check=check)
-
-    def _write_map(self, m):
-        (self.repo / MAP_REL).write_text(_serialize(m), encoding="utf-8")
-
-    def _run_cli(self):
-        return subprocess.run(
-            ["python3", str(RETAIN_SOURCE), str(self.repo), "--base-ref", self._base_branch()],
-            capture_output=True, text=True, check=False,
-            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
-        )
-
-    def _base_branch(self):
-        r = self._git("rev-parse", "--verify", "main", check=False)
-        return "main" if r.returncode == 0 else "master"
+    prefix = "cm-retain-"
 
     def test_cli_detects_dropped_key_against_merge_base(self):
         self._write_map(_base_map(run_sh_blocks={"431": {"note": "curated", "owner": "unmodularized"}}))

@@ -153,24 +153,18 @@ def merge_maps(base: dict, ours: dict, theirs: dict) -> dict:
             merged[section] = _three_way_object(b, o, t, section)
         except MergeConflict as mc:
             conflicts.extend(mc.conflicts)
-    absent = object()
-    for key in sorted(set(base) | set(ours) | set(theirs)):
-        if key in per_key_objects:
-            continue
-        b = base.get(key, absent)
-        o = ours.get(key, absent)
-        t = theirs.get(key, absent)
-        if o == t:
-            chosen = o
-        elif o == b:
-            chosen = t
-        elif t == b:
-            chosen = o
-        else:
-            conflicts.append(f"top-level key {key!r} changed differently on both sides")
-            continue
-        if chosen is not absent:
-            merged[key] = chosen
+    # Every remaining top-level key merges by the SAME per-key three-way rule
+    # `_three_way_object` owns — a whole-value comparison of `schema_version`,
+    # `generated_by`, and the exempt arrays — so delegate rather than re-inline the
+    # ladder (the per_key_objects above already merged recursively and are excluded).
+    rest = {
+        which: {k: v for k, v in m.items() if k not in per_key_objects}
+        for which, m in (("base", base), ("ours", ours), ("theirs", theirs))
+    }
+    try:
+        merged.update(_three_way_object(rest["base"], rest["ours"], rest["theirs"], "top-level"))
+    except MergeConflict as mc:
+        conflicts.extend(mc.conflicts)
     if conflicts:
         raise MergeConflict(conflicts)
     return merged
