@@ -251,7 +251,10 @@ before launching any shard, rather than paying the full sharded suite to redisco
 as an ordinary shard-assertion failure. Then enumerate the partition with
 `lib/test/run-shard.sh --list-shards`, run each shard as its own command (CI observes
 1m44s–4m48s per shard, comfortably inside the ceiling), and recombine the run's own tally
-paths through `lib/test/shard-tally.py combine`. Both helpers are granted in
+paths through `lib/test/shard-tally.py combine`, passing `--require-shards` derived from that
+same `--list-shards` population so the recombination is reconciled against the partition **by
+name** (issue #1289) — a missing, unexpected, or duplicated shard fails closed naming the gap.
+Both helpers are granted in
 `prflow_implement.allowed_tools` and `prflow.allowed_tools` for exactly this reason; before
 that grant existed, a run that took the strict reading had no sanctioned discharge at all and
 its shard attempts were silently denied. Only an unobservable *recombined* run terminates the

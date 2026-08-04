@@ -580,7 +580,13 @@ fi
 # lib/test/module-harness.sh's top-level `declare -A` already needs 4.0 of every shard, and
 # 4.4 is where the bare form stopped tripping `nounset`. On 4.4+ the two forms behave
 # identically, so nothing on this repository's CI or desk tier changes.
-if ! python3 "$TALLY_HELPER" combine ${TALLY_ARGS[@]+"${TALLY_ARGS[@]}"} --expect "$EXPECTED" --detail-cap "$DETAIL_CAP"; then
+# `--require-shards "$SHARDS"` reconciles the recombination against the TRUE partition by
+# name, not just the `--expect` count (issue #1289): `$SHARDS` is the authoritative
+# `--list-shards` population this coordinator enumerated, so a shard that never wrote a
+# tally (launch failure, crash-before-upload) is named as missing in `combine`'s own output
+# too — the count floor alone could be satisfied by a subset. This is additive to the
+# `--expect`/`MISSING`/`SHARD_RCS` diagnostics above, never a replacement.
+if ! python3 "$TALLY_HELPER" combine ${TALLY_ARGS[@]+"${TALLY_ARGS[@]}"} --expect "$EXPECTED" --require-shards "$SHARDS" --detail-cap "$DETAIL_CAP"; then
   AGGREGATE_RC=1
 fi
 
