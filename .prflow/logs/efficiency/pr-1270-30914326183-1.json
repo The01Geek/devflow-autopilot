@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1270",
+  "generated_at": "2026-08-04T13:41:28Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.89",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.13394375,
+    "tokens": {
+      "input_tokens": 45,
+      "output_tokens": 20862,
+      "cache_read_input_tokens": 3313333,
+      "cache_creation_input_tokens": 148719,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 49,
+        "outputTokens": 26082,
+        "cacheReadInputTokens": 3366555,
+        "cacheCreationInputTokens": 198508,
+        "webSearchRequests": 0,
+        "costUSD": 4.13394375,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 29,
+    "duration_ms": 443125
+  },
+  "permission_denials": {
+    "count": 4,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review; echo \"ext-rc=$?\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "cd \"$(mktemp -d)\" && git init -q && git config user.email t@t && git config user.name t\nprintf 'a\\n' > a.txt; mkdir -p .github/workflows; printf 'w\\n' > .github/workflows/x.yml\n# reproduce the helper's arg logic for arg=\"./\"\narg=\"./\"\ncase \"$arg\" in -* | . | :*) echo \"REFUSED\";; *) echo \"NOT-REFUSED (passes stage-all guard)\";; esac\nstripped=\"${arg#./}\"; echo \"stripped='[$stripped]'\"\ncase \"$stripped\" in .github/workflows/*) echo \"workflow-guard: FILTERED\";; *) echo \"workflow-guard: NOT filtered\";; …[per-command-truncated]",
+      "arg=\"./\"\ncase \"$arg\" in -* | . | :*) echo \"arg=./ -> REFUSED\";; *) echo \"arg=./ -> NOT-REFUSED (reaches git add)\";; esac\nstripped=\"${arg#./}\"; printf \"stripped=[%s]\\n\" \"$stripped\"\ncase \"$stripped\" in .github/workflows/*) echo \"workflow-guard: FILTERED\";; *) echo \"workflow-guard: NOT filtered -> ./ enters KEEP\";; esac"
+    ],
+    "total": 4,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
