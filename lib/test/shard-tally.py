@@ -378,6 +378,18 @@ def cmd_combine(args: argparse.Namespace) -> int:
     # existing output is unchanged.
     required = _parse_shard_list(args.require_shards)
     partition_covered = False
+    if args.require_shards and not required:
+        # A non-empty `--require-shards` that parses to nothing (whitespace- or
+        # separator-only — e.g. the #1132 recipe pasting an EMPTY `run-shard.sh
+        # --list-shards` result) would otherwise silently skip the by-name check,
+        # reintroducing the fail-open one layer out. Distinguish it from the
+        # sanctioned empty-string opt-out (which is `default=""`, falsy here) and
+        # fail closed. `--expect 0` stays the documented explicit opt-out.
+        problems.append(
+            "--require-shards was given but names no shards (empty/separator-only "
+            f"value {args.require_shards!r}) — refusing to silently disable the "
+            "by-name partition check; pass the real partition, or --expect 0 to opt out"
+        )
     if required:
         read_set = set(shard_names)
         required_set = set(required)
@@ -438,16 +450,22 @@ def cmd_combine(args: argparse.Namespace) -> int:
     # State which population this aggregate claims to cover, so a partial recombination
     # cannot be quoted as a whole-suite result on its trailing line alone (issue #1289).
     if required:
-        if partition_covered:
-            print(
-                f"shard-tally combine: required partition covered "
-                f"({len(required)} shard(s)): {', '.join(required)}"
-            )
-        else:
+        if not partition_covered:
+            # A membership failure (missing/unexpected/duplicate shard): name the
+            # claimed partition and route the reader to the PROBLEM line(s).
             print(
                 "shard-tally combine: required partition NOT covered "
                 f"({', '.join(required)}) — see PROBLEM line(s) below",
                 file=sys.stderr,
+            )
+        elif not problems and total_fail == 0:
+            # Membership complete AND the aggregate is otherwise clean: only then
+            # state coverage affirmatively, so a "covered" line can never be quoted
+            # beside a red gate (a shard whose own tally failed still fails the
+            # aggregate above and prints its own recap — no partition line needed).
+            print(
+                f"shard-tally combine: required partition covered "
+                f"({len(required)} shard(s)): {', '.join(required)}"
             )
 
     if problems:

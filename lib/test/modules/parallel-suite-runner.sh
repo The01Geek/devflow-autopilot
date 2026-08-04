@@ -783,9 +783,29 @@ assert_eq "psr require: an unexpected shard beside the required set fails closed
   "$(python3 "$PSR_TALLY" combine "$PSR_RS/alpha" "$PSR_RS/beta" --expect 2 --require-shards "alpha" >/dev/null 2>&1; echo $?)"
 assert_eq "psr require: the unexpected shard is named" "yes" \
   "$(case "$PSR_RS_EXTRA" in *"shard 'beta' is present but not in the required partition"*) echo yes ;; *) echo no ;; esac)"
-# The same tally handed twice (a caller typo doubling one dir) is caught as a duplicate.
-assert_eq "psr require: a shard recombined more than once fails closed" "yes" \
+# The same tally handed twice (a caller typo doubling one dir) is caught as a duplicate,
+# both by the named message AND by a non-zero exit (the "fails closed" half).
+assert_eq "psr require: a shard recombined more than once is named" "yes" \
   "$(case "$(python3 "$PSR_TALLY" combine "$PSR_RS/alpha" "$PSR_RS/alpha" --expect 2 --require-shards "alpha" 2>&1)" in *"recombined more than once: alpha"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "psr require: a shard recombined more than once fails closed (rc 1)" "1" \
+  "$(python3 "$PSR_TALLY" combine "$PSR_RS/alpha" "$PSR_RS/alpha" --expect 2 --require-shards "alpha" >/dev/null 2>&1; echo $?)"
+# The membership-failure branch prints its own self-describing NOT-covered line to stderr
+# (the negative counterpart of the covered line asserted above).
+assert_eq "psr require: a membership failure states the partition it could NOT cover" "yes" \
+  "$(case "$PSR_RS_SUB" in *"required partition NOT covered (alpha, beta, gamma)"*) echo yes ;; *) echo no ;; esac)"
+# A non-empty but degenerate --require-shards (whitespace/separator-only — e.g. the #1132
+# recipe pasting an EMPTY --list-shards) must NOT silently disable the by-name check: it
+# fails closed, distinct from the empty-string opt-out. This closes the fail-open one layer out.
+assert_eq "psr require: a separator-only value fails closed rather than silently disabling" "1" \
+  "$(python3 "$PSR_TALLY" combine "$PSR_RS/alpha" --expect 1 --require-shards ", ," >/dev/null 2>&1; echo $?)"
+assert_eq "psr require: a whitespace-only value fails closed rather than silently disabling" "yes" \
+  "$(case "$(python3 "$PSR_TALLY" combine "$PSR_RS/alpha" --expect 1 --require-shards "   " 2>&1)" in *"names no shards"*) echo yes ;; *) echo no ;; esac)"
+# _parse_shard_list keeps order-of-first-appearance and de-dups the REQUIRED value itself,
+# so the covered line reads in the caller's stated order and a self-duplicated id is harmless.
+assert_eq "psr require: the covered line preserves the caller's stated order" "yes" \
+  "$(case "$(python3 "$PSR_TALLY" combine "$PSR_RS/alpha" "$PSR_RS/beta" "$PSR_RS/gamma" --expect 3 --require-shards "gamma beta alpha" 2>&1)" in *"required partition covered (3 shard(s)): gamma, beta, alpha"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "psr require: a self-duplicated required id de-dups to the real partition" "0" \
+  "$(python3 "$PSR_TALLY" combine "$PSR_RS/alpha" "$PSR_RS/beta" "$PSR_RS/gamma" --expect 3 --require-shards "alpha,alpha,beta,gamma" >/dev/null 2>&1; echo $?)"
 # Omitting --require-shards leaves the existing output byte-shape unchanged — no partition
 # line at all, so CI's aggregator (which never passes the flag) is unaffected.
 assert_eq "psr require: omitting the flag prints no partition line (existing output unchanged)" "yes" \
