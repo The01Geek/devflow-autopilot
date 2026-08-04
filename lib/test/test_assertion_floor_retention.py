@@ -84,10 +84,33 @@ class DetectDecreasesCoreTest(unittest.TestCase):
         self.assertIn("workflow-flight-recorder", violations[0])
 
     def test_retired_module_is_out_of_scope(self):
-        # A module present at base but absent at head is a RETIREMENT, not a lowered floor.
+        # A module whose ENTRY is entirely absent at head is a RETIREMENT, not a lowered floor.
         base = _registry({"m": 68, "gone": 300})
         head = _registry({"m": 68})
         self.assertEqual(check.detect_decreases(base, head, None), [])
+
+    def test_head_floor_becomes_unreadable_while_entry_lives_is_flagged(self):
+        # The maximal-shrink case: the module still exists at head but its minimum_assertions
+        # became a non-int (or was removed while the entry survived), stripping floor
+        # protection. That is NOT a retirement and MUST be flagged.
+        base = _registry({"m": 68})
+        head = _registry({}, extra={"m": {"minimum_assertions": "68"}})
+        violations = check.detect_decreases(base, head, None)
+        self.assertEqual(len(violations), 1)
+        self.assertIn("no longer a readable integer", violations[0])
+
+    def test_head_floor_key_removed_while_entry_lives_is_flagged(self):
+        base = _registry({"m": 68})
+        head = _registry({}, extra={"m": {"path": "x"}})  # entry present, no minimum_assertions
+        violations = check.detect_decreases(base, head, None)
+        self.assertEqual(len(violations), 1)
+        self.assertIn("floor protection was removed", violations[0])
+
+    def test_head_floor_unreadable_can_be_allowlisted(self):
+        base = _registry({"m": 68})
+        head = _registry({}, extra={"m": {"minimum_assertions": None}})
+        allow = [{"module": "m", "reason": "floor intentionally removed; module demoted to advisory"}]
+        self.assertEqual(check.detect_decreases(base, head, allow), [])
 
     def test_new_module_is_not_a_decrease(self):
         base = _registry({"m": 68})
@@ -114,6 +137,20 @@ class DetectDecreasesCoreTest(unittest.TestCase):
         head = _registry({"m": 40})
         violations = check.detect_decreases(base, head, {"module": "m"})
         self.assertTrue(any("must be a JSON array" in v for v in violations))
+        self.assertTrue(any("LOWERED" in v for v in violations))
+
+    def test_allowlist_non_dict_entry_is_fail_closed(self):
+        base = _registry({"m": 68})
+        head = _registry({"m": 40})
+        violations = check.detect_decreases(base, head, ["m"])
+        self.assertTrue(any("is not an object" in v for v in violations))
+        self.assertTrue(any("LOWERED" in v for v in violations))
+
+    def test_allowlist_entry_without_module_is_fail_closed(self):
+        base = _registry({"m": 68})
+        head = _registry({"m": 40})
+        violations = check.detect_decreases(base, head, [{"reason": "x"}])
+        self.assertTrue(any("'module' must be a non-empty string" in v for v in violations))
         self.assertTrue(any("LOWERED" in v for v in violations))
 
     def test_malformed_base_registry_is_unestablished_not_empty(self):
@@ -319,6 +356,65 @@ class RetentionCheckGitFixtureTest(_GitFixtureBase):
         result = self._run_cli("--base-ref", base, "--allow-degraded-base")
         self.assertEqual(result.returncode, check.EXIT_CLEAN, result.stdout + result.stderr)
         self.assertIn("acknowledged", result.stdout)
+
+    def _seed_unrelated_histories_with_lower_floor(self):
+        # Build a trunk carrying floor 68 and an ORPHAN 'feature' branch (no common ancestor)
+        # carrying a lower floor 40. `git merge-base HEAD trunk` then fails, so the check
+        # substitutes trunk's own TIP for a merge base — exercising main()'s
+        # comparand_substituted=True wiring end-to-end, which the empty-base fixtures never do.
+        self._write_registry({"m": 68})
+        self._write_allow([])
+        self._git("add", "-A")
+        self._git("commit", "-qm", "trunk (floor 68)")
+        trunk = self._base_branch()
+        self._git("checkout", "-q", "--orphan", "feature")
+        self._git("rm", "-rfq", "--cached", ".", check=False)
+        (self.repo / REGISTRY_REL).unlink(missing_ok=True)
+        self._write_registry({"m": 40})
+        self._write_allow([])
+        # config-get.sh resolver was removed by the orphan checkout; restore it.
+        resolver = self.repo / "scripts" / "config-get.sh"
+        resolver.write_text("#!/usr/bin/env bash\necho main\n", encoding="utf-8")
+        resolver.chmod(0o755)
+        self._git("add", "-A")
+        self._git("commit", "-qm", "orphan feature (floor 40)")
+        return trunk
+
+    def test_cli_decrease_against_substituted_comparand_is_unestablished_not_loss(self):
+        # A real decrease measured against a SUBSTITUTED tip must route to exit 3, never the
+        # exit-1 established-loss arm — trunk may have RAISED the floor after the fork.
+        trunk = self._seed_unrelated_histories_with_lower_floor()
+        result = self._run_cli("--base-ref", trunk)
+        self.assertEqual(result.returncode, check.EXIT_UNESTABLISHED, result.stdout + result.stderr)
+        self.assertIn("SUBSTITUTE comparand", result.stdout)
+
+    def test_cli_substituted_comparand_decrease_acknowledged_exits_0(self):
+        trunk = self._seed_unrelated_histories_with_lower_floor()
+        result = self._run_cli("--base-ref", trunk, "--allow-degraded-base")
+        self.assertEqual(result.returncode, check.EXIT_CLEAN, result.stdout + result.stderr)
+
+    def test_cli_head_floor_becomes_unreadable_is_flagged(self):
+        # End-to-end mirror of the core fail-open fix: a live module whose head floor became
+        # a non-int against a SOUND merge base is an established loss (exit 1).
+        base = self._seed_base({"m": 68})
+        self._git("checkout", "-qb", "feature")
+        (self.repo / REGISTRY_REL).write_text(
+            json.dumps({"schema_version": 1, "test_modules": {"m": {"minimum_assertions": "68"}}},
+                       indent=2) + "\n",
+            encoding="utf-8",
+        )
+        self._git("commit", "-qam", "corrupt m floor")
+        result = self._run_cli("--base-ref", base)
+        self.assertEqual(result.returncode, check.EXIT_DECREASE, result.stdout + result.stderr)
+        self.assertIn("no longer a readable integer", result.stdout)
+
+    def test_cli_unreadable_head_registry_fails_closed(self):
+        base = self._seed_base({"m": 68})
+        self._git("checkout", "-qb", "feature")
+        (self.repo / REGISTRY_REL).write_text("{ not json", encoding="utf-8")
+        self._git("commit", "-qam", "corrupt registry json")
+        result = self._run_cli("--base-ref", base)
+        self.assertEqual(result.returncode, check.EXIT_DECREASE, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

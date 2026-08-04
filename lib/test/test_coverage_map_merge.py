@@ -491,7 +491,7 @@ class RetentionOutcomeSelectionTest(unittest.TestCase):
         self.assertEqual(lines, self.KEY_LOSS)
 
     def test_violation_against_a_substituted_comparand_is_not_an_established_loss(self):
-        # The Important finding. `_merge_base` hands back BASE_REF's TIP when no merge
+        # The Important finding. `common.merge_base` hands back BASE_REF's TIP when no merge
         # base can be computed, and that tip may carry a key added AFTER the fork which
         # the branch legitimately never had. Reporting that as exit-1 "a merge dropped
         # it" misattributes it, so it routes through the degraded arm instead.
@@ -768,7 +768,7 @@ class RetentionSubstitutedComparandTest(_GitFixtureBase):
     The mirror image of `RetentionShallowCloneTest`: there, a key really was dropped and
     the degraded comparand must not launder it into a pass. Here NOTHING was dropped —
     the trunk added a key after the fork point and the branch simply never had it — but
-    a shallow clone makes `_merge_base` substitute the trunk's TIP, against which the
+    a shallow clone makes `common.merge_base` substitute the trunk's TIP, against which the
     key reads as "absent from head". Reporting that as an exit-1 `a merge/resolution
     dropped it` is a misattribution about a comparison the run never performed, and one
     the developer could not acknowledge away.

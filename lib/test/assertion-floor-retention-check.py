@@ -133,30 +133,38 @@ def _allow_index(allow_value: object) -> "tuple[set[str], list[str]]":
     return permitted, errors
 
 
-def _floors(registry: object) -> "tuple[dict[str, int] | None, str | None]":
-    """The {module id: minimum_assertions} map from a registry object, or (None, error).
+def _floors(registry: object) -> "tuple[dict[str, int] | None, set[str] | None, str | None]":
+    """Parse a registry object into (floors, unreadable, error).
 
-    A registry that is not a well-shaped object, or whose `test_modules` is not an object,
-    is an UNESTABLISHED comparand (None + error) rather than an empty map — reading it as
-    'no modules' would launder a decrease into a pass. A single module whose entry is not an
-    object, or whose `minimum_assertions` is missing or not an int, is skipped with no floor
-    recorded (there is nothing to compare for it); an unparseable head value on a module that
-    HAD a base floor surfaces below as an established loss of that floor's protection."""
+    `floors` maps each module id with a readable integer `minimum_assertions` to its value.
+    `unreadable` is the set of module ids whose ENTRY is present but whose `minimum_assertions`
+    is missing, a bool, or a non-int — the module still exists, but it carries no comparable
+    floor. That distinction is load-bearing: a module absent from `floors` for the two reasons
+    is NOT the same event (see `detect_decreases`) — an absent ENTRY is a retirement, while a
+    present entry with an unreadable floor is the floor's protection being removed while the
+    module lives on, the maximal shrink and a loss this gate must catch.
+
+    A registry that is not a well-shaped object, or whose `test_modules` is not an object, is
+    an UNESTABLISHED comparand ((None, None, error)) rather than an empty map — reading it as
+    'no modules' would launder a decrease into a pass. A module whose entry is not an object is
+    ignored entirely (it is not a well-formed module record to reason about)."""
     if not isinstance(registry, dict):
-        return None, f"{REGISTRY_REL} is not a JSON object — comparand unestablished"
+        return None, None, f"{REGISTRY_REL} is not a JSON object — comparand unestablished"
     modules = registry.get("test_modules", {})
     if not isinstance(modules, dict):
-        return None, f"{REGISTRY_REL} 'test_modules' is not an object — comparand unestablished"
+        return None, None, f"{REGISTRY_REL} 'test_modules' is not an object — comparand unestablished"
     floors: "dict[str, int]" = {}
+    unreadable: "set[str]" = set()
     for module_id, mapping in modules.items():
         if not isinstance(mapping, dict):
             continue
         value = mapping.get("minimum_assertions")
         # bool is an int subclass; a JSON true/false is never a valid floor.
         if isinstance(value, bool) or not isinstance(value, int):
+            unreadable.add(module_id)
             continue
         floors[module_id] = value
-    return floors, None
+    return floors, unreadable, None
 
 
 def detect_decreases(
@@ -166,22 +174,38 @@ def detect_decreases(
 
     A base or head registry that is not a well-shaped object contributes a fail-closed
     breadcrumb rather than being read as 'no modules' — an unestablished comparand is never a
-    pass. A module present at base but absent at head is a RETIREMENT, out of scope here, and
-    is not flagged."""
+    pass. A module present at base but whose ENTRY is entirely absent at head is a RETIREMENT,
+    out of scope here, and is not flagged. But a module still present at head whose
+    `minimum_assertions` became unreadable (non-int, bool, or removed while the entry lives on)
+    is the floor's protection being stripped from a live module — the maximal shrink — and IS
+    flagged as a loss."""
     violations: "list[str]" = []
     permitted, allow_errors = _allow_index(allow_value)
     violations.extend(f"[floor] {e}" for e in allow_errors)
 
-    base_floors, base_error = _floors(base_registry)
+    base_floors, _, base_error = _floors(base_registry)
     if base_error is not None:
         return violations + [f"[floor] base {base_error}"]
-    head_floors, head_error = _floors(head_registry)
+    head_floors, head_unreadable, head_error = _floors(head_registry)
     if head_error is not None:
         return violations + [f"[floor] head {head_error}"]
 
     for module_id in sorted(base_floors):
         if module_id not in head_floors:
-            # Module retired (or its head floor became unreadable) — out of scope; not flagged.
+            if module_id in head_unreadable:
+                # The module still exists at head, but its floor is no longer a readable
+                # integer — floor protection removed from a live module (a full shrink).
+                if module_id in permitted:
+                    continue
+                violations.append(
+                    f"[floor] module {module_id!r} had assertion floor {base_floors[module_id]} "
+                    f"at the merge base but its head `minimum_assertions` is no longer a readable "
+                    f"integer (missing, bool, or non-int) while the module entry still exists — "
+                    f"floor protection was removed; restore an integer floor, or declare the "
+                    f"removal with a reason in {ALLOW_REL}"
+                )
+                continue
+            # Module ENTRY entirely absent at head — a retirement; out of scope, not flagged.
             continue
         base_value = base_floors[module_id]
         head_value = head_floors[module_id]
@@ -315,7 +339,7 @@ def main(argv: "list[str]") -> int:
     # registry, so the base registry reads as {} and every floor looks retained. It is a
     # degraded comparand, not a pass — even when the registry genuinely did not exist at the
     # base, in which case the acknowledgement flag is the way to say so.
-    base_floors, _ = _floors(base_registry)
+    base_floors, _, _ = _floors(base_registry)
     if base_floors is not None and not base_floors:
         unestablished.append(
             f"the base {REGISTRY_REL} at {merge_base} carried no test-module floors, so there "
