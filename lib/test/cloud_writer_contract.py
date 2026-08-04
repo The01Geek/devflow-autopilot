@@ -942,20 +942,21 @@ def check_grant_sync(profile_grants=None):
 
 
 # --- AC4 (issue #678): profile-specific command shapes over the AC1 closure ----
-# extract-command-shapes.py already owns two empirically-probed rule tables — the
-# read-only review tier (R1-R4) and the read-write implement tier (IR1-IR5). What
-# was missing is the join to THIS module's reachability closure: the existing
+# extract-command-shapes.py owns three empirically-probed rule tables — the
+# read-only review tier (R1-R4), the read-write implement tier (IR1-IR5), and the
+# command tier (CR1-CR5, issue #1152, inheriting the implement shapes). What was
+# missing is the join to THIS module's reachability closure: the existing
 # desk-time scans cover named file globs, so a fenced command in an asset reached
 # by a root whose glob does not name it was audited by neither.
 #
 # The mapping below is per profile and EXPLICIT, because AC4 forbids inferring a
-# permitted form from evidence recorded on the other profile. `light-command`
-# maps to None BY DECLARATION, not by omission: matcher-probe.yml records a REVIEW
-# baseline and an IMPLEMENT baseline and no light-command one, so there is no
-# probe-anchored table to apply — and applying the review table (its listener is
-# a read-write writer tier, not the read-only reviewer) would be exactly the
-# cross-profile inference AC4 rejects. A ROOTS profile with NO entry at all is a
-# reported violation rather than a silent skip, so a future profile fails closed.
+# permitted form from evidence recorded on ANOTHER profile. Each profile maps to
+# its OWN probe-anchored table: matcher-probe.yml records a REVIEW, an IMPLEMENT,
+# and (issue #1152) a COMMAND baseline, so `light-command` maps to the command
+# table rather than borrowing the review or implement one — a None entry would
+# still be legal (it means "no probe-anchored table for that profile"), but no
+# ROOTS profile is None today. A ROOTS profile with NO entry at all is a reported
+# violation rather than a silent skip, so a future profile fails closed.
 #
 # `rules` is read from extract-command-shapes.py rather than mirrored, so a rule
 # added there cannot leave a stale copy here.
@@ -1010,12 +1011,14 @@ def shape_violations_in(profile, text):
 def shape_unaudited_assets():
     """Reached assets governed by NO profile carrying a probe-anchored rule table.
 
-    An asset every reaching profile declares ``None`` for (today only
-    ``light-command``) is audited by nothing — a real coverage hole this module
-    must *report*, not leave to be inferred from a silent pass. It is empty on the
-    current closure only because every light-command-reached skill is also reached
-    under ``implement``; a future skill reachable ONLY from the light-command
-    listener would otherwise escape the AC4 audit with the guard still green.
+    An asset every reaching profile declares ``None`` for is audited by nothing —
+    a real coverage hole this module must *report*, not leave to be inferred from a
+    silent pass. Empty on the current closure because no ROOTS profile is ``None``
+    today (issue #1152 gave ``light-command`` its own table); it stays empty even
+    were one reintroduced, because every light-command-reached skill is also reached
+    under ``implement`` — but a future skill reachable ONLY from a listener whose
+    profile declared ``None`` would escape the AC4 audit with the guard still green,
+    which is what this function exists to catch.
     """
     tabled = {p for p, table in PROFILE_SHAPE_TABLES.items() if table is not None}
     return sorted(

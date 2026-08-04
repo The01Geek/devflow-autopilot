@@ -9843,8 +9843,13 @@ assert_eq("#678 AC8: stripping the frozenset declarations actually removed them 
 _sc_src_review = set(re.findall(r'^\s*\("[^"]+",\s*"(R\d+)",', _sc_shapes_emit_src, re.M))
 _sc_src_implement = set(re.findall(r'"(IR\d+)"', _sc_shapes_emit_src))
 # issue #1152: the command ids (CR*) appear in source only as `_IR_TO_CR`'s values
-# ("IR1": "CR1", …), which is the map find_command_violations remaps THROUGH — so a
-# CR id added to that map without being in COMMAND_RULES (or vice versa) goes RED here.
+# ("IR1": "CR1", …). COMMAND_RULES is `frozenset(_IR_TO_CR.values())`, so both sides
+# derive from that one dict — this is NOT the independent-drift check the IMPLEMENT
+# reconciliation above is (a new IR rule with no `_IR_TO_CR` mapping is caught THERE,
+# and by find_command_violations' KeyError, not here). What it DOES catch, because the
+# `COMMAND_RULES = ` declaration line is stripped from the scanned source at
+# `_sc_shapes_emit_src`, is COMMAND_RULES being re-typed as a hardcoded literal that
+# disagrees with the `_IR_TO_CR` values the finder actually remaps to.
 _sc_src_command = set(re.findall(r'"(CR\d+)"', _sc_shapes_emit_src))
 assert_eq("#678 AC8: REVIEW_RULES mirrors exactly the R-ids extract-command-shapes.py's "
           "review classifier emits (a rule added to the finder alone goes RED here)",

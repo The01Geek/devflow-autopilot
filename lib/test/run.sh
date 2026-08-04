@@ -32973,7 +32973,10 @@ printf '%s\n' '```bash' 'echo hi > /tmp/cr5' '```' > "$E363/cr5.md"
 printf '%s\n' '```bash' '"${CLAUDE_SKILL_DIR:-x}"/../../scripts/config-get.sh .base_branch main' '```' > "$E363/cr-anchor-clean.md"
 printf '%s\n' '```bash' 'echo just a plainly granted command' '```' > "$E363/cr-clean.md"
 for _crn in CR1 CR2 CR3 CR4 CR5; do
-  _crf="$E363/$(printf '%s' "$_crn" | tr 'A-Z' 'a-z').md"
+  # ${_crn,,} is a bash builtin lowercase — the fixture filename that SELECTS which
+  # planted fence to lint must not be derived through a non-preflight PATH tool like
+  # `tr` (guard-class 2), even in a test.
+  _crf="$E363/${_crn,,}.md"
   assert_eq "#1152 command profile: a planted $_crn violation is observed RED" "yes" \
     "$(python3 "$ECS" --profile command "$_crf" 2>/dev/null | grep -qF "  $_crn  " && echo yes || echo no)"
 done
