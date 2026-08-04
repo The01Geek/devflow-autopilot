@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1238",
+  "generated_at": "2026-08-04T01:19:36Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.75",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.0244695,
+    "tokens": {
+      "input_tokens": 52,
+      "output_tokens": 15039,
+      "cache_read_input_tokens": 3417479,
+      "cache_creation_input_tokens": 127876,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 52,
+        "outputTokens": 15039,
+        "cacheReadInputTokens": 3417479,
+        "cacheCreationInputTokens": 127876,
+        "webSearchRequests": 0,
+        "costUSD": 3.3637345,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 30,
+        "outputTokens": 7268,
+        "cacheReadInputTokens": 870500,
+        "cacheCreationInputTokens": 77460,
+        "webSearchRequests": 0,
+        "costUSD": 0.660735,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 29,
+    "duration_ms": 347504
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-<none>} ATTEMPT=${GITHUB_RUN_ATTEMPT:-<none>} ACTIONS=${GITHUB_ACTIONS:-<none>}\"; git status --porcelain",
+      "wc -l .prflow/tmp/review/pr-1238/30868016687-1/diff.patch\ngit -C /home/runner/work/prflow/prflow diff main 798e47e1218d03a4da3a20cfef002f0656f66636 -- skills/implement/SKILL.md 2>&1 | head -100",
+      "git show 798e47e1218d03a4da3a20cfef002f0656f66636:skills/implement/SKILL.md > /tmp/skill_head.md\ngit show main:skills/implement/SKILL.md > /tmp/skill_base.md\ndiff /tmp/skill_base.md /tmp/skill_head.md",
+      "git show 798e47e1218d03a4da3a20cfef002f0656f66636:skills/implement/SKILL.md > /tmp/skill_head.md",
+      "mkdir -p .prflow/tmp/review-scratch && git show 798e47e1218d03a4da3a20cfef002f0656f66636:skills/implement/SKILL.md > .prflow/tmp/review-scratch/skill_head.md",
+      "cd /home/runner/work/prflow/prflow\n.prflow/vendor/prflow/scripts/workpad.py patch 5173470373 .prflow/tmp/review/pr-1238/30868016687-1/review-wp.md 2>.prflow/tmp/review/pr-1238/30868016687-1/rv-patch.err ; echo \"patch-rc=$?\""
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
