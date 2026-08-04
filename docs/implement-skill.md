@@ -128,7 +128,10 @@ The `/prflow:implement` orchestrator runs a set of mandatory **sweeps** in Phase
 code and before running tests. Each sweep closes a class of blast-radius bug that survives `git diff`
 review because nothing is *syntactically* broken — the affected lines still compile, parse, or run;
 they are only *semantically* stale. This doc is the internal-docs counterpart of that section: it
-records *why* each sweep exists so the skill text can stay terse.
+records *why* each sweep exists so the skill text can stay terse. A pre-write counterpart to these
+sweeps runs earlier, in Phase 2.2's planning (§2.2.7, *Pre-flight coupled-site map*): before any §2.3
+edit, the run enumerates the coupled sites a change will touch by searching for them first and recording
+what it found — so a missed copy surfaces at plan time rather than as a red suite or a reviewer REJECT.
 
 A **"Sweep selection (run first)"** preamble in the skill indexes which of these sweeps a given diff's shape warrants. Its trigger shapes are **substrate-agnostic** — a contract, a peer-replicated rule, or an enumerated-set membership can live in prose/`SKILL.md`/doc/config as much as in code, so the preamble classifies by *what the change replicates across sites*, not by whether it is code: an add-only diff that replicates nothing across sites runs just the six always-on sweeps (2.3.3/2.3.4/2.3.4a/2.3.4b/2.3.5/2.3.6) instead of consciously dispatching the deletion/contract sweeps as no-ops, but an add-only prose/doc/config diff that adds a peer-replicated rule, an enumerated-set member, or a mirrored contract literal still runs the contract-completeness sweeps (2.3.0 / 2.3.0a / 2.3.0b). The index is **fail-safe**: each sweep's own heading (the *Triggers on* column below) stays authoritative, so a drifted or incomplete index can only over-select, never skip a warranted sweep.
 
