@@ -7,7 +7,7 @@ This is a maintainer/CI-adjacent instrument, NEVER invoked by the skill's runtim
 path (neither the local nor the cloud tier). It walks a supplied Claude Code
 transcript directory and measures the *runtime main-thread context* a
 `/devflow:create-issue` run accumulates — a distinct quantity from the static
-shipped word count of the skill files (see docs/create-issue-context.md).
+shipped word count of the skill files.
 
 Issue #889 extends the instrument to attribute the **Step 3.6 audit round** cost
 that #793 introduced. That cost is spent by the auditor **subagent**, whose turns
@@ -68,10 +68,10 @@ truncated/errored/absent tool_result) and re-emission (a large assistant text bl
 whose exact bytes were already produced earlier in the run).
 
 Wall-clock is deliberately NOT claimed as a measured axis on this tier: it is
-reported `unestablished`, citing docs/efficiency-trace.md's local-tier row, rather
+reported `unestablished`, citing the local tier's inability to measure it, rather
 than asserted as something the orchestrator observes. No cost figure is sourced
 from a value the orchestrator volunteers — the harness emits the same data
-deterministically (docs/efficiency-trace.md, agent-volunteered-operand record).
+deterministically.
 
 The parser streams records line by line (it never buffers an entire session into
 memory) and degrades per malformed record without detonating, reporting how many

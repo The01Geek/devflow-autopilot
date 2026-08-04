@@ -408,7 +408,7 @@ def dependencies(args: argparse.Namespace) -> int:
 # PR-vouched-only path the untrusted workpad is neutralized rather than consulted.
 # The threat model this admission rests on — who can write each source, and the
 # population overlap that bounds what it defends against — has its CANONICAL
-# statement in docs/implement-skill.md's "Two provenance sources for ahead history"
+# statement in the implement skill's "Two provenance sources for ahead history"
 # section. This header states only the operative rules above; the skill body and the
 # system overview carry coupled summaries. Edit those three together, and do not add
 # a fourth copy of the rationale here — a security rationale copied further drifts.

@@ -15,7 +15,7 @@ the per-row failure mode, the criterion and the two recorded adjudications all l
 and nothing here re-derives them. This helper has two jobs, kept apart because their
 remedies differ:
 
-  render / --check   The advisory table in `docs/cloud-setup.md` is a GENERATED region,
+  render / --check   The advisory table in the REGION_FILE document is a GENERATED region,
                      banner-stamped with a sha256 over its own body. `--check` reports
                      drift between the region and the JSON; the remedy is to re-run this
                      generator, so the batched-artifact pass carries it as a

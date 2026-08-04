@@ -37,7 +37,7 @@ if [ -n "${BASH_VERSION:-}" ]; then
   [ -n "${DEVFLOW_BASH:-}" ] && _dfb_msg="$_dfb_msg; DEVFLOW_BASH=$DEVFLOW_BASH"
   printf '%s\n' "$_dfb_msg" >&2
 else
-  printf '%s\n' "devflow-bash: not running under a POSIX bash (no \$BASH_VERSION). DevFlow shell (.sh) helpers require a POSIX bash — on Windows use WSL bash, Git Bash, or MSYS2 bash, and point DevFlow at it with the DEVFLOW_BASH override (e.g. DEVFLOW_BASH=/path/to/bash). See docs/install.md." >&2
+  printf '%s\n' "devflow-bash: not running under a POSIX bash (no \$BASH_VERSION). DevFlow shell (.sh) helpers require a POSIX bash — on Windows use WSL bash, Git Bash, or MSYS2 bash, and point DevFlow at it with the DEVFLOW_BASH override (e.g. DEVFLOW_BASH=/path/to/bash)." >&2
   exit 1
 fi
 
@@ -181,7 +181,7 @@ else
     # which would read as contradictory to a user whose `command -v python3` resolves). The
     # toolchain's literal `python3` calls still fail until a shim is in place, so this is still a
     # missing dependency — but an actionable one: direct the user to the provisioner, not a dead end.
-    printf "devflow preflight: no working 'python3' on PATH, but a compatible Python (>=3.11) is available as '%s'. Run scripts/provision-python3-shim.sh to install a 'python3' shim so the toolchain resolves it (Windows/Git-Bash); see docs/install.md.\n" "$_resolved" >&2
+    printf "devflow preflight: no working 'python3' on PATH, but a compatible Python (>=3.11) is available as '%s'. Run scripts/provision-python3-shim.sh to install a 'python3' shim so the toolchain resolves it (Windows/Git-Bash).\n" "$_resolved" >&2
     PYTHON="$_resolved"
     missing=1
   elif [ "$_rc" -eq 1 ]; then

@@ -1588,8 +1588,8 @@ do_persist() {
     # and strip the floor from the offline/fixture runs synth_base_ref supports). The status
     # value is `established` because it is the CONTROL value the two-valued guard reads, not
     # an epistemic claim that the local base is trustworthy: refs/heads/<base> is shared
-    # across linked worktrees and can be stale. That gap is a documented residual window
-    # (docs/efficiency-trace.md), recorded here rather than silently closed.
+    # across linked worktrees and can be stale. That gap is a documented residual window,
+    # recorded here rather than silently closed.
     _DEVFLOW_BASE_REF_STATUS=established
     echo "efficiency-trace.sh --persist: base-ref refresh skipped — no origin remote configured; accepted the local base '${_DEVFLOW_BASE_BRANCH}' without a refresh (recorded residual: the local base may be stale across linked worktrees)" >&2
   fi

@@ -6,7 +6,8 @@ verdict from a `claude-code-action` execution file (issue #874).
 Why a helper rather than inline Python in matcher-probe.yml: this verdict is a
 branch-selecting core (a BOTH_HOPS / ORCHESTRATOR_ONLY / NEITHER_HOP / INCONCLUSIVE
 selection, plus the suspect DISPATCHED_TASK_ONLY inversion, plus the
-record/do-not-record decision a maintainer transcribes into docs/cloud-allowlist.md). Inline-in-YAML it cannot be unit-tested, so a regressed
+record/do-not-record decision a maintainer transcribes into the cloud allowlist
+evidence record). Inline-in-YAML it cannot be unit-tested, so a regressed
 arm would silently misfire while the workflow still "runs" — the same rationale as
 scripts/background-tasks-probe-verdict.py (#812), scripts/schedulewakeup-probe-verdict.py
 (#415), and scripts/describe-denial-count.sh (PR #367).
@@ -235,8 +236,8 @@ def render(exec_file):
     out.append("")
     if record_it:
         out.append(
-            "**Record this run** in `docs/cloud-allowlist.md`'s propagation-measurement "
-            "entry, with the run id and the verdict above."
+            "**Record this run** in the cloud allowlist evidence record's "
+            "propagation-measurement entry, with the run id and the verdict above."
         )
     else:
         out.append(

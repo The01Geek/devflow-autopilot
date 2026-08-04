@@ -41,7 +41,7 @@ Design invariants:
 
 Abandoned runs (a slug with no merged PR) are deliberately EXCLUDED — the record is
 keyed on merged PRs — so the cost side carries a documented survivorship bias (a run
-that never merged contributes no cost row). See docs/efficiency-trace.md.
+that never merged contributes no cost row).
 
 Usage:
     build-experiment-records.py [--repo-root DIR] [--prs 431,430,...]
