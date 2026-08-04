@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1301",
+  "generated_at": "2026-08-04T23:44:48Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.97",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 126.01681024999992,
+    "tokens": {
+      "input_tokens": 6998,
+      "output_tokens": 411633,
+      "cache_read_input_tokens": 199644253,
+      "cache_creation_input_tokens": 824056,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 7154,
+        "outputTokens": 452966,
+        "cacheReadInputTokens": 204259723,
+        "cacheCreationInputTokens": 1509891,
+        "webSearchRequests": 0,
+        "costUSD": 126.01681024999992,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 415,
+    "duration_ms": 16770893
+  },
+  "permission_denials": {
+    "count": 28,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"GITHUB_ACTIONS=$GITHUB_ACTIONS\"; echo \"GITHUB_RUN_ID=$GITHUB_RUN_ID\"; echo \"GITHUB_REPOSITORY=$GITHUB_REPOSITORY\"; echo \"CLAUDE_CODE_SESSION_ID=${CLAUDE_CODE_SESSION_ID:-unset}\"; echo \"---workpad id---\"; .prflow/vendor/prflow/scripts/workpad.py id 1188; echo \"rc=$?\"",
+      "HANDOFF=$(.prflow/vendor/prflow/scripts/workpad.py handoff-state \".prflow/tmp/implement-handoff-1188-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json\" --issue 1188 --run-id \"$GITHUB_RUN_ID\" --run-attempt \"$GITHUB_RUN_ATTEMPT\"); echo \"HANDOFF=$HANDOFF\"\n.prflow/vendor/prflow/scripts/workpad.py update 1188 --checkpoint \"gha:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:phase1-entered\" \"agent entered Phase 1 setup; workpad triage passed\"",
+      "DEVFLOW_ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"\nif .prflow/vendor/prflow/scripts/preflight.py ignore-precondition --path \"$DEVFLOW_ROOT/.prflow/tmp/issue-body/issue-1188.md\"; then\n  mkdir -p \"$DEVFLOW_ROOT/.prflow/tmp/issue-body\"\n  rm -f \"$DEVFLOW_ROOT/.prflow/tmp/issue-body/issue-1188.md\"\n  gh issue view 1188 --json body --jq '.body' > \"$DEVFLOW_ROOT/.prflow/tmp/issue-body/issue-1188.md\" \\\n    || gh issue view 1188 --json body --jq '.body' > \"$DEVFLOW_ROOT/.prflow/tmp/issue-b …[per-command-truncated]",
+      ".prflow/vendor/prflow/scripts/workpad.py update 1188 --checkpoint \"gha:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:phase1-entered\" \"agent entered Phase 1 setup; workpad triage passed\"",
+      "gh issue view 1188 --json body --jq '.body' > .prflow/tmp/issue-body/issue-1188.md; wc -l .prflow/tmp/issue-body/issue-1188.md; head -c 40 .prflow/tmp/issue-body/issue-1188.md",
+      ".prflow/vendor/prflow/scripts/check-verified-premises.py --body-file .prflow/tmp/issue-body/issue-1188.md --repo-root /home/runner/work/prflow/prflow 2>&1 | tail -20; echo \"rc=${PIPESTATUS[0]}\"",
+      "lib/test/lint-shipped-pruned-path.py --print-prune-set 2>&1; echo \"rc=$?\"",
+      "lib/test/lint-shipped-pruned-path.py --print-prune-set",
+      "for f in skills/docs-bootstrap-external/SKILL.md skills/docs-sync-internal/SKILL.md skills/docs-release-notes/SKILL.md skills/docs-verify/SKILL.md skills/implement/phases/phase-2-implement.md skills/implement/phases/phase-4-documentation.md skills/retrospective/SKILL.md; do echo \"=== $f ===\"; grep -nE 'docs/internal' \"$f\" | head -4; done",
+      "echo \"=== .gitignore docs rules ===\"; grep -nE 'docs' .gitignore; echo \"=== AC9 prompt extension ===\"; cat .prflow/prompt-extensions/docs-sync-internal.md; echo \"=== verify repo-root link targets exist ===\"; for t in CONTRIBUTING.md .claude-plugin/plugin.json CHANGELOG.md .changeset/README.md scripts/agents-seam-probe-verdict.py .github/workflows/matcher-probe.yml README.md .prflow/config.schema.json .github/workflows/agents-seam-probe.yml; do test -e \"$t\" && echo \"OK $t\" || echo \"MISSING $t\"; d …[per-command-truncated]",
+      "echo \"=== AC10 env-freeze --check ===\"; python3 lib/generate-env-freeze-advisory.py --check; echo \"rc=$?\"\necho \"=== AC8 link existence (README/CONTRIBUTING/SECURITY) ===\"; git grep -ohE '\\(docs/[A-Za-z0-9_./-]+\\)' README.md CONTRIBUTING.md SECURITY.md | tr -d '()' | sed 's/#.*//' | sort -u | while read -r p; do test -e \"$p\" || echo \"MISSING $p\"; done; echo \"done\"",
+      "echo \"=== rewrites in test_pin_corpus_lint.py ===\"; git diff HEAD~1 -- lib/test/test_pin_corpus_lint.py | grep -E '^[-+].*docs/' | head\necho \"=== pin-corpus-lint.py ===\"; git diff HEAD~1 -- lib/test/pin-corpus-lint.py | grep -E '^[-+].*docs/' | head\necho \"=== run test_pin_corpus_lint.py ===\"; lib/test/test_pin_corpus_lint.py 2>&1 | tail -15",
+      "lib/test/test_pin_corpus_lint.py 2>&1 | tail -20",
+      "LOGDIR=$(ls -d .prflow/tmp/parallel-suite/run-*/logs 2>/dev/null | tail -1); echo \"LOGDIR=$LOGDIR\"; grep -rhE '^  FAIL ' \"$LOGDIR\" 2>/dev/null | sort -u",
+      "git grep -lF -- 'devflow-review.yml' | grep -vE '^(\\.prflow/logs/|\\.prflow/learnings/|\\.changeset/|CHANGELOG\\.md$)' | LC_ALL=C sort > .prflow/tmp/936actual.txt\nsed -n '16959,16997p' lib/test/run.sh > .prflow/tmp/936expected.txt\ndiff .prflow/tmp/936expected.txt .prflow/tmp/936actual.txt",
+      "python3 lib/test/pin-corpus-lint.py mutation-routing-worktree . > .prflow/tmp/mr.txt 2>&1; echo \"rc=$?\"; echo \"=== findings summary ===\"; grep -c 'MUTATION-ROUTING\t' .prflow/tmp/mr.txt; head -4 .prflow/tmp/mr.txt",
+      "git worktree add -q /tmp/prflow-main 15448fcb 2>&1 | tail -2; cd /tmp/prflow-main 2>/dev/null && python3 lib/test/pin-corpus-lint.py mutation-routing-worktree . >/dev/null 2>&1; echo \"main gate rc=$?\"",
+      "git worktree add -q .prflow/tmp/main-wt 15448fcb 2>&1 | tail; echo \"added\"; python3 lib/test/pin-corpus-lint.py mutation-routing-worktree .prflow/tmp/main-wt >/dev/null 2>&1; echo \"main gate rc=$?\"",
+      "git worktree add -q .prflow/tmp/main-wt 15448fcb 2>&1 | tail -3",
+      "git worktree add -q .prflow/tmp/main-wt 15448fcb",
+      "git push origin \"HEAD:refs/heads/issue-1188-docs-move-internal-documentation-into-docs\" 2>&1 | tail -1\nBODY_FILE=.prflow/tmp/pr-body.txt\nprintf 'Work in progress — automated review pending.\\n\\nResolves #1188\\n[View run](https://github.com/The01Geek/prflow/actions/runs/30941519306)\\n\\nGenerated via `/prflow:implement 1188`\\n' | tee \"$BODY_FILE\" >/dev/null\ngh pr create --base main --draft --title \"docs: move internal documentation into docs/internal/ so the public/internal split is structural\" --b …[per-command-truncated]",
+      "git diff main...HEAD -- lib/test/run.sh | grep -nE '^[+-]' | grep -vE 'docs/internal/' > /tmp/nonpath.txt; wc -l /tmp/nonpath.txt",
+      "git diff main...HEAD -- lib/test/run.sh > /tmp/rundiff.txt; python3 - <<'EOF'\nlines=open('/tmp/rundiff.txt').read().splitlines()\n# print hunks that contain at least one +/- line not merely a path rewrite\nimport re\nout=[]\nhunk=[]\ndef flush(h):\n    # does hunk have a changed line that isn't just docs/ -> docs/internal path rewrite?\n    changed=[l for l in h if l and l[0] in '+-' and not l.startswith('+++') and not l.startswith('---')]\n    if not changed: return\n    interesting=False\n    for l in c …[per-command-truncated]",
+      "git diff main...HEAD -- lib/test/run.sh > .rundiff.txt && python3 - <<'EOF'\nlines=open('.rundiff.txt').read().splitlines()\nout=[]\nhunk=[]\ndef flush(h):\n    changed=[l for l in h if l and l[0] in '+-' and not l.startswith('+++') and not l.startswith('---')]\n    if not changed: return\n    interesting=False\n    for l in changed:\n        s=l[1:]\n        if 'docs/internal' in s or 'docs/' in s:\n            continue\n        interesting=True\n    if interesting:\n        out.extend(h); out.append('====== …[per-command-truncated]",
+      "git diff main...HEAD -- lib/test/run.sh > /home/runner/work/prflow/prflow/.rundiff.txt",
+      "ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); mkdir -p \"$ROOT/.prflow/tmp\"; ls \"$ROOT\"/.prflow/tmp/review/*/*/iter-*.json 2>/dev/null | sort | tee \"$ROOT/.prflow/tmp/.phase33-iters-before\" | wc -l",
+      "git merge-base main HEAD | cat; echo \"---base\"; git log -1 --oneline main | cat; echo \"--- files on main?\"; git ls-tree main -- lib/test/retention_check_common.py lib/test/test_assertion_floor_retention.py scripts/phase2-durability-checkpoint.sh | cat",
+      "git ls-tree main --name-only -- lib/test/retention_check_common.py scripts/phase2-durability-checkpoint.sh lib/test/test_assertion_floor_retention.py"
+    ],
+    "total": 28,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
