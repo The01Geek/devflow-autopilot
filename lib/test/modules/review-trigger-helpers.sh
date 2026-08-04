@@ -414,8 +414,9 @@ HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DE
   DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"$DRV_M_REJECT\n## 🔴 Devflow Review — REJECT\"}]" \
   drv "#1030 marker-carrying non-conforming REJECT body on HEAD -> reject" "reject true"
 
-# The two verdict keys must agree. A marker naming another commit is a reportable
-# producer defect, never a verdict to join on.
+# The two verdict keys can disagree as ordinary GitHub behavior (GitHub can change a
+# review's commit_id after submission — issue #1247), so this deriver fails closed and
+# joins on neither when they disagree, rather than guessing a verdict.
 HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
   DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"$DRV_M_OLDHEAD\"}]" \
   drv "#1030 marker head disagreeing with the review commit_id -> incomplete (fail closed)" "incomplete false"
