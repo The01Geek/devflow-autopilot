@@ -174,7 +174,9 @@ def _scan_dependencies(body: str, *, section_only: bool) -> tuple[list[str], lis
     Returns a two-element ``(found, skipped)`` tuple (issue #1268): ``found`` is
     the declared prerequisite numbers, ``skipped`` is the numbers dropped because
     their ``## Dependencies`` line reads as an OUTBOUND relation. Both lists are
-    unique in source order. The two public wrappers unpack ``found`` and keep
+    unique in source order, and ``skipped`` is disjoint from ``found`` — a number
+    an inbound line also declared is registered, not reported as skipped. The two
+    public wrappers unpack ``found`` and keep
     their historic ``list[str]`` shape; ``dependency_section_scan`` returns the
     pair so its section-only caller can name what direction dropped.
 
@@ -213,9 +215,10 @@ def _scan_dependencies(body: str, *, section_only: bool) -> tuple[list[str], lis
     breadcrumb) — so the section vocabulary has a single source and cannot drift
     between the two.
 
-    Numbers are returned unique in source order. When ``section_only`` is True the
-    out-of-section sweep (the only path that writes stderr) is never reached, so a
-    caller (the apply-issue-dependencies helper) that imports the section-only
+    Numbers are returned unique in source order. Both stderr-writing paths — the
+    outbound-skip breadcrumb and the out-of-section SOFT_KEYWORDS sweep — are gated
+    on ``not section_only``, so when ``section_only`` is True neither is reached and
+    a caller (the apply-issue-dependencies helper) that imports the section-only
     entry point never leaks a ``preflight.py:`` breadcrumb into its own
     caller-facing output.
     """
@@ -283,6 +286,12 @@ def _scan_dependencies(body: str, *, section_only: bool) -> tuple[list[str], lis
                     f"or list it under a `## Dependencies` section",
                     file=sys.stderr,
                 )
+    # A number governed OUTBOUND on one line but declared inbound on another lands
+    # in both lists (each is deduped only against itself). Such a number IS
+    # registered as a prerequisite, so reporting it as skipped-and-unregistered
+    # would be a false breadcrumb (issue #1268): keep `skipped` disjoint from
+    # `found`, so a caller only ever names numbers no inbound line rescued.
+    skipped = [number for number in skipped if number not in found]
     return found, skipped
 
 

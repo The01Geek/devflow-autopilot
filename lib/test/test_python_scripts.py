@@ -23808,6 +23808,24 @@ assert_eq("#1268 new accessor: both lists are unique in source order",
           _preflight1011.dependency_section_scan(
               "## Dependencies\n- Blocked by #201\n- Blocked by #201 again\n"
               "- Blocks #202\n- Blocks #202 again\n"))
+# Source order of the skipped list, distinct from mere uniqueness: two distinct
+# outbound numbers must appear in body order, and reverse in a reversed body — so a
+# reversed-order implementation would be caught rather than passing on a 1-element list.
+assert_eq("#1268 new accessor: skipped preserves body source order (distinct numbers)",
+          ([], ['301', '302']),
+          _preflight1011.dependency_section_scan(
+              "## Dependencies\n- Blocks #301\n- Blocks #302\n"))
+assert_eq("#1268 new accessor: skipped order reverses with a reversed body",
+          ([], ['302', '301']),
+          _preflight1011.dependency_section_scan(
+              "## Dependencies\n- Blocks #302\n- Blocks #301\n"))
+# Disjointness: a number governed OUTBOUND on one line but declared inbound on
+# another is registered (in `found`) and therefore must NOT also appear in `skipped`
+# — otherwise the helper would both register #5 and falsely report it unregistered.
+assert_eq("#1268 new accessor: a number rescued by an inbound line is not also skipped",
+          (['5'], []),
+          _preflight1011.dependency_section_scan(
+              "## Dependencies\n- Blocks #5\n- Blocked by #5\n"))
 # The two existing wrappers still return list[str] with exactly today's contents —
 # assert the TYPE (not just the value), because a tuple pass-through is the exact
 # accidental shape the refactor could introduce.
@@ -23869,6 +23887,9 @@ for a in "$@"; do
       # issue #1268: some-dropped-some-kept — one outbound line (#202, skipped for
       # direction) beside one inbound line (#201, kept and registered).
       111) printf '%s\n' '## Dependencies' '- Blocks #202 — this issue is the prerequisite' '- Blocked by #201 — b' ;;
+      # issue #1268: the same number outbound on one line and inbound on another. It is
+      # rescued into `found` and must NOT also be reported as a skip (no false breadcrumb).
+      112) printf '%s\n' '## Dependencies' '- Blocks #201 — this issue is the prerequisite' '- Blocked by #201 — b' ;;
       200) exit 1 ;;
       *) printf '\n' ;;
     esac
@@ -24001,6 +24022,8 @@ assert_eq("#1268 mixed path: names the dropped outbound number (silent today)", 
           "skipped #202" in _se and "OUTBOUND relation" in _se)
 assert_eq("#1268 mixed path: does NOT claim the issue declared no prerequisites", True,
           "declares no prerequisites" not in _se)
+assert_eq("#1268 mixed path: does NOT emit the every-dropped OUTBOUND summary (a kept one exists)",
+          True, "only as OUTBOUND relations" not in _se)
 assert_eq("#1268 mixed path: every stderr line still carries the helper prefix", True,
           all(_l.startswith("apply-issue-dependencies.py:") for _l in _se.strip().splitlines()))
 
@@ -24011,6 +24034,16 @@ _rc, _se = _run_deps(100)
 assert_eq("#1268 negative control: an all-inbound section produces no skip breadcrumb",
           (0, False),
           (_rc, "OUTBOUND relation" in _se))
+
+# issue #1268 — a number that is outbound on one line but inbound on another is
+# rescued into `found`, so it registers AND emits NO contradictory skip breadcrumb
+# (the false-breadcrumb defect the disjointness filter closes).
+_rc, _se = _run_deps(112)
+assert_eq("#1268 rescued number: exit 0", 0, _rc)
+assert_eq("#1268 rescued number: registers #201 (the inbound line wins)", True,
+          "linked #112 blocked_by #201." in _se)
+assert_eq("#1268 rescued number: emits NO false skip breadcrumb for the rescued number", True,
+          "skipped #201" not in _se and "OUTBOUND relation" not in _se)
 
 # body fetch failure.
 _rc, _se = _run_deps(200)
