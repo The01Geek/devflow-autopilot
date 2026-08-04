@@ -34,7 +34,14 @@ remedy cannot restore. Two mechanisms now close the class:
   map. Because a shallow clone is a legitimate desk workflow, the degraded case is not
   an unconditional hard failure: `--allow-degraded-base` is an explicit per-invocation
   acknowledgement that exits `0` while still printing the reasons and reporting the run
-  as acknowledged-degraded, never as a verified clean pass. This also makes CI's
+  as acknowledged-degraded, never as a verified clean pass. That acknowledgement reaches
+  the *differences* a degraded run turns up, not just its silence: when no merge base can
+  be computed the check falls back to the base ref's own **tip**, and a key that ref added
+  after the branch forked reads as "absent from head" there. Such a difference is reported
+  as unconfirmed — with the substituted comparand named beside it — and takes the `3`/
+  acknowledged-`0` path rather than being misattributed as `1` "a merge/resolution dropped
+  it", which no flag could acknowledge away. A loss measured against a *sound* comparand is
+  unaffected: still `1`, still un-acknowledgeable. This also makes CI's
   `fetch-depth: 0` coupling self-enforcing — stripping it turns the step RED instead of
   silently removing the protection.
 

@@ -28,9 +28,12 @@ THREE OUTCOMES, because "I could not establish whether a key was lost" is not "n
 was lost" (the repository's *unknown is not zero* rule):
 
   0  clean       — the base comparand WAS established and nothing was dropped.
-  1  loss        — a key or its note/owner content was dropped (or an input the check
-                   needs — the head map, the allow file — could not be read).
+  1  loss        — a key or its note/owner content was dropped RELATIVE TO A SOUND
+                   comparand (or an input the check needs — the head map, the allow
+                   file — could not be read).
   3  unestablished — the base comparand is degraded, so the comparison proves nothing.
+                   This INCLUDES a difference detected against a SUBSTITUTED comparand:
+                   see the substituted-comparand note below.
 
 Exit 3 is deliberately distinct from BOTH 0 and 1 so no caller can read an unestablished
 comparand as a clean result, and so a diagnosis never misattributes "the base is missing"
@@ -47,6 +50,19 @@ acknowledgement that downgrades exit 3 to exit 0. It is opt-in and it is never s
 the acknowledged reasons are printed on stdout and the result is reported as an
 acknowledged degraded run rather than as a clean retention pass. The default direction
 is what matters: unacknowledged, the check fails closed.
+
+SUBSTITUTED COMPARAND: when `git merge-base` cannot name a commit, `_merge_base` hands
+back BASE_REF's own TIP as the comparand. A difference found against that tip is NOT an
+established loss — BASE_REF may have added a key AFTER the fork point that the branch
+legitimately never had, and reporting that as `a merge/resolution dropped it` is a
+misattribution about a comparison the run never actually performed. So a violation
+detected against a substituted comparand routes through the degraded arm: it is reported
+with the substitution named, `--allow-degraded-base` CAN acknowledge it, and the exit is
+3 (or an acknowledged 0), never 1. The invariant that matters is preserved in the other
+direction — a loss found against a SOUND comparand keeps exit 1 and no flag can
+acknowledge it away. Whichever arm fires, every degraded reason is printed: a developer
+never reads `a merge/resolution dropped it` without also reading that the comparand was
+a substitute tip.
 
 CI keeps a real comparand by checking out full history (`fetch-depth: 0`). That coupling
 now enforces ITSELF: strip `fetch-depth: 0` and this check exits 3 (no merge base /
@@ -204,28 +220,61 @@ def classify_outcome(
     unestablished: "list[str]",
     allow_degraded: bool,
     base_ref: str,
+    comparand_substituted: bool,
 ) -> "tuple[int, list[str]]":
     """Select the outcome. Pure — the focused test drives every arm and the arm ORDER.
 
+    COMPARAND_SUBSTITUTED says the comparison ran against BASE_REF's own tip rather than
+    a computed merge base (see `_merge_base`). It is what separates arm 1 from arm 2:
+    the same violation list is an established loss against a sound comparand and merely
+    a difference against a substituted one.
+
     Returns (exit status, report lines). Arm order is load-bearing and is asserted:
 
-      1. VIOLATIONS first. A detected loss is an ESTABLISHED fact — the key really is
-         absent from head — so it outranks a degraded base, which only widens what the
-         comparison might have missed. Reporting the loss is the fail-closed direction.
-      2. UNESTABLISHED next. Nothing was found, but the comparand could not be trusted,
-         so "nothing found" proves nothing: exit 3 unless explicitly acknowledged.
+      1. VIOLATIONS against a SOUND comparand first. The key really is absent from head
+         relative to the true merge base, so the loss is an ESTABLISHED fact — it
+         outranks any degradation that only widens what the comparison might have
+         missed, exits 1, and NO flag can acknowledge it away. Any unestablished reasons
+         are appended to the report all the same: a loss is never announced without the
+         context the comparison ran under.
+      2. Anything unestablished — INCLUDING violations found against a SUBSTITUTED
+         comparand, which are differences rather than established losses (BASE_REF may
+         have added a key after the fork point that this branch legitimately never had).
+         Nothing here was proven, so: exit 3 unless explicitly acknowledged.
       3. Acknowledged degraded run: exit 0, but reported as acknowledged-degraded and
          never as a clean retention pass.
       4. Clean: the comparand was established and nothing was dropped.
     """
-    if violations:
-        return EXIT_LOSS, list(violations)
-    if unestablished:
+    if violations and not comparand_substituted:
+        lines = list(violations)
+        if unestablished:
+            # The loss above stands on its own — it was measured against a real merge
+            # base — but the run still could not establish everything, and hiding that
+            # leaves the developer with no hint of the conditions it ran under.
+            lines.append(
+                "[retain] for context, this run ALSO could not establish the following "
+                "(the loss above is measured against the real merge base and stands "
+                "regardless):"
+            )
+            lines.extend(f"[retain]   - {reason}" for reason in unestablished)
+        return EXIT_LOSS, lines
+    if violations or unestablished:
         lines = [
             "[retain] the base comparand could not be established, so this run proves "
             "nothing about key retention — it is NOT a clean pass:"
         ]
         lines.extend(f"[retain]   - {reason}" for reason in unestablished)
+        if violations:
+            # Never print `a merge/resolution dropped it` without saying, right beside
+            # it, what it was actually compared against.
+            lines.append(
+                f"[retain] the differences below were detected against a SUBSTITUTE "
+                f"comparand — {base_ref}'s own tip, NOT a merge base — so they are NOT "
+                f"established losses: {base_ref} may have added a key after this "
+                "branch forked, which the branch legitimately never had. Treat each as "
+                "unconfirmed until the real merge base resolves:"
+            )
+            lines.extend(violations)
         if not allow_degraded:
             lines.append(
                 "[retain] refusing to report a green result from an unestablished "
@@ -251,10 +300,13 @@ def _merge_base(repo_root: Path, base_ref: str) -> "tuple[str | None, str | None
 
     Falls back to BASE_REF's own tip when a merge base cannot be computed (a shallow
     clone or any other git error). The substitute is semantically different from the
-    true merge base — BASE_REF may have advanced and removed a key on the trunk after
-    the fork point — so the fallback is reported as a DEGRADED reason the caller must
-    resolve, never as a silent substitution. Returning it anyway lets the comparison
-    still run and still surface a loss it happens to catch."""
+    true merge base — BASE_REF may have advanced past the fork point, removing a key or
+    ADDING one this branch legitimately never had — so the fallback is reported as a
+    DEGRADED reason the caller must resolve, never as a silent substitution. Returning
+    it anyway lets the comparison still run and surface differences worth looking at;
+    because the comparand is a substitute, `classify_outcome` reports those as
+    unconfirmed differences rather than as established losses (a non-None degraded
+    reason here is exactly what sets its COMPARAND_SUBSTITUTED)."""
     try:
         result = subprocess.run(
             ["git", "-C", str(repo_root), "merge-base", "HEAD", base_ref],
@@ -369,7 +421,15 @@ def main(argv: "list[str]") -> int:
             return EXIT_LOSS
 
     violations = detect_losses(base_map, head_map, allow_value)
-    status, lines = classify_outcome(violations, unestablished, args.allow_degraded, base_ref)
+    # `mb_degraded` is non-None on exactly the two `_merge_base` arms that hand back
+    # BASE_REF's tip in place of a merge base (rc != 0, and rc 0 naming no commit); the
+    # success arm returns None and the OSError arm returns before this line. So this is
+    # a direct read of the producer, not an inference: it is true iff the comparison
+    # below ran against a substitute.
+    comparand_substituted = mb_degraded is not None
+    status, lines = classify_outcome(
+        violations, unestablished, args.allow_degraded, base_ref, comparand_substituted
+    )
     for line in lines:
         print(line)
     return status

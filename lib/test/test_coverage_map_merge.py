@@ -409,20 +409,27 @@ class RetentionOutcomeSelectionTest(unittest.TestCase):
 
     `classify_outcome` is the whole selection, so every arm AND the arm ORDER is driven
     here from in-memory fixtures — a grep on a message literal is not coverage of the
-    branch that chooses it."""
+    branch that chooses it.
+
+    The fifth argument, `comparand_substituted`, is what separates arm 1 from arm 2: the
+    same violation list is an established loss against a sound comparand and only an
+    unconfirmed difference against BASE_REF's substituted tip. Every call below states it
+    explicitly, because which arm a violation reaches is the whole point of these tests."""
 
     KEY_LOSS = ["[retain] files key 'lib/x.sh' ... absent"]
     WHY = ["the base map at abc123 carried no files/run_sh_blocks keys"]
+    SUBSTITUTED = ["could not compute a merge base against origin/main; compared "
+                   "against origin/main's tip instead"]
 
     def test_clean_requires_an_established_comparand(self):
-        status, lines = retain.classify_outcome([], [], False, "origin/main")
+        status, lines = retain.classify_outcome([], [], False, "origin/main", False)
         self.assertEqual(status, retain.EXIT_CLEAN)
         self.assertTrue(
             any("no coverage-map key or content was dropped" in line for line in lines), lines)
 
     def test_unestablished_comparand_is_not_clean(self):
         # The Important finding: a degraded base previously exited 0 with a stderr note.
-        status, lines = retain.classify_outcome([], self.WHY, False, "origin/main")
+        status, lines = retain.classify_outcome([], self.WHY, False, "origin/main", False)
         self.assertEqual(status, retain.EXIT_UNESTABLISHED)
         self.assertNotEqual(status, retain.EXIT_CLEAN)
         self.assertNotEqual(status, retain.EXIT_LOSS)
@@ -439,7 +446,7 @@ class RetentionOutcomeSelectionTest(unittest.TestCase):
         )
 
     def test_acknowledgement_downgrades_to_zero_but_still_reports(self):
-        status, lines = retain.classify_outcome([], self.WHY, True, "origin/main")
+        status, lines = retain.classify_outcome([], self.WHY, True, "origin/main", False)
         self.assertEqual(status, retain.EXIT_CLEAN)
         body = "\n".join(lines)
         # Acknowledged is never laundered into "verified clean": the reasons and the
@@ -449,21 +456,91 @@ class RetentionOutcomeSelectionTest(unittest.TestCase):
         self.assertNotIn("no coverage-map key or content was dropped", body)
 
     def test_arm_order_loss_outranks_a_degraded_comparand(self):
-        # A detected loss is an ESTABLISHED fact, so it must win over "unestablished" —
-        # reordering the arms would report exit 3 for a run that actually found a loss.
-        status, lines = retain.classify_outcome(self.KEY_LOSS, self.WHY, False, "origin/main")
+        # A loss measured against a SOUND comparand is an ESTABLISHED fact, so it must
+        # win over "unestablished" — reordering the arms would report exit 3 for a run
+        # that actually found a loss. The comparand here is the real merge base; only
+        # the base map's own thinness is unestablished.
+        status, lines = retain.classify_outcome(
+            self.KEY_LOSS, self.WHY, False, "origin/main", False)
         self.assertEqual(status, retain.EXIT_LOSS)
-        self.assertEqual(lines, self.KEY_LOSS)
+        self.assertEqual(lines[:len(self.KEY_LOSS)], self.KEY_LOSS)
 
     def test_arm_order_loss_outranks_even_an_acknowledged_degraded_base(self):
-        # The acknowledgement flag must not be able to suppress a real finding.
-        status, lines = retain.classify_outcome(self.KEY_LOSS, self.WHY, True, "origin/main")
+        # The acknowledgement flag must not be able to suppress a real finding measured
+        # against a sound comparand — the invariant the substituted-comparand routing
+        # below must not weaken.
+        status, lines = retain.classify_outcome(
+            self.KEY_LOSS, self.WHY, True, "origin/main", False)
         self.assertEqual(status, retain.EXIT_LOSS)
+        self.assertEqual(lines[:len(self.KEY_LOSS)], self.KEY_LOSS)
+
+    def test_sound_comparand_loss_still_reports_the_degraded_context(self):
+        # A loss must never be announced with the degraded reasons SUPPRESSED: before
+        # this, arm 1 returned the violations alone, so a developer reading "a merge
+        # dropped it" got no hint the run had also failed to establish something.
+        _, lines = retain.classify_outcome(
+            self.KEY_LOSS, self.WHY, False, "origin/main", False)
+        body = "\n".join(lines)
+        self.assertIn(self.WHY[0], body)
+
+    def test_no_degraded_context_is_invented_when_there_is_none(self):
+        # Negative control for the line above: with nothing unestablished, arm 1 reports
+        # the violations and nothing else. Without this, a check that always appended a
+        # context block would pass the assertion above.
+        _, lines = retain.classify_outcome(self.KEY_LOSS, [], False, "origin/main", False)
         self.assertEqual(lines, self.KEY_LOSS)
+
+    def test_violation_against_a_substituted_comparand_is_not_an_established_loss(self):
+        # The Important finding. `_merge_base` hands back BASE_REF's TIP when no merge
+        # base can be computed, and that tip may carry a key added AFTER the fork which
+        # the branch legitimately never had. Reporting that as exit-1 "a merge dropped
+        # it" misattributes it, so it routes through the degraded arm instead.
+        status, lines = retain.classify_outcome(
+            self.KEY_LOSS, self.SUBSTITUTED, False, "origin/main", True)
+        self.assertEqual(status, retain.EXIT_UNESTABLISHED)
+        self.assertNotEqual(status, retain.EXIT_LOSS)
+        body = "\n".join(lines)
+        # The findings are still shown — routing them is not hiding them.
+        self.assertIn(self.KEY_LOSS[0], body)
+        # ...and never without the substitution named beside them.
+        self.assertIn(self.SUBSTITUTED[0], body)
+        self.assertIn("SUBSTITUTE comparand", body)
+        self.assertIn("NOT established losses", body)
+
+    def test_substituted_comparand_violation_can_be_acknowledged(self):
+        # The unacknowledgeable half of the finding: the flag documented as downgrading
+        # a degraded comparand must actually reach this case.
+        status, lines = retain.classify_outcome(
+            self.KEY_LOSS, self.SUBSTITUTED, True, "origin/main", True)
+        self.assertEqual(status, retain.EXIT_CLEAN)
+        body = "\n".join(lines)
+        self.assertIn("acknowledged degraded run, not a verified clean one", body)
+        # Acknowledged still means shown, never silenced.
+        self.assertIn(self.KEY_LOSS[0], body)
+        self.assertIn("SUBSTITUTE comparand", body)
+        # An acknowledged degraded run is never laundered into a verified clean pass.
+        self.assertNotIn("no coverage-map key or content was dropped", body)
+
+    def test_substitution_alone_does_not_downgrade_a_clean_run_to_a_finding(self):
+        # Negative control on the new flag: `comparand_substituted` routes violations,
+        # it does not manufacture them. With no violations it behaves exactly as the
+        # pre-existing degraded arm did.
+        status, lines = retain.classify_outcome(
+            [], self.SUBSTITUTED, False, "origin/main", True)
+        self.assertEqual(status, retain.EXIT_UNESTABLISHED)
+        body = "\n".join(lines)
+        self.assertNotIn("SUBSTITUTE comparand", body)
+
+    def test_substituted_comparand_report_names_the_base_ref(self):
+        # The report must say WHICH tip stood in, not merely that one did — the
+        # developer's next action is to fetch that ref's real history.
+        _, lines = retain.classify_outcome(
+            self.KEY_LOSS, self.SUBSTITUTED, False, "upstream/develop", True)
+        self.assertIn("upstream/develop's own tip", "\n".join(lines))
 
     def test_every_unestablished_reason_is_reported(self):
         reasons = ["no merge base against origin/main", "base map was empty"]
-        _, lines = retain.classify_outcome([], reasons, False, "origin/main")
+        _, lines = retain.classify_outcome([], reasons, False, "origin/main", False)
         body = "\n".join(lines)
         for reason in reasons:
             self.assertIn(reason, body)
@@ -683,6 +760,140 @@ class RetentionShallowCloneTest(_GitFixtureBase):
         result = self._run()
         self.assertEqual(result.returncode, retain.EXIT_LOSS, result.stdout + result.stderr)
         self.assertIn("'drop'", result.stdout)
+
+
+class RetentionSubstitutedComparandTest(_GitFixtureBase):
+    """A branch that legitimately PREDATES a key the base tip carries, end to end.
+
+    The mirror image of `RetentionShallowCloneTest`: there, a key really was dropped and
+    the degraded comparand must not launder it into a pass. Here NOTHING was dropped —
+    the trunk added a key after the fork point and the branch simply never had it — but
+    a shallow clone makes `_merge_base` substitute the trunk's TIP, against which the
+    key reads as "absent from head". Reporting that as an exit-1 `a merge/resolution
+    dropped it` is a misattribution about a comparison the run never performed, and one
+    the developer could not acknowledge away.
+
+    The unshallowed run at the end is the control that proves the difference was an
+    artifact of the substitute: with the real merge base, the same tree is CLEAN."""
+
+    prefix = "cm-subst-"
+
+    def setUp(self):
+        super().setUp()
+        # History BEFORE the map exists — where the shallow boundary lands.
+        (self.repo / "README.md").write_text("pad\n", encoding="utf-8")
+        self._git("add", "-A")
+        self._git("commit", "-qm", "pre-map")
+        # The fork point: the map exists, with the key the branch will carry.
+        self._write_map(_base_map(run_sh_blocks={
+            "keep": {"note": "kept", "owner": "unmodularized"},
+        }))
+        self._git("add", "-A")
+        self._git("commit", "-qm", "add map")
+        self.base = self._base_branch()
+        # The branch forks here and never touches the map again.
+        self._git("checkout", "-qb", "feature")
+        (self.repo / "feature.txt").write_text("work\n", encoding="utf-8")
+        self._git("add", "-A")
+        self._git("commit", "-qm", "feature work, map untouched")
+        # The trunk advances PAST the fork and adds a key the branch never had.
+        self._git("checkout", "-q", self.base)
+        self._write_map(_base_map(run_sh_blocks={
+            "keep": {"note": "kept", "owner": "unmodularized"},
+            "mainonly": {"note": "added on the trunk after the fork", "owner": "unmodularized"},
+        }))
+        self._git("add", "-A")
+        self._git("commit", "-qm", "trunk adds a key after the fork")
+
+        self.clone = self.tmp / "shallow"
+        subprocess.run(
+            ["git", "clone", "-q", "--depth", "1", "--branch", "feature",
+             str(self.repo), str(self.clone)],
+            capture_output=True, text=True, check=True,
+        )
+        # Shallow-fetch the trunk's TIP. Both sides are depth-1, so the truncated graph
+        # holds no common ancestor and `git merge-base` cannot name one.
+        subprocess.run(
+            ["git", "-C", str(self.clone), "fetch", "-q", "--depth", "1", "origin",
+             f"+refs/heads/{self.base}:refs/remotes/origin/{self.base}"],
+            capture_output=True, text=True, check=True,
+        )
+
+    def _run(self, *extra):
+        return subprocess.run(
+            ["python3", str(RETAIN_SOURCE), str(self.clone),
+             "--base-ref", f"origin/{self.base}", *extra],
+            capture_output=True, text=True, check=False,
+        )
+
+    def test_precondition_the_fixture_really_degrades_the_comparand(self):
+        # Without this the whole class could silently be exercising the SOUND path and
+        # asserting nothing: every claim below depends on merge-base failing here.
+        merge_base = subprocess.run(
+            ["git", "-C", str(self.clone), "merge-base", "HEAD", f"origin/{self.base}"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertNotEqual(merge_base.returncode, 0, merge_base.stdout)
+        _, _, degraded = retain._merge_base(self.clone, f"origin/{self.base}")
+        self.assertIsNotNone(degraded)
+
+    def test_key_the_branch_predates_is_not_reported_as_a_dropped_key(self):
+        result = self._run()
+        combined = result.stdout + result.stderr
+        # It is NOT an established loss: the branch never had 'mainonly' to drop.
+        self.assertEqual(result.returncode, retain.EXIT_UNESTABLISHED, combined)
+        self.assertNotEqual(result.returncode, retain.EXIT_LOSS, combined)
+        # The difference is still surfaced, but named for what it is...
+        self.assertIn("'mainonly'", result.stdout)
+        self.assertIn("NOT established losses", result.stdout)
+        # ...and the substituted comparand is disclosed, so the misattributing sentence
+        # is never read on its own.
+        self.assertIn("SUBSTITUTE comparand", result.stdout)
+        self.assertIn(f"origin/{self.base}'s own tip", result.stdout)
+
+    def test_the_developer_can_acknowledge_it(self):
+        # The second half of the finding: the degraded acknowledgement documented by
+        # ACK_FLAG must actually reach this case rather than being outranked by arm 1.
+        result = self._run(retain.ACK_FLAG)
+        self.assertEqual(result.returncode, retain.EXIT_CLEAN, result.stdout + result.stderr)
+        self.assertIn("acknowledged degraded run", result.stdout)
+
+    def test_unshallowed_clone_shows_there_was_never_a_loss(self):
+        # The control. Once the real merge base resolves, the SAME tree is clean — which
+        # is what makes the exit-1 report above a misattribution rather than a finding.
+        subprocess.run(
+            ["git", "-C", str(self.clone), "fetch", "-q", "--unshallow", "origin"],
+            capture_output=True, text=True, check=False,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.clone), "fetch", "-q", "origin",
+             f"+refs/heads/{self.base}:refs/remotes/origin/{self.base}"],
+            capture_output=True, text=True, check=True,
+        )
+        result = self._run()
+        self.assertEqual(result.returncode, retain.EXIT_CLEAN, result.stdout + result.stderr)
+        self.assertIn("no coverage-map key or content was dropped", result.stdout)
+
+    def test_a_real_loss_against_the_sound_comparand_still_exits_one(self):
+        # The invariant the routing must not weaken, driven end to end on this same
+        # fixture: with the real history restored, actually dropping a key is an
+        # established loss again — exit 1, and ACK_FLAG cannot acknowledge it away.
+        subprocess.run(
+            ["git", "-C", str(self.clone), "fetch", "-q", "--unshallow", "origin"],
+            capture_output=True, text=True, check=False,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.clone), "fetch", "-q", "origin",
+             f"+refs/heads/{self.base}:refs/remotes/origin/{self.base}"],
+            capture_output=True, text=True, check=True,
+        )
+        (self.clone / MAP_REL).write_text(_serialize(_base_map(run_sh_blocks={})),
+                                          encoding="utf-8")
+        for extra in ([], [retain.ACK_FLAG]):
+            result = self._run(*extra)
+            self.assertEqual(result.returncode, retain.EXIT_LOSS,
+                             f"{extra}: {result.stdout}{result.stderr}")
+            self.assertIn("'keep'", result.stdout)
 
 
 class MergeDriverErrorBranchTest(unittest.TestCase):
