@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1258",
+  "generated_at": "2026-08-04T05:35:44Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.83",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 10.114017000000004,
+    "tokens": {
+      "input_tokens": 53,
+      "output_tokens": 31669,
+      "cache_read_input_tokens": 4871592,
+      "cache_creation_input_tokens": 235362,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 111,
+        "outputTokens": 65970,
+        "cacheReadInputTokens": 6934584,
+        "cacheCreationInputTokens": 658290,
+        "webSearchRequests": 0,
+        "costUSD": 10.114017000000004,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 34,
+    "duration_ms": 676122
+  },
+  "permission_denials": {
+    "count": 10,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "git status --porcelain; echo \"---BRANCH---\"; git branch --show-current; echo \"---ENV---\"; echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none}\"",
+      "mkdir -p .prflow/tmp\nrm -f .prflow/tmp/review-dirty-tree-before .prflow/tmp/review-dirty-tree-disabled 2>/dev/null\ngit status --porcelain -z > .prflow/tmp/review-dirty-tree-before\ngit hash-object .prflow/tmp/review-dirty-tree-before",
+      "ls -la /home/runner/work/prflow/prflow/scripts/focused_selection.py 2>&1; git -c core.pager=cat log --oneline -3 2>&1 | head",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>/dev/null | head -50; echo \"---EXITCODE:${PIPESTATUS[0]}---\"",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>/dev/null > /tmp/ext_out.txt; echo \"exit=$?\"; wc -c < /tmp/ext_out.txt; grep -m1 -o 'root[^ ]*' /tmp/ext_out.txt 2>/dev/null; head -20 /tmp/ext_out.txt",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>/tmp/ext_err.txt 1>/tmp/ext_out.txt; echo \"exit=$?\"",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>.prflow/tmp/ext_err.txt 1>.prflow/tmp/ext_out.txt; echo \"exit=$?\"",
+      "python3 -c \"\nimport json\nd=json.load(open('lib/capability-profiles.json'))\nimp=d['profiles']['implement']\nfor t in imp:\n    if 'scripts/' in t or 'python3' in t or t.startswith('@'):\n        pass\n# print all vendored script grants tail\nprint('\\n'.join(t for t in imp if '.py' in t or '.sh' in t))\nprint('--- groups ---')\nprint(list(d.get('groups',{}).keys()))\nprint(json.dumps(d['groups'].get('core_read_write_edit','MISSING'))[:600])\n\"",
+      ".prflow/vendor/prflow/scripts/workpad.py patch 5174989295 .prflow/tmp/review/pr-1258/30880514206-1/review-wp.md 2>.prflow/tmp/review/pr-1258/30880514206-1/rv-patch.err || echo \"patch-failed: $(cat .prflow/tmp/review/pr-1258/30880514206-1/rv-patch.err)\""
+    ],
+    "total": 10,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
