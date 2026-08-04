@@ -1913,6 +1913,30 @@ printf '[{"id":55,"commit_id":"%s","user":{"login":"%s"},"body":"$(id) `whoami` 
   "$V1156_CSHA" "$V1156_CLOGIN" > "$V1156_CLSD/inject.json"
 assert_eq "#1250 classify: a review body cannot inject into the emitted line (id field is digits only)" \
   "unmarked 55" "$(v1156_cls "$V1156_CLSD/inject.json")"
+# The remaining THREE closed reason tokens are each asserted against their exact line —
+# every reason renders verbatim into a ::warning:: and a PR comment, so a reason a
+# regression reclassified would ship green if only its sibling reasons were pinned.
+printf '{"not":"an array"}' > "$V1156_CLSD/obj.json"
+assert_eq "#1250 classify: a valid-JSON non-array payload is unestablished payload-not-an-array" \
+  "unestablished payload-not-an-array" "$(v1156_cls "$V1156_CLSD/obj.json")"
+assert_eq "#1250 classify: an unreadable payload path is unestablished payload-unreadable" \
+  "unestablished payload-unreadable" "$(v1156_cls "$V1156_CLSD/does-not-exist.json")"
+mkdir -p "$V1156_CLSD/adir.json"
+assert_eq "#1250 classify: a directory at the payload path is unestablished payload-unreadable" \
+  "unestablished payload-unreadable" "$(v1156_cls "$V1156_CLSD/adir.json")"
+# The 'any unmarked wins -> unmarked' precedence within $own is the operative behavior for
+# the live bypass (a run that stamped a marked review AND left an unmarked one). A change
+# that emitted `marked` whenever any marked review existed would pass arm b and arm j.
+printf '[{"id":30,"commit_id":"%s","user":{"login":"%s"},"body":"<!-- prflow:review-verdict head=%s verdict=APPROVE -->\\nmarked one"},{"id":31,"commit_id":"%s","user":{"login":"%s"},"body":"no marker"}]' \
+  "$V1156_CSHA" "$V1156_CLOGIN" "$V1156_CSHA" "$V1156_CSHA" "$V1156_CLOGIN" > "$V1156_CLSD/mixed.json"
+assert_eq "#1250 classify: a mixed own set (one marked + one unmarked) names ONLY the unmarked id" \
+  "unmarked 31" "$(v1156_cls "$V1156_CLSD/mixed.json")"
+# The APPROVE marker alternation (not only REJECT) is a real branch of the regex.
+assert_eq "#1250 classify: an APPROVE-verdict line-1 marker is marked, exercising the regex alternation" \
+  "marked" "$(v1156_cls "$(v1156_cls_one 33 "$V1156_CSHA" "$V1156_CLOGIN" "\"<!-- prflow:review-verdict head=$V1156_CSHA verdict=APPROVE -->\\napproved\"")")"
+# The stdin ('-') payload source is a distinct jq invocation; drive it once end to end.
+assert_eq "#1250 classify: the stdin ('-') payload source classifies identically to a file" \
+  "none" "$(printf '[]' | bash "$V1156_CLS" - "$V1156_CSHA" "$V1156_CLOGIN" 2>/dev/null)"
 rm -rf "$V1156_CLSD"
 
 # ── AC6-AC10: the arm-dispatch helper. It selects the arm and composes every byte the

@@ -78,7 +78,10 @@
 #                 #1250). Ignored on every arm other than not-reached.
 # Prints one `ARM <arm>` line to stdout. Always exits 0 — the step that consumes this
 # must never change the invoking job's pass or its fail.
-set -u
+# `-f` (noglob) so the unquoted `$RC_REST` in the unmarked-id token loop below cannot
+# pathname-expand against the workflow checkout (defense-in-depth: the classifier emits
+# digits only, but this is a general positional-arg consumer). Nothing here globs.
+set -uf
 
 READER_LINE="${1:-}"
 RUN_ID="${2:-}"

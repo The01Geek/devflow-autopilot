@@ -1983,7 +1983,13 @@ jobs:
           REVIEW_CLASS=""
           if [ -f "$CLS" ]; then
             REVIEWS_FILE="$RUNNER_TEMP/head-reviews.json"
-            gh api "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" > "$REVIEWS_FILE" 2>/dev/null || : > "$REVIEWS_FILE"
+            # --paginate so a heavily-reviewed PR whose own head review sits past the
+            # first 100 reviews is still seen: gh merges the paged JSON arrays into one
+            # array, which the classifier reads whole. Missing it would let the classifier
+            # answer `none` and the renderer assert the reviews API was untouched — the
+            # exact false claim #1250 exists to remove. A query failure still truncates the
+            # file to empty, which the classifier reads as `unestablished` (never `none`).
+            gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" > "$REVIEWS_FILE" 2>/dev/null || : > "$REVIEWS_FILE"
             REVIEW_CLASS=$(bash "$CLS" "$REVIEWS_FILE" "$HEAD_SHA" "$REVIEWER_LOGIN" || true)
           fi
           WARNING_FILE="$RUNNER_TEMP/verdict-post-gap-warning.txt"
