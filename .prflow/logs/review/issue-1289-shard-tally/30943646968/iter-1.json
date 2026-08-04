@@ -1,0 +1,103 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-04T19:50:00Z",
+  "fix_commit_sha": "237efcba",
+  "fix_files": [
+    "lib/test/shard-tally.py",
+    "lib/test/modules/parallel-suite-runner.sh"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": false
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:pr-test-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "A non-empty but degenerate --require-shards (whitespace/separator-only) parses to [] and silently disables the by-name check, reintroducing fail-open one layer out (reachable via the #1132 recipe pasting an empty --list-shards).",
+      "defect_signature": {
+        "file": "lib/test/shard-tally.py",
+        "line_range": [
+          379,
+          402
+        ],
+        "kind": "fail_open"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "'required partition covered' can print to stdout while the aggregate is failing, so the line could be quoted beside a red gate.",
+      "defect_signature": {
+        "file": "lib/test/shard-tally.py",
+        "line_range": [
+          440,
+          451
+        ],
+        "kind": "misleading_output"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "Duplicate-case test asserts the message but not rc; order/dedup of the require list and the NOT-covered stderr line were untested.",
+      "defect_signature": {
+        "file": "lib/test/modules/parallel-suite-runner.sh",
+        "line_range": [
+          787,
+          796
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "237efcba"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "237efcba"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "237efcba"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 60,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "checklist": [],
+  "verification_evidence": {
+    "focused_module": "parallel-suite-runner",
+    "result": "149 passed, 0 failed",
+    "skipped_checks": []
+  },
+  "telemetry": "unavailable"
+}
