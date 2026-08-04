@@ -47,10 +47,10 @@ Before choosing a test, use finding context, test plan, or coverage map
 (`lib/test/modules/coverage-map.json`, whose `focused_test` field names the covering Python test
 for a unit no shell module owns) to identify a candidate module, then confirm its ID
 in `scripts/workflow-flight-recorder-registry.json`. Explicitly record the selected ID and
-use `bash lib/test/run-module.sh <module-id>` for the RED/GREEN loop. Selection is explicit:
+use the direct leading-token form `lib/test/run-module.sh <module-id>` for the RED/GREEN loop on the local/interactive tier — a deliberate divergence from the source section's bash-first wording, because these passes run on the local tier, where the classifier routinely denies the `bash <path>` wrapper. Reserve that wrapper (`bash lib/test/run-module.sh <module-id>`) for a host where the direct form is unavailable and the wrapper is permitted. Selection is explicit:
 consulting the coverage map counts (record the entry, confirm the ID).
 Do not infer or automate changed-file-to-module routing. For **local review-and-fix contract iteration only**,
-run exactly `bash lib/test/run-module.sh review-and-fix-contract`; if the `bash` wrapper is denied, use the runner path as leading token instead. Cloud-tier runs use `lib/test/run-module.sh <module-id>` (direct leading-token form) when the tier grants it and a registered module covers the fix; otherwise they use the already-permitted complete suite without requesting new permissions.
+run exactly `lib/test/run-module.sh review-and-fix-contract` as a direct leading token. Cloud-tier runs use `lib/test/run-module.sh <module-id>` (direct leading-token form) when the tier grants it and a registered module covers the fix; otherwise they use the already-permitted complete suite without requesting new permissions.
 
 Focused verification is the fix-iteration default: a focused pass covering the changed surface is sufficient for an intermediate commit or push.
 

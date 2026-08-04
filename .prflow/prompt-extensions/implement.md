@@ -160,11 +160,13 @@ unit and `run.sh` block, and a `focused_test` field naming the covering Python t
 shell module owns) — to identify a candidate
 module, then confirm its exact ID in `scripts/workflow-flight-recorder-registry.json` and inspect
 the registered module when needed to establish coverage. Explicitly record the selected ID and
-use `bash lib/test/run-module.sh <module-id>` for RED/GREEN iteration. For **local create-issue
+use the direct leading-token form `lib/test/run-module.sh <module-id>` for RED/GREEN iteration on the
+local/interactive tier, where the classifier routinely denies the `bash <path>` wrapper — so lead with
+the direct form. If a host does not grant the direct form, retry with the `bash lib/test/run-module.sh
+<module-id>` wrapper where it is permitted. For **local create-issue
 contract iteration only**, select `create-issue-contract` and run exactly
-`bash lib/test/run-module.sh create-issue-contract` for the RED/GREEN loop. If the classifier denies
-the `bash` wrapper, retry the same command with the runner path as the leading token:
-`lib/test/run-module.sh <module-id>`. On a cloud tier that grants the focused runner, the direct
+`lib/test/run-module.sh create-issue-contract` as a direct leading token for the RED/GREEN loop.
+On a cloud tier that grants the focused runner, the direct
 leading-token form `lib/test/run-module.sh <module-id>` is the mandated invocation (the `bash`
 wrapper stays deny-floored on cloud, so a wrapper-first mandate would burn the run's budget on
 denials). Consulting the coverage map to identify a candidate module is part of explicit selection —
