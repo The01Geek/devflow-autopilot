@@ -2347,6 +2347,94 @@ rm -rf "$V1156_BIN"
 assert_eq "#1156 workflow: the step carries a token that can post an issue comment" \
   "True" "$(v1156_step '"steps.app-token.outputs.token || github.token" in step["env"]["GH_TOKEN"]')"
 
+# ── issue #1271: the job-status gate. The reach-record step no longer launders a
+# verdict-less review as `success`. scripts/decide-verdict-gap-job-status.sh owns the
+# arm-to-job-status decision (a FAIL/PASS token over the full closed arm vocabulary), and
+# the step's only remaining job is to exit with the status it reports.
+V1271_DECIDE="$REPO_ROOT/scripts/decide-verdict-gap-job-status.sh"
+assert_eq "#1271 helper: the job-status decision helper exists" \
+  "yes" "$([ -f "$V1271_DECIDE" ] && echo yes || echo no)"
+
+# Drive the helper over the full CLOSED reach-record arm vocabulary × oracle vocabulary ×
+# cancellation. The gate is conjunctive: it FIRES on exactly one shape — the emitter not
+# reached AND the head-scoped oracle POSITIVELY established absence (`none`) AND the run is
+# not cancelled. Every could-not-tell arm and every non-`none` oracle answer, and every
+# cancelled run, PASS.
+v1271_decide() { bash "$V1271_DECIDE" "$1" "$2" "$3"; }
+# The one firing shape.
+assert_eq "#1271 helper: not-reached + established-absence (none) + not cancelled FAILs the job" \
+  "FAIL" "$(v1271_decide not-reached none false | { read -r d _; printf '%s' "$d"; })"
+# The cancellation carve-out — same firing conjuncts, but cancelled -> PASS.
+assert_eq "#1271 helper: the cancellation carve-out passes the otherwise-firing shape" \
+  "PASS" "$(v1271_decide not-reached none true | { read -r d _; printf '%s' "$d"; })"
+# Every non-`none` oracle answer on the not-reached arm is a could-not-tell / verdict-present
+# answer and must NOT fire — the "unknown is not zero" conjunct.
+for V1271_RC in "marked" "unmarked 42" "unestablished payload-unreadable" "" "unestablished review-placement-unprovable"; do
+  assert_eq "#1271 helper: not-reached + non-establishing oracle ('$V1271_RC') never fires the gate" \
+    "PASS" "$(v1271_decide not-reached "$V1271_RC" false | { read -r d _; printf '%s' "$d"; })"
+done
+# Every reach-record arm OTHER than not-reached passes regardless of the oracle — a reached
+# emitter is discharged; unestablished/no-line/unrecognized-line each mean the reach question
+# itself could not be settled.
+for V1271_ARM in reached unestablished no-line unrecognized-line garbage-arm; do
+  for V1271_RC in "none" "marked" "unmarked 7" "unestablished x" ""; do
+    assert_eq "#1271 helper: arm '$V1271_ARM' (not not-reached) with oracle '$V1271_RC' passes" \
+      "PASS" "$(v1271_decide "$V1271_ARM" "$V1271_RC" false | { read -r d _; printf '%s' "$d"; })"
+  done
+done
+# Cancellation short-circuits before the conjuncts on every arm.
+for V1271_ARM in reached not-reached unestablished no-line unrecognized-line; do
+  assert_eq "#1271 helper: cancelled run passes on arm '$V1271_ARM' regardless of oracle" \
+    "PASS cancelled" "$(v1271_decide "$V1271_ARM" none true)"
+done
+# A CANCELLED value other than exactly `true` is treated as not-cancelled (so the gate can
+# still fire on the firing shape) — the fail-closed direction. Both a bogus token (`TRUE`)
+# and the EMPTY string (the value the workflow's `${JOB_CANCELLED:-false}` default guards,
+# checked here at the helper boundary too) resolve to not-cancelled and still FAIL.
+assert_eq "#1271 helper: a non-'true' cancelled value is treated as not cancelled" \
+  "FAIL" "$(v1271_decide not-reached none TRUE | { read -r d _; printf '%s' "$d"; })"
+assert_eq "#1271 helper: an empty cancelled value is treated as not cancelled (the firing shape still FAILs)" \
+  "FAIL" "$(v1271_decide not-reached none "" | { read -r d _; printf '%s' "$d"; })"
+# The helper always exits 0 — the decision is the stdout token, never the exit code — on
+# BOTH the FAIL firing shape and a PASS shape, so a nonzero exit can never leak the verdict.
+v1271_decide not-reached none false >/dev/null 2>&1
+assert_eq "#1271 helper: always exits 0 on the FAIL shape (the decision is the stdout token, not the exit code)" \
+  "0" "$?"
+v1271_decide reached none false >/dev/null 2>&1
+assert_eq "#1271 helper: always exits 0 on a PASS shape too" \
+  "0" "$?"
+# The helper header's residual/disposition DISCLOSURES (the oracle completeness residual, the
+# possibly-vacuous cancellation premise, and the two non-defect non-reaching dispositions the
+# issue's ACs require) are prose read only by the reviewing agent, so they carry NO pin — a
+# comment-presence pin over them is exactly the class issues #375/#666/#810 prohibit for new
+# work, and the compensating control is the review pass, not a grep (the recorded #843/#876
+# decision). They are asserted nowhere here by design.
+
+# Structural workflow assertions (parsed YAML). The step must resolve the helper at the
+# vendored path with a repo-root fallback, pass the cancellation state as an ARGUMENT (via
+# a JOB_CANCELLED env expression derived from job.status, never the status-check function
+# cancelled() outside an `if:` or a step-level `if: !cancelled()`), and reach
+# an `exit 1` from a branch keyed on the helper's own FAIL token that sits ABOVE the terminal
+# `exit 0`. The pre-existing "ends with exit 0" and "no NOT-REACHED/UNESTABLISHED/REACHED"
+# assertions above stay green; these make the FAILING branch and the terminal-exit SHAPE
+# visible, which those two cannot (the RED-first positive control is exactly that "ends with
+# exit 0" assertion — it fails the moment the step stops ending in an unconditional exit 0).
+assert_eq "#1271 workflow: the step resolves the job-status helper at the vendored path with a repo-root fallback" \
+  "True" "$(v1156_step '".prflow/vendor/prflow/scripts/decide-verdict-gap-job-status.sh" in step["run"] and "DECIDE=scripts/decide-verdict-gap-job-status.sh" in step["run"]')"
+assert_eq "#1271 workflow: the cancellation state is derived from job.status and passed via JOB_CANCELLED, not cancelled() outside an if" \
+  "True" "$(v1156_step '"JOB_CANCELLED" in step["env"] and "job.status ==" in step["env"]["JOB_CANCELLED"] and step["env"]["JOB_CANCELLED"].count("cancelled") == 1 and "cancelled()" not in step["env"]["JOB_CANCELLED"] and "JOB_CANCELLED" in step["run"] and "!cancelled()" not in step.get("if","")')"
+assert_eq "#1271 workflow: the step invokes the job-status helper and passes it the arm token, the oracle class, and the cancellation state" \
+  "True" "$(v1156_step '"bash \"$DECIDE\"" in step["run"] and "$ARM_TOKEN" in step["run"] and "$REVIEW_CLASS" in step["run"] and "${JOB_CANCELLED" in step["run"]')"
+assert_eq "#1271 workflow: a FAIL token from the helper reaches an explicit exit 1 hoisted ABOVE the terminal exit 0" \
+  "True" "$(v1156_step '"= \"FAIL\"" in step["run"] and "exit 1" in step["run"] and step["run"].rindex("exit 1") < step["run"].rindex("exit 0") and step["run"].rstrip().endswith("exit 0")')"
+assert_eq "#1271 workflow: the FAIL branch emits an ::error:: so the gap is loud in the run log" \
+  "True" "$(v1156_step '"::error::" in step["run"]')"
+# The job-status helper's absence from an older vendored tree warns and leaves the job status
+# unchanged — inline workflow shell the suite cannot execute, so structural assertion is the
+# available control (the same class as the CHECK/GAP absence guard above).
+assert_eq "#1271 workflow: the helper's absence from an older vendored tree warns and leaves the job status unchanged" \
+  "True" "$(v1156_step '"[ ! -f \"$DECIDE\" ]" in step["run"] and "decide-verdict-gap-job-status.sh) is absent" in step["run"] and step["run"][step["run"].index("[ ! -f \"$DECIDE\" ]"):].split("fi",1)[0].strip().endswith("exit 0")')"
+
 chmod 700 "$V1156_SHAPES/adir" 2>/dev/null || true
 chmod 600 "$V1156_SHAPES/noread" "$V1156_SHAPES/zero-noread" 2>/dev/null || true
 rm -rf "$V1156_ROOT" "$V1156_BLOCK" "$V1156_NONE" "$V1156_MUTR" "$V1156_GAPD" "$V1156_SHAPES"

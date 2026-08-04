@@ -316,8 +316,8 @@ def collect(parsed):
             # `type == "tool_use"` therefore yields None on every real record — which would
             # make `write_chain_ok` (and so PERMITTED) unreachable by construction, and would
             # silently disarm the orchestrator exclusion that keys off the same field. The
-            # committed census cannot settle this: `docs/execution-file-shape.md` records that
-            # its flattened, uniqued key set "erases parentage".
+            # committed census cannot settle this: its flattened, uniqued key set
+            # "erases parentage".
             #
             # So the enclosing record's value is threaded DOWN as an inherited default and a
             # node's own value still wins where present, which resolves the chain on the

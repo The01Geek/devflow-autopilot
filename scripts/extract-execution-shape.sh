@@ -15,7 +15,7 @@
 # the harness's own execution_file actually carries — a question the repo asserted
 # ("the cost half is unreconstructable") but never measured. This helper is the
 # measurement instrument: the probe job feeds a real cloud run's execution_file
-# through it and uploads the redacted output as evidence, and docs/execution-file-shape.md
+# through it and uploads the redacted output as evidence, and the observed shape record
 # records what was observed.
 #
 # REDACTION IS A SECURITY BOUNDARY, NOT A NICETY (issue #437 AC2). The execution file
@@ -158,9 +158,8 @@ else
     # newline (which both shapes may carry). It is also harmless: the `-s` slurp below
     # normalizes array / object / JSONL into the same array, so every FIELD determination
     # is identical either way; only the recorded `encoding:` label is affected, and only
-    # for a degenerate one-event run that no real probe produces. Documented in
-    # docs/execution-file-shape.md and pinned by lib/test/run.sh so it stays a known,
-    # asserted limitation rather than a surprise.
+    # for a degenerate one-event run that no real probe produces. Pinned by
+    # lib/test/run.sh so it stays a known, asserted limitation rather than a surprise.
     '"object"') ENCODING=object ;;
     # A single top-level scalar (number/string/bool/null) is not a valid execution
     # file — treat it as unavailable rather than inventing an encoding for it.
@@ -296,7 +295,7 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
     #   un-neutralized text, and any consumer added later MUST neutralize before rendering.
     #   Treat that as a precondition on the consumer, not a property of this output.
     #   NOTE the redaction consequence: the AC2 statement that every string leaf is
-    #   dropped now has exactly this one disclosed exception (docs/execution-file-shape.md).
+    #   dropped now has exactly this one disclosed exception.
     # NOTE: no ASCII apostrophes in this comment — it sits inside a bash single-quoted
     # jq program, where one would terminate the string (SC1011/SC1073).
     | (any($objs[]; (.permission_denials? | type) == "array")) as $has_denial_array

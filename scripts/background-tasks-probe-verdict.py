@@ -22,8 +22,7 @@ unconditionally because it is inert when ignored. Whether it takes effect INSIDE
 `claude-code-action` was never observed. This probe observes it.
 
 How "returned a completed result within the same turn" is made measurable. The repository's
-observed shape record (docs/execution-file-shape.md and its committed
-docs/execution-file-shape.observed.txt) does list a `tool_use_result` key alongside
+observed shape record does list a `tool_use_result` key alongside
 `tool_input`/`tool_name` — so a result field is not absent. What that record does NOT
 establish is the one thing this probe would need from it: that a `tool_use_result` on a
 subagent dispatch carries the subagent's final TEXT, and that its presence distinguishes a
@@ -295,9 +294,9 @@ def render(exec_file):
 
     if verdict == "FOREGROUND":
         decision = (
-            "RECORD the harness floor as OBSERVED EFFECTIVE (issue #801) in "
-            "docs/DEVFLOW_SYSTEM_OVERVIEW.md's `prflow_implement.stall_backstop` bullet "
-            "and docs/implement-skill.md, with this run's identifier"
+            "RECORD the harness floor as OBSERVED EFFECTIVE (issue #801) in the "
+            "system overview's `prflow_implement.stall_backstop` bullet "
+            "and the implement-skill reference, with this run's identifier"
         )
     elif verdict == "BACKGROUNDED":
         decision = (

@@ -4700,9 +4700,10 @@ assert_eq "#779: the checkpoint-4 tool-boundary test precedes the token routing 
 # The key stays OUTSIDE the `gha:` prefix so the review/review-and-fix tier discriminator (which
 # reads `gha:` checkpoints as a cloud marker) is unaffected. A non-canonical body makes `--checkpoint`
 # a structural no-PATCH where `--note` degrades, so the prose keeps a degrade-to-`--note` fallback.
-# The ORDERING clause is separately operative: without it the record can assert the run is
-# proceeding to publish on an UPDATED run the post-merge suite then routes to Blocked — a
-# workpad self-record contradicting what happened.
+# The row carries no UPDATED-specific ordering condition: checkpoint 4 no longer runs a suite of
+# its own, so the row records the CHECKPOINT's result on all three clean tokens alike. The
+# completion-evidence flight (issue #1087) still runs after it and can route the run to Blocked
+# before anything is published — the row is not a claim about the run's outcome.
 # The observable discriminator for "no token reported" — "produced no output at all" is unusable
 # because the helper rebinds fd 1 to stderr and a successful invocation is never silent.
 # A tier that REFUSES the invocation is a distinct case from a non-clean token: it publishes,
@@ -31109,7 +31110,7 @@ echo "#408 cloud review no-verdict auto-resume backstop + #414 post-and-annotate
 # module re-derives REPO_ROOT and rebuilds the review-engine bundle itself;
 # see its .inventory.md for the coverage map back to this location.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-stall-backstop.sh" \
-  "review-stall-backstop" 385; then
+  "review-stall-backstop" 433; then
   printf 'ERROR: review-stall-backstop boundary could not record its result\n'
   exit 1
 fi
@@ -33782,6 +33783,13 @@ fi
 # sentence is read on the way INTO the same flight, so — like the amendments above — it cannot
 # be routed behind a conditional progressively-loaded reference. Raise the ceiling to the exact
 # post-#1243 measurement, with no slack.
+# Checkpoint 4's UPDATED arm no longer mandates a post-merge suite re-run: the completion-evidence
+# flight below runs after that checkpoint and before the publish decision over the SAME merged tree
+# and already Blocks on a non-pass, so the second run re-verified an already-gated tree. The #1053
+# entry above is retained as the past-time record of why the ceiling was raised then — its "two
+# serialized runs" pair is now the one resolve-then-verify ordering (checkpoint 4's inherited
+# CONFLICT arm and the fix loop's conflict path). The ceiling is a `-le` bound and this change only
+# shrinks the file, so no raise is owed and none is taken.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
   "$([ "$(wc -c < "$I480_P4")" -le 106831 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
@@ -46309,6 +46317,11 @@ echo "#908 devflow-runner.yml PreToolUse guard wiring (statically verifiable, is
 # ────────────────────────────────────────────────────────────────────────────
 _908_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
 _908_IMPLEMENT_YML="$LIB/../.github/workflows/devflow-implement.yml"
+# The `command` tier (manual /prflow:review, /prflow:review-and-fix). It carries the same
+# #1179 ceiling for the same reason the implement tier does — the whole-suite coordinator
+# its prompt extension names as the final gate exceeds Claude Code's 600000 ms default —
+# and is driven through the same ceiling extractor below.
+_908_COMMAND_YML="$LIB/../.github/workflows/devflow.yml"
 assert_eq "#908 AC1: devflow-runner.yml's claude-code-action step carries a settings: input" "yes" \
   "$(grep -qF 'settings: |' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- pins the effectiveness channel AC1 requires: the claude-code-action settings input is what registers the PreToolUse hook with the review-tier runner
 assert_eq "#908 AC1: the settings input registers a PreToolUse hook naming the guard script" "yes" \
@@ -46600,6 +46613,13 @@ YML
     "$(_wfg_hook "$_908_IMPLEMENT_YML")"
   assert_eq "#1179: devflow-implement.yml sets a finite BASH_MAX_TIMEOUT_MS > 600000 ms via the claude-code-action settings env (AC1)" "ok" \
     "$(_wfg_ceiling "$_908_IMPLEMENT_YML")"
+  # The command tier carries the same ceiling. Its failure mode when absent is SILENT:
+  # the coordinator is killed at the default wall with no output, which reads in the job
+  # log like a command that produced nothing rather than one that was terminated — so a
+  # regression that drops this input is invisible without a guard. Same behavioral
+  # extractor, no new mechanism.
+  assert_eq "#1179: devflow.yml (command tier) sets a finite BASH_MAX_TIMEOUT_MS > 600000 ms via the claude-code-action settings env" "ok" \
+    "$(_wfg_ceiling "$_908_COMMAND_YML")"
   # ── The hook guard over the fixture matrix ────────────────────────────────
   assert_eq "#908 matrix: an env-only settings block in string form is allowed" "yes" \
     "$(_wfg_hook "$_WFG_D/env-string.yml")"
@@ -46673,6 +46693,7 @@ else
   # host-capability rather than vanishing into a clean pass (#456: a silently-absent guard
   # is never a clean pass). PyYAML is a suite prerequisite, so CI always arms them.
   skip "#1179 finite BASH_MAX_TIMEOUT_MS > 600000 via settings env (AC1)" host-capability "python3/PyYAML or scratch space unavailable — cannot parse the workflow settings env"
+  skip "#1179 finite BASH_MAX_TIMEOUT_MS > 600000 via settings env (command tier)" host-capability "python3/PyYAML or scratch space unavailable — cannot parse the workflow settings env"
   skip "#908/#1179 workflow-settings guard adversarial fixture matrix" host-capability "python3/PyYAML or scratch space unavailable — cannot compose or parse the synthetic workflow fixtures"
 fi
 assert_eq "#908 AC2: HOOK_TARGETS (harden-stop-hooks.sh) already lists the guard script" "yes" \

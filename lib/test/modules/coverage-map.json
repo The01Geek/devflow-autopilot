@@ -286,6 +286,10 @@
       "note": "issue #1172: the verdict-presence gate for devflow.yml's dead-run flip step; reuses derive-review-verdict.sh and is driven per arm (both-channels + truly-absent) in the #1172 section of lib/test/modules/review-trigger-helpers.sh",
       "owner": "review-trigger-helpers"
     },
+    "scripts/decide-verdict-gap-job-status.sh": {
+      "note": "#1271 conjunctive arm-to-job-status decision helper for the always() reach-record step: FAILs the job only when the emitter was not reached AND the head-scoped oracle positively establishes no verdict (none), and PASSes on every could-not-tell arm and on a cancelled run (carve-out passed as an argument). Driven over the full closed arm vocabulary x oracle vocabulary x cancellation by the review-stall-backstop module's #1271 block.",
+      "owner": "review-stall-backstop"
+    },
     "scripts/dedupe-implement-run.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -962,6 +966,10 @@
     "1267": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "1271": {
+      "note": "",
+      "owner": "review-stall-backstop"
     },
     "139": {
       "note": "",

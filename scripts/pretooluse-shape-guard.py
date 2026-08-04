@@ -85,8 +85,8 @@ and no local test can establish it — the answer lives in the harness, not here
 because the whole fail-open design rests on `defer` meaning "fall through to the default
 permission flow": if a future harness version ignored or rejected it, every fail-open path
 would change character silently. Resolving this is part of the `pretooluse-probe` arm
-recorded in docs/cloud-allowlist.md (its reason-delivery verdict observes what the harness
-actually does with the emitted object); until that arm runs, treat the vocabulary as an
+recorded in the cloud allowlist evidence record (its reason-delivery verdict observes what
+the harness actually does with the emitted object); until that arm runs, treat the vocabulary as an
 ASSUMPTION this file depends on, not as a measured fact.
 
 TRUST BOUNDARY (the contract registration must satisfy). This file is inert unless its
@@ -101,7 +101,7 @@ settings, so a guard registered only through the action's `settings` input leave
 gate unarmed), while the action's `settings` input is what would make the guard
 EFFECTIVE in a run. Registering through `settings` alone would run pull-request-editable
 guard code in a secrets-bearing job; both channels must land together. See
-scripts/harden-stop-hooks.sh and docs/cloud-allowlist.md.
+scripts/harden-stop-hooks.sh.
 """
 
 from __future__ import annotations
@@ -116,9 +116,9 @@ import time
 
 # ── Arm → permitted-alternative remediation (issue #805) ──────────────────────
 # This table is the guard's own named table; NO remediation text is composed at runtime,
-# and it carries NO entry for an excluded arm (R2, R3-heredoc). docs/cloud-allowlist.md
-# is the AUTHORITATIVE record of each arm's permitted alternative and this table is its
-# mirror — a lib/test/run.sh assertion ties each arm's ROW here to that document's table
+# and it carries NO entry for an excluded arm (R2, R3-heredoc). The cloud allowlist
+# evidence record is the AUTHORITATIVE record of each arm's permitted alternative and this
+# table is its mirror — a lib/test/run.sh assertion ties each arm's ROW here to that record's table
 # ROW for the same arm (both sides extracted by arm id, never whole-file substring tests:
 # a whole-file test cannot distinguish the row it claims to pin from any other mention of
 # the same literal, and would be inert). The JOIN LITERAL differs by arm and is NOT

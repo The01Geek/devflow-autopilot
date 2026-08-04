@@ -17,8 +17,8 @@ When the failure pattern recurs, the highest-leverage change to propose could li
 reads it from.** On the cloud review tier those are different questions: that job checks out the pull
 request's head, so since issue #874 the two extensions the reviewer loads (`review` and
 `requesting-code-review`) are materialized from the trusted base ref and the workspace copies are
-truncated — a PR's edit to them does not reach its own review. The canonical statement of that
-boundary is `docs/DEVFLOW_SYSTEM_OVERVIEW.md`'s base-ref trust boundary bullet.
+truncated — a PR's edit to them does not reach its own review. This is the base-ref trust
+boundary.
 - **`/devflow:implement` skill** (`skills/implement/SKILL.md` orchestrator + `skills/implement/phases/phase-N-*.md` reference files + `skills/implement/references/*.md` predicate-gated references) — the orchestrator drives the four-phase lifecycle; the detailed per-phase procedure you would strengthen/check/gate lives in the phase files (the orchestrator `SKILL.md` holds only thin per-phase stubs), while a procedure whose predicate is false on most runs — Phase 4.0's deferred-AC follow-up filing — lives in a `references/` file the phase file reaches only when that predicate holds.
 - **`/devflow:create-issue` skill** (`skills/create-issue/SKILL.md` thin always-loaded root + `skills/create-issue/references/*.md` marker-gated step and fallback references) — the issue-quality entry point. If issues themselves are the bottleneck (vague acceptance criteria, missing repro steps, ambiguous scope), this is where to fix it; the root holds routing, the entry gate, and the non-degradable invariants, while the per-step procedure you would strengthen lives in the reference files.
 - **`/devflow:review` and `/devflow:review-and-fix` skills** — code-review discipline. If review caught a regression too late, the gap belongs here.
