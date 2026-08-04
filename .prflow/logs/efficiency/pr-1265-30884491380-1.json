@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1265",
+  "generated_at": "2026-08-04T06:44:17Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.85",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.7147095,
+    "tokens": {
+      "input_tokens": 5027,
+      "output_tokens": 19713,
+      "cache_read_input_tokens": 3536348,
+      "cache_creation_input_tokens": 214035,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 5089,
+        "outputTokens": 47045,
+        "cacheReadInputTokens": 5607754,
+        "cacheCreationInputTokens": 465061,
+        "webSearchRequests": 0,
+        "costUSD": 7.7147095,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 27,
+    "duration_ms": 477457
+  },
+  "permission_denials": {
+    "count": 3,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "for f in skills/implement/phases/phase-3-review.md skills/implement/phases/phase-4-documentation.md skills/review-and-fix/references/fixing.md; do echo \"=== $f ===\"; git show 852bfd3dcd1b541fc93e84ecdc45df18ee312534:$f | grep -n \"checkout-fingerprint\\|current-checkout-file\\|allow-unverified\\|verification-flight.py \\(status\\|wait\\)\\|verification-flight.py status\\|verification-flight.py wait\" ; done",
+      "for f in skills/implement/phases/phase-3-review.md skills/implement/phases/phase-4-documentation.md skills/review-and-fix/references/fixing.md; do echo \"=== $f ===\"; git show 852bfd3dcd1b541fc93e84ecdc45df18ee312534:$f | grep -n -e \"checkout-fingerprint\" -e \"current-checkout-file\" -e \"allow-unverified\" -e \"verification-flight.py status\" -e \"verification-flight.py wait\" ; done"
+    ],
+    "total": 3,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
