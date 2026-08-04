@@ -16775,15 +16775,17 @@ done
 #     trigger the workflow at all (no run, no error, nothing to notice);
 #   * drop the /prflow:implement negation -> a /prflow:implement comment fires BOTH
 #     devflow.yml and devflow-implement.yml, breaking the partition invariant.
-# Asserted per-clause over all three event arms, because a disjunct dropped from
-# one arm leaves the other two green.
+# Asserted per-clause over the gate's event arm(s). Issue #1163 removed the two
+# pull_request_review* subscriptions, so the gate now carries a SINGLE event clause
+# (issue_comment); the per-clause form is retained (rather than collapsed) so a
+# future re-subscription that re-adds an event arm is still audited arm-by-arm.
 GATE_YML="$WF/devflow.yml"
 # Echoes the gate clause lines that do NOT match $2 — empty means every clause carries it.
 gate_clauses_missing() {  # $1=file $2=ERE every gate clause must match
   grep -nE "github\.event_name == '" "$1" | grep -vE "$2" || true
 }
 GATE_CLAUSE_COUNT="$(grep -cE "github\.event_name == '" "$GATE_YML" || true)"
-assert_eq "trigger-gate: devflow.yml gate carries all three event clauses" "3" "$GATE_CLAUSE_COUNT"
+assert_eq "trigger-gate: devflow.yml gate carries the sole issue_comment event clause" "1" "$GATE_CLAUSE_COUNT"
 # Half 1 — the POSITIVE set accepts the canonical namespace on every clause.
 assert_eq "trigger-gate: every devflow.yml clause accepts /prflow:review" \
   "" "$(gate_clauses_missing "$GATE_YML" "contains\([^)]*'/prflow:review'\)")"
@@ -16816,10 +16818,12 @@ assert_eq "trigger-gate CONTROL B: the exclusion-half mutation really changed th
 assert_eq "trigger-gate CONTROL B: dropping the /prflow:implement negation turns the exclusion check RED" \
   "yes" "$([ -n "$(gate_clauses_missing "$TG_TMP/no-negation.yml" "!contains\([^)]*'/prflow:implement'\)")" ] && echo yes || echo no)"
 # Control C — the extractor itself is not matching everything: a token absent from
-# every clause must be reported missing on all three, so an always-empty result
-# (which would make every row above vacuously green) is ruled out.
-assert_eq "trigger-gate CONTROL C: a token no clause carries is reported missing on all three" \
-  "3" "$(gate_clauses_missing "$GATE_YML" "contains\([^)]*'/nosuchns:review'\)" | grep -c . || true)"
+# every clause must be reported missing on every clause, so an always-empty result
+# (which would make every row above vacuously green) is ruled out. With the sole
+# issue_comment clause the expected count is 1 (it was 3 before issue #1163 removed
+# the two review-event clauses).
+assert_eq "trigger-gate CONTROL C: a token no clause carries is reported missing on the sole clause" \
+  "1" "$(gate_clauses_missing "$GATE_YML" "contains\([^)]*'/nosuchns:review'\)" | grep -c . || true)"
 rm -rf "$TG_TMP"
 
 # The label trigger is gone: neither workflow may listen on `labeled`.
@@ -16870,11 +16874,26 @@ assert_eq "partition: devflow-implement.yml gate if: filters PR comments (issue.
 #     invert the guard and decline issues instead of PRs.
 assert_eq "partition: devflow-implement.yml wires IS_PULL_REQUEST from issue.pull_request != null" \
   "1" "$(grep -cF 'IS_PULL_REQUEST: ${{ github.event.issue.pull_request != null }}' "$IMPL")"
-# (d) Complement (AC #5): the LIGHT path stays PR-aware — /devflow:review and
-#     /devflow:pr-description act on PRs, so devflow.yml MUST keep its PR-review
-#     subscriptions. Guards against an over-eager edit stripping them too.
-assert_eq "partition: devflow.yml stays PR-aware (keeps PR-review subscriptions)" \
-  "2" "$(grep -cE 'pull_request_review(_comment)?:' "$WF/devflow.yml")"
+# (d) Issue #1163 SUPERSEDES the earlier "stays PR-aware" decision. That decision
+#     kept devflow.yml subscribed to pull_request_review[submitted] and
+#     pull_request_review_comment[created] so /prflow:review and /prflow:pr-description
+#     could be requested from the review-submission box and inline diff comments. But
+#     on those two events GITHUB_REF resolves to refs/pull/N/merge, so every job
+#     checked out PR-author content — including the config job's authorization inputs
+#     and the agent's tool grants. The light path is now issue_comment-only (a review
+#     requested by commenting on the PR conversation is an issue_comment and still
+#     works); the review-submission-box and inline-diff-comment paths are dropped.
+#     So devflow.yml must carry NO pull_request_review* subscription, mirroring the
+#     heavy path's (a) above.
+assert_eq "partition: devflow.yml has no PR-review subscriptions (issue #1163 superseded the earlier stays-PR-aware decision)" \
+  "0" "$(grep -cE 'pull_request_review(_comment)?:' "$WF/devflow.yml")"
+# (d+) Positive complement to (d): devflow.yml MUST still subscribe to issue_comment —
+#      its SOLE event entry point now. Without this a future edit deleting the
+#      issue_comment subscription would make the whole light path silently inert while
+#      (d) still reads 0 and every other test stays green (the over-narrowing twin of
+#      the bug (d) guards — same shape as the heavy path's (a+) above).
+assert_eq "partition: devflow.yml subscribes to issue_comment (sole event entry point)" \
+  "1" "$(grep -cE '^[[:space:]]*issue_comment:[[:space:]]*$' "$WF/devflow.yml")"
 
 # Early-ack reaction must stay correctly wired in BOTH gate jobs. These guard
 # the load-bearing properties that the react-to-trigger.sh unit tests above

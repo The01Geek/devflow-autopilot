@@ -80,7 +80,7 @@ restore.
 
 | Workflow | Commands | Listens on |
 |---|---|---|
-| `devflow.yml` (light path) | `/prflow:review`, `/prflow:review-and-fix`, `/prflow:pr-description` | `issue_comment[created]`, `pull_request_review_comment[created]`, `pull_request_review[submitted]` |
+| `devflow.yml` (light path) | `/prflow:review`, `/prflow:review-and-fix`, `/prflow:pr-description` | `issue_comment[created]` |
 | `devflow-implement.yml` (heavy path) | `/prflow:implement` | `issue_comment[created]` |
 | `ci.yml` — `auto_review_trigger` job **(repo-internal; `install.sh` does NOT ship it)** | posts `/prflow:review` automatically once CI is green on a non-draft same-repo pull request | `pull_request[opened, synchronize, reopened, ready_for_review]` (an automatic *producer* of the `/prflow:review` comment, not a listener for it; a consumer reproduces it with the documented snippet below — see *Automatic review request on green CI*) |
 | `devflow-review.yml` **(withheld — see above; not shipped, still live in repositories that installed it)** | automated review | PR lifecycle + `check_run[rerequested]` + `workflow_run`/`check_suite` `[completed]` + `status` (CI-completion re-trigger for deferred reviews — `status` covers legacy commit-status-only CI, filtered to a green state; see the preconditions note in `DEVFLOW_SYSTEM_OVERVIEW.md` §14; the `workflow_run` `workflows:` list must name **every** first-party workflow that runs on PR events — the review waits on all of them but re-fires only on a listed one's completion, so a gating workflow omitted from the list can strand a deferred review, issue #579) |
@@ -102,11 +102,20 @@ comment routes to exactly one listener and never collides with Anthropic's stock
 `claude.yml`. This is the *partition invariant*, enforced by tests in
 `lib/test/run.sh`.
 
-**The heavy path is issues-only.** Unlike the light path — which is intentionally
-PR-aware (`/prflow:review` / `/prflow:pr-description` act on a PR) —
-`devflow-implement.yml` listens **only** on `issue_comment[created]` and never on
-the PR-only review events. Because a PR comment is *also* an `issue_comment` in
-GitHub's API, the gate `if:` additionally requires
+**Both paths are `issue_comment`-only.** The light path's commands
+(`/prflow:review` / `/prflow:pr-description`) still act on a pull request, but they
+are requested by **commenting on the pull-request conversation** — which is an
+`issue_comment` in GitHub's API — not from the review-submission box or an inline
+diff comment. As of issue #1163 `devflow.yml` no longer subscribes to
+`pull_request_review[submitted]` or `pull_request_review_comment[created]`: on those
+events GITHUB_REF resolves to `refs/pull/N/merge`, so every job checked out
+PR-author content (including the `config` job's authorization inputs and the agent's
+tool grants), and the subscriptions were removed to close that accident class.
+Requesting a review from the review-submission box or an inline diff comment
+therefore no longer works; commenting `/prflow:review` on the PR conversation still
+does. `devflow-implement.yml` was already `issue_comment`-only. Because a PR comment
+is *also* an `issue_comment` in GitHub's API, the heavy path's gate `if:`
+additionally requires
 `github.event.issue.pull_request == null`, and `scripts/resolve-implement-trigger.sh`
 re-checks via an `IS_PULL_REQUEST` signal and declines before authorization — so a
 comment on a pull request never starts an implement run, whatever its body text.
