@@ -62,6 +62,13 @@ unresolvable reference). Omit the section entirely when no prerequisite is open 
 the Visual Specification and Blocked sections are omitted when empty; never write
 "Dependencies: none".
 
+The `<reason>` text after the em-dash is free-form prose for a human reader and does not
+change how the line is parsed: the recognizer reads the `Blocked by #N` declaration and its
+issue number, and a reason that itself contains outbound ordering words like "must merge
+before", "blocks", or "required by" no longer alters or suppresses the declaration (issue
+#1267 narrowed the outbound-direction filter so it governs a line only when a number run
+follows the keyword).
+
 Keep this section distinct from the two other "dependency"-flavored surfaces, or drafters
 will file entries in the wrong one:
 
