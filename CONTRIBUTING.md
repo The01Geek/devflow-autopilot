@@ -500,6 +500,24 @@ edits them. Exit codes: `0` clean, `1` action required, `2` infrastructure failu
 (which wins over `1`). Use `--list` to see the registered artifacts and `--repo-root` to
 point it at another checkout.
 
+#### The parallel coordinator refuses to launch on a drifted artifact
+
+Running the batched pass is a discipline, so it can be skipped — and before issue #1244 a
+stale generated artifact was then caught only by a full ~13-minute suite run. The parallel
+coordinator `lib/test/run-parallel.sh` now closes that gap mechanically: before it launches
+any shard it runs `lib/test/regenerate-artifacts.py --preflight`, a **read-only** pass over
+the registry's sub-second, non-writing rows (the `cloud-writer-manifest` verify plus the
+judgment-gated `--check` rows; the multi-minute `exact-module-floors` row is declared
+ineligible). On detected drift the coordinator prints the failing row and its governing
+policy, launches no shard, and exits non-zero in under a couple of seconds — so you fix the
+artifact with the batched pass above rather than paying a whole suite run to discover it. An
+*inconclusive* preflight (a crash, an unreadable exit, or a disabled check) warns and
+launches the shards anyway: detected drift fails closed, an unestablished check does not. The
+preflight is read-only and reconciles nothing — the batched `regenerate-artifacts.py` pass
+stays the only writer, and running it after your edits is what keeps the coordinator from
+refusing your own launch. It touches neither `.github/workflows/ci.yml` nor
+`lib/test/run-shard.sh`, so CI's per-shard behaviour is unchanged.
+
 #### The registry is also the merge-conflict oracle
 
 When a branch update lands a merge conflict in a checked-in **generated** artifact, do
