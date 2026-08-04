@@ -491,7 +491,7 @@ class RetentionOutcomeSelectionTest(unittest.TestCase):
         self.assertEqual(lines, self.KEY_LOSS)
 
     def test_violation_against_a_substituted_comparand_is_not_an_established_loss(self):
-        # The Important finding. `_merge_base` hands back BASE_REF's TIP when no merge
+        # The Important finding. `common.merge_base` hands back BASE_REF's TIP when no merge
         # base can be computed, and that tip may carry a key added AFTER the fork which
         # the branch legitimately never had. Reporting that as exit-1 "a merge dropped
         # it" misattributes it, so it routes through the degraded arm instead.
@@ -547,7 +547,7 @@ class RetentionOutcomeSelectionTest(unittest.TestCase):
 
 
 class RetentionMergeBaseTest(_GitFixtureBase):
-    """`_merge_base`: the substitute comparand must be reported, never silent."""
+    """`common.merge_base`: the substitute comparand must be reported, never silent."""
 
     prefix = "cm-mb-"
 
@@ -558,13 +558,13 @@ class RetentionMergeBaseTest(_GitFixtureBase):
         self._git("commit", "-qm", "base")
 
     def test_resolvable_base_reports_no_degradation(self):
-        base, error, degraded = retain._merge_base(self.repo, self._base_branch())
+        base, error, degraded = retain.common.merge_base(self.repo, self._base_branch())
         self.assertIsNone(error)
         self.assertIsNone(degraded, "a real merge base must not be flagged degraded")
         self.assertRegex(base, r"^[0-9a-f]{40}$")
 
     def test_unresolvable_base_ref_falls_back_and_reports_it(self):
-        base, error, degraded = retain._merge_base(self.repo, "origin/never-fetched")
+        base, error, degraded = retain.common.merge_base(self.repo, "origin/never-fetched")
         self.assertIsNone(error)
         self.assertEqual(base, "origin/never-fetched")
         self.assertIsNotNone(degraded, "the fallback substitute must be reported")
@@ -577,7 +577,7 @@ class RetentionMergeBaseTest(_GitFixtureBase):
         # shape on demand; without it the branch is a fail-open nothing can reach.
         stub = subprocess.CompletedProcess(args=[], returncode=0, stdout="  \n", stderr="")
         with unittest.mock.patch.object(subprocess, "run", return_value=stub):
-            base, error, degraded = retain._merge_base(self.repo, "origin/main")
+            base, error, degraded = retain.common.merge_base(self.repo, "origin/main")
         self.assertIsNone(error)
         self.assertEqual(base, "origin/main")
         self.assertIsNotNone(degraded, "an empty merge-base result must not pass as real")
@@ -595,34 +595,34 @@ class RetentionMergeBaseTest(_GitFixtureBase):
         self._git("commit", "-qm", "orphan root")
         # Back onto the trunk so HEAD and the orphan branch have no common ancestor.
         self._git("checkout", "-qf", trunk)
-        base, error, degraded = retain._merge_base(self.repo, "orphan")
+        base, error, degraded = retain.common.merge_base(self.repo, "orphan")
         self.assertIsNone(error)
         self.assertEqual(base, "orphan")
         self.assertIsNotNone(degraded)
 
 
 class RetentionConfigBaseTest(_GitFixtureBase):
-    """`_read_config_base` + the default `origin/<base_branch>` — the path CI runs."""
+    """`common.read_config_base` + the default `origin/<base_branch>` — the path CI runs."""
 
     prefix = "cm-cfgbase-"
 
     def test_absent_resolver_falls_back_to_main(self):
         # No scripts/config-get.sh in the fixture: the documented best-effort default.
-        self.assertEqual(retain._read_config_base(self.repo), "main")
+        self.assertEqual(retain.common.read_config_base(self.repo), "main")
 
     def test_resolver_value_is_honored(self):
         resolver = self.repo / "scripts" / "config-get.sh"
         resolver.parent.mkdir(parents=True, exist_ok=True)
         resolver.write_text("#!/bin/sh\necho develop\n", encoding="utf-8")
         resolver.chmod(0o755)
-        self.assertEqual(retain._read_config_base(self.repo), "develop")
+        self.assertEqual(retain.common.read_config_base(self.repo), "develop")
 
     def test_empty_resolver_output_falls_back_to_main(self):
         resolver = self.repo / "scripts" / "config-get.sh"
         resolver.parent.mkdir(parents=True, exist_ok=True)
         resolver.write_text("#!/bin/sh\necho\n", encoding="utf-8")
         resolver.chmod(0o755)
-        self.assertEqual(retain._read_config_base(self.repo), "main")
+        self.assertEqual(retain.common.read_config_base(self.repo), "main")
 
     def test_default_base_ref_is_origin_prefixed_and_unestablished_when_unfetched(self):
         # With NO --base-ref (what CI passes) the check composes origin/<base_branch>.
@@ -768,7 +768,7 @@ class RetentionSubstitutedComparandTest(_GitFixtureBase):
     The mirror image of `RetentionShallowCloneTest`: there, a key really was dropped and
     the degraded comparand must not launder it into a pass. Here NOTHING was dropped —
     the trunk added a key after the fork point and the branch simply never had it — but
-    a shallow clone makes `_merge_base` substitute the trunk's TIP, against which the
+    a shallow clone makes `common.merge_base` substitute the trunk's TIP, against which the
     key reads as "absent from head". Reporting that as an exit-1 `a merge/resolution
     dropped it` is a misattribution about a comparison the run never performed, and one
     the developer could not acknowledge away.
@@ -834,7 +834,7 @@ class RetentionSubstitutedComparandTest(_GitFixtureBase):
             capture_output=True, text=True, check=False,
         )
         self.assertNotEqual(merge_base.returncode, 0, merge_base.stdout)
-        _, _, degraded = retain._merge_base(self.clone, f"origin/{self.base}")
+        _, _, degraded = retain.common.merge_base(self.clone, f"origin/{self.base}")
         self.assertIsNotNone(degraded)
 
     def test_key_the_branch_predates_is_not_reported_as_a_dropped_key(self):

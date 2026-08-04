@@ -12058,7 +12058,7 @@ with tempfile.TemporaryDirectory() as _cw_base:
     def _valid_manifest():
         return {
             "protocol": "devflow-cloud-writer-contract-v1",
-            "legacy_profile_baseline": "2.15.13",
+            "legacy_profile_baseline": "2.30.100",
             "files": {"scripts/foo.sh": _good_hash},
             "required_helper_heads": {"implement": [_head]},
         }
@@ -12119,7 +12119,7 @@ with tempfile.TemporaryDirectory() as _cw_base:
     assert_eq("#543 AC18 c8 EXTRA_KEY", [vcwc.EXTRA_KEY], _codes(_run(_m)))
     # 9 DUPLICATE_KEY (only expressible in raw source)
     _dup = ('{"protocol":"devflow-cloud-writer-contract-v1","protocol":"x",'
-            '"legacy_profile_baseline":"2.15.13","files":{},'
+            '"legacy_profile_baseline":"2.30.100","files":{},'
             '"required_helper_heads":{}}')
     assert_eq("#543 AC18 c9 DUPLICATE_KEY", [vcwc.DUPLICATE_KEY], _codes(_run(raw=_dup)))
     # 10 WRONG_FIELD_TYPE
@@ -12225,7 +12225,7 @@ with tempfile.TemporaryDirectory() as _cw_base:
               vcwc.REJECTION_CODES, _module_codes)
     # A nested duplicate key (inside `files`) is caught too, not only a top-level one.
     _nested_dup = ('{"protocol":"devflow-cloud-writer-contract-v1",'
-                   '"legacy_profile_baseline":"2.15.13",'
+                   '"legacy_profile_baseline":"2.30.100",'
                    '"files":{"a":"'+("0"*64)+'","a":"'+("1"*64)+'"},'
                    '"required_helper_heads":{}}')
     assert_eq("#543 AC18: a nested duplicate key is caught (DUPLICATE_KEY)",
@@ -12397,7 +12397,7 @@ _CW_REFRESH_ACTION = ("refresh your installed workflows and vendored plugin cont
                       "together before your next cloud-writer run")
 
 # Frozen legacy profile grants — the vendored helper heads each cloud profile
-# granted at `legacy_profile_baseline` (cwc.LEGACY_PROFILE_BASELINE, "2.15.13"),
+# granted at `legacy_profile_baseline` (cwc.LEGACY_PROFILE_BASELINE, "2.30.100"),
 # the immediately-preceding supported profile set. This is a DELIBERATE frozen
 # snapshot (an enforcement constant, not a live read): pairing 2 below validates
 # the LIVE checked-in manifest against it, so a future PR that adds a newly-
@@ -12417,10 +12417,12 @@ _FROZEN_LEGACY_GRANTS = {
     "implement": {
         _cwv("run-jq.sh"), _cwv("config-get.sh"), _cwv("workpad.py"),
         _cwv("parse-acs.py"), _cwv("branch-for-issue.py"),
-        _cwv("update-branch-checkpoint.sh"), _cwv("file-deferrals.py"),
+        _cwv("update-branch-checkpoint.sh"), _cwv("resolve-existing-pr.sh"),
+        _cwv("file-deferrals.py"),
         _cwv("discover-deferral-manifests.py"), _cwv("match-deferrals.py"),
         _cwv("resolve-review-overrides.py"), _cwv("apply-labels.sh"),
-        _cwv("ensure-label.sh"), _cwv("stale-prose-lint.py"),
+        _cwv("ensure-label.sh"), _cwv("apply-issue-dependencies.py"),
+        _cwv("stale-prose-lint.py"),
         _cwv("dismiss-stale-rejections.sh"), _cwv("match-lint-adjudications.py"),
         _cwv("load-prompt-extension.sh"), _cwv("react-to-trigger.sh"),
         _cwv("extract-doc-needed-paths.sh"), _cwl("efficiency-trace.sh"),

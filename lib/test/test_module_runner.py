@@ -2024,6 +2024,7 @@ MODULE_DRIVEN_SUITES = (
     "test_reception_identity.py",
     "test_coverage_map_guard.py",
     "test_coverage_map_merge.py",
+    "test_assertion_floor_retention.py",
     "test_pin_corpus_classifier.py",
     "test_pin_corpus_lint.py",
     "test_profile_suite.py",
