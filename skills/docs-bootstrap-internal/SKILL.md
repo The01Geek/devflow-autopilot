@@ -98,13 +98,17 @@ cat CLAUDE.md | head -100
 # short-circuits, `|| :` stays rc-0). With nomatch off an unmatched glob leaves $1 the
 # literal pattern, so `[ -e "$1" ]` decides match-vs-no-match structurally: no `2>/dev/null`
 # to hide a real error, and exactly one of the three arms can print. An empty directory and
-# an unreadable one both leave the glob unmatched, so the second arm separates them.
+# an unlistable one both leave the glob unmatched, so the second arm separates them. Listing
+# needs BOTH the read bit (to name the entries) and the search bit (to stat them for the
+# trailing `/`), so that arm tests both. All three arms print on stdout so a caller capturing
+# stdout can still tell "nothing here" from "could not look". Unhandled: bash's `failglob`,
+# where an unmatched pattern aborts `set --` before it runs.
 [ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
-set -- */   # glob-ok: unquoted glob guarded by the nonomatch line above; absence and unreadability are reported separately, never skipped
+set -- */
 if [ -e "$1" ]; then
   printf '%s\n' "$@"
-elif [ ! -r . ]; then
-  echo "(current directory is not readable - listing NOT established)" >&2
+elif [ ! -r . ] || [ ! -x . ]; then
+  echo "(current directory is not listable - listing NOT established)"
 else
   echo "(no subdirectories)"
 fi

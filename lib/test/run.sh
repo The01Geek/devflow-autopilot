@@ -42421,7 +42421,7 @@ assert_eq "#1211 the real-tree run audited a positive number of files" "yes" \
   "$(case "$E1211_OUT" in *"audited 0 of"*) printf no ;; *"audited "*) printf yes ;; *) printf no ;; esac)"
 
 # One scratch tree and one --files-from list for the whole shape matrix: the scaffolding is
-# byte-identical across every case, so allocating it per case bought ~8 process spawns each and
+# byte-identical across every case, so allocating it per case bought only extra process spawns and
 # nothing else. Fixtures are synthetic rather than checked in because the population predicate is
 # a `skills/` PREFIX test — a fixture under lib/test/fixtures/ could never enter the real-tree
 # population, but a synthetic root also keeps each case's fence body beside its assertion.
@@ -42435,39 +42435,51 @@ esac
 if [ -n "$E1211_DIR" ]; then
   printf '%s\n' 'skills/probe/SKILL.md' > "$E1211_DIR/list"
 fi
-e1211_case() {  # <fence body text> -> "rc=<n>" (or a value no expectation can match)
+e1211_case() {  # <fence body text> -> "rc=<n>|<classifier>" (or a value no expectation matches)
+  # The classifier is what stops a `rc=1` expectation from passing on a BROKEN harness: the
+  # helper also exits 1 for "enumeration unusable" and for an unreadable path, so a fixture
+  # write that silently failed (read-only TMPDIR, full disk) would make every violation
+  # assertion green while proving nothing. Derived with a bash `case` on the captured output —
+  # no grep/sed, since this value decides an assertion (guard-class 2).
   [ -n "$E1211_DIR" ] || { printf 'rc=probe-unavailable'; return 0; }
   printf '%s' "$1" > "$E1211_DIR/skills/probe/SKILL.md"
-  python3 "$E1211_LINT" --root "$E1211_DIR" --files-from "$E1211_DIR/list" >/dev/null 2>&1
-  printf 'rc=%s' "$?"
+  local out rc
+  out="$(python3 "$E1211_LINT" --root "$E1211_DIR" --files-from "$E1211_DIR/list" 2>&1)"; rc=$?
+  case "$out" in
+    *"unguarded filename pattern"*) printf 'rc=%s|violation' "$rc" ;;
+    *"SKIPPED"*|*"enumeration unusable"*|*"refusing to report clean"*|*"empty audited population"*)
+      printf 'rc=%s|unestablished' "$rc" ;;
+    *"audited "*) printf 'rc=%s|scanned' "$rc" ;;
+    *) printf 'rc=%s|unrecognized' "$rc" ;;
+  esac
 }
 
 # Positive control: the exact shape the two shipped sites carried before this change.
-assert_eq "#1211 an unguarded glob in a bash fence is a violation" "rc=1" \
+assert_eq "#1211 an unguarded glob in a bash fence is a violation" "rc=1|violation" \
   "$(e1211_case '```bash
 ls -d agents/*/
 ```
 ')"
 # The two sanctioned discharges.
-assert_eq "#1211 the nonomatch guard on an earlier fence line discharges it" "rc=0" \
+assert_eq "#1211 the nonomatch guard on an earlier fence line discharges it" "rc=0|scanned" \
   "$(e1211_case '```bash
 [ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
 ls -d agents/*/
 ```
 ')"
-assert_eq "#1211 a glob-ok declaration marker discharges it" "rc=0" \
+assert_eq "#1211 a glob-ok declaration marker discharges it" "rc=0|scanned" \
   "$(e1211_case '```bash
 ls -d agents/*/   # glob-ok: illustrative, empty result is reported
 ```
 ')"
 # ...but the marker must carry a REASON, matching the sibling declaration-marker family.
-assert_eq "#1211 a bare glob-ok marker with no reason does NOT discharge it" "rc=1" \
+assert_eq "#1211 a bare glob-ok marker with no reason does NOT discharge it" "rc=1|violation" \
   "$(e1211_case '```bash
 ls -d agents/*/   # glob-ok:
 ```
 ')"
 # The guard is fence-scoped, not file-scoped: a guard in one fence must not silence the next.
-assert_eq "#1211 a guard in an EARLIER fence does not discharge a later fence" "rc=1" \
+assert_eq "#1211 a guard in an EARLIER fence does not discharge a later fence" "rc=1|violation" \
   "$(e1211_case '```bash
 [ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
 ls -d src/*/
@@ -42478,42 +42490,82 @@ ls -d agents/*/
 ```
 ')"
 # Boundary cases the shape excludes, each an assertion rather than an unproven docstring claim.
-assert_eq "#1211 an untagged fence is outside the audited population" "rc=0" \
+assert_eq "#1211 an untagged fence is outside the audited population" "rc=0|scanned" \
   "$(e1211_case '```
 ls -d agents/*/
 ```
 ')"
-assert_eq "#1211 a quoted pattern is not a candidate (the shell never expands it)" "rc=0" \
+assert_eq "#1211 a quoted pattern is not a candidate (the shell never expands it)" "rc=0|scanned" \
   "$(e1211_case '```bash
 grep -l "*/pages/*" ./here
 ```
 ')"
-assert_eq "#1211 a case branch pattern is not a candidate" "rc=0" \
+assert_eq "#1211 a case branch label is excluded by the paren filter" "rc=0|scanned" \
   "$(e1211_case '```bash
 case "$CUR" in
   claude/issue-*|issue-*) USE_CURRENT=1 ;;
 esac
 ```
 ')"
-assert_eq "#1211 markdown emphasis inside a fence is not a candidate" "rc=0" \
+assert_eq "#1211 markdown emphasis inside a fence is not a candidate" "rc=0|scanned" \
   "$(e1211_case '```bash
 - **Relevant Classes/Files** — the files this touches.
 ```
 ')"
-assert_eq "#1211 a permission-grant literal written in prose is not a candidate" "rc=0" \
+# The paren/`$` exclusion, on a line carrying NO comment — so the case reaches the token filter
+# rather than being discharged earlier by the comment strip (the shape an earlier fixture, a
+# whole-line `# Bash(…:*)` comment, silently duplicated).
+assert_eq "#1211 a token carrying parens or a dollar is not a candidate" "rc=0|scanned" \
   "$(e1211_case '```bash
-# Bash(lib/test/run.sh:*) is granted
+ls -d $(pwd)/agents/*/
 ```
 ')"
 # Trailing-comment prose is not code: without the quote-aware strip this reported a violation
 # for a pattern the shell never sees.
-assert_eq "#1211 a pattern inside a trailing comment is not a candidate" "rc=0" \
+assert_eq "#1211 a pattern inside a trailing comment is not a candidate" "rc=0|scanned" \
   "$(e1211_case '```bash
 ls .   # see docs/site/*/ for the layout
 ```
 ')"
+# ...but the strip is QUOTE-aware, so a `#` inside a string does not swallow a real glob after it.
+# A naive `line.split("#")[0]` passes every other case here and fails only this one.
+assert_eq "#1211 a hash inside a quoted string does not swallow a later real glob" "rc=1|violation" \
+  "$(e1211_case '```bash
+echo "a # b" ; ls -d agents/*/
+```
+')"
+# A pattern in the INTERIOR of a multi-word quoted string carries no quote character of its own.
+# Dropping tokens that *carry* a quote (rather than tokens inside a quoted span) flagged these.
+assert_eq "#1211 a pattern inside a multi-word quoted string is not a candidate" "rc=0|scanned" \
+  "$(e1211_case '```bash
+echo "see docs/site/*/ for the layout"
+```
+')"
+# The guard is matched against the COMMENT-STRIPPED, unquoted code. Prose that merely NAMES the
+# remedy must not discharge the fence — a guard that looks present and checks nothing is the
+# exact failure signature this change exists to remove, so both shapes get a negative control.
+assert_eq "#1211 prose NAMING the guard in a comment does not discharge the fence" "rc=1|violation" \
+  "$(e1211_case '```bash
+# we deliberately do not use setopt nonomatch here
+ls -d agents/*/
+```
+')"
+assert_eq "#1211 the guard named inside a quoted string does not discharge the fence" "rc=1|violation" \
+  "$(e1211_case '```bash
+echo "setopt nonomatch"
+ls -d agents/*/
+```
+')"
+# A heredoc introducer inside a string is a mention: honouring it would skip the rest of the
+# fence waiting for a delimiter line that never arrives (fail-open, bounded to the fence).
+assert_eq "#1211 a heredoc introducer inside a string does not skip the rest of the fence" "rc=1|violation" \
+  "$(e1211_case '```bash
+echo "write it with <<'"'"'EOF'"'"' please"
+ls -d agents/*/
+```
+')"
 # A quoted heredoc body is data, not commands.
-assert_eq "#1211 a pattern inside a quoted heredoc body is not a candidate" "rc=0" \
+assert_eq "#1211 a pattern inside a quoted heredoc body is not a candidate" "rc=0|scanned" \
   "$(e1211_case '```bash
 cat > f <<'"'"'EOF'"'"'
 see docs/site/*/ here
@@ -42522,14 +42574,14 @@ EOF
 ')"
 # Two fail-OPEN shapes an earlier draft of the case-branch predicate silenced. Both must FLAG:
 # a line closing a command substitution, and a `for … in` list, are ordinary code.
-assert_eq "#1211 a line closing a command substitution does not silence a later glob" "rc=1" \
+assert_eq "#1211 a line closing a command substitution does not silence a later glob" "rc=1|violation" \
   "$(e1211_case '```bash
 x=$(echo hi
 )
 ls -d agents/*/
 ```
 ')"
-assert_eq "#1211 a for-in list carrying a glob is a violation, not a case header" "rc=1" \
+assert_eq "#1211 a for-in list carrying a glob is a violation, not a case header" "rc=1|violation" \
   "$(e1211_case '```bash
 for f in agents/*/
 do :; done
@@ -42537,41 +42589,47 @@ do :; done
 ')"
 # A separator-free pattern is a DISCLOSED residual of the narrow shape, not a safe case:
 # zsh would refuse `*.py` too. The assertion records where the boundary actually sits.
-assert_eq "#1211 a pattern with no path separator is outside the narrow shape (disclosed residual)" "rc=0" \
+assert_eq "#1211 a pattern with no path separator is outside the narrow shape (disclosed residual)" "rc=0|scanned" \
   "$(e1211_case '```bash
 wc -l *.py
 ```
 ')"
 case "$E1211_DIR" in ""|/dev/null) : ;; *) rm -rf "$E1211_DIR" ;; esac
 
-# Fail-closed arms: an unreadable path and an empty enumeration are UNESTABLISHED, never clean.
-assert_eq "#1211 an unreadable audited path fails closed rather than reporting clean" "yes" \
+# Fail-closed arms, driven in ONE process over the three unestablished shapes: an unreadable
+# audited path, an enumeration that yielded nothing at all, and — the shape a `--files-from`
+# caller reaches — a population that survives enumeration but has nothing under `skills/`.
+# Each must exit 1 with its own breadcrumb; none may report clean. Scratch is removed, so the
+# suite leaks no temp directories.
+assert_eq "#1211 every unestablished population shape fails closed with its own breadcrumb" \
+  "unreadable=yes empty=yes post-filter-empty=yes" \
   "$(E1211_LINT="$E1211_LINT" python3 -c '
-import importlib.util, io, os, tempfile, contextlib
+import importlib.util, io, os, shutil, tempfile, contextlib
 s = importlib.util.spec_from_file_location("g", os.environ["E1211_LINT"])
 m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
-d = tempfile.mkdtemp()
-lst = os.path.join(d, "list")
-open(lst, "w").write("skills/probe/absent.md\n")
-buf = io.StringIO()
-with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-    rc = m.main(["--root", d, "--files-from", lst])
-out = buf.getvalue()
-print("yes" if rc == 1 and "SKIPPED" in out and "refusing to report clean" in out else "no: rc=%s|%s" % (rc, out))
-')"
-assert_eq "#1211 an empty enumeration fails closed with its own breadcrumb" "yes" \
-  "$(E1211_LINT="$E1211_LINT" python3 -c '
-import importlib.util, io, os, tempfile, contextlib
-s = importlib.util.spec_from_file_location("g", os.environ["E1211_LINT"])
-m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
-d = tempfile.mkdtemp()
-lst = os.path.join(d, "list")
-open(lst, "w").write("")
-buf = io.StringIO()
-with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-    rc = m.main(["--root", d, "--files-from", lst])
-out = buf.getvalue()
-print("yes" if rc == 1 and "enumeration unusable" in out else "no: rc=%s|%s" % (rc, out))
+
+def run(listing):
+    d = tempfile.mkdtemp()
+    try:
+        lst = os.path.join(d, "list")
+        with open(lst, "w") as fh:
+            fh.write(listing)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            rc = m.main(["--root", d, "--files-from", lst])
+        return rc, buf.getvalue()
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+rc1, o1 = run("skills/probe/absent.md\n")
+rc2, o2 = run("")
+rc3, o3 = run("README.md\n")
+def verdict(rc, out, needle):
+    return "yes" if rc == 1 and needle in out else "no(rc=%s|%s)" % (rc, out.strip())
+print("unreadable=%s empty=%s post-filter-empty=%s" % (
+    verdict(rc1, o1, "refusing to report clean"),
+    verdict(rc2, o2, "enumeration unusable"),
+    verdict(rc3, o3, "empty audited population")))
 ')"
 
 echo "#693 issue-body cache: no cut-over site re-fetches the body"

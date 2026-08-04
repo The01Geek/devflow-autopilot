@@ -640,15 +640,19 @@ git ls-files 'skills/*/SKILL.md' | wc -l   # skill count
 # zsh and is a no-op elsewhere ($ZSH_VERSION unset -> `&&` short-circuits, `|| :` stays rc-0).
 # With nomatch off an unmatched glob leaves $1 the literal pattern, so `[ -e "$1" ]` decides
 # match-vs-no-match structurally: no `2>/dev/null` to hide a real error, and exactly one of
-# the three arms can print. A genuinely empty parent and an unreadable one both leave the
+# the three arms can print. A genuinely empty parent and an unlistable one both leave the
 # glob unmatched, so the second arm separates them -- an unestablished count is never
-# reported as zero. Substitute the directory the glob names for `agents` when adapting.
+# reported as zero. Listability needs BOTH the read bit (to name the entries) and the search
+# bit (to stat them for the trailing `/`), so the second arm tests both. All three arms print
+# on stdout so a caller capturing stdout can still tell "nothing here" from "could not look".
+# Unhandled: bash's `failglob`, where an unmatched pattern aborts `set --` before it runs.
+# Substitute the directory the glob names for `agents` when adapting.
 [ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
-set -- agents/*/   # glob-ok: unquoted glob guarded by the nonomatch line above; absence and unreadability are reported separately, never skipped
+set -- agents/*/
 if [ -e "$1" ]; then
   printf '%s\n' "$@"
-elif [ -d agents ] && [ ! -r agents ]; then
-  echo "(agents/ is not readable - count NOT established)" >&2
+elif [ -d agents ] && { [ ! -r agents ] || [ ! -x agents ]; }; then
+  echo "(agents/ is not listable - count NOT established)"
 else
   echo "(no matching directories)"
 fi
