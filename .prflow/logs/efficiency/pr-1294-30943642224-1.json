@@ -113,5 +113,69 @@
       "iter": 1,
       "phases": "unavailable"
     }
-  ]
+  ],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.98",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 33.433143999999984,
+    "tokens": {
+      "input_tokens": 232,
+      "output_tokens": 83299,
+      "cache_read_input_tokens": 35084304,
+      "cache_creation_input_tokens": 377127,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 430,
+        "outputTokens": 139163,
+        "cacheReadInputTokens": 40388298,
+        "cacheCreationInputTokens": 1334967,
+        "webSearchRequests": 0,
+        "costUSD": 33.433143999999984,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 146,
+    "duration_ms": 2417513
+  },
+  "permission_denials": {
+    "count": 16,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/.prflow/vendor/prflow/skills/implement}\"",
+      "git branch --show-current && gh pr list --search \"1288 in:body\" --state open --json number,headRefName 2>/dev/null; echo \"env GITHUB_ACTIONS=${GITHUB_ACTIONS:-unset}\"",
+      "git branch --show-current; echo \"---\"; gh pr list --search \"1288 in:body\" --state open --json number,headRefName 2>/dev/null; echo \"---actions---\"; printenv GITHUB_ACTIONS; printenv GITHUB_RUN_ID",
+      "cd /home/runner/work/prflow/prflow\ncat > .prflow/tmp/acs-1288.md <<'EOF'\n- [ ] The generated-artifact drift preflight runs on the sanctioned shard-decomposition route (issue #1132), not only in the parallel coordinator.\n- [ ] The preflight's fail-open-on-inconclusive property is preserved on every route: only a positively-attributed drift (exit 1 + the machine verdict line) blocks; every other non-zero outcome warns and proceeds.\n- [ ] The verdict contract with `regenerate-artifacts.py` is singl …[per-command-truncated]",
+      "python3 lib/test/coverage_map_guard.py . --fix 2>&1 | tail -5; echo \"fix-rc=$?\"; echo \"=== check AP11c on main (stash my changes) ===\"; git stash >/dev/null 2>&1 && { lib/test/run-module.sh regenerate-artifacts 2>&1 | grep -E \"AP11c|passed, [0-9]+ failed\" | tail -6; git stash pop >/dev/null 2>&1; } || echo \"stash failed\"",
+      "scripts/ensure-label.sh PRFlow 2>&1 | tail -1\ncat > .prflow/tmp/pr-body-1288.md <<'EOF'\n## Summary\n\nExtends the read-only generated-artifact drift preflight (issue #1244) to the sanctioned shard-decomposition route (issue #1132).\n\nPreviously the preflight lived only in the parallel coordinator (`lib/test/run-parallel.sh`). The #1132 route — taken when the tier terminates the coordinator at its per-command execution ceiling — runs `lib/test/run-shard.sh` one shard at a time and recombines, and th …[per-command-truncated]",
+      "ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)\nmkdir -p \"$ROOT/.prflow/tmp\" 2>/dev/null || echo \"::warning::phase-3.3: could not create tmp\"\n[ -n \"${ZSH_VERSION:-}\" ] && setopt nonomatch || :\nset -- \"$ROOT\"/.prflow/tmp/review/*/*/iter-*.json\n{ [ -e \"$1\" ] && printf '%s\\n' \"$@\" | sort; } > \"$ROOT/.prflow/tmp/.phase33-iters-before\" || :\necho \"snapshot written\"; wc -l < \"$ROOT/.prflow/tmp/.phase33-iters-before\"",
+      "ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); ls \"$ROOT\"/.prflow/tmp/review/*/*/iter-*.json 2>/dev/null | sort > \"$ROOT/.prflow/tmp/.phase33-iters-before\"; echo \"snapshot lines:\"; wc -l < \"$ROOT/.prflow/tmp/.phase33-iters-before\"",
+      "find .prflow/tmp/review -name 'iter-*.json' 2>/dev/null | sort > .prflow/tmp/.phase33-iters-before; wc -l < .prflow/tmp/.phase33-iters-before",
+      "git diff main...HEAD --stat; echo \"=== RUN_ID ===\"; echo \"run-id=${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}\"; mkdir -p .prflow/tmp/review/pr-1294/${GITHUB_RUN_ID:-local}-1 && git diff main...HEAD > .prflow/tmp/review/pr-1294/${GITHUB_RUN_ID:-local}-1/diff.patch && echo \"diff cached: $(wc -l < .prflow/tmp/review/pr-1294/${GITHUB_RUN_ID:-local}-1/diff.patch) lines\"",
+      "RID=\"${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}\"; DIR=\".prflow/tmp/review/pr-1294/$RID\"; mkdir -p \"$DIR\"; git diff main...HEAD > \"$DIR/diff.patch\"; echo \"run-id=$RID\"; echo \"diff cached: $(wc -l < \"$DIR/diff.patch\") lines at $DIR/diff.patch\"",
+      "DIR=\".prflow/tmp/review/pr-1294/30943642224-1\"; mkdir -p \"$DIR\"; git diff main...HEAD > \"$DIR/diff.patch\"; echo \"diff cached: $(wc -l < \"$DIR/diff.patch\") lines at $DIR/diff.patch\"",
+      "for sub in descriptor claim mark-running finish; do echo \"=== $sub ===\"; scripts/verification-flight.py $sub --help 2>&1 | sed -n '1,25p'; done",
+      "grep -n \"_PROFILE_REQUIRED\\|_CHECKOUT_REQUIRED\\|_OBJECT_ID_FIELDS\\|_OBJECT_ID_RE\" scripts/verification-flight.py | head; echo \"=== fingerprint output ===\"; scripts/checkout-fingerprint.py 2>&1 | head -20",
+      "scripts/checkout-fingerprint.py 2>&1",
+      "rm -f \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.prflow/tmp/implement-active-1288\" 2>/dev/null || true\nrm -f \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.prflow/tmp/issue-body/issue-1288.md\" 2>/dev/null || true\necho \"markers cleaned\"; git status --porcelain | head"
+    ],
+    "total": 16,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
 }
