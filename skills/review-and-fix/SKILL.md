@@ -140,7 +140,7 @@ This skill **skips** /prflow:review's Phase 4.4 entirely — no formal review an
       "source_file": "src/example_pkg/bar.py",
       "claim_text": "race condition in concurrent writer",
       "skip_category": "already-tracked",
-      "evidence": "#42",
+      "evidence": "issue 42",
       "parking_evidence": {
         "basis": "a separate open issue already tracks this defect",
         "failing_input": "the concurrent-writer race the finding describes",
@@ -330,7 +330,7 @@ Every step reference loads at entry, **before any action in that step**, and a r
 | `loop-control.md` | The loop spine (config, Iteration Start, Steps 0.5/0.9/1/2), loaded at loop entry: **STOP before any mutation**. Record a `blocked` reflection; report non-convergence. |
 | `error-handling.md` | Contextual guidance (not a loop step) — **best-effort**: log and continue; its absence degrades only guidance, never a gate. Its fail-closed-*looking* prose (the shadow-reviewer exception, the engine-location fatal) echoes contracts *owned* by `shadow-review.md` and `loop-control.md`/Step 1 — each with its own fail-closed row above — so this file's loss drops only the echo, never a gate. |
 
-**Always-resident re-read rule (issue #530 — never leaves the root, for eviction resistance).** After **every** `Agent`/`Task`/`Skill`-tool return while executing a reference, and **before the next cross-reference routing action**, re-`Read` the active reference — identified by `current_step`/`current_substep` in the active `iter-<N>.json`, **not** by conversational memory — and resume the interrupted substep; never re-dispatch the agent/skill that just returned. The durable operands are the step predicate; **agent recall is never the sole predicate**. **Absent operand → fail closed, never recall.** An absent `current_step`/`current_substep` (unstamped, or an unreadable `iter-<N>.json`) is re-stamped from the last reference entry-gate, or — if unrecoverable — takes the step's fail-closed not-verified failure-map outcome; it is **never** inferred from conversational memory.
+**Always-resident re-read rule (never leaves the root, for eviction resistance).** After **every** `Agent`/`Task`/`Skill`-tool return while executing a reference, and **before the next cross-reference routing action**, re-`Read` the active reference — identified by `current_step`/`current_substep` in the active `iter-<N>.json`, **not** by conversational memory — and resume the interrupted substep; never re-dispatch the agent/skill that just returned. The durable operands are the step predicate; **agent recall is never the sole predicate**. **Absent operand → fail closed, never recall.** An absent `current_step`/`current_substep` (unstamped, or an unreadable `iter-<N>.json`) is re-stamped from the last reference entry-gate, or — if unrecoverable — takes the step's fail-closed not-verified failure-map outcome; it is **never** inferred from conversational memory.
 
 
 ### Step 4: Continue Loop

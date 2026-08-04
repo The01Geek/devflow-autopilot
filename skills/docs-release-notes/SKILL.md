@@ -50,7 +50,7 @@ Use the GitHub CLI to find the issue linked to this pull request:
 gh pr view [[PR_NUMBER]] --json body,title
 ```
 
-Extract the linked issue number from the PR body (look for patterns like `Closes #123`, `Fixes #123`, or `Resolves #123`), then fetch the issue:
+Extract the linked issue number from the PR body (look for patterns like `Closes #123`, `Fixes #123`, or `Resolves #123`), then fetch the issue: <!-- pruned-path-ok: illustrative closing-keyword patterns, not citations -->
 ```
 gh issue view <ISSUE_NUMBER> --json title
 ```

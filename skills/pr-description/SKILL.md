@@ -83,7 +83,7 @@ fi
 
 If `DEFERRALS_BODY` is set and the parsed JSON has at least one **renderable** entry under `deferrals[]`, render the Deferred Findings section in Step 2's template — a human-readable Markdown table (one row per deferral) for readers, plus the exact machine payload (the same `schema_version: 1` / `deferrals[]` YAML shape) inside the hidden `DEVFLOW_DEFERRED_PAYLOAD` HTML comment that `scripts/match-deferrals.py` parses. An entry is **renderable** when it has a populated `follow_up.issue` **OR** its `reason.category` (equivalently the aggregate's flat `category`) is `settled-by-disclosure` (a foreclosure, which never has a `follow_up.issue`). An ordinary entry (one of the three non-foreclosure categories) lacking a `follow_up.issue` is a stale half-written manifest — skip it silently.
 
-**Carry-forward safety (issue #621 — the foreclosure block is a sole durable record).** Because a `settled-by-disclosure` foreclosure files no follow-up issue, the PR-body Scope-Acknowledged block is its *only* durable record — a regeneration from a fresh environment (where `.prflow/tmp/review/…` is empty) must therefore **never** silently wipe it. So:
+**Carry-forward safety (the foreclosure block is a sole durable record).** Because a `settled-by-disclosure` foreclosure files no follow-up issue, the PR-body Scope-Acknowledged block is its *only* durable record — a regeneration from a fresh environment (where `.prflow/tmp/review/…` is empty) must therefore **never** silently wipe it. So:
 - When the slug aggregate is **absent or unparseable** (`DEFERRALS_BODY` empty/invalid), do **not** omit the section: read the **existing PR body's** `DEVFLOW_DEFERRED_PAYLOAD` block and preserve it verbatim (re-emit its entries unchanged). Only when neither an aggregate nor an existing block exists is the section omitted.
 - When **both** an aggregate and an existing PR-body block exist, merge them: render the aggregate's entries, then **carry forward** any entry present in the existing body's `DEVFLOW_DEFERRED_PAYLOAD` but **absent from the aggregate** (matched by its `dfr-` id) so a foreclosure recorded on an earlier pass is never dropped by a later regeneration that no longer sees its manifest.
 
@@ -203,7 +203,7 @@ deferrals:
 - Changes section groups by logical area (e.g., "Orders module", "Frontend", "Database"), not individual files.
 - Test Plan items must be concrete and actionable, not generic ("Run tests").
 - The entire output between the markers must be valid GitHub-flavored Markdown.
-- **GitHub autolink hygiene** (the PR body is posted to GitHub): never put a bare `#` immediately before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link to issue/PR 2, which misleads readers. For an ordinal, count, or list position, spell it out ("item 2", "step 3"), never `#2`. Genuine references like `#123` stay as-is.
+- **GitHub autolink hygiene** (the PR body is posted to GitHub): never put a bare `#` immediately before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link to issue/PR 2, which misleads readers. For an ordinal, count, or list position, spell it out ("item 2", "step 3"), never `#2`. Genuine references like `#123` stay as-is. <!-- pruned-path-ok: illustrative autolink examples, not citations -->
 - Do NOT wrap the output in a code block. Output the markers and content as plain text so they appear directly in your response.
 - When updating an existing PR, do NOT discard human-added content. If in doubt about whether something was human-added, preserve it.
 

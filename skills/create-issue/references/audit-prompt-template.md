@@ -24,7 +24,7 @@ same block/slot rules by hand.
 - **Arm/mode blocks.** Each block is bounded by `<!-- render-block: <set> -->`
   and `<!-- render-block-end -->`, where `<set>` is a space-separated list of the
   arms/modes that include the block (`file`, `embed`, `inline`, `checklist`,
-  the issue-#709 dispatch-instruction token `di`, and the issue-#793
+  the dispatch-instruction token `di`, and the issue-#793
   claim-scoped-round token `tg`).
   Emit a block only when the current arm/mode is in its set. Text outside any
   block (like this section) is documentation, never emitted.

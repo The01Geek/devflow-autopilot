@@ -29,8 +29,8 @@ implement → review pipeline, not landed as an autonomous PR.
 Every `jq` in this skill is invoked through the execution-verified wrapper
 `$LIB/../scripts/run-jq.sh` (`$LIB/../scripts` is the `scripts/` dir beside
 `lib/`), never bare `jq` — so a shim-shadowed Windows/WSL host resolves a
-runnable jq the same way the `.sh` helper tier does (issue #253, the agent-tier
-sibling of #247). `DEVFLOW_JQ` is not exported to agent shells, so the wrapper
+runnable jq the same way the `.sh` helper tier does (the agent-tier
+sibling). `DEVFLOW_JQ` is not exported to agent shells, so the wrapper
 must be invoked by path.
 
 All scratch files live under `.prflow/tmp/` (gitignored). Learnings files
@@ -38,7 +38,7 @@ All scratch files live under `.prflow/tmp/` (gitignored). Learnings files
 
 **Writing standard (any text you compose that lands on a GitHub surface — issue/PR titles, the state-PR report comment, body content you assemble).** Before composing such text, read the shared writing standard `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/writing-standard.md` and follow it. A failed load emits a breadcrumb naming the file and the failure kind, and you compose without it.
 
-**GitHub autolink hygiene** (any text you compose that lands on a GitHub surface — issue/PR titles, the state-PR report comment, body content you assemble): never put a bare `#` immediately before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link to issue/PR 2, which misleads readers. For an ordinal, count, or list position, spell it out ("item 2", "step 3"), never `#2`. Genuine references like `#123` stay as-is.
+**GitHub autolink hygiene** (any text you compose that lands on a GitHub surface — issue/PR titles, the state-PR report comment, body content you assemble): never put a bare `#` immediately before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link to issue/PR 2, which misleads readers. For an ordinal, count, or list position, spell it out ("item 2", "step 3"), never `#2`. Genuine references like `#123` stay as-is. <!-- pruned-path-ok: illustrative autolink examples, not citations -->
 
 ---
 
@@ -146,7 +146,7 @@ Initialize counters:
 prs_scanned=0
 clean_count=0
 analyzed_count=0
-skipped_count=0     # issue #626: mechanically- and Stage-A-skipped PRs
+skipped_count=0     # mechanically- and Stage-A-skipped PRs
 skip_records=()     # one-line report records, one per skip (never silent)
 needs_analysis=()   # array of bundle paths
 ```
@@ -332,7 +332,7 @@ The script prints `"materialized: appended N, replaced M"` to stdout.
 
 First reconcile every pattern's lifecycle record against the live state of its
 filed meta-issue: `pattern-state.sh run` migrates the overrides file
-to schema v3 in place (on first read — issue #891 stamps each record's `category`
+to schema v3 in place (on first read — the migration stamps each record's `category`
 field) and refreshes each `filed`/`fixed`/`declined`
 state, so the pattern view derived below already reflects this run's reconciliation.
 It runs **before** `actionable-patterns.sh`; a wholesale reconcile failure exits
@@ -641,7 +641,7 @@ source $LIB/audit-bundle-selection.sh || {
 AUDIT_BUNDLE_CAP_RAW="$(bash $LIB/../scripts/config-get.sh '.prflow_retrospective.audit_bundle_cap' 10)"
 AUDIT_BUNDLE_CAP="$(devflow_validate_audit_bundle_cap "$AUDIT_BUNDLE_CAP_RAW")" || exit 1
 # REPO_ROOT is loop-INVARIANT, so resolve it once here rather than re-forking `git`
-# per pattern. `|| pwd` is the repo's #295 fallback: unguarded, a git-absent or
+# per pattern. `|| pwd` is the repo's fallback: unguarded, a git-absent or
 # not-a-work-tree host leaves it EMPTY and every bundle path below becomes the
 # absolute `/.prflow/tmp/pr-N.context.json` — a phantom path handed to Stage B.
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -1196,14 +1196,14 @@ Build the summary JSON and assign it to `$SUMMARY_JSON`:
 # each file in a one-element array, so the jq program dereferences [0].
 _SUMMARY_TMP="$(mktemp -d)"
 trap 'rm -rf "$_SUMMARY_TMP"' EXIT
-# Preserve --argjson's fail-loud-on-empty semantics after the #783 --slurpfile switch:
+# Preserve --argjson's fail-loud-on-empty semantics after the --slurpfile switch:
 # an empty operand slurps to []→[0]=null (silent) where --argjson aborted loud. These
 # three are upstream producer output, valid JSON ([] at minimum) on success — an empty
 # string means that producer failed, so fail loud rather than emit analyzed/patterns:null.
 : "${ANALYZED_JSON:?devflow retrospective Step 9: ANALYZED_JSON is empty — upstream Stage-A analysis failed}"
 : "${PATTERNS_JSON:?devflow retrospective Step 9: PATTERNS_JSON is empty — devflow_annotate_patterns printed nothing over .prflow/tmp/patterns-full.json (missing, empty, or unreadable)}"
 : "${RECURRING_TARGETS_JSON:?devflow retrospective Step 9: RECURRING_TARGETS_JSON is empty — recurring-targets.sh failed}"
-# Same fail-loud property for the two #788 operands: both helpers print at
+# Same fail-loud property for the two operands: both helpers print at
 # minimum `[]` on success, so an empty string is producer failure, not "nothing
 # to report". (LIVENESS_WARNING is deliberately NOT guarded — an empty string is
 # its normal no-warning value, and it is passed as --arg, never slurped.)
