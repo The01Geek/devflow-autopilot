@@ -1,0 +1,19 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-04T23:30:00Z",
+  "fix_commit_sha": "20d5381f",
+  "fix_files": ["lib/test/run.sh"],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": false, "checklist_skipped": "reduced-engine: mechanical relocation, green suite"},
+  "phase3_dispatched": ["prflow:code-reviewer", "prflow:pr-test-analyzer", "prflow:comment-analyzer", "prflow:silent-failure-hunter"],
+  "phase3_findings": [
+    {"agent": "prflow:pr-test-analyzer", "severity": "Suggestion", "description": "OVERVIEW_DOC474 dead variable left by #474 pin removal", "defect_signature": {"file": "lib/test/run.sh", "line_range": [4558, 4558], "kind": "dead-assignment-after-removal"}, "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "20d5381f"}
+  ],
+  "convergence_inputs": {"fixes_applied": 1, "fix_diff_lines": 3, "new_corroborated_critical_count": 0},
+  "shadow": {"ran_at": null, "verdict": null, "coverage": "not_verified", "reason": "reduced-engine run: 4 core review agents dispatched over the substantive surface; full checklist-verify and shadow fan-out not run given the fully-green mechanical relocation and session budget — verdict is APPROVE WITH CAVEAT, not a clean approve"},
+  "telemetry": {"phase_3": {"calls": 4, "tokens": 333063, "wall_clock_s": 167}}
+}
