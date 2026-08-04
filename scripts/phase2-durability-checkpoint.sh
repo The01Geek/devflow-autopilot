@@ -32,7 +32,12 @@
 #     own workflows dir only, never a vendored `.prflow/vendor/.../.github/...`
 #     path. Only the detect-and-do-not-stage half lives here; the guard's
 #     coupled-file enumeration and 2.2.5 scope-adjustment routing stay Phase 2
-#     prose.
+#     prose. DISCLOSED LIMIT: the match is on the RELATIVE `.github/workflows/`
+#     spelling after every leading `./` is stripped, so an absolute path, a
+#     `../`-reaching form, and the bare directory `.github/workflows` (no trailing
+#     slash) are not matched — the same spelling-only limit `_is_whole_tree_arg`
+#     discloses for AC6. This half is defense-in-depth behind the Phase 2 prose's
+#     revert; a workflow commit that slips it fails loudly at push, not silently.
 #   - No empty commit (AC3/AC8). When nothing is staged after filtering — a
 #     boundary reached with no new work, or every named path excluded by the
 #     guard — the helper makes NO commit and exits 0.
@@ -48,7 +53,7 @@
 #
 # Exit codes:
 #   0  committed+pushed+landed, OR a clean no-op (nothing to checkpoint)
-#   2  usage error (missing message, or a forbidden stage-all token)
+#   2  usage error (missing message, no pathspec, or a forbidden stage-all token)
 #   3  push did not land (HEAD != @{u}, including no upstream configured)
 #   4  a git operation failed (add/commit/not a repo)
 
@@ -62,6 +67,18 @@ if [ "$#" -lt 1 ] || [ -z "${1:-}" ]; then
 fi
 MESSAGE="$1"
 shift
+
+# A checkpoint with a message but ZERO pathspecs is a usage error, never a clean
+# no-op: the documented contract makes at least one path mandatory, and the caller
+# prose acts only on a NON-ZERO exit. An argument list that expands empty — an
+# unmatched glob, an empty variable expansion — would otherwise report success with
+# nothing committed, which is exactly the silent mid-run work loss #1139 exists to
+# prevent. The exit-0 no-op stays reserved for the genuine named-but-unchanged case
+# (and for a named path the workflow-edit guard excluded).
+if [ "$#" -eq 0 ]; then
+  _bc "no pathspec given — at least one explicit path is required: phase2-durability-checkpoint.sh <commit-message> <path> [<path> ...]"
+  exit 2
+fi
 
 # Does this argument stage MORE than the caller named (AC6)? Returns 0 to refuse it,
 # 1 when it is a concrete path. A class test, deliberately not a denylist of tokens,

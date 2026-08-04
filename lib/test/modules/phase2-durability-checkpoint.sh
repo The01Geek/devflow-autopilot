@@ -218,6 +218,22 @@ assert_eq "#1139 AC6: the helper refuses a ':/' magic pathspec (exit 2)" \
   "2" "$( cd "$W" && _dc_cp "feat: cp" :/ >/dev/null 2>&1; echo $? )"
 assert_eq "#1139 AC6: the helper refuses a missing commit message (exit 2)" \
   "2" "$( cd "$W" && _dc_cp >/dev/null 2>&1; echo $? )"
+# A message with ZERO pathspecs is a usage error, not a clean no-op: an argument list
+# that expands empty (an unmatched glob, an empty variable expansion) must not report
+# success with nothing committed. The rejection is ATTRIBUTED to the no-pathspec gate
+# via its own breadcrumb, because the missing-message gate ten lines earlier also
+# exits 2 — a bare exit-code assertion could not tell the two apart.
+assert_eq "#1139 AC6: a message with no pathspec is a usage error (exit 2)" \
+  "2" "$( cd "$W" && _dc_cp "feat: cp" >/dev/null 2>&1; echo $? )"
+assert_eq "#1139 AC6: the no-pathspec refusal comes from the no-pathspec gate, not the missing-message gate" \
+  "yes" "$( cd "$W" && _dc_cp "feat: cp" 2>&1 >/dev/null | grep -q 'no pathspec given' && echo yes || echo no )"
+assert_eq "#1139 AC6: a no-pathspec invocation commits nothing" \
+  "0" "$( cd "$W" && _dc_cp "feat: cp" >/dev/null 2>&1; git rev-list --count 'HEAD@{u}'..HEAD 2>/dev/null || echo 0 )"
+# Positive control on the same fixture: the identical rig and message DO succeed once
+# a path is named, so the refusal above is the empty argument list and not an
+# unrelated precondition of the rig.
+assert_eq "#1139 AC6: positive control — the same rig and message succeed once a path is named" \
+  "0" "$( cd "$W" && printf 'ctl\n' > ctl.txt && _dc_cp "feat: cp" ctl.txt >/dev/null 2>&1; echo $? )"
 # The refusal is a CLASS test, not a token denylist. Every spelling git resolves to the
 # whole tree is refused, not only the bare `.` — a denylist leaves the defect one
 # spelling away, which is exactly how `./` shipped unrefused. Each of these reaches
@@ -295,6 +311,26 @@ UTD_RC="$( cd "$W" && git config remote.origin.push refs/heads/main:refs/heads/m
 assert_eq "#1139 AC7: an 'Everything up-to-date' no-op push is treated as not landed (exit 3)" "3" "$UTD_RC"
 assert_eq "#1139 AC7: after an up-to-date no-op HEAD != @{u}" \
   "no" "$( cd "$W" && [ "$(git rev-parse HEAD)" = "$(git rev-parse '@{u}' 2>/dev/null)" ] && echo yes || echo no )"
+
+# Failure shape 3 — no upstream configured: the branch has no `@{u}`, so the helper
+# cannot confirm the checkpoint landed and reports not-landed (3) rather than
+# assuming success. Attributed to the no-upstream breadcrumb, since the two shapes
+# above also exit 3.
+W="$(_dc_newrig)"
+NOUP_RC="$( cd "$W" && git checkout -q -b detached-feat && printf 'n\n' > n.txt && _dc_cp "feat: cp" n.txt >/dev/null 2>&1; echo $? )"
+assert_eq "#1139 AC7: a branch with no upstream is treated as not landed (exit 3)" "3" "$NOUP_RC"
+assert_eq "#1139 AC7: the no-upstream refusal is attributed to the no-upstream arm" \
+  "yes" "$( cd "$W" && printf 'n2\n' > n2.txt && _dc_cp "feat: cp" n2.txt 2>&1 >/dev/null | grep -q 'no upstream configured' && echo yes || echo no )"
+
+# ── Not a git repository: exit 4 ────────────────────────────────────────────
+# The documented exit-4 "not inside a git repository" arm, driven from a scratch
+# directory that is not under any repository. Attributed to its own breadcrumb.
+NOREPO="$(git_sandbox "phase2-durability-checkpoint no-repo")/plain"
+mkdir -p "$NOREPO"
+assert_eq "#1139: outside a git repository the helper exits 4" \
+  "4" "$( cd "$NOREPO" && printf 'x\n' > x.txt && _dc_cp "feat: cp" x.txt >/dev/null 2>&1; echo $? )"
+assert_eq "#1139: the outside-a-repository refusal is attributed to the not-a-repo arm" \
+  "yes" "$( cd "$NOREPO" && _dc_cp "feat: cp" x.txt 2>&1 >/dev/null | grep -q 'not inside a git repository' && echo yes || echo no )"
 
 # ── AC8: idempotency — no empty commit, content seen exactly once ───────────
 W="$(_dc_newrig)"
