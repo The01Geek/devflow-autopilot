@@ -1999,8 +1999,9 @@ jobs:
       # would answer NOT-REACHED — posting a verdict-record comment on an issue
       # that never had a verdict to record. `github.event.issue.pull_request` is
       # GitHub's own discriminator (present only when the commented issue IS a
-      # pull request); the two PR-scoped events carry a pull_request number
-      # directly. No API call, so there is no unknown state to fall back from.
+      # pull request); the `|| github.event.pull_request.number` disjunct is a
+      # degenerate defensive form since issue #1163 left `issue_comment` the sole
+      # trigger. No API call, so there is no unknown state to fall back from.
       #
       # Residual, shared with the stall backstop above and unchanged by this
       # step: PR_NUMBER comes from the EVENT, not from an explicit number in the
@@ -2246,8 +2247,10 @@ jobs:
           # appends the number); prepare-harness-floor.sh parses the class and the explicit
           # trailing PR number from it and PREFERS that number. DEVFLOW_CANDIDATE_NUMBER is
           # only the fallback context number used when the command carries none — written
-          # with the workflow-wide `issue.number || pull_request.number` idiom so it also
-          # resolves on the issue_comment trigger (where github.event.pull_request is absent).
+          # with the workflow-wide `issue.number || pull_request.number` idiom so it
+          # resolves on the sole issue_comment trigger (where github.event.pull_request is
+          # absent, so issue.number is the operand that resolves; the disjunct is degenerate
+          # since issue #1163).
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
           DEVFLOW_COMMAND: ${{ needs.gate.outputs.command }}
           DEVFLOW_CANDIDATE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
