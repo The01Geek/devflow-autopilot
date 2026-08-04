@@ -10,8 +10,10 @@ Two mechanisms, tested independently:
   branches each add a distinct key at the same insertion point (AC1/AC2), and a
   genuine same-key divergence conflicts rather than silently picking a side (AC3).
   The driver is registered in each fixture's OWN local config; the developer's global
-  git config is never written (AC4). The AC5 mutation arm runs the same distinct-key
-  merge with the driver UNREGISTERED and asserts the textual conflict returns.
+  git config is never written (AC4) and — since `_GitFixtureBase` redirects git's
+  global/system config for every fixture test — never read either. The AC5 mutation arm
+  runs the same distinct-key merge with the driver UNREGISTERED and asserts the textual
+  conflict returns.
 
 * the CI-side key-retention check (`coverage-map-retention-check.py`) — its pure
   `detect_losses` core is driven from in-memory fixtures over every loss shape,
@@ -71,13 +73,24 @@ class _GitFixtureBase(unittest.TestCase):
     Holds the fixture contract once — the `mkdtemp` + repository-LOCAL `git init`
     (never the developer's global config, AC4), the `git -C` wrapper, the map
     writer, and the default-branch probe — so a change to it (e.g. another
-    host-independence `git config`) is made in exactly one place."""
+    host-independence `git config`) is made in exactly one place.
+
+    Config isolation is established here, in `setUp`, and therefore applies to EVERY
+    fixture test and every process it spawns — `_git`, the driver, the retention CLI,
+    and the `git clone`/`fetch` calls the shallow-clone fixture makes directly. It is
+    deliberately not an opt-in helper a test must remember to call: the isolation is
+    what makes these fixtures host-independent, and a future fixture test added below
+    inherits it without its author doing anything. A maintainer with, say,
+    `merge.coverage-map-json.driver` registered in their own global config would
+    otherwise watch the AC5 unregistered-driver negative control union cleanly and
+    fail on a correct tree."""
 
     prefix = "cm-fixture-"
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix=self.prefix))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self._isolate_git_config()
         self.repo = self.tmp / "repo"
         (self.repo / "lib" / "test" / "modules").mkdir(parents=True)
         self._git("init", "-q")
@@ -85,6 +98,31 @@ class _GitFixtureBase(unittest.TestCase):
         self._git("config", "user.name", "t")
         # commit.gpgsign off so signing config on the host machine cannot break fixtures.
         self._git("config", "commit.gpgsign", "false")
+
+    def _isolate_git_config(self):
+        """Redirect git's global/system config to isolated empty files for this test.
+
+        Patched into `os.environ` rather than threaded through each call site, so a
+        subprocess that this fixture never passes an explicit `env=` to — including
+        one a future test adds — is isolated all the same. `GIT_CONFIG_GLOBAL`
+        supersedes both `~/.gitconfig` and the XDG path, and `HOME` is moved too so
+        anything resolving a home directory lands inside the throwaway tree.
+
+        Isolation runs both ways: the host's real config can neither cause a false
+        pass (a globally registered driver making the AC5 negative control merge
+        cleanly) nor a false fail, and a `--register` that wrote global would be
+        provably detectable as a non-empty `isolated_global`."""
+        self.isolated_global = self.tmp / "isolated-global-gitconfig"
+        self.isolated_system = self.tmp / "isolated-system-gitconfig"
+        self.isolated_global.write_text("", encoding="utf-8")
+        self.isolated_system.write_text("", encoding="utf-8")
+        patcher = unittest.mock.patch.dict(os.environ, {
+            "GIT_CONFIG_GLOBAL": str(self.isolated_global),
+            "GIT_CONFIG_SYSTEM": str(self.isolated_system),
+            "HOME": str(self.tmp),
+        })
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _git(self, *args, check=True):
         return subprocess.run(
@@ -198,41 +236,26 @@ class MergeDriverGitFixtureTest(_GitFixtureBase):
             "with the driver UNREGISTERED the adjacent-key merge must conflict (the defect)",
         )
 
-    def _isolated_git_env(self):
-        """os.environ with GIT_CONFIG_GLOBAL/SYSTEM redirected to isolated empty files, so
-        a `--register` that writes global would be provably detectable and the host's real
-        global config can neither cause a false pass nor a false fail."""
-        empty_global = self.tmp / "isolated-global-gitconfig"
-        empty_system = self.tmp / "isolated-system-gitconfig"
-        empty_global.write_text("", encoding="utf-8")
-        empty_system.write_text("", encoding="utf-8")
-        env = dict(os.environ)
-        env["GIT_CONFIG_GLOBAL"] = str(empty_global)
-        env["GIT_CONFIG_SYSTEM"] = str(empty_system)
-        env["HOME"] = str(self.tmp)
-        return env, empty_global
-
-    def _driver(self, *args, env=None):
+    def _driver(self, *args):
         return subprocess.run(
             ["python3", f"lib/test/{DRIVER_SOURCE.name}", *args],
-            cwd=str(self.repo), capture_output=True, text=True, check=False, env=env,
+            cwd=str(self.repo), capture_output=True, text=True, check=False,
         )
 
     def test_AC6_register_and_check_modes(self):
-        env, empty_global = self._isolated_git_env()
         # --check before registration fails RED and prints the exact registration command.
-        before = self._driver("--check", env=env)
+        before = self._driver("--check")
         self.assertEqual(before.returncode, 1, before.stdout + before.stderr)
         self.assertIn("--register", before.stdout + before.stderr)
         # --register succeeds...
-        reg = self._driver("--register", env=env)
+        reg = self._driver("--register")
         self.assertEqual(reg.returncode, 0, reg.stdout + reg.stderr)
         # ...and --check now passes.
-        after = self._driver("--check", env=env)
+        after = self._driver("--check")
         self.assertEqual(after.returncode, 0, after.stdout + after.stderr)
         # AC4: registration wrote ONLY the repo-local config — the isolated global file
         # is byte-empty, proving --register never wrote --global.
-        self.assertEqual(empty_global.read_text(encoding="utf-8"), "",
+        self.assertEqual(self.isolated_global.read_text(encoding="utf-8"), "",
                          "--register must never write the global git config")
         # And a real end-to-end merge with the driver registered by --register (not the
         # test helper) unions distinct keys cleanly.
@@ -243,26 +266,24 @@ class MergeDriverGitFixtureTest(_GitFixtureBase):
         self.assertIn("1212", m["run_sh_blocks"])
 
     def test_AC6_check_detects_wrong_value(self):
-        env, _ = self._isolated_git_env()
         self._git("config", "merge.coverage-map-json.driver", "some-other-driver %O %A %B")
-        result = self._driver("--check", env=env)
+        result = self._driver("--check")
         self.assertEqual(result.returncode, 1)
         self.assertIn("--register", result.stdout + result.stderr)
 
     def test_AC4_no_global_git_config_written(self):
         # Registration writes only the fixture's local config; assert the driver key is
-        # absent from an ISOLATED global config after a full registered merge, so the
+        # absent from the ISOLATED global config after a full registered merge, so the
         # assertion neither depends on nor perturbs the developer's real ~/.gitconfig.
-        env, empty_global = self._isolated_git_env()
         self._register_driver()
         self._two_distinct_keys("run_sh_blocks", "1211", "1212")
         globalcfg = subprocess.run(
             ["git", "config", "--global", "--get", "merge.coverage-map-json.driver"],
-            capture_output=True, text=True, check=False, env=env,
+            capture_output=True, text=True, check=False,
         )
         self.assertNotEqual(globalcfg.returncode, 0,
                             "the driver must never be written to the global git config")
-        self.assertEqual(empty_global.read_text(encoding="utf-8"), "")
+        self.assertEqual(self.isolated_global.read_text(encoding="utf-8"), "")
 
 
 class MergeDriverUnitTest(unittest.TestCase):
