@@ -1931,14 +1931,25 @@ jobs:
       # records against the pull request it was typed on. The PR-ness gate
       # narrows the worst version of that (an issue) out entirely.
       #
-      # THE STEP SELECTS NOTHING. check-verdict-post-reached.sh reduces the
-      # run-scoped receipt to one line; describe-verdict-post-gap.sh picks the
-      # arm and writes every byte that arm emits into two files. This step then
-      # warns iff the warning file is non-empty and comments iff the body file
-      # is non-empty — two mechanical consequences, so an arm reordering or a
-      # message change is caught by the focused module that drives the helper,
-      # not by a grep-pin on YAML. `exit 0` on every path: an always() record
-      # must never change the job's pass and never change its fail.
+      # THE STEP SELECTS NOTHING ABOUT THE RECORD. check-verdict-post-reached.sh
+      # reduces the run-scoped receipt to one line; describe-verdict-post-gap.sh
+      # picks the arm and writes every byte that arm emits into two files. This
+      # step then warns iff the warning file is non-empty and comments iff the
+      # body file is non-empty — mechanical consequences, so an arm reordering or
+      # a message change is caught by the focused module that drives the helper,
+      # not by a grep-pin on YAML.
+      #
+      # THE JOB-STATUS DECISION IS ALSO DELEGATED (issue #1271). Since issue #1271
+      # this step no longer exits 0 unconditionally: decide-verdict-gap-job-status.sh
+      # owns the arm-to-job-status decision (a FAIL/PASS token) and the step exits 1
+      # on the single conjunctive FAIL shape — the emitter not reached AND the
+      # head-scoped oracle positively established that no verdict exists AND the run
+      # is not cancelled — so a verdict-less review no longer launders itself as
+      # `success`. `exit 0` stays the terminal line on every other path, the
+      # cancellation carve-out is an argument (not a step condition, so the record
+      # above still emits on a cancelled run), and the helper's absence on an older
+      # vendored tree leaves the job status unchanged. The step never rescues a job
+      # that was already failing.
       - name: Record whether the verdict emitter was reached
         if: ${{ always() && startsWith(needs.gate.outputs.command, '/prflow:review ') && (github.event.issue.pull_request || github.event.pull_request.number) && (github.event.issue.number || github.event.pull_request.number) }}
         env:

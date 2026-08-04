@@ -2388,12 +2388,20 @@ for V1271_ARM in reached not-reached unestablished no-line unrecognized-line; do
     "PASS cancelled" "$(v1271_decide "$V1271_ARM" none true)"
 done
 # A CANCELLED value other than exactly `true` is treated as not-cancelled (so the gate can
-# still fire on the firing shape) — the fail-closed direction.
+# still fire on the firing shape) — the fail-closed direction. Both a bogus token (`TRUE`)
+# and the EMPTY string (the value the workflow's `${JOB_CANCELLED:-false}` default guards,
+# checked here at the helper boundary too) resolve to not-cancelled and still FAIL.
 assert_eq "#1271 helper: a non-'true' cancelled value is treated as not cancelled" \
   "FAIL" "$(v1271_decide not-reached none TRUE | { read -r d _; printf '%s' "$d"; })"
-# The helper always exits 0 — the decision is the stdout token, never the exit code.
+assert_eq "#1271 helper: an empty cancelled value is treated as not cancelled (the firing shape still FAILs)" \
+  "FAIL" "$(v1271_decide not-reached none "" | { read -r d _; printf '%s' "$d"; })"
+# The helper always exits 0 — the decision is the stdout token, never the exit code — on
+# BOTH the FAIL firing shape and a PASS shape, so a nonzero exit can never leak the verdict.
 v1271_decide not-reached none false >/dev/null 2>&1
-assert_eq "#1271 helper: always exits 0 (the decision is the stdout token, not the exit code)" \
+assert_eq "#1271 helper: always exits 0 on the FAIL shape (the decision is the stdout token, not the exit code)" \
+  "0" "$?"
+v1271_decide reached none false >/dev/null 2>&1
+assert_eq "#1271 helper: always exits 0 on a PASS shape too" \
   "0" "$?"
 # The helper header's residual/disposition DISCLOSURES (the oracle completeness residual, the
 # possibly-vacuous cancellation premise, and the two non-defect non-reaching dispositions the
