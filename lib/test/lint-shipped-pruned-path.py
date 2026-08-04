@@ -275,24 +275,35 @@ def _fence_states(lines: list[str]) -> list[bool]:
     return states
 
 
-def scan_text(text: str, targets: list[str]) -> list[tuple[int, str]]:
-    """Return (1-based line number, matched target) for each unmarked reference.
+def _scan(text: str, match) -> list[tuple[int, str]]:
+    """Return (1-based line number, matched string) for each line whose `match(line)`
+    returns a non-None string and that carries no fence-appropriate `pruned-path-ok`
+    marker.
 
-    The matched target is returned alongside the line so the caller never re-splits the
-    file or re-scans the targets to recover which path it matched.
+    The line-split, the `_fence_states` pass, and the fence-conditional
+    `_MARKER_SHELL`/`_MARKER_HTML` exemption are shared by every audited scan (pruned
+    paths and internal citations alike), so the exemption semantics cannot drift between
+    them — the "same declaration marker" the module docstring promises is structural, not
+    a copied loop. The matched string is returned alongside the line so the caller never
+    re-splits the file or re-scans to recover what matched.
     """
     lines = text.split("\n")
     states = _fence_states(lines)
     found: list[tuple[int, str]] = []
     for idx, line in enumerate(lines):
-        hit = next((t for t in targets if t in line), None)
-        if hit is None:
+        matched = match(line)
+        if matched is None:
             continue
         marker = _MARKER_SHELL if states[idx] else _MARKER_HTML
         if marker.search(line):
             continue
-        found.append((idx + 1, hit))
+        found.append((idx + 1, matched))
     return found
+
+
+def scan_text(text: str, targets: list[str]) -> list[tuple[int, str]]:
+    """Return (1-based line number, matched target) for each unmarked pruned-path reference."""
+    return _scan(text, lambda line: next((t for t in targets if t in line), None))
 
 
 #: A PRFlow-internal citation forbidden on the shipped prompt surface (issue #1241): a
@@ -308,23 +319,16 @@ _CITATION = re.compile(r"#\d+\b|\bAC\d+\b")
 def scan_citations(text: str) -> list[tuple[int, str]]:
     """Return (1-based line number, matched citation) for each unmarked internal citation.
 
-    Reuses the exact fence-aware `pruned-path-ok` marker exemption `scan_text` uses, so a
-    line carrying the declaration marker is exempt regardless of what it cites — an
-    intentional keep, or a citation that lives inside a marker's own reason text, is
-    clean without a second marker family.
+    Shares the fence-aware `pruned-path-ok` marker exemption with `scan_text` through the
+    common `_scan` primitive, so a line carrying the declaration marker is exempt
+    regardless of what it cites — an intentional keep, or a citation that lives inside a
+    marker's own reason text, is clean without a second marker family.
     """
-    lines = text.split("\n")
-    states = _fence_states(lines)
-    found: list[tuple[int, str]] = []
-    for idx, line in enumerate(lines):
+    def match(line: str):
         m = _CITATION.search(line)
-        if m is None:
-            continue
-        marker = _MARKER_SHELL if states[idx] else _MARKER_HTML
-        if marker.search(line):
-            continue
-        found.append((idx + 1, m.group(0)))
-    return found
+        return m.group(0) if m else None
+
+    return _scan(text, match)
 
 
 def is_audited(path: str) -> bool:
