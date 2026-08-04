@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1227",
+  "generated_at": "2026-08-04T02:35:08Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.78",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.681530499999999,
+    "tokens": {
+      "input_tokens": 51,
+      "output_tokens": 21692,
+      "cache_read_input_tokens": 4446091,
+      "cache_creation_input_tokens": 191593,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 51,
+        "outputTokens": 21692,
+        "cacheReadInputTokens": 4446091,
+        "cacheCreationInputTokens": 191593,
+        "webSearchRequests": 0,
+        "costUSD": 4.681530499999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 32,
+    "duration_ms": 339620
+  },
+  "permission_denials": {
+    "count": 7,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "/home/runner/work/prflow/prflow/scripts/load-prompt-extension.sh review; echo \"ext-rc=$?\"",
+      "/home/runner/work/prflow/prflow/scripts/load-prompt-extension.sh review",
+      "gh pr diff 1227 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1227/run1/diff.patch\nwc -l .prflow/tmp/review/pr-1227/run1/diff.patch\necho \"===per-file added/removed===\"\nawk '/^diff --git/{f=$0} /^diff --git/{sub(/^diff --git a\\//,\"\",f); sub(/ b\\/.*/,\"\",f)} /^\\+\\+\\+ /{print \"\"} /^\\+/&&!/^\\+\\+\\+/{a[f]++} /^-/&&!/^---/{r[f]++} END{for(k in a) print k, \"+\"a[k]}' .prflow/tmp/review/pr-1227/run1/diff.patch | sort",
+      "scripts/post-review-verdict.sh \"1227\" \"APPROVE\" .prflow/tmp/review-verdict-body.md \"64607003491d810e5cf5d6c9d819c86fb679e677\" \"\"",
+      "scripts/dismiss-stale-rejections.sh \"1227\"; echo \"dismiss-rc=$?\"",
+      "for rid in 4849395664 4849452768; do\n  gh api -X PUT \"repos/The01Geek/prflow/pulls/1227/reviews/$rid/dismissals\" \\\n    -f message=\"Superseded by a later PRFlow APPROVE verdict on the current head (64607003).\" \\\n    -f event=\"DISMISS\" --jq '{id, state}' && echo \"dismissed $rid\"\ndone\necho \"=== after ===\"\ngh pr view 1227 --json reviewDecision --jq '.reviewDecision'"
+    ],
+    "total": 7,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
