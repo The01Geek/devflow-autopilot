@@ -1166,11 +1166,12 @@ is a maintainer decision, not this page's.
 | `30956039324` (job `92149438739`) | **FIRED** | **REASON-ABSENT** | n/a — dropped post-#937 |
 
 **This is the 8th consecutive identical `FIRED` / `REASON-ABSENT` pair.** The six prior
-replications, all on same-repo `pull_request` runs and all returning the same pair, are
-runs `30658648601`, `30657675722`, `30652958122`, `30577692232`, `30472371076`, and
-`30421703361`. The two oldest render the breadcrumb path as `.devflow/tmp/…` rather than
-`.prflow/tmp/…` — a pre-#1002 rename spelling of the same marker, not a different
-measurement.
+replications — each re-read from its own job log, each triggered by `event=pull_request`,
+each concluding `success`, and each returning the same pair — are, newest first:
+`30658648601`, `30657675722`, `30652958122`, `30577692232`, `30472371076`, `30421703361`.
+The **three oldest** (`30577692232`, `30472371076`, `30421703361`) render the breadcrumb
+path as `.devflow/tmp/…` rather than `.prflow/tmp/…` — a pre-#1002 rename spelling of the
+same marker, not a different measurement.
 
 **Scope caveat — the `REASON-ABSENT` cell does not mean reason delivery is broken, and
 the row misleads without this.** The probe's own hook emits
