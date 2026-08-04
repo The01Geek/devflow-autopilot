@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1257",
+  "generated_at": "2026-08-04T04:30:02Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.82",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.203121500000001,
+    "tokens": {
+      "input_tokens": 55,
+      "output_tokens": 23843,
+      "cache_read_input_tokens": 4101683,
+      "cache_creation_input_tokens": 155593,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 55,
+        "outputTokens": 23843,
+        "cacheReadInputTokens": 4101683,
+        "cacheCreationInputTokens": 155593,
+        "webSearchRequests": 0,
+        "costUSD": 4.203121500000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 33,
+    "duration_ms": 371200
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "gh pr diff 1257 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1257-diff.patch; wc -l /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1257-diff.patch",
+      "cd /home/runner/work/prflow/prflow\necho \"=== implement.md: 'gain no marker obligation' count (PR claims 0) ===\"\ngrep -c \"gain \\*\\*no\\*\\* marker obligation\" .prflow/prompt-extensions/implement.md\necho \"=== cheap-gate.jq: 'local/interactive tier only' count (PR claims 0) ===\"\ngrep -c \"local/interactive tier only\" lib/cheap-gate.jq\necho \"=== extract advisory sections and compare review.md vs review-and-fix.md ===\"\nawk '/^## Verification-evidence marker advisory/{f=1} f{print} /^## /{if(f && !/Verif …[per-command-truncated]",
+      "H=3e4de1c9a4fd286623ce3bb05a2743cec0e8a9a3\necho \"=== implement.md@HEAD 'gain no marker obligation' (expect 0) ===\"; git show $H:.prflow/prompt-extensions/implement.md | grep -c \"gain \\*\\*no\\*\\* marker obligation\"\necho \"=== cheap-gate.jq@HEAD 'local/interactive tier only' (expect 0) ===\"; git show $H:lib/cheap-gate.jq | grep -c \"local/interactive tier only\"\necho \"=== jq program unchanged? compare non-comment lines base vs head ===\"\ndiff <(git show origin/main:lib/cheap-gate.jq | grep -v '^#') <(g …[per-command-truncated]",
+      "H=3e4de1c9a4fd286623ce3bb05a2743cec0e8a9a3\necho \"=== implement.md@HEAD 'gain no marker obligation' (expect 0) ===\"; git show $H:.prflow/prompt-extensions/implement.md | grep -c \"gain \\*\\*no\\*\\* marker obligation\"\necho \"=== cheap-gate.jq@HEAD 'local/interactive tier only' (expect 0) ===\"; git show $H:lib/cheap-gate.jq | grep -c \"local/interactive tier only\"\necho \"=== jq program (non-comment) base ===\"; git show origin/main:lib/cheap-gate.jq | grep -v '^#' | grep -v '^ *#'\necho \"=== jq program (no …[per-command-truncated]",
+      "echo \"=== new changeset content ===\"; git show 3e4de1c9a4fd286623ce3bb05a2743cec0e8a9a3:.changeset/issue-1249-verification-evidence-every-tier.md | head -12\necho \"=== existing changeset examples (frontmatter) ===\"; for f in $(git show 3e4de1c9a4fd286623ce3bb05a2743cec0e8a9a3:.changeset 2>/dev/null | grep -E '\\.md$' | grep -v issue-1249 | head -3); do echo \"--- $f ---\"; git show 3e4de1c9a4fd286623ce3bb05a2743cec0e8a9a3:.changeset/$f | head -5; done"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
