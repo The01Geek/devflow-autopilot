@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1270",
+  "generated_at": "2026-08-04T16:33:49Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.92",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 12.612500249999998,
+    "tokens": {
+      "input_tokens": 54,
+      "output_tokens": 24845,
+      "cache_read_input_tokens": 5154178,
+      "cache_creation_input_tokens": 249925,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 142,
+        "outputTokens": 81497,
+        "cacheReadInputTokens": 8996068,
+        "cacheCreationInputTokens": 822258,
+        "webSearchRequests": 0,
+        "costUSD": 12.612500249999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 38,
+    "duration_ms": 633514
+  },
+  "permission_denials": {
+    "count": 9,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none}\"; git status --porcelain; echo \"---base---\"; .prflow/vendor/prflow/scripts/config-get.sh .base_branch main 2>&1; echo \"rc=$?\"",
+      "git status --porcelain; echo \"---\"; echo \"run=${GITHUB_RUN_ID:-none}-${GITHUB_RUN_ATTEMPT:-none}\"",
+      "printf 'RUN_ID=%s ATTEMPT=%s\\n' \"${GITHUB_RUN_ID:-none}\" \"${GITHUB_RUN_ATTEMPT:-none}\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1139 --pr 1270 2>.prflow/tmp/review/pr-1270/30928729930-1/acs.err ; echo \"acs-rc=$?\"",
+      "cd /tmp && rm -rf dctest && mkdir dctest && cd dctest\ngit show 610f0652b37d7d0a6cbf520ce059add1fb53ee95:scripts/phase2-durability-checkpoint.sh > h.sh\nchmod +x h.sh\n# build rig\nmkdir -p rig/work && git init -q --bare rig/remote.git && git init -q rig/work\ncd rig/work\ngit config user.email t@e.com; git config user.name t; git config commit.gpgsign false\ngit remote add origin ../remote.git\nprintf 'base\\n'>base.txt; git add base.txt; git commit -qm base; git branch -M main; git push -q origin main\n …[per-command-truncated]",
+      "rm -rf /tmp/dctest && mkdir -p /tmp/dctest && git show 610f0652b37d7d0a6cbf520ce059add1fb53ee95:scripts/phase2-durability-checkpoint.sh > /tmp/dctest/h.sh && bash -c '\nset -e\nH=/tmp/dctest/h.sh\nR=/tmp/dctest/rig\nmkdir -p \"$R/work\"\ngit init -q --bare \"$R/remote.git\"\ngit init -q \"$R/work\"\nexport GIT_DIR=\"$R/work/.git\" GIT_WORK_TREE=\"$R/work\"\ncd \"$R/work\"\ngit config user.email t@e.com; git config user.name t; git config commit.gpgsign false\ngit remote add origin \"$R/remote.git\"\nprintf \"base\\n\">base …[per-command-truncated]",
+      "cat > /tmp/smoke.sh <<'EOF'\nset -e\nrm -rf /tmp/dctest; mkdir -p /tmp/dctest\ngit show 610f0652b37d7d0a6cbf520ce059add1fb53ee95:scripts/phase2-durability-checkpoint.sh > /tmp/dctest/h.sh\nH=/tmp/dctest/h.sh; R=/tmp/dctest/rig\nmkdir -p \"$R/work\"; git init -q --bare \"$R/remote.git\"; git init -q \"$R/work\"\ncd \"$R/work\"\ngit config user.email t@e.com; git config user.name t; git config commit.gpgsign false\ngit remote add origin \"$R/remote.git\"\nprintf 'base\\n'>base.txt; git add base.txt; git commit -qm ba …[per-command-truncated]",
+      "bash /tmp/smoke.sh 2>&1",
+      "bash /tmp/smoke.sh 2>&1"
+    ],
+    "total": 9,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
