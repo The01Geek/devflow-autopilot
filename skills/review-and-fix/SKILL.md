@@ -144,7 +144,7 @@ This skill **skips** /prflow:review's Phase 4.4 entirely — no formal review an
       "parking_evidence": {
         "basis": "a separate open issue already tracks this defect",
         "failing_input": "the concurrent-writer race the finding describes",
-        "source": "#42",
+        "source": "issue 42",
         "finding_ref": {"iter": 1, "index": 2}
       }
     },

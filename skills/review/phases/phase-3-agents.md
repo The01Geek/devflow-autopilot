@@ -182,7 +182,7 @@ These two gates decide whether `type-design-analyzer` and `pr-test-analyzer` hav
 1. the diff **adds or modifies a test file** (a changed path matching `*test*` / `*spec*`, or a language-specific test-naming convention — e.g. `*_test.go`, `test_*.py`, `*.spec.ts`, `*Test.java`); **or**
 2. the diff **adds new testable code logic** — at least one added line (`+`, excluding `+++`) in a file whose extension is **not** in the `config_only` set (`{.yml, .yaml, .json, .md, .toml, .ini, .lock, .txt}`).
    <!-- Authoring note, not a review step: this `config_only` extension set is a deliberate required copy of the one in `skills/review/phases/phase-0-setup.md` (§0.5 flag definition), not single-sourced because each phase reference is read independently at its own phase entry.
-        Edit both in the same commit; decision record in `CLAUDE.md` / issue #1076. -->
+        Edit both in the same commit; decision record in `CLAUDE.md`. -->
 
 Skip `pr-test-analyzer` when **neither** branch matches — i.e. a docs-only or config-only diff with no test-file change. This single predicate replaces the older profile-specific wording ("always runs unless `small_diff` with no test files"); it applies identically under `engine_self_modifying`. (On most engine PRs branch 2 fires — they add `lib/*.sh` / `.jq` / `.py` logic, preserving the "you changed logic but added no tests" catch; the win is docs-only / config-only engine PRs, which now correctly skip.)
 
