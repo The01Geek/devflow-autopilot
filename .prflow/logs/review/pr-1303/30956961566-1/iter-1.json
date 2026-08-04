@@ -1,0 +1,95 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-04T00:00:00Z",
+  "fix_commit_sha": "2113a58b3",
+  "fix_files": [
+    ".github/workflows/devflow.yml"
+  ],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": "run_shadow_fanout",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:pr-test-analyzer",
+    "prflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "devflow.yml header comment (line 3-4) said 'comment/review' implying review-event triggers still fire; corrected to 'comment' with an issue-#1163 note.",
+      "defect_signature": {
+        "file": ".github/workflows/devflow.yml",
+        "line_range": [
+          3,
+          4
+        ],
+        "kind": "stale_comment"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "AC #8's framing of a with.ref pin as a prohibited wording-only pin is imprecise; such a pin could be a legitimate security-credential-boundary structural pin. Reviewer rated 3/10 and did NOT recommend adding it.",
+      "defect_signature": {
+        "file": ".github/workflows/devflow.yml",
+        "line_range": [
+          84,
+          84
+        ],
+        "kind": "coverage_observation"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "pushed_back"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "2113a58b3"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "pushed_back",
+      "source_file": ".github/workflows/devflow.yml",
+      "claim_text": "a with.ref structural pin should be added",
+      "skip_category": "out-of-scope",
+      "evidence": "AC #8 deliberately decided no new test with a stated reason; the trust property is already gated by the (d)/(d+) subscription assertions, and a dropped/weakened ref pin is behaviorally inert under the sole issue_comment trigger (GITHUB_REF already resolves to the default branch). Adding the pin would contradict the issue's explicit AC #8 decision; the reviewer rated it 3/10 and did not recommend it.",
+      "parking_evidence": {
+        "basis": "the coverage gap is doubly-conditional and its primary control (the subscription set) is already pinned; AC #8 explicitly decided no new test",
+        "failing_input": "a future edit dropping a ref pin while also re-subscribing (the adversarial class scoped to #1300)",
+        "source": ".github/workflows/devflow.yml:84 / issue #1163 AC #8",
+        "finding_ref": {
+          "iter": 1,
+          "index": 1
+        }
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 3,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
+  },
+  "telemetry": "unavailable"
+}
