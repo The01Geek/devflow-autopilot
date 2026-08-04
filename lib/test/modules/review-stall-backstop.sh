@@ -2412,7 +2412,8 @@ assert_eq "#1271 helper: always exits 0 on a PASS shape too" \
 
 # Structural workflow assertions (parsed YAML). The step must resolve the helper at the
 # vendored path with a repo-root fallback, pass the cancellation state as an ARGUMENT (via
-# the JOB_CANCELLED env from cancelled(), never a step-level `if: !cancelled()`), and reach
+# a JOB_CANCELLED env expression derived from job.status, never the status-check function
+# cancelled() outside an `if:` or a step-level `if: !cancelled()`), and reach
 # an `exit 1` from a branch keyed on the helper's own FAIL token that sits ABOVE the terminal
 # `exit 0`. The pre-existing "ends with exit 0" and "no NOT-REACHED/UNESTABLISHED/REACHED"
 # assertions above stay green; these make the FAILING branch and the terminal-exit SHAPE
@@ -2420,8 +2421,8 @@ assert_eq "#1271 helper: always exits 0 on a PASS shape too" \
 # exit 0" assertion — it fails the moment the step stops ending in an unconditional exit 0).
 assert_eq "#1271 workflow: the step resolves the job-status helper at the vendored path with a repo-root fallback" \
   "True" "$(v1156_step '".prflow/vendor/prflow/scripts/decide-verdict-gap-job-status.sh" in step["run"] and "DECIDE=scripts/decide-verdict-gap-job-status.sh" in step["run"]')"
-assert_eq "#1271 workflow: the cancellation state is passed as an argument via JOB_CANCELLED from cancelled(), not a step-level if" \
-  "True" "$(v1156_step '"JOB_CANCELLED" in step["env"] and "cancelled()" in step["env"]["JOB_CANCELLED"] and "JOB_CANCELLED" in step["run"] and "!cancelled()" not in step.get("if","")')"
+assert_eq "#1271 workflow: the cancellation state is derived from job.status and passed via JOB_CANCELLED, not cancelled() outside an if" \
+  "True" "$(v1156_step '"JOB_CANCELLED" in step["env"] and "job.status ==" in step["env"]["JOB_CANCELLED"] and step["env"]["JOB_CANCELLED"].count("cancelled") == 1 and "cancelled()" not in step["env"]["JOB_CANCELLED"] and "JOB_CANCELLED" in step["run"] and "!cancelled()" not in step.get("if","")')"
 assert_eq "#1271 workflow: the step invokes the job-status helper and passes it the arm token, the oracle class, and the cancellation state" \
   "True" "$(v1156_step '"bash \"$DECIDE\"" in step["run"] and "$ARM_TOKEN" in step["run"] and "$REVIEW_CLASS" in step["run"] and "${JOB_CANCELLED" in step["run"]')"
 assert_eq "#1271 workflow: a FAIL token from the helper reaches an explicit exit 1 hoisted ABOVE the terminal exit 0" \

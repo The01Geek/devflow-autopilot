@@ -1964,12 +1964,12 @@ jobs:
           # i.e. github-actions[bot]. The classifier scopes strictly to reviews by this
           # login, so a human's review is never mistaken for the run's own.
           REVIEWER_LOGIN: ${{ steps.reviewer-token.outputs.app-slug != '' && format('{0}[bot]', steps.reviewer-token.outputs.app-slug) || 'github-actions[bot]' }}
-          # The job's cancelled() state, passed to the job-status helper as an ARGUMENT
+          # The job's cancellation state, passed to the job-status helper as an ARGUMENT
           # (issue #1271) — NOT expressed as a step-level `if: !cancelled()`, which would
           # stop the whole step running on a cancelled run and remove its ::notice::,
           # ::warning:: and cause-naming comment. A cancelled run legitimately never
           # reaches Phase 4.4, so the helper short-circuits to PASS on `true`.
-          JOB_CANCELLED: ${{ cancelled() }}
+          JOB_CANCELLED: ${{ job.status == 'cancelled' }}
         run: |
           set -uo pipefail
           CHECK=.prflow/vendor/prflow/scripts/check-verdict-post-reached.sh
