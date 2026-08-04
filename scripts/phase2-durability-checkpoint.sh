@@ -5,7 +5,7 @@
 # Phase 2 mid-run durability checkpoint (issue #1139).
 #
 # Historically an implement run held every change it made in an uncommitted
-# working tree until Phase 2 §2.5 — the first commit and push — so a run that
+# working tree until Phase 2 §2.5 — Phase 2's only commit and push — so a run that
 # terminated before §2.5 lost all of it. This helper is the executable durability
 # step the Phase 2 prose now invokes at each sub-step boundary (and §2.5 itself) so
 # work already produced survives on the run's own remote branch — the branch the
@@ -163,12 +163,23 @@ fi
 
 # A no-op boundary still owes the caller the durability claim its exit 0 makes. The
 # caller acts only on a NON-ZERO exit, so an exit 0 has to mean "the work up to this
-# boundary is on the remote" unconditionally — not merely "I made no commit just now".
-# Without this the guarantee holds only by INDUCTION over correct prior calls: a branch
-# tip that never landed (a prior checkpoint's push silently failed, or the run never
-# pushed) would be reported durable by every subsequent no-op boundary. Returns 0 when
-# the tip is on the remote, 3 when it is not — the same not-landed code the post-push
-# verification uses, so the caller's "act on a non-zero exit" rule needs no new arm.
+# boundary is on the remote" — not merely "I made no commit just now". Without this the
+# guarantee holds only by INDUCTION over correct prior calls: a branch tip that never
+# landed (a prior checkpoint's push silently failed, or the run never pushed) would be
+# reported durable by every subsequent no-op boundary. Returns 0 when the tip is on the
+# remote, 3 when it is not — the same not-landed code the post-push verification uses,
+# so the caller's "act on a non-zero exit" rule needs no new arm.
+#
+# TWO DISCLOSED LIMITS on the strength of that exit-0 claim. It is a claim about the
+# LOCAL remote-tracking ref, not a live remote read:
+#   1. `@{u}` is stale by construction — nothing here fetches. If the remote branch is
+#      deleted or rewound after a successful push, this reports the tip durable when it
+#      is not. Closing that would cost a `git fetch`/`git ls-remote` at every boundary.
+#   2. A path excluded by the workflow-edit guard above is deliberately NOT committed,
+#      so exit 0 means "everything STAGEABLE up to this boundary is on the remote" — a
+#      guard-excluded path's own content is withheld by design and is not covered.
+# So read exit 0 as a claim over the stageable set against the local tracking ref, not
+# as an unconditional durability proof over every named path.
 _tip_is_on_remote() {  # <no-op description, for the breadcrumb>
   local local_head upstream
   local_head="$(git rev-parse HEAD 2>/dev/null)"
