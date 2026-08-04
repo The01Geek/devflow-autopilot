@@ -1,0 +1,119 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-04T02:00:00Z",
+  "fix_commit_sha": "efe4c969",
+  "fix_files": [
+    "scripts/post-ci-review-trigger.sh",
+    "lib/test/check-ci-concurrency.py",
+    "lib/test/modules/review-trigger-helpers.sh",
+    "lib/test/run.sh",
+    "scripts/workflow-flight-recorder-registry.json"
+  ],
+  "loop_role": "fix",
+  "current_step": "3.5",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:pr-test-analyzer",
+    "prflow:comment-analyzer",
+    "prflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "AC2 github.run_id fallback sub-check had zero coverage; a group collapsing every main run into one cancelled group would pass",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "parser fail-closed arms untested (adversarial-shape-matrix convention)",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "PR-state guard discarded gh stderr while the sibling idempotency read captures it; withheld auto-review had no HTTP cause in the breadcrumb",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "docstring 'three properties' self-referential count could rot",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "gh stub does not model the server-side jq state mapping (merged-vs-closed)",
+      "fix_decision": "advisory",
+      "evidence": "disclosed accepted stub boundary; noted in-code"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "efe4c969"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "efe4c969"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "efe4c969"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "efe4c969"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "advisory",
+      "skip_category": "advisory-parked",
+      "evidence": "inherent stub boundary (jq runs server-side on real gh); disclosed in-code, behavior unaffected"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 60,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": "2026-08-04T02:20:00Z",
+    "reviewed_sha": "efe4c969",
+    "verdict": "APPROVE",
+    "coverage": "not_verified",
+    "reviewers_dispatched": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter"
+    ],
+    "reason": "partial fan-out (2 core correctness reviewers) under the single-turn headless constraint; not the full Phase 3 roster",
+    "phase3_findings": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
