@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1259",
+  "generated_at": "2026-08-04T05:42:56Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.84",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.6647265000000004,
+    "tokens": {
+      "input_tokens": 49,
+      "output_tokens": 19253,
+      "cache_read_input_tokens": 3483493,
+      "cache_creation_input_tokens": 144141,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 49,
+        "outputTokens": 19253,
+        "cacheReadInputTokens": 3483493,
+        "cacheCreationInputTokens": 144141,
+        "webSearchRequests": 0,
+        "costUSD": 3.6647265000000004,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 32,
+    "duration_ms": 305112
+  },
+  "permission_denials": {
+    "count": 7,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "/home/runner/work/prflow/prflow/scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review",
+      "gh pr diff 1259 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1259/local/diff.patch\necho \"files:\"; grep -c '^diff --git' .prflow/tmp/review/pr-1259/local/diff.patch\ngrep '^diff --git' .prflow/tmp/review/pr-1259/local/diff.patch\necho \"total lines:\"; wc -l < .prflow/tmp/review/pr-1259/local/diff.patch\necho \"added(non-+++):\"; grep -cE '^\\+[^+]' .prflow/tmp/review/pr-1259/local/diff.patch\necho \"removed(non---):\"; grep -cE '^-[^-]' .prflow/tmp/review/pr-125 …[per-command-truncated]",
+      "for f in implement review-and-fix receiving-code-review; do\n  echo \"=== $f.md ===\"\n  echo -n \"batching rule present: \"; git show 10264097:.prflow/prompt-extensions/$f.md | grep -c \"Batch every owed fix into one whole-suite pass\"\n  echo -n \"Batched artifact regeneration section present: \"; git show 10264097:.prflow/prompt-extensions/$f.md | grep -c \"Batched artifact regeneration\"\n  echo -n \"three-way coupled comment: \"; git show 10264097:.prflow/prompt-extensions/$f.md | grep -c \"THREE-way real c …[per-command-truncated]",
+      "for f in implement review-and-fix receiving-code-review; do\n  printf '%s: rule=%s artifact-section=%s three-way=%s disclaimer=%s\\n' \"$f\" \\\n    \"$(git show 10264097:.prflow/prompt-extensions/$f.md | grep -c 'Batch every owed fix into one whole-suite pass')\" \\\n    \"$(git show 10264097:.prflow/prompt-extensions/$f.md | grep -c 'Batched artifact regeneration')\" \\\n    \"$(git show 10264097:.prflow/prompt-extensions/$f.md | grep -c 'THREE-way real copy')\" \\\n    \"$(git show 10264097:.prflow/prompt-exten …[per-command-truncated]"
+    ],
+    "total": 7,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
