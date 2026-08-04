@@ -39118,8 +39118,12 @@ _MP789_YML="$REPO_ROOT/.github/workflows/matcher-probe.yml"
 # command-probe jobs — each is a hand-maintained count↔rows coupled pair (#789/#1152).
 _mp789_check() {
   local _job="$1"
-  local _rows _said
-  _rows="$(python3 - "$_MP789_YML" "$_job" <<'PY789'
+  local _out _rows _said
+  # One python pass computes the job slice once and prints `<rows>|<said>`: the
+  # row-tuple count and the set of count phrasings the prompt states. The shell splits
+  # the two fields with parameter expansion (bash builtins — no non-preflight PATH tool,
+  # guard-class 2).
+  _out="$(python3 - "$_MP789_YML" "$_job" <<'PY789'
 import re, sys
 text = open(sys.argv[1], encoding="utf-8").read()
 job = text[text.index("\n  " + sys.argv[2] + ":"):]
@@ -39129,22 +39133,16 @@ if nxt:
     job = job[: nxt.start() + 1]
 block = job[job.index("rows = ["):]
 block = block[: block.index("\n          ]")]
-print(len(re.findall(r"^\s*\(\s*\d+\s*,", block, re.M)))
-PY789
-)"
-  _said="$(python3 - "$_MP789_YML" "$_job" <<'PY789'
-import re, sys
-text = open(sys.argv[1], encoding="utf-8").read()
-job = text[text.index("\n  " + sys.argv[2] + ":"):]
-nxt = re.search(r"\n  [A-Za-z][\w-]*:\n", job[1:])
-if nxt:
-    job = job[: nxt.start() + 1]
+rows = len(re.findall(r"^\s*\(\s*\d+\s*,", block, re.M))
 found = set(re.findall(r"the (\d+) numbered command shapes", job)) \
       | set(re.findall(r"1 through (\d+)\.", job)) \
       | set(re.findall(r"attempting all (\d+),", job))
-print(",".join(sorted(found)) if found else "UNRESOLVED")
+said = ",".join(sorted(found)) if found else "UNRESOLVED"
+print("%d|%s" % (rows, said))
 PY789
 )"
+  _rows="${_out%%|*}"
+  _said="${_out#*|}"
   # The prompt carries all three count phrasings, so the resolved set must be a single
   # value equal to the row count; anything else is drift.
   assert_eq "#789 matcher-probe: the $_job prompt's attempt-count matches its row table (a listed-but-unattempted shape is silently unmeasured)" \
