@@ -144,6 +144,37 @@ assert_eq "#1139 AC4: a checkpoint whose only named path is guard-excluded is a 
   "0" "$GUARD_ONLY_RC"
 assert_eq "#1139 AC4: the guard-only no-op adds no commit to the branch" \
   "0" "$(_dc_remote_ahead "$W")"
+# A stage-all spelling must not become a guard BYPASS. `./` used to reach
+# `git add -- ./` because it matched no refusal pattern, and its `${arg#./}` form is the
+# empty string, which matches no `.github/workflows/*` pattern either — so a guard-active
+# run staged and committed the repo's own workflow files, the exact edit the guard exists
+# to withhold. The refusal is what closes it; these assertions read the remote and the
+# working tree rather than the index, because a bypass that COMMITS leaves a clean index.
+W="$(_dc_newrig)"
+GUARD_STAGE_ALL_RC="$( cd "$W" && mkdir -p .github/workflows && printf 'name: g\n' > .github/workflows/guarded.yml && printf 'real\n' > app2.txt && _dc_cp_guard "feat: cp" ./ >/dev/null 2>&1; echo $? )"
+assert_eq "#1139 AC4: a guard-active run given the './' stage-all spelling is refused (exit 2)" \
+  "2" "$GUARD_STAGE_ALL_RC"
+assert_eq "#1139 AC4: a guard-active './' run puts no repo-own workflow file on the remote" \
+  "no" "$(_dc_remote_has "$W" .github/workflows/guarded.yml)"
+assert_eq "#1139 AC4: after a refused './' the workflow file is still untracked (never staged)" \
+  "yes" "$( cd "$W" && git status --porcelain -- .github/workflows/guarded.yml | grep -q '^?? ' && echo yes || echo no )"
+assert_eq "#1139 AC4: a guard-active './' run adds no commit to the branch at all" \
+  "0" "$(_dc_remote_ahead "$W")"
+# The guard's own normalization must survive a repeated `./` prefix: a single
+# `${arg#./}` strip leaves `././.github/…` still prefixed, so the workflow path would
+# slip the guard and be staged despite it.
+W="$(_dc_newrig)"
+(
+  cd "$W" || exit 1
+  mkdir -p .github/workflows
+  printf 'name: r\n' > .github/workflows/repeated.yml
+  printf 'real\n' > app3.txt
+  _dc_cp_guard "feat: cp" ././.github/workflows/repeated.yml app3.txt >/dev/null 2>&1
+)
+assert_eq "#1139 AC4: a repeated './' prefix does not slip the workflow-edit guard" \
+  "no" "$(_dc_remote_has "$W" .github/workflows/repeated.yml)"
+assert_eq "#1139 AC4: the non-workflow work still lands beside the repeated-prefix exclusion" \
+  "yes" "$(_dc_remote_has "$W" app3.txt)"
 
 # ── AC5: §2.1.5 proof content never enters pushed history ───────────────────
 # Explicit scoping is the mechanism: a proof file present in the working tree but not
@@ -187,6 +218,43 @@ assert_eq "#1139 AC6: the helper refuses a ':/' magic pathspec (exit 2)" \
   "2" "$( cd "$W" && _dc_cp "feat: cp" :/ >/dev/null 2>&1; echo $? )"
 assert_eq "#1139 AC6: the helper refuses a missing commit message (exit 2)" \
   "2" "$( cd "$W" && _dc_cp >/dev/null 2>&1; echo $? )"
+# The refusal is a CLASS test, not a token denylist. Every spelling git resolves to the
+# whole tree is refused, not only the bare `.` — a denylist leaves the defect one
+# spelling away, which is exactly how `./` shipped unrefused. Each of these reaches
+# `git add --` as a whole-tree pathspec: `git add` is recursive over a directory, so the
+# `.`-and-`/` navigation forms stage the entire tree, and a plain (non-`:(glob)`)
+# pathspec wildcard matches across `/`, so `*`/`**` do the same.
+assert_eq "#1139 AC6: the helper refuses the './' stage-all spelling (exit 2)" \
+  "2" "$( cd "$W" && _dc_cp "feat: cp" ./ >/dev/null 2>&1; echo $? )"
+assert_eq "#1139 AC6: the helper refuses the './/' stage-all spelling (exit 2)" \
+  "2" "$( cd "$W" && _dc_cp "feat: cp" .// >/dev/null 2>&1; echo $? )"
+assert_eq "#1139 AC6: the helper refuses the './.' stage-all spelling (exit 2)" \
+  "2" "$( cd "$W" && _dc_cp "feat: cp" ./. >/dev/null 2>&1; echo $? )"
+assert_eq "#1139 AC6: the helper refuses the '././' stage-all spelling (exit 2)" \
+  "2" "$( cd "$W" && _dc_cp "feat: cp" ././ >/dev/null 2>&1; echo $? )"
+assert_eq "#1139 AC6: the helper refuses the '..' parent-tree spelling (exit 2)" \
+  "2" "$( cd "$W" && _dc_cp "feat: cp" .. >/dev/null 2>&1; echo $? )"
+assert_eq "#1139 AC6: the helper refuses the '*' match-everything pathspec (exit 2)" \
+  "2" "$( cd "$W" && _dc_cp "feat: cp" '*' >/dev/null 2>&1; echo $? )"
+assert_eq "#1139 AC6: the helper refuses the '**' match-everything pathspec (exit 2)" \
+  "2" "$( cd "$W" && _dc_cp "feat: cp" '**' >/dev/null 2>&1; echo $? )"
+assert_eq "#1139 AC6: the helper refuses an empty-string pathspec (exit 2)" \
+  "2" "$( cd "$W" && _dc_cp "feat: cp" '' >/dev/null 2>&1; echo $? )"
+# A caller-named directory is NOT in that class — it is recursive by design and is
+# exactly what the caller scoped the checkpoint to. This is the negative control that
+# keeps the class test from degenerating into "refuse everything".
+W="$(_dc_newrig)"
+(
+  cd "$W" || exit 1
+  mkdir -p named-dir
+  printf 'in a named dir\n' > named-dir/inside.txt
+  printf 'unrelated scratch\n' > outside.txt          # never named
+  _dc_cp "feat: cp" named-dir >/dev/null 2>&1
+)
+assert_eq "#1139 AC6: a caller-named directory is still accepted and its content lands" \
+  "yes" "$(_dc_remote_has "$W" named-dir/inside.txt)"
+assert_eq "#1139 AC6: the named directory does not widen scope to an unnamed sibling" \
+  "no" "$(_dc_remote_has "$W" outside.txt)"
 # Path-scoped commit: a pre-existing staged (but unnamed) change is NOT swept into
 # the checkpoint even when the index is dirty at entry — the AC6 guarantee is
 # enforced by the helper, not left contingent on a clean index.

@@ -19,9 +19,11 @@
 # Behavior:
 #   - Staging is EXPLICITLY SCOPED. The helper stages ONLY the named paths via
 #     `git add -- <paths>`. It NEVER stages with `git add -A`, `git add .`, or
-#     intent-to-add, and it REFUSES those tokens as arguments (AC6): an unscoped
-#     stage would defeat §2.2's sweep guidance and the fix loop's explicit-path
-#     scoping, and would carry unrelated untracked files into pushed history.
+#     intent-to-add, and it REFUSES the whole CLASS of arguments that stage more
+#     than the caller named (AC6 — see `_is_whole_tree_arg` for the class and its
+#     deliberate exclusions): an unscoped stage would defeat §2.2's sweep guidance
+#     and the fix loop's explicit-path scoping, and would carry unrelated
+#     untracked files into pushed history.
 #   - Cloud-tier workflow-edit guard (AC4). On a run whose credential cannot push
 #     `.github/workflows/` — cloud tier (GITHUB_ACTIONS=true) with DEVFLOW_APP_ID
 #     empty/unset, i.e. the GITHUB_TOKEN fallback — the helper DETECTS any named
@@ -61,6 +63,40 @@ fi
 MESSAGE="$1"
 shift
 
+# Does this argument stage MORE than the caller named (AC6)? Returns 0 to refuse it,
+# 1 when it is a concrete path. A class test, deliberately not a denylist of tokens,
+# because a denylist leaves the same defect one spelling away. Three shapes qualify:
+#   - option-shaped — `git add`'s `-A`/`-u`/`-N`/`--all`/`--update`/`--intent-to-add`
+#     all begin with `-`;
+#   - a git magic pathspec — `:/` (repo root), `:(glob)…`, `:(top)…` all begin with `:`;
+#   - a whole-tree spelling — an argument built ONLY out of the path-navigation
+#     characters `.` and `/` and/or the match-everything wildcard `*`. `git add` is
+#     recursive over a directory, so `.`, `./`, `.//`, `./.` and `././` each stage a
+#     whole tree (as does `..` from a subdirectory); and a plain — non-`:(glob)` —
+#     pathspec wildcard matches across `/`, so `*`, `**`, `./*` and `**/*` do too. The
+#     empty string lands in this arm as well: it names nothing, and git rejects it as
+#     a pathspec.
+# Deliberately NOT in the class, each because it names what the caller asked for or
+# because a spelling test cannot decide it:
+#   - a caller-named directory (`scripts/`, trailing slash included) — recursive by
+#     design, and explicitly scoped to what the caller named;
+#   - a partial glob (`scripts/*`, `[a-z]*`) — it matches a subset, not the tree;
+#   - a path reaching the repo root the long way round (an absolute `/abs/repo`, or
+#     `../<repo>`), which needs resolution against `git rev-parse --show-toplevel`
+#     rather than inspection of the spelling.
+# Accepted false refusal: a pathological real filename made only of those characters
+# (a file literally named `...` or `*`) is refused. No such path is nameable by the
+# Phase 2 prose that invokes this helper.
+_is_whole_tree_arg() {  # <arg>
+  case "$1" in
+    -* | :*) return 0 ;;
+  esac
+  case "$1" in
+    *[!./*]*) return 1 ;;   # holds at least one ordinary path character
+    *) return 0 ;;          # empty, or nothing but `.`, `/` and `*`
+  esac
+}
+
 KEEP=()
 GUARD_ACTIVE=no
 if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ -z "${DEVFLOW_APP_ID:-}" ]; then
@@ -68,24 +104,23 @@ if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ -z "${DEVFLOW_APP_ID:-}" ]; then
 fi
 
 for arg in "$@"; do
-  # Explicit paths only (AC6): every argument must name a concrete path. Reject the
-  # whole class of non-path / stage-all arguments rather than a denylist of specific
-  # tokens — an option-shaped token (git add's `-A`/`-u`/`-N`/`--all`/`--update`/
-  # `--intent-to-add` all begin with `-`), the whole-tree `.`, or a git magic pathspec
-  # (`:/` repo-root, `:(glob)…`) — any of which would stage more than the caller named
-  # and defeat §2.2's sweep-scoping and the fix loop's explicit-path scoping.
-  case "$arg" in
-    -* | . | :*)
-      _bc "refusing non-path staging argument '$arg' — staging must be explicitly scoped to concrete file paths (AC6)."
-      exit 2
-      ;;
-  esac
+  # Explicit paths only (AC6): every argument must name a concrete path, or it would
+  # stage more than the caller named and defeat §2.2's sweep-scoping and the fix
+  # loop's explicit-path scoping. This is a CLASS test, not a denylist of tokens —
+  # `_is_whole_tree_arg` states the class and what it deliberately leaves out.
+  if _is_whole_tree_arg "$arg"; then
+    _bc "refusing non-path staging argument '$arg' — staging must be explicitly scoped to concrete file paths (AC6)."
+    exit 2
+  fi
   # Cloud-tier workflow-edit guard: on a run whose GITHUB_TOKEN fallback cannot push
-  # .github/workflows/, do not stage a repo-own workflow path (normalize a leading ./
-  # so the match is not defeated by it). A vendored .prflow/vendor/… path is not the
-  # repo's own and is not guarded.
+  # .github/workflows/, do not stage a repo-own workflow path. Normalize EVERY leading
+  # `./` segment, not just one: a single `${arg#./}` strip leaves `././.github/…` still
+  # carrying a `./` prefix, so the match would be defeated by the second segment. A
+  # vendored .prflow/vendor/… path is not the repo's own and is not guarded.
   if [ "$GUARD_ACTIVE" = yes ]; then
-    case "${arg#./}" in
+    NORM="$arg"
+    while [ "$NORM" != "${NORM#./}" ]; do NORM="${NORM#./}"; done
+    case "$NORM" in
       .github/workflows/*)
         _bc "workflow-edit guard: NOT staging '$arg' (cloud tier, DEVFLOW_APP_ID empty — the GITHUB_TOKEN fallback cannot push .github/workflows/). Defer it via the Phase 2.2.5 scope-adjustment."
         continue
