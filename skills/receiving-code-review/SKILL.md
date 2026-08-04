@@ -463,7 +463,7 @@ IF a fix needs to guard input before a downstream operation:
 
 **Why:** a separate validator's accepted-input set is almost never an exact match for the consumer's — it is usually a **superset**, so inputs the validator waves through still break the consumer. This is the `unverified-assumption` / #62/#98 bug class (see CLAUDE.md, *"Adding a guard, predicate, or coverage-invariant…"*): a guard whose comparand can be absent, or whose accepted set is wider than its consumer's contract, **fails open exactly where it claims to fail closed**.
 
-**Worked example (PR #153):** a fix guarding a `strptime` call shipped first a `type == "string"` check, then a date-shape regex — each a *superset* of `strptime`'s real contract, each surviving its own self-review. The guard that worked was `try strptime catch`: it shares the consumer's contract by construction, so the accepted-input sets are identical and cannot drift.
+**Worked example:** a fix guarding a `strptime` call shipped first a `type == "string"` check, then a date-shape regex — each a *superset* of `strptime`'s real contract, each surviving its own self-review. The guard that worked was `try strptime catch`: it shares the consumer's contract by construction, so the accepted-input sets are identical and cannot drift.
 
 When you apply a reviewer's "add a guard here" feedback, reach for the consumer's own operation first. If your review loop runs a fix-delta check, it verifies exactly this — the guard's accepted-input set must be a subset of its consumer's contract — so a re-derived validator gets caught there; write it right the first time anyway.
 

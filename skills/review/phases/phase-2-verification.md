@@ -44,7 +44,7 @@ Edge cases:
 - `lite_probe` field missing despite `verification_mode: "lite"` (malformed item) → promote the item to the agent path; do not silently PASS.
 - `grep` exit code 2 (real error, not just no-match) → INCONCLUSIVE with the stderr text in `evidence`.
 
-**#504 displaced-path routing.** For a `source_file` the ground-truth block lists as #458-displaced, the working-tree copy is base-ref/stub bytes (not HEAD), so grep the `git show <head>:<path>` output instead; a base-state claim via `git show $PR_BASE_SHA:<path>`. On a routed-read error with no cached-diff deletion, INCONCLUSIVE (never working-tree/fetch fallback). Listed paths stay in review scope (channel, not depth). Inert with no displaced list; per-mode head binding and full fail direction live in the truthfulness-contract routing.
+**displaced-path routing.** For a `source_file` the ground-truth block lists as displaced, the working-tree copy is base-ref/stub bytes (not HEAD), so grep the `git show <head>:<path>` output instead; a base-state claim via `git show $PR_BASE_SHA:<path>`. On a routed-read error with no cached-diff deletion, INCONCLUSIVE (never working-tree/fetch fallback). Listed paths stay in review scope (channel, not depth). Inert with no displaced list; per-mode head binding and full fail direction live in the truthfulness-contract routing.
 
 Record the result in the same JSON shape as agent verdicts:
 ```json
@@ -67,7 +67,7 @@ Pass the following prompt for each:
 ```
 Verify this claim against the actual source code. Read the referenced files, compare the claim to reality, and report PASS, FAIL, or INCONCLUSIVE.
 
-#504 displaced-path routing: for any referenced file the run's displaced-path list marks as #458-displaced — read that list from the Phase 0.1.5 scratch file `.prflow/tmp/displaced-paths.txt` before verifying (you receive this dispatch prompt, not the orchestrator's engine-ground-truth block; a missing or empty file means no displaced list, so this routing is inert) — the working-tree copy is base-ref/stub bytes (not HEAD) — read it via `git show <head>:<path>` (a base-state claim via `git show $PR_BASE_SHA:<path>`), never the working-tree file. On a routed-read error where the cached diff does not show the path deleted at head, probe `git cat-file -e <head>:<path>` and report INCONCLUSIVE with the displacement attribution — never fall back to the working tree, never `git fetch`. Listed paths stay fully in review scope (channel, not depth). With no displaced list, behave as today.
+#504 displaced-path routing: for any referenced file the run's displaced-path list marks as displaced — read that list from the Phase 0.1.5 scratch file `.prflow/tmp/displaced-paths.txt` before verifying (you receive this dispatch prompt, not the orchestrator's engine-ground-truth block; a missing or empty file means no displaced list, so this routing is inert) — the working-tree copy is base-ref/stub bytes (not HEAD) — read it via `git show <head>:<path>` (a base-state claim via `git show $PR_BASE_SHA:<path>`), never the working-tree file. On a routed-read error where the cached diff does not show the path deleted at head, probe `git cat-file -e <head>:<path>` and report INCONCLUSIVE with the displacement attribution — never fall back to the working tree, never `git fetch`. Listed paths stay fully in review scope (channel, not depth). With no displaced list, behave as today.
 
 Checklist item:
 {paste the JSON checklist item here}

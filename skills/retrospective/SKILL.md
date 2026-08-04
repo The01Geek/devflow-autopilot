@@ -78,8 +78,8 @@ Schema of `.prflow/tmp/pr-<n>.context.json` produced by `fetch-pr-context.sh`:
 | `review_comments_count` | number | Total inline review comments |
 | `post_bot_commits` | number | Substantive commits by a human AFTER the bot's last commit — pure merge commits (`Merge branch 'main'` etc.) are not counted |
 | `ci_failures_during_pr` | number | Non-success check-runs on the head SHA |
-| `workpad_final_status` | string | Parsed Status line from the workpad, e.g. `"Complete"`, `"Blocked"`, `"Cancelled"`, or one of the three absent/corrupt sentinels `"Unparsed"` / `"Absent"` / `"NoIssue"` (issue #626). The producer always emits a non-empty value — `""` no longer appears. |
-| `pr_devflow_provenance` | boolean | True iff the `PRFlow` provenance label (or its superseded `DevFlow` spelling) is on the PR or the resolved linked issue — i.e. this was one of DevFlow's own runs (issue #626). Drives the workpad-absent analysis rule below. |
+| `workpad_final_status` | string | Parsed Status line from the workpad, e.g. `"Complete"`, `"Blocked"`, `"Cancelled"`, or one of the three absent/corrupt sentinels `"Unparsed"` / `"Absent"` / `"NoIssue"`. The producer always emits a non-empty value — `""` no longer appears. |
+| `pr_devflow_provenance` | boolean | True iff the `PRFlow` provenance label (or its superseded `DevFlow` spelling) is on the PR or the resolved linked issue — i.e. this was one of DevFlow's own runs. Drives the workpad-absent analysis rule below. |
 | `ttm_hours` | number | Time from PR creation to merge, in decimal hours |
 | `review_reject_outstanding` | boolean | True when the chronologically-last review verdict (from either conversation comments or durable PR reviews) is REJECT |
 
@@ -93,7 +93,7 @@ and you treat its three facets as primary analysis input:
   every bullet is an informational `note`-kind (`ℹ️`) one (those are exempted
   and recorded verbatim on the clean path, not analyzed); every actionable
   kind — including `issue-accuracy` (`📝`) — still forces analysis.
-- `signals.workpad_final_status` — the bot's final Status (`Complete` / `Blocked` / `Failed` / `Cancelled` / an interim state); it bounds the verdict (see below). `Failed` is the cloud stall backstop's dead-run flip: the run died mid-lifecycle rather than deciding an outcome. `Cancelled` is the cloud stall backstop's cancelled-run flip (issue #498): the run was deliberately cancelled (an operator stop, or a platform-initiated teardown), not a quality signal.
+- `signals.workpad_final_status` — the bot's final Status (`Complete` / `Blocked` / `Failed` / `Cancelled` / an interim state); it bounds the verdict (see below). `Failed` is the cloud stall backstop's dead-run flip: the run died mid-lifecycle rather than deciding an outcome. `Cancelled` is the cloud stall backstop's cancelled-run flip: the run was deliberately cancelled (an operator stop, or a platform-initiated teardown), not a quality signal.
 - `workpad_body` — the full workpad, including the `## Progress` notes nested
   under each phase. Mine its append-only notes for the moment-to-moment story.
 
@@ -132,13 +132,13 @@ handled those mechanically.)
 of those, print `{"skip": "incomplete run — workpad_final_status is <status>; skipping"}` and stop.
 
 A **`Cancelled`** final status is a deliberate stop, not a quality issue — the run
-was cancelled (an operator stop or a platform-initiated teardown, issue #498), not
+was cancelled (an operator stop or a platform-initiated teardown), not
 abandoned mid-task. It takes a defined skip mirroring the interim skip: print
 `{"skip": "operator-cancelled run — workpad_final_status is Cancelled; a deliberate stop, not a quality signal; skipping"}`
 and stop. A deliberate cancel is never improvised into a `blocked` verdict feeding
 the pattern loop.
 
-**Defined-skip vs. genuine-failure key (issue #626).** These two defined skips —
+**Defined-skip vs. genuine-failure key.** These two defined skips —
 the interim-state skip and the `Cancelled` skip — emit a dedicated top-level
 `"skip"` key carrying the reason. A **genuine failure** (you could not analyze the
 bundle at all — a malformed bundle, a crash) still prints `{"error": "<reason>"}`.
@@ -146,7 +146,7 @@ The orchestrator recognizes a defined skip **by the presence of the `"skip"` key
 only**, never by matching substrings of error text — so the two keys must stay
 distinct and a skip must never be emitted under `"error"`.
 
-**Workpad-absent analysis rule (issue #626).** The absent-workpad sentinels
+**Workpad-absent analysis rule.** The absent-workpad sentinels
 `"Absent"` (the linked issue resolved but carried no workpad comment) and
 `"NoIssue"` (no linked issue resolved at all) are **NOT** added to the incomplete-run
 skip arms — a bundle carrying one of them reaches you only because the orchestrator's
@@ -277,7 +277,7 @@ newlines that break naive serialization).
 }
 ```
 
-**Optional `extension_unreadable` key (consumer prompt-extension handoff, issue #834).**
+**Optional `extension_unreadable` key (consumer prompt-extension handoff).**
 When the dispatching parent supplies a by-path consumer prompt-extension handoff (a
 sentence naming your extension file at an absolute `.prflow/prompt-extensions/retrospective.md`
 path and instructing you to read it with your file-read tool), honor it: read that

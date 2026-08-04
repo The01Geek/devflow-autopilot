@@ -2,7 +2,15 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 """Fail the suite when a shipped prompt surface references a path the vendor slice
-prunes (issue #1072).
+prunes (issue #1072), or cites a PRFlow-internal issue/PR number or acceptance
+criterion (issue #1241).
+
+Both forbidden classes share one cause: `skills/**` / `agents/**` ships verbatim into
+every consumer repo, so a reference that only resolves against THIS repository's tree
+or issue tracker points at nothing in a consumer's checkout. The pruned-path check
+(below) covers the tree paths; the citation check covers `#123` / `issue #123` /
+`PR #123` and `AC5`-style acceptance-criterion references. Both are exempted by the
+same per-line declaration marker described below.
 
 Why this exists: `.github/actions/vendor-plugin/vendor-slice.sh`'s
 `devflow_copy_slice()` deletes subtrees from the vendored plugin before it lands in
@@ -287,6 +295,38 @@ def scan_text(text: str, targets: list[str]) -> list[tuple[int, str]]:
     return found
 
 
+#: A PRFlow-internal citation forbidden on the shipped prompt surface (issue #1241): a
+#: GitHub issue/PR number (`#123`, `issue #123`, `PR #123`) or an acceptance-criterion
+#: reference (`AC5`). Both resolve against one of THIS repo's own issues, so a consumer
+#: reading one in a vendored skill body cannot look it up — it points at nothing in
+#: their checkout. `#\d+` requires a trailing word boundary so a hex colour like
+#: `#1D76DB` (whose `#1` is followed by a letter, not a boundary) is never a false
+#: match; a run ID carries no `#` and is excluded by construction.
+_CITATION = re.compile(r"#\d+\b|\bAC\d+\b")
+
+
+def scan_citations(text: str) -> list[tuple[int, str]]:
+    """Return (1-based line number, matched citation) for each unmarked internal citation.
+
+    Reuses the exact fence-aware `pruned-path-ok` marker exemption `scan_text` uses, so a
+    line carrying the declaration marker is exempt regardless of what it cites — an
+    intentional keep, or a citation that lives inside a marker's own reason text, is
+    clean without a second marker family.
+    """
+    lines = text.split("\n")
+    states = _fence_states(lines)
+    found: list[tuple[int, str]] = []
+    for idx, line in enumerate(lines):
+        m = _CITATION.search(line)
+        if m is None:
+            continue
+        marker = _MARKER_SHELL if states[idx] else _MARKER_HTML
+        if marker.search(line):
+            continue
+        found.append((idx + 1, m.group(0)))
+    return found
+
+
 def is_audited(path: str) -> bool:
     normalized = path.replace("\\", "/")
     return any(normalized.startswith(p) for p in AUDITED_PREFIXES)
@@ -296,7 +336,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Fail when a shipped prompt surface (skills/**, agents/**) references a "
-            "path the vendor slice prunes without a declaration marker."
+            "path the vendor slice prunes, or cites a PRFlow-internal issue/PR number "
+            "or acceptance criterion, without a declaration marker."
         )
     )
     _pop.add_population_arguments(parser)
@@ -383,6 +424,11 @@ def main(argv: list[str] | None = None) -> int:
             findings.append(
                 f"{relative}:{number}: references pruned path '{hit}' with no "
                 "pruned-path-ok marker"
+            )
+        for number, cite in scan_citations(text):
+            findings.append(
+                f"{relative}:{number}: cites PRFlow-internal '{cite}' (issue/PR or "
+                "acceptance-criterion reference) with no pruned-path-ok marker"
             )
 
     for finding in findings:
