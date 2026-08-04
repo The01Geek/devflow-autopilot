@@ -76,13 +76,13 @@ def build_record(surfaces, single_flight_consulted=None) -> dict:
 
     `surfaces` is a list of per-surface entries; each is validated by
     `classify_entry` and normalized to only the fields its shape carries, so a
-    round-tripped record is byte-stable (`encode_marker` also sorts keys). Its
-    *presence* (non-None) is what distinguishes a consulted flight from an
-    unconsulted one; `single_flight_consulted` is either None (no relaunch
-    consultation to record) or a JSON-serializable object describing it (AC4), whose
-    internal shape is caller-defined — e.g. whether an existing clean result was
-    reused rather than re-produced. Returns a plain dict — the value stored verbatim
-    as `verification_evidence.focused_selection` in the standalone sink."""
+    round-tripped record is byte-stable (`encode_marker` also sorts keys).
+    `single_flight_consulted` is either None (there was no relaunch consultation to
+    record) or a JSON-serializable object recording one (AC4) — its *presence*
+    (non-None) marks that a consultation was recorded, and its caller-defined internal
+    shape says what happened (e.g. whether an existing clean result was reused rather
+    than re-produced). Returns a plain dict — the value stored verbatim as
+    `verification_evidence.focused_selection` in the standalone sink."""
     if not isinstance(surfaces, list):
         raise ValueError("surfaces must be a list of per-surface entries")
     normalized = []
@@ -149,6 +149,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _cmd_encode(_args) -> int:
     obj = json.loads(sys.stdin.read())
+    if not isinstance(obj, dict):
+        raise SystemExit("encode expects a JSON object on stdin (with a `surfaces` "
+                         "list and an optional `single_flight_consulted`)")
     rec = build_record(obj.get("surfaces", []), obj.get("single_flight_consulted"))
     sys.stdout.write(encode_marker(rec) + "\n")
     return 0

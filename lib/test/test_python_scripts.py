@@ -24079,6 +24079,56 @@ assert_raises("#1229 build_record rejects an unclassifiable surface entry",
               lambda: focused_selection.build_record(
                   surfaces=[{"surface": "scripts/x.py"}], single_flight_consulted=None))
 
+# An entry carrying BOTH a focused result and an exemption ground is ambiguous and
+# rejected — the whole point of the record is that the two shapes stay distinct.
+assert_raises("#1229 build_record rejects an ambiguously-both surface entry",
+              ValueError,
+              lambda: focused_selection.build_record(
+                  surfaces=[{"surface": "s", "coverage_map_entry": "e", "target": "t",
+                             "exemption_ground": "x"}], single_flight_consulted=None))
+
+# A surface entry that names no `surface` is rejected.
+assert_raises("#1229 build_record rejects an entry with no surface name",
+              ValueError,
+              lambda: focused_selection.build_record(
+                  surfaces=[{"exemption_ground": "x"}], single_flight_consulted=None))
+
+# A non-list `surfaces` argument is rejected.
+assert_raises("#1229 build_record rejects a non-list surfaces argument",
+              ValueError,
+              lambda: focused_selection.build_record(
+                  surfaces="not-a-list", single_flight_consulted=None))
+
+# The load-bearing fail-closed decode path: a malformed marker payload is skipped,
+# never surfaced as a spurious record. The payload is agent/human-mutable, so a
+# regression here (e.g. dropping validate=True, or letting a JSON array/scalar
+# through) would fail OPEN — a surface reads as recorded when it is not.
+_bad_b64 = "<!-- prflow:focused-selection !!!not-base64!!! -->"
+assert_eq("#1229 decode fails closed on non-base64 payload", [],
+          focused_selection.decode_markers(_bad_b64))
+import base64 as _b641229  # noqa: E402
+_b64_nonjson = "<!-- prflow:focused-selection " + \
+    _b641229.b64encode(b"not json at all").decode("ascii") + " -->"
+assert_eq("#1229 decode fails closed on a payload that is valid base64 but not JSON",
+          [], focused_selection.decode_markers(_b64_nonjson))
+_b64_array = "<!-- prflow:focused-selection " + \
+    _b641229.b64encode(b"[1,2,3]").decode("ascii") + " -->"
+assert_eq("#1229 decode fails closed on a JSON array/scalar payload (non-object)", [],
+          focused_selection.decode_markers(_b64_array))
+
+# Multiple markers in one body decode to multiple records in document order.
+_rec_a = focused_selection.build_record(
+    surfaces=[{"surface": "a", "exemption_ground": "no-coverage-map-entry"}],
+    single_flight_consulted=None)
+_rec_b = focused_selection.build_record(
+    surfaces=[{"surface": "b", "coverage_map_entry": "e", "target": "t"}],
+    single_flight_consulted=None)
+_multi = "x " + focused_selection.encode_marker(_rec_a) + \
+    "\ny " + focused_selection.encode_marker(_rec_b) + "\n"
+_dm = focused_selection.decode_markers(_multi)
+assert_eq("#1229 two markers in one body both decode", 2, len(_dm))
+assert_eq("#1229 two markers decode in document order", [_rec_a, _rec_b], _dm)
+
 
 print()
 print(f"{PASS} passed, {FAIL} failed")
