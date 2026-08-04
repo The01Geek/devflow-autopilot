@@ -296,8 +296,10 @@ jobs:
       # issue #1287: a test module's assertion floor lives in two coupled sites
       # (`minimum_assertions` in the flight-recorder registry and the run.sh call-site
       # literal). The suite enforces they AGREE and that a tally is not BELOW them, but
-      # only the `exact`-policy modules get a measured equality — so for the five
-      # policy-less modules a coordinated LOWERING of both sites is green everywhere.
+      # only the `exact`-policy modules get a measured equality — so for the modules
+      # carrying no `assertion_floor_policy` a coordinated LOWERING of both sites is
+      # green everywhere. (That population is named by its property, never counted:
+      # it changes as modules are added and re-policed.)
       # This diff-time gate makes a decrease a declared act: it fails RED on any lowered
       # registry floor, for every registered module, unless declared in
       # assertion-floor-retention-allow.json. It needs the same full history the

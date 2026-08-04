@@ -8,11 +8,12 @@ in `scripts/workflow-flight-recorder-registry.json` and the third positional ope
 the `devflow_run_full_suite_module` call site in `lib/test/run.sh`. The suite enforces
 that the two AGREE with each other, and that a module's measured tally is not BELOW them.
 Only the `exact`-policy modules additionally get a measured equality
-(`reconcile-module-floors.py`, `test_module_runner.py`), so for the five registered
-modules that carry no `assertion_floor_policy` — `parallel-suite-runner`,
-`regenerate-artifacts`, `retrospective-lifecycle`, `tier1-rename-migration`,
-`workflow-flight-recorder` — nothing enforces that the floor is not simply LOWERED: a
-coordinated edit to both coupled sites, in one diff, is green at the desk and green in CI.
+(`reconcile-module-floors.py`, `test_module_runner.py`), so for the registered modules
+that carry no `assertion_floor_policy` nothing enforces that the floor is not simply
+LOWERED: a coordinated edit to both coupled sites, in one diff, is green at the desk and
+green in CI. (That population is deliberately named by its defining property rather than
+enumerated or counted — it changes as modules are added and re-policed, and a stale list
+here would re-rot exactly as the count in issue #1287 did.)
 That is coverage loss that leaves no trace in any gate — only in the diff, if someone
 reads it.
 

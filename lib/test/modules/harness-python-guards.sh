@@ -467,9 +467,10 @@ echo "issue #1287: assertion-floor retention check (lowered floor is a declared 
 # A test module's assertion floor lives in two coupled sites — `minimum_assertions` in
 # the flight-recorder registry and the run.sh call-site literal. The suite enforces they
 # AGREE and that a tally is not BELOW them, but only the `exact`-policy modules get a
-# measured equality (reconcile-module-floors.py / test_module_runner.py). For the five
-# policy-less modules a coordinated LOWERING of both sites is green everywhere, silently
-# shedding coverage. The CI-side diff-time gate (assertion-floor-retention-check.py) makes
+# measured equality (reconcile-module-floors.py / test_module_runner.py). For the modules
+# carrying no `assertion_floor_policy` — named by that property, never counted, since the
+# population changes as modules are added and re-policed — a coordinated LOWERING of both
+# sites is green everywhere, silently shedding coverage. The CI-side diff-time gate (assertion-floor-retention-check.py) makes
 # a decrease a declared act, for EVERY registered module. The focused test drives its pure
 # core (detect_decreases / classify_outcome) over every decrease, retirement,
 # malformed-comparand, escape-hatch and arm-order shape, plus the CLI end-to-end against a
