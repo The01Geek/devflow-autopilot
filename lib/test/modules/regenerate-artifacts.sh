@@ -1238,6 +1238,180 @@ _ra_ok "#1244 AP10b a reconciled tree emits no preflight warning and no refusal"
   "a clean real preflight was reported as inconclusive or refused; output: $(printf '%s' "$RA_AP10B_OUT" | tr '\n' '|')"
 _ra_live_unchanged "#1244 AP10 live manifest byte-unchanged after the coordinator integration arms"
 
+# ── AP11 — an exit OUTSIDE the row's declared `exits` set ────────────────────
+# `run_preflight_row` compares the observed exit against the row's declared `exits` BEFORE any
+# clean / positive-marker / infra-marker / traceback classification, and routes an out-of-set
+# exit to UNCHECKABLE. Every AP arm above drives an IN-SET exit (0 or 1), so this was the one
+# classification branch nothing reached — and it is the most expensive one to get wrong in the
+# wrong direction: it is fail-OPEN by contract, so miswiring it to return drift would make the
+# coordinator fail CLOSED and refuse the whole suite over a result the preflight never
+# established (the "unknown is not zero" collapse, at suite scale).
+#
+# The row is `env-freeze-advisory-region`, whose registry entry deliberately leaves 2 outside
+# its declared set so its generator's own INPUT failures land on this branch; the stub below
+# fixes the exit at 3 so AP11a measures the classification rather than any generator's
+# behavior.
+#
+# The declared set is read from the FIXTURE's own registry rather than transcribed here: the
+# controls below have to establish that a probe's exit really is outside the set
+# `run_preflight_row` compares against, and a hardcoded `0 1` would go on asserting that after
+# a registry edit widened the set — leaving these arms silently measuring the in-set path.
+_ra_declared_exits() {  # <root> <row-name> — space-separated declared exit codes
+  python3 - "$1" "$2" <<'RA_EXITS_EOF'
+import importlib.util, sys
+
+spec = importlib.util.spec_from_file_location(
+    "ra_registry", sys.argv[1] + "/lib/test/regenerate-artifacts.py"
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(" ".join(str(c) for row in mod.ROWS if row["name"] == sys.argv[2] for c in row["exits"]))
+RA_EXITS_EOF
+}
+# "yes" when <rc> is absent from the space-separated <declared-set>. Spelled once so both
+# sub-arms ask the question identically.
+_ra_rc_out_of_set() {  # <declared-set> <rc>
+  local _code
+  # An unreadable registry yields an EMPTY set, which would make the loop below vacuous and
+  # report "out of set" for every rc — this control failing open on exactly the broken tree it
+  # exists to catch. Report it unestablished so the caller's assertion goes RED instead.
+  case "$1" in '') printf 'unestablished'; return 0 ;; esac
+  for _code in $1; do
+    if [ "$_code" = "$2" ]; then printf no; return 0; fi
+  done
+  printf yes
+}
+
+# AP11a — out-of-set exit, target PRESENT: UNCHECKABLE, and no absent-target sub-clause.
+RA_AP11A="$_ra_tmp_root/ap11a"; _ra_fixture "$RA_AP11A"
+cat > "$RA_AP11A/lib/generate-env-freeze-advisory.py" <<'PY'
+#!/usr/bin/env python3
+raise SystemExit(3)
+PY
+chmod 755 "$RA_AP11A/lib/generate-env-freeze-advisory.py"
+RA_AP11A_EXITS="$(_ra_declared_exits "$RA_AP11A" env-freeze-advisory-region)"
+# Positive control, in four parts, because this arm is selected by the exit CODE alone and a
+# stub that missed the shape would land on a neighbouring branch with every assertion below
+# still green: (1) the declared set was actually read, (2) the stub really exits 3, (3) 3
+# really is outside that set, and (4) the stub prints no traceback — otherwise the UNCHECKABLE
+# verdict could be coming from the universal traceback marker AP6/AP7 already cover.
+_ra_ok "#1244 AP11a the row's declared exit set is established (the out-of-set control is live)" \
+  "$([ -n "$RA_AP11A_EXITS" ] && printf yes || printf no)" \
+  "the declared exits could not be read from the fixture registry, so the control below would be vacuous"
+RA_AP11A_PROBE="$( cd "$RA_AP11A" && python3 lib/generate-env-freeze-advisory.py --check 2>&1 )"
+RA_AP11A_PRC=$?
+assert_eq "#1244 AP11a the stubbed generator really exits 3" "3" "$RA_AP11A_PRC"
+_ra_ok "#1244 AP11a the stub's exit really is OUTSIDE the row's declared set" \
+  "$(_ra_rc_out_of_set "$RA_AP11A_EXITS" "$RA_AP11A_PRC")" \
+  "exit $RA_AP11A_PRC is inside the declared set ($RA_AP11A_EXITS), so the in-set path is what would be measured"
+_ra_ok "#1244 AP11a the stub prints no traceback (so the out-of-set branch, not the traceback marker, decides)" \
+  "$(case "$RA_AP11A_PROBE" in *"Traceback (most recent call last)"*) printf no ;; *) printf yes ;; esac)" \
+  "the stub emitted a traceback, so this arm would measure the universal traceback marker instead"
+_ra_ok "#1244 AP11a the row's target is PRESENT (so the absent-target sub-clause must not render)" \
+  "$([ -f "$RA_AP11A/lib/generate-env-freeze-advisory.py" ] && printf yes || printf no)" \
+  "the generator is missing, so this arm is AP11c's absent-target case rather than the present-target one"
+RA_AP11A_MAN_BEFORE="$(cat "$RA_AP11A/scripts/devflow-cloud-writer-contract.json")"
+RA_AP11A_REGION_BEFORE="$(cat "$RA_AP11A/docs/cloud-setup.md")"
+_ra_preflight "$RA_AP11A"
+# Exit 2 is the coordinator's fail-OPEN signal; exit 1 would be the refusal. AP11b drives that
+# consequence end to end.
+assert_eq "#1244 AP11a an out-of-set exit exits 2 (UNCHECKABLE, the coordinator's fail-open signal)" \
+  "2" "$(_ra_prc "$RA_AP11A")"
+_ra_has_file "#1244 AP11a the out-of-set row is reported UNCHECKABLE by name" \
+  "$RA_AP11A/.rap.out" "[env-freeze-advisory-region] UNCHECKABLE"
+# The row name and exit code alone do not discriminate — a row routed here by any other arm
+# would satisfy them — so pin the diagnostic only this branch can emit.
+_ra_has_file "#1244 AP11a the diagnostic names the out-of-set exit as the reason" \
+  "$RA_AP11A/.rap.out" "outside its declared set"
+_ra_has_file "#1244 AP11a the exit-2 summary the coordinator reads is printed" \
+  "$RA_AP11A/.rap.out" "could not check at least one eligible artifact"
+_ra_has_file "#1244 AP11a the machine uncheckable verdict is emitted" \
+  "$RA_AP11A/.rap.out" "regenerate-artifacts: preflight-verdict: uncheckable"
+RA_AP11A_OUT="$(cat "$RA_AP11A/.rap.out")"
+_ra_ok "#1244 AP11a an out-of-set exit is never reported as drift" \
+  "$(case "$RA_AP11A_OUT" in
+       *"preflight-verdict: drift"*|*"preflight detected drift"*|*"[env-freeze-advisory-region] DRIFT"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "an unestablished result was classified as drift, which fails CLOSED and blocks the whole suite"
+_ra_ok "#1244 AP11a the absent-target sub-clause does NOT render while the target exists" \
+  "$(case "$RA_AP11A_OUT" in *"(target absent:"*) printf no ;; *) printf yes ;; esac)" \
+  "the sub-clause rendered for a target that is present, so it discriminates nothing in AP11c"
+_ra_same "#1244 AP11a preflight writes nothing on the out-of-set arm (manifest)" \
+  "$RA_AP11A_MAN_BEFORE" "$(cat "$RA_AP11A/scripts/devflow-cloud-writer-contract.json")" \
+  "the read-only preflight mutated the manifest on the out-of-set arm"
+_ra_same "#1244 AP11a preflight writes nothing on the out-of-set arm (the row's own artifact)" \
+  "$RA_AP11A_REGION_BEFORE" "$(cat "$RA_AP11A/docs/cloud-setup.md")" \
+  "the read-only preflight rewrote the advisory region of the row it could not check"
+_ra_live_unchanged "#1244 AP11a live manifest byte-unchanged after the out-of-set preflight"
+
+# AP11b — the coordinator's response to that same tree, end to end with NO
+# DEVFLOW_ARTIFACT_PREFLIGHT override, so the REAL default preflight is what it reads. This is
+# the limb the fail-open contract is actually about: an unestablished row must warn and launch,
+# never refuse. AP10a proves this same coordinator DOES refuse on real drift, so a green result
+# here is attributable to the classification rather than to a coordinator that never refuses.
+_ra_plant_dispatcher "$RA_AP11A"
+RA_AP11B_OUT="$( cd "$RA_AP11A" && DEVFLOW_SHARD_DISPATCHER="$RA_AP11A/ra-dispatch.sh" \
+  bash lib/test/run-parallel.sh 2>&1 )"; RA_AP11B_RC=$?
+_ra_same "#1244 AP11b the coordinator proceeds (exit 0) despite the unestablished row" \
+  "0" "$RA_AP11B_RC" "output: $(printf '%s' "$RA_AP11B_OUT" | tr '\n' '|')"
+_ra_ok "#1244 AP11b the coordinator still launches its shard" \
+  "$(case "$RA_AP11B_OUT" in *"launched shard alpha"*) printf yes ;; *) printf no ;; esac)" \
+  "no shard launched on an unestablished preflight; output: $(printf '%s' "$RA_AP11B_OUT" | tr '\n' '|')"
+_ra_ok "#1244 AP11b the coordinator warns that the preflight was inconclusive, naming its exit" \
+  "$(case "$RA_AP11B_OUT" in *"preflight was inconclusive (exit 2, no drift verdict)"*) printf yes ;; *) printf no ;; esac)" \
+  "the fail-open warning is absent or misreports the exit, so the operator is not told the check never ran; output: $(printf '%s' "$RA_AP11B_OUT" | tr '\n' '|')"
+_ra_ok "#1244 AP11b the coordinator never refuses over the unestablished row" \
+  "$(case "$RA_AP11B_OUT" in *"launching no shard"*) printf no ;; *) printf yes ;; esac)" \
+  "the coordinator refused the whole suite over a result the preflight never established; output: $(printf '%s' "$RA_AP11B_OUT" | tr '\n' '|')"
+
+# AP11c — the `(target absent: …)` sub-clause. `run_preflight_row` derives the target from the
+# row's own preflight argv (its first non-flag argument) and appends the sub-clause only when
+# that path is missing from the tree — the renamed-or-deleted-generator case, the one shape
+# where "outside its declared set" alone would send the reader hunting for a bug inside a
+# generator that is not there. Deleting the generator is also HOW the out-of-set exit arises
+# here: python3 itself refuses to open the file, so the exit code is not under this test's
+# control, which is why the control below establishes it against the registry rather than
+# assuming a value.
+RA_AP11C="$_ra_tmp_root/ap11c"; _ra_fixture "$RA_AP11C"
+rm -f "$RA_AP11C/lib/generate-env-freeze-advisory.py"
+_ra_ok "#1244 AP11c the row's target really is absent" \
+  "$([ -e "$RA_AP11C/lib/generate-env-freeze-advisory.py" ] && printf no || printf yes)" \
+  "the generator is still present, so the sub-clause under test cannot render"
+RA_AP11C_EXITS="$(_ra_declared_exits "$RA_AP11C" env-freeze-advisory-region)"
+_ra_ok "#1244 AP11c the row's declared exit set is established (the out-of-set control is live)" \
+  "$([ -n "$RA_AP11C_EXITS" ] && printf yes || printf no)" \
+  "the declared exits could not be read from the fixture registry, so the control below would be vacuous"
+RA_AP11C_PROBE_RC=0
+( cd "$RA_AP11C" && python3 lib/generate-env-freeze-advisory.py --check ) >/dev/null 2>&1
+RA_AP11C_PROBE_RC=$?
+_ra_ok "#1244 AP11c running the absent generator really exits OUTSIDE the declared set" \
+  "$(_ra_rc_out_of_set "$RA_AP11C_EXITS" "$RA_AP11C_PROBE_RC")" \
+  "exit $RA_AP11C_PROBE_RC is inside the declared set ($RA_AP11C_EXITS), so the out-of-set branch is not the one under test"
+RA_AP11C_MAN_BEFORE="$(cat "$RA_AP11C/scripts/devflow-cloud-writer-contract.json")"
+RA_AP11C_REGION_BEFORE="$(cat "$RA_AP11C/docs/cloud-setup.md")"
+_ra_preflight "$RA_AP11C"
+assert_eq "#1244 AP11c an absent target also exits 2 (UNCHECKABLE)" "2" "$(_ra_prc "$RA_AP11C")"
+_ra_has_file "#1244 AP11c the absent-target row is reported UNCHECKABLE by name" \
+  "$RA_AP11C/.rap.out" "[env-freeze-advisory-region] UNCHECKABLE"
+_ra_has_file "#1244 AP11c the sub-clause renders and names the missing target" \
+  "$RA_AP11C/.rap.out" "(target absent: lib/generate-env-freeze-advisory.py)"
+_ra_has_file "#1244 AP11c the absent-target diagnostic still names the out-of-set exit" \
+  "$RA_AP11C/.rap.out" "outside its declared set"
+_ra_ok "#1244 AP11c an absent target is never reported as drift" \
+  "$(case "$(cat "$RA_AP11C/.rap.out")" in
+       *"preflight-verdict: drift"*|*"preflight detected drift"*|*"[env-freeze-advisory-region] DRIFT"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "a missing generator was reported as reconcilable drift, aiming the remedy at a script that is not there"
+_ra_same "#1244 AP11c preflight writes nothing on the absent-target arm (manifest)" \
+  "$RA_AP11C_MAN_BEFORE" "$(cat "$RA_AP11C/scripts/devflow-cloud-writer-contract.json")" \
+  "the read-only preflight mutated the manifest on the absent-target arm"
+_ra_same "#1244 AP11c preflight writes nothing on the absent-target arm (the row's own artifact)" \
+  "$RA_AP11C_REGION_BEFORE" "$(cat "$RA_AP11C/docs/cloud-setup.md")" \
+  "the read-only preflight rewrote the advisory region while its generator was absent"
+_ra_live_unchanged "#1244 AP11c live manifest byte-unchanged after the absent-target preflight"
+
 # The row integration itself has two non-clean states. A measured raise is a mechanical
 # reconciliation that changes the registry and `run.sh`; a measured decrease is a non-writing
 # judgment. The fake runner above supplies the actual summary boundary while these fixtures
