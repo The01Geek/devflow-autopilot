@@ -92,7 +92,28 @@ Run exploratory commands:
 cat CLAUDE.md | head -100
 
 # Top-level structure
-ls -d */
+# An unquoted glob must survive zsh's default `nomatch`, which would otherwise refuse to run
+# the command at all — a SKIPPED enumeration that reads like an empty one. The guard turns
+# nomatch off under native zsh and is a no-op elsewhere ($ZSH_VERSION unset -> `&&`
+# short-circuits, `|| :` stays rc-0). With nomatch off an unmatched glob leaves $1 the
+# literal pattern, so `[ -e "$1" ]` decides match-vs-no-match structurally: no `2>/dev/null`
+# to hide a real error, and exactly one of the three arms can print. An empty directory and a
+# PERMISSION-unlistable one both leave the glob unmatched, so the second arm separates those
+# two -- it tests mode bits only, so a failure with another cause (dead mount, EIO) still
+# reaches the empty arm. Listing needs BOTH the read bit (to name the entries) and the search
+# bit (to stat them for the trailing `/`), so that arm tests both. All three arms print on
+# stdout so a caller capturing stdout can still tell "nothing here" from "could not look".
+# Unhandled: bash's `failglob`,
+# where an unmatched pattern aborts `set --` before it runs.
+[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
+set -- */
+if [ -e "$1" ]; then
+  printf '%s\n' "$@"
+elif [ ! -r . ] || [ ! -x . ]; then
+  echo "(current directory is not listable - listing NOT established)"
+else
+  echo "(no subdirectories)"
+fi
 
 # Database tables (if schema files exist)
 find . -name "*.sql" -o -name "*.schema" | head -10
