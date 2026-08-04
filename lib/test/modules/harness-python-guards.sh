@@ -441,6 +441,26 @@ devflow_run_focused_python_test "#591 coverage-map guard: focused Python tests p
   "$LIB/test/test_coverage_map_guard.py" "$_CG_UNIT_OUT"
 rm -f "$_CG_UNIT_OUT"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "issue #1194: coverage-map merge tooling (JSON-aware driver + retention check)"
+# ────────────────────────────────────────────────────────────────────────────
+# The coverage map is two large string-sorted JSON objects, so two branches that each
+# ADD a distinct adjacent key conflict textually and a take-one-side resolution silently
+# drops the other's entry. Two mechanisms close the class: a JSON-aware git merge driver
+# (unions the objects per key, conflicts only on a genuine same-key divergence) and a
+# CI-side key-retention check (fails on a key/content dropped relative to the merge base,
+# covering the 30-odd non-derivable run_sh_blocks keys no coverage arm inspects). The
+# focused test drives the driver against REAL offline `git merge`s (registering the driver
+# in each throwaway repo's own local config, never the developer's global config) and the
+# retention core over every loss shape, with the AC5 mutation arms recorded in-test.
+_CG_MERGE_OUT="$(mktemp "$_hpg_tmp_root/cg-merge-unit.XXXXXX")" || {
+  printf 'could not allocate the #1194 coverage-map merge unit-test capture\n' >&2
+  return 1
+}
+devflow_run_focused_python_test "#1194 coverage-map merge tooling: focused Python tests pass" \
+  "$LIB/test/test_coverage_map_merge.py" "$_CG_MERGE_OUT"
+rm -f "$_CG_MERGE_OUT"
+
 # ── Planted-defect positive control (issue #707 AC) ──────────────────────────
 # #719: describe the two assertions above ACCURATELY. The FIRST — the shipped-tree
 # clean check (`#591 coverage-map guard: shipped tree + map is clean`) — is a
