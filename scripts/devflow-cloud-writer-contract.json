@@ -58,7 +58,7 @@
     "skills/review/phases/phase-4-4-github-post.md": "0ffb830f6412fd7860c3f74b4654399bb587f0a297772f06ce2dac1363806769",
     "skills/review/phases/phase-4-verdict.md": "5d4cb1dfc5af4caf30647196bc71e724a5e1fd64b7d91d6fc89436e7664e6250"
   },
-  "legacy_profile_baseline": "2.30.99",
+  "legacy_profile_baseline": "2.30.100",
   "protocol": "devflow-cloud-writer-contract-v1",
   "required_helper_heads": {
     "implement": [

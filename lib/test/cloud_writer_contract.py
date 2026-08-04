@@ -101,7 +101,7 @@ PROTOCOL = "devflow-cloud-writer-contract-v1"
 # with the current plugin still validates cleanly) satisfiable. This is authoring
 # guidance at its single source; the mechanical gate is the pairing-2 fixture
 # going RED, not a wording pin.
-LEGACY_PROFILE_BASELINE = "2.30.99"
+LEGACY_PROFILE_BASELINE = "2.30.100"
 
 # The one repo-relative prefix a cloud-reached bundled helper is granted under.
 VENDOR_PREFIX = ".prflow/vendor/prflow/"
