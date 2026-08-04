@@ -428,6 +428,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/loop-verdict-marker.py": {
+      "note": "#1212 review-and-fix loop-verdict marker: compose + read line-1 helper, driven by lib/test/loop-verdict-marker-test.py from run.sh over the compose/read/AC5-safe-direction matrix",
+      "owner": "unmodularized"
+    },
     "scripts/match-deferrals.py": {
       "focused_test": "lib/test/test_python_scripts.py",
       "note": "",
@@ -878,11 +882,19 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "1212": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "1217": {
       "note": "",
       "owner": "unmodularized"
     },
     "1219": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1222": {
       "note": "",
       "owner": "unmodularized"
     },

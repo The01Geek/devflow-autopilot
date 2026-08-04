@@ -4,6 +4,42 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.76] — 2026-08-04
+
+### Added
+- **Tell the implement run how to terminate a process it launched — by the recorded identifier, never by a command-line pattern.** `skills/implement/SKILL.md`'s always-resident section now carries a general rule (terminate by the identifier recorded at launch; never `pgrep`/`pkill`-style name matching, which cannot distinguish an unrelated process on the same host and cannot be attributed afterwards), including the no-recorded-identifier and single-stale-process arms, and `.prflow/prompt-extensions/implement.md` gains the PRFlow instantiation (the `.claude/worktrees/` sibling-checkout concurrency hazard, the parallel-suite run-root PID mechanism, and the `ps`-cross-checked stale-coordinator remedy). (#1202)
+
+## [2.30.75] — 2026-08-04
+
+### Added
+- **The implement engine now maps coupled sites *before* editing, not only after.**
+  `skills/implement/phases/phase-2-implement.md` gains a §2.2.7 "Pre-flight coupled-site
+  map" step, placed after §2.2.6 and before §2.3. When the plan touches a value, contract,
+  or literal replicated across more than one place, the run now lists those other places
+  first — enumerating them with searches it actually runs (in the granted forms and order
+  the §2.3 "Sweep selection" preamble already gives), recording the commands and their
+  results through the workpad before the first edit, and recording any refused search — or
+  any search that cannot be confirmed to have run — as a gap rather than treating an unrun
+  search as "there were no other places," while an honest zero-match result stays clean. A project that
+  publishes a coupled-site registry is told to consult it too, worded so it reads correctly
+  where none exists. This runs the same check the §2.3 relocation and contract-completeness
+  sweeps make after the edits, so a missed copy is caught up front instead of when the
+  suite goes red or a reviewer rejects the change. `CLAUDE.md` no longer points a reader at
+  `git grep` (granted in no capability profile, so silently refused on the cloud runs); both
+  occurrences are reworded to a permitted search form. (#1207)
+
+## [2.30.74] — 2026-08-04
+
+### Added
+- **Add a producer-emitted loop-verdict marker across the implement ↔ review-and-fix skill boundary.** `/prflow:review-and-fix` now emits a machine-readable `<!-- prflow:loop-verdict result=<token> coverage=<full|not-verified> -->` line as line 1 of its chat output, composed by the new `scripts/loop-verdict-marker.py` helper (never hand-written), and `/prflow:implement` Phase 3.3 reads it first — routing on a closed vocabulary — while keeping its exact-wording headline match as a version-gap fallback. This replaces the fragile exact-string-match contract that could silently read an `APPROVE WITH UNRESOLVED SHADOW FINDINGS` run as a clean approve across a plugin-version boundary. A missing, malformed, or out-of-vocabulary marker is never read as a clean, fully-covered approval. Both directions of the supported one-version gap work; version pinning is not adopted. (#1212)
+
+## [2.30.73] — 2026-08-04
+
+### Changed
+Record the owning session in the implement liveness marker so the local Stop-hook guard no longer blocks unrelated sessions in the same checkout.
+
+The `/prflow:implement` run marker (`.prflow/tmp/implement-active-<issue>`) now records the runner's session id as its first line when one is supplied (Claude Code's `CLAUDE_CODE_SESSION_ID`, byte-identical to the Stop payload's `session_id`), and stays empty otherwise. `lib/implement-stop-guard.sh` reads that first line: an interim marker owned by a *different* live session no longer blocks the stopping session — it prints an issue+status breadcrumb (so the "a run may be stuck" signal survives), writes no sentinel, and keeps scanning. Ownership is compared like with like, so every absent, blank, malformed, or unreadable owner — including every zero-byte marker written before this change — fails closed and blocks exactly as before. Self-heal of terminal or workpad-less markers is unchanged and applies regardless of owner.
+
 ## [2.30.72] — 2026-08-03
 
 ### Added
