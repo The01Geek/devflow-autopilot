@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1270",
+  "generated_at": "2026-08-04T08:53:41Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.88",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 6.482099,
+    "tokens": {
+      "input_tokens": 42,
+      "output_tokens": 24105,
+      "cache_read_input_tokens": 3165244,
+      "cache_creation_input_tokens": 190856,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 90,
+        "outputTokens": 45039,
+        "cacheReadInputTokens": 4537953,
+        "cacheCreationInputTokens": 379358,
+        "webSearchRequests": 0,
+        "costUSD": 6.482099,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 28,
+    "duration_ms": 547384
+  },
+  "permission_denials": {
+    "count": 5,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "scripts/workpad.py acs-resolve 1139 --pr 1270 2>.prflow/tmp/review/pr-1270/local-run/acs.err ; echo \"acs-rc=$?\"",
+      "scripts/workpad.py acs-resolve 1139 --pr 1270 ; echo \"acs-rc=$?\"",
+      "python3 lib/test/test_mutation_pin_census.py 2>&1 | tail -5; echo \"EXIT ${PIPESTATUS[0]}\"; echo \"=== shellcheck ===\"; shellcheck --severity=warning -e SC1091 scripts/phase2-durability-checkpoint.sh 2>&1 | tail -20; echo \"SC EXIT ${PIPESTATUS[0]}\"",
+      "cat > .prflow/tmp/review/pr-1270/local-run/verdict.md <<'EOF'\n## Verdict: APPROVE with notes (durability mechanism is correct, complete, and well-tested; two robustness/accuracy notes below, neither merge-blocking)\n\nReviewed against issue #1139: *An implement run that terminates inside Phase 2 loses all of its work* — criteria from the issue body (`## Acceptance Criteria`, AC1–AC10; the workpad `acs-resolve` helper was unavailable on this local tier); scope not-established (no workpad compared). …[per-command-truncated]"
+    ],
+    "total": 5,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
