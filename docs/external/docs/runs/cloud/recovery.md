@@ -17,4 +17,6 @@ Start with the PRFlow workpad comment and the linked GitHub Actions run. They sh
 
 Do not repeatedly retrigger an unchanged failure. A new run should follow a concrete correction or a known transient service interruption.
 
+A run that is interrupted while it is writing code now commits and pushes its work in progress as it goes, so a re-triggered run adopts the same branch and resumes from what already landed rather than starting the implementation over. Worst-case loss is bounded to a short window of the most recent edits, not the whole attempt.
+
 For symptom-specific checks, see [Troubleshooting cloud runs](/docs/troubleshooting/cloud-runs).
