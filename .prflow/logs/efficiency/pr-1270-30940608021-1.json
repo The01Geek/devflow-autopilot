@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1270",
+  "generated_at": "2026-08-04T19:04:22Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.97",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 9.351431499999999,
+    "tokens": {
+      "input_tokens": 58,
+      "output_tokens": 23412,
+      "cache_read_input_tokens": 4892213,
+      "cache_creation_input_tokens": 217805,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 109,
+        "outputTokens": 57036,
+        "cacheReadInputTokens": 6507698,
+        "cacheCreationInputTokens": 616699,
+        "webSearchRequests": 0,
+        "costUSD": 9.351431499999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 38,
+    "duration_ms": 632452
+  },
+  "permission_denials": {
+    "count": 7,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none}\"; .prflow/vendor/prflow/scripts/config-get.sh .base_branch main 2>&1 || scripts/config-get.sh .base_branch main 2>&1",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none}\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1139 --pr 1270 2>.prflow/tmp/review/pr-1270/30940608021-1/acs.err ; echo \"acs-rc=$?\"",
+      "cd /home/runner/work/prflow/prflow; MB=$(git merge-base main 441fbc12 2>/dev/null); echo \"merge-base with main: $MB\"; echo \"=== PR own diff --stat (merge-base..HEAD, first-parent-ish) ===\"; git diff --stat $MB 441fbc12 -- | tail -40",
+      "cd /home/runner/work/prflow/prflow; MB=$(git merge-base main 441fbc12); echo \"merge-base: $MB\"; git diff --stat \"$MB\" 441fbc12 | tail -40",
+      "git merge-base main 441fbc12 > /tmp/mb.txt && git diff --stat \"$(cat /tmp/mb.txt)\" 441fbc12 | tail -50"
+    ],
+    "total": 7,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
