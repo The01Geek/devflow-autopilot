@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1260",
+  "generated_at": "2026-08-04T05:31:13Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.83",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 8.838752249999999,
+    "tokens": {
+      "input_tokens": 4023,
+      "output_tokens": 22173,
+      "cache_read_input_tokens": 3706213,
+      "cache_creation_input_tokens": 194571,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 4097,
+        "outputTokens": 62297,
+        "cacheReadInputTokens": 6422952,
+        "cacheCreationInputTokens": 531156,
+        "webSearchRequests": 0,
+        "costUSD": 8.838752249999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 32,
+    "duration_ms": 555429
+  },
+  "permission_denials": {
+    "count": 13,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review",
+      "gh pr diff 1260 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1260/diff.patch 2>/dev/null; mkdir -p .prflow/tmp/review/pr-1260; gh pr diff 1260 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1260/diff.patch; echo \"---FILES---\"; grep '^diff --git' .prflow/tmp/review/pr-1260/diff.patch | sed -E 's|^diff --git a/(.*) b/.*|\\1|'; echo \"---STAT---\"; git diff --stat origin/main...f8ec628a48fe21561b0523537af9aecf581a6 …[per-command-truncated]",
+      "gh pr diff 1260 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1260/diff.patch; echo \"---FILES---\"; grep '^diff --git' .prflow/tmp/review/pr-1260/diff.patch | sed -E 's|^diff --git a/(.*) b/.*|\\1|'; echo \"---LINES---\"; wc -l .prflow/tmp/review/pr-1260/diff.patch",
+      "cd /home/runner/work/prflow/prflow\nprintf '' > /tmp/empty.json\necho \"=== classifier on zero-byte file (query-failure path) ===\"\nbash scripts/classify-head-reviews.sh /tmp/empty.json 3333333333333333333333333333333333333333 'prflow-reviewer[bot]'; echo \"exit=$?\"\necho \"=== jq on empty input directly ===\"\nprintf '' | jq -r '.' ; echo \"jq exit=$?\"",
+      "printf '' > /tmp/empty.json; bash /home/runner/work/prflow/prflow/scripts/classify-head-reviews.sh /tmp/empty.json 3333333333333333333333333333333333333333 'prflow-reviewer[bot]'; echo \"exit=$?\"",
+      "printf '' > /tmp/empty.json",
+      "bash /home/runner/work/prflow/prflow/scripts/classify-head-reviews.sh /tmp/empty.json 3333333333333333333333333333333333333333 'prflow-reviewer[bot]'; echo \"exit=$?\"",
+      "printf '' > /home/runner/work/prflow/prflow/.prflow/tmp/empty.json; bash /home/runner/work/prflow/prflow/scripts/classify-head-reviews.sh /home/runner/work/prflow/prflow/.prflow/tmp/empty.json 3333333333333333333333333333333333333333 'prflow-reviewer[bot]'; echo \"exit=$?\"",
+      "printf '' > /home/runner/work/prflow/prflow/.prflow/tmp/empty.json",
+      "printf '' > /home/runner/work/prflow/prflow/.prflow/tmp/empty.json",
+      "bash /home/runner/work/prflow/prflow/scripts/classify-head-reviews.sh /home/runner/work/prflow/prflow/.prflow/tmp/empty.json 3333333333333333333333333333333333333333 'prflow-reviewer[bot]'; echo \"exit=$?\"",
+      "bash /home/runner/work/prflow/prflow/scripts/classify-head-reviews.sh /home/runner/work/prflow/prflow/.prflow/tmp/empty.json 3333333333333333333333333333333333333333 'prflow-reviewer[bot]'"
+    ],
+    "total": 13,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
