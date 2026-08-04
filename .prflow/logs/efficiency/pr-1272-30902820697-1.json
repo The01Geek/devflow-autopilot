@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1272",
+  "generated_at": "2026-08-04T11:06:20Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.88",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.775990250000001,
+    "tokens": {
+      "input_tokens": 42,
+      "output_tokens": 20236,
+      "cache_read_input_tokens": 2885966,
+      "cache_creation_input_tokens": 195151,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 52,
+        "outputTokens": 28981,
+        "cacheReadInputTokens": 3158578,
+        "cacheCreationInputTokens": 278416,
+        "webSearchRequests": 0,
+        "costUSD": 4.775990250000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 29,
+    "duration_ms": 418868
+  },
+  "permission_denials": {
+    "count": 7,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"SKILL_DIR=${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review; echo \"ext-rc=$?\"",
+      "scripts/load-prompt-extension.sh review; echo \"ext-rc=$?\"",
+      "scripts/load-prompt-extension.sh review",
+      "ls -la .prflow/prompt-extensions/ 2>/dev/null; echo \"---\"; echo \"RUN_ID=${GITHUB_RUN_ID:-none}\"; echo \"ACTIONS=${GITHUB_ACTIONS:-none}\"",
+      "mkdir -p .prflow/tmp/review/pr-1272/local-run\ngh pr diff 1272 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1272/local-run/diff.patch\nwc -l .prflow/tmp/review/pr-1272/local-run/diff.patch",
+      "gh api repos/{owner}/{repo}/issues/1124/comments --jq '.[] | select(.body | test(\"prflow:workpad|devflow:workpad\")) | .body' > .prflow/tmp/review/pr-1272/local-run/workpad.txt; wc -l .prflow/tmp/review/pr-1272/local-run/workpad.txt; grep -in \"writing-skills\" .prflow/tmp/review/pr-1272/local-run/workpad.txt"
+    ],
+    "total": 7,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
