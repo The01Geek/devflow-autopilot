@@ -47284,6 +47284,120 @@ print(r_enum, r_skip)
 PY
 )"
 
+# ── #1248 ungranted-helper-spelling lint (lib/test/lint-ungranted-helper-spelling.py) ──
+# The cloud matcher grants each bundled helper ONLY at the vendored literal
+# .prflow/vendor/prflow/scripts/<name>, so a shipped prompt sentence spelling a
+# verdict-post helper scripts/<name> is a leading token no profile grants — a cloud run
+# that emits it is silently denied and finishes with no verdict marker (the three review
+# runs of issue #1248). extract-command-heads.py cannot see it (fence-only by design);
+# this lint audits skills/**+agents/** for the ungranted repo-relative spelling of the
+# two in-scope verdict helpers, its forbidden set DERIVED from capability-profiles.json
+# (vendored-only) intersected with the documented in-scope basenames. Sibling of the
+# #1072 pruned-path lint; driven the same way (real tree as the live gate, plus synthetic
+# fixtures through --root/--files-from/--manifest).
+UH_LINT="$LIB/test/lint-ungranted-helper-spelling.py"
+UH_FX="$LIB/test/fixtures/ungranted-helper-spelling"
+UH_M="$UH_FX/manifests/vendored-only.json"
+# The clean single-file summary line (audited 1 of 1, both in-scope literals in the
+# forbidden set), reused by every green fixture assertion below so the format lives once.
+UH_CLEAN1="rc=0|lint-ungranted-helper-spelling: audited 1 of 1 files; forbidden set: scripts/dismiss-stale-rejections.sh scripts/post-review-verdict.sh"
+
+# Real-tree run: exits 0 AND audited a positive number of files (a green run whose count
+# had silently collapsed to zero would read as clean while auditing nothing).
+UH_OUT="$(cd "$LIB/.." && python3 "$UH_LINT" 2>&1)"; UH_RC=$?
+assert_eq "#1248 lint: clean on the tree as it stands" "rc=0" \
+  "$([ "$UH_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$UH_RC" "$UH_OUT")"
+assert_eq "#1248 lint: the real-tree run audited a positive number of files" "yes" \
+  "$(printf '%s' "$UH_OUT" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) of", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+# The forbidden set derived from the REAL manifest is exactly the two in-scope verdict
+# helpers — the floor a bare non-empty check would not give (a dropped member still
+# leaves a non-empty set).
+assert_eq "#1248 lint: derived forbidden set matches the two in-scope verdict helpers" \
+  "scripts/dismiss-stale-rejections.sh scripts/post-review-verdict.sh" \
+  "$(cd "$LIB/.." && python3 "$UH_LINT" --print-forbidden-set | python3 -c 'import sys; print(" ".join(sys.stdin.read().split()))')"
+
+# Forbidden-set fail-closed arms, driven through --manifest over fixture manifests.
+uh_forbidden() {  # <manifest> -> "rc=<n>|<one-line joined stdout+stderr>"
+  local out rc
+  out="$(python3 "$UH_LINT" --print-forbidden-set --manifest "$1" 2>&1)"; rc=$?
+  printf 'rc=%s|%s' "$rc" "$(printf '%s' "$out" | tr '\n' ' ')"
+}
+# A vendored-only manifest yields exactly the two in-scope literals.
+assert_eq "#1248 lint: a vendored-only fixture manifest derives the two literals" \
+  "rc=0|scripts/dismiss-stale-rejections.sh scripts/post-review-verdict.sh" \
+  "$(uh_forbidden "$UH_FX/manifests/vendored-only.json")"
+# A bare grant on an in-scope helper voids the ungranted premise → refuse, naming it.
+assert_eq "#1248 lint: a bare grant on an in-scope helper refuses (premise void)" "yes" \
+  "$(case "$(uh_forbidden "$UH_FX/manifests/bare-grant.json")" in "rc=1|"*"ALSO granted at the bare"*) echo yes ;; *) echo no ;; esac)"
+# An in-scope helper not granted at any vendored literal → refuse, naming it.
+assert_eq "#1248 lint: an in-scope helper absent from the manifest refuses" "yes" \
+  "$(case "$(uh_forbidden "$UH_FX/manifests/missing-inscope.json")" in "rc=1|"*"not granted at any vendored literal"*) echo yes ;; *) echo no ;; esac)"
+# A non-JSON manifest refuses, attributed to the parse.
+assert_eq "#1248 lint: a non-JSON manifest refuses, attributed to the JSON parse" "yes" \
+  "$(case "$(uh_forbidden "$UH_FX/manifests/bad.json")" in "rc=1|"*"not valid JSON"*) echo yes ;; *) echo no ;; esac)"
+
+# Audited-population behavior, driven over the fixture skills/agents tree with the
+# fixture vendored-only manifest. Every list rides through probe_tmp so the fixtures stay
+# unreachable from the default index enumeration.
+uh_run() {  # <path…> -> "rc=<n>|<stdout+stderr>"
+  local list out rc
+  list="$(probe_tmp '#1248 fixture list')" || return 0
+  printf '%s\n' "$@" > "$list"
+  out="$(python3 "$UH_LINT" --root "$UH_FX" --files-from "$list" --manifest "$UH_M" 2>&1)"; rc=$?
+  rm -f "$list"
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+# AC3 discriminating pair: the unmarked reference is REPORTED, the clean file is not.
+assert_eq "#1248 lint: an unmarked reference is reported (AC3 RED)" "yes" \
+  "$(case "$(uh_run skills/unmarked.md)" in "rc=1|"*"skills/unmarked.md:1:"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1248 lint: a clean file with no reference is silent (AC3 GREEN)" \
+  "$UH_CLEAN1" \
+  "$(uh_run skills/clean.md)"
+# AC4 combined negative control: the vendored literal, a bare-filename naming sentence,
+# English prose containing "scripts", and the #275 anchor form all PASS in one file.
+assert_eq "#1248 lint: the AC4 combined negative control passes (vendored literal + bare name + English + anchor)" \
+  "$UH_CLEAN1" \
+  "$(uh_run skills/negative-control.md)"
+# A marker with a non-empty reason suppresses; an empty-reason marker does not.
+assert_eq "#1248 lint: a marked (HTML) reference is not reported" \
+  "$UH_CLEAN1" \
+  "$(uh_run skills/marked-html.md)"
+assert_eq "#1248 lint: a marker with an empty reason is reported" "yes" \
+  "$(case "$(uh_run skills/marked-empty.md)" in "rc=1|"*"skills/marked-empty.md:1:"*) echo yes ;; *) echo no ;; esac)"
+# A # marker inside an emitted shell fence suppresses (fence-state tracking).
+assert_eq "#1248 lint: a # marker inside a backtick fence suppresses" \
+  "$UH_CLEAN1" \
+  "$(uh_run skills/fence-shell.md)"
+# The agents/ prefix (second audited prefix), reported like skills/.
+assert_eq "#1248 lint: an agents/ path is audited and reported like skills/" "yes" \
+  "$(case "$(uh_run agents/unmarked-agent.md)" in "rc=1|"*"agents/unmarked-agent.md:1:"*) echo yes ;; *) echo no ;; esac)"
+# Empty-audited floor: a list naming only a non-audited path refuses rather than
+# reporting a clean pass over an unchecked surface; adding one audited path audits 1 of 1
+# (floor control + is_audited negative half).
+assert_eq "#1248 lint: an enumeration selecting no skills/agents path refuses (empty-audited floor)" "yes" \
+  "$(case "$(uh_run manifests/vendored-only.json)" in "rc=1|"*"selected no file under skills/ or agents/"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1248 lint: the same list plus one audited path audits 1 of 1 (floor control + is_audited negative)" \
+  "$UH_CLEAN1" \
+  "$(uh_run manifests/vendored-only.json skills/clean.md)"
+# The read-failure/skip fail-closed arm (issue #1248 review): an audited-prefix path that
+# read_source cannot open is a SKIPPED refuse-to-report-clean (rc=1), never a silent
+# exclusion — the lint's core fail-closed guarantee. Without this, a regression converting
+# the terminal `if skipped: return 1` into a silent `continue` would leave every
+# readable-fixture assertion green while the refuse-on-unreadable guard was gone. The
+# clean.md alongside it proves the run still scanned the readable member (audited 1 of 2).
+assert_eq "#1248 lint: an unreadable/absent audited path is a fail-closed skip, not a silent exclusion" "yes" \
+  "$(case "$(uh_run skills/does-not-exist.md skills/clean.md)" in "rc=1|"*"SKIPPED skills/does-not-exist.md"*"refusing to report clean"*) echo yes ;; *) echo no ;; esac)"
+
+# AC5: this repository's own local tier resolves the repo-root form (the vendored tree is
+# materialized only at runtime and is absent from the working tree), so the repo-root
+# helpers must exist and be executable here — neither local context is left pathless.
+assert_eq "#1248 AC5: the repo-root verdict-post helper resolves in this repo's local tree" "yes" \
+  "$([ -x "$LIB/../scripts/post-review-verdict.sh" ] && echo yes || echo no)"
+assert_eq "#1248 AC5: the repo-root dismiss helper resolves in this repo's local tree" "yes" \
+  "$([ -x "$LIB/../scripts/dismiss-stale-rejections.sh" ] && echo yes || echo no)"
+
 # ── Public documentation source contract ────────────────────────────────────
 # The public site is source-only: Markdown/MDX plus docs.json. Mintlify reads
 # this subtree directly, so route membership, file membership and category

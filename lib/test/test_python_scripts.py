@@ -2418,6 +2418,111 @@ assert_eq("post-merge residual control: a TERMINAL tag is what the reader exclud
 assert_eq("post-merge residual control: trailing whitespace cannot mask the terminal tag",
           True, section_parse.is_post_merge_tagged('Do X (post-merge)  \n'))
 
+# ── issue #1198: a `## Acceptance Criteria` section that is present with content
+# but yields zero items (bold paragraphs / numbered list) is made DISTINGUISHABLE
+# from a genuinely-absent section, WITHOUT changing the accepted item shape and
+# WITHOUT a non-zero exit (a non-zero exit would trip the fail-closed §1.2 fence
+# and halt the run, which the owner ruling forbids). The signal is on stderr and
+# in the --format json output; the accepted shape is unchanged, so these are NOT
+# a re-add of the existing shape assertions above.
+#
+# The interface-level predicate: unreadable = section matched with content AND
+# zero items. Absent = no matched content. Parsed = >=1 item.
+_UNREADABLE_BOLD = ("## Acceptance Criteria\n\n"
+                    "**AC1 - the first thing.** Narrative sentence here.\n"
+                    "*Desk check:* run the command.\n"
+                    "**AC2 - the second.** More prose.\n")
+_UNREADABLE_NUM = ("## Acceptance Criteria\n"
+                   "1. The first criterion.\n"
+                   "2. The second criterion.\n")
+_ABSENT = "## Summary\nno acceptance-criteria section at all\n"
+_PARSED = "## Acceptance Criteria\n- [ ] one\n- [ ] two\n"
+
+def _unreadable(body):
+    lines = parse_acs.extract_section(body, 'Acceptance Criteria')
+    return parse_acs._is_unreadable_section(parse_acs._parse_checkboxes(lines), lines)
+
+assert_eq("#1198: bold-paragraph section present-with-content-but-zero-items is unreadable",
+          True, _unreadable(_UNREADABLE_BOLD))
+assert_eq("#1198: numbered-list section present-with-content-but-zero-items is unreadable",
+          True, _unreadable(_UNREADABLE_NUM))
+assert_eq("#1198: genuinely-absent section is NOT unreadable (unknown is not zero)",
+          False, _unreadable(_ABSENT))
+assert_eq("#1198: a section that parses is NOT unreadable",
+          False, _unreadable(_PARSED))
+# A present-but-EMPTY section (heading then heading, no content) has nothing to
+# read, so it is the absent-like case, not unreadable.
+assert_eq("#1198: present-but-empty section (no content) is NOT unreadable",
+          False, _unreadable("## Acceptance Criteria\n\n## Notes\ntext\n"))
+
+# CLI level: drive parse_acs.main() over each body and assert (a) it always
+# exits 0, and (b) the --format json output carries the acceptance_criteria_unreadable
+# field with the right value. main() returns normally (no sys.exit) on success,
+# so a SystemExit would be a regression; catch it and surface the code.
+def _run_parse_acs_json(body):
+    """Return (exit_code_or_None, parsed_json_dict, stderr_text)."""
+    import tempfile
+    saved_argv = sys.argv[:]
+    with tempfile.NamedTemporaryFile('w', suffix='.md', delete=False, encoding='utf-8') as f:
+        f.write(body)
+        path = f.name
+    sys.argv = ['parse-acs.py', '--body-file', path, '--format', 'json']
+    out, err = io.StringIO(), io.StringIO()
+    code = None
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            parse_acs.main()
+    except SystemExit as e:  # pragma: no cover - regression signal only
+        code = e.code if e.code is not None else 0
+    finally:
+        sys.argv = saved_argv
+        os.unlink(path)
+    return code, _json.loads(out.getvalue()), err.getvalue()
+
+_code, _j, _err = _run_parse_acs_json(_UNREADABLE_BOLD)
+assert_eq("#1198 CLI: unreadable section exits 0", None, _code)
+assert_eq("#1198 CLI: unreadable section sets acceptance_criteria_unreadable=true",
+          True, _j['acceptance_criteria_unreadable'])
+# The headline behavioral fix: the diagnostic names ITEM SHAPE, not the heading.
+# _UNREADABLE_BOLD's `## Acceptance Criteria` heading DOES match the near-miss
+# regex, so a `len(_err) > 0` assertion alone would still pass if the
+# _diagnose_section precedence were inverted and the misdirecting near-miss
+# message fired. Pin the actual message: item-shape phrase present, heading
+# near-miss phrase absent.
+assert_eq("#1198 CLI: unreadable diagnostic names item shape (not the heading)",
+          True, "shape this parser does not read" in _err)
+assert_eq("#1198 CLI: unreadable diagnostic does NOT emit the misdirecting near-miss message",
+          False, "check that it is exactly" in _err)
+
+_code, _j, _err = _run_parse_acs_json(_ABSENT)
+assert_eq("#1198 CLI: absent section exits 0", None, _code)
+assert_eq("#1198 CLI: absent section sets acceptance_criteria_unreadable=false",
+          False, _j['acceptance_criteria_unreadable'])
+
+_code, _j, _err = _run_parse_acs_json(_PARSED)
+assert_eq("#1198 CLI: parsed section exits 0", None, _code)
+assert_eq("#1198 CLI: parsed section sets acceptance_criteria_unreadable=false",
+          False, _j['acceptance_criteria_unreadable'])
+assert_eq("#1198 CLI: parsed section yields its 2 items", 2, len(_j['acceptance_criteria']))
+
+# The parallel `## Test Plan` path routes through the same `_diagnose_section`
+# with different canonical/needle args ('Test Plan'/'test plan'), so it needs
+# its own coverage — a copy-paste wiring error could leave the AC path green
+# while the test-plan path is wrong.
+_TP_UNREADABLE = ("## Test Plan\n"
+                  "1. Run the suite.\n"
+                  "2. Confirm the new field.\n")
+_code, _j, _err = _run_parse_acs_json(_TP_UNREADABLE)
+assert_eq("#1198 CLI: unreadable Test Plan exits 0", None, _code)
+assert_eq("#1198 CLI: unreadable Test Plan sets test_plan_unreadable=true",
+          True, _j['test_plan_unreadable'])
+assert_eq("#1198 CLI: unreadable Test Plan diagnostic names item shape",
+          True, "Test Plan" in _err and "shape this parser does not read" in _err)
+# And a parsed Test Plan reports test_plan_unreadable=false.
+_code, _j, _err = _run_parse_acs_json("## Test Plan\n- [ ] run the suite\n")
+assert_eq("#1198 CLI: parsed Test Plan sets test_plan_unreadable=false",
+          False, _j['test_plan_unreadable'])
+
 # ── issue #254: hard-wrapped criteria (the ~80-column format /devflow:create-issue
 # emits) must join indented continuation lines into ONE criterion, and a post-merge
 # trigger phrase sitting on a continuation line must still classify. The old parser

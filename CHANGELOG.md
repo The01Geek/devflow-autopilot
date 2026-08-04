@@ -4,6 +4,16 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.87] — 2026-08-04
+
+### Fixed
+- **Phase 4.4 now states one tier-agnostic verdict-post procedure and a desk lint catches a reintroduced ungranted helper spelling.** Phase 4.4 previously offered the verdict-post/dismissal helpers at two spellings — the granted vendored literal in its fence and an ungranted repo-relative `scripts/…` form in a "on the local tier, invoke …" parenthetical — leaving the agent to classify its own tier; a cloud run that picked the ungranted spelling was silently denied and finished with no verdict marker (three completed review runs). The parentheticals are replaced by a single procedure that emits the vendored literal first on every tier and falls back to the helper's repo-root path **only on an observable not-found/rc-127 reading** of that attempt, never on a tier judgement — reaching a working path in this repo's local tree, a consumer's local tree, and the cloud tiers alike. The three name-only mentions of the helpers now use the bare filename. A new suite-driven lint, `lib/test/lint-ungranted-helper-spelling.py` (sibling of the #1072 pruned-path lint), audits `skills/**`/`agents/**` for the ungranted repo-relative spelling of the two verdict-post helpers — its forbidden set derived from `lib/capability-profiles.json` (vendored-only) so `extract-command-heads.py`'s fence-only blind spot no longer lets the spelling ship. No capability-manifest grant moves. (#1248)
+
+## [2.30.86] — 2026-08-04
+
+### Fixed
+- **`parse-acs.py` now distinguishes an unreadable acceptance-criteria section from an absent one.** A `## Acceptance Criteria` section that is present and correctly named but writes its criteria as bold paragraphs or a numbered list parses to zero checkbox items, exactly like a section that does not exist — collapsing "the parser could not read the criteria" onto "this issue has no criteria". `scripts/parse-acs.py` now emits an item-shape stderr diagnostic and sets `acceptance_criteria_unreadable: true` in its `--format json` output for that case, while still exiting 0 (so the implement skill's fail-closed §1.2 fence does not halt the run). The accepted item shape is unchanged. The implement skill's Phase 1.2 routes on that signal: the run continues, the criteria are hand-extracted into the workpad, and a friction (`issue-accuracy`) reflection records the event so it surfaces in the weekly retrospective. The misdirecting near-miss diagnostic (which blamed a heading that already matched) is fixed. (#1198)
+
 ## [2.30.85] — 2026-08-04
 
 ### Added
