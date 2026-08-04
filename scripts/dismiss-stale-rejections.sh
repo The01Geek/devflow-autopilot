@@ -142,14 +142,19 @@ REPO="${2:-$("$DEVFLOW_GH" repo view --json nameWithOwner --jq .nameWithOwner)}"
 # yields a boolean and captures nothing), defaulted with `// "-"` so every row emits
 # exactly one line whatever its body shape — a body that carries no line-1 marker
 # (transitional prose, a human block, an APPROVE marker, a marker quoted below line 1)
-# yields the sentinel. `commit_id` is likewise encoded as the sentinel `-` (never a
+# yields the sentinel. The captured head is `ascii_downcase`d so it compares byte-exact
+# against the lowercase `.head.sha`/`commit_id` the API returns — the ownership regex is
+# case-tolerant, so a hand-authored uppercase marker head would otherwise read superseded
+# against a lowercase head and wave a live review through (guard-class-2: normalize in jq,
+# not with a bash-4 `${var,,}` that breaks on macOS bash 3.2, nor a non-preflight `tr`).
+# `commit_id` is likewise encoded as the sentinel `-` (never a
 # valid SHA), so no field is ever positional-empty: default-IFS `read` collapses
 # whitespace runs, so an empty field in the MIDDLE of a row would shift the split.
 # Both `while read` loops map the sentinel back to the empty string with a `case`
 # builtin before use.
 if ! ROWS=$("$DEVFLOW_GH" api --paginate "repos/$REPO/pulls/$PR/reviews?per_page=100" \
              --jq 'def prflow_own_reject($b): ($b | type) == "string" and ((($b | split("\n") | (.[0] // "")) | test("^<!-- prflow:review-verdict head=[0-9a-fA-F]{40} verdict=REJECT -->$")) or ($b | startswith("## Verdict: REJECT")) or ($b | startswith("# Review Report")));
-                   def marker_head($b): ((($b | if type == "string" then . else "" end | split("\n") | (.[0] // "")) | capture("^<!-- prflow:review-verdict head=(?<h>[0-9a-fA-F]{40}) verdict=REJECT -->$") | .h) // "-");
+                   def marker_head($b): ((($b | if type == "string" then . else "" end | split("\n") | (.[0] // "")) | capture("^<!-- prflow:review-verdict head=(?<h>[0-9a-fA-F]{40}) verdict=REJECT -->$") | .h | ascii_downcase) // "-");
                    .[] | select(.state=="CHANGES_REQUESTED") | (prflow_own_reject(.body // "")) as $own | "\(if $own then "own" else "other" end) \(.id) \(.commit_id // "-") \(marker_head(.body))"'); then
   echo "WARNING: could not list reviews for PR #$PR — dismiss manually." >&2
   exit 1

@@ -15708,6 +15708,28 @@ dsr_run rev-marker-quoted-head.json pull-head.json
 assert_eq "#1247 dismisser: a marker quoted below line 1 is not read as the head (falls back to commit_id, dismissed)" \
   "1-0" "$(dsr_calls 'reviews/33/dismissals')-$DSR_RC"
 
+# (commit_id-driven dismissal): a markerless superseded REJECT is dismissed and its
+# dismissal message names the commit_id key it decided on (the fallback SRC label), so a
+# regression that swapped the two SRC labels in the *dismissal* message is caught, not only
+# in the refusal message. rev-stale.json is markerless (## Verdict: REJECT) + superseded.
+dsr_run rev-stale.json pull-head.json
+assert_eq "#1247 dismisser: a markerless (commit_id-driven) dismissal message names the reviews-API commit_id key" \
+  "1" "$(grep -c 'reviews-API commit_id=' "$DSR_SB/log")"
+
+# (case-normalization, #1247): the marker head is ascii_downcase'd before comparison, so a
+# hand-authored UPPERCASE marker head naming the current head is refused (normalized ==
+# head), not dismissed. Needs a head carrying hex letters — the all-digit DSR_*_SHA cannot
+# exhibit case. Without the ascii_downcase this fixture DISMISSES (uppercase != lowercase
+# head → treated superseded), the fail-open the silent-failure review flagged.
+DSR_HEX_HEAD="abc0000000000000000000000000000000000def"
+printf '{"head":{"sha":"%s"}}\n' "$DSR_HEX_HEAD" > "$DSR_SB/pull-hexhead.json"
+cat > "$DSR_SB/rev-marker-uphead.json" <<EOS
+[{"id":34,"state":"CHANGES_REQUESTED","commit_id":"$DSR_OLD_SHA","body":"<!-- prflow:review-verdict head=ABC0000000000000000000000000000000000DEF verdict=REJECT -->\n## Verdict: REJECT (uppercase marker head == current head)"}]
+EOS
+dsr_run rev-marker-uphead.json pull-hexhead.json
+assert_eq "#1247 dismisser: an UPPERCASE marker head equal to the current head is refused (ascii_downcase normalization, not a case-mismatch fail-open)" \
+  "0-3" "$(dsr_calls 'reviews/34/dismissals')-$DSR_RC"
+
 rm -rf "$DSR_SB"
 
 # ────────────────────────────────────────────────────────────────────────────
