@@ -55,8 +55,11 @@ diagnostic and sets `acceptance_criteria_unreadable: true` in the `--format
 json` output, and the helper STILL exits 0 (a non-zero exit would trip the
 implement skill's fail-closed §1.2 fence and halt the run, which the owner
 ruling forbids — the run must continue and hand-extract). The `--format md`
-output is unchanged for that case (still the sentinel), because stdout is
-redirected into the mirrored section and must not carry a diagnostic.
+output is unchanged for that case (the `_(none provided in issue body)_`
+sentinel when there is also no readable test plan, else the test-plan rows),
+because stdout is redirected into the mirrored section and must not carry a
+diagnostic — so `acceptance_criteria_unreadable` in the JSON, not the md
+output, is the signal a consumer routes on.
 
 Exit codes:
   0  parsed and printed (INCLUDING the present-but-unreadable-section case)

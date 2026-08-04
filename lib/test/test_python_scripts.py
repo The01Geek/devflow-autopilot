@@ -2483,8 +2483,16 @@ _code, _j, _err = _run_parse_acs_json(_UNREADABLE_BOLD)
 assert_eq("#1198 CLI: unreadable section exits 0", None, _code)
 assert_eq("#1198 CLI: unreadable section sets acceptance_criteria_unreadable=true",
           True, _j['acceptance_criteria_unreadable'])
-assert_eq("#1198 CLI: unreadable section emits an item-shape stderr diagnostic",
-          True, len(_err) > 0)
+# The headline behavioral fix: the diagnostic names ITEM SHAPE, not the heading.
+# _UNREADABLE_BOLD's `## Acceptance Criteria` heading DOES match the near-miss
+# regex, so a `len(_err) > 0` assertion alone would still pass if the
+# _diagnose_section precedence were inverted and the misdirecting near-miss
+# message fired. Pin the actual message: item-shape phrase present, heading
+# near-miss phrase absent.
+assert_eq("#1198 CLI: unreadable diagnostic names item shape (not the heading)",
+          True, "shape this parser does not read" in _err)
+assert_eq("#1198 CLI: unreadable diagnostic does NOT emit the misdirecting near-miss message",
+          False, "check that it is exactly" in _err)
 
 _code, _j, _err = _run_parse_acs_json(_ABSENT)
 assert_eq("#1198 CLI: absent section exits 0", None, _code)
@@ -2496,6 +2504,24 @@ assert_eq("#1198 CLI: parsed section exits 0", None, _code)
 assert_eq("#1198 CLI: parsed section sets acceptance_criteria_unreadable=false",
           False, _j['acceptance_criteria_unreadable'])
 assert_eq("#1198 CLI: parsed section yields its 2 items", 2, len(_j['acceptance_criteria']))
+
+# The parallel `## Test Plan` path routes through the same `_diagnose_section`
+# with different canonical/needle args ('Test Plan'/'test plan'), so it needs
+# its own coverage — a copy-paste wiring error could leave the AC path green
+# while the test-plan path is wrong.
+_TP_UNREADABLE = ("## Test Plan\n"
+                  "1. Run the suite.\n"
+                  "2. Confirm the new field.\n")
+_code, _j, _err = _run_parse_acs_json(_TP_UNREADABLE)
+assert_eq("#1198 CLI: unreadable Test Plan exits 0", None, _code)
+assert_eq("#1198 CLI: unreadable Test Plan sets test_plan_unreadable=true",
+          True, _j['test_plan_unreadable'])
+assert_eq("#1198 CLI: unreadable Test Plan diagnostic names item shape",
+          True, "Test Plan" in _err and "shape this parser does not read" in _err)
+# And a parsed Test Plan reports test_plan_unreadable=false.
+_code, _j, _err = _run_parse_acs_json("## Test Plan\n- [ ] run the suite\n")
+assert_eq("#1198 CLI: parsed Test Plan sets test_plan_unreadable=false",
+          False, _j['test_plan_unreadable'])
 
 # ── issue #254: hard-wrapped criteria (the ~80-column format /devflow:create-issue
 # emits) must join indented continuation lines into ONE criterion, and a post-merge
