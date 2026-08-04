@@ -23868,6 +23868,35 @@ assert_eq("#1268 new accessor: a number rescued by an inbound line is not also s
           (['5'], []),
           _preflight1011.dependency_section_scan(
               "## Dependencies\n- Blocks #5\n- Blocked by #5\n"))
+# …and the disjointness filter is scoped PER NUMBER, not to the whole list. Every
+# fixture above has the rescued number as the only skipped entry, so an implementation
+# that cleared all of `skipped` on any overlap would pass them byte-for-byte. Combining
+# a rescued number (#5) with a distinct still-genuinely-skipped one (#6) is what pins
+# the per-number scoping: #6 must survive the filter that removes #5.
+assert_eq("#1268 new accessor: the disjointness filter strips only the rescued number",
+          (['5'], ['6']),
+          _preflight1011.dependency_section_scan(
+              "## Dependencies\n- Blocks #5\n- Blocked by #5\n- Blocks #6\n"))
+# A single outbound line carrying a multi-number run reports EVERY number it dropped —
+# the per-number `add_skipped` loop, exercised at the accessor rather than only at the
+# helper level, so a failure localises here.
+assert_eq("#1268 new accessor: a multi-number outbound line reports every dropped number",
+          ([], ['301', '302']),
+          _preflight1011.dependency_section_scan(
+              "## Dependencies\n- Blocks #301, #302\n"))
+# Both lists populated with 2+ interleaved entries: `found` and `skipped` order
+# independently, each in its own body order.
+assert_eq("#1268 new accessor: found and skipped order independently when interleaved",
+          (['401', '403'], ['402', '404']),
+          _preflight1011.dependency_section_scan(
+              "## Dependencies\n- Blocked by #401\n- Blocks #402\n"
+              "- Blocked by #403\n- Blocks #404\n"))
+# Boundary: a body with no `## Dependencies` section, and an empty body, each return
+# the empty pair rather than raising or returning a bare list.
+assert_eq("#1268 new accessor: a section-less body and an empty body both return ([], [])",
+          (([], []), ([], [])),
+          (_preflight1011.dependency_section_scan("Blocked by #7, but with no section\n"),
+           _preflight1011.dependency_section_scan("")))
 # The two existing wrappers still return list[str] with exactly today's contents —
 # assert the TYPE (not just the value), because a tuple pass-through is the exact
 # accidental shape the refactor could introduce.
