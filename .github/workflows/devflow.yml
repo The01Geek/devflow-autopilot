@@ -1566,6 +1566,46 @@ jobs:
           additional_permissions: |
             actions: read
 
+          # Raise the Bash tool's per-command ceiling on THIS tier — the manual
+          # `/prflow:review` / `/prflow:review-and-fix` command path. With no `settings:`
+          # input this step ran under Claude Code's BASH_MAX_TIMEOUT_MS default of
+          # 600000 ms (10 min), while the prompt extension this tier loads
+          # (.prflow/prompt-extensions/review-and-fix.md) names the parallel verification
+          # coordinator `lib/test/run-parallel.sh` (#1086) as the run's final whole-suite
+          # gate — measured at ~10.5 min in a cloud run (issue #1253's AC1 measurement).
+          # The mandated command was therefore structurally unable to reach a verdict
+          # here: it was killed at the wall with no output, and the run was pushed onto
+          # the slower #1132 shard-decomposition fallback to redo the same work.
+          #
+          # The value MIRRORS devflow-implement.yml's 1200000 ms (20 min) deliberately
+          # rather than being sized again here: both tiers run the same engine over the
+          # same verification partition, and a divergent per-tier ceiling would be a new
+          # inconsistency to reason about at every future change. That block is where the
+          # 20-minute figure is justified against #1180's coordinator measurement — read
+          # it there. Like it, this is a BOUND and not a removal: a genuinely hung command
+          # still terminates well inside the job budget instead of stalling for the job
+          # timeout with no diagnostic.
+          #
+          # CONSUMER NOTE: install.sh ships this workflow into third-party repos whose
+          # suites are neither this one nor of a duration knowable from here. The ceiling
+          # is a permissive UPPER BOUND on any single Bash command — never a prediction
+          # about how long a consumer's suite takes — so it encodes no assumption about
+          # their toolchain; a consumer needing more raises it in their own copy.
+          #
+          # MECHANISM — where this input lands, and why it cannot drop the base-restored
+          # project `.claude/settings.json` hooks — lives in ONE place: beside the
+          # `settings:` input in devflow-implement.yml, which devflow-runner.yml also
+          # points at. This is a pointer; keep the three in step by editing THAT block,
+          # never by re-deriving the mechanism here. The #1132 shard-decomposition
+          # fallback stays the in-run route if a command is ever terminated at this
+          # raised ceiling.
+          settings: |
+            {
+              "env": {
+                "BASH_MAX_TIMEOUT_MS": "1200000"
+              }
+            }
+
           # Composed by the `Compose plugin inputs` step above (issue #505): the
           # baked baseline (the official marketplace `./` checkout-root registration
           # plus the three baseline plugins — byte-identical across the three call
