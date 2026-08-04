@@ -4,6 +4,27 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.97] — 2026-08-04
+
+### Changed
+Stop reporting a verdict-less standalone `/prflow:review` run as `success` (#1271). The Phase 4.4 verdict-emitter reach-record step in `.github/workflows/devflow.yml` now fails its job when — and only when — the emitter was not reached **and** the head-scoped review oracle (`scripts/classify-head-reviews.sh`) **positively establishes** that no verdict exists for the reviewed head. A new bundled helper, `scripts/decide-verdict-gap-job-status.sh`, owns the conjunctive arm-to-job-status decision (a `FAIL`/`PASS` token over the full closed arm vocabulary, always exit 0); the workflow step reads the token and exits accordingly, keeping every observable surface it emits today (the `::notice::`, the `::warning::`, and the `prflow:verdict-post-gap` cause-naming comment). Every "could not tell" answer — an `unestablished`/`marked`/`unmarked` oracle result, a `no-line`/`unrecognized-line` reach arm — leaves the job status unchanged, honouring *unknown is not zero*. The cancellation carve-out is passed as an argument (`JOB_CANCELLED`), not a step-level `if: !cancelled()`, so a cancelled run keeps its records. The change is inert inside its own pull request (these triggers run the workflow from the default branch) and takes effect after merge.
+
+## [2.30.96] — 2026-08-04
+
+### Changed
+### Fixed
+
+- The `command` tier (`devflow.yml` — the manual `/prflow:review` and
+  `/prflow:review-and-fix` path a collaborator triggers by comment) passed no `settings:`
+  input to its Claude step, so the Bash tool's per-command ceiling fell back to Claude
+  Code's `BASH_MAX_TIMEOUT_MS` default of 600000 ms (10 min). The prompt extension this
+  tier loads names the parallel verification coordinator `lib/test/run-parallel.sh` as
+  the run's final whole-suite gate, and that coordinator was measured at ~10.5 min in a
+  cloud run — so the mandated command could not complete there: it was killed at the wall
+  with no output and the run was pushed onto the slower shard-decomposition fallback to
+  redo the same work. The step now sets a bounded 1200000 ms (20 min) ceiling, matching
+  the implement tier's existing value so the two agree.
+
 ## [2.30.95] — 2026-08-04
 
 ### Changed

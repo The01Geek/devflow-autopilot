@@ -31110,7 +31110,7 @@ echo "#408 cloud review no-verdict auto-resume backstop + #414 post-and-annotate
 # module re-derives REPO_ROOT and rebuilds the review-engine bundle itself;
 # see its .inventory.md for the coverage map back to this location.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-stall-backstop.sh" \
-  "review-stall-backstop" 385; then
+  "review-stall-backstop" 433; then
   printf 'ERROR: review-stall-backstop boundary could not record its result\n'
   exit 1
 fi
@@ -46303,6 +46303,11 @@ echo "#908 devflow-runner.yml PreToolUse guard wiring (statically verifiable, is
 # ────────────────────────────────────────────────────────────────────────────
 _908_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
 _908_IMPLEMENT_YML="$LIB/../.github/workflows/devflow-implement.yml"
+# The `command` tier (manual /prflow:review, /prflow:review-and-fix). It carries the same
+# #1179 ceiling for the same reason the implement tier does — the whole-suite coordinator
+# its prompt extension names as the final gate exceeds Claude Code's 600000 ms default —
+# and is driven through the same ceiling extractor below.
+_908_COMMAND_YML="$LIB/../.github/workflows/devflow.yml"
 assert_eq "#908 AC1: devflow-runner.yml's claude-code-action step carries a settings: input" "yes" \
   "$(grep -qF 'settings: |' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- pins the effectiveness channel AC1 requires: the claude-code-action settings input is what registers the PreToolUse hook with the review-tier runner
 assert_eq "#908 AC1: the settings input registers a PreToolUse hook naming the guard script" "yes" \
@@ -46594,6 +46599,13 @@ YML
     "$(_wfg_hook "$_908_IMPLEMENT_YML")"
   assert_eq "#1179: devflow-implement.yml sets a finite BASH_MAX_TIMEOUT_MS > 600000 ms via the claude-code-action settings env (AC1)" "ok" \
     "$(_wfg_ceiling "$_908_IMPLEMENT_YML")"
+  # The command tier carries the same ceiling. Its failure mode when absent is SILENT:
+  # the coordinator is killed at the default wall with no output, which reads in the job
+  # log like a command that produced nothing rather than one that was terminated — so a
+  # regression that drops this input is invisible without a guard. Same behavioral
+  # extractor, no new mechanism.
+  assert_eq "#1179: devflow.yml (command tier) sets a finite BASH_MAX_TIMEOUT_MS > 600000 ms via the claude-code-action settings env" "ok" \
+    "$(_wfg_ceiling "$_908_COMMAND_YML")"
   # ── The hook guard over the fixture matrix ────────────────────────────────
   assert_eq "#908 matrix: an env-only settings block in string form is allowed" "yes" \
     "$(_wfg_hook "$_WFG_D/env-string.yml")"
@@ -46667,6 +46679,7 @@ else
   # host-capability rather than vanishing into a clean pass (#456: a silently-absent guard
   # is never a clean pass). PyYAML is a suite prerequisite, so CI always arms them.
   skip "#1179 finite BASH_MAX_TIMEOUT_MS > 600000 via settings env (AC1)" host-capability "python3/PyYAML or scratch space unavailable — cannot parse the workflow settings env"
+  skip "#1179 finite BASH_MAX_TIMEOUT_MS > 600000 via settings env (command tier)" host-capability "python3/PyYAML or scratch space unavailable — cannot parse the workflow settings env"
   skip "#908/#1179 workflow-settings guard adversarial fixture matrix" host-capability "python3/PyYAML or scratch space unavailable — cannot compose or parse the synthetic workflow fixtures"
 fi
 assert_eq "#908 AC2: HOOK_TARGETS (harden-stop-hooks.sh) already lists the guard script" "yes" \
