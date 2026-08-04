@@ -4700,9 +4700,10 @@ assert_eq "#779: the checkpoint-4 tool-boundary test precedes the token routing 
 # The key stays OUTSIDE the `gha:` prefix so the review/review-and-fix tier discriminator (which
 # reads `gha:` checkpoints as a cloud marker) is unaffected. A non-canonical body makes `--checkpoint`
 # a structural no-PATCH where `--note` degrades, so the prose keeps a degrade-to-`--note` fallback.
-# The ORDERING clause is separately operative: without it the record can assert the run is
-# proceeding to publish on an UPDATED run the post-merge suite then routes to Blocked — a
-# workpad self-record contradicting what happened.
+# The row carries no UPDATED-specific ordering condition: checkpoint 4 no longer runs a suite of
+# its own, so the row records the CHECKPOINT's result on all three clean tokens alike. The
+# completion-evidence flight (issue #1087) still runs after it and can route the run to Blocked
+# before anything is published — the row is not a claim about the run's outcome.
 # The observable discriminator for "no token reported" — "produced no output at all" is unusable
 # because the helper rebinds fd 1 to stderr and a successful invocation is never silent.
 # A tier that REFUSES the invocation is a distinct case from a non-clean token: it publishes,
@@ -33768,6 +33769,13 @@ fi
 # sentence is read on the way INTO the same flight, so — like the amendments above — it cannot
 # be routed behind a conditional progressively-loaded reference. Raise the ceiling to the exact
 # post-#1243 measurement, with no slack.
+# Checkpoint 4's UPDATED arm no longer mandates a post-merge suite re-run: the completion-evidence
+# flight below runs after that checkpoint and before the publish decision over the SAME merged tree
+# and already Blocks on a non-pass, so the second run re-verified an already-gated tree. The #1053
+# entry above is retained as the past-time record of why the ceiling was raised then — its "two
+# serialized runs" pair is now the one resolve-then-verify ordering (checkpoint 4's inherited
+# CONFLICT arm and the fix loop's conflict path). The ceiling is a `-le` bound and this change only
+# shrinks the file, so no raise is owed and none is taken.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
   "$([ "$(wc -c < "$I480_P4")" -le 106831 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
