@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.83] — 2026-08-04
+
+### Changed
+- **Record a `Verification evidence:` marker on every tier that maintains a workpad, once per whole-suite launch.** The implement/review-and-fix/receiving-code-review prompt extensions now bind the `Verification evidence:` obligation to every tier — cloud `/prflow:implement` included, not only local/interactive — and require one record per whole-suite launch (distinguished by the coordinator's per-launch run root, with no launch counter), so a repeated or failed cloud launch is legible in the repository's own records rather than recoverable only from a run transcript. The shared review-engine advisory now acts on cloud-classified PRs too, and `lib/cheap-gate.jq`'s head comment is reconciled to drop the superseded population-coverage reason. (#1249)
+
 ## [2.30.82] — 2026-08-04
 
 ### Fixed
