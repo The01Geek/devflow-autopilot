@@ -367,6 +367,25 @@ assert_eq "#1139 AC7: a branch with no upstream is treated as not landed (exit 3
 assert_eq "#1139 AC7: the no-upstream refusal is attributed to the no-upstream arm" \
   "yes" "$( cd "$W" && printf 'n2\n' > n2.txt && _dc_cp "feat: cp" n2.txt 2>&1 >/dev/null | grep -q 'no upstream configured' && echo yes || echo no )"
 
+# The same no-upstream condition must fail through `_tip_is_on_remote` on the
+# named-but-unchanged path: staging succeeds, the scoped diff is empty, and no
+# commit is made. Without this row the post-commit no-upstream arm above stays
+# green even if this earlier no-op arm silently returns durable. The second
+# invocation on the same fixture is the positive control: once that branch tracks
+# the already-equal remote tip, the identical unchanged-path no-op is exit 0.
+W="$(_dc_newrig)"
+( cd "$W" && git checkout -q -b no-upstream-noop )
+NOUP_NOOP_RC="$( cd "$W" && _dc_cp "feat: cp" base.txt >/dev/null 2>&1; echo $? )"
+assert_eq "#1139 AC7: an unchanged-path no-op with no upstream is not durable (exit 3)" \
+  "3" "$NOUP_NOOP_RC"
+assert_eq "#1139 AC7: the unchanged-path refusal reaches _tip_is_on_remote's no-upstream arm" \
+  "yes" "$( cd "$W" && _dc_cp "feat: cp" base.txt 2>&1 >/dev/null | grep -q 'no staged changes.*no upstream is configured' && echo yes || echo no )"
+assert_eq "#1139 AC7: the refused unchanged-path no-op creates no commit" \
+  "0" "$( cd "$W" && git rev-list --count origin/main..HEAD )"
+( cd "$W" && git branch --set-upstream-to=origin/feat >/dev/null 2>&1 )
+assert_eq "#1139 AC7 positive control: the same unchanged-path no-op succeeds once its equal tip has an upstream" \
+  "0" "$( cd "$W" && _dc_cp "feat: cp" base.txt >/dev/null 2>&1; echo $? )"
+
 # ── Exit-0 no-op boundaries are DURABILITY claims, not just "I made no commit" ──
 # The caller acts only on a non-zero exit, so a no-op that exits 0 asserts the work so
 # far is on the remote. Drive a branch tip that never landed: with the push refspec
@@ -417,6 +436,27 @@ assert_eq "#1139: a failed git add adds no commit to the branch" \
 assert_eq "#1139: positive control — an existing path on the same rig checkpoints cleanly (exit 0)" \
   "0" "$( cd "$W" && printf 'real\n' > real.txt && _dc_cp "feat: cp" real.txt >/dev/null 2>&1; echo $? )"
 
+# A rejecting pre-commit hook deterministically reaches the distinct `git commit`
+# failure arm after staging has succeeded. The remote count pins that the failure is
+# closed before push; removing the hook on the same rig is the positive control that
+# the fixture and staged path are otherwise valid.
+W="$(_dc_newrig)"
+(
+  cd "$W" || exit 1
+  printf '#!/bin/sh\nexit 1\n' > .git/hooks/pre-commit
+  chmod +x .git/hooks/pre-commit
+  printf 'hook rejects this commit\n' > commit-fail.txt
+)
+assert_eq "#1139: a git commit rejected by a pre-commit hook fails closed (exit 4)" \
+  "4" "$( cd "$W" && _dc_cp "feat: cp" commit-fail.txt >/dev/null 2>&1; echo $? )"
+assert_eq "#1139: the hook rejection is attributed to the git-commit arm" \
+  "yes" "$( cd "$W" && _dc_cp "feat: cp" commit-fail.txt 2>&1 >/dev/null | grep -q 'git commit failed' && echo yes || echo no )"
+assert_eq "#1139: a failed git commit pushes no new commit" \
+  "0" "$(_dc_remote_ahead "$W")"
+( cd "$W" && rm -f .git/hooks/pre-commit )
+assert_eq "#1139: positive control — removing the rejecting hook lets the same staged path checkpoint cleanly" \
+  "0" "$( cd "$W" && _dc_cp "feat: cp" commit-fail.txt >/dev/null 2>&1; echo $? )"
+
 # ── Disclosed guard-slip spellings: documented, and here PINNED as behavior ──
 # The header discloses that the workflow-edit guard matches the RELATIVE
 # `.github/workflows/` spelling only. These assertions pin that disclosure as observed
@@ -424,11 +464,12 @@ assert_eq "#1139: positive control — an existing path on the same rig checkpoi
 # spelling is staged and reaches the remote. They are characterization tests of a
 # disclosed limit, NOT an endorsement — if the guard is ever widened to resolve
 # absolute/`..` forms, these flip and are updated with it.
-# NOTE ON THE COMPENSATING CONTROL: the header says such a commit "fails loudly at
-# push". That guarantee comes from the real GitHub credential, NOT from this suite —
-# the rig's plain bare remote imposes no workflow-push restriction, so the push here
-# succeeds. The loud-at-push half is therefore UNENFORCED by the suite and is stated
-# as a limitation rather than asserted.
+# NOTE ON THE COMPENSATING CONTROL: the header says such a commit makes this and
+# every later checkpoint push fail loudly until the branch history is repaired. That
+# cascade comes from the real GitHub credential, NOT from this suite — the rig's plain
+# bare remote imposes no workflow-push restriction, so the push here succeeds. The
+# fail-loud cascade is therefore UNENFORCED by the suite and is stated as a limitation
+# rather than asserted.
 W="$(_dc_newrig)"
 (
   cd "$W" || exit 1

@@ -37,7 +37,10 @@
 #     `../`-reaching form, and the bare directory `.github/workflows` (no trailing
 #     slash) are not matched — the same spelling-only limit `_is_whole_tree_arg`
 #     discloses for AC6. This half is defense-in-depth behind the Phase 2 prose's
-#     revert; a workflow commit that slips it fails loudly at push, not silently.
+#     revert, which remains the primary control. A workflow commit that slips this
+#     spelling guard is not self-limiting: because the helper never amends or rebases,
+#     the rejected commit stays in local history and this checkpoint plus every later
+#     checkpoint push fails loudly until an operator repairs that branch history.
 #   - No empty commit (AC3/AC8). When nothing is staged after filtering — a
 #     boundary reached with no new work, or every named path excluded by the
 #     guard — the helper makes NO commit. It exits 0 ONLY after reconfirming the
@@ -48,8 +51,10 @@
 #   - Landing verification (AC7). After pushing, the helper treats the push as
 #     landed ONLY when `git rev-parse HEAD` equals `git rev-parse @{u}`, mirroring
 #     skills/implement/phases/phase-4-documentation.md step 3. A rejected
-#     non-fast-forward and an `Everything up-to-date` no-op both leave the two
-#     unequal and are reported as a failure to land (exit 3), never as success.
+#     non-fast-forward leaves the two unequal and is reported as a failure to land
+#     (exit 3). Push output such as `Everything up-to-date` is not itself decisive:
+#     it takes exit 3 only when the comparison still shows that the checkpoint commit
+#     did not reach the tracked branch.
 #   - History is never rewritten: no amend, no rebase, no force-push (AC5). Proof
 #     content stays out of history by ORDERING — the Phase 2 prose invokes this
 #     helper only after §2.1.5 proof edits are reverted, and explicit scoping

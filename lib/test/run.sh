@@ -31124,7 +31124,7 @@ echo "#1139 Phase 2 mid-run durability checkpoint"
 # scoping, AC7 landing verification (HEAD==@{u}), and AC8 idempotency. See its
 # .inventory.md for the coverage map back to this location.
 if ! devflow_run_full_suite_module "$LIB/test/modules/phase2-durability-checkpoint.sh" \
-  "phase2-durability-checkpoint" 70; then
+  "phase2-durability-checkpoint" 78; then
   printf 'ERROR: phase2-durability-checkpoint boundary could not record its result\n'
   exit 1
 fi
