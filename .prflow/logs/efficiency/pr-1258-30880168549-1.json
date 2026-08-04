@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1258",
+  "generated_at": "2026-08-04T05:28:03Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.83",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.78427,
+    "tokens": {
+      "input_tokens": 6414,
+      "output_tokens": 24560,
+      "cache_read_input_tokens": 3583448,
+      "cache_creation_input_tokens": 205816,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 6458,
+        "outputTokens": 48620,
+        "cacheReadInputTokens": 4960290,
+        "cacheCreationInputTokens": 525524,
+        "webSearchRequests": 0,
+        "costUSD": 7.78427,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 33,
+    "duration_ms": 630601
+  },
+  "permission_denials": {
+    "count": 8,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review",
+      "gh pr diff 1258 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review-1258.patch; wc -l .prflow/tmp/review-1258.patch; echo \"=== files ===\"; grep '^diff --git' .prflow/tmp/review-1258.patch",
+      "python3 -c \"\nimport importlib.util, base64, json\nspec=importlib.util.spec_from_file_location('fs','scripts/focused_selection.py')\nm=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n# empty-string base64 edge: does regex match empty payload? no, + requires 1+. ok\n# object payload with wrong shape passes through decode (no shape validation)\nenc=m.encode_marker({'surfaces':'not-a-list','single_flight_consulted':None})\nprint('wrong-shape decodes to:', m.decode_markers(enc))\nprint('o …[per-command-truncated]",
+      "python3 - <<'PY'\nimport importlib.util\nspec=importlib.util.spec_from_file_location('fs','scripts/focused_selection.py')\nm=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\nenc=m.encode_marker({'surfaces':'not-a-list','single_flight_consulted':None})\nprint('wrong-shape decodes to:', m.decode_markers(enc))\nprint('ok')\nPY\nruff check scripts/focused_selection.py 2>&1 | tail -3",
+      "cat > /tmp/t.py <<'PY'\nimport importlib.util\nspec=importlib.util.spec_from_file_location('fs','scripts/focused_selection.py')\nm=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\nenc=m.encode_marker({'surfaces':'not-a-list','single_flight_consulted':None})\nprint('wrong-shape decodes to:', m.decode_markers(enc))\nPY\npython3 /tmp/t.py; ruff check scripts/focused_selection.py 2>&1 | tail -3",
+      "printf '%s\\n' \"import importlib.util\" \"spec=importlib.util.spec_from_file_location('fs','scripts/focused_selection.py')\" \"m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\" \"enc=m.encode_marker(dict(surfaces='not-a-list', single_flight_consulted=None))\" \"print('wrong-shape decodes to:', m.decode_markers(enc))\" > /tmp/t.py\npython3 /tmp/t.py; ruff check scripts/focused_selection.py 2>&1 | tail -3",
+      "printf '%s\\n' \"import importlib.util\" \"spec=importlib.util.spec_from_file_location('fs','scripts/focused_selection.py')\" \"m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\" \"enc=m.encode_marker(dict(surfaces='x', single_flight_consulted=None))\" \"print('decodes to:', m.decode_markers(enc))\" > .prflow/tmp/t1229.py\npython3 .prflow/tmp/t1229.py; rm -f .prflow/tmp/t1229.py; ruff check scripts/focused_selection.py 2>&1 | tail -3"
+    ],
+    "total": 8,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
