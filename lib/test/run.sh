@@ -47332,22 +47332,20 @@ assert_eq "#1248 AC5: the repo-root dismiss helper resolves in this repo's local
 # fixtures so the guard is proven non-vacuous.
 AF_LINT="$LIB/test/lint-anchor-fallback-arm.py"
 AF_FX="$LIB/test/fixtures/anchor-fallback-arm"
-# Real tree: the three enrolled review-engine loads now carry both forms → clean.
-AF_OUT="$(cd "$LIB/.." && python3 "$AF_LINT" 2>&1)"; AF_RC=$?
+# Real tree (default --root is the repo root, cwd-independent): the three enrolled
+# review-engine loads now carry both forms → clean.
+AF_OUT="$(python3 "$AF_LINT" 2>&1)"; AF_RC=$?
 assert_eq "#1124 lint: clean on the tree as it stands (enrolled loads carry the fallback arm)" "rc=0" \
   "$([ "$AF_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$AF_RC" "$AF_OUT")"
-# RED fixture: enrolled sites emit the anchor leading token with no vendored fallback → rc=1.
-assert_eq "#1124 lint: an anchor-only enrolled site is reported (RED, non-vacuous)" "yes" \
-  "$(python3 "$AF_LINT" --root "$AF_FX/red" >/dev/null 2>&1 && echo no || echo yes)"
+# RED fixture: enrolled sites emit the anchor leading token with no vendored fallback →
+# rc=1 AND the report names the specific call site. Captured once, asserted twice.
+AF_RED_OUT="$(python3 "$AF_LINT" --root "$AF_FX/red" 2>&1)"; AF_RED_RC=$?
+assert_eq "#1124 lint: an anchor-only enrolled site is reported (RED, non-vacuous)" "1" "$AF_RED_RC"
+assert_eq "#1124 lint: the RED report names the enrolled call site" "yes" \
+  "$(case "$AF_RED_OUT" in *"skills/review/SKILL.md: 'load-prompt-extension.sh review' is invoked via the unexpanded"*) echo yes ;; *) echo no ;; esac)"
 # GREEN fixture: both forms present at every enrolled site → rc=0.
 assert_eq "#1124 lint: a both-forms enrolled site passes (GREEN)" "yes" \
   "$(python3 "$AF_LINT" --root "$AF_FX/green" >/dev/null 2>&1 && echo yes || echo no)"
-# The RED fixture names the specific enrolled call site (not a generic failure).
-assert_eq "#1124 lint: the RED report names the enrolled call site" "yes" \
-  "$(case "$(python3 "$AF_LINT" --root "$AF_FX/red" 2>&1)" in *"skills/review/SKILL.md: 'load-prompt-extension.sh review' is invoked via the unexpanded"*) echo yes ;; *) echo no ;; esac)"
-# Inventory is non-empty (a vacuous inventory would make the lint audit nothing).
-assert_eq "#1124 lint: the enrolled inventory is non-empty" "yes" \
-  "$([ "$(python3 "$AF_LINT" --print-inventory | grep -c .)" -ge 1 ] && echo yes || echo no)"
 
 # ── Public documentation source contract ────────────────────────────────────
 # The public site is source-only: Markdown/MDX plus docs.json. Mintlify reads

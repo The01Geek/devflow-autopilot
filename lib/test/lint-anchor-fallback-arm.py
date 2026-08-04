@@ -102,17 +102,24 @@ def audit(root: Path) -> list[str]:
     failures: list[str] = []
     if not ENROLLED:
         return ["inventory is empty — the lint would be vacuous; refusing"]
+    # An enrolled path may carry more than one suffix (review-and-fix/SKILL.md holds two
+    # loads), so read + split each file at most once and reuse the lines for every suffix.
+    lines_by_path: dict[str, list[str] | None] = {}
     for relpath, suffix in ENROLLED:
-        path = root / relpath
-        try:
-            text = path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            failures.append(f"{relpath}: enrolled file is missing")
+        if relpath not in lines_by_path:
+            try:
+                lines_by_path[relpath] = (root / relpath).read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            except FileNotFoundError:
+                lines_by_path[relpath] = None
+                failures.append(f"{relpath}: enrolled file is missing")
+            except (OSError, UnicodeDecodeError) as exc:
+                lines_by_path[relpath] = None
+                failures.append(f"{relpath}: enrolled file could not be read ({exc})")
+        lines = lines_by_path[relpath]
+        if lines is None:
             continue
-        except (OSError, UnicodeDecodeError) as exc:
-            failures.append(f"{relpath}: enrolled file could not be read ({exc})")
-            continue
-        lines = text.splitlines()
         has_anchor = _leading_token_present(lines, _ANCHOR_PREFIX, suffix)
         has_vendored = _leading_token_present(lines, _VENDORED_PREFIX, suffix)
         if not has_anchor and not has_vendored:
