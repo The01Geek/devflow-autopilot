@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1286",
+  "generated_at": "2026-08-04T18:28:23Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.95",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 11.350345850000004,
+    "tokens": {
+      "input_tokens": 68,
+      "output_tokens": 33780,
+      "cache_read_input_tokens": 6012967,
+      "cache_creation_input_tokens": 224861,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 142,
+        "outputTokens": 53688,
+        "cacheReadInputTokens": 7755822,
+        "cacheCreationInputTokens": 570246,
+        "webSearchRequests": 0,
+        "costUSD": 9.628087250000004,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 76,
+        "outputTokens": 7907,
+        "cacheReadInputTokens": 1758502,
+        "cacheCreationInputTokens": 286900,
+        "webSearchRequests": 0,
+        "costUSD": 1.7222585999999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 54,
+    "duration_ms": 678079
+  },
+  "permission_denials": {
+    "count": 12,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh review 2>&1 || scripts/load-prompt-extension.sh review 2>&1",
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none}\"; date -u +%Y%m%dT%H%M%SZ",
+      ".prflow/vendor/prflow/scripts/resolve-review-overrides.py \"prflow:checklist-generator\" 2>.prflow/tmp/review/pr-1286/30937713158-1/rv-ovr.phase1.err ; echo \"ovr-rc=$?\"; echo \"---stderr---\"; cat .prflow/tmp/review/pr-1286/30937713158-1/rv-ovr.phase1.err",
+      ".prflow/vendor/prflow/scripts/resolve-review-overrides.py \"prflow:checklist-generator\" 2>.prflow/tmp/review/pr-1286/30937713158-1/rv-ovr.phase1.err ; echo \"ovr-rc=$?\"; echo \"---stderr---\"; cat .prflow/tmp/review/pr-1286/30937713158-1/rv-ovr.phase1.err",
+      "HEAD=065befe2c3784efcf49b9000868a9d08347907f9\necho \"=== VC-1/VC-3: devflow.yml settings block (PR head) ===\"\ngit show $HEAD:.github/workflows/devflow.yml | sed -n '1595,1610p'\necho \"=== implement tier value (PR head) ===\"\ngit show $HEAD:.github/workflows/devflow-implement.yml | grep -n \"BASH_MAX_TIMEOUT_MS\" \necho \"=== VC-2/VC-6: run.sh new assertions + skip (PR head) ===\"\ngit show $HEAD:lib/test/run.sh | grep -n \"_908_COMMAND_YML\\|command tier) sets a finite\\|(command tier)\\|_wfg_ceiling \\\"\\$_90 …[per-command-truncated]",
+      "mkdir -p .prflow/tmp\nrm -f .prflow/tmp/review-dirty-tree-before .prflow/tmp/review-dirty-tree-disabled 2>/dev/null\ngit status --porcelain -z > .prflow/tmp/review-dirty-tree-before && git hash-object .prflow/tmp/review-dirty-tree-before",
+      "git status --porcelain -z | tee .prflow/tmp/review-dirty-tree-before >/dev/null && git hash-object .prflow/tmp/review-dirty-tree-before && echo \"tree-clean=$(git status --porcelain | wc -l)\"",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>/dev/null | head -50; echo \"---EXIT:${PIPESTATUS[0]}---\"",
+      "cd /home/runner/work/prflow/prflow; D=$(grep -n \"_WFG_D=\" lib/test/run.sh | head -1); echo \"$D\"; grep -n \"ceiling-check.py\\|_WFG_D=\\\"\" lib/test/run.sh | head",
+      "cd /home/runner/work/prflow/prflow; git show 065befe2c3784efcf49b9000868a9d08347907f9:.github/workflows/devflow.yml > /tmp/devflow-head.yml; python3 - <<'PY'\nimport yaml, json\ndoc = yaml.safe_load(open(\"/tmp/devflow-head.yml\"))\nvals=[]\nfor job in doc.get(\"jobs\",{}).values():\n    for s in job.get(\"steps\",[]) or []:\n        if str(s.get(\"uses\") or \"\").startswith(\"anthropics/claude-code-action\"):\n            settings=(s.get(\"with\") or {}).get(\"settings\")\n            print(\"found step, settings type …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow; git show 065befe2c3784efcf49b9000868a9d08347907f9:.github/workflows/devflow.yml > .prflow/tmp/devflow-head.yml; python3 - <<'PY'\nimport yaml, json\ndoc = yaml.safe_load(open(\".prflow/tmp/devflow-head.yml\"))\nvals=[]\nfor job in doc.get(\"jobs\",{}).values():\n    for s in job.get(\"steps\",[]) or []:\n        if str(s.get(\"uses\") or \"\").startswith(\"anthropics/claude-code-action\"):\n            settings=(s.get(\"with\") or {}).get(\"settings\")\n            parsed=json.loads( …[per-command-truncated]"
+    ],
+    "total": 12,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
