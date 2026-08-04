@@ -4555,9 +4555,6 @@ assert_pin_unique "#661: Sweep-selection index cues a relocated prose literal/he
 
 # ── issue #474: exact-one/static checks preserve the collection-cardinality and
 # derived-comparand contracts plus their coupled documentation mirrors.
-OVERVIEW_DOC474="$LIB/../docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md"
-# The assertions below preserve the documentation rationale and overview-index
-# mirrors for the collection-cardinality contract.
 # Issue #1188: the #474 docs-rationale AND overview mirror presence pins (2.3.7 rationale
 # table row + sweep-index entry) were retired prose-presence pins orphaned by the
 # docs/internal move; removed per the cluster note above.
