@@ -30,7 +30,11 @@ Subcommands:
   status        Read a flight (token redacted); report whether it satisfies
                 verification. Applies lease-expiry (-> incomplete) and checkout
                 drift (-> stale) read-transitions. Any unreadable/malformed shape is
-                an attributable non-pass, never a pass.
+                an attributable non-pass, never a pass. A pass additionally requires
+                the working tree to be verified against a supplied
+                `--current-checkout-file` (issue #1243) — the AND is enforced here,
+                not left to the caller; `--allow-unverified-checkout` is the explicit
+                opt-out for a caller that wants the state/exit dimension alone.
   wait          Bounded poll for a terminal state. It never records a terminal
                 result of its own — a wait-bound expiry returns a `wait_expired`
                 observation and leaves an active flight unchanged — but it is NOT
@@ -57,6 +61,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import sys
 import time
@@ -132,6 +137,15 @@ _CHECKOUT_REQUIRED = (
     "tracked_digest",
     "untracked_digest",
 )
+# The four content fields of a checkout fingerprint are git object ids — 40-hex
+# (SHA-1) or 64-hex (SHA-256) — exactly the shape scripts/checkout-fingerprint.py
+# emits. Enforcing that shape is what makes `_validate_checkout` reject the junk
+# strings pre-#1243 callers invented ("v", "clean", "clean-no-untracked", …) that
+# the old presence-only bar accepted. `checkout_id` is deliberately NOT shape-checked
+# here: it is the producer's opaque `--absolute-git-dir` path, not an object id, so it
+# stays a non-empty-string field (the four object-id fields carry the tree content).
+_OBJECT_ID_FIELDS = ("head", "index_digest", "tracked_digest", "untracked_digest")
+_OBJECT_ID_RE = re.compile(r"\A(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 
 
 def _validate_reason_code(
@@ -219,6 +233,7 @@ class DeclarationError(_CodedError):
         "profile_missing_field",
         "checkout_missing_field",
         "checkout_incomplete_fingerprint",
+        "checkout_field_bad_shape",
     })
 
 
@@ -256,6 +271,14 @@ def _validate_checkout(checkout: Any) -> dict:
             raise DeclarationError(f"checkout_missing_field:{key}")
         if not isinstance(checkout[key], str) or not checkout[key]:
             raise DeclarationError(f"checkout_incomplete_fingerprint:{key}")
+    # Shape gate (issue #1243): the four content fields must be git object ids, the
+    # shape scripts/checkout-fingerprint.py emits. A non-empty-but-wrong-shape value
+    # (the invented "v"/"clean"/"clean-no-untracked" a pre-producer caller wrote) is
+    # rejected here instead of silently keying a flight — so a stale flight can no
+    # longer masquerade as a fresh one behind a fingerprint that describes no tree.
+    for key in _OBJECT_ID_FIELDS:
+        if not _OBJECT_ID_RE.match(checkout[key]):
+            raise DeclarationError(f"checkout_field_bad_shape:{key}")
     return checkout
 
 
@@ -1045,10 +1068,18 @@ def cmd_status(args) -> int:
         # that a future edit introducing a (None, EXIT_OK) path degrades to a non-pass
         # instead of returning success with no flight. No test can cover it by design.
         return code if code != EXIT_OK else EXIT_UNREADABLE
-    _print_public(flight, checkout_verified=checkout_verified)
-    if _satisfies(flight):
-        return EXIT_OK
-    return EXIT_NON_PASS
+    # #1243: the checkout AND is enforced HERE, not left as a caller obligation. A
+    # read that did not verify the working tree (no `--current-checkout-file`, or a
+    # mismatch that already flipped the handle non-pass) never reports a pass or
+    # exits 0 — a `passed` handle over a tree this read could not confirm is not a
+    # reusable pass. `--allow-unverified-checkout` is the explicit, opt-in weaker
+    # read for a caller that genuinely wants the state/exit dimension alone.
+    effective = _satisfies(flight) and (checkout_verified or args.allow_unverified_checkout)
+    _print_public(
+        flight, checkout_verified=checkout_verified,
+        satisfies_verification=effective, reuse_ready=effective,
+    )
+    return EXIT_OK if effective else EXIT_NON_PASS
 
 
 def cmd_wait(args) -> int:
@@ -1080,12 +1111,21 @@ def cmd_wait(args) -> int:
                     current_checkout is not None
                     and flight.get("checkout") == current_checkout
                 )
-                _print_public(flight, checkout_verified=checkout_verified)
+                # #1243 checkout AND — same enforcement as cmd_status: a terminal
+                # `passed` handle whose tree this wait could not confirm is not a
+                # reusable pass unless --allow-unverified-checkout was requested.
+                effective = _satisfies(flight) and (
+                    checkout_verified or args.allow_unverified_checkout
+                )
+                _print_public(
+                    flight, checkout_verified=checkout_verified,
+                    satisfies_verification=effective, reuse_ready=effective,
+                )
                 _emit_telemetry(
                     args.logs_dir, "flight_wait_completed",
                     {"flight_key": args.flight, "terminal_state": flight["state"]},
                 )
-                return EXIT_OK if _satisfies(flight) else EXIT_NON_PASS
+                return EXIT_OK if effective else EXIT_NON_PASS
             last_reason = f"active:{flight['state']}"
         except ReadError as exc:
             last_reason = exc.reason
@@ -1175,10 +1215,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_stat.add_argument("--flight", required=True)
     p_stat.add_argument(
         "--current-checkout-file", default=None,
-        help="A fresh checkout fingerprint for the CURRENT tree. Required to make a "
-             "consume decision safe: without it `checkout_verified` is False and a "
-             "`passed` handle whose tree has since drifted is not caught here. A "
-             "consume must require `reuse_ready and checkout_verified` (issue #528/#579).",
+        help="A fresh checkout fingerprint for the CURRENT tree (produced by "
+             "scripts/checkout-fingerprint.py). Required for a pass: without it "
+             "`checkout_verified` is False and the helper reports non-pass / exits "
+             "non-zero, because a `passed` handle whose tree has since drifted must "
+             "not read as reusable (issues #528/#579/#1243).",
+    )
+    p_stat.add_argument(
+        "--allow-unverified-checkout", action="store_true",
+        help="Explicit opt-in weaker read (issue #1243): report the state/exit "
+             "dimension alone (passed + zero exit) WITHOUT requiring the working "
+             "tree to be verified. For a caller that genuinely wants the weaker read; "
+             "a reuse decision must not use it.",
     )
     add_common(p_stat)
     p_stat.set_defaults(func=cmd_status)
@@ -1193,10 +1241,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_wait.add_argument("--poll-interval", type=float, default=2.0)
     p_wait.add_argument(
         "--current-checkout-file", default=None,
-        help="A fresh checkout fingerprint for the CURRENT tree. Required to make a "
-             "consume decision safe: without it `checkout_verified` is False and a "
-             "`passed` handle whose tree has since drifted is not caught here. A "
-             "consume must require `reuse_ready and checkout_verified` (issue #528/#579).",
+        help="A fresh checkout fingerprint for the CURRENT tree (produced by "
+             "scripts/checkout-fingerprint.py). Required for a pass: without it "
+             "`checkout_verified` is False and the helper reports non-pass / exits "
+             "non-zero, because a `passed` handle whose tree has since drifted must "
+             "not read as reusable (issues #528/#579/#1243).",
+    )
+    p_wait.add_argument(
+        "--allow-unverified-checkout", action="store_true",
+        help="Explicit opt-in weaker read (issue #1243): report the state/exit "
+             "dimension alone (passed + zero exit) WITHOUT requiring the working "
+             "tree to be verified. For a caller that genuinely wants the weaker read; "
+             "a reuse decision must not use it.",
     )
     add_common(p_wait)
     p_wait.set_defaults(func=cmd_wait)

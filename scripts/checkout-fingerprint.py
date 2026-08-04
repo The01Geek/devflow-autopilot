@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Daniel Radman
+# SPDX-License-Identifier: MIT
+"""Produce the five-field checkout fingerprint the verification-flight ledger keys on.
+
+`scripts/verification-flight.py` derives its per-checkout flight key from a `checkout`
+object of exactly five fields (its `_CHECKOUT_REQUIRED` tuple), but nothing in the tree
+produced those fields — callers invented them per run and `_validate_checkout` accepted any
+non-empty string, so a stale flight over a moved tree could still read as a pass (issue #1243).
+This helper is that missing producer: the ONE place each field's derivation is defined, so a
+reader never has to reconstruct what a field means from ad-hoc caller code.
+
+It emits a single JSON object `{checkout_id, head, index_digest, tracked_digest,
+untracked_digest}` (sorted keys, compact) to stdout. The four content fields are git object
+ids (40-hex SHA-1, or 64-hex SHA-256), which is exactly the shape `_validate_checkout` now
+requires — so a fingerprint this helper emits is declaration-valid and the junk strings the
+old callers invented ("v", "clean", "clean-no-untracked", …) are not.
+
+Field derivations (each stated here exactly once — this header is the single source of truth):
+
+  checkout_id      `git rev-parse --absolute-git-dir` — the absolute path of THIS checkout's
+                   git directory. Worktree-unique (each linked worktree has its own git dir),
+                   so it distinguishes flights taken in different checkouts of the same repo.
+                   It is an opaque identity, NOT a tree-content signal — the four fields below
+                   carry the content, and only they are shape-checked as object ids.
+  head             `git rev-parse HEAD` — the checked-out commit. Forty zeros on an unborn
+                   HEAD (a repo with no commits). Changes on commit / merge / rebase / checkout.
+  index_digest     `git write-tree` — the tree object of the current index (STAGED content).
+  tracked_digest   `git write-tree` over a scratch index seeded from the real index and then
+                   `git add -u`'d — the working-tree content of TRACKED files, capturing
+                   unstaged edits the index does not. Changes on any edit to a tracked file.
+  untracked_digest `git write-tree` over a fresh EMPTY scratch index into which the untracked,
+                   non-ignored files are added — the empty-tree id when there are none.
+                   Changes when an untracked (non-ignored) file is added, edited, or removed.
+
+Fail-closed: any git failure that prevents establishing a field exits non-zero with a stderr
+breadcrumb and prints NO object, so a caller never embeds a partial or invented fingerprint.
+It runs git (unlike verification-flight.py, which by contract runs nothing); it makes no
+network call.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+_ZERO_SHA1 = "0" * 40
+
+
+class _GitError(Exception):
+    """A git invocation that failed — a fingerprint field could not be established."""
+
+
+def _git(args: list[str], cwd: str, env: dict | None = None, check: bool = True) -> str:
+    proc = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if check and proc.returncode != 0:
+        raise _GitError(f"git {' '.join(args)} failed (rc={proc.returncode}): {proc.stderr.strip()}")
+    return proc.stdout
+
+
+def _toplevel() -> str:
+    proc = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise _GitError(f"not a git checkout: {proc.stderr.strip()}")
+    top = proc.stdout.strip()
+    if not top:
+        raise _GitError("git rev-parse --show-toplevel produced no path")
+    return top
+
+
+def _head(top: str) -> str:
+    # An unborn HEAD (no commits yet) is not an error here — it is a real, stable
+    # checkout state, so it records the all-zero object id rather than failing.
+    proc = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=top,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return _ZERO_SHA1
+    return proc.stdout.strip() or _ZERO_SHA1
+
+
+def _write_tree(top: str, env: dict | None = None) -> str:
+    tree = _git(["write-tree"], cwd=top, env=env).strip()
+    if not tree:
+        raise _GitError("git write-tree produced no tree id")
+    return tree
+
+
+def _tracked_digest(top: str) -> str:
+    """Working-tree content of tracked files (staged + unstaged), via a scratch index."""
+    real_index = _git(["rev-parse", "--git-path", "index"], cwd=top).strip()
+    with tempfile.TemporaryDirectory() as td:
+        scratch = os.path.join(td, "index")
+        # Seed the scratch index from the real one when it exists (an unborn/empty
+        # checkout may have none — then start from an empty index).
+        if real_index and os.path.exists(os.path.join(top, real_index) if not os.path.isabs(real_index) else real_index):
+            src = real_index if os.path.isabs(real_index) else os.path.join(top, real_index)
+            shutil.copyfile(src, scratch)
+        env = {**os.environ, "GIT_INDEX_FILE": scratch}
+        # add -u updates ONLY already-tracked entries to their working-tree content;
+        # it never introduces untracked files, keeping this field tracked-only.
+        _git(["add", "-u"], cwd=top, env=env)
+        return _write_tree(top, env)
+
+
+def _untracked_digest(top: str) -> str:
+    """Content of untracked, non-ignored files, via a fresh empty scratch index."""
+    listing = _git(["ls-files", "-o", "--exclude-standard", "-z"], cwd=top)
+    paths = [p for p in listing.split("\0") if p]
+    with tempfile.TemporaryDirectory() as td:
+        scratch = os.path.join(td, "index")
+        env = {**os.environ, "GIT_INDEX_FILE": scratch}
+        _git(["read-tree", "--empty"], cwd=top, env=env)
+        if paths:
+            # `add --` treats every remaining token as a literal pathspec, so a path
+            # with spaces / unicode / a leading dash is added correctly.
+            _git(["add", "--", *paths], cwd=top, env=env)
+        return _write_tree(top, env)
+
+
+def build_fingerprint() -> dict:
+    top = _toplevel()
+    return {
+        "checkout_id": _git(["rev-parse", "--absolute-git-dir"], cwd=top).strip(),
+        "head": _head(top),
+        "index_digest": _write_tree(top),
+        "tracked_digest": _tracked_digest(top),
+        "untracked_digest": _untracked_digest(top),
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    try:
+        fp = build_fingerprint()
+    except _GitError as exc:
+        print(f"checkout-fingerprint: {exc}", file=sys.stderr)
+        return 1
+    if not fp.get("checkout_id"):
+        print("checkout-fingerprint: could not establish checkout_id", file=sys.stderr)
+        return 1
+    sys.stdout.write(json.dumps(fp, sort_keys=True) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
