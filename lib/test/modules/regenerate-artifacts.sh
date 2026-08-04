@@ -1079,6 +1079,165 @@ _ra_same "#1244 AP7 preflight writes nothing on the unmarked-crash arm" \
   "the read-only preflight mutated the manifest on the unmarked-crash arm"
 _ra_live_unchanged "#1244 AP7 live manifest byte-unchanged after the unmarked-crash preflight"
 
+# AP8 — a JUDGMENT row's own DRIFT arm, which is the preflight's primary detection path.
+# Four of the five eligible rows are judgment rows carrying no `preflight_positive_marker`,
+# so for them drift is reached by the terminal fall-through in `run_preflight_row` — the arm
+# that fires when the exit is in-set, non-clean, and matches NO infra marker and NO
+# traceback. Every other AP arm reaches a different branch: AP2/AP5 drive the marker-bearing
+# cloud-writer row, AP4 drives a judgment row's infra-marker arm, AP6/AP7 drive crashes. So
+# without this arm the fall-through could be inverted to "not drift" and the whole module
+# would stay green while genuine drift silently launched the suite.
+#
+# The plant is the A3b shape — an identity SOURCE edit with the baked regions left stale —
+# because it is a NON-CRASHING content drift: the generator runs to completion and reports
+# its own diagnostic, which is what distinguishes this arm from every crash arm above.
+RA_AP8="$_ra_tmp_root/ap8"; _ra_fixture "$RA_AP8"
+python3 - "$RA_AP8" <<'RA_AP8_PLANT' >/dev/null 2>&1 \
+  || assert_eq "#1244 AP8 planted identity drift applied" yes "no(plant failed)"
+import json, sys
+p = sys.argv[1] + "/lib/plugin-identity.json"
+d = json.load(open(p))
+d["plugin_aliases"] = list(d.get("plugin_aliases", [])) + ["devflow-ap8-alias"]
+json.dump(d, open(p, "w"), indent=2)
+open(p, "a").write("\n")
+RA_AP8_PLANT
+# Positive control, in two parts, because the arm under test is selected by what the
+# generator did NOT print as much as by its exit code. (1) the plant must really drift —
+# otherwise every assertion below measures a clean tree; (2) the generator's output must
+# carry none of this row's infra markers and no traceback — otherwise the run lands on the
+# UNCHECKABLE arm AP4/AP6 already cover and the fall-through stays undriven.
+RA_AP8_PROBE="$( cd "$RA_AP8" && python3 lib/generate-plugin-identity.py --check 2>&1 )"
+assert_eq "#1244 AP8 the plant really drifts the baked regions (exit 1)" "1" "$?"
+_ra_ok "#1244 AP8 the drift carries NO infra marker and no traceback (so the judgment fall-through is the branch under test)" \
+  "$(case "$RA_AP8_PROBE" in
+       *"Traceback (most recent call last)"*|*"banner(s); expected exactly 1"*|*"after its begin banner"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "the planted drift matched an UNCHECKABLE marker, so this arm would measure AP4/AP6's branch instead"
+RA_AP8_IDENT="$(_ra_ident_regions "$RA_AP8")"
+_ra_preflight "$RA_AP8"
+assert_eq "#1244 AP8 a judgment row's content drift exits 1" "1" "$(_ra_prc "$RA_AP8")"
+_ra_has_file "#1244 AP8 the drifting judgment row is reported DRIFT by name" \
+  "$RA_AP8/.rap.out" "[plugin-identity-regions] DRIFT"
+_ra_has_file "#1244 AP8 the judgment drift carries the generator's own drift diagnostic" \
+  "$RA_AP8/.rap.out" "baked identity region(s) differ from"
+_ra_has_file "#1244 AP8 the judgment drift names its governing policy" \
+  "$RA_AP8/.rap.out" "rewrite the baked regions with"
+_ra_has_file "#1244 AP8 the judgment drift prints the drift summary line" \
+  "$RA_AP8/.rap.out" "preflight detected drift"
+# The machine verdict line is what the coordinator actually reads (AP10 drives that end to
+# end); assert it here too so a judgment-row drift is proven to emit the refusal contract
+# and not merely the human sentence beside it.
+_ra_has_file "#1244 AP8 the judgment drift emits the machine drift verdict the coordinator reads" \
+  "$RA_AP8/.rap.out" "regenerate-artifacts: preflight-verdict: drift"
+_ra_ok "#1244 AP8 a judgment drift never reports the uncheckable summary" \
+  "$(case "$(cat "$RA_AP8/.rap.out")" in
+       *"could not check at least one eligible artifact"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "a positively-detected judgment drift was reported as uncheckable, which fails OPEN"
+_ra_same "#1244 AP8 preflight writes nothing on the judgment-drift arm" \
+  "$RA_AP8_IDENT" "$(_ra_ident_regions "$RA_AP8")" \
+  "the read-only preflight rewrote the identity regions it reported as drifted"
+_ra_live_unchanged "#1244 AP8 live manifest byte-unchanged after the judgment-drift preflight"
+
+# AP9 — the machine verdict line exists for all three verdicts, so a consumer never has to
+# re-derive "checked and clean" from "could not check" out of an exit code alone. Read off
+# the fixtures already run above rather than re-running them.
+_ra_has_file "#1244 AP9 a clean preflight emits the clean verdict line" \
+  "$RA_AP1/.rap.out" "regenerate-artifacts: preflight-verdict: clean"
+_ra_has_file "#1244 AP9 an uncheckable preflight emits the uncheckable verdict line" \
+  "$RA_AP4/.rap.out" "regenerate-artifacts: preflight-verdict: uncheckable"
+# The verdicts are mutually exclusive: a clean run that also emitted the drift verdict would
+# make the coordinator refuse on a reconciled tree.
+_ra_ok "#1244 AP9 a clean preflight emits no drift verdict" \
+  "$(case "$(cat "$RA_AP1/.rap.out")" in
+       *"preflight-verdict: drift"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "the clean run emitted the drift verdict, which would make the coordinator refuse to launch"
+_ra_ok "#1244 AP9 an uncheckable preflight emits no drift verdict (it must fail OPEN)" \
+  "$(case "$(cat "$RA_AP4/.rap.out")" in
+       *"preflight-verdict: drift"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "an unestablished check emitted the drift verdict, which would block the suite on nothing"
+
+# ── AP10 — the coordinator end-to-end against the REAL preflight (issue #1244) ─
+# The `parallel-suite-runner` module drives every coordinator arm through an INJECTED stub,
+# so two things stayed unasserted there and are asserted here instead, in the one module
+# that owns a full checkout image:
+#   * the DEFAULT binding — nothing pinned that an unset DEVFLOW_ARTIFACT_PREFLIGHT resolves
+#     to the bundled helper at all. Emptying that default, or renaming the helper, left the
+#     feature absent from every real run with the whole suite green.
+#   * the CROSS-FILE verdict contract — the coordinator's refusal comparand is produced in
+#     `regenerate-artifacts.py`, and every stub hardcoded its own copy of it, so the two
+#     could drift apart with nothing red.
+# The dispatcher stays stubbed (the shard seam is orthogonal, and a real population here
+# would fork a second suite); the PREFLIGHT is the real one, resolved by default.
+_ra_plant_dispatcher() {  # <fixture-root> — a shard dispatcher that writes one real tally
+  cat > "$1/ra-dispatch.sh" <<'RA_DISPATCH_EOF'
+#!/usr/bin/env bash
+set -u
+HERE="$(cd "$(dirname "$0")" && pwd -P)"
+case "${1-}" in
+  --list-shards) printf '%s\n' alpha; exit 0 ;;
+esac
+D="${DEVFLOW_SHARD_TALLY_DIR:?}"
+mkdir -p "$D"
+LOG="$D/log.txt"
+printf '2 passed, 0 failed\n' > "$LOG"
+python3 "$HERE/lib/test/shard-tally.py" extract --shard "$1" --tier monolith \
+  --log "$LOG" --rc 0 --out "$D" >/dev/null
+RA_DISPATCH_EOF
+  chmod +x "$1/ra-dispatch.sh"
+}
+
+# AP10a — the drifted tree from AP8, run through the coordinator with NO override: the real
+# default preflight must be reached, must detect the judgment-row drift, and the coordinator
+# must refuse to launch. This single arm binds all three surfaces — default resolution,
+# the real Python producer's verdict, and the shell comparand that reads it.
+_ra_plant_dispatcher "$RA_AP8"
+RA_AP10_OUT="$( cd "$RA_AP8" && DEVFLOW_SHARD_DISPATCHER="$RA_AP8/ra-dispatch.sh" \
+  bash lib/test/run-parallel.sh 2>&1 )"; RA_AP10_RC=$?
+_ra_ok "#1244 AP10a the coordinator refuses (non-zero) on real drift with the DEFAULT preflight" \
+  "$([ "$RA_AP10_RC" -ne 0 ] && printf yes || printf no)" \
+  "the coordinator exited 0 on a drifted tree; output: $(printf '%s' "$RA_AP10_OUT" | tr '\n' '|')"
+_ra_ok "#1244 AP10a the coordinator launches NO shard on real drift" \
+  "$(case "$RA_AP10_OUT" in *"launched shard"*) printf no ;; *) printf yes ;; esac)" \
+  "a shard was launched despite detected drift; output: $(printf '%s' "$RA_AP10_OUT" | tr '\n' '|')"
+_ra_ok "#1244 AP10a the coordinator refuses by name" \
+  "$(case "$RA_AP10_OUT" in *"launching no shard"*) printf yes ;; *) printf no ;; esac)" \
+  "the refusal message is absent; output: $(printf '%s' "$RA_AP10_OUT" | tr '\n' '|')"
+# The real helper's own row line, echoed by the coordinator: this is what proves the
+# DEFAULT resolved to the bundled helper rather than to nothing (an empty default warns and
+# proceeds, printing no row line at all).
+_ra_ok "#1244 AP10a the echoed report is the REAL helper's row output, not a stub's" \
+  "$(case "$RA_AP10_OUT" in *"[plugin-identity-regions] DRIFT"*) printf yes ;; *) printf no ;; esac)" \
+  "the coordinator printed no real preflight row line, so the default binding was not exercised"
+_ra_ok "#1244 AP10a the coordinator never treated the real drift as inconclusive" \
+  "$(case "$RA_AP10_OUT" in *"preflight was inconclusive"*) printf no ;; *) printf yes ;; esac)" \
+  "real drift took the fail-OPEN arm; output: $(printf '%s' "$RA_AP10_OUT" | tr '\n' '|')"
+
+# AP10b — the reconciled counterpart, so AP10a's refusal is attributable to the planted
+# drift and not to the coordinator refusing on every fixture. A clean tree with the same
+# real default preflight launches the shard and completes.
+RA_AP10B="$_ra_tmp_root/ap10b"; _ra_fixture "$RA_AP10B"; _ra_plant_dispatcher "$RA_AP10B"
+RA_AP10B_OUT="$( cd "$RA_AP10B" && DEVFLOW_SHARD_DISPATCHER="$RA_AP10B/ra-dispatch.sh" \
+  bash lib/test/run-parallel.sh 2>&1 )"; RA_AP10B_RC=$?
+_ra_same "#1244 AP10b a reconciled tree with the DEFAULT preflight exits 0" "0" "$RA_AP10B_RC" \
+  "output: $(printf '%s' "$RA_AP10B_OUT" | tr '\n' '|')"
+_ra_ok "#1244 AP10b a reconciled tree still launches its shard" \
+  "$(case "$RA_AP10B_OUT" in *"launched shard alpha"*) printf yes ;; *) printf no ;; esac)" \
+  "no shard launched on a clean tree; output: $(printf '%s' "$RA_AP10B_OUT" | tr '\n' '|')"
+_ra_ok "#1244 AP10b a reconciled tree emits no preflight warning and no refusal" \
+  "$(case "$RA_AP10B_OUT" in
+       *"generated-artifact preflight"*|*"launching no shard"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "a clean real preflight was reported as inconclusive or refused; output: $(printf '%s' "$RA_AP10B_OUT" | tr '\n' '|')"
+_ra_live_unchanged "#1244 AP10 live manifest byte-unchanged after the coordinator integration arms"
+
 # The row integration itself has two non-clean states. A measured raise is a mechanical
 # reconciliation that changes the registry and `run.sh`; a measured decrease is a non-writing
 # judgment. The fake runner above supplies the actual summary boundary while these fixtures

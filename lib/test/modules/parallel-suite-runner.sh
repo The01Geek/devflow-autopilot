@@ -832,6 +832,15 @@ assert_eq "psr run-root: an exhausted candidate name space refuses by name" "yes
 # every arm is drivable from a synthetic tree with an injected stub. Detected drift fails
 # CLOSED (no shard launches); an inconclusive preflight fails OPEN (a warning, then the
 # shards run).
+#
+# The refusal comparand is the preflight's MACHINE verdict line, whose producer is
+# `lib/test/regenerate-artifacts.py` (`PREFLIGHT_VERDICT_PREFIX`). A stub here necessarily
+# restates that literal, so a stub-only module could never catch the two files drifting
+# apart — that binding is driven end-to-end against the REAL helper (and the real default
+# resolution) from `lib/test/modules/regenerate-artifacts.sh`'s AP10 arms. What this module
+# owns instead is the coordinator's own selection logic, including the two negative controls
+# below that a stub is uniquely good at: the human remedy prose alone must NOT refuse, and
+# neither must the verdict text quoted inside an indented row diagnostic.
 PSR_STUBS="$PSR_ROOT/preflight-stubs"; mkdir -p "$PSR_STUBS"
 psr_plant_preflight() {  # <name> <rc> <line...>   — writes an executable stub, echoes its path
   local name="$1" rc="$2"; shift 2
@@ -847,12 +856,29 @@ psr_plant_preflight() {  # <name> <rc> <line...>   — writes an executable stub
 
 PSR_PF_CLEAN="$(psr_plant_preflight clean 0 \
   "[cloud-writer-manifest] clean" \
+  "regenerate-artifacts: preflight-verdict: clean" \
   "regenerate-artifacts: preflight — every eligible artifact reconciled — exit 0")"
 PSR_PF_DRIFT="$(psr_plant_preflight drift 1 \
   "[cloud-writer-manifest] DRIFT \`python3 lib/test/cloud_writer_contract.py verify\` exited 1" \
   "    governing policy: regenerate against the merged tree with \`python3 lib/test/cloud_writer_contract.py generate\`" \
+  "regenerate-artifacts: preflight-verdict: drift" \
   "regenerate-artifacts: preflight detected drift — regenerate the artifact(s) above and commit before the suite run — exit 1")"
+# Negative control 1: the HUMAN remedy sentence with no verdict line. The coordinator used
+# to key its refusal on a substring of this prose, which made a reword in the producer file
+# a silent fail-open. It must now warn and proceed.
+PSR_PF_PROSE_ONLY="$(psr_plant_preflight prose-only 1 \
+  "[cloud-writer-manifest] DRIFT \`python3 lib/test/cloud_writer_contract.py verify\` exited 1" \
+  "regenerate-artifacts: preflight detected drift — regenerate the artifact(s) above and commit before the suite run — exit 1")"
+# Negative control 2: the verdict TEXT quoted inside an indented row diagnostic, which is
+# how a row's captured `output:` block reproduces whatever its generator printed. The
+# comparand is line-exact, so this must not refuse either.
+PSR_PF_QUOTED="$(psr_plant_preflight quoted-verdict 1 \
+  "[capability-profile-literals] UNCHECKABLE \`python3 lib/generate-capability-profiles.py --check\` exited 1" \
+  "    output: regenerate-artifacts: preflight-verdict: drift" \
+  "regenerate-artifacts: preflight-verdict: uncheckable" \
+  "regenerate-artifacts: preflight could not check at least one eligible artifact — exit 2")"
 PSR_PF_EXIT2="$(psr_plant_preflight exit2 2 \
+  "regenerate-artifacts: preflight-verdict: uncheckable" \
   "regenerate-artifacts: preflight could not check at least one eligible artifact — exit 2")"
 PSR_PF_CRASH="$(psr_plant_preflight crash 1 \
   "Traceback (most recent call last):" \
@@ -885,6 +911,32 @@ assert_eq "#1244 psr preflight: detected drift echoes the failing row's report" 
   "$(case "$PSR_PF_OUT" in *"[cloud-writer-manifest] DRIFT"*) echo yes ;; *) echo no ;; esac)"
 assert_eq "#1244 psr preflight: detected drift claims no aggregate" "yes" \
   "$(case "$PSR_PF_OUT" in *passed,*) echo no ;; *) echo yes ;; esac)"
+
+# The refusal is keyed on the machine verdict LINE, not on the human remedy sentence beside
+# it. Without this control the coordinator could go on matching that free prose and nothing
+# would notice — which is the state this seam was in before: a reword in the producer file
+# would have left it failing OPEN on genuine drift.
+PSR_PF_OUT="$(cd "$PSR_PT" && DEVFLOW_ARTIFACT_PREFLIGHT="$PSR_PF_PROSE_ONLY" \
+  DEVFLOW_SHARD_DISPATCHER="$PSR_PT/dispatch.sh" SYN_SHARDS=alpha SYN_SLEEP=0.05 \
+  bash lib/test/run-parallel.sh 2>&1)"; PSR_PF_RC=$?
+assert_eq "#1244 psr preflight: the human remedy prose alone does NOT refuse (exit 0)" "0" "$PSR_PF_RC"
+assert_eq "#1244 psr preflight: the human remedy prose alone still launches the shard" "yes" \
+  "$(case "$PSR_PF_OUT" in *"launched shard alpha"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1244 psr preflight: the human remedy prose alone is reported inconclusive, never a refusal" "yes" \
+  "$(case "$PSR_PF_OUT" in *"launching no shard"*) echo no ;; *"preflight was inconclusive (exit 1"*) echo yes ;; *) echo no ;; esac)"
+
+# The verdict is matched LINE-EXACTLY: the same text reproduced inside an indented row
+# diagnostic is data a generator printed, not this preflight's verdict, so it must not
+# refuse. A substring match over the whole blob would fail CLOSED here on a run whose only
+# real verdict was `uncheckable`.
+PSR_PF_OUT="$(cd "$PSR_PT" && DEVFLOW_ARTIFACT_PREFLIGHT="$PSR_PF_QUOTED" \
+  DEVFLOW_SHARD_DISPATCHER="$PSR_PT/dispatch.sh" SYN_SHARDS=alpha SYN_SLEEP=0.05 \
+  bash lib/test/run-parallel.sh 2>&1)"; PSR_PF_RC=$?
+assert_eq "#1244 psr preflight: a verdict quoted inside a row diagnostic does NOT refuse (exit 0)" "0" "$PSR_PF_RC"
+assert_eq "#1244 psr preflight: a verdict quoted inside a row diagnostic still launches the shard" "yes" \
+  "$(case "$PSR_PF_OUT" in *"launched shard alpha"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1244 psr preflight: a verdict quoted inside a row diagnostic refuses nothing by name" "yes" \
+  "$(case "$PSR_PF_OUT" in *"launching no shard"*) echo no ;; *) echo yes ;; esac)"
 
 # AC5 — an exit-2 (uncheckable) preflight warns and proceeds; the shards still run.
 PSR_PF_OUT="$(cd "$PSR_PT" && DEVFLOW_ARTIFACT_PREFLIGHT="$PSR_PF_EXIT2" \

@@ -97,6 +97,19 @@ from pathlib import Path
 
 MECHANICAL_ARTIFACT = "scripts/devflow-cloud-writer-contract.json"
 
+# The preflight's MACHINE-READABLE verdict line (issue #1244). COUPLED CONTRACT, edited
+# together with `lib/test/run-parallel.sh`: the parallel coordinator keys its fail-closed
+# refusal on the exact line `regenerate-artifacts: preflight-verdict: drift` and on nothing
+# else, so the human remedy sentences below it are free prose a reword cannot break. Before
+# this line existed the coordinator matched a substring of that prose, which meant a
+# rewording in THIS file would silently make the coordinator fail OPEN on real drift.
+#
+# Emitted for all three verdicts rather than only for drift, so a consumer can distinguish
+# "checked and clean" from "could not check" without re-deriving either from an exit code —
+# and matched LINE-EXACTLY by the coordinator, so the same text quoted inside a row's own
+# diagnostic (which is always indented or row-prefixed) can never be mistaken for a verdict.
+PREFLIGHT_VERDICT_PREFIX = "regenerate-artifacts: preflight-verdict: "
+
 # The closed set of conflict-resolution classes (issue #655). A merge conflict in a
 # checked-in generated artifact must never be hand-merged: hand-merged bytes match no
 # source of truth, and the row's own gate then reports the result as drift with a remedy
@@ -813,10 +826,14 @@ def run_preflight_row(row, root, report):
 def run_preflight(root):
     """Read-only preflight over the eligible rows only (issue #1244).
 
-    Writes nothing, prints one line per row it ran, and exits:
+    Writes nothing, prints one line per row it ran, then a machine verdict line
+    (`PREFLIGHT_VERDICT_PREFIX` + one of `clean` / `drift` / `uncheckable`) followed by
+    the human remedy sentence, and exits:
       0 — every eligible row is clean;
       1 — at least one eligible row DRIFTED (a positively-attributed, reconcilable drift);
       2 — no drift, but at least one eligible row could not be checked.
+    The verdict line is the contract `lib/test/run-parallel.sh` reads; the sentence beside
+    it is for a human and carries no consumer.
     DRIFT takes precedence over UNCHECKABLE: a positively-detected drift must fail closed
     (the coordinator refuses to launch) and must never be masked by an unrelated row that
     happened to be uncheckable. Exit 2 is therefore the purely-unestablished case, which
@@ -850,17 +867,20 @@ def run_preflight(root):
     for line in report:
         print(line)
     if drift:
+        print(f"{PREFLIGHT_VERDICT_PREFIX}drift")
         print(
             "regenerate-artifacts: preflight detected drift — regenerate the artifact(s) "
             "above under their governing policy and commit before the suite run — exit 1"
         )
         return 1
     if uncheckable:
+        print(f"{PREFLIGHT_VERDICT_PREFIX}uncheckable")
         print(
             "regenerate-artifacts: preflight could not check at least one eligible "
             "artifact — exit 2"
         )
         return 2
+    print(f"{PREFLIGHT_VERDICT_PREFIX}clean")
     print("regenerate-artifacts: preflight — every eligible artifact reconciled — exit 0")
     return 0
 
