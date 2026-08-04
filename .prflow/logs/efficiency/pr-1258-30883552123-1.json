@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1258",
+  "generated_at": "2026-08-04T06:26:31Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.84",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.1581195,
+    "tokens": {
+      "input_tokens": 58,
+      "output_tokens": 19081,
+      "cache_read_input_tokens": 4609207,
+      "cache_creation_input_tokens": 173981,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 98,
+        "outputTokens": 38225,
+        "cacheReadInputTokens": 5739714,
+        "cacheCreationInputTokens": 428755,
+        "webSearchRequests": 0,
+        "costUSD": 7.1581195,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 43,
+    "duration_ms": 391262
+  },
+  "permission_denials": {
+    "count": 9,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review",
+      "mkdir -p .prflow/tmp/review/pr-1258/local-1; echo done; echo \"RUN_ID env: ${GITHUB_RUN_ID:-none}\"",
+      "for f in skills/implement/phases/phase-3-review.md skills/review-and-fix/references/fixing.md; do printf '%s  ' \"$f\"; git show a3b6cfc:\"$f\" | python3 -c \"import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())\"; done",
+      "ls .changeset/ 2>/dev/null; echo \"---\"; for f in .changeset/*.md; do [ \"$f\" = \".changeset/README.md\" ] && continue; echo \"== $f\"; head -5 \"$f\"; done 2>/dev/null | head -40",
+      "python3 -c \"\nimport importlib.util\nspec = importlib.util.spec_from_file_location('fs','scripts/focused_selection.py')\nm = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n# half-focused (coverage_map_entry, no target) + exemption_ground\ne = {'surface':'scripts/x.py','coverage_map_entry':'cov','exemption_ground':'n/a'}\nprint('classify:', m.classify_entry(e))\nrec = m.build_record([e])\nprint('normalized entry:', rec['surfaces'][0])\n\"",
+      "scripts/post-review-verdict.sh --help 2>&1 | head -40",
+      "scripts/post-review-verdict.sh 1258 \"APPROVE with notes\" .prflow/tmp/review/pr-1258/local-1/verdict.md a3b6cfc6005dd489283deaf843611813e8828b08"
+    ],
+    "total": 9,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
