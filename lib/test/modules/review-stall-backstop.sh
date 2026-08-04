@@ -1933,9 +1933,12 @@ printf '[{"id":55,"commit_id":"%s","user":{"login":"%s"},"body":"$(id) `whoami` 
   "$V1156_CSHA" "$V1156_CLOGIN" > "$V1156_CLSD/inject.json"
 assert_eq "#1250 classify: a review body cannot inject into the emitted line (id field is digits only)" \
   "unmarked 55" "$(v1156_cls "$V1156_CLSD/inject.json")"
-# The remaining THREE closed reason tokens are each asserted against their exact line —
-# every reason renders verbatim into a ::warning:: and a PR comment, so a reason a
-# regression reclassified would ship green if only its sibling reasons were pinned.
+# The payload-shape reason tokens the arms above have not already reached are asserted here
+# against their exact line — every reason renders verbatim into a ::warning:: and a PR
+# comment, so a reason a regression reclassified would ship green if only its sibling
+# reasons were pinned. Deliberately count-free: the closed vocabulary grows (issue #1250
+# added `review-placement-unprovable`, asserted with arm f above), and a comment carrying
+# the tally would rot on the very edit that extends it.
 printf '{"not":"an array"}' > "$V1156_CLSD/obj.json"
 assert_eq "#1250 classify: a valid-JSON non-array payload is unestablished payload-not-an-array" \
   "unestablished payload-not-an-array" "$(v1156_cls "$V1156_CLSD/obj.json")"
