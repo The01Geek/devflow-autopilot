@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1293",
+  "generated_at": "2026-08-04T20:17:09Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.98",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 26.92827175,
+    "tokens": {
+      "input_tokens": 258,
+      "output_tokens": 69256,
+      "cache_read_input_tokens": 35848095,
+      "cache_creation_input_tokens": 348816,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 328,
+        "outputTokens": 92110,
+        "cacheReadInputTokens": 37592856,
+        "cacheCreationInputTokens": 723103,
+        "webSearchRequests": 0,
+        "costUSD": 26.92827175,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 148,
+    "duration_ms": 2665096
+  },
+  "permission_denials": {
+    "count": 9,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "cd /tmp && rm -rf st1289 && mkdir -p st1289/{alpha,beta,gamma}\nfor s in alpha beta gamma; do printf 'shard\\t%s\\npassed\\t1\\nfailed\\t0\\nskipped\\t0\\nrc\\t0\\n' \"$s\" > st1289/$s/summary; : > st1289/$s/skips; : > st1289/$s/names; done\nHELP=/home/runner/work/prflow/prflow/lib/test/shard-tally.py\necho \"=== full partition present, required all three ===\"; python3 $HELP combine st1289/alpha st1289/beta st1289/gamma --expect 3 --require-shards \"alpha beta gamma\"; echo \"rc=$?\"\necho \"=== subset: only alpha, b …[per-command-truncated]",
+      "R=.prflow/tmp/st1289; rm -rf \"$R\"; mkdir -p \"$R/alpha\" \"$R/beta\" \"$R/gamma\"\nfor s in alpha beta gamma; do printf 'shard\\t%s\\npassed\\t1\\nfailed\\t0\\nskipped\\t0\\nrc\\t0\\n' \"$s\" > \"$R/$s/summary\"; : > \"$R/$s/skips\"; : > \"$R/$s/names\"; done\nH=lib/test/shard-tally.py\necho \"=== full partition, require all three ===\"; python3 $H combine \"$R/alpha\" \"$R/beta\" \"$R/gamma\" --expect 3 --require-shards \"alpha beta gamma\"; echo \"rc=$?\"\necho \"=== subset alpha, require all three ===\"; python3 $H combine \"$R/alpha\" …[per-command-truncated]",
+      "gh pr create --draft --base main --head issue-1289-shard-tally-combine-expect-reconciled-against \\\n  --title \"Reconcile shard-tally combine against the true partition by name (#1289)\" \\\n  --body \"Closes #1289.\n\n## What\nAdds \\`--require-shards\\` to \\`lib/test/shard-tally.py combine\\`: the shard partition a recombination must cover, checked **by name** rather than only by the \\`--expect\\` count. A subset that satisfies \\`--expect\\` now fails closed naming the missing shard(s), so a partial recombi …[per-command-truncated]",
+      "ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); mkdir -p \"$ROOT/.prflow/tmp\"\nfind \"$ROOT/.prflow/tmp/review\" -path '*/iter-*.json' 2>/dev/null | sort > \"$ROOT/.prflow/tmp/.phase33-iters-before\" || :; wc -l < \"$ROOT/.prflow/tmp/.phase33-iters-before\"",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-local}\"; git rev-parse --short HEAD; mkdir -p \".prflow/tmp/review/issue-1289-shard-tally/${GITHUB_RUN_ID:-local}\" && echo \"dir made\"",
+      "printf 'RUN_ID=%s HEAD=%s\\n' \"${GITHUB_RUN_ID:-local}\" \"$(git rev-parse --short HEAD)\"; mkdir -p \".prflow/tmp/review/issue-1289-shard-tally/${GITHUB_RUN_ID:-local}\"; ls -d .prflow/tmp/review/issue-1289-shard-tally/*",
+      "printf 'run_id=[%s]\\n' \"$GITHUB_RUN_ID\"",
+      "L=$(.prflow/vendor/prflow/scripts/config-get.sh .docs.labels Documented 2>/dev/null); .prflow/vendor/prflow/scripts/ensure-label.sh \"$L\" 2>&1 | tail -1; .prflow/vendor/prflow/scripts/apply-labels.sh 1293 \"$L\" 2>&1 | tail -1",
+      "TID=$(gh api \"repos/{owner}/{repo}/issues/1289/comments?per_page=100\" --jq 'map(select((.body | contains(\"/prflow:implement\")) and ((.body | test(\"(pr|dev)flow:workpad\")) | not))) | last | .id' 2>/dev/null || true)\nif [ -n \"$TID\" ] && [ -z \"${TID//[0-9]/}\" ]; then\n  .prflow/vendor/prflow/scripts/react-to-trigger.sh --repo \"$GITHUB_REPOSITORY\" --event issue_comment --comment \"$TID\" --reaction hooray --report-failure 2>&1 | tail -1\nelse\n  echo \"no triggering comment resolved (workpad glyph is auth …[per-command-truncated]"
+    ],
+    "total": 9,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
