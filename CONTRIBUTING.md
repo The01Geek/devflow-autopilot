@@ -121,7 +121,14 @@ measured before/after figures are recorded once, in
 #### Coverage-map block ownership (every PR that adds an assertion)
 
 `lib/test/modules/coverage-map.json` is the ranked to-do list for future
-extractions, and its `run_sh_blocks` half is **derived**, not curated. The coverage
+extractions. Its `run_sh_blocks` half is **mostly derived** — a label asserted in the
+tree that carries no entry is added mechanically by `--fix` — but it is **not purely
+derived**: an entry whose assertions were later deleted or renamed has no live
+derivation behind it and becomes a **curated historical record** the guard deliberately
+neither reports nor removes (there are ~30 such `run_sh_blocks` keys today), and every
+`note` in both halves plus every `files`-row's content is curated. So treat the half as
+derived *for the ratchet's completeness arm* and curated *for the content a merge must
+not lose*. The coverage
 guard (`lib/test/coverage_map_guard.py`, driven by the complete suite) derives the
 issue labels asserted by `lib/test/run.sh` and by every `lib/test/modules/*.sh` —
 anchored on assertion-name position, so a `#NNN` in a comment derives nothing — and
@@ -163,6 +170,42 @@ The arm is deliberately **one-directional**: it reports a label the tree asserts
 map does not carry, never the reverse. A map entry with no derivation behind it — a
 block whose assertions were deleted or renamed — is a curated historical record, so it is
 neither reported nor removed by `--fix`. Prune such an entry by hand when you want it gone.
+
+**Merge conflicts in this file are NOT resolved with `--fix` (issue #1194).** The map is
+two large string-sorted JSON objects, so two branches that each *add* a different key at
+an adjacent sort position conflict textually even though they never semantically
+conflict — and resolving by taking either side silently **drops the other branch's
+entry**. `--fix` cannot undo that: it only *adds* missing derivable rows, so it cannot
+restore a curated `run_sh_blocks` record, any dropped `note`, or any `files`-row content —
+running it after a lossy resolution just produces a green suite over the loss. So when
+this file conflicts, keep **every key from both sides**:
+
+- Register the **JSON-aware merge driver** once per clone and let it union the objects
+  automatically on your next merge/rebase (it conflicts only on a genuine same-key
+  divergence):
+
+  ```bash
+  python3 lib/test/coverage-map-merge-driver.py --register   # then: --check to verify it is active
+  ```
+
+  The `.gitattributes` `merge=coverage-map-json` declaration only *names* the driver;
+  git falls back silently to its line-based merge until the driver is registered locally,
+  so `--check` (which prints the exact registration command when it is not) is the thing
+  to run if you are unsure.
+- If you resolve by hand (or in GitHub's web editor, where the driver cannot run), take
+  **both** sides' entries and then re-canonicalize with `--fix` (canonical form only — the
+  entries must already all be present first).
+
+The CI-side **key-retention check** backstops both paths regardless of local
+configuration — it fails RED when a key or its `note`/`owner` content disappears relative
+to the merge base, including for the curated keys no ratchet arm inspects:
+
+```bash
+python3 lib/test/coverage-map-retention-check.py .
+```
+
+A genuinely legitimate removal (a deleted tracked file, a truly retired block) is declared
+with a non-empty reason in `lib/test/coverage-map-retention-allow.json`.
 
 **Retired mutation-pin helpers (issue #810 follow-up).** The required
 `mutation-routing-worktree` gate builds the audited test-source census and requires
@@ -607,9 +650,13 @@ selectable module, complete all of the following in the same PR:
    asserted nowhere in `run.sh`) whose entry is absent or still names
    `unmodularized`. A **partially extracted** label — one a module carries while
    assertions remain in `run.sh` — correctly keeps `unmodularized`, because a single
-   `owner` string cannot describe split coverage. Repair the map with
-   `python3 lib/test/coverage_map_guard.py . --fix` rather than by hand (see
-   *Coverage-map block ownership* under Running the tests).
+   `owner` string cannot describe split coverage. Repair a *ratchet violation* (a
+   label the tree asserts but the map does not carry) with
+   `python3 lib/test/coverage_map_guard.py . --fix` rather than by hand. **A merge
+   conflict in this file is a different case — `--fix` is NOT the remedy there**
+   (it cannot restore a key a resolution dropped); register the JSON-aware merge
+   driver or take both sides by hand, and let the CI key-retention check backstop it
+   (see *Coverage-map block ownership* under Running the tests for both).
 7. **Module-contract compliance** — the module must satisfy the module contract
    documented in `lib/test/module-harness.sh`'s header (private fixture root and
    cleanup, caller-provided `LIB`/`RESULTS_FILE`/`assert_eq`, no self-skip, no

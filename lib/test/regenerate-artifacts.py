@@ -258,7 +258,7 @@ ROWS = (
         "argv": ("python3", "lib/test/coverage_map_guard.py", "."),
         "clean": (0,),
         "exits": (0, 1),
-        "policy": "add the missing coverage rows per the issue-591 ratchet in lib/test/modules/coverage-map.json (for a run_sh_blocks completeness/attribution item, `python3 lib/test/coverage_map_guard.py . --fix` is the hand-invoked repair)",
+        "policy": "add the missing coverage rows per the issue-591 ratchet in lib/test/modules/coverage-map.json (for a run_sh_blocks completeness/attribution item, `python3 lib/test/coverage_map_guard.py . --fix` is the hand-invoked repair). For a MERGE-CONFLICT resolution of this file, do NOT reach for `--fix`: it cannot restore a key a resolution dropped (issue #1194), so keep every key from BOTH sides — let the registered JSON-aware merge driver union them (register with `python3 lib/test/coverage-map-merge-driver.py --register`, verify with `--check`), or take both sides by hand then re-canonicalize; `python3 lib/test/coverage-map-retention-check.py` fails RED on any dropped key/content and backstops the web-editor path the driver cannot reach",
         # by-hand, and it STAYS by-hand: since issue #695 coverage_map_guard.py does have
         # a write path, but only behind the explicit, hand-invoked `--fix` flag. The
         # `argv` above deliberately omits it, so this row still runs a non-writing check
