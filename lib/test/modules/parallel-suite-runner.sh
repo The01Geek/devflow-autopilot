@@ -968,4 +968,71 @@ assert_eq "#1244 psr preflight: an empty override still launches the shard" "yes
 assert_eq "#1244 psr preflight: an empty override emits no preflight warning" "yes" \
   "$(case "$PSR_PF_OUT" in *"generated-artifact preflight"*) echo no ;; *) echo yes ;; esac)"
 
+# ── Standalone --preflight mode (issue #1288) ────────────────────────────────
+# The #1132 shard-decomposition route names `run-parallel.sh --preflight` before its shard
+# loop so the whole-suite result it produces carries the SAME pre-launch drift check the
+# coordinator's own run does. It runs ONLY the preflight, launches no shard, and exits with
+# the SAME verdict contract: 0 to proceed (clean or fail-open inconclusive), non-zero (die)
+# on a positively-attributed drift. It reuses the same injected stubs as the coordinator
+# arms above, needs no dispatcher (it exits before the shard population is derived), and
+# shares the `_artifact_preflight` implementation, so this proves the standalone route is
+# governed by the same single-sourced verdict interpretation.
+
+# A clean preflight exits 0, launches NO shard, and produces no aggregate.
+PSR_PFO_OUT="$(cd "$PSR_PT" && DEVFLOW_ARTIFACT_PREFLIGHT="$PSR_PF_CLEAN" \
+  bash lib/test/run-parallel.sh --preflight 2>&1)"; PSR_PFO_RC=$?
+assert_eq "#1288 --preflight: a clean preflight exits 0" "0" "$PSR_PFO_RC"
+assert_eq "#1288 --preflight: a clean preflight launches no shard" "yes" \
+  "$(case "$PSR_PFO_OUT" in *"launched shard"*) echo no ;; *) echo yes ;; esac)"
+assert_eq "#1288 --preflight: a clean preflight reports no aggregate" "yes" \
+  "$(case "$PSR_PFO_OUT" in *passed,*) echo no ;; *) echo yes ;; esac)"
+
+# A positively-attributed drift refuses: non-zero, echoes the failing row's report, and
+# refuses by name with the SAME 'launching no shard' contract the coordinator uses.
+PSR_PFO_OUT="$(cd "$PSR_PT" && DEVFLOW_ARTIFACT_PREFLIGHT="$PSR_PF_DRIFT" \
+  bash lib/test/run-parallel.sh --preflight 2>&1)"; PSR_PFO_RC=$?
+assert_eq "#1288 --preflight: detected drift exits non-zero" "yes" \
+  "$([ "$PSR_PFO_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#1288 --preflight: detected drift launches NO shard" "yes" \
+  "$(case "$PSR_PFO_OUT" in *"launched shard"*) echo no ;; *) echo yes ;; esac)"
+assert_eq "#1288 --preflight: detected drift refuses by name" "yes" \
+  "$(case "$PSR_PFO_OUT" in *"launching no shard"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1288 --preflight: detected drift echoes the failing row's report" "yes" \
+  "$(case "$PSR_PFO_OUT" in *"[cloud-writer-manifest] DRIFT"*) echo yes ;; *) echo no ;; esac)"
+
+# The verdict is matched LINE-EXACTLY here too: the same text quoted inside an indented row
+# diagnostic is data, not the verdict, so it must NOT refuse (fail-open, exit 0).
+PSR_PFO_OUT="$(cd "$PSR_PT" && DEVFLOW_ARTIFACT_PREFLIGHT="$PSR_PF_QUOTED" \
+  bash lib/test/run-parallel.sh --preflight 2>&1)"; PSR_PFO_RC=$?
+assert_eq "#1288 --preflight: a verdict quoted inside a row diagnostic does NOT refuse (exit 0)" "0" "$PSR_PFO_RC"
+assert_eq "#1288 --preflight: a verdict quoted inside a row diagnostic refuses nothing by name" "yes" \
+  "$(case "$PSR_PFO_OUT" in *"launching no shard"*) echo no ;; *) echo yes ;; esac)"
+
+# An exit-2 (uncheckable) preflight warns and proceeds (exit 0) — fail-open, same as the
+# coordinator.
+PSR_PFO_OUT="$(cd "$PSR_PT" && DEVFLOW_ARTIFACT_PREFLIGHT="$PSR_PF_EXIT2" \
+  bash lib/test/run-parallel.sh --preflight 2>&1)"; PSR_PFO_RC=$?
+assert_eq "#1288 --preflight: an exit-2 preflight proceeds (exit 0)" "0" "$PSR_PFO_RC"
+assert_eq "#1288 --preflight: an exit-2 preflight warns rather than refuses" "yes" \
+  "$(case "$PSR_PFO_OUT" in *"launching no shard"*) echo no ;; *"preflight was inconclusive (exit 2"*) echo yes ;; *) echo no ;; esac)"
+
+# A crashing preflight (traceback, exit 1, no drift marker) is inconclusive, not drift.
+PSR_PFO_OUT="$(cd "$PSR_PT" && DEVFLOW_ARTIFACT_PREFLIGHT="$PSR_PF_CRASH" \
+  bash lib/test/run-parallel.sh --preflight 2>&1)"; PSR_PFO_RC=$?
+assert_eq "#1288 --preflight: a crashing preflight proceeds (exit 0)" "0" "$PSR_PFO_RC"
+assert_eq "#1288 --preflight: a crashing preflight is treated as inconclusive, not drift" "yes" \
+  "$(case "$PSR_PFO_OUT" in *"launching no shard"*) echo no ;; *"preflight was inconclusive (exit 1"*) echo yes ;; *) echo no ;; esac)"
+
+# An empty override disables the preflight entirely: exit 0, and no preflight output at all.
+PSR_PFO_OUT="$(cd "$PSR_PT" && DEVFLOW_ARTIFACT_PREFLIGHT="" \
+  bash lib/test/run-parallel.sh --preflight 2>&1)"; PSR_PFO_RC=$?
+assert_eq "#1288 --preflight: an empty override disables the preflight (exit 0)" "0" "$PSR_PFO_RC"
+assert_eq "#1288 --preflight: an empty override emits no preflight output" "yes" \
+  "$(case "$PSR_PFO_OUT" in *"generated-artifact preflight"*) echo no ;; *) echo yes ;; esac)"
+
+# --preflight is a single known argument: a second argument is still refused by the arity
+# guard, not misread as the preflight input.
+assert_eq "#1288 --preflight: a second argument is refused by the arity guard" "yes" \
+  "$(cd "$PSR_PT" && case "$(bash lib/test/run-parallel.sh --preflight extra 2>&1)" in *"at most one argument"*) echo yes ;; *) echo no ;; esac)"
+
 rm -rf "$PSR_ROOT"
