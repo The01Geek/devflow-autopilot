@@ -1,5 +1,5 @@
 {
-  "manifest_version": 19,
+  "manifest_version": 20,
   "readme": [
     "This manifest is the single source of truth for DevFlow's cloud capability policy:",
     "which tools/commands each execution tier (review, implement, command) may run.",
@@ -200,6 +200,7 @@
       "Bash(.prflow/vendor/prflow/scripts/preflight.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/branch-for-issue.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/update-branch-checkpoint.sh:*)",
+      "Bash(.prflow/vendor/prflow/scripts/phase2-durability-checkpoint.sh:*)",
       "Bash(.prflow/vendor/prflow/scripts/file-deferrals.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/discover-deferral-manifests.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/match-deferrals.py:*)",
@@ -325,6 +326,7 @@
       "Bash(.prflow/vendor/prflow/scripts/check-verified-premises.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/branch-for-issue.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/update-branch-checkpoint.sh:*)",
+      "Bash(.prflow/vendor/prflow/scripts/phase2-durability-checkpoint.sh:*)",
       "Bash(.prflow/vendor/prflow/scripts/file-deferrals.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/match-deferrals.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/match-lint-adjudications.py:*)",
