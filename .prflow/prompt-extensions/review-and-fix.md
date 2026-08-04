@@ -326,10 +326,10 @@ DevFlow-repo policy: a second marker gate on the **same shared review-engine sur
 
 **Tier discriminator (per PR).** Classify from the workpad `## Progress` section: a workpad carrying any `<!-- prflow:checkpoint gha:… -->` row — or the superseded `<!-- devflow:checkpoint gha:… -->` spelling, which a pre-rename run stamped — is a **cloud** run (those checkpoints are stamped cloud-only — `skills/implement/phases/phase-1-setup.md`, `skills/implement/SKILL.md`); a workpad with no such row is a **local/interactive** run. Since issue #1249 the clause acts on **both** classifications; it records the classification in the finding it emits so a reader knows which tier was expected to record the marker, but no longer uses it to gate whether it acts.
 
-**Behavior, by classification:**
+**Behavior:**
 
 1. On **any** PR carrying a completion/PR-ready claim — cloud-classified or local/interactive alike — the clause checks the workpad and the PR description for the `Verification evidence:` marker literal.
-2. When the marker is present on either surface the clause is silent. When it is absent from both surfaces the review emits one advisory (non-blocking) finding naming the missing `Verification evidence:` marker and the tier classification the checkpoint discriminator assigned. The advisory never raises the verdict to a FAIL/REJECT by itself, and — per-launch completeness being unobservable — it asserts only that no record is present at all, never that some launch went unrecorded.
+2. When the marker is present on either surface the clause is silent. When it is absent from both surfaces the review emits one advisory (non-blocking) finding naming the missing `Verification evidence:` marker and the tier classification the checkpoint discriminator assigned. The advisory never raises the verdict to a FAIL/REJECT by itself.
 
 **Covered population.** A **cloud or local** implement run's workpad, a **`/prflow:review-and-fix` run given a PR**, and a **direct-reception** marker recorded in the **PR description**. A local **current-branch** run with no PR and no linked issue is **out of scope** — it leaves no durable surface (workpad or PR body) for the gate to read, the same case the `Writing-skills evidence:` gate scopes out.
 
