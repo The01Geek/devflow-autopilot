@@ -90,7 +90,18 @@ PROTOCOL = "devflow-cloud-writer-contract-v1"
 # The immediately preceding supported workflow profile set (AC18
 # `legacy_profile_baseline`). Consumers older than this refresh workflows and
 # plugin content together before their next cloud-writer run (see docs/install.md).
-LEGACY_PROFILE_BASELINE = "2.15.13"
+#
+# Cadence rule (issue #1034): advance this baseline whenever a change alters the
+# granted helper-head set of any profile in lib/capability-profiles.json, and
+# re-snapshot the frozen legacy grants that move with it
+# (`_FROZEN_LEGACY_GRANTS` in lib/test/test_python_scripts.py) in the same change.
+# A newly-granted head becomes a REQUIRED_HELPER_HEADS member only once the
+# baseline advances past the release that first shipped it — deferring registration
+# until then is what keeps the AC19 pairing-2 invariant (an N-1 workflow paired
+# with the current plugin still validates cleanly) satisfiable. This is authoring
+# guidance at its single source; the mechanical gate is the pairing-2 fixture
+# going RED, not a wording pin.
+LEGACY_PROFILE_BASELINE = "2.30.100"
 
 # The one repo-relative prefix a cloud-reached bundled helper is granted under.
 VENDOR_PREFIX = ".prflow/vendor/prflow/"
@@ -225,21 +236,12 @@ REQUIRED_HELPER_HEADS = {
         ".prflow/vendor/prflow/scripts/parse-acs.py",
         ".prflow/vendor/prflow/scripts/branch-for-issue.py",
         ".prflow/vendor/prflow/scripts/update-branch-checkpoint.sh",
-        # NOT listed here: Phase 3.1's existing-PR resolver (scripts/resolve-existing-pr.sh,
-        # issue #782). A review pass asked for it, and the request is sound in isolation —
-        # membership would assert its vendored grant, audit its leading-token boundary, and
-        # byte-pin it in the runtime manifest. But this list is a REQUIRED SUBSET every
-        # SUPPORTED consumer workflow must grant, including the immediately-preceding one
-        # frozen at `LEGACY_PROFILE_BASELINE`, which predates the helper and cannot grant it.
-        # Adding a brand-new head therefore breaks the AC19 pairing-2 invariant (an N-1
-        # workflow paired with the current plugin still validates cleanly) — reproduced: the
-        # live manifest under the frozen legacy grants reports HEAD_ABSENT for exactly this
-        # path. A newly-added helper becomes required when the baseline advances past the
-        # release that ships it, not in the release that introduces it; registering it here
-        # is deferred to that baseline bump. The helper is still granted in the current
-        # `implement` profile (lib/capability-profiles.json + the generated literals), so a
-        # current-workflow consumer runs it — only the every-supported-workflow REQUIREMENT
-        # is deferred.
+        # Phase 3.1's existing-PR resolver (scripts/resolve-existing-pr.sh, issue #782),
+        # registered at the issue-#1034 baseline bump: the baseline now advances past the
+        # release that shipped it, so the AC19 pairing-2 invariant (an N-1 workflow paired
+        # with the current plugin still validates cleanly) is satisfied by the re-snapshotted
+        # frozen legacy grants rather than broken by this head.
+        ".prflow/vendor/prflow/scripts/resolve-existing-pr.sh",
         ".prflow/vendor/prflow/scripts/file-deferrals.py",
         # Phase 4.0.5's discovery step, invoked in the SAME fence as
         # file-deferrals.py above (issue #555). Registered alongside it so the
@@ -251,20 +253,12 @@ REQUIRED_HELPER_HEADS = {
         ".prflow/vendor/prflow/scripts/resolve-review-overrides.py",
         ".prflow/vendor/prflow/scripts/apply-labels.sh",
         ".prflow/vendor/prflow/scripts/ensure-label.sh",
-        # NOT listed here: Phase 4.0's GitHub-native blocked-by dependency stamp
-        # (scripts/apply-issue-dependencies.py, issue #1011). It IS granted in the
-        # current `implement` profile (lib/capability-profiles.json + the generated
-        # devflow-cloud-writer-contract.json helper heads), so a current-workflow
-        # consumer runs it. But this list is the REQUIRED SUBSET every SUPPORTED
-        # consumer workflow must grant, including the one frozen at
-        # `LEGACY_PROFILE_BASELINE`, which predates the helper and cannot grant it —
-        # so registering a brand-new head here breaks the AC19 pairing-2 invariant
-        # (the #703 test: an N-1 workflow paired with the current plugin must still
-        # validate cleanly; the frozen grants report HEAD_ABSENT for exactly this
-        # path). It becomes required when the baseline advances past the release
-        # that ships it — the identical deferral scripts/resolve-existing-pr.sh
-        # already carries above. Issue #1011's acceptance criterion that named this
-        # list predates the legacy baseline and could not honour that invariant.
+        # Phase 4.0's GitHub-native blocked-by dependency stamp
+        # (scripts/apply-issue-dependencies.py, issue #1011), registered at the
+        # issue-#1034 baseline bump alongside resolve-existing-pr.sh above: the
+        # baseline now advances past the release that shipped it, so the AC19
+        # pairing-2 invariant holds via the re-snapshotted frozen legacy grants.
+        ".prflow/vendor/prflow/scripts/apply-issue-dependencies.py",
         ".prflow/vendor/prflow/scripts/stale-prose-lint.py",
         ".prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh",
         ".prflow/vendor/prflow/scripts/match-lint-adjudications.py",
@@ -942,20 +936,21 @@ def check_grant_sync(profile_grants=None):
 
 
 # --- AC4 (issue #678): profile-specific command shapes over the AC1 closure ----
-# extract-command-shapes.py already owns two empirically-probed rule tables — the
-# read-only review tier (R1-R4) and the read-write implement tier (IR1-IR5). What
-# was missing is the join to THIS module's reachability closure: the existing
+# extract-command-shapes.py owns three empirically-probed rule tables — the
+# read-only review tier (R1-R4), the read-write implement tier (IR1-IR5), and the
+# command tier (CR1-CR5, issue #1152, inheriting the implement shapes). What was
+# missing is the join to THIS module's reachability closure: the existing
 # desk-time scans cover named file globs, so a fenced command in an asset reached
 # by a root whose glob does not name it was audited by neither.
 #
 # The mapping below is per profile and EXPLICIT, because AC4 forbids inferring a
-# permitted form from evidence recorded on the other profile. `light-command`
-# maps to None BY DECLARATION, not by omission: matcher-probe.yml records a REVIEW
-# baseline and an IMPLEMENT baseline and no light-command one, so there is no
-# probe-anchored table to apply — and applying the review table (its listener is
-# a read-write writer tier, not the read-only reviewer) would be exactly the
-# cross-profile inference AC4 rejects. A ROOTS profile with NO entry at all is a
-# reported violation rather than a silent skip, so a future profile fails closed.
+# permitted form from evidence recorded on ANOTHER profile. Each profile maps to
+# its OWN probe-anchored table: matcher-probe.yml records a REVIEW, an IMPLEMENT,
+# and (issue #1152) a COMMAND baseline, so `light-command` maps to the command
+# table rather than borrowing the review or implement one — a None entry would
+# still be legal (it means "no probe-anchored table for that profile"), but no
+# ROOTS profile is None today. A ROOTS profile with NO entry at all is a reported
+# violation rather than a silent skip, so a future profile fails closed.
 #
 # `rules` is read from extract-command-shapes.py rather than mirrored, so a rule
 # added there cannot leave a stale copy here.
@@ -964,7 +959,14 @@ def check_grant_sync(profile_grants=None):
 # a stale name string.
 PROFILE_SHAPE_TABLES = {
     "implement": {"rules": _shapes.IMPLEMENT_RULES, "finder": _shapes.find_implement_violations},
-    "light-command": None,
+    # issue #1152: the light-command (devflow.yml) tier now HAS a probe-anchored
+    # rule table. It was `None` on the stated ground that matcher-probe.yml recorded
+    # a REVIEW baseline and an IMPLEMENT baseline and no command one — so there was no
+    # probe-anchored table to apply and borrowing the review table would be the
+    # cross-profile inference AC4 rejects. This issue adds the `command-probe` job and
+    # its generated baseline, so the tier is now measured; its rule set (`CR*`) is the
+    # implement tier's denied shapes remapped (see extract-command-shapes.py).
+    "light-command": {"rules": _shapes.COMMAND_RULES, "finder": _shapes.find_command_violations},
     "review": {"rules": _shapes.REVIEW_RULES, "finder": _shapes.find_violations},
 }
 
@@ -1003,12 +1005,14 @@ def shape_violations_in(profile, text):
 def shape_unaudited_assets():
     """Reached assets governed by NO profile carrying a probe-anchored rule table.
 
-    An asset every reaching profile declares ``None`` for (today only
-    ``light-command``) is audited by nothing — a real coverage hole this module
-    must *report*, not leave to be inferred from a silent pass. It is empty on the
-    current closure only because every light-command-reached skill is also reached
-    under ``implement``; a future skill reachable ONLY from the light-command
-    listener would otherwise escape the AC4 audit with the guard still green.
+    An asset every reaching profile declares ``None`` for is audited by nothing —
+    a real coverage hole this module must *report*, not leave to be inferred from a
+    silent pass. Empty on the current closure because no ROOTS profile is ``None``
+    today (issue #1152 gave ``light-command`` its own table); it stays empty even
+    were one reintroduced, because every light-command-reached skill is also reached
+    under ``implement`` — but a future skill reachable ONLY from a listener whose
+    profile declared ``None`` would escape the AC4 audit with the guard still green,
+    which is what this function exists to catch.
     """
     tabled = {p for p, table in PROFILE_SHAPE_TABLES.items() if table is not None}
     return sorted(
