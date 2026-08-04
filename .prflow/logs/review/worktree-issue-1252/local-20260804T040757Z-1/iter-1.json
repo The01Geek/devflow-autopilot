@@ -1,0 +1,112 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-04T04:07:57Z",
+  "fix_commit_sha": "2392dc1bc",
+  "fix_files": [
+    ".prflow/prompt-extensions/implement.md",
+    ".prflow/prompt-extensions/review-and-fix.md",
+    ".prflow/prompt-extensions/receiving-code-review.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "3.5",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "sweep_defs_read": ["phase-2-implement.md"],
+  "sweep_evidence": {"status": "run"},
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": true,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:requesting-code-review"
+  ],
+  "checklist": [
+    {"id": "VC-1", "claim": "AC1 — batching rule stated once in the single-source home section", "file": ".prflow/prompt-extensions/implement.md", "verification_mode": "agent", "claim_signature": "issue_acceptance:implement.md:ac1-batching-rule-single-home", "verdict": "PASS", "evidence": "section heading at implement.md:155; rule at 189; single occurrence"},
+    {"id": "VC-2", "claim": "AC2 — the two coupled copies carry it and the comments name it", "file": ".prflow/prompt-extensions/review-and-fix.md", "verification_mode": "lite", "claim_signature": "issue_acceptance:review-and-fix.md:ac2-coupled-copies-carry-rule", "verdict": "PASS", "evidence": "orchestrator-direct: rule present in all three files; all three coupled-copy markers carry the THREE-way declaration"},
+    {"id": "VC-3", "claim": "AC3 — the three non-override statements present in each copy", "file": ".prflow/prompt-extensions/receiving-code-review.md", "verification_mode": "agent", "claim_signature": "issue_acceptance:receiving-code-review.md:ac3-overrides-nothing-statements", "verdict": "FAIL", "evidence": "receiving-code-review.md replaced the two named relaunch rules with a bare pointer — FIXED in iteration 1 (restated inline, pointer kept as provenance)"},
+    {"id": "VC-4", "claim": "AC4 — how-many-passes-not-what-is-checked, plus the unbatchable-fix clause", "file": ".prflow/prompt-extensions/implement.md", "verification_mode": "lite", "claim_signature": "issue_acceptance:implement.md:ac4-no-skipped-check", "verdict": "PASS", "evidence": "orchestrator-direct grep: both statements present in all three copies"},
+    {"id": "VC-5", "claim": "AC5 — the #1249 clock requirement, prose-only arm", "file": ".prflow/prompt-extensions/implement.md", "verification_mode": "lite", "claim_signature": "issue_acceptance:implement.md:ac5-launch-record-clock", "verdict": "PASS", "evidence": "orchestrator-direct: #1249 sentence present in all three; gh issue view 1249 reports OPEN, so the prose-only arm applies"},
+    {"id": "VC-6", "claim": "AC6 — no test added (AC5 prose-only arm)", "file": ".prflow/prompt-extensions/implement.md", "verification_mode": "lite", "claim_signature": "issue_acceptance:implement.md:ac6-no-test-arm", "verdict": "PASS", "evidence": "orchestrator-direct: git diff origin/main...HEAD touches no lib/test/** path"},
+    {"id": "VC-7", "claim": "AC7 — no pin, no counter, no ordinal, no mechanical routing", "file": ".prflow/prompt-extensions/review-and-fix.md", "verification_mode": "lite", "claim_signature": "issue_acceptance:review-and-fix.md:ac7-no-pin-no-counter", "verdict": "PASS", "evidence": "orchestrator-direct: diff touches 0 lines under lib/ or scripts/; 0 matches for structural-pin-ok or _PIN_"},
+    {"id": "VC-8", "claim": "AC8 — the PR body states the measured basis and the residual", "file": "PR body", "verification_mode": "agent", "claim_signature": "issue_acceptance:implement.md:ac8-measured-basis-and-residual", "verdict": "INCONCLUSIVE", "evidence": "the PR body is authored in Phase 4.2, after this review; carried to the Phase 3.4 acceptance-criteria gate"},
+    {"id": "VC-9", "claim": "AC9 — suite and lints green", "file": "N/A", "verification_mode": "agent", "claim_signature": "issue_acceptance:implement.md:ac9-suite-and-lints-green", "verdict": "INCONCLUSIVE", "evidence": "the authoritative whole-suite gate runs at Phase 4.3 on the final committed tree; the mid-run coordinator run reported 16506 passed / 0 failed / 1 skipped (the skip being the expected dirty-tree #434 self-scan)"},
+    {"id": "VC-10", "claim": "AC10 — changeset determination", "file": ".prflow/prompt-extensions/implement.md", "verification_mode": "lite", "claim_signature": "issue_acceptance:implement.md:ac10-changeset-determination", "verdict": "PASS", "evidence": "orchestrator-direct: 0 .changeset/ files in the diff; diff confined to .prflow/prompt-extensions/** — the internal-only arm"},
+    {"id": "VC-11", "claim": "absolute claim: the rule overrides nothing (falsify it)", "file": ".prflow/prompt-extensions/implement.md", "verification_mode": "agent", "claim_signature": "absolute_claim:implement.md:rule-overrides-nothing", "verdict": "PASS", "evidence": "verifier attempted both suggested counterexamples (a discharged mid-iteration focused-first launch; a Phase 4.3 gate launch with an owed fix) and found no scenario the prior prose resolves differently"},
+    {"id": "VC-12", "claim": "absolute claim: every owed fix, three enumerated kinds (falsify it)", "file": ".prflow/prompt-extensions/implement.md", "verification_mode": "agent", "claim_signature": "absolute_claim:implement.md:every-owed-fix-enumeration", "verdict": "PASS", "evidence": "no fourth owed-fix kind found in the file; no ordering conflict with the single-turn push/verify mandate, which governs a distinct launch instance"},
+    {"id": "VC-13", "claim": "the Batched-artifact-regeneration cross-reference direction is correct in each copy", "file": ".prflow/prompt-extensions/receiving-code-review.md", "verification_mode": "lite", "claim_signature": "dependency_interaction:receiving-code-review.md:batched-artifact-regen-direction", "verdict": "PASS", "evidence": "orchestrator-direct: implement.md rule@189 vs section@474 (below); review-and-fix.md 70 vs 251 (below); receiving-code-review.md 142 vs 111 (above)"},
+    {"id": "VC-14", "claim": "the Failure recap literal matches what the suite emits", "file": ".prflow/prompt-extensions/receiving-code-review.md", "verification_mode": "lite", "claim_signature": "data_format_assumption:receiving-code-review.md:failure-recap-literal", "verdict": "FAIL", "evidence": "lib/test/shard-tally.py:57 _RECAP_HEADER = 'Failure recap:'; receiving-code-review.md used unformatted prose — FIXED in iteration 1 (backticked literal, matching the siblings)"},
+    {"id": "VC-15", "claim": "the three coupled copies are reconciled against their authoring comments", "file": ".prflow/prompt-extensions/receiving-code-review.md", "verification_mode": "agent", "claim_signature": "api_contract:receiving-code-review.md:coupled-copy-divergence", "verdict": "FAIL", "evidence": "the governing comment declared 'real copy' while the content diverged; and the markers declared a two-way coupling over a three-copy rule — FIXED in iteration 1 (all three markers now declare the THREE-way coupling; content reconciled)"}
+  ],
+  "phase3_findings": [
+    {"agent": "prflow:code-reviewer", "severity": "Important", "description": "review-and-fix.md:70 cites a 'Phase 4.3 completion gate' that does not exist on that tier — the review engine's Phase 4.3 is 'Present the report'", "defect_signature": {"file": ".prflow/prompt-extensions/review-and-fix.md", "line_range": [70, 70], "kind": "documented_falsehood"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "prflow:silent-failure-hunter", "severity": "Important", "description": "the batching precondition carried no unestablished-owed-set arm, unlike the sibling focused-first precondition beside it", "defect_signature": {"file": ".prflow/prompt-extensions/implement.md", "line_range": [189, 189], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "prflow:silent-failure-hunter", "severity": "Suggestion", "description": "'the reason recorded' named no record surface, where every neighbouring obligation names one", "defect_signature": {"file": ".prflow/prompt-extensions/implement.md", "line_range": [189, 189], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "prflow:silent-failure-hunter", "severity": "Important", "description": "the reception copy delegated its two relaunch prohibitions to a file that tier never loads (load-prompt-extension.sh loads only the matching skill's extension)", "defect_signature": {"file": ".prflow/prompt-extensions/receiving-code-review.md", "line_range": [142, 142], "kind": "documented_falsehood"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "prflow:silent-failure-hunter", "severity": "Suggestion", "description": "the coupled-copy markers declared a two-way coupling over a rule that now exists in three copies, and implement.md's copy carried no marker", "defect_signature": {"file": ".prflow/prompt-extensions/receiving-code-review.md", "line_range": [139, 139], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "prflow:silent-failure-hunter", "severity": "Suggestion", "description": "the #1249 sentence asserted a fact about an unlanded producer's record shape rather than stating a requirement on it, with no arm if it lands without the field", "defect_signature": {"file": ".prflow/prompt-extensions/implement.md", "line_range": [189, 189], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "prflow:comment-analyzer", "severity": "Suggestion", "description": "receiving-code-review.md wrote 'failure recap' in plain prose where the siblings use the backticked emitted literal", "defect_signature": {"file": ".prflow/prompt-extensions/receiving-code-review.md", "line_range": [142, 142], "kind": "style"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "prflow:requesting-code-review", "severity": "Suggestion", "description": "implement.md:189 partially restates adjacent rules, against the file's own lean-prose advisory", "defect_signature": {"file": ".prflow/prompt-extensions/implement.md", "line_range": [189, 189], "kind": "style"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "pushed_back"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "2392dc1bc"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "2392dc1bc"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "2392dc1bc"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "2392dc1bc"},
+    {"finding_id": "F-5", "decision": "applied", "commit": "2392dc1bc"},
+    {"finding_id": "F-6", "decision": "applied", "commit": "2392dc1bc"},
+    {"finding_id": "F-7", "decision": "applied", "commit": "2392dc1bc"},
+    {
+      "finding_id": "F-8",
+      "decision": "pushed_back",
+      "source_file": ".prflow/prompt-extensions/implement.md",
+      "claim_text": "the paragraph partially restates adjacent rules and should be trimmed per the lean-prose advisory",
+      "skip_category": "claim-quality",
+      "evidence": "AC3 and AC4 mandate exactly those restatements as observables; trimming them would fail the criteria. The lean-prose section is explicitly advisory ('This is guidance, not a gate').",
+      "parking_evidence": {
+        "basis": "the restatements the finding would trim are the AC3/AC4 observables the issue requires to be present",
+        "failing_input": "trimming the three non-override statements and the how-many-passes statement",
+        "source": ".prflow/prompt-extensions/implement.md — the 'Keeping prompt prose lean (advisory)' section states 'This is guidance, not a gate'",
+        "finding_ref": {"iter": 1, "index": 7}
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 7,
+    "fix_diff_lines": 12,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "clean", "reason": null}},
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_0":   {"calls": 0, "tokens": 0,      "wall_clock_s": 60},
+    "phase_0_5": {"calls": 0, "tokens": 0,      "wall_clock_s": 5},
+    "phase_1":   {"calls": 1, "tokens": 69165,  "wall_clock_s": 60},
+    "phase_1_5": {"calls": 0, "tokens": 0,      "wall_clock_s": 0},
+    "phase_2":   {"calls": 4, "tokens": 279253, "wall_clock_s": 124},
+    "phase_3":   {"calls": 4, "tokens": 321336, "wall_clock_s": 410},
+    "step_2_5":  {"calls": 0, "tokens": 0,      "wall_clock_s": 2, "webfetches": 0},
+    "step_2_6":  {"calls": 0, "tokens": 0,      "wall_clock_s": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0,      "wall_clock_s": 5}
+  }
+}
