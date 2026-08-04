@@ -40,7 +40,11 @@
 #     revert; a workflow commit that slips it fails loudly at push, not silently.
 #   - No empty commit (AC3/AC8). When nothing is staged after filtering — a
 #     boundary reached with no new work, or every named path excluded by the
-#     guard — the helper makes NO commit and exits 0.
+#     guard — the helper makes NO commit. It exits 0 ONLY after reconfirming the
+#     branch tip is on the remote (HEAD == @{u}); a tip that never landed reports
+#     not-durable (exit 3) instead. That makes "exit 0 means the work so far is
+#     durable" unconditionally true rather than true only by induction over
+#     correct prior calls.
 #   - Landing verification (AC7). After pushing, the helper treats the push as
 #     landed ONLY when `git rev-parse HEAD` equals `git rev-parse @{u}`, mirroring
 #     skills/implement/phases/phase-4-documentation.md step 3. A rejected
@@ -52,9 +56,14 @@
 #     means an unnamed proof file is never staged regardless.
 #
 # Exit codes:
-#   0  committed+pushed+landed, OR a clean no-op (nothing to checkpoint)
-#   2  usage error (missing message, no pathspec, or a forbidden stage-all token)
-#   3  push did not land (HEAD != @{u}, including no upstream configured)
+#   0  committed+pushed+landed, OR a clean no-op whose branch tip is already on the
+#      remote (in both cases: the work up to this boundary is durable)
+#   2  usage error (missing message, no pathspec, or a forbidden non-path token —
+#      the refused class is `_is_whole_tree_arg`'s, which is broader than the
+#      stage-all spellings alone: option-shaped tokens and git magic pathspecs too)
+#   3  the work up to this boundary is not on the remote — a push that did not land,
+#      or a no-op boundary whose branch tip is not at @{u} (either case including
+#      no upstream configured)
 #   4  a git operation failed (add/commit/not a repo)
 
 set -u
@@ -152,8 +161,32 @@ if ! git rev-parse --git-dir >/dev/null 2>&1; then
   exit 4
 fi
 
+# A no-op boundary still owes the caller the durability claim its exit 0 makes. The
+# caller acts only on a NON-ZERO exit, so an exit 0 has to mean "the work up to this
+# boundary is on the remote" unconditionally — not merely "I made no commit just now".
+# Without this the guarantee holds only by INDUCTION over correct prior calls: a branch
+# tip that never landed (a prior checkpoint's push silently failed, or the run never
+# pushed) would be reported durable by every subsequent no-op boundary. Returns 0 when
+# the tip is on the remote, 3 when it is not — the same not-landed code the post-push
+# verification uses, so the caller's "act on a non-zero exit" rule needs no new arm.
+_tip_is_on_remote() {  # <no-op description, for the breadcrumb>
+  local local_head upstream
+  local_head="$(git rev-parse HEAD 2>/dev/null)"
+  upstream="$(git rev-parse '@{u}' 2>/dev/null)"
+  if [ -z "$upstream" ]; then
+    _bc "$1, but no upstream is configured for the current branch — cannot confirm the work so far is on the remote; treating as NOT durable."
+    return 3
+  fi
+  if [ "$local_head" != "$upstream" ]; then
+    _bc "$1, but the branch tip is NOT on the remote: HEAD ($local_head) != @{u} ($upstream) — earlier work is not durable."
+    return 3
+  fi
+  return 0
+}
+
 if [ "${#KEEP[@]}" -eq 0 ]; then
-  _bc "nothing to checkpoint (no stageable paths after the workflow-edit guard); no commit made"
+  _tip_is_on_remote "nothing to checkpoint (no stageable paths after the workflow-edit guard); no commit made" || exit 3
+  _bc "nothing to checkpoint (no stageable paths after the workflow-edit guard); no commit made, branch tip already on the remote"
   exit 0
 fi
 
@@ -168,7 +201,8 @@ fi
 # check is scoped to KEEP so unrelated pre-existing staged content neither forces a
 # commit nor is swept into one.
 if git diff --cached --quiet -- "${KEEP[@]}"; then
-  _bc "no staged changes at this boundary; no commit made (no empty commit)"
+  _tip_is_on_remote "no staged changes at this boundary; no commit made (no empty commit)" || exit 3
+  _bc "no staged changes at this boundary; no commit made (no empty commit), branch tip already on the remote"
   exit 0
 fi
 

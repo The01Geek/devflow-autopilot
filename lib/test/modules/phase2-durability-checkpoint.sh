@@ -144,6 +144,32 @@ assert_eq "#1139 AC4: a checkpoint whose only named path is guard-excluded is a 
   "0" "$GUARD_ONLY_RC"
 assert_eq "#1139 AC4: the guard-only no-op adds no commit to the branch" \
   "0" "$(_dc_remote_ahead "$W")"
+# NEGATIVE CONTROL for the guard CONDITION. Every assertion above drives the guard
+# ACTIVE, so a guard that broke to be unconditionally on would leave them all green
+# while ordinary implement runs silently dropped legitimate workflow edits — the
+# inverse of the silent-work-loss class #1139 targets. These two drive the guard
+# INACTIVE by each of its two exemptions and assert the workflow path DOES land.
+W="$(_dc_newrig)"
+(
+  cd "$W" || exit 1
+  mkdir -p .github/workflows
+  printf 'name: local\n' > .github/workflows/wf.yml
+  _dc_cp "feat: cp" .github/workflows/wf.yml >/dev/null 2>&1   # local tier: GITHUB_ACTIONS != true
+)
+assert_eq "#1139 AC4 negative control: on the local tier a named workflow path IS committed and pushed" \
+  "yes" "$(_dc_remote_has "$W" .github/workflows/wf.yml)"
+W="$(_dc_newrig)"
+(
+  cd "$W" || exit 1
+  mkdir -p .github/workflows
+  printf 'name: apptoken\n' > .github/workflows/wf.yml
+  # Cloud tier, but with a workflow-capable App token (DEVFLOW_APP_ID set) — the
+  # other exemption. `_dc_cp` sets exactly this pair, so the guard must stay off.
+  GITHUB_ACTIONS=true DEVFLOW_APP_ID=present bash "$DC_HELPER" "feat: cp" .github/workflows/wf.yml >/dev/null 2>&1
+)
+assert_eq "#1139 AC4 negative control: on the cloud tier with DEVFLOW_APP_ID set a named workflow path IS committed and pushed" \
+  "yes" "$(_dc_remote_has "$W" .github/workflows/wf.yml)"
+
 # A stage-all spelling must not become a guard BYPASS. `./` used to reach
 # `git add -- ./` because it matched no refusal pattern, and its `${arg#./}` form is the
 # empty string, which matches no `.github/workflows/*` pattern either — so a guard-active
@@ -321,6 +347,87 @@ NOUP_RC="$( cd "$W" && git checkout -q -b detached-feat && printf 'n\n' > n.txt 
 assert_eq "#1139 AC7: a branch with no upstream is treated as not landed (exit 3)" "3" "$NOUP_RC"
 assert_eq "#1139 AC7: the no-upstream refusal is attributed to the no-upstream arm" \
   "yes" "$( cd "$W" && printf 'n2\n' > n2.txt && _dc_cp "feat: cp" n2.txt 2>&1 >/dev/null | grep -q 'no upstream configured' && echo yes || echo no )"
+
+# ── Exit-0 no-op boundaries are DURABILITY claims, not just "I made no commit" ──
+# The caller acts only on a non-zero exit, so a no-op that exits 0 asserts the work so
+# far is on the remote. Drive a branch tip that never landed: with the push refspec
+# diverted, a commit is made locally but never reaches feat, so the next nothing-new
+# boundary must report not-durable (3) instead of a reassuring 0.
+W="$(_dc_newrig)"
+(
+  cd "$W" || exit 1
+  git config remote.origin.push refs/heads/main:refs/heads/main   # feat never receives the push
+  printf 'stranded\n' > stranded.txt
+  _dc_cp "feat: cp" stranded.txt >/dev/null 2>&1                  # commits locally, exits 3 (not landed)
+)
+assert_eq "#1139: a nothing-new boundary on an unlanded tip reports not-durable (exit 3), not a reassuring 0" \
+  "3" "$( cd "$W" && _dc_cp "feat: cp" stranded.txt >/dev/null 2>&1; echo $? )"
+assert_eq "#1139: the unlanded-tip no-op is attributed to the tip-not-on-remote arm" \
+  "yes" "$( cd "$W" && _dc_cp "feat: cp" stranded.txt 2>&1 >/dev/null | grep -q 'branch tip is NOT on the remote' && echo yes || echo no )"
+# Positive control on the same shape: an identical nothing-new boundary on a tip that
+# DID land still exits 0, so the assertion above pins the tip check and not the no-op.
+W="$(_dc_newrig)"
+( cd "$W" && printf 'landed\n' > landed.txt && _dc_cp "feat: cp" landed.txt >/dev/null 2>&1 )
+assert_eq "#1139: positive control — a nothing-new boundary on a landed tip still exits 0" \
+  "0" "$( cd "$W" && _dc_cp "feat: cp" landed.txt >/dev/null 2>&1; echo $? )"
+# The guard-excluded-everything no-op takes the same tip check.
+W="$(_dc_newrig)"
+(
+  cd "$W" || exit 1
+  git config remote.origin.push refs/heads/main:refs/heads/main
+  printf 'stranded\n' > s.txt
+  _dc_cp "feat: cp" s.txt >/dev/null 2>&1
+  mkdir -p .github/workflows && printf 'name: g\n' > .github/workflows/g.yml
+)
+assert_eq "#1139: a guard-excluded-everything no-op on an unlanded tip also reports not-durable (exit 3)" \
+  "3" "$( cd "$W" && _dc_cp_guard "feat: cp" .github/workflows/g.yml >/dev/null 2>&1; echo $? )"
+
+# ── Exit 4: a git operation that fails ──────────────────────────────────────
+# `git add` failing on a named path that does not exist — the helper must fail closed
+# with exit 4 rather than degrade to a silent no-op. Attributed to the add-failure
+# breadcrumb, since the not-a-repo arm below also exits 4.
+W="$(_dc_newrig)"
+assert_eq "#1139: a named nonexistent path fails closed at git add (exit 4)" \
+  "4" "$( cd "$W" && _dc_cp "feat: cp" does-not-exist.txt >/dev/null 2>&1; echo $? )"
+assert_eq "#1139: the nonexistent-path refusal is attributed to the git-add arm" \
+  "yes" "$( cd "$W" && _dc_cp "feat: cp" does-not-exist.txt 2>&1 >/dev/null | grep -q 'git add failed' && echo yes || echo no )"
+assert_eq "#1139: a failed git add adds no commit to the branch" \
+  "0" "$(_dc_remote_ahead "$W")"
+# Positive control on the same rig: a path that DOES exist commits and lands, so the
+# exit 4 above is the missing path and not an unrelated precondition of the rig.
+assert_eq "#1139: positive control — an existing path on the same rig checkpoints cleanly (exit 0)" \
+  "0" "$( cd "$W" && printf 'real\n' > real.txt && _dc_cp "feat: cp" real.txt >/dev/null 2>&1; echo $? )"
+
+# ── Disclosed guard-slip spellings: documented, and here PINNED as behavior ──
+# The header discloses that the workflow-edit guard matches the RELATIVE
+# `.github/workflows/` spelling only. These assertions pin that disclosure as observed
+# behavior rather than leaving it a prose claim: on a guard-ACTIVE run each slip
+# spelling is staged and reaches the remote. They are characterization tests of a
+# disclosed limit, NOT an endorsement — if the guard is ever widened to resolve
+# absolute/`..` forms, these flip and are updated with it.
+# NOTE ON THE COMPENSATING CONTROL: the header says such a commit "fails loudly at
+# push". That guarantee comes from the real GitHub credential, NOT from this suite —
+# the rig's plain bare remote imposes no workflow-push restriction, so the push here
+# succeeds. The loud-at-push half is therefore UNENFORCED by the suite and is stated
+# as a limitation rather than asserted.
+W="$(_dc_newrig)"
+(
+  cd "$W" || exit 1
+  mkdir -p .github/workflows
+  printf 'name: bare\n' > .github/workflows/bare.yml
+  _dc_cp_guard "feat: cp" .github/workflows >/dev/null 2>&1   # bare dir, no trailing slash
+)
+assert_eq "#1139: the disclosed slip — a bare '.github/workflows' directory is NOT excluded by the guard" \
+  "yes" "$(_dc_remote_has "$W" .github/workflows/bare.yml)"
+W="$(_dc_newrig)"
+(
+  cd "$W" || exit 1
+  mkdir -p .github/workflows
+  printf 'name: abs\n' > .github/workflows/abs.yml
+  _dc_cp_guard "feat: cp" "$W/.github/workflows/abs.yml" >/dev/null 2>&1   # absolute form
+)
+assert_eq "#1139: the disclosed slip — an absolute workflow path is NOT excluded by the guard" \
+  "yes" "$(_dc_remote_has "$W" .github/workflows/abs.yml)"
 
 # ── Not a git repository: exit 4 ────────────────────────────────────────────
 # The documented exit-4 "not inside a git repository" arm, driven from a scratch
