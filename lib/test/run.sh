@@ -15527,7 +15527,7 @@ assert_eq "#1029 dismisser: a REJECT on the PR's current head is refused, not di
 assert_eq "#1029 dismisser: the refused current-head review gets no dismissals request" \
   "0" "$(dsr_calls 'dismissals')"
 assert_eq "#1029 dismisser: the current-head refusal names the head on stderr" \
-  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c "current head ($DSR_HEAD_SHA)")"
+  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c "current head (reviews-API commit_id=$DSR_HEAD_SHA)")"
 
 # One page carrying every shape at once. The exact dismissed set is the whole
 # claim: the two superseded Devflow reports go, and nothing else does.
@@ -15551,7 +15551,7 @@ assert_eq "#1029 dismisser: mixed page issues exactly two dismissals requests" \
 assert_eq "#1029 dismisser: mixed page exits 3 — something refused, nothing failed" \
   "3" "$DSR_RC"
 assert_eq "#1029 dismisser: an absent commit_id fails closed with an attributable warning" \
-  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c 'review 13 on PR .* records no commit_id')"
+  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c 'review 13 on PR .* records neither a verdict-marker head nor a commit_id')"
 
 dsr_run rev-mixed.json pull-head.json DSR_PUT_RC=1
 assert_eq "#1029 dismisser: a real dismissal failure outranks a refusal in the exit status" \
@@ -15653,6 +15653,82 @@ assert_eq "#1030 dismisser: a marker quoted in prose below line 1 is not selecte
 # review must not make the head read eager.
 assert_eq "#1030 dismisser: an unowned-only page still reads no head" \
   "0" "$(dsr_calls 'read-head')"
+
+# ── #1247: the marker `head=` is the reviewed-tree comparand; commit_id is fallback ──
+# GitHub can advance a review's reviews-API commit_id after submission to a commit that
+# did not exist at review time (observed on PR #1234). So the staleness comparand is the
+# verdict marker's head= when the review carries one, and commit_id only for a markerless
+# review. Each fixture below distinguishes the new marker-first logic from the old
+# commit_id-only logic, and the first three FAIL against pre-#1247 code by exhibiting the
+# wedge (or its inverse). DSR_HEAD_SHA is the current head; DSR_OLD_SHA a superseded tree.
+DSR_MARK_REJECT="<!-- prflow:review-verdict head=$DSR_OLD_SHA verdict=REJECT -->"
+DSR_MARK_REJECT_HEAD="<!-- prflow:review-verdict head=$DSR_HEAD_SHA verdict=REJECT -->"
+# (30) PR #1234 shape: marker head is the SUPERSEDED tree, commit_id was advanced to the
+# current head. Pre-#1247 compares commit_id, finds equality, and REFUSES with the
+# "current head" warning; #1247 compares the marker head (superseded) and DISMISSES.
+cat > "$DSR_SB/rev-marker-mutated.json" <<EOS
+[{"id":30,"state":"CHANGES_REQUESTED","commit_id":"$DSR_HEAD_SHA","body":"$DSR_MARK_REJECT\n## Verdict: REJECT (marker head superseded, commit_id mutated to head)"}]
+EOS
+dsr_run rev-marker-mutated.json pull-head.json
+assert_eq "#1247 dismisser: marker head superseded + commit_id==head → DISMISSED (PR #1234 shape)" \
+  "1-0" "$(dsr_calls 'reviews/30/dismissals')-$DSR_RC"
+# The dismissal's -f message= is recorded in the stub log, so the message naming the
+# key the decision used is an observation. A marker-driven dismissal names the marker head.
+assert_eq "#1247 dismisser: the marker-driven dismissal message names the verdict-marker head key" \
+  "1" "$(grep -c 'verdict-marker head=' "$DSR_SB/log")"
+# (31) inverse: marker head IS the current head, commit_id names a superseded tree.
+# Pre-#1247 compares commit_id, finds inequality, and DISMISSES a review about the tree
+# being merged; #1247 compares the marker head (== head) and REFUSES.
+cat > "$DSR_SB/rev-marker-athead.json" <<EOS
+[{"id":31,"state":"CHANGES_REQUESTED","commit_id":"$DSR_OLD_SHA","body":"$DSR_MARK_REJECT_HEAD\n## Verdict: REJECT (marker head == current head)"}]
+EOS
+dsr_run rev-marker-athead.json pull-head.json
+assert_eq "#1247 dismisser: marker head==head + commit_id superseded → REFUSED (exit 3, no dismissal)" \
+  "0-3" "$(dsr_calls 'reviews/31/dismissals')-$DSR_RC"
+assert_eq "#1247 dismisser: the marker-head refusal names the marker-head key on stderr" \
+  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c "current head (verdict-marker head=$DSR_HEAD_SHA)")"
+# (32) marker head present + commit_id NULL: decided on the marker, dismissed, and NO
+# "records no commit_id" warning. Pre-#1247 refuses with that warning.
+cat > "$DSR_SB/rev-marker-nullcommit.json" <<EOS
+[{"id":32,"state":"CHANGES_REQUESTED","commit_id":null,"body":"$DSR_MARK_REJECT\n## Verdict: REJECT (marker head superseded, no commit_id)"}]
+EOS
+dsr_run rev-marker-nullcommit.json pull-head.json
+assert_eq "#1247 dismisser: marker head + null commit_id → dismissed on the marker (exit 0)" \
+  "1-0" "$(dsr_calls 'reviews/32/dismissals')-$DSR_RC"
+assert_eq "#1247 dismisser: the marker-decided null-commit_id row emits no 'records no commit_id' warning" \
+  "0" "$(printf '%s\n' "$DSR_ERR" | grep -c 'records no commit_id\|records neither')"
+# (33) adversarial: an OWNED transitional-prose REJECT (line 1 == '## Verdict: REJECT')
+# that QUOTES a marker naming the CURRENT head below line 1. The quoted marker must NOT be
+# read as the head — line 1 is not a marker, so the row falls back to commit_id (superseded)
+# and is DISMISSED. Were the quoted head read, commit_id==head would refuse instead.
+cat > "$DSR_SB/rev-marker-quoted-head.json" <<EOS
+[{"id":33,"state":"CHANGES_REQUESTED","commit_id":"$DSR_OLD_SHA","body":"## Verdict: REJECT\n\nThe contract line is:\n\n$DSR_MARK_REJECT_HEAD"}]
+EOS
+dsr_run rev-marker-quoted-head.json pull-head.json
+assert_eq "#1247 dismisser: a marker quoted below line 1 is not read as the head (falls back to commit_id, dismissed)" \
+  "1-0" "$(dsr_calls 'reviews/33/dismissals')-$DSR_RC"
+
+# (commit_id-driven dismissal): a markerless superseded REJECT is dismissed and its
+# dismissal message names the commit_id key it decided on (the fallback SRC label), so a
+# regression that swapped the two SRC labels in the *dismissal* message is caught, not only
+# in the refusal message. rev-stale.json is markerless (## Verdict: REJECT) + superseded.
+dsr_run rev-stale.json pull-head.json
+assert_eq "#1247 dismisser: a markerless (commit_id-driven) dismissal message names the reviews-API commit_id key" \
+  "1" "$(grep -c 'reviews-API commit_id=' "$DSR_SB/log")"
+
+# (case-normalization, #1247): the marker head is ascii_downcase'd before comparison, so a
+# hand-authored UPPERCASE marker head naming the current head is refused (normalized ==
+# head), not dismissed. Needs a head carrying hex letters — the all-digit DSR_*_SHA cannot
+# exhibit case. Without the ascii_downcase this fixture DISMISSES (uppercase != lowercase
+# head → treated superseded), the fail-open the silent-failure review flagged.
+DSR_HEX_HEAD="abc0000000000000000000000000000000000def"
+printf '{"head":{"sha":"%s"}}\n' "$DSR_HEX_HEAD" > "$DSR_SB/pull-hexhead.json"
+cat > "$DSR_SB/rev-marker-uphead.json" <<EOS
+[{"id":34,"state":"CHANGES_REQUESTED","commit_id":"$DSR_OLD_SHA","body":"<!-- prflow:review-verdict head=ABC0000000000000000000000000000000000DEF verdict=REJECT -->\n## Verdict: REJECT (uppercase marker head == current head)"}]
+EOS
+dsr_run rev-marker-uphead.json pull-hexhead.json
+assert_eq "#1247 dismisser: an UPPERCASE marker head equal to the current head is refused (ascii_downcase normalization, not a case-mismatch fail-open)" \
+  "0-3" "$(dsr_calls 'reviews/34/dismissals')-$DSR_RC"
 
 rm -rf "$DSR_SB"
 
@@ -47116,6 +47192,120 @@ r_skip = run(lambda root, ff, *, ls_files_argv: ["skills/x.md"],
 print(r_enum, r_skip)
 PY
 )"
+
+# ── #1248 ungranted-helper-spelling lint (lib/test/lint-ungranted-helper-spelling.py) ──
+# The cloud matcher grants each bundled helper ONLY at the vendored literal
+# .prflow/vendor/prflow/scripts/<name>, so a shipped prompt sentence spelling a
+# verdict-post helper scripts/<name> is a leading token no profile grants — a cloud run
+# that emits it is silently denied and finishes with no verdict marker (the three review
+# runs of issue #1248). extract-command-heads.py cannot see it (fence-only by design);
+# this lint audits skills/**+agents/** for the ungranted repo-relative spelling of the
+# two in-scope verdict helpers, its forbidden set DERIVED from capability-profiles.json
+# (vendored-only) intersected with the documented in-scope basenames. Sibling of the
+# #1072 pruned-path lint; driven the same way (real tree as the live gate, plus synthetic
+# fixtures through --root/--files-from/--manifest).
+UH_LINT="$LIB/test/lint-ungranted-helper-spelling.py"
+UH_FX="$LIB/test/fixtures/ungranted-helper-spelling"
+UH_M="$UH_FX/manifests/vendored-only.json"
+# The clean single-file summary line (audited 1 of 1, both in-scope literals in the
+# forbidden set), reused by every green fixture assertion below so the format lives once.
+UH_CLEAN1="rc=0|lint-ungranted-helper-spelling: audited 1 of 1 files; forbidden set: scripts/dismiss-stale-rejections.sh scripts/post-review-verdict.sh"
+
+# Real-tree run: exits 0 AND audited a positive number of files (a green run whose count
+# had silently collapsed to zero would read as clean while auditing nothing).
+UH_OUT="$(cd "$LIB/.." && python3 "$UH_LINT" 2>&1)"; UH_RC=$?
+assert_eq "#1248 lint: clean on the tree as it stands" "rc=0" \
+  "$([ "$UH_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$UH_RC" "$UH_OUT")"
+assert_eq "#1248 lint: the real-tree run audited a positive number of files" "yes" \
+  "$(printf '%s' "$UH_OUT" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) of", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+# The forbidden set derived from the REAL manifest is exactly the two in-scope verdict
+# helpers — the floor a bare non-empty check would not give (a dropped member still
+# leaves a non-empty set).
+assert_eq "#1248 lint: derived forbidden set matches the two in-scope verdict helpers" \
+  "scripts/dismiss-stale-rejections.sh scripts/post-review-verdict.sh" \
+  "$(cd "$LIB/.." && python3 "$UH_LINT" --print-forbidden-set | python3 -c 'import sys; print(" ".join(sys.stdin.read().split()))')"
+
+# Forbidden-set fail-closed arms, driven through --manifest over fixture manifests.
+uh_forbidden() {  # <manifest> -> "rc=<n>|<one-line joined stdout+stderr>"
+  local out rc
+  out="$(python3 "$UH_LINT" --print-forbidden-set --manifest "$1" 2>&1)"; rc=$?
+  printf 'rc=%s|%s' "$rc" "$(printf '%s' "$out" | tr '\n' ' ')"
+}
+# A vendored-only manifest yields exactly the two in-scope literals.
+assert_eq "#1248 lint: a vendored-only fixture manifest derives the two literals" \
+  "rc=0|scripts/dismiss-stale-rejections.sh scripts/post-review-verdict.sh" \
+  "$(uh_forbidden "$UH_FX/manifests/vendored-only.json")"
+# A bare grant on an in-scope helper voids the ungranted premise → refuse, naming it.
+assert_eq "#1248 lint: a bare grant on an in-scope helper refuses (premise void)" "yes" \
+  "$(case "$(uh_forbidden "$UH_FX/manifests/bare-grant.json")" in "rc=1|"*"ALSO granted at the bare"*) echo yes ;; *) echo no ;; esac)"
+# An in-scope helper not granted at any vendored literal → refuse, naming it.
+assert_eq "#1248 lint: an in-scope helper absent from the manifest refuses" "yes" \
+  "$(case "$(uh_forbidden "$UH_FX/manifests/missing-inscope.json")" in "rc=1|"*"not granted at any vendored literal"*) echo yes ;; *) echo no ;; esac)"
+# A non-JSON manifest refuses, attributed to the parse.
+assert_eq "#1248 lint: a non-JSON manifest refuses, attributed to the JSON parse" "yes" \
+  "$(case "$(uh_forbidden "$UH_FX/manifests/bad.json")" in "rc=1|"*"not valid JSON"*) echo yes ;; *) echo no ;; esac)"
+
+# Audited-population behavior, driven over the fixture skills/agents tree with the
+# fixture vendored-only manifest. Every list rides through probe_tmp so the fixtures stay
+# unreachable from the default index enumeration.
+uh_run() {  # <path…> -> "rc=<n>|<stdout+stderr>"
+  local list out rc
+  list="$(probe_tmp '#1248 fixture list')" || return 0
+  printf '%s\n' "$@" > "$list"
+  out="$(python3 "$UH_LINT" --root "$UH_FX" --files-from "$list" --manifest "$UH_M" 2>&1)"; rc=$?
+  rm -f "$list"
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+# AC3 discriminating pair: the unmarked reference is REPORTED, the clean file is not.
+assert_eq "#1248 lint: an unmarked reference is reported (AC3 RED)" "yes" \
+  "$(case "$(uh_run skills/unmarked.md)" in "rc=1|"*"skills/unmarked.md:1:"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1248 lint: a clean file with no reference is silent (AC3 GREEN)" \
+  "$UH_CLEAN1" \
+  "$(uh_run skills/clean.md)"
+# AC4 combined negative control: the vendored literal, a bare-filename naming sentence,
+# English prose containing "scripts", and the #275 anchor form all PASS in one file.
+assert_eq "#1248 lint: the AC4 combined negative control passes (vendored literal + bare name + English + anchor)" \
+  "$UH_CLEAN1" \
+  "$(uh_run skills/negative-control.md)"
+# A marker with a non-empty reason suppresses; an empty-reason marker does not.
+assert_eq "#1248 lint: a marked (HTML) reference is not reported" \
+  "$UH_CLEAN1" \
+  "$(uh_run skills/marked-html.md)"
+assert_eq "#1248 lint: a marker with an empty reason is reported" "yes" \
+  "$(case "$(uh_run skills/marked-empty.md)" in "rc=1|"*"skills/marked-empty.md:1:"*) echo yes ;; *) echo no ;; esac)"
+# A # marker inside an emitted shell fence suppresses (fence-state tracking).
+assert_eq "#1248 lint: a # marker inside a backtick fence suppresses" \
+  "$UH_CLEAN1" \
+  "$(uh_run skills/fence-shell.md)"
+# The agents/ prefix (second audited prefix), reported like skills/.
+assert_eq "#1248 lint: an agents/ path is audited and reported like skills/" "yes" \
+  "$(case "$(uh_run agents/unmarked-agent.md)" in "rc=1|"*"agents/unmarked-agent.md:1:"*) echo yes ;; *) echo no ;; esac)"
+# Empty-audited floor: a list naming only a non-audited path refuses rather than
+# reporting a clean pass over an unchecked surface; adding one audited path audits 1 of 1
+# (floor control + is_audited negative half).
+assert_eq "#1248 lint: an enumeration selecting no skills/agents path refuses (empty-audited floor)" "yes" \
+  "$(case "$(uh_run manifests/vendored-only.json)" in "rc=1|"*"selected no file under skills/ or agents/"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1248 lint: the same list plus one audited path audits 1 of 1 (floor control + is_audited negative)" \
+  "$UH_CLEAN1" \
+  "$(uh_run manifests/vendored-only.json skills/clean.md)"
+# The read-failure/skip fail-closed arm (issue #1248 review): an audited-prefix path that
+# read_source cannot open is a SKIPPED refuse-to-report-clean (rc=1), never a silent
+# exclusion — the lint's core fail-closed guarantee. Without this, a regression converting
+# the terminal `if skipped: return 1` into a silent `continue` would leave every
+# readable-fixture assertion green while the refuse-on-unreadable guard was gone. The
+# clean.md alongside it proves the run still scanned the readable member (audited 1 of 2).
+assert_eq "#1248 lint: an unreadable/absent audited path is a fail-closed skip, not a silent exclusion" "yes" \
+  "$(case "$(uh_run skills/does-not-exist.md skills/clean.md)" in "rc=1|"*"SKIPPED skills/does-not-exist.md"*"refusing to report clean"*) echo yes ;; *) echo no ;; esac)"
+
+# AC5: this repository's own local tier resolves the repo-root form (the vendored tree is
+# materialized only at runtime and is absent from the working tree), so the repo-root
+# helpers must exist and be executable here — neither local context is left pathless.
+assert_eq "#1248 AC5: the repo-root verdict-post helper resolves in this repo's local tree" "yes" \
+  "$([ -x "$LIB/../scripts/post-review-verdict.sh" ] && echo yes || echo no)"
+assert_eq "#1248 AC5: the repo-root dismiss helper resolves in this repo's local tree" "yes" \
+  "$([ -x "$LIB/../scripts/dismiss-stale-rejections.sh" ] && echo yes || echo no)"
 
 # ── Public documentation source contract ────────────────────────────────────
 # The public site is source-only: Markdown/MDX plus docs.json. Mintlify reads
