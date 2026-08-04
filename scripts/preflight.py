@@ -168,8 +168,17 @@ SOFT_KEYWORDS = re.compile(
 )
 
 
-def _scan_dependencies(body: str, *, section_only: bool) -> list[str]:
+def _scan_dependencies(body: str, *, section_only: bool) -> tuple[list[str], list[str]]:
     """Shared single-definition scanner for declared dependency numbers.
+
+    Returns a two-element ``(found, skipped)`` tuple (issue #1268): ``found`` is
+    the declared prerequisite numbers, ``skipped`` is the numbers dropped because
+    their ``## Dependencies`` line reads as an OUTBOUND relation. Both lists are
+    unique in source order, and ``skipped`` is disjoint from ``found`` — a number
+    an inbound line also declared is registered, not reported as skipped. The two
+    public wrappers unpack ``found`` and keep
+    their historic ``list[str]`` shape; ``dependency_section_scan`` returns the
+    pair so its section-only caller can name what direction dropped.
 
     This is the ONE definition of the declared-dependency vocabulary: the
     ``## Dependencies`` section boundary (every ``#N`` on a line under that heading
@@ -206,17 +215,23 @@ def _scan_dependencies(body: str, *, section_only: bool) -> list[str]:
     breadcrumb) — so the section vocabulary has a single source and cannot drift
     between the two.
 
-    Numbers are returned unique in source order. When ``section_only`` is True the
-    out-of-section sweep (the only path that writes stderr) is never reached, so a
-    caller (the apply-issue-dependencies helper) that imports the section-only
+    Numbers are returned unique in source order. Both stderr-writing paths — the
+    outbound-skip breadcrumb and the out-of-section SOFT_KEYWORDS sweep — are gated
+    on ``not section_only``, so when ``section_only`` is True neither is reached and
+    a caller (the apply-issue-dependencies helper) that imports the section-only
     entry point never leaks a ``preflight.py:`` breadcrumb into its own
     caller-facing output.
     """
     found: list[str] = []
+    skipped: list[str] = []
 
     def add(number: str) -> None:
         if number not in found:
             found.append(number)
+
+    def add_skipped(number: str) -> None:
+        if number not in skipped:
+            skipped.append(number)
 
     in_dependencies = False
     for line in body.splitlines():
@@ -229,9 +244,13 @@ def _scan_dependencies(body: str, *, section_only: bool) -> list[str]:
             numbers = ISSUE_REF.findall(line)
             if numbers and OUTBOUND_DECLARATION.search(line):
                 # Line-level: the outbound word governs every number on the line.
-                # Breadcrumb only on the stderr-carrying entry point —
-                # `dependency_section_numbers` has a no-stderr contract its caller
-                # (apply-issue-dependencies.py) depends on.
+                # Record every dropped number as `skipped` on BOTH entry points
+                # (issue #1268) so a section-only caller can name what it lost;
+                # the stderr breadcrumb still rides the stderr-carrying entry point
+                # only, because `dependency_section_numbers` has a no-stderr
+                # contract its caller (apply-issue-dependencies.py) depends on.
+                for number in numbers:
+                    add_skipped(number)
                 if not section_only:
                     for number in dict.fromkeys(numbers):
                         print(
@@ -267,7 +286,13 @@ def _scan_dependencies(body: str, *, section_only: bool) -> list[str]:
                     f"or list it under a `## Dependencies` section",
                     file=sys.stderr,
                 )
-    return found
+    # A number governed OUTBOUND on one line but declared inbound on another lands
+    # in both lists (each is deduped only against itself). Such a number IS
+    # registered as a prerequisite, so reporting it as skipped-and-unregistered
+    # would be a false breadcrumb (issue #1268): keep `skipped` disjoint from
+    # `found`, so a caller only ever names numbers no inbound line rescued.
+    skipped = [number for number in skipped if number not in found]
+    return found, skipped
 
 
 def dependency_section_numbers(body: str) -> list[str]:
@@ -285,6 +310,23 @@ def dependency_section_numbers(body: str) -> list[str]:
     ``blocked_by`` write registering the INVERSE of what the author declared is not a
     stop a human can override away. The no-stderr contract survives that arm — the
     outbound-skip breadcrumb rides `dependency_numbers` only.
+
+    Returns `found` only, unchanged (issue #1268); a section-only caller that
+    also needs the outbound-skipped numbers uses `dependency_section_scan`.
+    """
+    return _scan_dependencies(body, section_only=True)[0]
+
+
+def dependency_section_scan(body: str) -> tuple[list[str], list[str]]:
+    """Section-only scan returning ``(found, skipped)`` (issue #1268).
+
+    Same scope and direction handling as `dependency_section_numbers` — every
+    ``#N`` on a ``## Dependencies`` line whose direction is not OUTBOUND — but it
+    also returns the numbers dropped for outbound direction, so the section-only
+    caller (`apply-issue-dependencies.py`) can name what it skipped instead of
+    dropping it silently or misdescribing the body. Emits no stderr of its own;
+    the no-stderr contract is unchanged, and the skip breadcrumb is the calling
+    helper's responsibility under its own prefix.
     """
     return _scan_dependencies(body, section_only=True)
 
@@ -294,8 +336,9 @@ def dependency_numbers(body: str) -> list[str]:
 
     In-section results are derived from the same single-definition scanner that
     backs `dependency_section_numbers`, so the section vocabulary has one source.
+    Returns `found` only, unchanged (issue #1268).
     """
-    return _scan_dependencies(body, section_only=False)
+    return _scan_dependencies(body, section_only=False)[0]
 
 
 def _gh_issue_view(number: object, field: str) -> str:
