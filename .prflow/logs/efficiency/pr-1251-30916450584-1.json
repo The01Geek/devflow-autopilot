@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1251",
+  "generated_at": "2026-08-04T14:10:18Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.89",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 10.044491750000002,
+    "tokens": {
+      "input_tokens": 51,
+      "output_tokens": 20425,
+      "cache_read_input_tokens": 3623620,
+      "cache_creation_input_tokens": 151804,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 152,
+        "outputTokens": 64061,
+        "cacheReadInputTokens": 7977996,
+        "cacheCreationInputTokens": 621431,
+        "webSearchRequests": 0,
+        "costUSD": 10.044491750000002,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 36,
+    "duration_ms": 648513
+  },
+  "permission_denials": {
+    "count": 14,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"run_id=${GITHUB_RUN_ID:-none} attempt=${GITHUB_RUN_ATTEMPT:-none}\"; mkdir -p .prflow/tmp/review/pr-1251/${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}; echo \"slug dir ready\"",
+      "gh pr diff 1251 > .prflow/tmp/review/pr-1251/30916450584-1/diff.raw 2>.prflow/tmp/review/pr-1251/30916450584-1/diff.err; echo \"rc=$?\"; wc -l .prflow/tmp/review/pr-1251/30916450584-1/diff.raw; echo \"---stderr:\"; cat .prflow/tmp/review/pr-1251/30916450584-1/diff.err",
+      "git apply --check .prflow/tmp/review/pr-1251/30916450584-1/diff.patch 2>&1 && echo \"APPLIES CLEAN\" && git apply .prflow/tmp/review/pr-1251/30916450584-1/diff.patch && echo APPLIED",
+      "git apply .prflow/tmp/review/pr-1251/30916450584-1/diff.patch && echo APPLIED",
+      "git apply .prflow/tmp/review/pr-1251/30916450584-1/diff.patch",
+      "patch -p1 --dry-run < .prflow/tmp/review/pr-1251/30916450584-1/diff.patch 2>&1 | tail -15",
+      "patch -p1 < .prflow/tmp/review/pr-1251/30916450584-1/diff.patch",
+      "python3 lib/test/extract-command-heads.py extract-section .prflow/prompt-extensions/implement.md --section '## Batched artifact regeneration' 2>&1 | head -20; echo \"===HEADS===\"; python3 lib/test/extract-command-heads.py extract-section .prflow/prompt-extensions/implement.md --section '## Batched artifact regeneration' > /tmp/sec.md 2>/dev/null; python3 lib/test/extract-command-heads.py heads /tmp/sec.md 2>&1",
+      "scripts/load-prompt-extension.sh implement --section '## Batched artifact regeneration' 2>&1 | head -20; echo \"===EXIT $?===\"",
+      "bash scripts/load-prompt-extension.sh implement --section '## Batched artifact regeneration' | head -20",
+      "DEVFLOW_PROMPT_EXTENSION_ROOT=.prflow/prompt-extensions bash scripts/load-prompt-extension.sh implement --section \"Batched artifact regeneration\" 2>&1 | head -30",
+      "bash scripts/load-prompt-extension.sh implement --section \"## Batched artifact regeneration\"",
+      ".prflow/vendor/prflow/scripts/workpad.py patch 5180135054 .prflow/tmp/review/pr-1251/30916450584-1/review-wp.md 2>.prflow/tmp/review/pr-1251/30916450584-1/rv-patch.err; echo \"patch-rc=$?\"; cat .prflow/tmp/review/pr-1251/30916450584-1/rv-patch.err"
+    ],
+    "total": 14,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
