@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1263",
+  "generated_at": "2026-08-04T07:31:06Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.87",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 8.06376075,
+    "tokens": {
+      "input_tokens": 5085,
+      "output_tokens": 24278,
+      "cache_read_input_tokens": 2514053,
+      "cache_creation_input_tokens": 204657,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 5144,
+        "outputTokens": 60950,
+        "cacheReadInputTokens": 4509979,
+        "cacheCreationInputTokens": 558694,
+        "webSearchRequests": 0,
+        "costUSD": 8.06376075,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 23,
+    "duration_ms": 526782
+  },
+  "permission_denials": {
+    "count": 9,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "/home/runner/work/prflow/prflow/scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review",
+      "python3 -c \"\nimport json\nm=json.load(open('lib/test/modules/coverage-map.json'))\nprint('TOP KEYS:', list(m.keys()))\nfor half in ('files','run_sh_blocks'):\n    fields=set()\n    n=0\n    for k,v in m.get(half,{}).items():\n        n+=1\n        if isinstance(v,dict): fields|=set(v.keys())\n    print(half,'count=',n,'entry-fields=',sorted(fields))\n# top-level non-half arrays\nfor k,v in m.items():\n    if k not in ('files','run_sh_blocks'):\n        print('TOPLEVEL',k,'=',type(v).__name__, v if not isinst …[per-command-truncated]",
+      "python3 -c \"\nimport json\nm=json.load(open('lib/test/modules/coverage-map.json'))\nfiles=m['files']\nft=[k for k,v in files.items() if isinstance(v,dict) and 'focused_test' in v]\nprint('files entries:',len(files))\nprint('with focused_test:',len(ft))\nprint('sample:',ft[:5])\n# show one\nfor k in ft[:2]:\n    print(k, files[k])\n\"",
+      "python3 - <<'EOF'\nimport json\nm=json.load(open('lib/test/modules/coverage-map.json'))\nfiles=m['files']\nft=[k for k,v in files.items() if isinstance(v,dict) and 'focused_test' in v]\nprint('files entries:',len(files))\nprint('with focused_test:',len(ft))\nfor k in ft[:3]:\n    print(k, files[k])\n# keys per entry\nallkeys=set()\nfor v in files.values():\n    if isinstance(v,dict): allkeys|=set(v)\nprint('all field names in files entries:',allkeys)\nEOF",
+      "python3 lib/test/inspect_focused.py 2>/dev/null || cat > /tmp/insp.py <<'EOF'\nimport json\nm=json.load(open('lib/test/modules/coverage-map.json'))\nfiles=m['files']\nft=[k for k,v in files.items() if isinstance(v,dict) and 'focused_test' in v]\nprint('files entries', len(files))\nprint('with focused_test', len(ft))\nfor k in ft[:3]:\n    print(k, files[k])\nallkeys=set()\nfor v in files.values():\n    if isinstance(v,dict): allkeys|=set(v)\nprint('field names', sorted(allkeys))\nEOF\npython3 /tmp/insp.py",
+      "printf '%s\\n' 'import json' 'm=json.load(open(\"lib/test/modules/coverage-map.json\"))' 'files=m[\"files\"]' 'ft=[k for k,v in files.items() if isinstance(v,dict) and \"focused_test\" in v]' 'print(\"files\", len(files), \"with_focused_test\", len(ft))' 'ak=set()' '[ak.update(v) for v in files.values() if isinstance(v,dict)]' 'print(\"fields\", sorted(ak))' 'print(ft[:3])' > /tmp/insp.py && python3 /tmp/insp.py",
+      "printf '%s\\n' 'import json' 'm=json.load(open(\"lib/test/modules/coverage-map.json\"))' 'files=m[\"files\"]' 'ft=[k for k,v in files.items() if isinstance(v,dict) and \"focused_test\" in v]' 'print(\"files\", len(files), \"with_focused_test\", len(ft))' 'ak=set()' '[ak.update(v) for v in files.values() if isinstance(v,dict)]' 'print(\"fields\", sorted(ak))' 'print(ft[:3])' > ./insp.py && python3 ./insp.py; rm -f ./insp.py"
+    ],
+    "total": 9,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
