@@ -42401,6 +42401,143 @@ assert_eq "#834 Stage B parser: the .title-and-.body gate passes with the added 
 assert_eq "#834 Stage B parser: .title/.body extraction ignores the added key" "T|B" \
   "$(printf '%s|%s' "$("$LIB/../scripts/run-jq.sh" -r '.title' < "$E834_SB")" "$("$LIB/../scripts/run-jq.sh" -r '.body' < "$E834_SB")")"
 
+echo "#1211 skills/ shell fences: no unguarded filename pattern (zsh nomatch)"
+# A fenced shell block under skills/ is prose an agent runs verbatim, in whatever shell its
+# harness supplies — commonly zsh, whose default `nomatch` SKIPS a command whose glob matched
+# nothing (it does not abort the block; no skill fence sets `set -e`). The result is a silently
+# empty enumeration the surrounding prose cannot tell from a legitimate empty answer. The guard
+# is narrow by design (issue #1211) — the shape it recognises is closed by enumeration in the
+# helper's own docstring, and everything outside it is a disclosed miss, never a completeness
+# claim. Fixtures are written into probe_tmp scratch rather than checked in: the audited
+# population is `skills/**/*.md`, so a tracked fixture carrying an unguarded glob would be
+# caught by the guard's own real-tree run.
+E1211_LINT="$LIB/test/lint-skills-glob-guard.py"
+
+# Real-tree run: clean now, plus a POSITIVE tally so a collapsed audited set cannot read clean.
+E1211_OUT="$(python3 "$E1211_LINT" --root "$LIB/.." 2>&1)"; E1211_RC=$?
+assert_eq "#1211 the real tree audits clean" "rc=0" \
+  "$([ "$E1211_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$E1211_RC" "$E1211_OUT")"
+assert_eq "#1211 the real-tree run audited a positive number of files" "yes" \
+  "$(printf '%s' "$E1211_OUT" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) of", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+
+e1211_run() {  # <fence-body-file> -> "rc=<n>|<stdout+stderr>" for a one-file synthetic population
+  local body="$1"
+  local dir list out rc
+  dir="$(probe_tmp '#1211 fixture dir')" || return 0
+  case "$dir" in ""|/dev/null) printf 'rc=probe-unavailable|'; return 0 ;; esac
+  rm -f "$dir"; mkdir -p "$dir/skills/probe" || { printf 'rc=probe-unavailable|'; return 0; }
+  cp "$body" "$dir/skills/probe/SKILL.md"
+  list="$(probe_tmp '#1211 fixture list')" || { rm -rf "$dir"; return 0; }
+  case "$list" in ""|/dev/null) rm -rf "$dir"; printf 'rc=probe-unavailable|'; return 0 ;; esac
+  printf '%s\n' 'skills/probe/SKILL.md' > "$list"
+  out="$(python3 "$E1211_LINT" --root "$dir" --files-from "$list" 2>&1)"; rc=$?
+  rm -f "$list"; rm -rf "$dir"
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+e1211_case() {  # <label-suffix-free body text> -> "rc=<n>"
+  local f; f="$(probe_tmp '#1211 fixture body')" || return 0
+  case "$f" in ""|/dev/null) printf 'rc=probe-unavailable'; return 0 ;; esac
+  printf '%s' "$1" > "$f"
+  local out; out="$(e1211_run "$f")"; rm -f "$f"
+  printf '%s' "${out%%|*}"
+}
+
+# Positive control: the exact shape the two shipped sites carried before this change.
+assert_eq "#1211 an unguarded glob in a bash fence is a violation" "rc=1" \
+  "$(e1211_case '```bash
+ls -d agents/*/
+```
+')"
+# The two sanctioned discharges.
+assert_eq "#1211 the nonomatch guard on an earlier fence line discharges it" "rc=0" \
+  "$(e1211_case '```bash
+[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
+ls -d agents/*/
+```
+')"
+assert_eq "#1211 a glob-ok declaration marker discharges it" "rc=0" \
+  "$(e1211_case '```bash
+ls -d agents/*/   # glob-ok: illustrative, empty result is reported
+```
+')"
+# The guard is fence-scoped, not file-scoped: a guard in one fence must not silence the next.
+assert_eq "#1211 a guard in an EARLIER fence does not discharge a later fence" "rc=1" \
+  "$(e1211_case '```bash
+[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
+ls -d src/*/
+```
+
+```bash
+ls -d agents/*/
+```
+')"
+# Named false-alarm classes, each an assertion rather than an unproven claim in the docstring.
+assert_eq "#1211 an untagged fence is outside the audited population" "rc=0" \
+  "$(e1211_case '```
+ls -d agents/*/
+```
+')"
+assert_eq "#1211 a quoted pattern is not a candidate (the shell never expands it)" "rc=0" \
+  "$(e1211_case '```bash
+grep -l "*/pages/*" ./here
+```
+')"
+assert_eq "#1211 a case branch pattern is not a candidate" "rc=0" \
+  "$(e1211_case '```bash
+case "$CUR" in
+  claude/issue-*|issue-*) USE_CURRENT=1 ;;
+esac
+```
+')"
+assert_eq "#1211 markdown emphasis inside a fence is not a candidate" "rc=0" \
+  "$(e1211_case '```bash
+- **Relevant Classes/Files** — the files this touches.
+```
+')"
+assert_eq "#1211 a permission-grant literal written in prose is not a candidate" "rc=0" \
+  "$(e1211_case '```bash
+# Bash(lib/test/run.sh:*) is granted
+```
+')"
+# A separator-free pattern is a DISCLOSED residual of the narrow shape, not a safe case:
+# zsh would refuse `*.py` too. The assertion records where the boundary actually sits.
+assert_eq "#1211 a pattern with no path separator is outside the narrow shape (disclosed residual)" "rc=0" \
+  "$(e1211_case '```bash
+wc -l *.py
+```
+')"
+# Fail-closed arms: an unreadable path and an empty enumeration are UNESTABLISHED, never clean.
+assert_eq "#1211 an unreadable audited path fails closed rather than reporting clean" "yes" \
+  "$(E1211_LINT="$E1211_LINT" python3 -c '
+import importlib.util, io, os, sys, tempfile, contextlib
+s = importlib.util.spec_from_file_location("g", os.environ["E1211_LINT"])
+m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+d = tempfile.mkdtemp()
+lst = os.path.join(d, "list")
+open(lst, "w").write("skills/probe/absent.md\n")
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+    rc = m.main(["--root", d, "--files-from", lst])
+out = buf.getvalue()
+print("yes" if rc == 1 and "SKIPPED" in out and "refusing to report clean" in out else "no: rc=%s|%s" % (rc, out))
+')"
+assert_eq "#1211 an empty enumeration fails closed with its own breadcrumb" "yes" \
+  "$(E1211_LINT="$E1211_LINT" python3 -c '
+import importlib.util, io, os, tempfile, contextlib
+s = importlib.util.spec_from_file_location("g", os.environ["E1211_LINT"])
+m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+d = tempfile.mkdtemp()
+lst = os.path.join(d, "list")
+open(lst, "w").write("")
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+    rc = m.main(["--root", d, "--files-from", lst])
+out = buf.getvalue()
+print("yes" if rc == 1 and "enumeration unusable" in out else "no: rc=%s|%s" % (rc, out))
+')"
+
 echo "#693 issue-body cache: no cut-over site re-fetches the body"
 IBR_LINT="$LIB/test/lint-issue-body-refetch.py"
 IBR_FX="$LIB/test/fixtures/issue-body-refetch"

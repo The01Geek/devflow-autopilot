@@ -92,7 +92,12 @@ Run exploratory commands:
 cat CLAUDE.md | head -100
 
 # Top-level structure
-ls -d */
+# An unquoted glob must survive zsh's default `nomatch`, which would otherwise refuse to run
+# the command at all — a SKIPPED enumeration that reads like an empty one. The guard turns
+# nomatch off under native zsh and is a no-op elsewhere ($ZSH_VERSION unset -> `&&`
+# short-circuits, `|| :` stays rc-0); the `|| echo` arm reports the empty case explicitly.
+[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
+ls -d */ 2>/dev/null || echo "(no subdirectories)"   # glob-ok: unquoted glob guarded by the nonomatch line above; empty result is reported, not skipped
 
 # Database tables (if schema files exist)
 find . -name "*.sql" -o -name "*.schema" | head -10

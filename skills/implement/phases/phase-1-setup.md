@@ -634,7 +634,13 @@ Scan the issue body's Technical Context and Implementation Notes for numeric cla
 ```bash
 # Adapt to the specific entity the issue names:
 git ls-files 'skills/*/SKILL.md' | wc -l   # skill count
-ls -d agents/*/                              # agent enumeration
+# This block runs under the AGENT's shell (zsh/dash/sh), and an unquoted glob must survive
+# zsh's default `nomatch`, which would otherwise refuse to run the command at all and leave
+# a SKIPPED enumeration looking like an empty one. The guard turns nomatch off under native
+# zsh and is a no-op elsewhere ($ZSH_VERSION unset -> `&&` short-circuits, `|| :` stays rc-0);
+# the `|| echo` arm then reports the empty case explicitly instead of a bare error.
+[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
+ls -d agents/*/ 2>/dev/null || echo "(no matching directories)"   # glob-ok: unquoted glob guarded by the nonomatch line above; empty result is reported, not skipped
 ```
 
 Record by outcome: when the **counts match**, record via `--note "issue-claim audit (count): claimed '{N} X', verified '{M}' at HEAD"` (a clean confirmation — a `## Progress` note). When the **counts differ**, the issue's claim was wrong, so record that as issue-accuracy feedback: `--reflection-kind issue-accuracy --reflection "issue-claim audit (count): claimed '{N} X', verified '{M}' at HEAD — using the verified count"`. Use the verified count as the working assumption from Phase 2 onward; discard the issue body count when they differ. If no count or enumeration claims are found in the issue body, record: `--note "issue-claim audit (count): no count or enumeration claims found — pass complete"`.
