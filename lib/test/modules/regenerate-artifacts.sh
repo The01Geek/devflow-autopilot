@@ -1028,6 +1028,57 @@ case "$(cat "$RA_AP6/.rap.out")" in
   *) assert_eq "#1244 AP6 a crash is never reported as drift" yes yes ;;
 esac
 
+# AP7 — the marker row's OWN crash arm: `verify` exits 1 with a bare traceback and NO
+# `cloud-writer-contract:` marker. This is the exact safety the positive-marker mechanism
+# exists for, and it is the one branch neither AP2 nor AP6 reaches: AP2 drives the MARKED
+# exit-1 (real drift) on this row, and AP6 drives a crash on a JUDGMENT row, which is
+# classified by the universal traceback marker instead. Only here does the row-level
+# `preflight_positive_marker` check itself decide the outcome — so only here does a
+# reversed or deleted marker check change the answer, from "warn and proceed" to a
+# fail-CLOSED refusal that blocks the whole suite on a `verify` crash.
+RA_AP7="$_ra_tmp_root/ap7"; _ra_fixture "$RA_AP7"
+cat > "$RA_AP7/lib/test/cloud_writer_contract.py" <<'PY'
+#!/usr/bin/env python3
+raise RuntimeError("simulated cloud-writer verify crash")
+PY
+chmod 755 "$RA_AP7/lib/test/cloud_writer_contract.py"
+# Positive control on the stub itself: the arm below is only meaningful if `verify` really
+# produces the unmarked exit-1 shape. A stub that exited 0, or that happened to print the
+# marker, would leave every assertion below measuring a different branch.
+RA_AP7_PROBE="$( cd "$RA_AP7" && python3 lib/test/cloud_writer_contract.py verify 2>&1 )"
+assert_eq "#1244 AP7 the stubbed verify really exits 1" "1" "$?"
+_ra_ok "#1244 AP7 the stubbed verify emits NO cloud-writer-contract marker" \
+  "$(case "$RA_AP7_PROBE" in *cloud-writer-contract:*) printf no ;; *) printf yes ;; esac)" \
+  "the stub printed the positive marker, so the unmarked branch is not the one under test"
+RA_AP7_MAN_BEFORE="$(cat "$RA_AP7/scripts/devflow-cloud-writer-contract.json")"
+_ra_preflight "$RA_AP7"
+# Exit 2 is the coordinator's fail-OPEN signal (the tested `parallel-suite-runner` exit-2
+# arm warns and launches the shards); exit 1 would be the refusal. So this exit code IS
+# the "warn and proceed rather than refuse" limb of the contract.
+assert_eq "#1244 AP7 an unmarked verify crash exits 2 (UNCHECKABLE, the coordinator's fail-open signal)" \
+  "2" "$(_ra_prc "$RA_AP7")"
+# The exit code alone does not discriminate: with the marker check DELETED this row falls
+# through to the judgment path, whose universal traceback marker also yields exit 2. Pin
+# the row-level diagnostic that only the marker branch can emit, so a deleted check is
+# caught as well as a reversed one.
+_ra_has_file "#1244 AP7 the crash is attributed to the ABSENT positive marker on this row" \
+  "$RA_AP7/.rap.out" "without its drift marker"
+_ra_has_file "#1244 AP7 the unmarked exit-1 is named a crash, not a reconcilable drift" \
+  "$RA_AP7/.rap.out" "(a crash, not a reconcilable drift)"
+_ra_has_file "#1244 AP7 the exit-2 summary the coordinator reads is printed" \
+  "$RA_AP7/.rap.out" "could not check at least one eligible artifact"
+RA_AP7_OUT="$(cat "$RA_AP7/.rap.out")"
+_ra_ok "#1244 AP7 an unmarked verify crash is never reported as drift" \
+  "$(case "$RA_AP7_OUT" in
+       *"preflight detected drift"*|*"[cloud-writer-manifest] DRIFT"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "a verify crash was misclassified as drift, which would fail closed and block the suite"
+_ra_same "#1244 AP7 preflight writes nothing on the unmarked-crash arm" \
+  "$RA_AP7_MAN_BEFORE" "$(cat "$RA_AP7/scripts/devflow-cloud-writer-contract.json")" \
+  "the read-only preflight mutated the manifest on the unmarked-crash arm"
+_ra_live_unchanged "#1244 AP7 live manifest byte-unchanged after the unmarked-crash preflight"
+
 # The row integration itself has two non-clean states. A measured raise is a mechanical
 # reconciliation that changes the registry and `run.sh`; a measured decrease is a non-writing
 # judgment. The fake runner above supplies the actual summary boundary while these fixtures

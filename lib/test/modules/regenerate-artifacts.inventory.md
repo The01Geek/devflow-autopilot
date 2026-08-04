@@ -24,6 +24,7 @@ there is no former `run.sh` location to map back to.
 | Root resolution | A5f | the `git rev-parse` probe is anchored to this checkout, so an invocation from an unrelated repository still resolves this checkout's root — proven via the capability row's `REGIONS`-derived conflict-path set — rather than regenerating that repository's tree |
 | Helper content | header pins | the registration rule and the disclosed non-goals ship as artifact content, and the helper stays stdlib-only |
 | Read-only preflight (issue #1244) | AP1, AP2, AP3 | `--preflight` runs only the preflight-eligible rows read-only (writing nothing on either the clean or the drift arm), reports drift with a stable summary line and the failing row's governing policy, never touches the ineligible `exact-module-floors` row, and `--list` declares each row's eligibility — with the cloud-writer row's preflight command being the read-only `verify` form, never the writing `generate` form its own `argv` carries |
+| Preflight fail-open classification (issue #1244) | AP4, AP5, AP6, AP7 | a non-clean exit becomes a refusal only when it is positively attributable: an uncheckable eligible row exits 2, a positively-detected drift outranks an uncheckable sibling, a crashing judgment row routes to UNCHECKABLE via the preflight's universal traceback marker, and — on the one row carrying a `preflight_positive_marker` — an unmarked exit-1 from its read-only `verify` is classified UNCHECKABLE rather than drift, so a `verify` crash warns and proceeds instead of blocking the suite |
 
 ## Fixture discipline
 
