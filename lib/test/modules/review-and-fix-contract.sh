@@ -176,7 +176,7 @@ assert_eq "raf max_iterations clamp: resolver failure falls back" "5" "$(_raf_ma
 echo "review-and-fix contract: pre-fix gates and guardrails"
 # ────────────────────────────────────────────────────────────────────────────
 _raf_pin_unique "raf extension: explicit local focused selection" \
-  'bash lib/test/run-module.sh review-and-fix-contract' "$RAF_EXTENSION"
+  'lib/test/run-module.sh review-and-fix-contract' "$RAF_EXTENSION"
 _raf_pin_unique "raf extension: focused selection never auto-routes files" \
   'automate changed-file-to-module routing' "$RAF_EXTENSION"
 _raf_pin_unique "raf extension: skips cannot certify a clean run" \
