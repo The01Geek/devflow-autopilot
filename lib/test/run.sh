@@ -47307,6 +47307,11 @@ assert_eq "#1241 lint: a marked citation is not reported" "rc=0|lint-shipped-pru
   "$(sp_run "$SP_SIMPLE" skills/cite-marked.md)"
 assert_eq "#1241 lint: an unmarked acceptance-criterion reference is reported" "yes" \
   "$(case "$(sp_run "$SP_SIMPLE" skills/cite-ac.md)" in "rc=1|"*"skills/cite-ac.md:1:"*"cites PRFlow-internal 'AC5'"*) echo yes ;; *) echo no ;; esac)"
+# The `#\d+\b` word boundary exists precisely so a hex colour (`#1D76DB`, whose `#1` is
+# followed by a letter) and a bare run id (no `#`) are NOT citations — guard that boundary
+# so dropping the `\b` (which would flip a hex colour into a false finding) fails RED.
+assert_eq "#1241 lint: a hex colour and a run id are not citations (word-boundary control)" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/cite-hex-clean.md)"
 # test_marker_in_emitted_fence + fence-state matrix (AC14/AC15). Each row states its own reason.
 while IFS='|' read -r _sp_file _sp_expect _sp_why; do
   [ -n "$_sp_file" ] || continue
