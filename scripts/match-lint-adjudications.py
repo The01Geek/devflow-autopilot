@@ -132,7 +132,7 @@ if sys.version_info < (3, 11):  # fail fast, before any PEP 604 annotation is ev
     sys.stderr.write(
         "devflow: Python 3.11+ required (found %s.%s.%s). This helper requires"
         " features of Python 3.11+. Install Python 3.11+; on Windows/Git-Bash"
-        " run scripts/provision-python3-shim.sh --apply (see docs/install.md).\n"
+        " run scripts/provision-python3-shim.sh --apply.\n"
         % sys.version_info[:3]
     )
     sys.exit(1)

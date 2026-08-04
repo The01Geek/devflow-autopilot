@@ -74,7 +74,7 @@ if sys.version_info < (3, 11):  # fail fast, before any PEP 604 annotation is ev
     sys.stderr.write(
         "devflow: Python 3.11+ required (found %s.%s.%s). This helper requires"
         " features of Python 3.11+. Install Python 3.11+; on Windows/Git-Bash"
-        " run scripts/provision-python3-shim.sh --apply (see docs/install.md).\n"
+        " run scripts/provision-python3-shim.sh --apply.\n"
         % sys.version_info[:3]
     )
     sys.exit(1)
@@ -341,7 +341,7 @@ def _workpad_marker(explicit=None):
     except (OSError, ValueError) as e:
         # ValueError covers json.JSONDecodeError AND UnicodeDecodeError — a
         # config.json written by PowerShell 5.x `>` redirection is UTF-16LE
-        # with a BOM (the docs/install.md pitfall), which raises
+        # with a BOM (the PowerShell UTF-16LE redirection pitfall), which raises
         # UnicodeDecodeError, not JSONDecodeError, at read time.
         # A present-but-unreadable/malformed config is otherwise
         # indistinguishable from "no marker override configured": both fall

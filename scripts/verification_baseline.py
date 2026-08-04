@@ -2489,8 +2489,7 @@ def _classify_relationship(members: list[VerificationProcessLaunch]) -> "tuple[s
     # (launch-adjacent windows are Wave-2 work; Wave 1 has no per-launch
     # enumeration evidence to compare). The gate is therefore coverage-of-
     # enumeration, and the candidate class remains a MANUAL-REVIEW candidate,
-    # never an auto-proved duplicate. docs/workflow-flight-recorder.md states
-    # the same scope.
+    # never an auto-proved duplicate.
     ws_complete = all(m.workspace_state.get("coverage") == "complete" for m in members)
     ws_roots = {tuple(m.workspace_state.get("covered_roots", [])) for m in members}
     ws_matching = ws_complete and len(ws_roots) == 1
@@ -2529,8 +2528,7 @@ def _classify_relationship(members: list[VerificationProcessLaunch]) -> "tuple[s
     # source events. Wave 1 deliberately imposes NO magnitude threshold on
     # that gap (a max-gap constant would be an analyst-invented cutoff the
     # issue never authorized); the candidate is conservative-by-evidence, and
-    # the manual-review sample is where magnitude judgment happens. The doc
-    # sentence in docs/workflow-flight-recorder.md states the same reading.
+    # the manual-review sample is where magnitude judgment happens.
     bounded = [m for m in members if m.timing.get("started_at") and m.timing.get("finished_at")]
     # The bounded-interval requirement is tied to the MISSING-RESPONSE PAIR,
     # not any two bounded members: the retry interval that needs establishing

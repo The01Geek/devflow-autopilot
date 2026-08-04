@@ -21,7 +21,7 @@ capability-restricted one (a Haiku model, an `effort_supported: false`
 provider) — so a resolved-but-unapplied effort is reported at resolution time
 rather than silently claimed as applied (issue #554).
 
-Resolution rules (mirroring the schema + docs/review-agent-overrides.md):
+Resolution rules (mirroring the schema):
   - `iterations` (issue #425): an optional per-entry key whose only valid value is
     "first-only". A valid value is passed through in the resolved map; any other
     value (including an empty string) is dropped with a warning, mirroring the
@@ -288,8 +288,8 @@ def _is_haiku_model(model):
     """True when `model` is a Claude Haiku id (which rejects the `effort` param).
 
     Case-insensitive substring match on `haiku` — the same model-API fact the
-    docs (`docs/review-agent-overrides.md`) and the scaffold-config.sh Haiku-effort
-    strip key on. A non-string model is never a Haiku id.
+    scaffold-config.sh Haiku-effort strip keys on. A non-string model is never a
+    Haiku id.
     """
     return isinstance(model, str) and "haiku" in model.lower()
 
@@ -461,8 +461,9 @@ def format_effort_reports(decisions, resolved, *, effort_supported=True):
             "::notice::resolve-review-overrides: per-agent effort was NOT applied for "
             f"{len(benign)} agent(s) ({names}) — this tier's in-session Agent-tool "
             "dispatch cannot apply a per-agent effort override, so each inherits the "
-            "session effort (a session-fallback, not a failure; see "
-            "docs/review-agent-overrides.md for the per-tier application-point matrix)."
+            "session effort (a session-fallback, not a failure: whether a per-agent "
+            "effort override is applied or falls back depends on the tier's "
+            "application point)."
         )
     return lines
 

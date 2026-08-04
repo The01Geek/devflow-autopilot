@@ -7,7 +7,7 @@
 # SOLE IN-REPO CALLER: the `auto_review_trigger` job in .github/workflows/ci.yml.
 # That workflow is REPO-INTERNAL — install.sh's copy loop ships only devflow.yml
 # and devflow-implement.yml, so no consumer repo has ci.yml. A consumer instead
-# copies the documented `pull_request` job snippet from docs/workflow-triggers.md
+# copies the documented `pull_request` job snippet
 # into their OWN CI workflow and invokes this helper at its vendored path
 # .prflow/vendor/prflow/scripts/post-ci-review-trigger.sh (materialized by the
 # vendor-plugin composite action install.sh ships). Both callers pass the same
