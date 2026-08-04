@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1290",
+  "generated_at": "2026-08-04T19:16:55Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.97",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 8.4184965,
+    "tokens": {
+      "input_tokens": 74,
+      "output_tokens": 32158,
+      "cache_read_input_tokens": 6061762,
+      "cache_creation_input_tokens": 195274,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 121,
+        "outputTokens": 51378,
+        "cacheReadInputTokens": 7478428,
+        "cacheCreationInputTokens": 425912,
+        "webSearchRequests": 0,
+        "costUSD": 8.4184965,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 48,
+    "duration_ms": 717010
+  },
+  "permission_denials": {
+    "count": 10,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-<empty>} ATTEMPT=${GITHUB_RUN_ATTEMPT:-<empty>} ACTIONS=${GITHUB_ACTIONS:-<empty>} REPO=${GITHUB_REPOSITORY:-<empty>}\"",
+      "printf 'RUN_ID=%s ATTEMPT=%s ACTIONS=%s REPO=%s\\n' \"${GITHUB_RUN_ID:-EMPTY}\" \"${GITHUB_RUN_ATTEMPT:-EMPTY}\" \"${GITHUB_ACTIONS:-EMPTY}\" \"${GITHUB_REPOSITORY:-EMPTY}\"",
+      "jq -r 'keys[] | select(test(\"create-issue|retrospective-weekly\"))' scripts/devflow-cloud-writer-contract.json; echo \"---check all 6 skills current hashes vs contract---\"; for f in skills/create-issue/SKILL.md skills/implement/SKILL.md skills/requesting-code-review/SKILL.md skills/retrospective-weekly/SKILL.md skills/review-and-fix/SKILL.md skills/review/SKILL.md; do incontract=$(jq -r --arg k \"$f\" '.[$k] // \"ABSENT\"' scripts/devflow-cloud-writer-contract.json); actual=$(python3 -c \"import hashli …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nfor f in skills/implement/SKILL.md skills/review/SKILL.md skills/review-and-fix/SKILL.md skills/requesting-code-review/SKILL.md; do\n  printf '%s  ' \"$f\"\n  git show f174dafa258ca6209e829b5a1b978bf2899afd7d:\"$f\" | sha256sum | cut -d' ' -f1\ndone",
+      "for f in skills/implement/SKILL.md skills/review/SKILL.md skills/review-and-fix/SKILL.md skills/requesting-code-review/SKILL.md; do printf '%s  ' \"$f\"; git show f174dafa258ca6209e829b5a1b978bf2899afd7d:\"$f\" | sha256sum | cut -d' ' -f1; done",
+      "for f in $(git show f174dafa258ca6209e829b5a1b978bf2899afd7d:skills/implement/SKILL.md >/dev/null 2>&1 && echo ok); do :; done; echo \"---phase files list---\"; git show f174dafa258ca6209e829b5a1b978bf2899afd7d --stat >/dev/null 2>&1; git ls-tree -r --name-only f174dafa258ca6209e829b5a1b978bf2899afd7d skills/implement skills/review skills/review-and-fix | grep -E '\\.md$'",
+      "git ls-tree -r --name-only f174dafa258ca6209e829b5a1b978bf2899afd7d skills/implement skills/review skills/review-and-fix | grep '\\.md$'",
+      "git ls-tree -r --name-only f174dafa258ca6209e829b5a1b978bf2899afd7d skills/implement skills/review skills/review-and-fix",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve \"1200\" --pr \"1290\" 2>.prflow/tmp/review/pr-1290/30941509297-1/acs.err ; echo \"acs-rc=$?\""
+    ],
+    "total": 10,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
