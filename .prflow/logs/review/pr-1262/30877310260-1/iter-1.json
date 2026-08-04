@@ -1,0 +1,63 @@
+{
+  "iter": 1,
+  "loop_role": "fix",
+  "fix_commit_sha": "75ec9d2d",
+  "fix_files": [
+    "scripts/parse-acs.py",
+    "lib/test/test_python_scripts.py",
+    "skills/implement/phases/phase-1-setup.md",
+    "scripts/devflow-cloud-writer-contract.json"
+  ],
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:pr-test-analyzer",
+    "prflow:comment-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "unreadable CLI test asserted only len(_err)>0, would not catch inverted precedence",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "test_plan_unreadable had zero coverage",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "route §1.2 on JSON field not stderr text",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "(still the sentinel) over-claims with a test plan present",
+      "fix_decision": "applied"
+    }
+  ],
+  "shadow": {
+    "ran_at": "iteration-2",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter"
+    ],
+    "phase3_findings": [],
+    "comparison": {
+      "shadow_total": 0,
+      "new_critical": 0,
+      "new_important": 0
+    }
+  },
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "new_corroborated_critical_count": 0
+  },
+  "telemetry": "unavailable"
+}
