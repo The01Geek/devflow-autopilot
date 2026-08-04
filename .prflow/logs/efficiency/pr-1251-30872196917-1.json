@@ -100,5 +100,76 @@
       "iter": 1,
       "phases": "unavailable"
     }
-  ]
+  ],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.78",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 55.09385925000002,
+    "tokens": {
+      "input_tokens": 1889,
+      "output_tokens": 158724,
+      "cache_read_input_tokens": 72994746,
+      "cache_creation_input_tokens": 521414,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 2109,
+        "outputTokens": 223259,
+        "cacheReadInputTokens": 77868161,
+        "cacheCreationInputTokens": 1377993,
+        "webSearchRequests": 0,
+        "costUSD": 55.09385925000002,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 238,
+    "duration_ms": 9209375
+  },
+  "permission_denials": {
+    "count": 23,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"ACTIONS=$GITHUB_ACTIONS RUN_ID=$GITHUB_RUN_ID REPO=$GITHUB_REPOSITORY\"; echo \"---branch---\"; git branch --show-current; echo \"---status---\"; git status --porcelain | head; echo \"---worktree---\"; git rev-parse --path-format=absolute --git-common-dir; git rev-parse --path-format=absolute --git-dir",
+      "printf 'ACTIONS=%s RUN=%s REPO=%s\\n' \"$GITHUB_ACTIONS\" \"$GITHUB_RUN_ID\" \"$GITHUB_REPOSITORY\"; git branch --show-current; git status --porcelain | head; git rev-parse --path-format=absolute --git-common-dir; git rev-parse --path-format=absolute --git-dir",
+      "mkdir -p /home/runner/work/prflow/prflow/.prflow/tmp/issue-body\nrm -f /home/runner/work/prflow/prflow/.prflow/tmp/issue-body/issue-1244.md\ngh issue view 1244 --json body --jq '.body' > /home/runner/work/prflow/prflow/.prflow/tmp/issue-body/issue-1244.md || gh issue view 1244 --json body --jq '.body' > /home/runner/work/prflow/prflow/.prflow/tmp/issue-body/issue-1244.md\nwc -c /home/runner/work/prflow/prflow/.prflow/tmp/issue-body/issue-1244.md; head -c 1 /home/runner/work/prflow/prflow/.prflow/tm …[per-command-truncated]",
+      "mkdir -p .prflow/tmp/issue-body\nrm -f .prflow/tmp/issue-body/issue-1244.md\ngh issue view 1244 --json body --jq '.body' > .prflow/tmp/issue-body/issue-1244.md || gh issue view 1244 --json body --jq '.body' > .prflow/tmp/issue-body/issue-1244.md\nwc -c .prflow/tmp/issue-body/issue-1244.md; head -c 1 .prflow/tmp/issue-body/issue-1244.md",
+      "gh issue view 1244 --json body --jq '.body' > .prflow/tmp/issue-body/issue-1244.md",
+      "MARKER=/home/runner/work/prflow/prflow/.prflow/tmp/implement-active-1244\nif [ -n \"${CLAUDE_CODE_SESSION_ID:-}\" ]; then printf '%s\\n' \"$CLAUDE_CODE_SESSION_ID\" > \"$MARKER\"; else : > \"$MARKER\"; fi\necho \"marker written\"\n.prflow/vendor/prflow/scripts/preflight.py dependencies --body-file .prflow/tmp/issue-body/issue-1244.md; echo \"deps rc=$?\"",
+      "SCRATCH=$(mktemp -d); git clone --shared -q . \"$SCRATCH/clone\" 2>&1 | tail -1\ncd \"$SCRATCH/clone\" && git checkout -q 97fe73ab 2>&1 | tail -1\ncd /home/runner/work/prflow/prflow\necho \"=== my preflight against 97fe73ab clone ===\"\npython3 lib/test/regenerate-artifacts.py --preflight --repo-root \"$SCRATCH/clone\"; echo \"rc=$?\"\necho \"=== AC3: my fixed verify against stale clone ===\"\ncp lib/test/cloud_writer_contract.py \"$SCRATCH/clone/lib/test/cloud_writer_contract.py\"\ncd \"$SCRATCH/clone\" && python3 li …[per-command-truncated]",
+      "printf '\\n' >> scripts/devflow-cloud-writer-contract.json\necho \"=== AC3 verify remedy string ===\"; python3 lib/test/cloud_writer_contract.py verify; echo \"rc=$?\"\necho \"=== preflight drift (exit 1) ===\"; python3 lib/test/regenerate-artifacts.py --preflight 2>&1 | tail -8; echo \"preflight rc=${PIPESTATUS[0]}\"\ngit restore scripts/devflow-cloud-writer-contract.json\necho \"=== restored, verify clean ===\"; python3 lib/test/cloud_writer_contract.py verify; echo \"rc=$?\"",
+      "printf '\\n' >> scripts/devflow-cloud-writer-contract.json\necho \"=== AC3 verify remedy string ===\"; python3 lib/test/cloud_writer_contract.py verify; echo \"verify rc=$?\"\necho \"=== preflight drift ===\"; python3 lib/test/regenerate-artifacts.py --preflight; echo \"preflight rc=$?\"",
+      "python3 -c \"\nimport json\nr=json.load(open('scripts/workflow-flight-recorder-registry.json'))\ntm=r['test_modules']['regenerate-artifacts']\nprint(list(tm.keys()))\nprint('exact keys sample:')\nimport collections\n# find which key marks exact policy\nfor k,v in r['test_modules'].items():\n    ks=set(v.keys())\n    break\nprint(ks)\n\"; echo \"=== grep exact ===\"; grep -n \"exact\\|minimum_assertions\\|assertion_mode\\|policy\" scripts/workflow-flight-recorder-registry.json | head",
+      ".prflow/vendor/prflow/scripts/workpad.py update 1244 --note \"full parallel suite green in-env: 16426 passed, 0 failed, aggregate CLEAN, zero skips (preflight ran clean and non-blocking)\" 2>&1; echo rc=$?",
+      "BASE=$(.prflow/vendor/prflow/scripts/config-get.sh .base_branch main) || BASE=\"\"\n[ -n \"$BASE\" ] || BASE=main\nRUN_URL=\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"\nBODY=$(cat <<EOF\nWork in progress — automated review pending.\n\nResolves #1244\n[View run]($RUN_URL)\n\nGenerated via \\`/prflow:implement 1244\\`\nEOF\n)\nif gh pr create --base \"$BASE\" --draft --title \"Preflight stale-artifact detection in the parallel suite coordinator\" --body \"$BODY\"; then\n  printf 'create: ok\\n'\nelse\n …[per-command-truncated]",
+      "python3 lib/test/regenerate-artifacts.py --list >/dev/null 2>&1; echo \"list/validate rc=$?\"\necho \"=== negative: eligible+writes+no preflight_argv raises? ===\"\npython3 - <<'PY'\nimport importlib.util, sys\nspec = importlib.util.spec_from_file_location(\"ra\", \"lib/test/regenerate-artifacts.py\")\nm = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n# craft a bad row and validate\nbad = dict(m.ROWS[1])  # a judgment row (no writes)\nbad = {\"name\":\"x\",\"kind\":\"judgment\",\"argv\":(\"python3\",\"w …[per-command-truncated]",
+      ".prflow/vendor/prflow/scripts/workpad.py update 1244 --note \"/simplify: applied altitude finding — enforce the write-nothing invariant in the registry validator (an eligible row declaring writes must supply a non-writing preflight_argv) + 2 negative bind-time tests; skipped low-value/intentional findings (deliberate non-reuse of run_row, sub-second sequential rows within budget, belt-and-suspenders drift guard, prose-marker seam needed for stub injection)\" 2>&1; echo rc=$?\ngit add lib/test/regen …[per-command-truncated]",
+      ".prflow/vendor/prflow/scripts/workpad.py update 1244 --note \"simplify applied: enforce write-nothing invariant in registry validator plus 2 negative bind-time tests; skipped intentional/low-value findings\" 2>&1; echo rc=$?",
+      "ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); mkdir -p \"$ROOT/.prflow/tmp\"; find \"$ROOT/.prflow/tmp/review\" -path '*/iter-*.json' 2>/dev/null | sort > \"$ROOT/.prflow/tmp/.phase33-iters-before\" || true; wc -l \"$ROOT/.prflow/tmp/.phase33-iters-before\" 2>/dev/null || echo \"no prior iters\"",
+      ".prflow/vendor/prflow/scripts/workpad.py update 1244 --tick-progress \"review-and-fix\" --note \"review-and-fix converged: APPROVE WITH ADVISORY NOTES. 4 reviewers found 3 fixable findings (all applied + committed daee71e7: fail-open-on-crash guard, per-row exception net, 3 new real-Python test arms AP4/AP5/AP6) and 2 advisory Suggestions (preflight_argv exit-contract coupling — only cloud-writer diverges and shares the contract; a cosmetic error string). Confirming re-review by code-reviewer + sil …[per-command-truncated]",
+      "gh issue view 1244 --json body --jq '.body' > .prflow/tmp/devflow-docgate-body-1244.txt 2>.prflow/tmp/devflow-docgate-gh.err\n.prflow/vendor/prflow/scripts/extract-doc-needed-paths.sh < .prflow/tmp/devflow-docgate-body-1244.txt; echo \"extract rc=$?\"\necho \"=== has Documentation Needed section? ===\"; grep -qE '\\*\\*Documentation Needed\\*\\*|^###[[:space:]]+\\*{0,2}Documentation Needed' .prflow/tmp/devflow-docgate-body-1244.txt && echo \"yes\" || echo \"no\"",
+      ".prflow/vendor/prflow/skills/docs/../../scripts/load-prompt-extension.sh docs; echo \"---GATES---\"; .prflow/vendor/prflow/scripts/config-get.sh .docs.internal_enabled true; .prflow/vendor/prflow/scripts/config-get.sh .docs.external_enabled true",
+      "python3 lib/test/pin-corpus-lint.py mutation-routing-worktree \"$(cd lib/.. && pwd)\" 2>&1 | head -30; echo \"rc=$?\"",
+      "grep -n \"candidate_identity\\|\\\"command\\\"\\|def _load_declaration\\|required\\|\\.get(\\|scope\\|input.get\" lib/test/../scripts/verification-flight.py 2>/dev/null | head -25 || grep -n \"candidate_identity\\|command\\|scope\" scripts/verification-flight.py | head -25",
+      "TRIGGER_COMMENT_ID=$(.prflow/vendor/prflow/scripts/run-jq.sh -r '.comment.id // empty' \"$GITHUB_EVENT_PATH\" 2>/dev/null || true)\nif [ -z \"$TRIGGER_COMMENT_ID\" ]; then\n  TRIGGER_COMMENT_ID=$(gh api \"repos/{owner}/{repo}/issues/1244/comments?per_page=100\" --jq 'map(select((.body | contains(\"/prflow:implement\")) and ((.body | test(\"(pr|dev)flow:workpad\")) | not))) | last | .id' 2>/dev/null || true)\nfi\necho \"trigger comment id: $TRIGGER_COMMENT_ID\"\nif [ -n \"$TRIGGER_COMMENT_ID\" ] && [ -z \"${TRIGGER_ …[per-command-truncated]",
+      ".prflow/vendor/prflow/scripts/react-to-trigger.sh --repo \"$GITHUB_REPOSITORY\" --event issue_comment --comment 5173947665 --reaction hooray --report-failure 2>&1; echo \"reaction rc=$?\""
+    ],
+    "total": 23,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
 }
