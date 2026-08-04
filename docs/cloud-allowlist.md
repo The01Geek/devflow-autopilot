@@ -162,15 +162,17 @@ The portable source anchor `"${CLAUDE_SKILL_DIR:-…}"/../../scripts/<helper>` (
 
   `Bash(echo:*)` was present in that run's resolved allowlist — **the head was granted and the command was still denied.** The distinguishing feature is the unexpanded `${VAR:-default}` expansion in the **argument**. That run recorded 21 denials in total and still completed, so the denial is individually invisible, not individually fatal.
 
-  **Scope of the argument-position denial — three measurement rows now exist (issue #1152), verdict DISPATCHED-PENDING.** Whether the matcher refuses all unexpanded parameter expansions in argument position, only the defaulted `${VAR:-default}` form, or only this variable, was previously **unestablished** — `matcher-probe.yml` carried no argument-position corpus row. Issue #1152 adopted issue #1124's orphaned rows and added them to the new **`command-probe`** job (rows 8–10), which measures the same `command` tier the denial was recorded on:
+  **Scope of the argument-position denial — MEASURED, run `30956039324` (issue #1152).** Whether the matcher refuses all unexpanded parameter expansions in argument position, only the defaulted `${VAR:-default}` form, or only this variable, was **unestablished** until this run — `matcher-probe.yml` had carried no argument-position corpus row. Issue #1152 adopted issue #1124's orphaned rows and added them to the **`command-probe`** job (rows 8–10), which measures the same `command` tier the denial was recorded on. The verdicts below are from that job (job `92149438683`) of run [`30956039324`](https://github.com/The01Geek/prflow/actions/runs/30956039324), head `85e57ac1c6dcf732a861230f82182191977c6e41`, ref `issue-1152-command-profile-shape-lint`:
 
   | # | Argument-position shape | Verdict |
   |---|-------------------------|---------|
-  | 8 | defaulted anchor expansion `echo "${CLAUDE_SKILL_DIR:-…}" …` (reproduces run `30695072336`) | **dispatched-pending** |
-  | 9 | bare anchor expansion `echo "${CLAUDE_SKILL_DIR}" …` | **dispatched-pending** |
-  | 10 | bare expansion of a **non-anchor** variable `echo "${GITHUB_ACTIONS}" …` (control — distinguishes "this variable" from "this expansion form") | **dispatched-pending** |
+  | 8 | defaulted anchor expansion `echo "${CLAUDE_SKILL_DIR:-…}" …` (reproduces run `30695072336`) | **DENIED** |
+  | 9 | bare anchor expansion `echo "${CLAUDE_SKILL_DIR}" …` | **DENIED** |
+  | 10 | bare expansion of a **non-anchor** variable `echo "${GITHUB_ACTIONS}" …` (control — distinguishes "this variable" from "this expansion form") | **DENIED** |
 
-  The rows and their generated baseline ship with this change; the verdicts land on a later `workflow_dispatch` of `matcher-probe.yml`. **A verdict is never written from inference** — matcher semantics are provable only in a real probe run. Read against each other once dispatched: if 9 is DENIED and 10 PERMITTED, the denial is specific to `CLAUDE_SKILL_DIR`; if both are denied, argument-position bare expansion is refused generally; if 8 is denied but 9 permitted, only the defaulted form is refused. Until then this remains out of scope for the leading-token remedy (issue #1124 / PR #1272), whose conditional call form addresses only the leading-token position.
+  **Reading, per the cross-reading this table was built to decide: argument-position bare parameter expansion is refused GENERALLY, not specifically for `CLAUDE_SKILL_DIR`.** Row 10's control expands a non-anchor variable (`GITHUB_ACTIONS`) under the same granted `echo` head and was denied too, which is the pre-declared "both denied" arm; row 8 shows the defaulted form is refused on the same terms. The question is now **established and recorded** rather than open. State it no wider than the evidence: this is **one measurement, on the `command` tier, at one `claude-code-action` version** — it establishes nothing for the review or implement tiers, and it is not a platform contract. **A verdict is never written from inference** — matcher semantics are provable only in a real probe run; re-probe after any `claude-code-action` upgrade.
+
+  The practical consequence is unchanged in direction but now evidenced: the leading-token remedy (issue #1124 / PR #1272) addresses only the leading-token position, and an author must additionally keep the unexpanded anchor out of **argument** position on this tier — a granted head does not rescue it.
 
 **Anchor invocation call-site census (issue #1124 AC2).** Re-derived at the issue's HEAD (index-sourced per issue #711): **118** anchor leading-token helper invocations across **34** `skills/*` files. Disposition:
 
@@ -287,7 +289,7 @@ a command prefix (a leading `VAR=value` is a denied matcher shape), and the new
 than an agent command — so `lib/review-profile.tokens` is byte-identical and
 `lib/generate-capability-profiles.py --check` stays green.
 
-### Step-level `env:` propagation — PENDING a maintainer-dispatched run (issue #874)
+### Step-level `env:` propagation — still PENDING, but not on a dispatch (issue #874)
 
 `.github/workflows/matcher-probe.yml` carries an **`env-propagation-probe`** job that
 measures whether a step-level `env:` entry on a `claude-code-action` step is visible
@@ -306,16 +308,35 @@ each hop read through its own Bash calls, and derives a four-way verdict
 `DISPATCHED_TASK_ONLY` inversion) with `scripts/env-propagation-probe-verdict.py`,
 whose five verdict arms and four degraded arms `lib/test/run.sh` drives.
 
-**This measurement is PENDING.** The implementing run added the job and the
-documentation entry and deliberately did **not** dispatch the probe, so no verdict is
-recorded here yet. Until one is, the claim that a consumer's committed base-ref
+**This measurement is PENDING — but a dispatch is not what it is waiting for.** The
+framing this entry carried ("PENDING a maintainer-dispatched run") was wrong on its
+premise: `matcher-probe.yml` also triggers on a same-repo `pull_request` filtered to its
+own path, so the job has in fact been running on every PR that touches that workflow.
+
+**A run has now been observed and it did not produce a verdict.** In run
+[`30956039324`](https://github.com/The01Geek/prflow/actions/runs/30956039324), job
+`env-propagation-probe` (`92149438747`), head
+`85e57ac1c6dcf732a861230f82182191977c6e41`, 2026-08-04, the job returned
+**`INCONCLUSIVE`** with `hop1_reported=False, hop2_reported=True` — one hop reported
+nothing at all, which `scripts/env-propagation-probe-verdict.py` deliberately routes to
+*unestablished* rather than to a negative. Per "Unknown is not zero", **no verdict cell
+is filled from this**: the four-way question (`BOTH_HOPS` / `ORCHESTRATOR_ONLY` /
+`NEITHER_HOP`) remains open, and `ORCHESTRATOR_ONLY` in particular must not be inferred
+from a silent hop one.
+
+What this changes is the remedy. The observation suggests the probe needs a **design
+fix** before it can yield a verdict — hop one's report is not reaching the execution
+file the helper reads — so a blind re-dispatch would most likely return `INCONCLUSIVE`
+again. Diagnosing and repairing the probe's hop-one reporting path (a `matcher-probe.yml`
+change) is the actual next step, not another run.
+
+Until a verdict exists, the claim that a consumer's committed base-ref
 extension keeps working is an **expectation, not a guarantee**. The failure direction
 is safe either way — an unpropagated variable makes the loader resolve the repo-root
 path, find the workflow's truncated file, and print nothing — so a propagation failure
 costs the feature, never the boundary; the loader's resolved-root breadcrumb, surfaced
 at hop two through the `EXTENSION-STATUS: … resolved-root=…` field, is what makes such
-a failure observable rather than silent. Dispatch the job from the Actions tab and
-record the run id and verdict here.
+a failure observable rather than silent.
 
 The probe job's **helper-invocation-form rows** exercise a vendored helper as the
 leading token in five path/grant forms (the review job uses `config-get.sh` as that
@@ -352,7 +373,7 @@ on no profile, so the run is not an acceptance criterion of the change that adde
 this note). Until then, a refusal of the dispatched vendored-literal command is
 handled by the Phase-3 fail-closed refusal path, never assumed impossible.
 
-### Dispatched-subagent `Write` into `.prflow/tmp/**` — review tier — PENDING the first PR-triggered run (issue #858)
+### Dispatched-subagent `Write` into `.prflow/tmp/**` — review tier — MEASURED PERMITTED (issue #858)
 
 `.github/workflows/matcher-probe.yml` carries a **`subagent-write-review-probe`** job
 that measures whether a **dispatched subagent's** `Write` into `.prflow/tmp/**`
@@ -407,37 +428,49 @@ and a genuine `Write` denial still reports `DENIED` **provided a dispatch is als
 in the file** — that conjunct is what the verdict requires, and with no recorded dispatch
 there is no dispatchee to attribute the denial to, so such a list reports `unestablished`.
 
-**This measurement is PENDING.** The implementing run added the job and this entry and
-deliberately did **not** dispatch the probe (its only pre-merge trigger is a same-repo
-`pull_request` scoped to the workflow's own path — so pushing this change to the
-implementing PR *does* fire it — and `gh workflow run` is granted on no profile). Record
-the verdict here from the **final pre-merge head commit** (a later push re-fires the
-workflow and invalidates a recorded head — the `paths:` filter does NOT narrow this: on a
-`pull_request` event GitHub evaluates `paths:` against the three-dot base…head diff, i.e.
-the files changed in the whole PR, and this PR changes `matcher-probe.yml`, so every
-subsequent push re-fires both paid probe jobs — including the commit that records this very
-verdict), naming the **ref** (the implementing branch —
-the job does not exist on the default branch until this merges), the **run id**, the
-**job id**, the **head commit**, and the **resolved `--allowed-tools` literal verbatim**
-alongside `--permission-mode acceptEdits`, model `claude-haiku-4-5-20251001`, and
-`--effort low`. A `PERMITTED` cites, by their two ids, the
-`tool_use`/`parent_tool_use_id` pair tying the `Write` to the job's dispatch, so a reader
-can re-verify the chain against the execution file; a `DENIED`'s attribution rests on the no-orchestrator-write prompt
-(the `permission_denials` per-entry shape is not yet recorded), and the run's **observed
-denial-entry shape** is recorded alongside — the read that upgrades the denial side from
-by-construction to measured. Commit the job's machine output beside
-`docs/execution-file-shape.observed.txt`, as that record establishes.
+**This measurement is RECORDED.** The section's own prose already named the trigger that
+produced it — *"its only pre-merge trigger is a same-repo `pull_request` scoped to the
+workflow's own path — so pushing this change to the implementing PR **does** fire it"* —
+but the resulting run was never read back, so the row sat at `pending` while the evidence
+existed. It is transcribed here from run
+[`30956039324`](https://github.com/The01Geek/prflow/actions/runs/30956039324). No
+`workflow_dispatch` was involved.
+
+The recording requirements this section set for itself are met as follows. **Ref**,
+**run id**, **job id** and **head commit** are in the table below.
+`--permission-mode acceptEdits`, model `claude-haiku-4-5-20251001` and `--effort low`
+are as specified. The **resolved `--allowed-tools` literal, verbatim**, is committed at
+[`docs/subagent-write-probe.observed.md`](subagent-write-probe.observed.md) rather than
+inlined here: the two literals are ~1.9 KB and ~7.2 KB and would bury the surrounding
+prose, and that sidecar is exactly the *"commit the job's machine output beside
+`docs/execution-file-shape.observed.txt`"* artifact this section calls for — it carries
+each job's complete emitted step summary unedited, literal included, under the same
+expiring-evidence rationale that file states. Nothing required is omitted; it is
+relocated to the artifact and pointed at from here. The **`tool_use` /
+`parent_tool_use_id` pair** a `PERMITTED` must cite is
+`toolu_01SbG9oxWxp5PTNS3bbymzD3` → `toolu_01Cd3LViMMbQw2surtkyDFGL` (review tier), so a
+reader can re-verify the chain. The run recorded **zero** `permission_denials` entries,
+so this run contributes no reading of the **observed denial-entry shape** — that read,
+which would upgrade the *denial* side from by-construction to measured, remains
+outstanding and is not discharged by a `PERMITTED`.
+
+The helper's own supporting facts, all `yes` on this run: `dispatch_outcome=recorded`,
+`recorded_at_all=yes`, `chain_attributable=yes`, `control_before=yes`,
+`control_after=yes`, `write_outcome=recorded`, `write_chain_ok=yes`, and
+`side_effect_state=corroborated` — the on-disk `.prflow/tmp/subwrite-review.txt` carried
+the probe's payload marker.
 
 This verdict is version-dependent and establishes nothing for a differently-defined
-subagent type or a later `claude-code-action` version: **re-probe** after any upgrade.
+subagent type or a later `claude-code-action` version: **re-probe** after any upgrade
+(measured against `claude-code-action@v1` with Claude Code 2.1.221).
 **Scope caveat, carried in the emitted record itself:** the run uses
-`--permission-mode acceptEdits`, so a `PERMITTED` answers *"did the dispatched subagent's
-`Write` land under that permission mode?"* — it does not isolate the allowlist from the
-permission mode as the sole reason the write was allowed.
+`--permission-mode acceptEdits`, so this `PERMITTED` answers *"did the dispatched
+subagent's `Write` land under that permission mode?"* — it does **not** isolate the
+allowlist from the permission mode as the sole reason the write was allowed.
 
 | Tier | Verdict | Run id | Job id | Head commit | Ref |
 | --- | --- | --- | --- | --- | --- |
-| review | _pending first PR-triggered run_ | — | — | — | — |
+| review | **PERMITTED** | `30956039324` | `92149631372` | `85e57ac1c6dcf732a861230f82182191977c6e41` | `issue-1152-command-profile-shape-lint` |
 
 ---
 
@@ -588,7 +621,7 @@ direct leading token so the *same* command works on the local and cloud tiers. H
 the probe come back DENIED, the cloud tier would have kept the full-suite default
 and those tiers would have stayed local-only.
 
-### Dispatched-subagent `Write` into `.prflow/tmp/**` — implement tier — PENDING the first PR-triggered run (issue #858)
+### Dispatched-subagent `Write` into `.prflow/tmp/**` — implement tier — MEASURED PERMITTED (issue #858)
 
 `matcher-probe.yml` also carries a **`subagent-write-implement-probe`** job that measures
 the same dispatched-subagent `Write` fact on the **implement** tier — because a shape
@@ -604,13 +637,22 @@ Note the two tiers' row numberings are independent — both contain rows numbere
 so the verdict record names its tier as data, and the helper carries a machine-consumed
 `tier` field for the same reason.
 
-**This measurement is PENDING**, on the same terms as the review-tier entry above: added
-but not dispatched, recorded from the final pre-merge head, version-dependent, re-probe
-after any `claude-code-action` upgrade.
+**This measurement is RECORDED**, on the same terms as the review-tier entry above and
+from the same run: fired by the same-repo `pull_request` trigger, never dispatched,
+version-dependent, re-probe after any `claude-code-action` upgrade. The `tool_use` /
+`parent_tool_use_id` pair for this tier is `toolu_01NmqhQw56kRuoGSXdr3e1Ph` →
+`toolu_01CAkuq4wZ4x9M82HazPicfF`; `write_chain_ok=yes` and
+`side_effect_state=corroborated` against `.prflow/tmp/subwrite-implement.txt`, with
+**zero** `permission_denials` entries (so, as above, the denial-entry-shape read stays
+outstanding). The resolved implement `--allowed-tools` literal is committed verbatim in
+[`docs/subagent-write-probe.observed.md`](subagent-write-probe.observed.md) alongside the
+review one. The same `acceptEdits` scope caveat applies: the run carries
+`--permission-mode acceptEdits`, so the `PERMITTED` does not isolate the allowlist as the
+sole reason the write was allowed.
 
 | Tier | Verdict | Run id | Job id | Head commit | Ref |
 | --- | --- | --- | --- | --- | --- |
-| implement | _pending first PR-triggered run_ | — | — | — | — |
+| implement | **PERMITTED** | `30956039324` | `92149629323` | `85e57ac1c6dcf732a861230f82182191977c6e41` | `issue-1152-command-profile-shape-lint` |
 
 ---
 
@@ -643,26 +685,67 @@ Issue #1152 closes both gaps:
   `probe-review` / `probe-implement` baselines are, so it can never drift from the deployed
   allowlist.
 
-**This measurement is DISPATCHED-PENDING** — the rows and their generated baseline ship
-with issue #1152; the verdicts land on a later `workflow_dispatch` (a verdict is never
-written from inference). Version-dependent: re-probe after any `claude-code-action`
-upgrade.
+**This measurement is RECORDED** — run
+[`30956039324`](https://github.com/The01Geek/prflow/actions/runs/30956039324), job
+`command-probe` (`92149438683`), head `85e57ac1c6dcf732a861230f82182191977c6e41`, ref
+`issue-1152-command-profile-shape-lint`, 2026-08-04. No `workflow_dispatch` was needed:
+`matcher-probe.yml` also triggers on a same-repo `pull_request` filtered to its own path,
+so the PR that added these rows fired the job itself. The verdicts below are the job's
+deterministic step summary, computed from the execution file's `permission_denials`
+(DENIED) and recorded `tool_use` inputs (PERMITTED) — the model's prose is never the
+measurement. Version-dependent: re-probe after any `claude-code-action` upgrade
+(measured against `claude-code-action@v1` with Claude Code 2.1.221).
 
 | # | Shape | Verdict |
 |---|-------|---------|
-| 1 | granted vendored-literal helper path as a leading token (`config-get.sh`) | dispatched-pending |
-| 2 | resolved (expanded) skill-dir-anchored helper path as a leading token | dispatched-pending |
-| 3 | `>` redirect from a granted head into `.prflow/tmp/**` | dispatched-pending |
-| 4 | `.prflow/tmp/**` file authored with the **Write** tool | dispatched-pending |
-| 5 | `if VAR=$(granted-helper …)` command-substitution condition | dispatched-pending |
-| 6 | `;`-joined multi-statement sequence | dispatched-pending |
-| 7 | plainly granted single command (positive control) | dispatched-pending |
-| 8 | argument-position defaulted anchor expansion `${VAR:-default}` (reproduces run `30695072336`) | dispatched-pending |
-| 9 | argument-position bare anchor expansion `${VAR}` | dispatched-pending |
-| 10 | argument-position bare expansion of a non-anchor variable (control) | dispatched-pending |
+| 1 | granted vendored-literal helper path as a leading token (`config-get.sh`) | **PERMITTED** |
+| 2 | resolved (expanded) skill-dir-anchored helper path as a leading token | **DENIED** |
+| 3 | `>` redirect from a granted head into `.prflow/tmp/**` | **PERMITTED** |
+| 4 | `.prflow/tmp/**` file authored with the **Write** tool | **PERMITTED** |
+| 5 | `if VAR=$(granted-helper …)` command-substitution condition | **PERMITTED** |
+| 6 | `;`-joined multi-statement sequence | **PERMITTED** |
+| 7 | plainly granted single command (positive control) | **PERMITTED** |
+| 8 | argument-position defaulted anchor expansion `${VAR:-default}` (reproduces run `30695072336`) | **DENIED** |
+| 9 | argument-position bare anchor expansion `${VAR}` | **DENIED** |
+| 10 | argument-position bare expansion of a non-anchor variable (control) | **DENIED** |
+
+Each row also carries a per-row evidence triple, reproduced here verbatim from the job's
+own emitted summary (machine output, not a paraphrase) so a reader can tell a genuine
+refusal from a shape that was never attempted in the form the row names:
+
+```
+| 1 | granted vendored-literal helper path as a leading token (config-get.sh) | **PERMITTED** | denial=no; tool_use=yes; shape=ok |
+| 2 | resolved (expanded) skill-dir-anchored helper path as a leading token | **DENIED** | denial=yes; tool_use=yes; shape=ok |
+| 3 | `>` redirect from a granted head into `.prflow/tmp/**` | **PERMITTED** | denial=no; tool_use=yes; shape=ok |
+| 4 | `.prflow/tmp/**` file authored with the Write tool | **PERMITTED** | denial=no; tool_use=yes; shape=ok |
+| 5 | `if VAR=$(granted-helper …)` command-substitution condition | **PERMITTED** | denial=no; tool_use=yes; shape=ok |
+| 6 | `;`-joined multi-statement sequence | **PERMITTED** | denial=no; tool_use=yes; shape=ok |
+| 7 | plainly granted single command (positive control) | **PERMITTED** | denial=no; tool_use=yes; shape=n/a |
+| 8 | argument-position defaulted anchor expansion `${VAR:-default}` | **DENIED** | denial=yes; tool_use=yes; shape=ok |
+| 9 | argument-position bare anchor expansion `${VAR}` | **DENIED** | denial=yes; tool_use=yes; shape=ok |
+| 10 | argument-position bare expansion of a non-anchor variable (control) | **DENIED** | denial=yes; tool_use=yes; shape=ok |
+```
+
+Row 7 is the positive control and it passed, so the four refusals are refusals of their
+own shapes and not a dead session. Every row recorded `tool_use=yes` and `shape=ok`, so
+none is the `REFORMULATED` case the job warns about — each intended shape was actually
+attempted.
+
+**Row 2 is the substantive new finding, and it bears on the #1124/#1256 conditional-call
+remedy.** The *resolved* traversal form
+`.prflow/vendor/prflow/skills/<skill>/../../scripts/<helper>` — what the portable
+`"${CLAUDE_SKILL_DIR:-…}"/../../scripts/<helper>` anchor expands to at runtime on this
+tier — is **DENIED as a leading token**, while row 1's plain vendored literal
+`.prflow/vendor/prflow/scripts/<helper>` is **PERMITTED**. So the matcher does not
+normalize `../..` traversal back onto the granted literal. That is direct support for the
+remedy's shape: a cloud-reachable call site emits the **granted vendored literal
+directly** and keeps the anchor only as the fallback arm; rewriting the anchor into an
+expanded traversal would not have worked. (One measurement, `command` tier, one action
+version — see the caveat above.)
 
 Rows 8–10 are the argument-position rows adopted from issue #1124's closure; their
-cross-reading is described in *The `${CLAUDE_SKILL_DIR:-…}` anchor* subsection above.
+cross-reading is applied in *The `${CLAUDE_SKILL_DIR:-…}` anchor* subsection above, which
+is the canonical home for that reading.
 
 ---
 
@@ -1061,21 +1144,49 @@ establish, by observation, whether a `PreToolUse` hook fires under `claude-code-
 (`FIRED`/`NOT-FIRED`) and whether its `permissionDecisionReason` reaches the engine
 transcript (`REASON-DELIVERED`/`REASON-ABSENT`).
 
-Filling the table below is **#919's** job, not this section's, and that issue — not
-this page — holds the current record. Two things a reader should take from it rather
-than from the row's placeholder. First, the arm is **not** awaiting a dispatch to
-produce a first result: #919 records it as having already returned the same verdict
-pair on repeated same-repo `pull_request` runs, together with the scope note that keeps
-the pair from misleading (the probe's own hook emits `permissionDecision: "allow"`, for
-which `permissionDecisionReason` is specified to be ignored, so the guard's `deny`-path
-reason delivery remains unmeasured). Second, #919 has **dropped** the once-planned
-per-arm review-run denial count against the run-30138268273 baseline as no longer
-achievable — no live tier can produce a review run carrying the guard — retaining that
-baseline run id only as historical reference. The row is left as found until #919 lands.
+**The arm was never awaiting a dispatch, and the results were already there.**
+`matcher-probe.yml` triggers on `workflow_dispatch` **and** on a same-repo
+`pull_request` filtered to its own path, so every PR touching that workflow has fired
+the job — the results simply had not been read back. The row below is transcribed from
+run [`30956039324`](https://github.com/The01Geek/prflow/actions/runs/30956039324), job
+`pretooluse-probe` (`92149438739`), head `85e57ac1c6dcf732a861230f82182191977c6e41`,
+ref `issue-1152-command-profile-shape-lint`, 2026-08-04.
+
+The fourth column stays `n/a` by **#919's own record**: the once-planned per-arm
+review-run denial count against the run-`30138268273` baseline was **dropped** as no
+longer achievable — no live tier can produce a review run carrying the guard (the
+guard's registration rode on `devflow-runner.yml`, whose sole caller `devflow-review.yml`
+was deleted by PR #937 / issue #936) — and that baseline run id is retained as historical
+reference only. Issue #919 remains open: its AC1 still asks for an explicit
+`gh workflow run` dispatch that this evidence shows to be unnecessary, and amending that
+is a maintainer decision, not this page's.
 
 | Probe run id | Firing verdict | Reason-delivery verdict | Per-arm denial counts (review run) |
 | --- | --- | --- | --- |
-| _(pending post-merge dispatch)_ | — | — | — |
+| `30956039324` (job `92149438739`) | **FIRED** | **REASON-ABSENT** | n/a — dropped post-#937 |
+
+**This is the 8th consecutive identical `FIRED` / `REASON-ABSENT` pair.** The six prior
+replications, all on same-repo `pull_request` runs and all returning the same pair, are
+runs `30658648601`, `30657675722`, `30652958122`, `30577692232`, `30472371076`, and
+`30421703361`. The two oldest render the breadcrumb path as `.devflow/tmp/…` rather than
+`.prflow/tmp/…` — a pre-#1002 rename spelling of the same marker, not a different
+measurement.
+
+**Scope caveat — the `REASON-ABSENT` cell does not mean reason delivery is broken, and
+the row misleads without this.** The probe's own hook emits
+`permissionDecision: "allow"`, and per the Claude Code hooks decision-control table
+`permissionDecisionReason` is shown to Claude on `deny`, shown to the user on `ask`, and
+**ignored on `allow` and `defer`**. `REASON-ABSENT` is therefore the *specified*
+behavior for the decision this probe emits. `scripts/pretooluse-shape-guard.py` emits
+only `deny` and `defer`, so **the guard's own `deny`-path reason delivery and its
+`defer` fall-through semantics remain unmeasured**, and the probe arm as currently
+written cannot measure them — it would need a hook emitting `deny`.
+
+**Secondary caveat:** the observation helper searches the **execution file**, which is a
+proxy for the transcript rather than a capture of the model's own input; an absent
+string there is evidence about the execution file's contents, not a direct reading of
+what the model saw. Measured against `claude-code-action@v1` with the CLI version the
+run reports (Claude Code 2.1.221) — **re-probe after any upgrade.**
 
 ## Denial-population audit — the 2026-08-02 implement runs (issue #1135)
 
