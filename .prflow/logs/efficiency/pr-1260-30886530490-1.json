@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1260",
+  "generated_at": "2026-08-04T07:15:51Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.87",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 8.685599749999998,
+    "tokens": {
+      "input_tokens": 39,
+      "output_tokens": 20593,
+      "cache_read_input_tokens": 3013949,
+      "cache_creation_input_tokens": 211416,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 99,
+        "outputTokens": 58438,
+        "cacheReadInputTokens": 4878052,
+        "cacheCreationInputTokens": 638771,
+        "webSearchRequests": 0,
+        "costUSD": 8.685599749999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 27,
+    "duration_ms": 450461
+  },
+  "permission_denials": {
+    "count": 4,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"$CLAUDE_SKILL_DIR\"",
+      "gh pr diff 1260 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1260/run/diff.patch\nwc -l .prflow/tmp/review/pr-1260/run/diff.patch\ngrep '^diff --git' .prflow/tmp/review/pr-1260/run/diff.patch",
+      "cat /home/runner/work/prflow/prflow/.prflow/tmp/displaced-paths.txt 2>/dev/null; echo \"---\"; git -C /home/runner/work/prflow/prflow status --short | head; echo \"---branch\"; git -C /home/runner/work/prflow/prflow branch -a | head"
+    ],
+    "total": 4,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
