@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1256",
+  "generated_at": "2026-08-04T04:39:11Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.82",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.446220499999998,
+    "tokens": {
+      "input_tokens": 51,
+      "output_tokens": 21529,
+      "cache_read_input_tokens": 3640622,
+      "cache_creation_input_tokens": 159090,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 100,
+        "outputTokens": 52414,
+        "cacheReadInputTokens": 5135966,
+        "cacheCreationInputTokens": 475328,
+        "webSearchRequests": 0,
+        "costUSD": 7.446220499999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 33,
+    "duration_ms": 514042
+  },
+  "permission_denials": {
+    "count": 4,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "gh pr diff 1256 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1256/run/diff.patch\necho \"files in cache:\"; grep -c '^diff --git' .prflow/tmp/review/pr-1256/run/diff.patch\necho \"total lines:\"; wc -l < .prflow/tmp/review/pr-1256/run/diff.patch\necho \"added (non +++):\"; grep -cE '^\\+[^+]' .prflow/tmp/review/pr-1256/run/diff.patch\necho \"removed (non ---):\"; grep -cE '^-[^-]' .prflow/tmp/review/pr-1256/run/diff.patch",
+      "for f in \"skills/review/SKILL.md\" \"skills/review/phases/phase-0-3-6-blocker-recheck.md\"; do\necho \"===== $f =====\"\nawk -v tgt=\"$f\" '$0==\"diff --git a/\"tgt\" b/\"tgt{f=1;print;next} /^diff --git/{f=0} f' .prflow/tmp/review/pr-1256/run/diff.patch\ndone",
+      "echo \"=== forbidden spelling in ADDED diff lines within skills/agents (excluding fixtures/tests) ===\"\nawk '/^diff --git/{p=$0} /^\\+/{print p\"\\t\"$0}' .prflow/tmp/review/pr-1256/run/diff.patch \\\n | grep -E 'skills/|agents/' | grep -vE 'fixtures/|lint-ungranted' \\\n | grep -oE '(^|[^/.-])scripts/(post-review-verdict|dismiss-stale-rejections)\\.sh' \\\n || echo \"(none added — clean)\""
+    ],
+    "total": 4,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
