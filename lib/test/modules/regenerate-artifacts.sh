@@ -907,6 +907,74 @@ for _row in $RA_ROW_NAMES; do
   esac
 done
 
+# ── AP — read-only preflight mode (issue #1244) ──────────────────────────────
+# The preflight runs ONLY the preflight-eligible rows, read-only, and refuses (exit 1)
+# only on a positively-attributed drift. Every arm runs against a temp fixture, never the
+# live checkout, for the same confinement reason A1/A2 do.
+_ra_preflight() {  # <root>
+  python3 "$RA_HELPER" --preflight --repo-root "$1" >"$1/.rap.out" 2>&1
+  printf '%s\n' "$?" >"$1/.rap.rc"
+}
+_ra_prc() { cat "$1/.rap.rc"; }
+
+# AP1 — clean fixture: exit 0, writes nothing, one clean line per eligible row, and the
+# ineligible exact-module-floors row is never touched (AC1/AC2).
+RA_AP1="$_ra_tmp_root/ap1"; _ra_fixture "$RA_AP1"
+RA_AP1_MAN_BEFORE="$(cat "$RA_AP1/scripts/devflow-cloud-writer-contract.json")"
+_ra_preflight "$RA_AP1"
+assert_eq "#1244 AP1 clean fixture preflight exits 0" "0" "$(_ra_prc "$RA_AP1")"
+_ra_same "#1244 AP1 preflight writes nothing (manifest byte-unchanged)" \
+  "$RA_AP1_MAN_BEFORE" "$(cat "$RA_AP1/scripts/devflow-cloud-writer-contract.json")" \
+  "the read-only preflight mutated the manifest"
+for _erow in cloud-writer-manifest capability-profile-literals plugin-identity-regions coverage-map-ratchet env-freeze-advisory-region; do
+  case "$(cat "$RA_AP1/.rap.out")" in
+    *"[$_erow] clean"*) assert_eq "#1244 AP1 eligible row reports clean: $_erow" yes yes ;;
+    *) assert_eq "#1244 AP1 eligible row reports clean: $_erow" yes "no(no clean line for $_erow)" ;;
+  esac
+done
+# The ineligible row's argv (reconcile-module-floors.py, a WRITING 7.8-min check) must
+# never be invoked, so neither its name nor its script appears in the preflight output.
+case "$(cat "$RA_AP1/.rap.out")" in
+  *exact-module-floors*|*reconcile-module-floors*) assert_eq "#1244 AP1 preflight never runs the ineligible exact-module-floors row" yes "no(ineligible row referenced in preflight output)" ;;
+  *) assert_eq "#1244 AP1 preflight never runs the ineligible exact-module-floors row" yes yes ;;
+esac
+
+# AP2 — planted manifest drift: the cloud-writer row's read-only `verify` exits 1 with its
+# marker, so the preflight classifies DRIFT, exits 1, and names the governing policy.
+RA_AP2="$_ra_tmp_root/ap2"; _ra_fixture "$RA_AP2"
+printf '{"corrupted": true}\n' > "$RA_AP2/scripts/devflow-cloud-writer-contract.json"
+RA_AP2_MAN_BEFORE="$(cat "$RA_AP2/scripts/devflow-cloud-writer-contract.json")"
+_ra_preflight "$RA_AP2"
+assert_eq "#1244 AP2 planted drift preflight exits 1" "1" "$(_ra_prc "$RA_AP2")"
+_ra_has_file "#1244 AP2 preflight reports the drift and its summary line" "$RA_AP2/.rap.out" \
+  "preflight detected drift"
+_ra_has_file "#1244 AP2 drift names the cloud-writer row's governing policy" "$RA_AP2/.rap.out" \
+  "regenerate against the merged tree with"
+# Even on the drift arm the preflight writes nothing — `verify` is read-only, so the
+# corrupt fixture manifest is left exactly as planted (the fail-closed refusal must never
+# rest on a mutating check).
+_ra_same "#1244 AP2 preflight writes nothing on the drift arm" \
+  "$RA_AP2_MAN_BEFORE" "$(cat "$RA_AP2/scripts/devflow-cloud-writer-contract.json")" \
+  "the read-only preflight mutated the manifest on the drift arm"
+
+# AP3 — --list reports eligibility per row, and the ineligible row is declared ineligible.
+case "$RA_LIST" in
+  *"preflight	exact-module-floors	ineligible	"*) assert_eq "#1244 AP3 --list declares exact-module-floors ineligible" yes yes ;;
+  *) assert_eq "#1244 AP3 --list declares exact-module-floors ineligible" yes "no(exact-module-floors not declared ineligible)" ;;
+esac
+for _erow in cloud-writer-manifest capability-profile-literals plugin-identity-regions coverage-map-ratchet env-freeze-advisory-region; do
+  case "$RA_LIST" in
+    *"preflight	$_erow	eligible	"*) assert_eq "#1244 AP3 --list declares eligible: $_erow" yes yes ;;
+    *) assert_eq "#1244 AP3 --list declares eligible: $_erow" yes "no($_erow not declared eligible)" ;;
+  esac
+done
+# The cloud-writer eligibility line names the read-only `verify` form, never the writing
+# `generate` form the row's own argv carries.
+case "$RA_LIST" in
+  *"preflight	cloud-writer-manifest	eligible	python3 lib/test/cloud_writer_contract.py verify"*) assert_eq "#1244 AP3 cloud-writer preflight uses the read-only verify form" yes yes ;;
+  *) assert_eq "#1244 AP3 cloud-writer preflight uses the read-only verify form" yes "no(cloud-writer preflight command is not the verify form)" ;;
+esac
+
 # The row integration itself has two non-clean states. A measured raise is a mechanical
 # reconciliation that changes the registry and `run.sh`; a measured decrease is a non-writing
 # judgment. The fake runner above supplies the actual summary boundary while these fixtures
