@@ -33630,8 +33630,13 @@ fi
 # below already single-sources scope to the same extension statement, so the sentence states
 # only parallelization and the two serialized runs. Raise the ceiling to the exact post-#1053
 # measurement, with no slack.
+# Issue #1243 names the checkout-fingerprint producer in item 1's completion-evidence flight
+# (the `claim` declaration's `checkout` and the `--current-checkout-file` re-anchor). That
+# sentence is read on the way INTO the same flight, so — like the amendments above — it cannot
+# be routed behind a conditional progressively-loaded reference. Raise the ceiling to the exact
+# post-#1243 measurement, with no slack.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
-  "$([ "$(wc -c < "$I480_P4")" -le 106299 ] && echo yes || echo no)"
+  "$([ "$(wc -c < "$I480_P4")" -le 106831 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
 # the reference through this file's own entry-gate anchor, and degrades rather than halting
 # on a failed read — carry NO pin. Every mutation those sentences admit rewrites the one

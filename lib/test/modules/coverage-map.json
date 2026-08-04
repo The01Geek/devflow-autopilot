@@ -241,6 +241,10 @@
       "note": "issue #868 Verified-premise re-check helper",
       "owner": "unmodularized"
     },
+    "scripts/checkout-fingerprint.py": {
+      "note": "issue #1243 checkout-fingerprint producer for the verification-flight ledger; driven by lib/test/test_verification_flight.py (TestStaleFlightRegression) + the harness-python-guards module that runs it",
+      "owner": "harness-python-guards"
+    },
     "scripts/classify-id-exit.sh": {
       "note": "",
       "owner": "unmodularized"
