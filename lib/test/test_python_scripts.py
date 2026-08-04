@@ -24129,6 +24129,128 @@ _dm = focused_selection.decode_markers(_multi)
 assert_eq("#1229 two markers in one body both decode", 2, len(_dm))
 assert_eq("#1229 two markers decode in document order", [_rec_a, _rec_b], _dm)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# focused_selection's CLI surface (issue #1229) — `main` / `_build_parser` /
+# `_cmd_encode` / `_cmd_decode`. The CLI is the shape an agent actually invokes to
+# produce or read a marker (it cannot import the module), and the library
+# assertions above cannot see it: a dropped `required=True` on the subparser, a
+# mis-wired `set_defaults(func=…)`, or a reordered `build_record(...)` call inside
+# `_cmd_encode` would leave every assertion above green while the CLI stopped
+# emitting valid markers. Each command is therefore driven as invoked — through
+# `main(argv)` with stdin fed and stdout captured.
+# ─────────────────────────────────────────────────────────────────────────────
+def _fs_cli(argv, stdin_text=""):
+    """Run `focused_selection.main(argv)` with stdin fed from `stdin_text`; returns
+    `(rc, stdout)`. A `SystemExit` the CLI raises propagates to the caller (stdin is
+    restored either way), so the rejection arms are asserted with `assert_raises`."""
+    _saved_stdin = sys.stdin
+    sys.stdin = io.StringIO(stdin_text)
+    _cli_out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(_cli_out), contextlib.redirect_stderr(io.StringIO()):
+            _rc = focused_selection.main(argv)
+    finally:
+        sys.stdin = _saved_stdin
+    return _rc, _cli_out.getvalue()
+
+
+def _fs_cli_exit_code(argv, stdin_text=""):
+    """The `SystemExit.code` a rejecting CLI invocation carries (None if it did not
+    exit). A message string here — rather than a bare int or an escaped traceback —
+    is what distinguishes a handled rejection from an unhandled exception."""
+    try:
+        _fs_cli(argv, stdin_text)
+    except SystemExit as e:
+        return e.code
+    return None
+
+
+def _fs_cli_ok(argv, stdin_text=""):
+    """`_fs_cli` for an invocation expected to succeed: a `SystemExit` is converted
+    into a non-zero-shaped return so the assertion below reports a FAIL rather than
+    aborting this file mid-run (a regression that made `encode` reject its own valid
+    payload would otherwise take the summary line with it)."""
+    try:
+        return _fs_cli(argv, stdin_text)
+    except SystemExit as e:
+        return (f"unexpected SystemExit: {e.code}", "")
+
+
+def _fs_cli_json(text):
+    """Parse a CLI stdout capture as JSON, returning the raw text on a parse failure
+    so the comparison reports a FAIL instead of raising out of this file."""
+    try:
+        return _json1229.loads(text)
+    except ValueError:
+        return text
+
+
+# The subparser is `required=True`: invoking the CLI with no subcommand is a hard
+# argparse error, never a run that reaches `args.func` and dies on an AttributeError.
+assert_raises("#1229 CLI: no subcommand is a hard error (subparser stays required)",
+              SystemExit, lambda: _fs_cli([]))
+assert_raises("#1229 CLI: an unknown subcommand is a hard error",
+              SystemExit, lambda: _fs_cli(["nosuchcommand"]))
+
+# `encode` is wired to `_cmd_encode` and passes stdin's fields to `build_record` in
+# the right order: `surfaces` first, `single_flight_consulted` second. A swap makes
+# the dict arrive as `surfaces` (rejected) or the list as the consultation record —
+# so this asserts the decoded record, not merely that something was printed.
+_cli_surfaces = [
+    {"surface": "scripts/foo.py", "coverage_map_entry": "coverage-map.json::scripts/foo.py",
+     "target": "lib/test/test_python_scripts.py Foo.test_bar"},
+    {"surface": "docs/thing.md", "exemption_ground": "no-coverage-map-entry"},
+]
+_cli_flight = {"flight_key": "deadbeef", "reused_clean_result": True}
+_cli_payload = _json1229.dumps({"surfaces": _cli_surfaces,
+                                "single_flight_consulted": _cli_flight})
+_rc_enc, _out_enc = _fs_cli_ok(["encode"], _cli_payload)
+assert_eq("#1229 CLI encode returns 0", 0, _rc_enc)
+assert_eq("#1229 CLI encode emits exactly one marker line", 1,
+          len([ln for ln in _out_enc.split("\n") if ln.strip()]))
+assert_eq("#1229 CLI encode emits the same marker the producer API does",
+          focused_selection.encode_marker(
+              focused_selection.build_record(_cli_surfaces, _cli_flight)) + "\n",
+          _out_enc)
+
+# End-to-end: the marker `encode` printed is read back by `decode` — the round-trip
+# an agent performs across two separate invocations, with the marker embedded in a
+# workpad-shaped note body exactly as the sink stores it.
+_rc_dec, _out_dec = _fs_cli_ok(
+    ["decode"], "## Progress\n- [x] step\n  - 01:02:03 — " + _out_enc.strip() + "\n")
+assert_eq("#1229 CLI decode returns 0", 0, _rc_dec)
+_cli_decoded = _fs_cli_json(_out_dec)
+assert_eq("#1229 CLI encode|decode round-trip yields exactly one record",
+          1, len(_cli_decoded))
+assert_eq("#1229 CLI encode|decode round-trip: the record survives intact",
+          [focused_selection.build_record(_cli_surfaces, _cli_flight)], _cli_decoded)
+
+# `decode` is wired to `_cmd_decode`, not to the encoder: text carrying no marker
+# prints the empty JSON array (the "no record at all" case) and exits 0.
+_rc_d0, _out_d0 = _fs_cli_ok(["decode"], "a plain note, no marker at all\n")
+assert_eq("#1229 CLI decode returns 0 on text carrying no marker", 0, _rc_d0)
+assert_eq("#1229 CLI decode prints the empty JSON array when no marker is present",
+          [], _fs_cli_json(_out_d0))
+
+# The non-object stdin guard: a JSON array/scalar is a clean SystemExit, never a
+# record built from a payload that names no surfaces.
+assert_raises("#1229 CLI encode rejects a non-object stdin payload", SystemExit,
+              lambda: _fs_cli(["encode"], "[1,2,3]"))
+assert_eq("#1229 CLI encode's non-object rejection carries a message, not a bare code",
+          True, isinstance(_fs_cli_exit_code(["encode"], "[1,2,3]"), str))
+
+# Unparseable stdin and an unclassifiable surface entry exit the same handled way
+# rather than escaping as a raw traceback.
+assert_raises("#1229 CLI encode rejects unparseable stdin", SystemExit,
+              lambda: _fs_cli(["encode"], "{not json"))
+assert_eq("#1229 CLI encode's unparseable-stdin rejection carries a message",
+          True, isinstance(_fs_cli_exit_code(["encode"], "{not json"), str))
+_cli_bad_entry = _json1229.dumps({"surfaces": [{"surface": "scripts/x.py"}]})
+assert_raises("#1229 CLI encode rejects an unclassifiable surface entry", SystemExit,
+              lambda: _fs_cli(["encode"], _cli_bad_entry))
+assert_eq("#1229 CLI encode's unclassifiable-entry rejection carries a message",
+          True, isinstance(_fs_cli_exit_code(["encode"], _cli_bad_entry), str))
+
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

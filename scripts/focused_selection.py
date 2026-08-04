@@ -53,9 +53,10 @@ ENTRY_EXEMPTION = "exemption"
 
 def classify_entry(entry: dict) -> str:
     """Classify one per-surface entry as a discharging focused result or an
-    exemption ground. Raises ValueError on an entry that is neither (an
-    unclassifiable surface must never be recorded silently — the whole point of the
-    record is that a discharged surface and an exempt surface are distinguishable)."""
+    exemption ground. Raises ValueError on an entry that is neither, and equally on
+    one that is ambiguously both (an unclassifiable surface must never be recorded
+    silently — the whole point of the record is that a discharged surface and an
+    exempt surface are distinguishable)."""
     if not isinstance(entry, dict) or not entry.get("surface"):
         raise ValueError("a focused-selection surface entry must name a `surface`")
     has_focused = bool(entry.get("coverage_map_entry")) and bool(entry.get("target"))
@@ -78,11 +79,13 @@ def build_record(surfaces, single_flight_consulted=None) -> dict:
     `classify_entry` and normalized to only the fields its shape carries, so a
     round-tripped record is byte-stable (`encode_marker` also sorts keys).
     `single_flight_consulted` is either None (there was no relaunch consultation to
-    record) or a JSON-serializable object recording one (AC4) — its *presence*
-    (non-None) marks that a consultation was recorded, and its caller-defined internal
-    shape says what happened (e.g. whether an existing clean result was reused rather
-    than re-produced). Returns a plain dict — the value stored verbatim as
-    `verification_evidence.focused_selection` in the standalone sink."""
+    record) or a JSON-serializable object recording one (AC4) — a *non-None value*
+    marks that a consultation was recorded, and its caller-defined internal shape says
+    what happened (e.g. whether an existing clean result was reused rather than
+    re-produced). The key itself is always present, defaulting to null, so a reader
+    tests its value and never merely its presence. Returns a plain dict — the value
+    stored verbatim as `verification_evidence.focused_selection` in the standalone
+    sink."""
     if not isinstance(surfaces, list):
         raise ValueError("surfaces must be a list of per-surface entries")
     normalized = []
@@ -106,8 +109,10 @@ def build_record(surfaces, single_flight_consulted=None) -> dict:
 
 
 def encode_marker(record: dict) -> str:
-    """Serialize a record into the named marker string. The JSON is base64-encoded
-    so no record content can terminate the HTML comment or need shell quoting."""
+    """Serialize a record into the named marker string. The JSON is base64-encoded so
+    no record content can terminate the HTML comment, and the *payload* needs no shell
+    quoting. The returned marker as a whole still does — it carries `<`, `>`, `!` and
+    spaces — so a caller passing it to a shell quotes the whole string."""
     raw = json.dumps(record, sort_keys=True, separators=(",", ":")).encode("utf-8")
     payload = base64.b64encode(raw).decode("ascii")
     return f"<!-- {MARKER_PREFIX} {payload} -->"
@@ -148,11 +153,20 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _cmd_encode(_args) -> int:
-    obj = json.loads(sys.stdin.read())
+    # Every rejection on this path exits through SystemExit with a one-line message,
+    # so unparseable stdin and an unclassifiable surface entry fail the same loud,
+    # readable way as the non-object guard below rather than as a raw traceback.
+    try:
+        obj = json.loads(sys.stdin.read())
+    except ValueError as e:
+        raise SystemExit(f"encode could not parse stdin as JSON: {e}") from e
     if not isinstance(obj, dict):
         raise SystemExit("encode expects a JSON object on stdin (with a `surfaces` "
                          "list and an optional `single_flight_consulted`)")
-    rec = build_record(obj.get("surfaces", []), obj.get("single_flight_consulted"))
+    try:
+        rec = build_record(obj.get("surfaces", []), obj.get("single_flight_consulted"))
+    except ValueError as e:
+        raise SystemExit(f"encode rejected the record: {e}") from e
     sys.stdout.write(encode_marker(rec) + "\n")
     return 0
 
