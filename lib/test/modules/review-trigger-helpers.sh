@@ -4359,14 +4359,24 @@ assert_eq "pcrt: negative control — the marker alone resolves to NO command" \
 PCRT_SB="$(mktemp -d)"
 cat > "$PCRT_SB/gh" <<'EOS'
 #!/usr/bin/env bash
-# gh stub. A POST is recorded to $PCRT_REC and honours $PCRT_POST_RC; anything
-# else is the comment-list read, which honours $PCRT_LIST_RC and serves
-# $PCRT_LIST_OUT (the ids the helper's marker filter would have matched).
+# gh stub. A POST is recorded to $PCRT_REC and honours $PCRT_POST_RC; a `pulls/<n>`
+# read is the PR-state guard (issue #1236), which honours $PCRT_STATE_RC and serves
+# the post-jq state $PCRT_PR_STATE (default `open`, so an unset value keeps every
+# pre-#1236 arm on the actionable path); anything else is the comment-list read,
+# which honours $PCRT_LIST_RC and serves $PCRT_LIST_OUT (the ids the helper's marker
+# filter would have matched).
 case "$*" in
   *"--method POST"*)
     printf '%s\n' "$*" >> "$PCRT_REC"
     [ "${PCRT_POST_RC:-0}" = 0 ] || { echo "HTTP 403" >&2; exit 1; }
     printf '{"id":1}\n'; exit 0 ;;
+  *"pulls/"*)
+    # Serves the POST-jq state verbatim ($PCRT_PR_STATE), so the helper's own jq
+    # (`if .merged then "merged" else (.state // "") end`) runs server-side on real
+    # gh and is NOT exercised here — the merged-vs-closed disambiguation is a
+    # disclosed, accepted stub boundary; these arms test the case-word routing.
+    [ "${PCRT_STATE_RC:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }
+    printf '%s' "${PCRT_PR_STATE-open}"; exit 0 ;;
 esac
 [ "${PCRT_LIST_RC:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }
 printf '%s' "${PCRT_LIST_OUT-}"
@@ -4408,6 +4418,165 @@ assert_eq "pcrt: the fail-closed arm warns and names the choice, so a missed rev
 pcrt_run PCRT_LIST_OUT="" PCRT_POST_RC=1
 assert_eq "pcrt: a POST that fails is NEVER annotated as a fired trigger (the #408 lesson)" \
   "0-1" "$(printf '%s\n' "$PCRT_OUT" | grep -c 'posted the review trigger')-$(printf '%s\n' "$PCRT_OUT" | grep -c 'did NOT post')"
+
+# --- PR-state guard, arm by arm (issue #1236) -------------------------------
+# When CI goes green the caller fires the trigger unconditionally, so a PR merged
+# or closed mid-CI would draw a full review run on a dead target — paid spend with
+# no reader. The guard reads the PR state (stubbed via PCRT_PR_STATE / PCRT_STATE_RC)
+# and posts ONLY while the PR is open; every no-post arm leaves its OWN distinct
+# annotation and the helper still exits 0. PCRT_PR_STATE defaults to `open`, so every
+# arm above is unaffected.
+pcrt_run PCRT_LIST_OUT="" PCRT_PR_STATE=open
+assert_eq "pcrt #1236-open: an OPEN PR still posts the trigger (state guard falls through)" \
+  "1" "$PCRT_POSTS"
+
+pcrt_run PCRT_PR_STATE=merged
+assert_eq "pcrt #1236-merged: a MERGED PR posts nothing (no review on a merged target)" \
+  "0" "$PCRT_POSTS"
+assert_eq "pcrt #1236-merged: the merged arm warns with its OWN distinct annotation" \
+  "1" "$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::ci auto-review trigger: PR #7 is already merged; NOT posting')"
+
+pcrt_run PCRT_PR_STATE=closed
+assert_eq "pcrt #1236-closed: a CLOSED-unmerged PR posts nothing (no review on a closed target)" \
+  "0" "$PCRT_POSTS"
+assert_eq "pcrt #1236-closed: the closed arm warns with its OWN distinct annotation" \
+  "1" "$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::ci auto-review trigger: PR #7 is closed without merging; NOT posting')"
+
+pcrt_run PCRT_STATE_RC=1
+assert_eq "pcrt #1236-state-unreadable: an unreadable PR state fails CLOSED, posting nothing" \
+  "0" "$PCRT_POSTS"
+assert_eq "pcrt #1236-state-unreadable: the fail-closed arm warns naming the unresolved state" \
+  "1" "$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::ci auto-review trigger: could not read PR #7 state.*fail-closed')"
+
+pcrt_run PCRT_PR_STATE=""
+assert_eq "pcrt #1236-state-empty: an empty (unestablished) PR state fails CLOSED, posting nothing" \
+  "0" "$PCRT_POSTS"
+assert_eq "pcrt #1236-state-empty: the unestablished-state arm warns with its OWN distinct annotation" \
+  "1" "$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::ci auto-review trigger: PR #7 state could not be established')"
+
+# --- ci.yml supersession concurrency static check (issue #1236, Half A / AC2) --
+# ci.yml's workflow-level `concurrency:` behavior lives on GitHub's scheduler and
+# cannot be executed locally; lib/test/check-ci-concurrency.py is the closest
+# mechanical surface — a static check over the workflow file's concurrency region.
+# Drive it against the REAL ci.yml (all three properties hold) and synthetic
+# fixtures that each violate exactly one property, plus the fail-closed
+# unreadable-file arm.
+CICC="$LIB/test/check-ci-concurrency.py"
+# Run the checker ONCE per case, capturing its stdout and exit code together, then
+# reduce stdout to the verdict word (ok|fail|unavailable). One helper avoids
+# spawning the checker twice per assertion and the four-way duplication of the
+# extraction pipeline below.
+cicc_run() {  # $@ = args to the checker; sets CICC_VERDICT + CICC_RC
+  local out
+  out="$(python3 "$CICC" "$@" 2>&1)"; CICC_RC=$?
+  CICC_VERDICT="$(printf '%s\n' "$out" | grep -oE '^CI_CONCURRENCY (ok|fail|unavailable)' | awk '{print $2}')"
+}
+cicc_run
+assert_eq "cicc #1236: the real ci.yml carries a valid workflow-level supersession concurrency key" \
+  "ok|0" "$CICC_VERDICT|$CICC_RC"
+
+CICC_SB="$(mktemp -d)"
+cat > "$CICC_SB/absent.yml" <<'EOY'
+name: CI
+on:
+  push:
+    branches: [main]
+jobs:
+  x:
+    runs-on: ubuntu-latest
+EOY
+cat > "$CICC_SB/nonpr-group.yml" <<'EOY'
+name: CI
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs: {}
+EOY
+cat > "$CICC_SB/cancel-main.yml" <<'EOY'
+name: CI
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+jobs: {}
+EOY
+# A group that varies with the PR but carries NO github.run_id fallback: on a main
+# push github.event.pull_request.number is empty, so EVERY main run collapses into
+# one shared group and cancels/serializes — the "Design caution 4" bug. This is the
+# fixture that covers the second sub-check of property 2 (run_id present), which the
+# nonpr-group.yml fixture cannot reach (it fails the first sub-check).
+cat > "$CICC_SB/pr-no-runid.yml" <<'EOY'
+name: CI
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs: {}
+EOY
+# check-ci-concurrency.py is a best-effort parser over a human-mutable YAML file, so
+# the repo's adversarial-shape matrix applies: drive each fail-closed arm.
+cat > "$CICC_SB/scalar-conc.yml" <<'EOY'
+name: CI
+concurrency: enabled
+jobs: {}
+EOY
+cat > "$CICC_SB/no-group.yml" <<'EOY'
+name: CI
+concurrency:
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs: {}
+EOY
+cat > "$CICC_SB/no-cancel.yml" <<'EOY'
+name: CI
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+jobs: {}
+EOY
+: > "$CICC_SB/empty.yml"
+cat > "$CICC_SB/bad-yaml.yml" <<'EOY'
+name: CI
+concurrency: [unbalanced
+EOY
+cat > "$CICC_SB/list-doc.yml" <<'EOY'
+- a
+- b
+EOY
+
+cicc_run --ci-file "$CICC_SB/absent.yml"
+assert_eq "cicc #1236: an ABSENT workflow-level concurrency key fails (this is the pre-change ci.yml shape)" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/nonpr-group.yml"
+assert_eq "cicc #1236: a group that does NOT vary with the pull request fails" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/cancel-main.yml"
+assert_eq "cicc #1236: a cancel-in-progress that would resolve true for a main push fails" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/does-not-exist.yml"
+assert_eq "cicc #1236: an unreadable workflow file fails CLOSED as unavailable, never a silent pass" \
+  "unavailable|3" "$CICC_VERDICT|$CICC_RC"
+# Property 2, second sub-check: a PR-varying group with no run_id fallback fails,
+# so a main push cannot collapse every run into one cancelled group (Design caution 4).
+cicc_run --ci-file "$CICC_SB/pr-no-runid.yml"
+assert_eq "cicc #1236: a PR-varying group with NO github.run_id fallback fails (main runs would collapse into one group)" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+# Adversarial-shape matrix over the parser's fail-closed arms.
+cicc_run --ci-file "$CICC_SB/scalar-conc.yml"
+assert_eq "cicc #1236: a scalar (non-mapping) concurrency fails" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/no-group.yml"
+assert_eq "cicc #1236: a concurrency mapping with no group fails" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/no-cancel.yml"
+assert_eq "cicc #1236: a concurrency mapping with no cancel-in-progress fails" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/empty.yml"
+assert_eq "cicc #1236: an empty workflow file fails CLOSED as unavailable" \
+  "unavailable|3" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/bad-yaml.yml"
+assert_eq "cicc #1236: an unparseable workflow file fails CLOSED as unavailable" \
+  "unavailable|3" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/list-doc.yml"
+assert_eq "cicc #1236: a non-mapping (list) document fails CLOSED as unavailable" \
+  "unavailable|3" "$CICC_VERDICT|$CICC_RC"
+rm -rf "$CICC_SB"
 
 # A missing/blank head SHA cannot key the marker, so dedupe would be impossible —
 # refuse rather than post an unkeyed comment on every run.

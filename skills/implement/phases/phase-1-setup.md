@@ -637,7 +637,31 @@ Scan the issue body's Technical Context and Implementation Notes for numeric cla
 ```bash
 # Adapt to the specific entity the issue names:
 git ls-files 'skills/*/SKILL.md' | wc -l   # skill count
-ls -d agents/*/                              # agent enumeration
+# This block runs under the AGENT's shell (zsh/dash/sh), and an unquoted glob must survive
+# zsh's default `nomatch`, which would otherwise refuse to run the command at all and leave
+# a SKIPPED enumeration looking like an empty one. The guard turns nomatch off under native
+# zsh and is a no-op elsewhere ($ZSH_VERSION unset -> `&&` short-circuits, `|| :` stays rc-0).
+# With nomatch off an unmatched glob leaves $1 the literal pattern, so `[ -e "$1" ]` decides
+# match-vs-no-match structurally: no `2>/dev/null` to hide a real error, and exactly one of
+# the three arms can print. A genuinely empty parent and a PERMISSION-unlistable one both
+# leave the glob unmatched, so the second arm separates those two -- it tests mode bits only,
+# so an entry or parent that fails for another reason (dead mount, EIO) still reaches the
+# empty arm. Listability needs BOTH the read bit (to name the entries) and the search bit (to
+# stat them for the trailing `/`), so that arm tests both. All three arms print on stdout so a
+# caller capturing stdout can still tell "nothing here" from "could not look".
+# Unhandled: bash's `failglob`, where an unmatched pattern aborts `set --` before it runs.
+# When adapting, change only the glob (keep the `<parent>/*/` shape): `d` is derived from it,
+# so the guard and the message cannot drift onto a directory the glob does not name.
+[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
+set -- agents/*/
+d=${1%/*/}
+if [ -e "$1" ]; then
+  printf '%s\n' "$@"
+elif [ -d "$d" ] && { [ ! -r "$d" ] || [ ! -x "$d" ]; }; then
+  echo "($d/ is not listable - count NOT established)"
+else
+  echo "(no matching directories)"
+fi
 ```
 
 Record by outcome: when the **counts match**, record via `--note "issue-claim audit (count): claimed '{N} X', verified '{M}' at HEAD"` (a clean confirmation — a `## Progress` note). When the **counts differ**, the issue's claim was wrong, so record that as issue-accuracy feedback: `--reflection-kind issue-accuracy --reflection "issue-claim audit (count): claimed '{N} X', verified '{M}' at HEAD — using the verified count"`. Use the verified count as the working assumption from Phase 2 onward; discard the issue body count when they differ. If no count or enumeration claims are found in the issue body, record: `--note "issue-claim audit (count): no count or enumeration claims found — pass complete"`.
