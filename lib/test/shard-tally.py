@@ -26,6 +26,13 @@ This helper is the transport-and-recombine layer:
              lines in EITHER direction — the aggregator FAILS CLOSED, so a lost shard
              never reads as a green merge gate. `--expect <n>` is REQUIRED: the
              missing-shard guard must not be disable-able by omitting a flag.
+             `--require-shards <ids>` (optional) additionally reconciles the
+             recombined shards against the true partition BY NAME — a caller's
+             `--expect` count alone is never checked against the real shard set,
+             so `--expect 1` over one shard looks identical to a complete run;
+             naming the partition (from `run-shard.sh --list-shards`) fails closed
+             on a missing/unexpected/duplicated shard and states the covered
+             population on the trailing line (issue #1289).
 
 Parsing keys on the two stable, unit-tested summary contracts:
   * lib/test/summary.sh   — `N passed, M failed[, K skipped]` + `  SKIP  ...` lines
@@ -59,6 +66,23 @@ _RECAP_HEADER = "Failure recap:"
 _RECAP_BULLET = re.compile(r"^  - (.*)$")
 
 _TALLY_KEYS = ("shard", "passed", "failed", "skipped", "rc")
+
+
+def _parse_shard_list(raw: str) -> list[str]:
+    """Split a `--require-shards` value into an ordered, de-duplicated id list.
+
+    Accepts commas and/or whitespace as separators, so a caller can pass either
+    `run-shard.sh --list-shards`'s newline/space output verbatim or a hand-typed
+    comma list. Empty fragments are dropped; order-of-first-appearance is kept so
+    the self-describing coverage line reads in the caller's stated order.
+    """
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for token in re.split(r"[,\s]+", raw.strip()):
+        if token and token not in seen:
+            seen.add(token)
+            ordered.append(token)
+    return ordered
 
 
 def _parse_log(
@@ -341,6 +365,41 @@ def cmd_combine(args: argparse.Namespace) -> int:
         except OSError as error:
             problems.append(f"{d}: skip/failure detail unreadable ({error})")
 
+    # Reconcile the recombined shards against the true partition BY NAME (issue #1289).
+    # `--expect` is only a count floor, and a count a caller supplies is not reconciled
+    # against the real shard set: `--expect 1` over one shard is byte-shaped exactly like
+    # a complete run. When the caller names the partition it claims to cover, every named
+    # shard must actually be present, no unexpected tally may have crept in, and none may
+    # appear twice — so a recombination over a subset fails closed NAMING the gap instead
+    # of printing a whole-suite-shaped green summary. The sanctioned coordinator and the
+    # #1132 decomposition recipe both feed this the authoritative `run-shard.sh
+    # --list-shards` population, which is what reconciles the count floor against the true
+    # partition. Empty `--require-shards` (the default, and CI's aggregator) skips it, so
+    # existing output is unchanged.
+    required = _parse_shard_list(args.require_shards)
+    partition_covered = False
+    if required:
+        read_set = set(shard_names)
+        missing = [s for s in required if s not in read_set]
+        unexpected = [s for s in shard_names if s not in set(required)]
+        duplicates = sorted({s for s in shard_names if shard_names.count(s) > 1})
+        if missing:
+            problems.append(
+                "required shard(s) absent from the recombined tallies: "
+                f"{', '.join(missing)} — refusing to report a green gate over a "
+                "partial partition"
+            )
+        for s in sorted(set(unexpected)):
+            problems.append(
+                f"shard '{s}' is present but not in the required partition "
+                f"({', '.join(required)})"
+            )
+        if duplicates:
+            problems.append(
+                "shard(s) recombined more than once: " f"{', '.join(duplicates)}"
+            )
+        partition_covered = not (missing or unexpected or duplicates)
+
     # Render the combined summary in the single-job format.
     #
     # The plain `N passed, M failed` line — the one that says "nothing was skipped" —
@@ -375,6 +434,20 @@ def cmd_combine(args: argparse.Namespace) -> int:
 
     print()
     print(f"shard-tally combine: {len(shard_names)} shard(s): {', '.join(shard_names)}")
+    # State which population this aggregate claims to cover, so a partial recombination
+    # cannot be quoted as a whole-suite result on its trailing line alone (issue #1289).
+    if required:
+        if partition_covered:
+            print(
+                f"shard-tally combine: required partition covered "
+                f"({len(required)} shard(s)): {', '.join(required)}"
+            )
+        else:
+            print(
+                "shard-tally combine: required partition NOT covered "
+                f"({', '.join(required)}) — see PROBLEM line(s) below",
+                file=sys.stderr,
+            )
 
     if problems:
         print()
@@ -422,6 +495,19 @@ def main(argv: list[str] | None = None) -> int:
     # the #456 skip-disagreement check all keep reading the full populations, so a caller
     # cannot weaken the gate by capping. `lib/test/run-parallel.sh` passes 20 to keep an
     # agent's final-gate output compact; CI's aggregator omits it and renders everything.
+    # Optional, defaulting to off, unlike --expect: omitting it disables only the
+    # by-NAME partition reconciliation, not the --expect count floor. When supplied it
+    # names the shard partition this recombination must cover (commas and/or whitespace
+    # separate ids, so `run-shard.sh --list-shards`'s output pastes in verbatim); a
+    # missing, unexpected, or duplicated shard then fails the aggregate NAMING the gap
+    # (issue #1289). This is what reconciles the caller's count against the true shard
+    # set — the sanctioned coordinator and the #1132 recipe feed it `--list-shards`.
+    co.add_argument(
+        "--require-shards",
+        default="",
+        help="the shard partition this recombination must cover (comma/space "
+        "separated); a missing/unexpected/duplicated shard fails closed by name",
+    )
     co.add_argument(
         "--detail-cap",
         type=int,

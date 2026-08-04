@@ -744,6 +744,57 @@ assert_eq "psr cap: a negative cap is uncapped, as documented" "yes" \
 python3 "$PSR_TALLY" combine "$PSR_TD/t25" --expect 1 --detail-cap 20 >/dev/null 2>&1
 assert_eq "psr cap: capping the render never turns a failing aggregate green" "1" "$?"
 
+# ── shard-tally.py --require-shards: partition reconciliation BY NAME (issue #1289) ──
+# `--expect` is only a count floor; a caller's count is never reconciled against the true
+# shard set, so `--expect 1` over one shard is byte-shaped like a complete run. Naming the
+# partition makes a subset recombination fail closed NAMING the gap. Plant three clean,
+# distinctly-named shard tallies to drive the check directly against the helper.
+PSR_RS="$PSR_ROOT/require-shards"
+psr_plant_named() { # dir shard-name
+  mkdir -p "$1"
+  printf 'shard\t%s\npassed\t1\nfailed\t0\nskipped\t0\nrc\t0\n' "$2" > "$1/summary"
+  : > "$1/skips"; : > "$1/names"
+}
+psr_plant_named "$PSR_RS/alpha" alpha
+psr_plant_named "$PSR_RS/beta" beta
+psr_plant_named "$PSR_RS/gamma" gamma
+# The full partition present and named: clean, and the trailing line STATES the covered
+# population so a reader need not already know the partition.
+PSR_RS_FULL="$(python3 "$PSR_TALLY" combine "$PSR_RS/alpha" "$PSR_RS/beta" "$PSR_RS/gamma" --expect 3 --require-shards "alpha beta gamma" 2>&1)"
+assert_eq "psr require: the full named partition recombines clean" "0" \
+  "$(python3 "$PSR_TALLY" combine "$PSR_RS/alpha" "$PSR_RS/beta" "$PSR_RS/gamma" --expect 3 --require-shards "alpha beta gamma" >/dev/null 2>&1; echo $?)"
+assert_eq "psr require: a covered partition names the population it claims to cover" "yes" \
+  "$(case "$PSR_RS_FULL" in *"required partition covered (3 shard(s)): alpha, beta, gamma"*) echo yes ;; *) echo no ;; esac)"
+# The issue's exact reproduction: a subset recombined while the caller supplies an --expect
+# that its own dir count satisfies. The bare count passes; the by-name check fails closed
+# NAMING the missing shards — the whole point of #1289.
+PSR_RS_SUB="$(python3 "$PSR_TALLY" combine "$PSR_RS/alpha" --expect 1 --require-shards "alpha,beta,gamma" 2>&1)"
+assert_eq "psr require: a subset that satisfies --expect still fails the by-name check" "1" \
+  "$(python3 "$PSR_TALLY" combine "$PSR_RS/alpha" --expect 1 --require-shards "alpha,beta,gamma" >/dev/null 2>&1; echo $?)"
+assert_eq "psr require: the shortfall NAMES the absent shards" "yes" \
+  "$(case "$PSR_RS_SUB" in *"required shard(s) absent from the recombined tallies: beta, gamma"*) echo yes ;; *) echo no ;; esac)"
+# Comma and whitespace are both accepted separators, so `run-shard.sh --list-shards`
+# output pastes in verbatim — the mixed-separator form parses to the same set.
+assert_eq "psr require: comma and whitespace separators parse to the same partition" "0" \
+  "$(python3 "$PSR_TALLY" combine "$PSR_RS/alpha" "$PSR_RS/beta" "$PSR_RS/gamma" --expect 3 --require-shards "alpha, beta gamma" >/dev/null 2>&1; echo $?)"
+# A read shard NOT in the required partition (a stray/typo'd tally dir) is flagged too.
+PSR_RS_EXTRA="$(python3 "$PSR_TALLY" combine "$PSR_RS/alpha" "$PSR_RS/beta" --expect 2 --require-shards "alpha" 2>&1)"
+assert_eq "psr require: an unexpected shard beside the required set fails closed" "1" \
+  "$(python3 "$PSR_TALLY" combine "$PSR_RS/alpha" "$PSR_RS/beta" --expect 2 --require-shards "alpha" >/dev/null 2>&1; echo $?)"
+assert_eq "psr require: the unexpected shard is named" "yes" \
+  "$(case "$PSR_RS_EXTRA" in *"shard 'beta' is present but not in the required partition"*) echo yes ;; *) echo no ;; esac)"
+# The same tally handed twice (a caller typo doubling one dir) is caught as a duplicate.
+assert_eq "psr require: a shard recombined more than once fails closed" "yes" \
+  "$(case "$(python3 "$PSR_TALLY" combine "$PSR_RS/alpha" "$PSR_RS/alpha" --expect 2 --require-shards "alpha" 2>&1)" in *"recombined more than once: alpha"*) echo yes ;; *) echo no ;; esac)"
+# Omitting --require-shards leaves the existing output byte-shape unchanged — no partition
+# line at all, so CI's aggregator (which never passes the flag) is unaffected.
+assert_eq "psr require: omitting the flag prints no partition line (existing output unchanged)" "yes" \
+  "$(case "$(python3 "$PSR_TALLY" combine "$PSR_RS/alpha" --expect 1 2>&1)" in *"required partition"*) echo no ;; *) echo yes ;; esac)"
+# `--expect 0` stays the documented explicit opt-out and still routes through the
+# zero-directories refusal (issue #1289 preserves this).
+assert_eq "psr require: --expect 0 with zero dirs still refuses via the zero-dirs guard" "yes" \
+  "$(case "$(python3 "$PSR_TALLY" combine --expect 0 2>&1)" in *"refusing to report a green gate over zero shards"*) echo yes ;; *) echo no ;; esac)"
+
 # ── matcher shape: the bare cloud token, and the local DEVFLOW_BASH boundary ──
 assert_eq "psr shape: the coordinator is executable" "yes" \
   "$([ -x "$PSR_COORD" ] && echo yes || echo no)"
