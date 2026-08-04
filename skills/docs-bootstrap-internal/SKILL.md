@@ -95,9 +95,19 @@ cat CLAUDE.md | head -100
 # An unquoted glob must survive zsh's default `nomatch`, which would otherwise refuse to run
 # the command at all — a SKIPPED enumeration that reads like an empty one. The guard turns
 # nomatch off under native zsh and is a no-op elsewhere ($ZSH_VERSION unset -> `&&`
-# short-circuits, `|| :` stays rc-0); the `|| echo` arm reports the empty case explicitly.
+# short-circuits, `|| :` stays rc-0). With nomatch off an unmatched glob leaves $1 the
+# literal pattern, so `[ -e "$1" ]` decides match-vs-no-match structurally: no `2>/dev/null`
+# to hide a real error, and exactly one of the three arms can print. An empty directory and
+# an unreadable one both leave the glob unmatched, so the second arm separates them.
 [ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
-ls -d */ 2>/dev/null || echo "(no subdirectories)"   # glob-ok: unquoted glob guarded by the nonomatch line above; empty result is reported, not skipped
+set -- */   # glob-ok: unquoted glob guarded by the nonomatch line above; absence and unreadability are reported separately, never skipped
+if [ -e "$1" ]; then
+  printf '%s\n' "$@"
+elif [ ! -r . ]; then
+  echo "(current directory is not readable - listing NOT established)" >&2
+else
+  echo "(no subdirectories)"
+fi
 
 # Database tables (if schema files exist)
 find . -name "*.sql" -o -name "*.schema" | head -10
