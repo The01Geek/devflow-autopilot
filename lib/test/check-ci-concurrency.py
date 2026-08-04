@@ -79,7 +79,7 @@ def _check(doc: dict) -> tuple[int, str]:
     # bare YAML `true` parses as a bool.
     cip = conc.get("cancel-in-progress")
     cip_s = str(cip).strip()
-    if cip_s == "" or cip is None:
+    if cip is None or cip_s == "":
         return 1, "concurrency.cancel-in-progress is missing"
     if "github.event_name == 'pull_request'" not in cip_s:
         return (

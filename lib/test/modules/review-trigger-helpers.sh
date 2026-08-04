@@ -4458,8 +4458,18 @@ assert_eq "pcrt #1236-state-empty: the unestablished-state arm warns with its OW
 # fixtures that each violate exactly one property, plus the fail-closed
 # unreadable-file arm.
 CICC="$LIB/test/check-ci-concurrency.py"
+# Run the checker ONCE per case, capturing its stdout and exit code together, then
+# reduce stdout to the verdict word (ok|fail|unavailable). One helper avoids
+# spawning the checker twice per assertion and the four-way duplication of the
+# extraction pipeline below.
+cicc_run() {  # $@ = args to the checker; sets CICC_VERDICT + CICC_RC
+  local out
+  out="$(python3 "$CICC" "$@" 2>&1)"; CICC_RC=$?
+  CICC_VERDICT="$(printf '%s\n' "$out" | grep -oE '^CI_CONCURRENCY (ok|fail|unavailable)' | awk '{print $2}')"
+}
+cicc_run
 assert_eq "cicc #1236: the real ci.yml carries a valid workflow-level supersession concurrency key" \
-  "CI_CONCURRENCY ok|0" "$(python3 "$CICC" 2>&1)|$( python3 "$CICC" >/dev/null 2>&1; echo $? )"
+  "ok|0" "$CICC_VERDICT|$CICC_RC"
 
 CICC_SB="$(mktemp -d)"
 cat > "$CICC_SB/absent.yml" <<'EOY'
@@ -4486,14 +4496,18 @@ concurrency:
 jobs: {}
 EOY
 
+cicc_run --ci-file "$CICC_SB/absent.yml"
 assert_eq "cicc #1236: an ABSENT workflow-level concurrency key fails (this is the pre-change ci.yml shape)" \
-  "fail|1" "$(python3 "$CICC" --ci-file "$CICC_SB/absent.yml" 2>&1 | grep -oE '^CI_CONCURRENCY (ok|fail|unavailable)' | awk '{print $2}')|$( python3 "$CICC" --ci-file "$CICC_SB/absent.yml" >/dev/null 2>&1; echo $? )"
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/nonpr-group.yml"
 assert_eq "cicc #1236: a group that does NOT vary with the pull request fails" \
-  "fail|1" "$(python3 "$CICC" --ci-file "$CICC_SB/nonpr-group.yml" 2>&1 | grep -oE '^CI_CONCURRENCY (ok|fail|unavailable)' | awk '{print $2}')|$( python3 "$CICC" --ci-file "$CICC_SB/nonpr-group.yml" >/dev/null 2>&1; echo $? )"
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/cancel-main.yml"
 assert_eq "cicc #1236: a cancel-in-progress that would resolve true for a main push fails" \
-  "fail|1" "$(python3 "$CICC" --ci-file "$CICC_SB/cancel-main.yml" 2>&1 | grep -oE '^CI_CONCURRENCY (ok|fail|unavailable)' | awk '{print $2}')|$( python3 "$CICC" --ci-file "$CICC_SB/cancel-main.yml" >/dev/null 2>&1; echo $? )"
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/does-not-exist.yml"
 assert_eq "cicc #1236: an unreadable workflow file fails CLOSED as unavailable, never a silent pass" \
-  "unavailable|3" "$(python3 "$CICC" --ci-file "$CICC_SB/does-not-exist.yml" 2>&1 | grep -oE '^CI_CONCURRENCY (ok|fail|unavailable)' | awk '{print $2}')|$( python3 "$CICC" --ci-file "$CICC_SB/does-not-exist.yml" >/dev/null 2>&1; echo $? )"
+  "unavailable|3" "$CICC_VERDICT|$CICC_RC"
 rm -rf "$CICC_SB"
 
 # A missing/blank head SHA cannot key the marker, so dedupe would be impossible —
