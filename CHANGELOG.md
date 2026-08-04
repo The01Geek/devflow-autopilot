@@ -4,6 +4,18 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.74] — 2026-08-04
+
+### Added
+- **Add a producer-emitted loop-verdict marker across the implement ↔ review-and-fix skill boundary.** `/prflow:review-and-fix` now emits a machine-readable `<!-- prflow:loop-verdict result=<token> coverage=<full|not-verified> -->` line as line 1 of its chat output, composed by the new `scripts/loop-verdict-marker.py` helper (never hand-written), and `/prflow:implement` Phase 3.3 reads it first — routing on a closed vocabulary — while keeping its exact-wording headline match as a version-gap fallback. This replaces the fragile exact-string-match contract that could silently read an `APPROVE WITH UNRESOLVED SHADOW FINDINGS` run as a clean approve across a plugin-version boundary. A missing, malformed, or out-of-vocabulary marker is never read as a clean, fully-covered approval. Both directions of the supported one-version gap work; version pinning is not adopted. (#1212)
+
+## [2.30.73] — 2026-08-04
+
+### Changed
+Record the owning session in the implement liveness marker so the local Stop-hook guard no longer blocks unrelated sessions in the same checkout.
+
+The `/prflow:implement` run marker (`.prflow/tmp/implement-active-<issue>`) now records the runner's session id as its first line when one is supplied (Claude Code's `CLAUDE_CODE_SESSION_ID`, byte-identical to the Stop payload's `session_id`), and stays empty otherwise. `lib/implement-stop-guard.sh` reads that first line: an interim marker owned by a *different* live session no longer blocks the stopping session — it prints an issue+status breadcrumb (so the "a run may be stuck" signal survives), writes no sentinel, and keeps scanning. Ownership is compared like with like, so every absent, blank, malformed, or unreadable owner — including every zero-byte marker written before this change — fails closed and blocks exactly as before. Self-heal of terminal or workpad-less markers is unchanged and applies regardless of owner.
+
 ## [2.30.72] — 2026-08-03
 
 ### Added

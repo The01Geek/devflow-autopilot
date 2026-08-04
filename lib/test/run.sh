@@ -2148,6 +2148,16 @@ NV_P4="$LIB/../skills/review/phases/phase-4-verdict.md"
 if python3 "$NV_TEST" >/dev/null 2>&1; then _NV_UNIT=ok; else _NV_UNIT=FAILED; fi
 assert_eq "#556 T-1/T-3/T-6: normalize-verdicts helper unit tests pass over the fixture matrix" "ok" "$_NV_UNIT"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# #1212: the review-and-fix loop-verdict marker. scripts/loop-verdict-marker.py
+# composes the producer marker and reads line 1 of the loop's chat output; the
+# standalone test drives the compose matrix, the read routing tokens, and every
+# AC5 safe-direction branch (no marker / malformed / unknown token never yields
+# CLEAN-FULL). Exit 0 == all green, mirroring the normalize-verdicts idiom above.
+LVM_TEST="$LIB/test/loop-verdict-marker-test.py"
+if python3 "$LVM_TEST" >/dev/null 2>&1; then _LVM_UNIT=ok; else _LVM_UNIT=FAILED; fi
+assert_eq "#1212: loop-verdict-marker helper unit tests pass over the compose/read/safe-direction matrix" "ok" "$_LVM_UNIT"
+
 # T-4 (AC5) — the removed PASS-with-note softener must be ABSENT from the 2.1b dispatch prompt.
 assert_eq "#556 T-4(AC5): the 'Reserve FAIL' softener is gone from phase-2-verification.md" \
   "0" "$(pin_count 'Reserve FAIL for cases where the code itself is wrong' "$NV_P2")"
@@ -35223,6 +35233,155 @@ assert_eq "#362 isg: second stop in the same session is allowed (exit 0)" "0" "$
 ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidI"}' \
   "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
 assert_eq "#362 isg: a different session is still blocked once (exit 2)" "2" "${ISG_R%%|*}"
+rm -rf "$ISG_D"
+
+# ── marker OWNERSHIP (issue #1222). The marker's first line records the owning
+# session id. An interim marker owned by ANOTHER live session must not block the
+# stopper (a non-owner can never drive that run's workpad terminal); a marker
+# owned by THIS session, or one with no usable owner, still blocks as today.
+
+# AC2 — a foreign-owned interim marker does NOT block. First line is a well-formed
+# session id differing from the payload session_id: allow (exit 0), write NO sentinel,
+# and emit a breadcrumb naming the issue and stating another session owns the run.
+ISG_D="$(isg_repo "isg: foreign-owned interim marker")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+printf '%s\n' "owner-session-A" > "$ISG_D/.prflow/tmp/implement-active-604"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"stopper-session-B"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
+assert_eq "#1222 isg: a foreign-owned interim marker -> allow (exit 0), never a block" "0" "${ISG_R%%|*}"
+assert_eq "#1222 isg: foreign-owner arm names the issue number in its breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#604' && echo yes || echo no)"
+assert_eq "#1222 isg: foreign-owner arm states another session owns the run" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'owned by another session' && echo yes || echo no)"
+# Pin BOTH interpolated identities (owner and stopper), so a garbled/ swapped/ dropped
+# operand in the breadcrumb is caught — a bare 'owned by another session' substring would
+# survive dropping $MARKER_OWNER or $SESSION_ID.
+assert_eq "#1222 isg: foreign-owner breadcrumb names the recorded owner" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'owner-session-A' && echo yes || echo no)"
+assert_eq "#1222 isg: foreign-owner breadcrumb names the stopping session" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'stopper-session-B' && echo yes || echo no)"
+assert_eq "#1222 isg: foreign-owner arm surfaces the interim status word (the 'may be stuck' signal survives)" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'Reviewing' && echo yes || echo no)"
+assert_eq "#1222 isg: foreign-owner arm writes NO sentinel for the stopping session" "no" \
+  "$([ -e "$ISG_D/.prflow/tmp/stop-guard-stopper-session-B" ] && echo yes || echo no)"
+assert_eq "#1222 isg: foreign-owner arm leaves the marker in place (only the block is suppressed)" "yes" \
+  "$([ -e "$ISG_D/.prflow/tmp/implement-active-604" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# AC3 — a marker owned by THIS session still blocks, byte-for-byte today's behavior:
+# write the sentinel, print the instruction, exit 2.
+ISG_D="$(isg_repo "isg: self-owned interim marker")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+printf '%s\n' "my-session-X" > "$ISG_D/.prflow/tmp/implement-active-604"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"my-session-X"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
+assert_eq "#1222 isg: a self-owned interim marker still BLOCKS (exit 2)" "2" "${ISG_R%%|*}"
+assert_eq "#1222 isg: self-owned block writes the session-keyed sentinel" "yes" \
+  "$([ -e "$ISG_D/.prflow/tmp/stop-guard-my-session-X" ] && echo yes || echo no)"
+assert_eq "#1222 isg: self-owned block prints the terminal-status instruction" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'return to the phase that owns the remaining work' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# AC4 — ABSENT identity fails CLOSED and blocks exactly as today. Four shapes, each
+# asserted to still exit 2. The zero-byte case is the compatibility case (every marker
+# written before this change), asserted explicitly so no legacy marker changes behavior.
+#   zero-byte : today's `: >` shape
+#   blank     : a first line that is whitespace-only
+#   malformed : a first line carrying a char outside the filename-safe charset
+# (the unreadable-marker shape is asserted separately below — it needs a chmod dance.)
+for ISG_CASE in zero-byte blank malformed; do
+  ISG_D="$(isg_repo "isg: absent-identity $ISG_CASE marker")"
+  cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+  case "$ISG_CASE" in
+    zero-byte) : > "$ISG_D/.prflow/tmp/implement-active-604" ;;
+    blank)     printf '   \n' > "$ISG_D/.prflow/tmp/implement-active-604" ;;
+    malformed) printf '%s\n' "not/a/valid/id" > "$ISG_D/.prflow/tmp/implement-active-604" ;;
+  esac
+  ISG_R="$(isg_run "$ISG_D" '{"session_id":"stopper-session-Z"}' \
+    "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
+  assert_eq "#1222 isg: absent-identity ($ISG_CASE) interim marker fails CLOSED — still BLOCKS (exit 2)" "2" "${ISG_R%%|*}"
+  assert_eq "#1222 isg: absent-identity ($ISG_CASE) block writes the sentinel" "yes" \
+    "$([ -e "$ISG_D/.prflow/tmp/stop-guard-stopper-session-Z" ] && echo yes || echo no)"
+  rm -rf "$ISG_D"
+done
+
+# AC4 (unreadable marker) — a present-but-unreadable marker file cannot yield an owner,
+# so it fails CLOSED and blocks. The status query keys on the issue number in the
+# filename, not the file body, so an unreadable marker still reaches the block arm.
+ISG_D="$(isg_repo "isg: unreadable interim marker")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+printf '%s\n' "owner-session-A" > "$ISG_D/.prflow/tmp/implement-active-604"
+chmod 000 "$ISG_D/.prflow/tmp/implement-active-604"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"stopper-session-Z"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
+chmod 644 "$ISG_D/.prflow/tmp/implement-active-604"
+assert_eq "#1222 isg: an unreadable interim marker fails CLOSED — still BLOCKS (exit 2)" "2" "${ISG_R%%|*}"
+rm -rf "$ISG_D"
+
+# AC7 — a foreign marker cannot suppress a REAL block. Two interim markers in one scan:
+# one foreign-owned (must not block), one that must block (owned by this session, or
+# identity-free). The guard still blocks, in EITHER scan order. Markers glob lexically by
+# issue number, so 613 precedes 614 — swapping which issue carries the foreign owner
+# exercises both orders. Distinct interim workpad fixtures are keyed per issue.
+sed 's/#604/#613/' "$ISG_GHD/interim.md" > "$ISG_GHD/interim613.md"
+sed 's/#604/#614/' "$ISG_GHD/interim.md" > "$ISG_GHD/interim614.md"
+
+# Order 1: foreign marker FIRST (613), a blocking identity-free marker SECOND (614).
+ISG_D="$(isg_repo "isg: foreign-then-blocking scan")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+printf '%s\n' "owner-session-A" > "$ISG_D/.prflow/tmp/implement-active-613"   # foreign -> skip
+: > "$ISG_D/.prflow/tmp/implement-active-614"                                  # identity-free -> blocks
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"stopper-session-B"}' "DEVFLOW_GH=$ISG_GHD/gh" \
+  "ISG_BODY_613=$ISG_GHD/interim613.md" "ISG_BODY_614=$ISG_GHD/interim614.md")"
+assert_eq "#1222 isg: a foreign marker earlier in scan order does not suppress the later real block (exit 2)" "2" "${ISG_R%%|*}"
+assert_eq "#1222 isg: the block names the blocking issue (614), not the skipped foreign one" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#614' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# Order 2: a blocking identity-free marker FIRST (613), foreign marker SECOND (614).
+ISG_D="$(isg_repo "isg: blocking-then-foreign scan")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.prflow/tmp/implement-active-613"                                  # identity-free -> blocks first
+printf '%s\n' "owner-session-A" > "$ISG_D/.prflow/tmp/implement-active-614"   # foreign (never reached)
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"stopper-session-B"}' "DEVFLOW_GH=$ISG_GHD/gh" \
+  "ISG_BODY_613=$ISG_GHD/interim613.md" "ISG_BODY_614=$ISG_GHD/interim614.md")"
+assert_eq "#1222 isg: a real block earlier in scan order still fires with a foreign marker after it (exit 2)" "2" "${ISG_R%%|*}"
+assert_eq "#1222 isg: that block names the blocking issue (613)" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#613' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# AC6 — self-heal is preserved regardless of owner: a FOREIGN-owned marker whose workpad
+# is terminal is still deleted on Stop (ownership only gates the interim block arm).
+ISG_D="$(isg_repo "isg: foreign-owned terminal self-heal")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+printf '%s\n' "owner-session-A" > "$ISG_D/.prflow/tmp/implement-active-603"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"stopper-session-B"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_603=$ISG_GHD/terminal.md")"
+assert_eq "#1222 isg: a foreign-owned terminal marker still allows the stop (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#1222 isg: a foreign-owned terminal marker still self-heals (deleted regardless of owner)" "no" \
+  "$([ -e "$ISG_D/.prflow/tmp/implement-active-603" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# The headline #1222 scenario: MULTIPLE concurrent live sessions in one checkout, none
+# owned by the stopper. Every interim marker is foreign-owned, so the stopper is blocked by
+# none of them and the scan ends by ALLOWING the stop (exit 0) with no sentinel written —
+# the exact false-positive the issue reports. Two foreign markers (613, 614) prove the skip
+# CONTINUEs past the first foreign marker to the second rather than stopping the scan.
+sed 's/#604/#613/' "$ISG_GHD/interim.md" > "$ISG_GHD/interim613.md"
+sed 's/#604/#614/' "$ISG_GHD/interim.md" > "$ISG_GHD/interim614.md"
+ISG_D="$(isg_repo "isg: all-foreign multi-session scan")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+printf '%s\n' "owner-session-A" > "$ISG_D/.prflow/tmp/implement-active-613"   # foreign -> skip
+printf '%s\n' "owner-session-C" > "$ISG_D/.prflow/tmp/implement-active-614"   # foreign -> skip
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"stopper-session-B"}' "DEVFLOW_GH=$ISG_GHD/gh" \
+  "ISG_BODY_613=$ISG_GHD/interim613.md" "ISG_BODY_614=$ISG_GHD/interim614.md")"
+assert_eq "#1222 isg: every interim marker foreign-owned -> allow the stop (exit 0), the reported false-positive is gone" "0" "${ISG_R%%|*}"
+assert_eq "#1222 isg: all-foreign scan writes NO sentinel for the stopping session" "no" \
+  "$([ -e "$ISG_D/.prflow/tmp/stop-guard-stopper-session-B" ] && echo yes || echo no)"
+assert_eq "#1222 isg: all-foreign scan skips the SECOND foreign marker too (continue, not stop-scan)" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#614' && echo yes || echo no)"
+assert_eq "#1222 isg: all-foreign scan leaves both foreign markers in place" "yes" \
+  "$([ -e "$ISG_D/.prflow/tmp/implement-active-613" ] && [ -e "$ISG_D/.prflow/tmp/implement-active-614" ] && echo yes || echo no)"
 rm -rf "$ISG_D"
 
 # ── allow: the sentinel write itself fails (read-only .prflow/tmp). The guard
