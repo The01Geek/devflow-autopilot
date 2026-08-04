@@ -4,12 +4,12 @@
 #
 # Phase 2 mid-run durability checkpoint (issue #1139).
 #
-# An implement run holds every change it makes in an uncommitted working tree
-# until Phase 2 §2.5 — the first commit and push. A run that terminates before
-# §2.5 loses all of it. This helper is the executable durability step the Phase 2
-# prose invokes at each sub-step boundary (and §2.5 itself) so work already
-# produced survives on the run's own remote branch — the branch the §1.4 resume
-# path already reads.
+# Historically an implement run held every change it made in an uncommitted
+# working tree until Phase 2 §2.5 — the first commit and push — so a run that
+# terminated before §2.5 lost all of it. This helper is the executable durability
+# step the Phase 2 prose now invokes at each sub-step boundary (and §2.5 itself) so
+# work already produced survives on the run's own remote branch — the branch the
+# §1.4 resume path already reads.
 #
 # Contract (leading-token invocation; the message is $1, the rest are explicit
 # pathspecs):
@@ -47,8 +47,8 @@
 # Exit codes:
 #   0  committed+pushed+landed, OR a clean no-op (nothing to checkpoint)
 #   2  usage error (missing message, or a forbidden stage-all token)
-#   3  push did not land (HEAD != @{u})
-#   4  a git operation failed (add/commit/not a repo/no upstream)
+#   3  push did not land (HEAD != @{u}, including no upstream configured)
+#   4  a git operation failed (add/commit/not a repo)
 
 set -u
 
@@ -111,14 +111,20 @@ if ! git add -- "${KEEP[@]}"; then
   exit 4
 fi
 
-# No empty commit: if nothing is staged, this boundary produced no new durable
-# work — exit cleanly without committing (AC3/AC8).
-if git diff --cached --quiet; then
+# No empty commit: if none of the NAMED paths has a staged change, this boundary
+# produced no new durable work — exit cleanly without committing (AC3/AC8). The
+# check is scoped to KEEP so unrelated pre-existing staged content neither forces a
+# commit nor is swept into one.
+if git diff --cached --quiet -- "${KEEP[@]}"; then
   _bc "no staged changes at this boundary; no commit made (no empty commit)"
   exit 0
 fi
 
-if ! git commit -q -m "$MESSAGE"; then
+# Commit ONLY the named paths (a path-scoped commit), so the explicit-path scoping
+# (AC6) is enforced by the helper rather than left contingent on the caller having
+# entered with a clean index: any unrelated pre-staged content stays out of the
+# commit instead of riding in on a whole-index `git commit`.
+if ! git commit -q -m "$MESSAGE" -- "${KEEP[@]}"; then
   _bc "git commit failed"
   exit 4
 fi

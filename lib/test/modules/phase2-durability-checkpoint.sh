@@ -33,8 +33,8 @@ _dc_newrig() {
   local rig work
   rig="$(git_sandbox "phase2-durability-checkpoint rig")" || return 1
   work="$rig/work"
-  git init -q --bare "$rig/remote.git"
-  git init -q "$work"
+  git init -q --bare "$rig/remote.git" || return 1
+  git init -q "$work" || return 1
   (
     cd "$work" || exit 1
     git config user.email t@example.com
@@ -136,6 +136,14 @@ assert_eq "#1139 AC4: the untracked workflow file stays unstaged in the working 
   "yes" "$( cd "$W" && git status --porcelain -- .github/workflows/untracked.yml | grep -q '^?? ' && echo yes || echo no )"
 assert_eq "#1139 AC4: the non-workflow work still reaches the remote commit (guard did not block it)" \
   "yes" "$(_dc_remote_has "$W" app.txt)"
+# Guard excludes EVERY named path → nothing stageable → a clean no-op (no commit),
+# distinct from the AC3/AC8 nothing-new no-op.
+W="$(_dc_newrig)"
+GUARD_ONLY_RC="$( cd "$W" && mkdir -p .github/workflows && printf 'name: z\n' > .github/workflows/only.yml && _dc_cp_guard "feat: cp" .github/workflows/only.yml >/dev/null 2>&1; echo $? )"
+assert_eq "#1139 AC4: a checkpoint whose only named path is guard-excluded is a clean no-op (exit 0)" \
+  "0" "$GUARD_ONLY_RC"
+assert_eq "#1139 AC4: the guard-only no-op adds no commit to the branch" \
+  "0" "$(_dc_remote_ahead "$W")"
 
 # ── AC5: §2.1.5 proof content never enters pushed history ───────────────────
 # Explicit scoping is the mechanism: a proof file present in the working tree but not
@@ -175,6 +183,25 @@ assert_eq "#1139 AC6: the helper refuses the '-A' stage-all token (exit 2)" \
   "2" "$( cd "$W" && _dc_cp "feat: cp" -A >/dev/null 2>&1; echo $? )"
 assert_eq "#1139 AC6: the helper refuses the '.' stage-all token (exit 2)" \
   "2" "$( cd "$W" && _dc_cp "feat: cp" . >/dev/null 2>&1; echo $? )"
+assert_eq "#1139 AC6: the helper refuses a ':/' magic pathspec (exit 2)" \
+  "2" "$( cd "$W" && _dc_cp "feat: cp" :/ >/dev/null 2>&1; echo $? )"
+assert_eq "#1139 AC6: the helper refuses a missing commit message (exit 2)" \
+  "2" "$( cd "$W" && _dc_cp >/dev/null 2>&1; echo $? )"
+# Path-scoped commit: a pre-existing staged (but unnamed) change is NOT swept into
+# the checkpoint even when the index is dirty at entry — the AC6 guarantee is
+# enforced by the helper, not left contingent on a clean index.
+W="$(_dc_newrig)"
+(
+  cd "$W" || exit 1
+  printf 'pre-staged unrelated\n' > staged-other.txt
+  git add staged-other.txt                              # dirty index at entry, unnamed
+  printf 'real\n' > named.txt
+  _dc_cp "feat: cp" named.txt >/dev/null 2>&1
+)
+assert_eq "#1139 AC6: the named path reaches the remote commit (dirty index at entry)" \
+  "yes" "$(_dc_remote_has "$W" named.txt)"
+assert_eq "#1139 AC6: a pre-staged unnamed file is NOT swept into the checkpoint commit" \
+  "no" "$(_dc_remote_has "$W" staged-other.txt)"
 
 # ── AC7: a push that does not land is treated as not landed ─────────────────
 # Failure shape 1 — a rejected non-fast-forward: another clone advances feat, then a
