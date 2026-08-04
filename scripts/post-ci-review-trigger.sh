@@ -187,6 +187,46 @@ if [ -z "$EXPECTED_AUTHOR" ]; then
   exit 0
 fi
 
+# --- PR-state guard (fail-closed, issue #1236) ------------------------------
+# Do not request a review for a target nobody can act on. When CI goes green the
+# caller fires this trigger unconditionally; if the pull request was merged or
+# closed while CI was still running, the review run lands on a dead target — paid
+# review spend (a full cloud agent run + model tokens) whose output has no reader.
+# So establish the PR's state read-only and take the post path ONLY while it is
+# still open. `{owner}/{repo}` placeholders (gh fills them from the git remote),
+# NOT an interpolated $GITHUB_REPOSITORY — the same repos// collapse this file
+# already guards against for the idempotency read (issue #664;
+# lib/test/lint-gh-api-repo-path.py enforces it). The jq maps a merged PR (state
+# `closed`, `merged` true) to `merged`, a closed-unmerged PR to `closed`, an open
+# one to `open`, and anything unresolvable to the empty string.
+#
+# FAIL CLOSED on an unestablished state — the same asymmetry as the idempotency
+# read and the author comparand: a missed notification is recoverable (a
+# collaborator can still comment /prflow:review by hand), while review spend on an
+# already-merged or closed target is not. Each no-post arm leaves its OWN distinct
+# annotation naming the condition that fired. The state word is compared with a
+# bash `case` (a builtin) — never `tr`/`sed`/`grep`, which are not preflight-
+# guaranteed and would silently empty the decision (CLAUDE.md's non-preflight-tool
+# rule, the same reason the idempotency decision below uses bash builtins only).
+if ! PR_STATE="$("$DEVFLOW_GH" api "repos/{owner}/{repo}/pulls/${PR}" \
+      --jq 'if .merged then "merged" else (.state // "") end' 2>/dev/null)"; then
+  _note warning "ci auto-review trigger: could not read PR #$PR state to check whether it is still open; NOT posting (fail-closed — review spend on an already-merged or closed target is unrecoverable, a missed notification is not)."
+  exit 0
+fi
+case "$PR_STATE" in
+  open)
+    : ;;  # still actionable — fall through to the idempotency read and post
+  merged)
+    _note warning "ci auto-review trigger: PR #$PR is already merged; NOT posting a review request (its output would land on a merged target nobody can act on)."
+    exit 0 ;;
+  closed)
+    _note warning "ci auto-review trigger: PR #$PR is closed without merging; NOT posting a review request (its output would land on a closed target nobody can act on)."
+    exit 0 ;;
+  *)
+    _note warning "ci auto-review trigger: PR #$PR state could not be established (got '$PR_STATE'); NOT posting (fail-closed — review spend on a possibly-merged or closed target is unrecoverable, a missed notification is not)."
+    exit 0 ;;
+esac
+
 # Login match, mirroring authorize-actor.sh's actor_bare handling: the App comment
 # login is `<slug>[bot]` while the app-slug output is the bare `<slug>`, so compare
 # both exact and bare-stripped forms in BOTH directions. This rests on

@@ -4359,14 +4359,20 @@ assert_eq "pcrt: negative control — the marker alone resolves to NO command" \
 PCRT_SB="$(mktemp -d)"
 cat > "$PCRT_SB/gh" <<'EOS'
 #!/usr/bin/env bash
-# gh stub. A POST is recorded to $PCRT_REC and honours $PCRT_POST_RC; anything
-# else is the comment-list read, which honours $PCRT_LIST_RC and serves
-# $PCRT_LIST_OUT (the ids the helper's marker filter would have matched).
+# gh stub. A POST is recorded to $PCRT_REC and honours $PCRT_POST_RC; a `pulls/<n>`
+# read is the PR-state guard (issue #1236), which honours $PCRT_STATE_RC and serves
+# the post-jq state $PCRT_PR_STATE (default `open`, so an unset value keeps every
+# pre-#1236 arm on the actionable path); anything else is the comment-list read,
+# which honours $PCRT_LIST_RC and serves $PCRT_LIST_OUT (the ids the helper's marker
+# filter would have matched).
 case "$*" in
   *"--method POST"*)
     printf '%s\n' "$*" >> "$PCRT_REC"
     [ "${PCRT_POST_RC:-0}" = 0 ] || { echo "HTTP 403" >&2; exit 1; }
     printf '{"id":1}\n'; exit 0 ;;
+  *"pulls/"*)
+    [ "${PCRT_STATE_RC:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }
+    printf '%s' "${PCRT_PR_STATE-open}"; exit 0 ;;
 esac
 [ "${PCRT_LIST_RC:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }
 printf '%s' "${PCRT_LIST_OUT-}"
@@ -4408,6 +4414,87 @@ assert_eq "pcrt: the fail-closed arm warns and names the choice, so a missed rev
 pcrt_run PCRT_LIST_OUT="" PCRT_POST_RC=1
 assert_eq "pcrt: a POST that fails is NEVER annotated as a fired trigger (the #408 lesson)" \
   "0-1" "$(printf '%s\n' "$PCRT_OUT" | grep -c 'posted the review trigger')-$(printf '%s\n' "$PCRT_OUT" | grep -c 'did NOT post')"
+
+# --- PR-state guard, arm by arm (issue #1236) -------------------------------
+# When CI goes green the caller fires the trigger unconditionally, so a PR merged
+# or closed mid-CI would draw a full review run on a dead target — paid spend with
+# no reader. The guard reads the PR state (stubbed via PCRT_PR_STATE / PCRT_STATE_RC)
+# and posts ONLY while the PR is open; every no-post arm leaves its OWN distinct
+# annotation and the helper still exits 0. PCRT_PR_STATE defaults to `open`, so every
+# arm above is unaffected.
+pcrt_run PCRT_LIST_OUT="" PCRT_PR_STATE=open
+assert_eq "pcrt #1236-open: an OPEN PR still posts the trigger (state guard falls through)" \
+  "1" "$PCRT_POSTS"
+
+pcrt_run PCRT_PR_STATE=merged
+assert_eq "pcrt #1236-merged: a MERGED PR posts nothing (no review on a merged target)" \
+  "0" "$PCRT_POSTS"
+assert_eq "pcrt #1236-merged: the merged arm warns with its OWN distinct annotation" \
+  "1" "$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::ci auto-review trigger: PR #7 is already merged; NOT posting')"
+
+pcrt_run PCRT_PR_STATE=closed
+assert_eq "pcrt #1236-closed: a CLOSED-unmerged PR posts nothing (no review on a closed target)" \
+  "0" "$PCRT_POSTS"
+assert_eq "pcrt #1236-closed: the closed arm warns with its OWN distinct annotation" \
+  "1" "$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::ci auto-review trigger: PR #7 is closed without merging; NOT posting')"
+
+pcrt_run PCRT_STATE_RC=1
+assert_eq "pcrt #1236-state-unreadable: an unreadable PR state fails CLOSED, posting nothing" \
+  "0" "$PCRT_POSTS"
+assert_eq "pcrt #1236-state-unreadable: the fail-closed arm warns naming the unresolved state" \
+  "1" "$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::ci auto-review trigger: could not read PR #7 state.*fail-closed')"
+
+pcrt_run PCRT_PR_STATE=""
+assert_eq "pcrt #1236-state-empty: an empty (unestablished) PR state fails CLOSED, posting nothing" \
+  "0" "$PCRT_POSTS"
+assert_eq "pcrt #1236-state-empty: the unestablished-state arm warns with its OWN distinct annotation" \
+  "1" "$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::ci auto-review trigger: PR #7 state could not be established')"
+
+# --- ci.yml supersession concurrency static check (issue #1236, Half A / AC2) --
+# ci.yml's workflow-level `concurrency:` behavior lives on GitHub's scheduler and
+# cannot be executed locally; lib/test/check-ci-concurrency.py is the closest
+# mechanical surface — a static check over the workflow file's concurrency region.
+# Drive it against the REAL ci.yml (all three properties hold) and synthetic
+# fixtures that each violate exactly one property, plus the fail-closed
+# unreadable-file arm.
+CICC="$LIB/test/check-ci-concurrency.py"
+assert_eq "cicc #1236: the real ci.yml carries a valid workflow-level supersession concurrency key" \
+  "CI_CONCURRENCY ok|0" "$(python3 "$CICC" 2>&1)|$( python3 "$CICC" >/dev/null 2>&1; echo $? )"
+
+CICC_SB="$(mktemp -d)"
+cat > "$CICC_SB/absent.yml" <<'EOY'
+name: CI
+on:
+  push:
+    branches: [main]
+jobs:
+  x:
+    runs-on: ubuntu-latest
+EOY
+cat > "$CICC_SB/nonpr-group.yml" <<'EOY'
+name: CI
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs: {}
+EOY
+cat > "$CICC_SB/cancel-main.yml" <<'EOY'
+name: CI
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+jobs: {}
+EOY
+
+assert_eq "cicc #1236: an ABSENT workflow-level concurrency key fails (this is the pre-change ci.yml shape)" \
+  "fail|1" "$(python3 "$CICC" --ci-file "$CICC_SB/absent.yml" 2>&1 | grep -oE '^CI_CONCURRENCY (ok|fail|unavailable)' | awk '{print $2}')|$( python3 "$CICC" --ci-file "$CICC_SB/absent.yml" >/dev/null 2>&1; echo $? )"
+assert_eq "cicc #1236: a group that does NOT vary with the pull request fails" \
+  "fail|1" "$(python3 "$CICC" --ci-file "$CICC_SB/nonpr-group.yml" 2>&1 | grep -oE '^CI_CONCURRENCY (ok|fail|unavailable)' | awk '{print $2}')|$( python3 "$CICC" --ci-file "$CICC_SB/nonpr-group.yml" >/dev/null 2>&1; echo $? )"
+assert_eq "cicc #1236: a cancel-in-progress that would resolve true for a main push fails" \
+  "fail|1" "$(python3 "$CICC" --ci-file "$CICC_SB/cancel-main.yml" 2>&1 | grep -oE '^CI_CONCURRENCY (ok|fail|unavailable)' | awk '{print $2}')|$( python3 "$CICC" --ci-file "$CICC_SB/cancel-main.yml" >/dev/null 2>&1; echo $? )"
+assert_eq "cicc #1236: an unreadable workflow file fails CLOSED as unavailable, never a silent pass" \
+  "unavailable|3" "$(python3 "$CICC" --ci-file "$CICC_SB/does-not-exist.yml" 2>&1 | grep -oE '^CI_CONCURRENCY (ok|fail|unavailable)' | awk '{print $2}')|$( python3 "$CICC" --ci-file "$CICC_SB/does-not-exist.yml" >/dev/null 2>&1; echo $? )"
+rm -rf "$CICC_SB"
 
 # A missing/blank head SHA cannot key the marker, so dedupe would be impossible —
 # refuse rather than post an unkeyed comment on every run.
