@@ -61,9 +61,6 @@ fi
 MESSAGE="$1"
 shift
 
-# Reject stage-all tokens as arguments — the AC6 boundary enforced at the helper,
-# not only in prose. `git add -A`/`git add .`/intent-to-add would defeat the
-# explicit-path scoping this helper exists to preserve.
 KEEP=()
 GUARD_ACTIVE=no
 if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ -z "${DEVFLOW_APP_ID:-}" ]; then
@@ -71,26 +68,31 @@ if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ -z "${DEVFLOW_APP_ID:-}" ]; then
 fi
 
 for arg in "$@"; do
+  # Explicit paths only (AC6): every argument must name a concrete path. Reject the
+  # whole class of non-path / stage-all arguments rather than a denylist of specific
+  # tokens — an option-shaped token (git add's `-A`/`-u`/`-N`/`--all`/`--update`/
+  # `--intent-to-add` all begin with `-`), the whole-tree `.`, or a git magic pathspec
+  # (`:/` repo-root, `:(glob)…`) — any of which would stage more than the caller named
+  # and defeat §2.2's sweep-scoping and the fix loop's explicit-path scoping.
   case "$arg" in
-    -A|--all|-u|--update|-N|--intent-to-add|.)
-      _bc "refusing stage-all token '$arg' — staging must be explicitly scoped (AC6). Pass explicit file paths."
+    -* | . | :*)
+      _bc "refusing non-path staging argument '$arg' — staging must be explicitly scoped to concrete file paths (AC6)."
       exit 2
       ;;
   esac
-  # Normalize a leading ./ so the workflow-path match is not defeated by `./`.
-  norm="${arg#./}"
-  case "$norm" in
-    .github/workflows/*)
-      if [ "$GUARD_ACTIVE" = yes ]; then
+  # Cloud-tier workflow-edit guard: on a run whose GITHUB_TOKEN fallback cannot push
+  # .github/workflows/, do not stage a repo-own workflow path (normalize a leading ./
+  # so the match is not defeated by it). A vendored .prflow/vendor/… path is not the
+  # repo's own and is not guarded.
+  if [ "$GUARD_ACTIVE" = yes ]; then
+    case "${arg#./}" in
+      .github/workflows/*)
         _bc "workflow-edit guard: NOT staging '$arg' (cloud tier, DEVFLOW_APP_ID empty — the GITHUB_TOKEN fallback cannot push .github/workflows/). Defer it via the Phase 2.2.5 scope-adjustment."
         continue
-      fi
-      KEEP+=("$arg")
-      ;;
-    *)
-      KEEP+=("$arg")
-      ;;
-  esac
+        ;;
+    esac
+  fi
+  KEEP+=("$arg")
 done
 
 if ! git rev-parse --git-dir >/dev/null 2>&1; then

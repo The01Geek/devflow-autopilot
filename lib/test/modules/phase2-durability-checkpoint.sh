@@ -24,22 +24,14 @@
 REPO_ROOT="$LIB/.."
 DC_HELPER="$REPO_ROOT/scripts/phase2-durability-checkpoint.sh"
 
-_dc_tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/devflow-durability-checkpoint.XXXXXX")" || {
-  printf 'could not allocate phase2-durability-checkpoint fixture\n' >&2
-  return 1
-}
-_dc_cleanup() {
-  chmod -R u+w "$_dc_tmp_root" 2>/dev/null || true
-  rm -rf "$_dc_tmp_root"
-}
-trap _dc_cleanup EXIT
-
 # A fresh rig: a bare remote + a work tree whose `feat` branch is created and pushed
-# empty (mirroring Phase 1). Prints the work-tree path. Every rig lives under the
-# module's own temp root, so no assertion can reach the live checkout.
+# empty (mirroring Phase 1). Prints the work-tree path. Each rig root comes from the
+# harness's `git_sandbox` allocator (module-harness.sh) — runner-cleaned, and
+# fail-closed to a /dev/null sentinel on `mktemp -d` failure so no assertion can reach
+# the live checkout.
 _dc_newrig() {
   local rig work
-  rig="$(mktemp -d "$_dc_tmp_root/rigXXXXXX")" || return 1
+  rig="$(git_sandbox "phase2-durability-checkpoint rig")" || return 1
   work="$rig/work"
   git init -q --bare "$rig/remote.git"
   git init -q "$work"
@@ -93,8 +85,8 @@ assert_eq "#1139 AC1 control: produced content is absent from the remote without
 # AC2: after invoking the durability helper, the produced content is on the remote
 # branch and the branch is at least one commit ahead of base.
 ( cd "$W" && _dc_cp "feat: checkpoint" feature.txt >/dev/null 2>&1 )
-assert_eq "#1139 AC2: helper checkpoint leaves the branch >=1 commit ahead of base" \
-  "yes" "$([ "$(_dc_remote_ahead "$W")" -ge 1 ] && echo yes || echo no)"
+assert_eq "#1139 AC2: helper checkpoint leaves the branch 1 commit ahead of base" \
+  "1" "$(_dc_remote_ahead "$W")"
 assert_eq "#1139 AC2: produced content is present on the remote branch after the checkpoint" \
   "yes" "$(_dc_remote_has "$W" feature.txt)"
 
