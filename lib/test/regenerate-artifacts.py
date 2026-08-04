@@ -97,6 +97,19 @@ from pathlib import Path
 
 MECHANICAL_ARTIFACT = "scripts/devflow-cloud-writer-contract.json"
 
+# The preflight's MACHINE-READABLE verdict line (issue #1244). COUPLED CONTRACT, edited
+# together with `lib/test/run-parallel.sh`: the parallel coordinator keys its fail-closed
+# refusal on the exact line `regenerate-artifacts: preflight-verdict: drift` and on nothing
+# else, so the human remedy sentences below it are free prose a reword cannot break. Before
+# this line existed the coordinator matched a substring of that prose, which meant a
+# rewording in THIS file would silently make the coordinator fail OPEN on real drift.
+#
+# Emitted for all three verdicts rather than only for drift, so a consumer can distinguish
+# "checked and clean" from "could not check" without re-deriving either from an exit code —
+# and matched LINE-EXACTLY by the coordinator, so the same text quoted inside a row's own
+# diagnostic (which is always indented or row-prefixed) can never be mistaken for a verdict.
+PREFLIGHT_VERDICT_PREFIX = "regenerate-artifacts: preflight-verdict: "
+
 # The closed set of conflict-resolution classes (issue #655). A merge conflict in a
 # checked-in generated artifact must never be hand-merged: hand-merged bytes match no
 # source of truth, and the row's own gate then reports the result as drift with a remedy
@@ -145,6 +158,17 @@ ROWS = (
             "`python3 lib/test/cloud_writer_contract.py generate`"
         ),
         "conflict_class": "regenerate",
+        # Preflight (issue #1244): read-only and sub-second, so eligible — but the row's
+        # own `argv` is the WRITING `generate` form, which the read-only preflight must
+        # never run. `preflight_argv` names the non-writing `verify` form instead, and
+        # `preflight_positive_marker` is what makes an exit-1 attributable to real drift:
+        # `verify` prints a `cloud-writer-contract:`-prefixed line on both a stale manifest
+        # and a broken closure (the states this row exists to catch), while a CPython
+        # traceback also exits 1 with no such marker — so the preflight classifies an
+        # unmarked exit-1 as UNCHECKABLE rather than dressing a crash up as drift.
+        "preflight_eligible": True,
+        "preflight_argv": ("python3", "lib/test/cloud_writer_contract.py", "verify"),
+        "preflight_positive_marker": "cloud-writer-contract:",
     },
     {
         "name": "capability-profile-literals",
@@ -186,6 +210,10 @@ ROWS = (
             "target workflow file absent:",
             "reviewer security boundary lock unreadable:",
         ),
+        # Preflight (issue #1244): `--check` is read-only and sub-second (~0.04 s). The
+        # preflight reuses this row's `infra_markers` to keep an input failure out of the
+        # drift verdict, exactly as the batched pass does.
+        "preflight_eligible": True,
     },
     {
         "name": "plugin-identity-regions",
@@ -251,6 +279,8 @@ ROWS = (
             "after its begin banner",
             "Traceback (most recent call last)",
         ),
+        # Preflight (issue #1244): `--check` is read-only and sub-second (~0.05 s).
+        "preflight_eligible": True,
     },
     {
         "name": "coverage-map-ratchet",
@@ -258,7 +288,7 @@ ROWS = (
         "argv": ("python3", "lib/test/coverage_map_guard.py", "."),
         "clean": (0,),
         "exits": (0, 1),
-        "policy": "add the missing coverage rows per the issue-591 ratchet in lib/test/modules/coverage-map.json (for a run_sh_blocks completeness/attribution item, `python3 lib/test/coverage_map_guard.py . --fix` is the hand-invoked repair)",
+        "policy": "add the missing coverage rows per the issue-591 ratchet in lib/test/modules/coverage-map.json (for a run_sh_blocks completeness/attribution item, `python3 lib/test/coverage_map_guard.py . --fix` is the hand-invoked repair). For a MERGE-CONFLICT resolution of this file, do NOT reach for `--fix`: it cannot restore a key a resolution dropped (issue #1194), so keep every key from BOTH sides — let the registered JSON-aware merge driver union them (register with `python3 lib/test/coverage-map-merge-driver.py --register`, verify with `--check`), or take both sides by hand then re-canonicalize; `python3 lib/test/coverage-map-retention-check.py` fails RED on any dropped key/content and backstops the web-editor path the driver cannot reach",
         # by-hand, and it STAYS by-hand: since issue #695 coverage_map_guard.py does have
         # a write path, but only behind the explicit, hand-invoked `--fix` flag. The
         # `argv` above deliberately omits it, so this row still runs a non-writing check
@@ -292,6 +322,10 @@ ROWS = (
             "[arm4] ",
             "[arm8] ",
         ),
+        # Preflight (issue #1244): `argv` is the non-writing `.` check (the `--fix` write
+        # path is deliberately never wired into this row), read-only and sub-second
+        # (~0.27 s).
+        "preflight_eligible": True,
     },
     {
         "name": "exact-module-floors",
@@ -329,6 +363,13 @@ ROWS = (
             "scripts/workflow-flight-recorder-registry.json",
             "lib/test/run.sh",
         ),
+        # Preflight (issue #1244): INELIGIBLE. Two independent disqualifiers: this row
+        # WRITES its declared outputs, so it can never run in a write-nothing preflight;
+        # and its check runs the real focused module runners, measured at 465.9 s (7.8 min)
+        # on issue #1244's host — three orders of magnitude above the eligible rows and far
+        # past any pre-suite budget. The preflight skips it and the coordinator still
+        # launches; the full suite remains its only detector.
+        "preflight_eligible": False,
     },
     {
         "name": "env-freeze-advisory-region",
@@ -356,6 +397,8 @@ ROWS = (
         # Deliberately EXCLUDED: the region-differs diff, which is the genuine finding this
         # row exists to surface — matching it would hide the drift it reports.
         "infra_markers": ("Traceback (most recent call last)",),
+        # Preflight (issue #1244): `--check` is read-only and sub-second (~0.04 s).
+        "preflight_eligible": True,
     },
 )
 
@@ -697,6 +740,151 @@ def _monotonic_outcome(row, proc, output, before, after, report):
     return False, True
 
 
+def run_preflight_row(row, root, report):
+    """Run ONE eligible row read-only for the preflight. Returns (drift, uncheckable).
+
+    Distinct from `run_row` in two load-bearing ways (issue #1244):
+      * it takes NO byte snapshots and runs only the row's `preflight_argv` (defaulting to
+        the row's own `argv` when the row's check is already non-writing), so a preflight
+        can never be blamed for a write — the coordinator's fail-closed refusal must never
+        rest on a check that itself mutated the tree; and
+      * a non-clean-but-in-set exit is DRIFT only when it is positively attributable. For a
+        row carrying `preflight_positive_marker` (the cloud-writer row, whose read-only
+        `verify` prints that marker on a stale/broken closure), an unmarked exit-1 is a
+        crash, classified UNCHECKABLE. For a judgment row, the row's own `infra_markers`
+        route an input failure to UNCHECKABLE, exactly as the batched pass does; anything
+        else is drift.
+    """
+    name = row["name"]
+    argv = row.get("preflight_argv", row["argv"])
+    joined = " ".join(argv)
+    target_rel = next((a for a in argv[1:] if not a.startswith("-")), None)
+    try:
+        proc = subprocess.run(
+            argv, cwd=str(root), capture_output=True, text=True, check=False
+        )
+    except OSError as error:
+        report.append(f"[{name}] UNCHECKABLE the preflight command failed to launch: {joined} ({error})")
+        return False, True
+    output = (proc.stdout + proc.stderr).strip()
+    declared = row["exits"]
+    if proc.returncode not in declared:
+        missing = (
+            ""
+            if target_rel is None or (root / target_rel).exists()
+            else f" (target absent: {target_rel})"
+        )
+        report.append(
+            f"[{name}] UNCHECKABLE `{joined}` exited {proc.returncode}, outside its "
+            f"declared set {declared}{missing}\n    output: {output or '(none)'}"
+        )
+        return False, True
+    if proc.returncode in row["clean"]:
+        report.append(f"[{name}] clean — `{joined}` exited {proc.returncode}")
+        return False, False
+    marker = row.get("preflight_positive_marker")
+    if marker is not None:
+        if _marker_hit((marker,), output) is not None:
+            report.append(
+                f"[{name}] DRIFT `{joined}` exited {proc.returncode} — regenerate needed:\n"
+                f"    output: {output or '(none)'}\n"
+                f"    governing policy: {row['policy']}"
+            )
+            return True, False
+        report.append(
+            f"[{name}] UNCHECKABLE `{joined}` exited {proc.returncode} without its drift "
+            f"marker {marker!r} (a crash, not a reconcilable drift):\n"
+            f"    output: {output or '(none)'}"
+        )
+        return False, True
+    # A crash (an uncaught traceback) is never a reconcilable drift. The preflight fails
+    # OPEN on any unusable check (issue #1244 / AC5 — "a crash warns and proceeds"), so a
+    # traceback routes to UNCHECKABLE for EVERY judgment row regardless of that row's own
+    # `infra_markers` — which are tuned for the BATCHED pass, where two judgment rows
+    # (`capability-profile-literals`, `coverage-map-ratchet`) deliberately omit the traceback
+    # marker because there an unmarked exit-1 is a reportable JUDGMENT item, not a suite
+    # block. Here it would instead fail CLOSED and block the whole suite with a misleading
+    # "regenerate" message, so the universal traceback marker is added to the preflight's
+    # classification only. This is preflight-local: `run_row` (the batched pass) is unchanged.
+    hit = _marker_hit(
+        row.get("infra_markers", ()) + ("Traceback (most recent call last)",), output
+    )
+    if hit is not None:
+        report.append(
+            f"[{name}] UNCHECKABLE `{joined}` exited {proc.returncode} reporting a crash or "
+            f"input failure, not drift (matched {hit!r}):\n    output: {output or '(none)'}"
+        )
+        return False, True
+    report.append(
+        f"[{name}] DRIFT `{joined}` exited {proc.returncode}\n"
+        f"    output: {output or '(none)'}\n"
+        f"    governing policy: {row['policy']}"
+    )
+    return True, False
+
+
+def run_preflight(root):
+    """Read-only preflight over the eligible rows only (issue #1244).
+
+    Writes nothing, prints one line per row it ran, then a machine verdict line
+    (`PREFLIGHT_VERDICT_PREFIX` + one of `clean` / `drift` / `uncheckable`) followed by
+    the human remedy sentence, and exits:
+      0 — every eligible row is clean;
+      1 — at least one eligible row DRIFTED (a positively-attributed, reconcilable drift);
+      2 — no drift, but at least one eligible row could not be checked.
+    The verdict line is the contract `lib/test/run-parallel.sh` reads; the sentence beside
+    it is for a human and carries no consumer.
+    DRIFT takes precedence over UNCHECKABLE: a positively-detected drift must fail closed
+    (the coordinator refuses to launch) and must never be masked by an unrelated row that
+    happened to be uncheckable. Exit 2 is therefore the purely-unestablished case, which
+    the coordinator treats as fail-open (warn and proceed). This precedence is the reverse
+    of the batched pass's infra-over-drift ordering, deliberately: the batched pass writes
+    and its exit 2 means "nothing was reconciled", whereas the preflight's exit 1 is a
+    refusal signal that a caught drift must dominate.
+    """
+    report = []
+    drift = False
+    uncheckable = False
+    for row in ROWS:
+        if not row.get("preflight_eligible"):
+            continue
+        # A row's classification must never abort the whole preflight: an unexpected raise
+        # AFTER an earlier row already set drift would otherwise propagate to the top-level
+        # net, exit 2 with no report and no drift summary, and the coordinator would then
+        # fail OPEN — losing a positively-detected drift (the fail-closed contract this
+        # function documents). Catch per row → that row is UNCHECKABLE, the loop continues,
+        # and any already-detected drift survives the drift-precedence check below.
+        try:
+            row_drift, row_uncheckable = run_preflight_row(row, root, report)
+        except Exception as error:  # noqa: BLE001 — defensive per-row net, mirrors main()'s
+            report.append(
+                f"[{row['name']}] UNCHECKABLE the preflight row raised "
+                f"{type(error).__name__}: {error} — nothing was established for it"
+            )
+            row_drift, row_uncheckable = False, True
+        drift = row_drift or drift
+        uncheckable = row_uncheckable or uncheckable
+    for line in report:
+        print(line)
+    if drift:
+        print(f"{PREFLIGHT_VERDICT_PREFIX}drift")
+        print(
+            "regenerate-artifacts: preflight detected drift — regenerate the artifact(s) "
+            "above under their governing policy and commit before the suite run — exit 1"
+        )
+        return 1
+    if uncheckable:
+        print(f"{PREFLIGHT_VERDICT_PREFIX}uncheckable")
+        print(
+            "regenerate-artifacts: preflight could not check at least one eligible "
+            "artifact — exit 2"
+        )
+        return 2
+    print(f"{PREFLIGHT_VERDICT_PREFIX}clean")
+    print("regenerate-artifacts: preflight — every eligible artifact reconciled — exit 0")
+    return 0
+
+
 # The capability row's extra paths come from the capability generator's own REGIONS. Bound
 # here rather than in the table (which is defined above the function it names), and as a
 # FIELD, so `conflict_paths` never keys on a row name.
@@ -746,6 +934,29 @@ def _validate_registry():
             )
         if not (row.get("policy") or "").strip():
             raise ValueError(f"registry row {row['name']!r} declares an empty recipe (policy)")
+        # Preflight eligibility is DECLARED DATA (issue #1244), so every row must state a
+        # boolean — an absent or non-boolean field is a registry defect, never a silent
+        # "assume eligible" (which could run a writing row inside the write-nothing
+        # preflight) or a silent "assume ineligible" (which would drop a cheap detector).
+        if not isinstance(row.get("preflight_eligible"), bool):
+            raise ValueError(
+                f"registry row {row['name']!r} declares preflight_eligible "
+                f"{row.get('preflight_eligible')!r}, which is not a bool"
+            )
+        # Enforce the "preflight writes nothing" invariant in DATA, not prose (issue #1244).
+        # The coordinator's fail-closed refusal rests on the preflight being read-only, so a
+        # row that is eligible AND declares `writes` (its own `argv` mutates that output) must
+        # supply a non-writing `preflight_argv` — otherwise the read-only preflight would run
+        # the writing command. A row with no `writes` field declares no mutation, so its `argv`
+        # is the read-only check the preflight runs directly. Without this, a future eligible
+        # writing row that forgot `preflight_argv` would silently mutate the tree during the
+        # "read-only" preflight and no guard would catch it.
+        if row["preflight_eligible"] and row.get("writes") and "preflight_argv" not in row:
+            raise ValueError(
+                f"registry row {row['name']!r} is preflight_eligible and declares writes "
+                f"{row.get('writes')!r} but no non-writing preflight_argv; an eligible writing "
+                "row must name a read-only preflight command"
+            )
         # A row must declare SOME static path source, checked at this same import-time point
         # rather than left to KeyError inside emit_list: a row that reaches `--list` before
         # failing has already been handed to a consumer.
@@ -840,6 +1051,14 @@ def emit_list(root):
         print(f"conflict-recipe\t{row['name']}\t{row['policy']}")
         for path, sibling_class in row.get("coupled_by_hand", ()):
             print(f"conflict-sibling\t{row['name']}\t{path}\t{sibling_class}")
+    # Preflight eligibility (issue #1244), emitted LAST so every existing prefix-anchored
+    # consumer (`artifact\t…`, `conflict-…\t…`) parses byte-unchanged. Each line names the
+    # read-only command the preflight would run (the row's `preflight_argv`, defaulting to
+    # its `argv`), so the eligibility declaration and the command are auditable together.
+    for row in ROWS:
+        eligible = "eligible" if row.get("preflight_eligible") else "ineligible"
+        command = " ".join(row.get("preflight_argv", row["argv"]))
+        print(f"preflight\t{row['name']}\t{eligible}\t{command}")
     return 0
 
 
@@ -864,11 +1083,22 @@ def main(argv=None):
         action="store_true",
         help="Print the registered artifacts; run no row.",
     )
+    parser.add_argument(
+        "--preflight",
+        action="store_true",
+        help=(
+            "Read-only preflight: run only the preflight-eligible rows, write nothing, "
+            "and exit 0 (all clean) / 1 (drift) / 2 (a row could not be checked)."
+        ),
+    )
     args = parser.parse_args(argv)
     root = Path(args.repo_root).resolve() if args.repo_root else default_repo_root()
 
     if args.list:
         return emit_list(root)
+
+    if args.preflight:
+        return run_preflight(root)
 
     report = []
     forces_one = False

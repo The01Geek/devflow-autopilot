@@ -43,6 +43,13 @@
 #                                 positive integer fails closed to 1.
 #   DEVFLOW_SHARD_DISPATCHER      path to a shard dispatcher other than the sibling
 #                                 run-shard.sh (fixtures only).
+#   DEVFLOW_ARTIFACT_PREFLIGHT    command for the read-only generated-artifact preflight
+#                                 (issue #1244); defaults to the bundled
+#                                 `regenerate-artifacts.py --preflight`. Set empty to skip
+#                                 the preflight. Fixtures inject a stub here to drive its
+#                                 clean/drift/uncheckable arms; the DEFAULT binding and the
+#                                 verdict contract are driven end-to-end against the real
+#                                 helper from lib/test/modules/regenerate-artifacts.sh.
 #   TMPDIR                        parent of the per-shard scratch roots (always), and
 #                                 the fallback run-root parent when the checkout root is
 #                                 unusable (read-only, full, or name space exhausted).
@@ -167,6 +174,66 @@ for shard in $SHARDS; do
 done
 [ "$SHARD_COUNT" -gt 0 ] || \
   die "the shard dispatcher returned an empty population; refusing to report a clean suite over zero shards"
+
+# ── Generated-artifact preflight (read-only; issue #1244) ────────────────────
+# A checked-in generated artifact can go stale from an ordinary prompt-surface edit, and
+# before this the ONLY thing that reliably caught it was this ~13-minute suite (issue
+# #1244, the run-30861787562 incident). `lib/test/regenerate-artifacts.py --preflight`
+# runs the sub-second, READ-ONLY subset of the same generated-artifact registry and reports
+# drift in well under a second, so the coordinator can refuse to launch rather than pay a
+# whole suite run to discover it. The registry is the single source of truth: this
+# coordinator hardcodes no artifact path and no command, so the two cannot drift.
+#
+# Injectable like DEVFLOW_SHARD_DISPATCHER (the sibling test seam), so
+# parallel-suite-runner.sh drives every arm from its synthetic trees. Set it empty to
+# disable the preflight entirely. The default is the bundled helper's --preflight form,
+# invoked directly (its exec bit is set) — word-split so the default expands to the script
+# path plus its flag, and an override may be a whole command string, exactly the
+# DISPATCHER idiom above.
+# `-` (not `:-`) so an explicitly-empty override DISABLES the preflight, while an unset
+# variable takes the bundled default — the escape hatch the header documents.
+ARTIFACT_PREFLIGHT="${DEVFLOW_ARTIFACT_PREFLIGHT-$SCRIPT_DIR/regenerate-artifacts.py --preflight}"
+if [ -n "$ARTIFACT_PREFLIGHT" ]; then
+  # shellcheck disable=SC2086  # deliberate word-split: a command plus its argument(s)
+  PREFLIGHT_OUT="$($ARTIFACT_PREFLIGHT 2>&1)"
+  PREFLIGHT_RC=$?
+  if [ "$PREFLIGHT_RC" -eq 0 ]; then
+    : # every eligible artifact reconciled — proceed silently
+  else
+    # Refuse ONLY on a positively-attributed drift: exit 1 AND the preflight's own
+    # MACHINE verdict line. Keying the refusal on the verdict (a bash-builtin read/case,
+    # never a non-preflight PATH tool per CLAUDE.md guard-class 2) rather than on the exit
+    # code alone is what makes a crash safe — the preflight itself routes a crashed row to
+    # UNCHECKABLE (a traceback in any row → exit 2, never the drift verdict), and even a
+    # stub that exits 1 from a traceback carries no verdict line and takes the fail-open
+    # warn-and-proceed arm — so an unusable check never blocks the suite (only a detected
+    # drift does). Exit 2 (uncheckable), rc 127 (refused/absent), and any other non-zero
+    # all fall through to that same arm.
+    #
+    # COUPLED CONTRACT, edited together with `lib/test/regenerate-artifacts.py`: the
+    # literal below is that helper's `PREFLIGHT_VERDICT_PREFIX` + `drift`, and it is the
+    # ONLY thing read here. The human remedy sentence the helper prints beside it is free
+    # prose with no consumer — before this, the refusal keyed on a substring of that prose,
+    # so rewording it in the other file would have made this coordinator fail OPEN on real
+    # drift with nothing red. Matched LINE-EXACTLY (never as a substring of the blob) so a
+    # row diagnostic that happens to quote the verdict — always indented or row-prefixed —
+    # cannot be mistaken for the verdict itself. `lib/test/modules/regenerate-artifacts.sh`
+    # drives the real helper end-to-end through this coordinator, so the pair goes RED
+    # together rather than drifting apart silently.
+    _preflight_drift=0
+    while IFS= read -r _preflight_line; do
+      case "$_preflight_line" in
+        "regenerate-artifacts: preflight-verdict: drift") _preflight_drift=1; break ;;
+      esac
+    done <<< "$PREFLIGHT_OUT"
+    if [ "$PREFLIGHT_RC" -eq 1 ] && [ "$_preflight_drift" -eq 1 ]; then
+      printf '%s\n' "$PREFLIGHT_OUT" >&2
+      die "generated-artifact preflight reported drift (see above); launching no shard — regenerate the artifact(s) under their governing policy and re-run"
+    fi
+    printf 'run-parallel: WARNING: the generated-artifact preflight was inconclusive (exit %s, no drift verdict); launching the shards anyway\n' "$PREFLIGHT_RC" >&2
+    [ -z "$PREFLIGHT_OUT" ] || printf '%s\n' "$PREFLIGHT_OUT" >&2
+  fi
+fi
 
 # ── Run root ─────────────────────────────────────────────────────────────────
 # Fresh per invocation, so a stale sibling's tally directory can never be mistaken

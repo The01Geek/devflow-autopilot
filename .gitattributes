@@ -35,3 +35,15 @@ lib/test/fixtures/ghapi-repo-path/adversarial-nonutf8.sh -text -diff
 # issue #1072: the shipped-pruned-path lint's NUL fixture must keep its NUL byte so the
 # read_source skip path is exercised — mark it binary so no text normalization strips it.
 lib/test/fixtures/shipped-pruned-path/skills/nul.md -text -diff
+
+# issue #1194: the coverage map stores two large string-sorted JSON objects, so two
+# branches that each ADD a distinct key at an adjacent sort position conflict textually
+# even though they never semantically conflict — and resolving by taking one side
+# silently drops the other's entry. Route this one file through the JSON-aware merge
+# driver, which unions the objects per key and conflicts only on a genuine same-key
+# divergence. The attribute only NAMES the driver; git falls back silently to its
+# line-based merge unless `merge.coverage-map-json.driver` is also registered locally
+# (`python3 lib/test/coverage-map-merge-driver.py --register`; verify with `--check`).
+# The CI-side retention check (lib/test/coverage-map-retention-check.py) covers the
+# server-side/web-editor path the driver structurally cannot reach.
+lib/test/modules/coverage-map.json merge=coverage-map-json

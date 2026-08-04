@@ -16,15 +16,27 @@ You are the review-and-fix orchestrator. Run /prflow:review's review engine, fix
 
 **Portable helper anchor (single-statement).** The bundled-helper commands in this skill resolve the skill directory inline at each call site via `${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}`. When `$CLAUDE_SKILL_DIR` is set and non-empty (Claude Code), run each command exactly as written. On a runner where it is unset or empty, replace the placeholder with the skill base directory the runner reports in context (e.g. a `Base directory for this skill:` line) before running the command; if that reported path is Windows-form (`C:\...`), first convert it to this shell's POSIX form with one standalone `wslpath -u '<path>'` (WSL) or `cygpath -u '<path>'` (Git Bash/MSYS2) command and substitute the printed result **only if the command succeeds and prints a non-empty path — otherwise fall through to the drive-letter rules exactly as if the tool were absent, the same success-and-non-empty acceptance the platform's path-normalization rules apply** (if neither tool exists: lowercase the drive letter, map `C:\` to `/mnt/c` on WSL or `/c` on MSYS2, and turn backslashes into `/`; if the environment is neither WSL nor MSYS2, use the path unchanged and report that it could not be normalized — the same arm the platform's path-normalization rules take). Resolve the anchor inline at every call site — never capture it into a shell variable that a later statement reads, because some runners' inline-bash marshaling drops such variables (observed on Copilot CLI). If neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available, stop and report that the helper anchor could not be resolved rather than running a command with a broken path.
 
-**Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
+**Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run the **granted vendored-literal leading token** — the cloud matcher denies the unexpanded anchor as a leading token (recorded in `CLAUDE.md`; run `30695072336` for the argument-position sibling), so this is the form that executes on the cloud tiers:
+
+```bash
+.prflow/vendor/prflow/scripts/load-prompt-extension.sh review-and-fix
+```
+
+**Tier-agnostic invocation procedure (the #1256/#1124 conditional form — do not classify your own tier).** Emit the vendored literal above first. On a `command not found` / `No such file` / exit-127 reading (this repository's own local tier, where `.prflow/vendor/` is materialized only at runtime), re-invoke **the same helper with the `.prflow/vendor/prflow/` prefix removed** (`scripts/load-prompt-extension.sh review-and-fix`) and route on that outcome; if that too is not found (a non-Claude-Code runner where neither repo-relative path exists), fall back to the portable anchor form below, which **preserves the helper's portability on those runners** (issues #241/#275):
 
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh review-and-fix
 ```
 
-A missing helper path (`No such file`/exit 127) is the **anchor-resolution** failure above — fix the anchor, don't report a missing extension. Any other non-zero exit means a consumer extension exists but could not be loaded — surface its stderr, never proceed silently. Exit 0 with output: append the text to this skill's prompt (consumer-owned, committed under `.prflow/prompt-extensions/`). Exit 0 empty: proceed unchanged.
+A missing helper path (`No such file`/exit 127) on **every** form above is the **anchor-resolution** failure above — fix the anchor, don't report a missing extension. Any other non-zero exit means a consumer extension exists but could not be loaded — surface its stderr, never proceed silently. Exit 0 with output: append the text to this skill's prompt (consumer-owned, committed under `.prflow/prompt-extensions/`). Exit 0 empty: proceed unchanged.
 
-**Receiving-code-review extension (load second).** This loop applies `prflow:receiving-code-review` principles without invoking that skill, so load its extension too — failure arms as above (absent: silent no-op; present-but-undeliverable: surface its stderr, never proceed silently):
+**Receiving-code-review extension (load second).** This loop applies `prflow:receiving-code-review` principles without invoking that skill, so load its extension too — failure arms as above (absent: silent no-op; present-but-undeliverable: surface its stderr, never proceed silently). Use the same **granted vendored-literal leading token** first, per the tier-agnostic procedure above:
+
+```bash
+.prflow/vendor/prflow/scripts/load-prompt-extension.sh receiving-code-review
+```
+
+On a `command not found` / `No such file` / exit-127 reading, re-invoke **the same helper with the `.prflow/vendor/prflow/` prefix removed** (`scripts/load-prompt-extension.sh receiving-code-review`) and route on that outcome; if that too is not found, fall back to the portable anchor form below (portability preserved on non-Claude-Code runners, issues #241/#275):
 
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh receiving-code-review

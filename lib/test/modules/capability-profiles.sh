@@ -227,12 +227,19 @@ CAP_1078_POS="$(_cap_libtest_hits "$LIB/capability-profiles.json" "Bash(lib/test
 assert_eq "#1078 the shipped-profile lib/test scan is non-vacuous (positive control)" "implement:Bash(lib/test/injected_probe.py:*)" "$CAP_1078_POS"
 
 # ── issue #1030: the verdict-post grant flip, asserted on the RESOLVED manifest. ──
-# The producer guarantee is structural only because the raw review porcelain is UNGRANTED:
-# if `Bash(gh pr review:*)` came back, a cloud run could post an unmarked review again and
-# every consumer would fall back to the prose shapes a census measured 6-of-9 non-conforming.
-# So both halves are asserted together on the same resolved lists the generated literals
-# compile from — the grant that must be present, and the token that must be absent — and the
-# scan is comment-immune (a doc comment naming either token cannot move it).
+# Withdrawing `Bash(gh pr review:*)` makes the stamping helper the sole granted path that
+# MARKS a review — NOT the sole granted path that POSTS one. `Bash(gh api:*)` is granted in all three
+# profiles (mandated for label/body writes), and `POST …/pulls/N/reviews` through it
+# still creates a real, unmarked, merge-blocking review (issue #1250, observed live on
+# run 30860699039 / review 4849248513); a prefix grant cannot separate that write from the
+# review engine's reads of the same endpoint, so the control for that bypass is downstream
+# (the Phase 4.4 reach record classifies the head's reviews), not this grant. What THIS
+# assertion still buys is narrower and real: keeping the raw review porcelain ungranted
+# stops the ANONYMOUS-shape regression where every consumer falls back to the prose shapes
+# a census measured 6-of-9 non-conforming. So both halves are asserted together on the same
+# resolved lists the generated literals compile from — the grant that must be present, and
+# the token that must be absent — and the scan is comment-immune (a doc comment naming
+# either token cannot move it).
 _cap_verdict_grants() {  # $1=manifest path  $2=optional token to inject into review profile
   python3 - "$1" "${2:-}" <<'PY1030'
 import json, sys

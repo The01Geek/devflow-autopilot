@@ -1318,7 +1318,11 @@ def main(argv=None):
     if current != rendered:
         print(
             "cloud-writer-contract: checked-in manifest is stale — "
-            f"regenerate with `python3 {Path(__file__).name} generate`"
+            # Repo-root-relative, never the bare basename (issue #1244): the remedy is
+            # copy-pasted at the repo root, where `python3 cloud_writer_contract.py` does
+            # not resolve. `Path(__file__)` is lib/test/cloud_writer_contract.py and
+            # REPO_ROOT is its parents[2], so this renders `lib/test/cloud_writer_contract.py`.
+            f"regenerate with `python3 {Path(__file__).resolve().relative_to(REPO_ROOT).as_posix()} generate`"
         )
         return 1
     print("cloud-writer-contract: manifest matches closure")

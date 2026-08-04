@@ -245,6 +245,10 @@
       "note": "issue #1243 checkout-fingerprint producer for the verification-flight ledger; driven by lib/test/test_verification_flight.py (TestStaleFlightRegression) + the harness-python-guards module that runs it",
       "owner": "harness-python-guards"
     },
+    "scripts/classify-head-reviews.sh": {
+      "note": "#1250 closed-vocabulary classifier for the reviews recorded on the reviewed head (none | marked | unmarked <id>… | unestablished <reason>); driven per arm (a–j) by the review-stall-backstop module's #1250 block, and wired into the reach-record step so describe-verdict-post-gap.sh stops asserting the reviews API was untouched when the granted gh api posted an unmarked review. Placement follows the #1247 precedence (verdict-marker head= authoritative, reviews-API commit_id a non-authoritative fallback), so a markerless own review the helper cannot place off the head grades review-placement-unprovable rather than none.",
+      "owner": "review-stall-backstop"
+    },
     "scripts/classify-id-exit.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -859,6 +863,10 @@
       "note": "",
       "owner": "issue-audit-state"
     },
+    "1124": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "1139": {
       "note": "",
       "owner": "phase2-durability-checkpoint"
@@ -931,6 +939,10 @@
       "note": "",
       "owner": "review-trigger-helpers"
     },
+    "1244": {
+      "note": "",
+      "owner": "parallel-suite-runner"
+    },
     "1247": {
       "note": "",
       "owner": "unmodularized"
@@ -939,7 +951,15 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "1250": {
+      "note": "",
+      "owner": "review-stall-backstop"
+    },
     "126": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1267": {
       "note": "",
       "owner": "unmodularized"
     },

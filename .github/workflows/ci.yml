@@ -269,7 +269,29 @@ jobs:
     name: lint (shellcheck + actionlint + ruff)
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 so the coverage-map key-retention check (issue #1194) can resolve
+      # the merge base against origin/<base_branch>; a single-commit checkout has no base.
+      #
+      # This coupling ENFORCES ITSELF — do not read the comment as its only guard. The
+      # check distinguishes "no key was lost" (exit 0) from "I could not establish whether
+      # a key was lost" (exit 3), so removing `fetch-depth: 0` cannot silently drop the
+      # protection: a shallow checkout leaves origin/<base_branch> unresolvable (exit 1)
+      # or the merge base uncomputable / its tree empty (exit 3), and either way the step
+      # below goes RED. `--allow-degraded-base` would suppress exit 3 and MUST NOT be
+      # added here — CI is exactly the caller that has a real comparand.
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # issue #1194: the coverage map is two large string-sorted JSON objects, so a
+      # semantic-free adjacent-key conflict resolved by taking one side silently drops the
+      # other branch's entry — a class no coverage-guard arm inspects. The JSON-aware merge
+      # driver removes it on the local merge path, but it cannot run on GitHub's servers or
+      # in the web conflict editor; this CI-side check covers that path regardless of local
+      # config, failing RED when any key or its note/owner content disappears relative to
+      # the merge base. A legitimate removal is declared in coverage-map-retention-allow.json.
+      - name: Coverage-map key-retention check
+        run: python3 lib/test/coverage-map-retention-check.py .
 
       # Pin ShellCheck instead of using the runner image's (issue #745). Two
       # coupled requirements force this, and BOTH are load-bearing:

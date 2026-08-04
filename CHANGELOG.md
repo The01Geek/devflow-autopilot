@@ -4,6 +4,108 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.92] — 2026-08-04
+
+### Fixed
+- **Route the review engine's consumer-prompt-extension loads through the cloud-granted
+  vendored literal, keeping the portable anchor as a fallback arm.** The cloud matcher
+  denies the unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor as a leading token, so
+  `skills/review/SKILL.md` and both `load-prompt-extension.sh` invocations in
+  `skills/review-and-fix/SKILL.md` now emit `.prflow/vendor/prflow/scripts/…` first (the
+  #1256 tier-agnostic form) and fall back to the anchor for the local and non-Claude-Code
+  tiers, so the load executes on the cloud tiers while staying portable everywhere else. A
+  new desk-time gate `lib/test/lint-anchor-fallback-arm.py` fails when an enrolled
+  cloud-reachable call site emits the anchor leading token with no vendored fallback arm,
+  and the anchor's argument-position denial (run `30695072336`) is recorded in
+  `docs/cloud-allowlist.md`. (#1124)
+
+## [2.30.91] — 2026-08-04
+
+### Changed
+Stop coverage-map merges from silently dropping a key (#1194)
+
+`lib/test/modules/coverage-map.json` is two large string-sorted JSON objects, so two
+branches that each *add* a distinct key at an adjacent sort position conflict textually
+even though they never semantically conflict — and resolving such a conflict by taking
+either side silently deletes the other branch's entry, which the documented `--fix`
+remedy cannot restore. Two mechanisms now close the class:
+
+- New `lib/test/coverage-map-merge-driver.py`: a JSON-aware git merge driver, declared
+  for the map in `.gitattributes`. It unions the `files`/`run_sh_blocks` objects per key
+  (both distinct additions survive) and conflicts only on a genuine same-key divergence.
+  It ships a `--register` path and a `--check` that fails RED — naming the exact
+  registration command — when the driver is not active in the current clone, because a
+  `.gitattributes` `merge=` attribute alone lets git fall back silently to its line-based
+  merge. The merged output reuses the coverage guard's canonical serializer, so it is
+  byte-identical to what `--fix` writes.
+- New `lib/test/coverage-map-retention-check.py`: a CI-side key-retention check wired
+  into `.github/workflows/ci.yml` (and desk-runnable against the same inputs). It compares
+  the map at the merge base against HEAD and fails when a key — or its `note`/`owner`
+  content — disappears in either half, covering the ~30 non-derivable `run_sh_blocks`
+  keys no coverage-guard arm inspects and the web-conflict-editor path the driver cannot
+  reach. Legitimate removals are declared with a non-empty reason in
+  `lib/test/coverage-map-retention-allow.json`. It reports **three** outcomes rather
+  than two, applying *unknown is not zero* to its own base comparand: `0` clean, `1` a
+  dropped key or an unreadable input, and `3` "the base comparand could not be
+  established". A shallow or partial clone previously reported the degraded comparand
+  only on stderr and exited `0`, laundering a genuinely merge-dropped key into a green
+  pass — including the shape that looks healthiest, where `git merge-base` *succeeds*
+  against a truncated commit graph and names a boundary commit whose tree predates the
+  map. Because a shallow clone is a legitimate desk workflow, the degraded case is not
+  an unconditional hard failure: `--allow-degraded-base` is an explicit per-invocation
+  acknowledgement that exits `0` while still printing the reasons and reporting the run
+  as acknowledged-degraded, never as a verified clean pass. That acknowledgement reaches
+  the *differences* a degraded run turns up, not just its silence: when no merge base can
+  be computed the check falls back to the base ref's own **tip**, and a key that ref added
+  after the branch forked reads as "absent from head" there. Such a difference is reported
+  as unconfirmed — with the substituted comparand named beside it — and takes the `3`/
+  acknowledged-`0` path rather than being misattributed as `1` "a merge/resolution dropped
+  it", which no flag could acknowledge away. A loss measured against a *sound* comparand is
+  unaffected: still `1`, still un-acknowledgeable. This also makes CI's
+  `fetch-depth: 0` coupling self-enforcing — stripping it turns the step RED instead of
+  silently removing the protection.
+
+Both `--fix` remedy statements are corrected — `CONTRIBUTING.md`'s coverage-map section
+and module-authoring checklist, and `lib/test/regenerate-artifacts.py`'s
+`coverage-map-ratchet` `policy`/`conflict-recipe` — to stop presenting `--fix` as the
+response to a merge-conflict resolution. Tests: `lib/test/test_coverage_map_merge.py`
+drives the driver against real offline `git merge`s and the retention core over every
+loss shape, wired into the `harness-python-guards` module (floor 43 -> 44). The coverage
+ratchet's existing guarantee is unchanged.
+
+## [2.30.90] — 2026-08-04
+
+### Changed
+Detect and truthfully report the verdict-post `gh api` bypass (#1250)
+
+A cloud run that cannot reach the verdict-post helper could still create a real,
+merge-blocking pull-request review by calling the reviews endpoint directly through the
+granted `gh api` — a review GitHub records but which carries no producer-emitted verdict
+marker, so no verdict-derivation consumer reads it as a verdict. The run's own reach
+record then falsely stated it "left the reviews API and `reviewDecision` untouched".
+
+- New `scripts/classify-head-reviews.sh`: a closed-vocabulary classifier
+  (`none | marked | unmarked <id>… | unestablished <reason>`, always exit 0) over the
+  reviews recorded on the reviewed head, scoped to the run's own reviewer identity. It
+  places each review by the issue-#1247 precedence — the verdict marker's `head=` is
+  authoritative and the reviews-API `commit_id` is only a fallback — so a markerless own
+  review it cannot place off the head grades `review-placement-unprovable` instead of
+  reaching `none`, the one arm that reports the reviews API as untouched.
+- The `devflow.yml` reach-record step now queries the reviews API, classifies them, and
+  passes the token to `scripts/describe-verdict-post-gap.sh`, which stops asserting the
+  API was untouched when it was not, names the offending review on the unmarked arm, and
+  asserts nothing either way when the classification cannot be established.
+- No capability profile changes: the grant cannot express the read/write distinction, so
+  the control is downstream. Corrected the falsified "sole granted post path" prose in
+  `docs/DEVFLOW_SYSTEM_OVERVIEW.md` §8, `CLAUDE.md`, and the capability-profiles test
+  module, and recorded that unmarked reviews remain producible on the cloud tiers, so the
+  transitional-prose retirement criterion is not yet satisfiable.
+
+## [2.30.89] — 2026-08-04
+
+### Fixed
+- **The dependency-section outbound-direction filter no longer drops a number because of the human reason text.** A correctly-drafted `Blocked by #N — <reason>` line under `## Dependencies` whose reason prose happened to contain an ordering word (`must merge before`, `blocks`, `required by`, …) had its issue number silently discarded, so the early implement dependency gate fell open and the GitHub-native blocked-by stamp registered nothing. `OUTBOUND_DECLARATION` in `scripts/preflight.py` is narrowed so an outbound keyword governs its line only when a number run follows it within a bounded same-clause window; the vocabulary and line-level governance are unchanged, and — because the narrowing only ever removes matches — no false `BLOCKED` is introduced for the outbound separator shapes (`Blocks: #N`, `Blocks issue #N`, `| Blocks | #N |`). (#1269)
+
 ## [2.30.88] — 2026-08-04
 
 ### Changed
