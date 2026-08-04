@@ -1,0 +1,193 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-04T05:30:00Z",
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": null,
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist": [
+    {
+      "id": "VC-1",
+      "claim": "AC1 direct-form-first review-and-fix.md",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "line 50 leads with the direct form"
+    },
+    {
+      "id": "VC-2",
+      "claim": "AC2 general fallback mirroring receiving-code-review.md",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "reserve-the-wrapper clause covers any module id"
+    },
+    {
+      "id": "VC-3",
+      "claim": "AC3 implement.md direct-form-first, fallback retained",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "line 160 direct form + bash-wrapper fallback retained"
+    },
+    {
+      "id": "VC-4",
+      "claim": "AC4 pin reconciled, module passes",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "review-and-fix-contract 39/0"
+    },
+    {
+      "id": "VC-5",
+      "claim": "AC5 docs paragraph reconciled",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "DEVFLOW_SYSTEM_OVERVIEW.md line 1074 direct form"
+    },
+    {
+      "id": "VC-6",
+      "claim": "AC6 cloud sentences unchanged, run.sh pin passes",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "cloud sentence byte-preserved; agents confirmed"
+    },
+    {
+      "id": "VC-7",
+      "claim": "AC7 no new prose coverage",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "diff adds no new assertions"
+    },
+    {
+      "id": "VC-8",
+      "claim": "AC8 no changeset owed",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "surface is prompt-extensions/lib-test/logs/docs"
+    },
+    {
+      "id": "VC-9",
+      "claim": "AC9 ledger rekey + authorizing delta",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "is_exactly_authorized_adjudication_delta True (live-verified)"
+    },
+    {
+      "id": "VC-10",
+      "claim": "sha256 key consistency",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "0e962ed4 == sha256 of new literal"
+    }
+  ],
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:pr-test-analyzer",
+    "prflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "sibling create-issue paragraph in DEVFLOW_SYSTEM_OVERVIEW.md:1081 still bash-first (pre-existing, outside diff)",
+      "defect_signature": {
+        "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+        "line_range": [
+          1081,
+          1081
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "prflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "'deliberate divergence from the source section's bash-first wording' referent-ambiguous in review-and-fix.md:50",
+      "defect_signature": {
+        "file": ".prflow/prompt-extensions/review-and-fix.md",
+        "line_range": [
+          50,
+          50
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "contract-specific lines dropped inline fallback (not a defect; general imperative covers it)",
+      "defect_signature": {
+        "file": ".prflow/prompt-extensions/review-and-fix.md",
+        "line_range": [
+          53,
+          53
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "pushed_back"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "source_file": ".prflow/prompt-extensions/review-and-fix.md",
+      "claim_text": "referent-ambiguous 'divergence from the source section' framing",
+      "evidence": "reworded to drop the receiving-code-review-specific clause; review-and-fix.md is itself a first-party source, not a divergent copy"
+    },
+    {
+      "finding_id": "F-1",
+      "decision": "deferred",
+      "source_file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+      "claim_text": "sibling create-issue paragraph still bash-first",
+      "skip_category": "out-of-scope",
+      "evidence": "issue explicitly lists a broad DEVFLOW_SYSTEM_OVERVIEW.md/CONTRIBUTING.md sweep of the bash spelling as deliberately out of scope; pre-existing line outside this diff",
+      "parking_evidence": {
+        "basis": "issue's Deliberately-out-of-scope section names this exact sweep",
+        "failing_input": "the create-issue-iteration paragraph at line 1081",
+        "source": "issue #1213 body, Scope section",
+        "finding_ref": {
+          "iter": 1,
+          "index": 0
+        }
+      }
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "pushed_back",
+      "source_file": ".prflow/prompt-extensions/review-and-fix.md",
+      "claim_text": "contract-specific lines dropped inline fallback",
+      "skip_category": "claim-quality",
+      "evidence": "the general imperative earlier in the file now carries the general denial fallback for any module id; the contract-specific line correctly leads with the granted direct form. No silent failure results.",
+      "parking_evidence": {
+        "basis": "the general fallback covers the specific line's denial case",
+        "failing_input": "direct-form denial on the contract-specific line",
+        "source": ".prflow/prompt-extensions/review-and-fix.md:50 general fallback",
+        "finding_ref": {
+          "iter": 1,
+          "index": 2
+        }
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 2,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": "unavailable"
+}
