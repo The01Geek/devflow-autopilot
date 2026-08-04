@@ -461,6 +461,27 @@ devflow_run_focused_python_test "#1194 coverage-map merge tooling: focused Pytho
   "$LIB/test/test_coverage_map_merge.py" "$_CG_MERGE_OUT"
 rm -f "$_CG_MERGE_OUT"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "issue #1287: assertion-floor retention check (lowered floor is a declared act)"
+# ────────────────────────────────────────────────────────────────────────────
+# A test module's assertion floor lives in two coupled sites — `minimum_assertions` in
+# the flight-recorder registry and the run.sh call-site literal. The suite enforces they
+# AGREE and that a tally is not BELOW them, but only the `exact`-policy modules get a
+# measured equality (reconcile-module-floors.py / test_module_runner.py). For the five
+# policy-less modules a coordinated LOWERING of both sites is green everywhere, silently
+# shedding coverage. The CI-side diff-time gate (assertion-floor-retention-check.py) makes
+# a decrease a declared act, for EVERY registered module. The focused test drives its pure
+# core (detect_decreases / classify_outcome) over every decrease, retirement,
+# malformed-comparand, escape-hatch and arm-order shape, plus the CLI end-to-end against a
+# real offline git repository.
+_AFR_OUT="$(mktemp "$_hpg_tmp_root/afr-unit.XXXXXX")" || {
+  printf 'could not allocate the #1287 assertion-floor retention unit-test capture\n' >&2
+  return 1
+}
+devflow_run_focused_python_test "#1287 assertion-floor retention check: focused Python tests pass" \
+  "$LIB/test/test_assertion_floor_retention.py" "$_AFR_OUT"
+rm -f "$_AFR_OUT"
+
 # ── Planted-defect positive control (issue #707 AC) ──────────────────────────
 # #719: describe the two assertions above ACCURATELY. The FIRST — the shipped-tree
 # clean check (`#591 coverage-map guard: shipped tree + map is clean`) — is a
