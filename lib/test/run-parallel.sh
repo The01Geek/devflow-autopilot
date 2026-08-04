@@ -68,9 +68,12 @@
 #                                 the fallback run-root parent when the checkout root is
 #                                 unusable (read-only, full, or name space exhausted).
 #
-# Exit status: 0 only when the aggregate is clean. Every named failure below exits
-# non-zero with a `run-parallel:`-prefixed diagnostic naming what could not be done —
-# including a shard whose process exited non-zero even when its tally reads clean.
+# Exit status (coordinator run): 0 only when the aggregate is clean. Every named failure
+# below exits non-zero with a `run-parallel:`-prefixed diagnostic naming what could not be
+# done — including a shard whose process exited non-zero even when its tally reads clean.
+# `--preflight` runs no shard and produces no aggregate, so it is governed by its own exit
+# contract stated above (0 to proceed, non-zero on a positively-attributed drift), not by
+# this sentence.
 #
 # KNOWN EXPOSURE, stated rather than assumed away: CI has only ever run these shards in
 # SEPARATE checkouts on separate runners. Running them in one checkout under deliberate
@@ -159,6 +162,14 @@ die() { # message
 # result), and 1 on a positively-attributed drift — the caller decides the refusal action
 # (the main flow and `--preflight` mode both `die`). Prints the drift report / inconclusive
 # warning to stderr; a clean run is silent.
+#
+# SETTLED, not an oversight (raised and disposed on PR #1294): "clean" and "fail-open
+# inconclusive/denied" share the return 0 / exit 0 code, so a caller reading ONLY the exit
+# status cannot tell them apart. That IS the fail-open posture — an unusable check must
+# never block — and the compensating control is the stderr channel above, which is silent
+# on clean and warns by name on every inconclusive arm, with the "no output at all = a
+# matcher denial" reading carried in the prompt-extension prose. Revisit only if a caller
+# appears that must branch on the distinction and cannot read stderr.
 _artifact_preflight() {
   local preflight_cmd preflight_out preflight_rc drift line
   preflight_cmd="${DEVFLOW_ARTIFACT_PREFLIGHT-$SCRIPT_DIR/regenerate-artifacts.py --preflight}"
