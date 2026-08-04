@@ -30,12 +30,36 @@
 #   allow  marker suffix non-numeric       shape not understood; never queried, never deleted
 #   allow  workpad.py status exits 1 or 3  the workpad could not be read (unreadable /
 #          (or any other non-{0,2} code)   gh transport-auth); never block on that
-#   heal   workpad.py status -> terminal   delete the marker (best-effort), keep scanning
+#   heal   workpad.py status -> terminal   delete the marker (best-effort), keep scanning —
+#                                          REGARDLESS of which session owns the marker
 #   heal   workpad.py status exits 2       no workpad on that issue: stale marker, same heal
-#   BLOCK  workpad.py status -> interim    write the sentinel, print the instruction, exit 2
+#   allow  marker owned by another session interim workpad, BUT the marker's first line is a
+#                                          well-formed session id that differs from this stop's
+#                                          session_id: another live session owns the run, and a
+#                                          non-owner can never drive its workpad terminal — so
+#                                          print an issue+status breadcrumb (the "a run may be
+#                                          stuck" signal survives), write NO sentinel, and keep
+#                                          scanning; never block a non-owner
+#   BLOCK  workpad.py status -> interim    write the sentinel, print the instruction, exit 2 —
+#                                          when the marker is owned by THIS session, OR carries
+#                                          no usable identity (empty/blank/unreadable/malformed
+#                                          first line, incl. today's zero-byte marker: absent
+#                                          identity FAILS CLOSED, blocking exactly as before)
 #
 # A heal whose `rm` fails says so and leaves the marker; it never reports a deletion that
 # did not happen, and the next Stop event simply retries the heal.
+#
+# MARKER OWNERSHIP (issue #1222). The marker's first line records the runner session id of the
+# implement run that created it (skills/implement/phases/phase-1-setup.md's marker-write fence),
+# or is empty on a runner that supplies no session id. Ownership is only ever compared LIKE WITH
+# LIKE: a marker counts as another session's only when BOTH its recorded first line AND this
+# stop's payload session_id are non-empty and well-formed under the filename-safe charset check
+# below — any other combination fails closed and blocks as today. Evidence the two values are the
+# same value on this runner: Claude Code exports CLAUDE_CODE_SESSION_ID (the writer's source) and
+# it is byte-identical to the Stop payload's session_id (this guard's key) — observed directly
+# (CLAUDE_CODE_SESSION_ID matched an existing stop-guard-<id> sentinel filename; issue #1222).
+# On a runner that supplies no session id the writer leaves an empty marker and this guard keeps
+# its pre-#1222 presence-only behavior.
 #
 # Why the workpad.py existence check is load-bearing: `python3 <script>` itself exits 2 when
 # it cannot open the script, and argparse exits 2 on any usage error — the SAME code
@@ -195,8 +219,32 @@ for marker in ${MARKERS[@]+"${MARKERS[@]}"}; do
         breadcrumb "issue #$issue: workpad.py status printed an unrecognized class '$status_class' — keeping marker, allowing stop (fail open)"
         continue
       fi
-      # Interim: the one blocking arm. A block without a sentinel could re-block
-      # this session on every subsequent stop, so a failed sentinel write allows.
+      # Interim: the one blocking arm — but first, marker ownership (issue #1222).
+      # A marker owned by ANOTHER live session must not block this one: a non-owner
+      # can never drive that run's workpad to a terminal Status, so the block is pure
+      # noise that trains the operator to ignore the guard. Read the marker's first
+      # line; the heal arms above never need it, so this read is confined to here.
+      # An unreadable marker leaves MARKER_OWNER empty (the `-r` guard both silences
+      # the redirect error and, together with the charset check, fails closed).
+      MARKER_OWNER=""
+      if [ -r "$marker" ]; then
+        IFS= read -r MARKER_OWNER < "$marker" 2>/dev/null || true
+      fi
+      # Fail closed on any identity that is not usable like-with-like: an empty/blank
+      # first line, or one carrying a char outside the filename-safe set, is treated as
+      # NO owner and blocks as today (this is where a zero-byte legacy marker lands).
+      case "$MARKER_OWNER" in
+        '' | *[!A-Za-z0-9._-]*) MARKER_OWNER="" ;;
+      esac
+      # SESSION_ID is already non-empty and well-formed (validated above), so a
+      # non-empty MARKER_OWNER here means both operands are usable — compare them.
+      if [ -n "$MARKER_OWNER" ] && [ "$MARKER_OWNER" != "$SESSION_ID" ]; then
+        breadcrumb "issue #$issue: workpad Status is interim ($status_word), but marker $marker is owned by another session ($MARKER_OWNER, not this stop's $SESSION_ID) — that session owns the run and only it can finalize; not blocking this stop (a run may still be stuck — see issue #$issue)"
+        continue
+      fi
+      # Owned by THIS session, or the marker carries no usable identity: block.
+      # A block without a sentinel could re-block this session on every subsequent
+      # stop, so a failed sentinel write allows.
       if ! { mkdir -p "$TMPDIR_DEVFLOW" 2>/dev/null && : > "$SENTINEL" 2>/dev/null; }; then
         breadcrumb "could not write the sentinel $SENTINEL — allowing stop (fail open; a sentinel-less block could not be bounded to one)"
         exit 0
