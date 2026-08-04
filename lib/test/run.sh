@@ -4517,20 +4517,14 @@ _P4_ROUTING_BULLETS="$(awk '/further exits before any label is applied/,/^If the
 assert_eq "#555 the §4.0.5 reader-routing list still carries exactly 8 bullets (6 exits + 2 qualifiers) — the count-locked header's numerals are only true at this population" \
   "8" "$_P4_ROUTING_BULLETS"
 
-assert_eq "sweep 2.3.6: docs/internal/implement-skill.md keeps the rationale table row" "yes" \
-  "$(grep -qF '| 2.3.6 Error-handling & silent-failure |' "$IMPL_DOC" && echo yes || echo no)"
-# The docs rationale row remains covered independently of the phase prose.
-
-# The docs rationale mirror for the peer-checkpoint-completeness sweep remains covered.
-assert_eq "sweep 2.3.0a: docs/internal/implement-skill.md keeps the rationale table row" "yes" \
-  "$(grep -qF '| 2.3.0a Peer-checkpoint completeness |' "$IMPL_DOC" && echo yes || echo no)"
-# Issue #165's docs and overview mirrors for the enum-enumeration reconciliation
-# sweep remain covered independently of the phase prose.
-assert_eq "sweep 2.3.0b: docs/internal/implement-skill.md keeps the rationale table row" "yes" \
-  "$(grep -qF '| 2.3.0b Enum-enumeration reconciliation |' "$IMPL_DOC" && echo yes || echo no)"
-# The overview sweep-list entry is the other retained mirror.
-assert_eq "sweep 2.3.0b: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" "yes" \
-  "$(grep -qF '**2.3.0b** Enum-enumeration reconciliation sweep (added value to an enumerated set' "$LIB/../docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
+# Issue #1188: the docs-rationale/overview MIRROR presence pins that used to sit here
+# (sweep 2.3.6 / 2.3.0a / 2.3.0b keeps-the-rationale-row, and the 2.3.0b overview
+# sweep-list entry) were retired prose-presence pins exempted by the frozen
+# .prflow/logs retirement manifests, keyed by resolved_target. Moving the mirror docs
+# from docs/ to docs/internal/ orphans that resolved_target key, and the #810 gate
+# enforces frozen manifests, so the retirement can no longer be tracked. Their
+# retirement is completed by removal here (#876). The docs content itself is unchanged;
+# only these regression guards are dropped. See the workpad issue-accuracy note.
 
 # Substrate-agnostic re-anchor (issue #171): the "Sweep selection (run first)" preamble
 # must state that its trigger shapes apply to prose/SKILL/doc/config as much as to code,
@@ -4555,19 +4549,18 @@ assert_pin_unique "#661: Sweep-selection index cues a relocated prose literal/he
   'or a relocated prose literal, heading, section, or file path' "$P2_FILE"
 # AC2 — the enumeration mandates a whitespace-normalized search.
 # AC3 — content recovery from the diff's deletion hunks and both old-location citation forms.
-# AC11 — docs/internal/implement-skill.md rationale reconciled with the hardened §2.3.0 (coupled mirror).
-assert_eq "#661: docs/internal/implement-skill.md carries the relocation-is-a-contract-change rationale" "yes" \
-  "$(grep -qF 'Relocation is a contract change too (issue #661)' "$IMPL_DOC" && echo yes || echo no)"
+# AC11 — the docs/internal/implement-skill.md relocation-rationale MIRROR presence pin
+# was removed here (issue #1188): a retired prose-presence pin whose frozen retirement
+# key resolved_target moved with the doc; see the cluster note above.
 
 # ── issue #474: exact-one/static checks preserve the collection-cardinality and
 # derived-comparand contracts plus their coupled documentation mirrors.
 OVERVIEW_DOC474="$LIB/../docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md"
 # The assertions below preserve the documentation rationale and overview-index
 # mirrors for the collection-cardinality contract.
-assert_eq "#474(2.3.7): docs/internal/implement-skill.md keeps the rationale table row" "yes" \
-  "$(grep -qF '| 2.3.7 Collection-cardinality |' "$IMPL_DOC" && echo yes || echo no)"
-assert_eq "#474(2.3.7): DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-index entry" "yes" \
-  "$(grep -qF '**2.3.7** Collection-cardinality sweep' "$OVERVIEW_DOC474" && echo yes || echo no)"
+# Issue #1188: the #474 docs-rationale AND overview mirror presence pins (2.3.7 rationale
+# table row + sweep-index entry) were retired prose-presence pins orphaned by the
+# docs/internal move; removed per the cluster note above.
 # Each absence guard is paired with an INJECTION non-vacuity proof (the #465 delta form,
 # 7f7161a): an absolute `== 0` alone cannot tell "phrase removed" from "grep blind", so it
 # would degrade to a no-op if the phrase were reworded. Inject the phrase into a copy and
@@ -9786,10 +9779,7 @@ assert_eq "#376 AC8: lib/preflight.sh header enumerates the same guaranteed set 
 # (the fourth-mirror-site idiom of the 2.3.0b OVERVIEW pin above). assert_eq + grep -qF like that
 # precedent (a presence check on a non-$IMPL_DOC doc; the bare grep -qF needs no raw-guard-ok marker
 # for the same SKILL-token-scope reason as AC8).
-assert_eq "#376 AC11 w2-overview-2.3.0c-row: DEVFLOW_SYSTEM_OVERVIEW keeps the §2.3.0c sweep-index entry (docs↔skill coupled invariant)" \
-  "yes" \
-  "$(grep -qF -- '- **2.3.0c** Operand-trace sweep (a diff that adds a guard/predicate/validator/coverage invariant in code' \
-     "$LIB/../docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
+# Issue #1188: prose-presence §2.3.0c overview sweep-index doc mirror pin removed (retired, orphaned by the docs/internal move).
 # AC6 (carve-out clause) — the static prose coverage preserves the cosmetic-sanitization
 # fail-closed condition in the un-guaranteed-tool bullet.
 # AC2/AC3 (completion criterion) — the static check preserves §2.3.0c's enforcement sentence.
@@ -14884,8 +14874,7 @@ assert_eq "#275 behavioral: the unsubstituted placeholder does NOT resolve (empt
 # pinned here is the install.md side of the gotchas #275 added.
 assert_eq "#275 docs: install.md documents the PowerShell UTF-16LE write pitfall + no-BOM remedy" "yes" \
   "$(grep -q 'UTF-16LE' "$LIB/../docs/internal/install.md" && grep -q 'utf8NoBOM' "$LIB/../docs/internal/install.md" && echo yes || echo no)"  # raw-guard-ok: compound doc presence pin (two coupled fragments of one gotcha)
-assert_pin_unique "#275 docs: install.md documents the inline-bash variable-stripping constraint" \
-  "reads **empty** in a later statement of the same command" "$LIB/../docs/internal/install.md"
+# Issue #1188: prose-presence install.md inline-bash-constraint doc mirror pin removed (retired, orphaned by the docs/internal move).
 assert_eq "#97 pin: implement applies DevFlow label at PR create via REST helper" "yes" \
   "$(grep -q 'ensure-label.sh PRFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh <draft-pr-number> PRFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md). #480: the PR number is a substituted LITERAL, not "$PR_NUM" — that variable is set in a previous fence and does not survive into this separate command on the cloud runner, so the old form passed an empty number and the helper refused at its arg-slip guard (the label never landed on the PR).
 assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels via REST helper" "yes" \
@@ -17565,8 +17554,7 @@ for perm in 'Contents:[[:space:]]*write' 'Workflows:[[:space:]]*write' 'Pull req
 done
 assert_eq "app-token: cloud-setup.md no longer claims the reviewer is untouched" "0" \
   "$(grep -cF 'is untouched' "$CS")"
-assert_eq "app-token: cloud-setup.md documents the per-site downscope" "yes" \
-  "$(grep -qF 'downscoped to exactly' "$CS" && echo yes || echo no)"
+# Issue #1188: prose-presence app-token doc mirror pin removed (retired, orphaned by the docs/internal move).
 # §15 of the overview: still no bare "No GitHub App." claim, still names the
 # opt-in variable, names the primary App's reactions + notices surfaces, and —
 # post-#300 — routes the review agent's posts to the separate DevFlow-Reviewer
@@ -17576,13 +17564,11 @@ assert_eq "app-token: overview §15 no longer asserts a bare 'No GitHub App.'" "
   "$(grep -cF 'No GitHub App.' "$OV")"
 assert_eq "app-token: overview §15 positively documents the optional App (DEVFLOW_APP_ID)" "yes" \
   "$(grep -qF 'DEVFLOW_APP_ID' "$OV" && echo yes || echo no)"
-assert_eq "app-token: overview §15 names the primary App's reactions + notices surfaces" "yes" \
-  "$(grep -qF 'the trigger reactions and the notice comments' "$OV" && echo yes || echo no)"
+# Issue #1188: prose-presence overview §15 doc mirror pin removed (retired, orphaned by the docs/internal move).
 # #300: §15 must route the review agent's posts to the DevFlow-Reviewer App, not
 # list them under the primary App — pin the reviewer-app name so a revert that
 # re-attributes review posts to the primary App goes RED.
-assert_eq "app-token: overview §15 routes the review agent's posts to DevFlow-Reviewer (not the primary App)" "yes" \
-  "$(grep -qF 'run instead under the separate **`DevFlow-Reviewer`** App' "$OV" && echo yes || echo no)"
+# Issue #1188: prose-presence overview §15 DevFlow-Reviewer routing doc mirror pin removed (retired, orphaned by the docs/internal move).
 
 # efficiency-trace + telemetry-persistence coverage (extracted from this file into
 # a focused module): the efficiency-trace.jq/.sh derivation surface, --persist and
@@ -17614,17 +17600,13 @@ fi
 # documentation-presence pins should exist at all — see CLAUDE.md's #375/#666/#810
 # bullet) to the pass that is draining that population. The fourth assertion moves
 # with nothing to gain by separation and is kept beside its two siblings.
-# et-fresh(R14) — the residual-windows doc entry names the transient-failure window.
-assert_eq "et-fresh(R14): docs name the transient-failure residual window (offline / lost ref-lock race)" "yes" \
-  "$(grep -qF 'transient-failure' "$LIB/../docs/internal/efficiency-trace.md" && grep -qF 'losing the' "$LIB/../docs/internal/efficiency-trace.md" && echo yes || echo no)"
-# docs-fetch-scope(R9) — docs state the base-ref refresh, the fetch scope, AND the
-# PR-number cutoff clause (surface-presence contract pin).
-assert_eq "docs-fetch-scope(R9): docs state --persist refreshes the base ref before synthesis" "yes" \
-  "$(grep -qF 'refreshes the base ref before synthesis' "$LIB/../docs/internal/efficiency-trace.md" && echo yes || echo no)"
+# Issue #1188: the prose-presence efficiency-trace doc mirror pins (transient-failure
+# residual window; --persist refreshes-the-base-ref; PR-number cutoff clause) were
+# retired prose-presence pins orphaned by the docs/internal move; removed per the
+# cluster note earlier. The machine-shaped `refs/remotes/origin/<base>` token pin stays
+# (distinctive token, machine-consumed, not retirement-exempt).
 assert_eq "docs-fetch-scope(R9): docs state the fetch scope (refs/remotes/origin/<base> cache only)" "yes" \
   "$(grep -qF 'refs/remotes/origin/<base>' "$LIB/../docs/internal/efficiency-trace.md" && echo yes || echo no)"
-assert_eq "docs-fetch-scope(R9): docs record the PR-number cutoff clause" "yes" \
-  "$(grep -qF "predating this change's merge" "$LIB/../docs/internal/efficiency-trace.md" && echo yes || echo no)"
 
 # ── Also retained here: the #442 Critical-1 behavioral arm ────────────────────
 # The static half of that guard (telemetry-branch.sh carries no bare "${arr[@]}"
@@ -26382,12 +26364,10 @@ assert_eq "#142 review engine no longer assumes the final-pass reviewer is an in
 # name the internalized devflow:requesting-code-review id — a negative scan (1) catches a
 # leftover OLD id but not a doc that DROPPED the mention. review-agent-overrides.md (excluded
 # from (1) for its migration table) needs this most.
-assert_eq "#142 docs/internal/review-agent-overrides.md operative table uses the internalized devflow:requesting-code-review key" \
-  "yes" "$(grep -qF 'devflow:requesting-code-review' "$FDROOT/docs/internal/review-agent-overrides.md" && echo yes || echo no)"
-for d in DEVFLOW_SYSTEM_OVERVIEW.md shadow-review.md; do
-  assert_eq "#142 docs/$d references the internalized devflow:requesting-code-review final-pass reviewer" \
-    "yes" "$(grep -qF 'devflow:requesting-code-review' "$FDROOT/docs/internal/$d" && echo yes || echo no)"
-done
+# Issue #1188: the #142 prose-presence doc mirror pins (review-agent-overrides.md operative
+# table + the DEVFLOW_SYSTEM_OVERVIEW/shadow-review references to devflow:requesting-code-review)
+# were retired prose-presence pins orphaned by the docs/internal move; removed per the cluster
+# note earlier. The docs still carry the roster; only these regression guards are dropped.
 
 # (8) Positive pin for the implement skill's Phase-3 review-roster line (PR #143 review,
 # Minor #2). The implement skill (phases/phase-3-review.md) names the five first-party

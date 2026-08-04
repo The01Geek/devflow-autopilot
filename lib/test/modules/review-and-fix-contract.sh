@@ -203,7 +203,7 @@ _raf_pin_unique "raf continuation: loop role schema persists" \
   '"loop_role": "fix | promoted"' "$RAF_SKILL"
 _raf_pin_unique "raf continuation: recovery uses the full shadow roster" \
   'keeps the full roster regardless of `iterations`' "$RAF_REVIEW_BUNDLE"
-_raf_pin_unique "raf prompt composition: topic priming stays visible in overview" \
-  'Topic-priming is a second, distinct leak channel' "$RAF_ROOT/docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md"
+# Issue #1188: the prose-presence overview doc mirror pin (topic-priming leak channel)
+# was a retired prose-presence pin orphaned by the docs/internal move; removed per #876.
 _raf_pin_unique "raf prompt composition: receiving guidance remains coupled" \
   'mutation-check every new test before completion is claimed' "$RAF_RECEIVING_SKILL"
