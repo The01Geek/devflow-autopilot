@@ -246,7 +246,7 @@ def _scan_dependencies(body: str, *, section_only: bool) -> tuple[list[str], lis
                 # the stderr breadcrumb still rides the stderr-carrying entry point
                 # only, because `dependency_section_numbers` has a no-stderr
                 # contract its caller (apply-issue-dependencies.py) depends on.
-                for number in dict.fromkeys(numbers):
+                for number in numbers:
                     add_skipped(number)
                 if not section_only:
                     for number in dict.fromkeys(numbers):
