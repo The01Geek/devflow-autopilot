@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1258",
+  "generated_at": "2026-08-04T04:36:02Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.82",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 6.56135225,
+    "tokens": {
+      "input_tokens": 44,
+      "output_tokens": 17726,
+      "cache_read_input_tokens": 3172952,
+      "cache_creation_input_tokens": 170994,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 96,
+        "outputTokens": 35683,
+        "cacheReadInputTokens": 4391202,
+        "cacheCreationInputTokens": 453115,
+        "webSearchRequests": 0,
+        "costUSD": 6.56135225,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 28,
+    "duration_ms": 370633
+  },
+  "permission_denials": {
+    "count": 8,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review; echo \"ext-rc=$?\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/load-prompt-extension.sh review",
+      "scripts/load-prompt-extension.sh review",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none}\"; mkdir -p .prflow/tmp/review/pr-1258/local-run; gh pr diff 1258 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1258/local-run/diff.patch | wc -l",
+      "git log --all --oneline --source 2>/dev/null | grep -i focused | head; echo \"---branches with file---\"; for b in $(git branch -a --format='%(refname)'); do if git cat-file -e \"$b:scripts/focused_selection.py\" 2>/dev/null; then echo \"FOUND in $b\"; fi; done; echo \"---displaced---\"; cat .prflow/tmp/displaced-paths.txt 2>&1",
+      "for b in $(git for-each-ref --format='%(refname)' refs/remotes/); do if git cat-file -e \"$b:scripts/focused_selection.py\" 2>/dev/null; then echo \"FOUND in $b\"; fi; done; echo \"done\"",
+      "git rev-list --all --objects 2>/dev/null | grep focused_selection; echo \"exit=$?\"",
+      "git rev-list --all --objects | grep focused_selection"
+    ],
+    "total": 8,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
