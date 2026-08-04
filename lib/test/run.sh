@@ -16,6 +16,14 @@ set -u
 
 LIB="$(cd "$(dirname "$0")/.." && pwd)"
 
+# issue #1216 (AC4/AC5): before any trap is installed, detect a SIGINT/SIGQUIT
+# that arrived already ignored (SIG_IGN) — bash cannot un-ignore it, so the
+# suite's signal-trap assertions would fail or hang for an otherwise invisible
+# reason. This is strictly ADVISORY: the helper always exits 0, writes only to
+# stderr, and registers no skipped check, so it cannot change the suite's exit
+# code or skip tally. Best-effort — a missing/denied helper never blocks the run.
+bash "$LIB/test/warn-ignored-signals.sh" >&2 || true
+
 # issue #533 (AC13): clear an INHERITED DEVFLOW_GH before any fixture runs. The
 # resolvers treat a non-empty DEVFLOW_GH as the strongest explicit override (no
 # probe), so a value leaked in from the invoking environment — historically the

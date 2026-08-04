@@ -2288,6 +2288,273 @@ rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$MODULE_FAILURES_FILE" "$SKIPS_FILE
             )
 
 
+# ── issue #1216: default-signal spawn helpers and the ignored-signal diagnostic ──
+SIGNAL_SPAWN_SHIM = ROOT / "lib/test/exec-with-default-signals.py"
+DETACHED_LAUNCHER = ROOT / "lib/test/launch-detached.py"
+WARN_IGNORED_SIGNALS = ROOT / "lib/test/warn-ignored-signals.sh"
+
+
+@unittest.skipUnless(
+    POSIX_SIGNAL_MATRIX_AVAILABLE,
+    "host-capability: POSIX signals and process groups are required",
+)
+class DefaultSignalSpawnHelperTests(unittest.TestCase):
+    """AC3: `exec-with-default-signals.py` hands its target a default SIGINT even
+    when the spawning shell has job control off and SIGINT already ignored, and its
+    `exec` preserves the spawned process's identity so `$!` still names it."""
+
+    def _run_parent(self, tmp: Path, *, use_shim: bool) -> tuple[str, str]:
+        # A bash parent with job control OFF that first ignores SIGINT (the
+        # affected-host condition a job-control-off `&` manufactures), then
+        # backgrounds a coordinator-style child and captures both the child's
+        # inherited SIGINT disposition and the child's own PID. `$!` is written to
+        # PIDCAP; the child prints `SELFPID=<pid>` so identity can be compared.
+        out = tmp / "child-out"
+        pidcap = tmp / "pidcap"
+        inner = "trap -p INT; echo \"SELFPID=$$\""
+        if use_shim:
+            spawn = f'exec python3 "{SIGNAL_SPAWN_SHIM}" bash -c \'{inner}\''
+        else:
+            spawn = f"exec bash -c '{inner}'"
+        script = tmp / "parent.sh"
+        script.write_text(
+            "#!/usr/bin/env bash\n"
+            "set +m\n"          # job control off, as the module worker runs
+            "trap '' INT\n"      # SIGINT inherited-ignored, like the affected host
+            f'( {spawn} > "{out}" 2>&1 ) &\n'
+            "child=$!\n"
+            f'printf "%s" "$child" > "{pidcap}"\n'
+            "wait \"$child\"\n",
+            encoding="utf-8",
+        )
+        subprocess.run(["bash", str(script)], check=True)
+        return out.read_text(encoding="utf-8"), pidcap.read_text(encoding="utf-8")
+
+    def test_control_without_shim_inherits_ignored_sigint(self) -> None:
+        # Baseline: without the shim, the coordinator-style child inherits the
+        # ignored SIGINT and cannot trap it — the failure this issue fixes.
+        with tempfile.TemporaryDirectory() as t:
+            child_out, _ = self._run_parent(Path(t), use_shim=False)
+            self.assertIn("'' SIGINT", child_out, child_out)
+
+    def test_shim_restores_default_sigint(self) -> None:
+        with tempfile.TemporaryDirectory() as t:
+            child_out, _ = self._run_parent(Path(t), use_shim=True)
+            self.assertNotIn("'' SIGINT", child_out, child_out)
+
+    def test_shim_preserves_process_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as t:
+            child_out, pidcap = self._run_parent(Path(t), use_shim=True)
+            self.assertRegex(child_out, r"SELFPID=\d+", child_out)
+            self_pid = child_out.split("SELFPID=", 1)[1].strip().splitlines()[0]
+            self.assertEqual(
+                self_pid, pidcap.strip(),
+                f"$! ({pidcap.strip()}) must name the exec'd coordinator ({self_pid})",
+            )
+
+    def test_shim_restores_all_four_default_signals(self) -> None:
+        # The shim routes through restore_default_signals, which covers HUP/INT/QUIT/
+        # TERM. With the parent ignoring all four, the shimmed child must see every one
+        # default. SIGQUIT is the interesting sibling of SIGINT — the other signal a
+        # job-control-off `&` forces to ignore, which bash also cannot un-ignore.
+        report = 'for s in HUP INT QUIT TERM; do d="$(trap -p "$s")"; [ -z "$d" ] && echo "SIG$s DFL" || echo "SIG$s IGN"; done'
+        with tempfile.TemporaryDirectory() as t:
+            out = Path(t) / "child-out"
+            script = Path(t) / "parent.sh"
+            script.write_text(
+                "#!/usr/bin/env bash\n"
+                "set +m\n"
+                "trap '' HUP INT QUIT TERM\n"
+                f'( exec python3 "{SIGNAL_SPAWN_SHIM}" bash -c \'{report}\' > "{out}" 2>&1 ) &\n'
+                "wait \"$!\"\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["bash", str(script)], check=True)
+            child_out = out.read_text(encoding="utf-8")
+        for name in ("SIGHUP", "SIGINT", "SIGQUIT", "SIGTERM"):
+            self.assertIn(f"{name} DFL", child_out, child_out)
+
+
+@unittest.skipUnless(
+    POSIX_SIGNAL_MATRIX_AVAILABLE,
+    "host-capability: POSIX signals and process groups are required",
+)
+class DetachedLauncherTests(unittest.TestCase):
+    """AC6: `launch-detached.py` runs a command with HUP/INT/QUIT/TERM restored to
+    their default disposition in the child (in a new session) and reports the
+    child's real exit status rather than its own."""
+
+    # A bash child reflects the TRUE inherited disposition via `trap -p`: an
+    # inherited SIG_IGN prints `trap -- '' SIG<N>`, a default prints nothing. A
+    # Python child is unusable here because CPython reinstalls its own SIGINT
+    # (KeyboardInterrupt) handler at startup even when it inherits SIG_DFL.
+    _REPORT = (
+        'for s in HUP INT QUIT TERM; do '
+        'd="$(trap -p "$s")"; '
+        '[ -z "$d" ] && echo "SIG$s DFL" || echo "SIG$s NOTDFL: $d"; '
+        "done"
+    )
+
+    @staticmethod
+    def _ignore_all_four() -> None:
+        for name in ("SIGHUP", "SIGINT", "SIGQUIT", "SIGTERM"):
+            signal.signal(getattr(signal, name), signal.SIG_IGN)
+
+    def test_child_sees_default_dispositions_for_all_four(self) -> None:
+        # The outer process ignores all four; the launcher must restore each to
+        # default in the child, so pass-through would fail this test.
+        r = subprocess.run(
+            ["python3", str(DETACHED_LAUNCHER), "bash", "-c", self._REPORT],
+            capture_output=True, text=True, preexec_fn=self._ignore_all_four,
+        )
+        for name in ("SIGHUP", "SIGINT", "SIGQUIT", "SIGTERM"):
+            self.assertIn(f"{name} DFL", r.stdout, r.stdout + r.stderr)
+
+    def test_reports_child_nonzero_exit_status(self) -> None:
+        r = subprocess.run(
+            ["python3", str(DETACHED_LAUNCHER), "bash", "-c", "exit 7"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(r.returncode, 7, r.stderr)
+
+    def test_reports_child_signal_death_as_128_plus_n(self) -> None:
+        r = subprocess.run(
+            ["python3", str(DETACHED_LAUNCHER), "bash", "-c", "kill -TERM $$"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(r.returncode, 128 + int(signal.SIGTERM), r.stderr)
+
+    def test_child_is_placed_in_a_new_session(self) -> None:
+        # The launcher's second promise: the child is in its own session, so a
+        # signal to the launcher's process group does not tear it down mid-run.
+        # A child in a new session is its own session leader, so os.getsid(0)
+        # equals its own pid. Pass-through (no start_new_session) would leave the
+        # child in the launcher's session, failing this.
+        r = subprocess.run(
+            ["python3", str(DETACHED_LAUNCHER), "python3", "-c",
+             "import os; print(os.getpid(), os.getsid(0))"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        pid, sid = r.stdout.split()
+        self.assertEqual(pid, sid, f"child ({pid}) is not its own session leader (sid {sid})")
+        self.assertNotEqual(
+            sid, str(os.getsid(0)),
+            "child shares this process's session — start_new_session did not take effect",
+        )
+
+
+@unittest.skipUnless(
+    os.name == "posix",
+    "host-capability: POSIX exec-failure status semantics (126/127) are required",
+)
+class SpawnFailureFidelityTests(unittest.TestCase):
+    """Both entry points report a target they could not exec with the shell's own
+    status — 127 not found, 126 present but not executable — rather than collapsing
+    it onto a generic 1, which a target that actually ran could itself have
+    produced. The two statuses are the only thing that tells a caller the command
+    never started."""
+
+    MISSING = "/nonexistent-dir-1216/no-such-command"
+
+    @staticmethod
+    def _non_executable(tmp: str) -> str:
+        target = Path(tmp) / "present-but-not-executable"
+        target.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        target.chmod(0o644)
+        return str(target)
+
+    @staticmethod
+    def _run(launcher: Path, target: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["python3", str(launcher), target], capture_output=True, text=True
+        )
+
+    def _assert_spawn_failure(self, launcher: Path, target: str, expected: int) -> None:
+        r = self._run(launcher, target)
+        self.assertEqual(r.returncode, expected, r.stderr)
+        # A raw traceback is the other half of the defect: the diagnostic has to be
+        # the one-line form the empty-argv arm already emits, naming the target.
+        self.assertNotIn("Traceback", r.stderr, r.stderr)
+        self.assertIn(target, r.stderr, r.stderr)
+
+    def test_shim_reports_missing_target_as_127(self) -> None:
+        self._assert_spawn_failure(SIGNAL_SPAWN_SHIM, self.MISSING, 127)
+
+    def test_shim_reports_non_executable_target_as_126(self) -> None:
+        with tempfile.TemporaryDirectory() as t:
+            self._assert_spawn_failure(SIGNAL_SPAWN_SHIM, self._non_executable(t), 126)
+
+    def test_launcher_reports_missing_target_as_127(self) -> None:
+        self._assert_spawn_failure(DETACHED_LAUNCHER, self.MISSING, 127)
+
+    def test_launcher_reports_non_executable_target_as_126(self) -> None:
+        with tempfile.TemporaryDirectory() as t:
+            self._assert_spawn_failure(DETACHED_LAUNCHER, self._non_executable(t), 126)
+
+    def test_a_real_exit_1_stays_distinguishable_from_a_spawn_failure(self) -> None:
+        # The control for the collision above: exit 1 from a command that DID run
+        # must still arrive as 1, so 127/126 are a real discrimination and not a
+        # blanket remap of every failure.
+        r = subprocess.run(
+            ["python3", str(DETACHED_LAUNCHER), "bash", "-c", "exit 1"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(r.returncode, 1, r.stderr)
+
+
+@unittest.skipUnless(
+    POSIX_SIGNAL_MATRIX_AVAILABLE,
+    "host-capability: POSIX signals and process groups are required",
+)
+class IgnoredSignalDiagnosticTests(unittest.TestCase):
+    """AC4/AC5: the startup diagnostic is loud when SIGINT/SIGQUIT arrived ignored
+    and silent otherwise, and it is advisory — identical exit code and (empty) skip
+    tally on both arms."""
+
+    def _run(self, *, ignore=()) -> subprocess.CompletedProcess[str]:
+        # `ignore` is a tuple of signal.Signals to set SIG_IGN in the child before it
+        # runs the diagnostic (simulating the affected-host inherited-ignore state).
+        preexec = None
+        if ignore:
+            preexec = lambda: [signal.signal(s, signal.SIG_IGN) for s in ignore]  # noqa: E731
+        return subprocess.run(
+            ["bash", str(WARN_IGNORED_SIGNALS)],
+            capture_output=True, text=True, preexec_fn=preexec,
+        )
+
+    def test_default_arm_is_silent(self) -> None:
+        r = self._run()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "", r.stdout)
+        self.assertEqual(r.stderr, "", r.stderr)
+
+    def test_ignored_sigint_arm_is_loud_and_advisory(self) -> None:
+        r = self._run(ignore=(signal.SIGINT,))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("SIGINT", r.stderr, r.stderr)
+        # advisory: nothing on stdout, so it cannot contribute a PASS/FAIL/skip line
+        # to a caller folding its stdout into a tally.
+        self.assertEqual(r.stdout, "", r.stdout)
+
+    def test_ignored_sigquit_arm_is_loud(self) -> None:
+        # The QUIT arm is independent of the INT arm; a regression dropping the
+        # `_devflow_warn_ignored_signal QUIT` line would pass every INT-only test.
+        r = self._run(ignore=(signal.SIGQUIT,))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("SIGQUIT", r.stderr, r.stderr)
+        self.assertEqual(r.stdout, "", r.stdout)
+
+    def test_exit_code_and_skip_tally_identical_across_arms(self) -> None:
+        default = self._run()
+        ignored = self._run(ignore=(signal.SIGINT,))
+        self.assertEqual(default.returncode, ignored.returncode)
+        # The diagnostic registers no skip: it writes to no SKIPS_FILE and emits
+        # nothing on stdout in either arm, so the skip tally is zero in both.
+        self.assertEqual(default.stdout, "")
+        self.assertEqual(ignored.stdout, "")
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["--signal-matrix-capability"]:
         capability_reason = signal_matrix_capability_skip_reason(

@@ -321,7 +321,8 @@ jobs:
             lib/test/modules/efficiency-trace-telemetry.sh \
             lib/test/modules/issue-audit-state.sh \
             lib/test/cloud-form-layout-test.sh \
-            lib/test/path-portability-test.sh
+            lib/test/path-portability-test.sh \
+            lib/test/warn-ignored-signals.sh
 
       # lib/test/run.sh is the suite driver — the largest and most-edited shell
       # file in the repo, and the last one brought under the lint (issue #745).
