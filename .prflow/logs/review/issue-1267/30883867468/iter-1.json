@@ -1,0 +1,124 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-04T00:00:00Z",
+  "fix_commit_sha": "f50a6eee",
+  "fix_files": [
+    "scripts/preflight.py",
+    "lib/test/run.sh",
+    "skills/create-issue/references/issue-template.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": true
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:pr-test-analyzer",
+    "prflow:comment-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Important",
+      "description": "Bounded 30-char window returns the number on a genuinely-outbound free-prose line whose number sits past the window (e.g. 'Blocks the release train ... #10') — a reverse-axis residual the shipped broad rule lacked; worst for the persistent native stamp.",
+      "defect_signature": {
+        "file": "scripts/preflight.py",
+        "line_range": [
+          138,
+          142
+        ],
+        "kind": "reverse_axis_residual"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "severity-calibrated"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "Same far-separated-outbound residual; the fabricated blocker is emitted with no stderr breadcrumb (silent).",
+      "defect_signature": {
+        "file": "scripts/preflight.py",
+        "line_range": [
+          138,
+          142
+        ],
+        "kind": "reverse_axis_residual"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "severity-calibrated"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "issue-template sentence's absolute 'no longer alters or suppresses the declaration' is contradicted by a reason that writes an ordering word adjacent to its own number.",
+      "defect_signature": {
+        "file": "skills/create-issue/references/issue-template.md",
+        "line_range": [
+          65,
+          69
+        ],
+        "kind": "overstated_claim"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "No upper-bound test for _OUTBOUND_WINDOW; no far-separated-outbound residual test; no template mixed-number edge test.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          8870,
+          8880
+        ],
+        "kind": "coverage_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "severity-calibrated",
+      "source_file": "scripts/preflight.py",
+      "claim_text": "bounded window introduces a false BLOCKED on far-separated outbound free-prose lines",
+      "original_severity": "Important",
+      "calibrated_severity": "Suggestion (accepted disclosed residual)",
+      "evidence": "Real and corroborated, but it is the inherent cost of the bounded-window mechanism issue #1267 SELECTED and measured. Unbounded-forward (the only mechanism without this residual) would break the codespan-flip AC and drop genuine INBOUND blockers (worse for the native stamp). The issue operationalizes its reverse-axis AC via the two lib/test/run.sh matrices (which this change passes) and explicitly accepts non-semantic-scanner residuals as disclosed (codespan, fenced-code). Dispositioned by DISCLOSING + PINNING the residual and softening the overstated comment, not by changing the mechanism the AC pins."
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "f50a6eee",
+      "source_file": "skills/create-issue/references/issue-template.md"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "f50a6eee",
+      "source_file": "lib/test/run.sh"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 45,
+    "new_corroborated_critical_count": 0
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "refixed",
+      "reason": null
+    }
+  },
+  "notes": "review-and-fix run as a focused correctness fan-out (checklist generation skipped for a small, single-recognizer diff). The sole substantive finding is dispositioned as an accepted disclosed residual of the issue-selected mechanism; no correctness change to the mechanism. The change passes the positive-control, separator, positive-polarity, line-level, e2e, disclosed-residual and template-edge matrices, and the full suite (16644 passed pre-review-fix; re-run post-fix).",
+  "telemetry": "unavailable"
+}
