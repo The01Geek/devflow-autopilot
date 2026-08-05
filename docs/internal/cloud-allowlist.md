@@ -4,7 +4,7 @@ This is the detailed forensic record for the CLAUDE.md "cloud allowlist" gotchas
 (issues #363, #392, #401, #455, #484, #561). The **operative invariants and their enforcing
 pins stay in CLAUDE.md** — this doc carries the evidence, the war-stories, the
 probe tables, and the reasoning that would otherwise bloat those bullets. When
-CLAUDE.md says "see `docs/cloud-allowlist.md`", this is where it points.
+CLAUDE.md says "see `docs/internal/cloud-allowlist.md`", this is where it points.
 
 Source-of-truth files referenced throughout (bare paths — line numbers rot):
 
@@ -128,7 +128,7 @@ on that tier (a leading `cd` was observed *executing* on the review tier in run
 30222310785, so an ungranted `cd` head does not imply a refused statement); the
 revocation removes the authoring affordance, and the leading-`cd` ban is enforced
 as a desk lint (`IR4`) rather than as a claimed matcher refusal. See
-[`docs/working-directory-contract.md`](working-directory-contract.md).
+[`docs/internal/working-directory-contract.md`](working-directory-contract.md).
 
 ---
 
@@ -455,12 +455,12 @@ The recording requirements this section set for itself are met as follows. **Ref
 **run id**, **job id** and **head commit** are in the table below.
 `--permission-mode acceptEdits`, model `claude-haiku-4-5-20251001` and `--effort low`
 are as specified. The **resolved `--allowed-tools` literal, verbatim**, is committed at
-[`docs/subagent-write-probe.observed.md`](subagent-write-probe.observed.md) rather than
+[`docs/internal/subagent-write-probe.observed.md`](subagent-write-probe.observed.md) rather than
 inlined here: the two literals are ~1.9 KB and ~7.2 KB and would bury the surrounding
-prose, and that sidecar is exactly the *"commit the job's machine output beside
-`docs/execution-file-shape.observed.txt`"* artifact this section calls for — it carries
+prose. This is the machine-output artifact the section calls for, and it carries
 each job's complete emitted step summary unedited, literal included, under the same
-expiring-evidence rationale that file states. Nothing required is omitted; it is
+expiring-evidence rationale as
+`lib/test/fixtures/execution-file-shape.observed.txt`. Nothing required is omitted; it is
 relocated to the artifact and pointed at from here. The **`tool_use` /
 `parent_tool_use_id` pair** a `PERMITTED` must cite is
 `toolu_01SbG9oxWxp5PTNS3bbymzD3` → `toolu_01Cd3LViMMbQw2surtkyDFGL` (review tier), so a
@@ -507,7 +507,7 @@ A **repo-relative vendored-literal helper path resolves against the `actions/che
 workspace root** — the run begins there and the Bash tool's working directory
 persists across calls, so a leading `cd` moves every later helper's resolution base
 out from under it. The canonical statement of that contract, tier-scoped, is
-[`docs/working-directory-contract.md`](working-directory-contract.md).
+[`docs/internal/working-directory-contract.md`](working-directory-contract.md).
 
 `Bash(cd:*)`'s status on the implement tier is **revoked by policy (issue #855),
 unmeasured** — **never denied**. The revocation removes an authoring affordance; it
@@ -660,7 +660,7 @@ version-dependent, re-probe after any `claude-code-action` upgrade. The `tool_us
 `side_effect_state=corroborated` against `.prflow/tmp/subwrite-implement.txt`, with
 **zero** `permission_denials` entries (so, as above, the denial-entry-shape read stays
 outstanding). The resolved implement `--allowed-tools` literal is committed verbatim in
-[`docs/subagent-write-probe.observed.md`](subagent-write-probe.observed.md) alongside the
+[`docs/internal/subagent-write-probe.observed.md`](subagent-write-probe.observed.md) alongside the
 review one. The same `acceptEdits` scope caveat applies: the run carries
 `--permission-mode acceptEdits`, so the `PERMITTED` does not isolate the allowlist as the
 sole reason the write was allowed.
@@ -1074,8 +1074,8 @@ exercised as a leading token; until such a dispatch is recorded, treat both as
 The **workflow grants** ship to consumers via `install.sh` **file-copy**, while the
 **skill rework** ships via the `prflow_version` **vendor fetch**. These are **two
 independently-updated artifacts** whose skew silently **re-denies the applies**, so
-**the two halves must be upgraded together** (docs: `docs/install.md`,
-`docs/DEVFLOW_SYSTEM_OVERVIEW.md`).
+**the two halves must be upgraded together** (docs: `docs/internal/install.md`,
+`docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`).
 
 ## PreToolUse shape guard (issue #805)
 

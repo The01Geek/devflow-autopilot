@@ -6,7 +6,7 @@ one that would compose a resolved per-agent `effort` into a process-start `--age
 agent-definition the platform reads at launch — may ship, and it is the human-readable
 counterpart to the deterministic verdict the probe workflow emits.
 
-The precedent is [`.github/workflows/matcher-probe.yml`](../.github/workflows/matcher-probe.yml),
+The precedent is [`.github/workflows/matcher-probe.yml`](../../.github/workflows/matcher-probe.yml),
 whose observed tables are the recorded, human-adjudicated evidence of record for the
 permission matcher. Like that probe, this one is **repo-internal** (not shipped to
 consumers by `install.sh`) and **human-dispatch** — its result is recorded here.
@@ -26,7 +26,7 @@ establishes two facts:
 ## Decision rule
 
 The verdict is computed deterministically from the action's execution file by the
-unit-tested helper [`scripts/agents-seam-probe-verdict.py`](../scripts/agents-seam-probe-verdict.py)
+unit-tested helper [`scripts/agents-seam-probe-verdict.py`](../../scripts/agents-seam-probe-verdict.py)
 (the model's prose is never the measurement):
 
 | Verdict | Meaning | Applied arm ships? |
@@ -64,7 +64,7 @@ Every dispatch also prints a **verdict-inert diagnostic**,
 verdict is computed from recorded `tool_use` *inputs* and `permission_denials` only — but
 it answers, on whatever dispatch is next paid for, the premise the cleanest remedy would
 need: *does the execution record carry a dispatched subagent's returned text?* That is
-**unestablished** here ([`docs/execution-file-shape.md`](execution-file-shape.md) records
+**unestablished** here ([`docs/internal/execution-file-shape.md`](execution-file-shape.md) records
 `tool_use_result` as present but states that a field's presence is not proof of its
 attribution, and its local-transcript row must not be cited for the execution file), so
 the helper measures it rather than designing on it.
@@ -76,7 +76,7 @@ issue #1177 identifies, each blocked on its own unestablished premise: reading t
 subagent's return value from the harness record (the premise above), or having the subagent
 emit the marker itself (which depends on what a dispatched subagent is permitted to do —
 the issue #858 probe that would measure it is built but, per
-[`docs/cloud-allowlist.md`](cloud-allowlist.md), still **PENDING** its first run).
+[`docs/internal/cloud-allowlist.md`](cloud-allowlist.md), still **PENDING** its first run).
 
 ## How to dispatch
 
@@ -179,7 +179,7 @@ values belong to a pre-launch component, never this in-session resolver), and th
 skill's statement that per-agent effort is not deliverable per-agent is still accurate. A later reader must not read this recorded evidence as the arm having shipped —
 the two are independent, and only the first has happened.
 
-Consequently `docs/review-agent-overrides.md` is unchanged and remains correct: the probe
+Consequently `docs/internal/review-agent-overrides.md` is unchanged and remains correct: the probe
 is still "not yet dispatched to a `SEAM_PROVEN` verdict", and every tier still records
 honest fallback.
 

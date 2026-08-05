@@ -4,7 +4,7 @@ Every PRFlow bundled-helper invocation on the cloud tiers is a **repo-relative
 literal** — `.prflow/vendor/prflow/scripts/…` (and `.prflow/vendor/prflow/lib/…`),
 or the repo-root `scripts/…` / `lib/…` form in a self-repo checkout — because that
 is the only form the harness permission matcher grants (see
-[`docs/cloud-allowlist.md`](cloud-allowlist.md)). A repo-relative literal only
+[`docs/internal/cloud-allowlist.md`](cloud-allowlist.md)). A repo-relative literal only
 resolves if the shell's working directory is the repository root. That makes the
 working directory a **load-bearing precondition** for the whole engine, and this
 page is the single canonical statement of what that precondition is and where it
@@ -47,7 +47,7 @@ the bare `git <subcommand>` (`git diff`, `git show <ref>:<path>`, `git log`) fro
 where you already are — never `git -C` and never behind a leading `cd`. Unlike
 the no-`cd` rule, this one is a matcher refusal rather than an authoring lint; the
 run-30832631347 evidence and the per-git-subcommand grant reasoning are in
-[`docs/cloud-allowlist.md`](cloud-allowlist.md).
+[`docs/internal/cloud-allowlist.md`](cloud-allowlist.md).
 
 ## Local and interactive tier — no working-directory guarantee
 
@@ -91,7 +91,7 @@ fences, so it governs what a future author writes into a prompt surface — it d
 
 ## Pointers
 
-- [`docs/cloud-allowlist.md`](cloud-allowlist.md) — the matcher-shape evidence,
+- [`docs/internal/cloud-allowlist.md`](cloud-allowlist.md) — the matcher-shape evidence,
   the granted-literal forms, and the `cd` status per tier.
 - `CLAUDE.md` carries a short non-authoritative summary paired with a pointer to
   this page.

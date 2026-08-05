@@ -110,6 +110,6 @@ change's own contract requires:
 
 The acceptance criteria gate the **static shipped size** axis only. Runtime main-thread
 context is a distinct quantity measured by its own behavioral instrument, as
-`docs/DEVFLOW_SYSTEM_OVERVIEW.md` and `docs/create-issue-context.md` establish; this change
+`docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md` and `docs/internal/create-issue-context.md` establish; this change
 carries the runtime-context reduction as a stated assumption rather than a gated criterion,
 and no figure on that axis is recorded here.
