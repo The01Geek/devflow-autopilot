@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1307",
+  "generated_at": "2026-08-05T01:38:21Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.104",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.93737725,
+    "tokens": {
+      "input_tokens": 40,
+      "output_tokens": 14094,
+      "cache_read_input_tokens": 3003784,
+      "cache_creation_input_tokens": 161036,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 86,
+        "outputTokens": 29742,
+        "cacheReadInputTokens": 4375412,
+        "cacheCreationInputTokens": 384289,
+        "webSearchRequests": 0,
+        "costUSD": 5.93737725,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 25,
+    "duration_ms": 317679
+  },
+  "permission_denials": {
+    "count": 2,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "H=17ac47ff5eca2b6ed7d7331509b6f286170ef2fe\necho \"===== prepare-harness-floor.sh (PR head), lines 118-210 =====\"\ngit show $H:scripts/prepare-harness-floor.sh | sed -n '118,210p'",
+      "git show 17ac47ff5eca2b6ed7d7331509b6f286170ef2fe:scripts/prepare-harness-floor.sh > .prflow/tmp/review/pr-1307/local/phf.new\nsed -n '118,205p' .prflow/tmp/review/pr-1307/local/phf.new"
+    ],
+    "total": 2,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
