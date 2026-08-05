@@ -2220,6 +2220,35 @@ assert_eq "et-prov(#534): NON-OBJECT — the array record is left byte-identical
   "$(git -C "$ETPM_REPO" hash-object "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m/iter-3.json")"
 rm -rf "$ETPM_REPO"
 
+# WRITE FAILURE: the backfill's `if ! { jq … 2>&1 > "$tmp" && mv … }` else arm is a
+# distinct branch guarding a documented best-effort promise (breadcrumb + the durable
+# record left intact + --persist never aborting). Drive it with a DEVFLOW_JQ stub that
+# passes every OTHER jq call through to the real binary and fails ONLY the backfill
+# program, so the stub's own error text attributes the breadcrumb to this arm and no
+# other. The staged durable copy still reaches the branch, so the persisted record is
+# the one a later reader consults — it must be the unbackfilled original, not a
+# half-written file.
+ETPW_REPO="$(git_sandbox "et-prov write-fail repo")"
+git -C "$ETPW_REPO" init -q
+git -C "$ETPW_REPO" config user.email t@e.com; git -C "$ETPW_REPO" config user.name t
+git -C "$ETPW_REPO" commit --allow-empty -qm base
+git -C "$ETPW_REPO" branch -M main
+git -C "$ETPW_REPO" checkout -q -b feat
+mkdir -p "$ETPW_REPO/.prflow/tmp/review/pr-7/run-w"
+printf '{"iter":1,"fix_commit_sha":"cafef00d","loop_role":"fix"}' > "$ETPW_REPO/.prflow/tmp/review/pr-7/run-w/iter-1.json"
+ETPW_BIN="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nfor a in "$@"; do case "$a" in *".synthesized = false"*) printf "stub jq: synthetic backfill write failure\\n" >&2; exit 3 ;; esac; done\nexec jq "$@"\n' > "$ETPW_BIN/jq-stub"
+chmod +x "$ETPW_BIN/jq-stub"
+ETPW_ERR="$( ( cd "$ETPW_REPO" && DEVFLOW_JQ="$ETPW_BIN/jq-stub" bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETPW_REPO/.prflow/tmp/review/pr-7/run-w" --slug pr-7 ) 2>&1 >/dev/null )"; ETPW_RC=$?
+assert_eq "et-prov(#534): WRITE-FAIL — a failed backfill write still exits 0 (best-effort, never aborts --persist)" "0" "$ETPW_RC"
+assert_eq "et-prov(#534): WRITE-FAIL — the failure breadcrumbs jq's OWN error text (never a silent drop)" "yes" \
+  "$(printf '%s' "$ETPW_ERR" | grep -qF "could not backfill emitted provenance (synthesized:false) into 'iter-1.json' (stub jq: synthetic backfill write failure)" && echo yes || echo no)"
+assert_eq "et-prov(#534): WRITE-FAIL — the durable record is left intact (no synthesized key, never half-written)" "null" \
+  "$(_et_show "$ETPW_REPO" ".prflow/logs/review/pr-7/run-w/iter-1.json" | jq -r '.synthesized' 2>/dev/null)"
+assert_eq "et-prov(#534): WRITE-FAIL — the durable record's other fields survive the failed backfill" "cafef00d" \
+  "$(_et_show "$ETPW_REPO" ".prflow/logs/review/pr-7/run-w/iter-1.json" | jq -r '.fix_commit_sha' 2>/dev/null)"
+rm -rf "$ETPW_REPO" "$ETPW_BIN"
+
 # T4 → AC4: adversarial subject shapes each exit-0 + a specific breadcrumb; only
 # the one well-formed unique iteration is reconstructed.
 ETSA_REPO="$(git_sandbox "et-synth adversarial repo")"
