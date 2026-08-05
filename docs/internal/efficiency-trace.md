@@ -295,7 +295,7 @@ Both live under `prflow_review_and_fix` in `.prflow/config.json`
 
 | Key | Type | Default | Effect |
 |---|---|---|---|
-| `efficiency_telemetry_enabled` | boolean | `true` | Master gate. When `false`, the loop renders no trace and persists no effectiveness record to the telemetry branch. |
+| `efficiency_telemetry_enabled` | boolean | `true` | Master gate. When `false`, the loop renders no trace and persists no effectiveness record to the telemetry branch — **and no permission-denial forensics**, which ride the same per-run record as its `permission_denials` key (`apply_denial_floor` is gated on this flag exactly as record derivation is). Disabling this for cost gives up denial forensics too. |
 | `efficiency_cut_candidate_min_dispatch` | integer | `3` | Minimum dispatch count before an all-null/noise agent is flagged as a cut candidate. Defined here so the config surface is stable; **consumed by the follow-up cross-run analyzer**, not by `/prflow:review-and-fix` itself (the record carries it forward). |
 
 The telemetry-store branch is configured separately, at the top level of `.prflow/config.json`:
@@ -824,6 +824,10 @@ so the floor is buildable on the cloud tier without the agent's cooperation.
   reader, resolves/verifies the run's PR via `gh` (`lib/resolve-gh.sh`), and emits the floor env
   values. Each non-happy branch (execution file absent, not-a-PR, lookup failed, `pr-description`
   class) leaves a specific `::warning::` so a skipped skeleton/inert floor is auditable in the step log.
+  An **inert cost does not suppress the PR resolution**: the two operands fail independently, and
+  `DEVFLOW_EXECUTION_PR` has a second consumer (the denial floor's skeleton arm below). The cost side
+  is unchanged either way — `apply_harness_floor` returns at its first guard on an empty
+  `DEVFLOW_EXECUTION_COST`, so no cost skeleton is written and no all-null `harness_cost` is staged.
 - *Writer (`--persist`, `apply_harness_floor`).* Gated exactly like record derivation
   (`efficiency_telemetry_enabled`). It attaches `harness_cost` to **exactly** the record whose run-id
   equals this run's `${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}` identity — via a **merge arm** (a
