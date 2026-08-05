@@ -866,8 +866,14 @@ assert_eq "cg: missing file → default"  "dfl"                "$("$CG" .x dfl /
 assert_eq "cg: missing key + empty default → exit 0" "0" "$?"
 # Run from an empty cwd so the default config path is deterministically absent
 # (don't couple this to the repo's live .prflow/config.json being valid JSON).
-( cd "$(mktemp -d)" && "$CG" .nope.nope >/dev/null 2>&1 )
-assert_eq "cg: missing key/file + no default → exit 1" "1" "$?"
+# ONE invocation feeds both assertions below, so they cannot end up describing two
+# different runs. The second (issue #1333 T2) pins the stdout shape the exit code leaves
+# open: a caller could otherwise assume the no-default read yields an empty STRING it can
+# bind a placeholder to. It yields no value at all.
+CG_NODEF_OUT="$( cd "$(mktemp -d)" && "$CG" .nope.nope 2>/dev/null )"
+CG_NODEF_RC=$?
+assert_eq "cg: missing key/file + no default → exit 1" "1" "$CG_NODEF_RC"
+assert_eq "cg: missing key/file + no default → EMPTY stdout (not an empty-string value)" "" "$CG_NODEF_OUT"
 "$CG" "" >/dev/null 2>&1
 assert_eq "cg: empty KEY → exit 2" "2" "$?"
 CG_BAD="$(mktemp)"; printf '{ not valid json' > "$CG_BAD"
@@ -11903,6 +11909,10 @@ echo "load-prompt-extension.sh: every skills/*/SKILL.md carries the standardized
 # of the wrong skill name, a half-applied removal, or a path drift all fail here
 # rather than shipping silently. Fails when a future skill omits the step.
 LPE_SKILL_COUNT=0
+# The one skill whose extension is handed to it BY PATH rather than loaded by the
+# helper (issue #1333). Named once here rather than inlined in the loop so the
+# by-value population stays a single declared value, like PORTABLE_ANCHOR_LITERAL.
+LPE_BYVALUE_SKILL='retrospective'
 for SKILL_DIR in "$LIB"/../skills/*/; do
   SKILL_NAME="$(basename "$SKILL_DIR")"
   SKILL_FILE="$SKILL_DIR/SKILL.md"
@@ -11920,6 +11930,18 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
   # marshaling defeats). One canonical line, pinned whole-line (grep -Fx), so a
   # name/path drift still fails here.
   LPE_EXPECT_LINE='"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh '"$SKILL_NAME"
+  # #1333: the enumeration presupposes the skill can RUN the loader. That is false for
+  # a dispatched subagent brief, which resolves no anchor (measured on Claude Code
+  # 2.1.222: `printenv CLAUDE_SKILL_DIR` exits 1 with no output inside a Task subagent,
+  # and no `Base directory for this skill:` line reaches it). Its extension arrives BY
+  # PATH from the orchestrator and is read with the file-read tool, so both the
+  # invocation line and the helper-exit-code prose are gone by design. Assert the
+  # COMPLEMENT instead, so the exemption cannot hide a reintroduced invocation.
+  if [ "$SKILL_NAME" = "$LPE_BYVALUE_SKILL" ]; then
+    assert_eq "lpe-coverage(#1333): $SKILL_NAME/SKILL.md carries NO loader invocation (extension handed by path)" "yes" \
+      "$([ -f "$SKILL_FILE" ] && ! grep -Fxq "$LPE_EXPECT_LINE" "$SKILL_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin whose target is the $SKILL_FILE loop variable
+    continue
+  fi
   assert_eq "lpe-coverage: $SKILL_NAME/SKILL.md invokes the helper for its own name" "yes" \
     "$([ -f "$SKILL_FILE" ] && grep -Fxq "$LPE_EXPECT_LINE" "$SKILL_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: SKILL target is the $SKILL_FILE loop variable, not a static pin
   # The invocation line alone is half the contract — the step must also tell the
@@ -14577,6 +14599,11 @@ PA_XSTMT_ERE='[A-Za-z_0-9]+="?\$\{?CLAUDE_SKILL_DIR'
 # which requires EVERY `${CLAUDE_SKILL_DIR:` occurrence to carry the full sanctioned
 # literal — so a deep-typo fallback still goes RED there, not here.
 PA_WRONGFB_ERE='\$\{CLAUDE_SKILL_DIR:[-=]([^<]|<[^a]|<a[^b]|<ab[^s])'
+# PA_NO_CALLSITE is the declared set of enumerated files that carry NO portable-anchor
+# call site, space-delimited. P3 below inverts to an ABSENCE pin for these, so a member
+# is never merely unchecked. Pinned by size just as P0/R0 pin their enumerations, so a
+# later addition to this set is a visible, deliberate act rather than a silent widening.
+PA_NO_CALLSITE='skills/retrospective/SKILL.md'
 PA_FILE_COUNT=0
 for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/phase-*.md; do
   PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
@@ -14585,8 +14612,21 @@ for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/pha
     "$(! grep -qE "$PA_BARE_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
   assert_eq "#275 pin (P2): $PA_NAME has no cross-statement \$CLAUDE_SKILL_DIR anchor assignment" "yes" \
     "$(! grep -qE "$PA_XSTMT_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
-  assert_eq "#275 pin (P3): $PA_NAME invokes helpers via the portable single-statement inline anchor" "yes" \
-    "$(grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: presence pin over the enumerated $PA_FILE loop variable; literal recurs per call site by design
+  # P3 is a PRESENCE pin, so it presupposes the file has at least one helper call site.
+  # A dispatched SUBAGENT brief breaks that presupposition BY DESIGN (issue #1333): a
+  # subagent receives neither $CLAUDE_SKILL_DIR nor a runner-reported base directory
+  # (measured on Claude Code 2.1.222 in a Task subagent: `printenv CLAUDE_SKILL_DIR`
+  # exits 1 with no output, and no `Base directory for this skill:` line reaches it), so
+  # it can resolve no anchor at all and every path it needs is handed to it BY VALUE by
+  # its orchestrator. For such a file P3 would demand back the very call site the fix
+  # removed, so PA_NO_CALLSITE inverts it to an ABSENCE pin rather than skipping it.
+  # One assertion, two expectations: `yes` (the literal is present) for every file with
+  # call sites, `no` (P3x — the literal is ABSENT) for the declared no-call-site set.
+  # Keeping it as one grep means the two arms cannot drift apart.
+  PA_P3_WANT=yes
+  case " $PA_NO_CALLSITE " in *" $PA_NAME "*) PA_P3_WANT=no ;; esac
+  assert_eq "#275/#1333 pin (P3): $PA_NAME anchor call sites present=$PA_P3_WANT (portable single-statement inline form)" "$PA_P3_WANT" \
+    "$(grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: presence/absence pin over the enumerated $PA_FILE loop variable; literal recurs per call site by design
   assert_eq "#275 pin (P1c): $PA_NAME has no wrong-fallback (non-placeholder) CLAUDE_SKILL_DIR expansion" "yes" \
     "$(! grep -qE "$PA_WRONGFB_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable
   # P3c — per-occurrence completeness: every `${CLAUDE_SKILL_DIR:` expansion in the file
@@ -14598,6 +14638,11 @@ for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/pha
 done
 assert_eq "#275 pin (P0): portable-anchor coverage spans every skill + implement phase file (enumeration reconciled)" \
   "22" "$PA_FILE_COUNT"
+# Size-pin the no-call-site set for the same reason P0 pins the enumeration: without it a
+# later `case` arm could grow the population exempted from the block's strongest positive
+# pin with the suite staying green. Widening it is then a deliberate, reviewable edit.
+assert_eq "#1333 pin (P0x): the no-portable-anchor-call-site set holds exactly one file" "1" \
+  "$(set -- $PA_NO_CALLSITE; echo $#)"  # raw-guard-ok: word-count of the declared set, not a source-text pin
 # The #529/#530 bundle splits moved authoritative procedure — helper call sites included —
 # out of the two SKILL.md roots and into skills/review/phases/*.md and
 # skills/review-and-fix/references/*.md. Those families were outside the loop above, so a
