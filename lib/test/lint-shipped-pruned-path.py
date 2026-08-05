@@ -312,7 +312,26 @@ def scan_text(text: str, targets: list[str]) -> list[tuple[int, str]]:
 #: reading one in a vendored skill body cannot look it up — it points at nothing in
 #: their checkout. `#\d+` requires a trailing word boundary so a hex colour like
 #: `#1D76DB` (whose `#1` is followed by a letter, not a boundary) is never a false
-#: match; a run ID carries no `#` and is excluded by construction.
+#: match; `AC\d+` requires a leading one so an embedded run like `MAC5` is not a match;
+#: a run ID carries no `#` and is excluded by construction.
+#:
+#: **Stated scope limit — silence here is not coverage.** The recognized set is exactly
+#: these two shapes, and two classes sit outside it by construction, neither of which is
+#: broadened here because both trade one recognizer defect for a worse one:
+#:
+#:   * **All-digit `#`-literals** (`#123456` as a hex colour, `#12` as a version) match
+#:     and are reported. They are indistinguishable from a real issue reference by shape
+#:     alone, so the recognizer takes the fail-CLOSED direction: a false finding is noise
+#:     a reader dismisses with a declaration marker, whereas excluding them would let a
+#:     genuine `#123` citation ship silently. No such literal exists in the audited tree
+#:     today, so the choice costs nothing at present.
+#:   * **Adjacent citation spellings** — `AC-5`, `AC 5`, `ac5`, and prose forms like
+#:     "issue 441" carrying no `#` — do NOT match and are NOT reported. Broadening to
+#:     them would make every bare small integer in the shipped prose a candidate, which
+#:     is a false-positive rate no declaration-marker budget absorbs. None exists in the
+#:     audited tree today, so the guarantee this lint gives is not vacuous — but it is a
+#:     guarantee over the two recognized shapes only, and the review pass remains the
+#:     control for the rest.
 _CITATION = re.compile(r"#\d+\b|\bAC\d+\b")
 
 

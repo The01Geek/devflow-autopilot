@@ -5,7 +5,7 @@ SPDX-License-Identifier: MIT
 # Fresh-context audit-prompt template (create-issue Step 3.6)
 
 This file is the **sole in-repo owner** of the create-issue Step 3.6 audit-prompt
-template, the generic dimension checklist, and — the canonical
+template, the generic dimension checklist, and the canonical
 **audit-dispatch instructions** the auditor is pointed at.
 `scripts/render-audit-prompt.py`
 reads it (resolved relative to that script's own location — `scripts/` and
