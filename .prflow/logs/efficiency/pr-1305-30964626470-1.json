@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1305",
+  "generated_at": "2026-08-05T00:58:46Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.104",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.734417749999998,
+    "tokens": {
+      "input_tokens": 50,
+      "output_tokens": 17181,
+      "cache_read_input_tokens": 3512857,
+      "cache_creation_input_tokens": 149609,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 82,
+        "outputTokens": 32479,
+        "cacheReadInputTokens": 4320798,
+        "cacheCreationInputTokens": 352096,
+        "webSearchRequests": 0,
+        "costUSD": 5.734417749999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 30,
+    "duration_ms": 352389
+  },
+  "permission_denials": {
+    "count": 4,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh review 2>&1 || scripts/load-prompt-extension.sh review 2>&1",
+      "for f in skills/review-and-fix/SKILL.md skills/review-and-fix/references/fixing.md skills/review-and-fix/references/loop-control.md; do printf '%s  ' \"$f\"; git hash-object \"$f\" >/dev/null 2>&1; sha256sum \"$f\"; done",
+      "git fetch origin 1bd019d4b3ff81587403339b25d15f1f6c28ccfc 2>&1 | tail -1; for f in skills/review-and-fix/SKILL.md skills/review-and-fix/references/fixing.md skills/review-and-fix/references/loop-control.md; do printf '%s: ' \"$f\"; git cat-file blob \"1bd019d4b3ff81587403339b25d15f1f6c28ccfc:$f\" | sha256sum | cut -d' ' -f1; done",
+      "for f in skills/review-and-fix/SKILL.md skills/review-and-fix/references/fixing.md skills/review-and-fix/references/loop-control.md scripts/devflow-cloud-writer-contract.json; do printf '%s: ' \"$f\"; git cat-file blob \"FETCH_HEAD:$f\" | sha256sum | cut -d' ' -f1; done"
+    ],
+    "total": 4,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
