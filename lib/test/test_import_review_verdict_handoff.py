@@ -97,23 +97,21 @@ class TestAccepted(ImporterTestBase):
 
 class TestRejectionsPublishNothing(ImporterTestBase):
     def assert_rejected(self, handoff_path: str, token: str, **kw) -> None:
-        rc, out = self.call(handoff_path, **kw)
-        self.assertEqual(rc, 1, f"expected rejection for {token}")
-        self.assertFalse(os.path.exists(out), "rejection must publish no artifact")
-        self.assertEqual(self._last_token(handoff_path, **kw), token)
-
-    def _last_token(self, handoff_path: str, **kw) -> str:
+        """Run main() once: assert rc==1, no artifact published, and the token."""
         import contextlib
         import io
-        buf = io.StringIO()
-        argv = ["--handoff", handoff_path]
+        out = str(self.dir / "out.json")
+        argv = ["--handoff", handoff_path, "--out", out]
         for k, v in kw.items():
             argv.extend([f"--{k.replace('_', '-')}", str(v)])
+        buf = io.StringIO()
         with contextlib.redirect_stderr(buf):
-            mod.main(argv)
+            rc = mod.main(argv)
+        self.assertEqual(rc, 1, f"expected rejection for {token}")
+        self.assertFalse(os.path.exists(out), "rejection must publish no artifact")
         first = buf.getvalue().splitlines()[0]
         self.assertTrue(first.startswith("REJECTED "), first)
-        return first.split()[1]
+        self.assertEqual(first.split()[1], token)
 
     def test_string_true_against_boolean(self) -> None:
         self.assert_rejected(self.handoff(dict(VALID, complete="true")), "bad-complete")
@@ -183,14 +181,8 @@ class TestRejectionsPublishNothing(ImporterTestBase):
         self.assert_rejected(str(hard), "extra-hard-links")
 
     def test_non_regular_file_rejected(self) -> None:
-        fifo = self.dir / "fifo"
-        try:
-            os.mkfifo(fifo)
-        except (AttributeError, NotImplementedError, OSError):
-            self.skipTest("mkfifo unavailable on this platform")
-        # O_NONBLOCK open of a fifo with no writer would block; the importer uses
-        # a plain open, so a fifo is exercised via the not-regular-file check on a
-        # directory instead, which is always available.
+        # A directory is the always-available non-regular file: O_NOFOLLOW opens
+        # it, and the S_ISREG check refuses it.
         self.assert_rejected(str(self.dir), "not-regular-file")
 
 

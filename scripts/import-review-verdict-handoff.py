@@ -44,8 +44,10 @@ identity — those are the emitter's trusted concern.
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
+import re
 import stat
 import sys
 
@@ -67,8 +69,10 @@ LEGAL_PAIRS = frozenset({
 DEFAULT_MAX_HANDOFF_BYTES = 4096
 DEFAULT_MAX_BODY_BYTES = 262144  # 256 KiB
 
-# Allowed C0 controls inside otherwise-textual input.
-_ALLOWED_CONTROLS = frozenset({0x09, 0x0A, 0x0D})
+# Disallowed control characters: every C0 control except TAB/LF/CR, plus DEL.
+# A single precompiled C-level scan replaces a per-character Python loop over the
+# (up to 256 KiB) body text.
+_DISALLOWED_CONTROL_RE = re.compile(r"[\x01-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 class Rejected(Exception):
@@ -96,7 +100,7 @@ def _read_bounded_regular_file(path: str, max_bytes: int) -> bytes:
     except OSError as exc:
         # ELOOP is the O_NOFOLLOW symlink refusal; everything else is a genuine
         # open failure (missing file, permission, non-followable special).
-        if getattr(exc, "errno", None) == getattr(__import__("errno"), "ELOOP", None):
+        if exc.errno == errno.ELOOP:
             raise Rejected("symlink", path) from exc
         raise Rejected("unreadable", f"{path}: {exc}") from exc
     try:
@@ -149,14 +153,13 @@ def _decode_clean_text(data: bytes, *, kind: str) -> str:
         text = data.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise Rejected("invalid-utf8", f"{kind}: {exc}") from exc
-    for ch in text:
-        cp = ord(ch)
-        if cp == 0x00:
-            raise Rejected("nul-byte", kind)
-        if cp < 0x20 and cp not in _ALLOWED_CONTROLS:
-            raise Rejected("disallowed-control", f"{kind}: U+{cp:04X}")
-        if cp == 0x7F:
-            raise Rejected("disallowed-control", f"{kind}: U+007F")
+    # NUL is checked first (and separately) so it keeps its own distinct token;
+    # both scans are C-level rather than a per-character Python loop.
+    if "\x00" in text:
+        raise Rejected("nul-byte", kind)
+    m = _DISALLOWED_CONTROL_RE.search(text)
+    if m is not None:
+        raise Rejected("disallowed-control", f"{kind}: U+{ord(m.group()):04X}")
     return text
 
 
