@@ -988,17 +988,16 @@ assert_eq "ir(boolean true): publish" "publish" \
   "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
 # string "True" coerces to the literal `True` (capital) — NOT the literal `false`,
 # so publication stays ENABLED. This is the inversion an `!= true` spelling breaks.
+# Resolve once and feed both asserts (verbatim value + decision) from the capture.
 printf '%s' '{"create_issue":{"investigation_record_enabled":"True"}}' > "$IR_CFG"
-assert_eq "ir(config-get returns 'True' verbatim)" "True" \
-  "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")"
-assert_eq "ir(string \"True\"): publish (not the literal false)" "publish" \
-  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+IR_V="$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")"
+assert_eq "ir(config-get returns 'True' verbatim)" "True" "$IR_V"
+assert_eq "ir(string \"True\"): publish (not the literal false)" "publish" "$(ir_decision "$IR_V")"
 # number 0 coerces to `0` — not `false` — so publication stays ENABLED.
 printf '%s' '{"create_issue":{"investigation_record_enabled":0}}' > "$IR_CFG"
-assert_eq "ir(config-get returns '0' verbatim)" "0" \
-  "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")"
-assert_eq "ir(number 0): publish (not the literal false)" "publish" \
-  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+IR_V="$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")"
+assert_eq "ir(config-get returns '0' verbatim)" "0" "$IR_V"
+assert_eq "ir(number 0): publish (not the literal false)" "publish" "$(ir_decision "$IR_V")"
 # absent key → default `true` → publish.
 printf '%s' '{"create_issue":{"other":1}}' > "$IR_CFG"
 assert_eq "ir(absent key): publish (default true)" "publish" \
