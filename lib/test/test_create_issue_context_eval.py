@@ -6,7 +6,7 @@
 Every acceptance criterion of issue #767 that the eval or its committed fixtures can
 witness maps to at least one assertion here (the orchestrator-instruction reduction's
 preservation is discharged separately by a code-reading obligation + reproducible
-check recorded in docs/create-issue-context.md — no issue-audit-state.py-driven suite
+check recorded in docs/internal/create-issue-context.md — no issue-audit-state.py-driven suite
 test can witness it). Driven serially from lib/test/run.sh.
 """
 

@@ -2691,7 +2691,7 @@ assert_eq "et-fresh(R13): the remote-has-no-such-branch breadcrumb fires" "yes" 
   "$(printf '%s' "$ETF13_ERR" | grep -qF 'origin carries no branch' && echo yes || echo no)"
 rm -rf "$ETF13_ORIGIN" "$ETF13_REPO"
 
-# The et-fresh(R14) and docs-fetch-scope(R9) docs/efficiency-trace.md presence
+# The et-fresh(R14) and docs-fetch-scope(R9) docs/internal/efficiency-trace.md presence
 # assertions that sat here stayed in lib/test/run.sh — see the retained block beside
 # this module's full-suite call, and the inventory, for why.
 

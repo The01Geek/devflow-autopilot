@@ -146,7 +146,7 @@ _EXEMPT_PREFIXES = (
 _EXEMPT_EXACT = frozenset(
     {
         "install.sh",                       # config scan probes BOTH blocks; names both spellings deliberately
-        "docs/install.md",                  # sample installer output names both spellings deliberately
+        "docs/internal/install.md",                  # sample installer output names both spellings deliberately
         "docs/external/release-notes.md",   # past-dated historical record (past-time snapshot exemption)
         "CHANGELOG.md",                     # historical changelog entries
         "lib/rename-map.json",              # the single source of truth for the rename itself

@@ -162,7 +162,7 @@
     "git_work_tree_pin": false
   },
   "docs": {
-    "internal": "docs/",
+    "internal": "docs/internal/",
     "external": "docs/external/",
     "internal_enabled": true,
     "external_enabled": true,
