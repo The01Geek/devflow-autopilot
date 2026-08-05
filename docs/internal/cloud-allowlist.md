@@ -80,12 +80,14 @@ in-the-moment channel is **unestablished, not ruled out**: `scripts/pretooluse-s
 is an in-tree `PreToolUse` hook built for exactly that purpose — it returns a `deny`
 whose `permissionDecisionReason` names the permitted alternative for the denied shape —
 and #919 records, on repeated same-repo probe runs, that a hook registered through the
-action's `settings:` input **does fire** under `claude-code-action`. What is genuinely
-open is narrower: whether `permissionDecisionReason` survives to the engine transcript on
-the **`deny`** path is unmeasured (every recorded observation is on the probe's own
-`allow` path, for which the reason is specified to be ignored), and the guard is wired to
-no runnable tier. Both are tracked — see #1047 (residual item 2) and #919, and the
-*PreToolUse probe evidence* section further down for the recorded verdicts. Making
+action's `settings:` input **does fire** under `claude-code-action`. The narrower question
+that was open here — whether `permissionDecisionReason` survives to the engine transcript
+on the **`deny`** path, given that the older observations are all on an `allow` path for
+which the reason is specified to be ignored — is now **measured**: a hook emitting a real
+`deny` delivered its reason to the transcript (`REASON-DELIVERED`; see *Harness
+hook-surface probe evidence (Part 2)* below). What is left is deployment rather than
+mechanism — the guard is wired to no runnable tier. See #1047 (residual item 2) and #919,
+and the *PreToolUse probe evidence* sections further down for the recorded verdicts. Making
 denials visible *after* a run is a third, separate concern — issue #1064 (durable denial
 forensics). The three are complementary and none substitutes for the others.
 
@@ -1114,9 +1116,10 @@ only caller, `devflow-review.yml`, was deleted under #936 (which withheld the au
 pull-request-triggered review tier), so no workflow in the tree invokes it; the `settings:`
 registration rides on a reusable workflow that nothing calls. Whether to wire the guard
 onto a live tier (`devflow.yml` / `devflow-implement.yml`) or to accept it as
-retained-but-inert alongside the withheld tier is a separate open decision (#919) that is
-not settled here. Because the tier cannot run, every runtime behavior described below is
-the guard's implemented contract, not observed behavior.
+retained-but-inert alongside the withheld tier is a decision this page does not make;
+#919 records it as lying outside that issue's own scope. Because the tier cannot run,
+every runtime behavior described below is the guard's implemented contract, not observed
+behavior.
 
 ### The deny set and each arm's permitted alternative (authoritative)
 
@@ -1148,7 +1151,10 @@ that one by hand.
 **Excluded arms (a runtime deny is terminal, so denying a permitted shape costs the
 engine a working shape):** `R2` (a leading `cd`, DROPPED as unproven/confounded — probe
 row 3) and `R3-heredoc` (an in-workspace `cat`-headed heredoc write, banned as authoring
-discipline, not a probe result). The guard **defers** these.
+discipline, not a probe result). The guard reports **no decision** on these — exit 0 with
+empty stdout — and emits no `permissionDecision` token at all. It does **not** emit
+`defer`: Part 2 below measured that token blocking the tool and ending the process rather
+than falling through.
 
 ### PreToolUse probe evidence (Part 1)
 
@@ -1172,9 +1178,24 @@ review-run denial count against the run-`30138268273` baseline was **dropped** a
 longer achievable — no live tier can produce a review run carrying the guard (the
 guard's registration rode on `devflow-runner.yml`, whose sole caller `devflow-review.yml`
 was deleted by PR #937 / issue #936) — and that baseline run id is retained as historical
-reference only. Issue #919 remains open: its AC1 still asks for an explicit
-`gh workflow run` dispatch that this evidence shows to be unnecessary, and amending that
-is a maintainer decision, not this page's.
+reference only.
+
+**No `workflow_dispatch` was needed for this row, and the premise that one was is false.**
+The self-firing trigger above is why observations accumulated with nobody ever dispatching
+the arm. **What makes such a row attributable to `main` is the observing run's TREE, not
+its event type:** the question to ask is whether that run's head matched `main` for
+`.github/workflows/matcher-probe.yml` when the observation was taken. For this row the
+check was made on 2026-08-04 against the then-current `origin/main` at head
+`85e57ac1c6dcf732a861230f82182191977c6e41` and returned an empty diff. **That check is
+itself a past-time observation and does not re-derive** — PR #1308 has since added the
+hook-surface arms to the same workflow, so re-running the check today compares against a
+later `main` and is expected to differ. A row's provenance is the head sha it records,
+never a diff against whatever `main` has become.
+
+Residual, stated rather than hidden: every observation here arrives on a `pull_request`
+event, and a `workflow_dispatch` would differ in context (no pull request, no `.claude/`
+restore step) — but the hook reaches the session through the `settings:` input written at
+**user** scope, so the mechanism being measured is the same either way.
 
 | Probe run id | Firing verdict | Reason-delivery verdict | Per-arm denial counts (review run) |
 | --- | --- | --- | --- |
@@ -1193,16 +1214,139 @@ the row misleads without this.** The probe's own hook emits
 `permissionDecision: "allow"`, and per the Claude Code hooks decision-control table
 `permissionDecisionReason` is shown to Claude on `deny`, shown to the user on `ask`, and
 **ignored on `allow` and `defer`**. `REASON-ABSENT` is therefore the *specified*
-behavior for the decision this probe emits. `scripts/pretooluse-shape-guard.py` emits
-only `deny` and `defer`, so **the guard's own `deny`-path reason delivery and its
-`defer` fall-through semantics remain unmeasured**, and the probe arm as currently
-written cannot measure them — it would need a hook emitting `deny`.
+behavior for the decision this probe emits. This arm therefore cannot speak to the deny
+path at all — measuring it needs a hook that emits `deny`. **Arms that do emit one have
+since settled it:** see *Harness hook-surface probe evidence (Part 2)* below, which
+records `REASON-DELIVERED` on a real `deny` and `DEFER-BLOCKED` on a `defer`.
+`REASON-ABSENT` here and `REASON-DELIVERED` there are not in conflict; they measure
+different decisions.
 
 **Secondary caveat:** the observation helper searches the **execution file**, which is a
 proxy for the transcript rather than a capture of the model's own input; an absent
 string there is evidence about the execution file's contents, not a direct reading of
 what the model saw. Measured against `claude-code-action@v1` with the CLI version the
 run reports (Claude Code 2.1.221) — **re-probe after any upgrade.**
+
+### Harness hook-surface probe evidence (Part 2) — `PermissionRequest`, a hook `deny`, and `defer`
+
+**This subsection is a past-time observation of two specific runs, not a re-derivable
+figure.** Each verdict was computed by that arm's own deterministic renderer
+(`scripts/describe-permissionrequest-probe.sh`,
+`scripts/describe-pretooluse-deny-probe.sh`, `scripts/describe-defer-probe.sh`) from
+on-disk markers and the execution file, and read once from the job's step summary — the
+model's prose is never the measurement. The run ids, job ids, verdict tokens and observed
+CLI version below are frozen history: they are never "corrected" or re-measured, and a
+re-probe records a NEW row rather than editing one of these.
+
+PR #1308 added three `matcher-probe.yml` jobs answering three questions the
+`pretooluse-probe` arm above structurally cannot: whether the `PermissionRequest` event is
+delivered at all under `claude-code-action`, whether a `PreToolUse` **`deny`** is honored
+and its `permissionDecisionReason` reaches the transcript, and whether **`defer`** falls
+through to the normal permission flow.
+
+Primary run: [`30967680822`](https://github.com/The01Geek/prflow/actions/runs/30967680822),
+ref `hook-probe-arms`, head `24976a83320dbe05242870d7c83573dbabe14a5d`, 2026-08-05. Every
+verdict below **replicated** on run
+[`30971649121`](https://github.com/The01Geek/prflow/actions/runs/30971649121) (head
+`e2c9be7ea5f47ae2e00c3347528a6a596a18b8e0`, that branch's final head before #1308 merged),
+reporting the same CLI version.
+
+| Arm (job) | Primary run / job id | Verdict | Observed CLI version |
+| --- | --- | --- | --- |
+| `permissionrequest-probe` | `30967680822` / `92185120595` | **NOT-FIRED** — delivered on neither the granted nor the ungranted call | `2.1.222` |
+| `pretooluse-deny-probe` | `30967680822` / `92185120507` | **DENY-HONORED** + **REASON-DELIVERED** | `2.1.222` |
+| `defer-probe` | `30967680822` / `92185120496` | **DEFER-BLOCKED** + **STOP-REASON-DEFERRED** | `2.1.222` |
+
+**The `PermissionRequest` verdict is an ESTABLISHED negative, not an inconclusive one, and
+these are the facts that establish it.** A hook that did not fire is ordinarily
+indistinguishable from a hook nothing was ever offered to, so the arm is built to separate
+the two, and every separating fact came back positive:
+
+- **The registration was accepted.** The job log records the action parsing the `settings`
+  input as JSON, merging it, and saving the settings file — so the hook was installed, not
+  silently dropped for a malformed input.
+- **The granted control executed** (`CONTROL-RAN`).
+- **The ungranted arm was really issued** (`ATTEMPTED` — a recorded tool-call input carries
+  it) and **the harness refused it** (`UNGRANTED-REFUSED` — its side effect is absent),
+  with one `permission_denials` entry naming that command. So a call the allowlist did not
+  resolve genuinely reached the permission system and was declined.
+- **The session continued past the arm** (`AFTER-CONTROL-RAN` — the granted control the
+  prompt places *after* the ungranted command also ran), so this is not a session that
+  stopped early.
+- **The hook wrote no breadcrumb on either call**, and the deny `message` sentinel never
+  appeared in the transcript (`SENTINEL-ABSENT`).
+
+The renderer's own inference line states the conclusion: a call the allowlist did not
+resolve did reach the permission system and was refused, yet no hook breadcrumb exists —
+evidence that the installed CLI does not deliver a `PermissionRequest` event, not merely
+that nothing was ever offered to one.
+
+**It did not fire on the granted control either, and that was the specific dangerous
+configuration under test.** An unconditional-deny `PermissionRequest` hook is harmless only
+if the event sees solely the calls the allowlist did not resolve; if it resolved earlier it
+would also see calls the allowlist would have approved, and such a hook would silently
+block granted work. The arm therefore attempts a granted control alongside the ungranted
+one, and two recorded facts rule that case out together: the granted control **ran**, and
+the deny sentinel is **absent** from the transcript. The hook emits its deny after the
+breadcrumb write and independently of it — the two are `;`-joined in the job's hook command
+— so a hook that fired but could not record would still have denied the granted control,
+which did not happen. The breadcrumb write is best-effort, which is exactly why the negative
+rests on these facts rather than on the breadcrumb's absence alone.
+
+**A `PreToolUse` `deny` IS honored, and its reason IS delivered.** The
+`pretooluse-deny-probe` hook is command-scoped — a `case` over its own stdin payload — and
+denies only the sacrificial command. Recorded: `FIRED-AND-DENIED` (both hook breadcrumbs
+present, so the hook ran and took its deny arm), `DENY-HONORED` (the sacrificial command's
+side effect is absent, so the tool did not execute), `CONTROL-RAN` (the non-matching control
+was left alone, so the block is the hook's own scoping rather than a blanket refusal), and
+**`REASON-DELIVERED`** — a string carrying the probe's `permissionDecisionReason` sentinel
+is present in the execution transcript. That is the delivery mechanism a per-call
+remediation depends on, and it works.
+
+**This is the axis the `pretooluse-probe` arm structurally cannot answer**, and its row is
+read alongside this one rather than reconciled with it. That arm's hook emits
+`permissionDecision: "allow"`, so its `REASON-ABSENT` cell measures the `allow` path only.
+The live hooks reference describes the reason field as feedback Claude sees on `"deny"`
+("Block the tool call. Claude sees the `permissionDecisionReason` as feedback") — the
+decision this arm emits and that one does not.
+
+**A hook-issued deny is visible to a denial count, but its reason text is not.** Two cells
+over the same array answer different questions, and only both together are the finding:
+**`COMMAND-RECORDED`** — a `permission_denials` entry names the denied command, so a
+denial-count measurement does see that the hook fired — while `HOOK-DENY-NOT-RECORDED`
+(count 1) records that no entry carries the reason sentinel. The array therefore establishes
+*that* a hook denied a command, never *which* rule denied it; reading back the arm needs a
+source other than that array.
+
+**`defer` does not fall through — the tool was blocked and the process terminated.**
+`DEFER-BLOCKED`: the hook fired and the single command's side effect is absent, so the tool
+did not execute. Corroborated by `STOP-REASON-DEFERRED` (the transcript carries
+`tool_deferred`), with `permission_denials` entries: 0. The command's head was **granted**,
+so under a fall-through the normal permission flow would have permitted it and it would have
+run.
+
+**The documentation and the measurement disagree here, and that is recorded rather than
+papered over.** The live Claude Code hooks reference (`https://code.claude.com/docs/en/hooks`
+— itself a moving page, so this is a past-time reading, 2026-08-05) documents the value as:
+*"`"defer"` | Skip this hook's decision and continue to the next hook or the normal
+permission flow"*, and describes the silent form the same way: *"Exit code 0 with no output
+means the hook has no decision to report, so the tool call continues through the normal
+permission flow."* The measurement contradicts that for the emitted-token form.
+**For this harness the measurement governs.** The consequence is not cosmetic: a documented
+fall-through that in fact blocks the tool and ends the process turns a fail-open path built
+on it into a fail-CLOSED one. No claim is made here about `defer` on any other CLI
+build or runner — this is a claim about what `claude-code-action@v1` installed on the two
+runs above. `scripts/pretooluse-shape-guard.py` already absorbs it: its fall-through emits
+nothing at all — exit 0 with empty stdout, the shape the documentation and the measurement
+agree on — and it emits no `defer` anywhere.
+
+**All three verdicts expire, and the CLI version beside each one is why.**
+`anthropics/claude-code-action@v1` is a **floating** ref: it installs whatever CLI it
+currently pins, so each row measures one harness build rather than a standing property.
+Both runs reported `2.1.222`. **Re-probe the arms in the table above after any
+`claude-code-action` or CLI upgrade** before relying on any of them. Re-probing needs no
+new authoring: those jobs are on `main` since PR #1308, and `matcher-probe.yml` triggers on
+`workflow_dispatch` as well as on a same-repo `pull_request` filtered to its own path.
 
 ## Denial-population audit — the 2026-08-02 implement runs (issue #1135)
 
