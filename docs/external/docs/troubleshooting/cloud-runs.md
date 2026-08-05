@@ -1,26 +1,61 @@
 ---
-title: "Cloud-run problems"
-description: "Diagnose GitHub comment triggers, authorization, setup and verification failures."
+title: "Cloud-Run Problems"
+description: "Diagnose comment authorization, authentication, runners, runtime setup, stale pins and interrupted workflows."
 ---
 
 # Cloud-Run Problems
 
-## A comment did not trigger
+This page is for maintainers diagnosing a GitHub Actions run or a comment that did not start one.
 
-Confirm the command is a standalone line, not quoted or fenced. Implementation commands belong on issues; review commands belong on the pull-request conversation tab — a review command typed into the review-submission box or an inline diff-line comment is ignored, because those review events are not subscribed. The commenter must be allowed by the repository configuration.
+## A Comment Did Not Trigger
 
-## Authentication failed
+Confirm all of these conditions:
 
-Confirm `CLAUDE_CODE_OAUTH_TOKEN` exists as a repository secret and is available to the workflow's event context. If you configured another provider or a GitHub App, verify its corresponding secret and variable names.
+- The command is the first recognized standalone command in the comment.
+- It is not quoted, fenced, indented as code or embedded in prose.
+- `/prflow:implement` is on a regular issue, not a pull request.
+- `/prflow:review` is on the pull request's **Conversation** tab.
+- The comment does not contain `@claude`.
+- `workflows.prflow` is true in committed config.
 
-## Setup failed
+An authorized command normally receives a 🚀 reaction. No reaction usually means parsing or authorization declined before the agent job started.
 
-Inspect the Actions log before the PRFlow phase begins. Check configured Python and Node.js versions, repository install commands and any pinned dependencies.
+## The Actor Is Unauthorized
 
-## A test command was blocked
+Humans must match `prflow.allowed_users` and have write, maintain or admin repository permission. Bots must match `prflow.allowed_bots`. Check the exact login, including the configured bare bot name.
 
-Cloud tool permissions are explicit. Add the narrow command pattern to every PRFlow execution path that must run it, then review the configuration change before retrying.
+An API or permission lookup failure declines the run. Fix the gate job's token permissions or transient GitHub access, then retry.
 
-## A run stopped midway
+## Model Authentication Fails
 
-Use the single workpad comment to find the last completed phase, correct the cause and start a new run. See [Cloud recovery](/docs/runs/cloud/recovery) for the full sequence.
+On the default route, confirm `CLAUDE_CODE_OAUTH_TOKEN` is present in the workflow's repository or environment secrets. On a provider route, confirm the section names a valid provider and `DEVFLOW_PROVIDER_API_KEY` is present.
+
+A partially routed installation can need both credentials. A fully provider-routed installation can omit OAuth only when every active model-running section is routed.
+
+## The Job Is Queued Indefinitely
+
+Inspect `DEVFLOW_RUNNER`. A JSON label array must match all labels on an online self-hosted runner. GitHub queues an unmatched label set without raising a configuration error.
+
+Confirm the runner is registered, online and eligible for the repository. An invalid JSON array fails earlier with a visible `fromJSON` error.
+
+## Setup Fails Before the Agent Starts
+
+Read the first failing provisioning step. Confirm the runner has bash, `git`, `gh`, `jq`, Python 3.11 or newer and Docker when services require it. Check `setup` values and commands in their documented order.
+
+On self-hosted Windows, preinstall Claude Code and set `setup.claude_code_executable`. If Python exists without the `python3` command, install the supported shim on the runner.
+
+## A Tool Is Installed but Denied
+
+Provisioning and command authorization are separate. Add a narrow tool entry to the active workflow's allowlist. The general cloud-command and implementation allowlists do not inherit from each other. Merge the grant before expecting it in a new run.
+
+## Plugin Vendoring Fails
+
+In thin mode, confirm `prflow_version` is nonempty and resolves to a tag, branch or commit in `The01Geek/prflow`. An empty pin fails loudly to prevent mutable-main drift. A stale pin can also omit a helper required by newer workflow bytes.
+
+Re-run the installer with a current release tag and apply the update so workflow files and the runtime pin move together. If a locally edited workflow was preserved, merge its `.prflow-new` sidecar by hand.
+
+## The Run Stopped Without Finishing
+
+Use the workpad or review-progress comment to distinguish Blocked, Failed, Cancelled and still-interim state. Inspect execution diagnostics for permission denials. Correct the cause before posting the command again.
+
+Implementation retries reuse the workpad and pushed branch checkpoints. Review retries target the current pushed head. See [Cloud Recovery](/docs/runs/cloud/recovery) for the recovery sequence.

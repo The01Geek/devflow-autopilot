@@ -1,34 +1,62 @@
 ---
-title: "First run"
-description: "Create a well-scoped issue and implement it with PRFlow."
+title: "First Run"
+description: "Create or select a GitHub issue and turn it into a review-ready pull request."
 ---
 
 # First Run
 
-PRFlow works best when a change begins as a GitHub issue. The issue becomes the shared contract for planning, implementation and review.
+This guide is for developers running PRFlow locally for the first time. It starts with a GitHub issue and ends with a pull request for human review.
 
-## 1. Create the issue
+## Before You Start
 
-Describe the outcome in ordinary language:
+Confirm that:
 
-```text
-/prflow:create-issue Add an option to keep completed run logs for 30 days
-```
+- The current directory is inside the Git repository you want to change.
+- The intended GitHub repository is available as the `origin` remote.
+- `gh auth status` succeeds for an identity that can read the issue and create issue comments, branches and pull requests.
+- The repository's tests and linters can run from the local environment.
+- The issue has a clear outcome and verifiable acceptance criteria.
 
-Review the proposed issue before approving its creation. PRFlow gathers missing requirements and writes acceptance criteria that can be verified later.
+Initialization is not a prerequisite. Local defaults work without `.prflow/config.json`.
 
-## 2. Implement the issue
+## 1. Create or Select an Issue
 
-Use the issue number returned by GitHub:
+Skip this step when a suitable issue already exists. Otherwise, use the syntax for your client:
 
-```text
-/prflow:implement 123
-```
+| **Client** | **Create-Issue Command** |
+| --- | --- |
+| Claude Code | `/prflow:create-issue Add an option to retain completed run logs for 30 days` |
+| GitHub Copilot CLI | `/prflow/create-issue Add an option to retain completed run logs for 30 days` |
+| Codex CLI | `$prflow:create-issue Add an option to retain completed run logs for 30 days` |
 
-PRFlow inspects the repository, plans the change, implements it, runs verification, reviews the result and updates relevant documentation. It creates a pull request for your review but does not merge it.
+PRFlow clarifies unresolved decisions, displays the complete issue draft and creates the issue only after you explicitly approve that draft.
 
-## 3. Review the pull request
+## 2. Implement the Issue
 
-Check the code, tests, documentation and release notes. Request changes or merge through your normal repository process.
+Replace `123` with the issue number:
 
-Next, learn the complete [implementation workflow](/docs/workflows/implement) or configure [cloud runs](/docs/runs/cloud/index).
+| **Client** | **Implement Command** |
+| --- | --- |
+| Claude Code | `/prflow:implement 123` |
+| GitHub Copilot CLI | `/prflow/implement 123` |
+| Codex CLI | `$prflow:implement 123` |
+
+PRFlow fetches the issue, mirrors its acceptance criteria into a workpad, plans the change, implements it, runs repository verification, reviews the diff and updates relevant documentation.
+
+## What to Expect
+
+A fresh run normally produces these visible artifacts:
+
+- **Branch:** A branch named `issue-<number>-<title-slug>`. PRFlow adds a date suffix when the unsuffixed name already exists. A resumed run can adopt the head branch of an existing open pull request instead.
+- **Workpad:** One dedicated progress comment on the GitHub issue. It records status, branch, plan, acceptance criteria, progress and notable limitations. The same comment is updated throughout the run.
+- **Pull request:** A draft pull request is opened during review. By default, PRFlow publishes it as ready for review only after verification, review and documentation finish. A repository can configure implementation runs to leave it as a draft.
+
+PRFlow can stop with a `Blocked` status when a dependency, acceptance criterion, verification command or repository state needs human action. Resolve the recorded cause, then run implementation again. PRFlow can resume from the latest workpad and pushed branch checkpoint. Work after that checkpoint may need to be repeated.
+
+## 3. Review and Merge
+
+Review the code, tests, documentation, acceptance-criteria evidence and any workpad reflections. Run an additional [standalone review](/docs/workflows/review) when you want an independent verdict.
+
+PRFlow never merges the pull request. Merge it through your repository's normal human review and branch-protection process.
+
+Learn the complete sequence in [The PRFlow Lifecycle](/docs/concepts/lifecycle).

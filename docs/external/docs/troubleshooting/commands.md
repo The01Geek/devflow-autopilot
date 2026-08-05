@@ -1,28 +1,45 @@
 ---
-title: "Command problems"
-description: "Fix PRFlow commands that are unavailable, rejected or used in the wrong context."
+title: "Command Problems"
+description: "Fix unknown commands, GitHub authentication, wrong context and blocked verification."
 ---
 
 # Command Problems
 
-## The command is unknown
+This page is for users whose local PRFlow command is unavailable or cannot complete an operation.
 
-Use the current namespace, including the colon:
+## The Command Is Unknown
 
-```text
-/prflow:implement 123
+Use the syntax for your client:
+
+| **Client** | **Example** |
+| --- | --- |
+| Claude Code | `/prflow:implement 123` |
+| GitHub Copilot CLI | `/prflow/implement 123` |
+| Codex CLI | `$prflow:implement 123` |
+
+If the namespace is correct, reload the plugin and follow [Installation Problems](/docs/troubleshooting/installation).
+
+## GitHub Operations Fail
+
+Check the active GitHub CLI account:
+
+```bash
+gh auth status
 ```
 
-If the command still does not appear, reload plugins and confirm the installation as described in [Installation problems](/docs/troubleshooting/installation).
+If needed, authenticate again with `gh auth login`. Confirm that the account can read the repository and perform the issue, pull-request or review operation PRFlow attempted. On Windows, also confirm that the same bash session resolves the intended `gh` or `gh.exe`.
 
-## GitHub operations fail
+## The Command Is Running in the Wrong Context
 
-Run `gh auth status` and confirm the authenticated account can access the repository. The account also needs permission for the issue, pull request or workflow operation being attempted.
+Use implementation only with an existing GitHub issue. Use review with a pull-request number or a branch that has a resolvable pull request. Review-and-fix changes files and is a local workflow; use review when you want assessment only.
 
-## Verification cannot run
+## Verification Is Blocked
 
-Read the reported command and error. Install the repository dependency, correct the command or grant an appropriately narrow local permission. PRFlow should report blocked verification rather than treating it as a pass.
+Read the blocked message for the exact command. Then do one of the following:
 
-## The workflow is not appropriate
+- Install the missing repository dependency.
+- Correct the verification command.
+- Grant a narrow command pattern to the active execution path.
+- Resolve an external service that the verification depends on.
 
-Use `/prflow:review` for assessment only. Use `/prflow:review-and-fix` when you also want local corrections. Use `/prflow:implement <issue-number>` when the work should produce a complete pull request from an existing issue.
+Cloud implementation must observe command-based verification in its own environment. It does not substitute a CI result. A tool grant added by the same pull request is not active until after merge.

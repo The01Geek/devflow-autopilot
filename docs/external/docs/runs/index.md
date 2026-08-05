@@ -1,15 +1,25 @@
 ---
 title: "Runs"
-description: "Choose whether PRFlow executes in your local Claude Code session or through GitHub Actions."
+description: "Choose local interactive execution or optional GitHub Actions automation."
 ---
 
 # Runs
 
-PRFlow supports two execution models:
+This page is for teams choosing where PRFlow should execute. The lifecycle is similar in both modes, but the credentials, permission boundary and interaction model differ.
 
-- [Local runs](/docs/runs/local/index) execute in your current Claude Code session and are the fastest way to get started.
-- [Cloud runs](/docs/runs/cloud/index) execute through repository automation after an authorized GitHub comment.
+| **Run Type** | **Execution Environment** | **Best For** |
+| --- | --- | --- |
+| [Local runs](/docs/runs/local/index) | Your Claude Code, GitHub Copilot CLI or Codex CLI session. | First use, interactive decisions and access to an existing development environment. |
+| [Cloud runs](/docs/runs/cloud/index) | GitHub Actions after an authorized comment. | Headless, comment-driven implementation and review with repository-managed credentials. |
 
-The workflows are conceptually the same, but the execution environment changes. Local runs inherit the tools and credentials available to your session. Cloud runs use explicit GitHub permissions, repository secrets and a declared setup process.
+Local runs inherit tools, authentication and permission prompts from your client session. They need no GitHub Actions workflows or cloud secret.
 
-Begin locally. Add cloud automation when comment-driven execution provides enough value to justify the additional repository configuration.
+Cloud runs use committed workflows, explicit GitHub permissions, repository secrets and a declared setup process. Fresh cloud installations support issue-driven implementation and collaborator-triggered review. They require more maintenance than the local path.
+
+Begin locally. Add cloud automation after the workflow, verification commands and permission scopes are understood.
+
+## Related Documentation
+
+- [Client Command Syntax](/docs/runs/local/client-commands)
+- [Local Permissions](/docs/runs/local/permissions)
+- [Cloud Setup](/docs/runs/cloud/setup)
