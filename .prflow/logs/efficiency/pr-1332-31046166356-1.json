@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1332",
+  "generated_at": "2026-08-05T21:00:34Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.118",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.0872470000000005,
+    "tokens": {
+      "input_tokens": 37,
+      "output_tokens": 16100,
+      "cache_read_input_tokens": 2461126,
+      "cache_creation_input_tokens": 298045,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 71,
+        "outputTokens": 34682,
+        "cacheReadInputTokens": 3447909,
+        "cacheCreationInputTokens": 540515,
+        "webSearchRequests": 0,
+        "costUSD": 7.0872470000000005,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 23,
+    "duration_ms": 353460
+  },
+  "permission_denials": {
+    "count": 2,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "scripts/load-prompt-extension.sh review",
+      "cd /home/runner/work/prflow/prflow; ls .changeset/ | head; echo \"---sample---\"; for f in $(ls .changeset/*.md 2>/dev/null | grep -v README | head -2); do echo \"== $f ==\"; head -5 \"$f\"; done; echo \"=== consolidate parsing ===\"; grep -n \"type\\|bump\" scripts/consolidate-changesets.py | head"
+    ],
+    "total": 2,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
