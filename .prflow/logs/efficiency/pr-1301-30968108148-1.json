@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1301",
+  "generated_at": "2026-08-05T02:12:22Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.104",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.406521499999999,
+    "tokens": {
+      "input_tokens": 1291,
+      "output_tokens": 27800,
+      "cache_read_input_tokens": 5083337,
+      "cache_creation_input_tokens": 163933,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 1357,
+        "outputTokens": 42832,
+        "cacheReadInputTokens": 7195088,
+        "cacheCreationInputTokens": 338663,
+        "webSearchRequests": 0,
+        "costUSD": 7.406521499999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 40,
+    "duration_ms": 583052
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none}\"; gh pr view 1301 --json headRefName,baseRefName,baseRefOid,headRefOid,body,title,url,closingIssuesReferences --jq '{title,headRefName,baseRefName,baseRefOid,headRefOid,url,closes:.closingIssuesReferences}'",
+      "cd /home/runner/work/prflow/prflow\n# Old paths that were moved:\ngit diff --name-status -M dbf94ba5756e0f32dc5fc5c6574f1ef5f4d27577...27df825dad0c264b1927f473e77a59980f0350c5 | awk '$1 ~ /^R/ {print $2}' > /tmp/oldpaths.txt 2>/dev/null || awk '$1 ~ /^R/ {print $2}' \nwc -l /tmp/oldpaths.txt\necho \"=== stale references to old paths still in tracked tree (excluding docs/internal itself, cutovers self-refs, and .changeset) ===\"\nwhile IFS= read -r p; do\n  # search for the exact old path as a reference; …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\n# Find references to docs/<name> old-style (not docs/internal, not docs/site) across tracked files\ngit grep -nE '(^|[^/a-zA-Z])docs/[A-Za-z0-9_.-]+\\.(md|png|txt)' -- ':!docs/internal/**' ':!.changeset/**' 2>/dev/null \\\n  | grep -vE 'docs/internal/|docs/site/|docs/README|docs/architecture/|docs/guides/|docs/reference/' \\\n  | head -60",
+      "cd /home/runner/work/prflow/prflow; git grep -nE 'docs/[a-zA-Z-]+-$' -- '*.sh' '*.py' '*.yml' '*.yaml' | grep -v 'docs/internal'",
+      ".prflow/vendor/prflow/scripts/workpad.py patch 5186684269 .prflow/tmp/review/pr-1301/30968108148-1/review-wp.md 2>.prflow/tmp/review/pr-1301/30968108148-1/rv-patch.err ; echo \"patch-rc=$?\"; head -c 300 .prflow/tmp/review/pr-1301/30968108148-1/rv-patch.err"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
