@@ -119,30 +119,43 @@ case "$CLASS" in
 esac
 
 # ── Run the reader over the execution file → cost JSON ───────────────────────
-# Named inert breadcrumb (AC7) for the absent/empty file — the id-rename hazard would
+# An inert COST does NOT short-circuit the PR resolution below. DEVFLOW_EXECUTION_PR
+# used to be the cost floor's operand alone, so each inert arm emitted an empty PR and
+# exited here. It has a SECOND consumer now — the permission-denial forensics floor's
+# skeleton arm in lib/efficiency-trace.sh, which keys its record `pr-<N>-<run-id>.json`
+# — and those two operands fail INDEPENDENTLY: a run that dies before writing cost
+# figures can still have produced denials worth persisting. Short-circuiting here made
+# the denial skeleton unreachable on exactly that path (empty COST *and* empty PR), so
+# the arms below record the cost as inert and fall through. The cost floor itself is
+# unaffected: apply_harness_floor returns at its first guard on an empty
+# DEVFLOW_EXECUTION_COST, so no cost skeleton is written and no all-null harness_cost is
+# staged — a non-empty PR beside an empty COST changes nothing on the cost side.
+# Each arm keeps its own distinct named breadcrumb (AC7): the id-rename hazard would
 # otherwise disarm the floor silently.
+COST=""
+COST_INERT=""
 if [ -z "$EXEC_FILE" ] || [ ! -f "$EXEC_FILE" ] || [ ! -s "$EXEC_FILE" ]; then
   echo "::warning::prepare-harness-floor: harness cost floor inert this run: execution file absent" >&2
-  [ -n "$COST_OUT" ] && : > "$COST_OUT" 2>/dev/null || true
-  _emit "" "$CLASS"
+  COST_INERT=1
+else
+  # Do NOT suppress the reader's stderr: its breadcrumb (OSError / empty / JSON-garbage —
+  # the exact reason COST comes back empty here) must reach the step log so the "see the
+  # reader's breadcrumb" message below points at a breadcrumb that actually appears. Only
+  # stdout is captured into COST; the reader's stderr flows to this step's log.
+  COST="$(python3 "$READER" "$EXEC_FILE" || true)"
+  if [ -z "$COST" ]; then
+    echo "::warning::prepare-harness-floor: harness cost floor inert this run: execution file could not be parsed for cost (see the reader's breadcrumb above)" >&2
+    COST_INERT=1
+  elif ! _cost_has_figures "$COST"; then
+    echo "::warning::prepare-harness-floor: harness cost floor inert this run: execution file carried no cost or usage figures; refusing to stage an all-null harness_cost" >&2
+    COST_INERT=1
+  fi
 fi
-# Do NOT suppress the reader's stderr: its breadcrumb (OSError / empty / JSON-garbage —
-# the exact reason COST comes back empty here) must reach the step log so the "see the
-# reader's breadcrumb" message below points at a breadcrumb that actually appears. Only
-# stdout is captured into COST; the reader's stderr flows to this step's log.
-COST="$(python3 "$READER" "$EXEC_FILE" || true)"
-if [ -z "$COST" ]; then
-  echo "::warning::prepare-harness-floor: harness cost floor inert this run: execution file could not be parsed for cost (see the reader's breadcrumb above)" >&2
+if [ -n "$COST_INERT" ]; then
+  # Empty the handoff so no caller reads a stale cost from a previous invocation.
   [ -n "$COST_OUT" ] && : > "$COST_OUT" 2>/dev/null || true
-  _emit "" "$CLASS"
-fi
-if ! _cost_has_figures "$COST"; then
-  echo "::warning::prepare-harness-floor: harness cost floor inert this run: execution file carried no cost or usage figures; refusing to stage an all-null harness_cost" >&2
-  [ -n "$COST_OUT" ] && : > "$COST_OUT" 2>/dev/null || true
-  _emit "" "$CLASS"
-fi
-# Cost is available — stage it for --persist.
-if [ -n "$COST_OUT" ]; then
+elif [ -n "$COST_OUT" ]; then
+  # Cost is available — stage it for --persist.
   printf '%s\n' "$COST" > "$COST_OUT" 2>/dev/null \
     || echo "::warning::prepare-harness-floor: could not write cost JSON to '$COST_OUT'; the merge/skeleton arms will be inert this run" >&2
 fi

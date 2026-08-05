@@ -17656,7 +17656,7 @@ assert_eq "app-token: overview §15 routes the review agent's posts to DevFlow-R
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/efficiency-trace-telemetry.sh" \
-  "efficiency-trace-telemetry" 903; then
+  "efficiency-trace-telemetry" 922; then
   printf 'ERROR: efficiency-trace-telemetry boundary could not record its result\n'
   exit 1
 fi
@@ -46428,7 +46428,10 @@ _908_IMPLEMENT_YML="$LIB/../.github/workflows/devflow-implement.yml"
 # The `command` tier (manual /prflow:review, /prflow:review-and-fix). It carries the same
 # #1179 ceiling for the same reason the implement tier does — the whole-suite coordinator
 # its prompt extension names as the final gate exceeds Claude Code's 600000 ms default —
-# and is driven through the same ceiling extractor below.
+# and is driven through the same ceiling extractor below. It is driven through the HOOK
+# extractor below for the same reason the implement tier is: the #908 tier-scope decision
+# registers the shape guard on the review tier ONLY, so a hooks key appearing in this
+# tier's settings input is out of scope by that decision and not merely undeclared.
 _908_COMMAND_YML="$LIB/../.github/workflows/devflow.yml"
 assert_eq "#908 AC1: devflow-runner.yml's claude-code-action step carries a settings: input" "yes" \
   "$(grep -qF 'settings: |' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- pins the effectiveness channel AC1 requires: the claude-code-action settings input is what registers the PreToolUse hook with the review-tier runner
@@ -46441,9 +46444,9 @@ assert_eq "#908 AC1: the settings input registers a PreToolUse hook naming the g
 # registration would evade it entirely. Parse the YAML with PyYAML instead and check,
 # structurally, that no step registers a PreToolUse hook — the same precision the #460
 # errexit fixture above uses to extract a step's `run:` body, applied here to a `with:`
-# key check instead. The property #908 protects on the implement tier is "no PreToolUse
-# guard" (that shape guard is review-tier-only), NOT "no settings input at all": issue
-# #1179 legitimately adds an env-only `settings` block here to raise BASH_MAX_TIMEOUT_MS,
+# key check instead. The property #908 protects on the implement and command tiers is "no
+# PreToolUse guard" (that shape guard is review-tier-only), NOT "no settings input at all":
+# issue #1179 legitimately adds an env-only `settings` block to each to raise BASH_MAX_TIMEOUT_MS,
 # which registers no hook. So a `settings` block is allowed IFF it declares no `hooks`
 # key and no `with` value mentions "PreToolUse". Falls back to a PreToolUse-only grep
 # when python3/PyYAML is unavailable, so the assertion still runs somewhere.
@@ -46479,13 +46482,24 @@ _wfg_grep_fallback() {
   [ -r "$1" ] || { echo unreadable; return 0; }
   grep -vE '^[[:space:]]*#' "$1" | grep -qE 'PreToolUse|pretooluse-shape-guard' && echo no || echo yes
 }
-# Both directions of that guard, driven on EVERY host (they need neither python3/PyYAML nor
-# scratch space, so they stay outside the armed/degraded split below): an unreadable input
-# yields the non-passing token, and a readable one still resolves to a real verdict.
+# Every verdict that guard can reach, driven on EVERY host (these rows need neither
+# python3/PyYAML nor scratch space, so they stay outside the armed/degraded split below): an
+# unreadable input yields the non-passing token, a readable compliant one resolves to a real
+# verdict, and a readable non-compliant one is refused.
 assert_eq "#908 fallback: an unreadable input fails closed rather than reading as compliant" "unreadable" \
   "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML.no-such-file")"
 assert_eq "#908 fallback: a readable input still resolves to a real verdict" "yes" \
   "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML")"
+# ...and it must REFUSE a workflow that really does register the guard, on every host too.
+# The review tier's live devflow-runner.yml is that workflow — AC1 above pins the registration
+# it carries, inside its `settings:` block scalar where no comment filter can reach it — so
+# this row is the fallback's discrimination proof and needs neither python3/PyYAML nor scratch
+# space. Without it the arm that runs on a degraded host asserted only `yes` verdicts, so a
+# pattern that had silently stopped matching anything would have read as a clean pass on
+# exactly the hosts with nothing better to fall back to; the fixture-driven and composed
+# refusal rows that would otherwise catch that all live in the armed arm and never run there.
+assert_eq "#908 fallback: it REFUSES the review tier's live workflow, which really does register the guard" "no" \
+  "$(_wfg_grep_fallback "$_908_RUNNER_YML")"
 _WFG_D=""
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
   _WFG_D="$(mktemp -d 2>/dev/null || true)"
@@ -46591,11 +46605,86 @@ def bounded(val):
 
 print("ok" if vals and all(bounded(v) for v in vals) else "no")
 PY
-  # Both runners fail CLOSED: a YAML parse error or an otherwise unhandled shape exits
+  # NEGATIVE-CONTROL COMPOSER for the live-workflow hook rows. A guard shown only to PASS
+  # on a clean file is the "passes on the very inputs it was added to catch" class: such a
+  # row reads identically whether the guard works, is hardwired to `yes`, or is pointed at
+  # a workflow carrying no claude-code-action step for it to inspect. This writes a copy of
+  # a LIVE workflow with a hooks key spliced into its existing `settings: |` block scalar —
+  # every other byte, authoring comments included, intact — so the refusal is demonstrated
+  # against the real file rather than against a synthetic stand-in for it.
+  #
+  # It fails LOUDLY on a splice target it cannot pin down: zero matches (the settings input
+  # reshaped away) or more than one (an ambiguous target) exits nonzero rather than emitting
+  # an unmutated copy, which would make the refusal rows below pass vacuously. What it does
+  # NOT establish is that the copy it emits carries a well-formed hooks key — it edits text
+  # and never parses the block scalar it edits, so that half is asserted separately, by the
+  # settings-shape read-back below. (An earlier `if out == src: sys.exit(1)` arm claimed to
+  # cover it and could not: the insertion is a fixed non-empty literal, so once a single match
+  # is found `out` is strictly longer than `src` and that arm could never fire.)
+  cat > "$_WFG_D/compose-hook-negative.py" <<'PY'
+import re, sys
+
+src = open(sys.argv[1], encoding="utf-8").read()
+matches = list(re.finditer(r"^(?P<ind>[ \t]*)settings: \|\n(?P<body>[ \t]*)\{\n", src, re.M))
+if len(matches) != 1:
+    sys.exit(1)
+m = matches[0]
+out = (
+    src[: m.end()]
+    + m.group("body")
+    + '  "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": []}]},\n'
+    + src[m.end() :]
+)
+open(sys.argv[2], "w", encoding="utf-8").write(out)
+print("composed")
+PY
+  # SETTINGS-SHAPE READ-BACK, the attribution half of the negative control below. hook-check.py
+  # answers `no` for a present hooks key AND for a settings block it cannot parse as a JSON
+  # object — its deliberate fail-closed arm. Those two verdicts are indistinguishable at the
+  # assertion, so if the composer's hooks literal were ever reworded into invalid JSON the
+  # refusal row would stay green while exercising the parse arm and never touching hook
+  # detection: the same vacuity the negative control exists to rule out, displaced one level.
+  # This reports WHICH case holds, so the refusal is attributable to the spliced hooks key.
+  # It is not redundant with the refusal row — the refusal row is precisely what cannot tell
+  # the two apart. Deliberately independent of hook-check.py rather than a call into it: a
+  # read-back that shared the program under test could not contradict it.
+  cat > "$_WFG_D/settings-shape.py" <<'PY'
+import sys, yaml, json
+
+doc = yaml.safe_load(open(sys.argv[1]))
+shapes = []
+for job in doc.get("jobs", {}).values():
+    for s in job.get("steps", []) or []:
+        if not str(s.get("uses") or "").startswith("anthropics/claude-code-action"):
+            continue
+        settings = (s.get("with") or {}).get("settings")
+        if settings is None:
+            shapes.append("absent")
+            continue
+        if isinstance(settings, dict):
+            parsed = settings
+        elif isinstance(settings, str):
+            try:
+                parsed = json.loads(settings)
+            except (ValueError, TypeError):
+                parsed = None
+        else:
+            parsed = None
+        if not isinstance(parsed, dict):
+            shapes.append("not-an-object")
+        else:
+            shapes.append("object-with-hooks" if "hooks" in parsed else "object-no-hooks")
+# One token per claude-code-action step, joined — never a first-match read, so a second step
+# appearing in either file changes the verdict visibly instead of hiding behind the first.
+print(",".join(shapes) if shapes else "no-action-step")
+PY
+  # Every runner below fails CLOSED: a YAML parse error or an otherwise unhandled shape exits
   # nonzero, and the caller substitutes a value that satisfies no assertion below (issue
   # #908 confirmatory review; mirrors the _908_PROBE_JOB extractor's discipline).
   _wfg_hook() { local o; o="$(python3 "$_WFG_D/hook-check.py" "$1" 2>/dev/null)" || o="extractor-failed"; printf '%s\n' "$o"; }
   _wfg_ceiling() { local o; o="$(python3 "$_WFG_D/ceiling-check.py" "$1" 2>/dev/null)" || o="extractor-failed"; printf '%s\n' "$o"; }
+  _wfg_compose_neg() { local o; o="$(python3 "$_WFG_D/compose-hook-negative.py" "$1" "$2" 2>/dev/null)" || o="composer-failed"; printf '%s\n' "$o"; }
+  _wfg_settings_shape() { local o; o="$(python3 "$_WFG_D/settings-shape.py" "$1" 2>/dev/null)" || o="extractor-failed"; printf '%s\n' "$o"; }
   # Compose a synthetic workflow fixture named $1 whose single claude-code-action step
   # carries the `with:` body supplied on stdin (indented to its position under `with:`).
   # The result is a real YAML document reaching the extractors through the same entry
@@ -46728,6 +46817,42 @@ YML
   # extractor, no new mechanism.
   assert_eq "#1179: devflow.yml (command tier) sets a finite BASH_MAX_TIMEOUT_MS > 600000 ms via the claude-code-action settings env" "ok" \
     "$(_wfg_ceiling "$_908_COMMAND_YML")"
+  # The command tier gets the SAME hook guard as the implement tier above. Until this row
+  # existed the hook extractor was invoked against devflow-implement.yml alone, so adding a
+  # hooks key to devflow.yml's action step passed the suite in silence — and devflow.yml is
+  # the SHIPPED tier: install.sh copies it into every consumer repo, and its own Step 0.5
+  # branch sync moves the working tree onto the PR head before the agent runs, so a hook
+  # registered through this input would be PR-author-editable code running ahead of every
+  # tool call. Whether such a hook should ever exist here is a separate open decision; this
+  # row makes either answer a visible one rather than a silent default. Same extractor, same
+  # allowance: an env-only settings block (the #1179 ceiling this tier also carries) passes.
+  assert_eq "#908 AC1: devflow.yml (command tier) registers no PreToolUse guard (env-only settings allowed)" "yes" \
+    "$(_wfg_hook "$_908_COMMAND_YML")"
+  # ── Negative control for the row above ────────────────────────────────────
+  # The composed fixture is devflow.yml byte-for-byte apart from one hooks key spliced into
+  # its settings block scalar, so the rows below isolate exactly that difference: the shape
+  # read-back establishes that the difference IS a hooks key inside still-valid JSON, and both
+  # the armed extractor and the degraded-host grep must then flip to a refusal. The grep row is
+  # the one that also confirms the fallback's `PreToolUse|pretooluse-shape-guard` pattern still
+  # discriminates on THIS file — devflow.yml names neither token anywhere today, in code or
+  # in comment, so the clean row below cannot distinguish a working pattern from one that
+  # matches nothing; this row can.
+  _WFG_NEG_YML="$_WFG_D/command-tier-with-hook.yml"
+  assert_eq "#908 negative control: a hook-bearing copy of devflow.yml is composed from the live workflow" "composed" \
+    "$(_wfg_compose_neg "$_908_COMMAND_YML" "$_WFG_NEG_YML")"
+  # Attribution, asserted both directions so the pair pins the whole delta: the clean file's
+  # settings input parses as a JSON object WITHOUT a hooks key, the composed copy as a JSON
+  # object WITH one. Together they establish that the refusal below is caused by hook
+  # detection and not by hook-check.py's unparseable-settings arm, which returns the same
+  # token. Do not drop either row as redundant with the refusal — see the extractor's note.
+  assert_eq "#908 negative control: the clean devflow.yml settings input parses as a JSON object carrying no hooks key" "object-no-hooks" \
+    "$(_wfg_settings_shape "$_908_COMMAND_YML")"
+  assert_eq "#908 negative control: the spliced copy still parses as a JSON object, now carrying a hooks key" "object-with-hooks" \
+    "$(_wfg_settings_shape "$_WFG_NEG_YML")"
+  assert_eq "#908 negative control: the hook guard REFUSES a devflow.yml carrying a settings-input hook" "no" \
+    "$(_wfg_hook "$_WFG_NEG_YML")"
+  assert_eq "#908 negative control: the degraded-host grep fallback also refuses that same devflow.yml" "no" \
+    "$(_wfg_grep_fallback "$_WFG_NEG_YML")"
   # ── The hook guard over the fixture matrix ────────────────────────────────
   assert_eq "#908 matrix: an env-only settings block in string form is allowed" "yes" \
     "$(_wfg_hook "$_WFG_D/env-string.yml")"
@@ -46760,6 +46885,8 @@ YML
   # filter landed, which is why both directions are asserted.
   assert_eq "#908 matrix: the degraded-host grep fallback clears a workflow whose only guard mentions are comments" "yes" \
     "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML")"
+  assert_eq "#908 matrix: the degraded-host grep fallback clears the command tier's live workflow" "yes" \
+    "$(_wfg_grep_fallback "$_908_COMMAND_YML")"
   assert_eq "#908 matrix: the degraded-host grep fallback still catches a real PreToolUse registration" "no" \
     "$(_wfg_grep_fallback "$_WFG_D/hook-mapping.yml")"
   # ── The ceiling guard over the fixture matrix ─────────────────────────────
@@ -46796,6 +46923,14 @@ YML
 else
   assert_eq "#908 AC1: devflow-implement.yml registers no PreToolUse guard (env-only settings allowed)" "yes" \
     "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML")"
+  assert_eq "#908 AC1: devflow.yml (command tier) registers no PreToolUse guard (env-only settings allowed)" "yes" \
+    "$(_wfg_grep_fallback "$_908_COMMAND_YML")"
+  # These two rows assert only `yes`, so on their own they could not tell a working grep from
+  # one that had stopped matching. What discriminates for them is the always-on refusal row
+  # above the armed/degraded split, which drives this same fallback over the review tier's live
+  # workflow and requires a `no`. The command tier's file-specific negative control additionally
+  # needs the composed fixture (python3 + scratch space), so it stays in the armed arm only and
+  # is covered by the fixture-matrix skip below rather than vanishing into this arm's clean pass.
   # No grep fallback is meaningful for "finite int > 600000", so on a host lacking
   # python3/PyYAML (or lacking scratch space for the fixtures) these guards SELF-SKIP as
   # host-capability rather than vanishing into a clean pass (#456: a silently-absent guard
