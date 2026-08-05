@@ -1107,7 +1107,7 @@ def _validate_coupled_sites(sites=None):
     """
     if sites is None:
         sites = COUPLED_SITES
-    seen_names = {}
+    seen_names = set()
     for entry in sites:
         name = entry.get("name")
         # Every required string field must be a present, non-empty string, so a row that
@@ -1149,7 +1149,7 @@ def _validate_coupled_sites(sites=None):
                 f"coupled-site entry name {name!r} is declared more than once; names "
                 "must be unique"
             )
-        seen_names[name] = True
+        seen_names.add(name)
 
 
 def _coupled_site_path_failures(sites, root):
