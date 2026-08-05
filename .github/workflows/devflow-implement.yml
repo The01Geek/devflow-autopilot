@@ -1859,15 +1859,15 @@ jobs:
           # arm is never changed (AC5).
           record_empty_branch() {
             [ "${CLASS:-}" = "interim" ] || return 0
-            local wp_id wp_body br
+            local wp_id wp_body
             wp_id="$(python3 "$V/workpad.py" id "$ISSUE_NUMBER" 2>/dev/null)" || wp_id=""
             wp_body=""
             [ -n "$wp_id" ] && { wp_body="$(python3 "$V/workpad.py" body "$wp_id" 2>/dev/null)" || wp_body=""; }
-            # Parse the workpad `**Branch:** ` + backtick-quoted name; a placeholder
-            # like `_(creating…)_` carries no backticks, so `br` stays empty and the
-            # helper records the unestablished case rather than a false no-commit.
-            br="$(printf '%s\n' "$wp_body" | sed -n 's/^\*\*Branch:\*\* `\([^`]*\)`.*/\1/p' | head -n1)"
-            ISSUE_NUMBER="$ISSUE_NUMBER" BRANCH="$br" BASE="$BASE_BRANCH" REMOTE=origin \
+            # BRANCH is left empty: the helper parses it from the workpad body it
+            # receives as EB_WORKPAD_BODY (which is also its idempotency source), so
+            # the fragile line parse is driven by the suite rather than stranded in
+            # untestable workflow YAML.
+            ISSUE_NUMBER="$ISSUE_NUMBER" BRANCH="" BASE="$BASE_BRANCH" REMOTE=origin \
               RUN_URL="$RUN_URL" V="$V" EB_WORKPAD_BODY="$wp_body" \
               bash "$V/record-empty-branch.sh" \
               || echo "::warning::stall backstop: empty-branch producer exited non-zero; workpad note may be unwritten"

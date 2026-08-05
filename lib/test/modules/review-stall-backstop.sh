@@ -2556,6 +2556,17 @@ assert_eq "#1261 idempotency: a workpad already carrying the marker is deduped" 
 assert_eq "#1261 idempotency: no duplicate statement is written on the deduped invocation" "0" \
   "$(wc -l < "$T1261/notes.txt" | tr -d ' ')"
 
+# Branch resolved from the workpad body when BRANCH is empty: a real `**Branch:**`
+# line resolves the branch (→ NO_COMMIT here), and a placeholder line with no
+# backticks stays unresolved (→ UNESTABLISHED, never a false NO_COMMIT).
+: > "$T1261/notes.txt"
+D_BODY="$( cd "$T1261/work" && ISSUE_NUMBER=1 BRANCH= BASE=main REMOTE=origin \
+  V="$T1261/scripts" RUN_URL=http://run/1 EB_WORKPAD_BODY='**Branch:** `feat`' bash "$EB1261" | sed -n 's/^decision=//p' )"
+assert_eq "#1261 branch parsed from the workpad body when BRANCH is empty (0-ahead → NO_COMMIT)" "NO_COMMIT" "$D_BODY"
+D_PLACEHOLDER="$( cd "$T1261/work" && ISSUE_NUMBER=1 BRANCH= BASE=main REMOTE=origin \
+  V="$T1261/scripts" RUN_URL=http://run/1 EB_WORKPAD_BODY='**Branch:** _(creating…)_' bash "$EB1261" | sed -n 's/^decision=//p' )"
+assert_eq "#1261 a placeholder Branch line (no backticks) stays UNESTABLISHED, never a false NO_COMMIT" "UNESTABLISHED" "$D_PLACEHOLDER"
+
 # ── Workflow wiring (AC1 producer-in-the-step, AC6 coexists-with-flips, and the
 # never-on-the-resume-path guard). Parsed from the claude job's Stall backstop
 # step, the way the module asserts the existing flips.
@@ -2592,4 +2603,4 @@ assert_eq "#1261 record_empty_branch is referenced exactly 3x (def + 2 flips) �
   "True" "$(eb1261_step 'run.count("record_empty_branch") == 3')"
 
 rm -rf "$T1261"
-unset EB1261 DECIDE1261 T1261 D_NC D_HC D_UN1 D_UN2 OUT_FAIL1261 RC_FAIL1261 OUT_DEDUP1261
+unset EB1261 DECIDE1261 DECIDE1261_CODE T1261 D_NC D_HC D_UN1 D_UN2 D_BODY D_PLACEHOLDER OUT_FAIL1261 RC_FAIL1261 OUT_DEDUP1261

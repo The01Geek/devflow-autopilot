@@ -23,9 +23,15 @@
 #
 # Inputs (environment):
 #   ISSUE_NUMBER   The issue whose workpad receives the note.
-#   BRANCH         The run's feature branch name. EMPTY selects UNESTABLISHED (the
-#                  branch name was unavailable — an unestablished case, never a
-#                  no-commit one).
+#   BRANCH         The run's feature branch name. When empty it is parsed from the
+#                  workpad `**Branch:**` line in EB_WORKPAD_BODY (a placeholder like
+#                  `_(creating…)_` carries no backticks, so it stays empty). A
+#                  still-empty value selects UNESTABLISHED (the branch name was
+#                  unavailable — an unestablished case, never a no-commit one). The
+#                  caller may pass it explicitly (the suite does, to drive each
+#                  outcome); the workflow leaves it empty and lets the body parse
+#                  resolve it, so the fragile line parse is exercised here rather
+#                  than stranded in untestable workflow YAML.
 #   BASE           The base branch (config .base_branch; default resolved by the
 #                  caller). EMPTY selects UNESTABLISHED.
 #   REMOTE         The git remote to probe (default: origin).
@@ -67,6 +73,13 @@ MARKER='<!-- prflow:empty-branch -->'
 
 decision=""
 reason=""
+
+# Resolve the feature branch from the workpad `**Branch:**` line when the caller
+# did not pass one explicitly. A placeholder (`_(creating…)_`) has no backticks,
+# so the capture stays empty and the unestablished arm fires below.
+if [ -z "$BRANCH" ] && [ -n "$EB_WORKPAD_BODY" ]; then
+  BRANCH="$(printf '%s\n' "$EB_WORKPAD_BODY" | sed -n 's/^\*\*Branch:\*\* `\([^`]*\)`.*/\1/p' | head -n1)"
+fi
 
 if [ -z "$BRANCH" ] || [ -z "$BASE" ]; then
   decision=UNESTABLISHED
