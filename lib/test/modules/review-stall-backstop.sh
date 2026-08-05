@@ -2472,7 +2472,7 @@ T1261="$(mktemp -d)"
 mkdir -p "$T1261/origin.git" "$T1261/work" "$T1261/scripts"
 git init -q --bare "$T1261/origin.git"
 (
-  cd "$T1261/work"
+  cd "$T1261/work" || exit 1
   git init -q; git config user.email a@b.c; git config user.name t
   git commit -q --allow-empty -m base1
   git branch -M main
@@ -2568,10 +2568,10 @@ assert_eq "#1261 idempotency: no duplicate statement is written on the deduped i
 # line resolves the branch (→ NO_COMMIT here), and a placeholder line with no
 # backticks stays unresolved (→ UNESTABLISHED, never a false NO_COMMIT).
 : > "$T1261/notes.txt"
-D_BODY="$( cd "$T1261/work" && ISSUE_NUMBER=1 BRANCH= BASE=main REMOTE=origin \
+D_BODY="$( cd "$T1261/work" && ISSUE_NUMBER=1 BRANCH='' BASE=main REMOTE=origin \
   V="$T1261/scripts" RUN_URL=http://run/1 EB_WORKPAD_BODY='**Branch:** `feat`' bash "$EB1261" | sed -n 's/^decision=//p' )"
 assert_eq "#1261 branch parsed from the workpad body when BRANCH is empty (0-ahead → NO_COMMIT)" "NO_COMMIT" "$D_BODY"
-D_PLACEHOLDER="$( cd "$T1261/work" && ISSUE_NUMBER=1 BRANCH= BASE=main REMOTE=origin \
+D_PLACEHOLDER="$( cd "$T1261/work" && ISSUE_NUMBER=1 BRANCH='' BASE=main REMOTE=origin \
   V="$T1261/scripts" RUN_URL=http://run/1 EB_WORKPAD_BODY='**Branch:** _(creating…)_' bash "$EB1261" | sed -n 's/^decision=//p' )"
 assert_eq "#1261 a placeholder Branch line (no backticks) stays UNESTABLISHED, never a false NO_COMMIT" "UNESTABLISHED" "$D_PLACEHOLDER"
 
