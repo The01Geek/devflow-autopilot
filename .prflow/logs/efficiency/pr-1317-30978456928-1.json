@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1317",
+  "generated_at": "2026-08-05T05:43:14Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.112",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.398756750000002,
+    "tokens": {
+      "input_tokens": 57,
+      "output_tokens": 21853,
+      "cache_read_input_tokens": 4428670,
+      "cache_creation_input_tokens": 179928,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 101,
+        "outputTokens": 45551,
+        "cacheReadInputTokens": 5595831,
+        "cacheCreationInputTokens": 445893,
+        "webSearchRequests": 0,
+        "costUSD": 7.398756750000002,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 35,
+    "duration_ms": 516695
+  },
+  "permission_denials": {
+    "count": 12,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "git fetch origin fe455329fdf082ee41adee224b43a7d725305ba1 2>&1 | tail -2; git show fe455329fdf082ee41adee224b43a7d725305ba1:scripts/import-review-verdict-handoff.py > .prflow/tmp/review/pr-1317/fe45532/importer.py 2>&1; wc -l .prflow/tmp/review/pr-1317/fe45532/importer.py",
+      "MB=$(git merge-base origin/main fe455329fdf082ee41adee224b43a7d725305ba1); echo \"mb=$MB\"; git diff $MB..fe455329fdf082ee41adee224b43a7d725305ba1 -- lib/test/run.sh lib/test/modules/coverage-map.json lib/test/test_module_runner.py .prflow/config.json .github/workflows/matcher-probe.yml .changeset/issue-1314-review-verdict-handoff-importer.md",
+      "git diff $(git merge-base origin/main fe455329fdf082ee41adee224b43a7d725305ba1)..fe455329fdf082ee41adee224b43a7d725305ba1 -- lib/test/run.sh lib/test/modules/coverage-map.json lib/test/test_module_runner.py .prflow/config.json .github/workflows/matcher-probe.yml .changeset/issue-1314-review-verdict-handoff-importer.md",
+      "git show fe455329fdf082ee41adee224b43a7d725305ba1:scripts/import-review-verdict-handoff.py > /tmp/imp.py && git show fe455329fdf082ee41adee224b43a7d725305ba1:lib/test/test_import_review_verdict_handoff.py > /tmp/t.py 2>&1; python3 -c \"\nimport importlib.util,sys,os,tempfile,json,contextlib,io\n# emulate module load path expectation: test expects scripts/import-review-verdict-handoff.py at repo root parents[2]\nprint('manual review only')\n\"",
+      "cd /tmp && mkdir -p rr/scripts rr/lib/test && git -C /home/runner/work/prflow/prflow show fe455329fdf082ee41adee224b43a7d725305ba1:scripts/import-review-verdict-handoff.py > rr/scripts/import-review-verdict-handoff.py && git -C /home/runner/work/prflow/prflow show fe455329fdf082ee41adee224b43a7d725305ba1:lib/test/test_import_review_verdict_handoff.py > rr/lib/test/test_import_review_verdict_handoff.py && python3 rr/lib/test/test_import_review_verdict_handoff.py 2>&1 | tail -5",
+      "rm -rf /tmp/rr && mkdir -p /tmp/rr/scripts /tmp/rr/lib/test && git show fe455329fdf082ee41adee224b43a7d725305ba1:scripts/import-review-verdict-handoff.py > /tmp/rr/scripts/import-review-verdict-handoff.py && git show fe455329fdf082ee41adee224b43a7d725305ba1:lib/test/test_import_review_verdict_handoff.py > /tmp/rr/lib/test/test_import_review_verdict_handoff.py && python3 /tmp/rr/lib/test/test_import_review_verdict_handoff.py 2>&1 | tail -6",
+      "mkdir -p /tmp/rr/scripts /tmp/rr/lib/test",
+      "D=/home/runner/work/prflow/prflow/.prflow/tmp/rr; rm -rf \"$D\"; mkdir -p \"$D/scripts\" \"$D/lib/test\"; git show fe455329fdf082ee41adee224b43a7d725305ba1:scripts/import-review-verdict-handoff.py > \"$D/scripts/import-review-verdict-handoff.py\"; git show fe455329fdf082ee41adee224b43a7d725305ba1:lib/test/test_import_review_verdict_handoff.py > \"$D/lib/test/test_import_review_verdict_handoff.py\"; python3 \"$D/lib/test/test_import_review_verdict_handoff.py\" 2>&1 | tail -6",
+      "D=$(mktemp -d); mkdir -p \"$D/scripts\" \"$D/lib/test\"; git show fe455329fdf082ee41adee224b43a7d725305ba1:scripts/import-review-verdict-handoff.py | tee \"$D/scripts/import-review-verdict-handoff.py\" >/dev/null; git show fe455329fdf082ee41adee224b43a7d725305ba1:lib/test/test_import_review_verdict_handoff.py | tee \"$D/lib/test/test_import_review_verdict_handoff.py\" >/dev/null; python3 \"$D/lib/test/test_import_review_verdict_handoff.py\" 2>&1 | tail -6",
+      "git show fe455329fdf082ee41adee224b43a7d725305ba1:scripts/import-review-verdict-handoff.py > /tmp/imp_src.py; git show fe455329fdf082ee41adee224b43a7d725305ba1:lib/test/test_import_review_verdict_handoff.py > /tmp/test_src.py; python3 - <<'EOF'\nimport os,tempfile,shutil,subprocess\nd=tempfile.mkdtemp()\nos.makedirs(d+\"/scripts\"); os.makedirs(d+\"/lib/test\")\nshutil.copy(\"/tmp/imp_src.py\", d+\"/scripts/import-review-verdict-handoff.py\")\nshutil.copy(\"/tmp/test_src.py\", d+\"/lib/test/test_import_review_v …[per-command-truncated]",
+      "git show fe455329fdf082ee41adee224b43a7d725305ba1:scripts/import-review-verdict-handoff.py > /tmp/imp_src.py",
+      ".prflow/vendor/prflow/scripts/workpad.py patch 5187982838 .prflow/tmp/review/pr-1317/fe45532/review-wp.md 2>.prflow/tmp/review/pr-1317/fe45532/rv-patch.err; echo \"patch-rc=$?\"; cat .prflow/tmp/review/pr-1317/fe45532/rv-patch.err"
+    ],
+    "total": 12,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
