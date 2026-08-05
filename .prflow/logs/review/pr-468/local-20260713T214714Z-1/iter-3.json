@@ -92,5 +92,6 @@
     "duration_s": 145
   },
   "notes": "iter3 findings all Suggestion/Low (final-pass APPROVE). Applied with full fix-delta rigor (R10 dogfood): guard anti-vacuity mutation-evidenced RED both on dropped-key and broken-helper; R9 multi-demote+sort test added.",
+  "synthesized": false,
   "telemetry": "unavailable"
 }

@@ -96,5 +96,6 @@
     "duration_s": 145
   },
   "notes": "iter2 findings all NEW (no iter1 re-raise). Security residual root-fixed producer-side (Phase 4.1.7 neutralization) + documented bounded residual. docstring drift now mechanized. 38->53 mla checks.",
+  "synthesized": false,
   "telemetry": "unavailable"
 }

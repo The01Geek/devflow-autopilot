@@ -19,16 +19,76 @@
     "checklist_skipped": null
   },
   "checklist": [
-    {"id":"VC-1","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:issue-template.md:ac1-named-measurement-rule:199","reused_from_iter_prev":false},
-    {"id":"VC-2","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:issue-template.md:ac2-concrete-counter-example:199","reused_from_iter_prev":false},
-    {"id":"VC-3","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:issue-template.md:ac3-unestablished-not-unnamed:199","reused_from_iter_prev":false},
-    {"id":"VC-4","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:issue-template.md:ac4-consumer-meaningful-guidance:199","reused_from_iter_prev":false},
-    {"id":"VC-5","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:create-issue.md:ac5-motivating-example-pointer:274","reused_from_iter_prev":false},
-    {"id":"VC-6","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:create-issue.md:ac6-stale-claude-pointer-removed:274","reused_from_iter_prev":false},
-    {"id":"VC-7","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:code-architect.md:ac7-no-command-execution-tool:41","reused_from_iter_prev":false},
-    {"id":"VC-8","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:code-architect.md:ac8-grep-count-rejected:41","reused_from_iter_prev":false},
-    {"id":"VC-9","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:code-architect.md:ac9-tool-grants-unchanged:4","reused_from_iter_prev":false},
-    {"id":"VC-10","verification_mode":"agent","verdict":"PASS","claim_signature":"issue_acceptance:issue-template.md:ac10-no-prompt-prose-pin","reused_from_iter_prev":false}
+    {
+      "id": "VC-1",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "issue_acceptance:issue-template.md:ac1-named-measurement-rule:199",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-2",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "issue_acceptance:issue-template.md:ac2-concrete-counter-example:199",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-3",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "issue_acceptance:issue-template.md:ac3-unestablished-not-unnamed:199",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-4",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "issue_acceptance:issue-template.md:ac4-consumer-meaningful-guidance:199",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-5",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "issue_acceptance:create-issue.md:ac5-motivating-example-pointer:274",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-6",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "issue_acceptance:create-issue.md:ac6-stale-claude-pointer-removed:274",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-7",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "issue_acceptance:code-architect.md:ac7-no-command-execution-tool:41",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-8",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "issue_acceptance:code-architect.md:ac8-grep-count-rejected:41",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-9",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "issue_acceptance:code-architect.md:ac9-tool-grants-unchanged:4",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-10",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "issue_acceptance:issue-template.md:ac10-no-prompt-prose-pin",
+      "reused_from_iter_prev": false
+    }
   ],
   "phase3_dispatched": [
     "prflow:code-reviewer",
@@ -42,7 +102,14 @@
       "agent": "prflow:code-reviewer",
       "severity": "Important",
       "description": "The new authoritative quantitative-AC prose should receive source-presence pins.",
-      "defect_signature": {"file":"skills/create-issue/references/issue-template.md","line_range":[201,201],"kind":"test_gap"},
+      "defect_signature": {
+        "file": "skills/create-issue/references/issue-template.md",
+        "line_range": [
+          201,
+          201
+        ],
+        "kind": "test_gap"
+      },
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "pushed_back"
@@ -52,7 +119,14 @@
       "agent": "prflow:silent-failure-hunter",
       "severity": "Suggestion",
       "description": "A complete Grep count-mode result could fall through to the tool-derived verified branch because the explicit unverified disposition was lost.",
-      "defect_signature": {"file":"agents/code-architect.md","line_range":[41,41],"kind":"logic_error"},
+      "defect_signature": {
+        "file": "agents/code-architect.md",
+        "line_range": [
+          41,
+          41
+        ],
+        "kind": "logic_error"
+      },
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "applied"
@@ -62,7 +136,14 @@
       "agent": "prflow:requesting-code-review",
       "severity": "Important",
       "description": "The quality-checklist row restated the new canonical measurement-instrument contract instead of pointing to it.",
-      "defect_signature": {"file":"skills/create-issue/references/issue-template.md","line_range":[465,465],"kind":"comment_drift"},
+      "defect_signature": {
+        "file": "skills/create-issue/references/issue-template.md",
+        "line_range": [
+          465,
+          465
+        ],
+        "kind": "comment_drift"
+      },
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "applied"
@@ -80,7 +161,10 @@
         "basis": "The claimed coverage gap is an explicitly required no-pin design, not a defect.",
         "failing_input": "Deletion or rewording of agent-executed prompt prose with no executable behavior boundary.",
         "source": ".prflow/tmp/issue-body/issue-1215.md — AC10 and Testing Strategy",
-        "finding_ref": {"iter":1,"index":0}
+        "finding_ref": {
+          "iter": 1,
+          "index": 0
+        }
       }
     },
     {
@@ -92,8 +176,16 @@
       "calibrated_severity": "suggestion",
       "evidence": "No behavioral failure exists: the requested pins are forbidden by AC10. The finding is pushed back rather than treated as a blocker."
     },
-    {"finding_id":"F-2","decision":"applied","commit":"e4338f17a48b97be73d40e6fd190cfd574fc33e1"},
-    {"finding_id":"F-3","decision":"applied","commit":"e4338f17a48b97be73d40e6fd190cfd574fc33e1"},
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "e4338f17a48b97be73d40e6fd190cfd574fc33e1"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "e4338f17a48b97be73d40e6fd190cfd574fc33e1"
+    },
     {
       "finding_id": "F-3",
       "decision": "severity-calibrated",
@@ -132,7 +224,17 @@
   "sweep_evidence": {
     "status": "run",
     "diff_shape": "prompt-contract clarification and duplicate-contract collapse to pointer",
-    "selected": ["2.3.0","2.3.0c","2.3.0d","2.3.3","2.3.4","2.3.4a","2.3.4b","2.3.5","2.3.6"],
+    "selected": [
+      "2.3.0",
+      "2.3.0c",
+      "2.3.0d",
+      "2.3.3",
+      "2.3.4",
+      "2.3.4a",
+      "2.3.4b",
+      "2.3.5",
+      "2.3.6"
+    ],
     "result": "clean",
     "evidence": "Tracked-file searches found zero surviving old checklist copies, one canonical quantitative rule plus one pointer, and one explicit code-architect Grep rule. The stale-prose authoring scan examined two hunks and returned zero rows with rc 0."
   },
@@ -161,27 +263,92 @@
     "rows": [],
     "exit_status": 0
   },
-  "base_checkpoint": {"token":"UP_TO_DATE","behind_by":null},
-  "checkpoint_push": {"result":"pushed","destination":"origin/issue-1215-a-quantitative-acceptance-criterion-never-has-to"},
+  "base_checkpoint": {
+    "token": "UP_TO_DATE",
+    "behind_by": null
+  },
+  "checkpoint_push": {
+    "result": "pushed",
+    "destination": "origin/issue-1215-a-quantitative-acceptance-criterion-never-has-to"
+  },
   "reference_reads": {
-    "fix_delta": {"status":"verified","outcome":"clean","reason":null}
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "clean",
+      "reason": null
+    }
   },
   "convergence_inputs": {
     "engine_verdict": "APPROVE with notes",
     "fix_threshold": "suggestion",
     "verdict_threshold": "critical",
-    "phase2": {"passed":10,"failed":0,"inconclusive":0},
+    "phase2": {
+      "passed": 10,
+      "failed": 0,
+      "inconclusive": 0
+    },
     "phase3_returned": 4,
     "phase3_failed": 0
   },
-  "cap_drops": {"count":0,"by_category":{}},
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
   "dispatched_effort": [
-    {"agent":"prflow:checklist-generator","phase":"1","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"per-agent effort low resolved but was not applied; the agent inherits the session effort"},
-    {"agent":"prflow:checklist-verifier","phase":"2","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"per-agent effort low resolved but was not applied; the agent inherits the session effort"},
-    {"agent":"prflow:code-reviewer","phase":"3","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"per-agent effort low resolved but was not applied; Codex mapped the unavailable claude-opus-4-8 model override to gpt-5.6-sol"},
-    {"agent":"prflow:silent-failure-hunter","phase":"3","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"per-agent effort low resolved but was not applied; the agent inherits the session effort"},
-    {"agent":"prflow:comment-analyzer","phase":"3","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"per-agent effort low resolved but was not applied; the agent inherits the session effort"},
-    {"agent":"prflow:requesting-code-review","phase":"3","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"per-agent effort low resolved but was not applied; the agent inherits the session effort"}
+    {
+      "agent": "prflow:checklist-generator",
+      "phase": "1",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort low resolved but was not applied; the agent inherits the session effort"
+    },
+    {
+      "agent": "prflow:checklist-verifier",
+      "phase": "2",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort low resolved but was not applied; the agent inherits the session effort"
+    },
+    {
+      "agent": "prflow:code-reviewer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort low resolved but was not applied; Codex mapped the unavailable claude-opus-4-8 model override to gpt-5.6-sol"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort low resolved but was not applied; the agent inherits the session effort"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort low resolved but was not applied; the agent inherits the session effort"
+    },
+    {
+      "agent": "prflow:requesting-code-review",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort low resolved but was not applied; the agent inherits the session effort"
+    }
   ],
   "shadow": {
     "ran_at": "2026-08-03T20:41:40Z",
@@ -213,7 +380,10 @@
         "description": "Replacing the private rule with a pointer makes the template-unreadable fallback lose the quantitative-AC contract and permits publishing an unnamed counter.",
         "defect_signature": {
           "file": ".prflow/prompt-extensions/create-issue.md",
-          "line_range": [274, 274],
+          "line_range": [
+            274,
+            274
+          ],
           "kind": "logic_error"
         },
         "corroboration_count": 1
@@ -225,7 +395,10 @@
         "description": "Writing-skills evidence is unestablished.",
         "defect_signature": {
           "file": "skills/create-issue/references/issue-template.md",
-          "line_range": [201, 201],
+          "line_range": [
+            201,
+            201
+          ],
           "kind": "test_gap"
         },
         "corroboration_count": 1,
@@ -242,5 +415,6 @@
     },
     "promoted_to_iter_next": true
   },
-  "telemetry": "unavailable"
+  "telemetry": "unavailable",
+  "synthesized": false
 }

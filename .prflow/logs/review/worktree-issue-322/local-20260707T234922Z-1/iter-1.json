@@ -43,7 +43,7 @@
     {
       "agent": "devflow:silent-failure-hunter",
       "severity": "Important",
-      "description": "Retry arm does not clear partial stdout, so a crashed retry can fail OPEN \u2014 asymmetric with the else arm this PR added.",
+      "description": "Retry arm does not clear partial stdout, so a crashed retry can fail OPEN — asymmetric with the else arm this PR added.",
       "defect_signature": {
         "file": ".github/workflows/devflow-review.yml",
         "line_range": [
@@ -75,7 +75,7 @@
     {
       "agent": "devflow:requesting-code-review",
       "severity": "Suggestion",
-      "description": "AC5 reuse keys on exact title, so a head whose deferral reason transitions (behind-base \u2192 ci-not-green \u2192 unverifiable) can accumulate up to 3 neutral checks. Matches the stated same-head+reason contract; harmless (all neutral, gate-excluded).",
+      "description": "AC5 reuse keys on exact title, so a head whose deferral reason transitions (behind-base → ci-not-green → unverifiable) can accumulate up to 3 neutral checks. Matches the stated same-head+reason contract; harmless (all neutral, gate-excluded).",
       "defect_signature": {
         "file": ".github/workflows/devflow-review.yml",
         "line_range": [
@@ -170,5 +170,6 @@
       "new_important": 1
     },
     "promoted_to_iter_next": true
-  }
+  },
+  "synthesized": false
 }

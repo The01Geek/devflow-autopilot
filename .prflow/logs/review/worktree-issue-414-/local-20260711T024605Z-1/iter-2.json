@@ -108,9 +108,9 @@
       "finding_id": "S-5",
       "decision": "advisory",
       "source_file": "scripts/post-review-backstop-comment.sh",
-      "claim_text": "header 'reads all six' \u2014 GH_TOKEN inherited by POST helper, not read here",
+      "claim_text": "header 'reads all six' — GH_TOKEN inherited by POST helper, not read here",
       "skip_category": "advisory-parked",
-      "evidence": "Suggestion from convergence shadow; 'Inputs (env \u2014 ...)' framing makes it essentially correct (all six required in-env); parked per post-shadow-edit discipline rather than a post-convergence edit"
+      "evidence": "Suggestion from convergence shadow; 'Inputs (env — ...)' framing makes it essentially correct (all six required in-env); parked per post-shadow-edit discipline rather than a post-convergence edit"
     }
   ],
   "convergence_inputs": {
@@ -154,7 +154,7 @@
       {
         "agent": "devflow:comment-analyzer",
         "severity": "Suggestion",
-        "description": "helper header 'reads all six from its environment' \u2014 GH_TOKEN is inherited by the POST helper's gh call, not read by this helper",
+        "description": "helper header 'reads all six from its environment' — GH_TOKEN is inherited by the POST helper's gh call, not read by this helper",
         "defect_signature": {
           "file": "scripts/post-review-backstop-comment.sh",
           "line_range": [
@@ -174,5 +174,6 @@
       "new_important": 0
     },
     "promoted_to_iter_next": false
-  }
+  },
+  "synthesized": false
 }

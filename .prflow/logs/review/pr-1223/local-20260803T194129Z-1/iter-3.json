@@ -25,7 +25,13 @@
     "skills/implement/phases/phase-2-implement.md#2.3.6",
     "skills/implement/phases/phase-2-implement.md#2.3.7"
   ],
-  "sweep_evidence": {"status":"not_applicable","diff_shape":"no-fix convergence review iteration","selected":[],"result":"clean","evidence":"Iteration 3 applied no fixes; no fix-triggered sibling sweep was required. The separate parked-class convergence sweep completed with no new siblings."},
+  "sweep_evidence": {
+    "status": "not_applicable",
+    "diff_shape": "no-fix convergence review iteration",
+    "selected": [],
+    "result": "clean",
+    "evidence": "Iteration 3 applied no fixes; no fix-triggered sibling sweep was required. The separate parked-class convergence sweep completed with no new siblings."
+  },
   "diff_profile": {
     "small_diff": false,
     "config_only": true,
@@ -45,25 +51,178 @@
     "exit_status": 0
   },
   "checklist": [
-    {"id":"VC-1","category":"issue_acceptance","claim":"AC1 requires `skills/create-issue/references/issue-template.md` to state that every acceptance criterion expressing a number names the exact command or counting rule used to measure it.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","source_line":201,"verification_mode":"agent","claim_signature":"issue_acceptance:issue-template.md:ac1-numeric-measurement-rule","verdict":"PASS"},
-    {"id":"VC-2","category":"issue_acceptance","claim":"AC2 requires the shipped quantitative-criterion statement to include at least one concrete example of a named counter.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","source_line":201,"verification_mode":"agent","claim_signature":"issue_acceptance:issue-template.md:ac2-concrete-counter-example","verdict":"PASS"},
-    {"id":"VC-3","category":"issue_acceptance","claim":"AC3 requires the shipped statement to prescribe what is recorded when a measurement command or rule cannot be established and to reject an unnamed counter as an accepted outcome.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","source_line":201,"verification_mode":"agent","claim_signature":"issue_acceptance:issue-template.md:ac3-unestablished-reject-unnamed","verdict":"PASS"},
-    {"id":"VC-4","category":"issue_acceptance","claim":"AC4 requires the shipped quantitative-criterion rule to remain consumer-repository meaningful by avoiding DevFlow-internal step numbers, paths under `lib/test`, and internal check names.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","source_line":201,"verification_mode":"agent","claim_signature":"issue_acceptance:issue-template.md:ac4-consumer-neutral-guidance","verdict":"PASS"},
-    {"id":"VC-5","category":"issue_acceptance","claim":"AC5 requires the GNU/BSD `wc -w` motivating example to live outside `.prflow/prompt-extensions/create-issue.md` and requires that file's replacement pointer to resolve to the new location.","claim_provenance":"generated_paraphrase","source_file":".prflow/prompt-extensions/create-issue.md","source_line":274,"verification_mode":"agent","claim_signature":"issue_acceptance:create-issue.md:ac5-motivation-pointer-resolves","verdict":"PASS"},
-    {"id":"VC-6","category":"issue_acceptance","claim":"AC6 requires `.prflow/prompt-extensions/create-issue.md` to stop claiming that the motivating defect class is recorded in a `CLAUDE.md` bullet that does not contain it.","claim_provenance":"generated_paraphrase","source_file":".prflow/prompt-extensions/create-issue.md","source_line":274,"verification_mode":"agent","claim_signature":"issue_acceptance:create-issue.md:ac6-stale-claude-pointer-removed","verdict":"PASS"},
-    {"id":"VC-7","category":"issue_acceptance","claim":"AC7 requires `agents/code-architect.md` to state explicitly that the planning agent has no command-execution tool.","claim_provenance":"generated_paraphrase","source_file":"agents/code-architect.md","source_line":41,"verification_mode":"agent","claim_signature":"issue_acceptance:code-architect.md:ac7-no-command-execution","verdict":"PASS"},
-    {"id":"VC-8","category":"issue_acceptance","claim":"AC8 requires `agents/code-architect.md` to state that `Grep` count mode is not an accepted measurement instrument for the agent's quantitative claims.","claim_provenance":"generated_paraphrase","source_file":"agents/code-architect.md","source_line":41,"verification_mode":"agent","claim_signature":"issue_acceptance:code-architect.md:ac8-grep-count-disqualified","verdict":"PASS"},
-    {"id":"VC-9","category":"issue_acceptance","claim":"AC9 requires the `tools:` frontmatter in `agents/code-architect.md` to grant exactly the same tool set before and after this change.","claim_provenance":"generated_paraphrase","source_file":"agents/code-architect.md","source_line":4,"verification_mode":"agent","claim_signature":"issue_acceptance:code-architect.md:ac9-tool-grants-unchanged","verdict":"PASS"},
-    {"id":"VC-10","category":"issue_acceptance","claim":"AC10 requires this change not to add any source-presence regression pin over prose executed by an agent.","claim_provenance":"generated_paraphrase","source_file":"skills/create-issue/references/issue-template.md","source_line":201,"verification_mode":"agent","claim_signature":"issue_acceptance:issue-template.md:ac10-no-prose-presence-pin","verdict":"PASS"}
+    {
+      "id": "VC-1",
+      "category": "issue_acceptance",
+      "claim": "AC1 requires `skills/create-issue/references/issue-template.md` to state that every acceptance criterion expressing a number names the exact command or counting rule used to measure it.",
+      "claim_provenance": "generated_paraphrase",
+      "source_file": "skills/create-issue/references/issue-template.md",
+      "source_line": 201,
+      "verification_mode": "agent",
+      "claim_signature": "issue_acceptance:issue-template.md:ac1-numeric-measurement-rule",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-2",
+      "category": "issue_acceptance",
+      "claim": "AC2 requires the shipped quantitative-criterion statement to include at least one concrete example of a named counter.",
+      "claim_provenance": "generated_paraphrase",
+      "source_file": "skills/create-issue/references/issue-template.md",
+      "source_line": 201,
+      "verification_mode": "agent",
+      "claim_signature": "issue_acceptance:issue-template.md:ac2-concrete-counter-example",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-3",
+      "category": "issue_acceptance",
+      "claim": "AC3 requires the shipped statement to prescribe what is recorded when a measurement command or rule cannot be established and to reject an unnamed counter as an accepted outcome.",
+      "claim_provenance": "generated_paraphrase",
+      "source_file": "skills/create-issue/references/issue-template.md",
+      "source_line": 201,
+      "verification_mode": "agent",
+      "claim_signature": "issue_acceptance:issue-template.md:ac3-unestablished-reject-unnamed",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-4",
+      "category": "issue_acceptance",
+      "claim": "AC4 requires the shipped quantitative-criterion rule to remain consumer-repository meaningful by avoiding DevFlow-internal step numbers, paths under `lib/test`, and internal check names.",
+      "claim_provenance": "generated_paraphrase",
+      "source_file": "skills/create-issue/references/issue-template.md",
+      "source_line": 201,
+      "verification_mode": "agent",
+      "claim_signature": "issue_acceptance:issue-template.md:ac4-consumer-neutral-guidance",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-5",
+      "category": "issue_acceptance",
+      "claim": "AC5 requires the GNU/BSD `wc -w` motivating example to live outside `.prflow/prompt-extensions/create-issue.md` and requires that file's replacement pointer to resolve to the new location.",
+      "claim_provenance": "generated_paraphrase",
+      "source_file": ".prflow/prompt-extensions/create-issue.md",
+      "source_line": 274,
+      "verification_mode": "agent",
+      "claim_signature": "issue_acceptance:create-issue.md:ac5-motivation-pointer-resolves",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-6",
+      "category": "issue_acceptance",
+      "claim": "AC6 requires `.prflow/prompt-extensions/create-issue.md` to stop claiming that the motivating defect class is recorded in a `CLAUDE.md` bullet that does not contain it.",
+      "claim_provenance": "generated_paraphrase",
+      "source_file": ".prflow/prompt-extensions/create-issue.md",
+      "source_line": 274,
+      "verification_mode": "agent",
+      "claim_signature": "issue_acceptance:create-issue.md:ac6-stale-claude-pointer-removed",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-7",
+      "category": "issue_acceptance",
+      "claim": "AC7 requires `agents/code-architect.md` to state explicitly that the planning agent has no command-execution tool.",
+      "claim_provenance": "generated_paraphrase",
+      "source_file": "agents/code-architect.md",
+      "source_line": 41,
+      "verification_mode": "agent",
+      "claim_signature": "issue_acceptance:code-architect.md:ac7-no-command-execution",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-8",
+      "category": "issue_acceptance",
+      "claim": "AC8 requires `agents/code-architect.md` to state that `Grep` count mode is not an accepted measurement instrument for the agent's quantitative claims.",
+      "claim_provenance": "generated_paraphrase",
+      "source_file": "agents/code-architect.md",
+      "source_line": 41,
+      "verification_mode": "agent",
+      "claim_signature": "issue_acceptance:code-architect.md:ac8-grep-count-disqualified",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-9",
+      "category": "issue_acceptance",
+      "claim": "AC9 requires the `tools:` frontmatter in `agents/code-architect.md` to grant exactly the same tool set before and after this change.",
+      "claim_provenance": "generated_paraphrase",
+      "source_file": "agents/code-architect.md",
+      "source_line": 4,
+      "verification_mode": "agent",
+      "claim_signature": "issue_acceptance:code-architect.md:ac9-tool-grants-unchanged",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-10",
+      "category": "issue_acceptance",
+      "claim": "AC10 requires this change not to add any source-presence regression pin over prose executed by an agent.",
+      "claim_provenance": "generated_paraphrase",
+      "source_file": "skills/create-issue/references/issue-template.md",
+      "source_line": 201,
+      "verification_mode": "agent",
+      "claim_signature": "issue_acceptance:issue-template.md:ac10-no-prose-presence-pin",
+      "verdict": "PASS"
+    }
   ],
-  "phase2_summary": {"passed":10,"failed":0,"inconclusive":0,"lite":0,"agent":10,"normalized":0,"field_defect_fails":0,"pairs_rewritten_once":true},
-  "phase3_dispatched": ["prflow:silent-failure-hunter","prflow:comment-analyzer","prflow:requesting-code-review"],
+  "phase2_summary": {
+    "passed": 10,
+    "failed": 0,
+    "inconclusive": 0,
+    "lite": 0,
+    "agent": 10,
+    "normalized": 0,
+    "field_defect_fails": 0,
+    "pairs_rewritten_once": true
+  },
+  "phase3_dispatched": [
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:requesting-code-review"
+  ],
   "dispatched_effort": [
-    {"agent":"prflow:checklist-generator","phase":"1","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null},
-    {"agent":"prflow:checklist-verifier","phase":"2","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null},
-    {"agent":"prflow:silent-failure-hunter","phase":"3","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null},
-    {"agent":"prflow:comment-analyzer","phase":"3","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null},
-    {"agent":"prflow:requesting-code-review","phase":"3","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null}
+    {
+      "agent": "prflow:checklist-generator",
+      "phase": "1",
+      "requested": null,
+      "resolved": null,
+      "application_point": "session-inheritance",
+      "effective": null,
+      "fallback_reason": null
+    },
+    {
+      "agent": "prflow:checklist-verifier",
+      "phase": "2",
+      "requested": null,
+      "resolved": null,
+      "application_point": "session-inheritance",
+      "effective": null,
+      "fallback_reason": null
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "phase": "3",
+      "requested": null,
+      "resolved": null,
+      "application_point": "session-inheritance",
+      "effective": null,
+      "fallback_reason": null
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "phase": "3",
+      "requested": null,
+      "resolved": null,
+      "application_point": "session-inheritance",
+      "effective": null,
+      "fallback_reason": null
+    },
+    {
+      "agent": "prflow:requesting-code-review",
+      "phase": "3",
+      "requested": null,
+      "resolved": null,
+      "application_point": "session-inheritance",
+      "effective": null,
+      "fallback_reason": null
+    }
   ],
   "phase3_findings": [],
   "engine_verdict": "APPROVE",
@@ -76,29 +235,79 @@
   },
   "fix_decisions": [],
   "reference_reads": {
-    "phase0": {"status":"verified","root_hash":"bc44849db4f773d42b798b76770608aa8373b202","reference_hash":"7e687a163ed924cdffda15f4ea0416bbaaee616c"},
-    "phase0_6": {"status":"verified","root_hash":"bc44849db4f773d42b798b76770608aa8373b202","reference_hash":"201e5f6a2e241330fa7291d4c8dedb1107cbe468"},
-    "phase1": {"status":"verified","root_hash":"bc44849db4f773d42b798b76770608aa8373b202","reference_hash":"be68734e7e6137cbe0712cea3398dd279d3a95b4"}
-    ,"phase2": {"status":"verified","root_hash":"bc44849db4f773d42b798b76770608aa8373b202","reference_hash":"871cedc24b88a688b7edfeeda3352a9a599b1ec4"}
-    ,"phase3": {"status":"verified","root_hash":"bc44849db4f773d42b798b76770608aa8373b202","reference_hash":"16383c03f8dd9a001c73393ff129b955d864af64"}
-    ,"phase4": {"status":"verified","root_hash":"bc44849db4f773d42b798b76770608aa8373b202","reference_hash":"0db178e3e96e2155e70ae5a1ac7ad19b70ceb2b2"}
+    "phase0": {
+      "status": "verified",
+      "root_hash": "bc44849db4f773d42b798b76770608aa8373b202",
+      "reference_hash": "7e687a163ed924cdffda15f4ea0416bbaaee616c"
+    },
+    "phase0_6": {
+      "status": "verified",
+      "root_hash": "bc44849db4f773d42b798b76770608aa8373b202",
+      "reference_hash": "201e5f6a2e241330fa7291d4c8dedb1107cbe468"
+    },
+    "phase1": {
+      "status": "verified",
+      "root_hash": "bc44849db4f773d42b798b76770608aa8373b202",
+      "reference_hash": "be68734e7e6137cbe0712cea3398dd279d3a95b4"
+    },
+    "phase2": {
+      "status": "verified",
+      "root_hash": "bc44849db4f773d42b798b76770608aa8373b202",
+      "reference_hash": "871cedc24b88a688b7edfeeda3352a9a599b1ec4"
+    },
+    "phase3": {
+      "status": "verified",
+      "root_hash": "bc44849db4f773d42b798b76770608aa8373b202",
+      "reference_hash": "16383c03f8dd9a001c73393ff129b955d864af64"
+    },
+    "phase4": {
+      "status": "verified",
+      "root_hash": "bc44849db4f773d42b798b76770608aa8373b202",
+      "reference_hash": "0db178e3e96e2155e70ae5a1ac7ad19b70ceb2b2"
+    }
   },
-  "cap_drops": {"count":0,"by_category":{}},
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
   "telemetry": "unavailable",
-  "shadow_phase2_summary": {"passed":10,"failed":0,"inconclusive":0,"lite":0,"agent":10,"normalized":0},
+  "shadow_phase2_summary": {
+    "passed": 10,
+    "failed": 0,
+    "inconclusive": 0,
+    "lite": 0,
+    "agent": 10,
+    "normalized": 0
+  },
   "shadow": {
     "ran_at": "2026-08-03T21:19:03Z",
     "reviewed_sha": "02d6e369ebd0e10b575879b464cef0c16f477b5f",
     "verdict": "APPROVE",
     "coverage": "full",
     "prompt_addenda": "none",
-    "reviewers_dispatched": ["prflow:code-reviewer","prflow:silent-failure-hunter","prflow:comment-analyzer","prflow:requesting-code-review"],
-    "expected_reviewers": ["prflow:code-reviewer","prflow:silent-failure-hunter","prflow:comment-analyzer","prflow:requesting-code-review"],
+    "reviewers_dispatched": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:comment-analyzer",
+      "prflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:comment-analyzer",
+      "prflow:requesting-code-review"
+    ],
     "reason": null,
     "checklist_skipped": null,
     "phase3_findings": [],
     "phase2_fails": [],
-    "comparison": {"shadow_total":0,"overlap_with_iter_N":0,"new":0,"new_critical":0,"new_important":0},
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
     "promoted_to_iter_next": false
   },
   "park_calibration": null,
@@ -106,5 +315,6 @@
     "classes": [],
     "truncation": null,
     "dispatch": "verified"
-  }
+  },
+  "synthesized": false
 }

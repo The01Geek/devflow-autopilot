@@ -125,5 +125,6 @@
     "new_corroborated_critical_count": 0
   },
   "notes": "Promoted iter from the engine_self_modifying early-shadow trigger. Delta is entirely test/comment (0 product-code lines) -> converged. Post-shadow iter-2 delta blinded-reviewed clean (post-shadow-edit-gate bounded delta-review).",
+  "synthesized": false,
   "telemetry": "unavailable"
 }

@@ -324,5 +324,6 @@
     "by_category": {}
   },
   "verdict": "REJECT (self-contradicting-diff documented_falsehood) -> fixed in this iteration",
+  "synthesized": false,
   "telemetry": "unavailable"
 }

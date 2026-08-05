@@ -219,5 +219,6 @@
     },
     "promoted_to_iter_next": true
   },
+  "synthesized": false,
   "telemetry": "unavailable"
 }

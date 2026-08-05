@@ -166,5 +166,6 @@
     "by_category": {}
   },
   "notes": "iter1 engine: 5 review agents + checklist-generator (30 VC items). All findings were codebase claims (Step 2.5 pass-through). Every finding applied. Security fix mutation-checked RED on a copy.",
+  "synthesized": false,
   "telemetry": "unavailable"
 }

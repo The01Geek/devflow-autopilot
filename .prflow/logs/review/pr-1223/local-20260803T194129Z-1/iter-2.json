@@ -7,16 +7,34 @@
   "current_substep": "iteration_convergence_failed_loop_to_iter_3",
   "pending_dispatch": null,
   "fix_commit_sha": "02d6e369ebd0e10b575879b464cef0c16f477b5f",
-  "fix_files": ["skills/create-issue/SKILL.md"],
+  "fix_files": [
+    "skills/create-issue/SKILL.md"
+  ],
   "promotion_provenance": "shadow",
-  "diff_profile": {"small_diff":false,"config_only":true,"has_new_types":false,"engine_self_modifying":true,"detect_all_audit":false,"checklist_skipped":null,"changed_files":5,"changed_lines":24},
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": true,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": false,
+    "checklist_skipped": null,
+    "changed_files": 5,
+    "changed_lines": 24
+  },
   "prior_phase3_findings": [
     {
       "finding_id": "F-1",
       "agent": "prflow:code-reviewer",
       "severity": "Important",
       "description": "The new authoritative quantitative-AC prose should receive source-presence pins.",
-      "defect_signature": {"file":"skills/create-issue/references/issue-template.md","line_range":[201,201],"kind":"test_gap"},
+      "defect_signature": {
+        "file": "skills/create-issue/references/issue-template.md",
+        "line_range": [
+          201,
+          201
+        ],
+        "kind": "test_gap"
+      },
       "fix_decision": "pushed_back"
     },
     {
@@ -24,7 +42,14 @@
       "agent": "prflow:silent-failure-hunter",
       "severity": "Suggestion",
       "description": "A complete Grep count-mode result could fall through to the tool-derived verified branch.",
-      "defect_signature": {"file":"agents/code-architect.md","line_range":[41,41],"kind":"logic_error"},
+      "defect_signature": {
+        "file": "agents/code-architect.md",
+        "line_range": [
+          41,
+          41
+        ],
+        "kind": "logic_error"
+      },
       "fix_decision": "applied"
     },
     {
@@ -32,12 +57,22 @@
       "agent": "prflow:requesting-code-review",
       "severity": "Important",
       "description": "The quality-checklist row restated the canonical contract instead of pointing to it.",
-      "defect_signature": {"file":"skills/create-issue/references/issue-template.md","line_range":[465,465],"kind":"comment_drift"},
+      "defect_signature": {
+        "file": "skills/create-issue/references/issue-template.md",
+        "line_range": [
+          465,
+          465
+        ],
+        "kind": "comment_drift"
+      },
       "fix_decision": "applied"
     }
   ],
   "checklist": [],
-  "phase1_phase2": {"status":"skipped","reason":"promoted shadow iteration reuses the shadow engine's Phase 1+2 results (10 PASS, 0 FAIL, 0 INCONCLUSIVE)"},
+  "phase1_phase2": {
+    "status": "skipped",
+    "reason": "promoted shadow iteration reuses the shadow engine's Phase 1+2 results (10 PASS, 0 FAIL, 0 INCONCLUSIVE)"
+  },
   "phase3_dispatched": [
     "prflow:code-reviewer",
     "prflow:silent-failure-hunter",
@@ -45,10 +80,42 @@
     "prflow:requesting-code-review"
   ],
   "dispatched_effort": [
-    {"agent":"prflow:code-reviewer","phase":"3","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null},
-    {"agent":"prflow:silent-failure-hunter","phase":"3","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null},
-    {"agent":"prflow:comment-analyzer","phase":"3","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null},
-    {"agent":"prflow:requesting-code-review","phase":"3","requested":null,"resolved":null,"application_point":"session-inheritance","effective":null,"fallback_reason":null}
+    {
+      "agent": "prflow:code-reviewer",
+      "phase": "3",
+      "requested": null,
+      "resolved": null,
+      "application_point": "session-inheritance",
+      "effective": null,
+      "fallback_reason": null
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "phase": "3",
+      "requested": null,
+      "resolved": null,
+      "application_point": "session-inheritance",
+      "effective": null,
+      "fallback_reason": null
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "phase": "3",
+      "requested": null,
+      "resolved": null,
+      "application_point": "session-inheritance",
+      "effective": null,
+      "fallback_reason": null
+    },
+    {
+      "agent": "prflow:requesting-code-review",
+      "phase": "3",
+      "requested": null,
+      "resolved": null,
+      "application_point": "session-inheritance",
+      "effective": null,
+      "fallback_reason": null
+    }
   ],
   "phase3_findings": [
     {
@@ -56,7 +123,14 @@
       "agent": "prflow:silent-failure-hunter",
       "severity": "Important",
       "description": "Replacing the private rule with a pointer makes the template-unreadable fallback lose the quantitative-AC contract and permits publishing an unnamed counter.",
-      "defect_signature": {"file":".prflow/prompt-extensions/create-issue.md","line_range":[274,274],"kind":"logic_error"},
+      "defect_signature": {
+        "file": ".prflow/prompt-extensions/create-issue.md",
+        "line_range": [
+          274,
+          274
+        ],
+        "kind": "logic_error"
+      },
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "applied"
@@ -66,7 +140,14 @@
       "agent": "prflow:requesting-code-review",
       "severity": "Important",
       "description": "Writing-skills evidence is unestablished.",
-      "defect_signature": {"file":"skills/create-issue/references/issue-template.md","line_range":[201,201],"kind":"test_gap"},
+      "defect_signature": {
+        "file": "skills/create-issue/references/issue-template.md",
+        "line_range": [
+          201,
+          201
+        ],
+        "kind": "test_gap"
+      },
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "pushed_back"
@@ -93,7 +174,10 @@
         "basis": "The required marker and all four dispositions are present on the extension's first-priority durable surface.",
         "failing_input": "A final-pass prompt that forbids seeking workpad content despite the extension requiring that read.",
         "source": "issue workpad comment 5170702421",
-        "finding_ref": {"iter":2,"index":1}
+        "finding_ref": {
+          "iter": 2,
+          "index": 1
+        }
       }
     },
     {
@@ -127,34 +211,50 @@
     "skills/implement/phases/phase-2-implement.md#2.3.7"
   ],
   "sweep_evidence": {
-    "status":"run",
-    "diff_shape":"generic fail-closed fallback guard for a prompt-extension pointer into an unreadable template",
-    "selected":["2.3.0","2.3.0c","2.3.0d","2.3.3","2.3.4","2.3.4a","2.3.4b","2.3.5","2.3.6"],
-    "result":"clean",
-    "evidence":"The fallback guard appears once; it does not copy the quantitative contract, change invocation syntax, introduce a runtime dependency, add a source-presence pin, or alter the continue-filing guarantee. RED/control/GREEN dry-trace covered unreadable target plus pointer and no-pointer operands; git diff --check passed."
+    "status": "run",
+    "diff_shape": "generic fail-closed fallback guard for a prompt-extension pointer into an unreadable template",
+    "selected": [
+      "2.3.0",
+      "2.3.0c",
+      "2.3.0d",
+      "2.3.3",
+      "2.3.4",
+      "2.3.4a",
+      "2.3.4b",
+      "2.3.5",
+      "2.3.6"
+    ],
+    "result": "clean",
+    "evidence": "The fallback guard appears once; it does not copy the quantitative contract, change invocation syntax, introduce a runtime dependency, add a source-presence pin, or alter the continue-filing guarantee. RED/control/GREEN dry-trace covered unreadable target plus pointer and no-pointer operands; git diff --check passed."
   },
   "verification_evidence": {
-    "command":"bash lib/test/run-module.sh create-issue-contract",
-    "result":"pass",
-    "passed":231,
-    "failed":0,
-    "skipped":0,
-    "skipped_checks":[],
-    "log":"/Users/the01geek/repos/devflow-autopilot/.prflow/tmp/test-module-logs/create-issue-contract.log.WnI0kR"
+    "command": "bash lib/test/run-module.sh create-issue-contract",
+    "result": "pass",
+    "passed": 231,
+    "failed": 0,
+    "skipped": 0,
+    "skipped_checks": [],
+    "log": "/Users/the01geek/repos/devflow-autopilot/.prflow/tmp/test-module-logs/create-issue-contract.log.WnI0kR"
   },
   "verification_flight": {
-    "flight_key":"ee473ea8b8a63248967e566aec91d465bf877279eb7b36af5278965371c70fb8",
-    "state":"passed",
-    "candidate_identity":"416f4011b14c1e84b3369e5ec08461ee38324d6e"
+    "flight_key": "ee473ea8b8a63248967e566aec91d465bf877279eb7b36af5278965371c70fb8",
+    "state": "passed",
+    "candidate_identity": "416f4011b14c1e84b3369e5ec08461ee38324d6e"
   },
   "stale_prose_check": {
-    "command":"git diff 4929bb7fb0035bd4c1301627d21be56cdf092b94...HEAD | scripts/stale-prose-lint.py --rev HEAD",
-    "result":"clean",
-    "rows":[],
-    "exit_status":0
+    "command": "git diff 4929bb7fb0035bd4c1301627d21be56cdf092b94...HEAD | scripts/stale-prose-lint.py --rev HEAD",
+    "result": "clean",
+    "rows": [],
+    "exit_status": 0
   },
-  "base_checkpoint":{"token":"UP_TO_DATE","behind_by":null},
-  "checkpoint_push":{"result":"pushed","destination":"origin/issue-1215-a-quantitative-acceptance-criterion-never-has-to"},
+  "base_checkpoint": {
+    "token": "UP_TO_DATE",
+    "behind_by": null
+  },
+  "checkpoint_push": {
+    "result": "pushed",
+    "destination": "origin/issue-1215-a-quantitative-acceptance-criterion-never-has-to"
+  },
   "convergence_inputs": {
     "few_critical_important_code_fixes": true,
     "small_critical_important_code_diff": true,
@@ -162,7 +262,17 @@
     "result": "continue",
     "reason": "SHADOW-1 was a new confirmed Important finding versus iteration 1, so condition 3 failed."
   },
-  "reference_reads": {"fix_delta":{"status":"verified","outcome":"clean","reason":null}},
-  "cap_drops": {"count":0,"by_category":{}},
-  "telemetry": "unavailable"
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "clean",
+      "reason": null
+    }
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": "unavailable",
+  "synthesized": false
 }

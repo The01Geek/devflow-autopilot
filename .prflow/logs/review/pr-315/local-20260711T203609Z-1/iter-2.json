@@ -219,5 +219,6 @@
     "mutation/behavioral checks: S1 order-pin (real pi<ii<ri true, mutated inject-before-provision → RED); S3 validate-before-emit (bad key rc=1 + 0 bytes; valid keys write); S2 degraded branch names unreadable-config and avoids false 'no provider'",
     "10 Suggestions (S5-S14) below the important threshold pushed back as advisory (recorded above); none is a self-contradicting-diff falsehood"
   ],
+  "synthesized": false,
   "telemetry": "unavailable"
 }

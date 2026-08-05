@@ -270,5 +270,6 @@
     "by_category": {}
   },
   "notes": "Run executed by the fix subagent for PR #391 inside /devflow:review-and-fix invoked from the shepherd fix procedure. Phase 3 dispatched 6 agents (5 returned results consumed: checklist-generator, silent-failure-hunter, requesting-code-review final pass, plus orchestrator-direct 4.1.6 truthfulness sweep and 3.1.5 completeness-critic [no finding]; code-reviewer/comment-analyzer/pr-test-analyzer and 13 checklist verifiers had not returned by coordinator-directed wrap-up and are recorded as dispatched-but-uncollected). Phase 2: 2 lite PASS; the two REJECT-driving claims were orchestrator-verified directly and fixed. Dirty-tree backstop: the orchestrator's own Step 3 edits overlapped the dispatch window, so the snapshot compare cannot attribute divergence; agents are read-only-instructed and no unexpected paths were dirty at commit time (git status showed only the two fix files).",
+  "synthesized": false,
   "telemetry": "unavailable"
 }
