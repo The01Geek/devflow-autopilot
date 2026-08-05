@@ -66,10 +66,10 @@ The `<reason>` text after the em-dash is free-form prose for a human reader and 
 change how the line is parsed: the recognizer reads the `Blocked by #N` declaration and its
 issue number, and a reason whose outbound ordering words ("must merge before", "blocks",
 "required by") are plain prose introducing no `#N` of their own neither alters nor suppresses
-the declaration (issue #1267 narrowed the outbound-direction filter so it governs a line only
+the declaration (the outbound-direction filter is narrowed so that it governs a line only
 when a number run follows the keyword — a keyword that introduces no number run governs
 nothing; a reason that writes such a keyword immediately followed by its own number, as in
-`Blocked by #7 — blocks #5 downstream`, still matches and drops every number on the line).
+`Blocked by #7 — blocks #5 downstream`, still matches and drops every number on the line). <!-- pruned-path-ok: illustrative dependency-declaration example, not a citation -->
 
 Keep this section distinct from the two other "dependency"-flavored surfaces, or drafters
 will file entries in the wrong one:
@@ -130,10 +130,10 @@ fallback ladder**, in order, stopping at the first rung that resolves it: **(1)*
 **official documentation via `WebFetch`** (not memory); **(2)** when the official docs are not
 reachable, **`WebSearch`**; **(3)** when search is unavailable or fails, **ask the user to
 provide the documentation**. Record the verified fact and its source URL in the draft's
-`Technical Context` before the relied-on claim is written. This is the premise class the #304
-run missed: it prescribed a `check_suite`/`workflow_run` mechanism GitHub cannot deliver
-(Actions-created check suites never emit `check_suite`; `workflow_run` requires a named
-workflow list), which only surfaced mid-implement — a `WebFetch` of the events docs at
+`Technical Context` before the relied-on claim is written. This is the premise class a past
+drafting pass missed: it prescribed a `check_suite`/`workflow_run` mechanism GitHub cannot
+deliver (Actions-created check suites never emit `check_suite`; `workflow_run` requires a
+named workflow list), which only surfaced mid-implement — a `WebFetch` of the events docs at
 drafting time would have caught it. This class is **not** re-derived downstream: an
 implementing run re-checks claims against the tree it builds on, and vendor behavior is not
 in the tree.
@@ -160,8 +160,9 @@ Give that reader the means to re-derive the premise **mechanically**, in the bul
 **repository path in backticks plus the sentence quoted verbatim** from it. A bullet that merely *asserts* a premise in prose — no path, no
 quotation — hands the reader nothing to re-run, and a stale one of those is strictly
 worse than no bullet at all, because it converts "go and check" into "this was already checked".
-Issue #857 is the worked case: three of its handle-less premises were false by the time #864
-implemented it, and two acceptance criteria were unimplementable as prescribed. The handle is what
+In the worked case, three of a filed issue's handle-less premises were false by the time an
+implementing run picked it up, and two of its acceptance criteria were unimplementable as
+prescribed. The handle is what
 `scripts/check-verified-premises.py` reads — **Step 3.6's pre-dispatch canonical write** runs it over the assembled draft, and an
 implementing run re-checks the filed issue with it — so a bullet written without one is not
 re-checkable by either.
@@ -225,7 +226,7 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
   2 decision fork resolved with the user (Blocked on disengagement). **Adjective-only comparison
   language** ("explicit `true`", "reads as exactly `true`") without that grounding is
   **non-conforming** — including the shape where a probe is present in the issue but **silent on
-  the axis** the AC's language gestures at (the named #446 defect). **Obligation arms are
+  the axis** the AC's language gestures at. **Obligation arms are
   implement-tier verification commands (this governs this value-comparison AC and the Step 3.5
   unstated-mechanism-dependency hunt alike):** an obligation whose discharge requires *executing* an in-repo command must name a
   command already granted on the consuming tier (the repo's declared test/lint commands in
@@ -494,9 +495,9 @@ incomplete issues.
 ## GitHub autolink hygiene
 
 The body is posted to GitHub, which turns `#`-number into a link. Never put a bare `#`
-before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link
+before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link <!-- pruned-path-ok: illustrative autolink-rendering example, not a citation -->
 to issue/PR 2 and misleads readers. For an ordinal, count, or list position, spell it out
-("item 2", "step 3"). Genuine references like `#123` stay as-is.
+("item 2", "step 3"). Genuine references like `#123` stay as-is. <!-- pruned-path-ok: illustrative autolink example, not a citation -->
 
 ## Posting the issue
 
