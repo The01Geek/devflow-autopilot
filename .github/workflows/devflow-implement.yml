@@ -1867,8 +1867,12 @@ jobs:
             # receives as EB_WORKPAD_BODY (which is also its idempotency source), so
             # the fragile line parse is driven by the suite rather than stranded in
             # untestable workflow YAML.
+            # V is deliberately NOT passed in the env prefix: the helper self-anchors
+            # it off its own BASH_SOURCE, which is the same "$V" directory we invoke
+            # it from, and an assignment in this prefix would not be visible to the
+            # "$V/..." expansion in the same command anyway (SC2097/SC2098).
             ISSUE_NUMBER="$ISSUE_NUMBER" BRANCH="" BASE="$BASE_BRANCH" REMOTE=origin \
-              RUN_URL="$RUN_URL" V="$V" EB_WORKPAD_BODY="$wp_body" \
+              RUN_URL="$RUN_URL" EB_WORKPAD_BODY="$wp_body" \
               bash "$V/record-empty-branch.sh" \
               || echo "::warning::stall backstop: empty-branch producer exited non-zero; workpad note may be unwritten"
           }
