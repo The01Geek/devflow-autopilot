@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1301",
+  "generated_at": "2026-08-05T00:45:23Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.104",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 16.17368725,
+    "tokens": {
+      "input_tokens": 6634,
+      "output_tokens": 33227,
+      "cache_read_input_tokens": 5385673,
+      "cache_creation_input_tokens": 213382,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 6869,
+        "outputTokens": 101717,
+        "cacheReadInputTokens": 14927032,
+        "cacheCreationInputTokens": 853235,
+        "webSearchRequests": 0,
+        "costUSD": 16.17368725,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 42,
+    "duration_ms": 1003509
+  },
+  "permission_denials": {
+    "count": 10,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-EMPTY} ATTEMPT=${GITHUB_RUN_ATTEMPT:-EMPTY} ACTIONS=${GITHUB_ACTIONS:-EMPTY}\"",
+      "mkdir -p .prflow/tmp\n: > .prflow/tmp/displaced-paths.txt\ngit status --porcelain -z > .prflow/tmp/review-dirty-tree-before && git hash-object .prflow/tmp/review-dirty-tree-before\necho \"snap-rc=$?\"",
+      "mkdir -p .prflow/tmp; printf '' > .prflow/tmp/displaced-paths.txt; git status --porcelain -z > .prflow/tmp/review-dirty-tree-before; git hash-object .prflow/tmp/review-dirty-tree-before; echo \"snap-rc=$?\"",
+      "git apply --stat .prflow/tmp/review/pr-1301/30963315916-1/diff.patch 2>/dev/null | tail -60",
+      "git apply --stat .prflow/tmp/review/pr-1301/30963315916-1/diff.patch",
+      "for f in regenerate-artifacts.py pin-corpus-lint.py; do echo \"=== $f ===\"; grep -nE \"^(\\+\\+\\+ b/lib/test/$f|diff --git.*$f)\" .prflow/tmp/review/pr-1301/30963315916-1/diff.patch; done",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve \"1188\" --pr \"1301\" 2>.prflow/tmp/review/pr-1301/30963315916-1/acs.err ; echo \"acs-rc=$?\"",
+      "cd /home/runner/work/prflow/prflow\n# stale references to old docs/ paths (files that moved to docs/internal) in the LIVE tree.\n# Exclude historical artifacts and the diff/tmp. Search for docs/<name> where name is a top-level internal doc.\ngrep -rnoE 'docs/(DEVFLOW_SYSTEM_OVERVIEW|cloud-setup|cloud-allowlist|cloud-writer-boundary|implement-skill|install|efficiency-trace|workflow-triggers|working-directory-contract|shadow-review|review-agent-overrides|mintlify-publishing|execution-file-shape|creat …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\n# Find, in the DIFF, any remaining '+' added line still using an old top-level docs path (should be none for moved files)\ngrep -nE '^\\+' .prflow/tmp/review/pr-1301/30963315916-1/diff.patch \\\n | grep -oE 'docs/(cloud-setup|cloud-allowlist|implement-skill|install|efficiency-trace|workflow-triggers|DEVFLOW_SYSTEM_OVERVIEW|shadow-review|execution-file-shape|cloud-writer-boundary|working-directory-contract|mintlify-publishing|review-agent-overrides|agents-seam-probe …[per-command-truncated]"
+    ],
+    "total": 10,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
