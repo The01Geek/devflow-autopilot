@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1303",
+  "generated_at": "2026-08-05T00:49:15Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.104",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 8.32110025,
+    "tokens": {
+      "input_tokens": 51,
+      "output_tokens": 21123,
+      "cache_read_input_tokens": 4072293,
+      "cache_creation_input_tokens": 195943,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 133,
+        "outputTokens": 45123,
+        "cacheReadInputTokens": 7018748,
+        "cacheCreationInputTokens": 471712,
+        "webSearchRequests": 0,
+        "costUSD": 8.32110025,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 32,
+    "duration_ms": 510074
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"$CLAUDE_SKILL_DIR\"",
+      "F=$(git show 2397d5926463938c35c90f4c2d525106bc4f55eb:.github/workflows/devflow.yml)\necho \"gate event_name clauses: $(printf '%s' \"$F\" | grep -cE \"github\\.event_name == '\")\"\necho \"issue_comment subscription lines: $(printf '%s' \"$F\" | grep -cE '^[[:space:]]*issue_comment:[[:space:]]*$')\"\necho \"pr_review subs: $(printf '%s' \"$F\" | grep -cE 'pull_request_review(_comment)?:')\"\necho \"=== each checkout followed by ref within 3 lines ===\"\nprintf '%s' \"$F\" | grep -nA3 'uses: actions/checkout@v6' | grep …[per-command-truncated]",
+      "git show 2397d5926463938c35c90f4c2d525106bc4f55eb:.github/workflows/devflow.yml > .prflow/tmp/devflow-head.yml\necho \"gate event_name clauses (expect 1):\"; grep -cE \"github.event_name == '\" .prflow/tmp/devflow-head.yml\necho \"issue_comment subscription lines (expect 1):\"; grep -cE '^[[:space:]]*issue_comment:[[:space:]]*$' .prflow/tmp/devflow-head.yml\necho \"pr_review subs (expect 0):\"; grep -cE 'pull_request_review(_comment)?:' .prflow/tmp/devflow-head.yml\necho \"=== checkout steps with following c …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\necho \"=== existing changesets frontmatter ===\"\nfor f in $(git show 2397d5926463938c35c90f4c2d525106bc4f55eb:.changeset 2>/dev/null | tail -n +3); do :; done\nls .changeset/ 2>/dev/null | head\necho \"--- sample existing changeset heads ---\"\nhead -8 .changeset/*.md 2>/dev/null | head -40",
+      "SHA=2397d5926463938c35c90f4c2d525106bc4f55eb\nfor f in docs/DEVFLOW_SYSTEM_OVERVIEW.md docs/cloud-setup.md docs/workflow-triggers.md CLAUDE.md; do\n  echo \"=== $f ===\"\n  git show $SHA:$f | grep -niE 'pull_request_review' | head -20\ndone"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
