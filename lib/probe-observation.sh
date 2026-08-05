@@ -2,8 +2,15 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 # probe-observation.sh — the shared execution-file readers the matcher-probe
-# observation renderers (scripts/describe-*-probe.sh) derive their SECONDARY
+# observation renderers (scripts/describe-*-probe.sh) derive their execution-file
 # axes from. Sourced, never executed.
+#
+# Most of those axes are SECONDARY corroboration of a breadcrumb-first verdict,
+# but not all: `devflow_probe_tooluse_has` feeds PRIMARY axes too — the
+# PermissionRequest renderer's Axis 2c refused-vs-allowed discrimination (and the
+# Axis-5 inference that reads it), and the PreToolUse-deny renderer's Axis 2
+# attempt reads. Treat every reader here as capable of deciding a published
+# verdict, which is why the three-state discipline below is not optional.
 #
 # WHY A SHARED FILE. The hook-arm probes added by the PermissionRequest /
 # PreToolUse-deny / defer jobs each need the same three reads — "is the execution

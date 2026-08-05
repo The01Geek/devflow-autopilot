@@ -93,7 +93,7 @@ if [ -e "$FIRED_MARKER" ]; then
     echo "- hook firing: **FIRED-WITHOUT-DENY** — the hook ran but never took its deny arm (\`$DENIED_MARKER\` absent); the sacrificial command never reached it."
   fi
 else
-  echo "- hook firing: **NOT-FIRED** — no breadcrumb at \`$FIRED_MARKER\` (an established negative: the probe checked)."
+  echo "- hook firing: **NOT-FIRED** — the probe checked \`$FIRED_MARKER\` and found no breadcrumb. The hook writes it best-effort (its own \`mkdir -p\` can fail), so this does not by itself separate \"the hook never fired\" from \"it fired and could not record it\"; the axes below are what establish or decline the deny verdict."
 fi
 
 # ── Axis 2 (PRIMARY): was the deny actually honored? ──────────────────────────

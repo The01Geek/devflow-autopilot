@@ -117,8 +117,15 @@ echo "- observed CLI version: \`$(devflow_probe_cli_version "$EXECUTION_FILE")\`
 SAW_GRANTED=no
 SAW_UNGRANTED=no
 if [ -f "$SEEN" ] && [ -s "$SEEN" ]; then
-  grep -qF -- "$PRQ_GRANTED_TOKEN" "$SEEN" 2>/dev/null && SAW_GRANTED=yes
-  grep -qF -- "$PRQ_UNGRANTED_TOKEN" "$SEEN" 2>/dev/null && SAW_UNGRANTED=yes
+  # Builtin-only scan. These two flags SELECT the emitted Axis-1 verdict and the
+  # Axis-5 inference, so per CLAUDE.md they must not be derived through a
+  # non-preflight PATH tool: an absent `grep` would leave both `no` and publish
+  # FIRED-UNATTRIBUTED over a breadcrumb that did carry a token. The `|| [ -n … ]`
+  # tail picks up a final line the hook wrote without a trailing newline.
+  while IFS= read -r _prq_line || [ -n "$_prq_line" ]; do
+    case "$_prq_line" in *"$PRQ_GRANTED_TOKEN"*) SAW_GRANTED=yes ;; esac
+    case "$_prq_line" in *"$PRQ_UNGRANTED_TOKEN"*) SAW_UNGRANTED=yes ;; esac
+  done < "$SEEN"
   FIRED=yes
 else
   FIRED=no
@@ -126,7 +133,7 @@ fi
 
 case "$FIRED:$SAW_GRANTED:$SAW_UNGRANTED" in
   no:*)
-    echo "- hook firing: **NOT-FIRED** — the hook wrote no breadcrumb at \`$SEEN\` (an established negative: the probe checked)."
+    echo "- hook firing: **NOT-FIRED** — the probe checked \`$SEEN\` and the hook wrote no breadcrumb there. The hook writes it best-effort (its own \`mkdir -p\` can fail), so this does not by itself separate \"the hook never fired\" from \"it fired and could not record it\" — see the inference line below, which is where that separation is established or declared UNESTABLISHED."
     ;;
   yes:yes:yes)
     echo "- hook firing: **HOOK-SAW-BOTH** — the breadcrumb records BOTH the granted control command and the ungranted one."

@@ -81,7 +81,7 @@ if [ -e "$HOOK_MARKER" ]; then
   echo "- hook firing: **FIRED** — the \`defer\`-emitting PreToolUse hook ran (breadcrumb \`$HOOK_MARKER\` present)."
   HOOK_FIRED=yes
 else
-  echo "- hook firing: **NOT-FIRED** — no breadcrumb at \`$HOOK_MARKER\` (an established negative: the probe checked)."
+  echo "- hook firing: **NOT-FIRED** — the probe checked \`$HOOK_MARKER\` and found no breadcrumb. The hook writes it best-effort (its own \`mkdir -p\` can fail), so this does not by itself separate \"the hook never ran\" from \"it ran and could not record it\" — which is why Axis 2 below renders UNESTABLISHED rather than a \`defer\` verdict."
   HOOK_FIRED=no
 fi
 

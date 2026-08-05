@@ -46327,6 +46327,22 @@ assert_eq "hook-arm probe: no breadcrumb, no denial and no readable tool-call re
   "$(printf '%s' "$HAP_PRQ_NOFIRE_CLEAN" | grep -qF 'UNESTABLISHED' && echo yes || echo no)"
 assert_eq "hook-arm probe: that same shape names the reason it is unestablished (nothing establishes whether anything was refused)" "yes" \
   "$(printf '%s' "$HAP_PRQ_NOFIRE_CLEAN" | grep -qF 'could not be read well enough to say whether anything was refused' && echo yes || echo no)"
+# THE DENIALS-ONLY INFERENCE ARM (suggestion 4, PR #1308 review). Reachable and
+# previously unfixtured: an execution file that parses and carries a NON-EMPTY
+# `permission_denials` but records NO tool-call inputs at all. The ungranted-arm
+# outcome is then `unavailable` (an empty search population cannot establish a
+# negative), so the refused/executed/unattempted arms are all skipped and the
+# denials-count arm is the one that must fire — the difference matters because it
+# is the ONE remaining path to a confident "the CLI does not deliver the event"
+# claim, and the fallthrough below it says the opposite (UNESTABLISHED).
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[{"tool_name":"Bash","message":"refused some other command"}]}]' > "$HAP_D/prq-exec-denials-only.json"
+HAP_PRQ_DENIALS_ONLY="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-missing.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec-denials-only.json" 2>/dev/null)"
+assert_eq "hook-arm probe: no breadcrumb and an unreadable ungranted outcome, but a non-empty denials array, infers the event is undelivered via the denials arm" "yes" \
+  "$(printf '%s' "$HAP_PRQ_DENIALS_ONLY" | grep -qF 'was refused (it is in `permission_denials`)' && echo yes || echo no)"
+assert_eq "hook-arm probe: that denials-only shape does NOT fall through to the UNESTABLISHED arm" "yes" \
+  "$(printf '%s' "$HAP_PRQ_DENIALS_ONLY" | grep -qF 'could not be read well enough' && echo no || echo yes)"
+assert_eq "hook-arm probe: that denials-only shape still reports its ungranted outcome as unavailable, never as refused" "yes" \
+  "$(printf '%s' "$HAP_PRQ_DENIALS_ONLY" | grep -qF 'ungranted arm outcome: **unavailable**' && echo yes || echo no)"
 # CONTROL-UNATTEMPTED needs tool calls to have been RECORDED and none of them to be
 # the control; with no tool calls at all the axis is unestablished instead (asserted
 # just below), which is the distinction the whole family turns on.
@@ -46520,7 +46536,7 @@ assert_eq "hook-arm probe: a present sacrificial side effect renders DENY-NOT-HO
   "$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied" "$HAP_D/ptud-sacrificial-present" "$HAP_D/ptud-control" "$HAP_D/ptud-exec.json" 2>/dev/null | grep -qF 'deny honored: **DENY-NOT-HONORED**' && echo yes || echo no)"
 assert_eq "hook-arm probe: a hook that ran without taking its deny arm renders FIRED-WITHOUT-DENY, not FIRED-AND-DENIED" "yes" \
   "$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied-missing" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/ptud-exec.json" 2>/dev/null | grep -qF 'hook firing: **FIRED-WITHOUT-DENY**' && echo yes || echo no)"
-assert_eq "hook-arm probe: an absent hook breadcrumb renders NOT-FIRED as an established negative" "yes" \
+assert_eq "hook-arm probe: an absent hook breadcrumb renders NOT-FIRED" "yes" \
   "$(bash "$HAP_PTUD" "$HAP_D/ptud-fired-missing" "$HAP_D/ptud-denied-missing" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/ptud-exec.json" 2>/dev/null | grep -qF 'hook firing: **NOT-FIRED**' && echo yes || echo no)"
 assert_eq "hook-arm probe: a clean transcript carrying no deny reason renders REASON-ABSENT (distinct from unavailable)" "yes" \
   "$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/exec-clean.json" 2>/dev/null | grep -qF 'deny reason in transcript: **REASON-ABSENT**' && echo yes || echo no)"
@@ -46620,9 +46636,12 @@ assert_eq "hook-arm probe: matcher-probe.yml declares all three hook-arm jobs, e
   "$HAP_JOBS"
 # The hook commands must remain valid JSON-emitting shell: a broken escape would
 # make every one of the arms above unfalsifiable in the live run while the fixture
-# assertions here stayed green.
+# assertions here stayed green. So this does not stop at "the settings blob parses
+# and the command string is non-empty" — it extracts the decision payload each
+# command prints and parses THAT, which is the artifact a bad escape actually
+# corrupts.
 HAP_HOOKS="$(python3 - "$REPO_ROOT/.github/workflows/matcher-probe.yml" <<'PY'
-import json, sys, yaml
+import json, re, sys, yaml
 try:
     doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
 except Exception as exc:
@@ -46650,12 +46669,30 @@ for name, event in (
     except Exception as exc:
         out.append(f"{name}=malformed:{exc.__class__.__name__}")
         continue
-    out.append(f"{name}={event}:{'matcher-bash' if entries[0].get('matcher') == 'Bash' else 'matcher-other'}:{'nonempty' if cmd.strip() else 'empty'}")
+    # The stated guarantee: the DECISION JSON the hook command prints must itself
+    # parse. Extract every single-quoted `printf '%s' '<payload>'` argument in the
+    # command (the deny arm of pretooluse-deny-probe emits its payload from inside
+    # a `case`, so there can be one anywhere in the string) and json.loads each.
+    # A count of 0 is a failure too — an escape break that swallowed the printf
+    # would otherwise read as "nothing to check" and stay green.
+    payloads = re.findall(r"printf\s+'%s'\s+'([^']*)'", cmd)
+    if not payloads:
+        decisions = "no-payload"
+    else:
+        try:
+            for payload in payloads:
+                obj = json.loads(payload)
+                if not isinstance(obj, dict) or "hookSpecificOutput" not in obj:
+                    raise ValueError("not a hook decision object")
+            decisions = f"json-ok:{len(payloads)}"
+        except Exception as exc:
+            decisions = f"json-broken:{exc.__class__.__name__}"
+    out.append(f"{name}={event}:{'matcher-bash' if entries[0].get('matcher') == 'Bash' else 'matcher-other'}:{'nonempty' if cmd.strip() else 'empty'}:{decisions}")
 print(" ".join(out))
 PY
 )"
-assert_eq "hook-arm probe: each hook-arm job's settings input parses as JSON and registers a non-empty Bash-matched hook for its own event" \
-  "permissionrequest-probe=PermissionRequest:matcher-bash:nonempty pretooluse-deny-probe=PreToolUse:matcher-bash:nonempty defer-probe=PreToolUse:matcher-bash:nonempty" \
+assert_eq "hook-arm probe: each hook-arm job's settings input parses as JSON, registers a non-empty Bash-matched hook for its own event, and prints a decision payload that itself parses as a hook decision object" \
+  "permissionrequest-probe=PermissionRequest:matcher-bash:nonempty:json-ok:1 pretooluse-deny-probe=PreToolUse:matcher-bash:nonempty:json-ok:1 defer-probe=PreToolUse:matcher-bash:nonempty:json-ok:1" \
   "$HAP_HOOKS"
 
 echo "#908 resolve-guard-counts-file.sh (run-keyed/bare/glob counts-file selection — arm-driven)"
