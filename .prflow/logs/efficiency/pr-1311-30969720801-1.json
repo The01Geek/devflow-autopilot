@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1311",
+  "generated_at": "2026-08-05T02:42:32Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.105",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 6.729321999999999,
+    "tokens": {
+      "input_tokens": 2165,
+      "output_tokens": 14299,
+      "cache_read_input_tokens": 1778026,
+      "cache_creation_input_tokens": 155341,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 2274,
+        "outputTokens": 48166,
+        "cacheReadInputTokens": 3572859,
+        "cacheCreationInputTokens": 503175,
+        "webSearchRequests": 0,
+        "costUSD": 6.729321999999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 20,
+    "duration_ms": 427371
+  },
+  "permission_denials": {
+    "count": 7,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "mkdir -p .prflow/tmp/review/pr-1311/${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}\ngh pr diff 1311 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1311/${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}/diff.patch | head -0\necho \"=== FILES ===\"\ngrep '^diff --git' .prflow/tmp/review/pr-1311/${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}/diff.patch\necho \"=== STATS ===\"\nwc -l .prflow/tmp/review/pr-1311/${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}/ …[per-command-truncated]",
+      "RID=$(printf '%s' \"${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}\"); D=\".prflow/tmp/review/pr-1311/$RID\"; mkdir -p \"$D\"; echo \"runiddir=$D\"",
+      "echo \"$GITHUB_RUN_ID\"; echo \"$GITHUB_RUN_ATTEMPT\"",
+      "cd /home/runner/work/prflow/prflow; git ls-files --error-unmatch .prflow/vendor/prflow/scripts/pretooluse-shape-guard.py >/dev/null 2>&1 && echo \"TRACKED\" || echo \"not tracked\"; echo \"---diff base vs vendored (should be identical if mirror kept in sync)---\"; diff <(git show HEAD:scripts/pretooluse-shape-guard.py) <(git show HEAD:.prflow/vendor/prflow/scripts/pretooluse-shape-guard.py) >/dev/null 2>&1 && echo \"IDENTICAL at HEAD/base\" || echo \"DIFFERENT at base\"",
+      "cd /home/runner/work/prflow/prflow; git ls-files --error-unmatch .prflow/vendor/prflow/scripts/pretooluse-shape-guard.py >/dev/null 2>&1 && echo \"TRACKED\" || echo \"not tracked\"; git show HEAD:scripts/pretooluse-shape-guard.py > /tmp/a.py; git show HEAD:.prflow/vendor/prflow/scripts/pretooluse-shape-guard.py > /tmp/b.py; diff -q /tmp/a.py /tmp/b.py && echo \"IDENTICAL at base\" || echo \"DIFFERENT at base\"",
+      "git status --porcelain --ignored .prflow/vendor/ 2>/dev/null | head -3; echo \"---\"; git check-ignore .prflow/vendor/prflow/scripts/pretooluse-shape-guard.py && echo \"IGNORED (runtime artifact, out of scope)\"",
+      "git check-ignore .prflow/vendor/prflow/scripts/pretooluse-shape-guard.py"
+    ],
+    "total": 7,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
