@@ -6954,6 +6954,10 @@ assert_eq "#1153 a reintroduced git check-ignore head anywhere in the review-and
   "$(_manual_ungranted "$E484/raf-plus-checkignore.md" "$LIB/../.github/workflows/devflow.yml" tools-line | grep -qxF 'git check-ignore' && echo yes || echo no)"
 # Positive control: the unmodified bundle emits no such head, so the planted fence is the
 # sole source of the report above — the guard is not vacuously green.
+# This control is not self-guarding: an extractor error emitting e.g. __extractor_error__
+# would also yield "no" here. The anti-vacuity weight is carried by the PLANTED assertion
+# immediately above, which runs the identical extractor and requires "yes" — so an
+# extractor error fails there, loudly, rather than passing silently as a green control.
 assert_eq "#1153 the unmodified review-and-fix bundle emits no git check-ignore head" "no" \
   "$(_manual_ungranted "$MAXI_SKILL" "$LIB/../.github/workflows/devflow.yml" tools-line | grep -qxF 'git check-ignore' && echo yes || echo no)"
 
