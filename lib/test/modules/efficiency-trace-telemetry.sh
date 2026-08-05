@@ -1608,6 +1608,21 @@ assert_eq "df-runid: GITHUB_RUN_ID unset → a specific breadcrumb (fail-closed,
   "$(printf '%s' "$DF_RU_ERR" | grep -qF 'GITHUB_RUN_ID is unset' && echo yes || echo no)"
 rm -rf "$DF_RU"
 
+# Gate off (mirrors the cost floor's A8): efficiency_telemetry_enabled gates denial
+# forensics too, not only cost. Every input the skeleton arm needs is present (operand,
+# PR, record-deriving class, run-id), so with the flag ON this run WOULD write
+# pr-42-646-1.json — the gate is the only thing standing between here and that write.
+DF_G="$(_hc_repo "df gate-off")"
+printf '{"prflow_review_and_fix":{"efficiency_telemetry_enabled":false}}' > "$DF_G/.prflow/off.json"
+DF_G_ERR="$( ( cd "$DF_G" && DEVFLOW_CONFIG_FILE="$DF_G/.prflow/off.json" GITHUB_RUN_ID=646 \
+    GITHUB_RUN_ATTEMPT=1 DEVFLOW_DENIAL_RECORD="$DF_REC" DEVFLOW_EXECUTION_PR=42 \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "df-gate: telemetry disabled → no denial skeleton (nor any other record) is written" "" \
+  "$(git -C "$DF_G" ls-tree -r --name-only refs/heads/prflow-telemetry 2>/dev/null | grep '\.prflow/logs/efficiency/' || true)"
+assert_eq "df-gate: telemetry disabled → the denial floor's own 'disabled' breadcrumb" "yes" \
+  "$(printf '%s' "$DF_G_ERR" | grep -qF 'denial floor: efficiency telemetry is disabled' && echo yes || echo no)"
+rm -rf "$DF_G"
+
 # Env-absent inertness: with DEVFLOW_DENIAL_RECORD unset the floor is inert AND SILENT,
 # so every pre-#1064 agent-side --persist call site is byte-identical to before.
 DF_E="$(_hc_repo "df env-absent")"
