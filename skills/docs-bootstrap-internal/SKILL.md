@@ -30,20 +30,20 @@ Organize by **business domain and feature area**, not by technical layer.
 
 **Wrong** (mirrors code structure):
 ```
-docs/internal/backend/    # pruned-path-ok: illustrative consumer path
-docs/internal/frontend/   # pruned-path-ok: illustrative consumer path
-docs/internal/api/        # pruned-path-ok: illustrative consumer path
-docs/internal/cron/       # pruned-path-ok: illustrative consumer path
-docs/internal/plugins/    # pruned-path-ok: illustrative consumer path
+[[INTERNAL_DOC_LOCATION]]backend/
+[[INTERNAL_DOC_LOCATION]]frontend/
+[[INTERNAL_DOC_LOCATION]]api/
+[[INTERNAL_DOC_LOCATION]]cron/
+[[INTERNAL_DOC_LOCATION]]plugins/
 ```
 
 **Right** (domain-based):
 ```
-docs/internal/orders/          # pruned-path-ok: illustrative consumer path
-docs/internal/customers/       # pruned-path-ok: illustrative consumer path
-docs/internal/authentication/  # pruned-path-ok: illustrative consumer path
-docs/internal/integrations/    # pruned-path-ok: illustrative consumer path
-docs/internal/setup/           # pruned-path-ok: illustrative consumer path
+[[INTERNAL_DOC_LOCATION]]orders/
+[[INTERNAL_DOC_LOCATION]]customers/
+[[INTERNAL_DOC_LOCATION]]authentication/
+[[INTERNAL_DOC_LOCATION]]integrations/
+[[INTERNAL_DOC_LOCATION]]setup/
 ```
 
 Why: Developers look for docs about the *feature* they're working on ("how do orders work?"), not the *code layer* ("what's in the backend directory?"). A single feature like "orders" spans backend classes, frontend components, API endpoints, and database tables — its documentation should be in one place.
@@ -52,8 +52,8 @@ Why: Developers look for docs about the *feature* they're working on ("how do or
 
 Use **one level** of subdirectories under `[[INTERNAL_DOC_LOCATION]]`. No nesting.
 
-**Wrong:** `docs/internal/integrations/payments/stripe/` <!-- pruned-path-ok: illustrative consumer path, not a vendored-plugin path -->
-**Right:** `docs/internal/integrations/` (with files like `payment-stripe.md`) <!-- pruned-path-ok: illustrative consumer path, not a vendored-plugin path -->
+**Wrong:** `[[INTERNAL_DOC_LOCATION]]integrations/payments/stripe/`
+**Right:** `[[INTERNAL_DOC_LOCATION]]integrations/` (with files like `payment-stripe.md`)
 
 Why: Flat structures are easier to navigate, easier for `/docs-sync-internal` to manage, and prevent category proliferation.
 
