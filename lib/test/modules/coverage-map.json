@@ -1040,6 +1040,10 @@
       "note": "issue #1331 create_issue.investigation_record_enabled config-read publication decision + scaffold backfill",
       "owner": "unmodularized"
     },
+    "1333": {
+      "note": "issue #1333 P3x: the retrospective subagent brief carries no portable-anchor call site (by-value handoff), the complement of the #275 P3 presence pin it is exempted from",
+      "owner": "unmodularized"
+    },
     "139": {
       "note": "",
       "owner": "unmodularized"
