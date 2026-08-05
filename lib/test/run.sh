@@ -6941,6 +6941,26 @@ sed -E 's/, Bash\(gh pr checkout:\*\)//' "$LIB/../.github/workflows/devflow.yml"
 assert_eq "#484 manual gh pr checkout grant is removal-proof" "yes" \
   "$(_manual_ungranted "$MAXI_SKILL" "$E484/manual-no-checkout.yml" tools-line | grep -qxF 'gh pr checkout' && echo yes || echo no)"
 
+# AC (#1153): git check-ignore is granted on NO profile, and a review-and-fix run
+# (Actions run 29854795625) improvised one when the fence-less ignore-coverage prose asked
+# it to evaluate .prflow/tmp/ coverage. That prose is removed (this issue's AC3); this guard
+# is the RED-on-reintroduction backstop, proved by PLANTING the exact denied command as a
+# bundle fence and asserting the whole-bundle head scan reports it ungranted against
+# devflow.yml's TOOLS. It covers the "emits" (fenced command head) shape only; an
+# inline-backtick/table prose `git check-ignore` is out of the head extractor's
+# bash-fence-only reach — a residual stated (not silently closed) in the issue-1153 workpad.
+{ cat "$MAXI_SKILL"; printf '\n```bash\ngit check-ignore -q .prflow/tmp/\n```\n'; } > "$E484/raf-plus-checkignore.md"
+assert_eq "#1153 a reintroduced git check-ignore head anywhere in the review-and-fix bundle is reported ungranted" "yes" \
+  "$(_manual_ungranted "$E484/raf-plus-checkignore.md" "$LIB/../.github/workflows/devflow.yml" tools-line | grep -qxF 'git check-ignore' && echo yes || echo no)"
+# Positive control: the unmodified bundle emits no such head, so the planted fence is the
+# sole source of the report above — the guard is not vacuously green.
+# This control is not self-guarding: an extractor error emitting e.g. __extractor_error__
+# would also yield "no" here. The anti-vacuity weight is carried by the PLANTED assertion
+# immediately above, which runs the identical extractor and requires "yes" — so an
+# extractor error fails there, loudly, rather than passing silently as a green control.
+assert_eq "#1153 the unmodified review-and-fix bundle emits no git check-ignore head" "no" \
+  "$(_manual_ungranted "$MAXI_SKILL" "$LIB/../.github/workflows/devflow.yml" tools-line | grep -qxF 'git check-ignore' && echo yes || echo no)"
+
 # Skill-level recovery contracts: unit tests prove the helper behavior, while
 # these removal pins prove the orchestrator still requests a failure signal and
 # preserves the exact pre-workpad refusal note.
