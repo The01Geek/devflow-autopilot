@@ -402,6 +402,126 @@ ROWS = (
     },
 )
 
+# ── Coupled-site registry (issue #1206) ──────────────────────────────────────
+# The question `--list` answers today is "what did a generator write?". This second
+# table answers the FORWARD question a person or an automated run asks BEFORE editing:
+# "I am about to edit X — what else must change with it?". A coupled site is a value,
+# literal, or contract kept in more than one place by hand, where changing one place
+# obliges changing the others. Some of these have a standalone checker; some have NONE
+# at all and are invisible unless you happen to read the right part of a very large
+# script. Recording them here — as data, printable read-only from
+# `--list` — makes them findable and greppable before the edit, not one round trip later
+# when the suite goes red or a reviewer rejects the change.
+#
+# This registry deliberately does NOT check whether the coupled files actually agree
+# (issue #1206 "out of scope"): each entry keeps whatever checker it already has, or
+# none. The table is a MAP, not a net.
+#
+# REQUIRED FIELDS per entry (enforced at import by `_validate_coupled_sites`):
+#   name           — unique short id; the uniqueness rule this table enforces, and the
+#                    join key of the two emitted line kinds. A duplicate name raises.
+#   original       — the file that is the source/original of the coupled value.
+#   partners       — a non-empty sequence of one or more files that must change with it.
+#   coupling_class — a short class name saying what KIND of coupling it is.
+#   note           — a one-line instruction: what an editor has to do.
+# OPTIONAL FIELD:
+#   holds_old_paths — bool, default False. When True this entry's PARTNERS are
+#                    superseded/old paths (arguments to `git show <old-commit>:<path>`
+#                    that only resolve under their old names), so the AC4 path-existence
+#                    check in `emit_list` skips the partners. The marker is what exempts
+#                    them — never a hardcoded path list inside the checker. The `original`
+#                    is the live file an editor opens to change the coupled value, so it is
+#                    always current and always checked, marker or not.
+#
+# EMITTED LINES (issue #1206) — printed by `emit_list` AFTER everything the command
+# prints today, so a tree with no entries here leaves the existing `artifact` /
+# `conflict-*` / `preflight` output byte-for-byte unchanged and every prefix-anchored
+# consumer parses as before. Two tab-separated line kinds, each parseable by its own
+# tab-delimited first field (`coupled-site` is a string prefix of `coupled-site-partner`,
+# so split on the tab, do not prefix-match; partners are on their own lines so a path is
+# individually greppable):
+#   coupled-site\t<name>\t<coupling_class>\t<original>\t<note>
+#   coupled-site-partner\t<name>\t<partner-path>
+COUPLED_SITES = (
+    {
+        # AC5 — the EXTRAS copy of the tool-grant list (the note names its checker).
+        "name": "matcher-probe-extras",
+        "original": ".prflow/config.json",
+        "partners": (".github/workflows/matcher-probe.yml",),
+        "coupling_class": "allowlist-mirror",
+        "note": (
+            "prflow_implement.allowed_tools in .prflow/config.json is partly copied into "
+            "the EXTRAS='…' line in .github/workflows/matcher-probe.yml; keep them in "
+            "step. The only checker is the '#480 matcher-probe EXTRAS mirrors "
+            "probe-eligible prflow_implement.allowed_tools' check in lib/test/run.sh, and "
+            "it runs only as part of the full suite."
+        ),
+    },
+    {
+        # AC6 — _WSR_SWEPT_RELPATHS, which holds OLD paths by design (AC4 exemption).
+        "name": "wsr-swept-relpaths",
+        "original": "lib/test/run.sh",
+        "partners": (
+            ".devflow/prompt-extensions/implement.md",
+            ".devflow/prompt-extensions/review-and-fix.md",
+            ".devflow/prompt-extensions/receiving-code-review.md",
+            "CLAUDE.md",
+            "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+            "CONTRIBUTING.md",
+        ),
+        "coupling_class": "frozen-old-paths",
+        "holds_old_paths": True,
+        "note": (
+            "_WSR_SWEPT_RELPATHS in lib/test/run.sh holds `git show <old-commit>:<path>` "
+            "arguments that resolve only under their OLD names, so a repo-wide rename must "
+            "NOT rewrite them. The warning comment above the array stays for a reader at "
+            "that spot; this entry is what makes the list findable without reading the file."
+        ),
+    },
+    {
+        # AC7 — the files coupled to lib/rename-map.json: four that read it directly, plus
+        # the two workflows whose config jobs mirror a shape run.sh reconciles against it.
+        "name": "rename-map-readers",
+        "original": "lib/rename-map.json",
+        "partners": (
+            "scripts/scaffold-config.sh",
+            "scripts/config-get.sh",
+            "scripts/migrate-consumer-tier1.sh",
+            "lib/test/pin-corpus-lint.py",
+            ".github/workflows/devflow.yml",
+            ".github/workflows/devflow-implement.yml",
+        ),
+        "coupling_class": "single-source-readers",
+        "note": (
+            "The first four partners open lib/rename-map.json and parse its superseded-name "
+            "data at run time, so a change to the map's keys or structure must update each "
+            "of them. The two workflows never open the file: their config jobs carry a "
+            "hardcoded jq shape (a `^devflow(_|$)` top-level-key match) that lib/test/run.sh "
+            "reconciles against the map's config_keys, so the map and that mirrored shape "
+            "must move together even though the coupling runs through the suite rather than "
+            "through a read. The map's own `_comment` field describes this coupling in "
+            "prose and is left untouched."
+        ),
+    },
+    {
+        # AC7 — the two files that deliberately keep their OWN copy of paths.state_dir
+        # instead of reading the map.
+        "name": "rename-map-state-dir-mirror",
+        "original": "lib/rename-map.json",
+        "partners": (
+            "lib/resolve-state-dir.sh",
+            "lib/state_dir.py",
+        ),
+        "coupling_class": "deliberate-mirror",
+        "note": (
+            "lib/resolve-state-dir.sh and lib/state_dir.py deliberately carry their own "
+            "copy of paths.state_dir instead of reading the map (a .sh cannot be sourced by "
+            "the Python reader and a .py cannot be sourced into a shell); the "
+            "tier1-rename-migration suite module asserts all three agree."
+        ),
+    },
+)
+
 
 def default_repo_root():
     """The repo root to operate on when `--repo-root` is absent.
@@ -977,11 +1097,111 @@ def _validate_registry():
             )
 
 
+_COUPLED_SITE_REQUIRED_STR_FIELDS = ("name", "original", "coupling_class", "note")
+
+
+def _validate_coupled_sites(sites=None):
+    """Fail closed on a malformed coupled-site entry (issue #1206).
+
+    Run at import (below) alongside `_validate_registry`, so every entry path — main,
+    `--list`, an importing test — hits it and a malformed entry never reaches `--list`.
+    An importing caller sees the raw ValueError (a test asserts the exception itself);
+    a script run routes the same failure to the exit-2 infrastructure state via the
+    shared import-time try below — never a shortened list called success.
+
+    The default `None` reads the module table; a test passes an explicit `sites` to
+    exercise a crafted bad table without editing the shipped one.
+    """
+    if sites is None:
+        sites = COUPLED_SITES
+    seen_names = set()
+    for index, entry in enumerate(sites):
+        # The entry must be a MAPPING before any field lookup: a bare string, tuple, or
+        # None would raise AttributeError/TypeError out of `.get` below, and the
+        # import-time net catches only ValueError — so the script would exit 1 with a
+        # traceback instead of the documented exit-2 INFRASTRUCTURE routing. The index
+        # names the offending row, which has no `name` to be reported by.
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"coupled-site entry at index {index} must be a dict, got {entry!r}"
+            )
+        name = entry.get("name")
+        # Every required string field must be a present, non-empty string, so a row that
+        # silently omits the original, class, or note can never reach `--list`.
+        for field in _COUPLED_SITE_REQUIRED_STR_FIELDS:
+            value = entry.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(
+                    f"coupled-site entry {name!r} field {field!r} must be a non-empty "
+                    f"string, got {value!r}"
+                )
+        # An entry must couple at least one PARTNER file — a coupled site with no partner
+        # records no coupling and would print a `coupled-site` header with nothing to
+        # change alongside it.
+        partners = entry.get("partners")
+        if not isinstance(partners, (list, tuple)) or not partners:
+            raise ValueError(
+                f"coupled-site entry {name!r} must list one or more partner files, "
+                f"got partners={partners!r}"
+            )
+        for partner in partners:
+            if not isinstance(partner, str) or not partner.strip():
+                raise ValueError(
+                    f"coupled-site entry {name!r} declares a partner that is not a "
+                    f"non-empty string: {partner!r}"
+                )
+        # `holds_old_paths` is DECLARED DATA (it exempts an entry from the AC4 path check),
+        # so a present value must be a real bool — never a truthy string that silently
+        # disables the existence check.
+        if "holds_old_paths" in entry and not isinstance(entry["holds_old_paths"], bool):
+            raise ValueError(
+                f"coupled-site entry {name!r} declares holds_old_paths "
+                f"{entry['holds_old_paths']!r}, which is not a bool"
+            )
+        # The uniqueness rule this table enforces: a name is the join key of the two
+        # emitted line kinds, so a duplicate would map one partner line to two entries.
+        if name in seen_names:
+            raise ValueError(
+                f"coupled-site entry name {name!r} is declared more than once; names "
+                "must be unique"
+            )
+        seen_names.add(name)
+
+
+def _coupled_site_path_failures(sites, root):
+    """List of (name, path) an entry names that does not exist under `root` (issue #1206).
+
+    Confirms every path an entry names exists in the tracked tree (AC4). A pure
+    filesystem stat — no subprocess — because `--list` "runs nothing" (its own `--help`
+    contract). `is_file()`, not `exists()`, because every coupled site is a file: a
+    directory or dangling symlink at the path is not a resolved coupled site.
+
+    `holds_old_paths` exempts only the PARTNERS: they are the superseded paths that
+    resolve solely under their old names, and the marker is what exempts them (never a
+    hardcoded path list in the checker). The `original` is the live file an editor opens
+    to change the coupled value, so it is always current and always checked — a marker
+    scoped to the old partner paths must not silently stop guarding the current source
+    file the entry points at.
+    """
+    failures = []
+    for entry in sites:
+        paths = (
+            (entry["original"],)
+            if entry.get("holds_old_paths")
+            else (entry["original"], *entry["partners"])
+        )
+        for path in paths:
+            if not (root / path).is_file():
+                failures.append((entry["name"], path))
+    return failures
+
+
 # Validate at import — but route a script run's failure to exit 2 (INFRASTRUCTURE), never the
 # exit 1 a bare module-level raise would produce. An IMPORTING caller still gets the raw
 # ValueError, so a test can assert the exception itself.
 try:
     _validate_registry()
+    _validate_coupled_sites()
 except ValueError as _bind_error:
     if __name__ != "__main__":
         raise
@@ -1059,6 +1279,31 @@ def emit_list(root):
         eligible = "eligible" if row.get("preflight_eligible") else "ineligible"
         command = " ".join(row.get("preflight_argv", row["argv"]))
         print(f"preflight\t{row['name']}\t{eligible}\t{command}")
+    # Coupled-site registry (issue #1206), emitted LAST so every existing prefix-anchored
+    # consumer (`artifact\t…`, `conflict-…\t…`, `preflight\t…`) parses byte-unchanged and a
+    # tree with an empty COUPLED_SITES leaves the output above untouched.
+    #
+    # AC4 path-existence check runs HERE, when the list is printed, because existence is
+    # root-dependent (a fixture root differs from the live tree). A named path that does
+    # not exist is a LOUD failure naming both the entry and the path — never quietly
+    # dropped: the raise routes to the exit-2 infrastructure state via the top-level net,
+    # exactly like emit_list's existing duplicate-path raise. The check is collected across
+    # ALL entries first so the message can name every offender, and it fires BEFORE any
+    # coupled-site line is printed so a consumer never sees a partial list.
+    path_failures = _coupled_site_path_failures(COUPLED_SITES, root)
+    if path_failures:
+        detail = "; ".join(f"{name!r} names missing path {path!r}" for name, path in path_failures)
+        raise ValueError(
+            f"coupled-site entr{'y' if len(path_failures) == 1 else 'ies'} name a path "
+            f"absent from the tree under {root!r}: {detail}"
+        )
+    for entry in COUPLED_SITES:
+        print(
+            f"coupled-site\t{entry['name']}\t{entry['coupling_class']}\t"
+            f"{entry['original']}\t{entry['note']}"
+        )
+        for partner in entry["partners"]:
+            print(f"coupled-site-partner\t{entry['name']}\t{partner}")
     return 0
 
 
