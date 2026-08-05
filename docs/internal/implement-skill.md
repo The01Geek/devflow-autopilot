@@ -184,7 +184,7 @@ a newly-added enum/status/kind/verdict value for *stale enumerating sites* — a
 class the code-call-site sweeps do not: **doc/comment enumerations** of the value set and **fall-through
 consumers** (an `else`/`default`/`// null` arm). The motivating case (#160) is the worked example: adding
 `fix_decision: "severity-calibrated"` was behaviorally correct because the value rode an intended `else null`
-fall-through in `verdict_for`, yet `lib/efficiency-trace.jq`'s and `docs/efficiency-trace.md`'s prose
+fall-through in `verdict_for`, yet `lib/efficiency-trace.jq`'s and `docs/internal/efficiency-trace.md`'s prose
 enumerations of the value set went stale until a shadow reviewer flagged them — "consistent behavior" is not
 "reconciled enumeration." 2.3.0 and 2.3.0a grep *code* sites; 2.3.0b keys on the *observable* member literals
 of the set (grep each known value, not a re-judgment) so the doc/comment and fall-through sites are caught at
@@ -221,7 +221,7 @@ launches, the capacity arithmetic, the aggregation — so the cloud tiers invoke
 `lib/test/run-parallel.sh` with nothing around it, granted through
 `prflow_implement.allowed_tools` and `prflow.allowed_tools`. Those grants resolve from
 the **default branch at trigger time**, so a grant is inert on the PR that adds it
-(`docs/cloud-setup.md` states the general rule) — until it lands there, the cloud tier's
+(`docs/internal/cloud-setup.md` states the general rule) — until it lands there, the cloud tier's
 final gate falls back to a whole-suite form already granted on the default branch, and an
 invocation that produces no output at all is a denial, not an empty result. The local/interactive tier reaches
 the same coordinator through the `DEVFLOW_BASH` invocation-layer selector `CLAUDE.md`
@@ -540,7 +540,7 @@ staging tree does not survive teardown, so the cloud recovery path is the **uplo
 artifact** the auto-review tier stages and uploads, which the trusted telemetry-push relay
 (`telemetry-push.yml`, issue #489) downloads, validates, and pushes — not any on-disk copy the
 ephemeral runner cannot retain (coupled with `skills/implement/phases/phase-3-review.md` and
-`docs/efficiency-trace.md`, which say the same). If the stderr capture itself can't be allocated
+`docs/internal/efficiency-trace.md`, which say the same). If the stderr capture itself can't be allocated
 (`mktemp` fails), the backstop degrades to discarding `--persist`'s stderr entirely rather than
 aborting — this disables the record-write-failure check for that run (the no-inputs case still
 runs) and emits its own distinct `::warning::`, the same degrade-and-warn discipline as the
@@ -571,7 +571,7 @@ platform: issue #437 observed that the cloud `execution_file` *does* carry the t
 dispatch roster, and cost with zero agent cooperation, and that on the local tier the `Stop`
 transcript's per-message token counts are **real** figures, not streaming placeholders — wall-clock
 and the dispatch roster were *not* measured locally; see
-[`docs/execution-file-shape.md`](execution-file-shape.md).
+[`docs/internal/execution-file-shape.md`](execution-file-shape.md).
 An agent-independent cost floor is buildable — and #475 built the cloud half.) Note the deliberate implement-vs-runner asymmetry:
 the read-only `review` runner uses `--permission-mode acceptEdits`, but `/prflow:implement` does
 **not** — friction at the seam is reduced by single-statement leading-token helper forms and the Write
@@ -884,7 +884,7 @@ The two guards above catch a run that *under-completes* Phase 4. A distinct fail
 
 ### Local-tier Stop-hook backstop (`lib/implement-stop-guard.sh`)
 
-The workflow-level stall backstop below is **cloud-only**, so an unattended *local-tier* run that dies mid-phase has no deterministic net. (The reason is *not* that `Stop` hooks are unavailable on the cloud tier — `claude-code-action` removes `.claude/` and then **restores it from the base branch**, so a base-registered `Stop` hook does execute inside the action; `docs/execution-file-shape.md` records the observation, **`FIRED`**, from probe run `29224205805`. What makes the cloud net workflow-level is that it must key on the workpad `Status` *after* the `claude` step has ended, which a hook inside the session cannot do; and the guard here is repo-local, so no consumer's cloud run wires it either way.) `lib/implement-stop-guard.sh` is that net. It is **repo-local by design**: it is wired in this repo's own `.claude/settings.json` and ships to no consumer repo.
+The workflow-level stall backstop below is **cloud-only**, so an unattended *local-tier* run that dies mid-phase has no deterministic net. (The reason is *not* that `Stop` hooks are unavailable on the cloud tier — `claude-code-action` removes `.claude/` and then **restores it from the base branch**, so a base-registered `Stop` hook does execute inside the action; `docs/internal/execution-file-shape.md` records the observation, **`FIRED`**, from probe run `29224205805`. What makes the cloud net workflow-level is that it must key on the workpad `Status` *after* the `claude` step has ended, which a hook inside the session cannot do; and the guard here is repo-local, so no consumer's cloud run wires it either way.) `lib/implement-stop-guard.sh` is that net. It is **repo-local by design**: it is wired in this repo's own `.claude/settings.json` and ships to no consumer repo.
 
 The guard is **marker-gated**, so an ordinary session never pays for it. Phase 1.3 writes a run-marker `.prflow/tmp/implement-active-<issue>` the moment the workpad exists (gitignored, anchored to the repo or worktree root), recording the run's owning session id as the marker's first line when the runner exports one (Claude Code's `CLAUDE_CODE_SESSION_ID`, the same value the Stop payload carries as `session_id`) and leaving the marker empty when it does not; the always-resident *Outcome reaction* block — which already binds every terminal `Status` transition — removes it at each of them. On `Stop`, the guard:
 
@@ -935,7 +935,7 @@ The two coherence-rule sites and the two read-target-rule sites are **coupled mi
 
 The freshness guard above derives only the *behind*-by count, so a branch that is not behind the base can still carry unrelated **ahead-only** history — foreign commits every downstream step then treats as the run's own, so §1.5 publishes them and the PR diff carries their files (the PR #524 incident: four unrelated files forked from an unpushed local-`main` commit that read "behind-by-0 / up to date"). **Verdict B** closes that blind spot. It runs on the **adopted-branch** arm (`USE_CURRENT` set — the arm a run that adopts a branch takes) and, since issue #780, on the **landed-resume** arm (`LANDED` is `yes`, which never binds `USE_CURRENT`) — on the adopted arm after the freshness record, and on both arms **before** the end-of-§1.4 checkpoint invocation and the §1.5 push, so a stop verdict still precedes every history-mutating step. §1.4.0.5 classifies the working branch against the base by writing the state it holds (base, current branch, workpad body, prior-proceed evidence, workpad provenance, open-PR facts, repo) to `.prflow/tmp/branch-state-$ISSUE_NUMBER.json` with the Write tool and invoking `scripts/preflight.py branch-state --state-file …` as a single leading-token command.
 
-**Two provenance sources for ahead history (issue #780).** This section is the **canonical statement** of that admission and its threat model; `skills/implement/phases/phase-1-setup.md` §1.4.0.5 and `docs/DEVFLOW_SYSTEM_OVERVIEW.md` carry coupled operative summaries, and `scripts/preflight.py`'s header points here rather than restating it — edit them together.
+**Two provenance sources for ahead history (issue #780).** This section is the **canonical statement** of that admission and its threat model; `skills/implement/phases/phase-1-setup.md` §1.4.0.5 and `docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md` carry coupled operative summaries, and `scripts/preflight.py`'s header points here rather than restating it — edit them together.
 
 Ahead-of-base commits may be vouched for by the **workpad** (`provenance_established`) or by the **open-PR linkage** — an open PR in *this* repository whose head branch is the working branch, which is not cross-repository, and which is tied to this issue either by closing it or by having been selected by the pre-check's head-branch query. Its operands (`open_pr_branch` / `open_pr_closes_issue` / `open_pr_cross_repository` / `open_pr_selected_by`) were promoted by #780 from payload-only context to load-bearing gate operands; each is either fetched by, or derived from a field fetched by, the §1.4 resume pre-check's `gh pr list --json`.
 
@@ -1053,7 +1053,7 @@ A single `_report_failed_ticks` chokepoint in `scripts/workpad.py` writes the co
 
 ## `## Devflow Reflection`: grouped-by-kind rendering (`--reflection-kind`)
 
-**Disposition after the shared writing standard (issue #1039).** This section, and its `--reflection-kind` restatement in `docs/DEVFLOW_SYSTEM_OVERVIEW.md`, are **retained unchanged**. They document the reflection-*kind* routing — which sub-section a bullet renders under, a workpad-mechanics contract the `#126` pin requires `--reflection-kind` to appear in both files for — not the prose-*style* rules the shared writing standard (`lib/writing-standard.md`) absorbed from the implement Reflection style contract. The kind routing is unaffected by that absorption, so nothing here points at the standard.
+**Disposition after the shared writing standard (issue #1039).** This section, and its `--reflection-kind` restatement in `docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`, are **retained unchanged**. They document the reflection-*kind* routing — which sub-section a bullet renders under, a workpad-mechanics contract the `#126` pin requires `--reflection-kind` to appear in both files for — not the prose-*style* rules the shared writing standard (`lib/writing-standard.md`) absorbed from the implement Reflection style contract. The kind routing is unaffected by that absorption, so nothing here points at the standard.
 
 **Where the standard lives (issue #1039).** The standard sits in `lib/`, not `docs/`, because roughly nineteen skill surfaces read it while they execute — it is a shipped runtime asset that happens to be prose, and `lib/` is where this repository keeps shipped assets a skill reads (`lib/intervention-surfaces.md` is the existing precedent). Do not move it back under `docs/` as a tidy-up.
 
@@ -1233,7 +1233,7 @@ legitimate "none of these files were touched" signal (the genuine absence the ga
 is acted on as real.
 
 Bare-filename paths (containing no `/`) are considered satisfied if any diff entry's basename matches
-— for example, the diff entry `docs/DEVFLOW_SYSTEM_OVERVIEW.md` satisfies the named path
+— for example, the diff entry `docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md` satisfies the named path
 `DEVFLOW_SYSTEM_OVERVIEW.md`. (Because basename matching is intentionally lenient, issue authors should
 use a qualified path — e.g. `docs/README.md` rather than bare `README.md` — when a specific file, not
 any same-named file, is the deliverable.) Paths containing a `/` must appear as an exact match. If

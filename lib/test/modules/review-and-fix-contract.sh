@@ -204,6 +204,6 @@ _raf_pin_unique "raf continuation: loop role schema persists" \
 _raf_pin_unique "raf continuation: recovery uses the full shadow roster" \
   'keeps the full roster regardless of `iterations`' "$RAF_REVIEW_BUNDLE"
 _raf_pin_unique "raf prompt composition: topic priming stays visible in overview" \
-  'Topic-priming is a second, distinct leak channel' "$RAF_ROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+  'Topic-priming is a second, distinct leak channel' "$RAF_ROOT/docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md"  # structural-pin-ok: cross-file-phase-contract -- boundary-adjudicated (literal:d838d658, #946 step 2): a cross-file duplicated-statement divergence check across the overview + review-and-fix shadow-review references; the docs/internal move (issue #1188) re-scoped this site into the #810 diff, so the recorded boundary now needs the co-located site tag
 _raf_pin_unique "raf prompt composition: receiving guidance remains coupled" \
   'mutation-check every new test before completion is claimed' "$RAF_RECEIVING_SKILL"

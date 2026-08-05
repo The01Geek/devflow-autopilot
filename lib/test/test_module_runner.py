@@ -1223,7 +1223,7 @@ class ModuleRunnerTests(unittest.TestCase):
             "The registry and this full-suite call share the same lower-bound contract",
             run_text,
         )
-        overview_text = (ROOT / "docs/DEVFLOW_SYSTEM_OVERVIEW.md").read_text(
+        overview_text = (ROOT / "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md").read_text(
             encoding="utf-8"
         )
         self.assertIn(

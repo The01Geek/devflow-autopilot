@@ -2695,7 +2695,7 @@ assert_pin_unique "#466: review-and-fix extension carries the six-shape set (val
 R620_PROBE_SHA='f2162d7683bc7a352fce4efce3f092e864aab8b9'
 # Paths are anchored to $LIB/.. — $REPO_ROOT is not yet bound this early in the suite, and under
 # `set -u` referencing it here aborts the whole run.
-for _r620_probe_site in "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" "$LIB/../docs/implement-skill.md" "$LIB/../.github/workflows/matcher-probe.yml"; do
+for _r620_probe_site in "$LIB/../docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md" "$LIB/../docs/internal/implement-skill.md" "$LIB/../.github/workflows/matcher-probe.yml"; do
   assert_eq "#620: implement-probe evidence SHA is identical in ${_r620_probe_site##*/}" "yes" \
     "$(grep -qF "$R620_PROBE_SHA" "$_r620_probe_site" && echo yes || echo no)"
 done
@@ -3945,15 +3945,15 @@ rm -f "$DT_COMPARE" "$DT_COMPARE_RUN"
 assert_pin_unique "#167 coupled-site: SKILL.md states detect_all_audit is intentionally not persisted" \
   'detect_all_audit`, is intentionally **not** persisted here' "$MAXI_SKILL"
 
-# Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
-# sync — the sweep body in the implement skill (phases/phase-2-implement.md), the "Sweep selection" always-run
-# index in the same file, and the rationale table in docs/implement-skill.md. The
-# error-handling & silent-failure sweep (2.3.6) front-loads the Phase 3.3
-# silent-failure-hunter agent; if any of the three loses it the catch reverts to
-# the contingent, inconsistent homing the baseline showed. Pin all three so a
-# half-applied removal fails here instead of silently shipping.
+# The Phase 2.3 sweep's executable contract lives in the implement-skill bundle:
+# its sweep body plus the "Sweep selection" always-run index in
+# phases/phase-2-implement.md. Those operative sites remain protected below through
+# $IMPL_SKILL_BUNDLE / $P2_FILE assertions. The rationale table in
+# docs/internal/implement-skill.md is a secondary prose mirror: issue #1188 retires
+# its row-presence pins (see the cluster note below), while the surviving derived
+# cross-site enumeration still reconciles the overall contract-sweep membership.
 IMPL_SKILL="$IMPL_SKILL_BUNDLE"   # issue #218: the whole implement-skill bundle (orchestrator + 4 phase files)
-IMPL_DOC="$LIB/../docs/implement-skill.md"
+IMPL_DOC="$LIB/../docs/internal/implement-skill.md"
 
 # ── issue #218: implement skill split into orchestrator + per-phase reference files ──
 # The implement skill is now a thin orchestrator (skills/implement/SKILL.md) plus four
@@ -4517,20 +4517,14 @@ _P4_ROUTING_BULLETS="$(awk '/further exits before any label is applied/,/^If the
 assert_eq "#555 the §4.0.5 reader-routing list still carries exactly 8 bullets (6 exits + 2 qualifiers) — the count-locked header's numerals are only true at this population" \
   "8" "$_P4_ROUTING_BULLETS"
 
-assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \
-  "$(grep -qF '| 2.3.6 Error-handling & silent-failure |' "$IMPL_DOC" && echo yes || echo no)"
-# The docs rationale row remains covered independently of the phase prose.
-
-# The docs rationale mirror for the peer-checkpoint-completeness sweep remains covered.
-assert_eq "sweep 2.3.0a: docs/implement-skill.md keeps the rationale table row" "yes" \
-  "$(grep -qF '| 2.3.0a Peer-checkpoint completeness |' "$IMPL_DOC" && echo yes || echo no)"
-# Issue #165's docs and overview mirrors for the enum-enumeration reconciliation
-# sweep remain covered independently of the phase prose.
-assert_eq "sweep 2.3.0b: docs/implement-skill.md keeps the rationale table row" "yes" \
-  "$(grep -qF '| 2.3.0b Enum-enumeration reconciliation |' "$IMPL_DOC" && echo yes || echo no)"
-# The overview sweep-list entry is the other retained mirror.
-assert_eq "sweep 2.3.0b: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" "yes" \
-  "$(grep -qF '**2.3.0b** Enum-enumeration reconciliation sweep (added value to an enumerated set' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
+# Issue #1188: the docs-rationale/overview MIRROR presence pins that used to sit here
+# (sweep 2.3.6 / 2.3.0a / 2.3.0b keeps-the-rationale-row, and the 2.3.0b overview
+# sweep-list entry) were retired prose-presence pins exempted by the frozen
+# .prflow/logs retirement manifests, keyed by resolved_target. Moving the mirror docs
+# from docs/ to docs/internal/ orphans that resolved_target key, and the #810 gate
+# enforces frozen manifests, so the retirement can no longer be tracked. Their
+# retirement is completed by removal here (#876). The docs content itself is unchanged;
+# only these regression guards are dropped. See the workpad issue-accuracy note.
 
 # Substrate-agnostic re-anchor (issue #171): the "Sweep selection (run first)" preamble
 # must state that its trigger shapes apply to prose/SKILL/doc/config as much as to code,
@@ -4555,19 +4549,15 @@ assert_pin_unique "#661: Sweep-selection index cues a relocated prose literal/he
   'or a relocated prose literal, heading, section, or file path' "$P2_FILE"
 # AC2 — the enumeration mandates a whitespace-normalized search.
 # AC3 — content recovery from the diff's deletion hunks and both old-location citation forms.
-# AC11 — docs/implement-skill.md rationale reconciled with the hardened §2.3.0 (coupled mirror).
-assert_eq "#661: docs/implement-skill.md carries the relocation-is-a-contract-change rationale" "yes" \
-  "$(grep -qF 'Relocation is a contract change too (issue #661)' "$IMPL_DOC" && echo yes || echo no)"
+# AC11 — the docs/internal/implement-skill.md relocation-rationale MIRROR presence pin
+# was removed here (issue #1188): a retired prose-presence pin whose frozen retirement
+# key resolved_target moved with the doc; see the cluster note above.
 
 # ── issue #474: exact-one/static checks preserve the collection-cardinality and
 # derived-comparand contracts plus their coupled documentation mirrors.
-OVERVIEW_DOC474="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
-# The assertions below preserve the documentation rationale and overview-index
-# mirrors for the collection-cardinality contract.
-assert_eq "#474(2.3.7): docs/implement-skill.md keeps the rationale table row" "yes" \
-  "$(grep -qF '| 2.3.7 Collection-cardinality |' "$IMPL_DOC" && echo yes || echo no)"
-assert_eq "#474(2.3.7): DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-index entry" "yes" \
-  "$(grep -qF '**2.3.7** Collection-cardinality sweep' "$OVERVIEW_DOC474" && echo yes || echo no)"
+# Issue #1188: the #474 docs-rationale AND overview mirror presence pins (2.3.7 rationale
+# table row + sweep-index entry) were retired prose-presence pins orphaned by the
+# docs/internal move; removed per the cluster note above.
 # Each absence guard is paired with an INJECTION non-vacuity proof (the #465 delta form,
 # 7f7161a): an absolute `== 0` alone cannot tell "phrase removed" from "grep blind", so it
 # would degrade to a no-op if the phrase were reworded. Inject the phrase into a copy and
@@ -8019,7 +8009,7 @@ assert_eq "#338(T2): the with-note retag PATCHed the row with the (post-merge) t
 # OTHER pair (the plain AC one rewrite) and never mentions the tag or the retagged row,
 # and must still pass. Without this pin a refactor that bound the note to the specific
 # appending pair would tighten the contract past what workpad.py's guard comment,
-# SKILL.md, and docs/implement-skill.md all promise, while every other S338 test — whose
+# SKILL.md, and docs/internal/implement-skill.md all promise, while every other S338 test — whose
 # notes all happen to describe the retag itself — stayed green. Compare T5: the same
 # batched shape with NO note is refused.
 _c="$(run338 "$S338/base.md" --rewrite-ac "AC one" "AC one edited" \
@@ -8078,7 +8068,7 @@ assert_eq "#338(T3b): the tag-removing rewrite PATCHed" "yes" \
 # a text tweak on a row that ALREADY ends with the tag creates no new deferral, so it
 # needs no note — even when the OLD substring does not itself span the tag. The
 # argument-string-only predicate classified this as an append and demanded a --note,
-# contradicting the exemption workpad.py's docstring, SKILL.md and docs/implement-skill.md
+# contradicting the exemption workpad.py's docstring, SKILL.md and docs/internal/implement-skill.md
 # all publish. Fails CLOSED (an extra-note demand, never a laundered deferral), but the
 # published contract must match the code. RED against the OLD-string-only predicate.
 _c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC two" "AC two clarified (post-merge)")"
@@ -8333,7 +8323,7 @@ assert_eq "#338: SKILL.md publishes the row-scoped (post-merge) exemption" "yes"
 # GREEN if only ONE of them is reverted to the stale OLD-only form. Asserting the stale form
 # is ABSENT catches a partial reversion at either site — and does so without a brittle
 # occurrence-count pin that a third legitimate mention would break. Same for the docs mirror.
-for _f338 in "$LIB/../skills/implement/SKILL.md" "$LIB/../docs/implement-skill.md"; do
+for _f338 in "$LIB/../skills/implement/SKILL.md" "$LIB/../docs/internal/implement-skill.md"; do
   assert_eq "#338: $(basename "$_f338") carries no stale OLD-only (post-merge) contract sentence" "yes" \
     "$(grep -q 'NEW ends with it, OLD does not' "$_f338" && echo no || echo yes)"
 done
@@ -8790,6 +8780,9 @@ assert_eq "#1197: the line-level rule is IN-SECTION only — an out-of-section m
   "BLOCKED 10" "$(_p1197 oos_mixed)"
 
 # ── AC2: issue #1190's real body, captured verbatim as a fixture ──
+# FROZEN record: the fixture is a byte-for-byte capture of the live issue body and
+# is never path-swept or respelled to track tree relocations — rewriting it
+# falsifies the record (same class as _WSR_SWEPT_RELPATHS' revision-side rule).
 # The live case. `BLOCKED 1188` / exit 2 before the fix (the stub resolves #1188 OPEN),
 # `PROCEED` / exit 0 after — an issue that declares itself the PREREQUISITE of #1188 and
 # states it has no blocker is no longer reported as blocked by the issue it unblocks.
@@ -9802,10 +9795,7 @@ assert_eq "#376 AC8: lib/preflight.sh header enumerates the same guaranteed set 
 # (the fourth-mirror-site idiom of the 2.3.0b OVERVIEW pin above). assert_eq + grep -qF like that
 # precedent (a presence check on a non-$IMPL_DOC doc; the bare grep -qF needs no raw-guard-ok marker
 # for the same SKILL-token-scope reason as AC8).
-assert_eq "#376 AC11 w2-overview-2.3.0c-row: DEVFLOW_SYSTEM_OVERVIEW keeps the §2.3.0c sweep-index entry (docs↔skill coupled invariant)" \
-  "yes" \
-  "$(grep -qF -- '- **2.3.0c** Operand-trace sweep (a diff that adds a guard/predicate/validator/coverage invariant in code' \
-     "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
+# Issue #1188: prose-presence §2.3.0c overview sweep-index doc mirror pin removed (retired, orphaned by the docs/internal move).
 # AC6 (carve-out clause) — the static prose coverage preserves the cosmetic-sanitization
 # fail-closed condition in the un-guaranteed-tool bullet.
 # AC2/AC3 (completion criterion) — the static check preserves §2.3.0c's enforcement sentence.
@@ -10018,10 +10008,10 @@ assert_eq "#185A helper exists and is executable" "yes" \
 fx_paths="## Implementation Notes
 
 - **Approach** — edit \`scripts/foo.sh\`.
-- **Documentation Needed** — update \`docs/DEVFLOW_SYSTEM_OVERVIEW.md\` and docs/implement-skill.md; also \`README.md\` via the \`devflow:docs\` subagent.
+- **Documentation Needed** — update \`docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md\` and docs/internal/implement-skill.md; also \`README.md\` via the \`devflow:docs\` subagent.
 - **Potential Gotchas** — see path/to/ignored.py"
 assert_eq "#185A matrix: bullet-with-paths emits exactly the named paths (scoped, no skill token)" \
-  "$(printf 'README.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md\ndocs/implement-skill.md')" \
+  "$(printf 'README.md\ndocs/internal/DEVFLOW_SYSTEM_OVERVIEW.md\ndocs/internal/implement-skill.md')" \
   "$(printf '%s\n' "$fx_paths" | bash "$EXTRACT_HELPER")"
 
 # Case 2: a bullet with no file paths is a no-op (empty output).
@@ -10085,13 +10075,13 @@ fx_247="## Implementation Notes
 - **Approach** — do the thing.
 - **Documentation Needed**
   - Document \`DEVFLOW_JQ\` as the Windows \`jq\` escape hatch in
-    \`docs/install.md\` / \`README.md\` requirements.
+    \`docs/internal/install.md\` / \`README.md\` requirements.
   - Record the shared resolver-family expansion (\`jq\` + \`gh\`) and the path
     normalizer in the \`CLAUDE.md\` tool-resolution gotcha, via
     \`/claude-md-management:revise-claude-md\`.
 - **Potential Gotchas** — none."
-assert_eq "#254: the #247 body yields exactly CLAUDE.md, README.md, docs/install.md (skill-ref dropped)" \
-  "$(printf 'CLAUDE.md\nREADME.md\ndocs/install.md')" \
+assert_eq "#254: the #247 body yields exactly CLAUDE.md, README.md, docs/internal/install.md (skill-ref dropped)" \
+  "$(printf 'CLAUDE.md\nREADME.md\ndocs/internal/install.md')" \
   "$(printf '%s\n' "$fx_247" | bash "$EXTRACT_HELPER")"
 
 # Case 8 (issue #254): bare-directory tokens (trailing-slash and extensionless
@@ -10201,7 +10191,7 @@ fx_309="## Implementation Notes
 
 **Code Patterns** — Part A mirrors the existing branches.
 
-**Documentation Needed** — \`docs/DEVFLOW_SYSTEM_OVERVIEW.md\` (review auto-trigger section) and any
+**Documentation Needed** — \`docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md\` (review auto-trigger section) and any
 internal workflow doc under \`docs/internal/workflows/\` describing the trigger policy must document
 the new preconditions, the neutral-check-with-re-trigger behavior, and the two config keys. The
 \`CLAUDE.md\` review-engine / gotchas notes should mention the preconditions if they become a
@@ -10210,7 +10200,7 @@ load-bearing invariant. \`.prflow/config.example.json\` documents the keys inlin
 **Potential Gotchas.**
 - **Do not extract \`other/leak.md\` named in this closing bullet.**"
 assert_eq "#309: bare bold-paragraph (no '- ') em-dash Documentation Needed form IS extracted; dir/prose dropped, gotchas bullet closes scope" \
-  "$(printf '.prflow/config.example.json\nCLAUDE.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md')" \
+  "$(printf '.prflow/config.example.json\nCLAUDE.md\ndocs/internal/DEVFLOW_SYSTEM_OVERVIEW.md')" \
   "$(printf '%s\n' "$fx_309" | bash "$EXTRACT_HELPER")"
 
 # Case 15 (issue #309, review fail-open guard): a bold-emphasis span that BEGINS a
@@ -10245,6 +10235,11 @@ assert_eq "#309 fail-open guard: a bold-led continuation line does NOT close sco
 # document layout (Case 14 has a single `## Implementation Notes` section), so a
 # structural drift in the real body can never keep the suite green while it
 # no-ops. Also exercises the $1 file-arg path.
+# The fixture is a FROZEN verbatim capture of the real issue body: it is never
+# path-swept, respelled, or otherwise edited to track tree relocations (rewriting
+# it falsifies the record, exactly like the _WSR_SWEPT_RELPATHS revision-side rule
+# and the sha-keyed adjudication tables). The expected value below therefore
+# carries the path spelling the issue body itself uses, NOT the current tree's.
 # Expected: the three backticked doc files; the `docs/internal/workflows/`
 # directory ref is dropped (directories are not file deliverables) and the
 # parenthetical prose ("(review auto-trigger section)") yields no path tokens.
@@ -10768,9 +10763,9 @@ assert_pin_unique "#380 W6A: extractor header names the ### Documentation Needed
 # emits the grant's embedded path (the executed repro in Current Behavior).
 fx_644_grant="## Implementation Notes
 
-- **Documentation Needed** — update \`docs/implement-skill.md\` and the grant \`Bash(.prflow/vendor/prflow/scripts/config-get.sh:*)\`."
+- **Documentation Needed** — update \`docs/internal/implement-skill.md\` and the grant \`Bash(.prflow/vendor/prflow/scripts/config-get.sh:*)\`."
 assert_eq "#644 AC1: a backticked grant literal beside a genuine deliverable emits only the genuine path" \
-  "docs/implement-skill.md" \
+  "docs/internal/implement-skill.md" \
   "$(printf '%s\n' "$fx_644_grant" | bash "$EXTRACT_HELPER" 2>/dev/null)"
 
 # Case 46 (#644 AC2): backticked command spans (`bash lib/test/run.sh`) and a
@@ -14219,7 +14214,7 @@ assert_eq "#126 pin: workpad.py documents the --reflection-kind flag" "yes" \
 assert_eq "#126 pin: every --reflection call-site in the implement skill carries a --reflection-kind" "" \
   "$REFL_UNKINDED"
 assert_eq "#126 pin: docs describe the grouped reflection structure + --reflection-kind" "yes" \
-  "$(grep -q -- '--reflection-kind' "$LIB/../docs/implement-skill.md" && grep -q -- '--reflection-kind' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
+  "$(grep -q -- '--reflection-kind' "$LIB/../docs/internal/implement-skill.md" && grep -q -- '--reflection-kind' "$LIB/../docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
 
 # ── issue #476: reflection style contract + interpolation-safe file-based recipe ──
 # Retain the reflection routing and file-based recipe safety boundaries.
@@ -14234,7 +14229,7 @@ assert_pin_unique "#476: file-based recipe mandates deleting the payload file af
 # Removal-proof presence pin (assert_pin_unique fails closed if the literal is deleted or
 # paraphrased). Literals are apostrophe-free + unique.
 CI_SKILL_242="$CREATE_ISSUE_BUNDLE"   # #614: content-survival target — the split bundle, not the root alone
-CI_OVERVIEW_242="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+CI_OVERVIEW_242="$LIB/../docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_pin_unique "#242 A1: create-issue caps clarification with a runner-neutral total-question budget" \
   'runner-neutral total-clarifying-question budget' "$CI_SKILL_242"
 # A2 (regression, AC1/AC5/AC6/AC7): the skill no longer MANDATES AskUserQuestion as the
@@ -14899,9 +14894,9 @@ assert_eq "#275 behavioral: the unsubstituted placeholder does NOT resolve (empt
 # DEVFLOW_GH's shim remedy predates #275 and its pin lives with the #245 block; what remains
 # pinned here is the install.md side of the gotchas #275 added.
 assert_eq "#275 docs: install.md documents the PowerShell UTF-16LE write pitfall + no-BOM remedy" "yes" \
-  "$(grep -q 'UTF-16LE' "$LIB/../docs/install.md" && grep -q 'utf8NoBOM' "$LIB/../docs/install.md" && echo yes || echo no)"  # raw-guard-ok: compound doc presence pin (two coupled fragments of one gotcha)
+  "$(grep -q 'UTF-16LE' "$LIB/../docs/internal/install.md" && grep -q 'utf8NoBOM' "$LIB/../docs/internal/install.md" && echo yes || echo no)"  # raw-guard-ok: compound doc presence pin (two coupled fragments of one gotcha)
 assert_pin_unique "#275 docs: install.md documents the inline-bash variable-stripping constraint" \
-  "reads **empty** in a later statement of the same command" "$LIB/../docs/install.md"
+  "reads **empty** in a later statement of the same command" "$LIB/../docs/internal/install.md"  # structural-pin-ok: cross-file-phase-contract -- boundary-adjudicated (literal:1316523, runner_scope_contract): install.md forbids the assign-then-use command shape that erases helper-path variables on the supported runner; the docs/internal move (issue #1188) re-scoped this site into the #810 diff, so the recorded boundary now needs the co-located site tag
 assert_eq "#97 pin: implement applies DevFlow label at PR create via REST helper" "yes" \
   "$(grep -q 'ensure-label.sh PRFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh <draft-pr-number> PRFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md). #480: the PR number is a substituted LITERAL, not "$PR_NUM" — that variable is set in a previous fence and does not survive into this separate command on the cloud runner, so the old form passed an empty number and the helper refused at its arg-slip guard (the label never landed on the PR).
 assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels via REST helper" "yes" \
@@ -14992,7 +14987,7 @@ assert_eq "#152: orchestrator pins the never-report-unfiled-as-filed invariant" 
 # suite's own classify-input strings are intentionally excluded — note git
 # pathspec `*` crosses `/`, so lib/test/ is excluded explicitly).
 PRUNE_SCAN=$( cd "$LIB/.." && git grep -lFe 'audit-intervention' -e 'devflow/audit' -- \
-    'lib/*.sh' 'lib/*.jq' 'skills/*/SKILL.md' 'docs/DEVFLOW_SYSTEM_OVERVIEW.md' \
+    'lib/*.sh' 'lib/*.jq' 'skills/*/SKILL.md' 'docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md' \
     'CLAUDE.md' '.prflow/config.schema.json' 'lib/intervention-surfaces.md' \
     ':(exclude)lib/test/' 2>/dev/null || true )
 assert_eq "#152: no operative file references audit-intervention / devflow-audit" "" "$PRUNE_SCAN"
@@ -15194,7 +15189,7 @@ assert_eq "#520: empty store → empty array" "0" "$(bash "$LIB/recurring-target
 # candidate_targets — NOT hand-authored identical stubs) asserts the report
 # section renders NON-EMPTY — the anti-"green-suite/empty-production" guard.
 cat > "$RT_TMP/real.jsonl" <<'JSONL'
-{"schema_version":2,"kind":"implementation","pr":62,"issue":61,"merged_at":"2026-05-27T13:35:11Z","branch":"issue-61-x","head_sha":"85a6394","merge_commit_sha":"0469798","verdict":"imperfect","categories":["incomplete-edit","lenient-verdict"],"descriptors":["holes the standalone cloud review flagged Critical"],"signals":{"review_comments_count":0,"post_bot_commits":12,"workpad_final_status":"Complete"},"summary":"PR #62 hardened the shadow pass.","suggested_interventions":[{"summary":"Strengthen the review-and-fix loop-exit contract so a run that exits at the iteration cap with unresolved shadow findings does not present as clean.","candidate_targets":["skills/review-and-fix/SKILL.md","docs/shadow-review.md"],"change_type":"skill-update","confidence":"medium"}]}
+{"schema_version":2,"kind":"implementation","pr":62,"issue":61,"merged_at":"2026-05-27T13:35:11Z","branch":"issue-61-x","head_sha":"85a6394","merge_commit_sha":"0469798","verdict":"imperfect","categories":["incomplete-edit","lenient-verdict"],"descriptors":["holes the standalone cloud review flagged Critical"],"signals":{"review_comments_count":0,"post_bot_commits":12,"workpad_final_status":"Complete"},"summary":"PR #62 hardened the shadow pass.","suggested_interventions":[{"summary":"Strengthen the review-and-fix loop-exit contract so a run that exits at the iteration cap with unresolved shadow findings does not present as clean.","candidate_targets":["skills/review-and-fix/SKILL.md","docs/internal/shadow-review.md"],"change_type":"skill-update","confidence":"medium"}]}
 {"schema_version":2,"kind":"implementation","pr":91,"issue":90,"merged_at":"2026-06-02T09:10:00Z","branch":"issue-90-y","head_sha":"aa11bb2","merge_commit_sha":"cc33dd4","verdict":"imperfect","categories":["convention-violation"],"descriptors":["skill edit shipped without the writing-skills gate"],"signals":{"review_comments_count":2,"post_bot_commits":4,"workpad_final_status":"Complete"},"summary":"PR #91 tightened the fix loop.","suggested_interventions":[{"summary":"Add a tripwire so the fix loop cannot approve while shadow findings remain unresolved.","candidate_targets":["skills/review-and-fix/SKILL.md"],"change_type":"skill-update","confidence":"high"}]}
 JSONL
 ( . "$LIB/render-report.sh"
@@ -16959,7 +16954,7 @@ echo "#936 — surviving references to the withheld devflow-review.yml"
 # tier before it was withheld keeps it, and the installer must report it, leave it alone by
 # default, and remove it only on the explicit opt-in — so the filename has to appear there.
 #
-# Stated reference, docs/cloud-allowlist.md (issue #1051): a withheld-tier statement. That page's
+# Stated reference, docs/internal/cloud-allowlist.md (issue #1051): a withheld-tier statement. That page's
 # PreToolUse section has to name the deleted workflow to say WHY the #908 guard is inert — the
 # guard's registration rides on devflow-runner.yml, which is `workflow_call`-only and lost its
 # sole caller when #936 deleted devflow-review.yml. The filename is the caller that no longer
@@ -16981,14 +16976,14 @@ _936_EXPECTED="$(cat <<'EOF'
 .prflow/config.schema.json
 CLAUDE.md
 README.md
-docs/DEVFLOW_SYSTEM_OVERVIEW.md
-docs/cloud-allowlist.md
-docs/cloud-setup.md
-docs/execution-file-shape.md
 docs/external/release-notes.md
-docs/implement-skill.md
-docs/install.md
-docs/workflow-triggers.md
+docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md
+docs/internal/cloud-allowlist.md
+docs/internal/cloud-setup.md
+docs/internal/execution-file-shape.md
+docs/internal/implement-skill.md
+docs/internal/install.md
+docs/internal/workflow-triggers.md
 install.sh
 lib/rename-map.json
 lib/test/fixtures/issue-304-body.md
@@ -17555,7 +17550,7 @@ assert_eq "app-token: devflow.yml BRANCH_ERR temp-file allocation is mktemp-fail
 # #300) hardcodes the review token's permission set; pin it so a future scope
 # change that reconciles the REVIEWER_SITES loop but not the doc goes RED.
 assert_eq "app-token: cloud-setup.md DevFlow-Reviewer section carries the review token's exact permission set" "1" \
-  "$(grep -cF '**`Contents: read`**, **`Issues: read`**, **`Pull requests: write`**, and **`Actions: read`**' "$LIB/../docs/cloud-setup.md" || true)"
+  "$(grep -cF '**`Contents: read`**, **`Issues: read`**, **`Pull requests: write`**, and **`Actions: read`**' "$LIB/../docs/internal/cloud-setup.md" || true)"
 # Consumer-condition conjuncts on the three downscoped gate/dedupe mints: the
 # second half of each mint's if: keeps the common rejection path mint-free AND
 # bounds fail-loud to runs where a consumer actually posts. Dropping it would
@@ -17570,35 +17565,36 @@ for pair in "devflow|Mint downscoped reaction token (optional)|&& steps.resolve.
 done
 # Docs carry the opt-in contract: the var, the secret, ALL five required App
 # permissions, and the per-site downscope story (no more "reviewer untouched").
-CS="$LIB/../docs/cloud-setup.md"
-for tok in 'DEVFLOW_APP_ID' 'DEVFLOW_APP_PRIVATE_KEY'; do
-  assert_eq "app-token: cloud-setup.md documents $tok" "yes" \
-    "$(grep -qF "$tok" "$CS" && echo yes || echo no)"
-done
+CS="$LIB/../docs/internal/cloud-setup.md"
+# Issue #1188: unrolled from a `for tok in …` loop so the pinned literals are static
+# (the $CS path move brought this site into the #810 diff scope, where a loop-variable
+# literal is <unresolved-literal> and fails closed). Both tokens are machine-consumed in
+# .github/workflows/, so the classifier's Step-1 consumer check clears them.
+assert_eq "app-token: cloud-setup.md documents DEVFLOW_APP_ID" "yes" \
+  "$(grep -qF 'DEVFLOW_APP_ID' "$CS" && echo yes || echo no)"
+assert_eq "app-token: cloud-setup.md documents DEVFLOW_APP_PRIVATE_KEY" "yes" \
+  "$(grep -qF 'DEVFLOW_APP_PRIVATE_KEY' "$CS" && echo yes || echo no)"
 for perm in 'Contents:[[:space:]]*write' 'Workflows:[[:space:]]*write' 'Pull requests:[[:space:]]*write' 'Issues:[[:space:]]*write' 'Actions:[[:space:]]*read'; do
   assert_eq "app-token: cloud-setup.md documents App permission ${perm//\[\[:space:\]\]\*/ }" "yes" \
     "$(grep -qiE "$perm" "$CS" && echo yes || echo no)"
 done
 assert_eq "app-token: cloud-setup.md no longer claims the reviewer is untouched" "0" \
   "$(grep -cF 'is untouched' "$CS")"
-assert_eq "app-token: cloud-setup.md documents the per-site downscope" "yes" \
-  "$(grep -qF 'downscoped to exactly' "$CS" && echo yes || echo no)"
+# Issue #1188: prose-presence app-token doc mirror pin removed (retired, orphaned by the docs/internal move).
 # §15 of the overview: still no bare "No GitHub App." claim, still names the
 # opt-in variable, names the primary App's reactions + notices surfaces, and —
 # post-#300 — routes the review agent's posts to the separate DevFlow-Reviewer
 # App rather than listing them under the primary App.
-OV="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+OV="$LIB/../docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_eq "app-token: overview §15 no longer asserts a bare 'No GitHub App.'" "0" \
   "$(grep -cF 'No GitHub App.' "$OV")"
 assert_eq "app-token: overview §15 positively documents the optional App (DEVFLOW_APP_ID)" "yes" \
   "$(grep -qF 'DEVFLOW_APP_ID' "$OV" && echo yes || echo no)"
-assert_eq "app-token: overview §15 names the primary App's reactions + notices surfaces" "yes" \
-  "$(grep -qF 'the trigger reactions and the notice comments' "$OV" && echo yes || echo no)"
+# Issue #1188: prose-presence overview §15 doc mirror pin removed (retired, orphaned by the docs/internal move).
 # #300: §15 must route the review agent's posts to the DevFlow-Reviewer App, not
 # list them under the primary App — pin the reviewer-app name so a revert that
 # re-attributes review posts to the primary App goes RED.
-assert_eq "app-token: overview §15 routes the review agent's posts to DevFlow-Reviewer (not the primary App)" "yes" \
-  "$(grep -qF 'run instead under the separate **`DevFlow-Reviewer`** App' "$OV" && echo yes || echo no)"
+# Issue #1188: prose-presence overview §15 DevFlow-Reviewer routing doc mirror pin removed (retired, orphaned by the docs/internal move).
 
 # efficiency-trace + telemetry-persistence coverage (extracted from this file into
 # a focused module): the efficiency-trace.jq/.sh derivation surface, --persist and
@@ -17615,7 +17611,7 @@ if ! devflow_run_full_suite_module "$LIB/test/modules/efficiency-trace-telemetry
 fi
 
 # ── Retained here, deliberately not moved with the region above ───────────────
-# Four docs/efficiency-trace.md presence assertions from the extracted #532 section
+# Four docs/internal/efficiency-trace.md presence assertions from the extracted #532 section
 # stay in this file. They are not left behind for convenience: three of their four
 # pinned literals resolve into ORDINARY PROSE in that document, and the issue-#948
 # routing ladder in lib/test/pin-corpus-lint.py admits such a site only when the
@@ -17630,17 +17626,13 @@ fi
 # documentation-presence pins should exist at all — see CLAUDE.md's #375/#666/#810
 # bullet) to the pass that is draining that population. The fourth assertion moves
 # with nothing to gain by separation and is kept beside its two siblings.
-# et-fresh(R14) — the residual-windows doc entry names the transient-failure window.
-assert_eq "et-fresh(R14): docs name the transient-failure residual window (offline / lost ref-lock race)" "yes" \
-  "$(grep -qF 'transient-failure' "$LIB/../docs/efficiency-trace.md" && grep -qF 'losing the' "$LIB/../docs/efficiency-trace.md" && echo yes || echo no)"
-# docs-fetch-scope(R9) — docs state the base-ref refresh, the fetch scope, AND the
-# PR-number cutoff clause (surface-presence contract pin).
-assert_eq "docs-fetch-scope(R9): docs state --persist refreshes the base ref before synthesis" "yes" \
-  "$(grep -qF 'refreshes the base ref before synthesis' "$LIB/../docs/efficiency-trace.md" && echo yes || echo no)"
+# Issue #1188: the prose-presence efficiency-trace doc mirror pins (transient-failure
+# residual window; --persist refreshes-the-base-ref; PR-number cutoff clause) were
+# retired prose-presence pins orphaned by the docs/internal move; removed per the
+# cluster note earlier. The machine-shaped `refs/remotes/origin/<base>` token pin stays
+# (distinctive token, machine-consumed, not retirement-exempt).
 assert_eq "docs-fetch-scope(R9): docs state the fetch scope (refs/remotes/origin/<base> cache only)" "yes" \
-  "$(grep -qF 'refs/remotes/origin/<base>' "$LIB/../docs/efficiency-trace.md" && echo yes || echo no)"
-assert_eq "docs-fetch-scope(R9): docs record the PR-number cutoff clause" "yes" \
-  "$(grep -qF "predating this change's merge" "$LIB/../docs/efficiency-trace.md" && echo yes || echo no)"
+  "$(grep -qF 'refs/remotes/origin/<base>' "$LIB/../docs/internal/efficiency-trace.md" && echo yes || echo no)"
 
 # ── Also retained here: the #442 Critical-1 behavioral arm ────────────────────
 # The static half of that guard (telemetry-branch.sh carries no bare "${arr[@]}"
@@ -18694,7 +18686,7 @@ rm -rf "$HSH_UR_DIR" "$HSH_UR_DIR2"
 
 # ── #805 PreToolUse shape guard: closure edge fail-closed, remediation mirror, stub ──
 GUARD_PY="$LIB/../scripts/pretooluse-shape-guard.py"
-ALLOWLIST_DOC="$LIB/../docs/cloud-allowlist.md"
+ALLOWLIST_DOC="$LIB/../docs/internal/cloud-allowlist.md"
 # The guard's importlib edge to extract-command-shapes.py is a REAL, trust-sensitive edge
 # the walker must model — assert it is DETECTED and REQUIRED: dropping shapes from the
 # closure surfaces the guard->shapes violation (fail-closed), so an importlib-edge regex
@@ -18741,7 +18733,7 @@ else
   printf '  FAIL  #805 drift-guard: mktemp -d failed (UNRESOLVABLE-IMPORT arm not exercised; not a vacuous skip)\n' >&2
 fi
 # Remediation mirror (issue #805): each deny-set arm's join literal appears in BOTH the
-# guard's REMEDIATION ENTRY FOR THAT ARM and docs/cloud-allowlist.md's authoritative TABLE
+# guard's REMEDIATION ENTRY FOR THAT ARM and docs/internal/cloud-allowlist.md's authoritative TABLE
 # ROW FOR THAT ARM, so the scripts/-to-docs/ coupled mirror cannot drift silently. This is
 # a machine-consumed cross-file contract (the guard's remediation text is the emitted
 # permissionDecisionReason), not a prose-presence pin.
@@ -18762,22 +18754,22 @@ spec.loader.exec_module(mod)
 sys.stdout.write(mod.REMEDIATION.get(sys.argv[2], ""))
 PY
 }
-_805_doc_row() {  # $1 = arm id -> that arm's docs/cloud-allowlist.md table row, or empty
+_805_doc_row() {  # $1 = arm id -> that arm's docs/internal/cloud-allowlist.md table row, or empty
   grep -F "| \`$1\` |" "$ALLOWLIST_DOC" || true
 }
 assert_eq "#805 remediation mirror: arm R1 join literal is in the guard's R1 REMEDIATION entry" "yes" \
-  "$(_805_guard_cell R1 | grep -qF 'VAR=$(cmd)' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
+  "$(_805_guard_cell R1 | grep -qF 'VAR=$(cmd)' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/internal/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
 assert_eq "#805 remediation mirror: arm R1 join literal is in the docs R1 table row" "yes" \
   "$(_805_doc_row R1 | grep -qF 'VAR=$(cmd)' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's permitted-alternative cell is the authoritative form the guard's emitted remediation must name
 assert_eq "#805 remediation mirror: arm R3-tmp join literal is in the guard's R3-tmp REMEDIATION entry" "yes" \
-  "$(_805_guard_cell R3-tmp | grep -qF '.prflow/tmp/' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
+  "$(_805_guard_cell R3-tmp | grep -qF '.prflow/tmp/' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/internal/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
 assert_eq "#805 remediation mirror: arm R3-tmp join literal is in the docs R3-tmp table row" "yes" \
   "$(_805_doc_row R3-tmp | grep -qF '.prflow/tmp/' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's permitted-alternative cell is the authoritative form the guard's emitted remediation must name
 # R4's permitted alternative reads as a whitespace-bearing English phrase on the docs side,
 # which the issue-810 boundary classifies as prose; the arm's DENIED-SHAPE cell carries the
 # whitespace-free join key verbatim on both sides, so the R4 row is mirrored on that.
 assert_eq "#805 remediation mirror: arm R4 interpreter-head shape is in the guard's R4 REMEDIATION entry" "yes" \
-  "$(_805_guard_cell R4 | grep -qF 'python3/python/node' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
+  "$(_805_guard_cell R4 | grep -qF 'python3/python/node' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/internal/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
 assert_eq "#805 remediation mirror: arm R4 interpreter-head shape is in the docs R4 table row" "yes" \
   "$(_805_doc_row R4 | grep -qF 'python3/python/node' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's R4 row is the authoritative record of the denied interpreter-head shape the guard refuses
 # NEGATIVE CONTROLS for the row-scoping itself: the extractors must return the arm's OWN
@@ -21682,7 +21674,7 @@ scenarios = {
     # type/id/name/input. Reading the field off the tool_use node therefore yields None on
     # every real record — PERMITTED would be unreachable by construction and the
     # orchestrator exclusion silently inert. The committed census cannot settle this
-    # (docs/execution-file-shape.md records that its flattened key set "erases parentage"),
+    # (docs/internal/execution-file-shape.md records that its flattened key set "erases parentage"),
     # so these fixtures pin the resolution on the shape the helper will actually meet.
     "envelope_permitted": [envelope(None, [D_BLK]),
                            envelope("d1", [CB_BLK, WRITE_BLK, CA_BLK])],
@@ -22306,7 +22298,7 @@ with open(fixture, encoding="utf-8") as fh:
 print("conforms")
 PY_CONF
 assert_eq "#858 subagent-write: the production-realistic fixture conforms to the committed execution-shape census" "conforms" \
-  "$(python3 "$SWV_TMP/conform.py" "$SWV_TMP/exec.jsonl" "$LIB/../docs/execution-file-shape.observed.txt")"
+  "$(python3 "$SWV_TMP/conform.py" "$SWV_TMP/exec.jsonl" "$LIB/test/fixtures/execution-file-shape.observed.txt")"
 # COVERAGE, not just non-vacuity. The gate above proves the CENSUS is readable; it does not
 # prove the check covers the fixtures. Run against `permitted` alone it saw only the flat
 # record vocabulary — never `message`/`content` (produced only by the envelope scenarios, the
@@ -22317,7 +22309,7 @@ assert_eq "#858 subagent-write: the production-realistic fixture conforms to the
 for _scen in envelope_permitted denied; do
   devflow_swv_build_ok "$_scen"
   assert_eq "#858 subagent-write: the '$_scen' fixture also conforms to the committed execution-shape census" "conforms" \
-    "$(python3 "$SWV_TMP/conform.py" "$SWV_TMP/exec.jsonl" "$LIB/../docs/execution-file-shape.observed.txt")"
+    "$(python3 "$SWV_TMP/conform.py" "$SWV_TMP/exec.jsonl" "$LIB/test/fixtures/execution-file-shape.observed.txt")"
 done
 # Restore the fixture the assertions after this point expect.
 devflow_swv_build_ok permitted
@@ -22710,6 +22702,13 @@ assert_eq "vendor: committed branch is a no-op (sentinel survives)" "yes" "$(vex
 
 # self branch — cwd is the repo root (has scripts/ + skills/ + plugin.json), so
 # the in-tree plugin is copied into dest through the shared slice definition.
+# Establish the source population independently of the destination-absence guard:
+# otherwise an accidentally emptied checkout would let "excludes docs/internal" pass
+# without exercising the prune. This closed docs/internal subtree cannot reach sibling
+# worktrees, and `-print -quit` avoids both a hand-maintained filename and a full walk.
+VS_SELF_INTERNAL_SOURCE="$(find "$REPO_ROOT/docs/internal" -type f -print -quit 2>/dev/null)"  # tree-walk-ok: closed docs/internal subtree; no sibling worktree or dependency tree is reachable
+assert_eq "#1188 vendor: self source carries at least one docs/internal file before pruning (non-vacuity precondition)" "yes" \
+  "$([ -n "$VS_SELF_INTERNAL_SOURCE" ] && echo yes || echo no)"
 VS_SELF="$(mktemp -d)/dest"
 ( cd "$REPO_ROOT" && DEVFLOW_DEST="$VS_SELF" bash "$VENDOR" >/dev/null 2>&1 )
 assert_eq "vendor: self branch copies scripts from checkout root" "yes" "$(vexists "$VS_SELF/scripts/resolve-implement-trigger.sh")"
@@ -22757,16 +22756,18 @@ printf '{}' > "$VS_REMOTE/.claude-plugin/marketplace.json"
 # git won't track empty dirs — give each slice dir a file so the clone carries
 # the whole slice (mirrors the real repo, where none of these dirs are empty).
 : > "$VS_REMOTE/agents/placeholder.md"
-: > "$VS_REMOTE/docs/efficiency-trace.md"
 : > "$VS_REMOTE/lib/placeholder.sh"
 : > "$VS_REMOTE/skills/placeholder.md"
 : > "$VS_REMOTE/LICENSES/placeholder-LICENSE"   # #671: LICENSES/ is now a copy-list member, so the fetch fixture must carry it
-# The fixture must CARRY all three excluded subtrees, otherwise the fetch-branch
+# The fixture must CARRY every excluded subtree, otherwise the fetch-branch
 # exclusion assertions below would pass vacuously — absent from the source, never
 # pruned. With these present the assertions observe the prune actually running.
-mkdir -p "$VS_REMOTE/docs/site" "$VS_REMOTE/docs/external" "$VS_REMOTE/lib/test"
+# docs/internal carries a file so its exclusion (issue #1188) is non-vacuous and so the
+# docs/ directory has content to be copied before the prune empties it.
+mkdir -p "$VS_REMOTE/docs/site" "$VS_REMOTE/docs/external" "$VS_REMOTE/docs/internal" "$VS_REMOTE/lib/test"
 : > "$VS_REMOTE/docs/site/index.html"
 : > "$VS_REMOTE/docs/external/index.mdx"
+: > "$VS_REMOTE/docs/internal/efficiency-trace.md"
 : > "$VS_REMOTE/lib/test/run.sh"
 printf '{}' > "$VS_REMOTE/.prflow/config.example.json"
 printf '{}' > "$VS_REMOTE/.prflow/config.schema.json"
@@ -22790,17 +22791,17 @@ VS_FETCH="$(mktemp -d)/dest"
     bash "$VENDOR" >/dev/null 2>&1 )
 assert_eq "vendor: fetch branch clones the pinned ref and copies the slice" "yes" "$(vexists "$VS_FETCH/scripts/resolve-implement-trigger.sh")"
 assert_eq "vendor: fetch branch drops the vendored marketplace.json" "no" "$(vexists "$VS_FETCH/.claude-plugin/marketplace.json")"
-# docs/ must travel with the slice so a consumer maintainer reading the materialized
-# plugin has the reference tree offline (no web access in the runner sandbox). Issue
-# #1190 removed the last shipped skill-body link into docs/, so this no longer guards
-# a link resolution — it guards against over-pruning until the prune follow-up lands.
-assert_eq "vendor: fetch branch copies docs/" "yes" "$(vexists "$VS_FETCH/docs/efficiency-trace.md")"
+# The source carries content under every docs subtree, but no documentation belongs in
+# the runtime slice after issue #1188. Requiring the root itself to be absent makes this
+# a content-bearing contract rather than preserving a purposeless empty directory.
+assert_eq "vendor: fetch branch ships no docs/ tree after pruning" "no" "$(vexists "$VS_FETCH/docs")"
 # #677 on the CONSUMER-FACING branch: the self-branch assertions further below cover
 # the same shared devflow_copy_slice, but `fetch` is what a real thin consumer runs,
 # so pin the prune there directly rather than relying on the shared path transitively.
 # Non-vacuous by construction — the fixture above carries both subtrees.
 assert_eq "#677 vendor: fetch slice excludes docs/site (published-page HTML)" "no" "$(vexists "$VS_FETCH/docs/site")"
 assert_eq "vendor: fetch slice excludes docs/external (published Mintlify source)" "no" "$(vexists "$VS_FETCH/docs/external")"
+assert_eq "#1188 vendor: fetch slice excludes docs/internal (DevFlow's maintainer documentation)" "no" "$(vexists "$VS_FETCH/docs/internal")"
 assert_eq "#677 vendor: fetch slice excludes lib/test (DevFlow's own test suite)" "no" "$(vexists "$VS_FETCH/lib/test")"
 assert_eq "#677 vendor: fetch slice keeps non-test lib/ contents" "yes" "$(vexists "$VS_FETCH/lib/placeholder.sh")"
 
@@ -22887,11 +22888,9 @@ assert_eq "vendor: committed branch beats self (precedence)" "yes" "$(vexists "$
 # self branch copies the FULL slice, not just scripts/ (a dropped cp arg would
 # silently ship a plugin missing agents/lib/skills or the tool registry).
 assert_eq "vendor: self copies agents/" "yes" "$(vexists "$VS_SELF/agents")"
-assert_eq "vendor: self copies docs/" "yes" "$(vexists "$VS_SELF/docs")"
-# A known doc lands, so an over-prune of docs/ contents is caught rather than only an
-# absent docs/ directory. (Before issue #1190 this named the shipped skill link into
-# this file; that link is gone, and the over-prune guard is what survives.)
-assert_eq "vendor: self copies docs/efficiency-trace.md" "yes" "$(vexists "$VS_SELF/docs/efficiency-trace.md")"
+# The independently asserted self source carries docs/internal content. The runtime slice
+# deliberately ships no documentation at all, so even the now-empty docs/ root is absent.
+assert_eq "vendor: self ships no docs/ tree after pruning" "no" "$(vexists "$VS_SELF/docs")"
 assert_eq "vendor: self copies lib/" "yes" "$(vexists "$VS_SELF/lib")"
 assert_eq "vendor: self copies skills/" "yes" "$(vexists "$VS_SELF/skills")"
 assert_eq "vendor: self copies .prflow/tool-presets.json" "yes" "$(vexists "$VS_SELF/.prflow/tool-presets.json")"
@@ -22905,28 +22904,16 @@ assert_eq "vendor: self copies .prflow/tool-presets.json" "yes" "$(vexists "$VS_
 # subtree and turns these RED, so the exclusion cannot be silently reverted.
 assert_eq "#677 vendor: self slice excludes docs/site (published-page HTML)" "no" "$(vexists "$VS_SELF/docs/site")"
 assert_eq "vendor: self slice excludes docs/external (published Mintlify source)" "no" "$(vexists "$VS_SELF/docs/external")"
+assert_eq "#1188 vendor: self slice excludes docs/internal (DevFlow's maintainer documentation)" "no" "$(vexists "$VS_SELF/docs/internal")"
 assert_eq "#677 vendor: self slice excludes lib/test (DevFlow's own test suite)" "no" "$(vexists "$VS_SELF/lib/test")"
 # #677 presence backstops: the exclusion must not over-prune. Proving absence alone
-# would be satisfied by an implementation that pruned too much (e.g. all of docs/ or
-# all of lib/), so pair each excluded subtree with the reachable siblings that MUST
-# survive: the docs/ files that were reachable from shipped skill bodies when these
-# pins were written and still ship today (each pinned individually below — issue #1190
-# removed those links, so the set is now a historical selection this guard holds in
-# place until the prune follow-up revisits it), the non-test lib/ contents, and the
-# load-bearing top-level members. The
-# per-file pins matter — the "vendor: self copies docs/" assertion above only checks
-# the docs/ directory exists, so an over-prune of a single linked doc would slip past
-# it but not past these.
-# (docs/architecture.md is named in the issue's AC3 but does not exist in the tree —
-# its only mention is an illustrative example string in agents/checklist-generator.md,
-# not a shipped link — so it is deliberately NOT asserted here; recorded as an
-# issue-accuracy reflection.)
-assert_eq "#677 vendor: self slice keeps docs/DEVFLOW_SYSTEM_OVERVIEW.md" "yes" "$(vexists "$VS_SELF/docs/DEVFLOW_SYSTEM_OVERVIEW.md")"
-assert_eq "#677 vendor: self slice keeps docs/cloud-setup.md" "yes" "$(vexists "$VS_SELF/docs/cloud-setup.md")"
-assert_eq "#677 vendor: self slice keeps docs/efficiency-trace.md" "yes" "$(vexists "$VS_SELF/docs/efficiency-trace.md")"
-assert_eq "#677 vendor: self slice keeps docs/implement-skill.md" "yes" "$(vexists "$VS_SELF/docs/implement-skill.md")"
-assert_eq "#677 vendor: self slice keeps docs/review-agent-overrides.md" "yes" "$(vexists "$VS_SELF/docs/review-agent-overrides.md")"
-assert_eq "#677 vendor: self slice keeps docs/shadow-review.md" "yes" "$(vexists "$VS_SELF/docs/shadow-review.md")"
+# would be satisfied by an implementation that pruned too much (e.g. all of lib/), so
+# pair each excluded subtree with reachable siblings that MUST survive: the non-test
+# lib/ contents and the load-bearing top-level members.
+# (Issue #1188: the six per-file "self slice keeps docs/<name>.md" pins that used to sit
+# here were DELETED, not re-anchored to docs/internal/ — docs/internal is now pruned, so
+# each one would assert the presence of a file the slice no longer ships. The
+# "excludes docs/internal" assertion above is the replacement over-prune-direction guard.)
 assert_eq "#677 vendor: self slice keeps non-test lib/ contents (preflight.sh)" "yes" "$(vexists "$VS_SELF/lib/preflight.sh")"
 assert_eq "#677 vendor: self slice keeps scripts/" "yes" "$(vexists "$VS_SELF/scripts")"
 assert_eq "#677 vendor: self slice keeps agents/" "yes" "$(vexists "$VS_SELF/agents")"
@@ -24463,7 +24450,7 @@ assert_eq "pls: bare invocation write-state matches the shipped contract (#1073)
   "$PLS_WC_RC:$([ -f "$PLS_WC/.claude/settings.json" ] && echo yes || echo no)"
 rm -rf "$PLS_WC"
 
-# Issue #1073 — the fenced jsonc blocks in docs/install.md and docs/cloud-setup.md
+# Issue #1073 — the fenced jsonc blocks in docs/internal/install.md and docs/internal/cloud-setup.md
 # reproduce the provisioned settings and are byte-mirrors of the script's $DEFAULTS
 # jq program. Assert they parse to the SAME JSON a write-performing invocation of
 # the shipped script produces, compared key-for-key (deep equality). This is a
@@ -24525,10 +24512,10 @@ if len(candidates) != 1:
 print("match" if candidates[0] == produced else "mismatch")
 PY
 }
-assert_eq "pls: shipped defaults match the documented jsonc block in docs/install.md (#1073)" "match" \
-  "$(pls_doc_cmp "$PLS_DOC/.claude/settings.json" "$LIB/../docs/install.md")"
-assert_eq "pls: shipped defaults match the documented jsonc block in docs/cloud-setup.md (#1073)" "match" \
-  "$(pls_doc_cmp "$PLS_DOC/.claude/settings.json" "$LIB/../docs/cloud-setup.md")"
+assert_eq "pls: shipped defaults match the documented jsonc block in docs/internal/install.md (#1073)" "match" \
+  "$(pls_doc_cmp "$PLS_DOC/.claude/settings.json" "$LIB/../docs/internal/install.md")"
+assert_eq "pls: shipped defaults match the documented jsonc block in docs/internal/cloud-setup.md (#1073)" "match" \
+  "$(pls_doc_cmp "$PLS_DOC/.claude/settings.json" "$LIB/../docs/internal/cloud-setup.md")"
 rm -rf "$PLS_DOC"
 unset -f pls_doc_cmp
 
@@ -25452,13 +25439,13 @@ PRT_AGENTS="code-reviewer silent-failure-hunter comment-analyzer type-design-ana
 #   - CHANGELOG.md                    release history (past entries describing prior config
 #                                     state) PLUS the new #141 entry, which documents the
 #                                     breaking rename and so necessarily names the old id.
-#   - docs/review-agent-overrides.md  carries the migration table (old-key -> new-key) that
+#   - docs/internal/review-agent-overrides.md  carries the migration table (old-key -> new-key) that
 #                                     tells operators what to rename; its OPERATIVE table /
 #                                     example are rewired to devflow: (asserted positively
 #                                     below), only the migration section names the old id.
 PRT_PAT="pr-review-""toolkit:"
 assert_eq "#141 no operative surface references the namespaced pr-review-toolkit agent id (logs/CHANGELOG/migration-doc excepted)" \
-  "" "$(tracked_scan "$FDROOT" "$PRT_PAT" ':!.prflow/logs' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md')"
+  "" "$(tracked_scan "$FDROOT" "$PRT_PAT" ':!.prflow/logs' ':!CHANGELOG.md' ':!docs/internal/review-agent-overrides.md')"
 
 # (2/2b/2c) Per-agent vendoring + dispatch-resolves + structural validity. For each of the
 # five review agents: the file exists first-party under agents/; the shared review engine
@@ -25601,11 +25588,11 @@ assert_eq "#141 no cloud workflow installs the pr-review-toolkit companion plugi
 # this most — it is EXCLUDED from (1) (it carries the old-id migration table), so its
 # operative override example would otherwise be unguarded; the other two are inside (1)'s
 # scan but a dropped-mention regression is still invisible to a negative scan.
-assert_eq "#141 docs/review-agent-overrides.md operative example uses the internalized devflow: key" \
-  "yes" "$(grep -qF '"devflow:code-reviewer": { "model"' "$FDROOT/docs/review-agent-overrides.md" && echo yes || echo no)"
+assert_eq "#141 docs/internal/review-agent-overrides.md operative example uses the internalized devflow: key" \
+  "yes" "$(grep -qF '"devflow:code-reviewer": { "model"' "$FDROOT/docs/internal/review-agent-overrides.md" && echo yes || echo no)"
 for d in DEVFLOW_SYSTEM_OVERVIEW.md shadow-review.md; do
   assert_eq "#141 docs/$d describes the internalized first-party review roster (devflow:code-reviewer present)" \
-    "yes" "$(grep -qF 'devflow:code-reviewer' "$FDROOT/docs/$d" && echo yes || echo no)"
+    "yes" "$(grep -qF 'devflow:code-reviewer' "$FDROOT/docs/internal/$d" && echo yes || echo no)"
 done
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -25631,7 +25618,7 @@ SP_SKILLS="requesting-code-review receiving-code-review"
 # identifier for the two internalized skills (the plugin-name + colon form). Excepted:
 # .prflow/logs (append-only audit scratch), CHANGELOG.md (historical entries + the #142
 # breaking-rename entry, which necessarily names the old override key), and (for the final-
-# pass key only) docs/review-agent-overrides.md (carries the old->new migration table) —
+# pass key only) docs/internal/review-agent-overrides.md (carries the old->new migration table) —
 # mirrors the #141 migration-doc exception. Patterns are split-literal so this run.sh never
 # self-matches its own grep, and the descriptions avoid the contiguous colon form for the
 # same reason (a description literal would itself be a tracked hit). writing-skills is NOT
@@ -25640,7 +25627,7 @@ SP_SKILLS="requesting-code-review receiving-code-review"
 SP_PAT_REQ="superpowers:""requesting-code-review"
 SP_PAT_REC="superpowers:""receiving-code-review"
 assert_eq "#142 no operative surface references the old namespaced requesting-code-review id (logs/CHANGELOG/migration-doc excepted)" \
-  "" "$(tracked_scan "$FDROOT" "$SP_PAT_REQ" ':!.prflow/logs' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md')"
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_REQ" ':!.prflow/logs' ':!CHANGELOG.md' ':!docs/internal/review-agent-overrides.md')"
 assert_eq "#142 no operative surface references the old namespaced receiving-code-review id (logs/CHANGELOG excepted)" \
   "" "$(tracked_scan "$FDROOT" "$SP_PAT_REC" ':!.prflow/logs' ':!CHANGELOG.md')"
 
@@ -25703,7 +25690,7 @@ SP_PAT_NS="superpowers"":"
 # CHANGELOG.md on merge, so a changeset that legitimately names `superpowers:writing-skills`
 # (this issue's own does) is exactly as sanctioned as the CHANGELOG entry it becomes.
 assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration/learnings/design-specs/prompt-extensions/changeset excepted)" \
-  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.prflow/logs' ':!.prflow/learnings' ':!.prflow/prompt-extensions' ':!.changeset' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!docs/superpowers/specs' ':!lib/test' ':!CLAUDE.md')"
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.prflow/logs' ':!.prflow/learnings' ':!.prflow/prompt-extensions' ':!.changeset' ':!CHANGELOG.md' ':!docs/internal/review-agent-overrides.md' ':!docs/superpowers/specs' ':!lib/test' ':!CLAUDE.md')"
 
 # (2/2b/2c) Per-skill vendoring + structural validity. For each of the two skills the file
 # exists first-party under skills/<name>/SKILL.md; its frontmatter declares name: <name> (so
@@ -25875,7 +25862,7 @@ _WSR_RETIRED_REFS=(
 # carried. The sweep only proves the old rule is gone, so the new rule gets its own
 # positive pin below.
 for _WSR_RETIRED_FILE in "$WSR_IMPL" "$WSR_RAF" "$FDROOT/.prflow/prompt-extensions/receiving-code-review.md" \
-  "$WSR_CLAUDE" "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md" "$FDROOT/CONTRIBUTING.md"; do
+  "$WSR_CLAUDE" "$FDROOT/docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md" "$FDROOT/CONTRIBUTING.md"; do
   # An absence guard cannot tell "the text is gone" from "the file was never read":
   # pin_count prints 0 for a missing/unreadable path, so a renamed or mistyped member of
   # this list would contribute a silent zero and the guard would pass BECAUSE it could not
@@ -26257,7 +26244,7 @@ assert_eq "#719 review-and-fix.md carries no undefined path disjunct in the full
 assert_eq "#719 receiving-code-review.md carries no undefined path disjunct in the full-suite trigger" "0" \
   "$(pin_count 'module or path' "$FDROOT/.prflow/prompt-extensions/receiving-code-review.md")"
 assert_eq "#719 overview mirror carries no undefined path disjunct in the full-suite trigger" "0" \
-  "$(pin_count 'module or path' "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md")"
+  "$(pin_count 'module or path' "$FDROOT/docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md")"
 assert_eq "#719 CONTRIBUTING.md carries no undefined path disjunct in the full-suite trigger" "0" \
   "$(pin_count 'focused path' "$FDROOT/CONTRIBUTING.md")"
 
@@ -26405,12 +26392,10 @@ assert_eq "#142 review engine no longer assumes the final-pass reviewer is an in
 # name the internalized devflow:requesting-code-review id — a negative scan (1) catches a
 # leftover OLD id but not a doc that DROPPED the mention. review-agent-overrides.md (excluded
 # from (1) for its migration table) needs this most.
-assert_eq "#142 docs/review-agent-overrides.md operative table uses the internalized devflow:requesting-code-review key" \
-  "yes" "$(grep -qF 'devflow:requesting-code-review' "$FDROOT/docs/review-agent-overrides.md" && echo yes || echo no)"
-for d in DEVFLOW_SYSTEM_OVERVIEW.md shadow-review.md; do
-  assert_eq "#142 docs/$d references the internalized devflow:requesting-code-review final-pass reviewer" \
-    "yes" "$(grep -qF 'devflow:requesting-code-review' "$FDROOT/docs/$d" && echo yes || echo no)"
-done
+# Issue #1188: the #142 prose-presence doc mirror pins (review-agent-overrides.md operative
+# table + the DEVFLOW_SYSTEM_OVERVIEW/shadow-review references to devflow:requesting-code-review)
+# were retired prose-presence pins orphaned by the docs/internal move; removed per the cluster
+# note earlier. The docs still carry the roster; only these regression guards are dropped.
 
 # (8) Positive pin for the implement skill's Phase-3 review-roster line (PR #143 review,
 # Minor #2). The implement skill (phases/phase-3-review.md) names the five first-party
@@ -26926,11 +26911,11 @@ vp_index() { git -C "$1" add -A >/dev/null 2>&1; }
 
 vp_repo() {  # -> prints an isolated fake repo root carrying both pin forms
   local d; d="$(mktemp -d)"
-  mkdir -p "$d/.claude-plugin" "$d/docs" "$d/lib/test" "$d/.changeset" "$d/.prflow/logs" \
-           "$d/.prflow/vendor/prflow/docs" "$d/.prflow/learnings" "$d/.claude/worktrees/wt/docs"
+  mkdir -p "$d/.claude-plugin" "$d/docs/internal" "$d/lib/test" "$d/.changeset" "$d/.prflow/logs" \
+           "$d/.prflow/vendor/prflow/docs/internal" "$d/.prflow/learnings" "$d/.claude/worktrees/wt/docs/internal"
   printf '{\n  "name": "devflow",\n  "version": "3.1.4"\n}\n' > "$d/.claude-plugin/plugin.json"
   printf 'curl -fsSL https://raw.githubusercontent.com/o/r/v3.1.4/install.sh -o i.sh\nDEVFLOW_REF=v3.1.4 bash i.sh\n' \
-    > "$d/docs/install.md"
+    > "$d/docs/internal/install.md"
   # Version-shaped tokens that are NOT release pins: a spec URL, a vendored tool version,
   # an upstream runner version, a historical migration note. None may be rewritten.
   printf 'semver.org/spec/v2.0.0.html SHELLCHECK v0.11.0 Copilot CLI v1.0.67 migration v2.8.12\n' \
@@ -26948,10 +26933,10 @@ vp_repo() {  # -> prints an isolated fake repo root carrying both pin forms
   printf 'DEVFLOW_REF=v0.0.4 machine-appended corpus\n' > "$d/.prflow/logs/x.md"
   # A materialized copy of some OTHER release of the plugin — the most realistic carrier of
   # a stale pin, and the one whose accidental inclusion would make every scan drift-red.
-  printf 'DEVFLOW_REF=v0.0.5 vendored copy of another release\n' > "$d/.prflow/vendor/prflow/docs/install.md"
+  printf 'DEVFLOW_REF=v0.0.5 vendored copy of another release\n' > "$d/.prflow/vendor/prflow/docs/internal/install.md"
   printf 'DEVFLOW_REF=v0.0.6 machine-appended learnings corpus\n' > "$d/.prflow/learnings/p.md"
   # The issue-#711 sibling-worktree guard: another branch's checkout under .claude/worktrees/.
-  printf 'DEVFLOW_REF=v0.0.7 another branch checkout\n' > "$d/.claude/worktrees/wt/docs/install.md"
+  printf 'DEVFLOW_REF=v0.0.7 another branch checkout\n' > "$d/.claude/worktrees/wt/docs/internal/install.md"
   git -C "$d" init -q >/dev/null 2>&1
   vp_index "$d"
   printf '%s\n' "$d"
@@ -26962,7 +26947,7 @@ python3 "$VP" --root "$VPD" --check >/dev/null 2>&1
 assert_eq "#953 fixture: a self-consistent tree passes --check" "0" "$?"
 VPL="$(python3 "$VP" --root "$VPD" --list)"
 assert_eq "#953 fixture: derives exactly the two real pin sites" "2" \
-  "$(printf '%s\n' "$VPL" | grep -c 'docs/install.md')"
+  "$(printf '%s\n' "$VPL" | grep -c 'docs/internal/install.md')"
 for vp_excluded in CHANGELOG.md lib/test .changeset .prflow/logs .prflow/vendor .prflow/learnings .claude/worktrees; do
   assert_eq "#953 fixture: the excluded population $vp_excluded contributes no pin site" "0" \
     "$(printf '%s\n' "$VPL" | grep -cF "$vp_excluded")"
@@ -26998,7 +26983,7 @@ done
 # ...and the guard is NOT merely blind: staling a TRACKED site in the same tree still reddens,
 # so the control above is exclusion-by-tracking, not a disabled check.
 printf 'curl -fsSL https://raw.githubusercontent.com/o/r/v3.1.3/install.sh -o i.sh\nDEVFLOW_REF=v3.1.4 bash i.sh\n' \
-  > "$VPD/docs/install.md"
+  > "$VPD/docs/internal/install.md"
 python3 "$VP" --root "$VPD" --check >/dev/null 2>&1
 assert_eq "#953 #711: a TRACKED drifted pin in that same tree still fails --check" "1" "$?"
 rm -rf "$VPD"
@@ -27008,7 +26993,7 @@ rm -rf "$VPD"
 # — a silent fallback would restore the untracked-host-state dependence just removed.
 VPD="$(mktemp -d)"; mkdir -p "$VPD/.claude-plugin" "$VPD/docs"
 printf '{ "version": "3.1.4" }\n' > "$VPD/.claude-plugin/plugin.json"
-printf 'DEVFLOW_REF=v3.1.4\n' > "$VPD/docs/install.md"
+printf 'DEVFLOW_REF=v3.1.4\n' > "$VPD/docs/internal/install.md"
 python3 "$VP" --root "$VPD" --check >"$VPD/out" 2>&1
 assert_eq "#953 #711: a non-git root exits 2 (fails closed, never degrades to a walk)" "2" "$?"
 assert_eq "#953 #711: that fault names the index-derived population contract" "1" \
@@ -27023,10 +27008,10 @@ rm -rf "$VPD"
 # ── both when every pin agrees and when the derivation matched nothing at all, so a pattern
 # ── regression would silence this guard AND the merge-time render_rewrites at the same
 # ── moment — the guard passing loudest exactly where it has stopped working.
-VPD="$(mktemp -d)"; mkdir -p "$VPD/.claude-plugin" "$VPD/docs"
+VPD="$(mktemp -d)"; mkdir -p "$VPD/.claude-plugin" "$VPD/docs/internal"
 printf '{ "version": "3.1.4" }\n' > "$VPD/.claude-plugin/plugin.json"
 printf 'A documentation page with no release pin in either machine-recognizable form.\n' \
-  > "$VPD/docs/install.md"
+  > "$VPD/docs/internal/install.md"
 git -C "$VPD" init -q >/dev/null 2>&1; vp_index "$VPD"
 python3 "$VP" --root "$VPD" --check >"$VPD/out" 2>&1
 assert_eq "#953 vacuity floor: a derivation that matches NOTHING exits 2, never a clean 0" "2" "$?"
@@ -27034,7 +27019,7 @@ assert_eq "#953 vacuity floor: the diagnostic says an empty site set is a fault"
   "$(grep -c 'empty site set is a fault' "$VPD/out")"
 # Positive control: the SAME tree with one real pin added passes, so the floor is a floor and
 # not a check that now rejects everything.
-printf 'DEVFLOW_REF=v3.1.4 payload ref\n' >> "$VPD/docs/install.md"; vp_index "$VPD"
+printf 'DEVFLOW_REF=v3.1.4 payload ref\n' >> "$VPD/docs/internal/install.md"; vp_index "$VPD"
 python3 "$VP" --root "$VPD" --check >/dev/null 2>&1
 assert_eq "#953 vacuity floor: one real pin site is enough to pass (the floor is not a wall)" "0" "$?"
 rm -rf "$VPD"
@@ -27043,15 +27028,15 @@ rm -rf "$VPD"
 VPD="$(vp_repo)"
 VP_OUT="$(python3 "$VP" --root "$VPD" --rewrite 3.2.0)"
 assert_eq "#953 --rewrite: both pin forms in the tracked doc move to the new version" "yes" \
-  "$([ "$(grep -cF 'githubusercontent.com/o/r/v3.2.0/' "$VPD/docs/install.md")" = "1" ] &&
-    [ "$(grep -cF 'DEVFLOW_REF=v3.2.0' "$VPD/docs/install.md")" = "1" ] && echo yes || echo no)"
-assert_eq "#953 --rewrite: prints exactly the files it changed" "docs/install.md" "$VP_OUT"
+  "$([ "$(grep -cF 'githubusercontent.com/o/r/v3.2.0/' "$VPD/docs/internal/install.md")" = "1" ] &&
+    [ "$(grep -cF 'DEVFLOW_REF=v3.2.0' "$VPD/docs/internal/install.md")" = "1" ] && echo yes || echo no)"
+assert_eq "#953 --rewrite: prints exactly the files it changed" "docs/internal/install.md" "$VP_OUT"
 assert_eq "#953 --rewrite: a file with no pin is never listed and never touched" "0" \
   "$(printf '%s\n' "$VP_OUT" | grep -cF 'history.md')"
 # An excluded/untracked population is not rewritten either — --rewrite shares --check's
 # population, so the two can never disagree about what the pin set is.
 assert_eq "#953 --rewrite: the vendored copy of another release is left alone" "1" \
-  "$(grep -cF 'DEVFLOW_REF=v0.0.5' "$VPD/.prflow/vendor/prflow/docs/install.md")"
+  "$(grep -cF 'DEVFLOW_REF=v0.0.5' "$VPD/.prflow/vendor/prflow/docs/internal/install.md")"
 # Idempotent: a second --rewrite to the same version writes nothing (files already at it are
 # omitted from the write set — the documented no-op-bump claim).
 assert_eq "#953 --rewrite: re-running at the same version is a no-op (empty write set)" "" \
@@ -27066,7 +27051,7 @@ import importlib.util as u, sys
 s=u.spec_from_file_location('vp','$VP'); m=u.module_from_spec(s); s.loader.exec_module(m)
 _real=open
 def boom(path, *a, **k):
-    if str(path).endswith('docs/install.md') and 'w' in (a[0] if a else k.get('mode','r')):
+    if str(path).endswith('docs/internal/install.md') and 'w' in (a[0] if a else k.get('mode','r')):
         raise OSError('injected write fault')
     return _real(path, *a, **k)
 m.open = boom
@@ -27074,7 +27059,7 @@ sys.exit(m.main(['--root','$VPD','--rewrite','3.3.0']))
 " 2>"$VPD/werr"; echo $?)"
 assert_eq "#953 --rewrite: a write OSError exits 2" "2" "$VP_RC"
 assert_eq "#953 --rewrite: that fault names the unwritable path" "1" \
-  "$(grep -cF 'docs/install.md: cannot write: injected write fault' "$VPD/werr")"
+  "$(grep -cF 'docs/internal/install.md: cannot write: injected write fault' "$VPD/werr")"
 assert_eq "#953 --rewrite: no bare traceback on a write fault" "0" "$(grep -cF 'Traceback' "$VPD/werr")"
 rm -rf "$VPD"
 
@@ -27082,11 +27067,11 @@ rm -rf "$VPD"
 # go RED, naming that site. This is the exact regression the guard exists for.
 VPD="$(vp_repo)"
 printf 'curl -fsSL https://raw.githubusercontent.com/o/r/v3.1.3/install.sh -o i.sh\nDEVFLOW_REF=v3.1.4 bash i.sh\n' \
-  > "$VPD/docs/install.md"
+  > "$VPD/docs/internal/install.md"
 python3 "$VP" --root "$VPD" --check >"$VPD/out" 2>&1; VP_RC=$?
 assert_eq "#953 drift negative control: one stale pin site fails --check (exit 1)" "1" "$VP_RC"
 assert_eq "#953 drift negative control: the diagnostic names the drifted file, line and pattern" "1" \
-  "$(grep -cF 'docs/install.md:1: raw-url pins v3.1.3, expected v3.1.4' "$VPD/out")"
+  "$(grep -cF 'docs/internal/install.md:1: raw-url pins v3.1.3, expected v3.1.4' "$VPD/out")"
 assert_eq "#953 drift negative control: the still-correct sibling site is NOT reported" "0" \
   "$(grep -c 'devflow-ref' "$VPD/out")"
 rm -rf "$VPD"
@@ -27104,7 +27089,7 @@ rm -rf "$VPD"
 # ── The bump rewrites every derived pin site, in the consolidator's own run. ─────────
 VPD="$(vp_repo)"
 printf 'curl -fsSL https://raw.githubusercontent.com/o/r/v3.1.4/install.sh -o i.sh\nDEVFLOW_REF=v3.1.4 bash i.sh\n' \
-  > "$VPD/docs/install.md"
+  > "$VPD/docs/internal/install.md"
 # A SECOND documentation page, added after the fact — the derived-set property under test.
 printf 'Also pinned: DEVFLOW_REF=v3.1.4 for the payload.\n' > "$VPD/docs/late-arrival.md"
 printf '# Changelog\n\nPreamble.\n\n## [3.1.4] - 2026-07-03\n\n### Fixed\n- old (#1)\n' > "$VPD/CHANGELOG.md"
@@ -27114,9 +27099,9 @@ python3 "$CS_SCRIPT" --root "$VPD" --date 2026-07-30 \
   --emit-bump-to "$VPD/bump.out" >/dev/null 2>&1
 assert_eq "#953 bump: the manifest moved to 3.1.5" "3.1.5" "$(cs_ver "$VPD")"
 assert_eq "#953 bump: the URL pin moved in the same run" "1" \
-  "$(grep -cF 'githubusercontent.com/o/r/v3.1.5/' "$VPD/docs/install.md")"
+  "$(grep -cF 'githubusercontent.com/o/r/v3.1.5/' "$VPD/docs/internal/install.md")"
 assert_eq "#953 bump: the DEVFLOW_REF pin moved in the same run" "1" \
-  "$(grep -cF 'DEVFLOW_REF=v3.1.5' "$VPD/docs/install.md")"
+  "$(grep -cF 'DEVFLOW_REF=v3.1.5' "$VPD/docs/internal/install.md")"
 assert_eq "#953 bump: a doc added later is covered because the site set is DERIVED, not listed" "1" \
   "$(grep -cF 'DEVFLOW_REF=v3.1.5' "$VPD/docs/late-arrival.md")"
 # Index the later-added page before re-checking: the CLI's population is the index (#711),
@@ -27126,7 +27111,7 @@ assert_eq "#953 bump: the tree is self-consistent afterwards (the tagged tree's 
   "$(python3 "$VP" --root "$VPD" --check >/dev/null 2>&1; echo $?)"
 # The write set is what the workflow stages; an omitted pin file is silently discarded by
 # the next `git reset --hard`, so every rewritten file must appear in it.
-for vp_w in .claude-plugin/plugin.json CHANGELOG.md docs/install.md docs/late-arrival.md; do
+for vp_w in .claude-plugin/plugin.json CHANGELOG.md docs/internal/install.md docs/late-arrival.md; do
   assert_eq "#953 bump: --emit-write-set-to names the rewritten file $vp_w" "1" \
     "$(grep -cxF "$vp_w" "$VPD/ws.out")"
 done
@@ -27193,13 +27178,13 @@ printf -- '---\nbump: patch\n---\n\n- Bumped. (#953)\n' > "$VPD/.changeset/a.md"
 VP_RC="$(python3 -c "
 import importlib.util as u, sys
 s=u.spec_from_file_location('c','$CS_SCRIPT'); m=u.module_from_spec(s); s.loader.exec_module(m)
-def boom(root, version): raise m.version_pins.VersionPinError('docs/install.md: injected read fault')
+def boom(root, version): raise m.version_pins.VersionPinError('docs/internal/install.md: injected read fault')
 m.version_pins.render_rewrites = boom
 sys.exit(m.main(['--root','$VPD','--date','2026-07-30']))
 " 2>"$VPD/out"; echo $?)"
 assert_eq "#953 pin-rewrite fault: exits 2" "2" "$VP_RC"
 assert_eq "#953 pin-rewrite fault: the diagnostic names the file" "1" \
-  "$(grep -cF 'docs/install.md: injected read fault' "$VPD/out")"
+  "$(grep -cF 'docs/internal/install.md: injected read fault' "$VPD/out")"
 assert_eq "#953 pin-rewrite fault: no bare traceback" "0" "$(grep -cF 'Traceback' "$VPD/out")"
 assert_eq "#953 pin-rewrite fault: the manifest is left unbumped (aborts before any write)" "3.1.4" \
   "$(cs_ver "$VPD")"
@@ -28410,7 +28395,7 @@ EOF
   #    this suite, so retiring this catch-all loses no real coverage.
 
   # ── AC12: the three docs document the Windows interpreter-resolution path. ──
-  for _doc in CONTRIBUTING.md docs/install.md docs/DEVFLOW_SYSTEM_OVERVIEW.md; do
+  for _doc in CONTRIBUTING.md docs/internal/install.md docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md; do
     assert_eq "#225 docs: $_doc documents the python3 resolution path (AC12)" "yes" \
       "$(grep -q 'provision-python3-shim.sh' "$REPO_ROOT/$_doc" && echo yes || echo no)"
   done
@@ -33785,7 +33770,7 @@ fi
 # register its own raise, exactly as #815 intended. It is pinned rather than rendered
 # because a rendered figure would move with the file and enforce nothing. Provenance, both
 # measured deltas, and the raise rationale:
-# docs/cutovers/issue-815-deferred-ac-followups-relocate.md. Issue #1039's shared writing
+# docs/internal/cutovers/issue-815-deferred-ac-followups-relocate.md. Issue #1039's shared writing
 # standard adds a per-phase reflection compose-point read block to every implement phase
 # file, including this one, so the ceiling is raised again here at the post-#1039
 # measurement with NO added slack, exactly as above. That measurement is the one taken
@@ -33891,8 +33876,8 @@ assert_eq "#815 the module-runner fixture materialises the gated reference" "yes
   "$(grep -qF 'skills/implement/references' "$LIB/../lib/test/test_module_runner.py" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the fixture's partial copy must carry every bundle member or its emptied-phase proof is confounded
 I815_REG='{"glob": "skills/implement/references/*.md", "load_class": "reference", "required": false}'
 assert_eq "#815 the flight-recorder registry carries a reference load_class row for implement" "yes" "$(grep -qF "$I815_REG" "$LIB/../scripts/workflow-flight-recorder-registry.json" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- the registry row's own load_class/required vocabulary; required:false records that a predicate-gated surface is correctly absent from most runs
-# The prose mirrors this change updates (docs/DEVFLOW_SYSTEM_OVERVIEW.md,
-# docs/cloud-allowlist.md, lib/intervention-surfaces.md, docs/implement-skill.md, and the
+# The prose mirrors this change updates (docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md,
+# docs/internal/cloud-allowlist.md, lib/intervention-surfaces.md, docs/internal/implement-skill.md, and the
 # prompt-extension trigger-glob lists) deliberately carry NO presence pin:
 # a documentation-presence assertion is exactly the wording-only class the #810 authoring
 # policy prohibits, and the #434 stale-prose self-scan is what covers doc drift.
@@ -35152,7 +35137,7 @@ assert_eq "#363 skill: does not attribute a suite-execution obligation to Phase 
 # ...and the same absence in the doc that PARAPHRASES this section. The paraphrase is the
 # coupled mirror site: it carried the repudiated attribution verbatim after the skill
 # dropped it, so pinning only the skill would have left the falsehood shipping in docs/.
-_OVERVIEW_MD="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+_OVERVIEW_MD="$LIB/../docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_eq "#363 docs: the overview's paraphrase does not attribute that obligation to Phase 2 either" "0" \
   "$(pin_count 'Phase 2'"'"'s "establish the suite passes" obligation' "$_OVERVIEW_MD")"
 # Terminal ❌ on ANY no-verdict path, not only a fatal abort.
@@ -35962,7 +35947,7 @@ assert_eq "#362 settings.json: nested launch writes no session-keyed state under
 rm -f "$ISG_NESTED_ERR" "$ISG_NESTED_WT_ERR" "$ISG_HEAL_ERR"
 rm -rf "$ISG_FX-wt" "$ISG_FX"
 
-# ── Doc-fence equality pin (issue #627, AC10): the docs/efficiency-trace.md "Stop hook
+# ── Doc-fence equality pin (issue #627, AC10): the docs/internal/efficiency-trace.md "Stop hook
 # (local-tier only)" example is pinned EQUAL to the tracked .claude/settings.json Stop
 # entries (command strings + timeouts, in order), so ANY wiring drift — a dropped
 # stop-hook-probe.sh entry, a helper-path typo, a lost `|| echo` diagnostic tail, a
@@ -36026,7 +36011,7 @@ if not entries:
     fail("no Stop entries extracted")
 sys.stdout.write(json.dumps(entries, ensure_ascii=False))
 '
-ISG_DOC="$LIB/../docs/efficiency-trace.md"
+ISG_DOC="$LIB/../docs/internal/efficiency-trace.md"
 ISG_DOC_ENTRIES="$(python3 -c "$ISG_DOCPIN_PY" md "$ISG_DOC" 2>/dev/null)"; ISG_DOC_RC=$?
 ISG_REAL_ENTRIES="$(python3 -c "$ISG_DOCPIN_PY" json "$ISG_SETTINGS" 2>/dev/null)"; ISG_REAL_RC=$?
 assert_eq "#362 efficiency-trace doc: Stop example extraction succeeds (fail-closed contract)" "0" "$ISG_DOC_RC"
@@ -39109,7 +39094,7 @@ assert_eq "#438 describe-hook-probe: no-argument invocation leaves the stderr br
 # The committed evidence record's 'unedited helper output' claim stays coupled to the
 # emitter: the structural-section heading literal must match on both sides (#438 review).
 assert_eq "#438 exec-shape: observed.txt carries the emitter's structural-section heading verbatim" "yes" \
-  "$(grep -qxF '## Structural key-paths (redacted; string leaves shown as type only)' "$REPO_ROOT/docs/execution-file-shape.observed.txt" \
+  "$(grep -qxF '## Structural key-paths (redacted; string leaves shown as type only)' "$REPO_ROOT/lib/test/fixtures/execution-file-shape.observed.txt" \
      && grep -qF '## Structural key-paths (redacted; string leaves shown as type only)' "$REPO_ROOT/scripts/extract-execution-shape.sh" \
      && echo yes || echo no)"
 # The workflow must actually route through the helper (the extraction is only coverage if
@@ -39173,7 +39158,7 @@ unset _MP789_YML
 unset -f _mp789_check
 # #457: the docs AC6 record must state the observed FIRED result (with the run cited) and no
 # longer carry the stale 'unavailable (pending)' verdict.
-DHP_DOC="$REPO_ROOT/docs/execution-file-shape.md"
+DHP_DOC="$REPO_ROOT/docs/internal/execution-file-shape.md"
 assert_eq "#457 execution-file-shape: AC6 no longer records 'unavailable (pending)'" "yes" \
   "$(grep -qF 'unavailable` (pending)' "$DHP_DOC" && echo no || echo yes)"
 assert_eq "#457 execution-file-shape: AC6 records the FIRED observation citing run 29224205805" "yes" \
@@ -39491,7 +39476,7 @@ assert_eq "#505 AC skew: devflow.yml skew arm names prflow_version" "yes" \
 # The write-tier inline annotation fallback (HELPER present, COMPOSE absent) must
 # surface a SILENT SPLICE too, not only a degraded file: valid extras were composed
 # unconditionally, so a partial-vendor skew that drops describe-plugin-compose.sh must
-# still emit the audit ::notice:: (docs/cloud-setup.md: every spliced entry logged,
+# still emit the audit ::notice:: (docs/internal/cloud-setup.md: every spliced entry logged,
 # never silent). Without this arm the extras splice into the credentialed runner with
 # no audit line. Grep-pin the splice-notice fallback on both write tiers.
 for _f in devflow-implement devflow; do
@@ -41043,7 +41028,7 @@ checks = []
 def chk(name, expected, actual):
     checks.append((name, str(expected), str(actual)))
 
-ROW = tsv("STALE", "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills")
+ROW = tsv("STALE", "count-locked", "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills")
 CBOT = adj_comment("devflow-reviewer[bot]", "Bot", ROW)
 
 # mla-match: exact (rule,path,detail) payload, Bot author -> demoted, run_key surfaced
@@ -41054,14 +41039,14 @@ chk("mla-match row_index 0", "0", out["demoted"][0]["row_index"])
 chk("mla-match run_key surfaced", "999-1", out["demoted"][0]["run_key"])
 
 # mla-detail-drift: one-char detail change -> not demoted
-_, out, _ = run([tsv("STALE", "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 6 skills")], [CBOT])
+_, out, _ = run([tsv("STALE", "count-locked", "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 6 skills")], [CBOT])
 chk("mla-detail-drift not demoted", "0", len(out["demoted"]))
 
 # mla-key-scope: diff rule (no), diff path (no), line-only diff (yes -> line excluded from key)
 rows = [
-    tsv("STALE", "other-rule", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills"),
+    tsv("STALE", "other-rule", "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills"),
     tsv("STALE", "count-locked", "OTHER.md", 42, "claims 5 skills"),
-    tsv("STALE", "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 7777, "claims 5 skills"),
+    tsv("STALE", "count-locked", "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md", 7777, "claims 5 skills"),
 ]
 _, out, _ = run(rows, [CBOT])
 chk("mla-key-scope only line-diff demoted (len 1)", "1", len(out["demoted"]))
@@ -41075,7 +41060,7 @@ chk("mla-key-scope line-diff row_index 2", "2", out["demoted"][0]["row_index"])
 # passed against the exact mutant it exists to kill (guard-class shape 3 — refusal from the
 # wrong guard). Alone, a mutant demotes the row (len 1) and reports stale_rows 1 -> RED.
 for _v in ("VERIFIED", "UNRESOLVABLE"):
-    _r = tsv(_v, "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills")
+    _r = tsv(_v, "count-locked", "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills")
     _, out, _ = run([_r], [CBOT])
     chk(f"mla-verdict-scope {_v} alone: not demoted", "0", len(out["demoted"]))
     chk(f"mla-verdict-scope {_v} alone: not counted as a STALE row", "0", out["stats"]["stale_rows"])
@@ -41095,7 +41080,7 @@ chk("mla-rule-scope R4 exclusion counted", "1", out_r4["stats"]["rows_rule_exclu
 # ("R3" — referent-bearing detail), not a synthetic token: it IS carried forward. This proves
 # the exclusion is rule-scoped rather than a blanket "nothing demotes" regression, and that the
 # eligible ids in CARRY_FORWARD_EXCLUDED_RULES' complement are the ones the lint really emits.
-R3ROW = tsv("STALE", "R3", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills but adjacent block has 6")
+R3ROW = tsv("STALE", "R3", "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills but adjacent block has 6")
 _, out_r3, _ = run([R3ROW], [adj_comment("devflow-reviewer[bot]", "Bot", R3ROW)])
 chk("mla-rule-scope real R3 row still demotes (positive control)", "1", len(out_r3["demoted"]))
 chk("mla-rule-scope real R3 row not rule-excluded", "0", out_r3["stats"]["rows_rule_excluded"])
@@ -41282,7 +41267,7 @@ chk("mla-1003 ...and counted as outside-sentinels", "1",
 # mla-zero-match: a trusted, honored payload whose (rule,path,detail) is absent from the
 # current STALE rows (the common real case — the FP was fixed so the lint no longer emits
 # it) -> silent no-op: not demoted, not a collision.
-other_row = tsv("STALE", "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 9, "claims 99 skills")
+other_row = tsv("STALE", "count-locked", "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md", 9, "claims 99 skills")
 _, out, _ = run([other_row], [CBOT])
 chk("mla-zero-match not demoted", "0", len(out["demoted"]))
 chk("mla-zero-match no collision", "0", out["stats"]["collisions"])
@@ -41669,7 +41654,7 @@ echo "#711 tree enumeration: a repository-root recursive walk is declared, not s
 # a tracked fixture carrying an unmarked walk would be caught by the guard's own real-tree run.
 E711_LINT="$LIB/test/lint-tree-enumeration.py"
 E711_CLAUDE="$LIB/../CLAUDE.md"
-E711_GROWTH="$LIB/../docs/cutovers/issue-711-tree-enumeration-growth.md"
+E711_GROWTH="$LIB/../docs/internal/cutovers/issue-711-tree-enumeration-growth.md"
 
 # Anchored at "$LIB/.." rather than left to resolve from the process cwd: the helper accepts
 # --root, and the repo's #295 contract is to audit the tree the caller means, not whichever git
@@ -45075,7 +45060,7 @@ fi
 # missing-corpus diagnostic, the no-transcript/no-owner-id scan with its planted
 # positive control, malformed-record degradation, determinism, and the symlink-escape
 # guard); the orchestrator-instruction reduction's preservation is a code-reading
-# obligation recorded in docs/create-issue-context.md, not a suite test.
+# obligation recorded in docs/internal/create-issue-context.md, not a suite test.
 CICE_TEST_OUT="$(python3 "$LIB/test/test_create_issue_context_eval.py" 2>&1)"
 CICE_TEST_RC=$?
 assert_eq "issue #767: create-issue context eval focused tests pass" "0" "$CICE_TEST_RC"
@@ -46915,7 +46900,7 @@ assert_eq "#908: describe-denial-count.sh is byte-unmodified by this issue (AC6)
 # HEAD-relative diff is vacuous once this PR's own commits land.
 #
 # NARROWED to its own stated subject. This pin was a whole-file
-# `git diff --quiet <merge-base> -- docs/cloud-allowlist.md`, which discharged
+# `git diff --quiet <merge-base> -- docs/internal/cloud-allowlist.md`, which discharged
 # #908's AC8 on #908's branch but, once merged, generalized into a standing
 # prohibition on ANY branch editing that page at all — including the additions this
 # very file's cloud-allowlist rules tell an author to make there. That is a
@@ -46934,13 +46919,13 @@ assert_eq "#908: describe-denial-count.sh is byte-unmodified by this issue (AC6)
 # commit (the coupled-invariant discipline). It went 3 -> 1 when the two issue-858
 # dispatched-subagent Write entries (review and implement tiers) were filled from run
 # 30956039324 with run/job/head/ref recorded on the page and the jobs' verbatim machine
-# output committed at docs/subagent-write-probe.observed.md — a cited promotion, which is
+# output committed at docs/internal/subagent-write-probe.observed.md — a cited promotion, which is
 # exactly what this pin asks for and the opposite of the silent one it forbids. The
 # remaining entry is the issue-874 env: propagation probe, which stays PENDING because the
 # observed run returned INCONCLUSIVE (hop1_reported=False) — an unestablished measurement,
 # not a verdict, so its cell is deliberately still unfilled.
-assert_eq "#908: docs/cloud-allowlist.md's placeholder probe-evidence entries still declare themselves PENDING (AC8)" "1" \
-  "$(grep -c '^\*\*This measurement is PENDING' "$LIB/../docs/cloud-allowlist.md")"
+assert_eq "#908: docs/internal/cloud-allowlist.md's placeholder probe-evidence entries still declare themselves PENDING (AC8)" "1" \
+  "$(grep -c '^\*\*This measurement is PENDING' "$LIB/../docs/internal/cloud-allowlist.md")"
 # ────────────────────────────────────────────────────────────────────────────
 
 echo "#908 review finding: harden_guard step — the PreToolUse guard's own trusted-source displacement is unconditional"
@@ -47342,7 +47327,7 @@ PY
 # ────────────────────────────────────────────────────────────────────────────
 
 # ── #1072 shipped-pruned-path lint (lib/test/lint-shipped-pruned-path.py) ──
-# The vendor slice prunes lib/test / docs/site / docs/external /
+# The vendor slice prunes lib/test / docs/site / docs/external / docs/internal /
 # .claude-plugin/marketplace.json from the
 # vendored plugin, so a shipped prompt sentence naming one of them resolves against a consumer
 # tree where it does not exist. This lint derives the prune set from vendor-slice.sh itself (not
@@ -47368,7 +47353,7 @@ print("yes" if m and int(m.group(1)) > 0 else "no")')"
 # one live member (lib/test) still leaves a non-empty set, so a bare non-empty check would pass
 # over a population it no longer covers. Reading the live vendor-slice.sh through --print-prune-set.
 assert_eq "#1072 lint: derived prune set matches the checked-in expectation" \
-  ".claude-plugin/marketplace.json docs/external docs/site lib/test" \
+  ".claude-plugin/marketplace.json docs/external docs/internal docs/site lib/test" \
   "$(cd "$LIB/.." && python3 "$SP_LINT" --print-prune-set | python3 -c 'import sys; print(" ".join(sys.stdin.read().split()))')"
 
 # Prune-set derivation over synthetic slices, driven through --slice-source (AC10 matrix).
@@ -47884,7 +47869,7 @@ assert_eq "public site: README links to the public site" "yes" \
 assert_eq "public site: README no longer links to the retired GitHub Pages site" "no" \
   "$(public_file_contains "$LIB/../README.md" 'https://the01geek.github.io/prflow/')"
 assert_eq "public site: publishing runbook exists" "yes" \
-  "$([ -f "$LIB/../docs/mintlify-publishing.md" ] && echo yes || echo no)"
+  "$([ -f "$LIB/../docs/internal/mintlify-publishing.md" ] && echo yes || echo no)"
 
 # Fixture controls for the public-doc guards. Top-level release notes are owned by
 # the release-notes workflow and intentionally excluded from the docs/** navigation

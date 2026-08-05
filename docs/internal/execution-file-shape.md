@@ -2,11 +2,11 @@
 
 **What this is.** A dated, observed record of what `claude-code-action`'s
 `steps.claude.outputs.execution_file` actually carries, produced by the re-runnable
-probe jobs in [`.github/workflows/matcher-probe.yml`](../.github/workflows/matcher-probe.yml)
+probe jobs in [`.github/workflows/matcher-probe.yml`](../../.github/workflows/matcher-probe.yml)
 (issue #437). It exists to settle — with evidence, not recollection — the question the
 repo had asserted as settled fact: *can the token/wall-clock cost half of PRFlow's
 telemetry be reconstructed from the harness's own output, without the agent's
-cooperation?* See [`docs/efficiency-trace.md`](efficiency-trace.md) for why that
+cooperation?* See [`docs/internal/efficiency-trace.md`](efficiency-trace.md) for why that
 question is load-bearing.
 
 **The `execution_file` schema is NOT a public contract.** This record is a *dated
@@ -23,7 +23,7 @@ and `lib/efficiency-trace.sh --persist` lands it as a per-run `harness_cost` rec
 telemetry branch — the first efficiency-pipeline floor NOT fed by an agent-volunteered operand. The
 reader mirrors this doc's three-encoding tolerance (object / array / JSONL); because the schema is a
 dated observation and not a contract, it is a preference-ordered tolerant parser, never a brittle
-single-shape one. See [`docs/efficiency-trace.md`](efficiency-trace.md)'s **Layer 4**.
+single-shape one. See [`docs/internal/efficiency-trace.md`](efficiency-trace.md)'s **Layer 4**.
 
 **How each field is recorded (issue #437 AC3/AC4).** For every field, exactly one of:
 
@@ -103,7 +103,7 @@ verbatim; the observed schema places untrusted content in value positions, not k
 > rather than reporting a false zero.
 >
 > **Consequence for committed evidence:** the statement below that
-> `docs/execution-file-shape.observed.txt` is "redaction-safe by construction" holds for
+> `lib/test/fixtures/execution-file-shape.observed.txt` is "redaction-safe by construction" holds for
 > the *structural* section and for the probe run that produced it, whose record predates
 > this field. It is **not** a standing guarantee for a future re-run: before committing a
 > newly generated record, read its `permission_denials_commands` line and confirm the
@@ -132,7 +132,7 @@ Cost is carried **directly**, which the issue did not even ask for: `costUSD`,
 `total_cost_usd`, and a per-model `modelUsage` breakdown.
 
 - **Probe run:** `29201071531` (the `execfile-shape-probe` job in `matcher-probe.yml`)
-- **Committed evidence:** [`docs/execution-file-shape.observed.txt`](execution-file-shape.observed.txt)
+- **Committed evidence:** [`lib/test/fixtures/execution-file-shape.observed.txt`](../../lib/test/fixtures/execution-file-shape.observed.txt)
   — the probe artifact's machine-produced output (with a short provenance header prepended;
   everything below it is the helper's own unedited output), committed **because GitHub artifacts
   expire (~90 days)**. Without it the OBSERVED table above would eventually become an unfalsifiable claim
@@ -158,7 +158,7 @@ downstream derivation this record does **not** establish — see "What it does N
 below.) An agent-independent (class-(c)) cost floor is therefore **buildable on the cloud
 tier** — the constraint was never the platform, it was that nobody had looked. (The **local**
 tier is established separately, from the transcript's real per-message token counts — the AC7
-observation below; `docs/efficiency-trace.md` states the combined both-tiers conclusion.)
+observation below; `docs/internal/efficiency-trace.md` states the combined both-tiers conclusion.)
 
 **What it does NOT settle.** The `execution_file` schema is not a public contract, so this
 is a *dated observation of one action version*, not a specification — re-dispatch after any
@@ -229,7 +229,7 @@ Code transcript (2026-07-12, a real local Claude Code session):
 196 `usage` blocks were present and the largest figure was 342,272 — far outside the
 0/1 range that would mark streaming placeholders. **This contradicts the widely-reported
 claim that transcript token counts are placeholders never backfilled to real values**, and
-it is the first hard evidence against `docs/efficiency-trace.md`'s long-standing assertion
+it is the first hard evidence against `docs/internal/efficiency-trace.md`'s long-standing assertion
 that the token/wall-clock cost half is unreconstructable: on the local tier, it demonstrably
 is reconstructable from the harness's own output, with no agent cooperation.
 
@@ -265,7 +265,7 @@ is reconstructable from the harness's own output, with no agent cooperation.
   from the execution file rather than from the model's text, so this record's shape
   observations are load-bearing beyond the two #437 jobs; each such job's recorded result
   lives with its own issue — the `background-tasks-probe` verdict in
-  [`docs/DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md)'s
+  [`docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md)'s
   `prflow_implement.stall_backstop` bullet — not here.)
 
 ---
@@ -286,4 +286,4 @@ as `run_started_at`/`run_conclusion`/`run_status` reference fields), plus a publ
 `html_url` (the job's when the API provides one, else the run's) — no transcript
 text, tool input, stdout/stderr, or secrets. An absent or incomplete snapshot
 makes cloud coverage `unavailable`, never zero. See
-[`docs/workflow-flight-recorder.md`](workflow-flight-recorder.md#verification-launch-baseline-wave-1).
+[`docs/internal/workflow-flight-recorder.md`](workflow-flight-recorder.md#verification-launch-baseline-wave-1).

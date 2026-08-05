@@ -9,9 +9,10 @@ header is the ONLY addition; everything below each `## Dispatched-subagent Write
 heading is the helper's own emitted summary, unedited — including the resolved
 `--allowed-tools` literal each job actually ran under.
 
-Committed deliberately, on the same reasoning as `docs/execution-file-shape.observed.txt`:
+Committed deliberately, on the same reasoning as
+`lib/test/fixtures/execution-file-shape.observed.txt`:
 GitHub logs and artifacts expire (~90 days), after which the verdict rows in
-`docs/cloud-allowlist.md` would become unfalsifiable — a claim with no surviving evidence.
+`docs/internal/cloud-allowlist.md` would become unfalsifiable — a claim with no surviving evidence.
 This file is that evidence. It is redaction-safe by construction: the helper emits no
 secret values, and the `--allowed-tools` literal is a generated region already committed
 in the tree.
