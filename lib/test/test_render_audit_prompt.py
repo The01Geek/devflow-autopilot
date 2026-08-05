@@ -991,7 +991,9 @@ class EnumerateDimensions(unittest.TestCase):
         self.assertIn("INFERABLE", text)
         # Enforcement constant: the payload was 885 chars at 504fc951e; the fourth
         # shape may grow it by at most 1000 characters (<= 1885 total). The literal
-        # IS the enforcement (CLAUDE.md's enforcement-constant exemption).
+        # IS the enforcement (CLAUDE.md's enforcement-constant exemption). The shipped
+        # fourth shape realizes ~1880 chars, so the margin under the ceiling is small
+        # by design — any later append to this bullet must trim elsewhere or re-adjudicate.
         self.assertLessEqual(len(text), 1885, len(text))
 
     def test_two_checklist_blocks_fail_closed(self):
