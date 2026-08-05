@@ -2759,7 +2759,12 @@ assert_eq "seed #1054: retired bad-marker token is absent from the helper" "0" \
 
 # Executable parity pin: the seed's produced marker and the dead-run workflow's
 # flip marker must agree for the same run id/attempt.
-assert_eq "seed #1054: workflow retains the run-id/attempt marker producer" "1" \
+# Two flip-marker producers now exist since issue #1174: the in-job dead-run flip
+# and the out-of-job `review_finalize` backstop. Both are byte-identical run-keyed
+# markers — they MUST be, or the finalizer's flip would target a different comment
+# than the one the dead command job (and the engine's seed) owns — so the parity
+# pin now requires exactly two and asserts they agree.
+assert_eq "seed #1054: workflow retains the run-id/attempt marker producer(s)" "2" \
   "$(grep -cF 'FLIP_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$RDWF")"
 S1054_WF_MARKER="$(GITHUB_RUN_ID=306999 GITHUB_RUN_ATTEMPT=4 python3 - "$RDWF" <<'PY'
 import os
@@ -2768,7 +2773,9 @@ import sys
 
 text = open(sys.argv[1], encoding="utf-8").read()
 matches = re.findall(r'^\s*FLIP_MARKER="(<!-- prflow:review-progress run=\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\} -->)"$', text, re.M)
-if len(matches) != 1:
+# One or more producers, and every one identical (a divergent producer would flip
+# the wrong run's comment). Print the single distinct marker they all share.
+if len(matches) < 1 or len(set(matches)) != 1:
     raise SystemExit(2)
 print(matches[0].replace("${GITHUB_RUN_ID}", os.environ["GITHUB_RUN_ID"]).replace("${GITHUB_RUN_ATTEMPT}", os.environ["GITHUB_RUN_ATTEMPT"]))
 PY
@@ -3293,6 +3300,93 @@ printf '%s\n' '<!-- devflow:review-progress run=OTHERRUN-9 -->' '**Status:** �
 s1154_seed "$S1154_ROOT/superseded-foreign.md"
 assert_eq "#1154 upsert: another run's key in the superseded namespace stays foreign — untouched, own comment created" "0/1" \
   "$(s1154_run 55 "$S1154_MARK" 'job died' >/dev/null; s1154_writes)"
+
+# ════════════════════════════════════════════════════════════════════════════
+# #1174 — the out-of-job review finalizer's command-job ARM selector, and the
+# idempotency of the flip it reuses.
+# ════════════════════════════════════════════════════════════════════════════
+# Every review post-run handler used to be an always() step inside the `command`
+# job, so a runner death silenced all of them. devflow.yml's new `review_finalize`
+# job survives that loss and decides what to do from `needs.command.result`. That
+# JOB-level arm selection is a branch chain the suite must be able to catch
+# defeated (CLAUDE.md's inline-shell-extraction convention), so it lives in
+# scripts/describe-command-job-arm.sh and is driven here arm-by-arm and for arm
+# order — a DISTINCT decision from describe-dead-run-cause.sh, which it must not
+# duplicate.
+S1174_ARM="$LIB/../scripts/describe-command-job-arm.sh"
+
+# T1 — every arm. The three-way partition IS the contract: a healthy job produces
+# nothing, a cancellation is named as such, and every non-report shape leaves the
+# dead-run record.
+assert_eq "#1174 arm: a successful command job is completed-normally" \
+  "completed-normally" "$(bash "$S1174_ARM" success)"
+assert_eq "#1174 arm: a cancelled command job is cancelled" \
+  "cancelled" "$(bash "$S1174_ARM" cancelled)"
+assert_eq "#1174 arm: a failed command job did-not-report" \
+  "did-not-report" "$(bash "$S1174_ARM" failure)"
+assert_eq "#1174 arm: a skipped command job did-not-report" \
+  "did-not-report" "$(bash "$S1174_ARM" skipped)"
+# A runner-death job leaves an EMPTY result — the exact case this issue exists for
+# — and any unforeseen token is a did-not-report residual, never silently dropped.
+assert_eq "#1174 arm: an empty result (the runner-death shape) did-not-report" \
+  "did-not-report" "$(bash "$S1174_ARM" '')"
+assert_eq "#1174 arm: an absent argument did-not-report" \
+  "did-not-report" "$(bash "$S1174_ARM")"
+assert_eq "#1174 arm: an unforeseen token is a did-not-report residual" \
+  "did-not-report" "$(bash "$S1174_ARM" neutralized)"
+# The three arms are three DISTINCT tokens, or the partition collapses.
+assert_eq "#1174 arm: the three command-job arms are three distinct tokens" "3" \
+  "$( { bash "$S1174_ARM" success; bash "$S1174_ARM" cancelled; bash "$S1174_ARM" failure; } | sort -u | grep -c . || true)"
+S1174_RC=0
+bash "$S1174_ARM" >/dev/null 2>&1 || S1174_RC=$?
+assert_eq "#1174 arm: always exits 0 (it can never change the finalizer job's result)" "0" "$S1174_RC"
+
+# ARM ORDER. `success` is matched FIRST, before the did-not-report catch-all — a
+# reordering that let the catch-all shadow it would post a dead-run banner on a
+# healthy run. Prove the order is load-bearing with a disposable mutant: move the
+# catch-all `*)` arm ahead of the `success)` arm and confirm a `success` input now
+# grades wrong — i.e. a reordering is observable here, not something the arm
+# assertions above would sail past.
+S1174_MUT="$(mktemp -d)"
+python3 - "$S1174_ARM" "$S1174_MUT/reordered.sh" <<'PY'
+import sys
+src = open(sys.argv[1], encoding="utf-8").read()
+# Rewrite the case so the did-not-report catch-all is tested first.
+mutant = src.replace(
+    'case "$COMMAND_RESULT" in\n'
+    '  success)   printf \'%s\\n\' "completed-normally" ;;\n'
+    '  cancelled) printf \'%s\\n\' "cancelled" ;;\n'
+    '  *)         printf \'%s\\n\' "did-not-report" ;;\n'
+    'esac',
+    'case "$COMMAND_RESULT" in\n'
+    '  *)         printf \'%s\\n\' "did-not-report" ;;\n'
+    '  success)   printf \'%s\\n\' "completed-normally" ;;\n'
+    '  cancelled) printf \'%s\\n\' "cancelled" ;;\n'
+    'esac',
+)
+if mutant == src:
+    sys.exit("mutation did not apply — the case shape drifted; update this test")
+open(sys.argv[2], "w", encoding="utf-8").write(mutant)
+PY
+assert_eq "#1174 arm ORDER: the reordered mutant mis-grades a success (proving order is load-bearing)" \
+  "did-not-report" "$(bash "$S1174_MUT/reordered.sh" success)"
+assert_eq "#1174 arm ORDER: the canonical helper grades that same success correctly" \
+  "completed-normally" "$(bash "$S1174_ARM" success)"
+rm -rf "$S1174_MUT"
+
+# T2 (AC2) — the finalizer reuses the idempotent flip helper, so applying the
+# dead-run flip TWICE over the same progress comment leaves a SINGLE banner. The
+# first pass flips the interim comment (one PATCH); feeding the flipped body back
+# in must take the already-terminal arm and write nothing — no second banner.
+s1154_seed "$S1154_ROOT/interim.md"
+assert_eq "#1174 T2: the finalizer's first flip PATCHes exactly once" "1/0" \
+  "$(s1154_run 55 "$S1154_MARK" 'the review command job did not report (needs.command.result=failure)' >/dev/null; s1154_writes)"
+cp "$S1154_STATE/patched-body" "$S1154_ROOT/flipped-once.md"
+s1154_seed "$S1154_ROOT/flipped-once.md"
+assert_eq "#1174 T2: a second flip over the same comment stacks NO second banner (writes nothing)" "0/0" \
+  "$(s1154_run 55 "$S1154_MARK" 'the review command job did not report (needs.command.result=failure)' >/dev/null; s1154_writes)"
+assert_eq "#1174 T2: the twice-flipped body carries exactly one terminal Status line" "1" \
+  "$(grep -cF '**Status:** ❌ Review failed' "$S1154_ROOT/flipped-once.md" || true)"
 
 rm -rf "$S1154_ROOT"
 

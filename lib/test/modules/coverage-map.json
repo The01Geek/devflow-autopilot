@@ -310,6 +310,10 @@
       "note": "retained unreachable-in-tree: called only by the withheld auto-review tier's workflow, kept so an installed consumer copy still resolves it (issue #936); now ALSO reached by scripts/dead-run-verdict-present.sh, wired into devflow.yml's dead-run flip gate (issue #1172)",
       "owner": "review-trigger-helpers"
     },
+    "scripts/describe-command-job-arm.sh": {
+      "note": "issue #1174: the out-of-job review_finalize backstop's command-job arm selector (completed-normally / cancelled / did-not-report from needs.command.result); every arm and the arm ORDER are driven in the #1174 section of lib/test/modules/review-trigger-helpers.sh — a distinct decision from describe-dead-run-cause.sh, which it must not duplicate",
+      "owner": "review-trigger-helpers"
+    },
     "scripts/describe-dead-run-cause.sh": {
       "note": "issue #1154: the dead-run cause selector extracted out of devflow.yml's inline chain; every arm and the arm ORDER are driven in the #1154 section of lib/test/modules/review-trigger-helpers.sh, alongside the #1054 review-progress marker-ownership block it shares a subject with",
       "owner": "review-trigger-helpers"
