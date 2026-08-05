@@ -2527,6 +2527,14 @@ assert_eq "#1261 AC4: the UNESTABLISHED note never claims a confirmed no-commit 
 : > "$T1261/notes.txt"
 D_UN2="$(eb1261_run does-not-exist main | sed -n 's/^decision=//p')"
 assert_eq "#1261 AC4: a branch absent from the remote decides UNESTABLISHED (not NO_COMMIT)" "UNESTABLISHED" "$D_UN2"
+# The base ref could not be resolved (distinct UNESTABLISHED arm): feat exists but
+# the base is absent.
+D_UN3="$(eb1261_run feat nonexistent-base | sed -n 's/^decision=//p')"
+assert_eq "#1261 AC4: an unresolvable base ref decides UNESTABLISHED (not NO_COMMIT)" "UNESTABLISHED" "$D_UN3"
+# A genuinely unreachable remote: the fetch fails, so the outcome is UNESTABLISHED
+# rather than a definite answer read off a stale tracking ref (unknown-is-not-zero).
+D_UN4="$(eb1261_run feat main no-such-remote | sed -n 's/^decision=//p')"
+assert_eq "#1261 AC4: an unreachable remote decides UNESTABLISHED, never a stale definite answer" "UNESTABLISHED" "$D_UN4"
 
 # AC5 â€” best-effort write: a failing workpad writer emits a ::warning:: AND the
 # helper still exits 0 (the caller's exit arm is never changed).
@@ -2603,4 +2611,4 @@ assert_eq "#1261 record_empty_branch is referenced exactly 3x (def + 2 flips) â€
   "True" "$(eb1261_step 'run.count("record_empty_branch") == 3')"
 
 rm -rf "$T1261"
-unset EB1261 DECIDE1261 DECIDE1261_CODE T1261 D_NC D_HC D_UN1 D_UN2 D_BODY D_PLACEHOLDER OUT_FAIL1261 RC_FAIL1261 OUT_DEDUP1261
+unset EB1261 DECIDE1261 DECIDE1261_CODE T1261 D_NC D_HC D_UN1 D_UN2 D_UN3 D_UN4 D_BODY D_PLACEHOLDER OUT_FAIL1261 RC_FAIL1261 OUT_DEDUP1261

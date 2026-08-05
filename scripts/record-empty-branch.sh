@@ -76,7 +76,11 @@ reason=""
 
 # Resolve the feature branch from the workpad `**Branch:**` line when the caller
 # did not pass one explicitly. A placeholder (`_(creating…)_`) has no backticks,
-# so the capture stays empty and the unestablished arm fires below.
+# so the capture stays empty and the unestablished arm fires below. sed/head are
+# not preflight-guaranteed, but this parse FAILS CLOSED: a missing tool yields an
+# empty BRANCH, which routes to UNESTABLISHED — never a false NO_COMMIT (the
+# guard-class-2 rule: only the safe arm may depend on a non-preflight tool). The
+# consequential NO_COMMIT-vs-HAS_COMMIT decision below rests solely on git.
 if [ -z "$BRANCH" ] && [ -n "$EB_WORKPAD_BODY" ]; then
   BRANCH="$(printf '%s\n' "$EB_WORKPAD_BODY" | sed -n 's/^\*\*Branch:\*\* `\([^`]*\)`.*/\1/p' | head -n1)"
 fi
@@ -84,37 +88,38 @@ fi
 if [ -z "$BRANCH" ] || [ -z "$BASE" ]; then
   decision=UNESTABLISHED
   reason="the run's branch name was unavailable"
+# The fetch outcome is AUTHORITATIVE: a definite NO_COMMIT/HAS_COMMIT is written
+# only when BOTH refs were freshly fetched this invocation. A failed fetch routes
+# to UNESTABLISHED rather than falling through to a comparison against a possibly-
+# stale remote-tracking ref left by an earlier push — reporting a confident empty-
+# branch statement computed from stale local data during a network failure is the
+# exact "unknown collapsed onto a definite answer" the unknown-is-not-zero rule
+# forbids (it would invite a maintainer to discard a branch on unverified evidence).
+# Base and branch are fetched separately so their failures carry distinct reasons.
+elif ! git fetch --quiet "$REMOTE" "+refs/heads/$BASE:refs/remotes/$REMOTE/$BASE" >/dev/null 2>&1; then
+  decision=UNESTABLISHED
+  reason="the base ref \`$REMOTE/$BASE\` could not be fetched from \`$REMOTE\` (remote unreachable or base absent)"
+elif ! git fetch --quiet "$REMOTE" "+refs/heads/$BRANCH:refs/remotes/$REMOTE/$BRANCH" >/dev/null 2>&1; then
+  # A run whose branch was never created/pushed lands here too — an unestablished
+  # case, NOT a no-commit one (issue #1261 gotcha).
+  decision=UNESTABLISHED
+  reason="the remote branch \`$BRANCH\` could not be fetched from \`$REMOTE\` (unreachable, absent, or never pushed)"
 else
-  # Best-effort fetch of both refs into remote-tracking form. A failure here is
-  # NOT fatal: the refs may already be present locally from an earlier fetch, and
-  # if they are not, the rev-parse below fails closed to UNESTABLISHED.
-  git fetch --quiet "$REMOTE" \
-    "+refs/heads/$BASE:refs/remotes/$REMOTE/$BASE" \
-    "+refs/heads/$BRANCH:refs/remotes/$REMOTE/$BRANCH" >/dev/null 2>&1 || true
-
   head_sha="$(git rev-parse --verify --quiet "refs/remotes/$REMOTE/$BRANCH" 2>/dev/null || true)"
   base_sha="$(git rev-parse --verify --quiet "refs/remotes/$REMOTE/$BASE" 2>/dev/null || true)"
-
-  if [ -z "$head_sha" ]; then
-    # The remote branch could not be resolved: the remote is unreachable, the
-    # branch was never created/pushed, or the query failed. This is the
-    # unestablished case, NOT a no-commit one (issue #1261 gotcha: "a run whose
-    # branch was never created is an unestablished case").
+  ahead=""
+  [ -n "$head_sha" ] && [ -n "$base_sha" ] && ahead="$(git rev-list --count "refs/remotes/$REMOTE/$BASE..refs/remotes/$REMOTE/$BRANCH" 2>/dev/null || true)"
+  if [ -z "$head_sha" ] || [ -z "$base_sha" ]; then
+    # The fetch reported success but a ref did not resolve — treat as unknown.
     decision=UNESTABLISHED
-    reason="the remote branch \`$BRANCH\` could not be resolved on \`$REMOTE\` (unreachable, absent, or never pushed)"
-  elif [ -z "$base_sha" ]; then
+    reason="a fetched ref did not resolve to a commit"
+  elif [[ ! "$ahead" =~ ^[0-9]+$ ]]; then
     decision=UNESTABLISHED
-    reason="the base ref \`$REMOTE/$BASE\` could not be resolved"
+    reason="the ahead-of-base commit count could not be computed"
+  elif [ "$ahead" -eq 0 ]; then
+    decision=NO_COMMIT
   else
-    ahead="$(git rev-list --count "refs/remotes/$REMOTE/$BASE..refs/remotes/$REMOTE/$BRANCH" 2>/dev/null || true)"
-    if [[ ! "$ahead" =~ ^[0-9]+$ ]]; then
-      decision=UNESTABLISHED
-      reason="the ahead-of-base commit count could not be computed"
-    elif [ "$ahead" -eq 0 ]; then
-      decision=NO_COMMIT
-    else
-      decision=HAS_COMMIT
-    fi
+    decision=HAS_COMMIT
   fi
 fi
 
