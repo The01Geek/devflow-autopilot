@@ -7,7 +7,7 @@ description: "Diagnose GitHub comment triggers, authorization, setup and verific
 
 ## A comment did not trigger
 
-Confirm the command is a standalone line, not quoted or fenced. Implementation commands belong on issues; review commands belong on pull requests. The commenter must be allowed by the repository configuration.
+Confirm the command is a standalone line, not quoted or fenced. Implementation commands belong on issues; review commands belong on the pull-request conversation tab — a review command typed into the review-submission box or an inline diff-line comment is ignored, because those review events are not subscribed. The commenter must be allowed by the repository configuration.
 
 ## Authentication failed
 
