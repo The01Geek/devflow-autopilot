@@ -1143,8 +1143,8 @@ ANALYZED_JSON="$($LIB/../scripts/run-jq.sh -sc '[.[] | select(.verdict == "imper
 # not the filtered actionable list, so the report surfaces suppressed/below-threshold
 # patterns instead of reading like a quiet week.
 # Annotate that view with each pattern's filing outcome for this run and, where a
-# cap withheld it, that cap — the two per-pattern fields render-report.sh reads
-#. The `--full` view carries neither, so without this join both reads
+# cap withheld it, that cap — the two per-pattern fields render-report.sh reads.
+# The `--full` view carries neither, so without this join both reads
 # render nothing on every pattern.
 source $LIB/filing-decisions.sh || {
   echo "::error::retrospective: lib/filing-decisions.sh could not be sourced — the filing decisions have no owner; aborting rather than silently withholding every pattern" >&2
@@ -1156,8 +1156,8 @@ PATTERNS_JSON="$(devflow_annotate_patterns .prflow/tmp/patterns-full.json "$FILE
 RECURRING_TARGETS_JSON="$(bash $LIB/recurring-targets.sh .prflow/learnings/retrospectives.jsonl)"
 
 # The liveness line actionable-patterns.sh wrote to stderr in Step 6, and the
-# won't-fix patterns this run re-raised — the two remaining report sections
-#. Both come from the same tested helper; both are empty on a run
+# won't-fix patterns this run re-raised — the two remaining report sections.
+# Both come from the same tested helper; both are empty on a run
 # that produced neither, and render-report.sh then omits their sections.
 LIVENESS_WARNING="$(devflow_liveness_warning .prflow/tmp/patterns.stderr)"
 DECLINED_REFILED_JSON="$(devflow_declined_refiled .prflow/tmp/overrides-prefiling.json "$FILED_SLUGS_JSON")"
