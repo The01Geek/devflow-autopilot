@@ -171,6 +171,9 @@
     "changelog_file": "CHANGELOG.md",
     "labels": "PRFlow"
   },
+  "create_issue": {
+    "investigation_record_enabled": true
+  },
   "deferred": {
     "labels": "PRFlow,Deferred"
   },

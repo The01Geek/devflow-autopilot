@@ -27,6 +27,27 @@ If drafting surfaces any of these, you have an unresolved decision. Resolve it w
 user, or — only if the user has disengaged — move it verbatim into the Blocked section.
 Never leave it as prose in the body.
 
+## Brief / investigation-record routing (decided rule — sort as you draft)
+
+The draft produces **two artifacts**, and drafting sorts content into their two buckets **as it is written** — not as a cleanup pass afterward:
+
+- The **issue body** is the implementer's **brief**: what is broken, what "done" looks like, which files to start in, which hazards matter. It is the only content channel a `/prflow:implement` run reads, so it carries what an implementer needs and nothing more.
+- The **investigation record** is everything the brief does not need to transfer: rejected designs and why they lost, refutation prose, evidence confirming what nobody would have doubted, deliberation, and lower-severity hazards. It is posted as the **first comment** on the created issue (a separate artifact — see `references/step-4-present-create.md`), never folded into the body.
+
+**The boundary is decided by one test — the vanish test:** *if this sentence vanished, would the implementer build the wrong thing?* **Yes → the brief. No → the record. Ambiguity resolves to the brief** — a misclassification then costs length rather than a missing instruction. Apply the developer's own framing when unsure: *would a competent implementer working in this codebase have discovered this on their own?* If yes, it belongs in the record, not the brief.
+
+**These body sections NEVER move to the record — exactly these five, complete by construction**, each being body content a **named in-repo consumer parses from the created issue** (so removing it would silently break that consumer):
+
+1. **`## Dependencies`** — parsed by `scripts/apply-issue-dependencies.py`, which reads prerequisites only from this section of the created issue's body; a `Blocked by #N` line in a comment registers nothing.
+2. **`## Acceptance Criteria`** — parsed by `scripts/parse-acs.py` and the implement Phase 3.4 gate.
+3. **the `- **Documentation Needed**` bold-bullet under `## Implementation Notes`** — parsed by `scripts/extract-doc-needed-paths.sh` (a suite-pinned producer/consumer pair).
+4. **`## 🚫 Blocked`** — read by Step 4 sub-step 6's implement-offer gate.
+5. **every `Verified:` bullet** — **unconditional** (a "bullets the brief relies on" scoping has no decidable predicate); `scripts/check-verified-premises.py` re-checks these premises from the body at implement Phase 1.6 Pass 6.
+
+**The routing rule governs revisions too, not only first-draft composition.** When an audit round (Step 3.6) causes content to be added, that content is sorted by the same vanish test rather than appended to the brief unconditionally — an audit that surfaces deliberation or a lower-severity hazard routes it to the record, exactly as first-draft composition would.
+
+The record's **sorting** runs on every draft whatever the config says; only its **publication** is gated by `create_issue.investigation_record_enabled` (default `true`) — see `references/step-4-present-create.md`. When publication is withheld the record bucket is simply never written or posted; the brief is unaffected either way, so this routing never removes an instruction the brief needs.
+
 ## Issue structure
 
 Every issue includes these sections, in this order. (A **`## Dependencies`** section

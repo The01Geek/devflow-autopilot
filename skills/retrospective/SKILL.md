@@ -17,7 +17,23 @@ touch git. Do **not** write any file. Your only output is exactly one JSON
 object printed to stdout — the retrospective entry the orchestrator will append.
 Nothing else on stdout.
 
-**Configuration.** Read the internal-documentation root from `.prflow/config.json` using `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal` and use the result as `[[INTERNAL_DOC_LOCATION]]` throughout this skill.
+**Configuration (handed to you by value — resolve nothing).** Your dispatch prompt
+supplies two absolute values: the **bundled-helper root**, used wherever this skill
+writes `[[PLUGIN_ROOT]]`, and the **internal-documentation root**, used wherever it
+writes `[[INTERNAL_DOC_LOCATION]]`. Use them verbatim. Do **not** invoke a helper to
+derive either: as a subagent you receive neither `$CLAUDE_SKILL_DIR` nor a `Base
+directory for this skill:` context line, so no anchor of yours resolves — and the
+config reader itself resolves its default path with `git rev-parse --show-toplevel`,
+which this brief forbids you to run. If your dispatch prompt carries no bundled-helper
+root, fall back to `jq` on `PATH` for the one construction in *§ Output schema* — a
+degraded arm, not a stop: it loses the bundled wrapper's execution-verified jq selection,
+so on a host whose `PATH` jq is present but unrunnable (a shim-shadowed Windows/WSL host
+is the case the wrapper exists for) the construction fails, and you report that failure as
+the `{"error": "<reason>"}` object of *§ If the bundle is unusable* rather than silently
+producing nothing. If it carries no
+internal-documentation root, use `docs/internal/`. <!-- pruned-path-ok: the configurable consumer-owned internal-doc root, not a path expected inside the vendored plugin -->
+Report neither substitution on stdout — the stdout contract admits only the objects
+defined in *§ Output schema* and *§ If the bundle is unusable*.
 
 Read the bundle with:
 
@@ -27,15 +43,28 @@ BUNDLE="$(cat "$BUNDLE_PATH")"
 
 ---
 
+**Scope of the anchor rule in this brief.** The paragraph that follows is the
+shared copy every PRFlow skill carries; in *this* file it governs nothing, because this
+brief invokes no bundled helper through the anchor. Every path you need is handed to you
+**by value** by the dispatching orchestrator — `[[PLUGIN_ROOT]]`,
+`[[INTERNAL_DOC_LOCATION]]`, and the absolute prompt-extension path — so the anchor's
+stop-and-report arm is unreachable here, and it must stay unreachable: prose on stdout
+would break the exactly-one-JSON-object contract above. Report any failure you cannot
+recover from as the `{"error": "<reason>"}` object in *§ If the bundle is unusable*,
+never as free prose.
+
 **Portable helper anchor (single-statement).** The bundled-helper commands in this skill resolve the skill directory inline at each call site via `${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}`. When `$CLAUDE_SKILL_DIR` is set and non-empty (Claude Code), run each command exactly as written. On a runner where it is unset or empty, replace the placeholder with the skill base directory the runner reports in context (e.g. a `Base directory for this skill:` line) before running the command; if that reported path is Windows-form (`C:\...`), first convert it to this shell's POSIX form with one standalone `wslpath -u '<path>'` (WSL) or `cygpath -u '<path>'` (Git Bash/MSYS2) command and substitute the printed result **only if the command succeeds and prints a non-empty path — otherwise fall through to the drive-letter rules exactly as if the tool were absent, the same success-and-non-empty acceptance the platform's path-normalization rules apply** (if neither tool exists: lowercase the drive letter, map `C:\` to `/mnt/c` on WSL or `/c` on MSYS2, and turn backslashes into `/`; if the environment is neither WSL nor MSYS2, use the path unchanged and report that it could not be normalized — the same arm the platform's path-normalization rules take). Resolve the anchor inline at every call site — never capture it into a shell variable that a later statement reads, because some runners' inline-bash marshaling drops such variables (observed on Copilot CLI). If neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available, stop and report that the helper anchor could not be resolved rather than running a command with a broken path.
 
-**Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
-
-```bash
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh retrospective
-```
-
-If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.prflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged. (This subagent's stdout contract is strict — exactly one JSON object — so a consumer extension here must not break that contract.)
+**Consumer prompt extension (handed to you by path).** **Before doing this skill's work**,
+read the consumer-supplied prompt extension for this skill and honor it — your dispatch
+prompt names that file at an absolute `.prflow/prompt-extensions/retrospective.md` path.
+Read it with your **file-read tool** — never a shell invocation, and never
+`load-prompt-extension.sh`, whose anchor you cannot resolve. Treat any content as
+instructions appended to the end of this skill's own prompt for this run; it is
+upgrade-safe, consumer-owned customization. *§ Output schema* states in full how the
+absent, empty, and present-but-unreadable cases are handled — follow it there rather than
+re-deriving them here. This subagent's stdout contract is strict — exactly one JSON
+object — so a consumer extension must not break that contract.
 
 ## § The context bundle
 
@@ -202,10 +231,10 @@ one fixable thing or several. Be specific; "code quality issue" is useless.
 
 ### summary
 
-Before composing this paragraph, read the shared writing standard
-`"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/writing-standard.md`
-and follow it. A failed load emits a breadcrumb naming the file and the failure
-kind, and you compose the summary without it.
+Before composing this paragraph, read the shared writing standard at
+`[[PLUGIN_ROOT]]/lib/writing-standard.md` with your file-read tool and follow it. If
+it cannot be read, compose the summary without it and report nothing about it — a
+breadcrumb here would violate the stdout contract.
 
 One dense paragraph grounded in the bundle's primary sources. Quote the
 workpad status, the `/prflow:review` verdict(s), what the human had to fix in
@@ -298,7 +327,7 @@ Print the object and stop.
 Example construction:
 
 ```bash
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -nc \
+[[PLUGIN_ROOT]]/scripts/run-jq.sh -nc \
   --argjson bundle "$BUNDLE" \
   --arg verdict "$VERDICT" \
   --argjson categories "$CATEGORIES_JSON" \

@@ -11,6 +11,7 @@ This page summarizes user-visible PRFlow changes. For a complete change history,
 
 ## August 5, 2026
 
+- **`/prflow:create-issue` now writes a short implementer brief and keeps the investigation detail in a separate comment.** The issue body carries only what an implementer needs to build the change — what is broken, what "done" looks like, which files to start in, which hazards matter. Rejected designs, supporting evidence, deliberation and lower-severity notes are posted as a separate investigation-record comment on the same issue (with any workflow-trigger tokens neutralized so it cannot start a run). Set the new `create_issue.investigation_record_enabled` config key to `false` to skip posting that comment; the brief-versus-record sorting is unchanged either way. [#1331](https://github.com/The01Geek/prflow/issues/1331)
 - **Cloud review comments now use a safer event boundary.** Post `/prflow:review` on the pull-request conversation tab. Commands entered in the review-submission box or an inline diff comment no longer start a run. Cloud jobs also check out the repository's default branch before they read trusted configuration. [#1163](https://github.com/The01Geek/prflow/issues/1163)
 
 ## August 3, 2026

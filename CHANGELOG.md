@@ -4,6 +4,33 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.2] — 2026-08-05
+
+### Changed
+### Fixed
+
+- The Stage A retrospective subagent brief (`skills/retrospective/SKILL.md`) no longer
+  reaches for bundled helpers through the `${CLAUDE_SKILL_DIR}` anchor. A dispatched
+  subagent receives neither that variable nor a runner-reported base directory, so those
+  invocations could not resolve, their prescribed stop-and-report failure arm would have
+  broken the brief's exactly-one-JSON-object stdout contract, and the config reader they
+  called resolves its default path with `git rev-parse` — which the brief forbids. The
+  orchestrator (`skills/retrospective-weekly/SKILL.md`) now resolves the bundled-helper
+  root and the internal-documentation root itself and hands both to the child **by
+  value**, extending the by-path `<REPO_ROOT>` handoff it already performed. The child
+  resolves nothing, invokes no helper that touches git, and reports every residual
+  through its JSON contract rather than as prose on stdout. ([#1336](https://github.com/The01Geek/prflow/pull/1336))
+
+## [2.31.1] — 2026-08-05
+
+### Changed
+Sharpen `/prflow:create-issue`'s `authoring-discipline-defects` audit dimension with a fourth **over-retention** shape, giving the Step 3.6 auditor (and the Step 3.5 drafter self-check that renders the same block) a subtractive move. The shape admits two finding types — RESTATEMENT (content restated elsewhere in the draft) and INFERABLE (content a competent implementer would derive from a cited repository file, precedent, or pattern) — each requiring a cited surviving home, so the audit can shrink a draft rather than only grow it. The dimension list stays at nine.
+
+## [2.31.0] — 2026-08-05
+
+### Added
+- **`/prflow:create-issue` now splits its output into an implementer brief plus a gated investigation-record comment.** Drafting sorts content into two buckets as it is written — the issue body carries the implementer's brief (what is broken, what "done" looks like, which files to start in, which hazards matter), and a separate **investigation record** (rejected designs, refutation prose, confirmatory evidence, deliberation, lower-severity hazards) is posted as the first comment on the created issue, with its workflow-trigger tokens neutralized. The boundary is the vanish test — *if this sentence vanished, would the implementer build the wrong thing?* — with five body sections that never move (`## Dependencies`, `## Acceptance Criteria`, the `- **Documentation Needed**` bullet, `## 🚫 Blocked`, and every `Verified:` bullet), each parsed by a named in-repo consumer. The new `create_issue.investigation_record_enabled` config key (default `true`) gates publication only; sorting always runs. (#1331)
+
 ## [2.30.118] — 2026-08-05
 
 ### Fixed

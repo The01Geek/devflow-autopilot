@@ -19,6 +19,7 @@ This page is for maintainers adapting PRFlow's documentation pass and local week
 | `docs.changelog_file` | String path | `CHANGELOG.md` | Release-note reconciliation. | `"changelog_file": "CHANGELOG.md"` |
 | `docs.labels` | Comma-separated string | `Documented` | Implementation applies labels best effort after the docs pass. | `"labels": "Documented,Shipped"` |
 | `deferred.labels` | Comma-separated string | `PRFlow,Deferred` | Follow-up issue filing. Labels are applied best effort. | `"labels": "PRFlow,Deferred"` |
+| `create_issue.investigation_record_enabled` | Boolean | `true` | `/prflow:create-issue` publication gate. Publication is withheld only when the value reads as the literal `false`. Sorting the draft into the implementer brief (issue body) and the investigation record is unaffected either way; when `false`, the record comment is not posted. | `"investigation_record_enabled": true` |
 
 ## Weekly Retrospective
 
@@ -55,6 +56,9 @@ These settings describe the locally run retrospective workflow, not the shipped 
   },
   "deferred": {
     "labels": "PRFlow,Deferred"
+  },
+  "create_issue": {
+    "investigation_record_enabled": true
   },
   "prflow_retrospective": {
     "enabled": true,
