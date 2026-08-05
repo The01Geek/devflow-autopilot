@@ -1023,7 +1023,11 @@ printf '%s' '{"create_issue":{"investigation_record_enabled":""}}' > "$IR_CFG"
 assert_eq "ir(empty-string value): publish (default true)" "publish" \
   "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
 # malformed JSON → config-get exit 2, EMPTY stdout → decision publishes (empty ≠ false).
+# Pin the empty-stdout precondition explicitly (not just the decision) so a regression that
+# emitted a non-empty non-`false` string on a parse error would still be caught here.
 printf '%s' '{ not valid json' > "$IR_CFG"
+assert_eq "ir(malformed config → exit-2 EMPTY stdout precondition)" "" \
+  "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG" 2>/dev/null)"
 assert_eq "ir(malformed config → exit-2 empty stdout): publish (empty is not the literal false)" "publish" \
   "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG" 2>/dev/null)")"
 # absent file → default `true` → publish.
