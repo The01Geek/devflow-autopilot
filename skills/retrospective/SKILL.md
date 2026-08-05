@@ -17,6 +17,8 @@ touch git. Do **not** write any file. Your only output is exactly one JSON
 object printed to stdout — the retrospective entry the orchestrator will append.
 Nothing else on stdout.
 
+**Configuration.** Read the internal-documentation root from `.prflow/config.json` using `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal` and use the result as `[[INTERNAL_DOC_LOCATION]]` throughout this skill.
+
 Read the bundle with:
 
 ```bash
@@ -218,7 +220,7 @@ reasoning. Each object:
 ```json
 {
   "summary": "Strengthen CLAUDE.md EntityService rule with a visible warning + linkable example",
-  "candidate_targets": ["CLAUDE.md", "docs/architecture/entity-service.md"],
+  "candidate_targets": ["CLAUDE.md", "[[INTERNAL_DOC_LOCATION]]entity-service.md"],
   "change_type": "rule-strengthen",
   "confidence": "medium"
 }

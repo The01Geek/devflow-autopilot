@@ -4,6 +4,8 @@ Output: `Phase 2/4: Discover, Plan & Implement...`
 
 **Writing standard.** Before composing this phase's first `--reflection` bullet, read the shared writing standard `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/writing-standard.md` and follow it (the always-loaded Reflection style contract absorbed those rules into this read, so the read is what keeps them present). A failed load emits a breadcrumb naming the file and the failure kind, and you compose the reflection without it.
 
+**Configuration.** This phase reads the internal-documentation root from the `.docs.internal` key of `.prflow/config.json`, resolved through `config-get.sh` in the Phase 2 explicit-instruction block below. Bind that resolved value to `[[INTERNAL_DOC_LOCATION]]` and use the placeholder wherever this file names the configured internal-docs root.
+
 Update the workpad: `workpad.py update $ISSUE_NUMBER --status Discovering --note "entered Phase 2"`.
 
 ### 2.0 Resume-idempotency gate (runs BEFORE §2.1)
@@ -403,7 +405,7 @@ After deleting any public method, class, file, page, route, endpoint, asset, or 
 
 Treat any stranded dependent as a defect in **this** PR. A deletion PR is not done until grepping for the deleted symbols/paths returns nothing but the deletion itself.
 
-**Scope boundary with Phase 4.1 (*Update Documentation*).** This sweep covers references in *code, config, and routing tables* — i.e. things that break behavior at runtime if left dangling. Prose references to the deleted symbols/paths inside `docs/internal/` (descriptions, walkthroughs, "to install X, do Y") are **not** in scope here; they are handled by the Phase 4.1 documentation pass (`prflow:docs` subagent). If your grep turns up only docs hits, note them and move on — do not edit `docs/internal/` from this phase. <!-- pruned-path-ok: the configurable consumer-owned internal-doc root, not a path expected inside the vendored plugin -->
+**Scope boundary with Phase 4.1 (*Update Documentation*).** This sweep covers references in *code, config, and routing tables* — i.e. things that break behavior at runtime if left dangling. Prose references to the deleted symbols/paths inside `[[INTERNAL_DOC_LOCATION]]` (descriptions, walkthroughs, "to install X, do Y") are **not** in scope here; they are handled by the Phase 4.1 documentation pass (`prflow:docs` subagent). If your grep turns up only docs hits, note them and move on — do not edit `[[INTERNAL_DOC_LOCATION]]` from this phase.
 
 #### 2.3.3 Convention-compliance sweep on touched code (mandatory)
 
@@ -458,7 +460,7 @@ Treat an unverified boundary assumption as a defect in **this** PR, not a review
 
 A **self-authored claim** is any behavioral assertion the diff introduces about what the shipped code does. The surfaces, all in scope here:
 
-- **Internal docs the diff adds or edits** (`docs/internal/…` and the like) — a described behavior, flow, "it does X then Y", or guarantee. <!-- pruned-path-ok: the configurable consumer-owned internal-doc root, not a path expected inside the vendored plugin -->
+- **Internal docs the diff adds or edits** (`[[INTERNAL_DOC_LOCATION]]…` and the like) — a described behavior, flow, "it does X then Y", or guarantee.
 - **External docs the diff adds or edits** — the same, in customer-facing prose.
 - **Code comments the diff adds or changes** — an inline claim about what the adjacent or called code does (e.g. "returns the deduped set", "never retries", "matches the reference query exactly").
 
