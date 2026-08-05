@@ -2,26 +2,127 @@
   "iter": 1,
   "started_at": "2026-08-05T07:30:00Z",
   "fix_commit_sha": "7ef9abd6635df0d0dd9bd2953e18142a169df54f",
-  "fix_files": ["lib/test/modules/efficiency-trace-telemetry.sh", "lib/test/run.sh", "scripts/workflow-flight-recorder-registry.json"],
+  "fix_files": [
+    "lib/test/modules/efficiency-trace-telemetry.sh",
+    "lib/test/run.sh",
+    "scripts/workflow-flight-recorder-registry.json"
+  ],
   "loop_role": "fix",
-  "sweep_defs_read": ["phase-2-implement.md"],
-  "sweep_evidence": {"status": "run"},
+  "sweep_defs_read": [
+    "phase-2-implement.md"
+  ],
+  "sweep_evidence": {
+    "status": "run"
+  },
   "checklist": [],
-  "phase3_dispatched": ["prflow:code-reviewer", "prflow:silent-failure-hunter", "prflow:pr-test-analyzer"],
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:pr-test-analyzer"
+  ],
   "dispatched_effort": [],
-  "diff_profile": {"small_diff": true, "config_only": false, "has_new_types": false, "engine_self_modifying": false, "checklist_skipped": "intentional"},
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": "intentional"
+  },
   "phase3_findings": [
-    {"agent": "prflow:code-reviewer", "severity": "Suggestion", "description": "clean; no Critical/Important", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [628, 662], "kind": "clean"}, "corroboration_count": 0, "step25_classification": "codebase", "fix_decision": "advisory"},
-    {"agent": "prflow:silent-failure-hunter", "severity": "Suggestion", "description": "trace-less skip of malformed guard-reject records; documented, --self-check compensated, by-design", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [656, 656], "kind": "silent_skip"}, "corroboration_count": 0, "step25_classification": "codebase", "fix_decision": "advisory"},
-    {"agent": "prflow:pr-test-analyzer", "severity": "Important", "description": "durable synthesized copy no-clobber untested (inverse of has|not predicate)", "defect_signature": {"file": "lib/test/modules/efficiency-trace-telemetry.sh", "line_range": [2178, 2178], "kind": "test_gap"}, "corroboration_count": 0, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "prflow:pr-test-analyzer", "severity": "Important", "description": "malformed/non-object record path untested", "defect_signature": {"file": "lib/test/modules/efficiency-trace-telemetry.sh", "line_range": [2192, 2192], "kind": "test_gap"}, "corroboration_count": 0, "step25_classification": "codebase", "fix_decision": "applied"}
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "clean; no Critical/Important",
+      "defect_signature": {
+        "file": "lib/efficiency-trace.sh",
+        "line_range": [
+          628,
+          662
+        ],
+        "kind": "clean"
+      },
+      "corroboration_count": 0,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "trace-less skip of malformed guard-reject records; documented, --self-check compensated, by-design",
+      "defect_signature": {
+        "file": "lib/efficiency-trace.sh",
+        "line_range": [
+          656,
+          656
+        ],
+        "kind": "silent_skip"
+      },
+      "corroboration_count": 0,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "durable synthesized copy no-clobber untested (inverse of has|not predicate)",
+      "defect_signature": {
+        "file": "lib/test/modules/efficiency-trace-telemetry.sh",
+        "line_range": [
+          2178,
+          2178
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 0,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "malformed/non-object record path untested",
+      "defect_signature": {
+        "file": "lib/test/modules/efficiency-trace-telemetry.sh",
+        "line_range": [
+          2192,
+          2192
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 0,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
   ],
   "fix_decisions": [
-    {"finding_id": "T-1", "decision": "applied", "commit": "7ef9abd6635df0d0dd9bd2953e18142a169df54f"},
-    {"finding_id": "T-2", "decision": "applied", "commit": "7ef9abd6635df0d0dd9bd2953e18142a169df54f"},
-    {"finding_id": "SF-1", "decision": "deferred", "source_file": "lib/efficiency-trace.sh", "claim_text": "malformed guard-reject records are skipped without a breadcrumb", "skip_category": "uncategorized", "evidence": "by-design best-effort; --self-check is the compensating control (comment lib/efficiency-trace.sh:644-646); adding a breadcrumb is an enhancement, not a correctness fix"}
+    {
+      "finding_id": "T-1",
+      "decision": "applied",
+      "commit": "7ef9abd6635df0d0dd9bd2953e18142a169df54f"
+    },
+    {
+      "finding_id": "T-2",
+      "decision": "applied",
+      "commit": "7ef9abd6635df0d0dd9bd2953e18142a169df54f"
+    },
+    {
+      "finding_id": "SF-1",
+      "decision": "deferred",
+      "source_file": "lib/efficiency-trace.sh",
+      "claim_text": "malformed guard-reject records are skipped without a breadcrumb",
+      "skip_category": "uncategorized",
+      "evidence": "by-design best-effort; --self-check is the compensating control (comment lib/efficiency-trace.sh:644-646); adding a breadcrumb is an enhancement, not a correctness fix"
+    }
   ],
-  "convergence_inputs": {"fixes_applied": 2, "fix_diff_lines": 33, "new_corroborated_critical_count": 0},
-  "cap_drops": {"count": 0, "by_category": {}},
-  "telemetry": "unavailable"
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 33,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": "unavailable",
+  "synthesized": false
 }
