@@ -1,0 +1,115 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-05T00:00:00Z",
+  "fix_commit_sha": "b5bca1a32",
+  "fix_files": [
+    "lib/test/lint-executable-helper-mode.py",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": "run_shadow_fanout",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:pr-test-analyzer",
+    "prflow:comment-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "${VAR:-<literal>} operand/assignment default discarded → helper silently classified runtime, mode never asserted (fail-open)",
+      "defect_signature": {
+        "file": "lib/test/lint-executable-helper-mode.py",
+        "line_range": [
+          149,
+          293
+        ],
+        "kind": "silent_skip"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "file-global dynamic set checked before assignment resolution + unanchored read regex poisons a real helper var into a silent runtime skip",
+      "defect_signature": {
+        "file": "lib/test/lint-executable-helper-mode.py",
+        "line_range": [
+          139,
+          311
+        ],
+        "kind": "silent_skip"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "docstring: 'both call sites gate on $CC_HELPER' (second is $NOTICE_HELPER); rot-prone 'six' count",
+      "defect_signature": {
+        "file": "lib/test/lint-executable-helper-mode.py",
+        "line_range": [
+          8,
+          69
+        ],
+        "kind": "comment_accuracy"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "test -x / [[ -x ]] / var-ref transitive resolution shapes had no exercising test",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          41892,
+          41918
+        ],
+        "kind": "test_coverage"
+      },
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "b5bca1a32"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "b5bca1a32"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "b5bca1a32"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "b5bca1a32"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 90,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": "unavailable"
+}
