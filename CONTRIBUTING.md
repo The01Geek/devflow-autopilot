@@ -555,6 +555,41 @@ enumerated in the helper's own module docstring, which is the place to read them
 than a copy here that would drift. The written convention is the primary control; the
 check is the backstop for the commonest shape.
 
+### Raising the phase-4 documentation byte ceiling
+
+`skills/implement/phases/phase-4-documentation.md` is loaded on every implement
+run, so it carries a hard byte-size ceiling enforced by the test suite — the
+`lib/test/run.sh` check whose name begins *"#815 phase-4-documentation.md is at
+or below the byte ceiling the move authorises"*. An edit that grows the file past
+the ceiling turns the whole suite red on that one check.
+
+The ceiling is a **ratchet**: it only ever moves up, only when a contributor
+deliberately raises it, and it is **never loosened to leave breathing room**. It
+is a registered exception under the `#656` rule (*prefer generated evidence over
+exact checked-in numbers — except where an exact literal is itself the
+enforcement*): here the exact number *is* the enforcement, so it stays
+hand-written rather than computed, with no slack added — the next edit that grows
+the file goes red and must register its own raise.
+
+When your edit trips this check and the new content genuinely belongs in this
+always-loaded file, raise the ceiling in these four steps, in order:
+
+1. **Justify the weight.** Write down why the new content cannot instead live in
+   a file that is only loaded when it is needed (a progressively-loaded
+   `references/` or `phases/` reference), rather than in this always-resident
+   file.
+2. **Trim first, and record what you trimmed.** Recover as much room as you can
+   from the file before raising the number, and note what you removed.
+3. **Hand-edit the number to the new exact file size.** Set it to the file's new
+   `wc -c` byte count exactly — no rounding up, no spare room.
+4. **Add a paragraph explaining the raise** to the comment block directly above
+   the check in `lib/test/run.sh`.
+
+That comment block holds the reasoning for every past raise, one paragraph per
+raise — read it there rather than duplicating it here. The original registration
+of the ceiling, and the `#656` enforcement-constant exception it rests on, are
+documented in `docs/internal/cutovers/issue-815-deferred-ac-followups-relocate.md`.
+
 ### Regenerating suite-owned artifacts
 
 Several suite gates compare a checked-in generated artifact against what the tree
@@ -613,9 +648,8 @@ instead, via `--list`:
   governed by **that line's own** class (e.g. `lib/review-profile.tokens`, the reviewer
   security-boundary lock the capability generator never writes, is `by-hand`).
 
-These four line kinds are emitted strictly *after* the existing `artifact` and
-`budget-watch` lines, whose formats are byte-unchanged, so prefix-anchored consumers parse
-as before. The rule is fail-closed at both ends: a conflicted path that is **not** among
+These four line kinds are emitted strictly *after* the existing `artifact` lines,
+whose format is byte-unchanged, so prefix-anchored consumers parse as before. The rule is fail-closed at both ends: a conflicted path that is **not** among
 the emitted `conflict-path`/`conflict-sibling` paths is an ordinary hand-merge, and a
 `--list` that cannot run — or that emits no `artifact`/`conflict-class` lines — means
 needs-human-reconciliation and stop, never a guessed hand-merge.
