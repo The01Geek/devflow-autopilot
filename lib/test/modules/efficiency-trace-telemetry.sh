@@ -2118,6 +2118,137 @@ assert_eq "et-synth(T2): second --persist is a no-op (no new branch commit)" "$E
   "$(_et_branch_count "$ETSY_REPO")"
 rm -rf "$ETSY_REPO"
 
+# ── issue #534: emitted-provenance backfill — the three states a later reader must
+# tell apart (an EMITTED record, a SYNTHESIZED record, a LOST emit) are
+# deterministically distinguishable at the producer. Route (b): --persist stamps
+# the `synthesized` provenance boolean off the agent's decision path, so an
+# agent-written record affirmatively carries synthesized:false, a backstop record
+# carries synthesized:true, and a lost emit is the absent record. Exercises the
+# producer (lib/efficiency-trace.sh --persist), not prose.
+echo "efficiency-trace.sh emitted-provenance backfill (issue #534)"
+
+# EMITTED: a real agent-written iter-1.json (rich fields, NO `synthesized` key) →
+# --persist backfills synthesized:false and preserves the record's other fields.
+ETPV_REPO="$(git_sandbox "et-prov emitted repo")"
+git -C "$ETPV_REPO" init -q
+git -C "$ETPV_REPO" config user.email t@e.com; git -C "$ETPV_REPO" config user.name t
+git -C "$ETPV_REPO" commit --allow-empty -qm base
+git -C "$ETPV_REPO" branch -M main
+git -C "$ETPV_REPO" checkout -q -b feat
+mkdir -p "$ETPV_REPO/.prflow/tmp/review/pr-3/run-e"
+cat > "$ETPV_REPO/.prflow/tmp/review/pr-3/run-e/iter-1.json" <<'EOF'
+{"iter":1,"fix_commit_sha":"deadbeef","loop_role":"fix","fix_files":["x"]}
+EOF
+( cd "$ETPV_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETPV_REPO/.prflow/tmp/review/pr-3/run-e" --slug pr-3 ) >/dev/null 2>&1; ETPV_RC=$?
+assert_eq "et-prov(#534): emitted-case --persist exits 0" "0" "$ETPV_RC"
+assert_eq "et-prov(#534): EMITTED — the DURABLE copy is backfilled synthesized:false" "false" \
+  "$(_et_show "$ETPV_REPO" ".prflow/logs/review/pr-3/run-e/iter-1.json" | jq -r '.synthesized' 2>/dev/null)"
+assert_eq "et-prov(#534): EMITTED — the durable record's other fields are preserved through the backfill" "deadbeef" \
+  "$(_et_show "$ETPV_REPO" ".prflow/logs/review/pr-3/run-e/iter-1.json" | jq -r '.fix_commit_sha' 2>/dev/null)"
+# The SOURCE run dir is left byte-identical (an existing --persist contract): the
+# stamp lands on the durable copy only, so the agent's file gains no `synthesized`.
+assert_eq "et-prov(#534): EMITTED — the SOURCE record is left untouched (no synthesized key)" "null" \
+  "$(jq -r '.synthesized' "$ETPV_REPO/.prflow/tmp/review/pr-3/run-e/iter-1.json" 2>/dev/null)"
+# Idempotent: a second --persist keeps the durable stamp false (a no-op branch write).
+( cd "$ETPV_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETPV_REPO/.prflow/tmp/review/pr-3/run-e" --slug pr-3 ) >/dev/null 2>&1
+assert_eq "et-prov(#534): EMITTED — second --persist keeps the durable synthesized:false (idempotent)" "false" \
+  "$(_et_show "$ETPV_REPO" ".prflow/logs/review/pr-3/run-e/iter-1.json" | jq -r '.synthesized' 2>/dev/null)"
+rm -rf "$ETPV_REPO"
+
+# SYNTHESIZED: no iter record + a fix commit → the backstop writes synthesized:true
+# — distinct from the emitted false above, and the backfill leaves it untouched.
+ETPS_REPO="$(git_sandbox "et-prov synthesized repo")"
+git -C "$ETPS_REPO" init -q
+git -C "$ETPS_REPO" config user.email t@e.com; git -C "$ETPS_REPO" config user.name t
+git -C "$ETPS_REPO" commit --allow-empty -qm base
+git -C "$ETPS_REPO" branch -M main
+git -C "$ETPS_REPO" checkout -q -b feat
+printf a > "$ETPS_REPO/f1"; git -C "$ETPS_REPO" add f1
+git -C "$ETPS_REPO" commit -qm "fix: address review findings (iteration 1)"
+mkdir -p "$ETPS_REPO/.prflow/tmp/review/pr-4/run-s"
+( cd "$ETPS_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETPS_REPO/.prflow/tmp/review/pr-4/run-s" --slug pr-4 ) >/dev/null 2>&1
+assert_eq "et-prov(#534): SYNTHESIZED — a backstop record carries synthesized:true (not false)" "true" \
+  "$(jq -r '.synthesized' "$ETPS_REPO/.prflow/tmp/review/pr-4/run-s/iter-1.json" 2>/dev/null)"
+# Guard the has("synthesized")|not predicate from the OTHER direction: the DURABLE
+# copy of a synthesized record must NOT be clobbered to false. Read the same
+# persisted artifact the EMITTED case reads (the durable branch copy), so all three
+# states are asserted at the one place a later reader consults. An inverted predicate
+# that stamped key-present records would flip this to false and go RED here.
+assert_eq "et-prov(#534): SYNTHESIZED — the DURABLE copy is NOT clobbered to false (stays true)" "true" \
+  "$(_et_show "$ETPS_REPO" ".prflow/logs/review/pr-4/run-s/iter-1.json" | jq -r '.synthesized' 2>/dev/null)"
+rm -rf "$ETPS_REPO"
+
+# LOST: no iter record + no matching fix commit → no record at all (the absent
+# third state — no file exists to carry any provenance stamp).
+ETPL_REPO="$(git_sandbox "et-prov lost repo")"
+git -C "$ETPL_REPO" init -q
+git -C "$ETPL_REPO" config user.email t@e.com; git -C "$ETPL_REPO" config user.name t
+git -C "$ETPL_REPO" commit --allow-empty -qm base
+git -C "$ETPL_REPO" branch -M main
+git -C "$ETPL_REPO" checkout -q -b feat
+git -C "$ETPL_REPO" commit --allow-empty -qm "feat: no fix commits here"
+mkdir -p "$ETPL_REPO/.prflow/tmp/review/pr-5/run-l"
+( cd "$ETPL_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETPL_REPO/.prflow/tmp/review/pr-5/run-l" --slug pr-5 ) >/dev/null 2>&1
+assert_eq "et-prov(#534): LOST — a dropped emit with nothing to recover leaves no iter record" "no" \
+  "$([ -e "$ETPL_REPO/.prflow/tmp/review/pr-5/run-l/iter-1.json" ] && echo yes || echo no)"
+rm -rf "$ETPL_REPO"
+
+# MALFORMED / NON-OBJECT (best-effort adversarial matrix): the backfill's guard
+# fails CLOSED — a valid object record is stamped while a malformed (invalid JSON)
+# and a non-object (array) record are each left byte-identical, and --persist still
+# exits 0. A regression that made the jq -e type-guard stamp a non-object, or that
+# aborted --persist on a parse failure, would ship green without this.
+ETPM_REPO="$(git_sandbox "et-prov malformed repo")"
+git -C "$ETPM_REPO" init -q
+git -C "$ETPM_REPO" config user.email t@e.com; git -C "$ETPM_REPO" config user.name t
+git -C "$ETPM_REPO" commit --allow-empty -qm base
+git -C "$ETPM_REPO" branch -M main
+git -C "$ETPM_REPO" checkout -q -b feat
+mkdir -p "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m"
+printf '{"iter":1,"loop_role":"fix"}' > "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m/iter-1.json"   # valid object, no key
+printf 'not json at all' > "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m/iter-2.json"                 # malformed
+printf '[1,2,3]' > "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m/iter-3.json"                          # valid JSON, non-object
+ETPM_H2="$(git -C "$ETPM_REPO" hash-object "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m/iter-2.json")"
+ETPM_H3="$(git -C "$ETPM_REPO" hash-object "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m/iter-3.json")"
+( cd "$ETPM_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m" --slug pr-6 ) >/dev/null 2>&1; ETPM_RC=$?
+assert_eq "et-prov(#534): MALFORMED — --persist still exits 0" "0" "$ETPM_RC"
+assert_eq "et-prov(#534): MALFORMED — the valid object is backfilled synthesized:false" "false" \
+  "$(_et_show "$ETPM_REPO" ".prflow/logs/review/pr-6/run-m/iter-1.json" | jq -r '.synthesized' 2>/dev/null)"
+assert_eq "et-prov(#534): MALFORMED — the invalid-JSON record is left byte-identical" "$ETPM_H2" \
+  "$(git -C "$ETPM_REPO" hash-object "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m/iter-2.json")"
+assert_eq "et-prov(#534): NON-OBJECT — the array record is left byte-identical" "$ETPM_H3" \
+  "$(git -C "$ETPM_REPO" hash-object "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m/iter-3.json")"
+rm -rf "$ETPM_REPO"
+
+# WRITE FAILURE: the backfill's `if ! { jq … 2>&1 > "$tmp" && mv … }` else arm is a
+# distinct branch guarding a documented best-effort promise (breadcrumb + the durable
+# record left intact + --persist never aborting). Drive it with a DEVFLOW_JQ stub that
+# passes every OTHER jq call through to the real binary and fails ONLY the backfill
+# program, so the stub's own error text attributes the breadcrumb to this arm and no
+# other. The staged durable copy still reaches the branch, so the persisted record is
+# the one a later reader consults — it must be the unbackfilled original, not a
+# half-written file.
+ETPW_REPO="$(git_sandbox "et-prov write-fail repo")"
+git -C "$ETPW_REPO" init -q
+git -C "$ETPW_REPO" config user.email t@e.com; git -C "$ETPW_REPO" config user.name t
+git -C "$ETPW_REPO" commit --allow-empty -qm base
+git -C "$ETPW_REPO" branch -M main
+git -C "$ETPW_REPO" checkout -q -b feat
+mkdir -p "$ETPW_REPO/.prflow/tmp/review/pr-7/run-w"
+printf '{"iter":1,"fix_commit_sha":"cafef00d","loop_role":"fix"}' > "$ETPW_REPO/.prflow/tmp/review/pr-7/run-w/iter-1.json"
+ETPW_BIN="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nfor a in "$@"; do case "$a" in *".synthesized = false"*) printf "stub jq: synthetic backfill write failure\\n" >&2; exit 3 ;; esac; done\nexec jq "$@"\n' > "$ETPW_BIN/jq-stub"
+chmod +x "$ETPW_BIN/jq-stub"
+ETPW_ERR="$( ( cd "$ETPW_REPO" && DEVFLOW_JQ="$ETPW_BIN/jq-stub" bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETPW_REPO/.prflow/tmp/review/pr-7/run-w" --slug pr-7 ) 2>&1 >/dev/null )"; ETPW_RC=$?
+assert_eq "et-prov(#534): WRITE-FAIL — a failed backfill write still exits 0 (best-effort, never aborts --persist)" "0" "$ETPW_RC"
+assert_eq "et-prov(#534): WRITE-FAIL — the failure breadcrumbs jq's OWN error text (never a silent drop)" "yes" \
+  "$(printf '%s' "$ETPW_ERR" | grep -qF "could not backfill emitted provenance (synthesized:false) into 'iter-1.json' (stub jq: synthetic backfill write failure)" && echo yes || echo no)"
+assert_eq "et-prov(#534): WRITE-FAIL — the durable record is left intact (no synthesized key, never half-written)" "null" \
+  "$(_et_show "$ETPW_REPO" ".prflow/logs/review/pr-7/run-w/iter-1.json" | jq -r '.synthesized' 2>/dev/null)"
+assert_eq "et-prov(#534): WRITE-FAIL — the durable record's other fields survive the failed backfill" "cafef00d" \
+  "$(_et_show "$ETPW_REPO" ".prflow/logs/review/pr-7/run-w/iter-1.json" | jq -r '.fix_commit_sha' 2>/dev/null)"
+rm -rf "$ETPW_REPO" "$ETPW_BIN"
+
 # T4 → AC4: adversarial subject shapes each exit-0 + a specific breadcrumb; only
 # the one well-formed unique iteration is reconstructed.
 ETSA_REPO="$(git_sandbox "et-synth adversarial repo")"
