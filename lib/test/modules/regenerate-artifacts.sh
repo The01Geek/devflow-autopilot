@@ -2299,3 +2299,81 @@ assert_eq "#1055 the exact-floor recipe routes through the granted batch entry p
   "yes" "$(_ra_recipe_names exact-module-floors 'lib/test/regenerate-artifacts.py')"
 assert_eq "#1055 the exact-floor recipe does not expose its subprocess-only child" \
   "no" "$(_ra_recipe_names exact-module-floors 'python3 lib/test/reconcile-module-floors.py')"
+
+# ── #1206 — the coupled-site registry (issue #1206) ──────────────────────────
+# `--list` prints a coupled-site registry AFTER everything it printed before, so a person
+# or an automated run can ask "what else must change when I edit X?" read-only. RA_LIST
+# (captured at A4) is the live `--list` output; RA_LIST_RC its exit code.
+
+# (a) — AC1/AC8(a): the addition leaves the pre-existing output byte-for-byte unchanged.
+# Emit with an EMPTIED table and compare against the live list with its coupled-site lines
+# stripped: if the two match, nothing above the coupled-site block moved.
+RA_1206_EMPTY_EMIT="$(python3 - "$RA_HELPER" "$RA_REPO" <<'RA_1206_EMPTY'
+import contextlib, importlib.util, io, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("ra1206empty", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+mod.COUPLED_SITES = ()
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    mod.emit_list(Path(sys.argv[2]).resolve())
+sys.stdout.write(buf.getvalue())
+RA_1206_EMPTY
+)"
+RA_1206_LIST_NOCOUPLED="$(printf '%s\n' "$RA_LIST" | grep -v '^coupled-site')"
+_ra_same "#1206 (a) an empty COUPLED_SITES leaves the artifact/conflict/preflight output unchanged" \
+  "$RA_1206_LIST_NOCOUPLED" "$RA_1206_EMPTY_EMIT" \
+  "adding the coupled-site registry changed a line printed before it"
+# And the coupled-site lines really are LAST: nothing above them in the live list is a
+# coupled-site line (the empty-table compare above only proves the non-coupled lines match).
+RA_1206_FIRST_COUPLED="$(printf '%s\n' "$RA_LIST" | grep -n '^coupled-site' | head -1 | cut -d: -f1)"
+RA_1206_LAST_PREFLIGHT="$(printf '%s\n' "$RA_LIST" | grep -n '^preflight	' | tail -1 | cut -d: -f1)"
+_ra_ok "#1206 (a) the coupled-site block prints after the preflight block" \
+  "$([ -n "$RA_1206_FIRST_COUPLED" ] && [ -n "$RA_1206_LAST_PREFLIGHT" ] && [ "$RA_1206_FIRST_COUPLED" -gt "$RA_1206_LAST_PREFLIGHT" ] && printf yes || printf no)" \
+  "a coupled-site line printed before the last preflight line"
+
+# (b) — AC8(b): the new lines print in the documented tab-separated shape, and each
+# required entry (AC5/AC6/AC7) is present with its class, original, and partners.
+_ra_has_file "#1206 (b) AC5 the EXTRAS entry prints in the documented shape" "$RA_C_LIST_F" \
+  "coupled-site	matcher-probe-extras	allowlist-mirror	.prflow/config.json	"
+_ra_has_file "#1206 (b) AC5 the EXTRAS partner is the matcher-probe workflow" "$RA_C_LIST_F" \
+  "coupled-site-partner	matcher-probe-extras	.github/workflows/matcher-probe.yml"
+_ra_has_file "#1206 (b) AC6 the _WSR_SWEPT_RELPATHS entry is present" "$RA_C_LIST_F" \
+  "coupled-site	wsr-swept-relpaths	frozen-old-paths	lib/test/run.sh	"
+_ra_has_file "#1206 (b) AC7 the rename-map readers entry names lib/rename-map.json" "$RA_C_LIST_F" \
+  "coupled-site	rename-map-readers	single-source-readers	lib/rename-map.json	"
+_ra_has_file "#1206 (b) AC7 a rename-map reader partner is a shipped workflow config job" "$RA_C_LIST_F" \
+  "coupled-site-partner	rename-map-readers	.github/workflows/devflow.yml"
+_ra_has_file "#1206 (b) AC7 the deliberate state-dir mirror entry is present" "$RA_C_LIST_F" \
+  "coupled-site	rename-map-state-dir-mirror	deliberate-mirror	lib/rename-map.json	"
+_ra_has_file "#1206 (b) AC7 the state-dir mirror names lib/state_dir.py" "$RA_C_LIST_F" \
+  "coupled-site-partner	rename-map-state-dir-mirror	lib/state_dir.py"
+
+# AC6/AC4 exemption, observed LIVE: the old-path entry names a `.devflow/` path that does
+# NOT exist in the tree, yet `--list` still exits 0 — the holds_old_paths marker exempts it.
+assert_eq "#1206 (b) AC4/AC6 --list still exits 0 despite the old-path entry" "0" "$RA_LIST_RC"
+_ra_has_file "#1206 (b) AC6 the old-path partner is emitted verbatim" "$RA_C_LIST_F" \
+  "coupled-site-partner	wsr-swept-relpaths	.devflow/prompt-extensions/implement.md"
+
+# (c) — AC3/AC8(c): a structurally-bad entry raises at import; a script run routes that to
+# the exit-2 infrastructure state naming the bad entry, never a shortened list called
+# success. Driven end-to-end through the shared `_ra_bind_fails_closed` harness.
+_ra_bind_fails_closed "a coupled-site entry with an empty coupling_class" \
+  's/"coupling_class": "allowlist-mirror"/"coupling_class": ""/' \
+  "'matcher-probe-extras'" "non-empty string"
+_ra_bind_fails_closed "a duplicate coupled-site name" \
+  's/"name": "rename-map-state-dir-mirror"/"name": "rename-map-readers"/' \
+  "declared more than once"
+
+# (d) — AC4/AC8(d): an entry naming a path absent from the tree is a loud exit-2 failure
+# naming BOTH the entry and the path. The check runs when the list is printed (`--repo-root`
+# points at a fixture root here). `#` sed delimiter because the paths carry `/`.
+_ra_bind_fails_closed "a coupled-site entry naming a missing path" \
+  's#"original": ".prflow/config.json"#"original": ".prflow/nonexistent-xyz.json"#' \
+  "matcher-probe-extras" ".prflow/nonexistent-xyz.json" "absent from the tree"
+# AC4/AC6: removing the holds_old_paths marker EXPOSES the old paths to the existence
+# check — proving the marker (not a hardcoded path list) is what exempts them.
+_ra_bind_fails_closed "removing holds_old_paths exposes the old paths to the AC4 check" \
+  's/"holds_old_paths": True,//' \
+  "wsr-swept-relpaths" ".devflow/prompt-extensions/implement.md" "absent from the tree"
