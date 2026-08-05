@@ -82,9 +82,9 @@ fired and matched nothing, because the heartbeat says "fired" for both and stder
 ephemeral. So when the classifier cannot be loaded (`_load_shapes_module`) OR exercised (a
 renamed interface raising inside `_matched_arms`), `_run` writes a `_DISARMED` marker on the
 SAME path as the heartbeat (best-effort telemetry, then re-raises so main()'s
-fail-open-to-no-decision + stderr breadcrumb are unchanged). The marker's cause line is keyed on
-the exception ACTUALLY raised — `FileNotFoundError` from `exec_module`, NOT the unreachable
-`ImportError` spec branch — and names the workspace-relative path
+fail-open-to-no-decision + stderr breadcrumb are unchanged). The marker's cause line is
+keyed on the exception ACTUALLY raised — `FileNotFoundError` from `exec_module`, NOT the
+unreachable `ImportError` spec branch — and names the workspace-relative path
 `lib/test/extract-command-shapes.py`, giving "this tree has no lib/test" as the cause,
 deliberately not the vendor slice's prune.
 
@@ -199,10 +199,9 @@ REMEDIATION = {
 # The arm identifiers this guard denies, DERIVED from REMEDIATION rather than re-typed:
 # `REMEDIATION[arm]` is an unguarded subscript reached AFTER the deny is decided, so a
 # deny-set arm with no remediation row would raise a KeyError that main()'s blanket
-# handler converts into a no-decision fall-through — silently revoking an established deny.
-# Deriving the
-# set makes that disagreement unrepresentable. `sorted` also fixes the multi-match
-# tie-break order (a command matching more than one deny-set arm emits the first-sorting
+# handler converts into a no-decision fall-through — silently revoking an established
+# deny. Deriving the set makes that disagreement unrepresentable. `sorted` also fixes the
+# multi-match tie-break order (a command matching more than one deny-set arm emits the first-sorting
 # arm's remediation), so the choice is deterministic across invocations rather than
 # dependent on an unstated spelling.
 DENY_ARMS = tuple(sorted(REMEDIATION))
@@ -404,8 +403,8 @@ def _note_disarm(tmp: str | None, exc: BaseException) -> None:
     """Publish the distinguishing disarmed-run signal on the heartbeat path (best-effort).
 
     Telemetry, so a failure here never changes the decision — the caller re-raises to main()'s
-    fail-open-to-no-decision handler regardless. When the heartbeat itself could not be written
-    (`tmp is None`) there is no directory to publish into; stderr (from main()) remains the
+    fail-open-to-no-decision handler regardless. When the heartbeat itself could not be
+    written (`tmp is None`) there is no directory to publish into; stderr (from main()) remains the
     only signal, exactly as before this marker existed."""
     detail = _disarm_detail(exc)
     if tmp is not None:
@@ -433,7 +432,8 @@ def _clear_disarm(tmp: str | None) -> None:
         # `os.remove(str)` realistically raises only OSError (FileNotFoundError included — the
         # benign "no stale marker" case), but this call sits on the SUCCESS/decision path, so
         # a broad catch keeps it aligned with the file's "BOOKKEEPING NEVER DECIDES" contract:
-        # no cleanup failure may propagate into main() and flip a real deny into a fall-through.
+        # no cleanup failure may propagate into main() and flip a real deny into a
+        # fall-through.
         pass
 
 
@@ -441,9 +441,9 @@ def _read_command(payload) -> str | None:
     """The Bash command string, or None for any shape the guard cannot classify.
 
     Every None path is a fail-open route to the NO-DECISION fall-through (exit 0, empty
-    stdout): valid JSON that is not an object, an
-    object whose `tool_name` is not `Bash`, an object with no `tool_input`, a `tool_input`
-    that is not an object, or an object with no `command` string. The `tool_name` check is
+    stdout): valid JSON that is not an object, an object whose `tool_name` is not `Bash`, an
+    object with no `tool_input`, a `tool_input` that is not an object, or an object with no
+    `command` string. The `tool_name` check is
     defense-in-depth: this guard is registered for `Bash` today, but any non-`Bash` tool
     whose input happens to carry a `command`-shaped string field must not be classified as
     a shell command if the matcher is ever registered more broadly."""
@@ -485,8 +485,9 @@ def _bump_counts(tmp: str, arm: str, seen_key: str) -> tuple[bool, bool]:
 
     `fcntl` is imported lazily so a platform without it raises HERE — inside the call the
     caller wraps — rather than at module import. Per the module docstring's fail-open
-    exclusion, the caller converts that into "no escalation", NOT into a fall-through: a command
-    already classified as a denied shape is still denied on a platform with no `fcntl`."""
+    exclusion, the caller converts that into "no escalation", NOT into a fall-through: a
+    command already classified as a denied shape is still denied on a platform with no
+    `fcntl`."""
     import fcntl
 
     counts_name, lock_name = _store_names()
@@ -620,7 +621,8 @@ def _run() -> None:
     root = _repo_root()
     try:
         tmp = _tmp_dir(root)
-        _write_heartbeat(tmp)  # every invocation, incl. a fall-through — the never-fired signal
+        # Every invocation, including a fall-through — this is the never-fired signal.
+        _write_heartbeat(tmp)
     except Exception as exc:  # noqa: BLE001 - telemetry must never decide
         sys.stderr.write(
             "devflow: pretooluse-shape-guard: heartbeat/store unavailable "
