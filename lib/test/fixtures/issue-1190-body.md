@@ -2,7 +2,7 @@
 
 Every file under `skills/**` is installed **verbatim** into a third-party consumer repository. `.github/actions/vendor-plugin/vendor-slice.sh`'s `devflow_copy_slice()` copies `skills` (and `agents`) into the vendored plugin at `.prflow/vendor/prflow/`, and the shipped prompt bodies are read by the runtime agent in that consumer's tree.
 
-**26 lines across 13 first-party skill files reference PRFlow's own internal `docs/` tree.** Those references are unresolvable for a consumer reader in the ordinary case: a shipped skill sentence that says *"see `docs/internal/cloud-setup.md`"* names a path that does not exist in the consumer's repository, and — where the doc *is* vendored — points at PRFlow's maintainer documentation rather than anything about the consumer's project.
+**26 lines across 13 first-party skill files reference PRFlow's own internal `docs/` tree.** Those references are unresolvable for a consumer reader in the ordinary case: a shipped skill sentence that says *"see `docs/cloud-setup.md`"* names a path that does not exist in the consumer's repository, and — where the doc *is* vendored — points at PRFlow's maintainer documentation rather than anything about the consumer's project.
 
 This is not a cosmetic wart. **It is the whole reason the vendor slice ships `docs/` at all.** `devflow_copy_slice()` copies `"$src/docs"` wholesale and then prunes only two subtrees, with the reason stated in its own comment:
 
@@ -61,72 +61,72 @@ Grouped by file. **L** = relative Markdown link. **P** = bare prose mention.
 
 ---
 
-**1. `skills/create-issue/SKILL.md` — 2 lines, both L → `docs/internal/create-issue-context.md`**
+**1. `skills/create-issue/SKILL.md` — 2 lines, both L → `docs/create-issue-context.md`**
 
-- **L89 (L)** — closes the *Evidence artifact* paragraph. The rule is "reference the resident findings by pointer; do not re-quote the findings block", and the link is offered as the justification: *"(re-emitting already-resident content only inflates the run's runtime main-thread context with no gain — see [`docs/internal/create-issue-context.md`](../../docs/internal/create-issue-context.md))"*.
+- **L89 (L)** — closes the *Evidence artifact* paragraph. The rule is "reference the resident findings by pointer; do not re-quote the findings block", and the link is offered as the justification: *"(re-emitting already-resident content only inflates the run's runtime main-thread context with no gain — see [`docs/create-issue-context.md`](../../docs/create-issue-context.md))"*.
 - **L103 (L)** — the same rule restated for Step 3 drafting, with the same doc as a bare parenthetical citation.
 
 **2. `skills/create-issue/references/step-3-6-audit.md` — 4 lines (2 L, 2 P)**
 
-- **L212 (P)** → `docs/internal/create-issue-context.md`. Inside the *Dimension-list growth policy*: *"text the orchestrator holds in its runtime main-thread context on every turn of a long multi-round run (the axis `docs/internal/create-issue-context.md` owns and measures)"*. The doc is named as the **owner of a measurement axis** — the sentence's authority rests on it.
-- **L278 (L)** → `docs/internal/create-issue-context.md`. *Runtime-context discipline*, same by-pointer rule, same citation.
-- **L294 (L)** → `docs/internal/advisory-adjudication-calibration.md`. *"the tool cannot observe chat, a self-attestation residual named in [`docs/internal/advisory-adjudication-calibration.md`](../../../docs/internal/advisory-adjudication-calibration.md)"*.
-- **L312 (P)** → `docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`. The strongest dependency in the population: *"`docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md` §11 carries and is canonical for this system contract … this rule is the operational form the batching caller follows, not a restatement of it."* The prose **declares itself non-authoritative** and delegates canon to a document the consumer's runtime agent has no reason to be able to read.
+- **L212 (P)** → `docs/create-issue-context.md`. Inside the *Dimension-list growth policy*: *"text the orchestrator holds in its runtime main-thread context on every turn of a long multi-round run (the axis `docs/create-issue-context.md` owns and measures)"*. The doc is named as the **owner of a measurement axis** — the sentence's authority rests on it.
+- **L278 (L)** → `docs/create-issue-context.md`. *Runtime-context discipline*, same by-pointer rule, same citation.
+- **L294 (L)** → `docs/advisory-adjudication-calibration.md`. *"the tool cannot observe chat, a self-attestation residual named in [`docs/advisory-adjudication-calibration.md`](../../../docs/advisory-adjudication-calibration.md)"*.
+- **L312 (P)** → `docs/DEVFLOW_SYSTEM_OVERVIEW.md`. The strongest dependency in the population: *"`docs/DEVFLOW_SYSTEM_OVERVIEW.md` §11 carries and is canonical for this system contract … this rule is the operational form the batching caller follows, not a restatement of it."* The prose **declares itself non-authoritative** and delegates canon to a document the consumer's runtime agent has no reason to be able to read.
 
 **3. `skills/create-issue/references/step-4-present-create.md` — 1 line (L)**
 
-- **L18 (L)** → `docs/internal/advisory-adjudication-calibration.md`, the same self-attestation-residual citation as step-3-6-audit L294.
+- **L18 (L)** → `docs/advisory-adjudication-calibration.md`, the same self-attestation-residual citation as step-3-6-audit L294.
 
 **4. `skills/implement/SKILL.md` — 2 lines (1 P, 1 L)**
 
-- **L40 (P)** → `docs/internal/cloud-allowlist.md`. Inside the cloud helper-invocation form: *"whether a consumer's absolute form is granted is unestablished, see `docs/internal/cloud-allowlist.md`'s evidence table"*. The doc carries the **epistemic status** of a claim the shipped rule depends on.
-- **L54 (L)** → `docs/internal/working-directory-contract.md`, as *"Canonical statement"* of the working-directory contract.
+- **L40 (P)** → `docs/cloud-allowlist.md`. Inside the cloud helper-invocation form: *"whether a consumer's absolute form is granted is unestablished, see `docs/cloud-allowlist.md`'s evidence table"*. The doc carries the **epistemic status** of a claim the shipped rule depends on.
+- **L54 (L)** → `docs/working-directory-contract.md`, as *"Canonical statement"* of the working-directory contract.
 
 **5. `skills/implement/phases/phase-1-setup.md` — 1 line (L)**
 
-- **L507 (L)** → `docs/internal/implement-skill.md`. *"The full statement of the threat model lives in [`docs/internal/implement-skill.md`](../../../docs/internal/implement-skill.md)'s* Two provenance sources for ahead history *section; the bullets below are its coupled operative summary — edit the two together."* Names both a **section title** and a **coupled-edit obligation** that a consumer cannot act on.
+- **L507 (L)** → `docs/implement-skill.md`. *"The full statement of the threat model lives in [`docs/implement-skill.md`](../../../docs/implement-skill.md)'s* Two provenance sources for ahead history *section; the bullets below are its coupled operative summary — edit the two together."* Names both a **section title** and a **coupled-edit obligation** that a consumer cannot act on.
 
 **6. `skills/implement/phases/phase-2-implement.md` — 1 line (L)**
 
-- **L272 (L)** → `docs/internal/implement-skill.md`, *"for why each Phase 2.3 sweep exists"*.
+- **L272 (L)** → `docs/implement-skill.md`, *"for why each Phase 2.3 sweep exists"*.
 
 **7. `skills/implement/phases/phase-4-documentation.md` — 3 lines (2 P, 1 L)**
 
-- **L418 (P)** → `docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`. **A distinct case**: the path is an *illustrative example filename* in the basename-matching rule — *"(e.g. the diff entry `docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md` satisfies the named path `DEVFLOW_SYSTEM_OVERVIEW.md`)"* — not a pointer into the docs tree. It is not an unresolvable reference; it is a repo-specific example in prose that a consumer's agent reads. Disposition it on that basis (a generic example filename discharges it), not as a broken link.
-- **L529 (P)** → `docs/internal/cloud-allowlist.md`: *"`docs/internal/cloud-allowlist.md` records that capture carve-out as an inference rather than a measurement"* — again the doc carries the evidence grade of a shipped rule.
-- **L578 (L)** → `docs/internal/implement-skill.md`: *"The downstream consequence is documented in [`docs/internal/implement-skill.md`](../../../docs/internal/implement-skill.md) — CI's `ready_for_review` listener does not auto-fire until a human publishes the PR."*
+- **L418 (P)** → `docs/DEVFLOW_SYSTEM_OVERVIEW.md`. **A distinct case**: the path is an *illustrative example filename* in the basename-matching rule — *"(e.g. the diff entry `docs/DEVFLOW_SYSTEM_OVERVIEW.md` satisfies the named path `DEVFLOW_SYSTEM_OVERVIEW.md`)"* — not a pointer into the docs tree. It is not an unresolvable reference; it is a repo-specific example in prose that a consumer's agent reads. Disposition it on that basis (a generic example filename discharges it), not as a broken link.
+- **L529 (P)** → `docs/cloud-allowlist.md`: *"`docs/cloud-allowlist.md` records that capture carve-out as an inference rather than a measurement"* — again the doc carries the evidence grade of a shipped rule.
+- **L578 (L)** → `docs/implement-skill.md`: *"The downstream consequence is documented in [`docs/implement-skill.md`](../../../docs/implement-skill.md) — CI's `ready_for_review` listener does not auto-fire until a human publishes the PR."*
 
-**8. `skills/init/SKILL.md` — 2 lines, both P → `docs/internal/cloud-setup.md`**
+**8. `skills/init/SKILL.md` — 2 lines, both P → `docs/cloud-setup.md`**
 
 The sharpest consumer-facing pair, because the init skill is the first thing a consumer maintainer runs:
 
-- **L170 (P)** — *"only once the maintainer opts in with `prflow_runner.provision_env: true` (see "Letting the reviewer build/test a PR" in docs/internal/cloud-setup.md)"*. Names a **section title** inside a document the maintainer is being told to consult.
-- **L305 (P)** — a troubleshooting arm: *"they must set `prflow_runner.provision_env: true` and populate the `setup` block (see `config.schema.json` / docs/internal/cloud-setup.md)"*.
+- **L170 (P)** — *"only once the maintainer opts in with `prflow_runner.provision_env: true` (see "Letting the reviewer build/test a PR" in docs/cloud-setup.md)"*. Names a **section title** inside a document the maintainer is being told to consult.
+- **L305 (P)** — a troubleshooting arm: *"they must set `prflow_runner.provision_env: true` and populate the `setup` block (see `config.schema.json` / docs/cloud-setup.md)"*.
 
 **9. `skills/retrospective-weekly/SKILL.md` — 2 lines (1 L, 1 P)**
 
-- **L25 (L)** → `docs/internal/working-directory-contract.md`, the standard working-directory-contract pointer.
-- **L489 (P)** → `docs/internal/efficiency-trace.md`: *"See `docs/internal/efficiency-trace.md` for the store schema and the abandoned-run bias."* The store schema is genuinely not restated in the skill.
+- **L25 (L)** → `docs/working-directory-contract.md`, the standard working-directory-contract pointer.
+- **L489 (P)** → `docs/efficiency-trace.md`: *"See `docs/efficiency-trace.md` for the store schema and the abandoned-run bias."* The store schema is genuinely not restated in the skill.
 
 **10. `skills/review-and-fix/references/loop-control.md` — 1 line (P)**
 
-- **L182 (P)** → `docs/internal/cloud-setup.md`. The doc is cited as evidence for a **security-relevant claim**: *"the `CLAUDE.md` arm does not carry this self-supply hazard on the cloud review paths, because `claude-code-action`'s restore pass loads the base branch's `CLAUDE.md` (see `docs/internal/cloud-setup.md`)"*. Removing the pointer removes the only stated backing for a hazard-scoping claim.
+- **L182 (P)** → `docs/cloud-setup.md`. The doc is cited as evidence for a **security-relevant claim**: *"the `CLAUDE.md` arm does not carry this self-supply hazard on the cloud review paths, because `claude-code-action`'s restore pass loads the base branch's `CLAUDE.md` (see `docs/cloud-setup.md`)"*. Removing the pointer removes the only stated backing for a hazard-scoping claim.
 
 **11. `skills/review-and-fix/references/loop-exit.md` — 1 line (L), two targets**
 
-- **L221 (L)** → `docs/internal/efficiency-trace.md` (*"for the derivation rules"* behind the four subagent verdicts) **and** `docs/internal/working-directory-contract.md`, on the same line.
+- **L221 (L)** → `docs/efficiency-trace.md` (*"for the derivation rules"* behind the four subagent verdicts) **and** `docs/working-directory-contract.md`, on the same line.
 
 **12. `skills/review/SKILL.md` — 4 lines (1 L, 3 P)**
 
-- **L58 (L)** → `docs/internal/working-directory-contract.md`.
-- **L66 (P)** → `docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`, for the `prflow_review.stall_backstop` mechanism.
-- **L226 (P)** → `docs/internal/review-agent-overrides.md`: *"Operators can tune each review subagent's model and reasoning effort via the `prflow_review.agent_overrides` block in `.prflow/config.json` (see `docs/internal/review-agent-overrides.md` and the schema)."* This is **operator-facing configuration guidance** shipped to a consumer whose operator will look for the doc.
-- **L228 (P)** → `docs/internal/review-agent-overrides.md` again, for the `session-fallback` reporting semantics.
+- **L58 (L)** → `docs/working-directory-contract.md`.
+- **L66 (P)** → `docs/DEVFLOW_SYSTEM_OVERVIEW.md`, for the `prflow_review.stall_backstop` mechanism.
+- **L226 (P)** → `docs/review-agent-overrides.md`: *"Operators can tune each review subagent's model and reasoning effort via the `prflow_review.agent_overrides` block in `.prflow/config.json` (see `docs/review-agent-overrides.md` and the schema)."* This is **operator-facing configuration guidance** shipped to a consumer whose operator will look for the doc.
+- **L228 (P)** → `docs/review-agent-overrides.md` again, for the `session-fallback` reporting semantics.
 
-**13. `skills/review/phases/phase-3-agents.md` — 2 lines, both P → `docs/internal/shadow-review.md`**
+**13. `skills/review/phases/phase-3-agents.md` — 2 lines, both P → `docs/shadow-review.md`**
 
-- **L187 (P)** — *"this is the PR #164 / PR #62 / PR #154 class — see `docs/internal/shadow-review.md`"*. Ships **three PRFlow-internal PR numbers** into a consumer's review engine as the named evidence class.
-- **L194 (P)** — *"the independent signal can itself have a blind spot (see `docs/internal/shadow-review.md`)"*, the stated caveat on a completeness claim.
+- **L187 (P)** — *"this is the PR #164 / PR #62 / PR #154 class — see `docs/shadow-review.md`"*. Ships **three PRFlow-internal PR numbers** into a consumer's review engine as the named evidence class.
+- **L194 (P)** — *"the independent signal can itself have a blind spot (see `docs/shadow-review.md`)"*, the stated caveat on a completeness claim.
 
 ### Where the prose dependency is substantial
 
@@ -134,11 +134,11 @@ Five sites lean on the referenced document hard enough that removing the pointer
 
 1. `step-3-6-audit.md` **L312** — the prose explicitly cedes canon to `DEVFLOW_SYSTEM_OVERVIEW.md` §11 and calls itself "the operational form … not a restatement". Removing the pointer leaves a rule with no declared authority.
 2. `phase-1-setup.md` **L507** — cites a named section as "the full statement of the threat model" and imposes a coupled-edit obligation.
-3. `implement/SKILL.md` **L40** and `phase-4-documentation.md` **L529** — both use `docs/internal/cloud-allowlist.md` to carry the *evidence grade* of a claim (`unestablished`; `an inference rather than a measurement`). A self-contained rewrite must restate that grade inline or the rule reads as settled fact.
+3. `implement/SKILL.md` **L40** and `phase-4-documentation.md` **L529** — both use `docs/cloud-allowlist.md` to carry the *evidence grade* of a claim (`unestablished`; `an inference rather than a measurement`). A self-contained rewrite must restate that grade inline or the rule reads as settled fact.
 4. `loop-control.md` **L182** — the only backing for a security-relevant hazard-scoping claim.
 5. `review/SKILL.md` **L226/L228** — operator-facing configuration documentation with no self-contained substitute in the skill.
 
-By contrast, the eight `docs/internal/working-directory-contract.md` / `docs/internal/implement-skill.md` / `docs/internal/create-issue-context.md` link sites are largely mechanical: the sentence before the pointer already states the rule, and the pointer is a "canonical statement" tail that can be dropped outright.
+By contrast, the eight `docs/working-directory-contract.md` / `docs/implement-skill.md` / `docs/create-issue-context.md` link sites are largely mechanical: the sentence before the pointer already states the rule, and the pointer is a "canonical statement" tail that can be dropped outright.
 
 ### The mechanism this unblocks
 
@@ -155,7 +155,7 @@ So **the prune line is what arms the lint**. Once the internal docs are moved (#
 
 ## User Impact
 
-- **A consumer's runtime agent follows a dead pointer.** The skills that ship these lines — init, implement, review, review-and-fix, create-issue, retrospective-weekly — are the engine a consumer actually runs. A sentence telling it to "see `docs/internal/cloud-setup.md`" resolves against the consumer's tree, where nothing is there.
+- **A consumer's runtime agent follows a dead pointer.** The skills that ship these lines — init, implement, review, review-and-fix, create-issue, retrospective-weekly — are the engine a consumer actually runs. A sentence telling it to "see `docs/cloud-setup.md`" resolves against the consumer's tree, where nothing is there.
 - **A consumer's human maintainer is sent to documentation about someone else's repository.** `init/SKILL.md` L170 names a section title in a doc the maintainer is told to open; `review/SKILL.md` L226 does the same for reviewer tuning.
 - **PRFlow's maintainer documentation is shipped into every consumer repository** solely to keep these 26 lines resolvable — internal cutover records, prompt-mass studies, evidence tables and all.
 - **#1188 cannot finish cleanly.** The internal-docs move is a pure path sweep only if no shipped prompt surface carries a path to sweep; today it would have to choose between rewriting 26 shipped lines to `docs/internal/…` (a defect) and leaving them dangling.
@@ -252,7 +252,7 @@ A map of the surfaces involved. **Floor-declared**: this enumerates what the mea
 | `skills/review/SKILL.md` | 4 (1L, 3P) | working-directory-contract, DEVFLOW_SYSTEM_OVERVIEW, review-agent-overrides |
 | `skills/review/phases/phase-3-agents.md` | 2 (2P) | shadow-review |
 
-**The ten referenced documents** — `docs/internal/create-issue-context.md`, `docs/internal/advisory-adjudication-calibration.md`, `docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`, `docs/internal/cloud-allowlist.md`, `docs/internal/working-directory-contract.md`, `docs/internal/implement-skill.md`, `docs/internal/cloud-setup.md`, `docs/internal/efficiency-trace.md`, `docs/internal/review-agent-overrides.md`, `docs/internal/shadow-review.md`.
+**The ten referenced documents** — `docs/create-issue-context.md`, `docs/advisory-adjudication-calibration.md`, `docs/DEVFLOW_SYSTEM_OVERVIEW.md`, `docs/cloud-allowlist.md`, `docs/working-directory-contract.md`, `docs/implement-skill.md`, `docs/cloud-setup.md`, `docs/efficiency-trace.md`, `docs/review-agent-overrides.md`, `docs/shadow-review.md`.
 
 **The mechanism**
 

@@ -8764,6 +8764,9 @@ assert_eq "#1197: the line-level rule is IN-SECTION only — an out-of-section m
   "BLOCKED 10" "$(_p1197 oos_mixed)"
 
 # ── AC2: issue #1190's real body, captured verbatim as a fixture ──
+# FROZEN record: the fixture is a byte-for-byte capture of the live issue body and
+# is never path-swept or respelled to track tree relocations — rewriting it
+# falsifies the record (same class as _WSR_SWEPT_RELPATHS' revision-side rule).
 # The live case. `BLOCKED 1188` / exit 2 before the fix (the stub resolves #1188 OPEN),
 # `PROCEED` / exit 0 after — an issue that declares itself the PREREQUISITE of #1188 and
 # states it has no blocker is no longer reported as blocked by the issue it unblocks.
@@ -10216,11 +10219,16 @@ assert_eq "#309 fail-open guard: a bold-led continuation line does NOT close sco
 # document layout (Case 14 has a single `## Implementation Notes` section), so a
 # structural drift in the real body can never keep the suite green while it
 # no-ops. Also exercises the $1 file-arg path.
+# The fixture is a FROZEN verbatim capture of the real issue body: it is never
+# path-swept, respelled, or otherwise edited to track tree relocations (rewriting
+# it falsifies the record, exactly like the _WSR_SWEPT_RELPATHS revision-side rule
+# and the sha-keyed adjudication tables). The expected value below therefore
+# carries the path spelling the issue body itself uses, NOT the current tree's.
 # Expected: the three backticked doc files; the `docs/internal/workflows/`
 # directory ref is dropped (directories are not file deliverables) and the
 # parenthetical prose ("(review auto-trigger section)") yields no path tokens.
 assert_eq "#309 AC-1: verbatim issue #304 body emits exactly the three named doc files; dir ref dropped" \
-  "$(printf '.prflow/config.example.json\nCLAUDE.md\ndocs/internal/DEVFLOW_SYSTEM_OVERVIEW.md')" \
+  "$(printf '.prflow/config.example.json\nCLAUDE.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md')" \
   "$(bash "$EXTRACT_HELPER" "$LIB/test/fixtures/issue-304-body.md")"
 
 # Case 17 (issue #309 review — ACCEPTED-tradeoff pin, mirror of Case 15): a
