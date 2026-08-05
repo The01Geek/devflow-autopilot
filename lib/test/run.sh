@@ -34055,7 +34055,7 @@ fi
 # serialized runs" pair is now the one resolve-then-verify ordering (checkpoint 4's inherited
 # CONFLICT arm and the fix loop's conflict path). The ceiling is a `-le` bound and this change only
 # shrinks the file, so no raise is owed and none is taken.
-assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
+assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises — to raise it, see CONTRIBUTING.md 'Raising the phase-4 documentation byte ceiling'" "yes" \
   "$([ "$(wc -c < "$I480_P4")" -le 106831 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
 # the reference through this file's own entry-gate anchor, and degrades rather than halting
