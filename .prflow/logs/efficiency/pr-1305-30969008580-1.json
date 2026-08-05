@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1305",
+  "generated_at": "2026-08-05T02:29:24Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.105",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 8.24450275,
+    "tokens": {
+      "input_tokens": 47,
+      "output_tokens": 29323,
+      "cache_read_input_tokens": 3524227,
+      "cache_creation_input_tokens": 203868,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 111,
+        "outputTokens": 55115,
+        "cacheReadInputTokens": 5262098,
+        "cacheCreationInputTokens": 555283,
+        "webSearchRequests": 0,
+        "costUSD": 8.24450275,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 31,
+    "duration_ms": 534257
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"run_id=${GITHUB_RUN_ID:-<none>} attempt=${GITHUB_RUN_ATTEMPT:-<none>}\"; git status --porcelain | head -20; echo \"---base---\"; .prflow/vendor/prflow/scripts/config-get.sh .base_branch main 2>&1 || echo \"config-get rc=$?\"",
+      "echo \"run_id=$GITHUB_RUN_ID attempt=$GITHUB_RUN_ATTEMPT\"",
+      "printf 'run_id=[%s] attempt=[%s]\\n' \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\"",
+      "printf '[%s] [%s]\\n' \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\"",
+      "mkdir -p \".prflow/tmp/review/pr-1305/$GITHUB_RUN_ID-${GITHUB_RUN_ATTEMPT:-1}\" && ls -d .prflow/tmp/review/pr-1305/*",
+      "for f in skills/review-and-fix/SKILL.md skills/review-and-fix/references/fixing.md skills/review-and-fix/references/loop-control.md; do printf '%s  ' \"$f\"; git hash-object \"$f\" >/dev/null 2>&1; sha256sum \"$f\" | cut -d' ' -f1; done"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
