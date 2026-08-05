@@ -966,7 +966,7 @@ echo "create_issue.investigation_record_enabled (config read → publication dec
 # raw stdout) across the config-JSON six-shape adversarial matrix, so the
 # issue-#312-class inversion (an `!= true` spelling that reads `True`/`0`/the
 # exit-2 empty output as disabled) is caught. The decision function mirrors the
-# skill's `case`/`[ = false ]` compare exactly.
+# skill's `case` compare against the literal `false`.
 ir_decision() {  # $1 = resolved config-get value → publish|withhold
   case "$1" in
     false) echo withhold ;;
