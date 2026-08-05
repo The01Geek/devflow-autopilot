@@ -113,5 +113,60 @@
       "iter": 1,
       "phases": "unavailable"
     }
-  ]
+  ],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.0",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 15.310715250000001,
+    "tokens": {
+      "input_tokens": 80,
+      "output_tokens": 37375,
+      "cache_read_input_tokens": 6630729,
+      "cache_creation_input_tokens": 692841,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 158,
+        "outputTokens": 74333,
+        "cacheReadInputTokens": 8611743,
+        "cacheCreationInputTokens": 1047612,
+        "webSearchRequests": 0,
+        "costUSD": 15.310715250000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 49,
+    "duration_ms": 736890
+  },
+  "permission_denials": {
+    "count": 7,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "git status --porcelain; echo \"---RUNID---\"; echo \"run=$GITHUB_RUN_ID attempt=$GITHUB_RUN_ATTEMPT\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1334 --pr 1335 2>.prflow/tmp/review/pr-1335/31052971117-1/acs.err ; echo \"acs-rc=$?\"",
+      "mkdir -p .prflow/tmp\nrm -f .prflow/tmp/review-dirty-tree-before .prflow/tmp/review-dirty-tree-disabled 2>/dev/null\ngit status --porcelain -z > .prflow/tmp/review-dirty-tree-before && git hash-object .prflow/tmp/review-dirty-tree-before",
+      "python3 scripts/render-audit-prompt.py enumerate-dimensions --extension-file /nonexistent/create-issue.md 2>/dev/null | python3 -c \"\nimport sys,re\ndata=sys.stdin.read()\n# find authoring-discipline-defects payload length via the test's parser approach\nprint(len(data))\n\" ; echo \"---trying test harness---\"",
+      "git apply .prflow/tmp/review/pr-1335/31052971117-1/diff.patch && echo \"APPLIED\" && python3 -c \"\nimport subprocess\nr = subprocess.run(['python3','scripts/render-audit-prompt.py','enumerate-dimensions','--extension-file','/nonexistent/x.md'],capture_output=True,text=True)\nlines=[l for l in r.stdout.splitlines() if l.startswith('dim key=g:')]\nprint('g_count=',len(lines))\nimport re\nfor l in lines:\n    if 'authoring-discipline-defects' in l:\n        payload=l.split(' text=',1)[1]\n        print('len=' …[per-command-truncated]",
+      "git apply .prflow/tmp/review/pr-1335/31052971117-1/diff.patch"
+    ],
+    "total": 7,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
 }
