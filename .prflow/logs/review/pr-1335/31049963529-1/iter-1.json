@@ -1,0 +1,66 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-05T22:00:00Z",
+  "fix_commit_sha": "8b0efec12",
+  "fix_files": [
+    "lib/test/test_render_audit_prompt.py"
+  ],
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": null,
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:pr-test-analyzer",
+    "prflow:comment-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "Enforcement-constant comment stated the +1000/<=1885 budget without noting the shipped payload realizes ~1880 chars (small margin).",
+      "defect_signature": {
+        "file": "lib/test/test_render_audit_prompt.py",
+        "line_range": [
+          992,
+          994
+        ],
+        "kind": "comment-clarity"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "8b0efec12"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 4,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": "not_verified",
+    "reviewers_dispatched": [],
+    "reason": "engine_self_modifying diff; full shadow fan-out not run under headless budget — recorded honestly; three independent Phase-3 agents converged on no-blocking-findings and the single Suggestion was applied"
+  },
+  "synthesized": false,
+  "telemetry": "unavailable"
+}
