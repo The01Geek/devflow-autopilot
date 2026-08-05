@@ -11,4 +11,4 @@ type: Fixed
   the tool and end the process, and `allow` was never emitted. The clause now names the
   no-decision fall-through and records that `deny` is the guard's only decision token.
   Comment prose only — no executable content changed, and the four-outcome disambiguation the
-  block describes is unaffected.
+  block describes is unaffected. (#1323)
