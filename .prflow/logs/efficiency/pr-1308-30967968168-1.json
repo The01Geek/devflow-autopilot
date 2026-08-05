@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1308",
+  "generated_at": "2026-08-05T02:18:59Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.104",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 15.65081125,
+    "tokens": {
+      "input_tokens": 106,
+      "output_tokens": 61568,
+      "cache_read_input_tokens": 10483927,
+      "cache_creation_input_tokens": 298180,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 173,
+        "outputTokens": 109382,
+        "cacheReadInputTokens": 12617430,
+        "cacheCreationInputTokens": 878161,
+        "webSearchRequests": 0,
+        "costUSD": 15.65081125,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 63,
+    "duration_ms": 1140074
+  },
+  "permission_denials": {
+    "count": 10,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh review 2>&1 || scripts/load-prompt-extension.sh review 2>&1",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} REPO=${GITHUB_REPOSITORY:-none} ACTIONS=${GITHUB_ACTIONS:-none}\"; git status --porcelain | head -30; echo \"---status-done---\"",
+      "cat .prflow/tmp/review/pr-1308/30967968168-1/diff.patch | scripts/stale-prose-lint.py --rev HEAD; echo \"sp-rc=$?\"",
+      ".prflow/vendor/prflow/scripts/resolve-review-overrides.py \"prflow:checklist-generator\" 2>.prflow/tmp/review/pr-1308/30967968168-1/rv-ovr.phase1.err; echo \"ovr-rc=$?\"; echo \"--stderr--\"; cat .prflow/tmp/review/pr-1308/30967968168-1/rv-ovr.phase1.err",
+      ".prflow/vendor/prflow/scripts/workpad.py patch 5186668668 .prflow/tmp/review/pr-1308/30967968168-1/review-wp.md 2>.prflow/tmp/review/pr-1308/30967968168-1/rv-patch.err || echo \"patch-failed: $(cat .prflow/tmp/review/pr-1308/30967968168-1/rv-patch.err)\"",
+      "mkdir -p .prflow/tmp; rm -f .prflow/tmp/review-dirty-tree-before .prflow/tmp/review-dirty-tree-disabled 2>/dev/null; git status --porcelain -z > .prflow/tmp/review-dirty-tree-before && [ -f .prflow/tmp/review-dirty-tree-before ] && git hash-object .prflow/tmp/review-dirty-tree-before; echo \"snap-rc=$?\"",
+      "cd /home/runner/work/prflow/prflow\nd=$(mktemp -d)\nprintf '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"touch .prflow/tmp/prqprobe-ungranted-ran\"}}\\n' > \"$d/seen.jsonl\"\nprintf '[{\"type\":\"result\",\"claude_code_version\":\"2.1.220\",\"permission_denials\":[]}]' > \"$d/exec.json\"\necho \"=== run renderer ===\"\nbash scripts/describe-permissionrequest-probe.sh \"$d/seen.jsonl\" \"$d/ctl\" \"$d/ung\" \"$d/aft\" \"$d/exec.json\"\necho \"rc=$?\"\necho \"=== shellcheck ===\"\nshellcheck --severity=warning -e SC1091 scripts/describe …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nd=$(mktemp -d)\nprintf '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"touch .prflow/tmp/prqprobe-ungranted-ran\"}}\\n' > \"$d/seen.jsonl\"\nprintf '[{\"type\":\"result\",\"claude_code_version\":\"2.1.220\",\"permission_denials\":[]}]' > \"$d/exec.json\"\necho \"=== run renderer ===\"\nbash scripts/describe-permissionrequest-probe.sh \"$d/seen.jsonl\" \"$d/ctl\" \"$d/ung\" \"$d/aft\" \"$d/exec.json\"\necho \"rc=$?\"\necho \"=== shellcheck ===\"\nshellcheck --severity=warning -e SC1091 scripts/describe …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nmkdir -p /tmp/prqtest\nprintf '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"touch .prflow/tmp/prqprobe-ungranted-ran\"}}\\n' > /tmp/prqtest/seen.jsonl\nprintf '[{\"type\":\"result\",\"claude_code_version\":\"2.1.220\",\"permission_denials\":[]}]' > /tmp/prqtest/exec.json\necho \"=== run renderer ===\"\nbash scripts/describe-permissionrequest-probe.sh /tmp/prqtest/seen.jsonl /tmp/prqtest/ctl /tmp/prqtest/ung /tmp/prqtest/aft /tmp/prqtest/exec.json\necho \"rc=$?\"\necho \"=== shellchec …[per-command-truncated]",
+      "bash scripts/describe-permissionrequest-probe.sh /tmp/x/seen.jsonl /tmp/x/ctl /tmp/x/ung /tmp/x/aft /tmp/x/exec.json; echo \"rc=$?\""
+    ],
+    "total": 10,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
