@@ -4,6 +4,34 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.117] — 2026-08-05
+
+### Added
+- **Coupled-site registry printable from `lib/test/regenerate-artifacts.py --list`.** The
+  `--list` command now prints a coupled-site registry — a declared, greppable table of which
+  files must change together — after everything it printed before, so the existing `artifact`
+  and `conflict-*` output stays byte-for-byte unchanged. Each entry names an original file, one
+  or more partner files, a coupling class, and a one-line editor note; the table is
+  structurally validated at import and every named path is confirmed to exist when the list is
+  printed (an entry deliberately holding old paths exempts itself with a marker). First entries
+  register the `matcher-probe.yml` `EXTRAS` copy, `_WSR_SWEPT_RELPATHS`, and the
+  `lib/rename-map.json` reader/mirror couplings. (#1324)
+
+### Changed
+Stall backstop: record when a terminated implement run left an empty remote branch.
+
+When a cloud `/prflow:implement` run ends abnormally, the trailing `Stall backstop`
+step now records on the workpad whether any commit actually reached the run's remote
+branch. A branch that is zero commits ahead of its base gets an explicit "empty
+branch" statement so it no longer reads as a partially-completed attempt; a branch
+that carries work gets no such statement (the negative control); and a state that
+cannot be established (unreachable remote, unavailable branch name, or a failed
+query) is recorded as unestablished rather than collapsed onto "no commit". The
+three-valued decision lives in `scripts/record-empty-branch.sh` beside the step —
+`scripts/stall-backstop-decide.sh` stays pure — and it is best-effort: a write
+failure warns and never changes the step's exit arm, coexisting with the existing
+`💥 Failed` / `🛑 Cancelled` terminal flips.
+
 ## [2.30.116] — 2026-08-05
 
 ### Fixed
