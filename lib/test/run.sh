@@ -48199,6 +48199,52 @@ assert_eq "#1072 lint: an HTML comment that is not the marker does not suppress"
 # A clean file with no reference is silent.
 assert_eq "#1072 lint: a file with no reference is clean" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
   "$(sp_run "$SP_SIMPLE" skills/clean.md)"
+
+# ── #1241 citation check: PRFlow-internal issue/PR-number + acceptance-criterion references ──
+# skills/** and agents/** ship verbatim into a consumer, so a `#441`/`issue #441`/`AC5`
+# citation resolves against THIS repo's own tracker and points at nothing in a consumer.
+# The citation scan rides the SAME audited population and the SAME pruned-path-ok marker
+# family as the prune-path scan. Both directions are exercised (AC4): an unmarked citation
+# is reported, a marked one is suppressed; the AC-reference row covers the second shape.
+assert_eq "#1241 lint: an unmarked issue-number citation is reported" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/cite-unmarked.md)" in "rc=1|"*"skills/cite-unmarked.md:1:"*"cites PRFlow-internal '#441'"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1241 lint: a marked citation is not reported" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/cite-marked.md)"
+assert_eq "#1241 lint: an unmarked acceptance-criterion reference is reported" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/cite-ac.md)" in "rc=1|"*"skills/cite-ac.md:1:"*"cites PRFlow-internal 'AC5'"*) echo yes ;; *) echo no ;; esac)"
+# The `#\d+\b` word boundary exists precisely so a hex colour (`#1D76DB`, whose `#1` is
+# followed by a letter) and a bare run id (no `#`) are NOT citations — guard that boundary
+# so dropping the `\b` (which would flip a hex colour into a false finding) fails RED.
+assert_eq "#1241 lint: a hex colour and a run id are not citations (word-boundary control)" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/cite-hex-clean.md)"
+# `\bAC\d+\b`'s LEADING boundary is the counterpart control to `cite-hex-clean`'s trailing
+# one: `MAC5` embeds `AC5` and `AC-5` is a non-recognized adjacent spelling, so dropping the
+# leading `\b` (or broadening to the hyphenated form) turns this fixture RED.
+assert_eq "#1241 lint: MAC5 and AC-5 are not citations (AC leading-boundary control)" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/cite-ac-boundary-clean.md)"
+# The docstring advertises the `PR`-prefixed number shape distinctly from the bare one;
+# exercise it so the advertised form is a tested claim rather than a prose assertion. The
+# assertion LABEL must not itself spell a `#`-number: the issue-591 coverage-map guard reads
+# `#N` out of run.sh assertion labels as a coverage label, so a fixture shape quoted into a
+# label is indistinguishable there from a real issue reference and files a phantom entry.
+assert_eq "#1241 lint: an unmarked PR-prefixed number citation is reported" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/cite-pr-unmarked.md)" in "rc=1|"*"skills/cite-pr-unmarked.md:1:"*"cites PRFlow-internal '#123'"*) echo yes ;; *) echo no ;; esac)"
+# `_scan` reports the FIRST match per line only. Pin it with an exact-output assertion: a
+# change to per-match reporting would emit a second finding line and turn this RED.
+assert_eq "#1241 lint: two citations on one line report the first only" \
+  "rc=1|skills/cite-two-on-one-line.md:1: cites PRFlow-internal '#441' (issue/PR or acceptance-criterion reference) with no pruned-path-ok marker
+lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/cite-two-on-one-line.md)"
+# Fence branch for the CITATION scan (the prune-path scan's fence matrix below covers only
+# path references). `_scan` newly decides these three for citations too, so each is driven:
+# an unmarked citation inside a fence is reported; the shell-form marker suppresses inside a
+# fence; the HTML-form marker does NOT (a fenced line is emitted verbatim into a shell).
+assert_eq "#1241 lint fence-state: an unmarked citation inside a fence is reported" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/cite-fence-unmarked.md)" in "rc=1|"*"skills/cite-fence-unmarked.md:3:"*"cites PRFlow-internal '#441'"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1241 lint fence-state: a # marker inside a fence suppresses a citation" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/cite-fence-shell-marked.md)"
+assert_eq "#1241 lint fence-state: an HTML marker inside a fence does not suppress a citation" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/cite-fence-html-marked.md)" in "rc=1|"*"skills/cite-fence-html-marked.md:3:"*"cites PRFlow-internal '#441'"*) echo yes ;; *) echo no ;; esac)"
 # test_marker_in_emitted_fence + fence-state matrix (AC14/AC15). Each row states its own reason.
 while IFS='|' read -r _sp_file _sp_expect _sp_why; do
   [ -n "$_sp_file" ] || continue
