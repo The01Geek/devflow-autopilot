@@ -5,7 +5,7 @@ SPDX-License-Identifier: MIT
 # Fresh-context audit-prompt template (create-issue Step 3.6)
 
 This file is the **sole in-repo owner** of the create-issue Step 3.6 audit-prompt
-template, the generic dimension checklist, and — since issue #709 — the canonical
+template, the generic dimension checklist, and the canonical
 **audit-dispatch instructions** the auditor is pointed at.
 `scripts/render-audit-prompt.py`
 reads it (resolved relative to that script's own location — `scripts/` and
@@ -24,7 +24,7 @@ same block/slot rules by hand.
 - **Arm/mode blocks.** Each block is bounded by `<!-- render-block: <set> -->`
   and `<!-- render-block-end -->`, where `<set>` is a space-separated list of the
   arms/modes that include the block (`file`, `embed`, `inline`, `checklist`,
-  the issue-#709 dispatch-instruction token `di`, and the issue-#793
+  the dispatch-instruction token `di`, and the
   claim-scoped-round token `tg`).
   Emit a block only when the current arm/mode is in its set. Text outside any
   block (like this section) is documentation, never emitted.
@@ -49,11 +49,11 @@ same block/slot rules by hand.
     substituted **last** alongside the consumer-dimensions slot so drafter text
     is never re-scanned for slot tokens. `{RENDERER_PATH}` and `{TEMPLATE_PATH}`
     are derived by the renderer from its own resolved location.
-- **The draft title appears only in the `di` blocks** (issue #709), where it is
+- **The draft title appears only in the `di` blocks**, where it is
   read from the draft file the same blocks name; the *audit-prompt* blocks
   (`file` / `embed` / `inline` / `checklist`) still never carry it, and refer to
   the draft by path or by the sentinel-bracketed body.
-- **Dimension-key declarations** (issue #729). Each generic audit dimension in
+- **Dimension-key declarations**. Each generic audit dimension in
   the checklist block below is *declared* by a `<!-- dim-key: <lowercase-kebab> -->`
   marker line on the line immediately above its `- ` bullet. That declaration —
   not the bullet's prose — is the dimension's identity: `enumerate-dimensions`
@@ -97,7 +97,7 @@ for `--section`.
 ---
 
 <!-- render-block: di -->
-# Fresh-context audit dispatch (canonical, generated — issue #709)
+# Fresh-context audit dispatch (canonical, generated)
 
 This file **is** your complete dispatch instructions. It was generated
 deterministically by `render-audit-prompt.py dispatch-instructions` from the
@@ -270,7 +270,7 @@ Verify every claim against the repository (you have read access). On this arm th
 <!-- render-block-end -->
 
 <!-- render-block: file embed inline -->
-**Per-dimension coverage return (issue #708) — a record of scrutiny already performed, emitted AFTER the finding + Quiet-Killer hunt (which keeps precedence).** For **each** required audit dimension above (the generic checklist plus any consumer `## Audit dimensions` section), report exactly one coverage outcome, labeled with the dimension's **stable key**. Obtain the keys by running the renderer's enumeration mode first — `render-audit-prompt.py enumerate-dimensions` — whose `dim key=<key> text=…` lines are the authoritative dimension list (the same deterministic keys the orchestrator holds, so your outcomes join by key). **If you cannot run the enumeration, report `unestablished` rather than inventing keys** — the declared keys do not appear in this prose, so a guessed key joins to nothing and silently drops a dimension from the coverage totality. Emit one line per dimension in a fenced `COVERAGE` block, each line `<key> <outcome> [anchor]`:
+**Per-dimension coverage return — a record of scrutiny already performed, emitted AFTER the finding + Quiet-Killer hunt (which keeps precedence).** For **each** required audit dimension above (the generic checklist plus any consumer `## Audit dimensions` section), report exactly one coverage outcome, labeled with the dimension's **stable key**. Obtain the keys by running the renderer's enumeration mode first — `render-audit-prompt.py enumerate-dimensions` — whose `dim key=<key> text=…` lines are the authoritative dimension list (the same deterministic keys the orchestrator holds, so your outcomes join by key). **If you cannot run the enumeration, report `unestablished` rather than inventing keys** — the declared keys do not appear in this prose, so a guessed key joins to nothing and silently drops a dimension from the coverage totality. Emit one line per dimension in a fenced `COVERAGE` block, each line `<key> <outcome> [anchor]`:
 
 - `<outcome>` is exactly one of **`exercised`**, **`valid-N/A`**, **`unestablished`**, **`skipped`**.
 - **`exercised`** requires a checkable **anchor**: a quoted draft line plus the concrete concern examined, or a specific repository fact checked. A dimension you engaged and found clean is `exercised` **without** any finding — never fabricate a finding to evidence coverage. The anchor is length-bounded (one quoted line plus one concern clause).

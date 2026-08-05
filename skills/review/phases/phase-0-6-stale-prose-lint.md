@@ -30,7 +30,7 @@ When `SP_ENABLED` is exactly `false`, **skip the phase and record it** — do no
 cat .prflow/tmp/review/<slug>/<run-id>/diff.patch | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/stale-prose-lint.py --rev HEAD
 ```
 
-**Observe the helper's exit code — it is the authoritative arm selector, and stdout alone is not.** Do **not** capture it into a second shell variable (a split `SP_RC=$?` read in a later statement is stripped by some inline-bash runners — issue #284 — so it would read empty). Route on the exit code first, then on each row's verdict, and **never read an empty stdout as "no stale claims" without first confirming the exit code was 0 or 1** — an internal error (exit 2) also prints no verdict rows:
+**Observe the helper's exit code — it is the authoritative arm selector, and stdout alone is not.** Do **not** capture it into a second shell variable (a split `SP_RC=$?` read in a later statement is stripped by some inline-bash runners — so it would read empty). Route on the exit code first, then on each row's verdict, and **never read an empty stdout as "no stale claims" without first confirming the exit code was 0 or 1** — an internal error (exit 2) also prints no verdict rows:
 
 - **Exit code `0` or `1`** — the helper ran to completion (`1` means at least one STALE row is present; `0` means none). Route each stdout row (`verdict<TAB>rule<TAB>file<TAB>line<TAB>detail`) by its verdict below.
 - **Exit code `2`** — the helper reported an **internal error** and printed no verdict rows on stdout (its diagnostic is on stderr): take degradation arm **(c)**. Do **not** read the empty stdout as a clean pass.
