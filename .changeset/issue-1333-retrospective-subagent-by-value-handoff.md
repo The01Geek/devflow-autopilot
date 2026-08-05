@@ -14,4 +14,4 @@ bump: patch
   root and the internal-documentation root itself and hands both to the child **by
   value**, extending the by-path `<REPO_ROOT>` handoff it already performed. The child
   resolves nothing, invokes no helper that touches git, and reports every residual
-  through its JSON contract rather than as prose on stdout.
+  through its JSON contract rather than as prose on stdout. ([#1336](https://github.com/The01Geek/prflow/pull/1336))
