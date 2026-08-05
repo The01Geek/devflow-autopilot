@@ -694,12 +694,29 @@ real record carries, none of which is recoverable **from the fix commits**.
   a pre-change agent-written workpad warns for those two on the identical rationale — this is not a
   synthesized-record-only boundary. `lib/efficiency-trace.jq` surfaces the marker at every level: per-iteration
   and in each `per_iteration[]` entry as a strict `== true` (an absent or malformed field reads
-  `false` — agent-written workpads carry no such field, so real records read `synthesized: false`),
+  `false`; and since issue #534 a persisted agent-written record affirmatively **carries**
+  `synthesized: false` — the emitted-provenance backfill below stamps it on the durable copy — so
+  the emitted-vs-synthesized distinction is a deterministic JSON boolean rather than a field-absence
+  inference),
   and record-level as `any(…)` — `true` when **any** iteration was reconstructed, the key a
   cross-run analyzer uses to weight a reconstructed record differently from an agent-written one. A
   synthesized-only run renders normally in both `--mode trace` and `--mode record`, with
   `verification_posture: "none-recorded"` (no checklist was ever captured — correctly flagged as
   the instrumentation gap it is).
+- *Emitted-provenance backfill (issue #534).* After the durable workpad copy (and after any
+  synthesis above), `--persist` runs `stamp_emitted_provenance` over the **durable** copy of every
+  `iter-*.json`: any valid-object record that lacks a `synthesized` key is stamped
+  `synthesized: false`, so a persisted agent-written record records its provenance affirmatively
+  rather than by field-absence. This moves the emitted-record provenance stamp **off the agent's
+  decision path** — the fix loop's per-iteration emit is agent-authored prose that carries no stamp,
+  and this deterministic backfill guarantees the persisted artifact a later reader consults still
+  distinguishes an emitted record (`.synthesized == false`) from a synthesized one
+  (`.synthesized == true`), with a lost emit surfacing as the absent record. It changes **no**
+  synthesized record (they already carry `synthesized: true`, so the issue-#381 synthesis contract
+  and `--self-check`'s synthesized-class validation are unaffected), operates on the staged durable
+  copy only (the source run dir stays byte-identical), is idempotent (a key-present record is left
+  untouched, so a second `--persist` is a no-op), and is best-effort per file (a malformed/non-object
+  record or a failed write breadcrumbs and is left untouched, never aborting `--persist`).
 - *Double-count defenses.* Three guards keep a fix commit from being counted into two runs'
   records or misattributed across runs: (a) **sha-level exclusion** — any commit already recorded
   as a `fix_commit_sha` by another run's `iter-*.json`, in the live tmp tree **or** the committed
