@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1325",
+  "generated_at": "2026-08-05T07:49:23Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.115",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 9.318387249999995,
+    "tokens": {
+      "input_tokens": 62,
+      "output_tokens": 25378,
+      "cache_read_input_tokens": 5331603,
+      "cache_creation_input_tokens": 217739,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 127,
+        "outputTokens": 49489,
+        "cacheReadInputTokens": 6998362,
+        "cacheCreationInputTokens": 602372,
+        "webSearchRequests": 0,
+        "costUSD": 9.318387249999995,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 42,
+    "duration_ms": 537281
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"run_id=${GITHUB_RUN_ID:-none} attempt=${GITHUB_RUN_ATTEMPT:-none}\"; RID=\"${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}\"; echo \"RID=$RID\"; mkdir -p \".prflow/tmp/review/pr-1325/$RID\"; gh pr diff 1325 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee \".prflow/tmp/review/pr-1325/$RID/diff.patch\" | wc -l",
+      "echo \"run=${GITHUB_RUN_ID:-none} att=${GITHUB_RUN_ATTEMPT:-none}\"",
+      "cd /home/runner/work/prflow/prflow\necho \"=== VC-5: skill dirs exist ===\"\nfor s in create-issue implement review review-and-fix pr-description docs retrospective-weekly; do [ -d \"skills/$s\" ] && echo \"skills/$s: YES\" || echo \"skills/$s: MISSING\"; done\necho \"=== VC-2/VC-1: implement + review phase files ===\"\nls skills/implement/phases/ 2>/dev/null; echo \"--- review phases ---\"; ls skills/review/phases/ | grep -E 'phase-[0-4]' | head\necho \"=== VC-3: five review agents ===\"\nfor a in code-reviewer co …[per-command-truncated]",
+      "wc -l /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1325/30985828749-1/diff.patch; echo ---; git -c core.pager=cat diff --stat 2>/dev/null; echo ---",
+      "cd /tmp && python3 - <<'PY'\nimport re, xml.dom.minidom as M\npatch=open(\"/home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1325/30985828749-1/diff.patch\").read()\n# split into file hunks for svg\nfiles=re.split(r'^diff --git ', patch, flags=re.M)\nfor f in files:\n    m=re.match(r'a/(\\S+) b/(\\S+)', f)\n    if not m: continue\n    path=m.group(2)\n    if not path.endswith('.svg'): continue\n    added=[l[1:] for l in f.splitlines() if l.startswith('+') and not l.startswith('+++')]\n    content=\"\\n\".join …[per-command-truncated]"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
