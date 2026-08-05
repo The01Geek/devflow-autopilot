@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1304",
+  "generated_at": "2026-08-05T01:17:33Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.104",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 13.457140249999995,
+    "tokens": {
+      "input_tokens": 39,
+      "output_tokens": 29125,
+      "cache_read_input_tokens": 3236749,
+      "cache_creation_input_tokens": 200536,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 224,
+        "outputTokens": 96223,
+        "cacheReadInputTokens": 12039308,
+        "cacheCreationInputTokens": 684605,
+        "webSearchRequests": 0,
+        "costUSD": 13.457140249999995,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 35,
+    "duration_ms": 834878
+  },
+  "permission_denials": {
+    "count": 27,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none}\"; echo \"---\"; mkdir -p .prflow/tmp/review/pr-1304/local; gh pr diff 1304 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1304/local/diff.patch | wc -l",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1241 --pr 1304 2>.prflow/tmp/review/pr-1304/30965164970-1/acs.err ; echo \"acs-rc=$?\"",
+      "gh issue view 1241 --json comments --jq '.comments[].body' > .prflow/tmp/review/pr-1304/30965164970-1/issue-comments.txt 2>&1; echo \"=== Writing-skills evidence ===\"; grep -n \"Writing-skills evidence:\" .prflow/tmp/review/pr-1304/30965164970-1/issue-comments.txt || echo \"NOT FOUND in issue\"; echo \"=== Verification evidence ===\"; grep -n \"Verification evidence:\" .prflow/tmp/review/pr-1304/30965164970-1/issue-comments.txt || echo \"NOT FOUND in issue\"",
+      "python3 lib/test/lint-shipped-pruned-path.py 2>&1 | tail -20; echo \"EXIT: ${PIPESTATUS[0]}\"",
+      "python3 lib/test/lint-shipped-pruned-path.py > /tmp/lintout.txt 2>&1; echo \"EXIT: $?\"; tail -20 /tmp/lintout.txt",
+      "git worktree add -q /tmp/pr1304 94c11ca00bc7a84f90d68d90232fbef4b5018a10 2>&1 | tail; ls /tmp/pr1304/lib/test/lint-shipped-pruned-path.py",
+      "git worktree add -q /tmp/pr1304 94c11ca00bc7a84f90d68d90232fbef4b5018a10 2>&1 | tail",
+      "git worktree add -q /tmp/pr1304 94c11ca00bc7a84f90d68d90232fbef4b5018a10",
+      "python3 - <<'PY'\nimport re\ndiff=open('.prflow/tmp/review/pr-1304/30965164970-1/diff.patch',encoding='utf-8',errors='replace').read()\nsections=re.split(r'(?m)^diff --git ',diff)\ndef norm(s):\n    s=re.sub(r'\\s*<!--\\s*pruned-path-ok:.*?-->','',s)\n    # common citation forms\n    s=re.sub(r'\\(issues?\\s*#\\d+[^)]*\\)','',s,flags=re.I)\n    s=re.sub(r'\\(PR\\s*#\\d+\\)','',s,flags=re.I)\n    s=re.sub(r'\\(AC\\d+[^)]*\\)','',s)\n    s=re.sub(r',?\\s*(issues?|PR)\\s*#\\d+','',s,flags=re.I)\n    s=re.sub(r'#\\d+','',s)\n   …[per-command-truncated]",
+      "cd /tmp && python3 - <<'PY'\nimport subprocess, importlib.util, sys, tempfile, os\nrev=\"94c11ca00bc7a84f90d68d90232fbef4b5018a10\"\nsrc=subprocess.run([\"git\",\"-C\",\"/home/runner/work/prflow/prflow\",\"show\",f\"{rev}:lib/test/lint-shipped-pruned-path.py\"],capture_output=True,text=True).stdout\nmod={}\nexec(compile(src,\"lint.py\",\"exec\"),mod)\nscan=mod[\"scan_citations\"]\ncases={\n\"cite-unmarked\":\"This paragraph cites issue #441 as internal provenance and should be reported.\",\n\"cite-marked\":\"This paragraph cites …[per-command-truncated]",
+      "python3 - <<'PY'\nimport subprocess, types\nrev=\"94c11ca00bc7a84f90d68d90232fbef4b5018a10\"\nsrc=subprocess.run([\"git\",\"-C\",\"/home/runner/work/prflow/prflow\",\"show\",rev+\":lib/test/lint-shipped-pruned-path.py\"],capture_output=True,text=True).stdout\ng={\"__file__\":\"/home/runner/work/prflow/prflow/lib/test/lint-shipped-pruned-path.py\",\"__name__\":\"lintmod\"}\nexec(compile(src,\"lint.py\",\"exec\"),g)\nscan=g[\"scan_citations\"]\ncases=[\n[\"cite-unmarked\",\"This paragraph cites issue #441 as internal provenance and s …[per-command-truncated]",
+      "python3 - <<'PY'\nimport re\nfrom collections import Counter\ndiff=open('.prflow/tmp/review/pr-1304/30965164970-1/diff.patch',encoding='utf-8',errors='replace').read()\nsections=re.split(r'(?m)^diff --git ',diff)\nskip=set(['.changeset/issue-1241-remove-internal-citations.md','lib/test/lint-shipped-pruned-path.py','lib/test/modules/coverage-map.json','lib/test/run.sh','scripts/devflow-cloud-writer-contract.json'])\ndef words(lines):\n    txt=' '.join(lines)\n    txt=re.sub(r'<!--\\s*pruned-path-ok:[^>]*- …[per-command-truncated]",
+      "rev=94c11ca00bc7a84f90d68d90232fbef4b5018a10\nfor pat in \"#458-displaced\" \"#504 displaced\" \"issue #709\" \"issue-#743\" \"#795\" \"issue #446\" \"#1198\" \"#864\" \"#857\" \"#446's\"; do\n  n=$(git show $rev:lib/test/run.sh | grep -c -- \"$pat\")\n  echo \"run.sh HEAD contains [$pat]: $n\"\ndone",
+      "rev=94c11ca00bc7a84f90d68d90232fbef4b5018a10; git show $rev:lib/test/run.sh > /tmp/headrun.sh; wc -l /tmp/headrun.sh",
+      "git show 94c11ca00bc7a84f90d68d90232fbef4b5018a10:lib/test/run.sh > /tmp/headrun.sh; wc -l /tmp/headrun.sh",
+      "git show 94c11ca00bc7a84f90d68d90232fbef4b5018a10:lib/test/run.sh > /tmp/headrun.sh",
+      "git show 94c11ca00bc7a84f90d68d90232fbef4b5018a10:lib/test/run.sh > .prflow/tmp/headrun.sh",
+      "for f in cite-unmarked cite-marked cite-ac cite-hex-clean; do printf '%s: ' \"$f\"; python3 lib/test/lint-shipped-pruned-path.py --root lib/test/fixtures/shipped-pruned-path --files-from /dev/stdin <<EOF 2>&1 | tr '\\n' '|'; echo; done <<'OUTER'\nOUTER",
+      "TMP=$(mktemp -d); git archive HEAD | tar -x -C \"$TMP\"; cd \"$TMP\" && git apply --stat /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1304/30965164970-1/diff.patch 2>&1 | tail -5; echo \"TMP=$TMP\"",
+      "TMP=$(mktemp -d) && git archive HEAD | tar -x -C \"$TMP\" && cp -r .git \"$TMP\"/.git && (cd \"$TMP\" && git apply --check /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1304/30965164970-1/diff.patch && echo APPLYCHECK_OK && git apply /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1304/30965164970-1/diff.patch && echo APPLIED) && echo \"$TMP\" > /tmp/prhead_dir.txt && cat /tmp/prhead_dir.txt",
+      "TMP=$(mktemp -d) && git archive HEAD | tar -x -C \"$TMP\" && cp -r .git \"$TMP\"/.git && cd \"$TMP\" && git apply --check /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1304/30965164970-1/diff.patch && echo APPLYCHECK_OK && git apply /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1304/30965164970-1/diff.patch && echo APPLIED && echo \"$TMP\" > /tmp/prhead_dir.txt && cat /tmp/prhead_dir.txt",
+      "rm -rf /tmp/prhead && mkdir -p /tmp/prhead && git archive HEAD | tar -x -C /tmp/prhead && cp -r .git /tmp/prhead/.git",
+      "rm -rf /tmp/prhead; mkdir -p /tmp/prhead; git archive HEAD | tar -x -C /tmp/prhead; cp -r .git /tmp/prhead/.git; ls /tmp/prhead | head",
+      "rm -rf /tmp/prhead && mkdir -p /tmp/prhead",
+      "mkdir -p /tmp/prhead",
+      "git archive HEAD | tar -x -C .prflow/tmp/prhead",
+      "git archive --format=tar -o .prflow/tmp/head.tar HEAD"
+    ],
+    "total": 27,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
