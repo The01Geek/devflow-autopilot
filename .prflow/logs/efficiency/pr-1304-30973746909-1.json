@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1304",
+  "generated_at": "2026-08-05T04:07:30Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.110",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.87667,
+    "tokens": {
+      "input_tokens": 94,
+      "output_tokens": 28096,
+      "cache_read_input_tokens": 7162480,
+      "cache_creation_input_tokens": 159256,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 94,
+        "outputTokens": 28096,
+        "cacheReadInputTokens": 7162480,
+        "cacheCreationInputTokens": 159256,
+        "webSearchRequests": 0,
+        "costUSD": 5.87667,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 57,
+    "duration_ms": 482001
+  },
+  "permission_denials": {
+    "count": 12,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"; echo \"PR=1304\"; echo \"GITHUB_RUN_ID=$GITHUB_RUN_ID\"; echo \"GITHUB_ACTIONS=$GITHUB_ACTIONS\"",
+      "echo \"run_id=$GITHUB_RUN_ID attempt=$GITHUB_RUN_ATTEMPT actions=$GITHUB_ACTIONS\"; echo \"skill_dir=$CLAUDE_SKILL_DIR\"",
+      "mkdir -p .prflow/tmp/review/pr-1304/cloud\ngh pr diff 1304 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' | tee .prflow/tmp/review/pr-1304/cloud/diff.patch | tail -1; echo \"diff-rc=${PIPESTATUS[0]}\"",
+      "printf 'run_id=[%s] attempt=[%s]\\n' \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1241 --pr 1304 2>.prflow/tmp/review/pr-1304/30973746909-1/acs.err ; echo \"acs-rc=$?\"",
+      "for f in cite-ac cite-marked cite-unmarked cite-pr-unmarked cite-hex-clean cite-two-on-one-line cite-fence-unmarked cite-fence-shell-marked cite-fence-html-marked cite-ac-boundary-clean; do echo \"=== $f ===\"; cat \"lib/test/fixtures/shipped-pruned-path/skills/$f.md\"; echo; done",
+      "for f in cite-ac cite-marked cite-unmarked cite-pr-unmarked cite-hex-clean cite-two-on-one-line cite-fence-unmarked cite-fence-shell-marked cite-fence-html-marked cite-ac-boundary-clean; do echo \"=== $f.md ===\"; git show \"3ab880c73:lib/test/fixtures/shipped-pruned-path/skills/$f.md\"; done",
+      "cd /home/runner/work/prflow/prflow || exit; for f in cite-ac cite-marked cite-unmarked cite-pr-unmarked cite-hex-clean cite-two-on-one-line cite-fence-unmarked cite-fence-shell-marked cite-fence-html-marked cite-ac-boundary-clean; do printf '=== %s.md ===\\n' \"$f\"; git show \"3ab880c73:lib/test/fixtures/shipped-pruned-path/skills/$f.md\"; done",
+      "cd /home/runner/work/prflow/prflow || exit\ngit diff 67288992c..3ab880c73 -- 'skills/**' 'agents/**' > .prflow/tmp/review/pr-1304/cloud/prose.patch\ngrep -cE '^\\-[^-]' .prflow/tmp/review/pr-1304/cloud/prose.patch\ngrep -cE '^\\+[^+]' .prflow/tmp/review/pr-1304/cloud/prose.patch\necho \"--- removed lines containing binding words ---\"\ngrep -nE '^\\-' .prflow/tmp/review/pr-1304/cloud/prose.patch | grep -iE 'non-negotiable|mandatory|\\bmust\\b|\\bnever\\b|\\balways\\b|\\brequired\\b' | head -60",
+      "git diff 67288992c..3ab880c73 -- skills agents > .prflow/tmp/review/pr-1304/cloud/prose.patch; wc -l .prflow/tmp/review/pr-1304/cloud/prose.patch",
+      "git grep -nE '\\bissue[s]? [0-9]{2,}|\\bAC[- ][0-9]|\\bPR [0-9]{2,}' 3ab880c73 -- skills | grep -vE 'issue-[0-9]|issue number|issue body|issue #' | head -40",
+      "git grep -nE 'issue [0-9]{2,}|AC[- ][0-9]|\\bPR [0-9]{2,}' 3ab880c73 -- skills"
+    ],
+    "total": 12,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
