@@ -4694,7 +4694,7 @@ rm -rf "$PCRT_SB"
 # snippet, so the copy is unavoidable and the extractor keeps the doc snippet and
 # the auto_review_trigger job region from drifting); it is not a prose-presence pin.
 CIREV_EX="$LIB/test/extract-ci-review-agreement.py"
-CIREV_DOC="$LIB/../docs/workflow-triggers.md"
+CIREV_DOC="$LIB/../docs/internal/workflow-triggers.md"
 CIREV_CI="$LIB/../.github/workflows/ci.yml"
 cirev() { python3 "$CIREV_EX" "$1" "$2" 2>/dev/null; }
 

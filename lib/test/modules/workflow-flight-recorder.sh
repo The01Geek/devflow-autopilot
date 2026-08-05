@@ -146,7 +146,7 @@ assert_eq "flight recorder: configured recorder hook is UserPromptSubmit" "yes" 
 assert_eq "flight recorder: local recorder fixture has no Stop command" "no" \
   "$(jq -r '.hooks.Stop[]?.hooks[]?.command // empty' "$IFR_SETTINGS_FIXTURE" | \
       grep -Eq 'capture-(implement-session|workflow-manifest)\.py' && echo yes || echo no)"
-IFR_STOP_EXAMPLE="$(awk '/^- \*`Stop` hook \(local-tier only\)\.\*/ { found=1 } found { print } found && /^  > \*\*Note/ { exit }' "$LIB/../docs/efficiency-trace.md")"
+IFR_STOP_EXAMPLE="$(awk '/^- \*`Stop` hook \(local-tier only\)\.\*/ { found=1 } found { print } found && /^  > \*\*Note/ { exit }' "$LIB/../docs/internal/efficiency-trace.md")"
 # Positive control first: an empty extraction (awk absent, doc anchor drifted)
 # would make the negative assertion below pass vacuously — the exact fail-open
 # a no-recorder-command check must not have.

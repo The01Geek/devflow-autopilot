@@ -792,7 +792,7 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
   from who owns the file:** the cloud review tier checks out the pull request's head, so
   the extensions it loads come from the trusted base ref through
   `DEVFLOW_PROMPT_EXTENSION_ROOT` instead (issue #874) — see
-  [`docs/DEVFLOW_SYSTEM_OVERVIEW.md`](docs/DEVFLOW_SYSTEM_OVERVIEW.md)'s base-ref trust
+  [`docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`](docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md)'s base-ref trust
   boundary bullet for the canonical statement. A skill's own load step is unchanged by
   that: it invokes the helper identically on every tier. When you **add a new skill**, copy this step verbatim (substituting the
   new skill's directory name) so it inherits the convention, **and** add the new skill's
@@ -811,7 +811,7 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
   the fix loop applies those principles without ever invoking that skill. When you add or
   change a skill, ask which other skills' principles it applies un-invoked. The rule and
   its coverage are stated in
-  [`docs/DEVFLOW_SYSTEM_OVERVIEW.md`](docs/DEVFLOW_SYSTEM_OVERVIEW.md) under *Extending
+  [`docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`](docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md) under *Extending
   skills with prompt extensions*.
 - Prompt cutovers, trims, and relocations follow the advisory sole-owner discipline in
   [`CLAUDE.md`](CLAUDE.md)'s **Helper cutover** convention, with the lean-prose guidance in
@@ -823,7 +823,7 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
 The `.github/workflows/*.yml` files run inside GitHub Actions, where they reference
 plugin scripts at `.prflow/vendor/prflow/scripts/…`. That path assumes the cloud
 tier is used with the plugin **vendored** into the consuming repo at that path (see
-`docs/cloud-setup.md`). This is intentional and distinct from the local skills, which
+`docs/internal/cloud-setup.md`). This is intentional and distinct from the local skills, which
 resolve the portable `${CLAUDE_SKILL_DIR:-…}` anchor at runtime.
 
 ## Submitting changes

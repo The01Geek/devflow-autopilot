@@ -50,7 +50,7 @@ What landed there is the *compressed* residue of a ~2,600-byte first draft. Ever
 state owner already enforces was cut rather than restated — the closed outcome set, the
 text-only anchor floor, the floor-failure downgrade to `unestablished`, the summary-line fields,
 and the offer cap all live in `scripts/issue-audit-state.py` and its tests, per the repo's
-helper-cutover convention. The full narration lives in `docs/DEVFLOW_SYSTEM_OVERVIEW.md` §11.
+helper-cutover convention. The full narration lives in `docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md` §11.
 What remains on the mandatory path is only what the orchestrator must *decide*: when to
 enumerate, what to check against the re-read draft, what to adjudicate, what to record, and
 that `coverage=hold` joins the single existing boundary offer rather than adding a second pause.

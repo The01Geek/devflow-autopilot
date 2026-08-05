@@ -13,7 +13,7 @@ how each subagent earns its verdict.
 
 > **Related measurement substrate.** The offline verification-launch baseline
 > (`scripts/verification_baseline.py`, issue #527 Wave 1; see
-> [`docs/workflow-flight-recorder.md`](workflow-flight-recorder.md#verification-launch-baseline-wave-1))
+> [`docs/internal/workflow-flight-recorder.md`](workflow-flight-recorder.md#verification-launch-baseline-wave-1))
 > is a sibling measurement: it baselines actual verification-command launches
 > (transport-retry candidates, intentional reruns, independent lifecycles) from
 > local native transcripts plus a local + cloud lifecycle census, reusing the
@@ -341,7 +341,7 @@ telemetry-branch persist. Nothing distinguishes "correctly persisted nothing bec
 off" from "silently forgot to persist," so the gap is invisible, and the lost *full* record is not
 reconstructed by any shipped backstop. Token/wall-clock telemetry is captured live — whether the
 harness's own output *could* reconstruct it has been **measured by the #437 probe** (result in
-[`docs/execution-file-shape.md`](execution-file-shape.md); see the cost-half note below). The Layer-3+
+[`docs/internal/execution-file-shape.md`](execution-file-shape.md); see the cost-half note below). The Layer-3+
 synthesis floor below recovers a minimal effectiveness skeleton from the fix
 commits, never that detail. Layered
 backstops close this, weakest to strongest — the deterministic backstop (Layer 3) and its synthesis
@@ -360,8 +360,8 @@ tier ships no such backstop, so there the emit-obligation guarantees the effecti
 cost half from the harness's own output — `claude-code-action`'s `execution_file` and the `Stop`-hook
 transcript — was long asserted here as settled fact ("no backstop can reconstruct it"), but that
 assertion was never measured. Issue #437 replaced the assertion with a re-runnable probe
-([`.github/workflows/matcher-probe.yml`](../.github/workflows/matcher-probe.yml)) whose **observed**
-results are recorded in [`docs/execution-file-shape.md`](execution-file-shape.md): read that shape
+([`.github/workflows/matcher-probe.yml`](../../.github/workflows/matcher-probe.yml)) whose **observed**
+results are recorded in [`docs/internal/execution-file-shape.md`](execution-file-shape.md): read that shape
 record — not this sentence — before deciding whether an agent-independent cost floor is buildable.
 
 **The measurements refute the old claim. It was false.** Each tier refutes it — but they were
@@ -390,7 +390,7 @@ below): on the cloud tier `--persist` now reconstructs cost from the full observ
 The **local** tier remains buildable-but-unbuilt — from the transcript's real token counts (wall-clock
 and the dispatch roster were *not* measured there, so a local floor's phase attribution is an open
 question, not an observed fact); see
-[`docs/execution-file-shape.md`](execution-file-shape.md) for the observed shape and the run URL, and
+[`docs/internal/execution-file-shape.md`](execution-file-shape.md) for the observed shape and the run URL, and
 build against that record rather than this paragraph.
 
 Two things remain genuinely open, and a floor must not assume them away: the `execution_file` schema
@@ -800,7 +800,7 @@ unknown string defaults to no synthesis, with a breadcrumb.
   `step_2_6` token/wall figures are captured live and no shipped backstop reconstructs them after the
   fact. Whether the harness's own `execution_file`/transcript could supply an agent-independent cost
   floor is no longer asserted here as settled — it was **measured by the #437 probe**, with the
-  observed result recorded in [`docs/execution-file-shape.md`](execution-file-shape.md).
+  observed result recorded in [`docs/internal/execution-file-shape.md`](execution-file-shape.md).
   Older records without the marker remain valid.
 
 **Layer 4 — harness-side cost floor (issue #475): the FIRST floor NOT fed by an agent-volunteered
@@ -809,7 +809,7 @@ commits). This floor's operand is `claude-code-action`'s `execution_file` — wr
 independent of anything the agent volunteers — so a cloud run that dropped every telemetry emit still
 contributes a **cost** record. That closes the specific gap the layers above leave open: they recover
 *structure* but never the *cost* half, because that half was only ever in the agent's live context.
-The #437 probe ([`docs/execution-file-shape.md`](execution-file-shape.md)) established the execution
+The #437 probe ([`docs/internal/execution-file-shape.md`](execution-file-shape.md)) established the execution
 file carries cost directly (`costUSD`/`total_cost_usd`, per-model `modelUsage`, per-message `usage`),
 so the floor is buildable on the cloud tier without the agent's cooperation.
 

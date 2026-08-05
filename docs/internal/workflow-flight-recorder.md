@@ -170,9 +170,9 @@ start manifests, the registry, and an optional cloud census snapshot, and that i
 all. `workspace_state` coverage is derived from explicit source-event results,
 never analyzer-time inspection, so the analyzer runs no `git`/subprocess. Cloud
 launch analysis is excluded in Wave 1 (no durable redacted execution-event source
-exists without changing workflows — see `docs/execution-file-shape.md`); cloud
+exists without changing workflows — see `docs/internal/execution-file-shape.md`); cloud
 rows are census/missingness-only. It is a sibling measurement substrate to the
-efficiency trace (`docs/efficiency-trace.md`): verification launches, not
+efficiency trace (`docs/internal/efficiency-trace.md`): verification launches, not
 subagent effectiveness.
 
 ### Census and eligibility (the denominator)

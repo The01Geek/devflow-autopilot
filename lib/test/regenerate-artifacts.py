@@ -391,7 +391,7 @@ ROWS = (
         # has no by-hand sibling to reconcile, so re-running the writer against the merged
         # tree IS the answer, and the policy above names a runnable WRITE command.
         "conflict_class": "regenerate",
-        "conflict_paths": ("docs/cloud-setup.md",),
+        "conflict_paths": ("docs/internal/cloud-setup.md",),
         # The one exit-1 path that is NOT drift: an unhandled exception exits 1 under
         # CPython, aliasing an unchecked run onto the resolvable "regenerate me" state.
         # Deliberately EXCLUDED: the region-differs diff, which is the genuine finding this
