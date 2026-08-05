@@ -47463,9 +47463,12 @@ assert_eq "#1241 lint: a hex colour and a run id are not citations (word-boundar
 # leading `\b` (or broadening to the hyphenated form) turns this fixture RED.
 assert_eq "#1241 lint: MAC5 and AC-5 are not citations (AC leading-boundary control)" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
   "$(sp_run "$SP_SIMPLE" skills/cite-ac-boundary-clean.md)"
-# The docstring advertises the `PR #123` shape distinctly from the bare `#123`; exercise it
-# so the advertised form is a tested claim rather than a prose assertion.
-assert_eq "#1241 lint: an unmarked 'PR #123' citation is reported" "yes" \
+# The docstring advertises the `PR`-prefixed number shape distinctly from the bare one;
+# exercise it so the advertised form is a tested claim rather than a prose assertion. The
+# assertion LABEL must not itself spell a `#`-number: the issue-591 coverage-map guard reads
+# `#N` out of run.sh assertion labels as a coverage label, so a fixture shape quoted into a
+# label is indistinguishable there from a real issue reference and files a phantom entry.
+assert_eq "#1241 lint: an unmarked PR-prefixed number citation is reported" "yes" \
   "$(case "$(sp_run "$SP_SIMPLE" skills/cite-pr-unmarked.md)" in "rc=1|"*"skills/cite-pr-unmarked.md:1:"*"cites PRFlow-internal '#123'"*) echo yes ;; *) echo no ;; esac)"
 # `_scan` reports the FIRST match per line only. Pin it with an exact-output assertion: a
 # change to per-match reporting would emit a second finding line and turn this RED.
