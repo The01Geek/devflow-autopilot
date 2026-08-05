@@ -934,10 +934,17 @@ the `review_dedupe` job in `devflow.yml`.
   so a copy tracked `100644` fails the exec test and the job fails open exactly as if
   the file were missing — which is what silently disabled this suppression from when
   the feature landed until issue #1312 restored the helper's `100755` mode. A lost
-  executable bit on any `-x`-gated bundled helper is now caught at the desk by
+  executable bit on an `-x`-gated bundled helper is now caught at the desk by
   `lib/test/lint-executable-helper-mode.py` (driven from `lib/test/run.sh`), which
-  mechanically derives the guarded-helper set and fails RED when a resolved repo
-  helper is not tracked `100755`.
+  mechanically derives the guarded-helper set **within its audited population** —
+  tracked `.github/workflows/*.yml`, `scripts/*.sh`, `lib/*.sh` — and fails RED when
+  a resolved repo helper is not tracked `100755`. That population is not the whole
+  tree, and the scope limit is an auditable decision rather than a claim of total
+  coverage: the check's own module docstring enumerates its named residuals — today
+  the repo-root `install.sh`, whose `$SRC`-anchored guard over
+  `scripts/migrate-consumer-tier1.sh` resolves to a materialized source tree rather
+  than this checkout, so that helper's tracked mode is asserted by
+  `lib/test/modules/tier1-rename-migration.sh` instead.
 - **Two legacy signals are retained** for a consumer whose installed copy predates
   the withheld auto-review tier: an in-flight `Devflow Review` check-run on the head,
   and a queued/in-progress `devflow-review.yml` run on the branch. In this tree

@@ -1751,3 +1751,20 @@ assert_eq "#1028 scaffold integration: a second scaffold leaves the config BYTE-
 assert_eq "#1028 scaffold integration: an already-current config draws no rename line" "no" \
   "$("$T1_SCAFFOLD" "$(_t1_scaffold_root '{"prflow":{"workpad_marker":"<!-- prflow:workpad -->"}}')" 2>&1 \
     | { grep -q 'migrated superseded config value' && printf 'yes' || printf 'no'; })"
+
+# — The migration helper's TRACKED MODE (issue #1312 residual) —
+# install.sh gates the atomic Tier-1 migration on
+# `[ -x "$SRC/scripts/migrate-consumer-tier1.sh" ]` and falls through to a warning when
+# that test fails, so a lost executable bit silently no-ops the whole migration in every
+# consumer. install.sh is a NAMED RESIDUAL of lib/test/lint-executable-helper-mode.py
+# (its `$SRC` anchor is positively runtime — a materialized source tree, not this
+# checkout), so this module owns that helper's mode. The INDEX mode is what ships, hence
+# `git ls-files -s` rather than a filesystem stat; the field is split with a bash builtin
+# read (not `cut`, a non-preflight PATH tool).
+_t1_index_mode() {
+  local mode _rest
+  read -r mode _rest < <(git -C "$LIB/.." ls-files -s -- "$1" 2>/dev/null)
+  printf '%s' "${mode:-ABSENT}"
+}
+assert_eq "#1312 migrate-consumer-tier1.sh is tracked executable (install.sh -x-gates it)" \
+  "100755" "$(_t1_index_mode scripts/migrate-consumer-tier1.sh)"

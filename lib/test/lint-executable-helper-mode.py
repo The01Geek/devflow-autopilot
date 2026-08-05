@@ -32,6 +32,24 @@ Audited population (single-level globs, per the governing criterion):
 `lib/test/**` is deliberately outside the population: its files carry `-x` tests
 over gh-stub fixtures and grep pins that are not shipped helpers.
 
+Named residuals (this check does NOT claim to cover every `-x`-gated bundled helper
+call site in the tree — the sibling `git ls-files` lints carry their residuals the
+same way, by enumeration here rather than by a scope claim elsewhere):
+
+* **`install.sh` (repo root)** — outside the three globs above, and it carries one
+  genuine `-x`-gated bundled-helper call site:
+  `if [ -x "$SRC/scripts/migrate-consumer-tier1.sh" ]`. It stays a residual on
+  purpose rather than by oversight: `$SRC` is a *dynamic* assignment with two arms
+  (`$DEVFLOW_SRC`, an operator-supplied pre-materialized tree, and `$TMP/src`, a
+  `mktemp -d` clone destination), so it is positively `runtime` under this file's
+  resolver and neither arm is this repository's checkout — the installer reads a
+  *source tree* it just materialized, not the tree being audited. Adding `install.sh`
+  to the population would therefore report `RUNTIME`, not a mode assertion; making it
+  assert would require teaching the resolver that a specific dynamic anchor is
+  repo-equivalent, which is a semantic special case rather than a mechanical
+  resolution. The helper's mode is instead held by the tracked-mode assertion in
+  `lib/test/modules/tier1-rename-migration.sh`.
+
 Operand resolution. For each `-x` test, the operand is resolved by expanding its
 leading variable reference through the file's own assignments:
 
