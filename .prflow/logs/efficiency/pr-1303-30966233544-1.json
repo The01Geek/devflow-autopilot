@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1303",
+  "generated_at": "2026-08-05T01:36:01Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.104",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 8.843938249999999,
+    "tokens": {
+      "input_tokens": 51,
+      "output_tokens": 32053,
+      "cache_read_input_tokens": 4444723,
+      "cache_creation_input_tokens": 216325,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 123,
+        "outputTokens": 62096,
+        "cacheReadInputTokens": 6959134,
+        "cacheCreationInputTokens": 480022,
+        "webSearchRequests": 0,
+        "costUSD": 8.843938249999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 37,
+    "duration_ms": 670502
+  },
+  "permission_denials": {
+    "count": 4,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-unset} ATTEMPT=${GITHUB_RUN_ATTEMPT:-unset} ACTIONS=${GITHUB_ACTIONS:-unset}\"",
+      "git cat-file -e b092ade5b6c8aadd97b7d4e39611b05b5192d922 2>&1 && echo \"present\" || { echo \"fetching\"; git fetch origin b092ade5b6c8aadd97b7d4e39611b05b5192d922 2>&1 | tail -1; }",
+      "echo \"=== trigger-glob touch? (prompt-surface) ===\"; grep -lE \"^(skills/[^/]+/SKILL\\.md|skills/implement/phases/.*\\.md|skills/review/phases/.*\\.md|\\.prflow/prompt-extensions/.*\\.md)\" <<< \"$(printf '%s\\n' .changeset/issue-1163-drop-devflow-review-subscriptions.md .github/workflows/devflow.yml CLAUDE.md docs/DEVFLOW_SYSTEM_OVERVIEW.md scripts/dedupe-review-command.sh lib/test/run.sh)\" || echo \"(no prompt-surface trigger glob touched → Writing-skills gate draws no finding)\"; echo \"=== PR body marke …[per-command-truncated]"
+    ],
+    "total": 4,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
