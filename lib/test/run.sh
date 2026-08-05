@@ -16790,15 +16790,17 @@ done
 #     trigger the workflow at all (no run, no error, nothing to notice);
 #   * drop the /prflow:implement negation -> a /prflow:implement comment fires BOTH
 #     devflow.yml and devflow-implement.yml, breaking the partition invariant.
-# Asserted per-clause over all three event arms, because a disjunct dropped from
-# one arm leaves the other two green.
+# Asserted per-clause over the gate's event arm(s). Issue #1163 removed the two
+# pull_request_review* subscriptions, so the gate now carries a SINGLE event clause
+# (issue_comment); the per-clause form is retained (rather than collapsed) so a
+# future re-subscription that re-adds an event arm is still audited arm-by-arm.
 GATE_YML="$WF/devflow.yml"
 # Echoes the gate clause lines that do NOT match $2 — empty means every clause carries it.
 gate_clauses_missing() {  # $1=file $2=ERE every gate clause must match
   grep -nE "github\.event_name == '" "$1" | grep -vE "$2" || true
 }
 GATE_CLAUSE_COUNT="$(grep -cE "github\.event_name == '" "$GATE_YML" || true)"
-assert_eq "trigger-gate: devflow.yml gate carries all three event clauses" "3" "$GATE_CLAUSE_COUNT"
+assert_eq "trigger-gate: devflow.yml gate carries the sole issue_comment event clause" "1" "$GATE_CLAUSE_COUNT"
 # Half 1 — the POSITIVE set accepts the canonical namespace on every clause.
 assert_eq "trigger-gate: every devflow.yml clause accepts /prflow:review" \
   "" "$(gate_clauses_missing "$GATE_YML" "contains\([^)]*'/prflow:review'\)")"
@@ -16831,10 +16833,12 @@ assert_eq "trigger-gate CONTROL B: the exclusion-half mutation really changed th
 assert_eq "trigger-gate CONTROL B: dropping the /prflow:implement negation turns the exclusion check RED" \
   "yes" "$([ -n "$(gate_clauses_missing "$TG_TMP/no-negation.yml" "!contains\([^)]*'/prflow:implement'\)")" ] && echo yes || echo no)"
 # Control C — the extractor itself is not matching everything: a token absent from
-# every clause must be reported missing on all three, so an always-empty result
-# (which would make every row above vacuously green) is ruled out.
-assert_eq "trigger-gate CONTROL C: a token no clause carries is reported missing on all three" \
-  "3" "$(gate_clauses_missing "$GATE_YML" "contains\([^)]*'/nosuchns:review'\)" | grep -c . || true)"
+# every clause must be reported missing on every clause, so an always-empty result
+# (which would make every row above vacuously green) is ruled out. With the sole
+# issue_comment clause the expected count is 1 (it was 3 before issue #1163 removed
+# the two review-event clauses).
+assert_eq "trigger-gate CONTROL C: a token no clause carries is reported missing on the sole clause" \
+  "1" "$(gate_clauses_missing "$GATE_YML" "contains\([^)]*'/nosuchns:review'\)" | grep -c . || true)"
 rm -rf "$TG_TMP"
 
 # The label trigger is gone: neither workflow may listen on `labeled`.
@@ -16846,14 +16850,16 @@ done
 # Comment-only triggers: a /devflow:* phrase in an issue/PR DESCRIPTION must
 # never start a run. Neither workflow may (a) listen on the `issues` event, nor
 # (b) match the trigger phrase against an issue body/title in its gate `if:`.
-# Only real comment/review bodies are valid trigger sources.
+# Only real comment bodies are valid trigger sources (issue #1163 dropped the
+# light path's two review-triggered subscriptions, so no gate reads
+# `github.event.review.body` any more).
 for f in devflow devflow-implement; do
   bad="$(grep -nE "^[[:space:]]*issues:[[:space:]]*$" "$WF/$f.yml" || true)"
   assert_eq "partition: $f.yml does not listen on the issues event" "" "$bad"
   # No gate matching against issue.body / issue.title (those are descriptions).
   bad="$(grep -nE "contains\(github\.event\.issue\.(body|title)" "$WF/$f.yml" || true)"
   assert_eq "partition: $f.yml gate never matches an issue body/title" "" "$bad"
-  # TRIGGER_TEXT must be sourced only from comment/review bodies.
+  # TRIGGER_TEXT must be sourced only from comment bodies.
   bad="$(grep -nE "TRIGGER_TEXT:.*github\.event\.issue\.(body|title)" "$WF/$f.yml" || true)"
   assert_eq "partition: $f.yml TRIGGER_TEXT excludes issue body/title" "" "$bad"
 done
@@ -16885,11 +16891,130 @@ assert_eq "partition: devflow-implement.yml gate if: filters PR comments (issue.
 #     invert the guard and decline issues instead of PRs.
 assert_eq "partition: devflow-implement.yml wires IS_PULL_REQUEST from issue.pull_request != null" \
   "1" "$(grep -cF 'IS_PULL_REQUEST: ${{ github.event.issue.pull_request != null }}' "$IMPL")"
-# (d) Complement (AC #5): the LIGHT path stays PR-aware — /devflow:review and
-#     /devflow:pr-description act on PRs, so devflow.yml MUST keep its PR-review
-#     subscriptions. Guards against an over-eager edit stripping them too.
-assert_eq "partition: devflow.yml stays PR-aware (keeps PR-review subscriptions)" \
-  "2" "$(grep -cE 'pull_request_review(_comment)?:' "$WF/devflow.yml")"
+# (d) Issue #1163 SUPERSEDES the earlier "stays PR-aware" decision. That decision
+#     kept devflow.yml subscribed to pull_request_review[submitted] and
+#     pull_request_review_comment[created] so /prflow:review and /prflow:pr-description
+#     could be requested from the review-submission box and inline diff comments. But
+#     on those two events GITHUB_REF resolves to refs/pull/N/merge, so every job
+#     checked out PR-author content — including the config job's authorization inputs
+#     and the agent's tool grants. The light path is now issue_comment-only (a review
+#     requested by commenting on the PR conversation is an issue_comment and still
+#     works); the review-submission-box and inline-diff-comment paths are dropped.
+#     So devflow.yml must carry NO pull_request_review* subscription, mirroring the
+#     heavy path's (a) above.
+assert_eq "partition: devflow.yml has no PR-review subscriptions (issue #1163 superseded the earlier stays-PR-aware decision)" \
+  "0" "$(grep -cE 'pull_request_review(_comment)?:' "$WF/devflow.yml")"
+# (d+) Positive complement to (d): devflow.yml MUST still subscribe to issue_comment —
+#      its SOLE event entry point now. Without this a future edit deleting the
+#      issue_comment subscription would make the whole light path silently inert while
+#      (d) still reads 0 and every other test stays green (the over-narrowing twin of
+#      the bug (d) guards — same shape as the heavy path's (a+) above).
+assert_eq "partition: devflow.yml subscribes to issue_comment (sole event entry point)" \
+  "1" "$(grep -cE '^[[:space:]]*issue_comment:[[:space:]]*$' "$WF/devflow.yml")"
+# (e) Issue #1163's OTHER half: every actions/checkout step in devflow.yml pins
+#     `ref:` to the default branch. Dropping the subscriptions (d) makes the
+#     trigger resolve GITHUB_REF to the default branch, but the pin is what states
+#     that property in the file, so a future re-subscription cannot silently
+#     reinstate a PR-head checkout of the authorization inputs and tool grants.
+#     Asserted STRUCTURALLY — per checkout step, not as a whole-file count — so
+#     all three regressions are caught: a dropped pin, an added unpinned fifth
+#     checkout, and a pin rewritten with a `||` fallback (an empty `ref` makes
+#     actions/checkout fall back to GITHUB_REF) or a literal branch name (a
+#     consumer's default branch may not be `main`). Emits one `<line> <ref>` row
+#     per checkout step; a step with no `ref:` in its `with:` block emits NONE.
+#     Comment lines are skipped so the header prose quoting the expression is not
+#     mistaken for wiring, and the row is flushed at the next step boundary so the
+#     sibling `- uses: ./.github/actions/vendor-plugin` step's own
+#     `ref: ${{ needs.config.outputs.prflow_version }}` is never attributed to a
+#     checkout. The `uses:` match accepts an optionally quoted value; the step
+#     boundary is keyed on this file's uniform 6-space step indentation, which is
+#     a deliberate limit rather than an omission — a differently indented step
+#     would go unrecognised, and the `count == 4` row above is what fails safe on
+#     it (it is an equality, not a floor), which CONTROL D below exercises.
+devflow_checkout_ref_rows() {
+  awk '
+    function flush(   v) {
+      if (isck) { v = (refv == "" ? "NONE" : refv); printf "%d %s\n", ln, v }
+      isck = 0; refv = ""
+    }
+    /^[[:space:]]*#/ { next }
+    /^      - / { flush(); ln = NR }
+    /uses:[[:space:]]*["'"'"']?actions\/checkout@/ { isck = 1 }
+    /^[[:space:]]*ref:[[:space:]]*/ {
+      if (isck && refv == "") { sub(/^[[:space:]]*ref:[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); refv = $0 }
+    }
+    END { flush() }
+  ' "$1"
+}
+devflow_checkout_rows="$(devflow_checkout_ref_rows "$WF/devflow.yml")"
+# 4 checkout steps: config, review_dedupe, gate, command.
+assert_eq "partition: devflow.yml has exactly 4 actions/checkout steps (issue #1163)" \
+  "4" "$(printf '%s\n' "$devflow_checkout_rows" | grep -c . || true)"
+# Every one of them pins the default branch verbatim — no fallback, no literal.
+devflow_unpinned_checkouts="$(
+  printf '%s\n' "$devflow_checkout_rows" \
+    | grep -v ' \${{ github\.event\.repository\.default_branch }}$' || true
+)"
+assert_eq "partition: devflow.yml pins every checkout ref: to the default branch (issue #1163)" \
+  "" "$devflow_unpinned_checkouts"
+# PLANTED-DEFECT CONTROLS for the auditor above, mirroring the trigger-gate
+# CONTROL A/B/C pattern three blocks up. The `count == 4` row backstops only the
+# "emits too few rows" mode; without these controls an over-accepting extractor
+# (an `isck` that never resets, a reordered `flush()`, a `ref:` capture that
+# misses) would leave `devflow_unpinned_checkouts` silently empty while a real
+# dropped pin sat in the file. Each control first asserts the mutation really
+# changed the file, then asserts the auditor reports the mutated step.
+CK_TMP="$(mktemp -d)"
+devflow_unpinned_in() {  # $1=file -> the rows the auditor does NOT accept as pinned
+  devflow_checkout_ref_rows "$1" \
+    | grep -v ' \${{ github\.event\.repository\.default_branch }}$' || true
+}
+# Control A — a dropped pin. The step must report NONE, and must NOT silently
+# inherit the `ref:` of the sibling vendor-plugin step that follows it (the
+# isck-never-resets mode).
+# NOTE: the first-occurrence-only mutations below use awk, not `sed '0,/re/'` —
+# the `0,` address form is a GNU extension that BSD sed (macOS) rejects.
+devflow_mutate_first_pin() {  # $1=replacement text, or the empty string to delete the line
+  awk -v repl="$1" '
+    !done && $0 == "          ref: ${{ github.event.repository.default_branch }}" {
+      done = 1
+      if (repl != "") print repl
+      next
+    }
+    { print }
+  ' "$WF/devflow.yml"
+}
+devflow_mutate_first_pin "" > "$CK_TMP/dropped-pin.yml"
+assert_eq "checkout-pin CONTROL A: the dropped-pin mutation really changed devflow.yml" \
+  "no" "$(cmp -s "$WF/devflow.yml" "$CK_TMP/dropped-pin.yml" && echo yes || echo no)"
+assert_eq "checkout-pin CONTROL A: a checkout with no ref: is reported unpinned as NONE" \
+  "1" "$(devflow_unpinned_in "$CK_TMP/dropped-pin.yml" | grep -c ' NONE$' || true)"
+assert_eq "checkout-pin CONTROL A: the dropped-pin file still emits 4 checkout rows" \
+  "4" "$(devflow_checkout_ref_rows "$CK_TMP/dropped-pin.yml" | grep -c . || true)"
+# Control B — a `||` fallback pin. An empty `ref` makes actions/checkout fall back
+# to GITHUB_REF with no error, so the fallback form must be rejected, not accepted.
+devflow_mutate_first_pin "          ref: \${{ github.event.repository.default_branch || 'main' }}" \
+  > "$CK_TMP/fallback-pin.yml"
+assert_eq "checkout-pin CONTROL B: the fallback-pin mutation really changed devflow.yml" \
+  "no" "$(cmp -s "$WF/devflow.yml" "$CK_TMP/fallback-pin.yml" && echo yes || echo no)"
+assert_eq "checkout-pin CONTROL B: a \`||\` fallback ref: is reported unpinned" \
+  "1" "$(devflow_unpinned_in "$CK_TMP/fallback-pin.yml" | grep -c . || true)"
+# Control C — a literal branch name, which is wrong for a consumer whose default
+# branch is not `main`.
+devflow_mutate_first_pin "          ref: main" > "$CK_TMP/literal-pin.yml"
+assert_eq "checkout-pin CONTROL C: the literal-branch mutation really changed devflow.yml" \
+  "no" "$(cmp -s "$WF/devflow.yml" "$CK_TMP/literal-pin.yml" && echo yes || echo no)"
+assert_eq "checkout-pin CONTROL C: a literal branch-name ref: is reported unpinned" \
+  "1" "$(devflow_unpinned_in "$CK_TMP/literal-pin.yml" | grep -c ' main$' || true)"
+# Control D — an added fifth, unpinned checkout must be caught by BOTH rows: the
+# count row (which is not merely `>= 4`) and the pin row.
+awk 'NR==1{print "      - uses: actions/checkout@v6"} {print}' \
+  "$WF/devflow.yml" > "$CK_TMP/fifth-checkout.yml"
+assert_eq "checkout-pin CONTROL D: an added fifth checkout is counted" \
+  "5" "$(devflow_checkout_ref_rows "$CK_TMP/fifth-checkout.yml" | grep -c . || true)"
+assert_eq "checkout-pin CONTROL D: an added fifth unpinned checkout is reported unpinned" \
+  "1" "$(devflow_unpinned_in "$CK_TMP/fifth-checkout.yml" | grep -c ' NONE$' || true)"
+rm -rf "$CK_TMP"
 
 # Early-ack reaction must stay correctly wired in BOTH gate jobs. These guard
 # the load-bearing properties that the react-to-trigger.sh unit tests above
