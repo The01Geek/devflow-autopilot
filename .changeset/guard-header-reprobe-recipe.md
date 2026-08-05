@@ -14,4 +14,17 @@ type: Fixed
   own file), and the cost that governs how the recipe should be used — neither trigger can
   select a job, so either fires the whole workflow, most of whose jobs start a paid Claude
   session, which is why a re-probe belongs in one push rather than an iterated sequence.
-  Comment-only: the guard's executable body is byte-identical.
+- **Its `REGISTRATION` and `TRUST BOUNDARY` paragraphs no longer rest on a false premise
+  either.** Both still said nothing in the tree registers the guard and that
+  `devflow-runner.yml` passes no `settings` input — but that workflow does register a
+  `PreToolUse`/`Bash` hook execing this guard, so a reader checking the evidence would find
+  it false and could conclude the guard is live. The conclusion survives and the reasoning
+  is now the real one: the registration is shipped but unreachable in this repository,
+  because `devflow-runner.yml` declares `workflow_call` as its only trigger and its sole
+  caller was the auto-review tier withheld under issue #936 — explicitly not dead code,
+  since a consumer that installed that tier before it was withheld still has the caller
+  this tree lacks. `TRUST BOUNDARY` likewise no longer claims both registration channels
+  must land together: issue #908 closed that hole from the other side, with a dedicated
+  unconditional harden step for the guard's import closure.
+- Comment-only throughout: the guard's executable body is byte-identical, checked by
+  comparing the module AST with its docstring removed.

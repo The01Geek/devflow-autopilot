@@ -15,13 +15,22 @@ decision whose `permissionDecisionReason` names the permitted alternative for th
 the harness's own refusal uses (`permissionDecisionReason` is "shown to Claude in the
 tool result", per https://code.claude.com/docs/en/hooks).
 
-REGISTRATION IS NOT YET WIRED (scope of this change). This change ships the guard BODY,
-its unit coverage, and its trusted-source hardening only. Nothing in the tree registers
-it: `.claude/settings.json` carries no `PreToolUse` key, and
-`.github/workflows/devflow-runner.yml` passes no `settings` input to the action. Until
-both land the guard never executes, so every runtime behavior described below is the
-contract this file implements, not behavior observable at this HEAD. Registration is
-where the two channels below become live.
+REGISTRATION IS SHIPPED BUT UNREACHABLE HERE — not "unwired", and not dead code. One of
+the two channels below has since landed: `.github/workflows/devflow-runner.yml` passes a
+`settings` input registering a `PreToolUse`/`Bash` hook that execs this guard, alongside
+its own step hardening the guard's trusted-source closure. The other has not — the
+committed `.claude/settings.json` carries a `Stop` hook and no `PreToolUse` key — which is
+what leaves the #458 relevance gate unarmed (see TRUST BOUNDARY below). What stops the
+guard executing IN THIS REPOSITORY is therefore an unreachable registration rather than a
+missing one: `devflow-runner.yml` declares `workflow_call` as its only trigger and nothing
+in the tracked tree calls it, its sole caller `devflow-review.yml` having been the
+auto-review tier withheld under issue #936. So the runtime behavior described below is read
+here as the contract this file implements, not as something a run in this repository
+exhibits — but NOT as dead code: the withheld tier and its helpers are deliberately
+retained so the tier stays reconstructable and an already-installed consumer keeps working,
+and such a consumer still has the caller this tree lacks, so the guard can be live on that
+copy. Observed against `origin/main` when this paragraph was written; a caller landing
+later falsifies "unreachable" with no edit here, so re-derive it rather than trust it.
 
 DENY SET (arms, not rule ids). The guard denies exactly `R1`, the `/tmp`-target arm of
 R3 (`R3-tmp`), and `R4` — every `lib/test/extract-command-shapes.py` `REVIEW_RULES` arm
@@ -147,19 +156,24 @@ It no longer gates this file's design (the fall-through emits no token at all, s
 token the guard ever writes is the measured-honored `deny`), but a future arm that adds a
 third token would reopen it.
 
-TRUST BOUNDARY (the contract registration must satisfy). This file is inert unless its
-path is in the trusted-base HOOK_TARGETS: the hook command a `settings` input would
-register points at a path the #458 harden step has already displaced-or-stubbed from the
-base ref, so a pull-request-head guard body never executes in the secrets-bearing review
-job. That half IS shipped here — the path is in `HOOK_ENTRY_TARGETS` and `HOOK_TARGETS`.
-The two registration channels are not, and each has a distinct job: a committed
-`.claude/settings.json` `PreToolUse` entry is what would ARM the #458 relevance gate
-(`--wired-check` substring-matches `HOOK_ENTRY_TARGETS` against the trusted base
-settings, so a guard registered only through the action's `settings` input leaves that
-gate unarmed), while the action's `settings` input is what would make the guard
-EFFECTIVE in a run. Registering through `settings` alone would run pull-request-editable
-guard code in a secrets-bearing job; both channels must land together. See
-scripts/harden-stop-hooks.sh.
+TRUST BOUNDARY (the contract registration satisfies). This file is inert unless its path is
+in the trusted-base HOOK_TARGETS: the hook command the `settings` input registers points at
+a path the #458 harden step has already displaced-or-stubbed from the base ref, so a
+pull-request-head guard body never executes in the secrets-bearing review job. That half IS
+shipped here — the path is in `HOOK_ENTRY_TARGETS` and `HOOK_TARGETS`. So is one of the two
+registration channels: the action's `settings` input, the one that makes the guard
+EFFECTIVE in a run. The other — a committed `.claude/settings.json` `PreToolUse` entry — is
+not, and its job is narrower than making the guard work: it is what would ARM the #458
+relevance gate (`--wired-check` substring-matches `HOOK_ENTRY_TARGETS` against the trusted
+base settings), which therefore stays unarmed while only the `settings` channel is shipped.
+An earlier revision of this paragraph concluded that both channels must land together,
+since `settings` alone would run pull-request-editable guard code in a secrets-bearing job.
+Issue #908 closed that hole from the other side instead: `devflow-runner.yml` carries a
+dedicated `Harden PreToolUse guard closure (unconditional)` step, deliberately
+unconditioned by the relevance gate, that always materializes a trusted base copy of the
+guard's three-file import closure or stubs it inline, fail-closed. The channels need not
+land together any more — but a registration added by any OTHER route still owes its own
+hardening. See scripts/harden-stop-hooks.sh.
 """
 
 from __future__ import annotations
