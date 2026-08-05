@@ -2377,3 +2377,23 @@ _ra_bind_fails_closed "a coupled-site entry naming a missing path" \
 _ra_bind_fails_closed "removing holds_old_paths exposes the old paths to the AC4 check" \
   's/"holds_old_paths": True,//' \
   "wsr-swept-relpaths" ".devflow/prompt-extensions/implement.md" "absent from the tree"
+# AC4: the holds_old_paths marker exempts only the PARTNERS — the `original` is a live file
+# and stays existence-checked even on an old-path entry. A missing `original` on the
+# holds_old_paths entry still fails closed (this would PASS under a whole-entry skip). `#`
+# sed delimiter because the paths carry `/`.
+_ra_bind_fails_closed "an old-path entry with a missing original still fails the AC4 check" \
+  's#"original": "lib/test/run.sh"#"original": "lib/test/nonexistent-run.sh"#' \
+  "wsr-swept-relpaths" "lib/test/nonexistent-run.sh" "absent from the tree"
+# AC3: a non-bool holds_old_paths is rejected at import — a truthy STRING must not silently
+# disable the AC4 existence check (the fail-open guard-class CLAUDE.md warns about).
+_ra_bind_fails_closed "a non-bool holds_old_paths is rejected" \
+  's/"holds_old_paths": True,/"holds_old_paths": "yes",/' \
+  "wsr-swept-relpaths" "not a bool"
+# AC3: an entry with an empty partners tuple is rejected — a coupled site with no partner
+# records no coupling. matcher-probe-extras' partners is a single-line tuple, so this
+# mutation is unambiguous.
+# The `(`/`)` are escaped: `_ra_bind_fails_closed` runs `sed -E`, so bare parens are ERE
+# grouping metacharacters, not literals.
+_ra_bind_fails_closed "a coupled-site entry with no partners is rejected" \
+  's#"partners": \(".github/workflows/matcher-probe.yml",\),#"partners": (),#' \
+  "matcher-probe-extras" "one or more partner"

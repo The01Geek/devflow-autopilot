@@ -407,9 +407,9 @@ ROWS = (
 # table answers the FORWARD question a person or an automated run asks BEFORE editing:
 # "I am about to edit X — what else must change with it?". A coupled site is a value,
 # literal, or contract kept in more than one place by hand, where changing one place
-# obliges changing the others. Some of these have a standalone checker; two of the
-# entries below have NONE at all and are invisible unless you happen to read the right
-# part of a very large script. Recording them here — as data, printable read-only from
+# obliges changing the others. Some of these have a standalone checker; some have NONE
+# at all and are invisible unless you happen to read the right part of a very large
+# script. Recording them here — as data, printable read-only from
 # `--list` — makes them findable and greppable before the edit, not one round trip later
 # when the suite goes red or a reviewer rejects the change.
 #
@@ -425,23 +425,26 @@ ROWS = (
 #   coupling_class — a short class name saying what KIND of coupling it is.
 #   note           — a one-line instruction: what an editor has to do.
 # OPTIONAL FIELD:
-#   holds_old_paths — bool, default False. When True this entry deliberately names
+#   holds_old_paths — bool, default False. When True this entry's PARTNERS are
 #                    superseded/old paths (arguments to `git show <old-commit>:<path>`
 #                    that only resolve under their old names), so the AC4 path-existence
-#                    check in `emit_list` SKIPS it. The marker is what exempts the entry
-#                    — never a hardcoded path list inside the checker.
+#                    check in `emit_list` skips the partners. The marker is what exempts
+#                    them — never a hardcoded path list inside the checker. The `original`
+#                    is the live file an editor opens to change the coupled value, so it is
+#                    always current and always checked, marker or not.
 #
 # EMITTED LINES (issue #1206) — printed by `emit_list` AFTER everything the command
 # prints today, so a tree with no entries here leaves the existing `artifact` /
 # `conflict-*` / `preflight` output byte-for-byte unchanged and every prefix-anchored
 # consumer parses as before. Two tab-separated line kinds, each parseable by its own
-# first word (partners are on their own lines so a path is individually greppable):
+# tab-delimited first field (`coupled-site` is a string prefix of `coupled-site-partner`,
+# so split on the tab, do not prefix-match; partners are on their own lines so a path is
+# individually greppable):
 #   coupled-site\t<name>\t<coupling_class>\t<original>\t<note>
 #   coupled-site-partner\t<name>\t<partner-path>
 COUPLED_SITES = (
     {
-        # AC5 — the EXTRAS copy of the tool-grant list, whose only checker is the
-        # full-suite-only #480 check in lib/test/run.sh.
+        # AC5 — the EXTRAS copy of the tool-grant list (the note names its checker).
         "name": "matcher-probe-extras",
         "original": ".prflow/config.json",
         "partners": (".github/workflows/matcher-probe.yml",),
@@ -1157,16 +1160,25 @@ def _coupled_site_path_failures(sites, root):
 
     Confirms every path an entry names exists in the tracked tree (AC4). A pure
     filesystem stat — no subprocess — because `--list` "runs nothing" (its own `--help`
-    contract). An entry marked `holds_old_paths` is SKIPPED: it deliberately names
-    superseded paths, and its own marker is what exempts it (never a hardcoded path list
-    in the checker).
+    contract). `is_file()`, not `exists()`, because every coupled site is a file: a
+    directory or dangling symlink at the path is not a resolved coupled site.
+
+    `holds_old_paths` exempts only the PARTNERS: they are the superseded paths that
+    resolve solely under their old names, and the marker is what exempts them (never a
+    hardcoded path list in the checker). The `original` is the live file an editor opens
+    to change the coupled value, so it is always current and always checked — a marker
+    scoped to the old partner paths must not silently stop guarding the current source
+    file the entry points at.
     """
     failures = []
     for entry in sites:
-        if entry.get("holds_old_paths"):
-            continue
-        for path in (entry["original"], *entry["partners"]):
-            if not (root / path).exists():
+        paths = (
+            (entry["original"],)
+            if entry.get("holds_old_paths")
+            else (entry["original"], *entry["partners"])
+        )
+        for path in paths:
+            if not (root / path).is_file():
                 failures.append((entry["name"], path))
     return failures
 
