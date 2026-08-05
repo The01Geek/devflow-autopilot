@@ -129,11 +129,17 @@ VERDICT PROVENANCE AND EXPIRY. Both arms report `observed CLI version: 2.1.222`,
 `claude-code-action@v1` is a FLOATING tag that installs whatever CLI it currently pins — so
 these verdicts are a measurement of one harness build, not a standing property, and an
 action or CLI upgrade can expire any of them. Re-running the two arms is how they are
-re-established after an upgrade — but NEITHER ARM IS MERGED: `.github/workflows/
-matcher-probe.yml` at HEAD carries only `pretooluse-probe` (which emits `allow` and can
-observe neither token), and `defer-probe` / `pretooluse-deny-probe` exist only on the
-unmerged `hook-probe-arms` branch. So re-running them is not actionable from this tree
-alone; that branch has to land (or the arms be re-authored) first.
+re-established after an upgrade, and since the `hook-probe-arms` branch landed (PR #1308)
+that is actionable from this tree: `defer-probe` and `pretooluse-deny-probe` are jobs of
+`.github/workflows/matcher-probe.yml`, beside the older `pretooluse-probe` (which emits
+`allow` and can observe neither token). Two triggers reach them — a bare
+`workflow_dispatch`, and a `pull_request` trigger whose `paths` filter is that workflow's
+own file, so any same-repo pull request touching it re-probes automatically. BATCH A
+RE-PROBE INTO ONE PUSH: neither trigger selects a job, so either one fires the whole
+workflow — fifteen jobs when #1308 landed, fourteen of them starting a paid Claude session.
+The workflow's `concurrency` group cancels a superseded run on the same ref, which reclaims
+the unfinished remainder of an iterated push sequence but not what the cancelled sessions
+already spent, nor the verdicts they never reached.
 
 STILL OPEN. What the harness does with an UNRECOGNIZED `permissionDecision` token is still
 unmeasured, and no local test can establish it — the answer lives in the harness, not here.
