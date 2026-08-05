@@ -1845,8 +1845,9 @@ jobs:
           # empty branch does not read as a partial success. The three-valued
           # decision (no commit / at least one commit / could-not-establish) and
           # the note it writes live in scripts/record-empty-branch.sh (beside the
-          # step, NOT inside the pure stall-backstop-decide.sh — AC1) so the suite
-          # can drive every outcome against a scratch repo + stubbed workpad. It is
+          # step, NOT inside the pure decision helper, which keeps its no-I/O
+          # purity — AC1) so the suite can drive every outcome against a scratch
+          # repo + stubbed workpad. It is
           # called ONLY from the two flip helpers below, which inherit their
           # POSITIONAL CLASS=interim guard — so it is written only at a genuine
           # terminal flip and NEVER on the resume path (issue #1261 gotcha: a
