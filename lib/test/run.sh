@@ -41757,6 +41757,121 @@ assert_eq "#664 scanner: a non-repository root fails closed naming git ls-files"
      rmdir "$E664_SB" 2>/dev/null || true
      case "$E664_RC3:$E664_OUT3" in 0:*) echo "no: exited 0" ;; *"git ls-files exited"*) echo yes ;; *) echo no ;; esac)"
 
+echo "#1312 executable-helper-mode: an -x-gated bundled helper must be tracked 100755"
+# Mechanical guard (issue #1312): scripts/dedupe-review-command.sh shipped 100644 while
+# devflow.yml gates on `[ ! -x ... ]`, so Candidate-C dedupe never fired and no test caught
+# it (both arms fail open). This lint derives the -x-gated helper set by joining VAR=<path>
+# assignments to `[ -x "$VAR" ]` tests across tracked .github/workflows/*.yml, scripts/*.sh,
+# lib/*.sh and asserts every resolved repo helper is tracked 100755. Driven like the sibling
+# #664/#711 lints: the real tree as the live gate, plus fresh git sandboxes for the RED cases.
+E1312_LINT="$LIB/test/lint-executable-helper-mode.py"
+
+# Real-tree run: exit 0, and the audited tally is asserted POSITIVE so a collapsed enumeration
+# (which would audit nothing yet exit 0) cannot read as clean.
+E1312_OUT="$(python3 "$E1312_LINT" 2>&1)"; E1312_RC=$?
+assert_eq "#1312 helper-mode lint: clean on the tree as it stands" "rc=0" \
+  "$([ "$E1312_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$E1312_RC" "$E1312_OUT")"
+assert_eq "#1312 helper-mode lint: the real-tree run audited a positive number of files" "yes" \
+  "$(printf '%s' "$E1312_OUT" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) of", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+assert_eq "#1312 helper-mode lint: the real-tree run checks at least one -x-gated repo helper" "yes" \
+  "$(printf '%s' "$E1312_OUT" | python3 -c 'import re,sys
+m = re.search(r"\((\d+) -x-gated repo helper", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+
+# Fresh git sandbox with a workflow -x-gating two vendored helpers (`.prflow/vendor/prflow/…`,
+# mapped to the repo-root path before the mode lookup), a script-dir-anchored -x test, a runtime
+# -x site (a `gh` binary, classified out of scope, not asserted), a `source`d/`-f`-guarded 644
+# helper (must NOT be swept — AC4), plus any extra run-block lines the caller appends. $1 is the
+# mode of the variable-mode helper scripts/dedupe.sh.
+e1312_make() {  # <dedupe-mode> [extra-run-lines]  -> prints repo dir
+  local d; d="$(git_sandbox "#1312 fixture")" || { printf '%s\n' "$d"; return 1; }
+  git -C "$d" init -q; git -C "$d" config user.email t@t; git -C "$d" config user.name t
+  mkdir -p "$d/scripts" "$d/.github/workflows" "$d/lib"
+  printf '#!/usr/bin/env bash\necho hi\n' > "$d/scripts/dedupe.sh"
+  printf '#!/usr/bin/env bash\necho ok\n' > "$d/scripts/detector.sh"
+  printf '#!/usr/bin/env bash\necho c\n' > "$d/scripts/child.sh"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"' \
+    'if [ ! -x "$SELF/child.sh" ]; then echo warn; fi' > "$d/scripts/self.sh"
+  # lib/sourced.sh (644) is only `source`d / `-f`-guarded here, never `-x`-tested — AC4.
+  printf '%s\n' '#!/usr/bin/env bash' 'X=/tmp' \
+    'if [ -f "$X/lib/sourced.sh" ]; then source "$X/lib/sourced.sh"; fi' > "$d/lib/user.sh"
+  printf '#!/usr/bin/env bash\ntrue\n' > "$d/lib/sourced.sh"
+  { printf '%s\n' 'jobs:' '  a:' '    steps:' '      - run: |' \
+      '          CC_HELPER=.prflow/vendor/prflow/scripts/dedupe.sh' \
+      '          if [ ! -x "$CC_HELPER" ]; then echo w; fi' \
+      '          DETECTOR=.prflow/vendor/prflow/scripts/detector.sh' \
+      '          if [ ! -x "$DETECTOR" ]; then echo w; fi' \
+      '          REAL="$(command -v gh 2>/dev/null || true)"' \
+      '          if [ -n "$REAL" ] && [ -x "$REAL" ]; then :; fi'
+    [ -n "$2" ] && printf '%s\n' "$2"
+  } > "$d/.github/workflows/wf.yml"
+  chmod 755 "$d/scripts/detector.sh" "$d/scripts/child.sh" "$d/scripts/self.sh" "$d/lib/user.sh"
+  chmod 644 "$d/lib/sourced.sh"
+  chmod "$1" "$d/scripts/dedupe.sh"
+  git -C "$d" add -A
+  printf '%s\n' "$d"
+}
+e1312_run() {  # <root>  -> prints "rc=<n>|<stdout+stderr>"
+  local out rc
+  out="$(python3 "$E1312_LINT" --root "$1" 2>&1)"; rc=$?
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+
+# GREEN: every -x-gated repo helper is 755 → exit 0; the runtime `gh` site and the 644
+# `source`d/`-f`-guarded lib/sourced.sh are not flagged.
+E1312_GREEN="$(e1312_make 755)"
+if [ -d "$E1312_GREEN" ]; then
+  E1312_G_OUT="$(e1312_run "$E1312_GREEN")"
+  assert_eq "#1312 lint: fixed tree (every -x-gated helper 755) passes" "yes" \
+    "$(case "$E1312_G_OUT" in "rc=0|"*) echo yes ;; *) echo "no: $E1312_G_OUT" ;; esac)"
+  assert_eq "#1312 lint: AC4 a source'd/-f-guarded 644 helper is not swept" "yes" \
+    "$(case "$E1312_G_OUT" in *"sourced.sh is tracked"*|*"sourced.sh resolves"*) echo no ;; *) echo yes ;; esac)"
+  assert_eq "#1312 lint: the runtime gh -x site is classified, not asserted" "yes" \
+    "$(case "$E1312_G_OUT" in *"RUNTIME"*"REAL"*) echo yes ;; *) echo no ;; esac)"
+  rm -rf "$E1312_GREEN"
+fi
+
+# RED AC6: the -x-gated helper is 644 → RED naming the file and its mode.
+E1312_RED="$(e1312_make 644)"
+if [ -d "$E1312_RED" ]; then
+  E1312_R_OUT="$(e1312_run "$E1312_RED")"
+  assert_eq "#1312 lint: AC6 a 644 -x-gated helper fails RED naming file+mode" "yes" \
+    "$(case "$E1312_R_OUT" in "rc=1|"*"scripts/dedupe.sh is tracked mode 100644"*) echo yes ;; *) echo "no: $E1312_R_OUT" ;; esac)"
+  rm -rf "$E1312_RED"
+fi
+
+# RED AC5 (untracked resolution): an -x operand resolving to an in-repo path that is not a
+# tracked file is named and RED — never silently skipped.
+E1312_GHOST="$(e1312_make 755 '          GHOST=.prflow/vendor/prflow/scripts/ghost.sh
+          if [ ! -x "$GHOST" ]; then echo w; fi')"
+if [ -d "$E1312_GHOST" ]; then
+  E1312_GH_OUT="$(e1312_run "$E1312_GHOST")"
+  assert_eq "#1312 lint: AC5 an operand resolving to an untracked in-repo path fails RED, named" "yes" \
+    "$(case "$E1312_GH_OUT" in "rc=1|"*"scripts/ghost.sh"*"not a tracked repo file"*) echo yes ;; *) echo "no: $E1312_GH_OUT" ;; esac)"
+  rm -rf "$E1312_GHOST"
+fi
+
+# RED AC5 (unresolvable shape): an -x operand whose shape the resolver cannot account for is
+# named and RED, never skipped.
+E1312_SHAPE="$(e1312_make 755 '          if [ -x "$UNRESOLVABLE_A$UNRESOLVABLE_B" ]; then echo w; fi')"
+if [ -d "$E1312_SHAPE" ]; then
+  E1312_SH_OUT="$(e1312_run "$E1312_SHAPE")"
+  assert_eq "#1312 lint: AC5 an unresolvable operand shape fails RED, named" "yes" \
+    "$(case "$E1312_SH_OUT" in "rc=1|"*"could not be resolved"*"refusing to silently skip"*) echo yes ;; *) echo "no: $E1312_SH_OUT" ;; esac)"
+  rm -rf "$E1312_SHAPE"
+fi
+
+# Fail-closed: a non-repository root names the git failure rather than reporting clean.
+E1312_NONREPO="$(probe_tmp '#1312 non-repo root')"
+rm -f "$E1312_NONREPO"; mkdir -p "$E1312_NONREPO"
+assert_eq "#1312 lint: a non-repository root fails closed naming git" "yes" \
+  "$(E1312_NR_OUT="$(python3 "$E1312_LINT" --root "$E1312_NONREPO" 2>&1)"; E1312_NR_RC=$?
+     rmdir "$E1312_NONREPO" 2>/dev/null || true
+     case "$E1312_NR_RC:$E1312_NR_OUT" in 0:*) echo "no: exited 0" ;; *"git ls-files"*) echo yes ;; *) echo no ;; esac)"
+
 echo "#711 tree enumeration: a repository-root recursive walk is declared, not silent"
 # The guard joins the desk-time static-lint family (extract-command-heads.py, pin-corpus-lint.py,
 # lint-gh-api-repo-path.py, lint-issue-body-refetch.py, coverage_map_guard.py — deliberately no
