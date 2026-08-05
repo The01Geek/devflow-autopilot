@@ -2759,12 +2759,7 @@ assert_eq "seed #1054: retired bad-marker token is absent from the helper" "0" \
 
 # Executable parity pin: the seed's produced marker and the dead-run workflow's
 # flip marker must agree for the same run id/attempt.
-# Two flip-marker producers now exist since issue #1174: the in-job dead-run flip
-# and the out-of-job `review_finalize` backstop. Both are byte-identical run-keyed
-# markers — they MUST be, or the finalizer's flip would target a different comment
-# than the one the dead command job (and the engine's seed) owns — so the parity
-# pin now requires exactly two and asserts they agree.
-assert_eq "seed #1054: workflow retains the run-id/attempt marker producer(s)" "2" \
+assert_eq "seed #1054: workflow retains the run-id/attempt marker producer" "1" \
   "$(grep -cF 'FLIP_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$RDWF")"
 S1054_WF_MARKER="$(GITHUB_RUN_ID=306999 GITHUB_RUN_ATTEMPT=4 python3 - "$RDWF" <<'PY'
 import os
@@ -2773,9 +2768,7 @@ import sys
 
 text = open(sys.argv[1], encoding="utf-8").read()
 matches = re.findall(r'^\s*FLIP_MARKER="(<!-- prflow:review-progress run=\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\} -->)"$', text, re.M)
-# One or more producers, and every one identical (a divergent producer would flip
-# the wrong run's comment). Print the single distinct marker they all share.
-if len(matches) < 1 or len(set(matches)) != 1:
+if len(matches) != 1:
     raise SystemExit(2)
 print(matches[0].replace("${GITHUB_RUN_ID}", os.environ["GITHUB_RUN_ID"]).replace("${GITHUB_RUN_ATTEMPT}", os.environ["GITHUB_RUN_ATTEMPT"]))
 PY

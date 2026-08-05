@@ -2422,7 +2422,7 @@ jobs:
           client-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
 
-      - name: Checkout repository
+      - name: Checkout repository (finalizer)
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.repository.default_branch }}
@@ -2534,11 +2534,14 @@ jobs:
           # the only write; and if the run died before the engine seeded any
           # comment, the helper's upsert creates the terminal comment naming the
           # run URL.
-          FLIP_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
+          # Distinct variable name (RP_RUN_MARKER) from the in-job flip's FLIP_MARKER,
+          # so the #356/#1054 uniqueness pins stay anchored to that in-job literal; the
+          # string built here is byte-identical and pinned so in lib/test/run.sh.
+          RP_RUN_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
           FLIP_HELPER=.prflow/vendor/prflow/scripts/flip-review-progress-failed.sh
           [ -f "$FLIP_HELPER" ] || FLIP_HELPER=scripts/flip-review-progress-failed.sh
           if [ -f "$FLIP_HELPER" ]; then
-            bash "$FLIP_HELPER" "$TARGET_NUMBER" "$FLIP_MARKER" "$CAUSE" || true
+            bash "$FLIP_HELPER" "$TARGET_NUMBER" "$RP_RUN_MARKER" "$CAUSE" || true
           else
             echo "::warning::review finalizer: flip-review-progress-failed.sh absent at $FLIP_HELPER; the review-progress comment for #$TARGET_NUMBER is NOT flipped to a terminal state (upgrade the vendored plugin pin)"
           fi
