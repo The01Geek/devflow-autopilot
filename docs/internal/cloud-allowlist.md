@@ -80,12 +80,14 @@ in-the-moment channel is **unestablished, not ruled out**: `scripts/pretooluse-s
 is an in-tree `PreToolUse` hook built for exactly that purpose — it returns a `deny`
 whose `permissionDecisionReason` names the permitted alternative for the denied shape —
 and #919 records, on repeated same-repo probe runs, that a hook registered through the
-action's `settings:` input **does fire** under `claude-code-action`. What is genuinely
-open is narrower: whether `permissionDecisionReason` survives to the engine transcript on
-the **`deny`** path is unmeasured (every recorded observation is on the probe's own
-`allow` path, for which the reason is specified to be ignored), and the guard is wired to
-no runnable tier. Both are tracked — see #1047 (residual item 2) and #919, and the
-*PreToolUse probe evidence* section further down for the recorded verdicts. Making
+action's `settings:` input **does fire** under `claude-code-action`. The narrower question
+that was open here — whether `permissionDecisionReason` survives to the engine transcript
+on the **`deny`** path, given that the older observations are all on an `allow` path for
+which the reason is specified to be ignored — is now **measured**: a hook emitting a real
+`deny` delivered its reason to the transcript (`REASON-DELIVERED`; see *Harness
+hook-surface probe evidence (Part 2)* below). What is left is deployment rather than
+mechanism — the guard is wired to no runnable tier. See #1047 (residual item 2) and #919,
+and the *PreToolUse probe evidence* sections further down for the recorded verdicts. Making
 denials visible *after* a run is a third, separate concern — issue #1064 (durable denial
 forensics). The three are complementary and none substitutes for the others.
 
@@ -1114,9 +1116,10 @@ only caller, `devflow-review.yml`, was deleted under #936 (which withheld the au
 pull-request-triggered review tier), so no workflow in the tree invokes it; the `settings:`
 registration rides on a reusable workflow that nothing calls. Whether to wire the guard
 onto a live tier (`devflow.yml` / `devflow-implement.yml`) or to accept it as
-retained-but-inert alongside the withheld tier is a separate open decision (#919) that is
-not settled here. Because the tier cannot run, every runtime behavior described below is
-the guard's implemented contract, not observed behavior.
+retained-but-inert alongside the withheld tier is a decision this page does not make;
+#919 records it as lying outside that issue's own scope. Because the tier cannot run,
+every runtime behavior described below is the guard's implemented contract, not observed
+behavior.
 
 ### The deny set and each arm's permitted alternative (authoritative)
 
@@ -1175,9 +1178,24 @@ review-run denial count against the run-`30138268273` baseline was **dropped** a
 longer achievable — no live tier can produce a review run carrying the guard (the
 guard's registration rode on `devflow-runner.yml`, whose sole caller `devflow-review.yml`
 was deleted by PR #937 / issue #936) — and that baseline run id is retained as historical
-reference only. Issue #919 remains open: its AC1 still asks for an explicit
-`gh workflow run` dispatch that this evidence shows to be unnecessary, and amending that
-is a maintainer decision, not this page's.
+reference only.
+
+**No `workflow_dispatch` was needed for this row, and the premise that one was is false.**
+The self-firing trigger above is why observations accumulated with nobody ever dispatching
+the arm. **What makes such a row attributable to `main` is the observing run's TREE, not
+its event type:** the question to ask is whether that run's head matched `main` for
+`.github/workflows/matcher-probe.yml` when the observation was taken. For this row the
+check was made on 2026-08-04 against the then-current `origin/main` at head
+`85e57ac1c6dcf732a861230f82182191977c6e41` and returned an empty diff. **That check is
+itself a past-time observation and does not re-derive** — PR #1308 has since added the
+hook-surface arms to the same workflow, so re-running the check today compares against a
+later `main` and is expected to differ. A row's provenance is the head sha it records,
+never a diff against whatever `main` has become.
+
+Residual, stated rather than hidden: every observation here arrives on a `pull_request`
+event, and a `workflow_dispatch` would differ in context (no pull request, no `.claude/`
+restore step) — but the hook reaches the session through the `settings:` input written at
+**user** scope, so the mechanism being measured is the same either way.
 
 | Probe run id | Firing verdict | Reason-delivery verdict | Per-arm denial counts (review run) |
 | --- | --- | --- | --- |
