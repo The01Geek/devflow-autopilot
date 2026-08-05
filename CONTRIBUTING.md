@@ -649,7 +649,8 @@ instead, via `--list`:
   security-boundary lock the capability generator never writes, is `by-hand`).
 
 These four line kinds are emitted strictly *after* the existing `artifact` lines,
-whose format is byte-unchanged, so prefix-anchored consumers parse as before. The rule is fail-closed at both ends: a conflicted path that is **not** among
+whose format is byte-unchanged, so prefix-anchored consumers parse as before. The
+rule is fail-closed at both ends: a conflicted path that is **not** among
 the emitted `conflict-path`/`conflict-sibling` paths is an ordinary hand-merge, and a
 `--list` that cannot run — or that emits no `artifact`/`conflict-class` lines — means
 needs-human-reconciliation and stop, never a guessed hand-merge.
