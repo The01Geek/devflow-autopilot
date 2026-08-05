@@ -7,6 +7,10 @@ description: "Choose the PRFlow workflow that matches the outcome and edit autho
 
 This page helps you choose the smallest workflow with the needed edit authority.
 
+The diagram uses PRFlow skill names without a client-specific command prefix. The command examples below show how to invoke them in each supported client.
+
+![A map of PRFlow skills grouped by outcome. The core delivery skills are prflow:create-issue, prflow:implement, prflow:review and prflow:review-and-fix. Supporting skills are prflow:pr-description, prflow:docs and prflow:retrospective-weekly.](/images/workflow-skill-map.svg)
+
 ## Choose a Workflow
 
 | **Goal** | **Workflow** | **What It Can Change** | **Expected Result** |

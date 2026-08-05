@@ -7,6 +7,20 @@ description: "Choose local interactive execution or optional GitHub Actions auto
 
 This page is for teams choosing where PRFlow should execute. The lifecycle is similar in both modes, but the credentials, permission boundary and interaction model differ.
 
+```mermaid
+flowchart TD
+    accTitle: Choose between a local run and a cloud run
+    accDescr: Use a local run for interactive work in your current development session. Use a cloud run for unattended work only after the GitHub Actions workflow, runner, secrets, setup and permissions are ready.
+    start{"Do you want PRFlow to run<br/>in your current development session?"}
+    start -- "Yes" --> local["Use a local run<br/>Interactive and easiest to start"]
+    start -- "No" --> unattended{"Do you need authorized GitHub comments<br/>to start unattended work?"}
+    unattended -- "No" --> local
+    unattended -- "Yes" --> ready{"Are the workflow, runner, secrets,<br/>setup and permissions ready?"}
+    ready -- "Not yet" --> prepare["Start locally<br/>Then configure and test cloud runs"]
+    ready -- "Yes" --> cloud["Use a cloud run<br/>GitHub Actions executes the work"]
+    prepare --> cloud
+```
+
 | **Run Type** | **Execution Environment** | **Best For** |
 | --- | --- | --- |
 | [Local runs](/docs/runs/local/index) | Your Claude Code, GitHub Copilot CLI or Codex CLI session. | First use, interactive decisions and access to an existing development environment. |
