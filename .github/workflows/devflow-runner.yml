@@ -2632,7 +2632,8 @@ jobs:
       # guard fires but denies nothing does not create that file, so its absence is
       # ambiguous between "guard did not fire" and "guard fired, zero denials" unless
       # disambiguated against the heartbeat, written from `_write_heartbeat` on every
-      # invocation including a defer/allow. This step distinguishes FOUR outcomes
+      # invocation including the no-decision fall-through (exit 0 with no stdout, the
+      # guard's only non-`deny` outcome). This step distinguishes FOUR outcomes
       # (issue #908 review — an earlier revision of this comment named only the first
       # two, which is what let the third go untested; the fourth arrived with the
       # confirmatory review's zero-byte finding):
