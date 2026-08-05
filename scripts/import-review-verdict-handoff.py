@@ -18,7 +18,7 @@ Threat model / why each check exists (AC5):
   count, its size, its bytes, and its contents. So the importer treats the path
   adversarially — it opens with ``O_NOFOLLOW`` (a symlink is rejected atomically,
   never followed), rejects a non-regular file and any file carrying *additional*
-  hard links (``st_nlink > 1`` — a second name through which the bytes could be
+  hard links (``st_nlink != 1`` — a second name through which the bytes could be
   swapped after validation), caps the size (oversized input is refused before it
   is read into memory), and re-stats the open descriptor after reading to reject a
   file whose metadata changed under it (an unstable file racing the read).
@@ -50,6 +50,15 @@ import os
 import re
 import stat
 import sys
+from typing import NamedTuple
+
+
+class ImportedHandoff(NamedTuple):
+    """The validated result of a handoff import (typed so the two-key contract is
+    checked at the call site rather than reached by string literal)."""
+
+    normalized: dict
+    body: str | None
 
 # Closed schema (issue #1314). The handoff carries ONLY the decision; identity
 # comes from trusted workflow state, never from this file.
@@ -63,6 +72,11 @@ LEGAL_PAIRS = frozenset({
     ("APPROVE", "APPROVE"),
     ("COMMENT", "APPROVE"),
 })
+# The vocab sets and the pair table must stay mutually consistent: a pair drawn
+# from outside the singleton vocabularies would be silently unreachable dead code
+# (the per-field checks reject it before the pair check). Assert the relation at
+# import so a future typo is a loud failure, not silent drift.
+assert all(e in REVIEW_EVENTS and v in MARKER_VERDICTS for e, v in LEGAL_PAIRS)
 
 # Bounds. The handoff JSON is tiny by construction; the body is prose but still
 # bounded so an oversized artifact can never be published.
@@ -90,7 +104,8 @@ def _read_bounded_regular_file(path: str, max_bytes: int) -> bytes:
     Rejects, by token: ``symlink`` (O_NOFOLLOW), ``not-regular-file``,
     ``extra-hard-links`` (st_nlink != 1), ``oversized`` (> max_bytes),
     ``unstable-metadata`` (identity/size/mtime/ctime/nlink changed across the
-    read), and ``unreadable`` (open/read error other than a symlink).
+    read), and ``unreadable`` (an open error other than a symlink — a read-time
+    OSError is not remapped and propagates, still fail-closed before any publish).
     """
     try:
         # O_NOFOLLOW makes a final-component symlink fail atomically (ELOOP) —
@@ -204,7 +219,7 @@ def import_handoff(
     body_path: str | None,
     max_handoff_bytes: int,
     max_body_bytes: int,
-) -> dict:
+) -> ImportedHandoff:
     """Validate the handoff (and optional body). Return the normalized record.
 
     Raises Rejected on the first failing check. Performs no output write — the
@@ -229,7 +244,7 @@ def import_handoff(
         "review_event": event,
         "marker_verdict": verdict,
     }
-    return {"normalized": normalized, "body": body_text}
+    return ImportedHandoff(normalized=normalized, body=body_text)
 
 
 def _atomic_write(path: str, data: str) -> None:
@@ -273,12 +288,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  detail: {rej.detail}", file=sys.stderr)
         return 1
 
-    normalized = result["normalized"]
-    # Publish only after every check passed.
+    normalized = result.normalized
+    # Publish only after every check passed. Write the body FIRST and the verdict
+    # (--out) LAST, so the verdict artifact's existence implies its body is already
+    # present: a downstream emitter that keys "schedule work" off --out can never
+    # observe a verdict without a matching body, even if the second write is
+    # interrupted (ENOSPC, permission, signal).
+    if args.out_body and result.body is not None:
+        _atomic_write(args.out_body, result.body)
     if args.out:
         _atomic_write(args.out, json.dumps(normalized, sort_keys=True) + "\n")
-    if args.out_body and result["body"] is not None:
-        _atomic_write(args.out_body, result["body"])
 
     print(f"ACCEPTED {normalized['review_event']} {normalized['marker_verdict']}")
     return 0

@@ -185,6 +185,39 @@ class TestRejectionsPublishNothing(ImporterTestBase):
         # it, and the S_ISREG check refuses it.
         self.assert_rejected(str(self.dir), "not-regular-file")
 
+    def test_unreadable_missing_file_rejected(self) -> None:
+        # The non-ELOOP open-failure branch (missing file / permission).
+        self.assert_rejected(str(self.dir / "does-not-exist.json"), "unreadable")
+
+    def test_unstable_metadata_rejected(self) -> None:
+        # The TOCTOU re-stat defense: the descriptor's metadata changes across the
+        # read. Drive it by making the second os.fstat report a bumped mtime — the
+        # swap-after-validation attack the threat model calls out.
+        real_fstat = mod.os.fstat
+        calls = {"n": 0}
+
+        class FakeStat:
+            def __init__(self, base, mtime_ns):
+                self.st_mode = base.st_mode
+                self.st_nlink = 1
+                self.st_size = base.st_size
+                self.st_ino = base.st_ino
+                self.st_dev = base.st_dev
+                self.st_mtime_ns = mtime_ns
+                self.st_ctime_ns = base.st_ctime_ns
+
+        def fake_fstat(fd):
+            calls["n"] += 1
+            base = real_fstat(fd)
+            # First fstat: true mtime. Second: drifted mtime → unstable.
+            return FakeStat(base, base.st_mtime_ns + (0 if calls["n"] == 1 else 1))
+
+        mod.os.fstat = fake_fstat
+        try:
+            self.assert_rejected(self.handoff(VALID), "unstable-metadata")
+        finally:
+            mod.os.fstat = real_fstat
+
 
 class TestBodyRejections(ImporterTestBase):
     def test_body_nul_rejected_no_publish(self) -> None:
@@ -193,6 +226,17 @@ class TestBodyRejections(ImporterTestBase):
         out = str(self.dir / "o.json")
         outb = str(self.dir / "ob.md")
         rc = mod.main(["--handoff", hp, "--body", bp, "--out", out, "--out-body", outb])
+        self.assertEqual(rc, 1)
+        self.assertFalse(os.path.exists(out))
+        self.assertFalse(os.path.exists(outb))
+
+    def test_body_oversized_rejected_no_publish(self) -> None:
+        hp = self.handoff(VALID)
+        bp = self.write("body.md", "x" * 100)
+        out = str(self.dir / "o.json")
+        outb = str(self.dir / "ob.md")
+        rc = mod.main(["--handoff", hp, "--body", bp, "--out", out,
+                       "--out-body", outb, "--max-body-bytes", "10"])
         self.assertEqual(rc, 1)
         self.assertFalse(os.path.exists(out))
         self.assertFalse(os.path.exists(outb))
