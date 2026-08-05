@@ -3,7 +3,7 @@ name: docs-bootstrap-external
 description: Use when customer-facing documentation must be created from scratch or comprehensively rebuilt — "we have no public docs", "set up user-facing documentation", "build external docs from our internal ones", "do a full docs refresh" — or when large portions of the internal docs still have no external counterpart. For incremental alignment of external docs that already exist, use prflow:docs-sync-external.
 ---
 > **Configuration:** Read documentation paths from `.prflow/config.json`:
-> - Internal: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/`
+> - Internal: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/` <!-- pruned-path-ok: the configurable consumer-owned internal-doc root, not a path expected inside the vendored plugin -->
 > - External: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.external docs/external/` <!-- pruned-path-ok: this is the configurable consumer-owned external-doc root, not a path expected inside the vendored plugin -->
 >
 > The helper falls back to the default value when the config file is missing or the key is absent. Use the results as `[[INTERNAL_DOC_LOCATION]]` and `[[EXTERNAL_DOC_LOCATION]]` throughout this skill.

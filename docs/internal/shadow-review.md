@@ -10,7 +10,7 @@ shapes its design, so the constraint is not re-derived (or re-broken) by a futur
 sees "just run the engine in a fresh subagent" as the obvious simplification. It is not.
 
 Existence-only pin findings use the canonical protected-asset classification documented in
-[`docs/implement-skill.md`](implement-skill.md#protected-asset-taxonomy-for-existence-only-pins).
+[`docs/internal/implement-skill.md`](implement-skill.md#protected-asset-taxonomy-for-existence-only-pins).
 
 ## What the shadow pass is, and why it exists
 

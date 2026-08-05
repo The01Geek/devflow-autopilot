@@ -362,7 +362,7 @@ default, and a caller that knows the provider capability passes it in.
 > resolved effort into a process-start agent-definition the platform reads at launch — exists only
 > where an empirical spike in the real `claude-code-action` proves the startup `--agents` effort seam
 > is reachable AND governs a runtime Agent-tool dispatch. That spike is implemented as the
-> [`agents-seam-probe.yml`](../.github/workflows/agents-seam-probe.yml) probe, whose deterministic
+> [`agents-seam-probe.yml`](../../.github/workflows/agents-seam-probe.yml) probe, whose deterministic
 > verdict helper is `scripts/agents-seam-probe-verdict.py` and whose recorded evidence of record is
 > [agents-seam-probe.md](agents-seam-probe.md) (issue #610). **The probe is authored but not yet
 > dispatched to a `SEAM_PROVEN` verdict**, so until a dispatch proves BOTH facts (forwarding, and a

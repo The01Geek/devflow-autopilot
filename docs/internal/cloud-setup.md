@@ -108,9 +108,9 @@ writes changes into your repository, so download it, read it, then run the file 
 read:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.105/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.106/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.30.105 bash devflow-install.sh
+DEVFLOW_REF=v2.30.106 bash devflow-install.sh
 ```
 
 Both refs are pinned to the same **release tag**, so the install is reproducible.
@@ -823,7 +823,7 @@ defaults; they are not harmonized.
 
 ## Startup-lifecycle observability & consumer version skew (issue #537)
 
-The `/prflow:implement` startup lifecycle (see `docs/workflow-triggers.md` and
+The `/prflow:implement` startup lifecycle (see `docs/internal/workflow-triggers.md` and
 `DEVFLOW_SYSTEM_OVERVIEW.md` for the full model) adds **zero** new configuration:
 no new config key, permission, secret, repository variable, service, or install
 mode. It reuses the existing issue-comment workpad, the job's existing token, and a
@@ -986,7 +986,7 @@ fallback; a configured-but-broken reviewer App fails the job at the mint step.
 > the `gh pr comment` fallback and the required `Devflow Review` check still apply.
 
 The same App token also powers the implement workflow's **stall-backstop
-auto-resume** (see `docs/implement-skill.md`): a `/prflow:implement <#>` resume
+auto-resume** (see `docs/internal/implement-skill.md`): a `/prflow:implement <#>` resume
 comment authored by the built-in `GITHUB_TOKEN` never re-triggers the workflow
 (GitHub suppresses recursive `GITHUB_TOKEN` events), so without the App the
 backstop posts its resume comment and then fails the job loud instead of
@@ -1000,7 +1000,7 @@ than reusing the token minted at the job's start; a `gh`-api/transport/auth
 failure reading the workpad (e.g. an expired token) is a distinct `auth-failure`
 class that fails the job loud **without** consuming a resume attempt, so a healthy
 workpad behind a bad token is never misclassified as corrupt (see
-`docs/implement-skill.md`). The resume comment carries an inline `Resume note:`
+`docs/internal/implement-skill.md`). The resume comment carries an inline `Resume note:`
 that instructs the resumed run to invoke bundled helpers with the repo-relative
 vendored literal (`.prflow/vendor/prflow/scripts/…`, `.prflow/vendor/prflow/lib/…`)
 as the command's leading token — never an absolute path, never repo-root
@@ -1011,7 +1011,7 @@ prior auto-resume runs on their first helper call (issue #405).
 The same App token **also** powers the review workflow's **no-verdict
 auto-resume backstop** (`prflow_review.stall_backstop`, issue #408 — the
 review-side sibling of the implement backstop above; see
-`docs/DEVFLOW_SYSTEM_OVERVIEW.md`). A headless cloud review can end `success`
+`docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`). A headless cloud review can end `success`
 with no verdict — not a timing race but the harness's **default dispatch mode**
 meeting a headless runner: subagents are background-by-default, a background
 dispatch's results arrive in a *later turn*, and a headless `claude -p` session
@@ -1090,7 +1090,7 @@ unaffected.
 > reviews).
 
 For the full idea → issue → PR walkthrough, see
-[The workflow, end to end](../README.md#the-workflow-end-to-end) in the README.
+[The workflow, end to end](../../README.md#the-workflow-end-to-end) in the README.
 
 ## Configure and enable
 
@@ -1509,7 +1509,7 @@ matter for the cloud tier:
   the tokens, wall-clock, the dispatch roster, and cost with zero agent cooperation, and that the local
   `Stop` transcript's per-message token counts are **real** figures rather than streaming
   placeholders (wall-clock and the dispatch roster were *not* measured on the local tier — see
-  [`docs/execution-file-shape.md`](execution-file-shape.md)), so an agent-independent cost floor is
+  [`docs/internal/execution-file-shape.md`](execution-file-shape.md)), so an agent-independent cost floor is
   buildable — and #475 built the cloud half.
 - **Implement-vs-runner `--permission-mode` asymmetry.** The read-only `review` runner
   (`devflow-runner.yml`) launches Claude with `--permission-mode acceptEdits`; the
@@ -1540,7 +1540,7 @@ Anthropic-OAuth default (unchanged for a given `claude_model`).
 
 **No provider-by-provider setup walkthrough ships in this release.** The
 per-entry field reference — `base_url`, `auth`, `timeout_ms`, `effort_supported`,
-and the `env` map — lives in [`.prflow/config.schema.json`](../.prflow/config.schema.json)
+and the `env` map — lives in [`.prflow/config.schema.json`](../../.prflow/config.schema.json)
 under `providers`, which is the single source for those fields. Two operational
 notes the schema does not carry:
 
