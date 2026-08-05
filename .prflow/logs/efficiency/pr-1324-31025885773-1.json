@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1324",
+  "generated_at": "2026-08-05T16:52:23Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.116",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 13.129061999999992,
+    "tokens": {
+      "input_tokens": 84,
+      "output_tokens": 37649,
+      "cache_read_input_tokens": 7710998,
+      "cache_creation_input_tokens": 250226,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 224,
+        "outputTokens": 84690,
+        "cacheReadInputTokens": 12022839,
+        "cacheCreationInputTokens": 649748,
+        "webSearchRequests": 0,
+        "costUSD": 13.129061999999992,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 51,
+    "duration_ms": 996402
+  },
+  "permission_denials": {
+    "count": 22,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "git status --porcelain; echo \"---ENV---\"; echo \"run=${GITHUB_RUN_ID:-none} attempt=${GITHUB_RUN_ATTEMPT:-none} actions=${GITHUB_ACTIONS:-none}\"",
+      "gh pr diff 1324 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1324/31025885773-1/diff.patch\nwc -l .prflow/tmp/review/pr-1324/31025885773-1/diff.patch",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve \"1206\" --pr \"1324\" 2>.prflow/tmp/review/pr-1324/31025885773-1/acs.err ; echo \"acs-rc=$?\"",
+      "echo \"=== VC-5: #480 check title in run.sh ===\"; grep -n '#480 matcher-probe EXTRAS mirrors probe-eligible prflow_implement.allowed_tools' lib/test/run.sh | head -3\necho \"=== VC-7: rename-map _comment ===\"; grep -n '_comment' lib/rename-map.json | head; \necho \"=== partner/original path existence (AC4 live) ===\"; for p in .prflow/config.json lib/rename-map.json lib/test/run.sh .github/workflows/matcher-probe.yml .github/workflows/devflow.yml .github/workflows/devflow-implement.yml scripts/scaffol …[per-command-truncated]",
+      "mkdir -p .prflow/tmp\ngit status --porcelain -z > .prflow/tmp/review-dirty-tree-before\ngit hash-object .prflow/tmp/review-dirty-tree-before",
+      "for p in .prflow/config.json .github/workflows/matcher-probe.yml lib/rename-map.json scripts/scaffold-config.sh scripts/config-get.sh scripts/migrate-consumer-tier1.sh lib/test/pin-corpus-lint.py .github/workflows/devflow.yml .github/workflows/devflow-implement.yml lib/resolve-state-dir.sh lib/state_dir.py; do [ -f \"$p\" ] && echo \"OK  $p\" || echo \"MISSING $p\"; done",
+      "for p in .prflow/config.json .github/workflows/matcher-probe.yml lib/test/run.sh lib/rename-map.json scripts/scaffold-config.sh scripts/config-get.sh scripts/migrate-consumer-tier1.sh lib/test/pin-corpus-lint.py .github/workflows/devflow.yml .github/workflows/devflow-implement.yml lib/resolve-state-dir.sh lib/state_dir.py; do [ -f \"$p\" ] && echo \"OK   $p\" || echo \"MISS $p\"; done",
+      "for p in .prflow/config.json .github/workflows/matcher-probe.yml lib/rename-map.json scripts/scaffold-config.sh scripts/config-get.sh scripts/migrate-consumer-tier1.sh lib/test/pin-corpus-lint.py .github/workflows/devflow.yml .github/workflows/devflow-implement.yml lib/resolve-state-dir.sh lib/state_dir.py; do if [ -f \"$p\" ]; then echo \"OK  $p\"; else echo \"MISSING $p\"; fi; done",
+      "for p in .prflow/config.json .github/workflows/matcher-probe.yml lib/test/run.sh lib/rename-map.json scripts/scaffold-config.sh scripts/config-get.sh scripts/migrate-consumer-tier1.sh lib/test/pin-corpus-lint.py .github/workflows/devflow.yml .github/workflows/devflow-implement.yml lib/resolve-state-dir.sh lib/state_dir.py; do if [ -f \"$p\" ]; then echo \"OK   $p\"; else echo \"MISS $p\"; fi; done",
+      "for p in .prflow/config.json .github/workflows/matcher-probe.yml lib/rename-map.json scripts/scaffold-config.sh scripts/config-get.sh scripts/migrate-consumer-tier1.sh lib/test/pin-corpus-lint.py .github/workflows/devflow.yml .github/workflows/devflow-implement.yml lib/resolve-state-dir.sh lib/state_dir.py lib/test/run.sh; do [ -e \"$p\" ] && echo \"OK  $p\" || echo \"MISSING  $p\"; done",
+      "for p in .prflow/config.json .github/workflows/matcher-probe.yml lib/rename-map.json scripts/scaffold-config.sh scripts/config-get.sh scripts/migrate-consumer-tier1.sh lib/test/pin-corpus-lint.py .github/workflows/devflow.yml .github/workflows/devflow-implement.yml lib/resolve-state-dir.sh lib/state_dir.py lib/test/run.sh; do if [ -e \"$p\" ]; then echo \"OK $p\"; else echo \"MISSING $p\"; fi; done",
+      "for f in scripts/scaffold-config.sh scripts/config-get.sh scripts/migrate-consumer-tier1.sh lib/test/pin-corpus-lint.py; do echo \"== $f ==\"; grep -c \"rename-map\" \"$f\"; done; echo \"== state_dir mirror test ==\"; grep -rln \"rename-map\" lib/test/modules/tier1-rename-migration.sh 2>/dev/null && grep -c \"state_dir\\|resolve-state-dir\\|state-dir\" lib/test/modules/tier1-rename-migration.sh",
+      "ls .changeset/*.md 2>/dev/null | head; echo \"---sample---\"; for f in $(ls .changeset/*.md 2>/dev/null | grep -v issue-1206 | head -2); do echo \"== $f ==\"; head -12 \"$f\"; done",
+      "python3 lib/test/regenerate-artifacts.py --list 2>&1 | grep '^coupled-site' | head -30; echo \"EXIT: ${PIPESTATUS[0]}\"",
+      "python3 lib/test/regenerate-artifacts.py --list > /tmp/ralist.txt 2>&1; echo \"EXIT: $?\"; grep '^coupled-site' /tmp/ralist.txt",
+      "TMP=$(mktemp -d); git apply --directory=\"$TMP\" 2>/dev/null <<'EOF'\nEOF\ncp -r lib scripts .github .prflow CLAUDE.md docs CONTRIBUTING.md \"$TMP\"/ 2>/dev/null; cd \"$TMP\" 2>/dev/null; git apply /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1324/31025885773-1/diff.patch 2>&1 | head; echo \"apply done\"; python3 lib/test/regenerate-artifacts.py --repo-root /home/runner/work/prflow/prflow --list 2>&1 | grep -c coupled-site",
+      "cd /tmp && rm -rf ratest && mkdir ratest && git -C /home/runner/work/prflow/prflow archive HEAD | tar -x -C /tmp/ratest && cd /tmp/ratest && git init -q && git add -A && git commit -qm base && git apply /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1324/31025885773-1/diff.patch && echo APPLIED",
+      "rm -rf /tmp/ratest && mkdir /tmp/ratest && git archive HEAD | tar -x -C /tmp/ratest && git apply --directory=/tmp/ratest .prflow/tmp/review/pr-1324/31025885773-1/diff.patch && echo APPLIED",
+      "rm -rf /tmp/ratest; mkdir -p /tmp/ratest; git archive HEAD | tar -x -C /tmp/ratest; git apply --directory=/tmp/ratest .prflow/tmp/review/pr-1324/31025885773-1/diff.patch; echo \"apply rc=$?\"",
+      "git archive HEAD | tar -x -C /tmp/ratest 2>/dev/null; ls /tmp/ratest/lib/test/regenerate-artifacts.py",
+      "mkdir -p /tmp/ratest && git archive HEAD -o /tmp/ratest/head.tar",
+      "git archive HEAD -o /tmp/head.tar"
+    ],
+    "total": 22,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
