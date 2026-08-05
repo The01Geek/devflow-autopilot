@@ -1834,11 +1834,51 @@ jobs:
           # flip_to_failed itself — omitting the call silently regresses the
           # flip on that arm.
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          # Base branch for the empty-branch probe (issue #1261). Resolved the same
+          # way §1.4 does — config .base_branch, default main. config-get prints a
+          # fully-resolved value or nothing, so one emptiness fallback covers both
+          # its soft and hard failure paths.
+          BASE_BRANCH="$("$V/config-get.sh" .base_branch main)"
+          [ -n "$BASE_BRANCH" ] || BASE_BRANCH=main
+          # Empty-branch producer (issue #1261): when a terminated run pushed no
+          # commit to its remote branch, record that fact on the workpad so an
+          # empty branch does not read as a partial success. The three-valued
+          # decision (no commit / at least one commit / could-not-establish) and
+          # the note it writes live in scripts/record-empty-branch.sh (beside the
+          # step, NOT inside the pure stall-backstop-decide.sh — AC1) so the suite
+          # can drive every outcome against a scratch repo + stubbed workpad. It is
+          # called ONLY from the two flip helpers below, which inherit their
+          # POSITIONAL CLASS=interim guard — so it is written only at a genuine
+          # terminal flip and NEVER on the resume path (issue #1261 gotcha: a
+          # no-commit statement written before a resume would be stale the moment
+          # the resumed run pushes). The run's feature branch is read from the
+          # workpad Branch line best-effort; when it cannot be resolved the helper
+          # itself records the unestablished case. Best-effort throughout: the
+          # helper always exits 0 and self-warns on a write failure, so the exit
+          # arm is never changed (AC5).
+          record_empty_branch() {
+            [ "${CLASS:-}" = "interim" ] || return 0
+            local wp_id wp_body br
+            wp_id="$(python3 "$V/workpad.py" id "$ISSUE_NUMBER" 2>/dev/null)" || wp_id=""
+            wp_body=""
+            [ -n "$wp_id" ] && { wp_body="$(python3 "$V/workpad.py" body "$wp_id" 2>/dev/null)" || wp_body=""; }
+            # Parse the workpad `**Branch:** ` + backtick-quoted name; a placeholder
+            # like `_(creating…)_` carries no backticks, so `br` stays empty and the
+            # helper records the unestablished case rather than a false no-commit.
+            br="$(printf '%s\n' "$wp_body" | sed -n 's/^\*\*Branch:\*\* `\([^`]*\)`.*/\1/p' | head -n1)"
+            ISSUE_NUMBER="$ISSUE_NUMBER" BRANCH="$br" BASE="$BASE_BRANCH" REMOTE=origin \
+              RUN_URL="$RUN_URL" V="$V" EB_WORKPAD_BODY="$wp_body" \
+              bash "$V/record-empty-branch.sh" \
+              || echo "::warning::stall backstop: empty-branch producer exited non-zero; workpad note may be unwritten"
+          }
           flip_to_failed() {
             [ "${CLASS:-}" = "interim" ] || return 0
             python3 "$V/workpad.py" update "$ISSUE_NUMBER" --status Failed \
               --note "run died: ${1:-dead-end exit} — ${RUN_URL}" \
               || echo "::warning::stall backstop: could not flip workpad Status to 💥 Failed (${1:-dead-end exit}); leaving it unchanged"
+            # Record the empty-branch fact alongside the terminal flip (AC6): the
+            # 💥 Failed Status and the no-commit statement coexist.
+            record_empty_branch
           }
           # Cancelled-run flip (issue #498): mirror of flip_to_failed — the same
           # POSITIONAL CLASS=interim guard, best-effort ::warning:: on failure,
@@ -1853,6 +1893,9 @@ jobs:
             python3 "$V/workpad.py" update "$ISSUE_NUMBER" --status Cancelled \
               --note "run cancelled (job.status=cancelled) — ${RUN_URL}" \
               || echo "::warning::stall backstop: could not flip workpad Status to 🛑 Cancelled; leaving it unchanged"
+            # Record the empty-branch fact alongside the terminal flip (AC6): the
+            # 🛑 Cancelled Status and the no-commit statement coexist.
+            record_empty_branch
           }
           # Master switch first: disabled → fully skipped (no status read, no
           # comment, no resume, no fail). Unrecognized/missing resolves to

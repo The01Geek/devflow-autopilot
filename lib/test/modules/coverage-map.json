@@ -561,6 +561,10 @@
       "note": "issue #668 receiving-review session identity library; driven by lib/test/test_reception_identity.py + its block in the harness-python-guards module",
       "owner": "harness-python-guards"
     },
+    "scripts/record-empty-branch.sh": {
+      "note": "issue #1261 stall-backstop empty-branch producer (NO_COMMIT / HAS_COMMIT / UNESTABLISHED); every outcome plus the best-effort write-failure and idempotency arms are driven from the review-stall-backstop module's #1261 block against a real bare-origin git fixture with a stubbed workpad writer.",
+      "owner": "review-stall-backstop"
+    },
     "scripts/refresh-app-credentials.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -1003,6 +1007,10 @@
     "126": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "1261": {
+      "note": "empty-branch producer scripts/record-empty-branch.sh: the stall backstop records whether any commit reached a terminated run's remote branch. Driven per outcome (NO_COMMIT / HAS_COMMIT / UNESTABLISHED), plus the best-effort write-failure and idempotency arms, against a real bare-origin git fixture with a stubbed workpad writer; the workflow wiring (producer beside the pure stall-backstop-decide.sh, called only from the two flips, never on the resume path) is asserted from the parsed claude-job Stall backstop step.",
+      "owner": "review-stall-backstop"
     },
     "1267": {
       "note": "",

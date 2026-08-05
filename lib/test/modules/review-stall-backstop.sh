@@ -2439,3 +2439,157 @@ chmod 700 "$V1156_SHAPES/adir" 2>/dev/null || true
 chmod 600 "$V1156_SHAPES/noread" "$V1156_SHAPES/zero-noread" 2>/dev/null || true
 rm -rf "$V1156_ROOT" "$V1156_BLOCK" "$V1156_NONE" "$V1156_MUTR" "$V1156_GAPD" "$V1156_SHAPES"
 unset V1156_ROOT V1156_BLOCK V1156_NONE V1156_MUT V1156_MUTR V1156_GAPD V1156_SHAPES V1156_RCPT V1156_TOP V1156_L V1156_A V1156_B V1156_NOLIB
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#1261 empty-branch producer (terminated run records whether any commit reached its remote branch)"
+# ────────────────────────────────────────────────────────────────────────────
+# scripts/record-empty-branch.sh is the producer's DECISION + the note it writes,
+# extracted beside the Stall backstop step so the suite can DRIVE every outcome —
+# no commit / at least one commit / could-not-establish — against a scratch git
+# repository and a stubbed workpad writer (issue #1261 AC7), rather than pinning
+# message wording alone. stall-backstop-decide.sh gains no I/O (AC1).
+EB1261="$REPO_ROOT/scripts/record-empty-branch.sh"
+assert_eq "#1261 record-empty-branch.sh exists and is executable" "yes" \
+  "$([ -x "$EB1261" ] && echo yes || echo no)"
+
+# AC1: the pure decision helper still carries NO I/O — no gh, no jq, no workpad.py
+# in any NON-comment line (its header prose legitimately names them). Comment lines
+# are stripped before the grep so the purity claim is about invocation, not prose.
+DECIDE1261="$REPO_ROOT/scripts/stall-backstop-decide.sh"
+DECIDE1261_CODE="$(grep -vE '^[[:space:]]*#' "$DECIDE1261")"
+assert_eq "#1261 AC1: stall-backstop-decide.sh invokes no gh (non-comment lines)" "no" \
+  "$(printf '%s\n' "$DECIDE1261_CODE" | grep -qE '(^|[^a-zA-Z_])gh ' && echo yes || echo no)"
+assert_eq "#1261 AC1: stall-backstop-decide.sh invokes no jq (non-comment lines)" "no" \
+  "$(printf '%s\n' "$DECIDE1261_CODE" | grep -qE '(^|[^a-zA-Z_])jq(\.| )' && echo yes || echo no)"
+assert_eq "#1261 AC1: stall-backstop-decide.sh invokes no workpad.py (non-comment lines)" "no" \
+  "$(printf '%s\n' "$DECIDE1261_CODE" | grep -qF 'workpad.py' && echo yes || echo no)"
+
+# Scratch git repo with a real bare origin so the fetch+rev-list probe runs for
+# real. base=main; feat is 0 commits ahead (NO_COMMIT); feat2 is 1 commit ahead
+# (HAS_COMMIT). The stubbed workpad writer captures each --note into a file so the
+# statement actually written is observable (AC2/AC3).
+T1261="$(mktemp -d)"
+mkdir -p "$T1261/origin.git" "$T1261/work" "$T1261/scripts"
+git init -q --bare "$T1261/origin.git"
+(
+  cd "$T1261/work"
+  git init -q; git config user.email a@b.c; git config user.name t
+  git commit -q --allow-empty -m base1
+  git branch -M main
+  git remote add origin "$T1261/origin.git"
+  git push -q origin main
+  git checkout -q -b feat
+  git push -q origin feat                 # zero commits ahead
+  git checkout -q -b feat2
+  git commit -q --allow-empty -m work
+  git push -q origin feat2                # one commit ahead
+) >/dev/null 2>&1
+# Stubbed workpad writer: append each --note value to a capture file (drivable
+# proxy for the real workpad — issue #1261 "stubbed workpad writer").
+cat > "$T1261/scripts/workpad.py" <<EOF
+#!/usr/bin/env python3
+import sys
+a = sys.argv[1:]
+if a and a[0] == "update" and "--note" in a:
+    i = a.index("--note")
+    open("$T1261/notes.txt", "a", encoding="utf-8").write(a[i + 1] + "\n")
+sys.exit(0)
+EOF
+chmod +x "$T1261/scripts/workpad.py"
+
+eb1261_run() {  # $1=BRANCH $2=BASE [$3=REMOTE]  -> prints the decision= line
+  ( cd "$T1261/work" && ISSUE_NUMBER=1 BRANCH="$1" BASE="$2" REMOTE="${3:-origin}" \
+      V="$T1261/scripts" RUN_URL=http://run/1 bash "$EB1261" )
+}
+
+# AC2 — 0 commits ahead → NO_COMMIT decision AND an explicit statement is written.
+: > "$T1261/notes.txt"
+D_NC="$(eb1261_run feat main | sed -n 's/^decision=//p')"
+assert_eq "#1261 AC2: a branch 0 commits ahead of base decides NO_COMMIT" "NO_COMMIT" "$D_NC"
+assert_eq "#1261 AC2: the NO_COMMIT statement is written to the workpad, carrying the marker" "yes" \
+  "$(grep -qF '<!-- prflow:empty-branch -->' "$T1261/notes.txt" && grep -qF 'no commit reached the remote branch `feat`' "$T1261/notes.txt" && echo yes || echo no)"
+
+# AC3 — >=1 commit ahead → HAS_COMMIT AND NO statement (the negative control).
+: > "$T1261/notes.txt"
+D_HC="$(eb1261_run feat2 main | sed -n 's/^decision=//p')"
+assert_eq "#1261 AC3: a branch >=1 commit ahead decides HAS_COMMIT" "HAS_COMMIT" "$D_HC"
+assert_eq "#1261 AC3: HAS_COMMIT writes NO statement (negative control — an always-firing note carries no info)" "0" \
+  "$(wc -l < "$T1261/notes.txt" | tr -d ' ')"
+
+# AC4 — could-not-establish: branch name unavailable, and remote branch absent.
+: > "$T1261/notes.txt"
+D_UN1="$(eb1261_run '' main | sed -n 's/^decision=//p')"
+assert_eq "#1261 AC4: an unavailable branch name decides UNESTABLISHED" "UNESTABLISHED" "$D_UN1"
+assert_eq "#1261 AC4: the UNESTABLISHED note says the fact could not be established, not that the branch is empty" "yes" \
+  "$(grep -qF 'could not establish whether any commit reached the remote branch' "$T1261/notes.txt" && echo yes || echo no)"
+assert_eq "#1261 AC4: the UNESTABLISHED note never claims a confirmed no-commit outcome" "no" \
+  "$(grep -qF 'left nothing on its branch' "$T1261/notes.txt" && echo yes || echo no)"
+: > "$T1261/notes.txt"
+D_UN2="$(eb1261_run does-not-exist main | sed -n 's/^decision=//p')"
+assert_eq "#1261 AC4: a branch absent from the remote decides UNESTABLISHED (not NO_COMMIT)" "UNESTABLISHED" "$D_UN2"
+
+# AC5 — best-effort write: a failing workpad writer emits a ::warning:: AND the
+# helper still exits 0 (the caller's exit arm is never changed).
+mkdir -p "$T1261/failscripts"
+cat > "$T1261/failscripts/workpad.py" <<'EOF'
+#!/usr/bin/env python3
+import sys
+sys.exit(1)
+EOF
+chmod +x "$T1261/failscripts/workpad.py"
+OUT_FAIL1261="$( cd "$T1261/work" && ISSUE_NUMBER=1 BRANCH=feat BASE=main REMOTE=origin \
+  V="$T1261/failscripts" RUN_URL=http://run/1 bash "$EB1261" 2>&1 )"
+RC_FAIL1261=$?
+assert_eq "#1261 AC5: a workpad write failure emits a ::warning:: breadcrumb" "yes" \
+  "$(printf '%s\n' "$OUT_FAIL1261" | grep -qF '::warning::stall backstop: could not record the empty-branch statement' && echo yes || echo no)"
+assert_eq "#1261 AC5: the producer always exits 0 (the caller's exit arm is never changed)" "0" "$RC_FAIL1261"
+assert_eq "#1261 AC5: the decision is still printed on the write-failure arm" "yes" \
+  "$(printf '%s\n' "$OUT_FAIL1261" | grep -qF 'decision=NO_COMMIT' && echo yes || echo no)"
+
+# Idempotency — a second invocation on a workpad already carrying the marker does
+# not duplicate the statement (EB_WORKPAD_BODY carries the prior note).
+: > "$T1261/notes.txt"
+OUT_DEDUP1261="$( cd "$T1261/work" && ISSUE_NUMBER=1 BRANCH=feat BASE=main REMOTE=origin \
+  V="$T1261/scripts" RUN_URL=http://run/1 EB_WORKPAD_BODY='body ... <!-- prflow:empty-branch --> ...' bash "$EB1261" )"
+assert_eq "#1261 idempotency: a workpad already carrying the marker is deduped" "yes" \
+  "$(printf '%s\n' "$OUT_DEDUP1261" | grep -qF 'deduped=yes' && echo yes || echo no)"
+assert_eq "#1261 idempotency: no duplicate statement is written on the deduped invocation" "0" \
+  "$(wc -l < "$T1261/notes.txt" | tr -d ' ')"
+
+# ── Workflow wiring (AC1 producer-in-the-step, AC6 coexists-with-flips, and the
+# never-on-the-resume-path guard). Parsed from the claude job's Stall backstop
+# step, the way the module asserts the existing flips.
+eb1261_step() {  # $1 = python expression over `step`
+  python3 - "$WFI415" "$1" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+steps = doc["jobs"]["claude"]["steps"]
+named = [s for s in steps if s.get("name") == "Stall backstop"]
+if len(named) != 1:
+    print(f"expected exactly one Stall backstop step, found {len(named)}")
+    raise SystemExit(0)
+step = named[0]
+print(eval(sys.argv[2], {"step": step, "run": step["run"]}))
+PY
+}
+assert_eq "#1261 AC1: the Stall backstop step invokes record-empty-branch.sh (the producer beside the step)" \
+  "True" "$(eb1261_step '"record-empty-branch.sh" in run')"
+# Region delimiters are function headers / a stable following comment, not brace
+# matching (the bodies carry ${1:-…} and inline { … } that defeat a naive `}` split).
+# Definition order in the step is: record_empty_branch(), flip_to_failed(),
+# flip_to_cancelled(), then the "# Master switch first" comment.
+assert_eq "#1261 the record_empty_branch function carries the POSITIONAL CLASS=interim guard (never on the resume path)" \
+  "True" "$(eb1261_step 'run.split("record_empty_branch() {",1)[1].split("flip_to_failed() {",1)[0].count("= \"interim\" ] || return 0") == 1')"
+assert_eq "#1261 AC6: flip_to_failed calls record_empty_branch so 💥 Failed and the statement coexist" \
+  "True" "$(eb1261_step '"record_empty_branch" in run.split("flip_to_failed() {",1)[1].split("flip_to_cancelled() {",1)[0]')"
+assert_eq "#1261 AC6: flip_to_cancelled calls record_empty_branch so 🛑 Cancelled and the statement coexist" \
+  "True" "$(eb1261_step '"record_empty_branch" in run.split("flip_to_cancelled() {",1)[1].split("# Master switch first",1)[0]')"
+# The producer token appears exactly three times — one definition header and one
+# call inside each of the two flips — which pins that it is called ONLY from the
+# flips and NEVER on the resume path (a no-commit statement written before a resume
+# would be stale the moment the resumed run pushes).
+assert_eq "#1261 record_empty_branch is referenced exactly 3x (def + 2 flips) — never on the resume path" \
+  "True" "$(eb1261_step 'run.count("record_empty_branch") == 3')"
+
+rm -rf "$T1261"
+unset EB1261 DECIDE1261 T1261 D_NC D_HC D_UN1 D_UN2 OUT_FAIL1261 RC_FAIL1261 OUT_DEDUP1261
