@@ -18796,11 +18796,15 @@ assert_eq "#805 stub: the .py entry target's stub parses under python3" "0" \
   "$(python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$HSH_STUB_WS/scripts/pretooluse-shape-guard.py" >/dev/null 2>&1; echo $?)"
 assert_eq "#805 stub: a .sh entry target's stub parses under bash" "0" \
   "$(bash -n "$HSH_STUB_WS/lib/efficiency-trace.sh" 2>/dev/null; echo $?)"
-# The .py stub run as __main__ emits a benign defer decision and exits 0 (never a
-# SyntaxError-on-`exit 0` that would fail the hook on every call).
-HSH_STUB_OUT="$(python3 "$HSH_STUB_WS/scripts/pretooluse-shape-guard.py" </dev/null 2>/dev/null)"
-assert_eq "#805 stub: the .py stub emits a defer decision when run as a hook" "1" \
-  "$(printf '%s' "$HSH_STUB_OUT" | grep -c '"permissionDecision": "defer"' || true)"
+# The .py stub run as __main__ reports NO decision — empty stdout, exit 0 — which is the
+# documented fall-through, and never a SyntaxError-on-`exit 0` that would fail the hook on
+# every call. It used to print a `permissionDecision: "defer"` object; run 30967680822's
+# `defer-probe` measured that token BLOCKING the tool and ending the process, so a stub
+# emitting it would terminate the run it exists to leave untouched. Both halves are
+# asserted: an EMPTY stdout (a stub that printed any decision object fails this) and rc 0.
+HSH_STUB_OUT="$(python3 "$HSH_STUB_WS/scripts/pretooluse-shape-guard.py" </dev/null 2>/dev/null; echo "rc=$?")"
+assert_eq "#805 stub: the .py stub reports NO decision (empty stdout) and exits 0 when run as a hook" "rc=0" \
+  "$HSH_STUB_OUT"
 rm -rf "$HSH_STUB_WS"
 # Denied-command visibility (issue #805, Part 3): extract-execution-shape.sh emits the
 # denied commands the permission_denials array carries, alongside the existing token.
