@@ -1637,7 +1637,7 @@ def cmd_new_body(args):
         else _REPRODUCTION_ROW + '\n'
     )
     sys.stdout.write(f"""{marker}
-# DevFlow Workpad — Issue #{args.issue}
+# PRFlow Workpad — Issue #{args.issue}
 
 **Status:** 🚀 Setup
 **Branch:** {branch}
@@ -1647,7 +1647,7 @@ def cmd_new_body(args):
 
 ## Progress
 - [ ] **Setup** — branch & workpad
-  - {seed_ts} — /devflow:implement run started
+  - {seed_ts} — /prflow:implement run started
 - [ ] **Implement**
 {repro}  - [ ] code + sweeps
 - [ ] **Review**
@@ -1914,6 +1914,33 @@ def _find_section(sections: list[tuple[str, str]], name: str) -> int | None:
         if heading.strip().lower() == target:
             return i
     return None
+
+
+def _tick_top_level_progress_phases(sections: list[tuple[str, str]]) -> None:
+    """Tick every still-unticked top-level ## Progress phase row (issue #1337).
+
+    The deterministic backstop for the cooperative per-phase `--tick-progress`
+    calls: the terminal `--status Complete` write invokes this so a Complete
+    workpad never sits above a `- [ ] **Implement**` / `- [ ] **Review**` row that
+    a volatile tick miss left unticked. The row set is sourced from
+    `_PROGRESS_PHASES` (the single source of truth, never a transcribed list); rows
+    are matched with `_TOP_LEVEL_CHECKBOX_RE`, so only column-0 checkbox rows are
+    considered and nested sub-items keep their prior state. Absent (or non-canonical)
+    `## Progress` is a structural no-op — the Complete write still succeeds exactly
+    as before. Mutates `sections` in place."""
+    idx = _find_section(sections, 'Progress')
+    if idx is None:
+        return
+    heading, content = sections[idx]
+    out = []
+    for line in content.split('\n'):
+        m = _TOP_LEVEL_CHECKBOX_RE.match(line)
+        if m and m.group(1) == ' ' and any(
+            ph.lower() in m.group(2).lower() for ph in _PROGRESS_PHASES
+        ):
+            line = line.replace('[ ]', '[x]', 1)
+        out.append(line)
+    sections[idx] = (heading, '\n'.join(out))
 
 
 def _set_section_content(
@@ -3747,6 +3774,14 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
     _apply_section_ticks(
         sections, 'Progress', 'progress', args.tick_progress, [], failed_ticks,
     )
+    # Terminal-Complete backstop (issue #1337): a --status Complete write ticks
+    # every still-unticked top-level ## Progress phase row, so a terminal 🎉 Complete
+    # workpad never sits above an unticked **Implement** / **Review** parent that a
+    # dropped or volatile-missed cooperative --tick-progress left behind. Only
+    # Complete ticks — Failed/Cancelled/Blocked and the interim words change no
+    # checkbox, keeping the record honest about where a non-complete run stopped.
+    if args.status and _strip_status_glyph(args.status).lower() == 'complete':
+        _tick_top_level_progress_phases(sections)
     _apply_section_ticks(
         sections, 'Plan', 'plan', args.tick_plan, args.tick_plan_n, failed_ticks,
     )
@@ -3917,7 +3952,20 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
                     f"`criterion:` line `deferred-presence` printed, verbatim\n"
                 )
     deferred_filed_notes = [_render_deferred_filed(t) for t in mark_filed]
-    progress_notes = list(args.note) + scope_decision_notes + deferred_filed_notes + [
+    # Same-invocation note/checkpoint de-dup (issue #1337): the Phase 1 cloud
+    # hydration fence passes the selected lifecycle event twice in one call — as a
+    # --checkpoint text and again as a --note — which rendered the event as two
+    # ## Progress rows (a bare note bullet and the marker-carrying checkpoint row).
+    # Suppress any --note whose text byte-equals a checkpoint text REQUESTED in this
+    # same invocation, so the marker-carrying row is the single record of the event.
+    # Keyed on the requested set (checkpoint_reqs), not just the absent
+    # `checkpoint_inserts`, so a REPLAYED checkpoint (its row already present) also
+    # suppresses the byte-equal note rather than appending a duplicate of an
+    # already-recorded event. A --note that differs from every requested checkpoint
+    # text (the local-tier call passes --note with no checkpoint flags) is untouched.
+    _requested_checkpoint_texts = {text for _key, text in checkpoint_reqs}
+    _notes = [n for n in args.note if n not in _requested_checkpoint_texts]
+    progress_notes = _notes + scope_decision_notes + deferred_filed_notes + [
         f'{text} {_checkpoint_marker(key)}' for key, text in checkpoint_inserts
     ]
     # Completion-evidence marker (issue #1087): validated above; a later validated key
