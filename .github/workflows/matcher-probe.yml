@@ -26,7 +26,15 @@ name: Matcher probe
 # execution-file measurement to `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"` — the
 # issue-#801 harness floor — dispatching one subagent and deriving a
 # FOREGROUND/BACKGROUNDED/NOT_DISPATCHED/INCONCLUSIVE verdict for whether the dispatch
-# returned a completed result within the same turn. A pull_request edit to this file
+# returned a completed result within the same turn. A trio of HOOK-ARM jobs
+# (`permissionrequest-probe`, `pretooluse-deny-probe`, `defer-probe`) measures the
+# hook surface itself: whether a `PermissionRequest` hook fires and WHICH calls
+# reach it (a granted control command discriminates the two possible slots),
+# whether a `PreToolUse` DENY delivers its reason where the pre-existing allow-only
+# arm structurally cannot say, and whether `defer` falls through to the default
+# permission flow. Unlike every older job here they pass no `--permission-mode`, for
+# parity with the live tiers — see the parity note above that trio.
+# A pull_request edit to this file
 # therefore launches a paid Claude session per probe job, not just the original two.
 #
 # An additional `implement-probe` job (issue #450) applies the same
@@ -1569,6 +1577,294 @@ jobs:
           MARKER=".prflow/tmp/pretooluse-probe-fired"
           {
             bash scripts/describe-pretooluse-probe.sh "$MARKER" "${EXECUTION_FILE:-}"
+            echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # ── Hook-arm probes (PermissionRequest / PreToolUse-deny / defer) ───────────
+  #
+  # Three sibling jobs that settle three currently-unestablished facts about the
+  # hook surface of the CLI `anthropics/claude-code-action@v1` installs, so a
+  # downstream design decision rests on evidence rather than inference. They
+  # measure only; nothing in this change alters production behavior.
+  #
+  # PRODUCTION MODE PARITY — A DELIBERATE DEVIATION FROM THIS FILE'S CONVENTION.
+  # Every older probe job here passes `--permission-mode acceptEdits`. These three
+  # deliberately pass NO `--permission-mode`, matching both live tiers
+  # (devflow.yml and devflow-implement.yml pass none, so they run in `default`).
+  # The reason is load-bearing rather than stylistic: under `acceptEdits` the
+  # permission-mode step resolves BEFORE allow rules and auto-approves a whole
+  # class of calls, so a verdict about which calls reach a hook — the entire
+  # subject of the first job below — could be an artifact of the mode and would
+  # not transfer to the tiers the decision is about. Verdicts from these three are
+  # therefore scoped to `default` mode, which is the mode that matters.
+  #
+  # BREADCRUMB-FIRST. Each job's PRIMARY verdict comes from on-disk marker files
+  # written by the hook and by the probe commands themselves; the execution file is
+  # a secondary axis. That keeps a verdict derivable from a truncated run — and on
+  # the `defer` arm it is essential, because a honored defer may leave no usable
+  # execution file at all. In every renderer an established negative ("we read it
+  # and the thing is not there") is kept distinct from `unavailable` ("we could not
+  # read it"), per the repo's unknown-is-not-zero rule.
+  #
+  # Each job's verdict is rendered by its own suite-driven helper under scripts/,
+  # per the repo's extract-branch-selecting-inline-shell convention; the workflow
+  # supplies only the coupled marker literals and the run link. The helpers' token
+  # constants are one contract with the prompts and hook commands below — edit them
+  # together.
+
+  # ── Job 1 — permissionrequest-probe ────────────────────────────────────────
+  # The Agent SDK type contract the action depends on publishes a
+  # `PermissionRequest` hook returning a decision object
+  # (`{behavior:"allow"…}` / `{behavior:"deny",message?…}`). Unestablished:
+  #   (a) does the event fire at all under the installed CLI, and
+  #   (b) WHICH calls reach it.
+  # (b) is the reason this job exists. The published six-step permission order —
+  # hooks, deny rules, ask rules, permission mode, allow rules, canUseTool —
+  # does not mention `PermissionRequest` at any position. If it occupies the
+  # `canUseTool` slot it sees only calls the allowlist did NOT resolve, and an
+  # unconditional-deny hook is harmless to granted work; if it resolves earlier it
+  # also sees calls the allowlist WOULD have approved, and such a hook silently
+  # blocks granted work. So the session attempts a GRANTED CONTROL command
+  # (`mkdir`, the one granted head) as well as an ungranted one (`basename`, in no
+  # allowlist), the hook records the tool input it saw on each firing, and the
+  # helper reports which of the two reached it. A hook that fires on the granted
+  # control answers (b) negatively.
+  #
+  # The hook denies unconditionally and carries a distinctive `message`, which also
+  # measures (c): does that message reach the engine transcript at all.
+  permissionrequest-probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run Claude Code (PermissionRequest hook probe)
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          allowed_bots: "*"
+          # The hook appends its RAW STDIN PAYLOAD (which carries the tool input) to
+          # a JSONL breadcrumb before denying, so the breadcrumb's CONTENT — not
+          # merely its existence — attributes each firing to the granted or the
+          # ungranted command. That attribution is the measurement.
+          settings: |
+            {
+              "hooks": {
+                "PermissionRequest": [
+                  {
+                    "matcher": "Bash",
+                    "hooks": [
+                      {
+                        "type": "command",
+                        "command": "mkdir -p \"${CLAUDE_PROJECT_DIR:-.}/.prflow/tmp\" && { cat; echo; } >> \"${CLAUDE_PROJECT_DIR:-.}/.prflow/tmp/permissionrequest-probe-seen.jsonl\"; printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PermissionRequest\",\"decision\":{\"behavior\":\"deny\",\"message\":\"devflow permissionrequest-probe: PRQ-DENY-SENTINEL\"}}}'"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          prompt: |
+            You are a PERMISSION-REQUEST PROBE. Do EXACTLY the two numbered actions
+            below, in order, each exactly once, and nothing else.
+
+            Your text output is never the measurement — only the harness record and
+            the on-disk side effects are. Every action MUST be performed through a
+            Bash tool call.
+
+            Action 1 (GRANTED CONTROL) — run this Bash command once:
+            mkdir -p .prflow/tmp/prqprobe-control-ran
+
+            Action 2 (UNGRANTED ARM) — run this Bash command once. It is EXPECTED to
+            be refused, and a refusal is the measurement, not a failure. Attempt it
+            exactly once: do not retry it, do not reformulate it, and do not
+            substitute a different command for it.
+            basename prqprobe-ungranted-token
+
+            After both, STOP and reply with the single word DONE.
+          # No `--permission-mode` — see the parity note above. `mkdir` is the ONLY
+          # granted head, which is what makes Action 2 an ungranted arm.
+          claude_args: >-
+            --model claude-haiku-4-5-20251001
+            --effort low
+            --allowed-tools "Bash(mkdir:*)"
+
+      - name: Record PermissionRequest observation
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -euo pipefail
+          # Marker paths are read at the WORKSPACE ROOT: the hook resolves
+          # CLAUDE_PROJECT_DIR and this job runs Claude from the checkout root, so
+          # the two coincide (the same cwd assumption pretooluse-probe records).
+          SEEN=".prflow/tmp/permissionrequest-probe-seen.jsonl"
+          CONTROL=".prflow/tmp/prqprobe-control-ran"
+          {
+            bash scripts/describe-permissionrequest-probe.sh "$SEEN" "$CONTROL" "${EXECUTION_FILE:-}"
+            echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # ── Job 2 — pretooluse-deny-probe ──────────────────────────────────────────
+  # The existing `pretooluse-probe` job emits `permissionDecision: "allow"`, for
+  # which `permissionDecisionReason` is specified to be IGNORED — so no observation
+  # that arm has ever produced says anything about deny-path reason delivery. This
+  # job emits a real `deny` carrying a distinctive reason sentinel on a SACRIFICIAL
+  # command and measures whether that reason reaches the transcript.
+  #
+  # WHY IT IS A SEPARATE JOB FROM `permissionrequest-probe` (not an extra arm in
+  # it). `PreToolUse` runs before the permission system, so within one session a
+  # `PreToolUse` deny would resolve the call and the `PermissionRequest` hook would
+  # never fire — recording a false "not fired" — while a `PreToolUse` allow would
+  # rescue that probe's ungranted arm and destroy the discrimination it exists for.
+  #
+  # The hook is COMMAND-SCOPED (a `case` on its own stdin payload) so it cannot
+  # touch the control command even inside its own job: it denies only the command
+  # carrying the `ptudprobe-sacrificial` token, and writes a separate deny-arm
+  # breadcrumb so "the hook ran" stays distinguishable from "the hook denied".
+  pretooluse-deny-probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run Claude Code (PreToolUse deny-path probe)
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          allowed_bots: "*"
+          settings: |
+            {
+              "hooks": {
+                "PreToolUse": [
+                  {
+                    "matcher": "Bash",
+                    "hooks": [
+                      {
+                        "type": "command",
+                        "command": "mkdir -p \"${CLAUDE_PROJECT_DIR:-.}/.prflow/tmp\"; touch \"${CLAUDE_PROJECT_DIR:-.}/.prflow/tmp/pretooluse-deny-probe-fired\"; PAYLOAD=\"$(cat)\"; case \"$PAYLOAD\" in *ptudprobe-sacrificial*) touch \"${CLAUDE_PROJECT_DIR:-.}/.prflow/tmp/pretooluse-deny-probe-denied\"; printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"devflow pretooluse-deny-probe: PTUD-DENY-SENTINEL\"}}' ;; *) : ;; esac"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          prompt: |
+            You are a PRETOOLUSE-DENY PROBE. Do EXACTLY the two numbered actions
+            below, in order, each exactly once, and nothing else.
+
+            Your text output is never the measurement — only the harness record and
+            the on-disk side effects are. Every action MUST be performed through a
+            Bash tool call.
+
+            Action 1 (CONTROL) — run this Bash command once:
+            mkdir -p .prflow/tmp/ptudprobe-control-ran
+
+            Action 2 (SACRIFICIAL) — run this Bash command once. It is EXPECTED to
+            be refused, and a refusal is the measurement, not a failure. Attempt it
+            exactly once: do not retry it, do not reformulate it, and do not
+            substitute a different command for it.
+            mkdir -p .prflow/tmp/ptudprobe-sacrificial-ran
+
+            After both, STOP and reply with the single word DONE.
+          # No `--permission-mode` — see the parity note above. Both commands share
+          # the one granted head, so any refusal of Action 2 is attributable to the
+          # hook rather than to the allowlist.
+          claude_args: >-
+            --model claude-haiku-4-5-20251001
+            --effort low
+            --allowed-tools "Bash(mkdir:*)"
+
+      - name: Record PreToolUse deny-path observation
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -euo pipefail
+          FIRED=".prflow/tmp/pretooluse-deny-probe-fired"
+          DENIED=".prflow/tmp/pretooluse-deny-probe-denied"
+          SACRIFICIAL=".prflow/tmp/ptudprobe-sacrificial-ran"
+          CONTROL=".prflow/tmp/ptudprobe-control-ran"
+          {
+            bash scripts/describe-pretooluse-deny-probe.sh "$FIRED" "$DENIED" "$SACRIFICIAL" "$CONTROL" "${EXECUTION_FILE:-}"
+            echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # ── Job 3 — defer-probe ────────────────────────────────────────────────────
+  # `defer` is the token scripts/pretooluse-shape-guard.py emits on every fail-open
+  # path, on the premise that it falls through to the default permission flow —
+  # that file's own header records the premise as an UNESTABLISHED assumption. The
+  # published hooks reference says the opposite: the tool does not execute and the
+  # process exits with `stop_reason: "tool_deferred"`. If the reference is right,
+  # that guard's fail-open paths are in fact fail-CLOSED. This job settles which
+  # happens on the installed CLI. It only measures: repairing the guard is separate
+  # work in which `defer` is load-bearing at several sites, and nothing here
+  # touches it.
+  #
+  # BREADCRUMB-ONLY PRIMARY VERDICT. A honored defer may leave no usable execution
+  # file, so a file-derived verdict would read `unavailable` in exactly the case
+  # this job exists to detect. The verdict is therefore two markers — the hook's
+  # own, written before it emits `defer`, and the granted command's side effect —
+  # with the execution file as a secondary, expected-to-be-missing axis.
+  defer-probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run Claude Code (PreToolUse defer fall-through probe)
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          allowed_bots: "*"
+          settings: |
+            {
+              "hooks": {
+                "PreToolUse": [
+                  {
+                    "matcher": "Bash",
+                    "hooks": [
+                      {
+                        "type": "command",
+                        "command": "mkdir -p \"${CLAUDE_PROJECT_DIR:-.}/.prflow/tmp\" && touch \"${CLAUDE_PROJECT_DIR:-.}/.prflow/tmp/defer-probe-hook-fired\"; printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"defer\"}}'"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          prompt: |
+            You are a DEFER PROBE. Run this single Bash command once, then STOP and
+            reply with the single word DONE. Your text output is never the
+            measurement — only the on-disk side effect is. Run it through a Bash
+            tool call, exactly once, and do not retry or reformulate it.
+
+            mkdir -p .prflow/tmp/deferprobe-tool-ran
+          # No `--permission-mode` — see the parity note above. The single command's
+          # head is granted, so whether it executes is decided by the hook alone.
+          claude_args: >-
+            --model claude-haiku-4-5-20251001
+            --effort low
+            --allowed-tools "Bash(mkdir:*)"
+
+      - name: Record defer fall-through observation
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -euo pipefail
+          HOOK_MARKER=".prflow/tmp/defer-probe-hook-fired"
+          TOOL_MARKER=".prflow/tmp/deferprobe-tool-ran"
+          {
+            bash scripts/describe-defer-probe.sh "$HOOK_MARKER" "$TOOL_MARKER" "${EXECUTION_FILE:-}"
             echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
