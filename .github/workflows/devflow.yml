@@ -2395,7 +2395,13 @@ jobs:
     # dedupe-SUPPRESSED run leaves `command` skipped for a benign reason, NOT a
     # dead run, so it must not draw a banner), plus the review-family screen and
     # always() so it runs on every command-job exit path including a dead one.
-    if: ${{ always() && needs.config.outputs.enabled == 'true' && needs.gate.outputs.should_run == 'true' && needs.review_dedupe.outputs.suppress != 'true' && (startsWith(needs.gate.outputs.command, '/prflow:review') || startsWith(needs.gate.outputs.command, '/devflow:review')) }}
+    # The `needs.*.result == 'success'` terms on the upstream chain are load-bearing:
+    # if config/gate/review_dedupe FAILED (not merely emitted a benign output), the
+    # `command` job is `skipped` for an upstream reason and the arm helper would map
+    # `skipped` → did-not-report, drawing a spurious "did not report" banner on a run
+    # whose review never started. Requiring the chain succeeded confines the
+    # did-not-report arm to a genuine command-level death.
+    if: ${{ always() && needs.config.result == 'success' && needs.gate.result == 'success' && needs.review_dedupe.result == 'success' && needs.config.outputs.enabled == 'true' && needs.gate.outputs.should_run == 'true' && needs.review_dedupe.outputs.suppress != 'true' && (startsWith(needs.gate.outputs.command, '/prflow:review') || startsWith(needs.gate.outputs.command, '/devflow:review')) }}
     runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     # Documented least-privilege subset (AC8): STRICTLY smaller than the command
     # job's (no id-token, no actions, no checks, no contents:write). The finalizer
@@ -2426,6 +2432,16 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.repository.default_branch }}
+      # Materialize the plugin so the finalizer's helpers exist at
+      # .prflow/vendor/prflow/scripts/ in a thin-install consumer (committed →
+      # self → fetch). Without this a consumer's bare checkout carries no vendored
+      # tree AND no repo-root scripts/, so every helper below would hit its
+      # absent-arm no-op and the backstop would silently produce nothing — the
+      # exact failure #1174 exists to fix. Mirrors the command/gate jobs; the
+      # default-branch checkout above is the correct trusted source.
+      - uses: ./.github/actions/vendor-plugin
+        with:
+          ref: ${{ needs.config.outputs.prflow_version }}
 
       - name: Finalize a review run whose command job did not report
         env:

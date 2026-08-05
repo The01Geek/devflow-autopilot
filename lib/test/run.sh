@@ -17169,6 +17169,19 @@ assert_eq "checkout-pin CONTROL D: an added extra unpinned checkout is reported 
   "1" "$(devflow_unpinned_in "$CK_TMP/fifth-checkout.yml" | grep -c ' NONE$' || true)"
 rm -rf "$CK_TMP"
 
+# ── review_finalize must MATERIALIZE the plugin (issue #1174). Every helper-consuming
+# job runs the vendor-plugin action after its checkout; without it a thin-install
+# consumer's bare checkout has no .prflow/vendor/prflow/scripts/ tree AND no repo-root
+# scripts/, so the finalizer's helpers all hit their absent-arm no-op and the dead-run
+# backstop silently produces nothing — the exact failure #1174 fixes, invisible in this
+# self-repo where the repo-root scripts/ fallback masks it. Assert the vendor-plugin
+# step count includes the finalizer's (config + gate + command + review_finalize = 4),
+# and that a vendor-plugin step appears within the review_finalize job body.
+assert_eq "#1174: devflow.yml has 4 vendor-plugin steps (config + gate + command + review_finalize)" "4" \
+  "$(grep -c 'uses: \./\.github/actions/vendor-plugin' "$WF/devflow.yml" || true)"
+assert_eq "#1174: the review_finalize job materializes the plugin (a vendor-plugin step in its body)" "yes" \
+  "$(awk '/^  review_finalize:/{f=1} f && /uses: \.\/\.github\/actions\/vendor-plugin/{print "yes"; exit}' "$WF/devflow.yml")"
+
 # Early-ack reaction must stay correctly wired in BOTH gate jobs. These guard
 # the load-bearing properties that the react-to-trigger.sh unit tests above
 # CANNOT see (they exercise the script in isolation): it must run only after
