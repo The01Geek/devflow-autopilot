@@ -13,8 +13,8 @@ type: Fixed
   `defer-probe` arm measured the opposite on the CLI `claude-code-action@v1` installs
   (2.1.222): `DEFER-BLOCKED` — the hook fired and the granted command's side effect was
   absent, so the tool did not execute — corroborated by `STOP-REASON-DEFERRED`. A wired
-  guard would therefore have ended the run on the first command it did not recognize. All
-  six sites now take the documented true fall-through — exit 0 with an empty stdout, the
+  guard would therefore have ended the run on the first command it did not recognize.
+  Every fail-open site now takes the documented true fall-through — exit 0 with an empty stdout, the
   no-decision shape — through a single named `_emit_no_decision()`, and `deny` (measured
   honored, with its `permissionDecisionReason` delivered to the transcript) is the only
   token the guard writes. `scripts/harden-stop-hooks.sh`'s Python stub for a `.py` entry

@@ -23195,6 +23195,19 @@ class _GuardRig:
     def remove_dependency(self):
         (self.root / 'lib' / 'test' / 'extract-command-shapes.py').unlink()
 
+    def patch_guard(self, old, new):
+        """Substitute `old` -> `new` in THIS RIG'S COPY of the guard (never the tree's).
+
+        Used to drive a failure the guard cannot be made to take from outside — an `_emit`
+        that raises PART-WAY THROUGH writing a decision. Asserts the substitution matched
+        exactly once, so a refactor of the substituted text turns the test RED at the patch
+        rather than silently running an unpatched guard and passing vacuously."""
+        f = self.root / 'scripts' / 'pretooluse-shape-guard.py'
+        src = f.read_text(encoding='utf-8')
+        assert_eq(f"#805 guard rig: patch_guard anchor matched exactly once ({old[:40]!r})",
+                  1, src.count(old))
+        f.write_text(src.replace(old, new), encoding='utf-8')
+
 
 def _payload(cmd, tid='t0'):
     return _json805.dumps({'tool_name': 'Bash', 'tool_use_id': tid,
@@ -23289,9 +23302,20 @@ assert_eq("#805 guard: a clean command FALLS THROUGH (no decision)", _NO_DECISIO
 _rig_ft = _GuardRig()
 assert_eq("#805 guard: the fall-through writes ZERO bytes to stdout and exits 0", (0, b''),
           _rig_ft.raw_stdout(_payload('echo hello', tid='ft-clean')))
-# The same for a payload the guard cannot even parse (the `_read_command` -> None route).
+# The same for a payload the guard cannot even parse — the JSON-PARSE-FAILURE route, NOT
+# `_read_command`: `{not json` raises inside `json.loads` and returns at the earlier
+# `except ValueError` site, so `_read_command` is never reached on this input.
 assert_eq("#805 guard: an unparseable payload writes ZERO bytes to stdout and exits 0", (0, b''),
           _rig_ft.raw_stdout('{not json'))
+# `_read_command` -> None gets its own byte-level row, since the row above cannot reach it:
+# valid JSON whose `tool_name` is not `Bash` parses fine and falls through from inside
+# `_read_command`. Paired with the denied-shape negative control below (same rig), so the
+# emptiness is attributable to that route rather than to a guard that writes nothing at all.
+assert_eq("#805 guard: a valid-JSON non-Bash payload (the _read_command -> None route) "
+          "writes ZERO bytes to stdout and exits 0", (0, b''),
+          _rig_ft.raw_stdout(_json805.dumps(
+              {'tool_name': 'Read', 'tool_use_id': 'ft-nonbash',
+               'tool_input': {'command': 'echo x > /tmp/f'}})))
 # And for main()'s blanket exception handler — the site an audit is most likely to miss,
 # since it is reached only when something inside _run raises. A dependency stubbed with
 # bytes that do not parse as Python drives it.
@@ -23314,6 +23338,34 @@ assert_eq("#805 guard: fall-through negative control — a denied shape DOES emi
            _obj_dn['hookSpecificOutput']['permissionDecision']))
 assert_eq("#805 guard: the emitted deny carries its permissionDecisionReason", True,
           bool(_obj_dn['hookSpecificOutput'].get('permissionDecisionReason')))
+
+# ── main()'s handler reached AFTER _run's own `_emit` began writing a deny ──
+# The handler's comment defends emitting NOTHING on exactly this path: appending a second
+# object after a partial deny write would leave stdout unparseable. That case is reachable
+# only when `_emit` raises mid-write, which no payload can cause — so the rig patches its
+# OWN COPY of the guard to make `_emit` write a partial object and then raise. The
+# assertion is byte-exact on the partial prefix: a handler that emitted anything at all
+# would append to it, so this fails for the reason it pins rather than merely going red.
+_rig_pd = _GuardRig()
+_rig_pd.patch_guard(
+    'def _emit(obj: dict) -> None:\n'
+    '    sys.stdout.write(json.dumps(obj))\n'
+    '    sys.stdout.write("\\n")\n',
+    'def _emit(obj: dict) -> None:\n'
+    '    sys.stdout.write(json.dumps(obj)[:12])\n'
+    '    sys.stdout.flush()\n'
+    '    raise RuntimeError("devflow-test: _emit failed mid-write")\n',
+)
+_rc_pd, _out_pd = _rig_pd.raw_stdout(_payload('echo x > /tmp/f', tid='pd-partial'))
+assert_eq("#805 guard: a mid-write _emit failure leaves ONLY the partial deny on stdout — "
+          "main()'s handler appends nothing — and still exits 0",
+          (0, b'{"hookSpecif'), (_rc_pd, _out_pd))
+# Positive control on the same patched rig: the patch did not disarm the guard wholesale —
+# a clean command still takes the ordinary fall-through (empty stdout, exit 0), so the
+# byte-exactness above is attributable to the handler and not to a guard that stopped
+# classifying. (`_emit` is never called on the clean path, so the patch cannot fire there.)
+assert_eq("#805 guard: partial-deny rig positive control — a clean command still falls "
+          "through", (0, b''), _rig_pd.raw_stdout(_payload('echo hello', tid='pd-clean')))
 
 # ── Malformed payload shapes: each exits 0 and FALLS THROUGH ──
 _rig_m = _GuardRig()

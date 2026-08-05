@@ -128,8 +128,12 @@ two arms purpose-built for it, both in run 30967680822 on branch `hook-probe-arm
 VERDICT PROVENANCE AND EXPIRY. Both arms report `observed CLI version: 2.1.222`, and
 `claude-code-action@v1` is a FLOATING tag that installs whatever CLI it currently pins — so
 these verdicts are a measurement of one harness build, not a standing property, and an
-action or CLI upgrade can expire any of them. Re-run the two probe arms after an upgrade
-before relying on this block.
+action or CLI upgrade can expire any of them. Re-running the two arms is how they are
+re-established after an upgrade — but NEITHER ARM IS MERGED: `.github/workflows/
+matcher-probe.yml` at HEAD carries only `pretooluse-probe` (which emits `allow` and can
+observe neither token), and `defer-probe` / `pretooluse-deny-probe` exist only on the
+unmerged `hook-probe-arms` branch. So re-running them is not actionable from this tree
+alone; that branch has to land (or the arms be re-authored) first.
 
 STILL OPEN. What the harness does with an UNRECOGNIZED `permissionDecision` token is still
 unmeasured, and no local test can establish it — the answer lives in the harness, not here.
@@ -325,9 +329,11 @@ def _emit_no_decision() -> None:
     process (`DEFER-BLOCKED` / `STOP-REASON-DEFERRED`). See the module docstring.
 
     It exists as a named function rather than a bare `return` at each site so the
-    fall-through is one greppable, single-sourced shape: the six sites that reach it are
-    the guard's whole fail-open surface, and a future edit that reintroduces an emitted
-    token at one of them is visible as a call that stopped being this one."""
+    fall-through is one greppable, single-sourced shape: each fail-open site routes here,
+    the calls to it are the guard's whole fail-open surface, and a future edit that
+    reintroduces an emitted token at one of them is visible as a call that stopped being
+    this one. (Deliberately count-free: an ordinal here would rot on the next edit that
+    adds or removes a fail-open site.)"""
     return
 
 
