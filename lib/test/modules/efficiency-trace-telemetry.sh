@@ -2169,6 +2169,13 @@ mkdir -p "$ETPS_REPO/.prflow/tmp/review/pr-4/run-s"
 ( cd "$ETPS_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETPS_REPO/.prflow/tmp/review/pr-4/run-s" --slug pr-4 ) >/dev/null 2>&1
 assert_eq "et-prov(#534): SYNTHESIZED — a backstop record carries synthesized:true (not false)" "true" \
   "$(jq -r '.synthesized' "$ETPS_REPO/.prflow/tmp/review/pr-4/run-s/iter-1.json" 2>/dev/null)"
+# Guard the has("synthesized")|not predicate from the OTHER direction: the DURABLE
+# copy of a synthesized record must NOT be clobbered to false. Read the same
+# persisted artifact the EMITTED case reads (the durable branch copy), so all three
+# states are asserted at the one place a later reader consults. An inverted predicate
+# that stamped key-present records would flip this to false and go RED here.
+assert_eq "et-prov(#534): SYNTHESIZED — the DURABLE copy is NOT clobbered to false (stays true)" "true" \
+  "$(_et_show "$ETPS_REPO" ".prflow/logs/review/pr-4/run-s/iter-1.json" | jq -r '.synthesized' 2>/dev/null)"
 rm -rf "$ETPS_REPO"
 
 # LOST: no iter record + no matching fix commit → no record at all (the absent
@@ -2185,6 +2192,33 @@ mkdir -p "$ETPL_REPO/.prflow/tmp/review/pr-5/run-l"
 assert_eq "et-prov(#534): LOST — a dropped emit with nothing to recover leaves no iter record" "no" \
   "$([ -e "$ETPL_REPO/.prflow/tmp/review/pr-5/run-l/iter-1.json" ] && echo yes || echo no)"
 rm -rf "$ETPL_REPO"
+
+# MALFORMED / NON-OBJECT (best-effort adversarial matrix): the backfill's guard
+# fails CLOSED — a valid object record is stamped while a malformed (invalid JSON)
+# and a non-object (array) record are each left byte-identical, and --persist still
+# exits 0. A regression that made the jq -e type-guard stamp a non-object, or that
+# aborted --persist on a parse failure, would ship green without this.
+ETPM_REPO="$(git_sandbox "et-prov malformed repo")"
+git -C "$ETPM_REPO" init -q
+git -C "$ETPM_REPO" config user.email t@e.com; git -C "$ETPM_REPO" config user.name t
+git -C "$ETPM_REPO" commit --allow-empty -qm base
+git -C "$ETPM_REPO" branch -M main
+git -C "$ETPM_REPO" checkout -q -b feat
+mkdir -p "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m"
+printf '{"iter":1,"loop_role":"fix"}' > "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m/iter-1.json"   # valid object, no key
+printf 'not json at all' > "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m/iter-2.json"                 # malformed
+printf '[1,2,3]' > "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m/iter-3.json"                          # valid JSON, non-object
+ETPM_H2="$(git -C "$ETPM_REPO" hash-object "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m/iter-2.json")"
+ETPM_H3="$(git -C "$ETPM_REPO" hash-object "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m/iter-3.json")"
+( cd "$ETPM_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m" --slug pr-6 ) >/dev/null 2>&1; ETPM_RC=$?
+assert_eq "et-prov(#534): MALFORMED — --persist still exits 0" "0" "$ETPM_RC"
+assert_eq "et-prov(#534): MALFORMED — the valid object is backfilled synthesized:false" "false" \
+  "$(_et_show "$ETPM_REPO" ".prflow/logs/review/pr-6/run-m/iter-1.json" | jq -r '.synthesized' 2>/dev/null)"
+assert_eq "et-prov(#534): MALFORMED — the invalid-JSON record is left byte-identical" "$ETPM_H2" \
+  "$(git -C "$ETPM_REPO" hash-object "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m/iter-2.json")"
+assert_eq "et-prov(#534): NON-OBJECT — the array record is left byte-identical" "$ETPM_H3" \
+  "$(git -C "$ETPM_REPO" hash-object "$ETPM_REPO/.prflow/tmp/review/pr-6/run-m/iter-3.json")"
+rm -rf "$ETPM_REPO"
 
 # T4 → AC4: adversarial subject shapes each exit-0 + a specific breadcrumb; only
 # the one well-formed unique iteration is reconstructed.
