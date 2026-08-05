@@ -433,11 +433,14 @@ point operators here.
 ## Triggers fire on real comments only — never on descriptions
 
 A `/prflow:*` phrase placed in an **issue or PR description (body or title)**
-must never start a run — only a genuine comment or review can. This is why
+must never start a run — only a genuine comment can. This is why
 neither command workflow listens on the `issues` event, and why each gate's
-`TRIGGER_TEXT` is sourced solely from `github.event.comment.body` /
-`github.event.review.body` (never `issue.body` / `issue.title`). Quoting a
-command while *describing* a bug or feature is therefore safe.
+`TRIGGER_TEXT` is sourced solely from `github.event.comment.body` (never
+`issue.body` / `issue.title`). Quoting a command while *describing* a bug or
+feature is therefore safe. (Before issue #1163 the light path also read
+`github.event.review.body`; dropping its two review-triggered subscriptions
+left `github.event.comment.body` as the sole trigger-text source in both
+workflows.)
 
 Note: opening a PR does not trigger anything either — neither workflow listens
 on `pull_request[opened]`, so a PR description is never a trigger source.
@@ -557,9 +560,14 @@ pre-filter):
    only for PRFlow's own progress comment.
 
 Because anchoring operates on the resolver's `TRIGGER_TEXT` input, it is
-**surface-agnostic**: the workflow's existing
-`TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body }}`
-wiring already routes the PR-review body in, so no new surface wiring is added.
+**surface-agnostic**: whatever body the workflow routes into that input is
+anchored the same way, so no per-surface wiring is added. When this landed the
+workflow passed `${{ github.event.comment.body || github.event.review.body }}`,
+which routed the PR-review body in; issue #1163 has since dropped the two
+review-triggered subscriptions, so `TRIGGER_TEXT` is now
+`${{ github.event.comment.body }}` alone and no review body reaches the
+resolver at all. The anchoring itself is unchanged — it governs whichever
+surface is wired in.
 
 > **Landed (issue #321):** the `review_dedupe` job in `devflow.yml` now routes
 > through the **same** `detect-standalone-command.sh` detector (not its own

@@ -16835,14 +16835,16 @@ done
 # Comment-only triggers: a /devflow:* phrase in an issue/PR DESCRIPTION must
 # never start a run. Neither workflow may (a) listen on the `issues` event, nor
 # (b) match the trigger phrase against an issue body/title in its gate `if:`.
-# Only real comment/review bodies are valid trigger sources.
+# Only real comment bodies are valid trigger sources (issue #1163 dropped the
+# light path's two review-triggered subscriptions, so no gate reads
+# `github.event.review.body` any more).
 for f in devflow devflow-implement; do
   bad="$(grep -nE "^[[:space:]]*issues:[[:space:]]*$" "$WF/$f.yml" || true)"
   assert_eq "partition: $f.yml does not listen on the issues event" "" "$bad"
   # No gate matching against issue.body / issue.title (those are descriptions).
   bad="$(grep -nE "contains\(github\.event\.issue\.(body|title)" "$WF/$f.yml" || true)"
   assert_eq "partition: $f.yml gate never matches an issue body/title" "" "$bad"
-  # TRIGGER_TEXT must be sourced only from comment/review bodies.
+  # TRIGGER_TEXT must be sourced only from comment bodies.
   bad="$(grep -nE "TRIGGER_TEXT:.*github\.event\.issue\.(body|title)" "$WF/$f.yml" || true)"
   assert_eq "partition: $f.yml TRIGGER_TEXT excludes issue body/title" "" "$bad"
 done
@@ -16894,6 +16896,48 @@ assert_eq "partition: devflow.yml has no PR-review subscriptions (issue #1163 su
 #      the bug (d) guards — same shape as the heavy path's (a+) above).
 assert_eq "partition: devflow.yml subscribes to issue_comment (sole event entry point)" \
   "1" "$(grep -cE '^[[:space:]]*issue_comment:[[:space:]]*$' "$WF/devflow.yml")"
+# (e) Issue #1163's OTHER half: every actions/checkout step in devflow.yml pins
+#     `ref:` to the default branch. Dropping the subscriptions (d) makes the
+#     trigger resolve GITHUB_REF to the default branch, but the pin is what states
+#     that property in the file, so a future re-subscription cannot silently
+#     reinstate a PR-head checkout of the authorization inputs and tool grants.
+#     Asserted STRUCTURALLY — per checkout step, not as a whole-file count — so
+#     all three regressions are caught: a dropped pin, an added unpinned fifth
+#     checkout, and a pin rewritten with a `||` fallback (an empty `ref` makes
+#     actions/checkout fall back to GITHUB_REF) or a literal branch name (a
+#     consumer's default branch may not be `main`). Emits one `<line> <ref>` row
+#     per checkout step; a step with no `ref:` in its `with:` block emits NONE.
+#     Comment lines are skipped so the header prose quoting the expression is not
+#     mistaken for wiring, and the row is flushed at the next step boundary so the
+#     sibling `- uses: ./.github/actions/vendor-plugin` step's own
+#     `ref: ${{ needs.config.outputs.prflow_version }}` is never attributed to a
+#     checkout.
+devflow_checkout_ref_rows() {
+  awk '
+    function flush(   v) {
+      if (isck) { v = (refv == "" ? "NONE" : refv); printf "%d %s\n", ln, v }
+      isck = 0; refv = ""
+    }
+    /^[[:space:]]*#/ { next }
+    /^      - / { flush(); ln = NR }
+    /uses:[[:space:]]*actions\/checkout@/ { isck = 1 }
+    /^[[:space:]]*ref:[[:space:]]*/ {
+      if (isck && refv == "") { sub(/^[[:space:]]*ref:[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); refv = $0 }
+    }
+    END { flush() }
+  ' "$1"
+}
+devflow_checkout_rows="$(devflow_checkout_ref_rows "$WF/devflow.yml")"
+# 4 checkout steps: config, review_dedupe, gate, command.
+assert_eq "partition: devflow.yml has exactly 4 actions/checkout steps (issue #1163)" \
+  "4" "$(printf '%s\n' "$devflow_checkout_rows" | grep -c . || true)"
+# Every one of them pins the default branch verbatim — no fallback, no literal.
+devflow_unpinned_checkouts="$(
+  printf '%s\n' "$devflow_checkout_rows" \
+    | grep -v ' \${{ github\.event\.repository\.default_branch }}$' || true
+)"
+assert_eq "partition: devflow.yml pins every checkout ref: to the default branch (issue #1163)" \
+  "" "$devflow_unpinned_checkouts"
 
 # Early-ack reaction must stay correctly wired in BOTH gate jobs. These guard
 # the load-bearing properties that the react-to-trigger.sh unit tests above
