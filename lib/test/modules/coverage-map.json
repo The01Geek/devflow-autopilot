@@ -107,6 +107,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "lib/probe-observation.sh": {
+      "note": "shared execution-file readers (exec state, CLI version, transcript/permission_denials search) for the matcher-probe hook-arm observation renderers; driven through those renderers' arm matrices",
+      "owner": "unmodularized"
+    },
     "lib/recurring-targets.jq": {
       "note": "",
       "owner": "unmodularized"
@@ -310,6 +314,10 @@
       "note": "issue #1154: the dead-run cause selector extracted out of devflow.yml's inline chain; every arm and the arm ORDER are driven in the #1154 section of lib/test/modules/review-trigger-helpers.sh, alongside the #1054 review-progress marker-ownership block it shares a subject with",
       "owner": "review-trigger-helpers"
     },
+    "scripts/describe-defer-probe.sh": {
+      "note": "matcher-probe PreToolUse `defer` fall-through observation renderer: a breadcrumb-only primary verdict (a honored defer may leave no usable execution file), with the documented tool_deferred stop reason as a secondary axis",
+      "owner": "unmodularized"
+    },
     "scripts/describe-denial-count.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -318,8 +326,16 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/describe-permissionrequest-probe.sh": {
+      "note": "matcher-probe PermissionRequest hook-arm observation renderer: hook-firing attribution (granted control vs ungranted call), control execution, deny-message delivery, hook-deny visibility in permission_denials, and the event-absent vs nothing-reached-it inference",
+      "owner": "unmodularized"
+    },
     "scripts/describe-plugin-compose.sh": {
       "note": "",
+      "owner": "unmodularized"
+    },
+    "scripts/describe-pretooluse-deny-probe.sh": {
+      "note": "matcher-probe PreToolUse deny-path observation renderer: deny honored, granted-control untouched, deny-reason delivery (the axis the allow-only pretooluse-probe cannot answer), and hook-deny visibility in permission_denials",
       "owner": "unmodularized"
     },
     "scripts/describe-pretooluse-probe.sh": {
