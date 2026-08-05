@@ -1317,10 +1317,34 @@ apply_harness_floor() {
 # Consume DEVFLOW_DENIAL_RECORD (scripts/build-denial-record.sh's single-line JSON) and
 # land it as a distinct top-level `permission_denials` key on this run's efficiency
 # record. Mirrors apply_harness_floor exactly (same run-id identity targeting, same
-# three arms — staged record / already-persisted branch record / decline) so the two
-# floors behave identically; a denial record is NEVER a skeleton (unlike harness_cost:
-# a denial floor with no efficiency record for the run-id simply declines — the analysis
-# joins the cost record, and the count is restored from THIS key when a record exists).
+# four arms — staged record / already-persisted branch record / skeleton / decline) so
+# the two floors behave identically.
+#
+# WHY THE SKELETON ARM EXISTS (it replaced an unconditional decline). The decline it
+# replaced reasoned that "a denial record with no cost record to key it has no analysis
+# join". That reasoning is right about ANALYSIS and wrong about FORENSICS: the cross-run
+# cost analysis does want a cost record beside the count, but the denial record's primary
+# job is telling an operator, after the fact, what the harness refused on a run that
+# produced no verdict. An unjoinable denial record still beats a vanished one — and the
+# vanished case was reachable, on exactly the runs that need it most. A run that died
+# before yielding usable cost figures leaves scripts/prepare-harness-floor.sh's
+# _cost_has_figures refusing to stage an all-null harness_cost, which empties
+# DEVFLOW_EXECUTION_COST, which returns apply_harness_floor at its first guard — before
+# its own skeleton arm — so no host record exists for the fully-built denial record to
+# merge onto, and the record was discarded with only a job-log warning that expires.
+# That is the stall / crash / execution-ceiling class.
+#
+# WHAT THIS DOES AND DOES NOT CLOSE. It closes the all-null-cost drop path. It is NOT an
+# unconditional guarantee that every denial reaches durable storage: the skeleton is a
+# faithful mirror of apply_harness_floor's, so it inherits that skeleton's two gates, and
+# each remains a real drop path:
+#   (1) DEVFLOW_COMMAND_CLASS is `pr-description` or does not classify — no record is
+#       derived for those classes at all, so there is no keyed store to write into;
+#   (2) DEVFLOW_EXECUTION_PR is empty — the record is keyed `<slug>-<run-id>.json` and the
+#       slug is `pr-<N>`, so with no PR number there is no identity to file it under.
+# Both take a named breadcrumb rather than a silent drop. How often either is reached in
+# practice is UNESTABLISHED and cannot be established from this tree — do not read the
+# breadcrumbs' absence as evidence of zero.
 #
 # Add the denial record (add-if-absent) to an in-STAGING record file $1, via temp+mv.
 _denial_merge_staged() {
@@ -1393,10 +1417,55 @@ apply_denial_floor() {
     fi
     return 0
   done < <(devflow_telemetry_list_blobs "$root" "$ref" ".prflow/logs/efficiency/")
-  # Decline arm: no record for this run-id. Unlike harness_cost there is no skeleton —
-  # a denial record without a cost record to key it has no analysis join, so decline
-  # with a breadcrumb rather than fabricate a bare record.
-  echo "::warning::efficiency-trace.sh --persist: denial floor: no efficiency record for run-id ${ident} (staged or on-branch); the denial record is not attached this run (no skeleton is written for denials — the analysis joins the cost record)" >&2
+
+  # Skeleton arm: no efficiency record for this run-id anywhere (staged or on-branch).
+  # Mirrors apply_harness_floor's skeleton arm — same class gate, same empty-PR gate,
+  # same overwrite guard, same minimal `synthesized: true, source: null` shape — with
+  # `permission_denials` in place of `harness_cost`. See the block comment above this
+  # function for why a record that cannot join the cost analysis is still written, and
+  # for the two residual drop paths the two gates below leave open.
+  #
+  # Only record-DERIVING command classes get a skeleton: pr-description's healthy state
+  # is "no record", so a skeleton there would invent a store entry the analysis is built
+  # to not expect.
+  case "${DEVFLOW_COMMAND_CLASS:-}" in
+    review|review-and-fix|implement) ;;
+    pr-description)
+      echo "::warning::efficiency-trace.sh --persist: denial floor: no record by design for command class 'pr-description'; no denial skeleton written (residual drop path: the denial record is discarded this run)" >&2
+      return 0 ;;
+    *)
+      echo "::warning::efficiency-trace.sh --persist: denial floor: command class '${DEVFLOW_COMMAND_CLASS:-<unset>}' does not derive records; no denial skeleton written (residual drop path: the denial record is discarded this run)" >&2
+      return 0 ;;
+  esac
+  if [ -z "${DEVFLOW_EXECUTION_PR:-}" ]; then
+    echo "::warning::efficiency-trace.sh --persist: denial floor: no record for run-id ${ident} and DEVFLOW_EXECUTION_PR is empty, so the skeleton has no pr-<N> slug to be keyed by; denial skeleton skipped (residual drop path: the denial record is discarded this run)" >&2
+    return 0
+  fi
+  local slug="pr-${DEVFLOW_EXECUTION_PR}" generated_at skel
+  # Skeleton-overwrite guard, mirroring apply_harness_floor's: merge arm (b) reaches here
+  # by falling through a loop that iterates zero times BOTH when the branch genuinely holds
+  # no record for this run-id AND when list_blobs swallowed a git failure (it returns empty
+  # on a rev-parse/ls-tree error). Writing a contentless skeleton over a real, populated
+  # record under the same filename would destroy it, so re-check the blob explicitly and
+  # decline rather than rest on the empty-list signal.
+  if [ -n "$ref" ] && devflow_telemetry_blob_exists "$root" "$ref" ".prflow/logs/efficiency/${slug}-${ident}.json" 2>/dev/null; then
+    echo "::warning::efficiency-trace.sh --persist: denial floor: a record already exists on the telemetry branch at .prflow/logs/efficiency/${slug}-${ident}.json (merge-arm-b's branch listing may have failed silently); declining to overwrite it with a denial skeleton" >&2
+    return 0
+  fi
+  generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  mkdir -p "$eff_dir" 2>/dev/null || true
+  # Same distinguishing marks as the cost skeleton — source:null (no mode's derivation
+  # ran), synthesized:true, iterations:0 — so a reader tells a floor skeleton from a #381
+  # commit-reconstructed record; here the carried key is permission_denials, not harness_cost.
+  if skel="$("$DEVFLOW_JQ" -n --arg slug "$slug" --arg ga "$generated_at" --argjson dr "$dr" \
+        '{schema_version: 1, slug: $slug, generated_at: $ga, source: null,
+          synthesized: true, iterations: 0, per_iteration: [], telemetry: [],
+          permission_denials: $dr}' 2>/dev/null)" && printf '%s\n' "$skel" > "${eff_dir}/${slug}-${ident}.json"; then
+    echo "devflow: efficiency-trace.sh --persist: denial floor: no record for run-id ${ident}; wrote a minimal denial skeleton ${slug}-${ident}.json (source:null, synthesized:true) so the denial record is durable even without cost figures" >&2
+  else
+    echo "::warning::efficiency-trace.sh --persist: denial floor: could not write the denial skeleton for ${slug}-${ident}; no floor write" >&2
+    rm -f "${eff_dir}/${slug}-${ident}.json" 2>/dev/null
+  fi
   return 0
 }
 
