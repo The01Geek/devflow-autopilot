@@ -972,6 +972,30 @@ class EnumerateDimensions(unittest.TestCase):
         _, dims = self._parse(r.stdout)
         self.assertEqual(len(dims), 9, [k for k, _ in dims])
 
+    def test_authoring_discipline_fourth_shape_present_and_bounded(self):
+        # Issue #1334: the `authoring-discipline-defects` bullet carries a fourth
+        # numbered shape (over-retention) admitting RESTATEMENT and INFERABLE
+        # findings. The enumeration payload is a machine-parsed CLI contract, so
+        # both facts are asserted at the renderer's output.
+        with tempfile.TemporaryDirectory() as d:
+            ext = Path(d) / "create-issue.md"  # absent -> generic floor only
+            r = run_renderer(["enumerate-dimensions", "--extension-file", str(ext)])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        _, dims = self._parse(r.stdout)
+        payloads = {k: t for k, t in dims}
+        text = payloads.get("g:authoring-discipline-defects")
+        self.assertIsNotNone(
+            text, "g:authoring-discipline-defects dimension missing from enumeration"
+        )
+        self.assertIn("RESTATEMENT", text)
+        self.assertIn("INFERABLE", text)
+        # Enforcement constant: the payload was 885 chars at 504fc951e; the fourth
+        # shape may grow it by at most 1000 characters (<= 1885 total). The literal
+        # IS the enforcement (CLAUDE.md's enforcement-constant exemption). The shipped
+        # fourth shape realizes ~1880 chars, so the margin under the ceiling is small
+        # by design — any later append to this bullet must trim elsewhere or re-adjudicate.
+        self.assertLessEqual(len(text), 1885, len(text))
+
     def test_two_checklist_blocks_fail_closed(self):
         # Two checklist blocks would silently MERGE two dimension sets into one
         # enumeration, and the merged keyset is what coverage totality is checked against.
