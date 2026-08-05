@@ -1355,7 +1355,7 @@ _ra_ok "#1244 AP11a the row's target is PRESENT (so the absent-target sub-clause
   "$([ -f "$RA_AP11A/lib/generate-env-freeze-advisory.py" ] && printf yes || printf no)" \
   "the generator is missing, so this arm is AP11c's absent-target case rather than the present-target one"
 RA_AP11A_MAN_BEFORE="$(cat "$RA_AP11A/scripts/devflow-cloud-writer-contract.json")"
-RA_AP11A_REGION_BEFORE="$(cat "$RA_AP11A/docs/cloud-setup.md")"
+RA_AP11A_REGION_BEFORE="$(cat "$RA_AP11A/docs/internal/cloud-setup.md")"
 _ra_preflight "$RA_AP11A"
 # Exit 2 is the coordinator's fail-OPEN signal; exit 1 would be the refusal. AP11b drives that
 # consequence end to end.
@@ -1385,7 +1385,7 @@ _ra_same "#1244 AP11a preflight writes nothing on the out-of-set arm (manifest)"
   "$RA_AP11A_MAN_BEFORE" "$(cat "$RA_AP11A/scripts/devflow-cloud-writer-contract.json")" \
   "the read-only preflight mutated the manifest on the out-of-set arm"
 _ra_same "#1244 AP11a preflight writes nothing on the out-of-set arm (the row's own artifact)" \
-  "$RA_AP11A_REGION_BEFORE" "$(cat "$RA_AP11A/docs/cloud-setup.md")" \
+  "$RA_AP11A_REGION_BEFORE" "$(cat "$RA_AP11A/docs/internal/cloud-setup.md")" \
   "the read-only preflight rewrote the advisory region of the row it could not check"
 _ra_live_unchanged "#1244 AP11a live manifest byte-unchanged after the out-of-set preflight"
 
@@ -1433,7 +1433,7 @@ _ra_ok "#1244 AP11c running the absent generator really exits OUTSIDE the declar
   "$(_ra_rc_out_of_set "$RA_AP11C_EXITS" "$RA_AP11C_PROBE_RC")" \
   "exit $RA_AP11C_PROBE_RC is inside the declared set ($RA_AP11C_EXITS), so the out-of-set branch is not the one under test"
 RA_AP11C_MAN_BEFORE="$(cat "$RA_AP11C/scripts/devflow-cloud-writer-contract.json")"
-RA_AP11C_REGION_BEFORE="$(cat "$RA_AP11C/docs/cloud-setup.md")"
+RA_AP11C_REGION_BEFORE="$(cat "$RA_AP11C/docs/internal/cloud-setup.md")"
 _ra_preflight "$RA_AP11C"
 assert_eq "#1244 AP11c an absent target also exits 2 (UNCHECKABLE)" "2" "$(_ra_prc "$RA_AP11C")"
 _ra_has_file "#1244 AP11c the absent-target row is reported UNCHECKABLE by name" \
@@ -1452,7 +1452,7 @@ _ra_same "#1244 AP11c preflight writes nothing on the absent-target arm (manifes
   "$RA_AP11C_MAN_BEFORE" "$(cat "$RA_AP11C/scripts/devflow-cloud-writer-contract.json")" \
   "the read-only preflight mutated the manifest on the absent-target arm"
 _ra_same "#1244 AP11c preflight writes nothing on the absent-target arm (the row's own artifact)" \
-  "$RA_AP11C_REGION_BEFORE" "$(cat "$RA_AP11C/docs/cloud-setup.md")" \
+  "$RA_AP11C_REGION_BEFORE" "$(cat "$RA_AP11C/docs/internal/cloud-setup.md")" \
   "the read-only preflight rewrote the advisory region while its generator was absent"
 _ra_live_unchanged "#1244 AP11c live manifest byte-unchanged after the absent-target preflight"
 

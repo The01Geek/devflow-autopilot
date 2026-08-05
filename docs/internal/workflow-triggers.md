@@ -80,7 +80,7 @@ restore.
 
 | Workflow | Commands | Listens on |
 |---|---|---|
-| `devflow.yml` (light path) | `/prflow:review`, `/prflow:review-and-fix`, `/prflow:pr-description` | `issue_comment[created]`, `pull_request_review_comment[created]`, `pull_request_review[submitted]` |
+| `devflow.yml` (light path) | `/prflow:review`, `/prflow:review-and-fix`, `/prflow:pr-description` | `issue_comment[created]` |
 | `devflow-implement.yml` (heavy path) | `/prflow:implement` | `issue_comment[created]` |
 | `ci.yml` — `auto_review_trigger` job **(repo-internal; `install.sh` does NOT ship it)** | posts `/prflow:review` automatically once CI is green on a non-draft same-repo pull request | `pull_request[opened, synchronize, reopened, ready_for_review]` (an automatic *producer* of the `/prflow:review` comment, not a listener for it; a consumer reproduces it with the documented snippet below — see *Automatic review request on green CI*) |
 | `devflow-review.yml` **(withheld — see above; not shipped, still live in repositories that installed it)** | automated review | PR lifecycle + `check_run[rerequested]` + `workflow_run`/`check_suite` `[completed]` + `status` (CI-completion re-trigger for deferred reviews — `status` covers legacy commit-status-only CI, filtered to a green state; see the preconditions note in `DEVFLOW_SYSTEM_OVERVIEW.md` §14; the `workflow_run` `workflows:` list must name **every** first-party workflow that runs on PR events — the review waits on all of them but re-fires only on a listed one's completion, so a gating workflow omitted from the list can strand a deferred review, issue #579) |
@@ -102,11 +102,20 @@ comment routes to exactly one listener and never collides with Anthropic's stock
 `claude.yml`. This is the *partition invariant*, enforced by tests in
 `lib/test/run.sh`.
 
-**The heavy path is issues-only.** Unlike the light path — which is intentionally
-PR-aware (`/prflow:review` / `/prflow:pr-description` act on a PR) —
-`devflow-implement.yml` listens **only** on `issue_comment[created]` and never on
-the PR-only review events. Because a PR comment is *also* an `issue_comment` in
-GitHub's API, the gate `if:` additionally requires
+**Both paths are `issue_comment`-only.** The light path's commands
+(`/prflow:review` / `/prflow:pr-description`) still act on a pull request, but they
+are requested by **commenting on the pull-request conversation** — which is an
+`issue_comment` in GitHub's API — not from the review-submission box or an inline
+diff comment. As of issue #1163 `devflow.yml` no longer subscribes to
+`pull_request_review[submitted]` or `pull_request_review_comment[created]`: on those
+events GITHUB_REF resolves to `refs/pull/N/merge`, so every job checked out
+PR-author content (including the `config` job's authorization inputs and the agent's
+tool grants), and the subscriptions were removed to close that accident class.
+Requesting a review from the review-submission box or an inline diff comment
+therefore no longer works; commenting `/prflow:review` on the PR conversation still
+does. `devflow-implement.yml` was already `issue_comment`-only. Because a PR comment
+is *also* an `issue_comment` in GitHub's API, the heavy path's gate `if:`
+additionally requires
 `github.event.issue.pull_request == null`, and `scripts/resolve-implement-trigger.sh`
 re-checks via an `IS_PULL_REQUEST` signal and declines before authorization — so a
 comment on a pull request never starts an implement run, whatever its body text.
@@ -114,7 +123,7 @@ This is what stops the weekly retrospective's audit-report comment (which quotes
 the literal `/prflow:implement` phrase in prose) from self-triggering on the
 state PR.
 
-**The authorized comment sender becomes the created PR's assignee (issue #1165).** Because the implement trigger is an `issue_comment[created]` event, `github.event.sender.login` names the developer who requested the run. `devflow-implement.yml` propagates it to the writer as `DEVFLOW_TRIGGERING_USER`, and Phase 3.1.1 of the implement engine best-effort-assigns the newly-created draft PR to that login (a local run resolves `gh api user --jq .login` instead). Assignment is CREATE-only, fail-closed on identity (an empty sender substitutes no other account), and never gates the run — see [`docs/cloud-setup.md`](cloud-setup.md) → *Assigning the created PR to the triggering user*.
+**The authorized comment sender becomes the created PR's assignee (issue #1165).** Because the implement trigger is an `issue_comment[created]` event, `github.event.sender.login` names the developer who requested the run. `devflow-implement.yml` propagates it to the writer as `DEVFLOW_TRIGGERING_USER`, and Phase 3.1.1 of the implement engine best-effort-assigns the newly-created draft PR to that login (a local run resolves `gh api user --jq .login` instead). Assignment is CREATE-only, fail-closed on identity (an empty sender substitutes no other account), and never gates the run — see [`docs/internal/cloud-setup.md`](cloud-setup.md) → *Assigning the created PR to the triggering user*.
 
 `resolve-implement-trigger.sh` is **also markdown-aware** (issue #1032): it routes
 through the shared `scripts/detect-standalone-command.sh` detector, so on an *issue*
@@ -297,7 +306,7 @@ jobs:
   inert for that pull request (the trigger reads the default branch, where the slug
   is not yet present). Merge the `allowed_bots` change first; only then does the
   snippet start a review. (This is the same trigger-time-resolution note
-  `docs/cloud-setup.md` carries for the two stall-backstop paths.)
+  `docs/internal/cloud-setup.md` carries for the two stall-backstop paths.)
 - **No repository-root `scripts/`.** A consumer checkout has no repo-root `scripts/`
   directory — that exists only in PRFlow's own repository. The helper resolves under
   `.prflow/vendor/prflow/scripts/`, materialized by the `vendor-plugin` composite
@@ -379,7 +388,7 @@ PR. Its trigger policy (issue #304):
   just the primary CI one — in the `workflow_run:` list in
   `.github/workflows/devflow-review.yml` when installing**, or the CI-completion
   re-trigger silently never fires for a deferred review (the installer prints a
-  reminder to this effect; see also `docs/cloud-setup.md`). The precondition
+  reminder to this effect; see also `docs/internal/cloud-setup.md`). The precondition
   *evaluation* itself stays fully generic (no job names).
 
 ### The injected block reports *observed* CI conclusions, never a green assumption
@@ -424,11 +433,14 @@ point operators here.
 ## Triggers fire on real comments only — never on descriptions
 
 A `/prflow:*` phrase placed in an **issue or PR description (body or title)**
-must never start a run — only a genuine comment or review can. This is why
+must never start a run — only a genuine comment can. This is why
 neither command workflow listens on the `issues` event, and why each gate's
-`TRIGGER_TEXT` is sourced solely from `github.event.comment.body` /
-`github.event.review.body` (never `issue.body` / `issue.title`). Quoting a
-command while *describing* a bug or feature is therefore safe.
+`TRIGGER_TEXT` is sourced solely from `github.event.comment.body` (never
+`issue.body` / `issue.title`). Quoting a command while *describing* a bug or
+feature is therefore safe. (Before issue #1163 the light path also read
+`github.event.review.body`; dropping its two review-triggered subscriptions
+left `github.event.comment.body` as the sole trigger-text source in both
+workflows.)
 
 Note: opening a PR does not trigger anything either — neither workflow listens
 on `pull_request[opened]`, so a PR description is never a trigger source.
@@ -548,9 +560,14 @@ pre-filter):
    only for PRFlow's own progress comment.
 
 Because anchoring operates on the resolver's `TRIGGER_TEXT` input, it is
-**surface-agnostic**: the workflow's existing
-`TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body }}`
-wiring already routes the PR-review body in, so no new surface wiring is added.
+**surface-agnostic**: whatever body the workflow routes into that input is
+anchored the same way, so no per-surface wiring is added. When this landed the
+workflow passed `${{ github.event.comment.body || github.event.review.body }}`,
+which routed the PR-review body in; issue #1163 has since dropped the two
+review-triggered subscriptions, so `TRIGGER_TEXT` is now
+`${{ github.event.comment.body }}` alone and no review body reaches the
+resolver at all. The anchoring itself is unchanged — it governs whichever
+surface is wired in.
 
 > **Landed (issue #321):** the `review_dedupe` job in `devflow.yml` now routes
 > through the **same** `detect-standalone-command.sh` detector (not its own

@@ -2579,14 +2579,14 @@ assert_eq "drc: guard's review-backstop marker matches the producer (coupling ho
 # so the helper's paginated fetch is not computed and discarded (efficiency).
 assert_eq "drc: Candidate-C helper is consulted only when both legacy signals are 0" "1" \
   "$(grep -cF 'if [ "$IC" = "0" ] && [ "$IR" = "0" ]; then' "$RDWF")"
-# resolves-the-thread-key-on-a-review-comment-event (issue #989 named assertion):
-# devflow.yml accepts three events, but only issue_comment populates
-# github.event.issue.number — pull_request_review[_comment] populate only
-# github.event.pull_request.number. Both the guard job's PR env and the notice
-# step's PR env must derive the thread key with the `||` fallback, or Candidate C
-# silently never suppresses on two of the three trigger events (the helper's own
-# numeric-PR guard fails open on an empty PR). Pin BOTH sites (guard + notice).
-assert_eq "drc: guard+notice PR env derive the thread key on ALL three events (|| fallback)" "2" \
+# resolves-the-thread-key (issue #989 named assertion): since issue #1163 devflow.yml
+# fires on issue_comment alone (the two pull_request_review* subscriptions were
+# removed), and issue_comment populates github.event.issue.number. Both the guard
+# job's PR env and the notice step's PR env retain the `|| github.event.pull_request.number`
+# fallback as a defensive form so the two sites derive the thread key identically;
+# the fallback is now degenerate under the sole trigger but harmless (issue.number is
+# always populated), and pinning BOTH sites (guard + notice) keeps them coupled.
+assert_eq "drc: guard+notice PR env derive the thread key with the || fallback (both sites coupled)" "2" \
   "$(grep -cF 'PR: ${{ github.event.issue.number || github.event.pull_request.number }}' "$RDWF")"
 
 rm -rf "$DRC_STUB"
@@ -4694,7 +4694,7 @@ rm -rf "$PCRT_SB"
 # snippet, so the copy is unavoidable and the extractor keeps the doc snippet and
 # the auto_review_trigger job region from drifting); it is not a prose-presence pin.
 CIREV_EX="$LIB/test/extract-ci-review-agreement.py"
-CIREV_DOC="$LIB/../docs/workflow-triggers.md"
+CIREV_DOC="$LIB/../docs/internal/workflow-triggers.md"
 CIREV_CI="$LIB/../.github/workflows/ci.yml"
 cirev() { python3 "$CIREV_EX" "$1" "$2" 2>/dev/null; }
 

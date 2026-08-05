@@ -3392,7 +3392,7 @@ class RetiredPinRevivalTests(unittest.TestCase):
         )
         self.assertNotEqual(
             self.mod._site_retirement_key(
-                "lib/test/run.sh", "h", self.LITERAL, "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+                "lib/test/run.sh", "h", self.LITERAL, "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md",
             ),
             self.mod._site_retirement_key(
                 "lib/test/run.sh", "h", self.LITERAL, "docs/PRFLOW_SYSTEM_OVERVIEW.md",
@@ -4773,7 +4773,7 @@ class PinRoutingLadder948Tests(unittest.TestCase):
     def test_step_one_corpus_excludes_the_suite_and_prose_surfaces(self):
         for path in (
             "lib/test/other-module.sh",
-            "docs/cloud-allowlist.md",
+            "docs/internal/cloud-allowlist.md",
             "skills/review/phases/phase-4-verdict.md",
             "CONTRIBUTING.md",
         ):

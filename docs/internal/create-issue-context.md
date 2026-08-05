@@ -3,7 +3,7 @@
 This document is the single source of truth (SSOT, per issue #762) for **how the
 `/prflow:create-issue` orchestrator spends runtime main-thread context**, and for
 the behavioral instrument that measures it. `CLAUDE.md`'s create-issue bullet and
-`docs/DEVFLOW_SYSTEM_OVERVIEW.md` §11 carry one-line pointers here, not copies.
+`docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md` §11 carry one-line pointers here, not copies.
 
 ## Static shipped size vs. runtime main-thread context
 
@@ -117,7 +117,7 @@ rather than re-quoting it**. The edited sites are:
 
 No decision-owning mandatory prose is **removed** by this change — the edits *constrain
 how* resident content is referenced, adding no new owner of a workflow decision and
-removing none — so no `docs/cutovers/` artifact is required (the helper-cutover
+removing none — so no `docs/internal/cutovers/` artifact is required (the helper-cutover
 convention triggers only when an executable helper becomes the sole tested owner of a
 decision, which is not the case here).
 
@@ -260,7 +260,7 @@ an unwalkable directory, an escaped or unreadable session file, a session file c
 sidechain records, or a malformed record inside a counted run — because each of those deflates the
 sums, and `finding_count` reads `unestablished` when either side's state file could not be read.
 Wall-clock is **not** a measured axis on this tier — it is reported `unestablished`,
-citing the local-tier row in [`docs/efficiency-trace.md`](efficiency-trace.md), rather than
+citing the local-tier row in [`docs/internal/efficiency-trace.md`](efficiency-trace.md), rather than
 asserted as something the orchestrator observes; and no cost figure is sourced from a value the
 orchestrator volunteers (the harness emits the same `usage` data deterministically). The
 main-thread context figures are a **secondary** axis and are never the sole basis of the reduction

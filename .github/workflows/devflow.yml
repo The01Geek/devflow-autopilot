@@ -1,7 +1,8 @@
 name: DevFlow
 
 # DevFlow-owned LIGHT COMMAND LISTENER. Fires on a BARE `/devflow:review`,
-# `/devflow:review-and-fix`, or `/devflow:pr-description` comment/review and runs
+# `/devflow:review-and-fix`, or `/devflow:pr-description` comment (issue #1163: the
+# sole trigger is issue_comment; a review-submission or inline-diff body no longer fires) and runs
 # claude-code-action in AGENT mode with a synthesised prompt (jobs: `config` /
 # `review_dedupe` / `gate` / `command`). This is the body that used to live in
 # the standalone claude.yml.
@@ -14,7 +15,7 @@ name: DevFlow
 # path is therefore a collaborator commenting `/devflow:review` — this file's
 # `command` job. A consumer can additionally opt into having that same comment
 # posted automatically once their CI is green, with the documented snippet in
-# docs/workflow-triggers.md (issue #990); it routes into this same `command`
+# docs/internal/workflow-triggers.md (issue #990); it routes into this same `command`
 # job. The runner was split out in the first place because a called reusable
 # workflow's permission ceiling is validated against the caller's grant across
 # the whole graph: co-locating the high-privilege `command` job (contents:write
@@ -29,15 +30,28 @@ name: DevFlow
 # below negates `@claude`, so an `@claude …` comment routes ONLY to Anthropic's
 # listener and a bare `/devflow:*` comment routes ONLY here — the two can never
 # double-fire. The heavy /devflow:implement path lives in devflow-implement.yml
-# under the same partition. See docs/cloud-setup.md.
+# under the same partition. See docs/internal/cloud-setup.md.
 
 on:
+  # issue_comment is the SOLE subscription (issue #1163). Its jobs check out the
+  # default branch by GitHub's own event-resolution rules — GitHub reads both the
+  # workflow file and the workspace for issue_comment from the default branch — and
+  # the checkouts below additionally pin `ref: ${{ github.event.repository.default_branch }}`
+  # so the trusted-workspace property is stated in the file, not merely inferred
+  # from the trigger set. The two review subscriptions (pull_request_review[submitted]
+  # and pull_request_review_comment[created]) were removed: on those events GITHUB_REF
+  # resolves to refs/pull/N/merge, so every job checked out PR-author content — the
+  # composite actions, the vendored plugin tree, .prflow/config.json (from which the
+  # config job resolves the values that authorize the run and grant the agent its
+  # tools), and .claude/settings.json. Requesting a review by commenting on the PR
+  # conversation still works (that is an issue_comment); requesting one from the
+  # review-submission box or an inline diff comment no longer does. See
+  # docs/workflow-triggers.md. The ACCIDENT class is closed here; the adversarial
+  # residual (a branch re-adding a trigger in its own copy of this file — PR #404's
+  # "a floor the pull request controls is no floor", applied to the workflow itself)
+  # is out of scope by construction and tracked in #1300.
   issue_comment:
     types: [created]
-  pull_request_review_comment:
-    types: [created]
-  pull_request_review:
-    types: [submitted]
 
 defaults:
   run:
@@ -68,7 +82,15 @@ jobs:
       # which is what makes those keys post-merge-only.
       config_json: ${{ steps.cfg.outputs.json }}
     steps:
+      # Pin the default branch explicitly (issue #1163). issue_comment already
+      # resolves GITHUB_REF to the default branch, so this states the trusted-tree
+      # property in the file rather than inferring it from the trigger. No fallback
+      # expression: an empty `ref` input makes actions/checkout fall back to
+      # GITHUB_REF silently, reinstating the defect. No literal branch name: a
+      # consumer's default branch may not be `main`.
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
       - id: cfg
         uses: ./.github/actions/read-project-config
       - id: extract
@@ -287,7 +309,11 @@ jobs:
     outputs:
       suppress: ${{ steps.guard.outputs.suppress }}
     steps:
+      # Pin the default branch explicitly (issue #1163) — see the config job's
+      # checkout comment; no fallback expression, no literal branch name.
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
       # Materialize the plugin so detect-standalone-command.sh exists at
       # .prflow/vendor/prflow/scripts/ (committed → self → fetch). Mirrors the
       # gate job so the dedupe body match routes through the SAME shared detector
@@ -299,7 +325,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          BODY: ${{ github.event.comment.body || github.event.review.body }}
+          BODY: ${{ github.event.comment.body }}
           PR: ${{ github.event.issue.number || github.event.pull_request.number }}
         run: |
           set -euo pipefail
@@ -502,7 +528,7 @@ jobs:
       # Optional, opt-in: mint an App token DOWNSCOPED to the notice's needs —
       # PR comment only (no contents/workflows/issues). Same opt-in/fail-loud/
       # downscope contract as the review mint in devflow-runner.yml — see
-      # docs/cloud-setup.md. Minted only when the notice below will actually
+      # docs/internal/cloud-setup.md. Minted only when the notice below will actually
       # post (suppress), so the common non-suppressed path stays mint-free.
       - name: Mint downscoped notice token (optional)
         id: dedupe_app_token
@@ -589,18 +615,16 @@ jobs:
   # commit, or a comment naming implement in one namespace and a light command in
   # the other fires this workflow AND devflow-implement.yml. `/prflow:review`
   # substring-matches `/prflow:review-and-fix`, so both are covered by the review
-  # clause and the resolver disambiguates. Triggers fire ONLY on real comment/review bodies —
+  # clause and the resolver disambiguates. Triggers fire ONLY on real comment bodies —
   # never on an issue/PR description, so a command merely *quoted* in a
-  # description cannot start a run.
+  # description cannot start a run. Only the issue_comment clause remains: the two
+  # review-event clauses were removed with their subscriptions (issue #1163), so no
+  # unreachable branch is left behind.
   gate:
     needs: config
     if: |
       needs.config.outputs.enabled == 'true' &&
-      (
-        (github.event_name == 'issue_comment' && (contains(github.event.comment.body, '/prflow:review') || contains(github.event.comment.body, '/devflow:review') || contains(github.event.comment.body, '/prflow:pr-description') || contains(github.event.comment.body, '/devflow:pr-description')) && !contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '/prflow:implement') && !contains(github.event.comment.body, '/devflow:implement')) ||
-        (github.event_name == 'pull_request_review_comment' && (contains(github.event.comment.body, '/prflow:review') || contains(github.event.comment.body, '/devflow:review') || contains(github.event.comment.body, '/prflow:pr-description') || contains(github.event.comment.body, '/devflow:pr-description')) && !contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '/prflow:implement') && !contains(github.event.comment.body, '/devflow:implement')) ||
-        (github.event_name == 'pull_request_review' && (contains(github.event.review.body, '/prflow:review') || contains(github.event.review.body, '/devflow:review') || contains(github.event.review.body, '/prflow:pr-description') || contains(github.event.review.body, '/devflow:pr-description')) && !contains(github.event.review.body, '@claude') && !contains(github.event.review.body, '/prflow:implement') && !contains(github.event.review.body, '/devflow:implement'))
-      )
+      (github.event_name == 'issue_comment' && (contains(github.event.comment.body, '/prflow:review') || contains(github.event.comment.body, '/devflow:review') || contains(github.event.comment.body, '/prflow:pr-description') || contains(github.event.comment.body, '/devflow:pr-description')) && !contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '/prflow:implement') && !contains(github.event.comment.body, '/devflow:implement'))
     runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     permissions:
       contents: read        # checkout the resolver; collaborator check uses GITHUB_TOKEN
@@ -610,7 +634,11 @@ jobs:
       should_run: ${{ steps.resolve.outputs.should_run }}
       command: ${{ steps.resolve.outputs.command }}
     steps:
+      # Pin the default branch explicitly (issue #1163) — see the config job's
+      # checkout comment; no fallback expression, no literal branch name.
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
       # Materialize the plugin so resolve-command-trigger.sh / react-to-trigger.sh
       # exist at .prflow/vendor/prflow/scripts/ (committed → self → fetch).
       - uses: ./.github/actions/vendor-plugin
@@ -624,10 +652,10 @@ jobs:
           ALLOWED_BOTS: ${{ needs.config.outputs.allowed_bots }}
           ALLOWED_USERS: ${{ needs.config.outputs.allowed_users }}
           CONTEXT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-          # Only a real comment/review body contributes — never an issue/PR
+          # Only a real comment body contributes — never an issue/PR
           # description. Passed as an env var (never interpolated into bash) so
           # arbitrary body text cannot inject.
-          TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body }}
+          TRIGGER_TEXT: ${{ github.event.comment.body }}
         run: |
           set -euo pipefail
           # Vendored path: install.sh copies the plugin into .prflow/vendor/prflow/.
@@ -643,7 +671,7 @@ jobs:
       # (issues:write + pull-requests:write — the narrowest grant GitHub offers
       # for comment reactions; no contents/workflows: this job neither reads
       # code with it nor pushes). Same opt-in/fail-loud/downscope contract as
-      # the review mint in devflow-runner.yml — see docs/cloud-setup.md. NOTE:
+      # the review mint in devflow-runner.yml — see docs/internal/cloud-setup.md. NOTE:
       # fail-loud means a configured-but-broken App fails THIS gate job (and so
       # blocks the command path) — deliberate, so a broken App is never
       # silently degraded around. Minted only when the reaction below will
@@ -752,6 +780,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
+          # Pin the default branch explicitly (issue #1163) — see the config job's
+          # checkout comment; no fallback expression, no literal branch name.
+          ref: ${{ github.event.repository.default_branch }}
           # fetch-depth: 0 (all history) — matches devflow-implement.yml and
           # ci.yml. Two requirements, and the second is the binding one
           # (issue #1219):
@@ -803,20 +834,17 @@ jobs:
       # up, so it is closed here rather than recorded as an accepted trade.
       #
       # WHY THE WORKSPACE IS NOT A TRUSTED SOURCE FOR THESE BYTES, precisely — the
-      # mechanism is NOT "this job checks out the PR head":
-      #   * Under `issue_comment` (the dominant path, and the one docs/workflow-
-      #     triggers.md's auto-review snippet drives) GITHUB_REF is the DEFAULT
-      #     BRANCH, so the checkout below IS trusted at workflow-step time. But
-      #     `/prflow:review-and-fix`'s Step 0.5 branch sync runs `gh pr checkout` and
-      #     moves the tree to the PR head BEFORE the review engine loads `review` and
-      #     before Phase 3.1 loads `requesting-code-review`. The agent, not the
-      #     checkout, is what makes those two reads untrusted.
-      #   * Under `pull_request_review` / `pull_request_review_comment` GITHUB_REF is
-      #     `refs/pull/N/merge`, so the workspace is PR content from the first step.
-      # Standalone `/prflow:review` never moves the tree at all (it reads the PR
-      # through `gh pr diff` / `gh pr view`), so on `issue_comment` it was already
-      # reading trusted bytes; the closure costs it nothing and covers it on the two
-      # PR-review triggers.
+      # mechanism is NOT "this job checks out the PR head". Since issue #1163 this
+      # workflow subscribes to `issue_comment` alone and every job pins
+      # `ref: github.event.repository.default_branch`, so the checkout below is ALWAYS
+      # the maintainer-committed default branch — trusted at workflow-step time. The
+      # untrustedness is introduced entirely by the AGENT, not the checkout:
+      # `/prflow:review-and-fix`'s Step 0.5 branch sync runs `gh pr checkout` and moves
+      # the tree to the PR head BEFORE the review engine loads `review` and before
+      # Phase 3.1 loads `requesting-code-review`, so those two reads land on PR content.
+      # Standalone `/prflow:review` never moves the tree at all (it reads the PR through
+      # `gh pr diff` / `gh pr view`), so it was already reading trusted bytes; the
+      # closure costs it nothing and covers the branch-synced review-and-fix path.
       #
       # UNCONDITIONAL closure + export, CONDITIONAL population — the #874 shape. The
       # closure directory and the variable are established outside every branch, so
@@ -836,13 +864,14 @@ jobs:
       #
       # DELIBERATE DIVERGENCE: no three-rank trusted-source ladder for the helper.
       # The runner needs one because its workspace is ALWAYS the PR head, so a
-      # workspace helper is never trusted. Here the helper's trust and the closure's
-      # efficacy share one precondition: on a trigger whose workspace is PR content,
-      # a PR that can edit this helper can equally edit the `load-prompt-extension.sh`
-      # the agent runs from the same vendored tree — which no ladder reaches, because
-      # the loader is what consults the closure. A ladder would therefore add
-      # complexity without adding a case it defends. That residual is recorded in
-      # docs/DEVFLOW_SYSTEM_OVERVIEW.md's base-ref trust boundary, not glossed.
+      # workspace helper is never trusted. Here the workspace is the trusted default
+      # branch at checkout, and the untrusted state arrives only when Step 0.5's
+      # `gh pr checkout` moves the tree to the PR head — at which point a PR that can
+      # edit this helper can equally edit the `load-prompt-extension.sh` the agent
+      # runs from the same vendored tree, which no ladder reaches because the loader
+      # is what consults the closure. A ladder would therefore add complexity without
+      # adding a case it defends. That residual is recorded in
+      # docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md's base-ref trust boundary, not glossed.
       #
       # No `set -e`: every arm here already degrades to the safe empty closure, so an
       # unexpected non-zero must not abort the job and deny the command path
@@ -924,7 +953,7 @@ jobs:
             fi
           fi
           if [ -n "$REASON" ]; then
-            echo "::warning::devflow trusted prompt-extension closure not populated: ${REASON}. This run proceeds with NO consumer prompt-extension text rather than reading the pull-request head; see the trusted-ref rule in docs/cloud-setup.md."
+            echo "::warning::devflow trusted prompt-extension closure not populated: ${REASON}. This run proceeds with NO consumer prompt-extension text rather than reading the pull-request head; see the trusted-ref rule in docs/internal/cloud-setup.md."
           fi
 
           # Skew probe (the replacement for the runner's truncation belt). The loader
@@ -961,7 +990,7 @@ jobs:
       # `.prflow/config.json`'s `setup` block. The logic lives in the
       # setup-project-env composite action so devflow.yml and
       # devflow-implement.yml share ONE copy (checkout above gives the action
-      # the repo + config to read). See docs/cloud-setup.md for the rationale.
+      # the repo + config to read). See docs/internal/cloud-setup.md for the rationale.
       - id: cfg
         uses: ./.github/actions/read-project-config
       - uses: ./.github/actions/setup-project-env
@@ -1038,8 +1067,11 @@ jobs:
           CMD: ${{ needs.gate.outputs.command }}
         run: |
           set -euo pipefail
-          # This job is comment-triggered, so `github.sha` is the default branch,
-          # not the PR head. Resolve the head from the PR the command names.
+          # `github.sha`/`GITHUB_REF` reflect the TRIGGERING EVENT, not the checkout:
+          # on the sole `issue_comment` trigger `github.sha` is the default branch's
+          # head commit at trigger time, and pinning the checkout `ref:` (issue #1163)
+          # does not change it. Either way it is NOT the reviewed PR's head, so resolve
+          # the head SHA from the PR the command names rather than from `github.sha`.
           PR_NUM=$(printf '%s' "$CMD" | grep -oE '[0-9]+' | head -1 || true)
           HEAD_SHA=""
           if [ -n "$PR_NUM" ]; then
@@ -1100,7 +1132,7 @@ jobs:
       # launcher shell can pipe it; an in-process `unset` alone would NOT scrub the
       # long-lived refresher's /proc environ, which snapshots exec time — proc(5)).
       # The loop traps TERM/exits 0; the `if: always()` pidfile-kill step retires it.
-      # Kept in sync with devflow-implement.yml. See docs/cloud-setup.md.
+      # Kept in sync with devflow-implement.yml. See docs/internal/cloud-setup.md.
       - name: Start credential refresher (optional)
         id: refresher
         if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/prflow:review ') }}
@@ -1140,7 +1172,7 @@ jobs:
       # `--arg section` value differs. An empty decision (no provider) reproduces
       # today's Anthropic-OAuth wiring for a given `claude_model` (one deliberate
       # change: an empty resolved model now fails loud instead of rendering
-      # `--model null`). See docs/cloud-setup.md.
+      # `--model null`). See docs/internal/cloud-setup.md.
       - name: Resolve model provider
         id: provider
         env:
@@ -1408,7 +1440,7 @@ jobs:
           # must NOT suppress the splice ::notice:: for the valid extras. Without
           # COMPOSE to render the annotation, mirror the helper's arms inline and
           # emit each independently, so a spliced entry is never added without an
-          # audit line (docs/cloud-setup.md: every spliced entry logged, never silent).
+          # audit line (docs/internal/cloud-setup.md: every spliced entry logged, never silent).
           if [ -f "$COMPOSE" ]; then
             # Capture the renderer's status rather than `|| true`-swallowing it: the
             # extras were already spliced above, so a non-zero renderer must still
@@ -1611,10 +1643,15 @@ jobs:
           # plus the three baseline plugins — byte-identical across the three call
           # sites, run.sh-pinned) PLUS the entries .claude/settings.json declares.
           # `./` resolves to the workflow's checkout root (where
-          # .claude-plugin/marketplace.json lives), so PR-branch changes to the
-          # marketplace or .prflow/vendor/prflow/** are exercised by devflow.yml
-          # on the PR that introduces them — a git-URL entry would always resolve
-          # to main. Local-path marketplaces are supported by claude-code-action
+          # .claude-plugin/marketplace.json lives). Since issue #1163 this workflow
+          # runs only on `issue_comment` with every checkout pinned to the default
+          # branch, so `./` always resolves to the DEFAULT-BRANCH marketplace and
+          # vendored tree — a PR-branch change to either is NOT exercised by this
+          # workflow on the PR that introduces it (the self-exercising property held
+          # only on the removed review-event triggers, whose workspace was the PR
+          # head; its loss is an intended consequence of closing the accident class,
+          # not an incidental change). A git-URL entry would likewise resolve to the
+          # default branch. Local-path marketplaces are supported by claude-code-action
           # since v1.0.28 (we pin @v1, the floating major).
           plugin_marketplaces: ${{ steps.plugins.outputs.plugin_marketplaces }}
 
@@ -1623,7 +1660,7 @@ jobs:
           # claude-md-management@ are ambient-command conveniences, NOT engine dependencies
           # — DevFlow's review/implement engine dispatches neither (the "zero companion-plugin
           # dependencies" claim is scoped to the consumer install + what the engine dispatches;
-          # see docs/DEVFLOW_SYSTEM_OVERVIEW.md §6). devflow@ is DevFlow itself. The baked
+          # see docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md §6). devflow@ is DevFlow itself. The baked
           # baseline three are composed by the step above; settings-declared extras are
           # appended beyond them.
           plugins: ${{ steps.plugins.outputs.plugins }}
@@ -1962,8 +1999,9 @@ jobs:
       # would answer NOT-REACHED — posting a verdict-record comment on an issue
       # that never had a verdict to record. `github.event.issue.pull_request` is
       # GitHub's own discriminator (present only when the commented issue IS a
-      # pull request); the two PR-scoped events carry a pull_request number
-      # directly. No API call, so there is no unknown state to fall back from.
+      # pull request); the `|| github.event.pull_request.number` disjunct is a
+      # degenerate defensive form since issue #1163 left `issue_comment` the sole
+      # trigger. No API call, so there is no unknown state to fall back from.
       #
       # Residual, shared with the stall backstop above and unchanged by this
       # step: PR_NUMBER comes from the EVENT, not from an explicit number in the
@@ -2209,8 +2247,10 @@ jobs:
           # appends the number); prepare-harness-floor.sh parses the class and the explicit
           # trailing PR number from it and PREFERS that number. DEVFLOW_CANDIDATE_NUMBER is
           # only the fallback context number used when the command carries none — written
-          # with the workflow-wide `issue.number || pull_request.number` idiom so it also
-          # resolves on the issue_comment trigger (where github.event.pull_request is absent).
+          # with the workflow-wide `issue.number || pull_request.number` idiom so it
+          # resolves on the sole issue_comment trigger (where github.event.pull_request is
+          # absent, so issue.number is the operand that resolves; the disjunct is degenerate
+          # since issue #1163).
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
           DEVFLOW_COMMAND: ${{ needs.gate.outputs.command }}
           DEVFLOW_CANDIDATE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}

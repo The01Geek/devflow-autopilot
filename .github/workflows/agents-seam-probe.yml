@@ -42,8 +42,8 @@ name: Agents seam probe
 #                  eight successful 2026-07-21 dispatches did exactly that.
 #   INCONCLUSIVE   (nothing measured, no dispatch even attempted) → re-run.
 # Until a dispatch records SEAM_PROVEN, the applied arm does NOT ship and every tier
-# records the honest fallback documented in docs/review-agent-overrides.md. The current
-# recorded result and the decision rule live in docs/agents-seam-probe.md — the evidence
+# records the honest fallback documented in docs/internal/review-agent-overrides.md. The current
+# recorded result and the decision rule live in docs/internal/agents-seam-probe.md — the evidence
 # artifact of record (matcher-probe.yml's issue-recorded tables are the precedent).
 #
 # Trigger: workflow_dispatch only (available post-merge, from the default branch) —

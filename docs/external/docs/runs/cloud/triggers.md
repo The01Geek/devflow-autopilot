@@ -25,4 +25,4 @@ On a pull request, an authorized collaborator can comment:
 /prflow:review
 ```
 
-This manual review trigger is always available in a configured cloud installation. Automatic review requests can be added separately after you have assessed the security and cost implications for your repository.
+Post the command as a comment on the pull-request **conversation** tab. Requesting a review from the review-submission box or an inline diff-line comment does **not** work — those review events are not subscribed. This manual review trigger is always available in a configured cloud installation. Automatic review requests can be added separately after you have assessed the security and cost implications for your repository.

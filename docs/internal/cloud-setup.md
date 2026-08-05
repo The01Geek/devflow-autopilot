@@ -108,9 +108,9 @@ writes changes into your repository, so download it, read it, then run the file 
 read:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.105/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.30.108/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.30.105 bash devflow-install.sh
+DEVFLOW_REF=v2.30.108 bash devflow-install.sh
 ```
 
 Both refs are pinned to the same **release tag**, so the install is reproducible.
@@ -255,7 +255,7 @@ The three claude-code-action call sites (`devflow-implement.yml`, `devflow.yml`,
 
 **Trusted-ref rule — `.prflow/prompt-extensions/` (issue #874, extended to the shipped command tier by issue #1075).** Both cloud tiers that run the review engine now bind this rule; what differs is the mechanism, because the untrusted tree arrives by a different route on each.
 
-**`devflow.yml`'s `command` job** — the review path actually reachable in a consumer, covering `/prflow:review`, `/prflow:review-and-fix` and `/prflow:pr-description` — carries a `promptext` step that **unconditionally** creates `$RUNNER_TEMP/devflow-trusted-prompt-ext/` and exports `DEVFLOW_PROMPT_EXTENSION_ROOT` at it, then **conditionally** — inside its own base-ref fetch-success branch and nowhere else — populates it from the pull request's base ref through the same `scripts/materialize-trusted-prompt-extensions.sh`. Its protected set is the closed set those three commands can load (`review`, `requesting-code-review`, `review-and-fix`, `receiving-code-review`, `pr-description`), declared once as a job-level `env:`. Under the `issue_comment` trigger the job's own checkout is the **default branch**, so the exposure is not the checkout: `/prflow:review-and-fix`'s Step 0.5 runs `gh pr checkout` and moves the working tree to the PR head before the engine loads `review` and before Phase 3.1 loads `requesting-code-review`. Under `pull_request_review` / `pull_request_review_comment`, `GITHUB_REF` is `refs/pull/N/merge` and the workspace is PR content from the first step. Where it diverges from the runner it does so deliberately. It does **not** truncate the workspace copies: this tier is write-capable, so a truncation would dirty the tree `gh pr checkout` refuses to run against and would be committed to the contributor's branch by the fix loop; a `::warning::` naming a vendored `load-prompt-extension.sh` that predates the variable replaces that belt. And it uses **no** three-rank trusted-source ladder for the materialization helper, because on a trigger whose workspace is PR content a pull request that can edit that helper can equally edit the loader that consults the closure — which no ladder reaches. Residuals for that tier (the PR-controlled composite actions on the two `pull_request_review*` triggers, a stale pinned `prflow_version`, and the local/interactive `/prflow:review-and-fix` path) are recorded with the others in [`DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md)'s base-ref-trust-boundary bullet.
+**`devflow.yml`'s `command` job** — the review path actually reachable in a consumer, covering `/prflow:review`, `/prflow:review-and-fix` and `/prflow:pr-description` — carries a `promptext` step that **unconditionally** creates `$RUNNER_TEMP/devflow-trusted-prompt-ext/` and exports `DEVFLOW_PROMPT_EXTENSION_ROOT` at it, then **conditionally** — inside its own base-ref fetch-success branch and nowhere else — populates it from the pull request's base ref through the same `scripts/materialize-trusted-prompt-extensions.sh`. Its protected set is the closed set those three commands can load (`review`, `requesting-code-review`, `review-and-fix`, `receiving-code-review`, `pr-description`), declared once as a job-level `env:`. As of issue #1163 this workflow runs on `issue_comment` alone with every checkout pinned to the default branch, so the job's own checkout is **always the default branch** and the exposure is never the checkout: `/prflow:review-and-fix`'s Step 0.5 runs `gh pr checkout` and moves the working tree to the PR head before the engine loads `review` and before Phase 3.1 loads `requesting-code-review`. Where it diverges from the runner it does so deliberately. It does **not** truncate the workspace copies: this tier is write-capable, so a truncation would dirty the tree `gh pr checkout` refuses to run against and would be committed to the contributor's branch by the fix loop; a `::warning::` naming a vendored `load-prompt-extension.sh` that predates the variable replaces that belt. And it uses **no** three-rank trusted-source ladder for the materialization helper, because the workspace is the trusted default branch at checkout and turns untrusted only when Step 0.5's `gh pr checkout` moves it to the PR head — at which point a pull request that can edit that helper can equally edit the loader that consults the closure, which no ladder reaches. Residuals for that tier (the PR-head bytes the agent itself introduces once Step 0.5's `gh pr checkout` moves the tree — the composite actions and the `./`-resolved marketplace are *not* among them since #1163 pinned this job's checkout to the default branch — a stale pinned `prflow_version`, the local/interactive `/prflow:review-and-fix` path, and the deeper adversarial residual that a write-access actor can exfiltrate secrets via a workflow edit) are recorded with the others in [`DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md)'s base-ref-trust-boundary bullet.
 
 For the **automated runner** (`devflow-runner.yml`, withheld from this release by issue #936): the same rule binds the reviewer's own appended prompt, and for the same reason: on the review tier `.prflow/prompt-extensions/<skill>.md` comes from the PR head, and `skills/review/SKILL.md` treats whatever the loader prints as instructions appended to its own prompt. So the review job takes two steps. **Unconditionally**, on every run and outside every branch, it creates `$RUNNER_TEMP/devflow-trusted-prompt-ext/`, creates `.prflow/prompt-extensions/` in the workspace, truncates the workspace copy of each protected extension (`review`, `requesting-code-review`) to empty — creating an empty file for a name the checkout never carried — and exports `DEVFLOW_PROMPT_EXTENSION_ROOT` pointing at that closure. **Conditionally**, inside `baseprovision`'s base-ref fetch-success branch and nowhere else, it populates the closure from `FETCH_HEAD` through `scripts/materialize-trusted-prompt-extensions.sh`, itself resolved through the same trusted-source rank ladder the deny floor uses. The consequence mirrors the settings rule: a PR that edits `.prflow/prompt-extensions/review.md` does **not** change its own review run's prompt; the change takes effect after merge. Because the suppression is unconditional and the population is not, each non-population arm — a failed base-ref fetch, an empty base ref, an unresolvable materialization helper, a per-name read failure or unwritable target, a helper usage defect, a traversal-shaped protected name, and a non-blob object at a protected path — degrades to an empty closure, never to the PR-head file. The three not-established arms — a failed base-ref fetch, an empty base ref, no trusted source for the helper — emit a *not-attempted* notice rather than a reason-naming warning, because a run that never read the base ref cannot say whether an extension exists on it. A base ref that simply carries no extension is the ordinary consumer shape and is **silent**. **Upgrade window:** a consumer whose base ref pins a `prflow_version` predating #874 gets a loader that ignores the variable; the truncation is the only control there, and their committed extension does not load until they bump the pin. That fallback control is sound: `claude-code-action`'s restore pass replaces a **closed, enumerated** set of sensitive paths from the base branch — `.claude`, `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`, `CLAUDE.md`, `CLAUDE.local.md`, `.husky` (read from the pinned action's `src/github/operations/restore-config.ts`) — and `.prflow/` is not among them, so the truncated workspace copies survive into the agent's session rather than being restored from either branch.
 
@@ -823,7 +823,7 @@ defaults; they are not harmonized.
 
 ## Startup-lifecycle observability & consumer version skew (issue #537)
 
-The `/prflow:implement` startup lifecycle (see `docs/workflow-triggers.md` and
+The `/prflow:implement` startup lifecycle (see `docs/internal/workflow-triggers.md` and
 `DEVFLOW_SYSTEM_OVERVIEW.md` for the full model) adds **zero** new configuration:
 no new config key, permission, secret, repository variable, service, or install
 mode. It reuses the existing issue-comment workpad, the job's existing token, and a
@@ -986,7 +986,7 @@ fallback; a configured-but-broken reviewer App fails the job at the mint step.
 > the `gh pr comment` fallback and the required `Devflow Review` check still apply.
 
 The same App token also powers the implement workflow's **stall-backstop
-auto-resume** (see `docs/implement-skill.md`): a `/prflow:implement <#>` resume
+auto-resume** (see `docs/internal/implement-skill.md`): a `/prflow:implement <#>` resume
 comment authored by the built-in `GITHUB_TOKEN` never re-triggers the workflow
 (GitHub suppresses recursive `GITHUB_TOKEN` events), so without the App the
 backstop posts its resume comment and then fails the job loud instead of
@@ -1000,7 +1000,7 @@ than reusing the token minted at the job's start; a `gh`-api/transport/auth
 failure reading the workpad (e.g. an expired token) is a distinct `auth-failure`
 class that fails the job loud **without** consuming a resume attempt, so a healthy
 workpad behind a bad token is never misclassified as corrupt (see
-`docs/implement-skill.md`). The resume comment carries an inline `Resume note:`
+`docs/internal/implement-skill.md`). The resume comment carries an inline `Resume note:`
 that instructs the resumed run to invoke bundled helpers with the repo-relative
 vendored literal (`.prflow/vendor/prflow/scripts/…`, `.prflow/vendor/prflow/lib/…`)
 as the command's leading token — never an absolute path, never repo-root
@@ -1011,7 +1011,7 @@ prior auto-resume runs on their first helper call (issue #405).
 The same App token **also** powers the review workflow's **no-verdict
 auto-resume backstop** (`prflow_review.stall_backstop`, issue #408 — the
 review-side sibling of the implement backstop above; see
-`docs/DEVFLOW_SYSTEM_OVERVIEW.md`). A headless cloud review can end `success`
+`docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`). A headless cloud review can end `success`
 with no verdict — not a timing race but the harness's **default dispatch mode**
 meeting a headless runner: subagents are background-by-default, a background
 dispatch's results arrive in a *later turn*, and a headless `claude -p` session
@@ -1090,7 +1090,7 @@ unaffected.
 > reviews).
 
 For the full idea → issue → PR walkthrough, see
-[The workflow, end to end](../README.md#the-workflow-end-to-end) in the README.
+[The workflow, end to end](../../README.md#the-workflow-end-to-end) in the README.
 
 ## Configure and enable
 
@@ -1509,7 +1509,7 @@ matter for the cloud tier:
   the tokens, wall-clock, the dispatch roster, and cost with zero agent cooperation, and that the local
   `Stop` transcript's per-message token counts are **real** figures rather than streaming
   placeholders (wall-clock and the dispatch roster were *not* measured on the local tier — see
-  [`docs/execution-file-shape.md`](execution-file-shape.md)), so an agent-independent cost floor is
+  [`docs/internal/execution-file-shape.md`](execution-file-shape.md)), so an agent-independent cost floor is
   buildable — and #475 built the cloud half.
 - **Implement-vs-runner `--permission-mode` asymmetry.** The read-only `review` runner
   (`devflow-runner.yml`) launches Claude with `--permission-mode acceptEdits`; the
@@ -1540,7 +1540,7 @@ Anthropic-OAuth default (unchanged for a given `claude_model`).
 
 **No provider-by-provider setup walkthrough ships in this release.** The
 per-entry field reference — `base_url`, `auth`, `timeout_ms`, `effort_supported`,
-and the `env` map — lives in [`.prflow/config.schema.json`](../.prflow/config.schema.json)
+and the `env` map — lives in [`.prflow/config.schema.json`](../../.prflow/config.schema.json)
 under `providers`, which is the single source for those fields. Two operational
 notes the schema does not carry:
 

@@ -39,7 +39,7 @@ particular, `/prflow:review-and-fix` cites the receiving-code-review skill by *p
 a prose citation, not a guaranteed skill load — so the receiving-code-review extension alone would
 not reach the flagship fix loop.
 
-> **Superseded in part by issue #620** (see `docs/cutovers/issue-620-reception-extension-port.md`).
+> **Superseded in part by issue #620** (see `docs/internal/cutovers/issue-620-reception-extension-port.md`).
 > Two statements above described the load topology as it stood at this cutover and no longer hold:
 > the `receiving-code-review` extension's load condition (the third bullet under **Files**) and the
 > "none of them is loaded by the others" premise in the paragraph immediately above. Issue #620 added

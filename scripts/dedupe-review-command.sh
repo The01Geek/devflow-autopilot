@@ -81,8 +81,10 @@
 #   REPO           owner/repo, for the `gh api` comments call (detect mode).
 #   PR             the pull-request / thread number to inspect (detect mode). The
 #                  workflow derives it as
-#                  `github.event.issue.number || github.event.pull_request.number`
-#                  so it resolves on all three events devflow.yml accepts.
+#                  `github.event.issue.number || github.event.pull_request.number`.
+#                  Since issue #1163 devflow.yml accepts issue_comment alone (which
+#                  populates github.event.issue.number); the `|| pull_request.number`
+#                  fallback is retained as a defensive form but is now degenerate.
 #   RUN_ID         github.run_id of THIS run — a review-progress comment keyed to
 #                  this run (run=<RUN_ID>-...) is excluded, so a run can never
 #                  suppress on its own seeded comment.

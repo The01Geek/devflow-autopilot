@@ -12,11 +12,11 @@
 /.prflow/learnings/.overrides*
 # Per-run /devflow:review-and-fix effectiveness records (one file per run).
 # Tracked so the data survives ephemeral GH-runner teardown — see
-# docs/efficiency-trace.md. In adopter repos the scaffolder's .prflow/.gitignore
+# docs/internal/efficiency-trace.md. In adopter repos the scaffolder's .prflow/.gitignore
 # ignores only tmp/, so logs/ is tracked there without this negation.
 !/.prflow/logs/
 # Single-flight verification coordinator telemetry (issue #528) is LOCAL,
-# per-checkout diagnostics, not a relayed record (see docs/efficiency-trace.md) —
+# per-checkout diagnostics, not a relayed record (see docs/internal/efficiency-trace.md) —
 # keep it out of the tree so a run's flight events are never committed.
 /.prflow/logs/verification-flight/
 # Per-run review workpads. These lived in the tree before issue #441 moved the

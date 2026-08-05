@@ -218,7 +218,7 @@ reasoning. Each object:
 ```json
 {
   "summary": "Strengthen CLAUDE.md EntityService rule with a visible warning + linkable example",
-  "candidate_targets": ["CLAUDE.md", "docs/internal/entity-service.md"],
+  "candidate_targets": ["CLAUDE.md", "docs/architecture/entity-service.md"],
   "change_type": "rule-strengthen",
   "confidence": "medium"
 }
