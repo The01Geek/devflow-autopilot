@@ -46343,6 +46343,19 @@ assert_eq "hook-arm probe: that denials-only shape does NOT fall through to the 
   "$(printf '%s' "$HAP_PRQ_DENIALS_ONLY" | grep -qF 'could not be read well enough' && echo no || echo yes)"
 assert_eq "hook-arm probe: that denials-only shape still reports its ungranted outcome as unavailable, never as refused" "yes" \
   "$(printf '%s' "$HAP_PRQ_DENIALS_ONLY" | grep -qF 'ungranted arm outcome: **unavailable**' && echo yes || echo no)"
+# DEFERRED, same review suggestion (PR #1308, suggestion 4). WHAT: the rest of that
+# note's coverage list is deliberately NOT fixtured — pretooluse-deny-probe's Axis 2/3
+# UNATTEMPTED and `unavailable` sub-arms, its Axis 5 NOT-APPLICABLE arm,
+# describe-defer-probe.sh's "command issued (secondary)" line, and the PRQ output
+# literals that are exercised here but not separately pinned. WHY: each is a
+# rendered diagnostic line whose selection logic is already covered by a sibling arm
+# in the same `case`, so an added assertion pins wording rather than a decision — and
+# a wording-only pin is what CLAUDE.md's #375/#666/#810 rule prohibits. The arm above
+# was fixtured instead precisely because it is the one that DECIDES something no other
+# arm decides (a confident "the CLI does not deliver the event"). REVISIT IF: one of
+# those lines stops being a pure restatement of an already-covered selection — e.g. a
+# sub-arm gains its own predicate, or a renderer starts feeding one of them into a
+# downstream verdict.
 # CONTROL-UNATTEMPTED needs tool calls to have been RECORDED and none of them to be
 # the control; with no tool calls at all the axis is unestablished instead (asserted
 # just below), which is the distinction the whole family turns on.
