@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1301",
+  "generated_at": "2026-08-05T02:04:23Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.104",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 12.277667000000003,
+    "tokens": {
+      "input_tokens": 1719,
+      "output_tokens": 30881,
+      "cache_read_input_tokens": 5537248,
+      "cache_creation_input_tokens": 174156,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 1905,
+        "outputTokens": 86157,
+        "cacheReadInputTokens": 12130539,
+        "cacheCreationInputTokens": 543338,
+        "webSearchRequests": 0,
+        "costUSD": 12.277667000000003,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 42,
+    "duration_ms": 917544
+  },
+  "permission_denials": {
+    "count": 20,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none}\"\nRUNID=\"${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1}\"\necho \"RESOLVED_RUNID=$RUNID\"\nmkdir -p \".prflow/tmp/review/pr-1301/$RUNID\"\necho \"$RUNID\" | tee .prflow/tmp/review/pr-1301/runid.txt",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none}\"",
+      "printf 'RUN_ID=%s ATTEMPT=%s ACTIONS=%s\\n' \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" \"$GITHUB_ACTIONS\"",
+      "echo \"=== AC1 at PR HEAD: tracked docs/ outside internal|external ===\"\ngit ls-tree -r --name-only 67ac579e0fe0e7dec8501e3949dabde0deaebb82 -- docs/ | grep -vE '^docs/(internal|external)/' || echo \"(empty - AC1 satisfied)\"\necho \"\"\necho \"=== execution-file-shape.observed.txt location at PR head ===\"\ngit ls-tree -r --name-only 67ac579e0fe0e7dec8501e3949dabde0deaebb82 -- lib/test/fixtures/ | grep -i 'execution-file-shape' || echo \"(not in fixtures)\"",
+      "for f in CLAUDE.md install.sh .github/workflows/ci.yml .github/actions/vendor-plugin/vendor-slice.sh; do\n  echo \"=== $f: bare docs/<name> refs (should be none outside internal/external/site) ===\"\n  git show \"67ac579e0fe0e7dec8501e3949dabde0deaebb82:$f\" 2>/dev/null | grep -noE 'docs/[A-Za-z0-9_-]+\\.(md|txt|png)' | grep -vE 'docs/(internal|external|site)/' | grep -vE '^[0-9]+:docs/(external|internal|site)' | head -15 || true\ndone",
+      "cd /home/runner/work/prflow/prflow; echo \"=== docs/internal exists, docs/ root .md files at head ===\"; git ls-tree -r --name-only 67ac579e0fe0e7dec8501e3949dabde0deaebb82 -- docs/ | grep -vE '^docs/(internal|external)/' | head -30; echo \"=== count ===\"; git ls-tree -r --name-only 67ac579e0fe0e7dec8501e3949dabde0deaebb82 -- docs/ | grep -vE '^docs/(internal|external)/' | wc -l",
+      "git ls-tree -r --name-only 67ac579e0fe0e7dec8501e3949dabde0deaebb82 -- docs/ | grep -vE '^docs/(internal|external)/' | head -30; echo \"COUNT:\"; git ls-tree -r --name-only 67ac579e0fe0e7dec8501e3949dabde0deaebb82 -- docs/ | grep -cvE '^docs/(internal|external)/'",
+      "git ls-tree -r --name-only 67ac579e0fe0e7dec8501e3949dabde0deaebb82 -- docs/ > /tmp/docsfiles.txt; grep -vE '^docs/(internal|external)/' /tmp/docsfiles.txt; echo \"STALE-COUNT:$(grep -cvE '^docs/(internal|external)/' /tmp/docsfiles.txt)\"",
+      "git grep -rn \"env-freeze\\|generate-env-freeze\\|freeze-advisory\\|env_freeze\\|frozen.*env\\|env_identifiers\" 67ac579e0fe0e7dec8501e3949dabde0deaebb82 -- skills/ | cat",
+      "git diff dbf94ba5756e0f32dc5fc5c6574f1ef5f4d27577...67ac579e0fe0e7dec8501e3949dabde0deaebb82 -- lib/test/run.sh > /tmp/run.diff; sed -n '40,145p' /tmp/run.diff",
+      "git diff dbf94ba5756e0f32dc5fc5c6574f1ef5f4d27577...67ac579e0fe0e7dec8501e3949dabde0deaebb82 -- lib/test/run.sh > /tmp/run.diff",
+      "git diff dbf94ba5756e0f32dc5fc5c6574f1ef5f4d27577...67ac579e0fe0e7dec8501e3949dabde0deaebb82 -- lib/test/run.sh > /home/runner/work/prflow/prflow/.prflow/tmp/run.diff",
+      "git ls-tree -r --name-only 67ac579e0fe0e7dec8501e3949dabde0deaebb82 -- docs/ > /tmp/docsfiles.txt",
+      "git ls-tree -r --name-only 67ac579e0fe0e7dec8501e3949dabde0deaebb82 -- docs/ | grep -vE '^docs/(internal|external)/' | cat; echo \"DONE\"",
+      "git ls-tree -r --name-only 67ac579e0fe0e7dec8501e3949dabde0deaebb82 docs | grep -vE 'docs/(internal|external)/'",
+      "git ls-tree -r --name-only 67ac579e0fe0e7dec8501e3949dabde0deaebb82 docs",
+      "git show 67ac579e0fe0e7dec8501e3949dabde0deaebb82 --stat --name-only | grep -E 'docs/internal/' | sed -E 's#.* => ##; s#\\}##' | sed -E 's#docs/internal/##' | sed 's#^#internal: #' | head; echo \"=== list internal docs at head ===\"; git ls-tree -r --name-only 67ac579e0fe0e7dec8501e3949dabde0deaebb82 -- docs/internal | sed 's#docs/internal/##' | head -80",
+      "git ls-tree -r --name-only 67ac579e0fe0e7dec8501e3949dabde0deaebb82 -- docs/internal | sed 's#docs/internal/##'",
+      "git ls-tree -r --name-only 67ac579e0fe0e7dec8501e3949dabde0deaebb82 -- docs/internal",
+      "git ls-tree -r --name-only 67ac579e0fe0e7dec8501e3949dabde0deaebb82 docs/internal/"
+    ],
+    "total": 20,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
