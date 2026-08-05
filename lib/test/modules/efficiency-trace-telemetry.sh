@@ -1440,9 +1440,8 @@ rm -rf "$HC_RU"
 # required it be unit-tested against the helper directly (no network, no branch push).
 # It declares that it mirrors apply_harness_floor exactly, so it is driven through the
 # same arms as the HC block above: staged (a), already-persisted read-back (b) with
-# byte-preservation, decline, re-run idempotency, malformed operand, run-id absent.
-# The ONE deliberate divergence from harness_cost is asserted too: a denial floor with
-# no efficiency record for the run-id DECLINES — it never writes a skeleton.
+# byte-preservation, skeleton (with its overwrite guard and both residual decline gates),
+# re-run idempotency, malformed operand, run-id absent.
 DF_REC='{"count":3,"tool_names":["Bash"],"commands_state":"present","commands":["cat x > /tmp/a"],"total":1,"truncated":false,"commands_field_enabled":true,"scrub":{"applied":true,"blocklist_incomplete":true,"shapes":"s"}}'
 
 # arm (a): a record staged THIS PASS under the run-id identity gains permission_denials,
@@ -1486,17 +1485,99 @@ assert_eq "df-merge(b): re-run emits the already-carries backstop breadcrumb" "y
   "$(printf '%s' "$DF_M_RERUN" | grep -qF 'already carries permission_denials' && echo yes || echo no)"
 rm -rf "$DF_M"
 
-# DECLINE arm — the deliberate divergence from harness_cost: no efficiency record exists
-# for this run-id, so the floor attaches nothing and writes NO skeleton (a denial record
-# with no cost record to key it has no analysis join). Fail-closed with a breadcrumb.
-DF_D="$(_hc_repo "df decline")"
-DF_D_ERR="$( ( cd "$DF_D" && GITHUB_RUN_ID=606 GITHUB_RUN_ATTEMPT=1 DEVFLOW_DENIAL_RECORD="$DF_REC" \
+# SKELETON arm — no efficiency record exists for this run-id (the all-null-cost drop path:
+# prepare-harness-floor refuses to stage an all-null harness_cost, so apply_harness_floor
+# returns before its own skeleton arm and there is no host record to merge onto). The denial
+# floor writes its own minimal record rather than discarding a fully-built denial record.
+DF_SK="$(_hc_repo "df skeleton")"
+DF_SK_ERR="$( ( cd "$DF_SK" && GITHUB_RUN_ID=606 GITHUB_RUN_ATTEMPT=1 DEVFLOW_DENIAL_RECORD="$DF_REC" \
+    DEVFLOW_EXECUTION_PR=42 DEVFLOW_COMMAND_CLASS=review-and-fix \
     bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
-assert_eq "df-decline: no record for the run-id → NO skeleton is written (unlike harness_cost)" "" \
-  "$(git -C "$DF_D" ls-tree -r --name-only refs/heads/prflow-telemetry 2>/dev/null | grep '\.prflow/logs/efficiency/' || true)"
-assert_eq "df-decline: emits the no-skeleton decline breadcrumb naming the run-id" "yes" \
-  "$(printf '%s' "$DF_D_ERR" | grep -qF 'no efficiency record for run-id 606-1' && echo yes || echo no)"
-rm -rf "$DF_D"
+assert_eq "df-skeleton: no record + PR + record-deriving class → a pr-<N> denial skeleton is written" "yes" \
+  "$(_et_on_branch "$DF_SK" ".prflow/logs/efficiency/pr-42-606-1.json")"
+assert_eq "df-skeleton: skeleton shape — schema_version/slug/source/synthesized/iterations/per_iteration/telemetry" \
+  '[1,"pr-42",null,true,0,[],[]]' \
+  "$(_et_show "$DF_SK" ".prflow/logs/efficiency/pr-42-606-1.json" | jq -c '[.schema_version,.slug,.source,.synthesized,.iterations,.per_iteration,.telemetry]')"
+assert_eq "df-skeleton: the denial record is carried VERBATIM (no harness_cost fabricated beside it)" \
+  "$(printf '%s' "$DF_REC" | jq -S -c .)|null" \
+  "$(_et_show "$DF_SK" ".prflow/logs/efficiency/pr-42-606-1.json" | jq -S -c '.permission_denials')|$(_et_show "$DF_SK" ".prflow/logs/efficiency/pr-42-606-1.json" | jq -c '.harness_cost')"
+# The downstream consumer claim this arm rests on: build-experiment-records.py's
+# _efficiency_entry needs only a top-level string `slug`, so a denial-only record INGESTS —
+# cost None (no telemetry to sum), and permission_denials flowing through to _denials_from_eff,
+# which reads only `.count`. A record that broke ingestion would be worse than none.
+DF_SK_RS="$(_et_show "$DF_SK" ".prflow/logs/efficiency/pr-42-606-1.json" | python3 -c 'import importlib.util,sys,json
+s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+r=json.load(sys.stdin); e=m._efficiency_entry(r,"606-1")
+print(json.dumps([e is not None, e["cost"], e["telemetry_complete"], list(m._denials_from_eff([e]))]))' "$LIB/../scripts/build-experiment-records.py" 2>/dev/null)"
+assert_eq "df-skeleton: a denial-only skeleton ingests downstream and yields the count via _denials_from_eff" \
+  '[true, null, false, [3, "efficiency-record"]]' "$DF_SK_RS"
+assert_eq "df-skeleton: emits the named skeleton-written breadcrumb" "yes" \
+  "$(printf '%s' "$DF_SK_ERR" | grep -qF 'wrote a minimal denial skeleton pr-42-606-1.json' && echo yes || echo no)"
+# Re-running the backstop over the now-persisted skeleton is a tree-equality no-op (the
+# already-carries arm), so the skeleton cannot churn the branch on every retry.
+DF_SK_BC="$(_et_branch_count "$DF_SK")"
+DF_SK_RERUN="$( ( cd "$DF_SK" && GITHUB_RUN_ID=606 GITHUB_RUN_ATTEMPT=1 DEVFLOW_DENIAL_RECORD="$DF_REC" \
+    DEVFLOW_EXECUTION_PR=42 DEVFLOW_COMMAND_CLASS=review-and-fix \
+    bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "df-skeleton: re-run over the persisted skeleton is a tree-equality no-op" \
+  "$DF_SK_BC" "$(_et_branch_count "$DF_SK")"
+assert_eq "df-skeleton: re-run takes the already-carries arm, never a second skeleton write" "yes" \
+  "$(printf '%s' "$DF_SK_RERUN" | grep -qF 'already carries permission_denials' && echo yes || echo no)"
+rm -rf "$DF_SK"
+
+# Skeleton-overwrite guard (mirrors the cost floor's A6+ fixture): merge arm (b) falls
+# through a loop that iterates zero times BOTH when the branch holds no record for this
+# run-id AND when list_blobs swallowed a git failure. Force that ambiguity — patch the
+# copied telemetry-branch.sh so list_blobs returns empty while blob_exists still finds the
+# blob — and a REAL, populated record occupying the skeleton's own filename must survive.
+DF_OW_ROOT="$(git_sandbox "df skel-overwrite root")"
+mkdir -p "$DF_OW_ROOT/lib" "$DF_OW_ROOT/.claude-plugin"
+cp "$LIB"/*.sh "$LIB"/*.jq "$DF_OW_ROOT/lib/" 2>/dev/null
+cp "$LIB/../.claude-plugin/plugin.json" "$DF_OW_ROOT/.claude-plugin/" 2>/dev/null
+printf '\ndevflow_telemetry_list_blobs() { return 0; }\n' >> "$DF_OW_ROOT/lib/telemetry-branch.sh"
+DF_OW="$(_hc_repo "df skel-overwrite")"
+DF_OW_REC='{"schema_version":1,"slug":"pr-42","generated_at":"2026-01-01T00:00:00Z","source":"review-and-fix","iterations":7,"real_marker":true,"telemetry":[]}'
+DF_OW_IDX="$DF_OW/.git/dfowidx"
+DF_OW_SB="$(printf '%s' "$DF_OW_REC" | git -C "$DF_OW" hash-object -w --stdin)"
+GIT_INDEX_FILE="$DF_OW_IDX" git -C "$DF_OW" update-index --add --cacheinfo "100644,${DF_OW_SB},.prflow/logs/efficiency/pr-42-616-1.json"
+DF_OW_ST="$(GIT_INDEX_FILE="$DF_OW_IDX" git -C "$DF_OW" write-tree)"; rm -f "$DF_OW_IDX"
+DF_OW_SN="$(GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@e GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@e git -C "$DF_OW" commit-tree "$DF_OW_ST" -m seed-record)"
+git -C "$DF_OW" update-ref refs/heads/prflow-telemetry "$DF_OW_SN"
+DF_OW_ERR="$( ( cd "$DF_OW" && GITHUB_RUN_ID=616 GITHUB_RUN_ATTEMPT=1 DEVFLOW_DENIAL_RECORD="$DF_REC" \
+    DEVFLOW_EXECUTION_PR=42 DEVFLOW_COMMAND_CLASS=review-and-fix \
+    bash "$DF_OW_ROOT/lib/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "df-skeleton: guard declines → the real branch record is NOT overwritten (iterations still 7, not the skeleton's 0)" "7" \
+  "$(git -C "$DF_OW" show "refs/heads/prflow-telemetry:.prflow/logs/efficiency/pr-42-616-1.json" 2>/dev/null | jq -c '.iterations')"
+assert_eq "df-skeleton: guard declines → the real record's marker survives (skeleton never written over it)" "true" \
+  "$(git -C "$DF_OW" show "refs/heads/prflow-telemetry:.prflow/logs/efficiency/pr-42-616-1.json" 2>/dev/null | jq -c '.real_marker')"
+assert_eq "df-skeleton: guard declines → the specific 'declining to overwrite it with a denial skeleton' breadcrumb" "yes" \
+  "$(printf '%s' "$DF_OW_ERR" | grep -qF 'declining to overwrite it with a denial skeleton' && echo yes || echo no)"
+rm -rf "$DF_OW" "$DF_OW_ROOT"
+
+# Residual drop path 1 — a class that derives no record (pr-description, and unclassified):
+# no skeleton, and a NAMED breadcrumb so the discard is auditable rather than silent.
+for _df_cls in pr-description ''; do
+  DF_C="$(_hc_repo "df class")"
+  DF_C_ERR="$( ( cd "$DF_C" && GITHUB_RUN_ID=626 GITHUB_RUN_ATTEMPT=1 DEVFLOW_DENIAL_RECORD="$DF_REC" \
+      DEVFLOW_EXECUTION_PR=42 DEVFLOW_COMMAND_CLASS="$_df_cls" \
+      bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+  assert_eq "df-residual(class='$_df_cls'): no denial skeleton is written" "" \
+    "$(git -C "$DF_C" ls-tree -r --name-only refs/heads/prflow-telemetry 2>/dev/null | grep '\.prflow/logs/efficiency/' || true)"
+  assert_eq "df-residual(class='$_df_cls'): the discard draws a named residual-drop-path breadcrumb" "yes" \
+    "$(printf '%s' "$DF_C_ERR" | grep -qF 'no denial skeleton written (residual drop path' && echo yes || echo no)"
+  rm -rf "$DF_C"
+done
+
+# Residual drop path 2 — DEVFLOW_EXECUTION_PR empty: the record is keyed `<slug>-<run-id>`,
+# so with no PR number there is no slug to file it under. No skeleton, named breadcrumb.
+DF_NP="$(_hc_repo "df no-pr")"
+DF_NP_ERR="$( ( cd "$DF_NP" && GITHUB_RUN_ID=636 GITHUB_RUN_ATTEMPT=1 DEVFLOW_DENIAL_RECORD="$DF_REC" \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "df-residual(empty PR): no denial skeleton is written" "" \
+  "$(git -C "$DF_NP" ls-tree -r --name-only refs/heads/prflow-telemetry 2>/dev/null | grep '\.prflow/logs/efficiency/' || true)"
+assert_eq "df-residual(empty PR): the discard draws a named residual-drop-path breadcrumb" "yes" \
+  "$(printf '%s' "$DF_NP_ERR" | grep -qF 'DEVFLOW_EXECUTION_PR is empty' && echo yes || echo no)"
+rm -rf "$DF_NP"
 
 # Malformed operand: 'not json' fails the jq PARSE; '[1,2]' PARSES but is not an object.
 # Both must draw the not-a-JSON-object breadcrumb and leave the record without the key —
@@ -1526,6 +1607,21 @@ assert_eq "df-runid: GITHUB_RUN_ID unset → no permission_denials attached to a
 assert_eq "df-runid: GITHUB_RUN_ID unset → a specific breadcrumb (fail-closed, not silent)" "yes" \
   "$(printf '%s' "$DF_RU_ERR" | grep -qF 'GITHUB_RUN_ID is unset' && echo yes || echo no)"
 rm -rf "$DF_RU"
+
+# Gate off (mirrors the cost floor's A8): efficiency_telemetry_enabled gates denial
+# forensics too, not only cost. Every input the skeleton arm needs is present (operand,
+# PR, record-deriving class, run-id), so with the flag ON this run WOULD write
+# pr-42-646-1.json — the gate is the only thing standing between here and that write.
+DF_G="$(_hc_repo "df gate-off")"
+printf '{"prflow_review_and_fix":{"efficiency_telemetry_enabled":false}}' > "$DF_G/.prflow/off.json"
+DF_G_ERR="$( ( cd "$DF_G" && DEVFLOW_CONFIG_FILE="$DF_G/.prflow/off.json" GITHUB_RUN_ID=646 \
+    GITHUB_RUN_ATTEMPT=1 DEVFLOW_DENIAL_RECORD="$DF_REC" DEVFLOW_EXECUTION_PR=42 \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "df-gate: telemetry disabled → no denial skeleton (nor any other record) is written" "" \
+  "$(git -C "$DF_G" ls-tree -r --name-only refs/heads/prflow-telemetry 2>/dev/null | grep '\.prflow/logs/efficiency/' || true)"
+assert_eq "df-gate: telemetry disabled → the denial floor's own 'disabled' breadcrumb" "yes" \
+  "$(printf '%s' "$DF_G_ERR" | grep -qF 'denial floor: efficiency telemetry is disabled' && echo yes || echo no)"
+rm -rf "$DF_G"
 
 # Env-absent inertness: with DEVFLOW_DENIAL_RECORD unset the floor is inert AND SILENT,
 # so every pre-#1064 agent-side --persist call site is byte-identical to before.
@@ -1659,22 +1755,37 @@ assert_eq "hc-glue(A7): happy path → cost JSON written to the out file" "1" \
 HC_G_EXP="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/exec.json" "/devflow:review-and-fix 50" 999 "$HC_GD/c2.json" 2>/dev/null)"
 assert_eq "hc-glue(A7): an explicit-number command uses the target (50), not the context number (999)" "yes" \
   "$(printf '%s' "$HC_G_EXP" | grep -qF "DEVFLOW_EXECUTION_PR='50'" && echo yes || echo no)"
-# inert: execution file absent → named inert breadcrumb, empty PR, empty cost file.
-HC_G_INERT="$(DEVFLOW_GH="$HC_GD/gh" bash "$HC_GLUE" "$HC_GD/nope.json" "/devflow:review-and-fix" 50 "$HC_GD/c3.json" 2>"$HC_GD/inert.err")"
+# inert: execution file absent → named inert breadcrumb, empty cost file. The PR is still
+# resolved: an inert COST no longer short-circuits the PR resolution, because the PR is a
+# SHARED operand (the denial floor's skeleton arm keys its record by it) and the two fail
+# independently. The cost handoff staying EMPTY is what keeps the cost floor inert.
+HC_G_INERT="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/nope.json" "/devflow:review-and-fix" 50 "$HC_GD/c3.json" 2>"$HC_GD/inert.err")"
 assert_eq "hc-glue(A7): inert (execution file absent) → the named inert breadcrumb" "yes" \
   "$(grep -qF 'harness cost floor inert this run: execution file absent' "$HC_GD/inert.err" && echo yes || echo no)"
-assert_eq "hc-glue(A7): inert → DEVFLOW_EXECUTION_PR empty" "yes" \
-  "$(printf '%s' "$HC_G_INERT" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): inert (execution file absent) → the cost handoff stays empty" "no" \
+  "$([ -s "$HC_GD/c3.json" ] && echo yes || echo no)"
+assert_eq "hc-glue(A7): inert cost no longer suppresses the shared PR operand" "yes" \
+  "$(printf '%s' "$HC_G_INERT" | grep -qF "DEVFLOW_EXECUTION_PR='50'" && echo yes || echo no)"
 # Parsed-but-figureless: the reader prints a non-empty normalized object by contract, but
 # the glue must not turn its all-null payload into false cost coverage or a cost skeleton.
+# This is the drop path the denial skeleton closes, so it is the one that most needs the PR.
 printf '%s' '{"type":"result"}' > "$HC_GD/all-null.json"
 HC_G_NULL="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/all-null.json" "/devflow:review-and-fix" 50 "$HC_GD/c-null.json" 2>"$HC_GD/null.err")"
-assert_eq "hc-glue(A7): all-null reader object leaves DEVFLOW_EXECUTION_PR empty" "yes" \
-  "$(printf '%s' "$HC_G_NULL" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): all-null reader object still resolves DEVFLOW_EXECUTION_PR (the denial floor keys on it)" "yes" \
+  "$(printf '%s' "$HC_G_NULL" | grep -qF "DEVFLOW_EXECUTION_PR='50'" && echo yes || echo no)"
 assert_eq "hc-glue(A7): all-null reader object leaves the cost handoff empty" "no" \
   "$([ -s "$HC_GD/c-null.json" ] && echo yes || echo no)"
 assert_eq "hc-glue(A7): all-null reader object emits a named no-figures inert breadcrumb" "yes" \
   "$(grep -qF 'execution file carried no cost or usage figures' "$HC_GD/null.err" && echo yes || echo no)"
+# Negative control for that decoupling: a resolved PR beside an EMPTY cost must NOT make the
+# COST floor write anything (apply_harness_floor returns at its first guard), so the glue
+# change cannot leak an all-null harness_cost or a cost skeleton into the store.
+HC_G_NCTL="$(_hc_repo "hc glue no-cost-skeleton")"
+( cd "$HC_G_NCTL" && GITHUB_RUN_ID=717 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="" \
+    DEVFLOW_EXECUTION_PR=50 DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "hc-glue(A7): a resolved PR with an EMPTY cost writes no cost skeleton (the floor stays inert)" "" \
+  "$(git -C "$HC_G_NCTL" ls-tree -r --name-only refs/heads/prflow-telemetry 2>/dev/null | grep '\.prflow/logs/efficiency/' || true)"
+rm -rf "$HC_G_NCTL"
 # not-a-PR / lookup-failed: candidate 999 is not in the PR set → empty PR + breadcrumb.
 HC_G_NAP="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/exec.json" "/devflow:review-and-fix" 999 "$HC_GD/c4.json" 2>"$HC_GD/nap.err")"
 assert_eq "hc-glue(A7): candidate not a real PR → DEVFLOW_EXECUTION_PR empty" "yes" \
@@ -1707,8 +1818,10 @@ assert_eq "hc-glue(A7): implement lookup-failed → the specific 'could not reso
 # exists and is non-empty), so the branch is attributed to a parse failure, not an absent file.
 printf 'not json at all {{{' > "$HC_GD/garbage.json"
 HC_G_PF="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/garbage.json" "/devflow:review-and-fix" 50 "$HC_GD/c8.json" 2>"$HC_GD/pf.err")"
-assert_eq "hc-glue(A7): reader parse-fail → DEVFLOW_EXECUTION_PR empty" "yes" \
-  "$(printf '%s' "$HC_G_PF" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): reader parse-fail → the cost handoff stays empty (the cost floor is inert)" "no" \
+  "$([ -s "$HC_GD/c8.json" ] && echo yes || echo no)"
+assert_eq "hc-glue(A7): reader parse-fail → the shared PR operand is still resolved" "yes" \
+  "$(printf '%s' "$HC_G_PF" | grep -qF "DEVFLOW_EXECUTION_PR='50'" && echo yes || echo no)"
 assert_eq "hc-glue(A7): reader parse-fail → the 'could not be parsed for cost' breadcrumb (not the absent-file one)" "yes" \
   "$(grep -qF 'could not be parsed for cost' "$HC_GD/pf.err" && ! grep -qF 'execution file absent' "$HC_GD/pf.err" && echo yes || echo no)"
 # review class, EMPTY-NUM: no explicit number in the command AND an empty candidate →
