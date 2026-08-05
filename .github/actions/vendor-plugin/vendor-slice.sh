@@ -85,7 +85,8 @@ devflow_copy_slice() {
   # Pages HTML under docs/site and the Mintlify source under docs/external (both
   # standalone published sites), all of DevFlow's maintainer documentation under
   # docs/internal (issue #1188 — #1190 removed the last shipped skill-body link
-  # into it, so nothing a consumer executes references it; pruning it here stops
+  # into this same maintainer tree while it still lived directly under docs/, so
+  # nothing a consumer executes references it; pruning it here stops
   # that reference tree shipping into every consumer and, because
   # lint-shipped-pruned-path.py derives its forbidden set from these rm arguments,
   # arms that lint against reintroduction), and DevFlow's own test suite
@@ -103,6 +104,14 @@ devflow_copy_slice() {
   # likewise unguarded against an unexpected error, differing only in that -f
   # ignores a missing file.
   rm -rf "$stage/docs/site" "$stage/docs/external" "$stage/docs/internal" "$stage/lib/test"
+  # No documentation is part of the runtime plugin slice after issue #1188. Remove
+  # the staging root itself so an ignored/private or newly-added docs subtree cannot
+  # silently start shipping merely because it was outside the explicit policy prunes
+  # above. Keep those rm arguments explicit: lint-shipped-pruned-path.py derives its
+  # forbidden set from them. `find -depth -delete` is supported by both BSD/macOS and
+  # GNU find; unlike a best-effort rmdir, any traversal/deletion error remains non-zero
+  # and aborts under set -e before the atomic swap.
+  find "$stage/docs" -depth -delete
   # Sanity floor before the swap: the load-bearing members must have landed.
   if [ ! -d "$stage/scripts" ] || [ ! -f "$stage/.claude-plugin/plugin.json" ] \
      || [ ! -f "$stage/.prflow/config.schema.json" ] || [ ! -d "$stage/LICENSES" ]; then

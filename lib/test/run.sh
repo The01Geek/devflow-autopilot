@@ -3945,13 +3945,13 @@ rm -f "$DT_COMPARE" "$DT_COMPARE_RUN"
 assert_pin_unique "#167 coupled-site: SKILL.md states detect_all_audit is intentionally not persisted" \
   'detect_all_audit`, is intentionally **not** persisted here' "$MAXI_SKILL"
 
-# Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
-# sync — the sweep body in the implement skill (phases/phase-2-implement.md), the "Sweep selection" always-run
-# index in the same file, and the rationale table in docs/internal/implement-skill.md. The
-# error-handling & silent-failure sweep (2.3.6) front-loads the Phase 3.3
-# silent-failure-hunter agent; if any of the three loses it the catch reverts to
-# the contingent, inconsistent homing the baseline showed. Pin all three so a
-# half-applied removal fails here instead of silently shipping.
+# The Phase 2.3 sweep's executable contract lives in the implement-skill bundle:
+# its sweep body plus the "Sweep selection" always-run index in
+# phases/phase-2-implement.md. Those operative sites remain protected below through
+# $IMPL_SKILL_BUNDLE / $P2_FILE assertions. The rationale table in
+# docs/internal/implement-skill.md is a secondary prose mirror: issue #1188 retires
+# its row-presence pins (see the cluster note below), while the surviving derived
+# cross-site enumeration still reconciles the overall contract-sweep membership.
 IMPL_SKILL="$IMPL_SKILL_BUNDLE"   # issue #218: the whole implement-skill bundle (orchestrator + 4 phase files)
 IMPL_DOC="$LIB/../docs/internal/implement-skill.md"
 
@@ -22678,6 +22678,13 @@ assert_eq "vendor: committed branch is a no-op (sentinel survives)" "yes" "$(vex
 
 # self branch — cwd is the repo root (has scripts/ + skills/ + plugin.json), so
 # the in-tree plugin is copied into dest through the shared slice definition.
+# Establish the source population independently of the destination-absence guard:
+# otherwise an accidentally emptied checkout would let "excludes docs/internal" pass
+# without exercising the prune. This closed docs/internal subtree cannot reach sibling
+# worktrees, and `-print -quit` avoids both a hand-maintained filename and a full walk.
+VS_SELF_INTERNAL_SOURCE="$(find "$REPO_ROOT/docs/internal" -type f -print -quit 2>/dev/null)"  # tree-walk-ok: closed docs/internal subtree; no sibling worktree or dependency tree is reachable
+assert_eq "#1188 vendor: self source carries at least one docs/internal file before pruning (non-vacuity precondition)" "yes" \
+  "$([ -n "$VS_SELF_INTERNAL_SOURCE" ] && echo yes || echo no)"
 VS_SELF="$(mktemp -d)/dest"
 ( cd "$REPO_ROOT" && DEVFLOW_DEST="$VS_SELF" bash "$VENDOR" >/dev/null 2>&1 )
 assert_eq "vendor: self branch copies scripts from checkout root" "yes" "$(vexists "$VS_SELF/scripts/resolve-implement-trigger.sh")"
@@ -22760,12 +22767,10 @@ VS_FETCH="$(mktemp -d)/dest"
     bash "$VENDOR" >/dev/null 2>&1 )
 assert_eq "vendor: fetch branch clones the pinned ref and copies the slice" "yes" "$(vexists "$VS_FETCH/scripts/resolve-implement-trigger.sh")"
 assert_eq "vendor: fetch branch drops the vendored marketplace.json" "no" "$(vexists "$VS_FETCH/.claude-plugin/marketplace.json")"
-# The docs/ directory is copied wholesale, then docs/internal + docs/external (+ docs/site)
-# are pruned (issue #1188), leaving docs/ as an empty directory in the slice — that
-# survival is all this checks. It no longer asserts a doc FILE ships, because after #1188
-# none does (docs/internal, DevFlow's whole maintainer tree, is pruned — see the exclusion
-# assertion just below).
-assert_eq "vendor: fetch branch copies docs/ (empty dir survives the prune)" "yes" "$(vexists "$VS_FETCH/docs")"
+# The source carries content under every docs subtree, but no documentation belongs in
+# the runtime slice after issue #1188. Requiring the root itself to be absent makes this
+# a content-bearing contract rather than preserving a purposeless empty directory.
+assert_eq "vendor: fetch branch ships no docs/ tree after pruning" "no" "$(vexists "$VS_FETCH/docs")"
 # #677 on the CONSUMER-FACING branch: the self-branch assertions further below cover
 # the same shared devflow_copy_slice, but `fetch` is what a real thin consumer runs,
 # so pin the prune there directly rather than relying on the shared path transitively.
@@ -22859,12 +22864,9 @@ assert_eq "vendor: committed branch beats self (precedence)" "yes" "$(vexists "$
 # self branch copies the FULL slice, not just scripts/ (a dropped cp arg would
 # silently ship a plugin missing agents/lib/skills or the tool registry).
 assert_eq "vendor: self copies agents/" "yes" "$(vexists "$VS_SELF/agents")"
-# docs/ is copied wholesale, then docs/internal + docs/external (+ docs/site) are pruned,
-# so the docs/ directory itself survives as an (empty) dir — that survival is all this
-# checks now. Issue #1188 prunes ALL of DevFlow's maintainer docs (docs/internal), so no
-# doc FILE ships in the slice any more; the former "a known doc lands" over-prune guard is
-# inverted into the docs/internal exclusion asserted below.
-assert_eq "vendor: self copies docs/ (empty dir survives the internal/external prune)" "yes" "$(vexists "$VS_SELF/docs")"
+# The independently asserted self source carries docs/internal content. The runtime slice
+# deliberately ships no documentation at all, so even the now-empty docs/ root is absent.
+assert_eq "vendor: self ships no docs/ tree after pruning" "no" "$(vexists "$VS_SELF/docs")"
 assert_eq "vendor: self copies lib/" "yes" "$(vexists "$VS_SELF/lib")"
 assert_eq "vendor: self copies skills/" "yes" "$(vexists "$VS_SELF/skills")"
 assert_eq "vendor: self copies .prflow/tool-presets.json" "yes" "$(vexists "$VS_SELF/.prflow/tool-presets.json")"
