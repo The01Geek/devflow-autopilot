@@ -2499,9 +2499,24 @@ jobs:
           # Same rationale as the sibling jobs: this diagnostic is same-repo only and
           # mutates nothing, but claude-code-action otherwise refuses a bot-initiated run.
           allowed_bots: "*"
-          # A SLASH COMMAND, not prose. Limb (a) is specifically about the slash-command
-          # prompt shape, which is how every real DevFlow entry is invoked.
-          prompt: "/phprobe:placeholder-probe"
+          # The PRODUCTION prompt shape: leading prose, then the slash command on its own
+          # line — exactly what scripts/compose-implement-prompt.sh emits
+          # (`${GROUNDING}\n\n/prflow:implement ${NUMBER}`) and what devflow.yml's command
+          # job passes. That detail is load-bearing and was MEASURED here, not assumed: a
+          # prompt consisting of a BARE slash command naming a plugin SKILL returns
+          # `num_turns: 0` in ~37ms with an empty result and no permission denials — the CLI
+          # resolves it as a slash command, finds no matching COMMAND (a skill is not one),
+          # and exits before the model is ever called. Reproduced on the bare CLI
+          # (2.1.221, throwaway config) and in this job's own first run
+          # (31057622518 / job 92478457854). Adding any leading text makes it an ordinary
+          # prompt, the model reads it and invokes the Skill tool, and the session runs.
+          # Do NOT "simplify" this back to a bare slash command: it silently measures nothing,
+          # and the zero-turn signature is indistinguishable from the abort hazard.
+          prompt: |
+            You are running a measurement probe. Load the skill named below and follow
+            its numbered actions exactly.
+
+            /phprobe:placeholder-probe
           # ONLY the throwaway probe marketplace. The prflow plugin is deliberately absent:
           # loading it would put ~30 real skills in context and make a marker match
           # attributable to more than one body.

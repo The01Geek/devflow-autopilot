@@ -23099,8 +23099,21 @@ if head in args:
 for n in ("MARKER", "CONTROL_BEFORE", "CONTROL_AFTER", "LINE_ABSENT"):
     if vals[n] not in body:
         print("skill body does not carry %s (%s)" % (n, vals[n])); sys.exit(0)
-if step["with"].get("prompt", "").strip() != "/phprobe:placeholder-probe":
-    print("the probe prompt is not the slash-command shape limb (a) measures"); sys.exit(0)
+prompt = step["with"].get("prompt", "")
+# The PRODUCTION prompt shape, and both halves are load-bearing. The slash command must be
+# the LAST line (that is what limb (a) measures), and there must be leading prose before it:
+# a prompt consisting of a bare slash command naming a plugin SKILL returns num_turns 0 in
+# ~37ms with an empty result — the CLI resolves it as a slash command, finds no matching
+# COMMAND, and exits before the model is called. Measured on the bare CLI and in this job's
+# own first run (31057622518 / job 92478457854). A regression to the bare form would make
+# every paid probe run resolve INCONCLUSIVE while this suite stayed green, and the zero-turn
+# signature is indistinguishable from the abort hazard the probe is built to avoid.
+lines = [ln for ln in prompt.strip().splitlines() if ln.strip()]
+if not lines or lines[-1].strip() != "/phprobe:placeholder-probe":
+    print("the probe prompt does not END with the slash command limb (a) measures"); sys.exit(0)
+if len(lines) < 2:
+    print("the probe prompt is a BARE slash command, which dispatches nothing (num_turns 0)")
+    sys.exit(0)
 print("coupled")
 PY_PPV_COUPLED
 )"
