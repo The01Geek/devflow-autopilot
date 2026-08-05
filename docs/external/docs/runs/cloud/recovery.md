@@ -1,22 +1,33 @@
 ---
-title: "Cloud recovery"
-description: "Diagnose and safely resume a failed, stalled or interrupted cloud run."
+title: "Cloud Recovery"
+description: "Resume or recover a blocked, failed or interrupted PRFlow cloud run."
 ---
 
 # Cloud Recovery
 
-Start with the PRFlow workpad comment and the linked GitHub Actions run. They show the last completed phase and the command that failed.
+This page is for collaborators recovering an implementation or review after the cloud run has stopped making progress.
 
-## Common recovery sequence
+## Start With Recorded State
 
-1. Confirm the original commenter is still authorized.
-2. Check that required secrets and workflow permissions are available.
-3. Inspect setup output for missing runtimes, packages or repository install commands.
-4. Confirm the failing verification command is allowed for that workflow.
-5. Fix the underlying configuration or repository problem, then trigger a new run.
+Start with the workpad or review-progress comment. Cross-check its status against the linked Actions run, current pull-request head and remote branch. For implementation, the workpad is the primary progress record, not a transaction log.
 
-Do not repeatedly retrigger an unchanged failure. A new run should follow a concrete correction or a known transient service interruption.
+Interpret an implementation workpad status as follows:
 
-A run that is interrupted while it is writing code commits and pushes the files it has produced at each of its internal checkpoints, so a re-triggered run adopts the same branch and resumes from what already landed rather than starting the implementation over. This is designed to bound loss to roughly the most recent ten minutes of edits rather than the whole attempt — a design target, not a guarantee. Work produced since the last checkpoint is still lost, and a run interrupted before it reaches its first checkpoint leaves nothing behind.
+- An interim 🚀 status means the lifecycle did not reach a terminal state.
+- 🎉 Complete means PRFlow finished its lifecycle. It does not mean the pull request was merged.
+- 👎 Blocked names a prerequisite or verification that needs human action.
+- 💥 Failed or 🛑 Cancelled means the run stopped terminally.
 
-For symptom-specific checks, see [Troubleshooting cloud runs](/docs/troubleshooting/cloud-runs).
+## Recover From a Stopped Run
+
+1. Read the last workpad note and the matching Actions step.
+2. Check authentication, runner prerequisites and `.prflow/config.json` before changing code.
+3. Fix the named blocker or confirm that the failure was transient.
+4. Reissue the original standalone command.
+5. Confirm that the new run adopts the existing workpad or current pull-request head.
+
+Implementation pushes progress at branch checkpoints. A later run can adopt the existing branch and pull request. Work after the last pushed checkpoint can still be lost. A run interrupted before its first checkpoint may have no branch changes to recover.
+
+Configured stall backstops can post bounded resume requests for interim runs. They do not resume cancelled runs. When the cap is exhausted, authentication is unavailable or state cannot be read, the workflow reports the failure instead of looping indefinitely.
+
+Do not repeatedly retry an unchanged deterministic failure. Use [Cloud-Run Problems](/docs/troubleshooting/cloud-runs) to match the symptom to a correction first.

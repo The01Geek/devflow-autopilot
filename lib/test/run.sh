@@ -17105,6 +17105,7 @@ _936_EXPECTED="$(cat <<'EOF'
 .prflow/config.schema.json
 CLAUDE.md
 README.md
+docs/external/docs/runs/cloud/installation.md
 docs/external/release-notes.md
 docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md
 docs/internal/cloud-allowlist.md

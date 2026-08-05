@@ -17,7 +17,8 @@
       {
         "group": "PRFlow",
         "pages": [
-          "index"
+          "index",
+          "release-notes"
         ]
       },
       {
@@ -28,9 +29,12 @@
             "group": "Getting started",
             "pages": [
               "docs/getting-started/index",
+              "docs/getting-started/requirements",
               "docs/getting-started/installation",
-              "docs/getting-started/migrate-from-devflow",
-              "docs/getting-started/first-run"
+              "docs/getting-started/initialization",
+              "docs/getting-started/first-run",
+              "docs/getting-started/updates",
+              "docs/getting-started/migrate-from-devflow"
             ]
           },
           {
@@ -39,8 +43,21 @@
               "docs/workflows/index",
               "docs/workflows/create-issue",
               "docs/workflows/implement",
+              "docs/workflows/review",
               "docs/workflows/review-and-fix",
-              "docs/workflows/documentation"
+              "docs/workflows/pr-description",
+              "docs/workflows/documentation",
+              "docs/workflows/retrospective-weekly"
+            ]
+          },
+          {
+            "group": "How PRFlow works",
+            "pages": [
+              "docs/concepts/index",
+              "docs/concepts/lifecycle",
+              "docs/concepts/workpads-and-resume",
+              "docs/concepts/review-system",
+              "docs/concepts/human-control"
             ]
           },
           {
@@ -51,15 +68,20 @@
                 "group": "Local runs",
                 "pages": [
                   "docs/runs/local/index",
-                  "docs/runs/local/permissions"
+                  "docs/runs/local/client-commands",
+                  "docs/runs/local/permissions",
+                  "docs/runs/local/working-directory"
                 ]
               },
               {
                 "group": "Cloud runs",
                 "pages": [
                   "docs/runs/cloud/index",
+                  "docs/runs/cloud/installation",
                   "docs/runs/cloud/setup",
+                  "docs/runs/cloud/updates",
                   "docs/runs/cloud/triggers",
+                  "docs/runs/cloud/runners",
                   "docs/runs/cloud/recovery"
                 ]
               }
@@ -70,7 +92,23 @@
             "pages": [
               "docs/configuration/index",
               "docs/configuration/settings",
-              "docs/configuration/review-agents"
+              "docs/configuration/core-settings",
+              "docs/configuration/implementation",
+              "docs/configuration/review",
+              "docs/configuration/review-agents",
+              "docs/configuration/providers",
+              "docs/configuration/runtime-setup",
+              "docs/configuration/tool-permissions",
+              "docs/configuration/documentation-and-retrospectives",
+              "docs/configuration/observability-and-privacy"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "docs/reference/index",
+              "docs/reference/command-reference",
+              "docs/reference/glossary"
             ]
           },
           {
@@ -79,6 +117,9 @@
               "docs/troubleshooting/index",
               "docs/troubleshooting/installation",
               "docs/troubleshooting/commands",
+              "docs/troubleshooting/implementation",
+              "docs/troubleshooting/review",
+              "docs/troubleshooting/configuration",
               "docs/troubleshooting/cloud-runs"
             ]
           }
@@ -104,7 +145,7 @@
     "links": [
       {
         "label": "Documentation",
-        "href": "/docs/getting-started/index"
+        "href": "/docs/index"
       }
     ],
     "primary": {
