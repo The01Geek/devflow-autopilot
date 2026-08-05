@@ -16911,7 +16911,11 @@ assert_eq "partition: devflow.yml subscribes to issue_comment (sole event entry 
 #     mistaken for wiring, and the row is flushed at the next step boundary so the
 #     sibling `- uses: ./.github/actions/vendor-plugin` step's own
 #     `ref: ${{ needs.config.outputs.prflow_version }}` is never attributed to a
-#     checkout.
+#     checkout. The `uses:` match accepts an optionally quoted value; the step
+#     boundary is keyed on this file's uniform 6-space step indentation, which is
+#     a deliberate limit rather than an omission — a differently indented step
+#     would go unrecognised, and the `count == 4` row above is what fails safe on
+#     it (it is an equality, not a floor), which CONTROL D below exercises.
 devflow_checkout_ref_rows() {
   awk '
     function flush(   v) {
@@ -16920,7 +16924,7 @@ devflow_checkout_ref_rows() {
     }
     /^[[:space:]]*#/ { next }
     /^      - / { flush(); ln = NR }
-    /uses:[[:space:]]*actions\/checkout@/ { isck = 1 }
+    /uses:[[:space:]]*["'"'"']?actions\/checkout@/ { isck = 1 }
     /^[[:space:]]*ref:[[:space:]]*/ {
       if (isck && refv == "") { sub(/^[[:space:]]*ref:[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); refv = $0 }
     }
@@ -16938,6 +16942,64 @@ devflow_unpinned_checkouts="$(
 )"
 assert_eq "partition: devflow.yml pins every checkout ref: to the default branch (issue #1163)" \
   "" "$devflow_unpinned_checkouts"
+# PLANTED-DEFECT CONTROLS for the auditor above, mirroring the trigger-gate
+# CONTROL A/B/C pattern three blocks up. The `count == 4` row backstops only the
+# "emits too few rows" mode; without these controls an over-accepting extractor
+# (an `isck` that never resets, a reordered `flush()`, a `ref:` capture that
+# misses) would leave `devflow_unpinned_checkouts` silently empty while a real
+# dropped pin sat in the file. Each control first asserts the mutation really
+# changed the file, then asserts the auditor reports the mutated step.
+CK_TMP="$(mktemp -d)"
+devflow_unpinned_in() {  # $1=file -> the rows the auditor does NOT accept as pinned
+  devflow_checkout_ref_rows "$1" \
+    | grep -v ' \${{ github\.event\.repository\.default_branch }}$' || true
+}
+# Control A — a dropped pin. The step must report NONE, and must NOT silently
+# inherit the `ref:` of the sibling vendor-plugin step that follows it (the
+# isck-never-resets mode).
+# NOTE: the first-occurrence-only mutations below use awk, not `sed '0,/re/'` —
+# the `0,` address form is a GNU extension that BSD sed (macOS) rejects.
+devflow_mutate_first_pin() {  # $1=replacement text, or the empty string to delete the line
+  awk -v repl="$1" '
+    !done && $0 == "          ref: ${{ github.event.repository.default_branch }}" {
+      done = 1
+      if (repl != "") print repl
+      next
+    }
+    { print }
+  ' "$WF/devflow.yml"
+}
+devflow_mutate_first_pin "" > "$CK_TMP/dropped-pin.yml"
+assert_eq "checkout-pin CONTROL A: the dropped-pin mutation really changed devflow.yml" \
+  "no" "$(cmp -s "$WF/devflow.yml" "$CK_TMP/dropped-pin.yml" && echo yes || echo no)"
+assert_eq "checkout-pin CONTROL A: a checkout with no ref: is reported unpinned as NONE" \
+  "1" "$(devflow_unpinned_in "$CK_TMP/dropped-pin.yml" | grep -c ' NONE$' || true)"
+assert_eq "checkout-pin CONTROL A: the dropped-pin file still emits 4 checkout rows" \
+  "4" "$(devflow_checkout_ref_rows "$CK_TMP/dropped-pin.yml" | grep -c . || true)"
+# Control B — a `||` fallback pin. An empty `ref` makes actions/checkout fall back
+# to GITHUB_REF with no error, so the fallback form must be rejected, not accepted.
+devflow_mutate_first_pin "          ref: \${{ github.event.repository.default_branch || 'main' }}" \
+  > "$CK_TMP/fallback-pin.yml"
+assert_eq "checkout-pin CONTROL B: the fallback-pin mutation really changed devflow.yml" \
+  "no" "$(cmp -s "$WF/devflow.yml" "$CK_TMP/fallback-pin.yml" && echo yes || echo no)"
+assert_eq "checkout-pin CONTROL B: a \`||\` fallback ref: is reported unpinned" \
+  "1" "$(devflow_unpinned_in "$CK_TMP/fallback-pin.yml" | grep -c . || true)"
+# Control C — a literal branch name, which is wrong for a consumer whose default
+# branch is not `main`.
+devflow_mutate_first_pin "          ref: main" > "$CK_TMP/literal-pin.yml"
+assert_eq "checkout-pin CONTROL C: the literal-branch mutation really changed devflow.yml" \
+  "no" "$(cmp -s "$WF/devflow.yml" "$CK_TMP/literal-pin.yml" && echo yes || echo no)"
+assert_eq "checkout-pin CONTROL C: a literal branch-name ref: is reported unpinned" \
+  "1" "$(devflow_unpinned_in "$CK_TMP/literal-pin.yml" | grep -c ' main$' || true)"
+# Control D — an added fifth, unpinned checkout must be caught by BOTH rows: the
+# count row (which is not merely `>= 4`) and the pin row.
+awk 'NR==1{print "      - uses: actions/checkout@v6"} {print}' \
+  "$WF/devflow.yml" > "$CK_TMP/fifth-checkout.yml"
+assert_eq "checkout-pin CONTROL D: an added fifth checkout is counted" \
+  "5" "$(devflow_checkout_ref_rows "$CK_TMP/fifth-checkout.yml" | grep -c . || true)"
+assert_eq "checkout-pin CONTROL D: an added fifth unpinned checkout is reported unpinned" \
+  "1" "$(devflow_unpinned_in "$CK_TMP/fifth-checkout.yml" | grep -c ' NONE$' || true)"
+rm -rf "$CK_TMP"
 
 # Early-ack reaction must stay correctly wired in BOTH gate jobs. These guard
 # the load-bearing properties that the react-to-trigger.sh unit tests above
