@@ -10,8 +10,11 @@ true on every run, in every repository — so Candidate-C in-flight-review dedup
 its suppression notice) silently never fired since the feature landed. Both arms
 fail *open*, so nothing broke loudly; the bit was simply lost and no test noticed.
 `lib/test/modules/efficiency-trace-telemetry.sh` already pinned one file's mode by
-hand (`lib/efficiency-trace.sh`); this check generalises that so a lost bit on any
-`-x`-gated helper fails the suite rather than failing silently in production.
+hand (`lib/efficiency-trace.sh`); this check generalises that *approach* to every
+`-x`-gated helper, so a lost bit on one fails the suite rather than failing silently
+in production. (`lib/efficiency-trace.sh` itself is invoked via `bash`, not `-x`-gated,
+so it is out of this check's set and its hand pin stays load-bearing — issue #1312's
+scope note directs leaving it in place.)
 
 What it does. It derives the `-x`-gated helper set MECHANICALLY rather than from a
 hand-maintained list: it joins `VAR=<path>` assignments to `[ -x "$VAR" ]` /
@@ -136,8 +139,13 @@ _FOR_RE = re.compile(r"^\s*for\s+([A-Za-z_]\w*)\s+in\b")
 _READ_RE = re.compile(r"\bread\b((?:\s+-\w+)*)\s+([^<>|&;]+)")
 # A `[ … ]` / `[[ … ]]` test span (non-greedy body, so `[ a ] && [ b ]` yields two).
 _BRACKET_RE = re.compile(r"\[{1,2}(.*?)\]{1,2}")
-# `-x <operand>` inside a test span, or `test -x <operand>`.
-_XOP_RE = re.compile(r"""(?:(?:^|\s|!)\s*|\btest\s+(?:!\s+)?)-x\s+("[^"]*"|'[^']*'|[^\s\];|&]+)""")
+# The operand token: a quoted string or an unquoted run — one fragment reused by both
+# the bracket-interior and the `test -x` matchers so the operand grammar has a single home.
+_OPERAND = r""""[^"]*"|'[^']*'|[^\s\];|&]+"""
+# `-x <operand>` inside a `[ … ]` span (the `!` of `[ ! -x … ]` is part of the interior).
+_XOP_RE = re.compile(r"(?:^|\s|!)\s*-x\s+(" + _OPERAND + r")")
+# `test -x <operand>` / `test ! -x <operand>` as a bare command (outside a `[ … ]` span).
+_TEST_X_RE = re.compile(r"\btest\s+(?:!\s+)?-x\s+(" + _OPERAND + r")")
 _BRACE_VAR_RE = re.compile(r"^\$\{([A-Za-z_]\w*)(?::-[^}]*)?\}(.*)$")
 _SIMPLE_VAR_RE = re.compile(r"^\$([A-Za-z_]\w*)(.*)$")
 
@@ -255,9 +263,7 @@ class _FileModel:
         for span in _BRACKET_RE.finditer(code):
             for operand in _XOP_RE.finditer(span.group(1)):
                 self.operands.append((lineno, operand.group(1)))
-        for operand in re.finditer(
-            r"""\btest\s+(?:!\s+)?-x\s+("[^"]*"|'[^']*'|[^\s\];|&]+)""", code
-        ):
+        for operand in _TEST_X_RE.finditer(code):
             self.operands.append((lineno, operand.group(1)))
 
     def _nearest(self, var: str, lineno: int) -> tuple[int, str, str | None] | None:
