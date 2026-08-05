@@ -46796,7 +46796,18 @@ assert_eq "#908: describe-denial-count.sh is byte-unmodified by this issue (AC6)
 # now: every placeholder entry still declares itself PENDING. Legitimate additions
 # elsewhere on the page pass; silently promoting a placeholder to a measurement
 # goes RED, which is the regression the original pin existed to catch.
-assert_eq "#908: docs/cloud-allowlist.md's placeholder probe-evidence entries still declare themselves PENDING (AC8)" "3" \
+#
+# The expected count is data, not an invariant: it drops as placeholders are legitimately
+# promoted by a cited measurement, and the promotion reconciles this literal in the SAME
+# commit (the coupled-invariant discipline). It went 3 -> 1 when the two issue-858
+# dispatched-subagent Write entries (review and implement tiers) were filled from run
+# 30956039324 with run/job/head/ref recorded on the page and the jobs' verbatim machine
+# output committed at docs/subagent-write-probe.observed.md — a cited promotion, which is
+# exactly what this pin asks for and the opposite of the silent one it forbids. The
+# remaining entry is the issue-874 env: propagation probe, which stays PENDING because the
+# observed run returned INCONCLUSIVE (hop1_reported=False) — an unestablished measurement,
+# not a verdict, so its cell is deliberately still unfilled.
+assert_eq "#908: docs/cloud-allowlist.md's placeholder probe-evidence entries still declare themselves PENDING (AC8)" "1" \
   "$(grep -c '^\*\*This measurement is PENDING' "$LIB/../docs/cloud-allowlist.md")"
 # ────────────────────────────────────────────────────────────────────────────
 
