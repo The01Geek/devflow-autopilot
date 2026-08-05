@@ -7,6 +7,22 @@ description: "Follow an issue through implementation, review, documentation and 
 
 This page follows seven lifecycle stages from issue preparation through human merge. PRFlow performs the middle stages through four implementation phases. The final merge remains human-controlled.
 
+```mermaid
+flowchart TD
+    accTitle: Seven stages in the PRFlow lifecycle
+    accDescr: An issue starts a PRFlow run. PRFlow prepares a branch and workpad, implements and verifies the change, then opens a draft pull request. It reviews and routes findings and updates documentation. A person reviews and merges the finished pull request.
+    issue["1. Issue<br/>Define the change"] --> run["2. Run<br/>Load guidance and start or resume"]
+
+    subgraph prflow["PRFlow prepares the change"]
+        run --> branch["3. Branch and workpad<br/>Record progress and decisions"]
+        branch --> draft["4. Draft pull request<br/>Implement and verify, then open"]
+        draft --> review["5. Verification and review<br/>Route findings and apply authorized fixes"]
+        review --> docs["6. Documentation<br/>Explain the finished change"]
+    end
+
+    docs --> merge["7. Human merge<br/>Review, approve and merge"]
+```
+
 ## 1. Issue
 
 The GitHub issue is the change contract. PRFlow reads its description and acceptance criteria, checks declared dependencies and compares important claims with the repository before editing code.
