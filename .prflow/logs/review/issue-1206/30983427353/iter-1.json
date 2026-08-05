@@ -1,0 +1,76 @@
+{
+  "iter": 1,
+  "loop_role": "fix",
+  "fix_files": [
+    "lib/test/regenerate-artifacts.py",
+    "lib/test/modules/regenerate-artifacts.sh"
+  ],
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:pr-test-analyzer",
+    "prflow:type-design-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "holds_old_paths exempted the whole entry incl. current original",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:type-design-analyzer",
+      "severity": "Important",
+      "description": "holds_old_paths over-reaches; original is current",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "non-bool holds_old_paths and empty-partners guards untested",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "rot-prone entry count + mirror-fact checker restatement",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": ".exists() vs .is_file()",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "correct .devflow/... partner spellings",
+      "fix_decision": "pushed_back",
+      "evidence": "deliberately old paths per AC6, byte-identical to _WSR_SWEPT_RELPATHS; correcting would break git show <old-commit>:<path> args"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "reject unknown/misspelled fields",
+      "fix_decision": "deferred",
+      "evidence": "consistent with existing _validate_registry which also does not reject unknown keys; typo direction fails closed"
+    }
+  ],
+  "shadow": {
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "prflow:code-reviewer"
+    ],
+    "comparison": {
+      "shadow_total": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    }
+  },
+  "verdict": "APPROVE",
+  "telemetry": "unavailable"
+}
