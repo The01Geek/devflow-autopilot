@@ -247,21 +247,32 @@ each). Each subagent prompt:
 > no-op and report nothing about it; if it is present but you cannot read it, report
 > that via the optional `extension_unreadable` key in your returned JSON object.
 >
+> Bundled-helper root: the plugin is at the absolute path `<PLUGIN_ROOT>`. Use that
+> value wherever the retrospective skill writes `[[PLUGIN_ROOT]]` — for example
+> `[[PLUGIN_ROOT]]/scripts/run-jq.sh`. Resolve no skill-directory anchor of your own.
+>
+> Internal-documentation root: `<INTERNAL_DOC_ROOT>`. Use that value wherever the
+> retrospective skill writes `[[INTERNAL_DOC_LOCATION]]`.
+>
 > Print exactly one JSON object (the retrospective entry) and **nothing else**
 > on stdout.
 
-**Resolve `<REPO_ROOT>` before dispatch (by-path handoff).** A
-subagent receives neither `$CLAUDE_SKILL_DIR` nor a `Base directory for this skill:`
-context line, so it cannot resolve its own anchor to reach the extension. You
-(the orchestrator) run as a skill, so *you* resolve the repository root
-(`git rev-parse --show-toplevel`) and substitute it for `<REPO_ROOT>` in the
-handoff sentence above, giving the child an absolute path its own working directory
-cannot change. Append the sentence **unconditionally** — it is inert when no
-extension exists (a child that reads an absent file finds nothing to honor). Run
-**no** probe and read **no** extension file yourself: no extension content enters
-this orchestrator's context on any path. The child performs a **file read**, never
-a command invocation, so this handoff needs no allowlist entry and no permission
-grant on any tier.
+**Resolve `<REPO_ROOT>`, `<PLUGIN_ROOT>` and `<INTERNAL_DOC_ROOT>` before dispatch
+(by-value handoff).** A subagent receives neither `$CLAUDE_SKILL_DIR` nor a `Base
+directory for this skill:` context line, so it cannot resolve its own anchor — neither
+to reach the extension nor to reach a bundled helper. You (the orchestrator) run as a
+skill, so *you* resolve all three and substitute them into the handoff sentences above,
+giving the child absolute values its own working directory cannot change:
+
+- `<REPO_ROOT>` — `git rev-parse --show-toplevel`.
+- `<PLUGIN_ROOT>` — the resolved value of `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../`, with the trailing slash dropped. Substitute the resolved absolute path; never hand the child the unexpanded anchor, which it cannot expand.
+- `<INTERNAL_DOC_ROOT>` — `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/`. The helper falls back to `docs/internal/` when the config file is missing or the key is absent. <!-- pruned-path-ok: the configurable consumer-owned internal-doc root, not a path expected inside the vendored plugin -->
+
+Append the sentences **unconditionally** — they are inert when no extension exists (a
+child that reads an absent file finds nothing to honor). Run **no** probe and read **no**
+extension file yourself: no extension content enters this orchestrator's context on any
+path. The child performs a **file read**, never a command invocation, so this handoff
+needs no allowlist entry and no permission grant on any tier.
 
 (The subagent picks `categories` from the fixed vocabulary in that skill — no
 "existing tags" list is passed; the vocabulary *is* the bounded list.)

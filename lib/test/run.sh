@@ -868,6 +868,13 @@ assert_eq "cg: missing key + empty default → exit 0" "0" "$?"
 # (don't couple this to the repo's live .prflow/config.json being valid JSON).
 ( cd "$(mktemp -d)" && "$CG" .nope.nope >/dev/null 2>&1 )
 assert_eq "cg: missing key/file + no default → exit 1" "1" "$?"
+# ...AND it prints NOTHING on stdout (issue #1333 T2). The exit code alone leaves the
+# stdout shape unpinned, so a caller could still assume the no-default read yields an
+# empty string it can bind a placeholder to. It yields no value at all: a consumer that
+# treats the read as "empty" is binding a value the resolver never produced. Asserted
+# separately from the exit code because the two failure modes are independent.
+assert_eq "cg: missing key/file + no default → EMPTY stdout (not an empty-string value)" "" \
+  "$( cd "$(mktemp -d)" && "$CG" .nope.nope 2>/dev/null )"
 "$CG" "" >/dev/null 2>&1
 assert_eq "cg: empty KEY → exit 2" "2" "$?"
 CG_BAD="$(mktemp)"; printf '{ not valid json' > "$CG_BAD"
@@ -14585,8 +14592,26 @@ for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/pha
     "$(! grep -qE "$PA_BARE_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
   assert_eq "#275 pin (P2): $PA_NAME has no cross-statement \$CLAUDE_SKILL_DIR anchor assignment" "yes" \
     "$(! grep -qE "$PA_XSTMT_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
-  assert_eq "#275 pin (P3): $PA_NAME invokes helpers via the portable single-statement inline anchor" "yes" \
-    "$(grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: presence pin over the enumerated $PA_FILE loop variable; literal recurs per call site by design
+  # P3 is a PRESENCE pin, so it presupposes the file has at least one helper call site.
+  # skills/retrospective/SKILL.md is the one file for which that presupposition is false
+  # BY DESIGN (issue #1333): it is a dispatched SUBAGENT brief, and a subagent receives
+  # neither $CLAUDE_SKILL_DIR nor a runner-reported base directory (measured on Claude
+  # Code 2.1.222 in a Task subagent: `printenv CLAUDE_SKILL_DIR` exits 1 with no output,
+  # and no `Base directory for this skill:` line reaches it), so it can resolve no anchor
+  # at all. Every path it needs is handed to it BY VALUE by the orchestrator
+  # (skills/retrospective-weekly/SKILL.md Step 4), and the brief therefore carries ZERO
+  # anchor call sites. P3 would demand back the very call site that fix removed. The
+  # exemption is paired with its complement below so it cannot hide a reintroduced one.
+  case "$PA_NAME" in
+    skills/retrospective/SKILL.md)
+      assert_eq "#1333 pin (P3x): $PA_NAME carries NO portable-anchor call site (by-value handoff to a subagent)" "yes" \
+        "$(! grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable — the complement of P3, not a prose pin
+      ;;
+    *)
+      assert_eq "#275 pin (P3): $PA_NAME invokes helpers via the portable single-statement inline anchor" "yes" \
+        "$(grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: presence pin over the enumerated $PA_FILE loop variable; literal recurs per call site by design
+      ;;
+  esac
   assert_eq "#275 pin (P1c): $PA_NAME has no wrong-fallback (non-placeholder) CLAUDE_SKILL_DIR expansion" "yes" \
     "$(! grep -qE "$PA_WRONGFB_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable
   # P3c — per-occurrence completeness: every `${CLAUDE_SKILL_DIR:` expansion in the file
