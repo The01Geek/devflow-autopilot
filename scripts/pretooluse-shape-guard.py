@@ -23,8 +23,8 @@ committed `.claude/settings.json` carries a `Stop` hook and no `PreToolUse` key 
 what leaves the #458 relevance gate unarmed (see TRUST BOUNDARY below). What stops the
 guard executing IN THIS REPOSITORY is therefore an unreachable registration rather than a
 missing one: `devflow-runner.yml` declares `workflow_call` as its only trigger and nothing
-in the tracked tree calls it, its sole caller `devflow-review.yml` having been the
-auto-review tier withheld under issue #936. So the runtime behavior described below is read
+in the tracked tree calls it, its sole caller having been the auto-review tier withheld
+under issue #936. So the runtime behavior described below is read
 here as the contract this file implements, not as something a run in this repository
 exhibits — but NOT as dead code: the withheld tier and its helpers are deliberately
 retained so the tier stays reconstructable and an already-installed consumer keeps working,
