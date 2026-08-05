@@ -710,7 +710,7 @@ assert_eq "#467 A3: the generic-dimension-checklist sed START anchor matches at 
   "$(grep -c '^\*\*Audit dimensions' "$CI_TMPL_AUDIT")"
 assert_eq "#467 A3: the generic-dimension-checklist sed END anchor matches at line-start exactly once" "1" \
   "$(grep -c '^{CONSUMER_DIMENSIONS}' "$CI_TMPL_AUDIT")"
-assert_eq "#467 A3: Step 3.6 generic dimension checklist is 9 bullets (8 base + #464's dimension; #467 added none)" "9" \
+assert_eq "#467 A3: Step 3.6 generic dimension checklist is 10 bullets (8 base + #464's dimension + #1341's Criterion shape; #467 added none)" "10" \
   "$(sed -n '/^\*\*Audit dimensions/,/^{CONSUMER_DIMENSIONS}/p' "$CI_TMPL_AUDIT" | grep -c '^- \*\*')"
 # Cluster B — occurrence-count premise class (coupled template<->Step-3.5) + checklist mirror; AC
 # mutual-consistency check (Step 3.5 + template AC guidance + checklist mirror).
