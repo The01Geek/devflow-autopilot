@@ -41819,6 +41819,11 @@ e1312_make() {  # <dedupe-mode> [extra-run-lines]  -> prints repo dir
   printf '%s\n' '#!/usr/bin/env bash' 'X=/tmp' \
     'if [ -f "$X/lib/sourced.sh" ]; then source "$X/lib/sourced.sh"; fi' > "$d/lib/user.sh"
   printf '#!/usr/bin/env bash\ntrue\n' > "$d/lib/sourced.sh"
+  # scripts/probe644.sh (644) is un-referenced by the base workflow; the resolution-shape
+  # variants below `-x`-gate it via each supported operand form, so an appended form is the
+  # SOLE source of RED and a regression in that form's parsing flips the assertion.
+  printf '#!/usr/bin/env bash\ntrue\n' > "$d/scripts/probe644.sh"
+  chmod 644 "$d/scripts/probe644.sh"
   { printf '%s\n' 'jobs:' '  a:' '    steps:' '      - run: |' \
       '          CC_HELPER=.prflow/vendor/prflow/scripts/dedupe.sh' \
       '          if [ ! -x "$CC_HELPER" ]; then echo w; fi' \
@@ -41883,6 +41888,33 @@ if [ -d "$E1312_SHAPE" ]; then
     "$(case "$E1312_SH_OUT" in "rc=1|"*"could not be resolved"*"refusing to silently skip"*) echo yes ;; *) echo "no: $E1312_SH_OUT" ;; esac)"
   rm -rf "$E1312_SHAPE"
 fi
+
+# Resolution-shape regression fixtures. Each gates the un-referenced 644 scripts/probe644.sh
+# via one supported operand form, so the appended form is the SOLE source of RED — a parsing
+# regression in that form flips the assertion. These cover the forms that had no exercising
+# test (test -x, [[ -x ]], var-ref transitive) and the fail-open closures (a ${VAR:-<literal>}
+# default naming a real helper; a real assignment winning over a read/for name collision).
+e1312_form_red() {  # <label> <extra-run-lines>
+  local d out
+  d="$(e1312_make 755 "$2")"; [ -d "$d" ] || return 0
+  out="$(e1312_run "$d")"
+  assert_eq "#1312 lint: $1 resolves to the 644 helper and fails RED" "yes" \
+    "$(case "$out" in "rc=1|"*"scripts/probe644.sh is tracked mode 100644"*) echo yes ;; *) echo "no: $out" ;; esac)"
+  rm -rf "$d"
+}
+e1312_form_red "test -x form" '          PB3=.prflow/vendor/prflow/scripts/probe644.sh
+          if test ! -x "$PB3"; then echo w; fi'
+e1312_form_red "[[ -x ]] form" '          PB4=scripts/probe644.sh
+          if [[ ! -x "$PB4" ]]; then echo w; fi'
+e1312_form_red "var-ref transitive resolution" '          PBASE=.prflow/vendor/prflow/scripts
+          PB5="$PBASE/probe644.sh"
+          if [ ! -x "$PB5" ]; then echo w; fi'
+e1312_form_red "brace-default operand (fail-open closure)" '          if [ ! -x "${MISSING:-.prflow/vendor/prflow/scripts/probe644.sh}" ]; then echo w; fi'
+e1312_form_red "brace-default assignment (fail-open closure)" '          PB6=${MISSING:-scripts/probe644.sh}
+          if [ ! -x "$PB6" ]; then echo w; fi'
+e1312_form_red "real assignment wins over read/for name collision (fail-open closure)" '          PB7=scripts/probe644.sh
+          echo "please read PB7 before running"
+          if [ ! -x "$PB7" ]; then echo w; fi'
 
 # Fail-closed: a non-repository root names the git failure rather than reporting clean.
 E1312_NONREPO="$(probe_tmp '#1312 non-repo root')"

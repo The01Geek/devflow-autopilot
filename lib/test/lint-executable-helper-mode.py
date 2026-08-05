@@ -5,7 +5,8 @@
 
 Why this exists (issue #1312): `scripts/dedupe-review-command.sh` shipped tracked
 `100644`, while both of its call sites in `.github/workflows/devflow.yml` gate on
-`[ ! -x "$CC_HELPER" ]`. A file that is present but not executable makes that guard
+`[ ! -x … ]` (the `$CC_HELPER` and `$NOTICE_HELPER` guards, each pointing at it).
+A file that is present but not executable makes that guard
 true on every run, in every repository — so Candidate-C in-flight-review dedupe (and
 its suppression notice) silently never fired since the feature landed. Both arms
 fail *open*, so nothing broke loudly; the bit was simply lost and no test noticed.
@@ -65,7 +66,7 @@ silently-skipping lint is the same failure class as the bug it guards):
   silent blind spot.
 
 Helpers that are `source`d or `-f`-guarded are never `-x`-gated, so they never enter
-this set — the six currently-`644` such helpers named in issue #1312's scope note
+this set — the `source`d/`-f`-guarded `644` helpers named in issue #1312's scope note
 stay `644` and pass (AC4).
 
 Usage:
@@ -136,7 +137,14 @@ _ASSIGN_RE = re.compile(
     r"([A-Za-z_]\w*)=(.*)$"
 )
 _FOR_RE = re.compile(r"^\s*for\s+([A-Za-z_]\w*)\s+in\b")
-_READ_RE = re.compile(r"\bread\b((?:\s+-\w+)*)\s+([^<>|&;]+)")
+# `read` only at a command position (line start, after a `;`/`|`/`&`/`{`, or a `do`/`then`
+# keyword) and only its BAREWORD variable operands — never identifiers inside a quoted
+# string, so a prose line like `echo "please read $VAR"` cannot poison $VAR into the
+# dynamic set (silent-failure #1312). The expand() reorder below is the primary guard;
+# this anchoring is defence-in-depth for a var that has no other assignment.
+_READ_RE = re.compile(
+    r"(?:^|[;|&{]|\bdo\b|\bthen\b)\s*read\b((?:\s+-\w+)*)((?:\s+[A-Za-z_]\w*)+)"
+)
 # A `[ … ]` / `[[ … ]]` test span (non-greedy body, so `[ a ] && [ b ]` yields two).
 _BRACKET_RE = re.compile(r"\[{1,2}(.*?)\]{1,2}")
 # The operand token: a quoted string or an unquoted run — one fragment reused by both
@@ -146,8 +154,14 @@ _OPERAND = r""""[^"]*"|'[^']*'|[^\s\];|&]+"""
 _XOP_RE = re.compile(r"(?:^|\s|!)\s*-x\s+(" + _OPERAND + r")")
 # `test -x <operand>` / `test ! -x <operand>` as a bare command (outside a `[ … ]` span).
 _TEST_X_RE = re.compile(r"\btest\s+(?:!\s+)?-x\s+(" + _OPERAND + r")")
-_BRACE_VAR_RE = re.compile(r"^\$\{([A-Za-z_]\w*)(?::-[^}]*)?\}(.*)$")
+# Brace form `${VAR}` / `${VAR:-default}`: group 2 CAPTURES the default so a
+# `${HELPER:-scripts/foo.sh}` naming a real repo helper is resolved rather than dropped
+# (silent-failure #1312 fail-open). group 3 is the literal suffix.
+_BRACE_VAR_RE = re.compile(r"^\$\{([A-Za-z_]\w*)(?::-([^}]*))?\}(.*)$")
 _SIMPLE_VAR_RE = re.compile(r"^\$([A-Za-z_]\w*)(.*)$")
+# A `${X:-<literal path>}` assignment default (no `$` in the default) — treated as a
+# resolvable literal so a helper named as an assignment-level default is asserted too.
+_RHS_BRACE_DEFAULT_RE = re.compile(r"^\$\{[A-Za-z_]\w*:-([^}$`]+)\}$")
 
 _MAX_DEPTH = 8
 
@@ -220,7 +234,14 @@ def _classify_rhs(rhs: str) -> tuple[str, str | None]:
     unq = _unquote(raw)
     if "`" in unq or "$(" in unq:
         return ("dynamic", None)
-    if re.search(r"\$\{[A-Za-z_]\w*:-", unq):  # ${VAR:-default} — environment default
+    default = _RHS_BRACE_DEFAULT_RE.match(unq)
+    if default and default.group(1).strip():
+        # `VAR=${X:-scripts/foo.sh}` — the default names a candidate helper, so resolve
+        # to it rather than dropping the whole RHS as dynamic (fail-closed: a real repo
+        # helper named as a default still has its mode asserted). A default containing a
+        # `$` was excluded by the pattern and falls through to the dynamic arm below.
+        return ("literal", default.group(1).strip())
+    if re.search(r"\$\{[A-Za-z_]\w*:-", unq):  # ${VAR:-<non-literal default>} — dynamic
         return ("dynamic", None)
     if "$" in unq:
         return ("var-ref", unq)
@@ -280,29 +301,43 @@ class _FileModel:
             return ("unresolved", "expansion nested too deeply")
         if "$" not in token:
             return ("literal", token)
-        match = _BRACE_VAR_RE.match(token) or _SIMPLE_VAR_RE.match(token)
-        if not match:
-            return ("unresolved", f"unsupported operand shape {token!r}")
-        var, suffix = match.group(1), match.group(2)
+        brace = _BRACE_VAR_RE.match(token)
+        if brace:
+            var, default, suffix = brace.group(1), brace.group(2), brace.group(3)
+        else:
+            simple = _SIMPLE_VAR_RE.match(token)
+            if not simple:
+                return ("unresolved", f"unsupported operand shape {token!r}")
+            var, default, suffix = simple.group(1), None, simple.group(2)
         if "$" in suffix:
             return ("unresolved", f"operand {token!r} has a further expansion in its suffix")
+        # A concrete assignment WINS over the for/read dynamic heuristic, so a real
+        # `VAR=<path>` is asserted even if the name also appears after a `read`/`for`
+        # token elsewhere in the file (silent-failure #1312 fail-open reorder).
+        entry = self._nearest(var, lineno)
+        if entry is not None:
+            entry_lineno, kind, value = entry
+            if kind == "literal":
+                return ("literal", (value or "") + suffix)
+            if kind == "script-dir":
+                base = posixpath.dirname(self.relpath)
+                return ("literal", f"{base}{suffix}" if base else suffix.lstrip("/"))
+            if kind == "var-ref":
+                inner = self.expand(value or "", entry_lineno, depth + 1)
+                if inner[0] != "literal":
+                    return inner
+                return ("literal", inner[1] + suffix)
+            # kind == "dynamic" falls through to the default/runtime handling below.
+        # No resolving assignment (or a dynamic one): a `${VAR:-<literal path>}` default
+        # names a candidate helper the guard checks, so resolve it rather than dropping
+        # it (fail-closed — a real repo helper named as a default has its mode asserted).
+        if default is not None and "$" not in default and default.strip():
+            return self.expand(default.strip() + suffix, lineno, depth + 1)
         if var in self.dynamic:
             return ("runtime", f"${var} is a for/read loop variable")
-        entry = self._nearest(var, lineno)
-        if entry is None:
-            return ("runtime", f"${var} has no in-file assignment (environment-provided)")
-        entry_lineno, kind, value = entry
-        if kind == "literal":
-            return ("literal", (value or "") + suffix)
-        if kind == "script-dir":
-            base = posixpath.dirname(self.relpath)
-            return ("literal", f"{base}{suffix}" if base else suffix.lstrip("/"))
-        if kind == "var-ref":
-            inner = self.expand(value or "", entry_lineno, depth + 1)
-            if inner[0] != "literal":
-                return inner
-            return ("literal", inner[1] + suffix)
-        return ("runtime", f"${var} has a dynamic assignment")
+        if entry is not None:
+            return ("runtime", f"${var} has a dynamic assignment")
+        return ("runtime", f"${var} has no in-file assignment (environment-provided)")
 
 
 def classify_path(path: str) -> tuple[str, str]:
