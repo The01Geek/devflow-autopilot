@@ -46365,7 +46365,10 @@ _908_IMPLEMENT_YML="$LIB/../.github/workflows/devflow-implement.yml"
 # The `command` tier (manual /prflow:review, /prflow:review-and-fix). It carries the same
 # #1179 ceiling for the same reason the implement tier does — the whole-suite coordinator
 # its prompt extension names as the final gate exceeds Claude Code's 600000 ms default —
-# and is driven through the same ceiling extractor below.
+# and is driven through the same ceiling extractor below. It is driven through the HOOK
+# extractor below for the same reason the implement tier is: the #908 tier-scope decision
+# registers the shape guard on the review tier ONLY, so a hooks key appearing in this
+# tier's settings input is out of scope by that decision and not merely undeclared.
 _908_COMMAND_YML="$LIB/../.github/workflows/devflow.yml"
 assert_eq "#908 AC1: devflow-runner.yml's claude-code-action step carries a settings: input" "yes" \
   "$(grep -qF 'settings: |' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- pins the effectiveness channel AC1 requires: the claude-code-action settings input is what registers the PreToolUse hook with the review-tier runner
@@ -46378,9 +46381,9 @@ assert_eq "#908 AC1: the settings input registers a PreToolUse hook naming the g
 # registration would evade it entirely. Parse the YAML with PyYAML instead and check,
 # structurally, that no step registers a PreToolUse hook — the same precision the #460
 # errexit fixture above uses to extract a step's `run:` body, applied here to a `with:`
-# key check instead. The property #908 protects on the implement tier is "no PreToolUse
-# guard" (that shape guard is review-tier-only), NOT "no settings input at all": issue
-# #1179 legitimately adds an env-only `settings` block here to raise BASH_MAX_TIMEOUT_MS,
+# key check instead. The property #908 protects on the implement and command tiers is "no
+# PreToolUse guard" (that shape guard is review-tier-only), NOT "no settings input at all":
+# issue #1179 legitimately adds an env-only `settings` block to each to raise BASH_MAX_TIMEOUT_MS,
 # which registers no hook. So a `settings` block is allowed IFF it declares no `hooks`
 # key and no `with` value mentions "PreToolUse". Falls back to a PreToolUse-only grep
 # when python3/PyYAML is unavailable, so the assertion still runs somewhere.
@@ -46528,11 +46531,43 @@ def bounded(val):
 
 print("ok" if vals and all(bounded(v) for v in vals) else "no")
 PY
-  # Both runners fail CLOSED: a YAML parse error or an otherwise unhandled shape exits
+  # NEGATIVE-CONTROL COMPOSER for the live-workflow hook rows. A guard shown only to PASS
+  # on a clean file is the "passes on the very inputs it was added to catch" class: such a
+  # row reads identically whether the guard works, is hardwired to `yes`, or is pointed at
+  # a workflow carrying no claude-code-action step for it to inspect. This writes a copy of
+  # a LIVE workflow with a hooks key spliced into its existing `settings: |` block scalar —
+  # every other byte, authoring comments included, intact — so the refusal is demonstrated
+  # against the real file rather than against a synthetic stand-in for it.
+  #
+  # It fails LOUDLY rather than emitting an unmutated copy: zero matches (the settings input
+  # reshaped away) or more than one (an ambiguous splice target) exits nonzero, and so does
+  # a splice that changed nothing. An unmutated copy would make the refusal rows below pass
+  # vacuously — the same fail-open the composer exists to rule out.
+  cat > "$_WFG_D/compose-hook-negative.py" <<'PY'
+import re, sys
+
+src = open(sys.argv[1], encoding="utf-8").read()
+matches = list(re.finditer(r"^(?P<ind>[ \t]*)settings: \|\n(?P<body>[ \t]*)\{\n", src, re.M))
+if len(matches) != 1:
+    sys.exit(1)
+m = matches[0]
+out = (
+    src[: m.end()]
+    + m.group("body")
+    + '  "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": []}]},\n'
+    + src[m.end() :]
+)
+if out == src:
+    sys.exit(1)
+open(sys.argv[2], "w", encoding="utf-8").write(out)
+print("composed")
+PY
+  # All three runners fail CLOSED: a YAML parse error or an otherwise unhandled shape exits
   # nonzero, and the caller substitutes a value that satisfies no assertion below (issue
   # #908 confirmatory review; mirrors the _908_PROBE_JOB extractor's discipline).
   _wfg_hook() { local o; o="$(python3 "$_WFG_D/hook-check.py" "$1" 2>/dev/null)" || o="extractor-failed"; printf '%s\n' "$o"; }
   _wfg_ceiling() { local o; o="$(python3 "$_WFG_D/ceiling-check.py" "$1" 2>/dev/null)" || o="extractor-failed"; printf '%s\n' "$o"; }
+  _wfg_compose_neg() { local o; o="$(python3 "$_WFG_D/compose-hook-negative.py" "$1" "$2" 2>/dev/null)" || o="composer-failed"; printf '%s\n' "$o"; }
   # Compose a synthetic workflow fixture named $1 whose single claude-code-action step
   # carries the `with:` body supplied on stdin (indented to its position under `with:`).
   # The result is a real YAML document reaching the extractors through the same entry
@@ -46665,6 +46700,32 @@ YML
   # extractor, no new mechanism.
   assert_eq "#1179: devflow.yml (command tier) sets a finite BASH_MAX_TIMEOUT_MS > 600000 ms via the claude-code-action settings env" "ok" \
     "$(_wfg_ceiling "$_908_COMMAND_YML")"
+  # The command tier gets the SAME hook guard as the implement tier above. Until this row
+  # existed the hook extractor was invoked against devflow-implement.yml alone, so adding a
+  # hooks key to devflow.yml's action step passed the suite in silence — and devflow.yml is
+  # the SHIPPED tier: install.sh copies it into every consumer repo, and its own Step 0.5
+  # branch sync moves the working tree onto the PR head before the agent runs, so a hook
+  # registered through this input would be PR-author-editable code running ahead of every
+  # tool call. Whether such a hook should ever exist here is a separate open decision; this
+  # row makes either answer a visible one rather than a silent default. Same extractor, same
+  # allowance: an env-only settings block (the #1179 ceiling this tier also carries) passes.
+  assert_eq "#908 AC1: devflow.yml (command tier) registers no PreToolUse guard (env-only settings allowed)" "yes" \
+    "$(_wfg_hook "$_908_COMMAND_YML")"
+  # ── Negative control for the row above ────────────────────────────────────
+  # The composed fixture is devflow.yml byte-for-byte apart from one hooks key spliced into
+  # its settings block scalar, so these two rows isolate exactly that difference: both the
+  # armed extractor and the degraded-host grep must flip to a refusal. The grep row is the
+  # one that also confirms the fallback's `PreToolUse|pretooluse-shape-guard` pattern still
+  # discriminates on THIS file — devflow.yml names neither token anywhere today, in code or
+  # in comment, so the clean row below cannot distinguish a working pattern from one that
+  # matches nothing; this row can.
+  _WFG_NEG_YML="$_WFG_D/command-tier-with-hook.yml"
+  assert_eq "#908 negative control: a hook-bearing copy of devflow.yml is composed from the live workflow" "composed" \
+    "$(_wfg_compose_neg "$_908_COMMAND_YML" "$_WFG_NEG_YML")"
+  assert_eq "#908 negative control: the hook guard REFUSES a devflow.yml carrying a settings-input hook" "no" \
+    "$(_wfg_hook "$_WFG_NEG_YML")"
+  assert_eq "#908 negative control: the degraded-host grep fallback also refuses that same devflow.yml" "no" \
+    "$(_wfg_grep_fallback "$_WFG_NEG_YML")"
   # ── The hook guard over the fixture matrix ────────────────────────────────
   assert_eq "#908 matrix: an env-only settings block in string form is allowed" "yes" \
     "$(_wfg_hook "$_WFG_D/env-string.yml")"
@@ -46697,6 +46758,8 @@ YML
   # filter landed, which is why both directions are asserted.
   assert_eq "#908 matrix: the degraded-host grep fallback clears a workflow whose only guard mentions are comments" "yes" \
     "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML")"
+  assert_eq "#908 matrix: the degraded-host grep fallback clears the command tier's live workflow" "yes" \
+    "$(_wfg_grep_fallback "$_908_COMMAND_YML")"
   assert_eq "#908 matrix: the degraded-host grep fallback still catches a real PreToolUse registration" "no" \
     "$(_wfg_grep_fallback "$_WFG_D/hook-mapping.yml")"
   # ── The ceiling guard over the fixture matrix ─────────────────────────────
@@ -46733,6 +46796,11 @@ YML
 else
   assert_eq "#908 AC1: devflow-implement.yml registers no PreToolUse guard (env-only settings allowed)" "yes" \
     "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML")"
+  assert_eq "#908 AC1: devflow.yml (command tier) registers no PreToolUse guard (env-only settings allowed)" "yes" \
+    "$(_wfg_grep_fallback "$_908_COMMAND_YML")"
+  # The command tier's negative control needs the composed fixture (python3 + scratch space),
+  # so it lives in the armed arm only and is covered by the fixture-matrix skip below rather
+  # than vanishing into this arm's clean pass.
   # No grep fallback is meaningful for "finite int > 600000", so on a host lacking
   # python3/PyYAML (or lacking scratch space for the fixtures) these guards SELF-SKIP as
   # host-capability rather than vanishing into a clean pass (#456: a silently-absent guard
