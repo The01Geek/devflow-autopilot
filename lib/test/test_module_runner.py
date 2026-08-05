@@ -2015,6 +2015,10 @@ SERIAL_BY_EXCLUSION_SUITES = (
     # the main shell (invoked directly by run.sh, like test_module_harness.py above),
     # not through the pool or a full-suite module.
     "test_create_issue_context_eval.py",
+    # issue #1314: the review-verdict handoff importer's focused unittest runs
+    # serially on the main shell (invoked directly by run.sh, like the two above),
+    # not through the pool or a full-suite module.
+    "test_import_review_verdict_handoff.py",
 )
 MODULE_DRIVEN_SUITES = (
     "test_reconcile_module_floors.py",

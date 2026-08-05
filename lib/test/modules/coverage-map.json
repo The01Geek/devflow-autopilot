@@ -438,6 +438,11 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/import-review-verdict-handoff.py": {
+      "focused_test": "lib/test/test_import_review_verdict_handoff.py",
+      "note": "issue #1314 trusted-emitter review-verdict handoff importer (the untrusted-input validation trust boundary); accepted shape + full rejection matrix driven by lib/test/test_import_review_verdict_handoff.py",
+      "owner": "unmodularized"
+    },
     "scripts/import-workflow-transcript.py": {
       "focused_test": "lib/test/test_workflow_flight_recorder.py",
       "note": "",
@@ -1010,6 +1015,10 @@
     "1288": {
       "note": "",
       "owner": "parallel-suite-runner"
+    },
+    "1314": {
+      "note": "issue #1314 review-verdict handoff importer focused-test invocation",
+      "owner": "unmodularized"
     },
     "139": {
       "note": "",
