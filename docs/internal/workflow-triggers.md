@@ -170,6 +170,20 @@ hand; review spend on an already-merged target is not). The guard lives inside t
 helper, not in the job's `if:`, so the consumer snippet below is unchanged and a
 consumer inherits the behavior at its next vendor bump.
 
+**Interaction with `/prflow:review-and-fix --push-each-iteration`.** When the fix loop
+runs with `--push-each-iteration`, each iteration pushes the fix commit to the PR head,
+producing one `synchronize` event. Whether that pushed head is then **automatically
+re-reviewed** is exactly the conditionality this section describes, and it depends on the
+repository: this repo (and any consumer that copied the snippet below) auto-requests a
+`/prflow:review` once CI goes green on the pushed head; a consumer with neither this job
+nor a retained pre-#936 `devflow-review.yml` gets no automatic re-review and re-reviews
+by a collaborator comment; a consumer still carrying the withheld tier re-reviews via that
+retained workflow. With `--push-each-iteration` off (the default) nothing is pushed, so no
+`synchronize` fires and none of this applies — the fix loop still converges because it
+rides the local head-override diff, not the pushed state. (The review-and-fix bundle states
+the same conditionality from the loop's side; this section is the canonical trigger
+statement.)
+
 ### Superseding stale CI runs (`ci.yml`'s workflow-level `concurrency`)
 
 `ci.yml` also carries a **workflow-level** `concurrency:` key — distinct from the
