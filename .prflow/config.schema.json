@@ -250,7 +250,7 @@
         },
         "efficiency_telemetry_enabled": {
           "type": "boolean",
-          "description": "When true, /prflow:review-and-fix derives a per-subagent effectiveness trace at Loop Exit, prints it to chat, and persists one per-run record to .prflow/logs/efficiency/. When false, the loop neither renders the trace nor writes any file under .prflow/logs/. Derivation is best-effort: a failure never aborts the fix loop.",
+          "description": "When true, /prflow:review-and-fix derives a per-subagent effectiveness trace at Loop Exit, prints it to chat, and persists one per-run record to .prflow/logs/efficiency/. When false, the loop neither renders the trace nor writes any file under .prflow/logs/. Derivation is best-effort: a failure never aborts the fix loop. This key ALSO gates permission-denial forensics: the durable record of what the harness refused on a run (its count, denied tool names and scrubbed command text) is persisted as the permission_denials key on that same per-run record, so setting this to false to save telemetry cost silently gives up denial forensics too -- a run that ends with no verdict then leaves only an expiring job log.",
           "default": true
         },
         "efficiency_cut_candidate_min_dispatch": {
