@@ -929,7 +929,15 @@ the `review_dedupe` job in `devflow.yml`.
   an unparseable response, an unresolvable `jq`, or an absent/mis-vendored helper
   all yield *no suppression* with a specific breadcrumb — a missed suppression only
   reproduces the recoverable double-comment, whereas a wrong suppression would
-  silently swallow a review the user asked for.
+  silently swallow a review the user asked for. A **non-executable** helper is one
+  such absent/mis-vendored case: `review_dedupe` guards the helper with `[ ! -x … ]`,
+  so a copy tracked `100644` fails the exec test and the job fails open exactly as if
+  the file were missing — which is what silently disabled this suppression from when
+  the feature landed until issue #1312 restored the helper's `100755` mode. A lost
+  executable bit on any `-x`-gated bundled helper is now caught at the desk by
+  `lib/test/lint-executable-helper-mode.py` (driven from `lib/test/run.sh`), which
+  mechanically derives the guarded-helper set and fails RED when a resolved repo
+  helper is not tracked `100755`.
 - **Two legacy signals are retained** for a consumer whose installed copy predates
   the withheld auto-review tier: an in-flight `Devflow Review` check-run on the head,
   and a queued/in-progress `devflow-review.yml` run on the branch. In this tree
