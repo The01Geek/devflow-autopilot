@@ -158,6 +158,37 @@ def collect(parsed):
     return tool_uses
 
 
+def collect_results(parsed):
+    """Walk the parsed structure and return recorded tool_result entries as text.
+
+    DIAGNOSTIC ONLY — never an operand of the verdict, which rests on tool_use records
+    exactly as its siblings do. This exists because the probe's first two runs were both
+    INCONCLUSIVE for DIFFERENT reasons, and the second one (a recorded Skill tool_use with
+    no following actions) could not be diagnosed from tool_use records alone: what the
+    Skill call RETURNED is the discriminator between "the skill loaded and the model
+    ignored it" and "the skill invocation failed or aborted". Printing it turns the next
+    INCONCLUSIVE into a diagnosis rather than another paid re-run."""
+    results = []
+
+    def walk(o):
+        if isinstance(o, dict):
+            if o.get("type") == "tool_result":
+                content = o.get("content")
+                if not isinstance(content, str):
+                    content = json.dumps(content)
+                results.append(
+                    ("ERROR " if o.get("is_error") else "") + content
+                )
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for it in o:
+                walk(it)
+
+    walk(parsed)
+    return results
+
+
 def compute_verdict(tool_uses, note_top):
     """Return (verdict, reason, record_it, routes_to_placeholder).
 
@@ -282,6 +313,12 @@ def main(argv):
     print("recorded tool_use entries (%d):" % len(tool_uses))
     for t in tool_uses:
         print("  " + t[:400])
+    results = collect_results(parsed)
+    print("-" * 72)
+    print("recorded tool_result entries (%d) — diagnostic only, never a verdict operand:"
+          % len(results))
+    for r in results:
+        print("  " + r[:600].replace("\n", " | "))
     print("=" * 72)
     return 0
 

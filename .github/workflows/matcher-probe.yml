@@ -2499,6 +2499,14 @@ jobs:
           # Same rationale as the sibling jobs: this diagnostic is same-repo only and
           # mutates nothing, but claude-code-action otherwise refuses a bot-initiated run.
           allowed_bots: "*"
+          # The action hides the SDK transcript by default, which left run 31057933618
+          # diagnosable only down to "a Skill tool_use was recorded and nothing followed".
+          # What that Skill call RETURNED is the discriminator between "the skill loaded and
+          # the model ignored it" and "the invocation failed or aborted", so this probe opts
+          # into the full transcript. Safe here and NOT a pattern to copy blindly: this job
+          # passes no secret into the session and reads only a sentinel env value, so its
+          # transcript carries nothing sensitive.
+          show_full_output: true
           # The PRODUCTION prompt shape: leading prose, then the slash command on its own
           # line — exactly what scripts/compose-implement-prompt.sh emits
           # (`${GROUNDING}\n\n/prflow:implement ${NUMBER}`) and what devflow.yml's command
