@@ -46271,7 +46271,13 @@ printf 'not json at all' > "$HAP_D/exec-bad.json"
 printf '{"tool_name":"Bash","tool_input":{"command":"basename prqprobe-ungranted-token"}}\n' > "$HAP_D/prq-seen-ungranted.jsonl"
 printf '{"tool_name":"Bash","tool_input":{"command":"mkdir -p .prflow/tmp/prqprobe-control-ran"}}\n' > "$HAP_D/prq-seen-granted.jsonl"
 printf '{"tool_name":"Bash","tool_input":{"command":"echo unrelated"}}\n' > "$HAP_D/prq-seen-neither.jsonl"
-mkdir -p "$HAP_D/prq-control-present"
+mkdir -p "$HAP_D/prq-control-present" "$HAP_D/prq-after-present"
+# The model-skipped-the-arm shape, which is ALSO the prompt-echo regression lock.
+# Every probe prompt necessarily quotes the very command tokens an "was it
+# attempted" axis searches for, so this fixture carries the ungranted token in a
+# `prompt` string while NO tool call carries it: a search over the transcript at
+# large would report a confident ATTEMPTED for a command the session never issued.
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[],"prompt":"Action 2 (THE ARM): basename prqprobe-ungranted-token","messages":[{"type":"tool_use","name":"Bash","input":{"command":"mkdir -p .prflow/tmp/prqprobe-control-ran"}},{"type":"tool_use","name":"Bash","input":{"command":"mkdir -p .prflow/tmp/prqprobe-after-ran"}}]}]' > "$HAP_D/prq-exec-skipped.json"
 
 # ── describe-permissionrequest-probe.sh ─────────────────────────────────────
 # The discriminating arm this probe exists for: a hook that saw ONLY the ungranted
@@ -46279,12 +46285,12 @@ mkdir -p "$HAP_D/prq-control-present"
 # while one that saw the GRANTED control proves it resolves earlier (such a hook
 # would block granted work). The two must render different verdicts AND different
 # inferences, so both are asserted.
-HAP_PRQ_UNGRANTED="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-exec.json" 2>/dev/null)"
+HAP_PRQ_UNGRANTED="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec.json" 2>/dev/null)"
 assert_eq "hook-arm probe: a breadcrumb recording only the UNGRANTED call renders HOOK-SAW-UNGRANTED-ONLY" "yes" \
   "$(printf '%s' "$HAP_PRQ_UNGRANTED" | grep -qF 'hook firing: **HOOK-SAW-UNGRANTED-ONLY**' && echo yes || echo no)"
 assert_eq "hook-arm probe: the ungranted-only arm infers canUseTool-slot behavior" "yes" \
   "$(printf '%s' "$HAP_PRQ_UNGRANTED" | grep -qF 'consistent with the `canUseTool` slot' && echo yes || echo no)"
-HAP_PRQ_GRANTED="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-granted.jsonl" "$HAP_D/prq-control-present" "$HAP_D/prq-exec.json" 2>/dev/null)"
+HAP_PRQ_GRANTED="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-granted.jsonl" "$HAP_D/prq-control-present" "$HAP_D/prq-after-present" "$HAP_D/prq-exec.json" 2>/dev/null)"
 assert_eq "hook-arm probe: a breadcrumb recording the GRANTED control renders HOOK-SAW-GRANTED-CONTROL" "yes" \
   "$(printf '%s' "$HAP_PRQ_GRANTED" | grep -qF 'hook firing: **HOOK-SAW-GRANTED-CONTROL**' && echo yes || echo no)"
 assert_eq "hook-arm probe: the granted-control arm infers the event does NOT sit at the canUseTool slot" "yes" \
@@ -46292,37 +46298,69 @@ assert_eq "hook-arm probe: the granted-control arm infers the event does NOT sit
 assert_eq "hook-arm probe: a present control side effect renders CONTROL-RAN" "yes" \
   "$(printf '%s' "$HAP_PRQ_GRANTED" | grep -qF 'granted control: **CONTROL-RAN**' && echo yes || echo no)"
 assert_eq "hook-arm probe: a breadcrumb carrying neither command token renders FIRED-UNATTRIBUTED, not a false attribution" "yes" \
-  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-neither.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-exec.json" 2>/dev/null | grep -qF 'hook firing: **FIRED-UNATTRIBUTED**' && echo yes || echo no)"
+  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-neither.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec.json" 2>/dev/null | grep -qF 'hook firing: **FIRED-UNATTRIBUTED**' && echo yes || echo no)"
 # The deny `message` axis, including the wrapped-envelope shape.
 assert_eq "hook-arm probe: a deny message found in the transcript renders SENTINEL-DELIVERED" "yes" \
   "$(printf '%s' "$HAP_PRQ_UNGRANTED" | grep -qF 'deny message in transcript: **SENTINEL-DELIVERED**' && echo yes || echo no)"
 assert_eq "hook-arm probe: a WRAPPED deny message still renders SENTINEL-DELIVERED (contains, never startswith)" "yes" \
-  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-exec-wrapped.json" 2>/dev/null | grep -qF 'SENTINEL-DELIVERED' && echo yes || echo no)"
+  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec-wrapped.json" 2>/dev/null | grep -qF 'SENTINEL-DELIVERED' && echo yes || echo no)"
 assert_eq "hook-arm probe: a clean transcript with no deny message renders SENTINEL-ABSENT (distinct from unavailable)" "yes" \
-  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/exec-clean.json" 2>/dev/null | grep -qF 'deny message in transcript: **SENTINEL-ABSENT**' && echo yes || echo no)"
+  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-after-absent" "$HAP_D/exec-clean.json" 2>/dev/null | grep -qF 'deny message in transcript: **SENTINEL-ABSENT**' && echo yes || echo no)"
 # The event-absent vs nothing-reached-it disambiguation — the whole reason the
 # renderer emits an inference line rather than leaving it to a reader.
-HAP_PRQ_NOFIRE_DENIED="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-missing.jsonl" "$HAP_D/prq-control-present" "$HAP_D/prq-exec.json" 2>/dev/null)"
+HAP_PRQ_NOFIRE_DENIED="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-missing.jsonl" "$HAP_D/prq-control-present" "$HAP_D/prq-after-present" "$HAP_D/prq-exec.json" 2>/dev/null)"
 assert_eq "hook-arm probe: no breadcrumb WITH a recorded denial infers the CLI does not deliver the event" "yes" \
   "$(printf '%s' "$HAP_PRQ_NOFIRE_DENIED" | grep -qF 'does not deliver a `PermissionRequest` event' && echo yes || echo no)"
 assert_eq "hook-arm probe: an unfired hook renders its denial-visibility arm NOT-APPLICABLE, never a hook-deny claim" "yes" \
   "$(printf '%s' "$HAP_PRQ_NOFIRE_DENIED" | grep -qF 'permission_denials`: **NOT-APPLICABLE**' && echo yes || echo no)"
-HAP_PRQ_NOFIRE_CLEAN="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-missing.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/exec-clean.json" 2>/dev/null)"
+HAP_PRQ_NOFIRE_CLEAN="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-missing.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-after-absent" "$HAP_D/exec-clean.json" 2>/dev/null)"
 assert_eq "hook-arm probe: no breadcrumb AND no denial infers UNESTABLISHED, never an established negative" "yes" \
   "$(printf '%s' "$HAP_PRQ_NOFIRE_CLEAN" | grep -qF 'UNESTABLISHED, not negative' && echo yes || echo no)"
-assert_eq "hook-arm probe: an absent control side effect with no transcript trace renders CONTROL-UNATTEMPTED" "yes" \
-  "$(printf '%s' "$HAP_PRQ_NOFIRE_CLEAN" | grep -qF 'granted control: **CONTROL-UNATTEMPTED**' && echo yes || echo no)"
+# CONTROL-UNATTEMPTED needs tool calls to have been RECORDED and none of them to be
+# the control; with no tool calls at all the axis is unestablished instead (asserted
+# just below), which is the distinction the whole family turns on.
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[],"messages":[{"type":"tool_use","name":"Bash","input":{"command":"echo something else entirely"}}]}]' > "$HAP_D/prq-exec-othercall.json"
+assert_eq "hook-arm probe: an absent control side effect with recorded tool calls that are not it renders CONTROL-UNATTEMPTED" "yes" \
+  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-missing.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec-othercall.json" 2>/dev/null | grep -qF 'granted control: **CONTROL-UNATTEMPTED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an absent control side effect with NO recorded tool calls renders unavailable, never CONTROL-UNATTEMPTED" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NOFIRE_CLEAN" | grep -qF 'granted control: **unavailable**' && echo yes || echo no)"
 assert_eq "hook-arm probe: a zero denial count renders as the digit 0, never as unavailable" "yes" \
   "$(printf '%s' "$HAP_PRQ_NOFIRE_CLEAN" | grep -qF '(count: 0)' && echo yes || echo no)"
+# THE ARM-SKIPPED SHAPE, and the prompt-echo regression lock. The probe's first live
+# run (30966800385) ran the control and answered without ever issuing the ungranted
+# command — a run indistinguishable from "the hook did not fire" unless the renderer
+# can say the session skipped the arm. The attempt read must therefore scan tool-call
+# INPUTS: this fixture quotes the ungranted token in its `prompt`, so a transcript-wide
+# search would report a confident ATTEMPTED for a command nothing ever issued.
+HAP_PRQ_SKIPPED="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-missing.jsonl" "$HAP_D/prq-control-present" "$HAP_D/prq-after-present" "$HAP_D/prq-exec-skipped.json" 2>/dev/null)"
+assert_eq "hook-arm probe: the ungranted token appearing ONLY in the prompt renders NOT-ATTEMPTED (tool-call inputs, never the transcript at large)" "yes" \
+  "$(printf '%s' "$HAP_PRQ_SKIPPED" | grep -qF 'ungranted arm attempt: **NOT-ATTEMPTED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: a post-arm control side effect renders AFTER-CONTROL-RAN" "yes" \
+  "$(printf '%s' "$HAP_PRQ_SKIPPED" | grep -qF 'post-arm control: **AFTER-CONTROL-RAN**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an unissued arm is inferred as a SESSION SKIP, not as a hook that did not fire" "yes" \
+  "$(printf '%s' "$HAP_PRQ_SKIPPED" | grep -qF 'SESSION SKIPPED the arm' && echo yes || echo no)"
+assert_eq "hook-arm probe: the session-skip inference still reports the availability as UNESTABLISHED, never negative" "yes" \
+  "$(printf '%s' "$HAP_PRQ_SKIPPED" | grep -qF 'UNESTABLISHED, not negative' && echo yes || echo no)"
+# The positive direction of the same axis: a tool call really carrying the ungranted
+# command reads ATTEMPTED, so the NOT-ATTEMPTED row above is discriminating rather
+# than an artifact of a scan that finds nothing.
+assert_eq "hook-arm probe: a recorded tool-call input carrying the ungranted command renders ATTEMPTED" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NOFIRE_DENIED" | grep -qF 'ungranted arm attempt: **ATTEMPTED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an absent post-arm side effect renders AFTER-CONTROL-ABSENT" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NOFIRE_CLEAN" | grep -qF 'post-arm control: **AFTER-CONTROL-ABSENT**' && echo yes || echo no)"
+# An execution file recording NO tool calls at all cannot establish "never issued",
+# so the attempt axis degrades to unavailable rather than forging a negative.
+assert_eq "hook-arm probe: an execution file recording no tool calls renders the attempt axis unavailable, never NOT-ATTEMPTED" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NOFIRE_CLEAN" | grep -qF 'ungranted arm attempt: **unavailable**' && echo yes || echo no)"
 # The three unestablished-input shapes. Each must degrade to `unavailable`.
 assert_eq "hook-arm probe: an unparseable execution file renders the message axis unavailable, never SENTINEL-ABSENT" "yes" \
-  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/exec-bad.json" 2>/dev/null | grep -qF 'deny message in transcript: **unavailable**' && echo yes || echo no)"
+  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-after-absent" "$HAP_D/exec-bad.json" 2>/dev/null | grep -qF 'deny message in transcript: **unavailable**' && echo yes || echo no)"
 assert_eq "hook-arm probe: a zero-byte execution file renders the message axis unavailable" "yes" \
-  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/exec-empty.json" 2>/dev/null | grep -qF 'deny message in transcript: **unavailable**' && echo yes || echo no)"
+  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-after-absent" "$HAP_D/exec-empty.json" 2>/dev/null | grep -qF 'deny message in transcript: **unavailable**' && echo yes || echo no)"
 assert_eq "hook-arm probe: an unrunnable DEVFLOW_JQ renders every execution-file axis unavailable, never a false negative" "yes" \
-  "$(DEVFLOW_JQ=/nonexistent/not-a-real-jq bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-exec.json" 2>/dev/null | grep -qF 'deny message in transcript: **unavailable**' && echo yes || echo no)"
+  "$(DEVFLOW_JQ=/nonexistent/not-a-real-jq bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec.json" 2>/dev/null | grep -qF 'deny message in transcript: **unavailable**' && echo yes || echo no)"
 assert_eq "hook-arm probe: an unrunnable DEVFLOW_JQ reports the CLI version as unavailable, never a fabricated one" "yes" \
-  "$(DEVFLOW_JQ=/nonexistent/not-a-real-jq bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-exec.json" 2>/dev/null | grep -qF 'observed CLI version: `unavailable`' && echo yes || echo no)"
+  "$(DEVFLOW_JQ=/nonexistent/not-a-real-jq bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec.json" 2>/dev/null | grep -qF 'observed CLI version: `unavailable`' && echo yes || echo no)"
 # The version is recorded beside the verdict because the action ref floats, so a
 # verdict taken on an older CLI would otherwise expire with nothing noticing.
 assert_eq "hook-arm probe: the observed CLI version is read out of the execution file" "yes" \
@@ -46330,7 +46368,7 @@ assert_eq "hook-arm probe: the observed CLI version is read out of the execution
 bash "$HAP_PRQ" >/dev/null 2>&1
 assert_eq "hook-arm probe: describe-permissionrequest-probe.sh with no arguments exits 0 (best-effort renderer)" "0" "$?"
 assert_eq "hook-arm probe: describe-permissionrequest-probe.sh with no arguments leaves a stderr breadcrumb and renders nothing" "yes:" \
-  "$(bash "$HAP_PRQ" 2>&1 >/dev/null | grep -qF 'needs <seen-file> <control-marker>' && printf 'yes:' || printf 'no:')$(bash "$HAP_PRQ" 2>/dev/null)"
+  "$(bash "$HAP_PRQ" 2>&1 >/dev/null | grep -qF 'needs <seen-file> <control-marker> <after-marker>' && printf 'yes:' || printf 'no:')$(bash "$HAP_PRQ" 2>/dev/null)"
 
 # ── describe-pretooluse-deny-probe.sh ───────────────────────────────────────
 printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[],"text":"PreToolUse:Bash [hook] devflow pretooluse-deny-probe: PTUD-DENY-SENTINEL"}]' > "$HAP_D/ptud-exec.json"
@@ -46349,6 +46387,17 @@ assert_eq "hook-arm probe: a deny reason found in the transcript renders REASON-
   "$(printf '%s' "$HAP_PTUD_OK" | grep -qF 'deny reason in transcript: **REASON-DELIVERED**' && echo yes || echo no)"
 assert_eq "hook-arm probe: a deny that left no sentinel in permission_denials renders HOOK-DENY-NOT-RECORDED" "yes" \
   "$(printf '%s' "$HAP_PTUD_OK" | grep -qF 'permission_denials`: **HOOK-DENY-NOT-RECORDED**' && echo yes || echo no)"
+# The sentinel axis alone cannot separate "the hook deny produced no denials entry at
+# all" from "it produced one that simply carries no reason text" — and those have
+# opposite consequences for a denial-count measurement. The live run hit exactly the
+# second shape (no sentinel, count 1), so the COMMAND is looked for in the array too.
+assert_eq "hook-arm probe: an entry-free denials array renders COMMAND-NOT-RECORDED" "yes" \
+  "$(printf '%s' "$HAP_PTUD_OK" | grep -qF 'denied command in `permission_denials`: **COMMAND-NOT-RECORDED**' && echo yes || echo no)"
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[{"tool_name":"Bash","tool_input":{"command":"mkdir -p .prflow/tmp/ptudprobe-sacrificial-ran"}}]}]' > "$HAP_D/ptud-exec-denialentry.json"
+assert_eq "hook-arm probe: a denials entry naming the sacrificial command renders COMMAND-RECORDED (the hook deny IS visible to a denial count)" "yes" \
+  "$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/ptud-exec-denialentry.json" 2>/dev/null | grep -qF 'denied command in `permission_denials`: **COMMAND-RECORDED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an unreadable execution file renders the denied-command axis unavailable, never COMMAND-NOT-RECORDED" "yes" \
+  "$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/exec-bad.json" 2>/dev/null | grep -qF 'denied command in `permission_denials`: **unavailable**' && echo yes || echo no)"
 mkdir -p "$HAP_D/ptud-sacrificial-present"
 assert_eq "hook-arm probe: a present sacrificial side effect renders DENY-NOT-HONORED (the tool ran despite the deny)" "yes" \
   "$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied" "$HAP_D/ptud-sacrificial-present" "$HAP_D/ptud-control" "$HAP_D/ptud-exec.json" 2>/dev/null | grep -qF 'deny honored: **DENY-NOT-HONORED**' && echo yes || echo no)"

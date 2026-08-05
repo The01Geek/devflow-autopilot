@@ -116,6 +116,48 @@ devflow_probe_transcript_has() {
   return 0
 }
 
+# devflow_probe_tooluse_has <execution-file> <needle>
+#   Echoes `yes` / `no` / `unavailable` for "does any recorded TOOL CALL's input
+#   contain this needle".
+#
+#   Deliberately narrower than devflow_probe_transcript_has, and the narrowing is
+#   load-bearing: the transcript carries the run's own PROMPT text, and every probe
+#   prompt necessarily quotes the very command tokens an "was it attempted" axis
+#   searches for — so an any-string search would report a confident ATTEMPTED for a
+#   command the session never issued. Only tool-call inputs answer that question.
+#
+#   Returns `unavailable` — never `no` — when the file records no tool-call inputs
+#   at all: an empty search population cannot establish a negative, and the recorded
+#   execution-file shape is a dated observation rather than a contract, so a shape
+#   change must degrade to unestablished instead of forging an established negative.
+devflow_probe_tooluse_has() {
+  local _p_file="${1:-}" _p_needle="${2:-}" _p_jq _p_out
+  if [ -z "$_p_needle" ]; then
+    printf '%s\n' unavailable
+    return 0
+  fi
+  [ "$(devflow_probe_exec_state "$_p_file")" = ok ] || { printf '%s\n' unavailable; return 0; }
+  _p_jq="$(_devflow_probe_jq)" || { printf '%s\n' unavailable; return 0; }
+  # Both recorded shapes: the SDK message form (`{"type":"tool_use","input":…}`)
+  # and the flattened form the execution-file shape record observes
+  # (`tool_name` / `tool_input`).
+  _p_out="$("$_p_jq" -rs --arg needle "$_p_needle" '
+    [ .. | objects
+      | select((.type? == "tool_use") or (has("tool_input")))
+      | [.input?, .tool_input?] | map(select(. != null)) | .[] | tojson
+    ] as $inputs
+    | if ($inputs | length) == 0 then "empty"
+      else (($inputs | map(select(contains($needle))) | length) > 0 | tostring)
+      end
+  ' "$_p_file" 2>/dev/null)" || _p_out=""
+  case "$_p_out" in
+    true)  printf '%s\n' yes ;;
+    false) printf '%s\n' no ;;
+    *)     printf '%s\n' unavailable ;;
+  esac
+  return 0
+}
+
 # devflow_probe_denials_count <execution-file>
 #   Echoes the number of `permission_denials` entries found anywhere in the
 #   transcript, or `unavailable`. Zero is a REAL measured value here and is

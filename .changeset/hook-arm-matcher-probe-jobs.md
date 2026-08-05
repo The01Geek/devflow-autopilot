@@ -5,12 +5,13 @@ type: Added
 
 - **Three new `matcher-probe.yml` jobs measure the cloud harness's hook surface.**
   `permissionrequest-probe` registers a `PermissionRequest`/`Bash` hook that records the
-  tool input it saw and denies with a distinctive message, and has the session attempt a
-  GRANTED control command alongside an ungranted one — so the run establishes not only
-  whether the event fires but **which** calls reach it (the published permission order
-  does not place `PermissionRequest` anywhere, and a hook that sees calls the allowlist
-  would have approved is a very different thing from one that sees only what the
-  allowlist declined). `pretooluse-deny-probe` emits a real `deny` with a sentinel reason
+  tool input it saw and denies with a distinctive message, and brackets the ungranted
+  command between two GRANTED control commands — so the run establishes not only whether
+  the event fires but **which** calls reach it (the published permission order does not
+  place `PermissionRequest` anywhere, and a hook that sees calls the allowlist would have
+  approved is a very different thing from one that sees only what the allowlist declined),
+  and a session that silently declines to issue the ungranted command is reported as such
+  rather than as an ambiguous negative. `pretooluse-deny-probe` emits a real `deny` with a sentinel reason
   on a sacrificial command, measuring deny-path reason delivery — an axis the existing
   allow-only `pretooluse-probe` structurally cannot answer, since
   `permissionDecisionReason` is specified to be ignored on an `allow`. `defer-probe`

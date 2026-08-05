@@ -68,6 +68,7 @@ if ! . "$_DDP_DIR/../lib/probe-observation.sh" 2>/dev/null \
   devflow_probe_exec_state() { printf '%s\n' unavailable; }
   devflow_probe_cli_version() { printf '%s\n' unavailable; }
   devflow_probe_transcript_has() { printf '%s\n' unavailable; }
+  devflow_probe_tooluse_has() { printf '%s\n' unavailable; }
   devflow_probe_denials_count() { printf '%s\n' unavailable; }
   devflow_probe_denials_have() { printf '%s\n' unavailable; }
 fi
@@ -103,8 +104,11 @@ case "$(devflow_probe_transcript_has "$EXECUTION_FILE" "$DFR_STOP_REASON")" in
 esac
 
 # ── Axis 4 (SECONDARY): was the command recorded at all, and were there denials?
-COMMAND_SEEN="$(devflow_probe_transcript_has "$EXECUTION_FILE" "$DFR_COMMAND_TOKEN")"
-echo "- command in transcript (secondary): **$COMMAND_SEEN** (yes = the session issued it; no = the transcript parsed cleanly and does not record it; unavailable = could not check)"
+# Scoped to TOOL-CALL INPUTS, never the transcript at large: the transcript carries
+# the prompt, which quotes this very command, so an any-string search would report
+# "issued" for a session that never issued it.
+COMMAND_SEEN="$(devflow_probe_tooluse_has "$EXECUTION_FILE" "$DFR_COMMAND_TOKEN")"
+echo "- command issued (secondary): **$COMMAND_SEEN** (yes = a recorded tool-call input carries it; no = tool-call inputs were recorded and none does; unavailable = could not check)"
 echo "- \`permission_denials\` entries (secondary): **$(devflow_probe_denials_count "$EXECUTION_FILE")** (a count, or \`unavailable\` when the array could not be read — never collapsed onto 0)"
 
 exit 0

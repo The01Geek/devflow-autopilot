@@ -22,8 +22,18 @@
 # one and reports which of the two the hook saw. That discrimination is this
 # renderer's primary output.
 #
+# WHY THERE ARE TWO GRANTED CONTROLS. The arm is only exercised if the session
+# actually ISSUES the ungranted command, and a model that decides for itself that
+# a command will be refused, and answers without issuing it, produces a run that
+# looks exactly like "the hook did not fire" (observed on this probe's first live
+# run, 30966800385: one tool call, zero denials). The second control runs AFTER the
+# ungranted command, so a run in which it executed while nothing was ever refused
+# is attributable to the model having SKIPPED the arm, rather than left as an
+# ambiguous negative.
+#
 # Usage:
-#   describe-permissionrequest-probe.sh <seen-file> <control-marker> [execution-file]
+#   describe-permissionrequest-probe.sh <seen-file> <control-marker> \
+#                                       <after-marker> [execution-file]
 #     seen-file        the JSONL breadcrumb the probe's PermissionRequest hook
 #                      appends its raw stdin payload to on every invocation. The
 #                      payload carries the tool input, so the file's CONTENT — not
@@ -31,6 +41,8 @@
 #                      granted or the ungranted command.
 #     control-marker   the on-disk side effect the GRANTED control command
 #                      produces when it actually executes.
+#     after-marker     the on-disk side effect of the second granted control, which
+#                      the prompt places AFTER the ungranted command.
 #     execution-file   claude-code-action's execution_file output (optional). It is
 #                      the SECONDARY axis only: its absence degrades a secondary
 #                      verdict to `unavailable`, never to an established negative.
@@ -51,15 +63,19 @@ PRQ_GRANTED_TOKEN="prqprobe-control-ran"
 # Substring of the UNGRANTED command the probe prompt dictates (its head is in no
 # allowlist, so the matcher must refuse it).
 PRQ_UNGRANTED_TOKEN="prqprobe-ungranted-token"
+# (The second granted control carries no token constant: it is identified by the
+# marker PATH the caller passes, since nothing about it needs recognising inside a
+# transcript.)
 # The `message` the probe's deny decision carries.
 PRQ_SENTINEL="devflow permissionrequest-probe: PRQ-DENY-SENTINEL"
 
 SEEN="${1:-}"
 CONTROL_MARKER="${2:-}"
-EXECUTION_FILE="${3:-}"
+AFTER_MARKER="${3:-}"
+EXECUTION_FILE="${4:-}"
 
-if [ -z "$SEEN" ] || [ -z "$CONTROL_MARKER" ]; then
-  echo "devflow: describe-permissionrequest-probe.sh: needs <seen-file> <control-marker> — rendering nothing" >&2
+if [ -z "$SEEN" ] || [ -z "$CONTROL_MARKER" ] || [ -z "$AFTER_MARKER" ]; then
+  echo "devflow: describe-permissionrequest-probe.sh: needs <seen-file> <control-marker> <after-marker> — rendering nothing" >&2
   exit 0
 fi
 
@@ -79,6 +95,7 @@ if ! . "$_DPR_DIR/../lib/probe-observation.sh" 2>/dev/null \
   devflow_probe_exec_state() { printf '%s\n' unavailable; }
   devflow_probe_cli_version() { printf '%s\n' unavailable; }
   devflow_probe_transcript_has() { printf '%s\n' unavailable; }
+  devflow_probe_tooluse_has() { printf '%s\n' unavailable; }
   devflow_probe_denials_count() { printf '%s\n' unavailable; }
   devflow_probe_denials_have() { printf '%s\n' unavailable; }
 fi
@@ -118,7 +135,9 @@ esac
 # ── Axis 2: did the GRANTED control actually execute? ─────────────────────────
 # Marker-first. When the marker is absent the execution file separates "attempted
 # and blocked" from "never attempted" — two different facts that must not collapse.
-CONTROL_ATTEMPTED="$(devflow_probe_transcript_has "$EXECUTION_FILE" "$PRQ_GRANTED_TOKEN")"
+# The attempt reads scan TOOL-CALL INPUTS, never the transcript at large: the
+# transcript carries the prompt, which quotes every one of these command tokens.
+CONTROL_ATTEMPTED="$(devflow_probe_tooluse_has "$EXECUTION_FILE" "$PRQ_GRANTED_TOKEN")"
 if [ -e "$CONTROL_MARKER" ]; then
   echo "- granted control: **CONTROL-RAN** — its side effect \`$CONTROL_MARKER\` is present, so the granted command executed."
 else
@@ -127,6 +146,24 @@ else
     no)  echo "- granted control: **CONTROL-UNATTEMPTED** — no side effect and no trace of the command in the transcript: the session never issued it, so this arm measured nothing." ;;
     *)   echo "- granted control: **unavailable** — side effect \`$CONTROL_MARKER\` absent, and the execution file could not be read, so \"blocked\" and \"never attempted\" cannot be separated." ;;
   esac
+fi
+
+# ── Axis 2b: was the UNGRANTED command actually issued, and did the session get
+#    PAST it? Without these the whole arm is unfalsifiable: a model that decides
+#    for itself not to issue a command it expects to be refused produces a run
+#    indistinguishable from "the hook did not fire".
+UNGRANTED_ATTEMPTED="$(devflow_probe_tooluse_has "$EXECUTION_FILE" "$PRQ_UNGRANTED_TOKEN")"
+case "$UNGRANTED_ATTEMPTED" in
+  yes) echo "- ungranted arm attempt: **ATTEMPTED** — a recorded tool-call input carries the ungranted command, so the arm really was exercised." ;;
+  no)  echo "- ungranted arm attempt: **NOT-ATTEMPTED** — tool-call inputs were recorded and none carries the ungranted command: the session never issued it, so the arm was not exercised." ;;
+  *)   echo "- ungranted arm attempt: **unavailable** — no tool-call inputs could be read, so \"issued\" and \"never issued\" cannot be separated." ;;
+esac
+if [ -e "$AFTER_MARKER" ]; then
+  echo "- post-arm control: **AFTER-CONTROL-RAN** — the granted command placed AFTER the ungranted one executed (\`$AFTER_MARKER\` present), so the session reached past the arm."
+  AFTER_RAN=yes
+else
+  echo "- post-arm control: **AFTER-CONTROL-ABSENT** — the granted command placed after the ungranted one left no side effect, so the session did not demonstrably get past the arm."
+  AFTER_RAN=no
 fi
 
 # ── Axis 3 (c): does the deny `message` reach the engine transcript? ───────────
@@ -170,8 +207,10 @@ elif [ "$FIRED" = yes ]; then
   echo "the \`PermissionRequest\` event FIRES, but neither command token was recoverable from the breadcrumb, so WHICH calls reach it is not established by this run."
 elif [ "$DEN_UNGRANTED" = yes ] || { [ "$DEN_COUNT" != unavailable ] && [ "$DEN_COUNT" != 0 ]; }; then
   echo "a call DID reach the permission system and was refused (it is in \`permission_denials\`), yet no hook breadcrumb exists — so this is evidence that the installed CLI does not deliver a \`PermissionRequest\` event, NOT merely that nothing reached it."
-elif [ "$DEN_COUNT" = 0 ] && [ "$CONTROL_ATTEMPTED" = no ]; then
-  echo "no breadcrumb, no denials and no trace of the control command — nothing reached the permission system at all (the session may have failed before issuing any tool call, e.g. if the \`settings\` input was rejected). The event's availability is UNESTABLISHED, not negative."
+elif [ "$DEN_COUNT" = 0 ] && [ "$UNGRANTED_ATTEMPTED" = no ]; then
+  echo "no breadcrumb and zero denials, and no recorded tool call carries the ungranted command — the SESSION SKIPPED the arm rather than the harness refusing it$([ "$AFTER_RAN" = yes ] && printf '%s' ' (the control placed after the arm did run, so the session reached past it)'). Nothing was ever offered to a \`PermissionRequest\` hook: the event's availability is UNESTABLISHED, not negative. Re-run with a prompt the model actually obeys."
+elif [ "$DEN_COUNT" = 0 ] && [ "$CONTROL_ATTEMPTED" = no ] && [ "$AFTER_RAN" = no ]; then
+  echo "no breadcrumb, no denials and no trace of either control command — nothing reached the permission system at all (the session may have failed before issuing any tool call, e.g. if the \`settings\` input was rejected). The event's availability is UNESTABLISHED, not negative."
 elif [ "$DEN_COUNT" = 0 ]; then
   echo "no breadcrumb and zero denials, though the transcript is readable — no call was refused, so nothing was ever offered to a \`PermissionRequest\` hook. The event's availability is UNESTABLISHED, not negative."
 else

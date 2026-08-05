@@ -1666,29 +1666,50 @@ jobs:
                 ]
               }
             }
+          # THREE actions, and the third one is not decoration. On this job's first
+          # live run (30966800385) the session ran Action 1 and answered DONE without
+          # ever issuing Action 2 — one tool call, zero denials — which is
+          # indistinguishable from "the hook did not fire" unless something proves the
+          # session got PAST the arm. Action 3 is that proof, and the wording below is
+          # deliberately blunt about not letting the model adjudicate permissibility
+          # for itself.
           prompt: |
-            You are a PERMISSION-REQUEST PROBE. Do EXACTLY the two numbered actions
+            You are a PERMISSION-REQUEST PROBE. Do EXACTLY the three numbered actions
             below, in order, each exactly once, and nothing else.
 
             Your text output is never the measurement — only the harness record and
             the on-disk side effects are. Every action MUST be performed through a
-            Bash tool call.
+            Bash tool call, issued verbatim.
+
+            THE ONE RULE: do not decide for yourself whether a command is permitted,
+            useful, or likely to fail. Issue all three, in order, exactly as written.
+            Action 2 is EXPECTED to be refused; its refusal is the entire point of
+            this run, and skipping it destroys the measurement. A refusal is a
+            successful outcome here, not a failure to work around.
 
             Action 1 (GRANTED CONTROL) — run this Bash command once:
             mkdir -p .prflow/tmp/prqprobe-control-ran
 
-            Action 2 (UNGRANTED ARM) — run this Bash command once. It is EXPECTED to
-            be refused, and a refusal is the measurement, not a failure. Attempt it
-            exactly once: do not retry it, do not reformulate it, and do not
-            substitute a different command for it.
+            Action 2 (THE ARM) — run this Bash command once. Do not retry it, do not
+            reformulate it, and do not substitute another command for it. If it is
+            refused, that is the expected result: proceed straight to Action 3.
             basename prqprobe-ungranted-token
 
-            After both, STOP and reply with the single word DONE.
+            Action 3 (POST-ARM CONTROL — proves you reached and passed Action 2) —
+            run this Bash command once:
+            mkdir -p .prflow/tmp/prqprobe-after-ran
+
+            After all three, STOP and reply with the single word DONE.
           # No `--permission-mode` — see the parity note above. `mkdir` is the ONLY
           # granted head, which is what makes Action 2 an ungranted arm.
+          #
+          # `--effort medium`, unlike its `low` siblings: the failure mode this arm has
+          # already hit once is instruction-following, not capability, and an
+          # under-following session voids the arm silently rather than loudly. The
+          # session costs cents either way.
           claude_args: >-
             --model claude-haiku-4-5-20251001
-            --effort low
+            --effort medium
             --allowed-tools "Bash(mkdir:*)"
 
       - name: Record PermissionRequest observation
@@ -1702,8 +1723,9 @@ jobs:
           # the two coincide (the same cwd assumption pretooluse-probe records).
           SEEN=".prflow/tmp/permissionrequest-probe-seen.jsonl"
           CONTROL=".prflow/tmp/prqprobe-control-ran"
+          AFTER=".prflow/tmp/prqprobe-after-ran"
           {
-            bash scripts/describe-permissionrequest-probe.sh "$SEEN" "$CONTROL" "${EXECUTION_FILE:-}"
+            bash scripts/describe-permissionrequest-probe.sh "$SEEN" "$CONTROL" "$AFTER" "${EXECUTION_FILE:-}"
             echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 

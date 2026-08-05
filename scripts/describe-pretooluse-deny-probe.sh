@@ -77,6 +77,7 @@ if ! . "$_DPD_DIR/../lib/probe-observation.sh" 2>/dev/null \
   devflow_probe_exec_state() { printf '%s\n' unavailable; }
   devflow_probe_cli_version() { printf '%s\n' unavailable; }
   devflow_probe_transcript_has() { printf '%s\n' unavailable; }
+  devflow_probe_tooluse_has() { printf '%s\n' unavailable; }
   devflow_probe_denials_count() { printf '%s\n' unavailable; }
   devflow_probe_denials_have() { printf '%s\n' unavailable; }
 fi
@@ -96,7 +97,9 @@ else
 fi
 
 # ── Axis 2 (PRIMARY): was the deny actually honored? ──────────────────────────
-SACRIFICIAL_ATTEMPTED="$(devflow_probe_transcript_has "$EXECUTION_FILE" "$PTUD_SACRIFICIAL_TOKEN")"
+# The attempt reads scan TOOL-CALL INPUTS, never the transcript at large: the
+# transcript carries the prompt, which quotes every one of these command tokens.
+SACRIFICIAL_ATTEMPTED="$(devflow_probe_tooluse_has "$EXECUTION_FILE" "$PTUD_SACRIFICIAL_TOKEN")"
 if [ -e "$SACRIFICIAL_MARKER" ]; then
   echo "- deny honored: **DENY-NOT-HONORED** — the sacrificial command's side effect \`$SACRIFICIAL_MARKER\` is present, so the tool ran despite the hook's deny."
 elif [ -e "$DENIED_MARKER" ]; then
@@ -110,7 +113,7 @@ else
 fi
 
 # ── Axis 3: did the hook leave the GRANTED control alone? ─────────────────────
-CONTROL_ATTEMPTED="$(devflow_probe_transcript_has "$EXECUTION_FILE" "$PTUD_CONTROL_TOKEN")"
+CONTROL_ATTEMPTED="$(devflow_probe_tooluse_has "$EXECUTION_FILE" "$PTUD_CONTROL_TOKEN")"
 if [ -e "$CONTROL_MARKER" ]; then
   echo "- granted control: **CONTROL-RAN** — the command-scoped hook left the granted control untouched (\`$CONTROL_MARKER\` present)."
 else
@@ -144,6 +147,16 @@ case "$(devflow_probe_denials_have "$EXECUTION_FILE" "$PTUD_SENTINEL"):$DENY_ARM
     echo "- hook deny in \`permission_denials\`: **NOT-APPLICABLE** — the denials array parsed cleanly and carries no hook sentinel (count: $DEN_COUNT), but the hook never took its deny arm, so there was no hook deny to record and this arm measured nothing." ;;
   *)
     echo "- hook deny in \`permission_denials\`: **unavailable** (count: $DEN_COUNT) — could not read the denials array, so this is not an established negative." ;;
+esac
+# The sentinel axis alone cannot separate "the hook deny produced no denials entry
+# at all" from "it produced one that simply does not carry the reason text" — and
+# those have opposite consequences for a denial-count measurement. So the COMMAND
+# is looked for in the array too. (Live run 30966800385 hit exactly this: no
+# sentinel, count 1.)
+case "$(devflow_probe_denials_have "$EXECUTION_FILE" "$PTUD_SACRIFICIAL_TOKEN")" in
+  yes) echo "- denied command in \`permission_denials\`: **COMMAND-RECORDED** — a denials entry names the sacrificial command, so the hook's deny IS visible to a denial-count measurement even though the array carries no reason text." ;;
+  no)  echo "- denied command in \`permission_denials\`: **COMMAND-NOT-RECORDED** — the denials array parsed cleanly and no entry names the sacrificial command." ;;
+  *)   echo "- denied command in \`permission_denials\`: **unavailable** — could not read the denials array." ;;
 esac
 
 exit 0
