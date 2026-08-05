@@ -3780,7 +3780,11 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
     # dropped or volatile-missed cooperative --tick-progress left behind. Only
     # Complete ticks — Failed/Cancelled/Blocked and the interim words change no
     # checkbox, keeping the record honest about where a non-complete run stopped.
-    if args.status and _strip_status_glyph(args.status).lower() == 'complete':
+    # Gate on the SAME derived glyph the terminal-complete self-record gate uses
+    # (`_status_glyph(args.status) == '🎉'`, below) rather than an exact-word match,
+    # so the two decisions cannot diverge: any status the gate treats as terminal
+    # Complete also gets its parent rows ticked.
+    if args.status and _status_glyph(args.status) == '🎉':
         _tick_top_level_progress_phases(sections)
     _apply_section_ticks(
         sections, 'Plan', 'plan', args.tick_plan, args.tick_plan_n, failed_ticks,
@@ -3956,15 +3960,22 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
     # hydration fence passes the selected lifecycle event twice in one call — as a
     # --checkpoint text and again as a --note — which rendered the event as two
     # ## Progress rows (a bare note bullet and the marker-carrying checkpoint row).
-    # Suppress any --note whose text byte-equals a checkpoint text REQUESTED in this
-    # same invocation, so the marker-carrying row is the single record of the event.
-    # Keyed on the requested set (checkpoint_reqs), not just the absent
-    # `checkpoint_inserts`, so a REPLAYED checkpoint (its row already present) also
-    # suppresses the byte-equal note rather than appending a duplicate of an
-    # already-recorded event. A --note that differs from every requested checkpoint
-    # text (the local-tier call passes --note with no checkpoint flags) is untouched.
-    _requested_checkpoint_texts = {text for _key, text in checkpoint_reqs}
-    _notes = [n for n in args.note if n not in _requested_checkpoint_texts]
+    # Suppress a --note only when its text will already be RECORDED by a checkpoint
+    # row, so the marker-carrying row is the single record and no note is ever
+    # dropped without its text appearing somewhere. A text is "covered" when it is
+    # being inserted this call (an absent-key checkpoint in `checkpoint_inserts`) OR
+    # a byte-equal row already exists in the body under a replayed key (`{text}
+    # {marker}` present). This keeps the same-text replay case suppressing the
+    # duplicate note (the row is already there) while a differing-text replay — whose
+    # new text is recorded nowhere, because a replay keeps the row's existing text —
+    # is NOT suppressed, so that text still renders rather than silently vanishing.
+    # A --note that differs from every covered text (the local-tier call passes
+    # --note with no checkpoint flags) is untouched.
+    _checkpoint_covered_texts = {text for _key, text in checkpoint_inserts}
+    for _ckey, _ctext in checkpoint_reqs:
+        if f'{_ctext} {_checkpoint_marker(_ckey)}' in body:
+            _checkpoint_covered_texts.add(_ctext)
+    _notes = [n for n in args.note if n not in _checkpoint_covered_texts]
     progress_notes = _notes + scope_decision_notes + deferred_filed_notes + [
         f'{text} {_checkpoint_marker(key)}' for key, text in checkpoint_inserts
     ]

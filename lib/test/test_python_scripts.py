@@ -8549,7 +8549,7 @@ _BK_BODY = """<!-- prflow:workpad -->
 """
 _bk = apply_mut(_BK_BODY, make_args(status="Complete"))
 # Every top-level phase row from _PROGRESS_PHASES is now ticked (iterate the constant,
-# never a transcribed list).
+# sourced from _PROGRESS_PHASES — never a transcribed count/list).
 _bk_progress = _bk.split('## Progress', 1)[1].split('## Plan', 1)[0]
 _bk_rows = {m.group(2): m.group(1) for line in _bk_progress.split('\n')
             if (m := workpad._TOP_LEVEL_CHECKBOX_RE.match(line))}
@@ -8575,6 +8575,37 @@ assert_eq("#1337 backstop: Complete on a Progress-less body still flips Status",
           '🎉 Complete' in _bk_np)
 assert_eq("#1337 backstop: Progress-less body has no injected top-level ticks", 0,
           _bk_np.split('## Notprogress', 1)[1].split('## Plan', 1)[0].count('- [x]'))
+# The phase FILTER is load-bearing: a top-level non-phase row (no _PROGRESS_PHASES
+# substring) must NOT be ticked at Complete — guards against a regression that dropped
+# the filter and bulk-ticked every column-0 row.
+_bk_extra = _BK_BODY.replace("- [ ] **PR marked ready**",
+                             "- [ ] **PR marked ready**\n- [ ] **Housekeeping chore**")
+_bk_x = apply_mut(_bk_extra, make_args(status="Complete"))
+assert_eq("#1337 backstop: a top-level non-phase row is NOT ticked at Complete", True,
+          '- [ ] **Housekeeping chore**' in _bk_x)
+# The backstop's Progress ticks must NOT leak into the terminal-complete AC gate: an
+# unticked non-post-merge AC still hard-fails --status Complete (the backstop mutates
+# only ## Progress; _terminal_complete_gate reads only AC/Plan).
+_bk_open_ac = _BK_BODY.replace("- [x] AC1", "- [ ] AC1")
+assert_raises("#1337 backstop: an unticked AC still hard-fails --status Complete",
+              workpad._UpdateError,
+              lambda: apply_mut(_bk_open_ac, make_args(status="Complete")))
+# Combined --status Complete with a --note/--checkpoint in one call: both the phase
+# ticks AND the note/checkpoint row land (the backstop runs before the note append,
+# which re-reads the already-ticked Progress content).
+_bk_combined = apply_mut(_BK_BODY, make_args(
+    status="Complete", note=["a combined note"], checkpoint=[["gha:1:1:done", "a combined note"]]))
+assert_eq("#1337 backstop: combined Complete+note/checkpoint ticks phases", 0,
+          _bk_combined.split('## Progress', 1)[1].split('## Plan', 1)[0].count('- [ ] **'))
+assert_eq("#1337 backstop: combined Complete+note/checkpoint records the event once",
+          1, _bk_combined.count("a combined note"))
+
+# #1337: a DIFFERING-text checkpoint replay must NOT suppress its byte-equal note — the
+# replay keeps the row's existing text, so the new text would render nowhere if dropped.
+_dd_rt = apply_mut(_dd_pre, make_args(checkpoint=[[_DUP_KEY, "a changed hydration text"]],
+                                      note=["a changed hydration text"]))
+assert_eq("#1337 dedup: differing-text replay does NOT drop its byte-equal note", True,
+          "a changed hydration text" in _dd_rt)
 
 # #1050 (Slice A): the Phase 4.3 checkpoint-4 evidence record uses the SAME keyed-checkpoint
 # mechanism through the fixed key `base-update-checkpoint-4`, whose marker `lib/fetch-pr-context.sh`
