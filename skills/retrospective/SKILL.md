@@ -25,7 +25,12 @@ derive either: as a subagent you receive neither `$CLAUDE_SKILL_DIR` nor a `Base
 directory for this skill:` context line, so no anchor of yours resolves — and the
 config reader itself resolves its default path with `git rev-parse --show-toplevel`,
 which this brief forbids you to run. If your dispatch prompt carries no bundled-helper
-root, use `jq` on `PATH` for the one construction in *§ Output schema*; if it carries no
+root, fall back to `jq` on `PATH` for the one construction in *§ Output schema* — a
+degraded arm, not a stop: it loses the bundled wrapper's execution-verified jq selection,
+so on a host whose `PATH` jq is present but unrunnable (a shim-shadowed Windows/WSL host
+is the case the wrapper exists for) the construction fails, and you report that failure as
+the `{"error": "<reason>"}` object of *§ If the bundle is unusable* rather than silently
+producing nothing. If it carries no
 internal-documentation root, use `docs/internal/`. <!-- pruned-path-ok: the configurable consumer-owned internal-doc root, not a path expected inside the vendored plugin -->
 Report neither substitution on stdout — the stdout contract admits only the objects
 defined in *§ Output schema* and *§ If the bundle is unusable*.
@@ -38,9 +43,7 @@ BUNDLE="$(cat "$BUNDLE_PATH")"
 
 ---
 
-**Portable helper anchor (single-statement).** The bundled-helper commands in this skill resolve the skill directory inline at each call site via `${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}`. When `$CLAUDE_SKILL_DIR` is set and non-empty (Claude Code), run each command exactly as written. On a runner where it is unset or empty, replace the placeholder with the skill base directory the runner reports in context (e.g. a `Base directory for this skill:` line) before running the command; if that reported path is Windows-form (`C:\...`), first convert it to this shell's POSIX form with one standalone `wslpath -u '<path>'` (WSL) or `cygpath -u '<path>'` (Git Bash/MSYS2) command and substitute the printed result **only if the command succeeds and prints a non-empty path — otherwise fall through to the drive-letter rules exactly as if the tool were absent, the same success-and-non-empty acceptance the platform's path-normalization rules apply** (if neither tool exists: lowercase the drive letter, map `C:\` to `/mnt/c` on WSL or `/c` on MSYS2, and turn backslashes into `/`; if the environment is neither WSL nor MSYS2, use the path unchanged and report that it could not be normalized — the same arm the platform's path-normalization rules take). Resolve the anchor inline at every call site — never capture it into a shell variable that a later statement reads, because some runners' inline-bash marshaling drops such variables (observed on Copilot CLI). If neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available, stop and report that the helper anchor could not be resolved rather than running a command with a broken path.
-
-**Scope of the anchor rule in this brief.** The paragraph above is the
+**Scope of the anchor rule in this brief.** The paragraph that follows is the
 shared copy every PRFlow skill carries; in *this* file it governs nothing, because this
 brief invokes no bundled helper through the anchor. Every path you need is handed to you
 **by value** by the dispatching orchestrator — `[[PLUGIN_ROOT]]`,
@@ -50,16 +53,18 @@ would break the exactly-one-JSON-object contract above. Report any failure you c
 recover from as the `{"error": "<reason>"}` object in *§ If the bundle is unusable*,
 never as free prose.
 
-**Consumer prompt extension (handed to you by path).** Your dispatch prompt names your
-extension file at an absolute `.prflow/prompt-extensions/retrospective.md` path. Read it
-with your **file-read tool** — never a shell invocation, and never
+**Portable helper anchor (single-statement).** The bundled-helper commands in this skill resolve the skill directory inline at each call site via `${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}`. When `$CLAUDE_SKILL_DIR` is set and non-empty (Claude Code), run each command exactly as written. On a runner where it is unset or empty, replace the placeholder with the skill base directory the runner reports in context (e.g. a `Base directory for this skill:` line) before running the command; if that reported path is Windows-form (`C:\...`), first convert it to this shell's POSIX form with one standalone `wslpath -u '<path>'` (WSL) or `cygpath -u '<path>'` (Git Bash/MSYS2) command and substitute the printed result **only if the command succeeds and prints a non-empty path — otherwise fall through to the drive-letter rules exactly as if the tool were absent, the same success-and-non-empty acceptance the platform's path-normalization rules apply** (if neither tool exists: lowercase the drive letter, map `C:\` to `/mnt/c` on WSL or `/c` on MSYS2, and turn backslashes into `/`; if the environment is neither WSL nor MSYS2, use the path unchanged and report that it could not be normalized — the same arm the platform's path-normalization rules take). Resolve the anchor inline at every call site — never capture it into a shell variable that a later statement reads, because some runners' inline-bash marshaling drops such variables (observed on Copilot CLI). If neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available, stop and report that the helper anchor could not be resolved rather than running a command with a broken path.
+
+**Consumer prompt extension (handed to you by path).** **Before doing this skill's work**,
+read the consumer-supplied prompt extension for this skill and honor it — your dispatch
+prompt names that file at an absolute `.prflow/prompt-extensions/retrospective.md` path.
+Read it with your **file-read tool** — never a shell invocation, and never
 `load-prompt-extension.sh`, whose anchor you cannot resolve. Treat any content as
 instructions appended to the end of this skill's own prompt for this run; it is
-upgrade-safe, consumer-owned customization. An absent or empty file is a no-op you report
-nothing about. A file that is present but unreadable is reported through the optional
-`extension_unreadable` key of your single JSON object (see *§ Output schema*) — never as
-prose on stdout, and never by refusing to emit the object. A consumer extension must not
-break the strict stdout contract.
+upgrade-safe, consumer-owned customization. *§ Output schema* states in full how the
+absent, empty, and present-but-unreadable cases are handled — follow it there rather than
+re-deriving them here. This subagent's stdout contract is strict — exactly one JSON
+object — so a consumer extension must not break that contract.
 
 ## § The context bundle
 
