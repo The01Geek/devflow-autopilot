@@ -956,6 +956,86 @@ assert_eq "cg(coerce): malformed JSON breadcrumb on stderr (python backend)" "ye
 rm -f "$CG_COERCE" "$CG_PARSEERR"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "create_issue.investigation_record_enabled (config read → publication decision) (#1331)"
+# ────────────────────────────────────────────────────────────────────────────
+# /prflow:create-issue resolves this key via
+#   config-get.sh .create_issue.investigation_record_enabled true
+# and WITHHOLDS publication of the investigation record when, and ONLY when, the
+# resolved value is exactly the literal `false`. The skill compares with bash
+# builtins only. This block asserts the PUBLICATION DECISION (not the resolver's
+# raw stdout) across the config-JSON six-shape adversarial matrix, so the
+# issue-#312-class inversion (an `!= true` spelling that reads `True`/`0`/the
+# exit-2 empty output as disabled) is caught. The decision function mirrors the
+# skill's `case` compare against the literal `false`.
+ir_decision() {  # $1 = resolved config-get value → publish|withhold
+  case "$1" in
+    false) echo withhold ;;
+    *)     echo publish ;;
+  esac
+}
+IR_CFG="$(mktemp)"
+# object family with a boolean false → the ONLY withhold shape.
+printf '%s' '{"create_issue":{"investigation_record_enabled":false}}' > "$IR_CFG"
+assert_eq "ir(boolean false): withhold" "withhold" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# string "false" also coerces to `false` → withhold (a JSON string false is still false).
+printf '%s' '{"create_issue":{"investigation_record_enabled":"false"}}' > "$IR_CFG"
+assert_eq "ir(string \"false\"): withhold" "withhold" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# boolean true → publish.
+printf '%s' '{"create_issue":{"investigation_record_enabled":true}}' > "$IR_CFG"
+assert_eq "ir(boolean true): publish" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# string "True" coerces to the literal `True` (capital) — NOT the literal `false`,
+# so publication stays ENABLED. This is the inversion an `!= true` spelling breaks.
+# Resolve once and feed both asserts (verbatim value + decision) from the capture.
+printf '%s' '{"create_issue":{"investigation_record_enabled":"True"}}' > "$IR_CFG"
+IR_V="$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")"
+assert_eq "ir(config-get returns 'True' verbatim)" "True" "$IR_V"
+assert_eq "ir(string \"True\"): publish (not the literal false)" "publish" "$(ir_decision "$IR_V")"
+# number 0 coerces to `0` — not `false` — so publication stays ENABLED.
+printf '%s' '{"create_issue":{"investigation_record_enabled":0}}' > "$IR_CFG"
+IR_V="$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")"
+assert_eq "ir(config-get returns '0' verbatim)" "0" "$IR_V"
+assert_eq "ir(number 0): publish (not the literal false)" "publish" "$(ir_decision "$IR_V")"
+# absent key → default `true` → publish.
+printf '%s' '{"create_issue":{"other":1}}' > "$IR_CFG"
+assert_eq "ir(absent key): publish (default true)" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# absent family → default `true` → publish.
+printf '%s' '{"docs":{"labels":"X"}}' > "$IR_CFG"
+assert_eq "ir(absent family): publish (default true)" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# wrong-type family (array-valued) → descend into non-dict → default `true` → publish.
+printf '%s' '{"create_issue":[1,2]}' > "$IR_CFG"
+assert_eq "ir(array-valued family): publish (default true)" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# scalar-valued family → descend into scalar → default `true` → publish.
+printf '%s' '{"create_issue":"on"}' > "$IR_CFG"
+assert_eq "ir(scalar-valued family): publish (default true)" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# null value → empty → default `true` → publish.
+printf '%s' '{"create_issue":{"investigation_record_enabled":null}}' > "$IR_CFG"
+assert_eq "ir(null value): publish (default true)" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# empty-string value → config-get treats an explicit "" as default → true → publish.
+printf '%s' '{"create_issue":{"investigation_record_enabled":""}}' > "$IR_CFG"
+assert_eq "ir(empty-string value): publish (default true)" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# malformed JSON → config-get exit 2, EMPTY stdout → decision publishes (empty ≠ false).
+# Pin the empty-stdout precondition explicitly (not just the decision) so a regression that
+# emitted a non-empty non-`false` string on a parse error would still be caught here.
+printf '%s' '{ not valid json' > "$IR_CFG"
+assert_eq "ir(malformed config → exit-2 EMPTY stdout precondition)" "" \
+  "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG" 2>/dev/null)"
+assert_eq "ir(malformed config → exit-2 empty stdout): publish (empty is not the literal false)" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG" 2>/dev/null)")"
+# absent file → default `true` → publish.
+assert_eq "ir(absent file): publish (default true)" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true /no/such/config.json)")"
+rm -f "$IR_CFG"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "deferred.labels (schema + example + resolution + normalization)"
 # ────────────────────────────────────────────────────────────────────────────
 # /devflow:implement applies deferred.labels (default PRFlow,Deferred) to the
@@ -11149,6 +11229,27 @@ assert_eq "scaffold-backfill: existing array left unchanged (allowed_tools)" \
 # The documented log line fires when a backfill actually happens.
 assert_eq "scaffold-backfill: backfill emits the documented log line" "yes" \
   "$(printf '%s' "$SC_BF_OUT" | grep -q 'backfilled newly-added keys' && echo yes || echo no)"
+
+# 5a-#1331. The new create_issue family grafts into a consumer config that lacks it,
+# and a create_issue.investigation_record_enabled ALREADY set to false is left
+# unchanged on a re-run — the existing absent-keys-only deep-merge behavior,
+# asserted here so the family's addition cannot regress it.
+# (i) Absent family → grafted with the example default (true).
+SC_CI1="$(mktemp -d)"; mkdir -p "$SC_CI1/.prflow"
+printf '%s' '{"base_branch":"main"}' > "$SC_CI1/.prflow/config.json"
+bash "$SC" "$SC_CI1" >/dev/null 2>&1
+assert_eq "scaffold-backfill(#1331): absent create_issue family grafted with default true" \
+  "true" "$(jq -r '.create_issue.investigation_record_enabled' "$SC_CI1/.prflow/config.json")"
+# (ii) Family holding a deliberate false → left unchanged (never re-grafted to true),
+#      and an unrecognized sibling key inside the family is preserved.
+SC_CI2="$(mktemp -d)"; mkdir -p "$SC_CI2/.prflow"
+printf '%s' '{"create_issue":{"investigation_record_enabled":false,"custom_sibling":"keep"}}' \
+  > "$SC_CI2/.prflow/config.json"
+bash "$SC" "$SC_CI2" >/dev/null 2>&1
+assert_eq "scaffold-backfill(#1331): deliberate false left unchanged on re-run" \
+  "false" "$(jq -r '.create_issue.investigation_record_enabled' "$SC_CI2/.prflow/config.json")"
+assert_eq "scaffold-backfill(#1331): unrecognized sibling key inside the family preserved" \
+  "keep" "$(jq -r '.create_issue.custom_sibling' "$SC_CI2/.prflow/config.json")"
 
 # 5b. A config already holding every example key is a no-op: byte-for-byte
 #     identical afterwards (the merge changed nothing, so the file isn't rewritten)

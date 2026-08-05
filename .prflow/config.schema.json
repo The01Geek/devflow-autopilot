@@ -966,6 +966,17 @@
         }
       }
     },
+    "create_issue": {
+      "type": "object",
+      "description": "Settings for /prflow:create-issue.",
+      "properties": {
+        "investigation_record_enabled": {
+          "type": "boolean",
+          "description": "When false, /prflow:create-issue does NOT publish the investigation record: it writes no record file and posts no investigation-record comment, so record-bucket content reaches neither the issue body nor the disk. The brief/record SORTING still runs on every draft regardless of this value; only publication of the record artifact is gated. Default true (publish the investigation record as the first comment on the created issue).",
+          "default": true
+        }
+      }
+    },
     "deferred": {
       "type": "object",
       "description": "Settings for the follow-up issues /prflow:implement files for deferred work.",

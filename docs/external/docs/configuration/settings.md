@@ -16,7 +16,7 @@ This page is a map for maintainers editing `.prflow/config.json`. Each linked re
 | `providers` and per-tier provider selection | [Providers](/docs/configuration/providers) |
 | `setup` | [Runtime Setup](/docs/configuration/runtime-setup) |
 | All `allowed_tools` settings | [Tool Permissions](/docs/configuration/tool-permissions) |
-| `docs`, `deferred` and `prflow_retrospective` | [Documentation and Retrospectives](/docs/configuration/documentation-and-retrospectives) |
+| `docs`, `deferred`, `create_issue` and `prflow_retrospective` | [Documentation and Retrospectives](/docs/configuration/documentation-and-retrospectives) |
 | Execution diagnostics, transcript artifacts, denial records and `telemetry` | [Observability and Privacy](/docs/configuration/observability-and-privacy) |
 
 ## Read Defaults Correctly
