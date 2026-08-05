@@ -479,8 +479,8 @@ COUPLED_SITES = (
         ),
     },
     {
-        # AC7 — the files that READ lib/rename-map.json directly (the two workflows do so
-        # in their config jobs).
+        # AC7 — the files coupled to lib/rename-map.json: four that read it directly, plus
+        # the two workflows whose config jobs mirror a shape run.sh reconciles against it.
         "name": "rename-map-readers",
         "original": "lib/rename-map.json",
         "partners": (
@@ -493,9 +493,13 @@ COUPLED_SITES = (
         ),
         "coupling_class": "single-source-readers",
         "note": (
-            "These parse lib/rename-map.json's superseded-name data directly (the two "
-            "workflows in their config jobs); a change to the map's keys or structure must "
-            "update each reader. The map's own `_comment` field describes this coupling in "
+            "The first four partners open lib/rename-map.json and parse its superseded-name "
+            "data at run time, so a change to the map's keys or structure must update each "
+            "of them. The two workflows never open the file: their config jobs carry a "
+            "hardcoded jq shape (a `^devflow(_|$)` top-level-key match) that lib/test/run.sh "
+            "reconciles against the map's config_keys, so the map and that mirrored shape "
+            "must move together even though the coupling runs through the suite rather than "
+            "through a read. The map's own `_comment` field describes this coupling in "
             "prose and is left untouched."
         ),
     },
@@ -1111,7 +1115,16 @@ def _validate_coupled_sites(sites=None):
     if sites is None:
         sites = COUPLED_SITES
     seen_names = set()
-    for entry in sites:
+    for index, entry in enumerate(sites):
+        # The entry must be a MAPPING before any field lookup: a bare string, tuple, or
+        # None would raise AttributeError/TypeError out of `.get` below, and the
+        # import-time net catches only ValueError — so the script would exit 1 with a
+        # traceback instead of the documented exit-2 INFRASTRUCTURE routing. The index
+        # names the offending row, which has no `name` to be reported by.
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"coupled-site entry at index {index} must be a dict, got {entry!r}"
+            )
         name = entry.get("name")
         # Every required string field must be a present, non-empty string, so a row that
         # silently omits the original, class, or note can never reach `--list`.

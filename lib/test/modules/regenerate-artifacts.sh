@@ -2362,6 +2362,14 @@ _ra_has_file "#1206 (b) AC6 the old-path partner is emitted verbatim" "$RA_C_LIS
 _ra_bind_fails_closed "a coupled-site entry with an empty coupling_class" \
   's/"coupling_class": "allowlist-mirror"/"coupling_class": ""/' \
   "'matcher-probe-extras'" "non-empty string"
+# AC3: a NON-DICT entry (a bare string, a stray tuple, None) is rejected as a ValueError
+# naming its index — not as the AttributeError/TypeError a `.get` on a non-mapping would
+# raise, which the import-time net (ValueError only) would let out as an exit-1 traceback
+# instead of the documented exit-2 INFRASTRUCTURE routing. The index is the only handle:
+# such a row has no `name` to be reported by.
+_ra_bind_fails_closed "a non-dict coupled-site entry is rejected" \
+  's/^COUPLED_SITES = \($/COUPLED_SITES = ("stray-string",/' \
+  "index 0" "must be a dict"
 _ra_bind_fails_closed "a duplicate coupled-site name" \
   's/"name": "rename-map-state-dir-mirror"/"name": "rename-map-readers"/' \
   "declared more than once"
