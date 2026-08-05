@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1305",
+  "generated_at": "2026-08-05T03:15:52Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.107",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.37643575,
+    "tokens": {
+      "input_tokens": 42,
+      "output_tokens": 14012,
+      "cache_read_input_tokens": 2902487,
+      "cache_creation_input_tokens": 136056,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 76,
+        "outputTokens": 24045,
+        "cacheReadInputTokens": 3871829,
+        "cacheCreationInputTokens": 212609,
+        "webSearchRequests": 0,
+        "costUSD": 4.37643575,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 29,
+    "duration_ms": 395202
+  },
+  "permission_denials": {
+    "count": 10,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "for f in skills/review-and-fix/SKILL.md skills/review-and-fix/references/fixing.md skills/review-and-fix/references/loop-control.md; do printf '%s  ' \"$(python3 -c \"import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())\" \"$f\")\"; echo \"$f\"; done",
+      "for f in skills/review-and-fix/SKILL.md skills/review-and-fix/references/fixing.md skills/review-and-fix/references/loop-control.md scripts/devflow-cloud-writer-contract.json; do git show pr-1305-head:$f | git hash-object --stdin >/dev/null; done\necho \"=== sha256 at PR head ===\"\ngit show pr-1305-head:skills/review-and-fix/SKILL.md > .prflow/tmp/a1\ngit show pr-1305-head:skills/review-and-fix/references/fixing.md > .prflow/tmp/a2\ngit show pr-1305-head:skills/review-and-fix/references/loop-control. …[per-command-truncated]",
+      "git show pr-1305-head:skills/review-and-fix/SKILL.md > .prflow/tmp/a1\ngit show pr-1305-head:skills/review-and-fix/references/fixing.md > .prflow/tmp/a2\ngit show pr-1305-head:skills/review-and-fix/references/loop-control.md > .prflow/tmp/a3\npython3 - <<'PY'\nimport hashlib\nnames={\".prflow/tmp/a1\":\"SKILL.md\",\".prflow/tmp/a2\":\"fixing.md\",\".prflow/tmp/a3\":\"loop-control.md\"}\nfor f,n in names.items():\n    print(hashlib.sha256(open(f,'rb').read()).hexdigest(), n)\nPY",
+      "git show pr-1305-head:skills/review-and-fix/SKILL.md > .prflow/tmp/a1",
+      "git show pr-1305-head:skills/review-and-fix/references/fixing.md > .prflow/tmp/a2",
+      "git show pr-1305-head:skills/review-and-fix/references/loop-control.md > .prflow/tmp/a3",
+      ".prflow/vendor/prflow/scripts/post-review-verdict.sh --help 2>&1 | head -40 || scripts/post-review-verdict.sh --help 2>&1 | head -40",
+      "scripts/post-review-verdict.sh --help 2>&1 | head -50",
+      "scripts/post-review-verdict.sh --help"
+    ],
+    "total": 10,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
