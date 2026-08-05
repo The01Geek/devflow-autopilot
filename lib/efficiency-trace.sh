@@ -625,6 +625,45 @@ synthesize_iter_workpads() {
   return 2
 }
 
+# Deterministic emitted-provenance backfill (issue #534). Route (b): move the
+# `synthesized` provenance stamp OFF the agent's decision path. The fix loop's
+# per-iteration emit (skills/review-and-fix) is agent-authored prose that carries
+# no provenance stamp, while synthesize_iter_workpads above stamps
+# `synthesized: true` on every record it reconstructs. Without an affirmative stamp
+# on the EMITTED record a later reader cannot positively tell an agent-written
+# record (a real emit) from a malformed/legacy one — only "not synthesized:true",
+# which conflates the two, so a skipped-then-recovered emit is not cleanly
+# distinguishable from a real one. So after synthesis this stamps
+# `synthesized: false` onto every valid-object iter-*.json in the run dir that
+# carries no `synthesized` key, guaranteeing every persisted record affirmatively
+# records its provenance regardless of whether the agent wrote the stamp — the
+# emitted/synthesized distinction is then a deterministic JSON boolean
+# (`.synthesized == false` vs `== true`), and a lost emit is the absent record.
+# Idempotent: a key-present record (a real synthesized:true, or an already-backfilled
+# false) is left byte-identical, so a second --persist is a no-op here. Best-effort
+# per file: a malformed/non-object record or a failed write breadcrumbs and is left
+# untouched (never rewritten, never aborting --persist) — --self-check surfaces a
+# bad-shape record. This changes NO synthesized record (they already carry
+# synthesized:true), so the issue-#381 synthesis contract and --self-check's
+# synthesized-class validation are unaffected.
+stamp_emitted_provenance() {
+  local dir="$1" f tmp err
+  for f in "$dir"/iter-*.json; do
+    [ -e "$f" ] || continue
+    # Backfill only a valid JSON OBJECT that lacks a `synthesized` key. `jq -e`
+    # exits non-zero on a false/empty result AND on a parse/open failure, so a
+    # malformed or non-object record falls through untouched.
+    "$DEVFLOW_JQ" -e 'type == "object" and (has("synthesized") | not)' "$f" >/dev/null 2>&1 || continue
+    tmp="${f}.prov-tmp"
+    if err="$("$DEVFLOW_JQ" '.synthesized = false' "$f" 2>&1 > "$tmp")" && mv "$tmp" "$f"; then
+      :
+    else
+      rm -f "$tmp" 2>/dev/null || true
+      echo "::warning::efficiency-trace.sh --persist: could not backfill emitted provenance (synthesized:false) into '$(basename "$f")' (${err:-write/move failed}); left untouched, best-effort" >&2
+    fi
+  done
+}
+
 # Shadow synthesis floor (Layer 3+, issues #426/#501): a promoted successor's
 # `promotion_provenance` establishes whether its predecessor ran a shadow. The
 # floor recovers dropped shadow blocks for shadow and post-shadow park promotions,
@@ -1008,6 +1047,16 @@ persist_one() {
   if ! cp_err="$( { mkdir -p "$durable" && cp -p "$dir"/*.json "$durable"/; } 2>&1 )"; then
     echo "::warning::efficiency-trace.sh --persist: durable workpad copy failed (${dir} -> ${durable}): ${cp_err:-unknown}; best-effort, continuing" >&2
   else
+    # Emitted-provenance backfill (issue #534): stamp `synthesized: false` onto the
+    # DURABLE copy of any agent-written iter record that carries no `synthesized`
+    # key, so the persisted artifact a later reader consults affirmatively records
+    # its provenance off the agent's decision path (route (b)). Operates on the
+    # staged durable copy ONLY — the source run dir stays byte-identical, an
+    # existing --persist contract the shadow floor and #499 union logic rely on. A
+    # no-op on synthesized records (they already carry synthesized:true) and on a
+    # second --persist (the key is present). Placed before the telemetry-stamp loop
+    # so the durable bytes carry provenance before that loop's idempotency read.
+    stamp_emitted_provenance "$durable"
     ref="$(devflow_telemetry_ref)"
     for staged_iter in "$durable"/iter-*.json; do
       [ -e "$staged_iter" ] || continue
