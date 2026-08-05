@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1316",
+  "generated_at": "2026-08-05T07:00:36Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.114",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 10.310933750000004,
+    "tokens": {
+      "input_tokens": 68,
+      "output_tokens": 28221,
+      "cache_read_input_tokens": 5269796,
+      "cache_creation_input_tokens": 195022,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 144,
+        "outputTokens": 76787,
+        "cacheReadInputTokens": 7781875,
+        "cacheCreationInputTokens": 602923,
+        "webSearchRequests": 0,
+        "costUSD": 10.310933750000004,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 42,
+    "duration_ms": 737021
+  },
+  "permission_denials": {
+    "count": 7,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh review 2>.prflow/tmp/ext.err; echo \"rc=$?\"; [ -s .prflow/tmp/ext.err ] && echo \"stderr:\" && cat .prflow/tmp/ext.err || echo \"stderr=empty\"",
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"$CLAUDE_SKILL_DIR\"; ls /home/runner/work/prflow/prflow/skills/review/phases/",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1312 --pr 1316 2>.prflow/tmp/review/pr-1316/30982536377-1/acs.err ; echo \"acs-rc=$?\"",
+      "git rev-parse HEAD; echo \"== fetch PR head ==\"; git fetch origin 259bc301ab48fff507cd730135a0007e5e76cea9 2>&1 | tail -1; echo \"== AC1 mode at PR head ==\"; git ls-tree 259bc301ab48fff507cd730135a0007e5e76cea9 scripts/dedupe-review-command.sh; echo \"== AC7 run.sh registration ==\"; git grep -c 'lint-executable-helper-mode.py' 259bc301ab48fff507cd730135a0007e5e76cea9 -- lib/test/run.sh 2>/dev/null || echo \"grep sub-command unavailable\"",
+      "echo \"== AC1 mode at PR head ==\"; git ls-tree 259bc301ab48fff507cd730135a0007e5e76cea9 scripts/dedupe-review-command.sh\necho \"== AC2/AC7 new lint file present ==\"; git ls-tree 259bc301ab48fff507cd730135a0007e5e76cea9 lib/test/lint-executable-helper-mode.py lib/test/lint_population.py\necho \"== AC8 changeset present ==\"; git ls-tree 259bc301ab48fff507cd730135a0007e5e76cea9 .changeset/issue-1312-dedupe-review-executable-bit.md",
+      "git ls-tree 259bc301ab48fff507cd730135a0007e5e76cea9 scripts/dedupe-review-command.sh lib/test/lint-executable-helper-mode.py lib/test/lint_population.py .changeset/issue-1312-dedupe-review-executable-bit.md"
+    ],
+    "total": 7,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
