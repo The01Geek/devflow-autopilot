@@ -1666,13 +1666,22 @@ jobs:
                 ]
               }
             }
-          # THREE actions, and the third one is not decoration. On this job's first
-          # live run (30966800385) the session ran Action 1 and answered DONE without
-          # ever issuing Action 2 — one tool call, zero denials — which is
-          # indistinguishable from "the hook did not fire" unless something proves the
-          # session got PAST the arm. Action 3 is that proof, and the wording below is
-          # deliberately blunt about not letting the model adjudicate permissibility
-          # for itself.
+          # THREE actions, and neither the third one nor Action 2's exact form is
+          # decoration — both come from live runs of this job:
+          #
+          #  * Run 30966800385: the session ran Action 1 and answered DONE without ever
+          #    issuing Action 2 — one tool call, zero denials — which is
+          #    indistinguishable from "the hook did not fire" unless something proves
+          #    the session got PAST the arm. Action 3 is that proof, and the wording
+          #    below is deliberately blunt about not letting the model adjudicate
+          #    permissibility for itself.
+          #  * Run 30967286749: with that fixed, the session DID issue Action 2, ran
+          #    Action 3, and the run still recorded ZERO `permission_denials` — leaving
+          #    "the harness silently refused it" and "the harness allowed it" both
+          #    open, and only the second of those makes a non-firing hook meaningless.
+          #    So Action 2 is now a command with an ON-DISK SIDE EFFECT (`touch`, whose
+          #    head is as ungranted as the old `basename` was): its marker, not the
+          #    denials array, is what distinguishes refusal from execution.
           prompt: |
             You are a PERMISSION-REQUEST PROBE. Do EXACTLY the three numbered actions
             below, in order, each exactly once, and nothing else.
@@ -1693,7 +1702,7 @@ jobs:
             Action 2 (THE ARM) — run this Bash command once. Do not retry it, do not
             reformulate it, and do not substitute another command for it. If it is
             refused, that is the expected result: proceed straight to Action 3.
-            basename prqprobe-ungranted-token
+            touch .prflow/tmp/prqprobe-ungranted-ran
 
             Action 3 (POST-ARM CONTROL — proves you reached and passed Action 2) —
             run this Bash command once:
@@ -1723,9 +1732,10 @@ jobs:
           # the two coincide (the same cwd assumption pretooluse-probe records).
           SEEN=".prflow/tmp/permissionrequest-probe-seen.jsonl"
           CONTROL=".prflow/tmp/prqprobe-control-ran"
+          UNGRANTED=".prflow/tmp/prqprobe-ungranted-ran"
           AFTER=".prflow/tmp/prqprobe-after-ran"
           {
-            bash scripts/describe-permissionrequest-probe.sh "$SEEN" "$CONTROL" "$AFTER" "${EXECUTION_FILE:-}"
+            bash scripts/describe-permissionrequest-probe.sh "$SEEN" "$CONTROL" "$UNGRANTED" "$AFTER" "${EXECUTION_FILE:-}"
             echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 

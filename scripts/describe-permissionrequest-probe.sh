@@ -41,6 +41,13 @@
 #                      granted or the ungranted command.
 #     control-marker   the on-disk side effect the GRANTED control command
 #                      produces when it actually executes.
+#     ungranted-marker the on-disk side effect the UNGRANTED command produces if it
+#                      executes anyway. Its presence is the only thing that
+#                      separates "the harness refused the call" from "the harness
+#                      allowed it" — the second live run (30967286749) issued the
+#                      ungranted command, got past it, and recorded ZERO
+#                      permission_denials, so absence-of-a-denial cannot carry that
+#                      distinction on its own.
 #     after-marker     the on-disk side effect of the second granted control, which
 #                      the prompt places AFTER the ungranted command.
 #     execution-file   claude-code-action's execution_file output (optional). It is
@@ -62,7 +69,7 @@ set -uo pipefail
 PRQ_GRANTED_TOKEN="prqprobe-control-ran"
 # Substring of the UNGRANTED command the probe prompt dictates (its head is in no
 # allowlist, so the matcher must refuse it).
-PRQ_UNGRANTED_TOKEN="prqprobe-ungranted-token"
+PRQ_UNGRANTED_TOKEN="prqprobe-ungranted-ran"
 # (The second granted control carries no token constant: it is identified by the
 # marker PATH the caller passes, since nothing about it needs recognising inside a
 # transcript.)
@@ -71,11 +78,12 @@ PRQ_SENTINEL="devflow permissionrequest-probe: PRQ-DENY-SENTINEL"
 
 SEEN="${1:-}"
 CONTROL_MARKER="${2:-}"
-AFTER_MARKER="${3:-}"
-EXECUTION_FILE="${4:-}"
+UNGRANTED_MARKER="${3:-}"
+AFTER_MARKER="${4:-}"
+EXECUTION_FILE="${5:-}"
 
-if [ -z "$SEEN" ] || [ -z "$CONTROL_MARKER" ] || [ -z "$AFTER_MARKER" ]; then
-  echo "devflow: describe-permissionrequest-probe.sh: needs <seen-file> <control-marker> <after-marker> — rendering nothing" >&2
+if [ -z "$SEEN" ] || [ -z "$CONTROL_MARKER" ] || [ -z "$UNGRANTED_MARKER" ] || [ -z "$AFTER_MARKER" ]; then
+  echo "devflow: describe-permissionrequest-probe.sh: needs <seen-file> <control-marker> <ungranted-marker> <after-marker> — rendering nothing" >&2
   exit 0
 fi
 
@@ -158,6 +166,28 @@ case "$UNGRANTED_ATTEMPTED" in
   no)  echo "- ungranted arm attempt: **NOT-ATTEMPTED** — tool-call inputs were recorded and none carries the ungranted command: the session never issued it, so the arm was not exercised." ;;
   *)   echo "- ungranted arm attempt: **unavailable** — no tool-call inputs could be read, so \"issued\" and \"never issued\" cannot be separated." ;;
 esac
+
+# ── Axis 2c (PRIMARY): was the ungranted command REFUSED, or simply ALLOWED? ──
+# An absent `permission_denials` entry cannot answer this: the second live run
+# issued the ungranted command, reached past it, and recorded ZERO denials — which
+# is consistent both with a silent refusal and with the harness allowing the call
+# outright. Only the command's own side effect separates them, and the difference
+# is decisive: if the call was allowed, the allowlist declined nothing and NO call
+# was ever offered to a canUseTool-slot hook, so a non-firing hook says nothing
+# about the event's existence.
+if [ -e "$UNGRANTED_MARKER" ]; then
+  UNGRANTED_OUTCOME=executed
+  echo "- ungranted arm outcome: **UNGRANTED-EXECUTED** — the ungranted command's side effect \`$UNGRANTED_MARKER\` is present, so the harness ALLOWED it: nothing was declined on this run."
+elif [ "$UNGRANTED_ATTEMPTED" = yes ]; then
+  UNGRANTED_OUTCOME=refused
+  echo "- ungranted arm outcome: **UNGRANTED-REFUSED** — the command was issued and its side effect \`$UNGRANTED_MARKER\` is absent, so the harness refused it: a call the allowlist did not resolve really did reach the permission system."
+elif [ "$UNGRANTED_ATTEMPTED" = no ]; then
+  UNGRANTED_OUTCOME=unattempted
+  echo "- ungranted arm outcome: **NOT-EXERCISED** — the command was never issued, so there is nothing to refuse or allow."
+else
+  UNGRANTED_OUTCOME=unavailable
+  echo "- ungranted arm outcome: **unavailable** — no side effect, and whether the command was issued could not be read, so \"refused\" and \"never issued\" cannot be separated."
+fi
 if [ -e "$AFTER_MARKER" ]; then
   echo "- post-arm control: **AFTER-CONTROL-RAN** — the granted command placed AFTER the ungranted one executed (\`$AFTER_MARKER\` present), so the session reached past the arm."
   AFTER_RAN=yes
@@ -205,16 +235,26 @@ elif [ "$FIRED" = yes ] && [ "$SAW_UNGRANTED" = yes ]; then
   echo "the \`PermissionRequest\` event FIRES and, on this run, saw ONLY the call the allowlist did not resolve — consistent with the \`canUseTool\` slot, under which an unconditional-deny hook leaves granted work untouched. Scoped to this CLI version and to the two commands attempted."
 elif [ "$FIRED" = yes ]; then
   echo "the \`PermissionRequest\` event FIRES, but neither command token was recoverable from the breadcrumb, so WHICH calls reach it is not established by this run."
+elif [ "$UNGRANTED_OUTCOME" = refused ]; then
+  # The decisive negative. Note it does NOT depend on permission_denials: a refusal
+  # the array never recorded is still a refusal, and the second live run showed the
+  # array can stay empty across one.
+  printf '%s' "a call the allowlist did not resolve DID reach the permission system and was REFUSED, yet no hook breadcrumb exists — so this is evidence that the installed CLI does not deliver a \`PermissionRequest\` event, NOT merely that nothing reached it."
+  if [ "$DEN_COUNT" = 0 ]; then
+    echo " (Separately: that refusal left no \`permission_denials\` entry either, so the array under-reports refusals in this configuration.)"
+  else
+    echo ""
+  fi
+elif [ "$UNGRANTED_OUTCOME" = executed ]; then
+  echo "the ungranted command EXECUTED, so the harness declined nothing on this run and no call was ever offered to a \`canUseTool\`-slot hook. A non-firing hook therefore says nothing about the event's existence: UNESTABLISHED, not negative. The arm needs a command this configuration actually refuses."
+elif [ "$UNGRANTED_OUTCOME" = unattempted ]; then
+  echo "no breadcrumb, and no recorded tool call carries the ungranted command — the SESSION SKIPPED the arm rather than the harness refusing it$([ "$AFTER_RAN" = yes ] && printf '%s' ' (the control placed after the arm did run, so the session reached past it)'). Nothing was ever offered to a \`PermissionRequest\` hook: the event's availability is UNESTABLISHED, not negative. Re-run with a prompt the model actually obeys."
 elif [ "$DEN_UNGRANTED" = yes ] || { [ "$DEN_COUNT" != unavailable ] && [ "$DEN_COUNT" != 0 ]; }; then
   echo "a call DID reach the permission system and was refused (it is in \`permission_denials\`), yet no hook breadcrumb exists — so this is evidence that the installed CLI does not deliver a \`PermissionRequest\` event, NOT merely that nothing reached it."
-elif [ "$DEN_COUNT" = 0 ] && [ "$UNGRANTED_ATTEMPTED" = no ]; then
-  echo "no breadcrumb and zero denials, and no recorded tool call carries the ungranted command — the SESSION SKIPPED the arm rather than the harness refusing it$([ "$AFTER_RAN" = yes ] && printf '%s' ' (the control placed after the arm did run, so the session reached past it)'). Nothing was ever offered to a \`PermissionRequest\` hook: the event's availability is UNESTABLISHED, not negative. Re-run with a prompt the model actually obeys."
-elif [ "$DEN_COUNT" = 0 ] && [ "$CONTROL_ATTEMPTED" = no ] && [ "$AFTER_RAN" = no ]; then
+elif [ "$CONTROL_ATTEMPTED" = no ] && [ "$AFTER_RAN" = no ]; then
   echo "no breadcrumb, no denials and no trace of either control command — nothing reached the permission system at all (the session may have failed before issuing any tool call, e.g. if the \`settings\` input was rejected). The event's availability is UNESTABLISHED, not negative."
-elif [ "$DEN_COUNT" = 0 ]; then
-  echo "no breadcrumb and zero denials, though the transcript is readable — no call was refused, so nothing was ever offered to a \`PermissionRequest\` hook. The event's availability is UNESTABLISHED, not negative."
 else
-  echo "no breadcrumb, and the execution file could not be read — \"the event is absent\" cannot be separated from \"nothing reached it\". UNESTABLISHED; re-run the probe."
+  echo "no breadcrumb, and the run's own record could not be read well enough to say whether anything was refused — \"the event is absent\" cannot be separated from \"nothing reached it\". UNESTABLISHED; re-run the probe."
 fi
 
 exit 0
