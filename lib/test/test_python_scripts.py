@@ -23247,8 +23247,7 @@ assert_eq("#805 guard: every DENY_ARMS arm is a real REVIEW_ARMS arm (no deny of
 # DENY_ARMS is DERIVED from REMEDIATION, so the two vocabularies cannot disagree — a
 # deny-set arm with no remediation row would raise a KeyError on the unguarded subscript
 # reached AFTER the deny is decided, which main()'s blanket handler converts into a
-# fall-through,
-# silently revoking an established deny.
+# fall-through, silently revoking an established deny.
 assert_eq("#805 guard: DENY_ARMS is exactly the REMEDIATION key set (unrepresentable "
           "disagreement, sorted for the documented tie-break)",
           tuple(sorted(_guard_mod.REMEDIATION)), _guard_mod.DENY_ARMS)
