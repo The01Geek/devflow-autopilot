@@ -655,9 +655,7 @@ stamp_emitted_provenance() {
     # malformed or non-object record falls through untouched.
     "$DEVFLOW_JQ" -e 'type == "object" and (has("synthesized") | not)' "$f" >/dev/null 2>&1 || continue
     tmp="${f}.prov-tmp"
-    if err="$("$DEVFLOW_JQ" '.synthesized = false' "$f" 2>&1 > "$tmp")" && mv "$tmp" "$f"; then
-      :
-    else
+    if ! { err="$("$DEVFLOW_JQ" '.synthesized = false' "$f" 2>&1 > "$tmp")" && mv "$tmp" "$f"; }; then
       rm -f "$tmp" 2>/dev/null || true
       echo "::warning::efficiency-trace.sh --persist: could not backfill emitted provenance (synthesized:false) into '$(basename "$f")' (${err:-write/move failed}); left untouched, best-effort" >&2
     fi
