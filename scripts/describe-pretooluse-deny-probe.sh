@@ -146,17 +146,20 @@ case "$(devflow_probe_denials_have "$EXECUTION_FILE" "$PTUD_SENTINEL"):$DENY_ARM
   no:*)
     echo "- hook deny in \`permission_denials\`: **NOT-APPLICABLE** — the denials array parsed cleanly and carries no hook sentinel (count: $DEN_COUNT), but the hook never took its deny arm, so there was no hook deny to record and this arm measured nothing." ;;
   *)
-    echo "- hook deny in \`permission_denials\`: **unavailable** (count: $DEN_COUNT) — could not read the denials array, so this is not an established negative." ;;
+    echo "- hook deny in \`permission_denials\`: **unavailable** (count: $DEN_COUNT) — the denials array could not be read (absent from the execution file, unparseable, or jq not runnable), so this is not an established negative." ;;
 esac
 # The sentinel axis alone cannot separate "the hook deny produced no denials entry
 # at all" from "it produced one that simply does not carry the reason text" — and
 # those have opposite consequences for a denial-count measurement. So the COMMAND
-# is looked for in the array too. (Live run 30966800385 hit exactly this: no
-# sentinel, count 1.)
+# is looked for in the array too. (This job hit exactly that shape on live run
+# 30966800385 — no sentinel, count 1. A matcher-probe run id names a whole workflow
+# run rather than one job, so sibling renderers correctly cite the same id for
+# their own arms: in that run the `permissionrequest-probe` job separately recorded
+# a non-firing hook and zero denials.)
 case "$(devflow_probe_denials_have "$EXECUTION_FILE" "$PTUD_SACRIFICIAL_TOKEN")" in
   yes) echo "- denied command in \`permission_denials\`: **COMMAND-RECORDED** — a denials entry names the sacrificial command, so the hook's deny IS visible to a denial-count measurement even though the array carries no reason text." ;;
   no)  echo "- denied command in \`permission_denials\`: **COMMAND-NOT-RECORDED** — the denials array parsed cleanly and no entry names the sacrificial command." ;;
-  *)   echo "- denied command in \`permission_denials\`: **unavailable** — could not read the denials array." ;;
+  *)   echo "- denied command in \`permission_denials\`: **unavailable** — the denials array is absent from the execution file, or could not be read." ;;
 esac
 
 exit 0

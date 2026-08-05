@@ -1625,10 +1625,11 @@ jobs:
   # unconditional-deny hook is harmless to granted work; if it resolves earlier it
   # also sees calls the allowlist WOULD have approved, and such a hook silently
   # blocks granted work. So the session attempts a GRANTED CONTROL command
-  # (`mkdir`, the one granted head) as well as an ungranted one (`basename`, in no
-  # allowlist), the hook records the tool input it saw on each firing, and the
-  # helper reports which of the two reached it. A hook that fires on the granted
-  # control answers (b) negatively.
+  # (`mkdir`, the one granted head) as well as an ungranted one (`touch`, in no
+  # allowlist and carrying an on-disk side effect — see the Action 2 note below for
+  # why that side effect is load-bearing), the hook records the tool input it saw on
+  # each firing, and the helper reports which of the two reached it. A hook that
+  # fires on the granted control answers (b) negatively.
   #
   # The hook denies unconditionally and carries a distinctive `message`, which also
   # measures (c): does that message reach the engine transcript at all.

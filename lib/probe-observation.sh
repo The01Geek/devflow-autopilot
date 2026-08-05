@@ -160,18 +160,39 @@ devflow_probe_tooluse_has() {
 
 # devflow_probe_denials_count <execution-file>
 #   Echoes the number of `permission_denials` entries found anywhere in the
-#   transcript, or `unavailable`. Zero is a REAL measured value here and is
-#   deliberately distinguishable from `unavailable` — a probe that cannot read the
-#   file must never publish "the harness refused 0 command(s)".
+#   transcript, or `unavailable`.
+#
+#   THREE STATES, not two — the same discipline devflow_probe_tooluse_has applies to
+#   an empty tool-call population, and the reason the array's PRESENCE is gated on
+#   before its length is read:
+#     * the array is present and carries entries  -> that count;
+#     * the array is present and EMPTY            -> the digit `0`, a REAL measured
+#       value ("the harness refused nothing"), deliberately distinguishable from
+#       unavailable — a probe that cannot read the file must never publish "the
+#       harness refused 0 command(s)";
+#     * NO `permission_denials` array anywhere    -> `unavailable`.
+#   The third state is not hypothetical: the field names come from a DATED
+#   OBSERVATION of one action version, not a schema contract, and the action ref
+#   floats (`@v1`). Under a renamed or restructured field the execution file still
+#   parses cleanly, so a length-only read would publish a confident `0` — an
+#   unestablished quantity rendered as a real one, which is exactly the collapse
+#   this file's header forbids.
 devflow_probe_denials_count() {
   local _p_file="${1:-}" _p_jq _p_out
   [ "$(devflow_probe_exec_state "$_p_file")" = ok ] || { printf '%s\n' unavailable; return 0; }
   _p_jq="$(_devflow_probe_jq)" || { printf '%s\n' unavailable; return 0; }
+  # Presence is "some object carries a permission_denials whose value is an ARRAY".
+  # A present-but-differently-typed field therefore also reads unestablished rather
+  # than being silently skipped into a zero.
   _p_out="$("$_p_jq" -rs '
-    [ .. | objects | .permission_denials? | arrays | .[] ] | length
+    [ .. | objects | .permission_denials? | arrays ] as $arrays
+    | if ($arrays | length) == 0 then "absent"
+      else ($arrays | add | length | tostring)
+      end
   ' "$_p_file" 2>/dev/null)" || _p_out=""
   case "$_p_out" in
-    ''|*[!0-9]*) printf '%s\n' unavailable ;;
+    ''|absent) printf '%s\n' unavailable ;;
+    *[!0-9]*)  printf '%s\n' unavailable ;;
     *) printf '%s\n' "$_p_out" ;;
   esac
   return 0
@@ -184,6 +205,13 @@ devflow_probe_denials_count() {
 #   in permission_denials" is only answerable against that array, never against
 #   the transcript at large (where the same sentinel appears merely because the
 #   hook emitted it).
+#
+#   Presence-gated exactly like devflow_probe_denials_count, and for the same
+#   reason: `no` here means "the array was there and no entry carries the needle",
+#   an established negative a caller is entitled to render as HOOK-DENY-NOT-RECORDED
+#   or COMMAND-NOT-RECORDED. With no such array anywhere there is no population to
+#   have searched, so the answer is `unavailable` — never a confident negative built
+#   on a field that may simply have moved.
 devflow_probe_denials_have() {
   local _p_file="${1:-}" _p_needle="${2:-}" _p_jq _p_out
   if [ -z "$_p_needle" ]; then
@@ -193,13 +221,16 @@ devflow_probe_denials_have() {
   [ "$(devflow_probe_exec_state "$_p_file")" = ok ] || { printf '%s\n' unavailable; return 0; }
   _p_jq="$(_devflow_probe_jq)" || { printf '%s\n' unavailable; return 0; }
   _p_out="$("$_p_jq" -rs --arg needle "$_p_needle" '
-    [ .. | objects | .permission_denials? | arrays | .[] | tojson
-      | select(contains($needle)) ] | length > 0
+    [ .. | objects | .permission_denials? | arrays ] as $arrays
+    | if ($arrays | length) == 0 then "absent"
+      else ((($arrays | add | map(tojson | select(contains($needle))) | length) > 0) | tostring)
+      end
   ' "$_p_file" 2>/dev/null)" || _p_out=""
   case "$_p_out" in
-    true)  printf '%s\n' yes ;;
-    false) printf '%s\n' no ;;
-    *)     printf '%s\n' unavailable ;;
+    true)   printf '%s\n' yes ;;
+    false)  printf '%s\n' no ;;
+    absent) printf '%s\n' unavailable ;;  # no array to have searched — not a negative
+    *)      printf '%s\n' unavailable ;;
   esac
   return 0
 }

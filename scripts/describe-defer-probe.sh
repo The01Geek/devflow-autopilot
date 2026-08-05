@@ -109,6 +109,6 @@ esac
 # "issued" for a session that never issued it.
 COMMAND_SEEN="$(devflow_probe_tooluse_has "$EXECUTION_FILE" "$DFR_COMMAND_TOKEN")"
 echo "- command issued (secondary): **$COMMAND_SEEN** (yes = a recorded tool-call input carries it; no = tool-call inputs were recorded and none does; unavailable = could not check)"
-echo "- \`permission_denials\` entries (secondary): **$(devflow_probe_denials_count "$EXECUTION_FILE")** (a count, or \`unavailable\` when the array could not be read — never collapsed onto 0)"
+echo "- \`permission_denials\` entries (secondary): **$(devflow_probe_denials_count "$EXECUTION_FILE")** (a count when the array is present — \`0\` meaning the harness refused nothing — or \`unavailable\` when no such array exists or it could not be read; never collapsed onto 0)"
 
 exit 0

@@ -25,15 +25,17 @@
 # WHY THERE ARE TWO GRANTED CONTROLS. The arm is only exercised if the session
 # actually ISSUES the ungranted command, and a model that decides for itself that
 # a command will be refused, and answers without issuing it, produces a run that
-# looks exactly like "the hook did not fire" (observed on this probe's first live
-# run, 30966800385: one tool call, zero denials). The second control runs AFTER the
-# ungranted command, so a run in which it executed while nothing was ever refused
-# is attributable to the model having SKIPPED the arm, rather than left as an
-# ambiguous negative.
+# looks exactly like "the hook did not fire" (observed in THIS job on the probe's
+# first live run, 30966800385: one tool call, zero denials — a matcher-probe run id
+# names a whole workflow run, so sibling probe renderers cite the same id for their
+# own jobs' arms). The second control runs AFTER the ungranted command, so a run in
+# which it executed while nothing was ever refused is attributable to the model
+# having SKIPPED the arm, rather than left as an ambiguous negative.
 #
 # Usage:
 #   describe-permissionrequest-probe.sh <seen-file> <control-marker> \
-#                                       <after-marker> [execution-file]
+#                                       <ungranted-marker> <after-marker> \
+#                                       [execution-file]
 #     seen-file        the JSONL breadcrumb the probe's PermissionRequest hook
 #                      appends its raw stdin payload to on every invocation. The
 #                      payload carries the tool input, so the file's CONTENT — not
@@ -220,9 +222,9 @@ case "$DEN_SENTINEL:$FIRED" in
   no:*)
     echo "- hook deny in \`permission_denials\`: **NOT-APPLICABLE** — the denials array parsed cleanly and carries no hook sentinel (count: $DEN_COUNT), but the hook never fired, so there was no hook deny to record and this arm measured nothing." ;;
   *)
-    echo "- hook deny in \`permission_denials\`: **unavailable** (count: $DEN_COUNT) — could not read the denials array, so this is not an established negative." ;;
+    echo "- hook deny in \`permission_denials\`: **unavailable** (count: $DEN_COUNT) — the denials array could not be read (absent from the execution file, unparseable, or jq not runnable), so this is not an established negative." ;;
 esac
-echo "- ungranted arm in \`permission_denials\`: **$DEN_UNGRANTED** (yes = the matcher refused it and said so; no = it parsed cleanly and carries no such entry; unavailable = could not check)"
+echo "- ungranted arm in \`permission_denials\`: **$DEN_UNGRANTED** (yes = the matcher refused it and said so; no = the array was there and carries no such entry; unavailable = no such array exists, or it could not be read)"
 
 # ── Axis 5: the explicit inference — "event absent" vs "nothing reached it". ───
 # A breadcrumb-free run means two very different things depending on whether ANY
@@ -251,9 +253,12 @@ elif [ "$UNGRANTED_OUTCOME" = unattempted ]; then
   echo "no breadcrumb, and no recorded tool call carries the ungranted command — the SESSION SKIPPED the arm rather than the harness refusing it$([ "$AFTER_RAN" = yes ] && printf '%s' ' (the control placed after the arm did run, so the session reached past it)'). Nothing was ever offered to a \`PermissionRequest\` hook: the event's availability is UNESTABLISHED, not negative. Re-run with a prompt the model actually obeys."
 elif [ "$DEN_UNGRANTED" = yes ] || { [ "$DEN_COUNT" != unavailable ] && [ "$DEN_COUNT" != 0 ]; }; then
   echo "a call DID reach the permission system and was refused (it is in \`permission_denials\`), yet no hook breadcrumb exists — so this is evidence that the installed CLI does not deliver a \`PermissionRequest\` event, NOT merely that nothing reached it."
-elif [ "$CONTROL_ATTEMPTED" = no ] && [ "$AFTER_RAN" = no ]; then
-  echo "no breadcrumb, no denials and no trace of either control command — nothing reached the permission system at all (the session may have failed before issuing any tool call, e.g. if the \`settings\` input was rejected). The event's availability is UNESTABLISHED, not negative."
 else
+  # Reaching here means UNGRANTED_ATTEMPTED was `unavailable` — which happens only
+  # for reasons that are NEEDLE-INDEPENDENT (unreadable/unparseable execution file,
+  # jq not runnable, or no tool-call inputs recorded at all). CONTROL_ATTEMPTED is
+  # read from the same file by the same function, so it is `unavailable` here too:
+  # do not add an arm keyed on it reading `no`, which cannot occur on this path.
   echo "no breadcrumb, and the run's own record could not be read well enough to say whether anything was refused — \"the event is absent\" cannot be separated from \"nothing reached it\". UNESTABLISHED; re-run the probe."
 fi
 

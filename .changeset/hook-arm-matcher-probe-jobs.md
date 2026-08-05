@@ -27,4 +27,10 @@ type: Added
   the shared execution-file readers in `lib/probe-observation.sh`. Each verdict is
   breadcrumb-first (derivable from a truncated run, and on the `defer` arm from a run
   whose execution file a honored defer destroyed), and each keeps an established negative
-  distinct from `unavailable`. Measurement only: no production behavior changes.
+  distinct from `unavailable`. The `permission_denials` axes are three-state: a present
+  array's length is a real measurement (`0` meaning the harness refused nothing), while an
+  execution file that parses with **no such array at all** — the shape a
+  `claude-code-action` upgrade that renames or restructures the field would produce, given
+  the floating `@v1` ref — reads `unavailable`, so no renderer can publish a confident
+  `HOOK-DENY-NOT-RECORDED` or a zero count out of a quantity nothing measured.
+  Measurement only: no production behavior changes.
