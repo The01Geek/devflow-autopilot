@@ -1,105 +1,55 @@
 ---
 title: "Installation"
-description: "Install the PRFlow plugin and initialize a repository."
+description: "Install the PRFlow plugin in Claude Code, GitHub Copilot CLI or Codex CLI."
 ---
 
 # Installation
 
-## What You Need
+This page is for developers installing the local PRFlow plugin. Plugin installation makes the skills available in your coding client. Repository initialization is a separate, recommended step.
 
-To get started, you only need a supported coding agent:
+The plugin is named `prflow`. Its marketplace intentionally keeps the `devflow-marketplace` name. PRFlow has no companion-plugin dependencies.
 
-- Claude Code
-- GitHub Copilot
-- Codex
+If you previously installed DevFlow, follow [Migrate From DevFlow](/docs/getting-started/migrate-from-devflow) instead.
 
-PRFlow also uses Git, GitHub CLI, `jq`, Python 3.11 or newer and a POSIX-compatible Bash shell. You do not need to install all of these before installing the plugin. When you run PRFlow's `init` skill, it checks your environment, identifies anything that is missing and works with you through the required setup.
+## Claude Code
 
-On Windows, PRFlow can guide you through using WSL, Git Bash or MSYS2 when a POSIX-compatible Bash shell is not already available.
-
-## Install the Plugin
-
-Choose the instructions for your coding agent. The marketplace retains its original `devflow-marketplace` name, while the plugin and its skills use the `prflow` name.
-
-Already using the former DevFlow plugin? Follow [Migrate from DevFlow](/docs/getting-started/migrate-from-devflow) instead of reinstalling from scratch.
-
-### Claude Code
-
-Add the PRFlow marketplace, then install the plugin:
+Add the marketplace, then install PRFlow:
 
 ```bash
 claude plugin marketplace add The01Geek/prflow
 claude plugin install prflow@devflow-marketplace
 ```
 
-Restart Claude Code or run:
+The interactive `/plugin` manager provides equivalent marketplace and installation actions. Start a new Claude Code session if the PRFlow skills do not appear immediately.
 
-```text
-/reload-plugins
-```
+## GitHub Copilot CLI
 
-### GitHub Copilot CLI
-
-Add the marketplace, install PRFlow and start a new Copilot CLI session:
+Add the marketplace, then install PRFlow:
 
 ```bash
 copilot plugin marketplace add The01Geek/prflow
 copilot plugin install prflow@devflow-marketplace
 ```
 
-### Codex CLI
+Start a new GitHub Copilot CLI session after installation.
 
-Add the marketplace, install PRFlow and start a new Codex CLI session:
+## Codex CLI
+
+Add the marketplace, then install PRFlow:
 
 ```bash
 codex plugin marketplace add The01Geek/prflow
 codex plugin add prflow@devflow-marketplace
 ```
 
-Codex plugins are available in Codex CLI and Codex in the ChatGPT desktop app. Availability on other Codex surfaces can depend on your Codex version and workspace policy.
+Start a new Codex CLI session after installation.
 
-## Initialize a Repository
+## Continue Setup
 
-From the repository you want PRFlow to manage, invoke `init` with the spelling used by your client.
+Plugin installation does not create repository configuration or install system packages. Before the first run:
 
-**Claude Code:**
+1. Confirm the [local requirements](/docs/getting-started/requirements).
+2. Run [initialization](/docs/getting-started/initialization) if you want a configurable repository scaffold and detected tools.
+3. Follow the [first-run guide](/docs/getting-started/first-run).
 
-```text
-/prflow:init
-```
-
-**GitHub Copilot CLI:**
-
-```text
-/prflow/init
-```
-
-**Codex:**
-
-```text
-$prflow:init
-```
-
-Follow the agent's instructions after invoking `init`. The agent checks your environment, guides you through missing requirements and creates or updates the repository's PRFlow configuration while preserving existing values. You can then continue to your [first run](/docs/getting-started/first-run).
-
-## Update Later
-
-Refresh the marketplace with the command for your client when you want to fetch a newer PRFlow release.
-
-**Claude Code:**
-
-```text
-/plugin marketplace update devflow-marketplace
-```
-
-**GitHub Copilot CLI:**
-
-```bash
-copilot plugin marketplace update devflow-marketplace
-```
-
-**Codex CLI:**
-
-```bash
-codex plugin marketplace upgrade devflow-marketplace
-```
+See [Updates](/docs/getting-started/updates) when you need a newer plugin release.

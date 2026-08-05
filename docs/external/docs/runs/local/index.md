@@ -1,18 +1,36 @@
 ---
-title: "Local runs"
-description: "Run PRFlow directly from Claude Code with minimal setup."
+title: "Local Runs"
+description: "Run PRFlow interactively from a supported coding client."
 ---
 
 # Local Runs
 
-Local runs are the default PRFlow experience. Open Claude Code in an initialized repository, then invoke a namespaced command such as:
+This page is for developers running PRFlow from Claude Code, GitHub Copilot CLI or Codex CLI. Local runs are the fastest way to start and require no GitHub Actions workflow or cloud secret.
 
-```text
-/prflow:implement 123
-```
+Open your coding client anywhere inside the target Git repository, then enter a namespaced command. For example, the implementation command is `/prflow:implement 123` in Claude Code, `/prflow/implement 123` in GitHub Copilot CLI and `$prflow:implement 123` in Codex CLI.
 
-The run uses the repository, GitHub authentication and development tools already available in your environment. No GitHub Actions workflow or cloud secret is required.
+The run uses:
 
-Use local runs when you want to stay interactive, review decisions as the work proceeds or use tools that are already configured on your machine.
+- The repository and Git root discovered from the current directory.
+- Your authenticated GitHub CLI identity.
+- The tests, linters and development tools available on the machine.
+- The coding client's permission system and current interaction.
+- Built-in configuration defaults, with `.prflow/config.json` overrides when present.
 
-If a command cannot run a required tool, review [Local permissions](/docs/runs/local/permissions).
+Repository initialization is recommended for customization, but it is not required.
+
+## When to Run Locally
+
+Use a local run when you want to:
+
+- Answer clarification questions while work proceeds.
+- Review tool requests before granting them.
+- Use services or development tools already configured on the workstation.
+- Create issues, configure PRFlow, update documentation or run retrospectives.
+- Inspect a run closely before enabling cloud automation.
+
+## Next Steps
+
+- Check the complete [client syntax and local-only command guidance](/docs/runs/local/client-commands).
+- Review [local permission boundaries](/docs/runs/local/permissions).
+- Understand [working-directory and Git-root behavior](/docs/runs/local/working-directory).
