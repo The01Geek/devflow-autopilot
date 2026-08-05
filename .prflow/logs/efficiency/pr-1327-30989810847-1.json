@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1327",
+  "generated_at": "2026-08-05T08:46:56Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.115",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.34343975,
+    "tokens": {
+      "input_tokens": 51,
+      "output_tokens": 28408,
+      "cache_read_input_tokens": 3741008,
+      "cache_creation_input_tokens": 173929,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 69,
+        "outputTokens": 34951,
+        "cacheReadInputTokens": 4106772,
+        "cacheCreationInputTokens": 282192,
+        "webSearchRequests": 0,
+        "costUSD": 5.34343975,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 30,
+    "duration_ms": 473237
+  },
+  "permission_denials": {
+    "count": 4,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-<empty>} ATTEMPT=${GITHUB_RUN_ATTEMPT:-<empty>} GHA=${GITHUB_ACTIONS:-<empty>}\"",
+      "printf 'RUN_ID=[%s] ATTEMPT=[%s] GHA=[%s]\\n' \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" \"$GITHUB_ACTIONS\"",
+      "gh issue view 1310 --json comments --jq '.comments[] | select(.body | test(\"prflow:workpad|devflow:workpad|Writing-skills evidence|Verification evidence\")) | .body' 2>&1 | grep -iE \"Writing-skills evidence:|Verification evidence:|skill-loaded|guidance-applied|pressure-scenario|micro-tests|prflow:workpad|devflow:workpad\" | head -40; echo \"rc=${PIPESTATUS[0]}\"",
+      "gh issue view 1310 --json comments --jq '.comments[].body' > .prflow/tmp/review/pr-1327/manual-run/issue-comments.txt 2>&1; echo \"rc=$?\"; grep -niE \"Writing-skills evidence:|Verification evidence:|skill-loaded|guidance-applied|pressure-scenario|micro-tests|prflow:workpad|devflow:workpad\" .prflow/tmp/review/pr-1327/manual-run/issue-comments.txt"
+    ],
+    "total": 4,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
