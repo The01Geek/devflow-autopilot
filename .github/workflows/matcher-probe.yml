@@ -2440,3 +2440,93 @@ jobs:
             --ref "${PROBE_REF}" \
             --head-commit "${PROBE_SHA}" \
             "${EXTRA[@]}"
+
+  # ── Render-time `!` placeholder precondition (issue #1264) ─────────────────
+  # Issue #1264's selected direction is render-time injection: a `` !`<command>` ``
+  # placeholder in a SKILL.md body is executed by Claude Code before the model sees the
+  # skill, so the consumer prompt extension arrives with no agent decision to skip and no
+  # Bash call for the matcher to refuse. Every figure in that issue's "Measured facts"
+  # table came from the BARE CLI against a throwaway skill; behavior under
+  # claude-code-action was explicitly recorded there as UNMEASURED, and the issue's first
+  # acceptance criterion is this dispatch. A negative limb routes the work to the
+  # workflow-side composition alternative instead — so this job decides a design, not just
+  # a detail, which is why the verdict lives in a unit-testable helper rather than inline.
+  #
+  # WHY A THROWAWAY PLUGIN. The measurement needs a PLUGIN-SOURCED SKILL.md (that is the
+  # unmeasured case — a plain local file is not what a consumer runs). This repo IS the
+  # prflow marketplace, so a probe skill under skills/ would ship to every consumer AND
+  # trip the lpe-coverage pin that requires each skills/*/SKILL.md to invoke the
+  # prompt-extension loader for its own name. The probe therefore carries its own
+  # marketplace under .github/probe-plugin/, which install.sh never copies and the vendor
+  # slice never reaches.
+  #
+  # THREE LIMBS, ONE LINE. The skill body holds a single placeholder,
+  # `` !`/bin/echo "PHPROBE_ENV ${DEVFLOW_PROMPT_EXTENSION_ROOT:-UNSET}"` ``:
+  #   (a) substitution — output present at all;
+  #   (b) environment  — the value carried is this job's step-level sentinel, the same
+  #       $GITHUB_ENV channel #874 uses for the trusted base-ref closure;
+  #   (c) allowlist    — the head is `/bin/echo` while --allowed-tools grants only
+  #       `Bash(printf:*)` (plus Skill, so the slash command can dispatch at all), so any
+  #       output at all proves rendering ran an UNGRANTED head.
+  # Limb (c) rides on limb (a) by construction: the only head the placeholder could have
+  # run is the ungranted one, so there is no "substituted but gated" observation to make.
+  #
+  # THE ABORT HAZARD IS AVOIDED BY CONSTRUCTION. A non-zero exit from an injected command
+  # aborts the whole skill invocation at zero turns (#1264's measured facts). `/bin/echo`
+  # cannot exit non-zero here, so a missing PHPROBE_SKILL_REACHED control points at the
+  # harness rather than at the command — the verdict helper says so in that arm.
+  #
+  # Maintainer-dispatched, like its siblings: the implementing run adds the job and does
+  # not run it. Version-dependent — re-probe after a claude-code-action / CLI upgrade.
+  placeholder-probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run Claude Code (render-time placeholder probe)
+        id: claude
+        env:
+          # The premise under test for limb (b). A sentinel rather than a plausible path,
+          # so a match in the execution file cannot be an incidental mention of a real
+          # directory. Same $GITHUB_ENV-adjacent step-level channel as the #874 probe.
+          DEVFLOW_PROMPT_EXTENSION_ROOT: DEVFLOW_PHPROBE_SENTINEL_1264
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Same rationale as the sibling jobs: this diagnostic is same-repo only and
+          # mutates nothing, but claude-code-action otherwise refuses a bot-initiated run.
+          allowed_bots: "*"
+          # A SLASH COMMAND, not prose. Limb (a) is specifically about the slash-command
+          # prompt shape, which is how every real DevFlow entry is invoked.
+          prompt: "/phprobe:placeholder-probe"
+          # ONLY the throwaway probe marketplace. The prflow plugin is deliberately absent:
+          # loading it would put ~30 real skills in context and make a marker match
+          # attributable to more than one body.
+          plugin_marketplaces: |
+            ./.github/probe-plugin
+
+          plugins: |
+            phprobe@prflow-probe-marketplace
+
+          # `Bash(printf:*)` is what the echo-back needs; `Skill` is what lets the slash
+          # command dispatch. `/bin/echo` is deliberately NOT granted — that omission is
+          # limb (c)'s entire measurement, so do not "fix" it by widening this list.
+          claude_args: >-
+            --model claude-haiku-4-5-20251001
+            --effort low
+            --permission-mode acceptEdits
+            --allowed-tools "Bash(printf:*),Skill"
+
+      # Deterministic verdict from the execution file only — same measurement core as the
+      # sibling probes. always() so the verdict is produced even if the engine errored,
+      # which is the run this probe most needs to characterize.
+      - name: Compute placeholder-probe verdict
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -euo pipefail
+          python3 scripts/placeholder-probe-verdict.py "${EXECUTION_FILE}"
