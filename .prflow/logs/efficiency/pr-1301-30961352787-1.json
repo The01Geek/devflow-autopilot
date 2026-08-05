@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1301",
+  "generated_at": "2026-08-05T00:03:18Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.30.104",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.483543499999999,
+    "tokens": {
+      "input_tokens": 82,
+      "output_tokens": 32382,
+      "cache_read_input_tokens": 6556294,
+      "cache_creation_input_tokens": 186305,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 130,
+        "outputTokens": 41367,
+        "cacheReadInputTokens": 8145412,
+        "cacheCreationInputTokens": 268379,
+        "webSearchRequests": 0,
+        "costUSD": 7.483543499999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 54,
+    "duration_ms": 650427
+  },
+  "permission_denials": {
+    "count": 15,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh review 2>&1 || scripts/load-prompt-extension.sh review 2>&1 || echo \"EXT-RC=$?\"",
+      "echo \"SKILL_DIR=${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"; git hash-object /home/runner/work/prflow/prflow/skills/review/SKILL.md /home/runner/work/prflow/prflow/skills/review/phases/phase-0-setup.md /home/runner/work/prflow/prflow/skills/review/phases/phase-0-3-6-blocker-recheck.md /home/runner/work/prflow/prflow/skills/review/phases/phase-0-6-stale-prose-lint.md /home/runner/work/prflow/prflow/skills/review/phases/phase-1-checklist.md /home/runner/work/prflow/prflow/s …[per-command-truncated]",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1188 --pr 1301 2>.prflow/tmp/review/pr-1301/local-run/acs.err ; echo \"acs-rc=$?\"; echo \"=== err ===\"; cat .prflow/tmp/review/pr-1301/local-run/acs.err",
+      "cd /home/runner/work/prflow/prflow\necho \"=== config.json diff ===\"; sed -n '/diff --git a\\/.prflow\\/config.json/,/^diff --git/p' .prflow/tmp/review/pr-1301/local-run/diff.patch\necho \"=== docs.internal resolved ===\"; .prflow/vendor/prflow/scripts/config-get.sh docs.internal 2>&1 || scripts/config-get.sh docs.internal 2>&1\necho \"=== docs-sync-internal.md diff ===\"; sed -n '/diff --git a\\/.prflow\\/prompt-extensions\\/docs-sync-internal.md/,/^diff --git/p' .prflow/tmp/review/pr-1301/local-run/diff.pa …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\necho \"=== AC5/AC14: lint-shipped-pruned-path.py exit + prune set ===\"\nlib/test/lint-shipped-pruned-path.py; echo \"lint-rc=$?\"\necho \"--- prune set ---\"\nlib/test/lint-shipped-pruned-path.py --print-prune-set; echo \"pruneset-rc=$?\"",
+      "cd /home/runner/work/prflow/prflow; lib/test/lint-shipped-pruned-path.py; echo \"lint-rc=$?\"",
+      "cd /home/runner/work/prflow/prflow\necho \"=== AC13 part 2: docs/internal/<relocated> refs in shipped skills/agents ===\"\n# Build ALT from files now under docs/internal (basenames)\nALT=$(git ls-files docs/internal/ | xargs -n1 basename | sed 's/[.]/\\\\./g' | paste -sd'|')\ngit grep -nE \"(^|[^A-Za-z0-9_.-])docs/internal/($ALT)\" -- skills/ agents/ || echo \"(empty-OK)\"\necho \"=== any docs/internal reference at all in skills/agents (context) ===\"\ngit grep -n 'docs/internal/' -- skills/ agents/ | head -40  …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow; git ls-files docs/internal/ | xargs -n1 basename | paste -sd'|' | tee .prflow/tmp/review/pr-1301/local-run/alt.txt | head -c 400; echo; echo \"count=$(git ls-files docs/internal/ | wc -l)\"",
+      "cd /home/runner/work/prflow/prflow; git ls-files docs/internal/ | xargs -n1 basename | paste -sd'|' > .prflow/tmp/review/pr-1301/local-run/alt.txt; wc -c .prflow/tmp/review/pr-1301/local-run/alt.txt; git ls-files docs/internal/ | wc -l",
+      "git ls-files docs/internal/ | xargs -n1 basename | paste -sd'|' > .prflow/tmp/review/pr-1301/local-run/alt.txt; wc -c .prflow/tmp/review/pr-1301/local-run/alt.txt; git ls-files docs/internal/ | wc -l",
+      "for f in \"skills/docs-sync-internal/SKILL.md:5\" \"skills/docs-bootstrap-internal/SKILL.md:5\" \"skills/docs-verify/SKILL.md:6\" \"skills/implement/phases/phase-2-implement.md:85\" \"skills/implement/phases/phase-2-implement.md:406\"; do p=\"${f%:*}\"; n=\"${f##*:}\"; echo \"=== $f ===\"; sed -n \"${n}p\" \"$p\" | cut -c1-300; done",
+      "echo \"=== docs/ refs in README/CONTRIBUTING/SECURITY ===\"\nfor f in README.md CONTRIBUTING.md SECURITY.md; do grep -oE 'docs/[A-Za-z0-9_./-]+\\.(md|png|txt)' \"$f\" 2>/dev/null | sort -u | while read -r p; do if [ -e \"$p\" ]; then echo \"OK   $f -> $p\"; else echo \"MISS $f -> $p\"; fi; done; done\necho \"=== AC7: gitignore docs anchors ===\"\ngrep -nE 'docs/' .gitignore",
+      "for f in README.md CONTRIBUTING.md SECURITY.md; do grep -oE 'docs/[A-Za-z0-9_./-]+\\.(md|png|txt)' \"$f\" 2>/dev/null | sort -u | while read -r p; do test -e \"$p\" && echo \"OK   $f -> $p\" || echo \"MISS $f -> $p\"; done; done",
+      "for p in docs/internal/ship-pr.png docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md docs/internal/cloud-setup.md; do test -e \"$p\" && echo \"OK $p\" || echo \"MISS $p\"; done 2>&1 || ls docs/internal/ship-pr.png docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md docs/internal/cloud-setup.md",
+      ".prflow/vendor/prflow/scripts/post-review-verdict.sh \"1301\" \"APPROVE with notes\" .prflow/tmp/review-verdict-body.md \"18a9dda5f77fb4d2f0e523c23d9ac1f19985f325\" \"\" 2>&1 || scripts/post-review-verdict.sh \"1301\" \"APPROVE with notes\" .prflow/tmp/review-verdict-body.md \"18a9dda5f77fb4d2f0e523c23d9ac1f19985f325\" \"\" 2>&1"
+    ],
+    "total": 15,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
