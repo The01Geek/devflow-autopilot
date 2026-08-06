@@ -64,6 +64,7 @@ ENROLLED: tuple[tuple[str, str], ...] = (
     ("skills/review/SKILL.md", "load-prompt-extension.sh review"),
     ("skills/review-and-fix/SKILL.md", "load-prompt-extension.sh review-and-fix"),
     ("skills/review-and-fix/SKILL.md", "load-prompt-extension.sh receiving-code-review"),
+    ("skills/implement/phases/phase-3-review.md", "apply-pr-triggerer.sh <draft-pr-number>"),
 )
 
 #: The portable source anchor prefix (issue #275), byte-identical to the ``lpe-coverage``
