@@ -4,6 +4,20 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.6] — 2026-08-06
+
+### Changed
+### Added
+
+- A maintainer-dispatched `matcher-probe.yml` arm measuring whether `claude-code-action`
+  substitutes a render-time `` !`<command>` `` placeholder in a plugin-sourced `SKILL.md`
+  reached by a slash-command prompt, whether the injected command sees
+  `DEVFLOW_PROMPT_EXTENSION_ROOT`, and whether rendering is gated by `--allowed-tools`.
+  This discharges issue #1264's precondition, whose outcome routes that issue between
+  render-time injection and workflow-side prompt composition. The probe carries its own
+  throwaway marketplace under `.github/probe-plugin/`, which no consumer receives, and its
+  verdict is derived deterministically by `scripts/placeholder-probe-verdict.py`.
+
 ## [2.31.5] — 2026-08-06
 
 ### Fixed
