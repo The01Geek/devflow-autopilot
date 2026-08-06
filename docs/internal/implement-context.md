@@ -138,17 +138,33 @@ batches its calls looks cheaper than one that does not while doing the same work
 - **The distribution of wall-clock gaps between consecutive main-thread tool calls** —
   the median, the maximum, and the total, never a mean alone, because a mean hides the
   tail that dominates a long run. This is the axis that separates time a run spent
-  thinking from time it spent waiting on the harness. A tool-bearing turn whose record
-  carries no usable timestamp is counted in the skip accounting under
-  `unusable_timestamp` and **never** contributes a zero gap; a run with fewer than two
-  timestamped tool calls reports every gap field as `unestablished` rather than `0`.
+  thinking from time it spent waiting on the harness.
+
+  **Disclosed proxy: the gaps are measured at TURN granularity, not per call.** A
+  transcript record carries one `timestamp` however many `tool_use` blocks its turn
+  holds, so a per-call gap is not observable from this data at all. What the instrument
+  measures is the gap between consecutive main-thread turns that issued at least one
+  tool call — a turn batching four calls contributes one point, not four. Consequently
+  `total_seconds / total_tool_calls` is not a per-call latency and should not be read as
+  one. This is disclosed in the same sense as the cross-session bound above.
+
+  A tool-bearing turn whose record carries no usable timestamp is counted in the skip
+  accounting under `unusable_timestamp` and **never** contributes a zero gap. It is also
+  counted per run (`unusable_timestamp_turns`), and a run's `tool_call_gaps` carries
+  `spans_dropped_turns` when that count is non-zero — because the gap either side of a
+  dropped turn is computed straight across the hole and reported as one interval, so the
+  reader must be able to see which distribution that happened in. A run with fewer than
+  two timestamped tool-bearing turns reports the three gap *statistics*
+  (`median_seconds`, `max_seconds`, `total_seconds`) as `unestablished` rather than `0`;
+  `count` is a real measurement and reads `0`.
 
 **Aggregate summary:** run count; corpus total of usage-missing turns; median and max
 peak context (over the runs with a measured peak — a usage-less run is counted in
 `run_count` but excluded from the peak population, never averaged in as a `0`); count of
 runs exceeding 200K and 400K; per phase, the median, max, and corpus total read count,
 plus the median and max per-run total phase reads; per tool category, the median, max and
-corpus total call count, plus the median and max per-run total tool calls; and, for the
+corpus total call count, plus the median and max per-run total tool calls; the corpus total of turns dropped from
+the gap population for an unusable timestamp; and, for the
 gap axis, the median and max of the per-run maximum gap, the median and max of the
 per-run total gap, and the corpus total — a run with no measured gap is excluded from
 those populations exactly as a usage-less run is excluded from the peak population. Every
@@ -188,7 +204,7 @@ evidence behind it.
 
 ## Baselines
 
-### Fixture-derived companion figure (CI-reconcilable — verified live, NOT a snapshot)
+### Fixture-derived reconciliation (CI-reconcilable — reproduce it, no figure recorded)
 
 The committed synthetic corpus under `lib/test/fixtures/implement-eval/corpus/` is a
 CI-reconcilable check, not a real-run snapshot. `lib/test/test_implement_context_eval.py`

@@ -40,9 +40,18 @@ axes it measures are the ones the implement skill's cost shape is dominated by
 
   4. **The distribution of wall-clock gaps between consecutive main-thread tool calls** —
      median, maximum and total, never a mean alone, because a mean hides the tail that
-     dominates a long run. A record carrying no usable timestamp is counted in the
-     `skipped` accounting under `unusable_timestamp` and NEVER contributes a zero gap
-     (issue #1209 AC11; `CLAUDE.md`'s *unknown is not zero* rule).
+     dominates a long run. A tool-bearing main-thread turn carrying no usable timestamp
+     is counted in the `skipped` accounting under `unusable_timestamp` and NEVER
+     contributes a zero gap (issue #1209 AC11; `CLAUDE.md`'s *unknown is not zero* rule).
+
+     **Disclosed proxy — the gaps are measured at TURN granularity, not per call.** A
+     transcript record carries ONE `timestamp` however many `tool_use` blocks its turn
+     holds, so a per-call gap is not observable from this data at all. What is measured
+     is the gap between consecutive main-thread turns that issued at least one tool
+     call: a turn batching four calls contributes one point, not four, and the three
+     intra-turn intervals are not in the population. Read `total_seconds /
+     total_tool_calls` as meaningless for that reason. This is a disclosed proxy in the
+     same sense as the cross-session bound below, not an unstated approximation.
 
 Axes 3 and 4 are reported per run AND aggregated across the corpus, on the same footing
 as the peak-context aggregate (issue #1209 AC12). None of the four introduces a gate,
@@ -96,23 +105,34 @@ import sys
 _IDENTITY_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib", "plugin_identity.py"
 )
+# The fallback set used when the identity source cannot be resolved. It carries BOTH the
+# canonical spelling and its superseded predecessor: a fallback naming only the
+# superseded id would match nothing in a corpus of current transcripts and report the
+# same vacuous zero-run measurement an EMPTY set would — the failure this fallback
+# exists to prevent, reintroduced by the fallback itself.
+_FALLBACK_ATTRIBUTION = ("prflow:implement", "devflow:implement")
 
 
 def _attribution_ids():
     """Every accepted `<namespace>:implement` attribution id, canonical first.
 
-    Falls back to the historical id rather than an EMPTY set: an empty set would make
-    every record mismatch and report a vacuous zero-run measurement, which is exactly
-    the silent failure this function exists to prevent.
+    Falls back to `_FALLBACK_ATTRIBUTION` rather than an EMPTY set: an empty set would
+    make every record mismatch and report a vacuous zero-run measurement, which is
+    exactly the silent failure this function exists to prevent. The fallback is a
+    hardcoded pair and therefore CANNOT cover a namespace introduced after this line was
+    written — a corpus recorded under such a namespace still reports zero runs on this
+    path, which is why the fallback always breadcrumbs to stderr.
     """
     spec = importlib.util.spec_from_file_location("plugin_identity", _IDENTITY_PATH)
     if spec is None or spec.loader is None:
         print(
             f"implement-context-eval: identity source {_IDENTITY_PATH} is not "
-            "importable; falling back to the historical attribution id only",
+            "importable; falling back to the hardcoded attribution pair "
+            f"{_FALLBACK_ATTRIBUTION} — a run recorded under any other namespace will "
+            "not be attributed and this corpus may report zero runs",
             file=sys.stderr,
         )
-        return ("devflow:implement",)
+        return _FALLBACK_ATTRIBUTION
     module = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(module)
@@ -127,19 +147,22 @@ def _attribution_ids():
         # exception type is the identity module's to choose, not this instrument's.
         print(
             "implement-context-eval: could not resolve the declared namespace set from "
-            "{} ({}: {}); falling back to the historical attribution id only — a run "
-            "recorded under a renamed namespace will not be attributed".format(
-                _IDENTITY_PATH, type(exc).__name__, exc),
+            "{} ({}: {}); falling back to the hardcoded attribution pair {} — a run "
+            "recorded under any other namespace will not be attributed and this corpus "
+            "may report zero runs".format(
+                _IDENTITY_PATH, type(exc).__name__, exc, _FALLBACK_ATTRIBUTION),
             file=sys.stderr,
         )
-        return ("devflow:implement",)
+        return _FALLBACK_ATTRIBUTION
     if not ids:
         print(
             "implement-context-eval: the declared namespace set is empty; falling "
-            "back to the historical attribution id only",
+            "back to the hardcoded attribution pair {} — a run recorded under any "
+            "other namespace will not be attributed and this corpus may report zero "
+            "runs".format(_FALLBACK_ATTRIBUTION),
             file=sys.stderr,
         )
-        return ("devflow:implement",)
+        return _FALLBACK_ATTRIBUTION
     return ids
 
 
@@ -244,9 +267,11 @@ def _sum_or_unestablished(values):
     The "empty population -> UNESTABLISHED, never 0" invariant is load-bearing (a
     real `0` and "no runs" must never be the same output), so the SUM fields go through
     this helper rather than an inline `sum(...) if values else UNESTABLISHED` ternary
-    repeated per field. The `runs_over_*` bucket COUNTS deliberately do not — they guard
-    on a different population, for the reason recorded at their definition in
-    `aggregate`.
+    repeated per field. Three fields deliberately do NOT route through it, each for its
+    own recorded reason: the `runs_over_*` bucket COUNTS guard on a different population
+    (see their definition in `aggregate`), and the two gap totals
+    (`aggregate`'s `corpus_total_gap_seconds` and `_gap_stats`' `total_seconds`) wrap
+    their sum in `round(..., GAP_DECIMALS)`.
     """
     return sum(values) if values else UNESTABLISHED
 
@@ -281,16 +306,29 @@ def _tool_category(name):
 
 
 def _gap_stats(times):
-    """Median / max / total of the wall-clock gaps between sorted call timestamps.
+    """Median / max / total of the wall-clock gaps between sorted turn timestamps.
 
-    Fewer than two timestamped calls yields no gap at all, so every field reads
-    UNESTABLISHED — never 0, which would claim a measured instantaneous run.
+    `times` holds one stamp per tool-bearing main-thread TURN (see the module
+    docstring's disclosed proxy), so these are turn-boundary gaps, not per-call ones.
+
+    Fewer than two timestamps yields no gap at all, so the three STATISTIC fields read
+    UNESTABLISHED — never 0, which would claim a measured instantaneous run. `count` is
+    NOT one of them: zero observed gaps is a real measurement, so it reads a real 0.
+
+    Records are sorted before differencing rather than trusted in file order, so an
+    out-of-order transcript cannot yield a negative gap.
     """
     ordered = sorted(times)
     gaps = [round(b - a, GAP_DECIMALS) for a, b in zip(ordered, ordered[1:])]
+    # `_median`'s even branch can return an unrounded `total / 2`, which would render
+    # float noise into a report GAP_DECIMALS exists to keep clean. Round here rather
+    # than in `_median`, whose int-preserving behavior the peak axis relies on.
+    median = _median_or_unestablished(gaps)
+    if median != UNESTABLISHED:
+        median = round(median, GAP_DECIMALS)
     return {
         "count": len(gaps),
-        "median_seconds": _median_or_unestablished(gaps),
+        "median_seconds": median,
         "max_seconds": _max_or_unestablished(gaps),
         "total_seconds": (round(sum(gaps), GAP_DECIMALS) if gaps else UNESTABLISHED),
     }
@@ -320,9 +358,10 @@ def _context_tokens(usage):
 class RunAccumulator:
     """Streams one session file's records and accumulates one run's metrics.
 
-    Holds only small per-turn scalars — one int per attributed turn, one float per
-    timestamped tool-bearing turn, and the fixed per-phase / per-category tallies. It
-    never retains full record bodies (the streaming property).
+    Holds only small per-turn scalars — one int per attributed turn that carried a
+    `usage` object, one float per timestamped tool-bearing turn, and the fixed
+    per-phase / per-category tallies. It never retains full record bodies (the
+    streaming property).
 
     `skipped` is the caller's skip-tally dict (see `new_skip_tally`); the accumulator
     writes the `unusable_timestamp` key into it, so a turn whose timestamp cannot be
@@ -347,9 +386,16 @@ class RunAccumulator:
         # AC10: category label -> number of main-thread tool_use blocks in that category.
         self.tool_calls = {label: 0 for label in TOOL_CATEGORY_LABELS}
         # AC11: epoch seconds of each main-thread turn that carried at least one tool
-        # call. A turn whose timestamp is unusable is tallied into `skipped` instead of
-        # entering this list, so it can never contribute a zero gap.
+        # call. A turn whose timestamp is unusable is tallied instead of entering this
+        # list, so it can never contribute a zero gap.
         self.tool_call_times = []
+        # Per-RUN count of those dropped turns. The shared `skipped` tally is
+        # corpus-wide, so it can never tell a reader WHICH run's gap distribution is
+        # affected — the same reason `usage_missing_turns` is a per-run field beside the
+        # peak it qualifies. A dropped turn does not vanish from the timeline: the gap
+        # either side of it is computed straight across the hole and reported as ONE
+        # interval, so this counter is what marks a run's gaps as spanning dropped turns.
+        self.unusable_timestamp_turns = 0
 
     def observe_system(self, record):
         if record.get("subtype") == "compact_boundary":
@@ -414,6 +460,7 @@ class RunAccumulator:
         stamp = _parse_timestamp(record.get("timestamp"))
         if stamp is None:
             self.skipped["unusable_timestamp"] += 1
+            self.unusable_timestamp_turns += 1
         else:
             self.tool_call_times.append(stamp)
 
@@ -449,8 +496,14 @@ class RunAccumulator:
             "tool_calls": tool_calls,
             "total_tool_calls": sum(tool_calls.values()),
             # Inter-tool-call wall-clock gap axis (issue #1209 axis 4 / AC11) — median,
-            # max AND total, never a mean alone.
-            "tool_call_gaps": _gap_stats(self.tool_call_times),
+            # max AND total, never a mean alone. Measured at TURN granularity (the
+            # module docstring's disclosed proxy). `spans_dropped_turns` marks a
+            # distribution whose gaps were computed across a turn dropped for an
+            # unusable timestamp, so the contamination travels with the number.
+            "unusable_timestamp_turns": self.unusable_timestamp_turns,
+            "tool_call_gaps": dict(
+                _gap_stats(self.tool_call_times),
+                spans_dropped_turns=bool(self.unusable_timestamp_turns)),
         }
 
 
@@ -542,8 +595,8 @@ def eval_corpus(corpus_root):
             )
             continue
         with handle:
-            for line in handle:  # streaming: one record at a time, never buffered
-                line = line.strip()
+            for lineno, raw in enumerate(handle, 1):  # streaming: one record at a time
+                line = raw.strip()
                 if not line:
                     continue
                 try:
@@ -569,9 +622,16 @@ def eval_corpus(corpus_root):
                         acc.observe_system(record)
                 except (AttributeError, TypeError, ValueError, KeyError) as exc:
                     skipped["malformed_record"] += 1
+                    # Name the file, the LINE and the record type: a real session is
+                    # tens of thousands of lines, and without them a maintainer cannot
+                    # find the record to judge whether the skip was legitimate. Note
+                    # this catch cannot distinguish a hostile record shape from a defect
+                    # in the observers themselves (the same four exception types), so a
+                    # burst of these warnings on one record type is a reason to suspect
+                    # the instrument, not only the transcript.
                     sys.stderr.write(
-                        "warning: skipping malformed record in {}: {}\n".format(
-                            session_file, exc
+                        "warning: skipping malformed {} record at {}:{}: {}: {}\n".format(
+                            rtype, session_file, lineno, type(exc).__name__, exc
                         )
                     )
                     continue
@@ -609,12 +669,18 @@ def aggregate(runs):
         # Attributed turns across the corpus whose residency was never recorded.
         "total_usage_missing_turns": _sum_or_unestablished(
             [r["usage_missing_turns"] for r in runs]),
+        # Corpus total of the tool-bearing turns dropped from the gap population for an
+        # unusable timestamp — the gap axis's sibling of the field above.
+        "total_unusable_timestamp_turns": _sum_or_unestablished(
+            [r["unusable_timestamp_turns"] for r in runs]),
         # Residency axis (issue #1209 axis 1) — median AND max, so tail behaviour is
         # visible and not hidden by an average (AC3).
         "median_peak_context": _median_or_unestablished(peaks),
         "max_peak_context": _max_or_unestablished(peaks),
-        # These count OVER the measured-peak population, so they guard on `peaks`
-        # (not the filtered list): with measured runs present but none over threshold the
+        # These count OVER the measured-peak population, so they guard on `peaks` (the
+        # measured-peak population itself) rather than on the over-threshold
+        # sub-population `_sum_or_unestablished` would key on: with measured runs
+        # present but none over threshold the
         # answer is a real 0, never `unestablished` — so `_sum_or_unestablished` (which
         # keys on its own argument being empty) is deliberately NOT used here.
         "runs_over_200k": (sum(1 for p in peaks if p > BUCKET_200K)
@@ -683,11 +749,12 @@ def _render_run_line(r):
         "tool_calls=[{tools}] total_tool_calls={total_tool_calls} "
         # The unit lives in the KEY, never appended to the value: a `{value}s` suffix
         # renders the UNESTABLISHED sentinel as "unestablisheds".
-        "gap_seconds=[n={gap_count} median={gap_median} max={gap_max} "
-        "total={gap_total}]".format(
+        "turn_gap_seconds=[n={gap_count} median={gap_median} max={gap_max} "
+        "total={gap_total} spans_dropped_turns={gap_dropped}]".format(
             phase=phase, tools=tools, gap_count=gaps["count"],
             gap_median=gaps["median_seconds"], gap_max=gaps["max_seconds"],
-            gap_total=gaps["total_seconds"], **r)
+            gap_total=gaps["total_seconds"],
+            gap_dropped=gaps["spans_dropped_turns"], **r)
     )
 
 
@@ -707,11 +774,18 @@ def render_text(runs, summary, skipped):
     for key, value in summary.items():
         lines.append("- {}: {}".format(key, value))
     lines.append("")
-    total_skipped = sum(skipped.values())
-    lines.append("## Skipped records: {}".format(total_skipped))
-    for reason in sorted(skipped):
-        if skipped[reason]:
-            lines.append("- {}: {}".format(reason, skipped[reason]))
+    # `unusable_timestamp` is a gap-population EXCLUSION, not a record the parser
+    # skipped, so it is reported under its own heading rather than inflating the
+    # skipped-records headline a maintainer reads as "bad transcript data".
+    dropped_stamps = skipped.get("unusable_timestamp", 0)
+    record_skips = {k: v for k, v in skipped.items() if k != "unusable_timestamp"}
+    lines.append("## Skipped records: {}".format(sum(record_skips.values())))
+    for reason in sorted(record_skips):
+        if record_skips[reason]:
+            lines.append("- {}: {}".format(reason, record_skips[reason]))
+    lines.append("")
+    lines.append("## Turns dropped from the gap population "
+                 "(unusable timestamp): {}".format(dropped_stamps))
     return "\n".join(lines)
 
 
