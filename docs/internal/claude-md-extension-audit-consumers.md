@@ -108,6 +108,16 @@ CLAUDE.md is reached via `$LIB/../CLAUDE.md`, `$WSR_CLAUDE`, `$E711_CLAUDE`, and
 
 ---
 
+### Enumeration gap this audit shipped with, and how it surfaced
+
+This inventory swept `lib/test/run.sh` and three named modules. The issue's Implementation Notes
+directed a sweep of the **whole** `lib/test/modules/` directory, and
+`lib/test/modules/regenerate-artifacts.sh` was never opened — so its `#655`/`#1055` population,
+which pins the two generated-artifact sections per extension, is absent from the consumer list
+below. CI caught the resulting 13 module failures plus 5 `run.sh` pin failures; the rules were
+restored and recorded as permitted exception **P9** in the duplicate list. Treat the numbered
+consumers below as the verified set, not as the complete one.
+
 ### Post-edit disposition, consumer by consumer (AC3's second limb)
 
 For each consumer above, whether its dependency **survives unchanged** under the #1352 placement edits

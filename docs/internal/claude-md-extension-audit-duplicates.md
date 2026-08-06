@@ -100,27 +100,47 @@ the two, so renaming or removing a tool on either side turns the suite RED". Tha
 `run.sh:10205` asserts the `lib/preflight.sh` header alone. That assertion's own name still advertised
 the retired pin and has been reworded.
 
-### 7. Generated-artifact regeneration and merge-conflict classification
-
-Not in the pre-edit list, but found during the pass: `Merge conflicts in generated artifacts` (3,254 B)
-and `Batched artifact regeneration` were carried as near-copies by all three of `implement.md`,
-`review-and-fix.md` and `receiving-code-review.md` — 18,769 B in total. Neither rule is
-command-specific, so both are now stated once in `CLAUDE.md`. See the permitted-exception row below for
-the fence `implement.md` retains.
+*(The generated-artifact rules were attempted here and reverted — see permitted exception **P9**.)*
 
 ---
 
 ## Permitted exceptions — present in both, with the reason
 
-### P1. `implement.md`'s cloud focused-runner sentence, and its `regenerate-artifacts.py` fence
+### P1. `implement.md`'s cloud focused-runner sentence
 
-- **Overlap:** the mandated cloud direct-leading-token form, and the batched-regeneration invocation.
+- **Overlap:** the mandated cloud direct-leading-token form.
 - **Reason (suite pin; retirement out of scope).** `lib/test/run.sh`'s `#591` assertion pins the
-  literal `is the mandated invocation (the \`bash\`` in `implement.md`, and its `#1354 T2` pair asserts
-  that dropping the `regenerate-artifacts.py` grant from a fixture config reports **that file's** head
-  as ungranted — which requires a `regenerate-artifacts.py` fence to exist in `implement.md`. The
-  issue's Non-Goals put pin retirement out of scope, and per the repo's two-PR sequencing rule a
-  re-adjudication cannot share a branch with the sweep it authorizes.
+  literal `is the mandated invocation (the \`bash\`` in `implement.md`. The issue's Non-Goals put pin
+  retirement out of scope, and per the repo's two-PR sequencing rule a re-adjudication cannot share a
+  branch with the sweep it authorizes.
+
+### P9. The generated-artifact rules, in all three extensions
+
+- **Overlap:** `## Merge conflicts in generated artifacts` and `## Batched artifact regeneration`
+  appear in `implement.md`, `review-and-fix.md` and `receiving-code-review.md` as near-identical
+  copies — 18,769 B in total.
+- **Attempted resolution, and why it was reverted.** Neither rule is command-specific, so arm one of
+  the placement rule reads as sending both to `CLAUDE.md` in one copy. That consolidation was made and
+  then reverted, because the copies are **pinned per extension** and the pins govern:
+  - `lib/test/modules/regenerate-artifacts.sh` `#655`/`#1055` assert that the conflict rule is its own
+    top-level section in each file, that it cites `--list` as the oracle, that the extracted section is
+    non-empty, that it is not nested under Batched, that `implement.md`'s cross-reference names the
+    rule's actual heading literal, and that each file's two sections fence the granted direct head.
+  - `lib/test/run.sh` `#619` pins `run the granted direct leading-token form once` and
+    `` `batched-regeneration: run|refused|skipped` `` in all three files, each carrying a
+    `# structural-pin-ok: cross-file-phase-contract` declaration whose stated rationale is that the
+    cloud-only config grant and the prompt invocation must stay coupled.
+  - `lib/test/run.sh`'s `#1354 T2` additionally asserts that dropping the `regenerate-artifacts.py`
+    grant from a fixture config reports **`implement.md`'s** head as ungranted, which requires that
+    file to carry the fence.
+- **Reason (suite pin; retirement out of scope).** Retiring any of those pins is a Non-Goal of this
+  issue, and the `#619` pins are declared `cross-file-phase-contract` boundaries rather than prose
+  pins, so they sit outside the #843/#876 prose-retirement route entirely. Both sections are restored
+  verbatim in all three extensions and `CLAUDE.md` states neither.
+- **How this was found.** Not by the audit — by CI. The AC3 consumer enumeration swept `run.sh` and
+  three named modules; the issue's Implementation Notes said to sweep the whole `lib/test/modules/`
+  directory, and `regenerate-artifacts.sh` was never opened. That gap is recorded here rather than
+  quietly closed, because it is the same incompleteness the enumeration exists to prevent.
 
 ### P2. `review-and-fix.md`'s three module-pinned sentences
 
