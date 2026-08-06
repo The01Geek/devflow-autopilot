@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1361",
+  "generated_at": "2026-08-06T09:10:43Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.14",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 2.718743,
+    "tokens": {
+      "input_tokens": 47,
+      "output_tokens": 9797,
+      "cache_read_input_tokens": 2723266,
+      "cache_creation_input_tokens": 111195,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 47,
+        "outputTokens": 9797,
+        "cacheReadInputTokens": 2723266,
+        "cacheCreationInputTokens": 111195,
+        "webSearchRequests": 0,
+        "costUSD": 2.718743,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 25,
+    "duration_ms": 177449
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh review 2>&1 | head -50; echo \"rc=${PIPESTATUS[0]}\"",
+      "git merge-base FETCH_HEAD origin/main 2>&1; echo \"---\"; git diff --stat $(git merge-base FETCH_HEAD origin/main) FETCH_HEAD 2>&1",
+      "MB=$(git merge-base FETCH_HEAD origin/main); echo \"mb=$MB\"; git diff --stat \"$MB\" FETCH_HEAD",
+      "MB=$(git merge-base FETCH_HEAD origin/main)\ngit diff --stat \"$MB\" FETCH_HEAD",
+      "git cat-file blob FETCH_HEAD:skills/implement/phases/phase-4-documentation.md > .prflow/tmp/p4.md 2>/dev/null || (mkdir -p .prflow/tmp && git cat-file blob FETCH_HEAD:skills/implement/phases/phase-4-documentation.md > .prflow/tmp/p4.md)\necho \"sha256:\"; sha256sum .prflow/tmp/p4.md; echo \"bytes/lines:\"; wc -c -l .prflow/tmp/p4.md",
+      "mkdir -p .prflow/tmp\ngit cat-file blob FETCH_HEAD:skills/implement/phases/phase-4-documentation.md > .prflow/tmp/p4.md\nsha256sum .prflow/tmp/p4.md\nwc -c -l .prflow/tmp/p4.md"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
