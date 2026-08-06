@@ -879,7 +879,7 @@ assert_eq "#435 AC5 mktemp-fail: NO fired-re-trigger ::notice::" "no" \
 # DevFlow engine sets CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, which the vendor documents as
 # keeping subagents in the foreground — so results are in hand before the turn continues,
 # without depending on the model choosing correctly. (2) The RUNNER-AGNOSTIC BARRIER: each
-# engine root states, once, that a dispatch blocks until the completed result is in hand and
+# engine root states, once, that every dispatched result is in hand before the run proceeds and
 # that a launch acknowledgment is never the return — with the per-runner mechanism named as a
 # current example, so the requirement survives a parameter rename and holds on runtimes with
 # no equivalent switch. The barrier pins target each ROOT's own path rather than
@@ -918,7 +918,9 @@ unset _wf801 _t801
 # The literal is the barrier's acknowledgment clause rather than its lead sentence: the two
 # roots word that lead differently (issue #1254 reworded the implement root's to state
 # collect-before-proceeding), while this clause is the barrier's in both and is what a
-# relocation would carry with it.
+# relocation would carry with it. So these checks bind the PLACEMENT of the acknowledgment
+# clause and assert nothing about the collect requirement's own wording — do not read their
+# green as coverage of it.
 BARRIER_LIT801="a launch acknowledgment is never treated as the return"
 barrier_in_cloud_block801() {  # file -> yes|no
   awk '/Cloud headless-wait discipline/,/^This discipline/' "$1" | \
@@ -947,7 +949,7 @@ for _root801 in "$REVIEW_ROOT801" "$IMPL_SKILL415"; do
 done
 unset _root801 _root801_label _t801s
 assert_eq "#801 grounding block renders the dispatch-barrier sentence" "yes" \
-  "$(printf '%s\n' "$GB408_OUT" | grep -qF "A dispatch blocks until the subagent's completed result is in hand" && echo yes || echo no)"
+  "$(printf '%s\n' "$GB408_OUT" | grep -qF "$BARRIER_LIT801" && echo yes || echo no)"
 
 # barrier-pointer-coverage — every LISTED dispatch site carries a pointer to its engine root's
 # barrier statement rather than a copy. The check matches the pointer phrase AND the root path
