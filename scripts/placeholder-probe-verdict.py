@@ -27,9 +27,10 @@ THE THREE LIMBS, MEASURED BY ONE LINE. The probe skill carries a single placehol
 
   (a) substitution — output present at all;
   (b) environment  — the value carried is the job's step-level sentinel;
-  (c) allowlist    — the head is a repo-relative script path while the job grants only
-                     `Bash(printf:*)` and `Skill`, so any output at all proves rendering
-                     ran an UNGRANTED head.
+  (c) allowlist    — ANSWERED NEGATIVE and no longer live. While it was open the head was
+                     deliberately withheld, and rendering was refused (run 31058504896,
+                     `This command requires approval`). The head is granted now, which is
+                     what makes (a) and (b) observable at all.
 
 ALREADY ESTABLISHED, AND IT CONTRADICTS THE ISSUE. Run 31058109064 refused the probe's
 first placeholder shape outright, recording on the Skill tool_result: `Shell command
@@ -41,9 +42,11 @@ which is the class #1264 exists to fight. The shell expansion therefore moved ou
 command text into `.github/probe-plugin/phprobe-read-env.sh`, leaving a bare literal path
 for the static check to accept; that redesign is what makes limb (a) reachable at all.
 
-Limb (c) rides on limb (a) by construction: there is no observation where the placeholder
-substituted AND the allowlist gated it, because the only head it could have run is the
-ungranted one. That is deliberate — it costs no extra action and removes a whole arm.
+That original construction — measure (c) by withholding the grant — worked, and answered
+it in the negative. The consequence is that (a) and (b) were UNREACHABLE until the head was
+granted: four consecutive runs were refused before substitution could ever be observed. So
+a SUBSTITUTED_* verdict from this probe as it now stands says nothing about (c), and the
+reason strings below say so explicitly rather than leaving a reader to infer it.
 
 HOW IT IS MADE MEASURABLE. The rendered body is not itself a tool call, so the probe
 borrows the #812/#874 technique: the agent ECHOES BACK what it sees on the placeholder
@@ -282,12 +285,19 @@ def compute_verdict(tool_uses, note_top):
     if env_visible:
         return (
             "SUBSTITUTED_ENV_VISIBLE",
-            "the placeholder was substituted AND carried the step-level sentinel. All three "
-            "limbs positive: (a) a `!` placeholder in a plugin-sourced SKILL.md is rendered "
-            "under a slash-command prompt, (b) the injected command sees "
-            "DEVFLOW_PROMPT_EXTENSION_ROOT through $GITHUB_ENV, and (c) rendering ran an "
-            "UNGRANTED head (/bin/echo against an allowlist of Bash(printf:*)), so it is not "
-            "refused by --allowed-tools. The placeholder design is cleared",
+            "the placeholder was substituted AND carried the step-level sentinel. Limb (a) "
+            "POSITIVE: a `!` placeholder in a plugin-sourced SKILL.md IS rendered under a "
+            "slash-command prompt. Limb (b) POSITIVE: the injected command sees "
+            "DEVFLOW_PROMPT_EXTENSION_ROOT through $GITHUB_ENV, so render-time injection can "
+            "inherit the #874 trusted base-ref closure. Limb (c) is NOT cleared by this run "
+            "and must not be read as such: it was measured separately and came back NEGATIVE "
+            "(run 31058504896 — `This command requires approval`; run 31058109064 — `Contains "
+            "expansion`), so rendering IS gated under claude-code-action, by static shape "
+            "analysis AND by --allowed-tools. This run reached substitution only because the "
+            "placeholder head is granted. The mechanism therefore works, subject to a design "
+            "constraint issue #1264 does not yet state: the injected wrapper must carry a "
+            "statically-analyzable command shape (no `${...}` expansion) and its head must be "
+            "granted in the resolved --allowed-tools of every tier that renders it",
             True,
             True,
         )
