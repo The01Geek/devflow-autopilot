@@ -23072,7 +23072,7 @@ src = open(helper_path, encoding="utf-8").read()
 def const(name):
     m = re.search(r'^%s = "([^"]+)"' % name, src, re.M)
     return m.group(1) if m else None
-names = ("SENTINEL", "MARKER", "LINE_ABSENT", "CONTROL_BEFORE", "CONTROL_AFTER")
+names = ("SENTINEL", "MARKER", "LINE_ABSENT", "CONTROL_BEFORE", "CONTROL_AFTER", "SAW")
 vals = {n: const(n) for n in names}
 if not all(vals.values()):
     print("helper constants not readable: %r" % (vals,)); sys.exit(0)
