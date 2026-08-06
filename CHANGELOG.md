@@ -4,6 +4,14 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.11] — 2026-08-06
+
+### Changed
+### Added
+
+- `scripts/prompt-surface-growth.py` renders the prompt-surface byte delta a branch introduces, alongside the running byte total at `HEAD`, as a markdown table for the PR description. The covered population is tracked `*.md` files under `skills/`, `agents/`, and `.prflow/prompt-extensions/`, enumerated from the committed tree at both the merge-base and `HEAD` so a deleted file still renders (total `0`, negative delta). It is measurement only — no threshold, ceiling, or budget — and always exits 0, printing a stated breadcrumb instead of a table when `HEAD` is the merge-base, when no covered path changed, or when the merge-base cannot be resolved. Anything that qualifies the figures — an unresolvable repository root, an entry that could not be read as a blob — is disclosed as a `> Note:` line on stdout beside them, rather than on a stderr channel the consumer does not read. The helper ships with the plugin but is invoked only from a `pr-description` prompt extension, so an installed repo sees no change until it adds one. (#1355)
+- The `implement` and `command` capability profiles grant the new helper, so a cloud run can invoke it rather than having it silently refused. (#1355)
+
 ## [2.31.10] — 2026-08-06
 
 ### Added
