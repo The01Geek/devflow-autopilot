@@ -32,8 +32,10 @@ single-sourced in the three prompt extensions.
 ## Diagnosing a failing full suite
 
 When the full suite fails, read its terminal `Failure recap` (#789) from the stderr-merged
-capture rather than relaunching. The exec bit is necessary but not sufficient for the
-leading-token retry — the leading-token form must also be permitted on the tier.
+capture rather than relaunching. A mid-iteration `#434` stale-prose skip on a dirty tree is
+expected and clears on commit — never re-run the full suite solely to clear it. The exec bit is
+necessary but not sufficient for the leading-token retry — the leading-token form must also be
+permitted on the tier.
 
 ## Wall-clock is not CI's
 
