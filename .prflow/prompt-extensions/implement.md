@@ -1,156 +1,76 @@
 # DevFlow repo — operative policy for `/prflow:implement`
 
-This repository (the DevFlow plugin itself) manages its own version and runs under a
-permission classifier that routinely blocks shell invocations, so apply the following
-when implementing an issue here. The base `/prflow:implement` skill is
-versioning-agnostic and environment-agnostic by design — this extension is DevFlow's
-opt-in, and it is the **operative** repo policy (edit this file to change it).
+This repository is the DevFlow plugin itself. The base `/prflow:implement` skill is
+versioning-agnostic and environment-agnostic by design; this extension is DevFlow's opt-in and is
+the **operative** repo policy for what an implement run adds to the rules `CLAUDE.md` already
+states (edit this file to change it).
 
 ## Versioning policy
 
-DevFlow versions itself with **changesets**, not an in-PR version bump. Each PR that reaches
-consumers declares its change in a uniquely-named `.changeset/*.md` file and never edits
-`.claude-plugin/plugin.json` or `CHANGELOG.md`; a merge-time GitHub Action (at
-`.github/workflows/version-consolidate.yml`; runs
-`scripts/consolidate-changesets.py`) consolidates all pending changesets into a single version
-bump + CHANGELOG entry on `main`.
-Because each changeset file has a unique name, two concurrent PRs never touch a shared line,
-so the version/CHANGELOG merge conflicts that used to tax every concurrent PR are gone. Full
-format reference: [`.changeset/README.md`](../../.changeset/README.md).
+**Add exactly one uniquely-named `.changeset/*.md` file for a change that reaches consumers** — a
+fix, feature, or breaking change to the engine surface (`skills/`, `agents/`, `lib/`, `scripts/`,
+the workflows, the config schema) — and never edit `.claude-plugin/plugin.json` or `CHANGELOG.md`
+directly. Internal-only changes (tests, CI, dev-only docs) add none, and the Phase 3 review gate
+FAILs an engine-surface change that carries no changeset.
 
-**When to add a changeset.** Add exactly one `.changeset/*.md` file only for changes that
-reach consumer repos as an update — a fix, feature, or breaking change to the engine
-surface (`skills/`, `agents/`, `lib/`, `scripts/`, the workflows, the config schema).
-Internal-only changes (tests, CI, dev-only docs) add **no** changeset.
+**Default the `bump:` frontmatter key to `patch`.** Choose `minor` or `major` only when this
+issue's body explicitly authorizes the larger step — never infer one from the change's size or
+feature-ness.
 
-**Which bump — default to `patch`.** The changeset frontmatter carries a `bump:` key of
-`patch`, `minor`, or `major`. Use the smallest step. Choose `minor` (backward-compatible
-feature) or `major` (breaking change) **only when this issue's body explicitly authorizes
-the larger step** — e.g. an acceptance criterion naming the target version or the SemVer
-increment. When the issue is silent on the increment, choose `patch`. Never infer a larger
-bump from the change's size or "feature-ness" on your own.
+**Write it after the draft PR exists but before the review pass**, named after the branch or issue
+(e.g. `issue-290-<slug>.md`) so it never collides with a concurrent PR's. That way the prose can
+cite the PR number and the changeset lands inside the diff `/simplify` and `/prflow:review-and-fix`
+review; record the increment decision in the workpad so it survives context compaction.
 
-**Do not edit `plugin.json` or `CHANGELOG.md` directly.** The changeset *is* your changelog
-prose (Keep-a-Changelog wording in the body, PR-cited). The merge-time Action bumps
-`.claude-plugin/plugin.json` by the **highest** pending `bump:` and assembles the dated
-`## [x.y.z]` `CHANGELOG.md` entry from every pending changeset's prose. The Phase 3 review
-gate FAILs on an engine-surface change that carries **no** changeset file (the changeset
-replaces the old version↔`CHANGELOG` presence check).
+**Commit-message contract (load-bearing — do not drift).** The merge-time consolidation commit's
+subject begins with the literal `chore: bump version`, and `skills/docs-release-notes/SKILL.md`
+Step 4b uses that prefix to confirm a bump happened, reads the authoritative version from
+`.claude-plugin/plugin.json`, then assembles the dated `## [x.y.z]` CHANGELOG entry from every
+pending changeset's prose. Renaming the subject makes Step 4b see no bump and silently disables
+that reconciliation; the producer (`version-consolidate.yml`) and consumer are kept in lockstep by
+a coupling pin in `lib/test/run.sh`.
 
-**When to write it.** Decide the increment once the committed diff is concrete (record the
-decision in the workpad so it survives context compaction), then add the `.changeset/*.md`
-file **after the draft PR exists but before the review pass** — so the prose can cite the PR
-number and the changeset lands inside the diff that `/simplify` and `/prflow:review-and-fix`
-review. Name the file after the branch or issue (e.g. `issue-290-<slug>.md`) so it never
-collides with a concurrent PR's. The Phase 4.3 clean-tree backstop is the final guard that
-the changeset never ends up uncommitted.
-
-**Commit-message contract (load-bearing — do not drift).** The merge-time consolidation
-commit's subject begins with the literal `chore: bump version`. This prefix is not cosmetic:
-the release-notes reconciliation step (`skills/docs-release-notes/SKILL.md` Step 4b) uses this
-prefix to **confirm a version bump happened** — it then reads the authoritative version from
-`.claude-plugin/plugin.json` (never from the commit subject, which a later re-version can
-leave stale) and reconciles that version's CHANGELOG entry, or no-ops if no such commit
-exists. **Note the consequence for DevFlow's own PRs:** because the bump commit is now created
-at merge time on `main` (not on the feature branch), Step 4b's branch-scoped
-`origin/main..HEAD` scan legitimately finds no bump commit during `/prflow:implement` and
-no-ops — that reconciliation stays live only for consumer repos that still bump in-PR. Here,
-CHANGELOG correctness rests on the in-diff changeset prose, which the Phase 2.3.4a self-claim
-sweep and Phase 4.2 keep aligned with the shipped diff. The producer of the subject is now the
-merge-time Action, not this skill; renaming it
-(e.g. to `chore(release): …`) makes Step 4b see no bump and silently disables that
-reconciliation. The producer (`version-consolidate.yml`) and consumer (Step 4b) are kept in
-lockstep by a coupling pin in `lib/test/run.sh`; change one and the suite goes RED until the
-other matches.
+**Step 4b legitimately no-ops during `/prflow:implement`.** The bump commit is created at merge
+time on `main` rather than on the feature branch, so its `origin/main..HEAD` scan finds none — here
+CHANGELOG correctness rests on the in-diff changeset prose, which the Phase 2.3.4a self-claim sweep
+and Phase 4.2 keep aligned with the shipped diff.
 
 ## The project's preflight-guaranteed tool set (for §2.3.6's un-guaranteed-tool sweep)
 
-The base skill's §2.3.6 un-guaranteed-tool guard class keys on "a tool **the project's
-preflight** does not guarantee." For this repository, that preflight set is fixed and small:
-DevFlow's preflight guarantees exactly **git, gh (authenticated), jq, and python3 (>=3.11) with PyYAML**
-— the same set `lib/preflight.sh`'s header declares (this enumeration is a coupled mirror of that
-header; `lib/test/run.sh` pins the two, so renaming or removing a tool on either side turns
-the suite RED; a tool *added* to the preflight set is reconciled here by the §2.3.0b
-enumeration-reconciliation sweep, not by these pins). Everything else a helper might
-reach for on `PATH` — `tr`, `sed`, `awk`, `cut`, `wc`, `head`, `paste` — is **not** guaranteed: a
-value that decides a selection or an emitted result must not be derived through one of those (derive
-it with bash builtins instead), while cosmetic sanitization through them is acceptable only when a
-missing tool fails closed. This concrete set is what instantiates "the project's preflight" in the
-base skill's generic wording; the base skill stays repo-agnostic and names no tools.
+The base skill's §2.3.6 un-guaranteed-tool guard class keys on "a tool **the project's preflight**
+does not guarantee", and for this repository that set is the one `CLAUDE.md` states and
+`lib/preflight.sh`'s header declares. Everything else a helper might reach for on `PATH` is
+un-guaranteed, so a value deciding a selection or an emitted result must not be derived through
+one; a tool *added* to the preflight set is reconciled into this run's sweep by the §2.3.0b
+enumeration-reconciliation sweep. This concrete instantiation is what the base skill's generic
+wording means — the base skill stays repo-agnostic and names no tools.
 
 ## Comment discipline — do not preserve mirror facts with wording pins
 
-The base skill's §2.3 authoring rule keeps mirror-fact comments (an exact count, an
-enumerated list of sites/values, a scope word restating a predicate, narration of what
-adjacent code does) out of the diff or makes them drift-proof. Remove or rewrite a mirror
-fact as a lower bound or a pointer to the defining symbol. When the underlying claim is
-load-bearing, prefer a behavioral test at the executable boundary that would fail when the
-implementation drifts; do not preserve the comment with a comment-presence or wording-presence
-pin. Header and contract comments — fail-closed decision matrices, cross-file
-producer/consumer contracts, and the issue provenance of a non-obvious shape — remain
-load-bearing prose, but their prose presence alone is not a test target.
+The base skill's §2.3 authoring rule keeps mirror-fact comments — an exact count, an enumerated
+list of sites or values, a scope word restating a predicate, narration of what adjacent code does —
+out of the diff, or makes them drift-proof. Remove or rewrite a mirror fact as a lower bound or a
+pointer to the defining symbol, and where the underlying claim is load-bearing prefer a behavioral
+test at the executable boundary that fails when the implementation drifts. Header and contract
+comments stay load-bearing prose, but their prose presence alone is not a test target.
 
 ## Behavioral regressions — executable evidence, not attestation
 
-When a test protects a **named behavioral regression**, exercise the rendered
-interface or machine-observable contract with an ordinary executable test. Break the
-behavior on a scratch copy or fixture, observe that executable test go RED, and then
-restore the correct behavior. Do not encode the regression as source-text presence;
-the former mutation-taking helpers and wrappers are retired.
+When a test protects a **named behavioral regression**, exercise the rendered interface or
+machine-observable contract with an ordinary executable test: break the behavior on a scratch copy
+or fixture, observe that test go RED, then restore the correct behavior. Do not encode the
+regression as source-text presence — the former mutation-taking helpers and wrappers are retired.
 
-Then record **evidence, not an attestation**. The workpad `--note` records the
-behavior you broke and the executable test you observed go RED — a reproducible fact.
-A note that merely testifies that a guard is relevant proves nothing a reviewer can
-re-run.
+Then record **evidence, not an attestation**: the workpad `--note` records the behavior you broke
+and the executable test you observed go RED. A note that merely testifies a guard is relevant
+proves nothing a reviewer can re-run.
 
-**Wording-only pins are prohibited.** A wording-only pin is a test whose protected literal can
-change without changing executable behavior and without breaking a machine-consumed contract.
-Do not add wording-only, secondary-prose, documentation-presence, advisory-heading, or
-comment-presence pins, whether expressed through a pin helper or a raw `grep`/text-presence
-assertion. An operative prompt regression is behavioral: exercise the rendered or
-consumed prompt with an ordinary executable test, break the behavior in a scratch
-fixture, and demonstrate that test going RED.
-
-The only new non-mutation presence pins permitted are executable-boundary pins classified by
-this closed set: `helper-contract`, `schema-config-vocabulary`,
-`security-credential-boundary`, `machine-sentinel-provenance`,
-`routing-dispatch-contract`, `lifecycle-state-transition`,
-`generated-artifact-identity`, and `cross-file-phase-contract`. Their logical line must carry
-the format-strict declaration
-`# structural-pin-ok: <category> -- <rationale>`, with one category from that set and a
-nonempty rationale explaining the machine-consumed or executable boundary. The
-diff-scoped `mutation-routing` gate applies this same policy to helper-based and raw presence
-assertions; unchanged legacy sites need no backfill. A marker never turns protected prose into
-an executable boundary.
-
-## Verification under classifier friction — never ship an unverified assumption
-
-The sandbox permission classifier in this repo frequently denies the very commands that
-verify your change — `bash lib/test/run.sh`, `shellcheck`, script-by-path invocations,
-file redirection, and live `gh`/network calls. A blocked verification command is **not**
-license to assume the change is fine and move on. When a verification you would normally
-run is denied, do this in order — do not skip to the last rung:
-
-1. **Retry via the documented authorized path before assuming anything.** The classifier
-   denies *forms*, not the work itself: the project test suite and `shellcheck` run fine
-   when launched through a `python3 -c "subprocess.run(...)"` wrapper (the authorized
-   project commands per `CLAUDE.md`), and files write fine via the Write tool instead of
-   shell redirection. Reach for these wrappers *first*; a denied first invocation almost
-   never means the verification is truly impossible here.
-2. **If the verification is genuinely impossible** (e.g. a live `gh` call needs auth or
-   network the sandbox lacks), do the strongest reachable substitute — exercise the code
-   path against a stub/fixture — and then **record the residual gap as an explicit
-   `## Devflow Reflection` bullet** that names the unverified claim, why it could not be
-   exercised live, and the failure mode if the assumption is wrong. Write it as
-   *"code-verified via stub, live-unverified: <claim>"*, never as *"impact assessed as
-   nil"* or any phrasing that implies it was actually checked.
-3. **Never let a verification you skipped read as a verification you passed.** Do not
-   assert a test suite, lint, or behavior is clean unless you ran it (directly or via the
-   authorized wrapper) and saw the result. An unverified assumption stated as fact is the
-   exact failure this rule exists to stop — surface it as an open gap, not a conclusion.
-
-The standard is *evidence before assertion*: a claim that something works must point to a
-command you actually ran and its observed output, or be explicitly flagged unverified.
+**Wording-only pins are prohibited**, per `CLAUDE.md`'s executable-evidence policy and its closed
+`# structural-pin-ok:` category set. An operative prompt regression is behavioral: exercise the
+rendered or consumed prompt with an ordinary executable test, break the behavior in a scratch
+fixture, and demonstrate that test going RED. The diff-scoped `mutation-routing` gate applies the
+same policy to helper-based and raw presence assertions, and unchanged legacy sites need no
+backfill.
 
 ## Focused test modules are the iteration default
 
@@ -182,189 +102,126 @@ exactly `lib/test/run-module.sh create-issue-contract` as a direct leading token
 ## Repo-specific command names and coupled-pin recognizers (relocation destination, issue #1072)
 
 The phase files state their verification, relocation and capability-boundary obligations
-**generically** — "the project's own test/lint command", "the project's own relocation check",
-"a coupled test-suite pin that asserts workflow content" — because the concrete command names
-and pin recognizers below are this repository's own and must never ship to a consumer whose
-tree does not carry them (`lib/test/**` is pruned from the vendored plugin by
-`.github/actions/vendor-plugin/vendor-slice.sh`). The **form constraint stays in the phase
-files**: on the cloud tier every verification/relocation command is invoked as the command's
-**leading token**, never behind a `bash <path>` wrapper (deny-floored). Only the concrete names
-live here, so a run whose extension was lost to compaction still reads a phase-file sentence
-sufficient to avoid the denied shape.
+**generically** — "the project's own test/lint command", "the project's own relocation check", "a
+coupled test-suite pin that asserts workflow content" — because the concrete names below are this
+repository's own and must never ship to a consumer whose tree does not carry them (`lib/test/**` is
+pruned from the vendored plugin). The **form constraint stays in the phase files**, so a run whose
+extension was lost to compaction still reads a phase-file sentence sufficient to avoid the denied
+shape.
 
-- **The project's own test command** is `lib/test/run.sh` (the serial primitive) and, for the
-  final full suite, `lib/test/run-parallel.sh`; a focused surface uses
-  `lib/test/run-module.sh <module-id>`. These are already stated in full in the verification
-  section above — the relocation from `skills/implement/phases/phase-3-review.md`'s in-env
-  verification rule and single-flight paragraph adds nothing beyond confirming that this is the
-  concrete command those now-generic phase sentences mean. Invoke each as a **direct leading
-  token** on the cloud tier; the `bash <path>` wrapper is deny-floored.
-- **The project's own relocation check** is `lib/test/pin-corpus-lint.py --reloc` — the
-  deterministic desk-time net `skills/implement/phases/phase-2-implement.md`'s relocation sweep
-  now names generically. It turns a bare `ABSENT` pin into `relocated to <file>` and fails
-  closed on a genuine deletion or an unresolvable search set. On the cloud implement tier it has
-  no direct-token grant and `python3 <path>` is the denied interpreter-head shape, so the
-  relocation reconciliation is discharged by observing the full suite green (its drift check is
-  what turns red on an unreconciled citation); the local/interactive tier runs it directly.
-- **The coupled test-suite pin that asserts workflow content** — the recognizer
-  `skills/implement/phases/phase-1-setup.md`'s Pass 5 scan, its provisional-flag paragraph, and
-  `skills/implement/phases/phase-2-implement.md`'s commit guard now name generically — is, in
-  this repository, a `lib/test/run.sh` pin. That is the concrete literal Pass 5 detects a
-  workflow-resident AC from, and the concrete pin the workflows-scoped commit-guard greps miss
-  (they list only the workflow file itself); reverting a workflow-resident AC on a
-  workflow-incapable cloud credential reverts that coupled `lib/test/run.sh` pin with it so the
-  pushable remainder stays CI-green.
+- **The project's own test command** is `lib/test/run.sh` (the serial primitive) and, for the whole
+  suite, `lib/test/run-parallel.sh`; a focused surface uses `lib/test/run-module.sh <module-id>`.
+- **The project's own relocation check** is `lib/test/pin-corpus-lint.py --reloc`, which turns a
+  bare `ABSENT` pin into `relocated to <file>` and fails closed on a genuine deletion or an
+  unresolvable search set. It has no direct-token grant on the cloud implement tier and
+  `python3 <path>` is the denied interpreter-head shape, so there the reconciliation is discharged
+  by observing the full suite green; the local/interactive tier runs it directly.
+- **The coupled test-suite pin that asserts workflow content** is, in this repository, a
+  `lib/test/run.sh` pin. It is the literal Phase 1's Pass 5 detects a workflow-resident AC from,
+  and the pin the workflows-scoped commit-guard greps miss, so reverting a workflow-resident AC on
+  a workflow-incapable cloud credential reverts that coupled pin with it and the pushable
+  remainder stays CI-green.
 
 ## Interpreter-faithful probes — probe under the shell the artifact actually runs under
 
 When you probe behavior that depends on the **interpreter or environment** an artifact runs under —
 a shell built-in's expansion, a `printf` escape, a locale effect, a version-specific behavior — run
-the probe under the interpreter the artifact actually runs under, and
-prefer mutation evidence over a hand probe when the two disagree. That mutation
-evidence must come from an ordinary executable test running under the artifact's real
-interpreter, never from a retired source-text mutation helper. A probe run under the *wrong*
-interpreter reports a **false vacuity**: an assertion that is live under the artifact's real shell
-looks dead under whatever shell you happened to type into, and chasing that phantom costs real effort —
-multiplied across every reviewer who repeats the same wrong-interpreter probe — while finding zero real
-defects. The artifact's own shebang (or its runner's invocation) is the authority for which interpreter
-is "actual"; a mutation that breaks the behavior and turns the executable test red is decisive where a hand
-probe under a different shell is not.
-
-**#340 reproduction (local instance):** a test loop drives eight separators through `printf '%b'`. Three
-of them are multibyte octal escapes. Bash expands them; that session's zsh does not. The orchestrator and
-two independent reviewers each probed under zsh, saw literal backslash text, and briefly concluded three
-assertions were vacuous. They were not — the suite's shebang is bash, and the executable suite evidence was
-decisive. Cost: real effort, three times over; defects found: zero. **PR #340 cost this would have
-eliminated:** the three false vacuity alarms — duplicated investigative effort across the orchestrator
-and two reviewers with zero defects found.
+the probe under the interpreter the artifact actually runs under, and prefer mutation evidence from
+an ordinary executable test over a hand probe when the two disagree. A probe run under the *wrong*
+interpreter reports a **false vacuity**: an assertion live under the artifact's real shell looks
+dead under whatever shell you happened to type into, and chasing that phantom costs real effort
+across every reviewer who repeats it while finding zero defects. The artifact's own shebang (or its
+runner's invocation) is the authority for which interpreter is "actual".
 
 ## Dogfood every run — capture process-improvement signal (standing side task)
 
-This repository runs `/prflow:implement` under DevFlow's **own** engine, so every run
-here is a live test of that engine. Treat improving DevFlow as a standing **side task** of
-this run, second only to shipping the issue itself: while you work the four phases, actively
-watch the process and record what you learn so future implement runs are better. The weekly
-`/prflow:retrospective-weekly` loop mines exactly these notes — a `## Devflow Reflection`
-bullet is the mechanism by which a friction you hit today becomes a fix tomorrow.
+This repository runs `/prflow:implement` under DevFlow's **own** engine, so every run here is a
+live test of that engine. Treat improving DevFlow as a standing side task, second only to shipping
+the issue: the weekly `/prflow:retrospective-weekly` loop mines these notes, so a friction you
+record today becomes a fix tomorrow.
 
-**What to capture** (in the `## Devflow Reflection` section, as you go — do not batch to the
-end, where context compaction will have dropped the detail):
+**What to capture**, in the `## Devflow Reflection` section as you go rather than batched to the
+end where compaction will have dropped the detail: **bugs** in any DevFlow skill, script, workflow
+or agent you exercised; **friction** — steps that were confusing, redundant, awkwardly ordered or
+missing, and any denial that forced a workaround; **problematic dependencies** such as an
+easy-to-desync coupled pair, a silent-fail consumer, or a resolver that behaved unexpectedly on
+this runtime; and **improvement ideas** the run surfaced even if you did not act on them.
 
-- **Bugs** in any DevFlow skill, script, workflow, or agent you exercised — a helper that
-  failed, a wrong breadcrumb, a gate that fired incorrectly, a doc that contradicted behavior.
-- **Friction** — steps that were confusing, redundant, ordered awkwardly, or missing; a
-  classifier/permission denial that forced a workaround; anything that made the run harder
-  than it should have been.
-- **Problematic dependencies** — a coupled-site pair that was easy to desync, a silent-fail
-  consumer, a fragile assumption, a resolver/anchor that behaved unexpectedly on this runtime.
-- **Improvement ideas** the run surfaced, even if you did not act on them.
+**How to record it.** Append each observation with `scripts/workpad.py update <ISSUE_NUMBER>
+--reflection-kind improvement --reflection "<observation>"`, naming the concrete surface and the
+specific improvement so the retrospective can act without re-deriving what you saw. Reserve the
+other kinds for what they mean: `note` (a friction you worked around), `issue-accuracy` (the
+driving issue's own claims were wrong), `blocked` (a hard stop), `deferred` (punted work),
+`dropped-failed` (a subagent or step that failed and you continued past).
 
-**How to record it.** Append each observation with
-`scripts/workpad.py update <ISSUE_NUMBER> --reflection-kind improvement --reflection "<observation>"`
-— an engine/process-improvement proposal is an `improvement` (it lands under `### 💡
-Improvements`). Reserve the other kinds for what they mean: `note` (a friction or deviation you
-worked around), `issue-accuracy` (the driving issue's own claims were wrong or underspecified),
-`blocked` (a hard stop), `deferred` (punted work), `dropped-failed` (a subagent/step that failed
-and you continued past). Name the **concrete surface** — the file, skill, or step — and the
-specific improvement, so the retrospective can act without re-deriving what you already saw. This
-is **additive** to the verification-gap reflections above and to the reflections the base skill
-already writes (deferrals, reverts, post-review code fixes); it does not replace any of them.
+**Before finalizing (Phase 4.3), confirm the side task ran — and record it on the surface whose
+cost matches the signal.** `lib/cheap-gate.jq` forces an LLM retrospective pass on any run that
+left even one `## Devflow Reflection` bullet, so a reflection is the expensive-but-loud surface and
+a `## Progress` note the cheap-but-quiet one. A run that hit real friction, a bug, or a hazard
+already has its Reflection bullet, and the gate tripping there is correct rather than waste. A run
+that was genuinely frictionless end-to-end and ran no mid-iteration full suite files **no**
+`--reflection` bullet: record `scripts/workpad.py update <ISSUE_NUMBER> --note "dogfood side task
+ran: frictionless, nothing to capture"` instead, which proves the side task ran while leaving
+`cheap-gate.jq` free to skip the clean PR cheaply.
 
-**Before finalizing (Phase 4.3), confirm the side task ran — and record the confirmation on
-the *right* surface, because the surface carries a cost.** `lib/cheap-gate.jq` forces an LLM
-retrospective pass on any run that left **even one** `## Devflow Reflection` bullet, so a
-reflection is the expensive-but-loud surface and a `## Progress` note is the cheap-but-quiet
-one. Route by whether the run actually had signal:
-
-- **The run hit real friction / a bug / a hazard** → it is already a `## Devflow Reflection`
-  bullet (an `improvement`, `note`, or `issue-accuracy` per *How to record it* above). That is
-  exactly the signal the retrospective must be forced to read; the gate tripping here is
-  correct, not waste.
-- **The run performed a full `lib/test/run.sh` run mid-iteration** (no registered module
-  covered the changed surface — see *Focused test modules are the iteration default* above) → this
-  **is** a `## Devflow Reflection` bullet, even on an otherwise frictionless run. The missing
-  focused coverage IS the signal: it names a concrete surface no module reaches, which is exactly
-  the ranked to-do list the retrospective turns into the next extraction ticket. Record it as
-  an `improvement` (the kind that lands under `### 💡 Improvements`), so two runs reporting the
-  same missing-module signal file it under one heading. This case is scoped to a **mid-iteration**
-  full run — the final-gate run is mandatory on every run, so requiring a bullet for it would trip
-  `cheap-gate.jq` on every PR and carry no signal. Paying the cheap-gate's LLM pass to surface a
-  coverage gap is the trade this rule buys deliberately.
-- **The run was genuinely frictionless end-to-end** (and ran no mid-iteration full suite) → do **not** file a `--reflection` bullet
-  for it. Record the confirmation as a `## Progress` note instead:
-  `scripts/workpad.py update <ISSUE_NUMBER> --note "dogfood side task ran: frictionless, nothing to capture"`.
-  A `--note` writes to `## Progress`, which does **not** feed `reflections[]`, so `## Devflow
-  Reflection` stays empty and `cheap-gate.jq` still skips the clean PR cheaply — while the
-  Progress note still proves the side task was run, not silently skipped.
-
-An implement run that shipped the issue, hit no friction, and left **neither** a Reflection
-bullet nor this Progress note has skipped the side task; empty-and-silent is not done. Never
-invent findings to fill Reflection — the frictionless *Progress note* is the honest terminal
-state for a clean run, precisely so you never have to.
+A run that shipped the issue, hit no friction, and left **neither** a Reflection bullet nor that
+Progress note has skipped the side task; empty-and-silent is not done. Never invent findings to
+fill Reflection — the frictionless Progress note is the honest terminal state for a clean run.
 
 ## Keeping prompt prose lean (advisory)
 
 Prompt-surface prose carries an instruction and its consequence; rationale for why the rule exists belongs in the review record, not in the prompt.
 
-Prefer moving rare-path detail and long explanations into progressively loaded references
-rather than growing mandatory prompt prose; when a tested helper owns a decision, let the
-skill point at it instead of restating the branch logic. Keep the mandatory path lean. This
-is guidance, not a gate — there is no byte census, ceiling, or cutover artifact to satisfy.
+Prefer moving rare-path detail and long explanations into progressively loaded references rather
+than growing mandatory prompt prose, and when a tested helper owns a decision let the skill point
+at it instead of restating the branch logic. This is guidance, not a gate — there is no byte
+census, ceiling, or cutover artifact to satisfy.
 
 ## Prompt-surface edit routing (repo policy)
 
 `CLAUDE.md`'s "Editing any skill file" convention mandates the `superpowers:writing-skills`
 RED/GREEN discipline before any `SKILL.md` edit, and this repo extends that mandate to its
 **prompt-surface** files. An autonomous `/prflow:implement` run must **not** invoke
-`writing-skills` through the **Skill tool** mid-phase — a mid-phase Skill-tool call is a tail
-call that adopts the nested skill's flow as the run's whole task and strands the run (the
-engine's #362 exclusionary Skill rule, which this extension preserves **unchanged**:
-`writing-skills` is **not** added to the engine's three-skill allowlist). This repo instead
-routes the discipline through a context-isolated **Agent-tool subagent**, where a Skill-tool
-`writing-skills` invocation is safe because the skill's flow *is* the subagent's whole task.
+`writing-skills` through the **Skill tool** mid-phase — that is a tail call which adopts the nested
+skill's flow as the run's whole task and strands the run (the engine's #362 exclusionary Skill
+rule, preserved **unchanged**: `writing-skills` is **not** added to the engine's three-skill
+allowlist). This repo routes the discipline through a context-isolated **Agent-tool subagent**,
+where a Skill-tool `writing-skills` invocation is safe because the skill's flow *is* the subagent's
+whole task.
 
 **The trigger globs.** The routing fires on an edit to any path matching one of:
 `skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/implement/references/*.md`, `skills/review/phases/*.md`, `skills/review-and-fix/references/*.md`, `.prflow/prompt-extensions/*.md`.
-(`agents/*.md` and skill companion/reference files *other than* the `skills/review-and-fix/references/*.md`
-step references named above stay under the base skill's Phase 2 §2.4 discipline — out of scope for this routing.)
+(`agents/*.md` and skill companion files *other than* the `skills/review-and-fix/references/*.md`
+step references named above stay under the base skill's Phase 2 §2.4 discipline.)
 
-**The routing rule (edit-intent time).** Before making any edit to a path matching a trigger
-glob, the orchestrator dispatches a context-isolated Agent-tool subagent whose prompt instructs
-it to invoke `superpowers:writing-skills` and perform the edit under that skill's RED/GREEN
-discipline, returning the edit and its evidence; the orchestrator itself does **not** invoke
-`writing-skills` through the Skill tool mid-phase.
+**The routing rule (edit-intent time).** Before making any edit to a path matching a trigger glob,
+the orchestrator dispatches a context-isolated Agent-tool subagent whose prompt instructs it to
+invoke `superpowers:writing-skills` and perform the edit under that skill's RED/GREEN discipline,
+returning the edit and its evidence.
 
 **The repair arm (resumed/compacted runs).** Evaluated **at extension load and again at Phase 3
 entry**: when the branch diff already touches a trigger glob and the workpad carries no
 `Writing-skills evidence:` marker, route the existing edits through the subagent for RED/GREEN
-verification — recording the marker — before the run proceeds. These two always-reached anchors
-make the arm fire even on a resumed or compacted run whose remaining work touches no trigger
-path, the exact state the arm exists for. **Fail closed on an unresolvable operand:** the
-trigger-glob operand is produced by reading the branch diff (`git diff` against the base) — if
-that read **fails or cannot be resolved** (an unfetched/empty base ref, a git error), treat the
-trigger-glob condition as **unknown → fire the arm**, never as "no trigger touched"; and an
-unreadable workpad likewise reads as "no marker" (fire the arm). Both operands fail toward
-*extra* verification, so a degraded read on the resumed/compacted state this arm protects can
-never silently skip the RED/GREEN discipline.
+verification — recording the marker — before the run proceeds. **Fail closed on an unresolvable
+operand:** an unreadable branch diff reads as *unknown → fire the arm*, never as "no trigger
+touched", and an unreadable workpad likewise reads as "no marker", so a degraded read on the very
+state this arm protects can never silently skip the discipline.
 
 **The fallback clause.** The subagent checks `writing-skills` against its available-skills list
-**before** editing and quotes that check's outcome in its returned evidence. When the check
-reports the skill **absent**, the edit is made under the base skill's Phase 2 §2.4 inline
-RED/GREEN micro-test discipline instead, and the workpad records the degraded mode. The recorded
-mode is **derived from the quoted check** — so `subagent` can never be recorded when the skill
-never loaded.
+**before** editing and quotes that check's outcome in its returned evidence; when the check reports
+the skill **absent**, the edit is made under the base skill's Phase 2 §2.4 inline RED/GREEN
+micro-test discipline and the workpad records the degraded mode. The recorded mode is derived from
+the quoted check, so `subagent` can never be recorded when the skill never loaded.
 
 **The evidence contract.** After any trigger-file edit, the workpad carries a line **containing**
-the exact marker literal `Writing-skills evidence:`, recorded via the sanctioned `workpad.py
-update --note` path (whose rendering prepends `  - HH:MM:SS — ` to every note, which is why the
-contract is *containment*, never line-start). This `Writing-skills evidence:` marker literal is
-the exact string the review-gate criterion matches (also as containment) — a coupled site,
-pinned in lockstep across `review-and-fix.md` and `review.md`.
+the exact marker literal `Writing-skills evidence:`, recorded via the sanctioned `workpad.py update
+--note` path — whose rendering prepends `  - HH:MM:SS — ` to every note, which is why the contract
+is *containment*, never line-start. That literal is the exact string the review-gate criterion
+matches, a coupled site pinned in lockstep across `review-and-fix.md` and `review.md`.
 
-**The line's shape.** After the marker literal the line names the trigger files touched and
-`mode=` (`subagent` for the dispatch path, `inline-degraded` for the fallback), then carries all
-four slots below. Each slot is written `<slot>=yes` or `<slot>=no` followed by one clause in
-parentheses:
+**The line's shape.** After the marker literal the line names the trigger files touched and `mode=`
+(`subagent` for the dispatch path, `inline-degraded` for the fallback), then carries all four slots
+below, each written `<slot>=yes` or `<slot>=no` followed by one clause in parentheses:
 
 | Slot | A `yes` clause states | A `no` clause states |
 |---|---|---|
@@ -376,86 +233,32 @@ parentheses:
 A worked line for the hardest case — a one-sentence factual correction to reference prose:
 
 > Writing-skills evidence: skills/review/phases/phase-3-agents.md mode=subagent
-> skill-loaded=yes (available-skills list reported `superpowers:writing-skills` PRESENT)
+> skill-loaded=yes (available-skills list reported the writing-skills id PRESENT)
 > guidance-applied=yes (Match the Form to the Failure — a stale fact is corrected in place, so
 > the form stays a plain statement) pressure-scenario=no (the edit adds and relaxes no rule, so
 > there is no discipline failure for a scenario to elicit) micro-tests=no (a corrected fact
 > shapes no behavior, so a no-guidance control has no failure to exhibit)
 
 **`no` is a discharging value.** `pressure-scenario=no` with its reason discharges that slot
-exactly as `yes` does, and recording `no` is the expected outcome for an edit the cycle does not
-fit. Neither this rule nor the review gate treats an unrun cycle as a defect; what both require
-is a stated disposition, never a particular one.
+exactly as `yes` does, and is the expected outcome for an edit the cycle does not fit; what this
+rule and the review gate require is a stated disposition, never a particular one.
 
 **What `pressure-scenario=yes` asserts.** Record `yes` when a subagent ran against the *unedited*
 text without the guidance and its rationalizations were captured verbatim — that run is the
-observable event the slot names. When no such run happened the slot is `no`, because analysis of
-what the edited text would do on some path is reasoning about the artifact, not that run.
-
-## Merge conflicts in generated artifacts
-
-This section's trigger is a **merge conflict**, not an edit: whenever a rebase, base merge, or branch
-update leaves a conflict in a checked-in file, resolve it as follows before touching the conflicted
-bytes. It is a different trigger from the Batched artifact regeneration section, whose trigger is
-post-edit and pre-suite — no in-run conflict arm routes through that section, so the conflict rule
-lives here on its own.
-
-The listing this rule reads comes from the granted direct leading-token form:
-
-```bash
-lib/test/regenerate-artifacts.py --list
-```
-
-1. Run that command.
-2. **Establish that the listing is usable before classifying anything.** This gate precedes the
-   classification below, and the order is load-bearing: an unusable listing emits no `conflict-path`
-   lines, so every conflicted path would otherwise satisfy step 3's "not among them" exit and be
-   hand-merged — the guard failing open on exactly the input it exists to catch. The listing is
-   usable only if the command exited **0** and emitted at least one `artifact` line and at least one
-   `conflict-class` line. If it was refused, the interpreter is absent, the exit code is anything
-   else, or the output is empty, truncated, or otherwise unattributable, treat every conflicted
-   generated artifact as **needs-human-reconciliation** and stop rather than blind-regenerating. This
-   verdict is **residual, not an enumeration of known failures**: any outcome you cannot positively
-   attribute is unusable. An unestablished class is unknown — not `by-hand`, and not "absent from the
-   set".
-3. With a usable listing, look for the conflicted path among the emitted `conflict-path` and
-   `conflict-sibling` paths. If it is **not** among them, hand-merge it as any normal file — the
-   fail-closed default for the complement of the generated-artifact set.
-4. If it **is**, follow the class of the **line that matched**, not the row's class unconditionally.
-   A `conflict-path` match is governed by that row's `conflict-class` and `conflict-recipe`. A
-   `conflict-sibling` match is governed by **that line's own fourth field**, which is the sibling's
-   class — never the owning row's `conflict-class`: a coupled sibling is a file the row's gate reads
-   but its generator never writes, so the row's recipe would send you to regenerate a file no
-   generator produces. Then follow the governing recipe verbatim — never hand-merge the conflicted
-   generated bytes. `regenerate` means re-run the recipe's named write command against the merged
-   tree. `reconcile-source` means merge the recipe's named source of truth first, regenerate from it,
-   then hand-update the coupled by-hand sibling the `conflict-sibling` line names. `by-hand` means the
-   record has no writer and is re-measured or hand-merged deliberately.
-
-Hand-merged generated bytes match no source of truth, so the artifact's own gate then reports them as
-drift with a remedy aimed at the wrong file — the run burns a loop chasing a misdirected diagnosis
-while silently reverting whatever a concurrent PR added. This rule hardcodes no artifact path and no
-command: both are read from `--list` at runtime, so the rule and the registry structurally cannot
-drift.
+observable event the slot names. Analysis of what the edited text would do on some path is
+reasoning about the artifact, not that run, so the slot is `no`.
 
 ## Batched artifact regeneration
 
-After applying edits and before each full-suite re-verify run, run the granted direct leading-token form once:
+`CLAUDE.md`'s generated-artifacts policy — the batched pass, its residual unchecked verdict, the
+two-denials discipline, and the merge-conflict classification — governs this run unchanged. Run
+the granted direct leading-token form once after applying edits and before each full-suite
+re-verify run:
 
 ```bash
 lib/test/regenerate-artifacts.py
 ```
 
-Loop-induced edits drift the repo's checked-in generated records — editing a reached skill asset drifts the cloud-writer runtime manifest, and editing the capability manifest drifts the generated workflow literals — and discovering each one a full suite run at a time is the dominant cost of a Phase 2-3 iteration. The helper is the sole enumeration point for this repo's suite-owned generated artifacts, so this section deliberately lists no artifact inventory of its own — an inventory duplicated into prose is one that silently goes stale as artifacts are added. This batched pass does not discharge the existing Phase 2 stale-prose sweep: `scripts/stale-prose-lint.py` consumes a caller-selected diff on stdin and needs the correct post-image mode, so that separate sweep remains a completion-claim obligation.
-
-Act on its report before starting the suite run: commit a changed manifest together with the edits that caused it, and resolve every printed exit-1-forcing judgment item under the governing policy that item names. Informational lines require reading, not action. A merge conflict in one of these regenerated records is resolved under the Merge conflicts in generated artifacts section, never by hand-merging its bytes.
-
-**If the helper reports an INFRASTRUCTURE failure (its final line names it, and the run exits 2), at least one artifact was NEVER CHECKED.** Do not read those lines as informational: an unchecked artifact is unknown, not clean, and the report names the row that failed. Treat the batched pass as **undischarged** — record `batched-regeneration: skipped` naming the failing row (the pass ran but established nothing, so it discharges exactly as a skipped pass does), and fall back to the status-quo serial discovery for that artifact. Never record `run` on an exit-2 report.
-
-**The unchecked verdict is residual, not an enumeration of the helper's declared states.** Any outcome that is not a clean exit 0 carrying a per-row line for every registered row — a traceback, an empty report, a truncated one, an exit code you cannot attribute — is equally an unchecked pass, whether or not the literal `INFRASTRUCTURE` appears. Record `batched-regeneration: skipped` naming what you actually observed. Keying this on the enumerated tokens alone is what would let a novel failure shape read as "nothing to do". Note that an exit-2 run may still have **written**: any writing row that already completed has left its declared `writes` on disk, and the write surface is more than one file. Today those instances are the cloud-writer manifest `scripts/devflow-cloud-writer-contract.json`, and a completed exact-module floor raise, which lands in `scripts/workflow-flight-recorder-registry.json` together with its coupled `lib/test/run.sh` operands — a raise and its call sites move as one unit. Check for and commit every such regeneration even on an undischarged pass.
-
-If the runner's permission matcher refuses the invocation **twice**, stop — do not iterate variants of the command (the issue-401 two-denials discipline). Record the refusal in the workpad and proceed to the suite run: the batched pass then degrades to the status-quo serial discovery, which is slower but never a silent stall.
-
-On a run that maintains a workpad, record one discharge line before each full-suite run — `batched-regeneration: run|refused|skipped`. A compacted context that dropped this section then leaves an auditable gap rather than an undetectable silent revert to serial discovery.
-
-**This batched pass is no longer the sole detector of a drifted generated artifact (issue #1244).** The parallel full-suite coordinator runs a read-only, sub-second preflight over the same registry's preflight-eligible rows *before it launches any shard*, and **refuses to launch when one of them reports drift**, printing that row's own governing policy — so a stale artifact that this compliance-dependent step skips is caught mechanically instead of only by a ~13-minute suite run. That preflight is READ-ONLY and reconciles nothing: this batched pass remains the post-edit obligation and the **only** writer, so running it after your edits is still what keeps the coordinator from refusing your own suite launch. The coordinator hardcodes no artifact path and no command — it reads the same registry this helper enumerates — so, as above, this section still lists no artifact inventory of its own.
+Record this run's `batched-regeneration: run|refused|skipped` discharge line on the issue workpad
+before each full-suite run, so a compacted context leaves an auditable gap rather than an
+undetectable silent revert to serial discovery.
