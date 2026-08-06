@@ -123,5 +123,57 @@
       "iter": 5,
       "phases": "unavailable"
     }
-  ]
+  ],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.8",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 8.584016,
+    "tokens": {
+      "input_tokens": 66,
+      "output_tokens": 20922,
+      "cache_read_input_tokens": 4865792,
+      "cache_creation_input_tokens": 187004,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 469,
+        "outputTokens": 49099,
+        "cacheReadInputTokens": 6590387,
+        "cacheCreationInputTokens": 537238,
+        "webSearchRequests": 0,
+        "costUSD": 8.584016,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 40,
+    "duration_ms": 478823
+  },
+  "permission_denials": {
+    "count": 4,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "git status --porcelain; echo \"---ENV---\"; echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none}\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve 1209 --pr 1226 2>.prflow/tmp/review/pr-1226/31070710096-1/acs.err ; echo \"acs-rc=$?\"",
+      "for f in lib/test/fixtures/implement-eval/corpus/*.jsonl; do echo \"=== $f ($(wc -l < $f) lines) ===\"; done\necho \"--- coverage-map entry ---\"\ngrep -n \"implement-context-eval\\|test_implement_context_eval\" lib/test/modules/coverage-map.json lib/test/run.sh 2>/dev/null | head"
+    ],
+    "total": 4,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
 }
