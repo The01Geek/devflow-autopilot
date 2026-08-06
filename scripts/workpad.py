@@ -3326,6 +3326,40 @@ def _completion_evidence_verdict(args, progress_content: str) -> None:
     _validate_flight_key(args, keys[0])
 
 
+def _required_artifact_verdict(progress_content: str) -> None:
+    """The required-artifact half of the terminal gate (issue #1348): a terminal
+    `--status Complete` must carry a `## Progress` row for every member of
+    `_REQUIRED_ARTIFACTS`, so a run cannot reach a published, Complete end state
+    having silently skipped the step that produces one (the motivating failure —
+    checkpoint 4 skipped, PR published on a stale base).
+
+    Resolve each artifact's keyed marker with the same two-line idiom
+    `_plan_checkpoints` uses — `_marker_variants(_checkpoint_marker(key))` counted
+    over `progress_content` — so both the `prflow:` and superseded `devflow:`
+    spellings count and a workpad mutated across the #1003 rename boundary is not
+    falsely refused. A member is satisfied by ANY of its accepting keys (the clean
+    key OR #1347's tier-refused variant), so a tier-refused run still completes.
+
+    Structured as a standalone verdict (like `_completion_evidence_verdict`) so it can
+    be isolated in tests. It is a PURE READ: it raises a structural `_UpdateError`
+    (no PATCH — `cmd_update` aborts before the temp-file/PATCH block) and mutates
+    nothing on any path; every repair lives earlier, in the producer, while the run
+    can still act on the result. Returns None on a clean pass."""
+    for artifact in _REQUIRED_ARTIFACTS:
+        present = any(
+            progress_content.count(variant) > 0
+            for key in artifact['accept_keys']
+            for variant in _marker_variants(_checkpoint_marker(key))
+        )
+        if not present:
+            raise _UpdateError(
+                "refusing to finalize Status: Complete — the ## Progress section "
+                f"carries no row for the required run artifact {artifact['key']!r} "
+                "[missing-artifact]. Record it by completing "
+                f"{artifact['producer']}. No PATCH was made."
+            )
+
+
 def _terminal_complete_gate(sections, args) -> list[str]:
     """Reconcile the workpad self-record on a terminal `--status Complete` write.
 
@@ -3346,7 +3380,14 @@ def _terminal_complete_gate(sections, args) -> list[str]:
     whose canonical record passes the implement-completion validator, re-checked here
     immediately before the PATCH path so edits made after the evidence was recorded
     are caught. A missing/duplicate marker or a non-pass record is a structural
-    `_UpdateError` (no PATCH), exactly like the AC hard-fail."""
+    `_UpdateError` (no PATCH), exactly like the AC hard-fail.
+
+    Also enforces the required-artifact gate (issue #1348): the ## Progress section
+    must carry a row for every member of `_REQUIRED_ARTIFACTS` (initially the
+    base-update checkpoint-4 record, satisfiable by its clean OR tier-refused
+    marker). A missing row is a structural `_UpdateError` (no PATCH) whose message
+    names the exact producing command. Like every other check here it is a pure read
+    that never mutates a row — every repair lives earlier in the producer."""
     # Completion-evidence gate first: it is the strictest precondition and its
     # failure is the one issue #1087 exists to enforce. `args` is REQUIRED (never
     # defaulted) so the gate can never be silently skipped by an argument omission —
@@ -3355,6 +3396,7 @@ def _terminal_complete_gate(sections, args) -> list[str]:
     prog_idx = _find_section(sections, 'Progress')
     prog_content = sections[prog_idx][1] if prog_idx is not None else ''
     _completion_evidence_verdict(args, prog_content)
+    _required_artifact_verdict(prog_content)
     ac_idx = _find_section(sections, 'Acceptance Criteria')
     if ac_idx is not None:
         ac_content = sections[ac_idx][1]
@@ -3420,15 +3462,43 @@ def _checkpoint_marker(key: str) -> str:
     return f'<!-- prflow:checkpoint {key} -->'
 
 
-# The declared required-artifact checkpoint keys (issue #1347): keyed rows that
-# describe THIS attempt rather than the workpad, so a resumed run must not inherit
-# the previous attempt's copy. Every member is deliberately outside the `gha:`
-# prefix — that prefix is the review-tier cloud/local discriminator and checkpoint
-# 4 runs on both tiers — which is also what makes a strip scoped to this set unable
-# to reach a `gha:` row.
-_REQUIRED_ARTIFACT_CHECKPOINT_KEYS = (
-    'base-update-checkpoint-4',
-    'base-update-checkpoint-4-tier-refused',
+# The declared required-artifact set (issue #1348): each member is a run artifact
+# the terminal `--status Complete` gate requires a recorded `## Progress` row for, so
+# a run cannot reach a published, Complete end state having silently skipped the step
+# that produces one. A member is identified by its primary marker `key` and satisfied
+# by ANY of its `accept_keys` — the clean checkpoint-4 key OR #1347's tier-refused
+# variant, so a tier-refused run still completes. `producer` names, verbatim, the
+# command a human runs to record the missing row; the gate quotes it in the refusal.
+# The set is DATA that the gate iterates, so a second member extends the gate (and,
+# via the derived strip set below, the Phase 1.3 resume strip) without touching
+# either loop. Initially exactly one member: `base-update-checkpoint-4`.
+_REQUIRED_ARTIFACTS = (
+    {
+        'key': 'base-update-checkpoint-4',
+        'accept_keys': (
+            'base-update-checkpoint-4',
+            'base-update-checkpoint-4-tier-refused',
+        ),
+        'producer': (
+            "the Phase 4.3 base-update checkpoint 4 step "
+            "(update-branch-checkpoint.sh, recorded on the workpad with "
+            "`workpad.py update <issue> --checkpoint base-update-checkpoint-4 "
+            "\"<token>\"`; a tier-refused run instead records "
+            "`--checkpoint base-update-checkpoint-4-tier-refused`)"
+        ),
+    },
+)
+
+# The flat required-artifact checkpoint keys (issue #1347's resume strip): keyed rows
+# that describe THIS attempt rather than the workpad, so a resumed run must not
+# inherit the previous attempt's copy. DERIVED from _REQUIRED_ARTIFACTS (issue #1348)
+# so a new member — or a new accepting spelling — extends both the terminal gate and
+# this strip by construction, never a hand-transcribed second list. Every member is
+# deliberately outside the `gha:` prefix — that prefix is the review-tier cloud/local
+# discriminator and checkpoint 4 runs on both tiers — which is also what makes a strip
+# scoped to this set unable to reach a `gha:` row.
+_REQUIRED_ARTIFACT_CHECKPOINT_KEYS = tuple(
+    key for artifact in _REQUIRED_ARTIFACTS for key in artifact['accept_keys']
 )
 
 
@@ -3577,14 +3647,19 @@ def _plan_checkpoints(body: str, checkpoint_reqs) -> list[tuple[str, str]]:
     if not body.strip():
         raise _UpdateError(
             "--checkpoint requires a canonical workpad body, but the body is "
-            "empty/whitespace-only. No PATCH was made."
+            "empty/whitespace-only [empty-body]. Remedy: reconstruct the workpad "
+            "with `workpad.py new-body` + `create` (a whitespace-only body has no "
+            "front matter, so re-creating one section alone would still fail every "
+            "other mutation). No PATCH was made."
         )
     _pre, _sections = _split_sections(body)
     n_prog = sum(1 for h, _c in _sections if h.strip().lower() == '## progress')
     if n_prog != 1:
         raise _UpdateError(
             f"--checkpoint requires exactly one '## Progress' section, but "
-            f"{n_prog} are present. No PATCH was made."
+            f"{n_prog} are present [duplicate-progress]. Remedy: edit the workpad so "
+            f"exactly one '## Progress' section remains (the checkpoint is never "
+            f"merged or reordered across duplicates). No PATCH was made."
         )
     _pidx = _find_section(_sections, 'Progress')
     prog_content = _sections[_pidx][1]
@@ -3601,12 +3676,17 @@ def _plan_checkpoints(body: str, checkpoint_reqs) -> list[tuple[str, str]]:
         if total != in_prog:
             raise _UpdateError(
                 f"--checkpoint key {key!r} marker appears outside the "
-                f"'## Progress' section. No PATCH was made."
+                f"'## Progress' section [marker-anomaly]. Remedy: move the "
+                f"checkpoint row into '## Progress' (its marker is only read there); "
+                f"choosing which copy is authoritative cannot be automated. No PATCH "
+                f"was made."
             )
         if in_prog > 1:
             raise _UpdateError(
                 f"--checkpoint key {key!r} marker appears {in_prog} times in "
-                f"'## Progress' (expected 0 or 1). No PATCH was made."
+                f"'## Progress' (expected 0 or 1) [marker-anomaly]. Remedy: remove "
+                f"the duplicate checkpoint row so exactly one remains; choosing which "
+                f"copy is authoritative cannot be automated. No PATCH was made."
             )
         if in_prog == 0:
             inserts.append((key, text))

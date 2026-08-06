@@ -67,6 +67,14 @@ workpad = _load('workpad', SCRIPTS / 'workpad.py')
 # it directly, and restores this bypass afterwards.
 _REAL_COMPLETION_EVIDENCE_VERDICT = workpad._completion_evidence_verdict
 workpad._completion_evidence_verdict = lambda args, prog_content: None
+# issue #1348: the terminal `--status Complete` gate ALSO now requires a `## Progress`
+# row for every declared required run artifact (initially the base-update checkpoint-4
+# record). The pre-#1348 workpad tests exercise the AC/Plan/evidence gate, not this
+# one, so it is bypassed by default the same way the evidence half is; the dedicated
+# #1348 block near the end saves the real function, exercises it directly, and restores
+# this bypass afterwards.
+_REAL_REQUIRED_ARTIFACT_VERDICT = workpad._required_artifact_verdict
+workpad._required_artifact_verdict = lambda prog_content: None
 parse_acs = _load('parse_acs', SCRIPTS / 'parse-acs.py')
 section_parse = _load('section_parse', SCRIPTS / 'section_parse.py')
 file_deferrals = _load('file_deferrals', SCRIPTS / 'file-deferrals.py')
@@ -9003,6 +9011,171 @@ assert_eq("#537 AC24: the no-Status-line abort names the Status precondition",
 _code, _out, _err, _patched = _drive_cmd_update(_RACE_BODY, note=["plain"])
 assert_eq("#537 AC23: a plain update (no #537 flags) still PATCHes normally",
           True, _patched is not None and "plain" in _patched)
+
+# ── issue #1348: the terminal --status Complete required-artifact gate ─────────
+# The gate refuses a Complete write whose ## Progress carries no row for any declared
+# required run artifact (initially base-update checkpoint 4). Restore the real verdict
+# for this block (it is globally no-op'd above so the pre-#1348 Complete tests are not
+# burdened with the row); the evidence half stays no-op'd so this block exercises the
+# required-artifact check in isolation. Restore the bypass at the end.
+print()
+print("issue #1348: terminal --status Complete required-artifact gate")
+workpad._required_artifact_verdict = _REAL_REQUIRED_ARTIFACT_VERDICT
+
+# AC1: the required-artifact set is a module-level data structure the gate iterates —
+# at least one member, initially exactly base-update-checkpoint-4, members are marker keys.
+assert_eq("#1348 AC1: _REQUIRED_ARTIFACTS holds at least one member",
+          True, len(workpad._REQUIRED_ARTIFACTS) >= 1)
+assert_eq("#1348 AC1: the set's member keys are initially exactly {base-update-checkpoint-4}",
+          ["base-update-checkpoint-4"], [a["key"] for a in workpad._REQUIRED_ARTIFACTS])
+assert_eq("#1348 AC1: the strip key set is DERIVED from the artifact set (single source)",
+          tuple(k for a in workpad._REQUIRED_ARTIFACTS for k in a["accept_keys"]),
+          workpad._REQUIRED_ARTIFACT_CHECKPOINT_KEYS)
+
+# Complete-ready base: AC ticked, canonical body. `_MK4` / the tier-refused marker are
+# the checkpoint-4 markers; build variants that carry each in ## Progress.
+_C_BASE = _CP_BODY.replace("- [ ] AC1", "- [x] AC1")
+_MK4_REFUSED = workpad._checkpoint_marker(_CP4_REFUSED_KEY)
+_MK4_DEVFLOW = _MK4.replace("prflow:", "devflow:")
+_MK4_REFUSED_DEVFLOW = _MK4_REFUSED.replace("prflow:", "devflow:")
+def _with_row(marker):
+    return _C_BASE.replace(
+        "  - 02:00:00 — /devflow:implement run started",
+        "  - 02:00:00 — /devflow:implement run started\n"
+        "  - 03:00:00 — checkpoint 4 " + marker)
+
+# AC7 (the motivating failure): a Complete write with NO checkpoint-4 row is refused,
+# with a structural _UpdateError naming the missing artifact and the producing command.
+_gate_err = None
+try:
+    apply_mut(_C_BASE, make_args(status="Complete"), [])
+except workpad._UpdateError as e:
+    _gate_err = str(e)
+assert_eq("#1348 AC7: a Complete with no checkpoint-4 row raises _UpdateError",
+          True, _gate_err is not None)
+assert_eq("#1348 AC7: the refusal is tagged [missing-artifact] and names the missing artifact",
+          True, _gate_err is not None and "[missing-artifact]" in _gate_err
+          and "base-update-checkpoint-4" in _gate_err)
+assert_eq("#1348 AC2: the refusal names the exact producing command",
+          True, _gate_err is not None and "update-branch-checkpoint.sh" in _gate_err
+          and "--checkpoint base-update-checkpoint-4" in _gate_err)
+# AC2/AC3 at the process level: the refusal aborts before any PATCH (no mutation).
+_code, _out, _err, _patched = _drive_cmd_update(_C_BASE, status="Complete")
+assert_eq("#1348 AC2/AC3: the refused Complete makes NO PATCH and exits non-zero",
+          (1, None), (_code, _patched))
+
+# AC6: a run whose checkpoint 4 recorded a clean row completes unchanged.
+_out = apply_mut(_with_row(_MK4), make_args(status="Complete"), [])
+assert_eq("#1348 AC6: a clean checkpoint-4 row lets the Complete finalize (Status → 🎉)",
+          True, "🎉 Complete" in _statusline(_out))
+_code, _out, _err, _patched = _drive_cmd_update(_with_row(_MK4), status="Complete")
+assert_eq("#1348 AC6: the clean-row Complete PATCHes Status → Complete",
+          True, _patched is not None and "🎉 Complete" in _patched)
+
+# AC5: the tier-refused marker satisfies the required artifact — a tier-refused run
+# still publishes and completes.
+_out = apply_mut(_with_row(_MK4_REFUSED), make_args(status="Complete"), [])
+assert_eq("#1348 AC5: the tier-refused checkpoint-4 marker satisfies the gate (Complete)",
+          True, "🎉 Complete" in _statusline(_out))
+
+# AC4: both marker spellings are read by the shared helper — a workpad mutated across
+# the #1003 rename boundary (devflow: spelling) is not falsely refused, for the clean
+# key AND the tier-refused key.
+_out = apply_mut(_with_row(_MK4_DEVFLOW), make_args(status="Complete"), [])
+assert_eq("#1348 AC4: the superseded devflow: clean spelling satisfies the gate",
+          True, "🎉 Complete" in _statusline(_out))
+_out = apply_mut(_with_row(_MK4_REFUSED_DEVFLOW), make_args(status="Complete"), [])
+assert_eq("#1348 AC4: the superseded devflow: tier-refused spelling satisfies the gate",
+          True, "🎉 Complete" in _statusline(_out))
+
+# AC8 (resumed run, depends on #1347's strip; end to end): a body carrying a PRIOR
+# attempt's checkpoint-4 row is stripped by --strip-inherited-checkpoints, and a
+# Complete write that records NO fresh row is then refused — the resumed run cannot
+# satisfy the gate on an inherited row.
+_resumed = apply_mut(_with_row(_MK4), make_args(
+    strip_inherited_checkpoints=True, status="Setup"))
+assert_eq("#1348 AC8: the strip cleared the inherited checkpoint-4 row",
+          0, _resumed.count(_MK4))
+_resumed_err = None
+try:
+    apply_mut(_resumed, make_args(status="Complete"), [])
+except workpad._UpdateError as e:
+    _resumed_err = str(e)
+assert_eq("#1348 AC8: a resumed run that recorded no fresh row is refused after the strip",
+          True, _resumed_err is not None and "[missing-artifact]" in _resumed_err)
+_code, _out, _err, _patched = _drive_cmd_update(_resumed, status="Complete")
+assert_eq("#1348 AC8: the resumed-run refusal makes no PATCH", None, _patched)
+
+# AC13 (version skew, reverse direction): a newer workpad.py under an OLDER skill body
+# that still records checkpoint 4 with the deleted `--note` fallback writes no keyed
+# marker, so the Complete is refused at the gate with a named remedy rather than
+# silently completing.
+_old_body = apply_mut(_C_BASE, make_args(
+    note=['checkpoint 4: observed token UP_TO_DATE — clean, proceeding']))
+_skew_err = None
+try:
+    apply_mut(_old_body, make_args(status="Complete"), [])
+except workpad._UpdateError as e:
+    _skew_err = str(e)
+assert_eq("#1348 AC13 (reverse skew): a --note-only checkpoint-4 record is still refused, remedy named",
+          True, _skew_err is not None and "[missing-artifact]" in _skew_err
+          and "update-branch-checkpoint.sh" in _skew_err)
+# AC13 (forward direction): the skill body records via the pre-existing `--checkpoint`
+# flag (shipped since #537), so an older workpad.py that predates this gate accepts the
+# same call as an ordinary checkpoint write — no unrecognised flag, no wedge. Proven
+# here by the write succeeding independent of the gate (the gate is a Complete-only
+# read; a plain checkpoint write never invokes it).
+_fwd = apply_mut(_C_BASE, make_args(checkpoint=[[_CP4_KEY, "checkpoint 4: clean"]]))
+assert_eq("#1348 AC13 (forward skew): --checkpoint base-update-checkpoint-4 writes a row with no gate involvement",
+          1, _fwd.count(_MK4))
+
+# AC10: the three checkpoint PRODUCER fail-closed refusals (empty body / duplicate
+# ## Progress / marker anomaly) each carry a distinguishable tag and a named remedy, so
+# a human can tell from the message alone which shape they hit; the messages differ.
+_refusal_msgs = {}
+for _name, _body in [
+    ("empty", "   \n\t\n "),
+    ("dup-progress", _CP_BODY.replace("## Plan", "## Progress\n- [ ] d\n\n## Plan", 1)),
+    ("marker-outside", _CP_BODY.replace("## Plan", f"## Plan\n- stray {_MK4}", 1)),
+    ("marker-dup", _CP_BODY.replace("\n## Plan", f"\n- a {_MK4}\n- b {_MK4}\n\n## Plan", 1)),
+]:
+    try:
+        apply_mut(_body, make_args(checkpoint=[[_CP4_KEY, "t"]]))
+        _refusal_msgs[_name] = "NO-RAISE"
+    except workpad._UpdateError as e:
+        _refusal_msgs[_name] = str(e)
+assert_eq("#1348 AC10: the empty-body refusal is tagged and names the new-body remedy",
+          True, "[empty-body]" in _refusal_msgs["empty"]
+          and "new-body" in _refusal_msgs["empty"])
+assert_eq("#1348 AC10: the duplicate-## Progress refusal is tagged and names its remedy",
+          True, "[duplicate-progress]" in _refusal_msgs["dup-progress"]
+          and "Remedy" in _refusal_msgs["dup-progress"])
+assert_eq("#1348 AC10: the marker-outside refusal is a tagged marker-anomaly naming its remedy",
+          True, "[marker-anomaly]" in _refusal_msgs["marker-outside"]
+          and "Remedy" in _refusal_msgs["marker-outside"])
+assert_eq("#1348 AC10: the duplicate-marker refusal is a tagged marker-anomaly naming its remedy",
+          True, "[marker-anomaly]" in _refusal_msgs["marker-dup"]
+          and "Remedy" in _refusal_msgs["marker-dup"])
+assert_eq("#1348 AC10: the three shape categories (empty / dup-progress / marker-anomaly) are distinguishable",
+          3, len({
+              "[empty-body]" in _refusal_msgs["empty"] and "empty",
+              "[duplicate-progress]" in _refusal_msgs["dup-progress"] and "dupprog",
+              "[marker-anomaly]" in _refusal_msgs["marker-outside"] and "anomaly",
+          }))
+assert_eq("#1348 AC10: all four refusal messages are byte-distinct",
+          4, len(set(_refusal_msgs.values())))
+
+# AC3 (the pure-read invariant, directly): the verdict returns None on a satisfied body
+# and raises on an unsatisfied one, reading only its progress-content argument.
+assert_eq("#1348 AC3: the verdict returns None (no exception) on a satisfied ## Progress",
+          None, workpad._required_artifact_verdict(
+              "- 03:00:00 — checkpoint 4 " + _MK4))
+assert_raises("#1348 AC3: the verdict raises _UpdateError on an unsatisfied ## Progress",
+              workpad._UpdateError,
+              lambda: workpad._required_artifact_verdict("- 03:00:00 — no cp4 here"))
+
+# Restore the module-load bypass so any later Complete tests are not gated on the row.
+workpad._required_artifact_verdict = lambda prog_content: None
 
 # ── issue #548: cmd_record_adjudication reject-path coverage (the agreement invariant is the
 #    feature's core new safety gate — every _fail guard is driven, plus the unestablished
