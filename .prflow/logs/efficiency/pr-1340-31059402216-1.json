@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1340",
+  "generated_at": "2026-08-06T00:31:10Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.2",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 7.134949999999999,
+    "tokens": {
+      "input_tokens": 6451,
+      "output_tokens": 19238,
+      "cache_read_input_tokens": 3037368,
+      "cache_creation_input_tokens": 172048,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 6517,
+        "outputTokens": 48785,
+        "cacheReadInputTokens": 4934695,
+        "cacheCreationInputTokens": 443234,
+        "webSearchRequests": 0,
+        "costUSD": 7.134949999999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 29,
+    "duration_ms": 529228
+  },
+  "permission_denials": {
+    "count": 5,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh review 2>&1 || scripts/load-prompt-extension.sh review 2>&1",
+      "scripts/load-prompt-extension.sh review",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none}\"; git status --porcelain | head; echo \"---VIEW---\"; gh pr view 1340 --json headRefName,baseRefName,baseRefOid,headRefOid,body,closingIssuesReferences --jq '{headRefName,baseRefName,baseRefOid,headRefOid,closes:.closingIssuesReferences}'",
+      "lib/test/test_python_scripts.py 2>&1 | tail -15",
+      "lib/test/test_python_scripts.py"
+    ],
+    "total": 5,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
