@@ -915,9 +915,14 @@ unset _wf801 _t801
 # block. Keeping the barrier cloud-scoped is what keeps step-3-6-audit.md's cross-reference —
 # which contrasts its own unconditional wait with "the cloud-tier headless-wait discipline" —
 # accurate without editing that file.
+# The literal is the barrier's acknowledgment clause rather than its lead sentence: the two
+# roots word that lead differently (issue #1254 reworded the implement root's to state
+# collect-before-proceeding), while this clause is the barrier's in both and is what a
+# relocation would carry with it.
+BARRIER_LIT801="a launch acknowledgment is never treated as the return"
 barrier_in_cloud_block801() {  # file -> yes|no
   awk '/Cloud headless-wait discipline/,/^This discipline/' "$1" | \
-    grep -qF -- "A dispatch blocks until the subagent's completed result is in hand" && echo yes || echo no
+    grep -qF -- "$BARRIER_LIT801" && echo yes || echo no
 }
 assert_eq "#801 barrier-cloud-scoped: review root's barrier sits inside the cloud-conditioned block" \
   "yes" "$(barrier_in_cloud_block801 "$REVIEW_ROOT801")"
@@ -934,8 +939,8 @@ assert_eq "#801 barrier-cloud-scoped: implement root's barrier sits inside the c
 for _root801 in "$REVIEW_ROOT801" "$IMPL_SKILL415"; do
   _root801_label="${_root801#*/skills/}"   # e.g. review/SKILL.md — the basename alone is SKILL.md for BOTH roots
   _t801s="$(probe_tmp "#801 barrier-cloud-scoped relocation control ($_root801_label)")"
-  sed -E "/A dispatch blocks until the subagent's completed result is in hand/d" "$_root801" > "$_t801s"
-  printf '%s\n' "A dispatch blocks until the subagent's completed result is in hand." >> "$_t801s"
+  grep -vF -- "$BARRIER_LIT801" "$_root801" > "$_t801s"
+  printf '%s\n' "$BARRIER_LIT801" >> "$_t801s"
   assert_eq "#801 barrier-cloud-scoped: a barrier relocated outside the cloud-conditioned block turns the scoped check RED ($_root801_label)" \
     "no" "$(barrier_in_cloud_block801 "$_t801s")"
   rm -f "$_t801s"
