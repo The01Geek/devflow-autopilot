@@ -6855,6 +6855,13 @@ assert_eq "#356 flip: helper carries the matching '❌ Review failed' literal" "
 M356_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 assert_pin_unique "#356 marker: devflow.yml rebuilds the identical run-keyed marker" \
   'FLIP_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_DEVFLOW_YML"
+# The out-of-job review_finalize backstop (issue #1174) rebuilds the SAME run-keyed
+# marker under a distinct variable name (RP_RUN_MARKER) so this uniqueness pin — and
+# the #1054 module's FLIP_MARKER extraction — stays anchored to the in-job flip's
+# sole FLIP_MARKER literal. Both must construct the byte-identical marker string, so
+# a positional pin over that shared literal keeps the finalizer's copy honest.
+assert_eq "#1174 marker: review_finalize also constructs the run-keyed review-progress marker" "1" \
+  "$(grep -cF 'RP_RUN_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_DEVFLOW_YML" || true)"
 # The former cross-FILE identity check compared the two workflow copies of FLIP_MARKER
 # against each other. Issue #936 removed the second copy with devflow-review.yml, and no
 # separate prefix assertion replaces it: the module's runtime equality is stronger than
@@ -16367,7 +16374,7 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # together, or test_module_runner.py's tranche test goes RED.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 782; then
+  "review-trigger-helpers" 827; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
@@ -17098,9 +17105,9 @@ devflow_checkout_ref_rows() {
   ' "$1"
 }
 devflow_checkout_rows="$(devflow_checkout_ref_rows "$WF/devflow.yml")"
-# 4 checkout steps: config, review_dedupe, gate, command.
-assert_eq "partition: devflow.yml has exactly 4 actions/checkout steps (issue #1163)" \
-  "4" "$(printf '%s\n' "$devflow_checkout_rows" | grep -c . || true)"
+# 5 checkout steps: config, review_dedupe, gate, command, review_finalize (issue #1174).
+assert_eq "partition: devflow.yml has exactly 5 actions/checkout steps (issue #1163)" \
+  "5" "$(printf '%s\n' "$devflow_checkout_rows" | grep -c . || true)"
 # Every one of them pins the default branch verbatim — no fallback, no literal.
 devflow_unpinned_checkouts="$(
   printf '%s\n' "$devflow_checkout_rows" \
@@ -17140,8 +17147,8 @@ assert_eq "checkout-pin CONTROL A: the dropped-pin mutation really changed devfl
   "no" "$(cmp -s "$WF/devflow.yml" "$CK_TMP/dropped-pin.yml" && echo yes || echo no)"
 assert_eq "checkout-pin CONTROL A: a checkout with no ref: is reported unpinned as NONE" \
   "1" "$(devflow_unpinned_in "$CK_TMP/dropped-pin.yml" | grep -c ' NONE$' || true)"
-assert_eq "checkout-pin CONTROL A: the dropped-pin file still emits 4 checkout rows" \
-  "4" "$(devflow_checkout_ref_rows "$CK_TMP/dropped-pin.yml" | grep -c . || true)"
+assert_eq "checkout-pin CONTROL A: the dropped-pin file still emits 5 checkout rows" \
+  "5" "$(devflow_checkout_ref_rows "$CK_TMP/dropped-pin.yml" | grep -c . || true)"
 # Control B — a `||` fallback pin. An empty `ref` makes actions/checkout fall back
 # to GITHUB_REF with no error, so the fallback form must be rejected, not accepted.
 devflow_mutate_first_pin "          ref: \${{ github.event.repository.default_branch || 'main' }}" \
@@ -17157,15 +17164,77 @@ assert_eq "checkout-pin CONTROL C: the literal-branch mutation really changed de
   "no" "$(cmp -s "$WF/devflow.yml" "$CK_TMP/literal-pin.yml" && echo yes || echo no)"
 assert_eq "checkout-pin CONTROL C: a literal branch-name ref: is reported unpinned" \
   "1" "$(devflow_unpinned_in "$CK_TMP/literal-pin.yml" | grep -c ' main$' || true)"
-# Control D — an added fifth, unpinned checkout must be caught by BOTH rows: the
-# count row (which is not merely `>= 4`) and the pin row.
+# Control D — an added extra, unpinned checkout must be caught by BOTH rows: the
+# count row (which is not merely `>= 5`) and the pin row.
 awk 'NR==1{print "      - uses: actions/checkout@v6"} {print}' \
   "$WF/devflow.yml" > "$CK_TMP/fifth-checkout.yml"
-assert_eq "checkout-pin CONTROL D: an added fifth checkout is counted" \
-  "5" "$(devflow_checkout_ref_rows "$CK_TMP/fifth-checkout.yml" | grep -c . || true)"
-assert_eq "checkout-pin CONTROL D: an added fifth unpinned checkout is reported unpinned" \
+assert_eq "checkout-pin CONTROL D: an added extra checkout is counted" \
+  "6" "$(devflow_checkout_ref_rows "$CK_TMP/fifth-checkout.yml" | grep -c . || true)"
+assert_eq "checkout-pin CONTROL D: an added extra unpinned checkout is reported unpinned" \
   "1" "$(devflow_unpinned_in "$CK_TMP/fifth-checkout.yml" | grep -c ' NONE$' || true)"
 rm -rf "$CK_TMP"
+
+# ── review_finalize must MATERIALIZE the plugin (issue #1174). Every helper-consuming
+# job runs the vendor-plugin action after its checkout; without it a thin-install
+# consumer's bare checkout has no .prflow/vendor/prflow/scripts/ tree AND no repo-root
+# scripts/, so the finalizer's helpers all hit their absent-arm no-op and the dead-run
+# backstop silently produces nothing — the exact failure #1174 fixes, invisible in this
+# self-repo where the repo-root scripts/ fallback masks it. Assert the vendor-plugin
+# step count includes the finalizer's (config + gate + command + review_finalize = 4),
+# and that a vendor-plugin step appears within the review_finalize job body.
+assert_eq "#1174: devflow.yml has 4 vendor-plugin steps (config + gate + command + review_finalize)" "4" \
+  "$(grep -c 'uses: \./\.github/actions/vendor-plugin' "$WF/devflow.yml" || true)"
+assert_eq "#1174: the review_finalize job materializes the plugin (a vendor-plugin step in its body)" "yes" \
+  "$(awk '/^  review_finalize:/{f=1} f && /uses: \.\/\.github\/actions\/vendor-plugin/{print "yes"; exit}' "$WF/devflow.yml")"
+
+# ── The review_finalize job GATE (issue #1174). Actions evaluates this `if:` BEFORE
+# the step runs, so it is unreachable from the extracted step body the #1174 wiring
+# block in lib/test/modules/review-trigger-helpers.sh drives — nothing but a pin can
+# see it, and a dropped conjunct ships green. Each term prevents a distinct
+# spurious-banner class:
+#   always()                     — the only reason this job runs at all on a dead
+#                                  command-job path (the whole point of the backstop).
+#   needs.<upstream>.result      — a FAILED config/gate/review_dedupe leaves `command`
+#     == 'success' (x3)            skipped for an UPSTREAM reason, which the arm helper
+#                                  maps to did-not-report; requiring the chain succeeded
+#                                  confines that arm to a genuine command-level death.
+#   enabled / should_run /       — the command job's own screen; a dedupe-SUPPRESSED run
+#     suppress                     is benign, not a dead run, so it must draw no banner.
+#   the two review spellings     — AC7's transitional /devflow:review alias beside the
+#                                  canonical /prflow:review; losing one silently drops
+#                                  the backstop for that spelling.
+RF_IF="$(awk '/^  review_finalize:/{f=1} f && /^    if: /{print; exit}' "$WF/devflow.yml")"
+_rf_if_has() { case "$RF_IF" in *"$1"*) echo yes ;; *) echo no ;; esac; }
+assert_eq "#1174 gate: the review_finalize if: runs on every command-job exit path (always())" \
+  "yes" "$(_rf_if_has 'always()')"
+assert_eq "#1174 gate: the review_finalize if: requires config to have SUCCEEDED" \
+  "yes" "$(_rf_if_has "needs.config.result == 'success'")"
+assert_eq "#1174 gate: the review_finalize if: requires gate to have SUCCEEDED" \
+  "yes" "$(_rf_if_has "needs.gate.result == 'success'")"
+assert_eq "#1174 gate: the review_finalize if: requires review_dedupe to have SUCCEEDED" \
+  "yes" "$(_rf_if_has "needs.review_dedupe.result == 'success'")"
+assert_eq "#1174 gate: the review_finalize if: honours the workflow enable switch" \
+  "yes" "$(_rf_if_has "needs.config.outputs.enabled == 'true'")"
+assert_eq "#1174 gate: the review_finalize if: honours the gate's should_run screen" \
+  "yes" "$(_rf_if_has "needs.gate.outputs.should_run == 'true'")"
+assert_eq "#1174 gate: the review_finalize if: draws no banner on a dedupe-suppressed run" \
+  "yes" "$(_rf_if_has "needs.review_dedupe.outputs.suppress != 'true'")"
+assert_eq "#1174 gate: the review_finalize if: screens the canonical /prflow:review spelling" \
+  "yes" "$(_rf_if_has "startsWith(needs.gate.outputs.command, '/prflow:review')")"
+assert_eq "#1174 gate: the review_finalize if: screens the transitional /devflow:review spelling" \
+  "yes" "$(_rf_if_has "startsWith(needs.gate.outputs.command, '/devflow:review')")"
+# Negative control: the matcher really can report a missing conjunct, so the nine
+# assertions above are not nine vacuous passes on an unmatched-anything comparison.
+assert_eq "#1174 gate: the conjunct matcher reports a term the if: does NOT carry" \
+  "no" "$(_rf_if_has "needs.command.result == 'success'")"
+# AC8: the finalizer mint is opt-in on DEVFLOW_APP_ID, and its GH_TOKEN falls back to
+# the built-in github.token when that variable is unset — the behaviour a consumer who
+# has not configured the App relies on. Pin both halves so a future edit cannot drop the
+# fallback (which would make the finalizer's writes fail for every non-App consumer).
+assert_eq "#1174 AC8: the finalizer token mint is gated on vars.DEVFLOW_APP_ID" "yes" \
+  "$(awk '/id: finalize-token/{f=1} f && /if: \$\{\{ vars.DEVFLOW_APP_ID != .. \}\}/{print "yes"; exit}' "$WF/devflow.yml")"
+assert_eq "#1174 AC8: the finalizer GH_TOKEN falls back to github.token when the App token is empty" "1" \
+  "$(grep -cF 'GH_TOKEN: ${{ steps.finalize-token.outputs.token || github.token }}' "$WF/devflow.yml" || true)"
 
 # Early-ack reaction must stay correctly wired in BOTH gate jobs. These guard
 # the load-bearing properties that the react-to-trigger.sh unit tests above
@@ -17636,7 +17705,7 @@ done
 # above (a deleted mint step would otherwise only fail its own block extract).
 assert_eq "app-token: devflow-implement.yml has exactly 3 mint steps (writer + gate + stall-backstop)" "3" \
   "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow-implement.yml")"
-assert_eq "app-token: devflow.yml has exactly 5 mint steps (command primary + command reviewer + gate + review_dedupe + review-backstop)" "5" \
+assert_eq "app-token: devflow.yml has exactly 6 mint steps (command primary + command reviewer + gate + review_dedupe + review-backstop + review_finalize)" "6" \
   "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow.yml")"
 assert_eq "app-token: devflow-runner.yml has exactly 1 mint step (DevFlow-Reviewer review)" "1" \
   "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow-runner.yml")"

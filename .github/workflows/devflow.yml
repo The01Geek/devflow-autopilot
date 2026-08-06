@@ -711,6 +711,20 @@ jobs:
   command:
     needs: [config, review_dedupe, gate]
     if: ${{ needs.gate.outputs.should_run == 'true' && needs.review_dedupe.outputs.suppress != 'true' }}
+    # Promote the two run-end observables the out-of-job review_finalize backstop
+    # (issue #1174) uses to name a RICHER dead-run cause when this job completed
+    # its steps but reported no verdict (an alive failure). They are deliberately
+    # the only two promoted: they are the operands describe-dead-run-cause.sh
+    # consumes, and they are exactly the operands that are UNAVAILABLE on a
+    # runner-DEATH path — a job whose runner is lost emits no outputs, so
+    # review_finalize reads them as empty and falls back to the generic
+    # arm message (see that job's "unavailable on a dead-job path" note). Every
+    # other in-job observable (steps.claude.outputs.execution_file and everything
+    # derived from it) is a path on the dead runner's filesystem and cannot be
+    # promoted at all.
+    outputs:
+      claude_outcome: ${{ steps.claude.outcome }}
+      engine_is_error: ${{ steps.engine.outputs.is_error }}
     runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     permissions:
       contents: write
@@ -1717,6 +1731,10 @@ jobs:
       # config-get.sh (repo-path fallback for a self-repo checkout); only the
       # exact string "false" disables it, and an empty read (config-get soft/hard
       # failure) falls safe to enabled.
+      # STAYS IN-JOB (issue #1174): reads steps.claude.outputs.execution_file, a
+      # path on this runner's filesystem that does not survive the runner — no
+      # downstream job can read it, so this handler is unrecoverable on a
+      # runner-death path and cannot move to review_finalize.
       - name: Surface execution diagnostics
         if: always()
         env:
@@ -1758,6 +1776,10 @@ jobs:
       # is_error (the parse runs after the step, so the two are independent).
       # Fail-safe: an absent/unparseable log yields false (no flip), matching the
       # helper's own contract.
+      # STAYS IN-JOB (issue #1174): reads steps.claude.outputs.execution_file to
+      # parse the engine's is_error — a dead runner's filesystem path — so it is
+      # unrecoverable off the runner. Its result IS promoted (engine_is_error
+      # output) for the alive-failure path, but the parse itself must run here.
       - name: Surface review-engine execution result
         id: engine
         if: ${{ always() }}
@@ -1928,6 +1950,9 @@ jobs:
       # uses the downscoped reviewer token), so mint a fresh backstop token here.
       # Skipped when DEVFLOW_APP_ID is unset → the helper reports no-fire and the
       # run degrades to the pre-existing dead-end flip.
+      # STAYS IN-JOB (issue #1174): paired with the deferred Review stall backstop
+      # below — it mints the token that step spends, so it moves only if that step
+      # moves.
       - name: Mint review-backstop token (optional)
         id: backstop-token
         if: ${{ always() && startsWith(needs.gate.outputs.command, '/prflow:review ') && (steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') && vars.DEVFLOW_APP_ID != '' }}
@@ -1935,6 +1960,11 @@ jobs:
         with:
           client-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+      # STAYS IN-JOB (issue #1174, DEFERRED): reproducible from a separate job in
+      # principle, but unlike the two moved handlers it WRITES and can RE-DISPATCH
+      # (a /devflow:review re-trigger, or 💥 Failed). Whether an out-of-job copy
+      # can coexist with an in-job one without racing to re-dispatch is the open
+      # coexistence question #1027 owns; #1174 does not answer it, so this stays.
       - name: Review stall backstop
         if: ${{ always() && startsWith(needs.gate.outputs.command, '/prflow:review ') && (steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') }}
         env:
@@ -2207,6 +2237,9 @@ jobs:
       # execution_transcript_artifact_enabled (a transcript can carry a dumped
       # environment); the OPPOSITE default from the D5 denial-command key, deliberately
       # not harmonized. Scrub/gate/caveat/fail-closed lives in scripts/scrub-transcript.sh.
+      # STAYS IN-JOB (issue #1174): reads steps.claude.outputs.execution_file — a
+      # dead runner's filesystem path — so the transcript does not survive the
+      # runner and this handler cannot move to review_finalize.
       - name: Scrub execution transcript for upload
         id: scrub_transcript
         if: always() && steps.claude.outputs.execution_file != ''
@@ -2230,6 +2263,9 @@ jobs:
             echo "::warning::transcript scrub inert: $ST missing (an older vendored tree); NOT uploading (fail-closed)."
           fi
 
+      # STAYS IN-JOB (issue #1174): uploads steps.scrub_transcript.outputs.path,
+      # a file scrubbed from the dead runner's execution_file — it does not exist
+      # off the runner, so this handler is unrecoverable on a runner-death path.
       - name: Upload execution transcript artifact
         if: always() && steps.scrub_transcript.outputs.path != ''
         uses: actions/upload-artifact@v4
@@ -2239,6 +2275,9 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      # STAYS IN-JOB (issue #1174): reads steps.claude.outputs.execution_file — a
+      # dead runner's filesystem path — so its observability artifacts do not
+      # survive the runner and this handler cannot move to review_finalize.
       - name: Persist review-and-fix observability artifacts (backstop)
         if: ${{ always() }}
         env:
@@ -2318,3 +2357,221 @@ jobs:
           DEVFLOW_DENIAL_RECORD="$DEVFLOW_DENIAL_RECORD" \
             bash "$HELPER" --persist
           exit 0
+
+  # ── Out-of-job review finalizer (issue #1174). ──────────────────────────────
+  # Every review post-run handler used to be an `always()` step INSIDE the
+  # `command` job, so a `command`-runner death (OOM, eviction, infrastructure
+  # loss) took them all down with the job — the one failure mode they exist to
+  # cover. This job does NOT share a runner with the `claude` step, so it
+  # survives that loss: it reads `needs.command.result` (a job output that
+  # survives a dead runner) plus the GitHub API, and leaves a truthful,
+  # PR-visible record that the run ended without reporting, with a link to the
+  # run — strictly more than the frozen `🚀 Reviewing` comment that exists today.
+  #
+  # It moves the two in-scope handlers named in #1174: the dead-run review-progress
+  # FLIP (idempotent and run-keyed, so it never stacks a second banner and never
+  # fights the in-job copy on an alive-failure — AC2/AC3), and the verdict-emitter
+  # REACH record (fully API-driven — the HEAD-scoped verdict-presence check — which
+  # both gates the flip per #1172 and is emitted as a surviving log record). The
+  # other nine handlers stay in-job for the reasons annotated at each: five read
+  # steps.claude.outputs.execution_file (a dead runner's filesystem path — nothing
+  # off the runner can read it), the stall backstop is deferred (#1174 / #1027),
+  # and the rest are dead-path no-ops or in-job process teardown.
+  #
+  # HONEST LIMIT (AC4): a dead job emits no job outputs, so on a runner-DEATH path
+  # the promoted `claude_outcome` / `engine_is_error` operands read EMPTY and the
+  # full cause selection cannot be reproduced. This job states that plainly and
+  # falls back to the generic arm message ("the review job did not report"). On an
+  # alive-failure the outputs DO survive, so it names the richer cause via the
+  # reused describe-dead-run-cause.sh.
+  #
+  # Covers BOTH /prflow:review AND /prflow:review-and-fix (AC7): the review-family
+  # prefix below is deliberately wider than the in-job handlers' trailing-space
+  # `/prflow:review ` gate, so the frozen-comment coverage is not withheld from
+  # review-and-fix by copy-paste.
+  review_finalize:
+    needs: [config, review_dedupe, gate, command]
+    # Same enable + should_run + dedupe gate the `command` job carries (a
+    # dedupe-SUPPRESSED run leaves `command` skipped for a benign reason, NOT a
+    # dead run, so it must not draw a banner), plus the review-family screen and
+    # always() so it runs on every command-job exit path including a dead one.
+    # The `needs.*.result == 'success'` terms on the upstream chain are load-bearing:
+    # if config/gate/review_dedupe FAILED (not merely emitted a benign output), the
+    # `command` job is `skipped` for an upstream reason and the arm helper would map
+    # `skipped` → did-not-report, drawing a spurious "did not report" banner on a run
+    # whose review never started. Requiring the chain succeeded confines the
+    # did-not-report arm to a genuine command-level death.
+    if: ${{ always() && needs.config.result == 'success' && needs.gate.result == 'success' && needs.review_dedupe.result == 'success' && needs.config.outputs.enabled == 'true' && needs.gate.outputs.should_run == 'true' && needs.review_dedupe.outputs.suppress != 'true' && (startsWith(needs.gate.outputs.command, '/prflow:review') || startsWith(needs.gate.outputs.command, '/devflow:review')) }}
+    runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
+    # Documented least-privilege subset (AC8): STRICTLY smaller than the command
+    # job's (no id-token, no actions, no checks, no contents:write). The finalizer
+    # only reads vendored helpers from the checkout (contents:read), PATCHes /
+    # creates the review-progress issue comment on the PR thread (issues:write),
+    # and reads the PR head sha + its reviews for the verdict-presence check
+    # (pull-requests:read). It never pushes, mints an OIDC token, or edits code.
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      # Best-effort App token so the flip is authored under the primary App when
+      # configured; continue-on-error so a broken/rotated App NEVER fails this
+      # best-effort finalizer (unlike the command job, which fails closed). With
+      # DEVFLOW_APP_ID unset the step is SKIPPED, its output is empty, and the run
+      # step below falls back to the built-in GITHUB_TOKEN — the AC8 fallback path.
+      - name: Mint finalizer token (optional)
+        id: finalize-token
+        if: ${{ vars.DEVFLOW_APP_ID != '' }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+
+      - name: Checkout repository (finalizer)
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      # Materialize the plugin so the finalizer's helpers exist at
+      # .prflow/vendor/prflow/scripts/ in a thin-install consumer (committed →
+      # self → fetch). Without this a consumer's bare checkout carries no vendored
+      # tree AND no repo-root scripts/, so every helper below would hit its
+      # absent-arm no-op and the backstop would silently produce nothing — the
+      # exact failure #1174 exists to fix. Mirrors the command/gate jobs; the
+      # default-branch checkout above is the correct trusted source.
+      - uses: ./.github/actions/vendor-plugin
+        with:
+          ref: ${{ needs.config.outputs.prflow_version }}
+
+      - name: Finalize a review run whose command job did not report
+        env:
+          GH_TOKEN: ${{ steps.finalize-token.outputs.token || github.token }}
+          REPO: ${{ github.repository }}
+          COMMAND: ${{ needs.gate.outputs.command }}
+          COMMAND_RESULT: ${{ needs.command.result }}
+          CONTEXT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          # Promoted command-job outputs. On a runner-DEATH path a dead job emits
+          # no outputs, so both read EMPTY here and the run step falls back to the
+          # generic arm message (AC4). On an alive failure they survive and name a
+          # richer cause via describe-dead-run-cause.sh.
+          CLAUDE_OUTCOME: ${{ needs.command.outputs.claude_outcome }}
+          ENGINE_ERROR: ${{ needs.command.outputs.engine_is_error }}
+        run: |
+          set -uo pipefail
+          # review-finalizer BEGIN
+          # (Everything between these markers is extracted verbatim and executed
+          # against recording helper stubs by the #1174 wiring block in
+          # lib/test/modules/review-trigger-helpers.sh, so every branch below —
+          # the CAUSE ladder, the TARGET_NUMBER derivation, the suppress-vs-write
+          # gate, the verdict-helper arg order and each degraded-helper arm — is
+          # driven as a real branch rather than grepped. Keep the markers.)
+          # The JOB-level arm — did the command job report at all — decided by a
+          # helper the suite drives arm-by-arm (issue #1174 AC6). This is a
+          # DISTINCT decision from describe-dead-run-cause.sh (the cause clause),
+          # which it must not duplicate.
+          ARM_HELPER=.prflow/vendor/prflow/scripts/describe-command-job-arm.sh
+          [ -f "$ARM_HELPER" ] || ARM_HELPER=scripts/describe-command-job-arm.sh
+          if [ ! -f "$ARM_HELPER" ]; then
+            echo "::warning::review finalizer: describe-command-job-arm.sh absent at $ARM_HELPER (an older vendored tree); cannot decide the command-job arm, so this run leaves no out-of-job dead-run record (upgrade the vendored plugin pin)"
+            exit 0
+          fi
+          ARM="$(bash "$ARM_HELPER" "${COMMAND_RESULT:-}")"
+          echo "::notice::review finalizer: command job result='${COMMAND_RESULT:-<none>}' -> arm='$ARM'"
+          # completed-normally: the command job ran to completion and its own
+          # in-job always() handlers already did their work. Produce NOTHING — no
+          # second comment, no duplicate reach record (AC3/T3).
+          if [ "$ARM" = "completed-normally" ]; then
+            echo "::notice::review finalizer: the command job completed normally; nothing for the out-of-job backstop to do."
+            exit 0
+          fi
+
+          if [ -z "${CONTEXT_NUMBER:-}" ]; then
+            echo "::notice::review finalizer: no issue/PR number on this event; nothing to finalize."
+            exit 0
+          fi
+          # The resolved command carries its own target number
+          # (resolve-command-trigger.sh emits `/prflow:<cmd> <n>`); prefer it and
+          # fall back to the event number. Bash builtins only — a value that
+          # decides where a write lands must not flow through a non-preflight
+          # PATH tool (CLAUDE.md guard-class 2).
+          TARGET_NUMBER="${COMMAND##* }"
+          case "$TARGET_NUMBER" in
+            ''|*[!0-9]*) TARGET_NUMBER="$CONTEXT_NUMBER" ;;
+          esac
+
+          # Cause clause. When the promoted outputs SURVIVED (an alive failure),
+          # reuse describe-dead-run-cause.sh for the richer diagnosis; when they
+          # are EMPTY (a runner-death path — the AC4 unavailable-operand case) or
+          # the arm is `cancelled`, state the generic message plainly.
+          if [ "$ARM" = "cancelled" ]; then
+            CAUSE="the review run was cancelled (needs.command.result=cancelled); no verdict was recorded"
+          elif [ -n "${CLAUDE_OUTCOME:-}" ]; then
+            CAUSE_HELPER=.prflow/vendor/prflow/scripts/describe-dead-run-cause.sh
+            [ -f "$CAUSE_HELPER" ] || CAUSE_HELPER=scripts/describe-dead-run-cause.sh
+            if [ -f "$CAUSE_HELPER" ]; then
+              CAUSE="$(bash "$CAUSE_HELPER" "${CLAUDE_OUTCOME:-}" "${ENGINE_ERROR:-false}")"
+            else
+              CAUSE="the review command job failed (claude step ${CLAUDE_OUTCOME:-unavailable}, engine is_error=${ENGINE_ERROR:-false})"
+            fi
+          else
+            # The runner-death path: the promoted operands are unavailable, so the
+            # message says exactly that rather than guessing.
+            CAUSE="the review command job did not report (needs.command.result=${COMMAND_RESULT:-unavailable}); the job or its runner was lost before it could record a verdict"
+          fi
+
+          # ── Verdict-emitter REACH record (issue #1156/#1250, the second moved
+          # handler). Fully API-driven, so it survives the command runner's death:
+          # ask the HEAD-scoped, fail-closed verdict oracle whether a verdict for
+          # the reviewed HEAD EXISTS. It does double duty — it is the reach record
+          # (emitted as a surviving ::notice::), and it gates the flip exactly as
+          # the in-job #1172 handler does: a verdict that was actually posted must
+          # never draw a "no verdict" banner beside it. Only a POSITIVELY-present
+          # verdict suppresses the flip; everything else (no HEAD sha, deriver
+          # absent, query failure, genuinely absent) reports `absent` and the
+          # banner still writes, so a genuinely verdict-less dead run keeps it.
+          # CAVEAT: the oracle is HEAD-sha-scoped, not run-scoped — so a verdict an
+          # EARLIER round posted for the same unchanged HEAD also reads `present`
+          # and suppresses this dead run's banner. Deliberate, and identical to the
+          # in-job #1172 gate: at an unchanged HEAD the posted verdict still
+          # describes the reviewed tree, so "no verdict" would be the false claim.
+          VERDICT_HELPER=.prflow/vendor/prflow/scripts/dead-run-verdict-present.sh
+          [ -f "$VERDICT_HELPER" ] || VERDICT_HELPER=scripts/dead-run-verdict-present.sh
+          SUPPRESS_FLIP=no
+          if [ -f "$VERDICT_HELPER" ]; then
+            if [ "$(bash "$VERDICT_HELPER" "$REPO" "$TARGET_NUMBER" "${ENGINE_ERROR:-false}")" = present ]; then
+              SUPPRESS_FLIP=yes
+              echo "::notice::review finalizer reach record: a verdict for the reviewed HEAD of #$TARGET_NUMBER WAS posted; the emitter was reached, so no dead-run banner is written."
+            else
+              echo "::notice::review finalizer reach record: no verdict for the reviewed HEAD of #$TARGET_NUMBER was found; recording the dead-run state."
+            fi
+          else
+            echo "::warning::review finalizer: dead-run-verdict-present.sh absent at $VERDICT_HELPER; cannot check for a posted verdict, so the dead-run banner is NOT suppressed (upgrade the vendored plugin pin)"
+          fi
+
+          if [ "$SUPPRESS_FLIP" = yes ]; then
+            exit 0
+          fi
+
+          # ── Dead-run FLIP (the first moved handler). Idempotent and run-keyed:
+          # the marker matches ONLY this run's comment (this job shares the run's
+          # GITHUB_RUN_ID/ATTEMPT with the dead command job), and the helper flips
+          # only an interim 🚀 Status — so if the command job's own always() flip
+          # already ran on an alive failure, this call resolves the same comment,
+          # reads its terminal Status, and writes nothing (no second banner —
+          # AC2/AC3). On a runner-death path the in-job flip never ran, so this is
+          # the only write; and if the run died before the engine seeded any
+          # comment, the helper's upsert creates the terminal comment naming the
+          # run URL.
+          # Distinct variable name (RP_RUN_MARKER) from the in-job flip's FLIP_MARKER,
+          # so the #356/#1054 uniqueness pins stay anchored to that in-job literal; the
+          # string built here is byte-identical and pinned so in lib/test/run.sh.
+          RP_RUN_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
+          FLIP_HELPER=.prflow/vendor/prflow/scripts/flip-review-progress-failed.sh
+          [ -f "$FLIP_HELPER" ] || FLIP_HELPER=scripts/flip-review-progress-failed.sh
+          if [ -f "$FLIP_HELPER" ]; then
+            bash "$FLIP_HELPER" "$TARGET_NUMBER" "$RP_RUN_MARKER" "$CAUSE" || true
+          else
+            echo "::warning::review finalizer: flip-review-progress-failed.sh absent at $FLIP_HELPER; the review-progress comment for #$TARGET_NUMBER is NOT flipped to a terminal state (upgrade the vendored plugin pin)"
+          fi
+          exit 0
+          # review-finalizer END
