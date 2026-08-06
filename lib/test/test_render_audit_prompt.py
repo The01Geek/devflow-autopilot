@@ -970,7 +970,7 @@ class EnumerateDimensions(unittest.TestCase):
             r = run_renderer(["enumerate-dimensions", "--extension-file", str(ext)])
         self.assertEqual(r.returncode, 0, r.stderr)
         _, dims = self._parse(r.stdout)
-        self.assertEqual(len(dims), 9, [k for k, _ in dims])
+        self.assertEqual(len(dims), 10, [k for k, _ in dims])
 
     def test_authoring_discipline_fourth_shape_present_and_bounded(self):
         # Issue #1334: the `authoring-discipline-defects` bullet carries a fourth
@@ -1026,7 +1026,7 @@ class EnumerateDimensions(unittest.TestCase):
         _, dims = self._parse(r.stdout)
         keys = [k for k, _ in dims]
         self.assertEqual([k for k in keys if k.startswith("c:")], [])
-        self.assertEqual(len(keys), 9)
+        self.assertEqual(len(keys), 10)
 
     def test_deterministic_stable_keys_across_renders(self):
         # The orchestrator's render and the auditor's render must key identically.
