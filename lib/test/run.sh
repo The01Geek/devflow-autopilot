@@ -7122,8 +7122,8 @@ assert_eq "#484 guard-behavior: with the stale-prose-lint.py grant removed the e
 # was invisible in the run too. This block widens the audited population to the repo's live
 # tracked prompt extensions, each paired with the allowlist(s)/profile of the tier(s) that
 # load it. Only lib/test/run.sh changes: the gate is driven entirely through the existing
-# `extract-command-heads.py ungranted` and `extract-command-shapes.py --profile`
-# subcommands (no new extractor). Consumer-authored extensions are out of scope — this
+# extractors' `extract-command-heads.py ungranted`/`heads` and `extract-command-shapes.py
+# --profile` subcommands (no new extractor). Consumer-authored extensions are out of scope — this
 # repo's suite scans this repo's tree (a consumer-runnable gate is a separate deliverable).
 E1354=
 E1354="$(mktemp -d)" || { echo "FAIL  #1354: mktemp -d failed"; exit 1; }
@@ -7136,10 +7136,10 @@ CFG1354="$LIB/../.prflow/config.json"
 # granted by EITHER source, so it is ungranted-by-union iff ungranted by BOTH — computed in
 # _e1354_union_ungranted below as the set INTERSECTION of the two per-source `ungranted`
 # reports (each tier's workflow+config row is co-located in that function's `case`). This
-# union is load-bearing: the six live fences invoke lib/test/regenerate-artifacts.py, whose
-# grant exists ONLY in .prflow/config.json (both allowed_tools arrays), never in a baked
-# workflow literal — a workflow-only check would go RED on a correctly-granted call site. The
-# shape profile is just the tier name (extract-command-shapes.py --profile implement|command|review).
+# union is load-bearing: the live fences invoke lib/test/regenerate-artifacts.py, whose grant
+# exists ONLY in .prflow/config.json (the implement and command allowed_tools arrays), never in
+# a baked workflow literal — a workflow-only check would go RED on a correctly-granted call site.
+# The shape profile is just the tier name (extract-command-shapes.py --profile implement|command|review).
 
 # The extension→tier mapping — the SINGLE enumerated table (AC4), reconciled against the
 # on-disk set BOTH ways below. Every live tracked .prflow/prompt-extensions/*.md file has
@@ -7246,6 +7246,14 @@ assert_eq "#1354 AC5: a fixture extension's denied shape (leading cd) is reporte
   "$(python3 "$ECS1354" --profile implement "$E1354/fx-badshape.md" 2>&1 | grep -q . && echo yes || echo no)"
 assert_eq "#1354 AC5 negative control: a clean-shape fixture reports nothing (implement profile)" "" \
   "$(python3 "$ECS1354" --profile implement "$E1354/fx-clean.md" 2>&1)"
+# The `review` profile uses a SEPARATE finder (find_violations / R1-R4) from the shared
+# implement/command engine, and review.md IS scanned under it (its `command review` row), so
+# exercise that finder's discrimination directly rather than only transitively — a leading `cd`
+# is R2 under review — with the same clean control, so AC3 cannot pass vacuously for review.md.
+assert_eq "#1354 AC5: a fixture extension's denied shape (leading cd) is reported (review profile)" "yes" \
+  "$(python3 "$ECS1354" --profile review "$E1354/fx-badshape.md" 2>&1 | grep -q . && echo yes || echo no)"
+assert_eq "#1354 AC5 negative control: a clean-shape fixture reports nothing (review profile)" "" \
+  "$(python3 "$ECS1354" --profile review "$E1354/fx-clean.md" 2>&1)"
 
 # T2/AC2: dropping the regenerate-artifacts.py grant from a fixture copy of the config turns
 # implement.md's head union RED, proving the config array is really consulted (the grant
@@ -7261,6 +7269,11 @@ assert_eq "#1354 T2 positive control: with the real config, implement.md's head 
 # literal (extract-command-heads.py's shared _normalize) and is granted, proving the
 # normalization transfers to this population rather than being a claim.
 printf '%s\n' '```bash' '"${CLAUDE_SKILL_DIR:-/x}"/../../scripts/workpad.py id 1' '```' > "$E1354/fx-anchor.md"
+# First prove the anchor fence actually PARSES to a normalised vendored-literal head, so the
+# "granted" (empty-union) assertion below cannot pass merely because no head was extracted —
+# closing T4's residual vacuity, mirroring T1's non-emptiness discipline.
+assert_eq "#1354 T4: the anchor fence parses to a normalised vendored-literal head (non-vacuity guard)" ".prflow/vendor/prflow/scripts/workpad.py" \
+  "$(python3 "$ECH" heads "$E1354/fx-anchor.md")"
 assert_eq "#1354 T4: an anchor-spelled helper fence normalises to the vendored literal and is granted (implement tier)" "" \
   "$(_e1354_union_ungranted "$E1354/fx-anchor.md" implement "$CFG1354")"
 
