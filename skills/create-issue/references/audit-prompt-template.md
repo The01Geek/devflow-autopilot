@@ -7,9 +7,11 @@ SPDX-License-Identifier: MIT
 This file is the **sole in-repo owner** of the create-issue Step 3.6 audit-prompt
 template, the generic dimension checklist, and the canonical
 **audit-dispatch instructions** the auditor is pointed at.
-`scripts/render-audit-prompt.py` reads it and emits the arm-appropriate audit
-prompt. `skills/create-issue/SKILL.md` carries the invocation contract and the
-policy prose; the operative prompt text lives here.
+`scripts/render-audit-prompt.py` reads it — resolved relative to that script's
+own location, `scripts/` and `skills/` being siblings under one root in both the
+repo checkout and the vendored plugin layout — and emits the arm-appropriate
+audit prompt. `skills/create-issue/SKILL.md` carries the invocation contract and
+the policy prose; the operative prompt text lives here.
 
 ## How this template is rendered (and read by the degraded manual arms)
 
@@ -30,7 +32,8 @@ same block/slot rules by hand.
   - `{DRAFT_PATH}` — the absolute `issue-draft-<slug>.md` path (file arm only).
   - `{SENTINEL_OPEN}` / `{SENTINEL_CLOSE}` — the `AUDIT-<tag>-OPEN` /
     `AUDIT-<tag>-CLOSE` tokens the state owner generated (embed arm only). The
-    renderer never touches the draft bytes.
+    embed splice slot is the one place the draft body is carried; the renderer
+    never touches the draft bytes.
   - `<slug>` — the run's kebab-case slug, substituted into the out-of-bounds
     paths.
   - the consumer-dimensions slot — the consumer `## Audit dimensions` section
@@ -41,7 +44,10 @@ same block/slot rules by hand.
     changed-section set, both read from the round's frozen dispatch-scope file.
   - `{DRAFT_TITLE}`, `{INSTRUCTIONS_PATH}`, `{TEMPLATE_PATH}`, `{RENDERER_PATH}`
     — the `di` (dispatch-instructions) blocks only. `{DRAFT_TITLE}` is read from
-    the draft file at `{DRAFT_PATH}`, never from a command-line argument.
+    the draft file at `{DRAFT_PATH}`, never from a command-line argument, and is
+    substituted **last** alongside the consumer-dimensions slot so drafter text
+    is never re-scanned for slot tokens. `{RENDERER_PATH}` and `{TEMPLATE_PATH}`
+    are derived by the renderer from its own resolved location.
 - **The draft title appears only in the `di` blocks.** The *audit-prompt* blocks
   (`file` / `embed` / `inline` / `checklist`) never carry it, and refer to the
   draft by path or by the sentinel-bracketed body.
