@@ -22940,6 +22940,219 @@ PY_COUPLED
 )"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#1264 render-time placeholder probe verdict helper"
+# ────────────────────────────────────────────────────────────────────────────
+# scripts/placeholder-probe-verdict.py is a branch-selecting core: its verdict ROUTES
+# issue #1264's design (a negative limb sends the work to workflow-side composition
+# instead of the placeholder mechanism), so every arm is driven here rather than left to
+# a paid probe run to exercise. Same treatment, and same rationale, as the #858/#874/#812
+# probe-verdict siblings: unmodularized, no focused_test, driven inline from run.sh.
+PPV="$LIB/../scripts/placeholder-probe-verdict.py"
+PPV_TMP="$(mktemp -d)"
+ppv_build() {  # $1 scenario -> writes $PPV_TMP/exec.jsonl; rc 0 AND non-empty on success
+  python3 - "$PPV_TMP/exec.jsonl" "$1" <<'PY_PPV'
+import json, sys
+out, scen = sys.argv[1], sys.argv[2]
+BEFORE = "PHPROBE_SKILL_REACHED"
+AFTER = "PHPROBE_CONTROL_AFTER"
+def tu(cmd):
+    return {"type": "tool_use", "name": "Bash", "input": {"command": cmd}}
+def echo(payload):
+    return tu("printf '%s\\n' '" + payload + "'")
+controls = [echo(BEFORE), echo(AFTER)]
+# The echo-back the agent is instructed to produce, one shape per scenario.
+shapes = {
+    "visible":      [echo("PHPROBE_SAW PHPROBE_ENV DEVFLOW_PHPROBE_SENTINEL_1264")],
+    "unset":        [echo("PHPROBE_SAW PHPROBE_ENV UNSET")],
+    # The placeholder survived verbatim: the echo-back carries the raw backtick-bang and
+    # the script path, neither of which can appear in the script's own stdout.
+    "unexecuted":   [echo("PHPROBE_SAW !`.github/probe-plugin/phprobe-read-env.sh`")],
+    "line_absent":  [echo("PHPROBE_LINE_A_ABSENT")],
+    "no_marker":    [],
+    # A marker-shaped entry with NO SAW prefix: not the measurement, so it must not be
+    # read as a report. Both readers are scoped to the SAW token for exactly this reason.
+    "template_only": [tu("printf 'PHPROBE_ENV %s\\n' \"$DEVFLOW_PROMPT_EXTENSION_ROOT\"")],
+    # A real sentinel report PLUS an unrelated command mentioning the script path. The
+    # unexecuted-form test is scoped to the SAW echo-back, so this must stay
+    # SUBSTITUTED_ENV_VISIBLE rather than flipping to NOT_SUBSTITUTED.
+    "incidental":   [echo("PHPROBE_SAW PHPROBE_ENV DEVFLOW_PHPROBE_SENTINEL_1264"),
+                     tu("ls .github/probe-plugin/phprobe-read-env.sh")],
+}
+if scen == "no_controls":
+    recs = shapes["visible"]
+elif scen == "empty":
+    recs = []
+elif scen in shapes:
+    recs = [controls[0]] + shapes[scen] + [controls[1]]
+elif scen in ("unparseable", "partial_corrupt"):
+    recs = [controls[0]] + shapes["visible"] + [controls[1]]
+else:
+    raise SystemExit("unrecognised scenario: %s" % scen)
+with open(out, "w", encoding="utf-8") as fh:
+    if scen == "unparseable":
+        fh.write("{ not json at all\n")
+    else:
+        for r in recs:
+            fh.write(json.dumps(r) + "\n")
+        if scen == "partial_corrupt":
+            fh.write("{ this line is not valid json\n")
+        if scen == "empty":
+            # A file that PARSES cleanly but holds no tool_use records — distinct from
+            # unparseable, and it must reach the no-tool_uses arm rather than the parse arm.
+            fh.write(json.dumps({"type": "system", "note": "no tool uses here"}) + "\n")
+PY_PPV
+  _ppv_rc=$?
+  [ "$_ppv_rc" -eq 0 ] && [ -s "$PPV_TMP/exec.jsonl" ]
+}
+ppv() {  # $1 scenario -> the VERDICT token, or a build sentinel the extractor cannot forge
+  if ! ppv_build "$1"; then printf 'FIXTURE_BUILD_FAILED'; return 0; fi
+  local _out; _out="$(python3 "$PPV" "$PPV_TMP/exec.jsonl" 2>/dev/null)"
+  # Pure parameter expansion (CLAUDE.md guard-class 2: no tr/sed/cut, whose absence
+  # would fail OPEN and hand every assertion an empty string to compare).
+  case "$_out" in
+    *'VERDICT: '*) local _v="${_out#*'VERDICT: '}"; printf '%s' "${_v%%$'\n'*}" ;;
+    *) printf 'NO_VERDICT' ;;
+  esac
+}
+# NEGATIVE CONTROL — the assertion that makes the scenario sweep non-vacuous. An
+# unrecognised scenario must FAIL the build rather than leave an empty fixture that the
+# helper would read as unparseable, passing every arm below for the wrong reason.
+assert_eq "#1264 placeholder: an unrecognised fixture scenario fails the build" "failed" \
+  "$(ppv_build __no_such_scenario__ 2>/dev/null && echo built || echo failed)"
+assert_eq "#1264 placeholder: a recognised fixture scenario still builds" "built" \
+  "$(ppv_build visible 2>/dev/null && echo built || echo failed)"
+
+# The three real measurements.
+assert_eq "#1264 placeholder: substituted + sentinel observed -> SUBSTITUTED_ENV_VISIBLE" \
+  "SUBSTITUTED_ENV_VISIBLE" "$(ppv visible)"
+assert_eq "#1264 placeholder: substituted but env UNSET -> SUBSTITUTED_ENV_UNSET (limb b negative)" \
+  "SUBSTITUTED_ENV_UNSET" "$(ppv unset)"
+assert_eq "#1264 placeholder: unexecuted placeholder text -> NOT_SUBSTITUTED (limb a negative, routes the design)" \
+  "NOT_SUBSTITUTED" "$(ppv unexecuted)"
+
+# Every degraded arm resolves INCONCLUSIVE — never a confident negative. Collapsing
+# "could not look" onto "does not substitute" would route issue #1264 away from its
+# selected direction on no evidence, which is the whole reason the arms are ordered
+# degraded-first in the helper.
+assert_eq "#1264 placeholder: agent reported the line absent -> INCONCLUSIVE" \
+  "INCONCLUSIVE" "$(ppv line_absent)"
+assert_eq "#1264 placeholder: no marker reported at all -> INCONCLUSIVE (unestablished, not negative)" \
+  "INCONCLUSIVE" "$(ppv no_marker)"
+assert_eq "#1264 placeholder: controls missing -> INCONCLUSIVE" \
+  "INCONCLUSIVE" "$(ppv no_controls)"
+assert_eq "#1264 placeholder: file parses but records nothing -> INCONCLUSIVE" \
+  "INCONCLUSIVE" "$(ppv empty)"
+assert_eq "#1264 placeholder: unparseable execution file -> INCONCLUSIVE" \
+  "INCONCLUSIVE" "$(ppv unparseable)"
+assert_eq "#1264 placeholder: PARTIALLY corrupt file -> INCONCLUSIVE (a dropped line is not a clean read)" \
+  "INCONCLUSIVE" "$(ppv partial_corrupt)"
+assert_eq "#1264 placeholder: an absent execution file -> INCONCLUSIVE" \
+  "INCONCLUSIVE" \
+  "$(_o="$(python3 "$PPV" "$PPV_TMP/definitely-not-here.jsonl" 2>/dev/null)"; case "$_o" in *'VERDICT: '*) _v="${_o#*'VERDICT: '}"; printf '%s' "${_v%%$'\n'*}" ;; *) printf 'NO_VERDICT' ;; esac)"
+
+# The two discrimination guards. Each pins a way the helper could report a measurement
+# it never made.
+assert_eq "#1264 placeholder: the marker in TEMPLATE form is not counted as a report" \
+  "INCONCLUSIVE" "$(ppv template_only)"
+assert_eq "#1264 placeholder: an incidental /bin/echo elsewhere does not forge NOT_SUBSTITUTED" \
+  "SUBSTITUTED_ENV_VISIBLE" "$(ppv incidental)"
+
+# The routing line is what a maintainer transcribes into the #1264 thread, so pin that a
+# cleared verdict says so and a negative one does not.
+assert_eq "#1264 placeholder: a cleared verdict routes to the placeholder mechanism" "yes" \
+  "$(ppv_build visible >/dev/null 2>&1 && python3 "$PPV" "$PPV_TMP/exec.jsonl" 2>/dev/null | grep -q 'ROUTES TO: the placeholder mechanism' && echo yes || echo no)"
+assert_eq "#1264 placeholder: a NOT_SUBSTITUTED verdict routes AWAY from the placeholder mechanism" "yes" \
+  "$(ppv_build unexecuted >/dev/null 2>&1 && python3 "$PPV" "$PPV_TMP/exec.jsonl" 2>/dev/null | grep -q 'ROUTES TO: workflow-side composition' && echo yes || echo no)"
+
+# COUPLED SITES: the workflow job and the helper's constants are one contract. The
+# sentinel must match, and — the load-bearing one — the job's --allowed-tools must NOT
+# grant the placeholder's own head. Widening that list would leave limb (c) measuring
+# nothing while every assertion above still passed, which is exactly the silently-vacuous
+# probe the #858 coupling assertion exists to prevent for its own markers.
+assert_eq "#1264 placeholder: workflow sentinel and probe markers are coupled to the helper's constants" "coupled" \
+  "$(python3 - "$LIB/../.github/workflows/matcher-probe.yml" "$LIB/../scripts/placeholder-probe-verdict.py" "$LIB/../.github/probe-plugin/skills/placeholder-probe/SKILL.md" <<'PY_PPV_COUPLED'
+import re, sys, yaml
+wf_path, helper_path, skill_path = sys.argv[1], sys.argv[2], sys.argv[3]
+src = open(helper_path, encoding="utf-8").read()
+def const(name):
+    m = re.search(r'^%s = "([^"]+)"' % name, src, re.M)
+    return m.group(1) if m else None
+names = ("SENTINEL", "MARKER", "LINE_ABSENT", "CONTROL_BEFORE", "CONTROL_AFTER", "SAW")
+vals = {n: const(n) for n in names}
+if not all(vals.values()):
+    print("helper constants not readable: %r" % (vals,)); sys.exit(0)
+job = (yaml.safe_load(open(wf_path, encoding="utf-8"))["jobs"] or {}).get("placeholder-probe")
+if not job:
+    print("matcher-probe.yml has no placeholder-probe job"); sys.exit(0)
+steps = job.get("steps") or []
+claude = [s for s in steps if isinstance(s.get("with"), dict) and "claude_args" in s["with"]]
+if not claude:
+    print("placeholder-probe job has no claude-code-action step"); sys.exit(0)
+step = claude[0]
+if (step.get("env") or {}).get("DEVFLOW_PROMPT_EXTENSION_ROOT") != vals["SENTINEL"]:
+    print("job env sentinel does not match the helper's SENTINEL"); sys.exit(0)
+args = step["with"]["claude_args"]
+# The placeholder's head must be GRANTED. This assertion is INVERTED from its original
+# form, and the inversion is the record of a completed measurement rather than a
+# loosening: while limb (c) ("is rendering refused by --allowed-tools?") was open, the
+# head was deliberately withheld and the answer came back NEGATIVE — run 31058504896
+# refused the placeholder with `This command requires approval`. With (c) answered, the
+# grant is what makes limbs (a) and (b) reachable at all; four consecutive runs were
+# refused before substitution could ever be observed. Read the head from the skill body
+# rather than restating it here, so the grant cannot drift from the command it covers.
+body = open(skill_path, encoding="utf-8").read()
+m = re.search(r'!`([^\s`]+)', body)
+if not m:
+    print("skill body carries no `!` placeholder"); sys.exit(0)
+head = m.group(1)
+if head not in args:
+    print("--allowed-tools does not grant the placeholder head %r, so every run is "
+          "refused before limbs (a)/(b) can be observed" % head)
+    sys.exit(0)
+# The skill body must carry both controls, the absent-line token and the SAW prefix the
+# helper scopes its readers to. MARKER is deliberately NOT required here: since the
+# expansion moved into the script, the body no longer names it — the SCRIPT emits it, and
+# the coupling to that producer is asserted just below.
+for n in ("CONTROL_BEFORE", "CONTROL_AFTER", "LINE_ABSENT", "SAW"):
+    if vals[n] not in body:
+        print("skill body does not carry %s (%s)" % (n, vals[n])); sys.exit(0)
+# The injected command must exist, be executable, and emit the helper's MARKER — an
+# injected command that cannot run is the zero-turn abort hazard, and one that emits a
+# different token would make every future run INCONCLUSIVE with the suite still green.
+import os, subprocess
+script = os.path.normpath(os.path.join(os.path.dirname(wf_path), "..", "probe-plugin", "phprobe-read-env.sh"))
+if not os.path.isfile(script):
+    print("the injected command %s does not exist" % script); sys.exit(0)
+if not os.access(script, os.X_OK):
+    print("the injected command %s is not executable" % script); sys.exit(0)
+env = dict(os.environ); env.pop("DEVFLOW_PROMPT_EXTENSION_ROOT", None)
+r = subprocess.run([script], capture_output=True, text=True, env=env)
+if r.returncode != 0:
+    print("the injected command exits %d on an UNSET variable — the abort hazard" % r.returncode)
+    sys.exit(0)
+if vals["MARKER"] not in r.stdout:
+    print("the injected command does not emit %s" % vals["MARKER"]); sys.exit(0)
+prompt = step["with"].get("prompt", "")
+# The PRODUCTION prompt shape, and both halves are load-bearing. The slash command must be
+# the LAST line (that is what limb (a) measures), and there must be leading prose before it:
+# a prompt consisting of a bare slash command naming a plugin SKILL returns num_turns 0 in
+# ~37ms with an empty result — the CLI resolves it as a slash command, finds no matching
+# COMMAND, and exits before the model is called. Measured on the bare CLI and in this job's
+# own first run (31057622518 / job 92478457854). A regression to the bare form would make
+# every paid probe run resolve INCONCLUSIVE while this suite stayed green, and the zero-turn
+# signature is indistinguishable from the abort hazard the probe is built to avoid.
+lines = [ln for ln in prompt.strip().splitlines() if ln.strip()]
+if not lines or lines[-1].strip() != "/phprobe:placeholder-probe":
+    print("the probe prompt does not END with the slash command limb (a) measures"); sys.exit(0)
+if len(lines) < 2:
+    print("the probe prompt is a BARE slash command, which dispatches nothing (num_turns 0)")
+    sys.exit(0)
+print("coupled")
+PY_PPV_COUPLED
+)"
+rm -rf "$PPV_TMP"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "docs per-step toggles (docs.internal_enabled / docs.external_enabled)"
 # ────────────────────────────────────────────────────────────────────────────
 # The /devflow:docs pass gates Step 1 (internal) and Step 2 (external) on these
