@@ -4775,7 +4775,8 @@ assert_eq "#779: the checkpoint-4 tool-boundary test precedes the token routing 
 # for checkpoints 1-3 is unchanged, which is why this had to be a checkpoint-4-specific addition.
 # The key stays OUTSIDE the `gha:` prefix so the review/review-and-fix tier discriminator (which
 # reads `gha:` checkpoints as a cloud marker) is unaffected. A non-canonical body makes `--checkpoint`
-# a structural no-PATCH where `--note` degrades, so the prose keeps a degrade-to-`--note` fallback.
+# a structural no-PATCH; the prose once kept a degrade-to-`--note` fallback for it, removed outright
+# by issue #1348 (the terminal Complete write is gated on the keyed row), so it now fails closed.
 # The row carries no UPDATED-specific ordering condition: checkpoint 4 no longer runs a suite of
 # its own, so the row records the CHECKPOINT's result on all three clean tokens alike. The
 # completion-evidence flight (issue #1087) still runs after it and can route the run to Blocked
@@ -5622,6 +5623,7 @@ cat > "$S258/all-ticked.md" <<WPMD
 ## Progress
 - [x] **Setup**
   - 00:00:00 — completion verification recorded <!-- prflow:checkpoint completion-verification:$S258_KEY -->
+  - 00:00:01 — checkpoint 4 clean <!-- prflow:checkpoint base-update-checkpoint-4 --> (issue #1348: the required-artifact gate needs this row before a Complete finalize)
 
 ## Plan
 - [x] Plan step one
@@ -5699,6 +5701,48 @@ assert_eq "#258(e): --status Blocked with an unticked AC still PATCHed (Status �
 # Source pin: the terminal gate + its post-merge exclusion live in workpad.py.
 assert_eq "#258: workpad.py carries the terminal --status Complete self-record gate" "yes" \
   "$(grep -q '_terminal_complete_gate' "$WP_PY" && grep -q "(post-merge)" "$WP_PY" && echo yes || echo no)"
+
+# ── issue #1348: the terminal required-artifact gate at the REAL CLI boundary ──
+# Drive the actual workpad.py subprocess (run258 sets a passing completion-evidence
+# flight, so a Complete write reaches the required-artifact gate) over the refusal
+# path, the compliant path, both marker spellings, the tier-refused carrier, and the
+# resumed-run (strip-then-Complete) case — asserting NO PATCH on every refusal. The
+# in-process Python tests bypass this gate by default; this block exercises it end to
+# end where the CLI actually runs it. all-ticked.md carries the clean checkpoint-4 row.
+# (a) A Complete whose ## Progress carries NO checkpoint-4 row is refused with NO PATCH,
+# naming the missing artifact and its producing command.
+grep -v 'checkpoint base-update-checkpoint-4' "$S258/all-ticked.md" > "$S258/cp4-missing.md"
+_c="$(run258 "$S258/cp4-missing.md" --status Complete)"
+assert_eq "#1348 CLI: a Complete with no checkpoint-4 row is refused (exit non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#1348 CLI: the missing-artifact refusal made NO PATCH" "yes" \
+  "$([ -s "$S258/patchlog" ] && echo no || echo yes)"
+assert_eq "#1348 CLI: the refusal names the missing artifact and its producer" "yes" \
+  "$(grep -q 'missing-artifact' "$S258/err" && grep -q 'update-branch-checkpoint.sh' "$S258/err" && echo yes || echo no)"
+# (b) The compliant path: the clean checkpoint-4 row lets the Complete finalize.
+_c="$(run258 "$S258/all-ticked.md" --status Complete)"
+assert_eq "#1348 CLI: a clean checkpoint-4 row finalizes Complete (exit 0)" "0" "$_c"
+assert_eq "#1348 CLI: the compliant finalize PATCHed Status → Complete" "yes" \
+  "$(grep -q '🎉 Complete' "$S258/out" && echo yes || echo no)"
+# (c) The superseded devflow: marker spelling also satisfies the gate.
+sed 's/prflow:checkpoint base-update-checkpoint-4/devflow:checkpoint base-update-checkpoint-4/' \
+  "$S258/all-ticked.md" > "$S258/cp4-devflow.md"
+_c="$(run258 "$S258/cp4-devflow.md" --status Complete)"
+assert_eq "#1348 CLI: the superseded devflow: checkpoint-4 spelling finalizes Complete (exit 0)" "0" "$_c"
+# (d) The tier-refused carrier satisfies the required artifact.
+sed 's/checkpoint base-update-checkpoint-4 -->/checkpoint base-update-checkpoint-4-tier-refused -->/' \
+  "$S258/all-ticked.md" > "$S258/cp4-refused.md"
+_c="$(run258 "$S258/cp4-refused.md" --status Complete)"
+assert_eq "#1348 CLI: the tier-refused checkpoint-4 carrier finalizes Complete (exit 0)" "0" "$_c"
+# (e) The resumed-run case: --strip-inherited-checkpoints clears the row in the same
+# call, so the post-mutation Complete gate finds no row and refuses with NO PATCH
+# (a resumed run cannot satisfy the gate on an inherited row).
+_c="$(run258 "$S258/all-ticked.md" --strip-inherited-checkpoints --status Complete)"
+assert_eq "#1348 CLI: a strip-then-Complete (resumed run) is refused (exit non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#1348 CLI: the resumed-run refusal made NO PATCH" "yes" \
+  "$([ -s "$S258/patchlog" ] && echo no || echo yes)"
+
 rm -rf "$S258" "$S258_ROOT"
 
 # ── issue #781: workpad-sourced acceptance criteria (acs / acs-resolve) ────────
@@ -7155,6 +7199,7 @@ review.md:command review
 review-and-fix.md:command
 receiving-code-review.md:command
 create-issue.md:command
+pr-description.md:command
 docs-bootstrap-external.md:command
 docs-sync-external.md:command
 docs-sync-internal.md:command"
@@ -7185,7 +7230,36 @@ _e1354_union_ungranted() {  # <ext-file> <tier> <config-json>
   if ! b="$(python3 "$ECH" ungranted "$ext" "$cfgspecs" 2>/dev/null)"; then
     printf '%s\n' '__extractor_error__'; return 0
   fi
-  comm -12 <(printf '%s\n' "$a" | sed '/^$/d' | sort -u) <(printf '%s\n' "$b" | sed '/^$/d' | sort -u)
+  local u
+  u="$(comm -12 <(printf '%s\n' "$a" | sed '/^$/d' | sort -u) <(printf '%s\n' "$b" | sed '/^$/d' | sort -u))"
+  [ -n "$u" ] || return 0
+  # Tier-agnostic-fallback filter. An extension authored per the tier-agnostic invocation
+  # procedure (issue #1256/#1350) emits the granted vendored literal
+  # `.prflow/vendor/prflow/scripts/<n>` FIRST and then a bare repo-root `scripts/<n>` (or
+  # `lib/<n>`) as the LOCAL-tier fallback arm — reached only on a `command not found` reading,
+  # which never happens on a cloud tier where the vendored path is materialized and granted. So
+  # a bare `scripts/<n>`/`lib/<n>` head is a false cloud exposure when the extension ALSO emits
+  # its vendored counterpart AND the union GRANTS that counterpart (it is not itself ungranted).
+  # Drop exactly those; a bare-ONLY head (no granted vendored counterpart in the head set) is
+  # kept — fail-closed, so a genuinely ungranted helper still surfaces.
+  local heads h vend
+  heads="$(python3 "$ECH" heads "$ext" 2>/dev/null)"
+  while IFS= read -r h; do
+    [ -n "$h" ] || continue
+    case "$h" in
+      scripts/*|lib/*)
+        vend=".prflow/vendor/prflow/$h"
+        # vendored counterpart emitted by this extension AND not itself in the ungranted set
+        # (i.e. granted) → a covered tier-agnostic fallback; suppress it.
+        if printf '%s\n' "$heads" | grep -qxF "$vend" && ! printf '%s\n' "$u" | grep -qxF "$vend"; then
+          continue
+        fi
+        ;;
+    esac
+    printf '%s\n' "$h"
+  done <<EOF
+$u
+EOF
 }
 
 # On-disk population (AC6): the git INDEX via `git ls-files`, NO --others, so a sibling
@@ -7233,6 +7307,21 @@ assert_eq "#1354 AC3: every prompt-extension command shape is clean under its ti
   "$(printf '%s' "$_e1354_shape_report" | sed '/^$/d' | tr '\n' ';' | sed 's/;*$//')"
 assert_eq "#1354 T1: the live prompt-extension head set is non-empty (the gate is not vacuously green)" "yes" \
   "$(printf '%s' "$_e1354_all_heads" | sed '/^$/d' | grep -q . && echo yes || echo no)"
+
+# Tier-agnostic-fallback filter (positive + negative control). A helper granted ONLY as the
+# vendored literal (prompt-surface-growth.py: in the workflow TOOLS, never as bare `scripts/`)
+# lets us exercise the filter on the implement tier. Positive: a fixture emitting the vendored
+# literal AND its bare fallback reports NOTHING (the covered fallback is suppressed — the cloud
+# path uses the granted vendored form). Negative control: a fixture emitting ONLY the bare form
+# still reports it (fail-closed — the filter never suppresses a bare head with no granted
+# vendored counterpart).
+printf '%s\n' '```bash' '.prflow/vendor/prflow/scripts/prompt-surface-growth.py --check' '```' \
+  '```bash' 'scripts/prompt-surface-growth.py --check' '```' > "$E1354/fx-fallback.md"
+assert_eq "#1354: a bare local-tier fallback whose granted vendored form the extension also emits is suppressed (not a false cloud finding)" "" \
+  "$(_e1354_union_ungranted "$E1354/fx-fallback.md" implement "$CFG1354")"
+printf '%s\n' '```bash' 'scripts/prompt-surface-growth.py --check' '```' > "$E1354/fx-bareonly.md"
+assert_eq "#1354 negative control: a bare-only ungranted helper (no granted vendored counterpart) is still reported (filter fails closed)" "scripts/prompt-surface-growth.py" \
+  "$(_e1354_union_ungranted "$E1354/fx-bareonly.md" implement "$CFG1354")"
 
 # AC5 (head) anti-vacuity + negative control: an ungranted head in a fixture extension is
 # reported; a fixture with only a granted head is not. Proves the head assertion path
@@ -11978,7 +12067,7 @@ echo "load-prompt-extension.sh (consumer prompt-extension reader)"
 # module owns the whole former in-file section; see its .inventory.md for the
 # coverage map back to this location.
 if ! devflow_run_full_suite_module "$LIB/test/modules/prompt-extension-reader.sh" \
-  "prompt-extension-reader" 127; then
+  "prompt-extension-reader" 156; then
   printf 'ERROR: prompt-extension-reader boundary could not record its result\n'
   exit 1
 fi
@@ -14863,8 +14952,19 @@ PA_FILE_COUNT=0
 for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/phase-*.md; do
   PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
   PA_FILE_COUNT=$((PA_FILE_COUNT + 1))
-  assert_eq "#275 pin (P1): $PA_NAME has no bare \$CLAUDE_SKILL_DIR/../../ expansion" "yes" \
-    "$(! grep -qE "$PA_BARE_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
+  # The render-time placeholder (issue #1264) is the ONE sanctioned bare-anchor shape, and it
+  # is excluded by its own full-line form rather than by relaxing the ERE. P1's rationale is
+  # that a bare anchor "collapses to a broken path when the var is empty" — which is a claim
+  # about a SHELL INVOCATION. A `!`…`` placeholder is not one: Claude Code substitutes the
+  # anchor before the model sees the skill, and on a runner where the variable is empty the
+  # placeholder is not a supported construct at all, so it stays inert literal text and the
+  # demoted fallback ladder (which still carries the portable `:-` form, pinned by P3 below)
+  # is what runs. The portable form is also unavailable here: `${VAR:-default}` inside
+  # placeholder text is refused with `Contains expansion` (measured, run 31058109064), so the
+  # bare anchor is the only shape that can work. The exclusion is anchored to the whole line
+  # and names the helper, so it cannot widen to an ordinary fenced call site.
+  assert_eq "#275 pin (P1): $PA_NAME has no bare \$CLAUDE_SKILL_DIR/../../ expansion outside the #1264 render-time placeholder" "yes" \
+    "$([ -z "$(grep -E "$PA_BARE_ERE" "$PA_FILE" | grep -vE '^!`\$\{CLAUDE_SKILL_DIR\}/\.\./\.\./scripts/render-prompt-extension\.sh [a-z-]+`$')" ] && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
   assert_eq "#275 pin (P2): $PA_NAME has no cross-statement \$CLAUDE_SKILL_DIR anchor assignment" "yes" \
     "$(! grep -qE "$PA_XSTMT_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
   # P3 is a PRESENCE pin, so it presupposes the file has at least one helper call site.
@@ -34594,11 +34694,13 @@ fi
 # Issue #1050 swaps checkpoint 4's clean-path evidence carrier from a free-text `--note` to the
 # keyed `--checkpoint base-update-checkpoint-4` row, and that swap cannot be routed behind a
 # conditional progressively-loaded reference: the key's `gha:`-prefix prohibition (the tier
-# discriminator would otherwise misclassify every local run as cloud) and the degrade-to-`--note`
-# fallback for a non-canonical body are both required reading on every run that reaches the clean
-# arm, so they live in the unconditional §4.3 prose. That does not fit the residual headroom the
-# post-#1039 figure left, so the ceiling is raised again here at the post-#1050 measurement with
-# NO added slack, exactly as above.
+# discriminator would otherwise misclassify every local run as cloud) was required reading on
+# every run that reaches the clean arm, so it lives in the unconditional §4.3 prose. That does not
+# fit the residual headroom the post-#1039 figure left, so the ceiling is raised again here at the
+# post-#1050 measurement with NO added slack, exactly as above. (This entry also cited a
+# degrade-to-`--note` fallback for a non-canonical body as required reading; that fallback was
+# removed outright by issue #1348 — see the #1348 entry below — so that half of the rationale no
+# longer describes any live prose. The past-time raise it justified stands regardless.)
 # Issue #1087 adds the terminal completion-evidence flight and marker handoff to the
 # unconditional Phase 4 completion path. The implement engine must read that gate before
 # it can finalize the workpad, so this contract cannot be deferred behind a progressively
@@ -34648,6 +34750,16 @@ fi
 # correction is net-neutral: it replaces "an absent or duplicate `## Progress`" with the narrower,
 # now-true enumeration. No further room was recoverable without dropping a reason a run reading
 # only this arm needs. Raise to the exact post-#1347 measurement, with NO added slack, as above.
+# (Issue #1348 later deleted this arm's degrade sentence — the tier-refused `--reflection` fallback
+# — outright, so the "degrade fallback" this entry counts among its three sentences no longer
+# describes any live prose. The past-time raise it justified stands; only shrinkage followed.)
+# Issue #1348 gates the terminal `--status Complete` write on the base-update checkpoint-4 keyed
+# row being present, and REMOVES the degrade-to-`--note`/`--reflection` fallbacks from §4.3's clean
+# and tier-refused arms outright (they wrote an unkeyed row the new gate cannot read), so the
+# rationale the #1050 and #1347 entries above gave for those fallbacks being "required reading" no
+# longer describes any live §4.3 prose — reconciled in those entries above. This change only
+# SHRINKS phase-4-documentation.md, and the ceiling is a `-le` bound, so no raise is owed and none
+# is taken; the figure below is unchanged from the post-#1347 measurement.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises — to raise it, see CONTRIBUTING.md 'Raising the phase-4 documentation byte ceiling'" "yes" \
   "$([ "$(wc -c < "$I480_P4")" -le 107371 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
@@ -36940,13 +37052,29 @@ done
 # tick arm nor the "deferred to CI" (post-merge) retag arm. Negative pins (RED today):
 assert_eq "#405 AC2 phase-3.4: no 'verified via CI' tick arm remains" "0" "$(pin_count 'verified via CI' "$I405_P3")"
 assert_eq "#405 AC2 phase-3.4: no gate-time 'deferred to CI' retag arm remains" "0" "$(pin_count 'deferred to CI' "$I405_P3")"
-# AC8: after this change, neither writer TOOLS list carries a Bash(/-prefixed rule, and the only
-# wildcard-path rule is the pre-existing Bash(*/load-prompt-extension.sh:*) in devflow.yml.
+# AC8: after this change, neither writer TOOLS list carries a Bash(/-prefixed rule, and every
+# wildcard-path rule is one of the two SANCTIONED prompt-extension helpers.
+#
+# The absolute-path pins are unchanged. The wildcard pins are stated as "every wildcard rule is
+# accounted for" rather than as a fixed count, which is what keeps them a real guard while the
+# sanctioned set grows: an unaccounted `Bash(*/…)` grant still goes RED here, because the
+# accounted-for tally is summed from the named helpers alone.
+#
+# Issue #1264 added the second sanctioned helper, `render-prompt-extension.sh`, and — unlike its
+# sibling — it needs the wildcard on the IMPLEMENT profile too, where this pin previously
+# asserted zero. That is deliberate, not an oversight to be pinned away: the render-time
+# placeholder's `${CLAUDE_SKILL_DIR}` resolves to an ABSOLUTE path, which no vendored literal
+# matches, so a vendored-literal-only grant would leave the placeholder silently refused on that
+# tier. Widening a wildcard grant is exactly the kind of change this pin exists to make visible,
+# so the new member is named here explicitly rather than the pin being relaxed to a pattern.
 assert_eq "#405 AC8 devflow-implement.yml: no Bash(/ absolute-path rule" "0" "$(pin_count 'Bash(/' "$I405_IMPL_YML")"
 assert_eq "#405 AC8 devflow.yml: no Bash(/ absolute-path rule" "0" "$(pin_count 'Bash(/' "$I405_DEVFLOW_YML")"
-assert_eq "#405 AC8 devflow-implement.yml: no wildcard-path Bash(*/ rule" "0" "$(pin_count 'Bash(*/' "$I405_IMPL_YML")"
-assert_eq "#405 AC8 devflow.yml: every wildcard-path Bash(*/ rule is the load-prompt-extension one" \
-  "$(pin_count 'Bash(*/load-prompt-extension.sh' "$I405_DEVFLOW_YML")" "$(pin_count 'Bash(*/' "$I405_DEVFLOW_YML")"
+assert_eq "#405 AC8 devflow-implement.yml: every wildcard-path Bash(*/ rule is a sanctioned prompt-extension helper" \
+  "$(( $(pin_count 'Bash(*/load-prompt-extension.sh' "$I405_IMPL_YML") + $(pin_count 'Bash(*/render-prompt-extension.sh' "$I405_IMPL_YML") ))" \
+  "$(pin_count 'Bash(*/' "$I405_IMPL_YML")"
+assert_eq "#405 AC8 devflow.yml: every wildcard-path Bash(*/ rule is a sanctioned prompt-extension helper" \
+  "$(( $(pin_count 'Bash(*/load-prompt-extension.sh' "$I405_DEVFLOW_YML") + $(pin_count 'Bash(*/render-prompt-extension.sh' "$I405_DEVFLOW_YML") ))" \
+  "$(pin_count 'Bash(*/' "$I405_DEVFLOW_YML")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "stale-prose-lint.py (#423 deterministic stale counted-prose lint)"

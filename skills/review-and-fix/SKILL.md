@@ -25,7 +25,19 @@ You are the review-and-fix orchestrator. Run /prflow:review's review engine, fix
 - **Scratch writes target `.prflow/tmp/**`, never `/tmp`.** Author run-scoped scratch with the Write tool — or a `tee` heredoc where no Write tool exists — under `.prflow/tmp/**`; a `/tmp`-targeted redirect or heredoc is a denied shape.
 - **Hard rule: after a second permission denial of a shape, switch to a permitted alternative from this list — never iterate variants of the denied shape.** Iterating denied variants is what exhausts the run's budget and ends it with no verdict.
 
-**Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run the **granted vendored-literal leading token** — the cloud matcher denies the unexpanded anchor as a leading token (recorded in `CLAUDE.md`; run `30695072336` for the argument-position sibling), so this is the form that executes on the cloud tiers:
+**Consumer prompt extension (load first).** This skill's consumer extension is rendered inline, below, before you see this skill — you do not decide whether to load it:
+
+!`${CLAUDE_SKILL_DIR}/../../scripts/render-prompt-extension.sh review-and-fix`
+
+Read the `PROMPT-EXTENSION-STATUS:` line rendered above and route on it:
+
+- `content-present` — the text following it is consumer instructions appended to this skill's own prompt for this run (consumer-owned, committed under `.prflow/prompt-extensions/`). Honor it.
+- `present-empty` — this consumer configured no extension. Proceed unchanged.
+- `unestablished (<reason>)` — the extension's state could not be established. **Report this in the loop's output**; never treat it as a clean policy pass (*unknown is not zero*).
+
+This rendering covers only this file. The review engine this skill loads by `Read`ing `skills/review/SKILL.md` as a file is **not** covered — a file read with the file-read tool is not preprocessed, so a placeholder in the engine body is inert on that path and the engine's own extension load stays on the prose path inside the fix loop.
+
+**Fallback — applies ONLY when the placeholder did not render**, i.e. no `PROMPT-EXTENSION-STATUS:` line appears above, or it appears as literal placeholder text. The render-time placeholder is a Claude-Code-specific preprocessing step that other runners (Copilot CLI, Cursor, Codex CLI, Gemini CLI) do not support, which is why the portable anchor form below is preserved. On that path only, load the extension yourself: from the repo root, run the **granted vendored-literal leading token** — the cloud matcher denies the unexpanded anchor as a leading token (recorded in `CLAUDE.md`; run `30695072336` for the argument-position sibling), so this is the form that executes on the cloud tiers:
 
 ```bash
 .prflow/vendor/prflow/scripts/load-prompt-extension.sh review-and-fix
@@ -39,7 +51,13 @@ You are the review-and-fix orchestrator. Run /prflow:review's review engine, fix
 
 A missing helper path (`No such file`/exit 127) on **every** form above is the **anchor-resolution** failure above — fix the anchor, don't report a missing extension. Any other non-zero exit means a consumer extension exists but could not be loaded — surface its stderr, never proceed silently. Exit 0 with output: append the text to this skill's prompt (consumer-owned, committed under `.prflow/prompt-extensions/`). Exit 0 empty: proceed unchanged.
 
-**Receiving-code-review extension (load second).** This loop applies `prflow:receiving-code-review` principles without invoking that skill, so load its extension too — failure arms as above (absent: silent no-op; present-but-undeliverable: surface its stderr, never proceed silently). Use the same **granted vendored-literal leading token** first, per the tier-agnostic procedure above:
+**Receiving-code-review extension (load second).** This loop applies `prflow:receiving-code-review` principles without invoking that skill, so its extension is rendered inline too:
+
+!`${CLAUDE_SKILL_DIR}/../../scripts/render-prompt-extension.sh receiving-code-review`
+
+Route on that `PROMPT-EXTENSION-STATUS:` line exactly as above: `content-present` → honor the text that follows; `present-empty` → proceed unchanged; `unestablished (<reason>)` → report it, never read it as a clean pass.
+
+**Fallback — applies ONLY when that placeholder did not render** (no status line, or literal placeholder text), for the non-Claude-Code runners named above. Failure arms as above (absent: silent no-op; present-but-undeliverable: surface its stderr, never proceed silently). Use the same **granted vendored-literal leading token** first, per the tier-agnostic procedure above:
 
 ```bash
 .prflow/vendor/prflow/scripts/load-prompt-extension.sh receiving-code-review

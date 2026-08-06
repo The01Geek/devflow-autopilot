@@ -4,6 +4,74 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.14] — 2026-08-06
+
+### Added
+- **Gate the terminal `--status Complete` workpad write on a declared set of required run artifacts.** `scripts/workpad.py`'s `_terminal_complete_gate` now refuses to finalize a run as `Complete` unless the `## Progress` section carries a row for every member of a module-level `_REQUIRED_ARTIFACTS` set — initially the base-update checkpoint-4 record, satisfiable by either its clean `base-update-checkpoint-4` marker or the tier-refused variant, both marker spellings read. This makes the checkpoint-4 detector (`base_update_checkpoint4_present`) load-bearing: a run can no longer reach a published, `Complete` end state having silently skipped the base-update checkpoint. The refusal is a pure read that names the exact producing command; a resumed run cannot satisfy it on an inherited row (issue #1347's strip clears it). The now-superseded `--note` degrade fallback for checkpoint 4 is removed from `skills/implement/phases/phase-4-documentation.md` §4.3 so the gate has one recording format to read, and the three producer refusals (empty body, duplicate `## Progress`, marker anomaly) each name a specific remedy. (#1358)
+
+## [2.31.13] — 2026-08-06
+
+### Changed
+### Fixed
+
+- The consumer prompt extension is now delivered to the `/prflow:review`,
+  `/prflow:review-and-fix` and `/prflow:implement` skills by **render-time injection**
+  rather than by a command the agent chooses to run, so repository policy is applied
+  deterministically instead of intermittently. Measured before the change: the extension
+  reached the agent in only 8 of 18 sampled review runs and 1 of 4 sampled implement
+  runs, and both failure modes were silent — a review that never loaded the policy still
+  posted a normal APPROVE/REJECT verdict, and nothing in the verdict, the workflow or CI
+  distinguished it from one that had. Two pull requests reviewed three minutes apart
+  received opposite treatment on the same gate for this reason.
+
+### Added
+
+- `scripts/render-prompt-extension.sh`, the wrapper behind the new placeholder. It
+  **always exits 0** and always writes one `PROMPT-EXTENSION-STATUS:` line —
+  `content-present`, `present-empty`, or `unestablished (<reason>)` — so the rendered
+  skill body carries a positive statement of what happened rather than an absence to be
+  inferred from. Always exiting 0 is load-bearing rather than defensive: a non-zero exit
+  from an injected command aborts the whole skill invocation at zero turns, and
+  `load-prompt-extension.sh` exits 2 on every present-but-undeliverable shape, which is
+  an ordinary thing for a consumer tree to contain. Wired naively, that would have turned
+  a benign no-op into a silent no-verdict run at the merge gate.
+- `unestablished` is never collapsed onto `present-empty`. An absent trusted closure — a
+  `DEVFLOW_PROMPT_EXTENSION_ROOT` naming a directory that does not exist — is reported as
+  unestablished, where the underlying reader alone would have reported it as an ordinary
+  absent extension and a policy-free review would have read as a clean policy pass.
+
+### Changed
+
+- The existing loader prose in all three skills is demoted to an explicit fallback that
+  applies only on runners without render-time preprocessing (Copilot CLI, Cursor, Codex
+  CLI, Gemini CLI); the portable anchor form is preserved unchanged for them.
+- `Bash(*/render-prompt-extension.sh:*)` and its vendored literal are granted on the
+  `review`, `implement` and `command` profiles. This widens the read-only reviewer
+  profile, so `lib/review-profile.tokens` is updated in the same change.
+
+## [2.31.12] — 2026-08-06
+
+### Fixed
+- **The `## Progress` repair breadcrumb is now emitted only for a repair that survives every
+  structural check in the update.** Follow-up to #1347's checkpoint-4 producer hardening.
+  `--checkpoint`'s repair of an absent `## Progress` runs ahead of the section-shape validation by
+  design, so any later abort discards the repaired body with no PATCH — the section-shape guards
+  themselves, and equally the `Last updated` / `Status` / `Branch` header checks, the
+  `--rewrite-ac` guards, and the completion-evidence validator that run after them. The breadcrumb
+  previously fired from inside the repair, claiming a rewrite those aborts had thrown away; it is
+  now deferred to the mutation pass's successful return, after all of them. Also narrows the
+  accepted-residual paragraph in the `review` / `review-and-fix` prompt extensions, which still
+  said a cloud run on a workpad lacking `## Progress` writes no checkpoint and misclassifies as
+  local: that population is now the duplicate-section and empty-body shapes alone. (#1347)
+
+## [2.31.11] — 2026-08-06
+
+### Changed
+### Added
+
+- `scripts/prompt-surface-growth.py` renders the prompt-surface byte delta a branch introduces, alongside the running byte total at `HEAD`, as a markdown table for the PR description. The covered population is tracked `*.md` files under `skills/`, `agents/`, and `.prflow/prompt-extensions/`, enumerated from the committed tree at both the merge-base and `HEAD` so a deleted file still renders (total `0`, negative delta). It is measurement only — no threshold, ceiling, or budget — and always exits 0, printing a stated breadcrumb instead of a table when `HEAD` is the merge-base, when no covered path changed, or when the merge-base cannot be resolved. Anything that qualifies the figures — an unresolvable repository root, an entry that could not be read as a blob — is disclosed as a `> Note:` line on stdout beside them, rather than on a stderr channel the consumer does not read. The helper ships with the plugin but is invoked only from a `pr-description` prompt extension, so an installed repo sees no change until it adds one. (#1355)
+- The `implement` and `command` capability profiles grant the new helper, so a cloud run can invoke it rather than having it silently refused. (#1355)
+
 ## [2.31.10] — 2026-08-06
 
 ### Added

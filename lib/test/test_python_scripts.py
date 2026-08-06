@@ -67,6 +67,14 @@ workpad = _load('workpad', SCRIPTS / 'workpad.py')
 # it directly, and restores this bypass afterwards.
 _REAL_COMPLETION_EVIDENCE_VERDICT = workpad._completion_evidence_verdict
 workpad._completion_evidence_verdict = lambda args, prog_content: None
+# issue #1348: the terminal `--status Complete` gate ALSO now requires a `## Progress`
+# row for every declared required run artifact (initially the base-update checkpoint-4
+# record). The pre-#1348 workpad tests exercise the AC/Plan/evidence gate, not this
+# one, so it is bypassed by default the same way the evidence half is; the dedicated
+# #1348 block near the end saves the real function, exercises it directly, and restores
+# this bypass afterwards.
+_REAL_REQUIRED_ARTIFACT_VERDICT = workpad._required_artifact_verdict
+workpad._required_artifact_verdict = lambda prog_content: None
 parse_acs = _load('parse_acs', SCRIPTS / 'parse-acs.py')
 section_parse = _load('section_parse', SCRIPTS / 'section_parse.py')
 file_deferrals = _load('file_deferrals', SCRIPTS / 'file-deferrals.py')
@@ -8461,8 +8469,9 @@ assert_raises("#537 checkpoint AC14: a within-batch duplicate key is a structura
 
 # AC14 structural shapes: duplicate Progress, marker-outside-Progress, empty body. An
 # ABSENT ## Progress left this list in issue #1347 — it is now repaired, not refused,
-# because the documented `--note` degrade located the same section and raised too, so
-# that shape had no working path at all. Its replacement is the positive assertion below.
+# because the then-documented `--note` degrade (removed outright by issue #1348) located
+# the same section and raised too, so that shape had no working path at all. Its
+# replacement is the positive assertion below.
 _ac14_repaired = apply_mut(_CP_BODY.replace("## Progress", "## Notprogress"),
                            make_args(checkpoint=[[_CPKEY, "t"]]))
 assert_eq("#1347 (was #537 AC14): an absent ## Progress is repaired, not structural",
@@ -8617,8 +8626,9 @@ assert_eq("#1337 dedup: differing-text replay does NOT drop its byte-equal note"
 # reads into `base_update_checkpoint4_present`. Assert this specific key end-to-end: it is a VALID
 # key (accepted, not gha:-prefixed), a first write inserts exactly one hidden marker, a same-key
 # replay is a pure no-op (so a stall-backstop-resumed Phase 4.3 does not double-record), and a
-# non-canonical body is a STRUCTURAL failure with zero PATCH — which is precisely why the phase
-# prose must degrade to `--note` rather than let the carrier swap wedge the run's last step.
+# non-canonical body is a STRUCTURAL failure with zero PATCH. The phase prose once degraded that
+# to `--note`; issue #1348 removed that fallback outright and gates the terminal Complete write on
+# the keyed row, so a non-canonical-body failure now fails Phase 4.3 closed rather than degrading.
 _CP4_KEY = "base-update-checkpoint-4"
 assert_eq("#1050: the checkpoint-4 key is NOT gha:-prefixed (tier-discriminator invariant)",
           False, _CP4_KEY.startswith("gha:"))
@@ -8632,9 +8642,10 @@ assert_raises("#1050: a same-key checkpoint-4 replay is a pure no-op (backstop-r
               workpad._NoOpReplay,
               lambda: apply_mut(_out4, make_args(checkpoint=[[_CP4_KEY, "x"]])))
 # The absent-## Progress shape was a structural failure here until issue #1347; it is
-# now repaired, so the run records rather than falling back. The `--note` degrade the
-# phase prose keeps still covers the two shapes that DO still fail closed (a duplicated
-# ## Progress, an empty body) — pinned in the #1347 block below.
+# now repaired, so the run records rather than failing. The two shapes that DO still fail
+# closed (a duplicated ## Progress, an empty body) are pinned in the #1347 block below;
+# issue #1348 removed the §4.3 `--note` degrade, so those failures now fail Phase 4.3
+# closed at the terminal gate rather than degrading to an unkeyed carrier.
 _code, _out, _err, _patched = _drive_cmd_update(
     _CP_BODY.replace("## Progress", "## Notprogress"), checkpoint=[[_CP4_KEY, "t"]])
 assert_eq("#1347 (was #1050): checkpoint-4 on a no-## Progress body now PATCHes the repaired body",
@@ -8647,8 +8658,8 @@ assert_eq("#1347 (was #1050): checkpoint-4 on a no-## Progress body now PATCHes 
 # ---------------------------------------------------------------------------
 
 # (1) The repair. An otherwise intact body missing ONLY `## Progress` had no working
-# path at all before this: `--checkpoint` raised, and the documented `--note` degrade
-# locates the same section and raised too. Now the section is created at the HEAD of
+# path at all before this: `--checkpoint` raised, and the then-documented `--note` degrade
+# (removed outright by issue #1348) located the same section and raised too. Now the section is created at the HEAD of
 # the section list (the canonical skeleton order Progress -> Plan -> AC -> Reflection)
 # and the row is written, so the run self-heals mid-flight.
 _NOPROG_BODY = """<!-- prflow:workpad -->
@@ -8880,6 +8891,146 @@ with contextlib.redirect_stderr(_quiet_err):
     apply_mut(_CP_BODY, make_args(checkpoint=[[_CPKEY + ".x", "tok"]]))
 assert_eq("#1347: a canonical body triggers no repair breadcrumb",
           False, "re-created it at the head" in _quiet_err.getvalue())
+# The breadcrumb must not announce a repair the call then DISCARDS. The repair runs
+# ahead of the section-shape validation by design, so a call that repairs and then
+# raises structurally writes nothing — claiming a self-heal there would tell a
+# maintainer the workpad was rewritten when no PATCH was ever issued.
+#
+# Two raise classes, and the SECOND is the one that discriminates the fix. A
+# multi-line text raises INSIDE `_plan_checkpoints`, i.e. before any announce point
+# ever considered — so it would pass even with the announce placed right after that
+# call, and on its own it verifies non-announcement trivially. The `Last updated`
+# raise fires LATER, after `_plan_checkpoints` has already accepted the repaired
+# body, so only an announce deferred to the successful return survives it. Keep both:
+# the first is the cheap regression, the second is the real boundary.
+for _bad, _label in [
+    (_NOPROG_BODY, "a multi-line text (raises inside _plan_checkpoints)"),
+    (_NOPROG_BODY.replace("**Last updated:** 2026-08-05 00:00 UTC\n", ""),
+     "a missing Last-updated line (raises AFTER _plan_checkpoints accepted it)"),
+]:
+    _args = make_args(checkpoint=[[_CP4_KEY, "line one\nline two"]]) \
+        if _bad is _NOPROG_BODY else make_args(checkpoint=[[_CP4_KEY, "tok"]])
+    _discard_err = io.StringIO()
+    _raised = False
+    with contextlib.redirect_stderr(_discard_err):
+        try:
+            apply_mut(_bad, _args)
+        except workpad._UpdateError:
+            _raised = True
+    assert_eq(f"#1347: a repair discarded by {_label} raises and is NOT announced",
+              (True, False),
+              (_raised, "re-created it at the head" in _discard_err.getvalue()))
+# ...and the same body at the process level makes no PATCH, so the discarded repair
+# is provably never written.
+_code, _out, _err, _patched = _drive_cmd_update(
+    _NOPROG_BODY.replace("**Last updated:** 2026-08-05 00:00 UTC\n", ""),
+    checkpoint=[[_CP4_KEY, "tok"]])
+assert_eq("#1347: the post-plan raise makes no PATCH and emits no repair breadcrumb",
+          (None, False), (_patched, "re-created it at the head" in (_err or "")))
+# Attribute the rejection. The loop above asserts only THAT `_UpdateError` raised, which
+# an unrelated precondition would satisfy just as well — so pin each fixture to the guard
+# it is meant to trip, and prove each fixture really lost the one property under test.
+_NOUPD_NOPROG = _NOPROG_BODY.replace("**Last updated:** 2026-08-05 00:00 UTC\n", "")
+assert_eq("#1347 (control): the late-raise fixture lost only its Last-updated line",
+          (False, False, True),
+          ("**Last updated:**" in _NOUPD_NOPROG, "## Progress" in _NOUPD_NOPROG,
+           "**Status:**" in _NOUPD_NOPROG))
+try:
+    apply_mut(_NOUPD_NOPROG, make_args(checkpoint=[[_CP4_KEY, "tok"]]))
+    _upd_raised = ""
+except workpad._UpdateError as _e:
+    _upd_raised = str(_e)
+assert_eq("#1347: the late-raise fixture is refused by the Last-updated guard specifically",
+          "Last updated line not found in workpad", _upd_raised)
+
+# A SECOND post-plan guard, so the deferred placement is pinned by more than one raise
+# site: `--status` on a body with no `**Status:**` line. This is also the exact
+# `--status ... --checkpoint gha:...` shape Phase 1.3's cloud resume arm issues.
+_NOSTATUS_NOPROG = _NOPROG_BODY.replace("**Status:** 🚀 Documenting\n", "")
+assert_eq("#1347 (control): the Status fixture lost only its Status line",
+          (False, False, True),
+          ("**Status:**" in _NOSTATUS_NOPROG, "## Progress" in _NOSTATUS_NOPROG,
+           "**Last updated:**" in _NOSTATUS_NOPROG))
+_late_err = io.StringIO()
+with contextlib.redirect_stderr(_late_err):
+    try:
+        apply_mut(_NOSTATUS_NOPROG, make_args(
+            status="Setup",
+            checkpoint=[["gha:7:1:phase1-hydrated", "run resumed; Phase 1 hydrated"]]))
+        _late_raised = ""
+    except workpad._UpdateError as _e:
+        _late_raised = str(_e)
+assert_eq("#1347: the Status fixture is refused by the Status guard specifically",
+          "Status line not found in workpad", _late_raised)
+assert_eq("#1347: a repair discarded by the --status raise is not announced either",
+          False, "re-created it at the head" in _late_err.getvalue())
+# Positive control on the same fixture: restore only the one property under test and the
+# call succeeds AND announces — so the non-announcement assertions above cannot pass
+# vacuously through some unrelated precondition rejecting the fixture.
+_late_ok_err = io.StringIO()
+with contextlib.redirect_stderr(_late_ok_err):
+    _late_ok = apply_mut(_NOPROG_BODY, make_args(
+        status="Setup",
+        checkpoint=[["gha:7:1:phase1-hydrated", "run resumed; Phase 1 hydrated"]]))
+assert_eq("#1347 (positive control): the same call with a Status line writes and announces",
+          (True, True),
+          ("**Status:**" in _late_ok,
+           "re-created it at the head" in _late_ok_err.getvalue()))
+
+# The REAL legacy-resume composition: strip + the `gha:` hydration checkpoint against a
+# body missing `## Progress`. Each mechanism is covered alone above; this is the shape
+# Phase 1.3's cloud arm actually issues, and it locks the phase prose's subtle claim —
+# the repaired section exists but is EMPTY of the phase-checklist rows, which is why the
+# legacy migration stays required rather than being subsumed by the repair.
+_legacy_resume = apply_mut(_NOPROG_BODY, make_args(
+    strip_inherited_checkpoints=True, status="Setup",
+    checkpoint=[["gha:7:1:phase1-hydrated", "run resumed; Phase 1 workpad hydrated"]]))
+_lr_progress = _legacy_resume.split('## Progress', 1)[1].split('\n## ', 1)[0]
+assert_eq("#1347: the legacy-resume composition repairs, strips, and records in one call",
+          (1, 1, 0),
+          (_legacy_resume.count("## Progress"),
+           _legacy_resume.count("<!-- prflow:checkpoint gha:7:1:phase1-hydrated -->"),
+           _legacy_resume.count(_MK4)))
+assert_eq("#1347: the repaired section carries NO phase-checklist row (migration still owed)",
+          [], [ln for ln in _lr_progress.split('\n') if ln.startswith('- [ ] **')])
+# The `_MK4` element above is necessarily a no-marker observation, not a strip
+# observation: the strip rewrites the FIRST `## Progress` section, and on a body that has
+# none there is nothing it could remove — seeding an inherited row anywhere else would
+# make it a SURVIVOR (breadcrumbed, still present), not a stripped row. What IS genuinely
+# observable on this composition is that the no-op strip stays silent: it neither raises
+# nor warns about survivors on a body whose repaired section is empty. The strip's
+# removal half is exercised against a Progress-carrying body in the `_INHERITED` block.
+_lr_err = io.StringIO()
+with contextlib.redirect_stderr(_lr_err):
+    apply_mut(_NOPROG_BODY, make_args(
+        strip_inherited_checkpoints=True, status="Setup",
+        checkpoint=[["gha:7:1:phase1-hydrated", "run resumed; Phase 1 workpad hydrated"]]))
+assert_eq("#1347: the no-op strip on a repaired body emits no survivor warning",
+          False, "--strip-inherited-checkpoints left" in _lr_err.getvalue())
+
+# The survivor breadcrumb at the DUPLICATE-SECTION locus — the shape the strip's own
+# comment names first and the one a legacy workpad actually produces. Covered above only
+# at the `## Plan` locus, so without this the enumeration is asserted for one member.
+_DUP_SURVIVOR = _INHERITED.replace(
+    "\n## Plan", f"\n## Progress\n- inherited {_MK4}\n\n## Plan", 1)
+_dup_surv_err = io.StringIO()
+with contextlib.redirect_stderr(_dup_surv_err):
+    _dup_surv_out = apply_mut(_DUP_SURVIVOR, make_args(strip_inherited_checkpoints=True))
+assert_eq("#1347: a survivor in a DUPLICATE ## Progress section is breadcrumbed too",
+          True, "--strip-inherited-checkpoints left" in _dup_surv_err.getvalue())
+assert_eq("#1347: the duplicate-section survivor really does survive the first-section strip",
+          1, _dup_surv_out.count(_MK4))
+
+# The tier-refused write through the full command path, not just the pure function: the
+# clean-token key has a `_drive_cmd_update` PATCH assertion and this one did not, so a
+# regression that swallowed the tier-refused insert would show only on the clean key.
+_code, _out, _err, _patched = _drive_cmd_update(
+    _CP_BODY, checkpoint=[[_CP4_REFUSED_KEY, "checkpoint 4: refused by this tier"]])
+assert_eq("#1347: the tier-refused checkpoint PATCHes through the full command path",
+          True,
+          _patched is not None
+          and workpad._checkpoint_marker(_CP4_REFUSED_KEY) in _patched
+          and "refused by this tier" in _patched)
 
 # AC16 (positive control at the process level): an ABSENT-key checkpoint INSERT
 # through cmd_update DOES issue a PATCH carrying the new row — the counterpart to the
@@ -9003,6 +9154,177 @@ assert_eq("#537 AC24: the no-Status-line abort names the Status precondition",
 _code, _out, _err, _patched = _drive_cmd_update(_RACE_BODY, note=["plain"])
 assert_eq("#537 AC23: a plain update (no #537 flags) still PATCHes normally",
           True, _patched is not None and "plain" in _patched)
+
+# ── issue #1348: the terminal --status Complete required-artifact gate ─────────
+# The gate refuses a Complete write whose ## Progress carries no row for any declared
+# required run artifact (initially base-update checkpoint 4). Restore the real verdict
+# for this block (it is globally no-op'd above so the pre-#1348 Complete tests are not
+# burdened with the row); the evidence half stays no-op'd so this block exercises the
+# required-artifact check in isolation. Restore the bypass at the end.
+print()
+print("issue #1348: terminal --status Complete required-artifact gate")
+workpad._required_artifact_verdict = _REAL_REQUIRED_ARTIFACT_VERDICT
+
+# AC1: the required-artifact set is a module-level data structure the gate iterates —
+# at least one member, initially exactly base-update-checkpoint-4, members are marker keys.
+assert_eq("#1348 AC1: _REQUIRED_ARTIFACTS holds at least one member",
+          True, len(workpad._REQUIRED_ARTIFACTS) >= 1)
+assert_eq("#1348 AC1: the set's member keys are initially exactly {base-update-checkpoint-4}",
+          ["base-update-checkpoint-4"], [a["key"] for a in workpad._REQUIRED_ARTIFACTS])
+assert_eq("#1348 AC1: the strip key set is DERIVED from the artifact set (single source)",
+          tuple(k for a in workpad._REQUIRED_ARTIFACTS for k in a["accept_keys"]),
+          workpad._REQUIRED_ARTIFACT_CHECKPOINT_KEYS)
+# Definition-time invariant (guards a FUTURE member, per the #1348 type-design review):
+# every member must carry a non-empty `accept_keys` naming itself — an empty accept_keys
+# would make the gate's `any(...)` unconditionally False, permanently unsatisfiable, silently
+# wedging every Complete write (a fail-too-closed a new member could introduce). This test is
+# the guard rather than a `python -O`-strippable module-load assert.
+assert_eq("#1348: every required-artifact member has a non-empty accept_keys containing its key",
+          True, all(a["accept_keys"] and a["key"] in a["accept_keys"]
+                    for a in workpad._REQUIRED_ARTIFACTS))
+
+# Complete-ready base: AC ticked, canonical body. `_MK4` / the tier-refused marker are
+# the checkpoint-4 markers; build variants that carry each in ## Progress.
+_C_BASE = _CP_BODY.replace("- [ ] AC1", "- [x] AC1")
+_MK4_REFUSED = workpad._checkpoint_marker(_CP4_REFUSED_KEY)
+_MK4_DEVFLOW = _MK4.replace("prflow:", "devflow:")
+_MK4_REFUSED_DEVFLOW = _MK4_REFUSED.replace("prflow:", "devflow:")
+def _with_row(marker):
+    return _C_BASE.replace(
+        "  - 02:00:00 — /devflow:implement run started",
+        "  - 02:00:00 — /devflow:implement run started\n"
+        "  - 03:00:00 — checkpoint 4 " + marker)
+
+# AC7 (the motivating failure): a Complete write with NO checkpoint-4 row is refused,
+# with a structural _UpdateError naming the missing artifact and the producing command.
+_gate_err = None
+try:
+    apply_mut(_C_BASE, make_args(status="Complete"), [])
+except workpad._UpdateError as e:
+    _gate_err = str(e)
+assert_eq("#1348 AC7: a Complete with no checkpoint-4 row raises _UpdateError",
+          True, _gate_err is not None)
+assert_eq("#1348 AC7: the refusal is tagged [missing-artifact] and names the missing artifact",
+          True, _gate_err is not None and "[missing-artifact]" in _gate_err
+          and "base-update-checkpoint-4" in _gate_err)
+assert_eq("#1348 AC2: the refusal names the exact producing command",
+          True, _gate_err is not None and "update-branch-checkpoint.sh" in _gate_err
+          and "--checkpoint base-update-checkpoint-4" in _gate_err)
+# AC2/AC3 at the process level: the refusal aborts before any PATCH (no mutation).
+_code, _out, _err, _patched = _drive_cmd_update(_C_BASE, status="Complete")
+assert_eq("#1348 AC2/AC3: the refused Complete makes NO PATCH and exits non-zero",
+          (1, None), (_code, _patched))
+
+# AC6: a run whose checkpoint 4 recorded a clean row completes unchanged.
+_out = apply_mut(_with_row(_MK4), make_args(status="Complete"), [])
+assert_eq("#1348 AC6: a clean checkpoint-4 row lets the Complete finalize (Status → 🎉)",
+          True, "🎉 Complete" in _statusline(_out))
+_code, _out, _err, _patched = _drive_cmd_update(_with_row(_MK4), status="Complete")
+assert_eq("#1348 AC6: the clean-row Complete PATCHes Status → Complete",
+          True, _patched is not None and "🎉 Complete" in _patched)
+
+# AC5: the tier-refused marker satisfies the required artifact — a tier-refused run
+# still publishes and completes.
+_out = apply_mut(_with_row(_MK4_REFUSED), make_args(status="Complete"), [])
+assert_eq("#1348 AC5: the tier-refused checkpoint-4 marker satisfies the gate (Complete)",
+          True, "🎉 Complete" in _statusline(_out))
+
+# AC4: both marker spellings are read by the shared helper — a workpad mutated across
+# the #1003 rename boundary (devflow: spelling) is not falsely refused, for the clean
+# key AND the tier-refused key.
+_out = apply_mut(_with_row(_MK4_DEVFLOW), make_args(status="Complete"), [])
+assert_eq("#1348 AC4: the superseded devflow: clean spelling satisfies the gate",
+          True, "🎉 Complete" in _statusline(_out))
+_out = apply_mut(_with_row(_MK4_REFUSED_DEVFLOW), make_args(status="Complete"), [])
+assert_eq("#1348 AC4: the superseded devflow: tier-refused spelling satisfies the gate",
+          True, "🎉 Complete" in _statusline(_out))
+
+# AC8 (resumed run, depends on #1347's strip; end to end): a body carrying a PRIOR
+# attempt's checkpoint-4 row is stripped by --strip-inherited-checkpoints, and a
+# Complete write that records NO fresh row is then refused — the resumed run cannot
+# satisfy the gate on an inherited row.
+_resumed = apply_mut(_with_row(_MK4), make_args(
+    strip_inherited_checkpoints=True, status="Setup"))
+assert_eq("#1348 AC8: the strip cleared the inherited checkpoint-4 row",
+          0, _resumed.count(_MK4))
+_resumed_err = None
+try:
+    apply_mut(_resumed, make_args(status="Complete"), [])
+except workpad._UpdateError as e:
+    _resumed_err = str(e)
+assert_eq("#1348 AC8: a resumed run that recorded no fresh row is refused after the strip",
+          True, _resumed_err is not None and "[missing-artifact]" in _resumed_err)
+_code, _out, _err, _patched = _drive_cmd_update(_resumed, status="Complete")
+assert_eq("#1348 AC8: the resumed-run refusal makes no PATCH", None, _patched)
+
+# AC13 (version skew, reverse direction): a newer workpad.py under an OLDER skill body
+# that still records checkpoint 4 with the deleted `--note` fallback writes no keyed
+# marker, so the Complete is refused at the gate with a named remedy rather than
+# silently completing.
+_old_body = apply_mut(_C_BASE, make_args(
+    note=['checkpoint 4: observed token UP_TO_DATE — clean, proceeding']))
+_skew_err = None
+try:
+    apply_mut(_old_body, make_args(status="Complete"), [])
+except workpad._UpdateError as e:
+    _skew_err = str(e)
+assert_eq("#1348 AC13 (reverse skew): a --note-only checkpoint-4 record is still refused, remedy named",
+          True, _skew_err is not None and "[missing-artifact]" in _skew_err
+          and "update-branch-checkpoint.sh" in _skew_err)
+# AC13 (forward direction): the skill body records via the pre-existing `--checkpoint`
+# flag (shipped since #537), so an older workpad.py that predates this gate accepts the
+# same call as an ordinary checkpoint write — no unrecognised flag, no wedge. Proven
+# here by the write succeeding independent of the gate (the gate is a Complete-only
+# read; a plain checkpoint write never invokes it).
+_fwd = apply_mut(_C_BASE, make_args(checkpoint=[[_CP4_KEY, "checkpoint 4: clean"]]))
+assert_eq("#1348 AC13 (forward skew): --checkpoint base-update-checkpoint-4 writes a row with no gate involvement",
+          1, _fwd.count(_MK4))
+
+# AC10: the three checkpoint PRODUCER fail-closed refusals (empty body / duplicate
+# ## Progress / marker anomaly) each carry a distinguishable tag and a named remedy, so
+# a human can tell from the message alone which shape they hit; the messages differ.
+_refusal_msgs = {}
+for _name, _body in [
+    ("empty", "   \n\t\n "),
+    ("dup-progress", _CP_BODY.replace("## Plan", "## Progress\n- [ ] d\n\n## Plan", 1)),
+    ("marker-outside", _CP_BODY.replace("## Plan", f"## Plan\n- stray {_MK4}", 1)),
+    ("marker-dup", _CP_BODY.replace("\n## Plan", f"\n- a {_MK4}\n- b {_MK4}\n\n## Plan", 1)),
+]:
+    try:
+        apply_mut(_body, make_args(checkpoint=[[_CP4_KEY, "t"]]))
+        _refusal_msgs[_name] = "NO-RAISE"
+    except workpad._UpdateError as e:
+        _refusal_msgs[_name] = str(e)
+assert_eq("#1348 AC10: the empty-body refusal is tagged and names the new-body remedy",
+          True, "[empty-body]" in _refusal_msgs["empty"]
+          and "new-body" in _refusal_msgs["empty"])
+assert_eq("#1348 AC10: the duplicate-## Progress refusal is tagged and names its remedy",
+          True, "[duplicate-progress]" in _refusal_msgs["dup-progress"]
+          and "Remedy" in _refusal_msgs["dup-progress"])
+assert_eq("#1348 AC10: the marker-outside refusal is a tagged marker-anomaly naming its remedy",
+          True, "[marker-anomaly]" in _refusal_msgs["marker-outside"]
+          and "Remedy" in _refusal_msgs["marker-outside"])
+assert_eq("#1348 AC10: the duplicate-marker refusal is a tagged marker-anomaly naming its remedy",
+          True, "[marker-anomaly]" in _refusal_msgs["marker-dup"]
+          and "Remedy" in _refusal_msgs["marker-dup"])
+assert_eq("#1348 AC10: the three shape categories (empty / dup-progress / marker-anomaly) carry three distinct tags",
+          sorted(["[duplicate-progress]", "[empty-body]", "[marker-anomaly]"]),
+          sorted({t for t in ("[empty-body]", "[duplicate-progress]", "[marker-anomaly]")
+                  for m in _refusal_msgs.values() if t in m}))
+assert_eq("#1348 AC10: all four refusal messages are byte-distinct",
+          4, len(set(_refusal_msgs.values())))
+
+# AC3 (the pure-read invariant, directly): the verdict returns None on a satisfied body
+# and raises on an unsatisfied one, reading only its progress-content argument.
+assert_eq("#1348 AC3: the verdict returns None (no exception) on a satisfied ## Progress",
+          None, workpad._required_artifact_verdict(
+              "- 03:00:00 — checkpoint 4 " + _MK4))
+assert_raises("#1348 AC3: the verdict raises _UpdateError on an unsatisfied ## Progress",
+              workpad._UpdateError,
+              lambda: workpad._required_artifact_verdict("- 03:00:00 — no cp4 here"))
+
+# Restore the module-load bypass so any later Complete tests are not gated on the row.
+workpad._required_artifact_verdict = lambda prog_content: None
 
 # ── issue #548: cmd_record_adjudication reject-path coverage (the agreement invariant is the
 #    feature's core new safety gate — every _fail guard is driven, plus the unestablished
@@ -25284,6 +25606,398 @@ assert_eq("#1229 an omitted `single_flight_consulted` encodes as a present null"
           "single_flight_consulted" in focused_selection.decode_markers(_out_opt)[0]
           and focused_selection.decode_markers(_out_opt)[0][
               "single_flight_consulted"] is None)
+
+
+# ── scripts/prompt-surface-growth.py — the PR-description growth table (#1350) ─────────
+# Every assertion below drives the REAL CLI over a REAL committed git history and reads
+# its process stdout. Two reasons that shape is load-bearing rather than incidental:
+# the helper's whole contract is its stdout (a table, or a stated breadcrumb, always
+# exit 0), and an assertion against a file's `read_text()` would be an issue-#810
+# source-presence pin needing a declaration — a process-stdout assertion is an ordinary
+# behavioural test. The helper is invoked as a direct executable path, never as
+# `python3 <path>`: that interpreter-head shape is the one the cloud matcher denies, so
+# exercising the shebang and the index exec bit here is what keeps the shipped
+# invocation form honest.
+_PSG1350 = str(SCRIPTS / 'prompt-surface-growth.py')
+
+
+def _psg_git1350(cwd, *args):
+    proc = _subprocess.run(('git',) + args, cwd=cwd, capture_output=True, text=True)
+    # A failed fixture `git` must announce itself here. Left unchecked it surfaces
+    # much later as a mismatched table, sending the reader after the code under test
+    # instead of the host's git config.
+    if proc.returncode != 0 and args[0] in ('init', 'add', 'commit', 'checkout'):
+        raise AssertionError(
+            f"#1350 fixture git {' '.join(args)} failed (rc={proc.returncode}): "
+            f"{proc.stderr.strip()}"
+        )
+    return proc
+
+
+def _psg_write1350(root, rel, text):
+    path = Path(root) / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding='utf-8')
+
+
+def _psg_run1350(cwd):
+    """(rc, stdout) from the helper invoked as a direct leading token."""
+    proc = _subprocess.run([_PSG1350], cwd=cwd, capture_output=True, text=True)
+    return proc.returncode, proc.stdout
+
+
+def _psg_base1350(root):
+    """A committed baseline on `main`: three covered files plus two excluded ones.
+
+    Covered bytes at base = 6 + 5 + 6 = 17. `docs/outside.md` is tracked markdown
+    OUTSIDE all three covered prefixes, and `SKILL.md.example` is inside a covered
+    prefix but is not a `.md` file — together they are the negative control for AC2.
+    """
+    _psg_git1350(root, 'init', '-q', '-b', 'main')
+    _psg_git1350(root, 'config', 'user.email', 'a@b.c')
+    _psg_git1350(root, 'config', 'user.name', 'T')
+    # Signing off, matching every other git fixture in this suite: a maintainer whose
+    # global config signs commits would otherwise fail these assertions for a reason
+    # that has nothing to do with the code under test.
+    _psg_git1350(root, 'config', 'commit.gpgsign', 'false')
+    _psg_write1350(root, 'skills/alpha/SKILL.md', 'alpha\n')                 # 6
+    _psg_write1350(root, 'agents/beta.md', 'beta\n')                         # 5
+    _psg_write1350(root, '.prflow/prompt-extensions/gamma.md', 'gamma\n')    # 6
+    _psg_write1350(root, 'docs/outside.md', 'outside\n')                     # excluded
+    _psg_write1350(root, 'skills/delta/SKILL.md.example', 'ex\n')            # excluded
+    _psg_git1350(root, 'add', '-A')
+    _psg_git1350(root, 'commit', '-qm', 'base')
+
+
+def _psg_branch1350(root, name, mutate):
+    """Return to `main`, cut branch `name` off it, apply `mutate`, commit, run the helper.
+
+    Returning to `main` first is what lets every scenario below share ONE baseline
+    repo: each branches from the same commit, so the baseline's five files and its
+    `git init`/`config`/`add`/`commit` are paid once rather than once per scenario.
+    """
+    _psg_git1350(root, 'checkout', '-q', 'main')
+    _psg_git1350(root, 'checkout', '-q', '-b', name)
+    mutate(root)
+    _psg_git1350(root, 'add', '-A')
+    _psg_git1350(root, 'commit', '-qm', name)
+    return _psg_run1350(root)
+
+
+def _psg_rows1350(out):
+    """Every `| ... |` row of the rendered table, header/separator excluded."""
+    return [ln for ln in out.splitlines()
+            if ln.startswith('|') and '---' not in ln and 'Δ bytes' not in ln]
+
+
+# One baseline repo serves every scenario that branches off it: each `_psg_branch1350`
+# call returns to `main` and cuts its own branch, so the baseline's `git init`/`config`/
+# `add`/`commit` is paid once here instead of once per scenario. Only the unresolvable-
+# merge-base case below needs a repo of its own, because its whole point is a repository
+# whose `main` does not exist.
+with tempfile.TemporaryDirectory(prefix='psg1350-') as _R1350:
+    _psg_base1350(_R1350)
+
+    # ── AC1a(i): HEAD is the merge-base (the checkout-pinned-to-default-branch case) ──
+    # Runs first, while the checkout is still sitting on the baseline commit.
+    _rc1350e, _out1350e = _psg_run1350(_R1350)
+    assert_eq("#1350 a checkout sitting on the merge-base exits 0", 0, _rc1350e)
+    assert_eq("#1350 HEAD == merge-base prints its own stated breadcrumb and no table",
+              [True, False],
+              ['is the merge-base with' in _out1350e, '| ---' in _out1350e])
+
+    # ── AC1 / T1: bytes added to one covered file ────────────────────────────────────
+    def _psg_mut_add1350(root):
+        _psg_write1350(root, 'skills/alpha/SKILL.md', 'alpha\nmore\n')       # 6 -> 11
+
+    _rc1350a, _out1350a = _psg_branch1350(_R1350, 'grow', _psg_mut_add1350)
+    assert_eq("#1350 a covered file gaining bytes exits 0", 0, _rc1350a)
+    assert_eq("#1350 the growth table renders its own section heading",
+              True, _out1350a.startswith('### Prompt-surface size'))
+    assert_eq("#1350 the changed covered file's row carries BOTH the delta and the "
+              "byte total at HEAD (a delta-only row does not satisfy AC1)",
+              ['| `skills/alpha/SKILL.md` | +5 | 11 |',
+               '| **Whole covered surface** | **+5** | **22** |'],
+              _psg_rows1350(_out1350a))
+    _head1350a = _psg_git1350(_R1350, 'rev-parse', 'HEAD').stdout.strip()
+    assert_eq("#1350 the output carries the HEAD sha it was derived at, so a later "
+              "commit makes the figure visibly self-dating rather than silently stale",
+              True, _head1350a in _out1350a)
+
+    # ── AC1 / T1: a covered file the branch DELETES ──────────────────────────────────
+    def _psg_mut_del1350(root):
+        (Path(root) / 'agents' / 'beta.md').unlink()
+
+    _rc1350b, _out1350b = _psg_branch1350(_R1350, 'drop', _psg_mut_del1350)
+    assert_eq("#1350 a deleted covered file exits 0", 0, _rc1350b)
+    assert_eq("#1350 a covered file the branch deletes renders a row with total 0 and a "
+              "negative delta (enumeration is from the committed tree at EITHER endpoint)",
+              ['| `agents/beta.md` | -5 | 0 |',
+               '| **Whole covered surface** | **-5** | **12** |'],
+              _psg_rows1350(_out1350b))
+
+    # ── AC1 / T1: a NEW covered file the branch adds ─────────────────────────────────
+    def _psg_mut_new1350(root):
+        _psg_write1350(root, 'skills/omega/SKILL.md', 'om\n')                # new, 3
+
+    _rc1350c, _out1350c = _psg_branch1350(_R1350, 'birth', _psg_mut_new1350)
+    assert_eq("#1350 a newly added covered file exits 0", 0, _rc1350c)
+    assert_eq("#1350 a newly added covered file renders its full size as the delta",
+              ['| `skills/omega/SKILL.md` | +3 | 3 |',
+               '| **Whole covered surface** | **+3** | **20** |'],
+              _psg_rows1350(_out1350c))
+
+    # ── AC1a(ii) / T2 / AC2: a branch touching only paths OUTSIDE the population ──────
+    def _psg_mut_outside1350(root):
+        _psg_write1350(root, 'docs/outside.md', 'outside\nchanged\n')
+        _psg_write1350(root, 'skills/delta/SKILL.md.example', 'ex\nchanged\n')
+
+    _rc1350d, _out1350d = _psg_branch1350(_R1350, 'outside', _psg_mut_outside1350)
+    assert_eq("#1350 a branch touching no covered path still exits 0", 0, _rc1350d)
+    assert_eq("#1350 a tracked .md outside the covered prefixes, and a .md.example "
+              "inside one, are BOTH absent from the output (AC2's population test)",
+              [False, False],
+              ['docs/outside.md' in _out1350d, 'SKILL.md.example' in _out1350d])
+    assert_eq("#1350 the no-covered-change arm prints a stated one-line breadcrumb and "
+              "NO table — a table of zeros would read as 'this PR added nothing'",
+              [True, False],
+              ['no tracked `*.md`' in _out1350d, '| ---' in _out1350d])
+
+    # ── T5: the third covered prefix is exercised, not merely declared ───────────────
+    def _psg_mut_agents1350(root):
+        _psg_write1350(root, 'agents/beta.md', 'beta\nx\n')                  # 5 -> 7
+
+    _rc1350g, _out1350g = _psg_branch1350(_R1350, 'agentsonly', _psg_mut_agents1350)
+    assert_eq("#1350 an agents/*.md-only change produces a row (agents/** is inside the "
+              "covered population, not beside it)",
+              (0, ['| `agents/beta.md` | +2 | 7 |',
+                   '| **Whole covered surface** | **+2** | **19** |']),
+              (_rc1350g, _psg_rows1350(_out1350g)))
+
+    # ── A same-LENGTH edit still earns a row ────────────────────────────────────────
+    # changed_rows() decides change by blob identity, not size. Nothing else here
+    # exercises that: every other fixture changes a file's length, so swapping the sha
+    # test for a size test would leave the suite green while the table silently dropped
+    # exactly the edit a prompt-surface reviewer most wants to see — a same-length
+    # reword of prose.
+    def _psg_mut_samelen1350(root):
+        _psg_write1350(root, 'skills/alpha/SKILL.md', 'ALPHA\n')             # 6 -> 6
+
+    _rc1350i, _out1350i = _psg_branch1350(_R1350, 'samelen', _psg_mut_samelen1350)
+    assert_eq("#1350 a same-LENGTH edit to a covered file still renders a row, with a "
+              "delta of 0 — change is blob identity, never byte count",
+              (0, ['| `skills/alpha/SKILL.md` | +0 | 6 |',
+                   '| **Whole covered surface** | **+0** | **17** |']),
+              (_rc1350i, _psg_rows1350(_out1350i)))
+
+    # ── The thousands-separated render form is the only one production shows ────────
+    # Every other fixture file is a handful of bytes, so no assertion would ever see a
+    # comma — yet a real prompt surface is megabytes and every rendered figure carries
+    # separators. This pins the format that actually ships.
+    def _psg_mut_big1350(root):
+        _psg_write1350(root, 'skills/alpha/SKILL.md', 'x' * 12345)
+
+    _rc1350j, _out1350j = _psg_branch1350(_R1350, 'big', _psg_mut_big1350)
+    assert_eq("#1350 rendered figures carry thousands separators (the only form a "
+              "real prompt surface ever produces)",
+              (0, ['| `skills/alpha/SKILL.md` | +12,339 | 12,345 |',
+                   '| **Whole covered surface** | **+12,339** | **12,356** |']),
+              (_rc1350j, _psg_rows1350(_out1350j)))
+
+    # ── Repo-root anchoring: a subdirectory invocation reports the same thing ───────
+    # The ls-tree pathspecs are repo-relative, so before the helper anchored on the
+    # repository root a run from a subdirectory matched nothing and printed a confident
+    # "no covered path changed" — a FALSE statement rendered into a PR description as a
+    # generated fact. That is strictly worse than an error, and invisible to the reader.
+    (Path(_R1350) / 'skills' / 'alpha').mkdir(parents=True, exist_ok=True)
+    _rc1350k, _out1350k = _psg_run1350(str(Path(_R1350) / 'skills' / 'alpha'))
+    assert_eq("#1350 a run from a SUBDIRECTORY renders the same table as one from the "
+              "repo root (never a false 'no covered path changed')",
+              (0, _psg_rows1350(_out1350j)),
+              (_rc1350k, _psg_rows1350(_out1350k)))
+
+    # ── T7: the aggregate is derived from the per-file figures it summarises ─────────
+    def _psg_mut_multi1350(root):
+        _psg_write1350(root, 'skills/alpha/SKILL.md', 'alpha\nmore\n')       # +5
+        _psg_write1350(root, '.prflow/prompt-extensions/gamma.md', 'gamma\nyz\n')  # +3
+
+    _rc1350h, _out1350h = _psg_branch1350(_R1350, 'multi', _psg_mut_multi1350)
+    _rows1350h = _psg_rows1350(_out1350h)
+    assert_eq("#1350 a multi-file change renders one row per changed covered file plus "
+              "the aggregate",
+              (0, 3), (_rc1350h, len(_rows1350h)))
+    # The aggregate DELTA equals the sum of the per-file deltas (+5 +3). Its TOTAL is
+    # deliberately the WHOLE covered surface at HEAD (25), not the sum of the changed
+    # rows (20) — AC1 asks for the running total of the surface, which is the figure
+    # that keeps a repeated delta meaningful.
+    assert_eq("#1350 the aggregate row sums the per-file deltas and carries the WHOLE "
+              "covered surface's total at HEAD, not the changed rows' subtotal",
+              ['| `.prflow/prompt-extensions/gamma.md` | +3 | 9 |',
+               '| `skills/alpha/SKILL.md` | +5 | 11 |',
+               '| **Whole covered surface** | **+8** | **25** |'],
+              _rows1350h)
+
+# ── AC5 / T3: an unresolvable merge-base is a breadcrumb, never a silent empty table ───
+with tempfile.TemporaryDirectory(prefix='psg1350f-') as _R1350f:
+    # A repo with commits but no `main` branch and no `origin` remote: every candidate
+    # ref (`origin/HEAD`, `origin/main`, `main`) fails to resolve.
+    _psg_git1350(_R1350f, 'init', '-q', '-b', 'solo')
+    _psg_git1350(_R1350f, 'config', 'user.email', 'a@b.c')
+    _psg_git1350(_R1350f, 'config', 'user.name', 'T')
+    _psg_git1350(_R1350f, 'config', 'commit.gpgsign', 'false')
+    _psg_write1350(_R1350f, 'skills/alpha/SKILL.md', 'alpha\n')
+    _psg_git1350(_R1350f, 'add', '-A')
+    _psg_git1350(_R1350f, 'commit', '-qm', 'solo')
+    _rc1350f, _out1350f = _psg_run1350(_R1350f)
+    assert_eq("#1350 an unresolvable merge-base still exits 0 (the helper gates nothing)",
+              0, _rc1350f)
+    assert_eq("#1350 an unresolvable merge-base names the refs it tried, rather than "
+              "emitting a silently empty table",
+              [True, True, False],
+              ['merge-base could not be resolved' in _out1350f,
+               '`main`' in _out1350f,
+               '| ---' in _out1350f])
+
+# ── The origin/HEAD default-branch arm — the only one a non-`main` consumer uses ──────
+# Every other fixture has no `origin` remote, so the symbolic-ref probe fails and the run
+# falls through to the literal `main` fallback. That leaves the primary arm untested: a
+# consumer whose default branch is `develop` depends on it entirely, and deleting it
+# outright would keep this suite green while that consumer got the wrong base or no table.
+with tempfile.TemporaryDirectory(prefix='psg1350o-') as _R1350o:
+    _R1350oP = Path(_R1350o)
+    (_R1350oP / 'up').mkdir()
+    (_R1350oP / 'work').mkdir()
+    _UP1350 = str(_R1350oP / 'up')
+    _WK1350 = str(_R1350oP / 'work')
+    # An upstream whose default branch is deliberately NOT `main`.
+    _psg_git1350(_UP1350, 'init', '-q', '-b', 'develop')
+    _psg_git1350(_UP1350, 'config', 'user.email', 'a@b.c')
+    _psg_git1350(_UP1350, 'config', 'user.name', 'T')
+    _psg_git1350(_UP1350, 'config', 'commit.gpgsign', 'false')
+    _psg_write1350(_UP1350, 'skills/alpha/SKILL.md', 'alpha\n')
+    _psg_git1350(_UP1350, 'add', '-A')
+    _psg_git1350(_UP1350, 'commit', '-qm', 'base')
+    _psg_git1350(_WK1350, 'clone', '-q', _UP1350, '.')
+    _psg_git1350(_WK1350, 'config', 'user.email', 'a@b.c')
+    _psg_git1350(_WK1350, 'config', 'user.name', 'T')
+    _psg_git1350(_WK1350, 'config', 'commit.gpgsign', 'false')
+    _psg_git1350(_WK1350, 'checkout', '-q', '-b', 'feature')
+    _psg_write1350(_WK1350, 'skills/alpha/SKILL.md', 'alpha\nmore\n')
+    _psg_git1350(_WK1350, 'add', '-A')
+    _psg_git1350(_WK1350, 'commit', '-qm', 'feature')
+    _rc1350o, _out1350o = _psg_run1350(_WK1350)
+    assert_eq("#1350 the merge-base resolves through origin/HEAD, so a repo whose "
+              "default branch is not `main` is measured against ITS default",
+              (0, True, ['| `skills/alpha/SKILL.md` | +5 | 11 |',
+                         '| **Whole covered surface** | **+5** | **11** |']),
+              (_rc1350o, '(`origin/develop`)' in _out1350o,
+               _psg_rows1350(_out1350o)))
+
+# ── An unrunnable git is a stated breadcrumb and exit 0, never a traceback ────────────
+# `check=False` covers a git that RUNS and fails; it does nothing for a git that cannot be
+# executed at all, which raises before any return code exists. That path ended the helper
+# in a traceback with empty stdout — and the shipped extension tells the agent to omit the
+# section on empty output, so the measurement vanished with nobody told why.
+with tempfile.TemporaryDirectory(prefix='psg1350g-') as _R1350gone:
+    _env1350 = dict(os.environ, DEVFLOW_GIT=str(Path(_R1350gone) / 'no-such-git'))
+    _proc1350 = _subprocess.run([_PSG1350], cwd=_R1350gone, capture_output=True,
+                                text=True, env=_env1350)
+    assert_eq("#1350 an unrunnable DEVFLOW_GIT still exits 0 with a stated breadcrumb "
+              "naming the cause, never a traceback",
+              (0, True, True, False),
+              (_proc1350.returncode,
+               'no table rendered' in _proc1350.stdout,
+               'could not be executed' in _proc1350.stdout,
+               'Traceback' in _proc1350.stderr))
+    # Negative control: the breadcrumb above is reached THROUGH the DEVFLOW_GIT override,
+    # so a regression to a bare `git` would not produce it in a directory that is a repo.
+    assert_eq("#1350 DEVFLOW_GIT is honoured — the override, not a bare `git`, is what "
+              "the helper invokes",
+              True, str(Path(_R1350gone) / 'no-such-git') in _proc1350.stdout)
+
+# ── A non-blob entry under a covered prefix is DISCLOSED on stdout, not swallowed ────
+# A submodule gitlink whose path ends in `.md` is the shape that actually reaches the
+# skip counter: `ls-tree -r` does emit gitlinks (`160000 commit … -`), but the covered-
+# population `.md` suffix test drops all the ordinary ones first. Such an entry cannot be
+# sized, so it is excluded from the figures — and the disclosure of that exclusion must
+# ride the SAME channel as the figures, because the consuming prompt extension renders
+# stdout verbatim and reads no stderr. A caveat on stderr would be stripped from exactly
+# the runs whose numbers need it, publishing a quietly-wrong precise total as a fact.
+with tempfile.TemporaryDirectory(prefix='psg1350s-') as _R1350s:
+    _R1350sP = Path(_R1350s)
+    (_R1350sP / 'sub').mkdir()
+    (_R1350sP / 'main').mkdir()
+    _SUB1350 = str(_R1350sP / 'sub')
+    _MN1350 = str(_R1350sP / 'main')
+    for _r in (_SUB1350, _MN1350):
+        _psg_git1350(_r, 'init', '-q', '-b', 'main')
+        _psg_git1350(_r, 'config', 'user.email', 'a@b.c')
+        _psg_git1350(_r, 'config', 'user.name', 'T')
+        _psg_git1350(_r, 'config', 'commit.gpgsign', 'false')
+    _psg_write1350(_SUB1350, 'readme.md', 'sub\n')
+    _psg_git1350(_SUB1350, 'add', '-A')
+    _psg_git1350(_SUB1350, 'commit', '-qm', 'sub')
+    _psg_write1350(_MN1350, 'skills/alpha/SKILL.md', 'alpha\n')
+    _psg_git1350(_MN1350, 'add', '-A')
+    _psg_git1350(_MN1350, 'commit', '-qm', 'base')
+    _psg_git1350(_MN1350, 'checkout', '-q', '-b', 'feature')
+    _sub_add1350 = _subprocess.run(
+        ('git', '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q',
+         _SUB1350, 'skills/vendored.md'),
+        cwd=_MN1350, capture_output=True, text=True)
+    if _sub_add1350.returncode == 0:
+        _psg_write1350(_MN1350, 'skills/alpha/SKILL.md', 'alpha\nmore\n')
+        _psg_git1350(_MN1350, 'add', '-A')
+        _psg_git1350(_MN1350, 'commit', '-qm', 'feature')
+        _rc1350s, _out1350s = _psg_run1350(_MN1350)
+        assert_eq("#1350 a non-blob entry under a covered prefix is disclosed on STDOUT "
+                  "below the table (the channel the PR body actually renders), never "
+                  "only on stderr",
+                  (0, True, True),
+                  (_rc1350s,
+                   '| `skills/alpha/SKILL.md` | +5 | 11 |' in _out1350s,
+                   'not readable blobs' in _out1350s))
+        # The endpoint is named, so a reader knows WHICH column the omission distorts:
+        # a merge-base skip inflates a delta, a HEAD skip understates the totals. A
+        # single folded count could not say that, and for two disjoint skips would not
+        # even be a true count.
+        assert_eq("#1350 the skip disclosure names the ENDPOINT it applies to",
+                  True, 'at `HEAD` were not readable blobs' in _out1350s)
+
+        # The same disclosure must survive the NO-TABLE arm. That arm makes an
+        # absolute negative claim — "no covered path changed" — so a run that dropped
+        # an entry it could not read has the least business making it unqualified.
+        _psg_git1350(_MN1350, 'checkout', '-q', '-b', 'gitlink-only', 'main')
+        _sub_add2_1350 = _subprocess.run(
+            ('git', '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q',
+             _SUB1350, 'skills/other.md'),
+            cwd=_MN1350, capture_output=True, text=True)
+        if _sub_add2_1350.returncode == 0:
+            _psg_git1350(_MN1350, 'add', '-A')
+            _psg_git1350(_MN1350, 'commit', '-qm', 'gitlink-only')
+            _rc1350t, _out1350t = _psg_run1350(_MN1350)
+            assert_eq("#1350 the no-covered-change breadcrumb still carries the skip "
+                      "disclosure — an absolute negative claim is never left "
+                      "unqualified by a run that excluded entries",
+                      (0, True, True),
+                      (_rc1350t,
+                       'no tracked `*.md`' in _out1350t,
+                       'not readable blobs' in _out1350t))
+    else:
+        # Submodule creation can be refused by a host git policy; say so rather than
+        # letting the scenario vanish into a silent pass.
+        assert_eq("#1350 submodule fixture could not be created, so the non-blob "
+                  f"disclosure path was NOT exercised: {_sub_add1350.stderr.strip()}",
+                  True, False)
+
+# ── A non-git directory: HEAD unresolvable, still exit 0 ─────────────────────────────
+with tempfile.TemporaryDirectory(prefix='psg1350n-') as _R1350n:
+    _rc1350n, _out1350n = _psg_run1350(_R1350n)
+    assert_eq("#1350 a non-git directory exits 0 with the HEAD-unresolvable breadcrumb "
+              "and no table",
+              (0, True, False),
+              (_rc1350n, '`HEAD` could not be resolved' in _out1350n,
+               '| ---' in _out1350n))
 
 
 print()

@@ -113,6 +113,15 @@ extractor is:
 - The case-arm tracking is a **flag, not a depth counter**, so a **nested** `case`
   block is an accepted limitation — no fence in `skills/review/SKILL.md` nests a
   `case`.
+- **`.prflow/prompt-extensions/**` is outside the scanned population.** Both
+  extractors take the skills bundles as their input, but an extension's text is
+  appended to the same agent prompt and can invoke the same bundled helpers — so a
+  helper invoked only from an extension gets **no desk signal** when its grant is
+  missing, and the cloud matcher refuses it before it runs: no output, no error.
+  Add such a grant to the manifest by hand as part of authoring the call site.
+  Worked example: `scripts/prompt-surface-growth.py` (issue #1350), granted on the
+  `implement` and `command` profiles because its only call site is
+  `.prflow/prompt-extensions/pr-description.md`.
 
 **Audited population (issue #1354).** Both scanners take an explicit file list, so
 their reach is whatever `lib/test/run.sh` hands them. In addition to the skill
@@ -308,6 +317,85 @@ a command prefix (a leading `VAR=value` is a denied matcher shape), and the new
 `scripts/materialize-trusted-prompt-extensions.sh` runs as a workflow step rather
 than an agent command — so `lib/review-profile.tokens` is byte-identical and
 `lib/generate-capability-profiles.py --check` stays green.
+
+### Render-time `` !`…` `` placeholder injection — the accepted shape (issue #1264)
+
+The consumer prompt extension is no longer delivered by a command the agent chooses to
+run. `skills/review/SKILL.md`, `skills/review-and-fix/SKILL.md` (both its blocks) and
+`skills/implement/SKILL.md` each carry a render-time placeholder whose command is
+`scripts/render-prompt-extension.sh <skill-name>`; Claude Code executes it before the
+model sees the skill and substitutes its stdout. There is no tool call for the matcher
+to refuse and no decision for the agent to make — which is the point, since the load
+reached the agent in only 8 of 18 sampled review runs and 1 of 4 sampled implement runs.
+
+**The accepted shape, and the two constraints it satisfies.** The placeholder is a
+single inline command, un-fenced, carrying the bare `${CLAUDE_SKILL_DIR}` anchor and
+**no other expansion**:
+
+```
+!`${CLAUDE_SKILL_DIR}/../../scripts/render-prompt-extension.sh review`
+```
+
+- **No shell expansion in the command text.** Run `31058109064` refused
+  `` !`/bin/echo "PHPROBE_ENV ${DEVFLOW_PROMPT_EXTENSION_ROOT:-UNSET}"` `` with
+  `Contains expansion`. The probe reached substitution only after moving that read
+  **inside** the wrapper's own body, which is where `render-prompt-extension.sh` reads
+  `DEVFLOW_PROMPT_EXTENSION_ROOT`. Do not move it back to a call site.
+- **The head must be granted.** Rendering **is** matcher-gated under
+  `claude-code-action` — run `31058504896` recorded
+  `Shell command permission check failed … This command requires approval`, which
+  **supersedes** the bare-CLI measurement that reported injection ungated. So the
+  wrapper is granted as `Bash(*/render-prompt-extension.sh:*)` **and** the vendored
+  literal on `review`, `implement` and `command`. The wildcard is the load-bearing one:
+  `${CLAUDE_SKILL_DIR}` resolves to an **absolute** path, which no vendored literal
+  matches. Note this is a **widening** of the `review` profile, so
+  `lib/review-profile.tokens` moved in the same change.
+
+**Positive substitution evidence:** run `31058740794` (`SUBSTITUTED_ENV_VISIBLE`)
+established that a placeholder in a **plugin-sourced** `SKILL.md` is substituted under a
+slash-command prompt, and that the injected command inherits `$GITHUB_ENV`-exported
+values — so the injected load reads the #874/#1075 trusted base-ref closure rather than
+the working tree, inheriting that property rather than rebuilding it.
+
+**Two unmeasured residuals, stated rather than assumed — and the second is the sharper
+one.** That probe used a **bare literal** path, so no dispatched run has exercised an
+anchor-bearing placeholder at all.
+
+1. **Substitution** of `${CLAUDE_SKILL_DIR}` inside placeholder text is inferred from its
+   documented substitution in skill markdown content, not established by a dispatch.
+2. **Refusal.** The constraint above is titled *no shell expansion in the command text*
+   and rests on a run that refused `${VAR:-UNSET}` with `Contains expansion` — and the
+   accepted shape then carries `${CLAUDE_SKILL_DIR}`, which is syntactically an
+   expansion. The design assumes the two differ in kind: Claude Code substitutes the
+   anchor in skill markdown **before** the command is analyzed, so the analyzer should
+   never see `${…}`, whereas `DEVFLOW_PROMPT_EXTENSION_ROOT` is not a template variable
+   and survives as literal text. **That distinction is assumed, not measured.** If
+   `Contains expansion` is instead a purely syntactic check over `${…}`, every
+   placeholder is refused at render time.
+
+**What a refusal costs, and why it is not the abort hazard.** A refused placeholder is
+not the zero-turn abort that a *non-zero exit* from a rendered command causes — the
+recorded refusals surfaced as errors on runs that continued. So the failure mode of
+residual 2 is a **silent degrade to the demoted fallback prose**, i.e. exactly the
+intermittent behavior this change exists to remove, while the changeset claims the load
+is deterministic. Nothing in CI, the suite, or the verdict distinguishes that from
+success. Issue #1264's two live-run acceptance criteria are therefore covering **two**
+unmeasured things rather than one, and the cheapest way to retire residual 2 ahead of
+them is a `matcher-probe.yml` arm carrying a bare-`${CLAUDE_SKILL_DIR}` placeholder.
+The anchor is used anyway because the alternative is worse: this repository has no
+`.prflow/vendor/prflow/` on its own checkout, so a vendored-literal placeholder would be
+`command not found` here — and a non-zero exit from an injected command aborts the whole
+skill invocation at zero turns, trading a silent policy loss for a silent total run
+failure. Issue #1264's two live-run acceptance criteria are the post-merge checks that
+settle it.
+
+**The three previously-recorded refused shapes are now unreachable on the Claude Code
+path.** The #1258 run's three refused loader invocations
+(`<workspace-absolute>/skills/review/../../scripts/load-prompt-extension.sh review` with
+and without a trailing `echo`, and the repo-relative `scripts/…` form) were all the
+agent reaching for the loader itself. The agent no longer invokes it when the
+placeholder renders; those shapes survive only on the demoted non-Claude-Code-runner
+fallback path.
 
 ### Step-level `env:` propagation — still PENDING, but not on a dispatch (issue #874)
 

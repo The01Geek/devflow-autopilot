@@ -1,5 +1,5 @@
 {
-  "manifest_version": 20,
+  "manifest_version": 22,
   "readme": [
     "This manifest is the single source of truth for DevFlow's cloud capability policy:",
     "which tools/commands each execution tier (review, implement, command) may run.",
@@ -87,6 +87,7 @@
       "Bash(cmp:*)",
       "Bash(rm -f:*)",
       "Bash(*/load-prompt-extension.sh:*)",
+      "Bash(*/render-prompt-extension.sh:*)",
       "Bash(gh pr diff:*)",
       "Bash(gh pr view:*)",
       "Bash(gh pr comment:*)",
@@ -131,6 +132,7 @@
       "Bash(.prflow/vendor/prflow/scripts/seed-review-progress.sh:*)",
       "Bash(.prflow/vendor/prflow/scripts/config-get.sh:*)",
       "Bash(.prflow/vendor/prflow/scripts/load-prompt-extension.sh:*)",
+      "Bash(.prflow/vendor/prflow/scripts/render-prompt-extension.sh:*)",
       "Bash(.prflow/vendor/prflow/scripts/resolve-review-overrides.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/stale-prose-lint.py:*)",
       "Bash(.prflow/vendor/prflow/lib/efficiency-trace.sh:*)",
@@ -218,8 +220,11 @@
       "Bash(.prflow/vendor/prflow/scripts/match-lint-adjudications.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/normalize-verdicts.py:*)",
       "Bash(.prflow/vendor/prflow/scripts/load-prompt-extension.sh:*)",
+      "Bash(.prflow/vendor/prflow/scripts/render-prompt-extension.sh:*)",
+      "Bash(*/render-prompt-extension.sh:*)",
       "Bash(.prflow/vendor/prflow/scripts/react-to-trigger.sh:*)",
       "Bash(.prflow/vendor/prflow/scripts/extract-doc-needed-paths.sh:*)",
+      "Bash(.prflow/vendor/prflow/scripts/prompt-surface-growth.py:*)",
       "Bash(pip install:*)",
       "Bash(pip:*)",
       "Bash(python:*)",
@@ -336,6 +341,7 @@
       "Bash(.prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh:*)",
       "Bash(.prflow/vendor/prflow/scripts/post-review-verdict.sh:*)",
       "Bash(.prflow/vendor/prflow/scripts/loop-verdict-marker.py:*)",
+      "Bash(.prflow/vendor/prflow/scripts/prompt-surface-growth.py:*)",
       "Bash(.prflow/vendor/prflow/lib/efficiency-trace.sh:*)",
       "Bash(pip install:*)",
       "Bash(pip:*)",
@@ -379,6 +385,8 @@
       "Bash(cmp:*)",
       "Bash(.prflow/vendor/prflow/scripts/load-prompt-extension.sh:*)",
       "Bash(*/load-prompt-extension.sh:*)",
+      "Bash(.prflow/vendor/prflow/scripts/render-prompt-extension.sh:*)",
+      "Bash(*/render-prompt-extension.sh:*)",
       "Bash(tee:*)"
     ]
   }

@@ -18,6 +18,9 @@ precondition.
 
 Template: [Keeping prompt prose lean](implement.md#keeping-prompt-prose-lean-advisory).
 
+<!-- Coupled copy (same-commit reconciliation): the paragraph below is a real copy, mirrored in `.prflow/prompt-extensions/receiving-code-review.md`; each extension is loaded independently, so a pointer would not resolve for its reader. Edit both together. -->
+When a review finding on prompt-surface prose would be answered by adding text, prefer **rewording the existing sentence** over appending a new one. If the finding is that a rule could be misread, fix the rule's wording. Append only when the finding identifies a genuinely missing instruction or consequence.
+
 ## Wording-only pin review policy
 
 A wording-only pin is a test whose protected literal can change without changing executable
@@ -342,4 +345,4 @@ DevFlow-repo policy: a second marker gate on the **same shared review-engine sur
 
 **Covered population.** A **cloud or local** implement run's workpad, a **`/prflow:review-and-fix` run given a PR**, and a **direct-reception** marker recorded in the **PR description**. A local **current-branch** run with no PR and no linked issue is **out of scope** — it leaves no durable surface (workpad or PR body) for the gate to read, the same case the `Writing-skills evidence:` gate scopes out.
 
-**Accepted residual.** The `gha:` checkpoint is best-effort and fires only when the workpad carries a canonical `## Progress` section, so a cloud run on a legacy workpad lacking that section writes no checkpoint and is classified local/interactive. Since the clause now acts on both classifications (issue #1249), that only mislabels the tier named in the finding — it no longer changes whether the advisory fires. Because the finding is non-blocking, this is accepted rather than guarded.
+**Accepted residual.** The `gha:` checkpoint is best-effort and fires only when the workpad carries a canonical `## Progress` section, so a cloud run on a non-canonical workpad writes no checkpoint and is classified local/interactive. Issue #1347 narrowed that population: an **absent** `## Progress` is now repaired by `--checkpoint` itself, so such a run does write its checkpoint and classifies correctly; the residual survives only for a **duplicate** `## Progress` or an empty body, which still fail closed. Since the clause now acts on both classifications (issue #1249), that only mislabels the tier named in the finding — it no longer changes whether the advisory fires. Because the finding is non-blocking, this is accepted rather than guarded.
