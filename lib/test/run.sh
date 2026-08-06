@@ -23087,15 +23087,22 @@ step = claude[0]
 if (step.get("env") or {}).get("DEVFLOW_PROMPT_EXTENSION_ROOT") != vals["SENTINEL"]:
     print("job env sentinel does not match the helper's SENTINEL"); sys.exit(0)
 args = step["with"]["claude_args"]
-# Limb (c) integrity: the placeholder's head must be UNGRANTED, or the limb measures
-# nothing. Read the head from the skill body rather than restating it here.
+# The placeholder's head must be GRANTED. This assertion is INVERTED from its original
+# form, and the inversion is the record of a completed measurement rather than a
+# loosening: while limb (c) ("is rendering refused by --allowed-tools?") was open, the
+# head was deliberately withheld and the answer came back NEGATIVE — run 31058504896
+# refused the placeholder with `This command requires approval`. With (c) answered, the
+# grant is what makes limbs (a) and (b) reachable at all; four consecutive runs were
+# refused before substitution could ever be observed. Read the head from the skill body
+# rather than restating it here, so the grant cannot drift from the command it covers.
 body = open(skill_path, encoding="utf-8").read()
 m = re.search(r'!`([^\s`]+)', body)
 if not m:
     print("skill body carries no `!` placeholder"); sys.exit(0)
 head = m.group(1)
-if head in args:
-    print("--allowed-tools grants the placeholder head %r, so limb (c) measures nothing" % head)
+if head not in args:
+    print("--allowed-tools does not grant the placeholder head %r, so every run is "
+          "refused before limbs (a)/(b) can be observed" % head)
     sys.exit(0)
 # The skill body must carry both controls, the absent-line token and the SAW prefix the
 # helper scopes its readers to. MARKER is deliberately NOT required here: since the

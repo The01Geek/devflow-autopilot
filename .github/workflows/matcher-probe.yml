@@ -2535,13 +2535,24 @@ jobs:
             phprobe@prflow-probe-marketplace
 
           # `Bash(printf:*)` is what the echo-back needs; `Skill` is what lets the slash
-          # command dispatch. `/bin/echo` is deliberately NOT granted — that omission is
-          # limb (c)'s entire measurement, so do not "fix" it by widening this list.
+          # command dispatch. The placeholder's own head is now GRANTED, and that grant is
+          # itself a recorded measurement rather than a convenience: limb (c) was measured
+          # NEGATIVE by withholding it. Run 31058504896 refused the placeholder with
+          # `This command requires approval`, establishing that render-time placeholder
+          # execution IS gated by --allowed-tools under claude-code-action — the second
+          # contradiction of issue #1264's bare-CLI "not gated" measured fact, after the
+          # `Contains expansion` static-analysis refusal in run 31058109064.
+          #
+          # With (c) answered, the grant is the PRECONDITION for reaching limbs (a) and (b)
+          # at all: four runs were refused before substitution could ever be observed. Do
+          # not read the grant as weakening the probe — it moves the measurement from "is
+          # rendering gated?" (answered: yes) to "given a granted head, does it substitute
+          # and what does it see?" (open).
           claude_args: >-
             --model claude-haiku-4-5-20251001
             --effort low
             --permission-mode acceptEdits
-            --allowed-tools "Bash(printf:*),Skill"
+            --allowed-tools "Bash(printf:*),Skill,Bash(.github/probe-plugin/phprobe-read-env.sh:*)"
 
       # Deterministic verdict from the execution file only — same measurement core as the
       # sibling probes. always() so the verdict is produced even if the engine errored,
