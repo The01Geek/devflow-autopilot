@@ -8,6 +8,11 @@ type: Changed
   `fallback-read-only-sandbox`, `fallback-audit-dispatch-arms`, `fallback-state-owner-unavailable`
   and `revision-delta` references shed multi-sentence rationale, runner archaeology, per-item
   justification tails, epistemics commentary and anti-refactor notes, and gained sub-headings with
-  their mega-paragraphs split at sentence boundaries. Every instruction, prohibition, degraded arm,
-  invariant, exact command form and named failure token is retained verbatim, so the prompt surface
-  the orchestrator executes is unchanged in behavior and smaller in context.
+  their mega-paragraphs split at sentence boundaries. The prompt surface is **rewritten, not merely
+  trimmed**: instructions, prohibitions, degraded arms, named failure tokens and exact command forms
+  are carried over, but several are restated more compactly rather than kept verbatim — notably the
+  read-only fallback's per-arm entry signal and reduced-durability duties, now stated once at the
+  top with the arms they govern named explicitly, and the audit embed arm's out-of-bounds
+  justification, which now separates the reasoning artifacts from the two draft paths named for a
+  different reason. A few explanatory tails whose claim the surrounding procedure already carries
+  were dropped outright.

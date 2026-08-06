@@ -1,10 +1,10 @@
 <!-- prflow:create-issue-ref step=fallback-read-only-sandbox file=skills/create-issue/references/fallback-read-only-sandbox.md start -->
 
-Each arm below is a per-artifact arm in this file's closed set; there is no generic arm for one to inherit. On every arm the failed delete is itself the signal you are in the read-only case, filing is never blocked, and the reduced durability is reported.
+Each arm below is a per-artifact arm in this file's closed set; there is no generic arm for one to inherit. Filing is never blocked on any of them. Everything else is per-arm and stated where it applies: the failed delete is itself the signal you are in the read-only case only on the arms whose artifact has a delete-first step — the canonical-draft and dispatch-instruction writes have none, and the derivation-gate and presentation-gate arms write and delete nothing of their own — and only the arms that say so report the reduced durability.
 
 ## Step 1 — the evidence artifact and the run-slug pointer
 
-Step 1's on-entry deletes and its writes of `.prflow/tmp/issue-step1-<slug>.md` and the fixed pointer `.prflow/tmp/issue-run-slug` all fail the same way. Post the returned (or reconciled, or degraded-arm) Step 1 evidence as a **visible inline-in-chat block in the current turn** — the actual findings, not a bare claim that the pass ran — and re-post it whenever a later turn reaches a check that reads it. **Do not trust any on-disk `issue-step1-<slug>.md` or `issue-run-slug`**: the failed delete may have left either as a stale prior-run leftover, so the visible block is the stand-in. With no readable pointer the slug is **unestablished**, which routes to the title-derived fallback in `references/step-4-present-create.md`.
+Step 1's on-entry deletes and its writes of `.prflow/tmp/issue-step1-<slug>.md` and the fixed pointer `.prflow/tmp/issue-run-slug` all fail the same way. Post the returned (or reconciled, or degraded-arm) Step 1 evidence as a **visible inline-in-chat block in the current turn** — the actual findings, not a bare claim that the pass ran — and re-post it whenever a later turn reaches a check that reads it. **Do not trust any on-disk `issue-step1-<slug>.md` or `issue-run-slug`**: the failed delete may have left either as a stale prior-run leftover, so the visible block is the stand-in. With no readable pointer the slug is **unestablished**, which routes to the title-derived fallback in `references/step-4-present-create.md`; the run reports the reduced durability and continues.
 
 ## Step 2 — the derivation artifact
 
@@ -28,7 +28,7 @@ The `issue-audit-dispatch-<slug>.md` write fails exactly as the draft write does
 
 ## Step 4 — the investigation-record artifact
 
-When the filesystem refuses the `.prflow/tmp/issue-record-<slug>.md` write, **present the record inline in chat** — the actual routed-out content as a visible block — **report the reduced durability**, and **never block filing**. Publication is **withheld** on this arm rather than attempted: `scripts/post-issue-comment.sh` takes its body **only from a file**, so with no record file there is nothing to post — the inline block is the whole delivery, and the reduced-durability report **names the record as unpublished**. **Do not trust any on-disk `issue-record-<slug>.md`**; the visible inline block is the sole stand-in.
+When the filesystem refuses the `.prflow/tmp/issue-record-<slug>.md` write, **present the record inline in chat** — the actual routed-out content as a visible block — **report the reduced durability**, and **never block filing**. Publication is **withheld** on this arm rather than attempted: `scripts/post-issue-comment.sh` takes its body **only from a file** (`BODY_FILE="${2:?…}"`), so with no record file there is nothing to post — the inline block is the whole delivery, and the reduced-durability report **names the record as unpublished**. **Do not trust any on-disk `issue-record-<slug>.md`**; the visible inline block is the sole stand-in.
 
 ## Step 3.6 / Step 4 — the staged canonical-draft write
 
