@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1356",
+  "generated_at": "2026-08-06T06:13:11Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.10",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 6.918083249999998,
+    "tokens": {
+      "input_tokens": 54,
+      "output_tokens": 21766,
+      "cache_read_input_tokens": 4049669,
+      "cache_creation_input_tokens": 173471,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 106,
+        "outputTokens": 39646,
+        "cacheReadInputTokens": 5372224,
+        "cacheCreationInputTokens": 414364,
+        "webSearchRequests": 0,
+        "costUSD": 6.918083249999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 34,
+    "duration_ms": 432026
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "git status --porcelain; echo \"---ENV---\"; echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none}\"",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none}\"; echo \"ATTEMPT=${GITHUB_RUN_ATTEMPT:-none}\"",
+      "gh pr diff 1356 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1356/31076077329-1/diff.patch\necho \"lines=$(wc -l < .prflow/tmp/review/pr-1356/31076077329-1/diff.patch)\"\ngrep '^diff --git' .prflow/tmp/review/pr-1356/31076077329-1/diff.patch",
+      "git show 6cb360e2:scripts/workpad.py > /tmp/wp.py; wc -l /tmp/wp.py; grep -n \"def _apply_mutations\\|def _repair_missing_progress_section\\|def _announce_progress_repair\\|def _plan_checkpoints\\|def _validate_flight_key\\|Last updated\\|rewrite_ac\\|rewrite-ac\\|raise _UpdateError\\|raise _NoOpReplay\\|_did_repair\\|_announce_progress_repair()\\|return _join_sections\" /tmp/wp.py",
+      "git show 6cb360e2:scripts/workpad.py > /tmp/wp.py",
+      "git show 6cb360e2:scripts/workpad.py > .prflow/tmp/wp.py"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
