@@ -206,7 +206,7 @@ sites", or a `file:line` reference. `lib/test/run.sh` does carry tool-read comme
 the behavior-inertness test excludes.
 
 The extracted-selector reference implementation is `scripts/describe-denial-count.sh` (PR #367): the
-three-clause `finalize_check` selector in the then-shipped `devflow-review.yml` was inline and asserted
+three-clause `finalize_check` selector in the then-shipped auto-review workflow was inline and asserted
 only by grep-pins on two of its three message literals, so a reordered arm or a glob typo would
 misattribute the diagnosis while the suite stayed green. The fix extracted it and drove every arm plus
 arm-order from `lib/test/run.sh`.
