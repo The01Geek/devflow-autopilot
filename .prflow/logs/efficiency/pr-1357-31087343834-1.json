@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1357",
+  "generated_at": "2026-08-06T09:09:22Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.14",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.4923679999999995,
+    "tokens": {
+      "input_tokens": 46,
+      "output_tokens": 23640,
+      "cache_read_input_tokens": 2985636,
+      "cache_creation_input_tokens": 140832,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 46,
+        "outputTokens": 23640,
+        "cacheReadInputTokens": 2985636,
+        "cacheCreationInputTokens": 140832,
+        "webSearchRequests": 0,
+        "costUSD": 3.4923679999999995,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 31,
+    "duration_ms": 371226
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-unset}\"",
+      "echo \"=== PR head 85278d7 ===\"; git ls-tree -r --name-only 85278d7a39de5c9f61fd01cd96026409a91179d8 -- .prflow/prompt-extensions/ 2>&1 | grep -E '\\.md$' | grep -v example\necho \"=== main ===\"; git ls-tree -r --name-only main -- .prflow/prompt-extensions/ 2>&1 | grep -E '\\.md$' | grep -v example\necho \"=== merge-base ===\"; git merge-base 85278d7a39de5c9f61fd01cd96026409a91179d8 main",
+      "git ls-tree -r --name-only 85278d7a39de5c9f61fd01cd96026409a91179d8 -- .prflow/prompt-extensions/ | grep -E 'pr-description'",
+      "git log --oneline -1 85278d7a39de5c9f61fd01cd96026409a91179d8; echo \"--- parents ---\"; git rev-list --parents -n 1 85278d7a39de5c9f61fd01cd96026409a91179d8; echo \"--- is ad96ff112 ancestor of PR head? ---\"; git merge-base --is-ancestor ad96ff112 85278d7a39de5c9f61fd01cd96026409a91179d8 && echo YES || echo NO",
+      "git show 85278d7a39de5c9f61fd01cd96026409a91179d8:lib/test/run.sh > .prflow/tmp/prhead-run.sh 2>/dev/null; mkdir -p .prflow/tmp; git show 85278d7a39de5c9f61fd01cd96026409a91179d8:lib/test/run.sh > .prflow/tmp/prhead-run.sh; grep -n '1354' .prflow/tmp/prhead-run.sh | head -60",
+      "for f in review review-and-fix receiving-code-review implement create-issue pr-description docs-sync-internal docs-sync-external docs-bootstrap-external; do echo \"== $f.md ==\"; python3 lib/test/extract-command-heads.py heads \".prflow/prompt-extensions/$f.md\" 2>/dev/null | sed 's/^/  /'; done"
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
