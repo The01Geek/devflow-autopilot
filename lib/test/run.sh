@@ -22957,19 +22957,21 @@ def echo(payload):
 controls = [echo(BEFORE), echo(AFTER)]
 # The echo-back the agent is instructed to produce, one shape per scenario.
 shapes = {
-    "visible":      [echo("PHPROBE_ENV DEVFLOW_PHPROBE_SENTINEL_1264")],
-    "unset":        [echo("PHPROBE_ENV UNSET")],
-    # The placeholder survived verbatim: BOTH unexecuted fragments present.
-    "unexecuted":   [echo('/bin/echo "PHPROBE_ENV ${DEVFLOW_PROMPT_EXTENSION_ROOT:-UNSET}"')],
+    "visible":      [echo("PHPROBE_SAW PHPROBE_ENV DEVFLOW_PHPROBE_SENTINEL_1264")],
+    "unset":        [echo("PHPROBE_SAW PHPROBE_ENV UNSET")],
+    # The placeholder survived verbatim: the echo-back carries the raw backtick-bang and
+    # the script path, neither of which can appear in the script's own stdout.
+    "unexecuted":   [echo("PHPROBE_SAW !`.github/probe-plugin/phprobe-read-env.sh`")],
     "line_absent":  [echo("PHPROBE_LINE_A_ABSENT")],
     "no_marker":    [],
-    # The instruction text carries the marker in TEMPLATE form. A bare-substring test
-    # would read this as a report; it must not.
+    # A marker-shaped entry with NO SAW prefix: not the measurement, so it must not be
+    # read as a report. Both readers are scoped to the SAW token for exactly this reason.
     "template_only": [tu("printf 'PHPROBE_ENV %s\\n' \"$DEVFLOW_PROMPT_EXTENSION_ROOT\"")],
-    # A real sentinel report PLUS an unrelated command that merely mentions /bin/echo.
-    # The unexecuted-form test is scoped to marker-carrying entries, so this must stay
+    # A real sentinel report PLUS an unrelated command mentioning the script path. The
+    # unexecuted-form test is scoped to the SAW echo-back, so this must stay
     # SUBSTITUTED_ENV_VISIBLE rather than flipping to NOT_SUBSTITUTED.
-    "incidental":   [echo("PHPROBE_ENV DEVFLOW_PHPROBE_SENTINEL_1264"), tu("ls /bin/echo")],
+    "incidental":   [echo("PHPROBE_SAW PHPROBE_ENV DEVFLOW_PHPROBE_SENTINEL_1264"),
+                     tu("ls .github/probe-plugin/phprobe-read-env.sh")],
 }
 if scen == "no_controls":
     recs = shapes["visible"]
@@ -23095,10 +23097,29 @@ head = m.group(1)
 if head in args:
     print("--allowed-tools grants the placeholder head %r, so limb (c) measures nothing" % head)
     sys.exit(0)
-# The skill body must carry the marker and both controls the helper looks for.
-for n in ("MARKER", "CONTROL_BEFORE", "CONTROL_AFTER", "LINE_ABSENT"):
+# The skill body must carry both controls, the absent-line token and the SAW prefix the
+# helper scopes its readers to. MARKER is deliberately NOT required here: since the
+# expansion moved into the script, the body no longer names it — the SCRIPT emits it, and
+# the coupling to that producer is asserted just below.
+for n in ("CONTROL_BEFORE", "CONTROL_AFTER", "LINE_ABSENT", "SAW"):
     if vals[n] not in body:
         print("skill body does not carry %s (%s)" % (n, vals[n])); sys.exit(0)
+# The injected command must exist, be executable, and emit the helper's MARKER — an
+# injected command that cannot run is the zero-turn abort hazard, and one that emits a
+# different token would make every future run INCONCLUSIVE with the suite still green.
+import os, subprocess
+script = os.path.normpath(os.path.join(os.path.dirname(wf_path), "..", "probe-plugin", "phprobe-read-env.sh"))
+if not os.path.isfile(script):
+    print("the injected command %s does not exist" % script); sys.exit(0)
+if not os.access(script, os.X_OK):
+    print("the injected command %s is not executable" % script); sys.exit(0)
+env = dict(os.environ); env.pop("DEVFLOW_PROMPT_EXTENSION_ROOT", None)
+r = subprocess.run([script], capture_output=True, text=True, env=env)
+if r.returncode != 0:
+    print("the injected command exits %d on an UNSET variable — the abort hazard" % r.returncode)
+    sys.exit(0)
+if vals["MARKER"] not in r.stdout:
+    print("the injected command does not emit %s" % vals["MARKER"]); sys.exit(0)
 prompt = step["with"].get("prompt", "")
 # The PRODUCTION prompt shape, and both halves are load-bearing. The slash command must be
 # the LAST line (that is what limb (a) measures), and there must be leading prose before it:

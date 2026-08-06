@@ -27,8 +27,19 @@ THE THREE LIMBS, MEASURED BY ONE LINE. The probe skill carries a single placehol
 
   (a) substitution — output present at all;
   (b) environment  — the value carried is the job's step-level sentinel;
-  (c) allowlist    — the head is `/bin/echo` while the job grants only `Bash(printf:*)`,
-                     so any output at all proves rendering ran an UNGRANTED head.
+  (c) allowlist    — the head is a repo-relative script path while the job grants only
+                     `Bash(printf:*)` and `Skill`, so any output at all proves rendering
+                     ran an UNGRANTED head.
+
+ALREADY ESTABLISHED, AND IT CONTRADICTS THE ISSUE. Run 31058109064 refused the probe's
+first placeholder shape outright, recording on the Skill tool_result: `Shell command
+permission check failed for pattern "…": Contains expansion`. So render-time placeholders
+ARE permission-checked under `claude-code-action`, where issue #1264's bare-CLI table
+records "Injection gated by the permission/allowlist system: No". The refusal surfaced as
+a tool_result error with `permission_denials_count: 0` and a successful run — silent,
+which is the class #1264 exists to fight. The shell expansion therefore moved out of the
+command text into `.github/probe-plugin/phprobe-read-env.sh`, leaving a bare literal path
+for the static check to accept; that redesign is what makes limb (a) reachable at all.
 
 Limb (c) rides on limb (a) by construction: there is no observation where the placeholder
 substituted AND the allowlist gated it, because the only head it could have run is the
@@ -59,19 +70,21 @@ import sys
 SENTINEL = "DEVFLOW_PHPROBE_SENTINEL_1264"
 MARKER = "PHPROBE_ENV"
 LINE_ABSENT = "PHPROBE_LINE_A_ABSENT"
+# The fixed token Action 2 puts in front of its echo-back. It is what makes an entry
+# IDENTIFIABLE as the measurement rather than as some other command that happens to
+# mention a fragment — the scoping the incidental-mention guard rests on.
+SAW = "PHPROBE_SAW"
 # The two controls prove the session reached and passed the measured action. Without
 # them a run that never started reads identically to one where nothing substituted.
 CONTROL_BEFORE = "PHPROBE_SKILL_REACHED"
 CONTROL_AFTER = "PHPROBE_CONTROL_AFTER"
 
-# Limb (a) is NEGATIVE only when the echo-back carries the placeholder in its
-# UNEXECUTED form. Matching the raw shape rather than "absence of the marker" is the
-# whole guard: the marker string also appears inside the unexecuted command text, so an
-# absence test would read an unsubstituted line as INCONCLUSIVE and lose the routing
-# signal issue #1264 needs. These two fragments cannot survive substitution — `/bin/echo`
-# is the command name and `${DEVFLOW_...` is an unexpanded shell expansion, and neither
-# appears in the command's own stdout.
-_UNEXECUTED_FRAGMENTS = ("/bin/echo", "${DEVFLOW_PROMPT_EXTENSION_ROOT")
+# Limb (a) is NEGATIVE only when the echo-back carries the placeholder in its UNEXECUTED
+# form. Matching the raw shape rather than "absence of the marker" is the whole guard: an
+# absence test would read an unsubstituted line as INCONCLUSIVE and lose the routing signal
+# issue #1264 needs. Neither fragment can survive substitution — the script's stdout is one
+# `PHPROBE_ENV <value>` line that names neither its own path nor the backtick-bang syntax.
+_UNEXECUTED_FRAGMENTS = ("phprobe-read-env.sh", "!`")
 
 # A value is OBSERVED only if it is one the probe can actually produce. The agent's own
 # instruction text carries the marker in template form, so a bare-substring test would
@@ -86,16 +99,18 @@ def _marker_values(tool_uses):
     Matches `PHPROBE_ENV <token>` and keeps only tokens the probe can produce. The
     `%s` template and the unexecuted `${DEVFLOW_...}` form both yield nothing."""
     pat = re.compile(re.escape(MARKER) + r"\s+([^\s\"'\\]+)")
-    return {v for t in tool_uses for v in pat.findall(t)} & _OBSERVED
+    return {v for t in tool_uses if SAW in t for v in pat.findall(t)} & _OBSERVED
 
 
 def _has_unexecuted_form(tool_uses):
     """True when a recorded entry carries the placeholder's unexecuted command text.
 
-    Scoped to entries that also carry the marker, so an incidental mention of
-    `/bin/echo` in some unrelated command cannot fabricate a NOT_SUBSTITUTED verdict."""
+    Scoped to the SAW-prefixed echo-back, so an incidental mention of the script path in
+    some unrelated command cannot fabricate a NOT_SUBSTITUTED verdict. The scoping token
+    replaces the older marker co-occurrence test, which no longer works: the unexecuted
+    form is now a bare script path that does not carry the marker at all."""
     return any(
-        MARKER in t and any(frag in t for frag in _UNEXECUTED_FRAGMENTS) for t in tool_uses
+        SAW in t and any(frag in t for frag in _UNEXECUTED_FRAGMENTS) for t in tool_uses
     )
 
 
