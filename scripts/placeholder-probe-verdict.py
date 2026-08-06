@@ -23,7 +23,8 @@ intercedes — was never established, and per this repository's own rule only a
 matcher-probe dispatch settles it.
 
 THE THREE LIMBS, MEASURED BY ONE LINE. The probe skill carries a single placeholder,
-`` !`/bin/echo "PHPROBE_ENV ${DEVFLOW_PROMPT_EXTENSION_ROOT:-UNSET}"` ``:
+`` !`.github/probe-plugin/phprobe-read-env.sh` `` (a bare script path — see the redesign
+recorded below, which moved the shell expansion out of the command text):
 
   (a) substitution — output present at all;
   (b) environment  — the value carried is the job's step-level sentinel;
@@ -246,8 +247,9 @@ def compute_verdict(tool_uses, note_top):
             "not have reached or completed the measured action. NOTE: a missing %s is the "
             "expected shape of the zero-turn ABORT hazard — an injected command exiting "
             "non-zero aborts the invocation before the model sees the body — but this probe's "
-            "injected head is /bin/echo, which cannot exit non-zero, so an abort here points "
-            "at the harness rather than at the command"
+            "injected head, .github/probe-plugin/phprobe-read-env.sh, always exits 0 (the "
+            "suite asserts it), so an abort here points at the harness rather than at the "
+            "command"
             % (CONTROL_BEFORE, before, CONTROL_AFTER, after, CONTROL_BEFORE),
             False,
             False,

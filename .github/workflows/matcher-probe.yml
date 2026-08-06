@@ -2460,21 +2460,30 @@ jobs:
   # marketplace under .github/probe-plugin/, which install.sh never copies and the vendor
   # slice never reaches.
   #
-  # THREE LIMBS, ONE LINE. The skill body holds a single placeholder,
-  # `` !`/bin/echo "PHPROBE_ENV ${DEVFLOW_PROMPT_EXTENSION_ROOT:-UNSET}"` ``:
+  # TWO OPEN LIMBS, ONE LINE — THE THIRD IS ALREADY ANSWERED. The skill body holds a single
+  # placeholder, `` !`.github/probe-plugin/phprobe-read-env.sh` ``:
   #   (a) substitution — output present at all;
   #   (b) environment  — the value carried is this job's step-level sentinel, the same
   #       $GITHUB_ENV channel #874 uses for the trusted base-ref closure;
-  #   (c) allowlist    — the head is `/bin/echo` while --allowed-tools grants only
-  #       `Bash(printf:*)` (plus Skill, so the slash command can dispatch at all), so any
-  #       output at all proves rendering ran an UNGRANTED head.
-  # Limb (c) rides on limb (a) by construction: the only head the placeholder could have
-  # run is the ungranted one, so there is no "substituted but gated" observation to make.
+  #   (c) allowlist    — SETTLED, NEGATIVE. The head was deliberately withheld at first and
+  #       rendering was REFUSED (run 31058504896, `This command requires approval`), so
+  #       placeholder rendering IS permission-checked. --allowed-tools therefore now grants
+  #       `Bash(.github/probe-plugin/phprobe-read-env.sh:*)` beside `Bash(printf:*)` and
+  #       Skill: with (c) settled, that grant is what makes (a) and (b) reachable at all —
+  #       four consecutive runs were refused before substitution could ever be observed.
+  # So there is no "substituted but gated" observation left to make: the gating question was
+  # answered by the refusals, and this job now measures only (a) and (b).
+  #
+  # WHY THE COMMAND IS A BARE SCRIPT PATH. The first shape inlined the read as
+  # `` !`/bin/echo "PHPROBE_ENV ${DEVFLOW_PROMPT_EXTENSION_ROOT:-UNSET}"` `` and the action
+  # refused it before substitution — `Shell command permission check failed … Contains
+  # expansion` (run 31058109064) — so the shell expansion moved inside the script.
   #
   # THE ABORT HAZARD IS AVOIDED BY CONSTRUCTION. A non-zero exit from an injected command
-  # aborts the whole skill invocation at zero turns (#1264's measured facts). `/bin/echo`
-  # cannot exit non-zero here, so a missing PHPROBE_SKILL_REACHED control points at the
-  # harness rather than at the command — the verdict helper says so in that arm.
+  # aborts the whole skill invocation at zero turns (#1264's measured facts).
+  # phprobe-read-env.sh always exits 0 (the suite asserts it), so a missing
+  # PHPROBE_SKILL_REACHED control points at the harness rather than at the command — the
+  # verdict helper says so in that arm.
   #
   # Maintainer-dispatched, like its siblings: the implementing run adds the job and does
   # not run it. Version-dependent — re-probe after a claude-code-action / CLI upgrade.

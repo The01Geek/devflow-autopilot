@@ -16,9 +16,15 @@ PHPROBE_LINE_A: !`.github/probe-plugin/phprobe-read-env.sh`
   (b) ENVIRONMENT — the script reads DEVFLOW_PROMPT_EXTENSION_ROOT, which the probe job
       sets to a sentinel via the step-level `env:`, and reports the literal token UNSET
       when it is absent rather than emitting an empty line.
-  (c) ALLOWLIST GATING — the head is a repo-relative script path, deliberately NOT
-      `printf`. The job grants only `Bash(printf:*)` and `Skill`, so this head is
-      UNGRANTED. Output appearing here proves rendering is not refused by --allowed-tools.
+  (c) ALLOWLIST GATING — ALREADY ANSWERED, NEGATIVE, and the job's grant records that
+      answer rather than contradicting it. The head is a repo-relative script path, not
+      `printf`. It was deliberately withheld at first, and rendering was REFUSED — run
+      31058504896, `This command requires approval` — so placeholder rendering IS gated by
+      --allowed-tools. The job therefore grants `Bash(.github/probe-plugin/phprobe-read-env.sh:*)`
+      alongside `Bash(printf:*)` and `Skill`: with (c) settled, that grant is the only thing
+      that makes limbs (a) and (b) observable at all (four consecutive runs were refused
+      before substitution could ever be seen). Do not "restore" the withheld form — it
+      re-measures a settled limb and blinds the two that are still open.
 
   WHY THE COMMAND IS A BARE PATH WITH NO `${…}` IN IT. The first shape inlined the read as
   `!`/bin/echo "PHPROBE_ENV ${DEVFLOW_PROMPT_EXTENSION_ROOT:-UNSET}"`` and the action
