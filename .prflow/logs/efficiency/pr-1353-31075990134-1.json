@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1353",
+  "generated_at": "2026-08-06T06:21:38Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.10",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 6.229795250000002,
+    "tokens": {
+      "input_tokens": 65,
+      "output_tokens": 27952,
+      "cache_read_input_tokens": 4774860,
+      "cache_creation_input_tokens": 92241,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 115,
+        "outputTokens": 48935,
+        "cacheReadInputTokens": 6833033,
+        "cacheCreationInputTokens": 198948,
+        "webSearchRequests": 0,
+        "costUSD": 6.229795250000002,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 45,
+    "duration_ms": 1024989
+  },
+  "permission_denials": {
+    "count": 8,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "cd /home/runner/work/prflow/prflow 2>/dev/null; git hash-object skills/review/SKILL.md skills/review/phases/phase-0-setup.md skills/review/phases/phase-0-3-6-blocker-recheck.md skills/review/phases/phase-0-6-stale-prose-lint.md skills/review/phases/phase-1-checklist.md skills/review/phases/phase-2-verification.md skills/review/phases/phase-3-agents.md skills/review/phases/phase-4-verdict.md skills/review/phases/phase-4-1-7-stale-adjudication.md skills/review/phases/phase-4-4-github-post.md",
+      "echo \"=== at merge-base ===\"; git ls-tree 21e18a3a8 -- scripts/implement-context-eval.py docs/internal/implement-context.md 2>&1; echo \"=== which commit deleted implement-context-eval.py ===\"; git log --oneline 21e18a3a8..f5e3cde98 -- scripts/implement-context-eval.py 2>&1",
+      "echo \"HEAD has file?\"; git ls-files -- scripts/implement-context-eval.py 2>&1; echo \"at f5e3cde?\"; git ls-tree f5e3cde98 -- scripts/implement-context-eval.py 2>&1; echo \"at 21e18a3a?\"; git ls-tree 21e18a3a8 -- scripts/implement-context-eval.py 2>&1",
+      "git ls-tree f5e3cde98 -- scripts/implement-context-eval.py",
+      "git ls-tree 21e18a3a8 -- scripts/implement-context-eval.py",
+      "timeout 300 lib/test/run-module.sh prompt-extension-reader 2>&1 | tail -15; echo \"RC=${PIPESTATUS[0]}\"",
+      "unset DEVFLOW_PROMPT_EXTENSION_ROOT; lib/test/run-module.sh prompt-extension-reader 2>&1 | tail -6",
+      "scripts/post-review-verdict.sh 1353 APPROVE .prflow/tmp/review/pr-1353/verdict-body.md f5e3cde98f9204cf7e2fdf472e378f8e3c41b4c0 2>&1 | tail -15; echo \"post-rc=$?\""
+    ],
+    "total": 8,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
