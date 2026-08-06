@@ -3528,16 +3528,30 @@ def _repair_missing_progress_section(body: str) -> str:
     # `_plan_checkpoints`' own count check and fails closed there.
     if _find_section(sections, 'Progress') is not None:
         return body
-    # Announce the structural self-heal. A repair rewrites a human-visible GitHub
-    # artifact, so a maintainer reading the workpad later must be able to tell a
-    # re-created section from one that was always there; every sibling degrade in
-    # this file breadcrumbs to stderr for the same reason.
+    # Deliberately SILENT here — the caller announces it, and only once the rest of
+    # `--checkpoint`'s validation has passed. Breadcrumbing from inside the repair
+    # would claim a self-heal that a later structural raise (a multi-line text, a
+    # duplicate marker) then discards with zero PATCH, telling a maintainer the
+    # workpad was rewritten when nothing was written at all.
+    return _join_sections(
+        preamble, _insert_section_at_head(sections, '## Progress', ''),
+    )
+
+
+def _announce_progress_repair() -> None:
+    """Breadcrumb a `## Progress` repair that has cleared validation.
+
+    A repair rewrites a human-visible GitHub artifact, so a maintainer reading the
+    workpad later must be able to tell a re-created section from one that was
+    always there; every sibling degrade in this file breadcrumbs to stderr for the
+    same reason. Emitted by the caller at `_apply_mutations`' successful return —
+    after every raising mutation in it, not merely after `_plan_checkpoints` — so
+    the breadcrumb tracks a repaired body that survived every structural check and
+    is being returned for the PATCH, never one a later guard discarded.
+    """
     sys.stderr.write(
         "workpad.py update: '## Progress' was absent; re-created it at the head of "
         "the section list so the checkpoint could be recorded (issue #1347 repair)\n"
-    )
-    return _join_sections(
-        preamble, _insert_section_at_head(sections, '## Progress', ''),
     )
 
 
@@ -3896,6 +3910,9 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
     # `cmd_update` skips the `Last updated` refresh and the PATCH entirely.
     checkpoint_reqs = getattr(args, 'checkpoint', None) or []
     checkpoint_inserts: list[tuple[str, str]] = []
+    # Bound here, not inside the `if checkpoint_reqs:` arm below, because the
+    # deferred announce at this function's return reads it on EVERY path.
+    _did_repair = False
     strip_inherited = bool(getattr(args, 'strip_inherited_checkpoints', False))
     if strip_inherited:
         # AC10 (issue #1347): `_plan_checkpoints` computes its inserts against the
@@ -3916,8 +3933,12 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
             )
     if checkpoint_reqs:
         # Repair an absent `## Progress` BEFORE the section-shape validation below,
-        # so the validation sees the repaired body (issue #1347).
-        body = _repair_missing_progress_section(body)
+        # so the validation sees the repaired body (issue #1347). The breadcrumb for
+        # it is deferred all the way to this function's successful return — see the
+        # announce site there for why "after `_plan_checkpoints`" was not far enough.
+        _repaired_body = _repair_missing_progress_section(body)
+        _did_repair = _repaired_body is not body
+        body = _repaired_body
         checkpoint_inserts = _plan_checkpoints(body, checkpoint_reqs)
         if not checkpoint_inserts and not _has_non_checkpoint_mutation(args):
             raise _NoOpReplay()
@@ -4330,6 +4351,18 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
                 f"{rows}\n"
             )
 
+    # Announce a `## Progress` repair LAST — after every raising mutation in this
+    # function, not merely after `_plan_checkpoints`. The repair runs early by
+    # design (the section-shape validation must see the repaired body), but several
+    # later guards abort the whole call with zero PATCH — the unconditional
+    # `Last updated` check, the `--status`/`--branch` header raises, the
+    # `--rewrite-ac` guards, `_validate_flight_key`. Announcing before those would
+    # claim a self-heal the call then discards, which is the very defect this
+    # breadcrumb's placement exists to avoid. Emitting here makes the invariant
+    # unconditional: the breadcrumb appears only for a repaired body that survived
+    # every structural check and is being returned for the PATCH.
+    if _did_repair:
+        _announce_progress_repair()
     return _join_sections(preamble, sections)
 
 

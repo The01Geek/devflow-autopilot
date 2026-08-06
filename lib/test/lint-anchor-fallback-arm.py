@@ -64,6 +64,13 @@ ENROLLED: tuple[tuple[str, str], ...] = (
     ("skills/review/SKILL.md", "load-prompt-extension.sh review"),
     ("skills/review-and-fix/SKILL.md", "load-prompt-extension.sh review-and-fix"),
     ("skills/review-and-fix/SKILL.md", "load-prompt-extension.sh receiving-code-review"),
+    # Enrolled at issue #1264, when the render-time injection change gave this file the
+    # vendored-literal fallback arm it previously lacked: its extension load had been the
+    # bare anchor alone, relying on that skill's global resolve-at-emission override
+    # rather than on a written ladder. The remaining bare-anchor call sites under
+    # skills/ stay out of scope per this module's inventory-driven docstring above —
+    # enrollment tracks cloud-reachability, which is a policy scope, not a tree fact.
+    ("skills/implement/SKILL.md", "load-prompt-extension.sh implement"),
     ("skills/implement/phases/phase-3-review.md", "apply-pr-triggerer.sh <draft-pr-number>"),
 )
 

@@ -4,6 +4,61 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.13] — 2026-08-06
+
+### Changed
+### Fixed
+
+- The consumer prompt extension is now delivered to the `/prflow:review`,
+  `/prflow:review-and-fix` and `/prflow:implement` skills by **render-time injection**
+  rather than by a command the agent chooses to run, so repository policy is applied
+  deterministically instead of intermittently. Measured before the change: the extension
+  reached the agent in only 8 of 18 sampled review runs and 1 of 4 sampled implement
+  runs, and both failure modes were silent — a review that never loaded the policy still
+  posted a normal APPROVE/REJECT verdict, and nothing in the verdict, the workflow or CI
+  distinguished it from one that had. Two pull requests reviewed three minutes apart
+  received opposite treatment on the same gate for this reason.
+
+### Added
+
+- `scripts/render-prompt-extension.sh`, the wrapper behind the new placeholder. It
+  **always exits 0** and always writes one `PROMPT-EXTENSION-STATUS:` line —
+  `content-present`, `present-empty`, or `unestablished (<reason>)` — so the rendered
+  skill body carries a positive statement of what happened rather than an absence to be
+  inferred from. Always exiting 0 is load-bearing rather than defensive: a non-zero exit
+  from an injected command aborts the whole skill invocation at zero turns, and
+  `load-prompt-extension.sh` exits 2 on every present-but-undeliverable shape, which is
+  an ordinary thing for a consumer tree to contain. Wired naively, that would have turned
+  a benign no-op into a silent no-verdict run at the merge gate.
+- `unestablished` is never collapsed onto `present-empty`. An absent trusted closure — a
+  `DEVFLOW_PROMPT_EXTENSION_ROOT` naming a directory that does not exist — is reported as
+  unestablished, where the underlying reader alone would have reported it as an ordinary
+  absent extension and a policy-free review would have read as a clean policy pass.
+
+### Changed
+
+- The existing loader prose in all three skills is demoted to an explicit fallback that
+  applies only on runners without render-time preprocessing (Copilot CLI, Cursor, Codex
+  CLI, Gemini CLI); the portable anchor form is preserved unchanged for them.
+- `Bash(*/render-prompt-extension.sh:*)` and its vendored literal are granted on the
+  `review`, `implement` and `command` profiles. This widens the read-only reviewer
+  profile, so `lib/review-profile.tokens` is updated in the same change.
+
+## [2.31.12] — 2026-08-06
+
+### Fixed
+- **The `## Progress` repair breadcrumb is now emitted only for a repair that survives every
+  structural check in the update.** Follow-up to #1347's checkpoint-4 producer hardening.
+  `--checkpoint`'s repair of an absent `## Progress` runs ahead of the section-shape validation by
+  design, so any later abort discards the repaired body with no PATCH — the section-shape guards
+  themselves, and equally the `Last updated` / `Status` / `Branch` header checks, the
+  `--rewrite-ac` guards, and the completion-evidence validator that run after them. The breadcrumb
+  previously fired from inside the repair, claiming a rewrite those aborts had thrown away; it is
+  now deferred to the mutation pass's successful return, after all of them. Also narrows the
+  accepted-residual paragraph in the `review` / `review-and-fix` prompt extensions, which still
+  said a cloud run on a workpad lacking `## Progress` writes no checkpoint and misclassifies as
+  local: that population is now the duplicate-section and empty-body shapes alone. (#1347)
+
 ## [2.31.11] — 2026-08-06
 
 ### Changed

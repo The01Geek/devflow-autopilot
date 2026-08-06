@@ -12,9 +12,9 @@ This page is for maintainers moving an existing cloud installation to a newer PR
 Download the newer installer and use the same new release tag for its payload:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.31.11/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.31.13/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.31.11 bash devflow-install.sh
+DEVFLOW_REF=v2.31.13 bash devflow-install.sh
 ```
 
 An existing installation runs in dry-run mode by default. The installer does not intentionally change the target repository in this mode. It can create temporary files, and it still executes the downloaded installer. Inspect and verify the file before running it.
@@ -24,7 +24,7 @@ An existing installation runs in dry-run mode by default. The installer does not
 After reviewing the preview, apply the same payload:
 
 ```bash
-DEVFLOW_REF=v2.31.11 bash devflow-install.sh --apply
+DEVFLOW_REF=v2.31.13 bash devflow-install.sh --apply
 ```
 
 Review `git status` and `git diff` before committing. Re-running the installer refreshes managed workflows, actions and the schema. It backfills newly scaffolded config keys while preserving existing values and arrays.
@@ -47,5 +47,7 @@ If Python cannot run, the installer cannot compare managed files or write the pr
 In thin mode, `prflow_version` controls the plugin fetched by the installed workflows. The installer re-stamps an empty or SHA-shaped value to the commit it installed. It preserves a hand-set non-SHA value such as a tag or branch.
 
 Updating only the workflows or only `prflow_version` can leave two halves of a feature out of sync. Prefer running the installer with the new tag and reviewing the resulting pin in the same change.
+
+Prompt-extension delivery is a current example. The skills that consume `.prflow/prompt-extensions/` ship in the plugin, while the permission entry their delivery mechanism needs ships in the workflow files. Bumping only `prflow_version` leaves the mechanism unpermitted and the affected runs fall back to the older, less reliable path without reporting a failure.
 
 In vendored mode, `prflow_version` is ignored because the committed `.prflow/vendor/prflow/` tree supplies the runtime.

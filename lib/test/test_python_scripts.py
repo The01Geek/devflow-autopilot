@@ -8891,6 +8891,146 @@ with contextlib.redirect_stderr(_quiet_err):
     apply_mut(_CP_BODY, make_args(checkpoint=[[_CPKEY + ".x", "tok"]]))
 assert_eq("#1347: a canonical body triggers no repair breadcrumb",
           False, "re-created it at the head" in _quiet_err.getvalue())
+# The breadcrumb must not announce a repair the call then DISCARDS. The repair runs
+# ahead of the section-shape validation by design, so a call that repairs and then
+# raises structurally writes nothing — claiming a self-heal there would tell a
+# maintainer the workpad was rewritten when no PATCH was ever issued.
+#
+# Two raise classes, and the SECOND is the one that discriminates the fix. A
+# multi-line text raises INSIDE `_plan_checkpoints`, i.e. before any announce point
+# ever considered — so it would pass even with the announce placed right after that
+# call, and on its own it verifies non-announcement trivially. The `Last updated`
+# raise fires LATER, after `_plan_checkpoints` has already accepted the repaired
+# body, so only an announce deferred to the successful return survives it. Keep both:
+# the first is the cheap regression, the second is the real boundary.
+for _bad, _label in [
+    (_NOPROG_BODY, "a multi-line text (raises inside _plan_checkpoints)"),
+    (_NOPROG_BODY.replace("**Last updated:** 2026-08-05 00:00 UTC\n", ""),
+     "a missing Last-updated line (raises AFTER _plan_checkpoints accepted it)"),
+]:
+    _args = make_args(checkpoint=[[_CP4_KEY, "line one\nline two"]]) \
+        if _bad is _NOPROG_BODY else make_args(checkpoint=[[_CP4_KEY, "tok"]])
+    _discard_err = io.StringIO()
+    _raised = False
+    with contextlib.redirect_stderr(_discard_err):
+        try:
+            apply_mut(_bad, _args)
+        except workpad._UpdateError:
+            _raised = True
+    assert_eq(f"#1347: a repair discarded by {_label} raises and is NOT announced",
+              (True, False),
+              (_raised, "re-created it at the head" in _discard_err.getvalue()))
+# ...and the same body at the process level makes no PATCH, so the discarded repair
+# is provably never written.
+_code, _out, _err, _patched = _drive_cmd_update(
+    _NOPROG_BODY.replace("**Last updated:** 2026-08-05 00:00 UTC\n", ""),
+    checkpoint=[[_CP4_KEY, "tok"]])
+assert_eq("#1347: the post-plan raise makes no PATCH and emits no repair breadcrumb",
+          (None, False), (_patched, "re-created it at the head" in (_err or "")))
+# Attribute the rejection. The loop above asserts only THAT `_UpdateError` raised, which
+# an unrelated precondition would satisfy just as well — so pin each fixture to the guard
+# it is meant to trip, and prove each fixture really lost the one property under test.
+_NOUPD_NOPROG = _NOPROG_BODY.replace("**Last updated:** 2026-08-05 00:00 UTC\n", "")
+assert_eq("#1347 (control): the late-raise fixture lost only its Last-updated line",
+          (False, False, True),
+          ("**Last updated:**" in _NOUPD_NOPROG, "## Progress" in _NOUPD_NOPROG,
+           "**Status:**" in _NOUPD_NOPROG))
+try:
+    apply_mut(_NOUPD_NOPROG, make_args(checkpoint=[[_CP4_KEY, "tok"]]))
+    _upd_raised = ""
+except workpad._UpdateError as _e:
+    _upd_raised = str(_e)
+assert_eq("#1347: the late-raise fixture is refused by the Last-updated guard specifically",
+          "Last updated line not found in workpad", _upd_raised)
+
+# A SECOND post-plan guard, so the deferred placement is pinned by more than one raise
+# site: `--status` on a body with no `**Status:**` line. This is also the exact
+# `--status ... --checkpoint gha:...` shape Phase 1.3's cloud resume arm issues.
+_NOSTATUS_NOPROG = _NOPROG_BODY.replace("**Status:** 🚀 Documenting\n", "")
+assert_eq("#1347 (control): the Status fixture lost only its Status line",
+          (False, False, True),
+          ("**Status:**" in _NOSTATUS_NOPROG, "## Progress" in _NOSTATUS_NOPROG,
+           "**Last updated:**" in _NOSTATUS_NOPROG))
+_late_err = io.StringIO()
+with contextlib.redirect_stderr(_late_err):
+    try:
+        apply_mut(_NOSTATUS_NOPROG, make_args(
+            status="Setup",
+            checkpoint=[["gha:7:1:phase1-hydrated", "run resumed; Phase 1 hydrated"]]))
+        _late_raised = ""
+    except workpad._UpdateError as _e:
+        _late_raised = str(_e)
+assert_eq("#1347: the Status fixture is refused by the Status guard specifically",
+          "Status line not found in workpad", _late_raised)
+assert_eq("#1347: a repair discarded by the --status raise is not announced either",
+          False, "re-created it at the head" in _late_err.getvalue())
+# Positive control on the same fixture: restore only the one property under test and the
+# call succeeds AND announces — so the non-announcement assertions above cannot pass
+# vacuously through some unrelated precondition rejecting the fixture.
+_late_ok_err = io.StringIO()
+with contextlib.redirect_stderr(_late_ok_err):
+    _late_ok = apply_mut(_NOPROG_BODY, make_args(
+        status="Setup",
+        checkpoint=[["gha:7:1:phase1-hydrated", "run resumed; Phase 1 hydrated"]]))
+assert_eq("#1347 (positive control): the same call with a Status line writes and announces",
+          (True, True),
+          ("**Status:**" in _late_ok,
+           "re-created it at the head" in _late_ok_err.getvalue()))
+
+# The REAL legacy-resume composition: strip + the `gha:` hydration checkpoint against a
+# body missing `## Progress`. Each mechanism is covered alone above; this is the shape
+# Phase 1.3's cloud arm actually issues, and it locks the phase prose's subtle claim —
+# the repaired section exists but is EMPTY of the phase-checklist rows, which is why the
+# legacy migration stays required rather than being subsumed by the repair.
+_legacy_resume = apply_mut(_NOPROG_BODY, make_args(
+    strip_inherited_checkpoints=True, status="Setup",
+    checkpoint=[["gha:7:1:phase1-hydrated", "run resumed; Phase 1 workpad hydrated"]]))
+_lr_progress = _legacy_resume.split('## Progress', 1)[1].split('\n## ', 1)[0]
+assert_eq("#1347: the legacy-resume composition repairs, strips, and records in one call",
+          (1, 1, 0),
+          (_legacy_resume.count("## Progress"),
+           _legacy_resume.count("<!-- prflow:checkpoint gha:7:1:phase1-hydrated -->"),
+           _legacy_resume.count(_MK4)))
+assert_eq("#1347: the repaired section carries NO phase-checklist row (migration still owed)",
+          [], [ln for ln in _lr_progress.split('\n') if ln.startswith('- [ ] **')])
+# The `_MK4` element above is necessarily a no-marker observation, not a strip
+# observation: the strip rewrites the FIRST `## Progress` section, and on a body that has
+# none there is nothing it could remove — seeding an inherited row anywhere else would
+# make it a SURVIVOR (breadcrumbed, still present), not a stripped row. What IS genuinely
+# observable on this composition is that the no-op strip stays silent: it neither raises
+# nor warns about survivors on a body whose repaired section is empty. The strip's
+# removal half is exercised against a Progress-carrying body in the `_INHERITED` block.
+_lr_err = io.StringIO()
+with contextlib.redirect_stderr(_lr_err):
+    apply_mut(_NOPROG_BODY, make_args(
+        strip_inherited_checkpoints=True, status="Setup",
+        checkpoint=[["gha:7:1:phase1-hydrated", "run resumed; Phase 1 workpad hydrated"]]))
+assert_eq("#1347: the no-op strip on a repaired body emits no survivor warning",
+          False, "--strip-inherited-checkpoints left" in _lr_err.getvalue())
+
+# The survivor breadcrumb at the DUPLICATE-SECTION locus — the shape the strip's own
+# comment names first and the one a legacy workpad actually produces. Covered above only
+# at the `## Plan` locus, so without this the enumeration is asserted for one member.
+_DUP_SURVIVOR = _INHERITED.replace(
+    "\n## Plan", f"\n## Progress\n- inherited {_MK4}\n\n## Plan", 1)
+_dup_surv_err = io.StringIO()
+with contextlib.redirect_stderr(_dup_surv_err):
+    _dup_surv_out = apply_mut(_DUP_SURVIVOR, make_args(strip_inherited_checkpoints=True))
+assert_eq("#1347: a survivor in a DUPLICATE ## Progress section is breadcrumbed too",
+          True, "--strip-inherited-checkpoints left" in _dup_surv_err.getvalue())
+assert_eq("#1347: the duplicate-section survivor really does survive the first-section strip",
+          1, _dup_surv_out.count(_MK4))
+
+# The tier-refused write through the full command path, not just the pure function: the
+# clean-token key has a `_drive_cmd_update` PATCH assertion and this one did not, so a
+# regression that swallowed the tier-refused insert would show only on the clean key.
+_code, _out, _err, _patched = _drive_cmd_update(
+    _CP_BODY, checkpoint=[[_CP4_REFUSED_KEY, "checkpoint 4: refused by this tier"]])
+assert_eq("#1347: the tier-refused checkpoint PATCHes through the full command path",
+          True,
+          _patched is not None
+          and workpad._checkpoint_marker(_CP4_REFUSED_KEY) in _patched
+          and "refused by this tier" in _patched)
 
 # AC16 (positive control at the process level): an ABSENT-key checkpoint INSERT
 # through cmd_update DOES issue a PATCH carrying the new row — the counterpart to the
