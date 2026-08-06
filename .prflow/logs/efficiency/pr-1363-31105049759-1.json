@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1363",
+  "generated_at": "2026-08-06T14:21:25Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.16",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 25.51973275,
+    "tokens": {
+      "input_tokens": 1479,
+      "output_tokens": 73554,
+      "cache_read_input_tokens": 33167614,
+      "cache_creation_input_tokens": 301548,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 1571,
+        "outputTokens": 92372,
+        "cacheReadInputTokens": 35663333,
+        "cacheCreationInputTokens": 678417,
+        "webSearchRequests": 0,
+        "costUSD": 25.51973275,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 161,
+    "duration_ms": 3867585
+  },
+  "permission_denials": {
+    "count": 15,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"GHA=${GITHUB_ACTIONS:-unset}\"; echo \"branch=$(git branch --show-current)\"; git status --short | head; jq -r '.version' .claude-plugin/plugin.json",
+      "git branch --show-current; git status --short; jq -r '.version' .claude-plugin/plugin.json; printf 'GHA=%s\\n' \"$GITHUB_ACTIONS\"",
+      "cd /home/runner/work/prflow/prflow && pwd && git branch --show-current",
+      "cp scripts/render-prompt-extension.sh .prflow/tmp/rpe-backup.sh\nprintf '\\n# mutation-probe\\n' >> scripts/render-prompt-extension.sh\necho \"=== verify after mutation ===\"; python3 lib/test/cloud_writer_contract.py verify; echo \"rc=$?\"\necho \"--- restore ---\"\ncp .prflow/tmp/rpe-backup.sh scripts/render-prompt-extension.sh\nrm .prflow/tmp/rpe-backup.sh\necho \"=== verify after restore ===\"; python3 lib/test/cloud_writer_contract.py verify; echo \"rc=$?\"\ngit diff --stat scripts/render-prompt-extension.sh",
+      "python3 - <<'PY'\nimport sys, importlib\nsys.path.insert(0, \"lib/test\"); sys.path.insert(0, \"scripts\")\nimport cloud_writer_contract as cwc\nvcwc = importlib.import_module(\"validate-cloud-writer-contract\")\n\nVP = cwc.VENDOR_PREFIX\ndef _cwv(n): return VP + \"scripts/\" + n\ndef _cwl(n): return VP + \"lib/\" + n\n# Mirror _FROZEN_LEGACY_GRANTS from the edited test file\nfrozen = {\n  \"implement\": {_cwv(x) for x in [\"run-jq.sh\",\"config-get.sh\",\"workpad.py\",\"parse-acs.py\",\"branch-for-issue.py\",\"update-branch-che …[per-command-truncated]",
+      "git add lib/test/cloud_writer_contract.py lib/test/cloud_writer_deps.py lib/test/test_python_scripts.py scripts/devflow-cloud-writer-contract.json\ngit status --short\ngit commit -q -m \"$(printf 'feat(#1359): advance LEGACY_PROFILE_BASELINE and register render-prompt-extension.sh in the cloud-writer closure\\n\\nAdvance LEGACY_PROFILE_BASELINE from 2.30.100 to 2.31.16 (the plugin version\\nthat first shipped render-prompt-extension.sh in 2.31.13), and register the\\nwrapper as a required helper head o …[per-command-truncated]",
+      "scripts/workpad.py update 1359 --pr-link \"https://github.com/The01Geek/prflow/pull/1363\" --tick-progress \"code + sweeps\" 2>&1 | head -1\nls .changeset/*.md | head -3; echo \"=== sample ===\"; head -20 $(ls .changeset/*.md | grep -v README | head -1)",
+      "timeout 60 python3 -c \"\nimport lib.test.cloud_writer_contract as c\nimport lib.test.cloud_writer_deps as d\nprint('contract import ok')\nprint('deps import ok')\n# any self-check functions\nprint([f for f in dir(c) if f.startswith('check')])\nprint([f for f in dir(d) if f.startswith('check')])\nprint('shape conf:', c.check_shape_conformance())\n\" 2>&1 | tail -20",
+      "for c in $(git log --reverse --format=%H --since=\"2026-08-01\" -- .claude-plugin/plugin.json | head -40); do if git cat-file -e $c:scripts/render-prompt-extension.sh 2>/dev/null; then echo \"first version-bump commit containing wrapper: $c\"; git show $c:.claude-plugin/plugin.json | grep -m1 version; break; fi; done",
+      "git log --reverse --format=%H -- .claude-plugin/plugin.json > /tmp/vc.txt; while read -r c; do if git cat-file -e \"$c:scripts/render-prompt-extension.sh\" 2>/dev/null; then echo \"first plugin.json commit with wrapper: $c\"; git show \"$c:.claude-plugin/plugin.json\" | grep -m1 version; break; fi; done < /tmp/vc.txt",
+      "V_PLUGIN=$(jq -r .version .claude-plugin/plugin.json)\nV_MANIFEST=$(jq -r .legacy_profile_baseline scripts/devflow-cloud-writer-contract.json)\nV_CONST=$(python3 -c \"import sys; sys.path.insert(0,'lib/test'); import cloud_writer_contract as c; print(c.LEGACY_PROFILE_BASELINE)\")\nprintf 'plugin=%s manifest=%s const=%s\\n' \"$V_PLUGIN\" \"$V_MANIFEST\" \"$V_CONST\"\necho \"--- forbidden-edit check (plugin.json / CHANGELOG.md must be untouched) ---\"\ngit diff main...HEAD --name-only | grep -E \"plugin.json|CHANG …[per-command-truncated]",
+      "echo \"=== reception-record ===\"; scripts/reception-record.py --help 2>&1 | head -25; echo \"=== checkout-fingerprint ===\"; scripts/checkout-fingerprint.py --help 2>&1 | head -20",
+      "scripts/checkout-fingerprint.py 2>&1 | head -20",
+      "scripts/checkout-fingerprint.py --help 2>&1 | head -25",
+      "TRIGGER_COMMENT_ID=$(gh api \"repos/{owner}/{repo}/issues/1359/comments?per_page=100\" --jq 'map(select((.body | contains(\"/prflow:implement\")) and ((.body | test(\"(pr|dev)flow:workpad\")) | not))) | last | .id' 2>/dev/null || true)\nprintf 'trigger=%s\\n' \"$TRIGGER_COMMENT_ID\"\nif [ -n \"$TRIGGER_COMMENT_ID\" ] && [ -z \"${TRIGGER_COMMENT_ID//[0-9]/}\" ]; then\n  scripts/react-to-trigger.sh --repo \"$GITHUB_REPOSITORY\" --event issue_comment --comment \"$TRIGGER_COMMENT_ID\" --reaction hooray --report-failure …[per-command-truncated]"
+    ],
+    "total": 15,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
