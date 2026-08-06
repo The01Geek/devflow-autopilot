@@ -1,0 +1,52 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-06T00:00:00Z",
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "execution_mode": "inline-hand-run (Skill loader refused twice — frontmatter render command deny-floored; engine executed from tree per phase-3.3 fallback)",
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:type-design-analyzer",
+    "prflow:pr-test-analyzer",
+    "requirements-final-pass"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "exemption loosens the mechanical net for PRFlow-owned files beneath exempted roots — intentional per #1309, documented in CLAUDE.md",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "prflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "optional: extract shared _normalize_path helper (rstrip mirror across parse_docs_defaults and main); consider frozenset return",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "optional hardening: untested shared error branches (docs present w/o properties key; top-level non-dict; non-dict spec value) — all route to existing raises, rated 3, adequate for merge",
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "verdict": "APPROVE",
+  "shadow": {
+    "ran_at": null,
+    "coverage": "not_verified",
+    "reason": "inline hand-run engine (Skill refused); no Step 2.6 shadow fan-out executed"
+  },
+  "notes": "No Critical or Important findings across the 6-agent roster; requirements pass returned APPROVE with all ACs met. Full engine Phase 1 checklist gen/verify, Step 2.5 web classification, and Step 2.6 shadow were not separately executed on this inline fallback; the substantive Phase 3 review roster ran over the real diff with faithful prompts.",
+  "synthesized": false,
+  "telemetry": "unavailable"
+}
