@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1360",
+  "generated_at": "2026-08-06T07:29:06Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.13",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.911197,
+    "tokens": {
+      "input_tokens": 30,
+      "output_tokens": 14763,
+      "cache_read_input_tokens": 2062030,
+      "cache_creation_input_tokens": 151348,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 46,
+        "outputTokens": 23436,
+        "cacheReadInputTokens": 2577249,
+        "cacheCreationInputTokens": 235022,
+        "webSearchRequests": 0,
+        "costUSD": 3.911197,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 18,
+    "duration_ms": 406508
+  },
+  "permission_denials": {
+    "count": 3,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"=== path:line count in new docs (convention: never path:line) ===\"; grep -oE '[A-Za-z0-9_./-]+\\.(py|sh|jq|yml|md):[0-9]+(-[0-9]+)?' docs/internal/claude-md-extension-audit-consumers.md docs/internal/claude-md-extension-audit-coupled-sites.md docs/internal/claude-md-extension-audit-duplicates.md 2>/dev/null | wc -l\necho \"=== existing docs/internal path:line usage (is this convention already broken elsewhere?) ===\"; grep -rlE '[A-Za-z0-9_./-]+\\.(py|sh):[0-9]+' docs/internal/*.md 2>/dev/null  …[per-command-truncated]",
+      "for f in docs/internal/claude-md-extension-audit-consumers.md docs/internal/claude-md-extension-audit-coupled-sites.md docs/internal/claude-md-extension-audit-duplicates.md docs/internal/claude-md-tiered-suite-rationale.md; do n=$(grep -oE '[A-Za-z0-9_./-]+\\.(py|sh|jq|yml|json|md):[0-9]+(-[0-9]+)?' \"$f\" | wc -l); echo \"$n  $f\"; done; echo \"---total---\"; cat docs/internal/claude-md-extension-audit-*.md docs/internal/claude-md-tiered-suite-rationale.md | grep -oE '[A-Za-z0-9_./-]+\\.(py|sh|jq|yml|j …[per-command-truncated]",
+      "cat > .prflow/tmp/review/pr-1360/run1/verdict.md <<'EOF'\n<!-- prflow:review-verdict head=5d1296fd213237344d2fd74f184bc49964820561 verdict=APPROVE -->\n## 🎉 `/prflow:review` — APPROVE (PR #1360)\n\n**Reviewed HEAD:** `5d1296f` · **Diff profile:** `engine_self_modifying` (CLAUDE.md touched) → full checklist; roster gated by Phase 3.1. Docs/CLAUDE.md-only change (no `skills/`/`lib/`/`scripts/`/workflow surface → no changeset required; no trigger-glob prompt-surface file → writing-skills gate is a no-o …[per-command-truncated]"
+    ],
+    "total": 3,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
