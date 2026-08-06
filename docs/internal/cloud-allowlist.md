@@ -330,9 +330,31 @@ slash-command prompt, and that the injected command inherits `$GITHUB_ENV`-expor
 values — so the injected load reads the #874/#1075 trusted base-ref closure rather than
 the working tree, inheriting that property rather than rebuilding it.
 
-**Unmeasured residual, stated rather than assumed.** That probe used a **bare literal**
-path. Substitution of `${CLAUDE_SKILL_DIR}` *inside placeholder text* is inferred from
-its documented substitution in skill markdown content, not established by a dispatch.
+**Two unmeasured residuals, stated rather than assumed — and the second is the sharper
+one.** That probe used a **bare literal** path, so no dispatched run has exercised an
+anchor-bearing placeholder at all.
+
+1. **Substitution** of `${CLAUDE_SKILL_DIR}` inside placeholder text is inferred from its
+   documented substitution in skill markdown content, not established by a dispatch.
+2. **Refusal.** The constraint above is titled *no shell expansion in the command text*
+   and rests on a run that refused `${VAR:-UNSET}` with `Contains expansion` — and the
+   accepted shape then carries `${CLAUDE_SKILL_DIR}`, which is syntactically an
+   expansion. The design assumes the two differ in kind: Claude Code substitutes the
+   anchor in skill markdown **before** the command is analyzed, so the analyzer should
+   never see `${…}`, whereas `DEVFLOW_PROMPT_EXTENSION_ROOT` is not a template variable
+   and survives as literal text. **That distinction is assumed, not measured.** If
+   `Contains expansion` is instead a purely syntactic check over `${…}`, every
+   placeholder is refused at render time.
+
+**What a refusal costs, and why it is not the abort hazard.** A refused placeholder is
+not the zero-turn abort that a *non-zero exit* from a rendered command causes — the
+recorded refusals surfaced as errors on runs that continued. So the failure mode of
+residual 2 is a **silent degrade to the demoted fallback prose**, i.e. exactly the
+intermittent behavior this change exists to remove, while the changeset claims the load
+is deterministic. Nothing in CI, the suite, or the verdict distinguishes that from
+success. Issue #1264's two live-run acceptance criteria are therefore covering **two**
+unmeasured things rather than one, and the cheapest way to retire residual 2 ahead of
+them is a `matcher-probe.yml` arm carrying a bare-`${CLAUDE_SKILL_DIR}` placeholder.
 The anchor is used anyway because the alternative is worse: this repository has no
 `.prflow/vendor/prflow/` on its own checkout, so a vendored-literal placeholder would be
 `command not found` here — and a non-zero exit from an injected command aborts the whole

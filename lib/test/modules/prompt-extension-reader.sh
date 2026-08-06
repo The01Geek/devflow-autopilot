@@ -652,7 +652,7 @@ printf 'policy line one\npolicy line two\n' > "$RPE_DIR/closure/review.md"
 RPE_C_OUT="$(DEVFLOW_PROMPT_EXTENSION_ROOT="$RPE_DIR/closure" bash "$RPE" review 2>/dev/null)"; RPE_C_RC=$?
 assert_eq "rpe: content-present → exit 0" "0" "$RPE_C_RC"
 assert_eq "rpe: content-present → exact status line" "PROMPT-EXTENSION-STATUS: content-present" \
-  "$(printf '%s\n' "$RPE_C_OUT" | while IFS= read -r l; do printf '%s' "$l"; break; done)"
+  "${RPE_C_OUT%%$'\n'*}"
 assert_eq "rpe: content-present → the extension's bytes follow the status line" \
   "$(printf 'PROMPT-EXTENSION-STATUS: content-present\n\npolicy line one\npolicy line two')" "$RPE_C_OUT"
 
@@ -710,5 +710,43 @@ assert_eq "rpe: no skill name → unestablished naming the missing argument" "ye
   "$(case "$RPE_N_OUT" in *'unestablished (no skill name'*) echo yes ;; *) echo no ;; esac)"
 
 rm -rf "$RPE_DIR"
+
+# The render-time placeholder is INVISIBLE to every desk gate that guards an ordinary
+# fenced call site: it is inline-backticked rather than fenced, so extract-command-heads.py
+# emits no head for it and the cloud-writer closure derivation cannot reach the helper.
+# That leaves the change's own primary delivery path unguarded — a dropped grant, a renamed
+# helper, or a typo'd skill name would keep every gate green while consumer policy silently
+# stopped reaching the merge-gating reviewer, which is the exact silent class issue #1264
+# exists to remove. These assertions close that gap at the two machine-consumed contracts
+# the placeholder actually depends on: the resolved allowlist, and the per-skill call sites.
+RPE_MANIFEST="$LIB/../lib/capability-profiles.json"
+RPE_LOCK="$LIB/../lib/review-profile.tokens"
+
+# The wildcard token is the load-bearing grant, not the vendored literal: the placeholder's
+# ${CLAUDE_SKILL_DIR} resolves to an ABSOLUTE path, which no vendored literal matches. A
+# manifest edit that dropped it would silently refuse the render on that tier.
+for RPE_PROFILE in review implement command; do
+  assert_eq "rpe grant: '$RPE_PROFILE' profile grants the wrapper's wildcard head" "yes" \
+    "$(RPE_P="$RPE_PROFILE" python3 -c "
+import json, os, sys
+d = json.load(open(sys.argv[1]))
+toks = d['profiles'][os.environ['RPE_P']]
+print('yes' if 'Bash(*/render-prompt-extension.sh:*)' in toks else 'no')
+" "$RPE_MANIFEST")"
+done
+
+# The review profile is a locked security boundary: the generator refuses to widen it
+# until the lock moves in the same change, so the lock must carry the token too.
+assert_eq "rpe grant: the review-profile lock carries the wrapper's wildcard head" "yes" \
+  "$(grep -Fxq 'Bash(*/render-prompt-extension.sh:*)' "$RPE_LOCK" && echo yes || echo no)"
+
+# Each skill that carries a placeholder must name ITS OWN extension. A copy-paste that left
+# a sibling's skill name behind would render the wrong consumer policy into that skill and
+# nothing else in the suite would notice.
+for RPE_SKILL in review review-and-fix implement; do
+  assert_eq "rpe placeholder: skills/$RPE_SKILL/SKILL.md renders its own extension" "yes" \
+    "$(grep -Fq '!`${CLAUDE_SKILL_DIR}/../../scripts/render-prompt-extension.sh '"$RPE_SKILL"'`' \
+       "$LIB/../skills/$RPE_SKILL/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: loop body — the target is the $RPE_SKILL loop variable, not a static pin
+done
 
 rm -rf "$LPE_DIR"

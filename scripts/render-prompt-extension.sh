@@ -62,8 +62,20 @@
 # ------------------------------------------------------------------
 # The injected command must be statically analyzable: a `${VAR:-default}` inside the
 # placeholder text is refused with `Contains expansion` (measured, run 31058109064).
-# So DEVFLOW_PROMPT_EXTENSION_ROOT is read HERE, in this script's own body, and the
-# placeholder carries no expansion of its own. Do not move this read into a call site.
+# So DEVFLOW_PROMPT_EXTENSION_ROOT is read HERE, in this script's own body, never at a
+# call site. Do not move this read into a placeholder.
+#
+# Stated precisely, because the narrower claim is the true one: the placeholder carries
+# the bare `${CLAUDE_SKILL_DIR}` anchor and NO OTHER expansion. It is not
+# expansion-free. The two are believed to differ in kind — Claude Code substitutes
+# `${CLAUDE_SKILL_DIR}` in skill markdown before the command is analyzed, so the
+# analyzer should never see `${…}` there, whereas `DEVFLOW_PROMPT_EXTENSION_ROOT` is not
+# a Claude Code template variable and survives as literal text to be refused. That
+# distinction is INFERRED, not measured: the dispatched probe used a bare literal path,
+# so no run has exercised an anchor-bearing placeholder. Do not read this comment as
+# evidence the `Contains expansion` hazard was designed out; it was narrowed to one
+# expansion whose handling is assumed. docs/internal/cloud-allowlist.md records the
+# residual, and issue #1264's two live-run acceptance criteria are what settle it.
 #
 # The variable is the loader's top-precedence branch and is exported by
 # .github/workflows/devflow.yml's "Establish the trusted prompt-extension closure"
@@ -125,26 +137,28 @@ fi
 # Run the loader, capturing stdout and stderr separately so a diagnostic can be quoted
 # into the status line without contaminating the extension bytes. `|| _rpe_rc=$?` keeps
 # the failure in hand instead of propagating it.
+# Redirect stderr to a scratch file so a diagnostic can be quoted into the status line
+# without contaminating the extension bytes. The redirect TARGET is parameterized rather
+# than the whole invocation being branched: when mktemp is unavailable the target falls
+# back to /dev/null, which loses the diagnostic detail but never the render — one call
+# site, so a future change to how the loader is invoked cannot be made in one arm only.
 _rpe_err_file="$(mktemp 2>/dev/null)" || _rpe_err_file=""
-if [ -z "$_rpe_err_file" ]; then
-    # No scratch file: still run the loader, just without its stderr detail. Losing the
-    # diagnostic must not cost the whole render.
-    _rpe_out="$("$_RPE_LOADER" "$_rpe_skill" 2>/dev/null)"
-    _rpe_rc=$?
-    _rpe_err=""
-else
-    _rpe_out="$("$_RPE_LOADER" "$_rpe_skill" 2>"$_rpe_err_file")"
-    _rpe_rc=$?
-    _rpe_err="$(cat "$_rpe_err_file" 2>/dev/null)"
+_rpe_out="$("$_RPE_LOADER" "$_rpe_skill" 2>"${_rpe_err_file:-/dev/null}")"
+_rpe_rc=$?
+_rpe_err=""
+if [ -n "$_rpe_err_file" ]; then
+    # `$(<file)` is a bash builtin read — no `cat` process, and this runs at skill-render
+    # time, on the critical path before the model sees a single token.
+    _rpe_err="$(<"$_rpe_err_file")"
     rm -f "$_rpe_err_file" 2>/dev/null
 fi
 
 # The loader writes a breadcrumb to stderr on its DEVFLOW_PROMPT_EXTENSION_ROOT branch
 # even on the success path, so stderr being non-empty is not itself a failure signal —
-# only the exit status is. Keep the two apart.
-if [ "$_rpe_rc" -eq 2 ]; then
-    _rpe_unestablished "${_rpe_err:-load-prompt-extension.sh refused the request (exit 2) with no diagnostic}"
-elif [ "$_rpe_rc" -ne 0 ]; then
+# only the exit status is. Keep the two apart. Every non-zero status takes one arm: the
+# loader's documented exit 2 and any status outside {0, 2} are both "the extension's
+# state could not be established", and naming the code in the reason serves both.
+if [ "$_rpe_rc" -ne 0 ]; then
     _rpe_unestablished "load-prompt-extension.sh exited ${_rpe_rc}${_rpe_err:+: ${_rpe_err}}"
 fi
 
