@@ -4,6 +4,50 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.18] — 2026-08-06
+
+### Changed
+- **Editorially compressed three `/prflow:create-issue` reference files.** `references/step-2-clarify.md`,
+  `references/step-3-5-steelman.md`, and the documentation preamble of `references/audit-prompt-template.md`
+  drop rationale essays, rejected-design records, and motivating-incident archaeology. Every check,
+  prohibition, degraded arm, and exact command form the three files mandate survives. The column-limit unwrap
+  joined continuation lines without changing wording in the audit-prompt template's emitted
+  `<!-- render-block: di -->` / `dispatch-instructions` block. (#1368)
+- **Reorganized, not merely trimmed — so some prose is newly written rather than deleted.** Step 3.5's
+  verification-method paragraph and its omission hunt become labelled clauses and bullet lists, Step 2's
+  evidence-bundle passage is split into its own paragraphs, and each of those carries a new lead label or
+  connective sentence. Step 3.5's per-sweep reporting duties are consolidated into one lead rule over a
+  bullet list, scoped to the sweeps that name a zero arm so that the one which never named one is not given
+  a falsifiable-claim duty it cannot discharge. Step 2's evidence-bundle purpose, previously narrated as a
+  past incident, is restated as a forward statement of what the sub-pass buys; it repeats obligations that
+  file already states elsewhere and widens none of them. (#1368)
+- **The audit-prompt template's `file`, `embed`, `inline`, and `checklist` renders, plus its dimension
+  enumeration, are byte-identical from the previous release.** The column-limit unwrap joined continuation
+  lines without changing wording in the emitted `<!-- render-block: di -->` / `dispatch-instructions` block;
+  the `dispatch-instructions` render differs only by that join-only reflow. Within the documentation preamble
+  the dimension-key paragraph gains one explicit
+  authoring instruction — declare a `dim-key` for every checklist bullet you add — restating a rule the
+  renderer already enforces fail-closed on both the render and enumeration paths, and its three
+  consumer-declaration asymmetries are reordered into a single clause without changing any of them. (#1368)
+- **One anti-refactor instruction was dropped.** Step 2 keeps the deliberate divergence between the
+  cwd-anchored derivation artifact and the main-root-anchored draft, but no longer spells out the
+  accompanying "do not unify them" instruction to a future refactorer. (#1368)
+- **Editorially compressed the `/prflow:create-issue` root and its five fallback / shared-procedure
+  references.** `skills/create-issue/SKILL.md` and the `fallback-no-task-tool`,
+  `fallback-read-only-sandbox`, `fallback-audit-dispatch-arms`, `fallback-state-owner-unavailable`
+  and `revision-delta` references shed multi-sentence rationale, runner archaeology, per-item
+  justification tails, epistemics commentary and anti-refactor notes; the four fallback references
+  gained sub-headings with their mega-paragraphs split at sentence boundaries, while `SKILL.md` and
+  `revision-delta` gained none. The prompt surface is **rewritten, not merely
+  trimmed**: instructions, prohibitions, degraded arms, named failure tokens and exact command forms
+  are carried over, but several are restated more compactly rather than kept verbatim — notably the
+  read-only fallback's per-arm entry signal and reduced-durability duties, now stated once at the
+  top with the arms they govern named explicitly, and the audit embed arm's out-of-bounds
+  justification, which now separates the reasoning artifacts from the two draft paths named for a
+  different reason. A few explanatory tails whose claim the surrounding procedure already carries
+  were dropped outright.
+- **`/prflow:create-issue`: the Step 3.6 audit reference is restructured so an agent can navigate it.** `skills/create-issue/references/step-3-6-audit.md` gains a table of contents and 20 sub-headings under what was a single-heading section, and its mega-paragraphs are split at sentence boundaries — the longest physical line falls from 8,478 B to 1,555 B. Rationale and state-owner contract restatement are condensed to instruction plus at most one consequence sentence. No degraded arm, command form, or pinned literal changed. Content the first pass of the compression dropped or misstated is restored in shortened form and unchanged in force: the dimension-list growth policy's reporting-order and consolidate-before-appending rules (still referenced by `docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`, and named as the enumeration's home by the `#467 A3` generic-dimension count guard's own comment in `lib/test/modules/create-issue-contract.sh` — a prose citation, not a literal pin on this file), the `do not unify it` prohibition on the state-record root divergence, the eligibility gate's *Honest scope* concession, the *Scope and completeness of that sequence* paragraph naming `record-offer` and `query-adjudication-records` as conditional, the `next_call=` line's two decided `dispatch-arm-unestablished` answers and its correct rendering of caller-supplied flags (bare flag names in argument position, named again in the `needs=` field), the anti-inference prohibition's gap-detection arm, the out-of-set `impact_class` refusal, the staged-write check's re-stage exit condition, and the steering self-report and information-diet scoping caveats. The carriage-check paragraph now states the `--no-filters` requirement as the host-portability guarantee it is — the filter-free form is what makes the dispatch, auditor-quoted and eligibility digests agree **on every host** — rather than claiming that other hash forms disagree, which they need not. (#1370)
+
 ## [2.31.17] — 2026-08-06
 
 ### Security
