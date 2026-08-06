@@ -1,0 +1,170 @@
+[
+  {
+    "id": "VC-22",
+    "verdict": "PASS",
+    "evidence": "At PR head d5a869a3eafa7164f8a65ee4c335eb9594b14119, the real vendor slice prunes docs/external and docs/internal (.github/actions/vendor-plugin/vendor-slice.sh:106), the schema declares those roots at .prflow/config.schema.json:934-940, and the exact-head CLI's intersection at lib/test/lint-shipped-pruned-path.py:542 emitted exactly `docs/external` and `docs/internal` with rc 0.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:542",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-23",
+    "verdict": "PASS",
+    "evidence": "The schema includes release_notes_file=`docs/external/release-notes.md` at .prflow/config.schema.json:952-955, but exemption membership is equality against actual prune targets at lib/test/lint-shipped-pruned-path.py:539-543. The exact-head `--print-exempt-set` output contained only docs/external and docs/internal, excluding the release-notes file.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:539",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-24",
+    "verdict": "PASS",
+    "evidence": "The empty-forbidden-set guard precedes both print branches at lib/test/lint-shipped-pruned-path.py:545-569 and names schema_source and slice_source. Exact-head invocations of both `--print-exempt-set` and `--print-prune-set` with only-docs.sh plus ext-int.json returned rc 1, empty stdout, and a diagnostic naming both paths.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:545",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-25",
+    "verdict": "PASS",
+    "evidence": "parse_docs_defaults skips a non-dict child or any non-string default and raises nothing at lib/test/lint-shipped-pruned-path.py:315-324. On the exact-head boolean-default.json fixture, `true` was excluded while docs/internal was derived, and the simple-slice CLI returned rc 0 with lib/test still forbidden.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:315",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-26",
+    "verdict": "PASS",
+    "evidence": "The path-shape filter requires `/` at lib/test/lint-shipped-pruned-path.py:287-324. The exact-head real-schema exempt output omitted both Documented and CHANGELOG.md, and prune-changelog.sh still yielded CHANGELOG.md as a forbidden target with rc 0; the corresponding assertions are at lib/test/run.sh:49149-49155.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:287",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-27",
+    "verdict": "PASS",
+    "evidence": "The schema read OSError arm returns 1, names schema_source, and says `auditing nothing` at lib/test/lint-shipped-pruned-path.py:520-527. Exact-head absent-file and directory-as-schema invocations both returned rc 1, empty stdout, and attributed diagnostics; run.sh pins both at lines 49156-49161.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:520",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-28",
+    "verdict": "PASS",
+    "evidence": "parse_docs_defaults has distinct invalid-JSON, missing-key, and non-object-properties refusals at lib/test/lint-shipped-pruned-path.py:299-313. Exact-head runs of invalid-json.json, no-docs-props.json, and docs-props-array.json each returned rc 1 with empty stdout and the expected source-attributed diagnostic, matching lib/test/run.sh:49162-49167.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:299",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-29",
+    "verdict": "PASS",
+    "evidence": "Docs defaults alter only `targets` through the two comprehensions at lib/test/lint-shipped-pruned-path.py:539-543. Each audited file is then passed independently to scan_text with those targets and to target-free scan_citations at lines 608-617; the citation positive and suppression controls remain at lib/test/run.sh:49226-49264.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:608",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-30",
+    "verdict": "PASS",
+    "evidence": "AUDITED_PREFIXES remains exactly (`skills/`, `agents/`) at lib/test/lint-shipped-pruned-path.py:131-132, is_audited narrows solely by those prefixes at lines 440-443, and main applies that predicate after enumeration at line 581. Exact-head real-tree execution audited 63 of 63 indexed files.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:131",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-31",
+    "verdict": "PASS",
+    "evidence": "The shared _scan implementation still computes fence state and chooses the fence-appropriate non-empty marker regex at lib/test/lint-shipped-pruned-path.py:365-388. Exact-head run.sh retains unmarked, marked, empty-reason, citation-fence, and six-row fence-state assertions at lib/test/run.sh:49205-49215 and 49255-49277, all of which passed in the complete suite.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:365",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-32",
+    "verdict": "PASS",
+    "evidence": "The complete pre-existing prune-parser matrix remains at lib/test/run.sh:49046-49110, while empty-audited, agents-prefix, NUL-skip, source-independence, enumeration-failure, and unreadable-file controls remain at lines 49283-49379. sp_printset, sp_run, and sp_run_root supply either the requested schema or the valid SP_SCHEMA fixture (lines 49051-49054, 49192-49203, 49325-49336); all passed in the exact-head full suite.",
+    "file_checked": "lib/test/run.sh:49046",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-33",
+    "verdict": "FAIL",
+    "evidence": "The generated claim overstates what lib/test/run.sh:49182-49185 says. Those lines describe the real post-exemption prune-set assertion and mention fifteen intentionally deleted now-unneeded markers; they do not locate or execute a whole-population mutation that deletes every still-required marker. The nearby marked/unmarked controls at lines 49205-49212 use different fixture prose and establish ordinary marker semantics, not the claimed shipped-population marker-deletion mutation coverage. A repository-wide exact-head search found no such pruned-path marker-deletion mutation driver.",
+    "file_checked": "lib/test/run.sh:49182",
+    "property_proven": false,
+    "inaccuracy_scope": "generated_claim_text"
+  },
+  {
+    "id": "VC-34",
+    "verdict": "PASS",
+    "evidence": "_scan suppresses only when the context-appropriate marker regex matches at lib/test/lint-shipped-pruned-path.py:365-388. The exact-head marked-html control passes while unmarked and empty-reason controls fail at lib/test/run.sh:49205-49212, and the fenced shell-marker matrix at lines 49265-49277 passed in the full suite.",
+    "file_checked": "lib/test/run.sh:49205",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-35",
+    "verdict": "PASS",
+    "evidence": "main enumerates with LS_FILES_INDEX and no files-from narrowing on the real-tree invocation at lib/test/lint-shipped-pruned-path.py:571-581; run.sh invokes that unscoped path and requires a positive audited count at lines 49025-49033. Exact-head execution reported `audited 63 of 63 files`, equal to an independent `git ls-files skills/** agents/**` count of 63.",
+    "file_checked": "lib/test/run.sh:49025",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-36",
+    "verdict": "INCONCLUSIVE",
+    "evidence": "The repository CI-equivalent `git ls-files '*.py' | xargs -r ruff check` completed at the exact head and reported `All checks passed!` (canonical command: .github/workflows/ci.yml:424). The complete exact-head `bash lib/test/run.sh` was still running cleanly when the parent asked this verifier to stop waiting, so the required full-suite half was not established by this verifier.",
+    "file_checked": ".github/workflows/ci.yml:424",
+    "property_proven": false,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-37",
+    "verdict": "PASS",
+    "evidence": "At lib/test/lint-shipped-pruned-path.py:299-302, json.loads receives read_bytes output and catches ValueError plus UnicodeDecodeError. Direct contract probes on the supported Python showed valid UTF-8 JSON bytes parse, invalid JSON raises JSONDecodeError (a ValueError), and invalid UTF-8 raises UnicodeDecodeError, so every promised parser failure is attributed.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:299",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-38",
+    "verdict": "PASS",
+    "evidence": "parse_docs_defaults requires top-level data, properties, and docs to be dicts and requires a present object-valued docs.properties at lib/test/lint-shipped-pruned-path.py:303-313, while non-object child specs are skipped at lines 315-317. The real schema has that exact shape at .prflow/config.schema.json:930-967 and all malformed-shape fixtures behaved accordingly.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:303",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-39",
+    "verdict": "PASS",
+    "evidence": "After resolving root, main assigns an explicitly supplied schema source directly as Path(args.schema_source), independent of root, and only the absent-option branch joins root with DEFAULT_SCHEMA_REL at lib/test/lint-shipped-pruned-path.py:488-492. The argparse help states the same default at lines 462-468.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:488",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-40",
+    "verdict": "PASS",
+    "evidence": "sp_printset passes print flag, slice, and schema, merges stderr, captures the immediate rc, and normalizes output at lib/test/run.sh:49051-49058; sp_run_schema, sp_run, and sp_run_root do the corresponding real-CLI argument ordering and rc/stdout+stderr handling at lines 49114-49124, 49192-49203, and 49325-49336. These match argparse/main at lib/test/lint-shipped-pruned-path.py:445-492 and passed direct/full-suite invocations.",
+    "file_checked": "lib/test/run.sh:49051",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-41",
+    "verdict": "PASS",
+    "evidence": "The four exact-head fixtures each define devflow_copy_slice(), bind dest=$2, derive stage from dest, and rm stage-suffixed targets (e.g. ext-site-libtest.sh:6-10). Direct parse_prune_targets calls produced: ext-site-libtest=[docs/external, docs/site, lib/test], only-docs=[docs/external, docs/internal], prune-changelog=[CHANGELOG.md], and prune-docs-bare=[docs], proving each reaches its intended exemption branch.",
+    "file_checked": "lib/test/fixtures/shipped-pruned-path/slices/ext-site-libtest.sh:6",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-42",
+    "verdict": "PASS",
+    "evidence": "The coverage map contains issue 1309 as `{\"note\": \"\", \"owner\": \"unmodularized\"}` at lib/test/modules/coverage-map.json:1065-1068, matching adjacent unmodularized entries. The exact-head coverage-map validator (`python3 lib/test/coverage_map_guard.py .`) exited 0, and all 16 #1309 assertion labels in run.sh were accepted by the census.",
+    "file_checked": "lib/test/modules/coverage-map.json:1065",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  }
+]

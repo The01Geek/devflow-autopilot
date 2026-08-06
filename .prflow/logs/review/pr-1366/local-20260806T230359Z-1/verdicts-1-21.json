@@ -1,0 +1,170 @@
+[
+  {
+    "id": "VC-1",
+    "verdict": "PASS",
+    "evidence": "At the pinned head, parse_docs_defaults parses JSON, walks only properties.docs.properties, iterates that object's property specs, and admits a default only when it is a string containing '/'; accepted values are trailing-slash-normalized (lib/test/lint-shipped-pruned-path.py:280-325). real-docs.json supplies path strings, a non-path string, and the tested release-note path beneath exactly that schema location (lib/test/fixtures/shipped-pruned-path/schemas/real-docs.json:2-10).",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:280",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-2",
+    "verdict": "PASS",
+    "evidence": "The parser normalizes candidate defaults with rstrip('/') (lib/test/lint-shipped-pruned-path.py:319-324), while exemption membership compares each normalized prune target directly against set members (lib/test/lint-shipped-pruned-path.py:539-543). Therefore docs/external/release-notes.md cannot match docs/external by prefix; the real-tree exempt-set execution emitted only docs/external and docs/internal, consistent with run.sh's pinned assertion (lib/test/run.sh:49173-49179).",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:539",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-3",
+    "verdict": "PASS",
+    "evidence": "The parser rejects any default that is not a string before adding it (lib/test/lint-shipped-pruned-path.py:315-324). With boolean-default.json's external=true and valid internal path (lib/test/fixtures/shipped-pruned-path/schemas/boolean-default.json:5-6), execution derived only docs/internal; run.sh also pins that this fixture contributes no boolean exemption and does not error (lib/test/run.sh:49145-49148).",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:315",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-4",
+    "verdict": "PASS",
+    "evidence": "parse_docs_defaults skips string defaults lacking '/' (lib/test/lint-shipped-pruned-path.py:319-324). real-docs.json defines labels.default as Documented (lib/test/fixtures/shipped-pruned-path/schemas/real-docs.json:8), and run.sh explicitly asserts that neither Documented nor CHANGELOG.md appears in --print-exempt-set output (lib/test/run.sh:49149-49155).",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:319",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-5",
+    "verdict": "PASS",
+    "evidence": "JSON decode failures become DocsDefaultsParseError (lib/test/lint-shipped-pruned-path.py:299-302), and main catches that error, emits a schema-attributed 'auditing nothing' diagnostic, and returns 1 (lib/test/lint-shipped-pruned-path.py:529-537). Running invalid-json.json at the pinned-equivalent tree returned rc=1 with the specific 'bytes do not parse as JSON' diagnostic; run.sh pins the same arm (lib/test/run.sh:49162-49163).",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:299",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-6",
+    "verdict": "PASS",
+    "evidence": "A missing properties.docs.properties key raises DocsDefaultsParseError rather than returning an empty set (lib/test/lint-shipped-pruned-path.py:303-308), and main returns 1 on that error (lib/test/lint-shipped-pruned-path.py:529-537). no-docs-props.json lacks docs (lib/test/fixtures/shipped-pruned-path/schemas/no-docs-props.json:2-4); execution returned rc=1 with the exact missing-key diagnostic, also asserted by run.sh:49164-49165.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:303",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-7",
+    "verdict": "PASS",
+    "evidence": "After locating docs.properties, the parser requires a JSON object and raises a specific DocsDefaultsParseError otherwise (lib/test/lint-shipped-pruned-path.py:309-313). docs-props-array.json supplies an array (lib/test/fixtures/shipped-pruned-path/schemas/docs-props-array.json:3-5); execution returned rc=1 with 'not a JSON object', matching run.sh:49166-49167.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:309",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-8",
+    "verdict": "PASS",
+    "evidence": "CLAUDE.md:73 states that documented docs.* defaults are exempt, names docs/external and docs/internal, identifies .prflow/config.schema.json as the derivation source, and specifies trailing-slash-normalized equality rather than prefix matching. This matches parse_docs_defaults and the equality subtraction in lib/test/lint-shipped-pruned-path.py:280-325 and :539-543.",
+    "file_checked": "CLAUDE.md:73",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-9",
+    "verdict": "PASS",
+    "evidence": "CLAUDE.md:74 expressly covers every first-party skills/** body, expands the obligation beyond Markdown to any PRFlow-owned descendant under docs/external or docs/internal (including docs.json and index.mdx), and says the review pass is the sole control because the lint exemption prevents mechanical detection.",
+    "file_checked": "CLAUDE.md:74",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-10",
+    "verdict": "PASS",
+    "evidence": "The pinned head contains .changeset/issue-1309-lint-docs-default-exemption.md with valid YAML-style frontmatter declaring bump: patch and type: Fixed (.changeset/issue-1309-lint-docs-default-exemption.md:1-4).",
+    "file_checked": ".changeset/issue-1309-lint-docs-default-exemption.md:1",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-11",
+    "verdict": "PASS",
+    "evidence": "parse_docs_defaults iterates whatever members are present in docs.properties and has no required external/internal sibling check (lib/test/lint-shipped-pruned-path.py:303-325). ext-only.json contains only external (lib/test/fixtures/shipped-pruned-path/schemas/ext-only.json:2-6), and execution emitted only docs/external in the exempt intersection.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:303",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-12",
+    "verdict": "PASS",
+    "evidence": "The parser accepts any object-valued docs.properties and derives candidates solely from its present values (lib/test/lint-shipped-pruned-path.py:303-325). internal-only.json contains only internal (lib/test/fixtures/shipped-pruned-path/schemas/internal-only.json:2-6), and execution emitted only docs/internal in the exempt intersection without inventing external.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:303",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-13",
+    "verdict": "PASS",
+    "evidence": "ext-int.json supplies external and internal string path defaults under docs.properties (lib/test/fixtures/shipped-pruned-path/schemas/ext-int.json:2-7). The set-building loop admits and normalizes both independently (lib/test/lint-shipped-pruned-path.py:314-325); the real-tree --print-exempt-set execution likewise emitted both roots exactly once, matching run.sh:49173-49179.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:314",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-14",
+    "verdict": "PASS",
+    "evidence": "Each docs property is filtered independently: an invalid or non-string default continues the loop rather than failing the derivation (lib/test/lint-shipped-pruned-path.py:315-324). With boolean-default.json's external=true and internal='docs/internal/' (lines 5-6), execution derived docs/internal only, proving the invalid sibling does not poison the valid one.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:315",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-15",
+    "verdict": "PASS",
+    "evidence": "The release-note assertion is accurate: candidates and prune targets are normalized only with rstrip('/') (lib/test/lint-shipped-pruned-path.py:319-324), then membership is exact set equality (lib/test/lint-shipped-pruned-path.py:539-543), with no prefix operation. The finer-default/coarser-target control remains docs rather than becoming exempt (lib/test/run.sh:49140-49144), and docs/external/release-notes.md is excluded from the real emitted exempt intersection (lib/test/run.sh:49173-49179).",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:539",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-16",
+    "verdict": "PASS",
+    "evidence": "The source-authored fail-closed assertion holds over the supported establishment domain: schema read OSError returns 1 and says auditing nothing (lib/test/lint-shipped-pruned-path.py:520-527); JSON, missing-key, and non-object failures raise and return 1 with attribution (lib/test/lint-shipped-pruned-path.py:299-313,529-537); and subtraction that removes every target returns 1 before either print branch (lib/test/lint-shipped-pruned-path.py:539-569). run.sh covers absent, unreadable, invalid JSON, missing key, non-object, and empty-forbidden-set arms (lib/test/run.sh:49156-49172).",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:520",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-17",
+    "verdict": "PASS",
+    "evidence": "An exhaustive exact-path search at the pinned head compared every tracked file beneath docs/external and docs/internal against all tracked skills/** bodies. The only full-path match was docs/external/release-notes.md in skills/docs-release-notes/SKILL.md:8, where it is explicitly the consumer-configured .docs.release_notes_file fallback (lines 5-14), not a citation to PRFlow's in-repository file. Root-only mentions likewise describe consumer configuration. No skills/** body references a PRFlow-owned descendant such as docs/external/docs.json, docs/external/index.mdx, or any docs/internal file.",
+    "file_checked": "skills/docs-release-notes/SKILL.md:5",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-18",
+    "verdict": "PASS",
+    "evidence": "The implementation reads schema bytes from the configured --schema-source/default schema path (lib/test/lint-shipped-pruned-path.py:463-468,488-492,520-530) and derives candidates by iterating properties.docs.properties, admitting only slash-containing string defaults (lib/test/lint-shipped-pruned-path.py:280-325). No hardcoded docs exemption list participates in derivation.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:280",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-19",
+    "verdict": "PASS",
+    "evidence": "Schema defaults are normalized with default.rstrip('/') (lib/test/lint-shipped-pruned-path.py:319-324), prune targets are normalized during derivation with suffix.rstrip('/') (lib/test/lint-shipped-pruned-path.py:270-274), and the final subtraction again compares t.rstrip('/') by exact set membership (lib/test/lint-shipped-pruned-path.py:539-543). Running prune-docs-bare.sh with internal-only.json emitted docs, confirming a finer default does not prefix-exempt a coarser target; run.sh pins the same control at :49140-49144.",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:319",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-20",
+    "verdict": "PASS",
+    "evidence": "main computes exempt and replaces targets with the non-exempt targets at lib/test/lint-shipped-pruned-path.py:542-543. Only later, after population establishment, does it pass that reduced targets list to scan_text (lib/test/lint-shipped-pruned-path.py:571-612). The ext-site-libtest fixture assertion proves a docs.external-only line is clean while the remaining docs/site and lib/test targets stay active (lib/test/run.sh:49126-49139).",
+    "file_checked": "lib/test/lint-shipped-pruned-path.py:542",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  },
+  {
+    "id": "VC-21",
+    "verdict": "PASS",
+    "evidence": "Executing --print-prune-set from the repository root on files unchanged from pinned head d5a869a3eafa7164f8a65ee4c335eb9594b14119 emitted exactly three lines: .claude-plugin/marketplace.json, docs/site, and lib/test. This is also the exact normalized three-member expectation asserted in lib/test/run.sh:49035-49044.",
+    "file_checked": "lib/test/run.sh:49042",
+    "property_proven": true,
+    "inaccuracy_scope": "none"
+  }
+]

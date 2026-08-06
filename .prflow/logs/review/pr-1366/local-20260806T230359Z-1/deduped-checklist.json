@@ -1,0 +1,982 @@
+[
+  {
+    "id": "VC-1",
+    "category": "issue_acceptance",
+    "claim": "The schema-derived exemption accepts only string, path-shaped defaults found beneath properties.docs.properties.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/fixtures/shipped-pruned-path/schemas/real-docs.json",
+    "source_line": 2,
+    "source_line_end": 10,
+    "verify_against": "Issue #1309 acceptance criteria and the schema-default extraction logic",
+    "verify_hint": "Exercise lint-shipped-pruned-path.py against real-docs.json and confirm extraction is confined to path-shaped string defaults beneath properties.docs.properties.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:real-docs.json:string-path-docs-properties:2",
+    "merged_from": [
+      "batch1:VC-1"
+    ]
+  },
+  {
+    "id": "VC-2",
+    "category": "issue_acceptance",
+    "claim": "Exemption matching uses trailing-slash-normalized equality and does not treat docs/external/release-notes.md as matching the docs/external prune root by prefix.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/fixtures/shipped-pruned-path/schemas/real-docs.json",
+    "source_line": 5,
+    "source_line_end": 7,
+    "verify_against": "Issue #1309 equality-without-prefix acceptance criterion",
+    "verify_hint": "Run the exemption derivation with real-docs.json and confirm docs/external and docs/internal match after slash normalization while docs/external/release-notes.md does not match by prefix.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:real-docs.json:normalized-equality-never-prefix:5",
+    "merged_from": [
+      "batch1:VC-2"
+    ]
+  },
+  {
+    "id": "VC-3",
+    "category": "issue_acceptance",
+    "claim": "A non-string docs.* default does not enter the exemption set.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/fixtures/shipped-pruned-path/schemas/boolean-default.json",
+    "source_line": 5,
+    "verify_against": "Issue #1309 non-string-default acceptance criterion",
+    "verify_hint": "Use boolean-default.json and confirm the boolean external default is excluded from exemptions.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:boolean-default.json:non-string-default-excluded:5",
+    "merged_from": [
+      "batch1:VC-3"
+    ]
+  },
+  {
+    "id": "VC-4",
+    "category": "issue_acceptance",
+    "claim": "A string docs.* default that is not path-shaped does not enter the exemption set.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/fixtures/shipped-pruned-path/schemas/real-docs.json",
+    "source_line": 8,
+    "verify_against": "Issue #1309 non-path-default acceptance criterion",
+    "verify_hint": "Use real-docs.json and confirm the labels default Documented is excluded from exemptions.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:real-docs.json:non-path-default-excluded:8",
+    "merged_from": [
+      "batch1:VC-4"
+    ]
+  },
+  {
+    "id": "VC-5",
+    "category": "issue_acceptance",
+    "claim": "Invalid schema JSON causes exemption derivation to fail closed.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/fixtures/shipped-pruned-path/schemas/invalid-json.json",
+    "source_line": 1,
+    "verify_against": "Issue #1309 fail-closed schema-shape matrix",
+    "verify_hint": "Invoke the lint with invalid-json.json and confirm it refuses non-zero with a specific schema-establishment diagnostic.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:invalid-json.json:invalid-json-fails-closed:1",
+    "merged_from": [
+      "batch1:VC-5"
+    ]
+  },
+  {
+    "id": "VC-6",
+    "category": "issue_acceptance",
+    "claim": "A schema missing the docs key causes exemption derivation to fail closed.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/fixtures/shipped-pruned-path/schemas/no-docs-props.json",
+    "source_line": 2,
+    "source_line_end": 4,
+    "verify_against": "Issue #1309 fail-closed schema-shape matrix",
+    "verify_hint": "Invoke the lint with no-docs-props.json and confirm absence of properties.docs is rejected rather than interpreted as an empty exemption set.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:no-docs-props.json:missing-docs-fails-closed:2",
+    "merged_from": [
+      "batch1:VC-6"
+    ]
+  },
+  {
+    "id": "VC-7",
+    "category": "issue_acceptance",
+    "claim": "A non-object docs.properties value causes exemption derivation to fail closed.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/fixtures/shipped-pruned-path/schemas/docs-props-array.json",
+    "source_line": 3,
+    "source_line_end": 5,
+    "verify_against": "Issue #1309 fail-closed schema-shape matrix",
+    "verify_hint": "Invoke the lint with docs-props-array.json and confirm the array-valued properties member is rejected with a specific diagnostic.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:docs-props-array.json:non-object-properties-fails-closed:3",
+    "merged_from": [
+      "batch1:VC-7"
+    ]
+  },
+  {
+    "id": "VC-8",
+    "category": "issue_acceptance",
+    "claim": "Project guidance records that documented docs.* defaults are exempt, with docs/external and docs/internal derived from config.schema.json through normalized equality rather than prefix matching.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "CLAUDE.md",
+    "source_line": 73,
+    "verify_against": "Issue #1309 documentation acceptance criterion",
+    "verify_hint": "Compare CLAUDE.md line 73 with the implemented schema extraction and matching contract.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:CLAUDE.md:docs-default-exemption-recorded:73",
+    "merged_from": [
+      "batch1:VC-8"
+    ]
+  },
+  {
+    "id": "VC-9",
+    "category": "issue_acceptance",
+    "claim": "Project guidance broadens the issue #1190 review obligation from docs/*.md pages to every PRFlow-owned file beneath docs/external/ and docs/internal/.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "CLAUDE.md",
+    "source_line": 74,
+    "verify_against": "Issue #1309 documentation acceptance criterion",
+    "verify_hint": "Confirm CLAUDE.md line 74 covers arbitrary PRFlow-owned files under both exempt roots, including non-Markdown examples, and assigns enforcement to review.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:CLAUDE.md:all-owned-doc-files-obligation:74",
+    "merged_from": [
+      "batch1:VC-9"
+    ]
+  },
+  {
+    "id": "VC-10",
+    "category": "issue_acceptance",
+    "claim": "The change includes a patch-level changeset.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": ".changeset/issue-1309-lint-docs-default-exemption.md",
+    "source_line": 1,
+    "source_line_end": 4,
+    "verify_against": "Issue #1309 release-management acceptance criterion and the repository changeset schema",
+    "verify_hint": "Validate the changeset frontmatter and confirm bump is patch and type is Fixed.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:issue-1309-lint-docs-default-exemption.md:patch-changeset-present:1",
+    "merged_from": [
+      "batch1:VC-10"
+    ]
+  },
+  {
+    "id": "VC-11",
+    "category": "data_format_assumption",
+    "claim": "The exemption parser supports a docs.properties object containing only an external definition and derives only that one default.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/fixtures/shipped-pruned-path/schemas/ext-only.json",
+    "source_line": 2,
+    "source_line_end": 6,
+    "verify_against": "The real config schema shape and the schema-default extraction implementation",
+    "verify_hint": "Run the fixture through the parser and confirm a missing internal sibling is accepted without inventing an internal exemption.",
+    "verification_mode": "agent",
+    "claim_signature": "data_format_assumption:ext-only.json:external-only-schema-supported:2",
+    "merged_from": [
+      "batch1:VC-11"
+    ]
+  },
+  {
+    "id": "VC-12",
+    "category": "data_format_assumption",
+    "claim": "The exemption parser supports a docs.properties object containing only an internal definition and derives only that one default.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/fixtures/shipped-pruned-path/schemas/internal-only.json",
+    "source_line": 2,
+    "source_line_end": 6,
+    "verify_against": "The real config schema shape and the schema-default extraction implementation",
+    "verify_hint": "Run the fixture through the parser and confirm a missing external sibling is accepted without inventing an external exemption.",
+    "verification_mode": "agent",
+    "claim_signature": "data_format_assumption:internal-only.json:internal-only-schema-supported:2",
+    "merged_from": [
+      "batch1:VC-12"
+    ]
+  },
+  {
+    "id": "VC-13",
+    "category": "data_format_assumption",
+    "claim": "When both documented root defaults are present as strings beneath docs.properties, the parser derives both external and internal exemption candidates.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/fixtures/shipped-pruned-path/schemas/ext-int.json",
+    "source_line": 2,
+    "source_line_end": 7,
+    "verify_against": "The schema-default extraction implementation and expected exemption-set output",
+    "verify_hint": "Run ext-int.json through the exemption-set observability path and confirm both roots appear exactly once.",
+    "verification_mode": "agent",
+    "claim_signature": "data_format_assumption:ext-int.json:both-root-defaults-derived:2",
+    "merged_from": [
+      "batch1:VC-13"
+    ]
+  },
+  {
+    "id": "VC-14",
+    "category": "data_format_assumption",
+    "claim": "An invalid non-string sibling default is filtered independently and does not prevent a valid string path sibling from being derived.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/fixtures/shipped-pruned-path/schemas/boolean-default.json",
+    "source_line": 5,
+    "source_line_end": 6,
+    "verify_against": "The per-property filtering behavior in the exemption parser",
+    "verify_hint": "Run boolean-default.json and confirm external=true is ignored while docs/internal/ remains in the derived candidate set.",
+    "verification_mode": "agent",
+    "claim_signature": "data_format_assumption:boolean-default.json:invalid-sibling-does-not-poison:5",
+    "merged_from": [
+      "batch1:VC-14"
+    ]
+  },
+  {
+    "id": "VC-15",
+    "category": "absolute_claim",
+    "claim": "Attempt to falsify the release-note assertion that path comparison is never prefix-based.",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "by trailing-slash-normalized equality, never prefix",
+    "source_file": ".changeset/issue-1309-lint-docs-default-exemption.md",
+    "source_line": 11,
+    "verify_against": "The exemption matching implementation",
+    "verify_hint": "Construct a schema default strictly beneath a forbidden root, such as docs/external/release-notes.md, and observe whether it is incorrectly accepted by prefix.",
+    "verification_mode": "agent",
+    "claim_signature": "absolute_claim:issue-1309-lint-docs-default-exemption.md:never-prefix-matching:11",
+    "merged_from": [
+      "batch1:VC-15"
+    ]
+  },
+  {
+    "id": "VC-16",
+    "category": "absolute_claim",
+    "claim": "Attempt to falsify the release-note assertion that every unestablished schema and every exemption that empties the forbidden set refuses non-zero.",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "an unestablished schema, or an exemption that empties the forbidden set, refuses non-zero rather than auditing nothing.",
+    "source_file": ".changeset/issue-1309-lint-docs-default-exemption.md",
+    "source_line": 14,
+    "verify_against": "All schema-establishment error arms and the post-subtraction empty-set guard",
+    "verify_hint": "Construct each supported unestablished-schema shape plus a schema whose exemptions remove every prune target, and run the lint to seek any zero-exit path.",
+    "verification_mode": "agent",
+    "claim_signature": "absolute_claim:issue-1309-lint-docs-default-exemption.md:all-unestablished-refuse:14",
+    "merged_from": [
+      "batch1:VC-16"
+    ]
+  },
+  {
+    "id": "VC-17",
+    "category": "absolute_claim",
+    "claim": "Attempt to falsify the project-memory assertion that every first-party skill body has zero references to PRFlow-owned files beneath either exempt documentation root.",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "Every first-party `skills/**` body ships verbatim into a consumer repo, so since issue #1190 that population carries ZERO references to any PRFlow-internal file under the exempted doc roots `docs/external/` and `docs/internal/`",
+    "source_file": "CLAUDE.md",
+    "source_line": 74,
+    "verify_against": "The complete tracked first-party skills/** population and ownership of referenced docs/external/** and docs/internal/** paths",
+    "verify_hint": "Search every first-party skill body for both roots, then classify each match as a consumer-owned root mention or a PRFlow-owned file reference; try non-Markdown descendants such as docs.json and index.mdx.",
+    "verification_mode": "agent",
+    "claim_signature": "absolute_claim:CLAUDE.md:zero-owned-doc-references:74",
+    "merged_from": [
+      "batch1:VC-17"
+    ]
+  },
+  {
+    "id": "VC-18",
+    "category": "issue_acceptance",
+    "claim": "The implementation derives candidate exemptions from path-shaped string defaults under properties.docs.properties in the configured schema rather than from a hardcoded exemption list.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/lint-shipped-pruned-path.py",
+    "source_line": 280,
+    "source_line_end": 325,
+    "verify_against": "Issue #1309 acceptance criteria and .prflow/config.schema.json",
+    "verify_hint": "Exercise parse_docs_defaults() with representative docs property specifications and confirm only slash-containing string defaults are derived.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:lint-shipped-pruned-path.py:derive-path-docs-defaults:280",
+    "merged_from": [
+      "batch2:VC-1"
+    ]
+  },
+  {
+    "id": "VC-19",
+    "category": "issue_acceptance",
+    "claim": "Trailing slashes are normalized on both schema defaults and prune targets, and exemption membership uses equality rather than prefix containment.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/lint-shipped-pruned-path.py",
+    "source_line": 319,
+    "source_line_end": 324,
+    "verify_against": "Issue #1309 normalization and equality criterion",
+    "verify_hint": "Run the prune-docs-bare.sh fixture against internal-only.json and also compare equal paths with and without trailing slashes.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:lint-shipped-pruned-path.py:normalized-equality-membership:319",
+    "merged_from": [
+      "batch2:VC-2"
+    ]
+  },
+  {
+    "id": "VC-20",
+    "category": "issue_acceptance",
+    "claim": "Exempt docs defaults are subtracted from the derived prune targets before scan_text receives the forbidden target list.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/lint-shipped-pruned-path.py",
+    "source_line": 542,
+    "source_line_end": 543,
+    "verify_against": "Issue #1309 subtraction-before-scan criterion",
+    "verify_hint": "Trace main() from target derivation through the scan_text(text, targets) call and exercise docs-external-default.md with ext-site-libtest.sh.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:lint-shipped-pruned-path.py:subtract-before-scan:542",
+    "merged_from": [
+      "batch2:VC-3"
+    ]
+  },
+  {
+    "id": "VC-21",
+    "category": "issue_acceptance",
+    "claim": "On the real slice and schema, --print-prune-set emits exactly .claude-plugin/marketplace.json, docs/site, and lib/test.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/run.sh",
+    "source_line": 49042,
+    "source_line_end": 49044,
+    "verify_against": "The real vendor slice and .prflow/config.schema.json",
+    "verify_hint": "Run lint-shipped-pruned-path.py --print-prune-set from the repository root and compare the normalized output to the three-member assertion.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:run.sh:real-prune-set-exact:49042",
+    "merged_from": [
+      "batch2:VC-4",
+      "batch2:VC-18"
+    ]
+  },
+  {
+    "id": "VC-22",
+    "category": "issue_acceptance",
+    "claim": "On the real slice and schema, --print-exempt-set emits exactly the intersection docs/external and docs/internal.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/run.sh",
+    "source_line": 49177,
+    "source_line_end": 49179,
+    "verify_against": "The real vendor slice and docs defaults in .prflow/config.schema.json",
+    "verify_hint": "Run the real-tree --print-exempt-set assertion and confirm the result is the prune/default intersection, not the complete docs-default set.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:run.sh:real-exempt-set-intersection:49177",
+    "merged_from": [
+      "batch2:VC-5"
+    ]
+  },
+  {
+    "id": "VC-23",
+    "category": "issue_acceptance",
+    "claim": "A path-shaped release_notes_file default that is not a prune target is excluded from --print-exempt-set.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/run.sh",
+    "source_line": 49173,
+    "source_line_end": 49179,
+    "verify_against": "The release_notes_file default in .prflow/config.schema.json and real vendor prune targets",
+    "verify_hint": "Confirm docs/external/release-notes.md is present among candidate defaults but absent from the emitted intersection.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:run.sh:release-notes-not-exempt-member:49173",
+    "merged_from": [
+      "batch2:VC-6"
+    ]
+  },
+  {
+    "id": "VC-24",
+    "category": "issue_acceptance",
+    "claim": "If exemptions remove every prune target, the lint refuses before either print branch and its diagnostic names both the schema and slice sources.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/lint-shipped-pruned-path.py",
+    "source_line": 545,
+    "source_line_end": 569,
+    "verify_against": "Issue #1309 empty-forbidden-set fail-closed criterion",
+    "verify_hint": "Invoke both print modes using only-docs.sh and ext-int.json; confirm non-zero exit, no successful print result, and both source paths in the diagnostic.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:lint-shipped-pruned-path.py:empty-forbidden-refuses-before-print:545",
+    "merged_from": [
+      "batch2:VC-7"
+    ]
+  },
+  {
+    "id": "VC-25",
+    "category": "issue_acceptance",
+    "claim": "Non-string docs defaults contribute no exemption and do not make an otherwise valid schema derivation fail.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/lint-shipped-pruned-path.py",
+    "source_line": 315,
+    "source_line_end": 324,
+    "verify_against": "Issue #1309 non-string-default criterion",
+    "verify_hint": "Run the boolean-default.json test path and inspect parse_docs_defaults() handling of non-string default values.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:lint-shipped-pruned-path.py:non-string-default-excluded:315",
+    "merged_from": [
+      "batch2:VC-8"
+    ]
+  },
+  {
+    "id": "VC-26",
+    "category": "issue_acceptance",
+    "claim": "String defaults without a slash, including Documented and CHANGELOG.md, contribute no exemption.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/run.sh",
+    "source_line": 49149,
+    "source_line_end": 49155,
+    "verify_against": "Issue #1309 non-path-default criterion",
+    "verify_hint": "Run the real-schema exempt-set control and prune-changelog.sh control to confirm both non-path values remain outside the exemption set.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:run.sh:non-path-default-excluded:49149",
+    "merged_from": [
+      "batch2:VC-9"
+    ]
+  },
+  {
+    "id": "VC-27",
+    "category": "issue_acceptance",
+    "claim": "Absent and unreadable schema sources fail closed, return non-zero, name the schema source, and audit nothing.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/run.sh",
+    "source_line": 49156,
+    "source_line_end": 49161,
+    "verify_against": "Issue #1309 schema-read failure criterion",
+    "verify_hint": "Run the does-not-exist.json and directory-as-schema assertions and inspect main()'s OSError branch.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:run.sh:schema-read-fail-closed:49156",
+    "merged_from": [
+      "batch2:VC-10"
+    ]
+  },
+  {
+    "id": "VC-28",
+    "category": "issue_acceptance",
+    "claim": "Invalid JSON, a missing properties.docs.properties key, and a non-object docs properties value each fail closed with an attributed schema diagnostic.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/run.sh",
+    "source_line": 49162,
+    "source_line_end": 49167,
+    "verify_against": "Issue #1309 schema-shape failure criterion",
+    "verify_hint": "Run invalid-json.json, no-docs-props.json, and docs-props-array.json through the print helper and confirm each distinct DocsDefaultsParseError arm.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:run.sh:schema-shape-fail-closed:49162",
+    "merged_from": [
+      "batch2:VC-11"
+    ]
+  },
+  {
+    "id": "VC-29",
+    "category": "issue_acceptance",
+    "claim": "The docs-default exemption changes only the prune-target list; the independent PRFlow citation scan remains active and unchanged.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/lint-shipped-pruned-path.py",
+    "source_line": 542,
+    "source_line_end": 543,
+    "verify_against": "Issue #1309 scope-preservation criterion and scan_citations() behavior",
+    "verify_hint": "Use a file containing an exempt docs path plus an unmarked internal citation and confirm scan_citations still reports it.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:lint-shipped-pruned-path.py:citation-scan-unaffected:542",
+    "merged_from": [
+      "batch2:VC-12"
+    ]
+  },
+  {
+    "id": "VC-30",
+    "category": "issue_acceptance",
+    "claim": "The audited surface remains restricted to skills/ and agents/ after adding schema-derived exemptions.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/lint-shipped-pruned-path.py",
+    "source_line": 131,
+    "source_line_end": 132,
+    "verify_against": "Issue #1309 audited-prefix preservation criterion",
+    "verify_hint": "Exercise the existing skills, agents, and non-audited-path population controls in run.sh with the new required schema input.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:lint-shipped-pruned-path.py:audited-prefixes-preserved:131",
+    "merged_from": [
+      "batch2:VC-13"
+    ]
+  },
+  {
+    "id": "VC-31",
+    "category": "issue_acceptance",
+    "claim": "Existing fence-state and pruned-path-ok marker semantics remain effective after target exemption.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/run.sh",
+    "source_line": 49205,
+    "source_line_end": 49215,
+    "verify_against": "Issue #1309 marker and fence preservation criterion",
+    "verify_hint": "Run the marked, unmarked, empty-reason, citation-fence, and fence-state matrix assertions with sp_run's schema-source addition.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:run.sh:fence-marker-semantics-preserved:49205",
+    "merged_from": [
+      "batch2:VC-14"
+    ]
+  },
+  {
+    "id": "VC-32",
+    "category": "issue_acceptance",
+    "claim": "Existing population enumeration and prune-source parsing behavior remain covered and unchanged while every fixture invocation supplies a valid schema source.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/run.sh",
+    "source_line": 49046,
+    "source_line_end": 49110,
+    "verify_against": "Issue #1309 population/prune-parsing preservation criterion",
+    "verify_hint": "Run the complete pre-existing #1072 derivation matrix and the empty-audited, agents-prefix, NUL-skip, source-independence, enumeration-failure, and unreadable-file assertions.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:run.sh:prune-population-behavior-preserved:49046",
+    "merged_from": [
+      "batch2:VC-15"
+    ]
+  },
+  {
+    "id": "VC-33",
+    "category": "issue_acceptance",
+    "claim": "The tests preserve marker-deletion safety: deleting a required marker from the shipped population must still produce a lint failure rather than becoming clean through exemption.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/run.sh",
+    "source_line": 49182,
+    "source_line_end": 49185,
+    "verify_against": "Issue #1309 marker-deletion safety criterion",
+    "verify_hint": "Locate and execute the whole-population marker-deletion mutation coverage referenced by this comment, confirming all relevant scan_text and scan_citations mutations fail.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:run.sh:marker-deletion-safety:49182",
+    "merged_from": [
+      "batch2:VC-16"
+    ]
+  },
+  {
+    "id": "VC-34",
+    "category": "issue_acceptance",
+    "claim": "A genuine non-empty pruned-path-ok marker continues to suppress the intended finding.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/run.sh",
+    "source_line": 49205,
+    "source_line_end": 49209,
+    "verify_against": "Issue #1309 retained-genuine-marker criterion",
+    "verify_hint": "Run the marked-html and fenced shell-marker controls and compare them with the unmarked and empty-reason controls.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:run.sh:genuine-marker-retained:49205",
+    "merged_from": [
+      "batch2:VC-17"
+    ]
+  },
+  {
+    "id": "VC-35",
+    "category": "issue_acceptance",
+    "claim": "The real-tree test continues to scan the complete git-index population under both audited prefixes and proves that at least one file was audited.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/run.sh",
+    "source_line": 49025,
+    "source_line_end": 49033,
+    "verify_against": "Issue #1309 whole-population scan criterion",
+    "verify_hint": "Run the unscoped real-tree lint and independently compare its audited count and paths with git-index enumeration under skills/ and agents/.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:run.sh:whole-population-scan:49025",
+    "merged_from": [
+      "batch2:VC-19"
+    ]
+  },
+  {
+    "id": "VC-36",
+    "category": "issue_acceptance",
+    "claim": "The complete lib/test/run.sh suite and the repository's Ruff checks are expected to pass with the schema-exemption change.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/run.sh",
+    "verify_against": "Issue #1309 verification criterion and repository lint configuration",
+    "verify_hint": "Execute the full lib/test/run.sh suite and the configured Ruff check over the changed Python files; do not substitute only the focused #1309 assertions.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:run.sh:full-suite-ruff-clean",
+    "merged_from": [
+      "batch2:VC-20"
+    ]
+  },
+  {
+    "id": "VC-37",
+    "category": "dependency_interaction",
+    "claim": "json.loads accepts the bytes returned by Path.read_bytes(), and the caught ValueError and UnicodeDecodeError classes cover the parser failures the CLI promises to attribute.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/lint-shipped-pruned-path.py",
+    "source_line": 299,
+    "source_line_end": 302,
+    "verify_against": "Python json.loads and pathlib.Path.read_bytes contracts",
+    "verify_hint": "Check the supported json.loads input and exception behavior for bytes containing valid UTF-8 JSON, invalid JSON, and invalid UTF-8.",
+    "verification_mode": "agent",
+    "claim_signature": "dependency_interaction:lint-shipped-pruned-path.py:json-loads-bytes-contract:299",
+    "merged_from": [
+      "batch2:VC-21"
+    ]
+  },
+  {
+    "id": "VC-38",
+    "category": "data_format_assumption",
+    "claim": "The external schema contract is a top-level JSON object containing object-valued properties, object-valued docs, and object-valued docs.properties; individual child specifications may be non-objects and are ignored.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/lint-shipped-pruned-path.py",
+    "source_line": 303,
+    "source_line_end": 318,
+    "verify_against": ".prflow/config.schema.json and the schema fixtures used by run.sh",
+    "verify_hint": "Compare parse_docs_defaults()'s accepted and rejected shapes with the real schema and every fixture shape, including a non-object child specification.",
+    "verification_mode": "agent",
+    "claim_signature": "data_format_assumption:lint-shipped-pruned-path.py:docs-schema-nested-shape:303",
+    "merged_from": [
+      "batch2:VC-22"
+    ]
+  },
+  {
+    "id": "VC-39",
+    "category": "api_contract",
+    "claim": "--schema-source is independent of --root when supplied, while its default resolves to <root>/.prflow/config.schema.json.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/lint-shipped-pruned-path.py",
+    "source_line": 462,
+    "source_line_end": 492,
+    "verify_against": "The lint command-line contract and existing --slice-source independence behavior",
+    "verify_hint": "Invoke the CLI with a fixture --root and an external absolute or relative --schema-source, then without --schema-source, and compare which path is read.",
+    "verification_mode": "agent",
+    "claim_signature": "api_contract:lint-shipped-pruned-path.py:schema-source-root-resolution:462",
+    "merged_from": [
+      "batch2:VC-23"
+    ]
+  },
+  {
+    "id": "VC-40",
+    "category": "test_mock_alignment",
+    "claim": "sp_printset, sp_run_schema, sp_run, and sp_run_root pass arguments and interpret stdout, stderr, and exit codes consistently with the real lint CLI.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/run.sh",
+    "source_line": 49051,
+    "source_line_end": 49058,
+    "verify_against": "argparse options and return/output behavior in lint-shipped-pruned-path.py main()",
+    "verify_hint": "Compare each shell helper's argument order, default schema choice, stderr merging, and rc capture with the CLI implementation and direct invocations.",
+    "verification_mode": "agent",
+    "claim_signature": "test_mock_alignment:run.sh:shell-helper-cli-alignment:49051",
+    "merged_from": [
+      "batch2:VC-24"
+    ]
+  },
+  {
+    "id": "VC-41",
+    "category": "test_mock_alignment",
+    "claim": "The four new slice fixtures match parse_prune_targets()'s required function, destination parameter, staging assignment, and rm-target syntax so each test reaches the intended exemption branch.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/fixtures/shipped-pruned-path/slices/ext-site-libtest.sh",
+    "source_line": 6,
+    "source_line_end": 10,
+    "verify_against": "parse_prune_targets() in lib/test/lint-shipped-pruned-path.py",
+    "verify_hint": "Feed ext-site-libtest.sh, only-docs.sh, prune-changelog.sh, and prune-docs-bare.sh directly to parse_prune_targets() and confirm their exact derived target lists.",
+    "verification_mode": "agent",
+    "claim_signature": "test_mock_alignment:ext-site-libtest.sh:slice-fixtures-match-parser:6",
+    "merged_from": [
+      "batch2:VC-25"
+    ]
+  },
+  {
+    "id": "VC-42",
+    "category": "data_format_assumption",
+    "claim": "The coverage map recognizes issue 1309 as an unmodularized test owner using the same object shape as neighboring issue entries.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/modules/coverage-map.json",
+    "source_line": 1065,
+    "source_line_end": 1068,
+    "verify_against": "Coverage-map schema and the run.sh assertion-label census",
+    "verify_hint": "Run the coverage-map validator and confirm every #1309 assertion label maps to the new entry without violating ownership or ordering rules.",
+    "verification_mode": "agent",
+    "claim_signature": "data_format_assumption:coverage-map.json:issue-1309-owner-shape:1065",
+    "merged_from": [
+      "batch2:VC-26"
+    ]
+  },
+  {
+    "id": "VC-43",
+    "category": "dependency_interaction",
+    "claim": "A cache bound of 76 is sufficient to retain the claimed 71 tracked-source sweep and preserve the memo-hit expectations consumed by mutation census tests.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/mutation-pin-census.py",
+    "source_line": 231,
+    "source_line_end": 242,
+    "verify_against": "git ls-files population in _definition_counts() and cache-reuse tests",
+    "verify_hint": "Count the tracked shell sources actually visited, clear the relevant lru_caches, build the census, and inspect _definition_scan and _extract_rows cache hit behavior.",
+    "verification_mode": "agent",
+    "claim_signature": "dependency_interaction:mutation-pin-census.py:cache-bound-tracked-population:231",
+    "merged_from": [
+      "batch2:VC-27"
+    ]
+  },
+  {
+    "id": "VC-44",
+    "category": "api_contract",
+    "claim": "If callers supply both --print-exempt-set and --print-prune-set, the current CLI deterministically executes the exempt-set branch first; this combined-flag behavior must be intentional or rejected explicitly.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "lib/test/lint-shipped-pruned-path.py",
+    "source_line": 561,
+    "source_line_end": 569,
+    "verify_against": "The public command-line contract for the two print-and-exit flags",
+    "verify_hint": "Invoke the CLI with both flags and compare the observed behavior with argparse help, tests, and expected caller usage.",
+    "verification_mode": "agent",
+    "claim_signature": "api_contract:lint-shipped-pruned-path.py:combined-print-flag-precedence:561",
+    "merged_from": [
+      "batch2:VC-28"
+    ]
+  },
+  {
+    "id": "VC-45",
+    "category": "absolute_claim",
+    "claim": "Attempt to falsify the authored guarantee that the docs exemption set is derived rather than transcribed by changing a docs path default in a schema fixture without changing the lint.",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "The exemption set is **derived, never transcribed** by the same principle as the prune",
+    "source_file": "lib/test/lint-shipped-pruned-path.py",
+    "source_line": 46,
+    "verify_against": "parse_docs_defaults(), main(), and a mutated schema fixture",
+    "verify_hint": "Change an equal path-shaped docs default to a new prune-target value and observe whether the exemption output follows it without any code-list edit.",
+    "verification_mode": "agent",
+    "claim_signature": "absolute_claim:lint-shipped-pruned-path.py:exemptions-never-transcribed:46",
+    "merged_from": [
+      "batch2:VC-29"
+    ]
+  },
+  {
+    "id": "VC-46",
+    "category": "absolute_claim",
+    "claim": "Attempt to falsify the authored equality-only guarantee using both a coarser prune target with a finer default and a finer prune target with a coarser default.",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "trailing-slash-normalized EQUALITY (never prefix containment), any prune target that",
+    "source_file": "lib/test/lint-shipped-pruned-path.py",
+    "source_line": 49,
+    "verify_against": "The target/default membership comprehensions in main()",
+    "verify_hint": "Construct docs versus docs/internal/ cases in both directions, plus equal paths with asymmetric trailing slashes, and observe the emitted prune/exempt sets.",
+    "verification_mode": "agent",
+    "claim_signature": "absolute_claim:lint-shipped-pruned-path.py:never-prefix-containment:49",
+    "merged_from": [
+      "batch2:VC-30"
+    ]
+  },
+  {
+    "id": "VC-47",
+    "category": "absolute_claim",
+    "claim": "Attempt to falsify the authored guarantee that citation scanning is unaffected by placing an internal citation on a line that also names an exempt docs path.",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "The exemption applies to the derived prune set only; the issue-#1241 citation scan carries no target list and is unaffected.",
+    "source_file": "lib/test/lint-shipped-pruned-path.py",
+    "source_line": 54,
+    "source_line_end": 55,
+    "verify_against": "scan_text(), scan_citations(), and their shared _scan() marker behavior",
+    "verify_hint": "Create an audited fixture containing docs/external plus an unmarked #123 or AC5 citation and confirm the citation finding survives the docs-path exemption.",
+    "verification_mode": "agent",
+    "claim_signature": "absolute_claim:lint-shipped-pruned-path.py:citation-scan-unaffected:54",
+    "merged_from": [
+      "batch2:VC-31"
+    ]
+  },
+  {
+    "id": "VC-48",
+    "category": "absolute_claim",
+    "claim": "Attempt to falsify the authored fail-closed guarantee using each claimed unestablished schema shape and an all-targets-exempted schema while both print modes are requested.",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "It preserves the fail-closed posture: an unestablished exemption derivation (an absent, unreadable, unparseable, keyless, or non-object schema) refuses non-zero naming the schema, and an exemption set that empties the forbidden set refuses on the same terms as the empty-prune-set refusal one level up.",
+    "source_file": "lib/test/lint-shipped-pruned-path.py",
+    "source_line": 51,
+    "source_line_end": 54,
+    "verify_against": "main() schema-read, DocsDefaultsParseError, empty-forbidden-set, and print branches",
+    "verify_hint": "Run every malformed schema category plus the only-docs/ext-int case, including --print-prune-set, --print-exempt-set, and both together, and seek any zero-exit or unattributed path.",
+    "verification_mode": "agent",
+    "claim_signature": "absolute_claim:lint-shipped-pruned-path.py:all-schema-failures-closed:51",
+    "merged_from": [
+      "batch2:VC-32"
+    ]
+  },
+  {
+    "id": "VC-49",
+    "category": "issue_acceptance",
+    "claim": "The batch satisfies the criterion that every `pruned-path-ok` marker whose only prune match is an exempted documentation root is deleted, while all non-marker prose at the 14 removal sites remains byte-identical.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/docs-bootstrap-external/SKILL.md",
+    "source_line": 6,
+    "source_line_end": 7,
+    "verify_against": "The base-to-head diff for the nine touched prompt files containing marker deletions.",
+    "verify_hint": "For skills/docs-bootstrap-external/SKILL.md, skills/docs-bootstrap-internal/SKILL.md, skills/docs-release-notes/SKILL.md, skills/docs-sync-external/SKILL.md, skills/docs-sync-internal/SKILL.md, skills/docs-verify/SKILL.md, skills/implement/phases/phase-2-implement.md, skills/implement/phases/phase-4-documentation.md, and skills/retrospective-weekly/SKILL.md, reconstruct each base line after removing only its trailing `pruned-path-ok` comment and require an exact byte-for-byte match with the head line; also confirm each removed marker's only prune-triggering operand is an exempted `docs.internal`, `docs.external`, or `docs.release_notes_file` default.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:SKILL.md:exempt-root-markers-only",
+    "merged_from": [
+      "batch3:VC-1"
+    ]
+  },
+  {
+    "id": "VC-50",
+    "category": "issue_acceptance",
+    "claim": "The batch satisfies the criterion that none of its deleted `pruned-path-ok` markers also suppressed a real issue-#1241 citation.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/docs-release-notes/SKILL.md",
+    "source_line": 6,
+    "source_line_end": 8,
+    "verify_against": "The deleted marker payloads in batch-3.patch and the stale-prose citation scanner's #1241 recognition rules.",
+    "verify_hint": "Inspect every deleted marker comment in batch-3.patch, distinguish documentation-root defaults from issue/PR citations using scripts/stale-prose-lint.py's citation rules, and confirm no removed marker was the suppression attached to a #1241 citation.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:SKILL.md:no-1241-suppression",
+    "merged_from": [
+      "batch3:VC-2"
+    ]
+  },
+  {
+    "id": "VC-51",
+    "category": "issue_acceptance",
+    "claim": "The touched skill population satisfies the criterion that the complete skills/agents population audits clean under both `scan_text` and `scan_citations`.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/retrospective-weekly/SKILL.md",
+    "source_line": 272,
+    "verify_against": "The repository's whole-population stale-prose lint invocations and expected zero-finding result.",
+    "verify_hint": "Locate the canonical whole-population `scan_text` and `scan_citations` invocations in the test harness for scripts/stale-prose-lint.py, run both over the full skills/agents population rather than only batch 3, and require both scans to report clean.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:SKILL.md:population-scans-clean",
+    "merged_from": [
+      "batch3:VC-3"
+    ]
+  },
+  {
+    "id": "VC-52",
+    "category": "issue_acceptance",
+    "claim": "Because batch 3 touches skill and implement-phase prompt surfaces, the durable workpad or PR body contains a complete `Writing-skills evidence:` marker whose `skill-loaded`, `guidance-applied`, `pressure-scenario`, and `micro-tests` slots each explicitly say yes or no.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/implement/phases/phase-2-implement.md",
+    "source_line": 87,
+    "verify_against": "PR #1366's durable workpad comment or pull-request body and the repository prompt-surface extension gate.",
+    "verify_hint": "Read the durable GitHub surface for PR #1366, find exactly the applicable `Writing-skills evidence:` record, and parse all four required slots; reject missing, blank, placeholder, or non-yes/no values.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:phase-2-implement.md:writing-skills-evidence",
+    "merged_from": [
+      "batch3:VC-4"
+    ]
+  },
+  {
+    "id": "VC-53",
+    "category": "api_contract",
+    "claim": "The cloud-writer contract entry for `skills/docs-release-notes/SKILL.md` equals the SHA-256 digest of that file's exact current bytes.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "scripts/devflow-cloud-writer-contract.json",
+    "source_line": 28,
+    "verify_against": "The actual bytes of skills/docs-release-notes/SKILL.md and the cloud-writer contract's digest-validation consumer.",
+    "verify_hint": "Compute SHA-256 for skills/docs-release-notes/SKILL.md without modifying or normalizing it and compare it exactly with scripts/devflow-cloud-writer-contract.json line 28.",
+    "verification_mode": "agent",
+    "claim_signature": "api_contract:devflow-cloud-writer-contract.json:release-notes-hash",
+    "merged_from": [
+      "batch3:VC-5"
+    ]
+  },
+  {
+    "id": "VC-54",
+    "category": "api_contract",
+    "claim": "The cloud-writer contract entry for `skills/docs-sync-external/SKILL.md` equals the SHA-256 digest of that file's exact current bytes.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "scripts/devflow-cloud-writer-contract.json",
+    "source_line": 29,
+    "verify_against": "The actual bytes of skills/docs-sync-external/SKILL.md and the cloud-writer contract's digest-validation consumer.",
+    "verify_hint": "Compute SHA-256 for skills/docs-sync-external/SKILL.md without modifying or normalizing it and compare it exactly with scripts/devflow-cloud-writer-contract.json line 29.",
+    "verification_mode": "agent",
+    "claim_signature": "api_contract:devflow-cloud-writer-contract.json:sync-external-hash",
+    "merged_from": [
+      "batch3:VC-6"
+    ]
+  },
+  {
+    "id": "VC-55",
+    "category": "api_contract",
+    "claim": "The cloud-writer contract entry for `skills/docs-sync-internal/SKILL.md` equals the SHA-256 digest of that file's exact current bytes.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "scripts/devflow-cloud-writer-contract.json",
+    "source_line": 30,
+    "verify_against": "The actual bytes of skills/docs-sync-internal/SKILL.md and the cloud-writer contract's digest-validation consumer.",
+    "verify_hint": "Compute SHA-256 for skills/docs-sync-internal/SKILL.md without modifying or normalizing it and compare it exactly with scripts/devflow-cloud-writer-contract.json line 30.",
+    "verification_mode": "agent",
+    "claim_signature": "api_contract:devflow-cloud-writer-contract.json:sync-internal-hash",
+    "merged_from": [
+      "batch3:VC-7"
+    ]
+  },
+  {
+    "id": "VC-56",
+    "category": "api_contract",
+    "claim": "The cloud-writer contract entry for `skills/implement/phases/phase-2-implement.md` equals the SHA-256 digest of that file's exact current bytes.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "scripts/devflow-cloud-writer-contract.json",
+    "source_line": 34,
+    "verify_against": "The actual bytes of skills/implement/phases/phase-2-implement.md and the cloud-writer contract's digest-validation consumer.",
+    "verify_hint": "Compute SHA-256 for skills/implement/phases/phase-2-implement.md without modifying or normalizing it and compare it exactly with scripts/devflow-cloud-writer-contract.json line 34.",
+    "verification_mode": "agent",
+    "claim_signature": "api_contract:devflow-cloud-writer-contract.json:phase2-implement-hash",
+    "merged_from": [
+      "batch3:VC-8"
+    ]
+  },
+  {
+    "id": "VC-57",
+    "category": "api_contract",
+    "claim": "The cloud-writer contract entry for `skills/implement/phases/phase-4-documentation.md` equals the SHA-256 digest of that file's exact current bytes.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "scripts/devflow-cloud-writer-contract.json",
+    "source_line": 36,
+    "verify_against": "The actual bytes of skills/implement/phases/phase-4-documentation.md and the cloud-writer contract's digest-validation consumer.",
+    "verify_hint": "Compute SHA-256 for skills/implement/phases/phase-4-documentation.md without modifying or normalizing it and compare it exactly with scripts/devflow-cloud-writer-contract.json line 36.",
+    "verification_mode": "agent",
+    "claim_signature": "api_contract:devflow-cloud-writer-contract.json:phase4-documentation-hash",
+    "merged_from": [
+      "batch3:VC-9"
+    ]
+  },
+  {
+    "id": "VC-58",
+    "category": "api_contract",
+    "claim": "Removing lint-suppression comments leaves every retained `config-get.sh` call's key/default tuple and quoting compatible with the helper contract, including `.docs.internal` → `docs/internal/`, `.docs.external` → `docs/external/`, and `.docs.release_notes_file` → `docs/external/release-notes.md` where present.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/docs-release-notes/SKILL.md",
+    "source_line": 6,
+    "source_line_end": 8,
+    "verify_against": "scripts/config-get.sh's positional CLI contract and the `.docs` keys/defaults defined by repository configuration.",
+    "verify_hint": "Compare the retained calls across all nine marker-removal files with scripts/config-get.sh's argument contract and `.prflow/config.json` schema/default documentation; verify the comment deletion did not alter shell tokenization, key names, defaults, or the empty-default behavior in phase-4-documentation.md.",
+    "verification_mode": "agent",
+    "claim_signature": "api_contract:SKILL.md:docs-config-tuples",
+    "merged_from": [
+      "batch3:VC-10"
+    ]
+  },
+  {
+    "id": "VC-59",
+    "category": "absolute_claim",
+    "claim": "Attempt to falsify the retained guarantee that the configuration helper falls back to the documented default whenever the config file is missing or the requested key is absent.",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "The helper falls back to the default value when the config file is missing or the key is absent.",
+    "source_file": "skills/docs-bootstrap-external/SKILL.md",
+    "source_line": 9,
+    "verify_against": "scripts/config-get.sh's executable behavior for missing-file and missing-key inputs.",
+    "verify_hint": "Construct two isolated configurations: one with no `.prflow/config.json`, and one with a valid config lacking `.docs.internal` and `.docs.external`; invoke config-get.sh with the documented defaults and observe whether each antecedent produces exactly the promised default rather than an error, empty value, or unrelated key.",
+    "verification_mode": "agent",
+    "claim_signature": "absolute_claim:SKILL.md:config-default-fallback:9",
+    "merged_from": [
+      "batch3:VC-11"
+    ]
+  },
+  {
+    "id": "VC-60",
+    "category": "issue_acceptance",
+    "claim": "For skills/retrospective/SKILL.md, the obsolete pruned-path-ok marker is removed because its only prune-target match is the exempt docs/internal/ default, while the surrounding fallback prose remains otherwise byte-identical.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/retrospective/SKILL.md",
+    "source_line": 33,
+    "source_line_end": 35,
+    "verify_against": "The PR acceptance criterion, the base-revision version of this hunk, and the repository's documented docs-root exemptions.",
+    "verify_hint": "Compare this hunk with the base revision byte-for-byte after deleting only the pruned-path-ok comment, and confirm docs/internal/ is an exempt docs root under lint-shipped-pruned-path.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:SKILL.md:retrospective-marker-only-removal:34",
+    "merged_from": [
+      "batch4:VC-1"
+    ]
+  },
+  {
+    "id": "VC-61",
+    "category": "issue_acceptance",
+    "claim": "The shipped skills and agents population, including skills/retrospective/SKILL.md, remains clean under both supported lint-shipped-pruned-path modes after this marker deletion.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/retrospective/SKILL.md",
+    "source_line": 34,
+    "verify_against": "The repository lint harness and its two supported lint-shipped-pruned-path modes.",
+    "verify_hint": "Run the repository's shipped-skills-and-agents lint coverage in both modes and confirm neither mode reports this docs/internal/ fallback or any remaining invalid marker.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:SKILL.md:both-lint-modes-clean",
+    "merged_from": [
+      "batch4:VC-2"
+    ]
+  },
+  {
+    "id": "VC-62",
+    "category": "api_contract",
+    "claim": "The retrospective subagent contract uses docs/internal/ as the internal-documentation root exactly when its dispatch prompt supplies no root.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/retrospective/SKILL.md",
+    "source_line": 33,
+    "source_line_end": 34,
+    "verify_against": "The retrospective-weekly dispatch prompt construction and configuration/default definitions that supply the internal-documentation root.",
+    "verify_hint": "Trace the retrospective subagent dispatch path and confirm omission of the root is supported and that its canonical fallback is docs/internal/.",
+    "verification_mode": "agent",
+    "claim_signature": "api_contract:SKILL.md:internal-doc-root-fallback:34",
+    "merged_from": [
+      "batch4:VC-3"
+    ]
+  }
+]

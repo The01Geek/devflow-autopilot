@@ -1,0 +1,17 @@
+{
+  "root": {
+    "path": "/Users/the01geek/.codex/plugins/cache/devflow-marketplace/prflow/2.31.17/skills/review/SKILL.md",
+    "hash": "6fdcb45b7f424118e6b0aec9f95b763b97d9a456"
+  },
+  "references": [
+    {"path": "/Users/the01geek/.codex/plugins/cache/devflow-marketplace/prflow/2.31.17/skills/review/phases/phase-0-setup.md", "hash": "c540a706749369f3da34a9cd2f0c0940be5812a9"},
+    {"path": "/Users/the01geek/.codex/plugins/cache/devflow-marketplace/prflow/2.31.17/skills/review/phases/phase-0-3-6-blocker-recheck.md", "hash": "31bb7d59e72fc29c010afddbc9081b89e426379b"},
+    {"path": "/Users/the01geek/.codex/plugins/cache/devflow-marketplace/prflow/2.31.17/skills/review/phases/phase-0-6-stale-prose-lint.md", "hash": "47210be491396bacf6283e94dec50c8c276e4384"},
+    {"path": "/Users/the01geek/.codex/plugins/cache/devflow-marketplace/prflow/2.31.17/skills/review/phases/phase-1-checklist.md", "hash": "be68734e7e6137cbe0712cea3398dd279d3a95b4"},
+    {"path": "/Users/the01geek/.codex/plugins/cache/devflow-marketplace/prflow/2.31.17/skills/review/phases/phase-2-verification.md", "hash": "a607449b22cbc24265b71195b495d4cf6d8aff81"},
+    {"path": "/Users/the01geek/.codex/plugins/cache/devflow-marketplace/prflow/2.31.17/skills/review/phases/phase-3-agents.md", "hash": "3ad3a3642000dfcefd3d85c3fea63a191e03219b"},
+    {"path": "/Users/the01geek/.codex/plugins/cache/devflow-marketplace/prflow/2.31.17/skills/review/phases/phase-4-verdict.md", "hash": "d90179113f09a12c8aaf0af4f6bfb0aa8fbeb32a"},
+    {"path": "/Users/the01geek/.codex/plugins/cache/devflow-marketplace/prflow/2.31.17/skills/review/phases/phase-4-1-7-stale-adjudication.md", "hash": "15b40660ad087ed65b3ddaa5b741b02c9788c767"},
+    {"path": "/Users/the01geek/.codex/plugins/cache/devflow-marketplace/prflow/2.31.17/skills/review/phases/phase-4-4-github-post.md", "hash": "3a3e2c6ae4feea1357cb1187ca072e1e42361f17"}
+  ]
+}

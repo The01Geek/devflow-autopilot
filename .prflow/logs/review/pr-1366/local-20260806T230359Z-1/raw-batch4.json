@@ -1,0 +1,40 @@
+[
+  {
+    "id": "VC-1",
+    "category": "issue_acceptance",
+    "claim": "For skills/retrospective/SKILL.md, the obsolete pruned-path-ok marker is removed because its only prune-target match is the exempt docs/internal/ default, while the surrounding fallback prose remains otherwise byte-identical.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/retrospective/SKILL.md",
+    "source_line": 33,
+    "source_line_end": 35,
+    "verify_against": "The PR acceptance criterion, the base-revision version of this hunk, and the repository's documented docs-root exemptions.",
+    "verify_hint": "Compare this hunk with the base revision byte-for-byte after deleting only the pruned-path-ok comment, and confirm docs/internal/ is an exempt docs root under lint-shipped-pruned-path.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:SKILL.md:retrospective-marker-only-removal:34"
+  },
+  {
+    "id": "VC-2",
+    "category": "issue_acceptance",
+    "claim": "The shipped skills and agents population, including skills/retrospective/SKILL.md, remains clean under both supported lint-shipped-pruned-path modes after this marker deletion.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/retrospective/SKILL.md",
+    "source_line": 34,
+    "verify_against": "The repository lint harness and its two supported lint-shipped-pruned-path modes.",
+    "verify_hint": "Run the repository's shipped-skills-and-agents lint coverage in both modes and confirm neither mode reports this docs/internal/ fallback or any remaining invalid marker.",
+    "verification_mode": "agent",
+    "claim_signature": "issue_acceptance:SKILL.md:both-lint-modes-clean"
+  },
+  {
+    "id": "VC-3",
+    "category": "api_contract",
+    "claim": "The retrospective subagent contract uses docs/internal/ as the internal-documentation root exactly when its dispatch prompt supplies no root.",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/retrospective/SKILL.md",
+    "source_line": 33,
+    "source_line_end": 34,
+    "verify_against": "The retrospective-weekly dispatch prompt construction and configuration/default definitions that supply the internal-documentation root.",
+    "verify_hint": "Trace the retrospective subagent dispatch path and confirm omission of the root is supported and that its canonical fallback is docs/internal/.",
+    "verification_mode": "agent",
+    "claim_signature": "api_contract:SKILL.md:internal-doc-root-fallback:34"
+  }
+]
