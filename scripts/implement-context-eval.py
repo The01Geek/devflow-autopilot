@@ -137,6 +137,22 @@ def _attribution_ids():
     try:
         spec.loader.exec_module(module)
         ids = tuple(ns + "implement" for ns in module.agent_namespaces())
+        # The concatenation assumes `agent_namespaces()` returns COLON-TERMINATED
+        # namespaces. That is a cross-module shape contract, and the success path is the
+        # one path that always executes — if the contract changed, `ids` would be
+        # non-empty (so the emptiness guard below never fires), every record would
+        # mismatch, and the eval would report zero runs with no error: the exact silent
+        # failure this whole apparatus exists to prevent, reached by a different route.
+        malformed = [i for i in ids if not i.endswith(":implement")]
+        if malformed:
+            print(
+                "implement-context-eval: the declared namespace set yielded malformed "
+                "attribution id(s) {} (expected `<namespace>:implement`); falling back "
+                "to the hardcoded attribution pair {}".format(
+                    malformed, _FALLBACK_ATTRIBUTION),
+                file=sys.stderr,
+            )
+            return _FALLBACK_ATTRIBUTION
     except Exception as exc:  # noqa: BLE001 - lib/plugin_identity.py is FAIL-CLOSED and
         # raises IdentityError when the identifier set cannot be established (an absent or
         # malformed .claude-plugin/plugin.json or lib/plugin-identity.json — a vendored or
@@ -267,9 +283,9 @@ def _sum_or_unestablished(values):
     The "empty population -> UNESTABLISHED, never 0" invariant is load-bearing (a
     real `0` and "no runs" must never be the same output), so the SUM fields go through
     this helper rather than an inline `sum(...) if values else UNESTABLISHED` ternary
-    repeated per field. Three fields deliberately do NOT route through it, each for its
+    repeated per field. The following deliberately do NOT route through it, each for its
     own recorded reason: the `runs_over_*` bucket COUNTS guard on a different population
-    (see their definition in `aggregate`), and the two gap totals
+    (see their definition in `aggregate`), and the gap totals
     (`aggregate`'s `corpus_total_gap_seconds` and `_gap_stats`' `total_seconds`) wrap
     their sum in `round(..., GAP_DECIMALS)`.
     """
@@ -305,6 +321,17 @@ def _tool_category(name):
     return TOOL_CATEGORY_BY_NAME.get(name, OTHER_TOOL_CATEGORY)
 
 
+def _gap_median(values):
+    """The median of a seconds population, held to the GAP_DECIMALS contract.
+
+    One home for the rounding, shared by the per-run statistic and both aggregate gap
+    medians — rounding only some of them would leave the others rendering the float
+    noise the constant exists to keep out.
+    """
+    median = _median_or_unestablished(values)
+    return median if median == UNESTABLISHED else round(median, GAP_DECIMALS)
+
+
 def _gap_stats(times):
     """Median / max / total of the wall-clock gaps between sorted turn timestamps.
 
@@ -321,11 +348,10 @@ def _gap_stats(times):
     ordered = sorted(times)
     gaps = [round(b - a, GAP_DECIMALS) for a, b in zip(ordered, ordered[1:])]
     # `_median`'s even branch can return an unrounded `total / 2`, which would render
-    # float noise into a report GAP_DECIMALS exists to keep clean. Round here rather
-    # than in `_median`, whose int-preserving behavior the peak axis relies on.
-    median = _median_or_unestablished(gaps)
-    if median != UNESTABLISHED:
-        median = round(median, GAP_DECIMALS)
+    # float noise into a report GAP_DECIMALS exists to keep clean. Round here rather than
+    # in `_median`: GAP_DECIMALS is a gap-axis contract and `_median` is shared with the
+    # token-count axes, which have no decimal contract.
+    median = _gap_median(gaps)
     return {
         "count": len(gaps),
         "median_seconds": median,
@@ -444,10 +470,17 @@ class RunAccumulator:
                 # A Read block's `input` may be a non-dict (a list/string); `(x or {})`
                 # passes a truthy non-dict through to `.get()` and raises. isinstance-guard.
                 block_input = block.get("input")
-                if not isinstance(block_input, dict):
-                    block_input = {}
-                file_path = block_input.get("file_path")
+                file_path = (block_input.get("file_path")
+                             if isinstance(block_input, dict) else None)
                 if not isinstance(file_path, str):
+                    # The path could not be ESTABLISHED, so it is accounted rather than
+                    # silently read as "not a phase file". Without this tally a harness
+                    # release that renamed `input.file_path` would make every phase-read
+                    # count in a corpus report a real-looking 0 with a clean skip tally
+                    # — the headline axis measuring nothing, indistinguishably from a run
+                    # that entered no phase. A Read of a NON-phase file is a legitimate
+                    # non-count and is deliberately NOT tallied here.
+                    self.skipped["unresolvable_read_path"] += 1
                     continue
                 label = PHASE_FILES.get(os.path.basename(file_path))
                 if label is not None:
@@ -525,6 +558,10 @@ def new_skip_tally():
         # A tool-bearing main-thread turn whose timestamp could not be parsed: it leaves
         # the gap population accounted here rather than contributing a zero gap (AC11).
         "unusable_timestamp": 0,
+        # A `Read` tool_use whose `input`/`file_path` shape is unusable: the path could
+        # not be established, so it leaves the phase-read axis accounted here rather
+        # than silently reading as "not a phase file".
+        "unresolvable_read_path": 0,
     }
 
 
@@ -717,9 +754,9 @@ def aggregate(runs):
                   if r["tool_call_gaps"]["max_seconds"] != UNESTABLISHED]
     gap_totals = [r["tool_call_gaps"]["total_seconds"] for r in runs
                   if r["tool_call_gaps"]["total_seconds"] != UNESTABLISHED]
-    summary["median_run_max_gap_seconds"] = _median_or_unestablished(gap_maxima)
+    summary["median_run_max_gap_seconds"] = _gap_median(gap_maxima)
     summary["max_run_max_gap_seconds"] = _max_or_unestablished(gap_maxima)
-    summary["median_run_total_gap_seconds"] = _median_or_unestablished(gap_totals)
+    summary["median_run_total_gap_seconds"] = _gap_median(gap_totals)
     summary["max_run_total_gap_seconds"] = _max_or_unestablished(gap_totals)
     summary["corpus_total_gap_seconds"] = (
         round(sum(gap_totals), GAP_DECIMALS) if gap_totals else UNESTABLISHED)
@@ -750,7 +787,11 @@ def _render_run_line(r):
         # The unit lives in the KEY, never appended to the value: a `{value}s` suffix
         # renders the UNESTABLISHED sentinel as "unestablisheds".
         "turn_gap_seconds=[n={gap_count} median={gap_median} max={gap_max} "
-        "total={gap_total} spans_dropped_turns={gap_dropped}]".format(
+        "total={gap_total} spans_dropped_turns={gap_dropped} "
+        # The per-run COUNT, not only the boolean: the flag says WHICH run's
+        # distribution is affected, the count says how badly, and the text report is
+        # what a maintainer reads.
+        "dropped_turns={unusable_timestamp_turns}]".format(
             phase=phase, tools=tools, gap_count=gaps["count"],
             gap_median=gaps["median_seconds"], gap_max=gaps["max_seconds"],
             gap_total=gaps["total_seconds"],
@@ -774,18 +815,24 @@ def render_text(runs, summary, skipped):
     for key, value in summary.items():
         lines.append("- {}: {}".format(key, value))
     lines.append("")
-    # `unusable_timestamp` is a gap-population EXCLUSION, not a record the parser
-    # skipped, so it is reported under its own heading rather than inflating the
-    # skipped-records headline a maintainer reads as "bad transcript data".
-    dropped_stamps = skipped.get("unusable_timestamp", 0)
-    record_skips = {k: v for k, v in skipped.items() if k != "unusable_timestamp"}
-    lines.append("## Skipped records: {}".format(sum(record_skips.values())))
+    # The two AXIS EXCLUSIONS are reported under their own heading rather than
+    # inflating the skipped headline a maintainer reads as "bad transcript data":
+    # neither is a parse failure, and each removes a turn or a block from ONE axis. The
+    # remaining tally covers both records and whole session files / directories (see
+    # eval_corpus's docstring), which is why the heading names both.
+    excluded = {k: skipped.get(k, 0)
+                for k in ("unusable_timestamp", "unresolvable_read_path")}
+    record_skips = {k: v for k, v in skipped.items() if k not in excluded}
+    lines.append("## Skipped records and files: {}".format(sum(record_skips.values())))
     for reason in sorted(record_skips):
         if record_skips[reason]:
             lines.append("- {}: {}".format(reason, record_skips[reason]))
     lines.append("")
-    lines.append("## Turns dropped from the gap population "
-                 "(unusable timestamp): {}".format(dropped_stamps))
+    lines.append("## Dropped from an axis (not a parse failure)")
+    lines.append("- turns dropped from the gap population (unusable timestamp): "
+                 "{}".format(excluded["unusable_timestamp"]))
+    lines.append("- Read blocks dropped from the phase-read axis (unresolvable path): "
+                 "{}".format(excluded["unresolvable_read_path"]))
     return "\n".join(lines)
 
 

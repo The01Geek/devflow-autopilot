@@ -63,8 +63,11 @@ def _expected_from_fixture(session_paths, corpus_root):
     could not witness a wrong one, so the two tables that decide an attribution carry
     their own coupling checks: `PHASE_FILES`/`PHASE_READ_LABELS` against the on-disk
     phase directory (`PhaseFileSetCouplingTest`) and `TOOL_CATEGORY_BY_NAME` against
-    literal expectations (`ToolCategoryTableTest`). The remaining shared constants are
-    scalars with no independent source to reconcile against.
+    literal expectations (`ToolCategoryTableTest`, which also reconciles
+    `TOOL_CATEGORY_LABELS`). `ATTRIBUTION` is derived at import from
+    `lib/plugin_identity.py` and its degraded arms are driven by
+    `AttributionFallbackTest`; only `GAP_DECIMALS` and `UNESTABLISHED` are scalars with
+    no independent source to reconcile against.
     """
     runs = []
     for path in sorted(session_paths):
@@ -551,9 +554,9 @@ class MedianPrimitiveTest(unittest.TestCase):
 
 
 class AttributionFallbackTest(unittest.TestCase):
-    """`_attribution_ids` exists to prevent a vacuous zero-run measurement; both of its
-    degraded arms must produce the historical id rather than an empty set or a
-    traceback."""
+    """`_attribution_ids` exists to prevent a vacuous zero-run measurement; each of its
+    degraded arms must produce `_FALLBACK_ATTRIBUTION` (canonical + superseded) rather
+    than an empty set, a superseded-only set, or a traceback."""
 
     def _with_identity_path(self, path):
         saved_path, saved_err = ICE._IDENTITY_PATH, sys.stderr
@@ -584,6 +587,17 @@ class AttributionFallbackTest(unittest.TestCase):
             ids, err = self._with_identity_path(os.path.join(d, "boom.py"))
         self.assertEqual(ids, ICE._FALLBACK_ATTRIBUTION)
         self.assertIn("IdentityError", err)
+
+    def test_malformed_namespace_shape_falls_back(self):
+        # The success path is the one that always runs. If agent_namespaces() ever
+        # stopped returning colon-terminated namespaces, `ids` would be NON-empty (so
+        # the emptiness guard never fires), every record would mismatch, and the eval
+        # would report zero runs with no error.
+        with tempfile.TemporaryDirectory() as d:
+            _write(d, "bare.py", ["def agent_namespaces():", "    return ['prflow']"])
+            ids, err = self._with_identity_path(os.path.join(d, "bare.py"))
+        self.assertEqual(ids, ICE._FALLBACK_ATTRIBUTION)
+        self.assertIn("malformed", err)
 
     def test_empty_namespace_set_falls_back(self):
         with tempfile.TemporaryDirectory() as d:
@@ -647,6 +661,10 @@ class AdversarialTest(_SingleSessionMixin, unittest.TestCase):
         self.assertEqual(skipped["malformed_record"], 0)
         self.assertEqual(skipped["non_json_line"], 0)
         self.assertEqual(skipped["unusable_timestamp"], 1)
+        # The unusable Read `input` shape leaves the phase-read axis ACCOUNTED, not
+        # silently read as "not a phase file" — which would let a renamed
+        # `input.file_path` report every phase count as a real-looking 0.
+        self.assertEqual(skipped["unresolvable_read_path"], 1)
 
     def test_defensive_dispatch_tallies_malformed_record(self):
         original = ICE.RunAccumulator.observe_system
@@ -821,15 +839,17 @@ class RenderAndCliTest(unittest.TestCase):
         self.assertIn("- max_peak_context: unestablished", text)
         self.assertNotIn("unestablisheds", text)
 
-    def test_dropped_timestamp_turns_are_not_counted_as_skipped_records(self):
-        # `unusable_timestamp` is a gap-population exclusion, not bad transcript data;
-        # folding it into the skipped-records headline would report a clean corpus as
-        # malformed.
+    def test_axis_exclusions_are_not_counted_as_skipped_records(self):
+        # Neither exclusion is bad transcript data; folding either into the skipped
+        # headline would report a clean corpus as malformed.
         skipped = ICE.new_skip_tally()
         skipped["unusable_timestamp"] = 4
+        skipped["unresolvable_read_path"] = 2
+        skipped["non_json_line"] = 1
         text = ICE.render_text([], ICE.aggregate([]), skipped)
-        self.assertIn("## Skipped records: 0", text)
+        self.assertIn("## Skipped records and files: 1", text)
         self.assertIn("unusable timestamp): 4", text)
+        self.assertIn("unresolvable path): 2", text)
 
     def test_missing_corpus_exits_nonzero_naming_path(self):
         err = io.StringIO()
@@ -982,9 +1002,21 @@ class NoAutoInvocationTest(unittest.TestCase):
         offenders = []
         for sub in ("skills", ".github", "scripts", "lib", ".prflow/prompt-extensions"):
             root = os.path.join(_REPO, sub)
-            if not os.path.isdir(root):
-                continue
-            for dirpath, dirs, files in os.walk(root):  # tree-walk-ok: rooted at fixed subtrees (skills/.github/scripts/lib), not the repo root
+            # Assert rather than `continue`: a renamed or relocated subtree would
+            # otherwise drop out of the scan silently and the invariant would report as
+            # holding over a tree never walked. Same reason test_added_files_are_clean
+            # asserts its named targets exist.
+            self.assertTrue(os.path.isdir(root),
+                            "no-auto-invocation scan root is missing (renamed or "
+                            "moved?): {}".format(sub))
+
+            def _walk_error(exc, _sub=sub):
+                # os.walk's default onerror=None DISCARDS a scandir failure, so an
+                # undescendable directory would yield zero entries and read as clean.
+                self.fail("could not walk {} while checking the no-auto-invocation "
+                          "invariant: {}".format(_sub, exc))
+
+            for dirpath, dirs, files in os.walk(root, onerror=_walk_error):  # tree-walk-ok: rooted at fixed subtrees (skills/.github/scripts/lib/.prflow/prompt-extensions), not the repo root
                 dirs[:] = [d for d in dirs if d != "__pycache__"]
                 for f in files:
                     p = os.path.join(dirpath, f)

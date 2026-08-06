@@ -150,8 +150,9 @@ batches its calls looks cheaper than one that does not while doing the same work
 
   A tool-bearing turn whose record carries no usable timestamp is counted in the skip
   accounting under `unusable_timestamp` and **never** contributes a zero gap. It is also
-  counted per run (`unusable_timestamp_turns`), and a run's `tool_call_gaps` carries
-  `spans_dropped_turns` when that count is non-zero — because the gap either side of a
+  counted per run (`unusable_timestamp_turns`), and a run's `tool_call_gaps` always
+  carries a `spans_dropped_turns` flag, `true` when that count is non-zero — because the
+  gap either side of a
   dropped turn is computed straight across the hole and reported as one interval, so the
   reader must be able to see which distribution that happened in. A run with fewer than
   two timestamped tool-bearing turns reports the three gap *statistics*
