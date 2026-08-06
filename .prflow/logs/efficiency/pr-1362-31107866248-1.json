@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1362",
+  "generated_at": "2026-08-06T13:59:05Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.16",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.709160999999998,
+    "tokens": {
+      "input_tokens": 26,
+      "output_tokens": 11187,
+      "cache_read_input_tokens": 1550953,
+      "cache_creation_input_tokens": 126707,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 116,
+        "outputTokens": 30598,
+        "cacheReadInputTokens": 4957072,
+        "cacheCreationInputTokens": 318391,
+        "webSearchRequests": 0,
+        "costUSD": 5.709160999999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 20,
+    "duration_ms": 395710
+  },
+  "permission_denials": {
+    "count": 17,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"SKILL_DIR=${CLAUDE_SKILL_DIR:-<unset>}\"; echo \"RUN_ID=${GITHUB_RUN_ID:-<unset>}\"; echo \"REPO=${GITHUB_REPOSITORY:-<unset>}\"; ls -d .prflow/vendor/prflow/scripts 2>/dev/null && echo \"VENDOR_PRESENT\" || echo \"VENDOR_ABSENT\"; ls skills/review/phases/ 2>/dev/null | head; pwd",
+      "cd /home/runner/work/prflow/prflow\ngit show FETCH_HEAD:.prflow/prompt-extensions/review.md | sed -n '50,85p' > /tmp/rev.txt\ngit show FETCH_HEAD:.prflow/prompt-extensions/review-and-fix.md | sed -n '258,295p' > /tmp/raf.txt\necho \"=== review.md gate ===\"; cat /tmp/rev.txt\necho; echo \"=== review-and-fix.md gate ===\"; cat /tmp/raf.txt",
+      "git show FETCH_HEAD:CLAUDE.md > /tmp/new_claude.md; git show origin/main:CLAUDE.md > /tmp/old_claude.md; wc -l /tmp/new_claude.md /tmp/old_claude.md",
+      "cd /home/runner/work/prflow/prflow\ngit show FETCH_HEAD:.prflow/prompt-extensions/review.md > /tmp/rev_full.md\ngit show FETCH_HEAD:.prflow/prompt-extensions/review-and-fix.md > /tmp/raf_full.md\ngit show FETCH_HEAD:.prflow/prompt-extensions/implement.md > /tmp/impl_full.md",
+      "git show FETCH_HEAD:CLAUDE.md > /tmp/new_claude.md",
+      "git show FETCH_HEAD:.prflow/prompt-extensions/review.md > /tmp/rev_full.md",
+      "git show FETCH_HEAD:.prflow/prompt-extensions/review-and-fix.md > /tmp/raf_full.md",
+      "mkdir -p .prflow/tmp && git show FETCH_HEAD:.prflow/prompt-extensions/review.md > .prflow/tmp/rev.md && git show FETCH_HEAD:.prflow/prompt-extensions/review-and-fix.md > .prflow/tmp/raf.md && git show FETCH_HEAD:.prflow/prompt-extensions/implement.md > .prflow/tmp/impl.md && echo done",
+      "git show FETCH_HEAD:.prflow/prompt-extensions/review.md > .prflow/tmp/rev.md",
+      "git show FETCH_HEAD:CLAUDE.md > /home/runner/work/prflow/prflow/.prflow/tmp/new_claude.md; git show origin/main:CLAUDE.md > /home/runner/work/prflow/prflow/.prflow/tmp/old_claude.md",
+      "mkdir -p /home/runner/work/prflow/prflow/.prflow/tmp; git show FETCH_HEAD:CLAUDE.md > /home/runner/work/prflow/prflow/.prflow/tmp/new_claude.md",
+      "git show FETCH_HEAD:.prflow/prompt-extensions/review.md > rev_tmp.md; echo done",
+      "diff <(git show FETCH_HEAD:.prflow/prompt-extensions/review.md | sed -n '48,82p') <(git show FETCH_HEAD:.prflow/prompt-extensions/review-and-fix.md | sed -n '256,290p') && echo \"IDENTICAL\"",
+      "for f in implement review-and-fix receiving-code-review review create-issue; do echo \"=== $f ===\"; git grep -h -n \"docs/internal\" FETCH_HEAD -- .prflow/prompt-extensions/$f.md || echo \"(none)\"; done",
+      "a=$(git show FETCH_HEAD:.prflow/prompt-extensions/review.md | sed -n '36,81p'); b=$(git show FETCH_HEAD:.prflow/prompt-extensions/review-and-fix.md | sed -n '244,289p'); if [ \"$a\" = \"$b\" ]; then echo \"BYTE-IDENTICAL\"; else echo \"DIFFER\"; fi",
+      "git show origin/main:CLAUDE.md | grep -oE \"docs/internal/[a-zA-Z0-9._-]+\" | sort -u > /home/runner/work/prflow/prflow/.prflow/tmp/old_refs.txt 2>/dev/null; git show FETCH_HEAD:CLAUDE.md | grep -oE \"docs/internal/[a-zA-Z0-9._-]+\" | sort -u > /home/runner/work/prflow/prflow/.prflow/tmp/new_refs.txt 2>/dev/null; echo \"NEW refs not in old:\"; comm -13 /home/runner/work/prflow/prflow/.prflow/tmp/old_refs.txt /home/runner/work/prflow/prflow/.prflow/tmp/new_refs.txt",
+      "comm -13 <(git show origin/main:CLAUDE.md | grep -oE \"docs/internal/[a-zA-Z0-9._-]+\" | sort -u) <(git show FETCH_HEAD:CLAUDE.md | grep -oE \"docs/internal/[a-zA-Z0-9._-]+\" | sort -u)"
+    ],
+    "total": 17,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
