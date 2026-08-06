@@ -1,0 +1,355 @@
+{
+ "pairs": [
+  {
+   "item": {
+    "id": "VC-1",
+    "category": "absolute_claim",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "Only a resolved entry can regress \u2014 the call fails closed on any other status, breadcrumb `not-resolved`.",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-1-8e8c993dbf8c.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-2",
+    "category": "absolute_claim",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "- **Queries** (`query-*`) **always exit 0 once their arguments parse** \u2014 an argparse usage error exits 2 before the query logic runs \u2014 and print one decided answer line **first**, fail-closed answers included, usually followed by a final `next_call=` line.",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-2-1b3bcf1a0a68.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-3",
+    "category": "dependency_interaction",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-3-d675e5d7be6b.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-4",
+    "category": "absolute_claim",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "An invocation line fills every **state-derivable** operand, renders every **caller-supplied** one as a bare flag name **in argument position**, and names those same flags in a separate comma-joined **`needs=` field** at the end of the line",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-4-e88777abb75a.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-5",
+    "category": "absolute_claim",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "Two answers name no call and render `unestablished reason=dispatch-arm-unestablished` instead",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-5-2f515d4d435a.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-6",
+    "category": "dependency_interaction",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-6-3f5bd56cc152.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-7",
+    "category": "absolute_claim",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "**Recording the pair is necessary, not sufficient** \u2014 the check re-reads the staged artifact and re-hashes it at dispatch time",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-7-9b5bca047cc0.json",
+   "response_text": "```json\n{\"id\": \"VC-7\", \"verdict\": \"PASS\", \"evidence\": \"scripts/issue-audit-state.py:5580 calls _reconstruct_dispatch_bytes(doc, digest) at fresh-round dispatch. _reconstruct_dispatch_bytes (lines 3915-3949) locates the staged artifact by recorded digest, then Path(path).read_bytes() and hash_bytes(data) == digest before returning \u2014 exactly re-reads and re-hashes at dispatch time as claimed. Refusal message at 5589-5591 prescribes re-staging + recording a new pair, matching the stated remedy.\", \"file_checked\": \"scripts/issue-audit-state.py:3915-3949,5580-5591\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}\n```"
+  },
+  {
+   "item": {
+    "id": "VC-8",
+    "category": "absolute_claim",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "The tool hashes via `git hash-object --stdin --no-filters` at every site",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-8-1f32a511f369.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-9",
+    "category": "absolute_claim",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "the mutations to the state *document* are serialized, so the document reflects one call entirely and then the next. The **decision channel is not** serialized",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-9-a0aee7a6f372.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-10",
+    "category": "dependency_interaction",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-10-b7f972d1d4af.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-11",
+    "category": "dependency_interaction",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-11-dc52e5689e22.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-12",
+    "category": "dependency_interaction",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-12-6d821c99b3f7.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-13",
+    "category": "dependency_interaction",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-13-05d360444845.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-14",
+    "category": "absolute_claim",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "each byte-identical to the first line its individual query prints, one per line",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-14-36bf3ba1f54a.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-15",
+    "category": "data_format_assumption",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-15-cfaf7b7e2fbc.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-16",
+    "category": "dependency_interaction",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-16-91757766e9a5.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-17",
+    "category": "dependency_interaction",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-17-9dac8924122f.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-18",
+    "category": "dependency_interaction",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-18-78f03c600773.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-19",
+    "category": "dependency_interaction",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-19-cc85769e54fc.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-20",
+    "category": "dependency_interaction",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-20-ed8c15f248a8.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-21",
+    "category": "absolute_claim",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "naming exactly these 8 paths and stating that **any finding derived from those files is void**",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-21-00d60777a10b.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-22",
+    "category": "api_contract",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-22-a27ee159c675.json",
+   "response_text": "```json\n{\"id\": \"VC-22\", \"verdict\": \"FAIL\", \"evidence\": \"The rewrite is real, but the generated claim that the content 'is still cited by the generic-dimension count guard' as a pin over this file's literal text is false: the A3 count guard (lib/test/modules/create-issue-contract.sh:707-716) asserts a bullet count of 10 over $CI_TMPL_AUDIT = audit-prompt-template.md, a different, unchanged file; the comment at 699-700 merely points to step-3-6-audit.md in prose. No pin targets this paragraph's literal wording. lib/test/run-module.sh create-issue-contract: 231 passed, 0 failed.\", \"file_checked\": \"lib/test/modules/create-issue-contract.sh:695-716,943-946\", \"property_proven\": false, \"inaccuracy_scope\": \"generated_claim_text\"}\n```"
+  },
+  {
+   "item": {
+    "id": "VC-23",
+    "category": "api_contract",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-23-ff4b201d5b7f.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-25",
+    "category": "api_contract",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-25-9260c47d69dc.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-26",
+    "category": "dependency_interaction",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-26-f5db9d96b14d.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-27",
+    "category": "dependency_interaction",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-27-13a4d1daf651.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-28",
+    "category": "dependency_interaction",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-28-004c3b6f3485.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-29",
+    "category": "dependency_interaction",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-29-8574c838e23d.json",
+   "response_text": "```json\n{\"id\": \"VC-29\", \"verdict\": \"PASS\", \"evidence\": \"scripts/issue-audit-state.py _ingest_ledger (lines 6253-6353) implements every refusal the claim enumerates: ledger-empty-summary (6308-6311); ledger-status-prefix (6300-6306); ledger-line-count vs --must-revise (6272-6276); ledger-summary-control-char (6312-6318); ledger-protocol-vocabulary (6319-6325); and ledger-unresolved-count on unresolved-count disagreement (6347-6352), fed from args.unresolved_must_revise. All named breadcrumbs match exactly; no listed refusal is missing.\", \"file_checked\": \"scripts/issue-audit-state.py:6253-6353\", \"property_proven\": true, \"inaccuracy_scope\": \"none\"}\n```"
+  },
+  {
+   "item": {
+    "id": "VC-30",
+    "category": "dependency_interaction",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": "skills/create-issue/references/step-3-6-audit.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-30-803867f6788b.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-31",
+    "category": "data_format_assumption",
+    "claim_provenance": "generated_paraphrase",
+    "source_file": ".changeset/step-3-6-audit-editorial-compression.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-31-3d749c857685.json",
+   "response_text": ""
+  },
+  {
+   "item": {
+    "id": "VC-32",
+    "category": "absolute_claim",
+    "claim_provenance": "source_authored",
+    "source_excerpt": "the longest physical line falls from 8,478 B to 1,555 B. Rationale and state-owner contract restatement are condensed to instruction plus at most one consequence sentence. No degraded arm, command form, or pinned literal changed.",
+    "source_file": ".changeset/step-3-6-audit-editorial-compression.md",
+    "verification_mode": "agent"
+   },
+   "verdict_path": ".prflow/tmp/review/pr-1370/local-20260806-r5/verdicts/iter-1/VC-32-72b6293af215.json",
+   "response_text": ""
+  }
+ ]
+}
