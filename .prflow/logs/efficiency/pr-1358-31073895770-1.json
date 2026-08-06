@@ -113,5 +113,86 @@
       "iter": 1,
       "phases": "unavailable"
     }
-  ]
+  ],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.8",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 65.32962729999996,
+    "tokens": {
+      "input_tokens": 1289,
+      "output_tokens": 174874,
+      "cache_read_input_tokens": 86814062,
+      "cache_creation_input_tokens": 554736,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 1429,
+        "outputTokens": 233668,
+        "cacheReadInputTokens": 91679430,
+        "cacheCreationInputTokens": 1346671,
+        "webSearchRequests": 0,
+        "costUSD": 62.18551374999994,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 88,
+        "outputTokens": 24565,
+        "cacheReadInputTokens": 3171236,
+        "cacheCreationInputTokens": 486401,
+        "webSearchRequests": 0,
+        "costUSD": 3.14411355,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 253,
+    "duration_ms": 8035917
+  },
+  "permission_denials": {
+    "count": 21,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"GITHUB_ACTIONS=$GITHUB_ACTIONS\"; echo \"RUN_ID=$GITHUB_RUN_ID\"; echo \"ATTEMPT=$GITHUB_RUN_ATTEMPT\"; echo \"REPO=$GITHUB_REPOSITORY\"; echo \"--- branch ---\"; git branch --show-current; echo \"--- status ---\"; git status --short | head; echo \"--- worktree check ---\"; git rev-parse --path-format=absolute --git-common-dir; git rev-parse --path-format=absolute --git-dir",
+      "DEVFLOW_ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"\n.prflow/vendor/prflow/scripts/preflight.py ignore-precondition --path \"$DEVFLOW_ROOT/.prflow/tmp/issue-body/issue-1348.md\" && echo \"IGNORED-ok\" || echo \"exit=$?\"",
+      "mkdir -p .prflow/tmp/issue-body\nrm -f .prflow/tmp/issue-body/issue-1348.md\ngh issue view 1348 --json body --jq '.body' > .prflow/tmp/issue-body/issue-1348.md || gh issue view 1348 --json body --jq '.body' > .prflow/tmp/issue-body/issue-1348.md\nwc -c .prflow/tmp/issue-body/issue-1348.md; head -c 1 .prflow/tmp/issue-body/issue-1348.md | cat -A",
+      "gh issue view 1348 --json body --jq '.body' > .prflow/tmp/issue-body/issue-1348.md; echo \"exit=$?\"; wc -c .prflow/tmp/issue-body/issue-1348.md",
+      "gh issue view 1348 --json body --jq '.body' > .prflow/tmp/issue-body/issue-1348.md; echo \"exit=$?\"; wc -c .prflow/tmp/issue-body/issue-1348.md",
+      ".prflow/vendor/prflow/scripts/parse-acs.py --body-file .prflow/tmp/issue-body/issue-1348.md | tee .prflow/tmp/acs-1348.md; echo \"---exit=${PIPESTATUS[0]}---\"",
+      "git push -u origin issue-1348-gate-the-terminal-status-complete-write-on-a 2>&1 | tail -3; echo \"push-exit=${PIPESTATUS[0]}\"",
+      "ruff check scripts/workpad.py 2>&1 | tail -20; echo \"ruff-exit=${PIPESTATUS[0]}\"",
+      "python3 lib/test/cloud_writer_contract.py generate 2>&1 | tail -8; echo \"gen-exit=${PIPESTATUS[0]}\"; git status --short",
+      "python3 lib/test/cloud_writer_contract.py verify 2>&1 | tail -4; echo \"verify-exit=${PIPESTATUS[0]}\"",
+      "RUN_URL=\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"\nBODY=$(cat <<EOF\nWork in progress — automated review pending.\n\nResolves #1348\n[View run]($RUN_URL)\n\nGenerated via \\`/prflow:implement 1348\\`\nEOF\n)\nif CREATE_OUT=$(gh pr create --base main --draft --title \"Gate the terminal \\`--status Complete\\` write on a declared set of required run artifacts (#1348)\" --body \"$BODY\" 2>&1); then\n  printf '%s\\ncreate: ok\\n' \"$CREATE_OUT\"\nelse\n  printf '%s\\ncreate: failed\\n' \"$CREATE_OUT\"\n …[per-command-truncated]",
+      "if CREATE_OUT=$(gh pr create --base main --draft --title \"Gate the terminal \\`--status Complete\\` write on a declared set of required run artifacts (#1348)\" --body-file .prflow/tmp/pr-body-1348.md 2>&1); then\n  printf '%s\\ncreate: ok\\n' \"$CREATE_OUT\"\nelse\n  printf '%s\\ncreate: failed\\n' \"$CREATE_OUT\"\nfi",
+      "gh pr checkout 1358 2>&1 | tail -2; echo \"checkout-rc=$?\"\necho \"=== head assert ===\"; git branch --show-current; gh pr view 1358 --json headRefName --jq '.headRefName'\nmkdir -p .prflow/tmp/review/pr-1358/31073895770-1\ngit diff origin/main HEAD | tee .prflow/tmp/review/pr-1358/31073895770-1/diff.patch | wc -l",
+      "ls /home/runner/work/prflow/prflow/.changeset/*.md 2>/dev/null | head; echo \"---sample---\"; head -12 $(ls /home/runner/work/prflow/prflow/.changeset/*.md | grep -v README | head -1)",
+      ".prflow/vendor/prflow/skills/docs/../../scripts/load-prompt-extension.sh docs 2>&1; echo \"---GATES---\"; ./scripts/config-get.sh .docs.internal_enabled true; ./scripts/config-get.sh .docs.external_enabled true",
+      "cd /home/runner/work/prflow/prflow; for ln in 971 1081; do echo \"=== implement-skill.md:$ln ===\"; sed -n \"${ln}p\" docs/internal/implement-skill.md | grep -oE \".{0,80}(degrade-to-.note|--note|fall back to the equivalent).{0,120}\"; done",
+      "if gh pr ready 1358 2>&1; then echo \"PR_OUTCOME=published\"; elif [ \"$(gh pr view 1358 --json isDraft --jq '.isDraft' 2>/dev/null)\" = \"false\" ]; then echo \"PR_OUTCOME=published (already ready)\"; else echo \"PR_OUTCOME=publish_failed\"; fi",
+      ".prflow/vendor/prflow/scripts/workpad.py update 1348 --tick-plan-n 1 --tick-plan-n 2 --tick-plan-n 3 --tick-plan-n 4 --tick-plan-n 5 --tick-plan-n 6 --tick-plan-n 7 --tick-plan-n 8 --tick-plan-n 9 >/dev/null 2>&1; echo \"plan-ticked\"\nTRIGGER_COMMENT_ID=$(.prflow/vendor/prflow/scripts/run-jq.sh -r '.comment.id // empty' \"$GITHUB_EVENT_PATH\" 2>/dev/null || true)\nif [ -z \"$TRIGGER_COMMENT_ID\" ]; then TRIGGER_COMMENT_ID=$(gh api \"repos/{owner}/{repo}/issues/1348/comments?per_page=100\" --jq 'map(selec …[per-command-truncated]",
+      ".prflow/vendor/prflow/scripts/run-jq.sh -r '.comment.id // empty' \"$GITHUB_EVENT_PATH\" 2>/dev/null || true; echo \"---fallback---\"; gh api \"repos/{owner}/{repo}/issues/1348/comments?per_page=100\" --jq 'map(select((.body | contains(\"/prflow:implement\")) and ((.body | test(\"(pr|dev)flow:workpad\")) | not))) | last | .id' 2>/dev/null || true",
+      ".prflow/vendor/prflow/scripts/react-to-trigger.sh --repo \"$GITHUB_REPOSITORY\" --event issue_comment --comment 5200700862 --reaction hooray --report-failure 2>&1 | tail -2; echo \"react-exit=$?\"",
+      "rm -f \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.prflow/tmp/implement-active-1348\" 2>/dev/null || true\nrm -f \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.prflow/tmp/issue-body/issue-1348.md\" 2>/dev/null || true\necho \"cleanup done\"\necho \"=== final status verification ===\"; .prflow/vendor/prflow/scripts/workpad.py status 1348"
+    ],
+    "total": 21,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
 }
