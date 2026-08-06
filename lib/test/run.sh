@@ -4775,7 +4775,8 @@ assert_eq "#779: the checkpoint-4 tool-boundary test precedes the token routing 
 # for checkpoints 1-3 is unchanged, which is why this had to be a checkpoint-4-specific addition.
 # The key stays OUTSIDE the `gha:` prefix so the review/review-and-fix tier discriminator (which
 # reads `gha:` checkpoints as a cloud marker) is unaffected. A non-canonical body makes `--checkpoint`
-# a structural no-PATCH where `--note` degrades, so the prose keeps a degrade-to-`--note` fallback.
+# a structural no-PATCH; the prose once kept a degrade-to-`--note` fallback for it, removed outright
+# by issue #1348 (the terminal Complete write is gated on the keyed row), so it now fails closed.
 # The row carries no UPDATED-specific ordering condition: checkpoint 4 no longer runs a suite of
 # its own, so the row records the CHECKPOINT's result on all three clean tokens alike. The
 # completion-evidence flight (issue #1087) still runs after it and can route the run to Blocked
@@ -5622,6 +5623,7 @@ cat > "$S258/all-ticked.md" <<WPMD
 ## Progress
 - [x] **Setup**
   - 00:00:00 — completion verification recorded <!-- prflow:checkpoint completion-verification:$S258_KEY -->
+  - 00:00:01 — checkpoint 4 clean <!-- prflow:checkpoint base-update-checkpoint-4 --> (issue #1348: the required-artifact gate needs this row before a Complete finalize)
 
 ## Plan
 - [x] Plan step one
@@ -5699,6 +5701,48 @@ assert_eq "#258(e): --status Blocked with an unticked AC still PATCHed (Status �
 # Source pin: the terminal gate + its post-merge exclusion live in workpad.py.
 assert_eq "#258: workpad.py carries the terminal --status Complete self-record gate" "yes" \
   "$(grep -q '_terminal_complete_gate' "$WP_PY" && grep -q "(post-merge)" "$WP_PY" && echo yes || echo no)"
+
+# ── issue #1348: the terminal required-artifact gate at the REAL CLI boundary ──
+# Drive the actual workpad.py subprocess (run258 sets a passing completion-evidence
+# flight, so a Complete write reaches the required-artifact gate) over the refusal
+# path, the compliant path, both marker spellings, the tier-refused carrier, and the
+# resumed-run (strip-then-Complete) case — asserting NO PATCH on every refusal. The
+# in-process Python tests bypass this gate by default; this block exercises it end to
+# end where the CLI actually runs it. all-ticked.md carries the clean checkpoint-4 row.
+# (a) A Complete whose ## Progress carries NO checkpoint-4 row is refused with NO PATCH,
+# naming the missing artifact and its producing command.
+grep -v 'checkpoint base-update-checkpoint-4' "$S258/all-ticked.md" > "$S258/cp4-missing.md"
+_c="$(run258 "$S258/cp4-missing.md" --status Complete)"
+assert_eq "#1348 CLI: a Complete with no checkpoint-4 row is refused (exit non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#1348 CLI: the missing-artifact refusal made NO PATCH" "yes" \
+  "$([ -s "$S258/patchlog" ] && echo no || echo yes)"
+assert_eq "#1348 CLI: the refusal names the missing artifact and its producer" "yes" \
+  "$(grep -q 'missing-artifact' "$S258/err" && grep -q 'update-branch-checkpoint.sh' "$S258/err" && echo yes || echo no)"
+# (b) The compliant path: the clean checkpoint-4 row lets the Complete finalize.
+_c="$(run258 "$S258/all-ticked.md" --status Complete)"
+assert_eq "#1348 CLI: a clean checkpoint-4 row finalizes Complete (exit 0)" "0" "$_c"
+assert_eq "#1348 CLI: the compliant finalize PATCHed Status → Complete" "yes" \
+  "$(grep -q '🎉 Complete' "$S258/out" && echo yes || echo no)"
+# (c) The superseded devflow: marker spelling also satisfies the gate.
+sed 's/prflow:checkpoint base-update-checkpoint-4/devflow:checkpoint base-update-checkpoint-4/' \
+  "$S258/all-ticked.md" > "$S258/cp4-devflow.md"
+_c="$(run258 "$S258/cp4-devflow.md" --status Complete)"
+assert_eq "#1348 CLI: the superseded devflow: checkpoint-4 spelling finalizes Complete (exit 0)" "0" "$_c"
+# (d) The tier-refused carrier satisfies the required artifact.
+sed 's/checkpoint base-update-checkpoint-4 -->/checkpoint base-update-checkpoint-4-tier-refused -->/' \
+  "$S258/all-ticked.md" > "$S258/cp4-refused.md"
+_c="$(run258 "$S258/cp4-refused.md" --status Complete)"
+assert_eq "#1348 CLI: the tier-refused checkpoint-4 carrier finalizes Complete (exit 0)" "0" "$_c"
+# (e) The resumed-run case: --strip-inherited-checkpoints clears the row in the same
+# call, so the post-mutation Complete gate finds no row and refuses with NO PATCH
+# (a resumed run cannot satisfy the gate on an inherited row).
+_c="$(run258 "$S258/all-ticked.md" --strip-inherited-checkpoints --status Complete)"
+assert_eq "#1348 CLI: a strip-then-Complete (resumed run) is refused (exit non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#1348 CLI: the resumed-run refusal made NO PATCH" "yes" \
+  "$([ -s "$S258/patchlog" ] && echo no || echo yes)"
+
 rm -rf "$S258" "$S258_ROOT"
 
 # ── issue #781: workpad-sourced acceptance criteria (acs / acs-resolve) ────────
@@ -34419,11 +34463,13 @@ fi
 # Issue #1050 swaps checkpoint 4's clean-path evidence carrier from a free-text `--note` to the
 # keyed `--checkpoint base-update-checkpoint-4` row, and that swap cannot be routed behind a
 # conditional progressively-loaded reference: the key's `gha:`-prefix prohibition (the tier
-# discriminator would otherwise misclassify every local run as cloud) and the degrade-to-`--note`
-# fallback for a non-canonical body are both required reading on every run that reaches the clean
-# arm, so they live in the unconditional §4.3 prose. That does not fit the residual headroom the
-# post-#1039 figure left, so the ceiling is raised again here at the post-#1050 measurement with
-# NO added slack, exactly as above.
+# discriminator would otherwise misclassify every local run as cloud) was required reading on
+# every run that reaches the clean arm, so it lives in the unconditional §4.3 prose. That does not
+# fit the residual headroom the post-#1039 figure left, so the ceiling is raised again here at the
+# post-#1050 measurement with NO added slack, exactly as above. (This entry also cited a
+# degrade-to-`--note` fallback for a non-canonical body as required reading; that fallback was
+# removed outright by issue #1348 — see the #1348 entry below — so that half of the rationale no
+# longer describes any live prose. The past-time raise it justified stands regardless.)
 # Issue #1087 adds the terminal completion-evidence flight and marker handoff to the
 # unconditional Phase 4 completion path. The implement engine must read that gate before
 # it can finalize the workpad, so this contract cannot be deferred behind a progressively
@@ -34473,6 +34519,16 @@ fi
 # correction is net-neutral: it replaces "an absent or duplicate `## Progress`" with the narrower,
 # now-true enumeration. No further room was recoverable without dropping a reason a run reading
 # only this arm needs. Raise to the exact post-#1347 measurement, with NO added slack, as above.
+# (Issue #1348 later deleted this arm's degrade sentence — the tier-refused `--reflection` fallback
+# — outright, so the "degrade fallback" this entry counts among its three sentences no longer
+# describes any live prose. The past-time raise it justified stands; only shrinkage followed.)
+# Issue #1348 gates the terminal `--status Complete` write on the base-update checkpoint-4 keyed
+# row being present, and REMOVES the degrade-to-`--note`/`--reflection` fallbacks from §4.3's clean
+# and tier-refused arms outright (they wrote an unkeyed row the new gate cannot read), so the
+# rationale the #1050 and #1347 entries above gave for those fallbacks being "required reading" no
+# longer describes any live §4.3 prose — reconciled in those entries above. This change only
+# SHRINKS phase-4-documentation.md, and the ceiling is a `-le` bound, so no raise is owed and none
+# is taken; the figure below is unchanged from the post-#1347 measurement.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises — to raise it, see CONTRIBUTING.md 'Raising the phase-4 documentation byte ceiling'" "yes" \
   "$([ "$(wc -c < "$I480_P4")" -le 107371 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
