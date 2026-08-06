@@ -211,6 +211,8 @@ def make_args(**overrides):
         # issue #1087 completion verification-flight evidence — `_apply_mutations`
         # and the terminal gate read these on every call.
         record_completion_evidence=None, repo_root=None, claim_identity=None,
+        # issue #1347 inherited required-artifact strip — read on every call.
+        strip_inherited_checkpoints=False,
         print_body=False,
     )
     base.update(overrides)
@@ -8633,6 +8635,164 @@ assert_raises("#1050: checkpoint-4 on a body with no ## Progress is structural (
 _code, _out, _err, _patched = _drive_cmd_update(
     _CP_BODY.replace("## Progress", "## Notprogress"), checkpoint=[[_CP4_KEY, "t"]])
 assert_eq("#1050: checkpoint-4 structural failure makes no PATCH (degrade, do not wedge)", None, _patched)
+
+# ---------------------------------------------------------------------------
+# #1347: hardening the checkpoint-4 producer — (1) `--checkpoint` repairs an ABSENT
+# `## Progress`, (2) the declared required-artifact keys carry a tier-refused sibling,
+# (3) `--strip-inherited-checkpoints` clears an inherited row on the resume arm.
+# ---------------------------------------------------------------------------
+
+# (1) The repair. An otherwise intact body missing ONLY `## Progress` had no working
+# path at all before this: `--checkpoint` raised, and the documented `--note` degrade
+# locates the same section and raised too. Now the section is created at the HEAD of
+# the section list (the canonical skeleton order Progress -> Plan -> AC -> Reflection)
+# and the row is written, so the run self-heals mid-flight.
+_NOPROG_BODY = """<!-- prflow:workpad -->
+# PRFlow Workpad — Issue #1347
+
+**Status:** 🚀 Documenting
+**Branch:** `b`
+**Last updated:** 2026-08-05 00:00 UTC
+
+## Plan
+- [ ] step
+
+## Acceptance Criteria
+- [ ] criterion
+"""
+_rep = apply_mut(_NOPROG_BODY, make_args(
+    checkpoint=[[_CP4_KEY, "checkpoint 4: observed token UP_TO_DATE"]]))
+assert_eq("#1347: --checkpoint repairs an absent ## Progress and writes the row",
+          (1, 1), (_rep.count("## Progress"), _rep.count(_MK4)))
+assert_eq("#1347: the repaired ## Progress lands at the head of the section list",
+          True, _rep.index("## Progress") < _rep.index("## Plan") < _rep.index("## Acceptance Criteria"))
+assert_eq("#1347: the repair preserves the pre-existing sections' content",
+          (True, True), ("- [ ] step" in _rep, "- [ ] criterion" in _rep))
+# The repair runs AHEAD of the section-shape validation, proven at the process level:
+# the same body that made no PATCH before now PATCHes a body carrying the marker.
+_code, _out, _err, _patched = _drive_cmd_update(_NOPROG_BODY, checkpoint=[[_CP4_KEY, "tok"]])
+assert_eq("#1347: the repaired checkpoint call PATCHes (validation saw the repaired body)",
+          (0, True), (_code, _patched is not None and _MK4 in _patched))
+
+# (1b) The repair is narrowly scoped. An empty / whitespace-only body synthesizes no
+# skeleton and still raises, and a body already carrying ## Progress is untouched.
+for _empty, _label in [("", "empty"), ("   \n\t\n ", "whitespace-only")]:
+    assert_raises(f"#1347: a {_label} body is untouched by the repair and still raises",
+                  workpad._UpdateError,
+                  lambda b=_empty: apply_mut(b, make_args(checkpoint=[[_CP4_KEY, "t"]])))
+    _code, _out, _err, _patched = _drive_cmd_update(_empty, checkpoint=[[_CP4_KEY, "t"]])
+    assert_eq(f"#1347: a {_label} body makes no PATCH", None, _patched)
+assert_eq("#1347: the repair is a no-op when ## Progress is already present",
+          _CP_BODY, workpad._repair_missing_progress_section(_CP_BODY))
+
+# (1c) The two remaining fail-closed shapes keep raising structurally with no PATCH.
+_DUP_PROG = _CP_BODY.replace("## Plan", "## Progress\n- [ ] dup\n\n## Plan", 1)
+assert_raises("#1347: a duplicated ## Progress still raises structurally",
+              workpad._UpdateError,
+              lambda: apply_mut(_DUP_PROG, make_args(checkpoint=[[_CP4_KEY, "t"]])))
+_code, _out, _err, _patched = _drive_cmd_update(_DUP_PROG, checkpoint=[[_CP4_KEY, "t"]])
+assert_eq("#1347: a duplicated ## Progress makes no PATCH", None, _patched)
+_MARKER_OUTSIDE = _CP_BODY.replace("## Plan", f"## Plan\n- stray {_MK4}", 1)
+assert_raises("#1347: a checkpoint-4 marker outside ## Progress still raises structurally",
+              workpad._UpdateError,
+              lambda: apply_mut(_MARKER_OUTSIDE, make_args(checkpoint=[[_CP4_KEY, "t"]])))
+_code, _out, _err, _patched = _drive_cmd_update(_MARKER_OUTSIDE, checkpoint=[[_CP4_KEY, "t"]])
+assert_eq("#1347: a marker outside ## Progress makes no PATCH", None, _patched)
+_DUP_MARKER = _CP_BODY.replace(
+    "\n## Plan", f"\n- a {_MK4}\n- b {_MK4}\n\n## Plan", 1)
+assert_raises("#1347: a checkpoint-4 marker appearing twice in ## Progress still raises",
+              workpad._UpdateError,
+              lambda: apply_mut(_DUP_MARKER, make_args(checkpoint=[[_CP4_KEY, "t"]])))
+
+# (2) The tier-refused arm's key. It is a member of the declared set, distinct from the
+# clean-token key, and — like it — carries no `gha:` prefix, because the review-tier
+# discriminator reads any `gha:` row as cloud and checkpoint 4 runs on both tiers.
+_CP4_REFUSED_KEY = "base-update-checkpoint-4-tier-refused"
+assert_eq("#1347: the tier-refused key is distinct from the clean-token key",
+          True, _CP4_REFUSED_KEY != _CP4_KEY)
+assert_eq("#1347: both declared checkpoint-4 keys are non-gha: and grammar-valid",
+          [(False, True)] * 2,
+          [(k.startswith("gha:"), bool(workpad._CHECKPOINT_KEY_RE.match(k)))
+           for k in (_CP4_KEY, _CP4_REFUSED_KEY)])
+assert_eq("#1347: both keys are members of the declared required-artifact set",
+          True, {_CP4_KEY, _CP4_REFUSED_KEY} <= set(workpad._REQUIRED_ARTIFACT_CHECKPOINT_KEYS))
+assert_eq("#1347: no declared required-artifact key carries a gha: prefix",
+          [], [k for k in workpad._REQUIRED_ARTIFACT_CHECKPOINT_KEYS if k.startswith("gha:")])
+# A local/interactive run records the tier-refused outcome and its workpad still
+# carries NO `<!-- prflow:checkpoint gha:… -->` row (the executable proof AC6 asks for).
+_refused = apply_mut(_CP_BODY, make_args(
+    checkpoint=[[_CP4_REFUSED_KEY,
+                 "checkpoint 4: the update-branch-checkpoint invocation was refused by this tier"]]))
+assert_eq("#1347: the tier-refused row is written under its own marker",
+          1, _refused.count(workpad._checkpoint_marker(_CP4_REFUSED_KEY)))
+assert_eq("#1347: a local run's workpad carries no gha:-prefixed checkpoint row",
+          [], [ln for ln in _refused.splitlines() if "checkpoint gha:" in ln])
+
+# (3) The inherited strip. Scoped to the declared set, both marker spellings, and
+# `gha:`-prefixed rows left untouched.
+_INHERITED = """<!-- prflow:workpad -->
+# PRFlow Workpad — Issue #1347
+
+**Status:** 🎉 Complete
+**Branch:** `b`
+**Last updated:** 2026-08-05 00:00 UTC
+
+## Progress
+- [x] **Setup** — branch & workpad
+  - 10:00:00 — clean cp4 <!-- prflow:checkpoint base-update-checkpoint-4 -->
+  - 10:00:01 — refused cp4 <!-- devflow:checkpoint base-update-checkpoint-4-tier-refused -->
+  - 10:00:02 — entered <!-- prflow:checkpoint gha:9:1:phase1-entered -->
+  - 10:00:03 — an ordinary note
+
+## Plan
+- [ ] step
+"""
+_stripped = apply_mut(_INHERITED, make_args(strip_inherited_checkpoints=True, status="Setup"))
+assert_eq("#1347: the strip removes the clean-token row (current marker spelling)",
+          0, _stripped.count(_MK4))
+assert_eq("#1347: the strip removes the tier-refused row (superseded marker spelling too)",
+          0, _stripped.count("base-update-checkpoint-4-tier-refused"))
+assert_eq("#1347: the strip leaves gha:-prefixed rows untouched",
+          1, _stripped.count("<!-- prflow:checkpoint gha:9:1:phase1-entered -->"))
+assert_eq("#1347: the strip leaves ordinary Progress rows untouched",
+          True, "an ordinary note" in _stripped and "- [x] **Setup**" in _stripped)
+# The strip rides its OWN flag, not the cloud-only --checkpoint/--expect-* set §1.3
+# drops on local — so a local-arm call carrying neither still strips.
+_local_stripped = apply_mut(_INHERITED, make_args(
+    strip_inherited_checkpoints=True, status="Setup", note=["run resumed"]))
+assert_eq("#1347: the strip runs on the local resume arm (no --checkpoint, no --expect-*)",
+          (0, 0), (_local_stripped.count(_MK4),
+                   _local_stripped.count("base-update-checkpoint-4-tier-refused")))
+assert_eq("#1347: the local-arm strip still applies the call's other mutations",
+          True, "run resumed" in _local_stripped)
+# The strip alone is a real mutation, so a checkpoint replay combined with it is
+# never mistaken for a pure no-op that would silently drop it.
+assert_eq("#1347: --strip-inherited-checkpoints counts as a non-checkpoint mutation",
+          True, workpad._has_non_checkpoint_mutation(
+              make_args(strip_inherited_checkpoints=True)))
+# AC10: a single invocation can never both strip and insert the same declared key —
+# `_plan_checkpoints` computes inserts against the PRE-strip body, so that combination
+# would read the inherited row as a replay and then strip it. Rejected before any PATCH.
+for _k in workpad._REQUIRED_ARTIFACT_CHECKPOINT_KEYS:
+    assert_raises(f"#1347 AC10: strip + --checkpoint {_k} in one call is rejected",
+                  workpad._UpdateError,
+                  lambda k=_k: apply_mut(_INHERITED, make_args(
+                      strip_inherited_checkpoints=True, checkpoint=[[k, "t"]])))
+_code, _out, _err, _patched = _drive_cmd_update(
+    _INHERITED, strip_inherited_checkpoints=True, checkpoint=[[_CP4_KEY, "t"]])
+assert_eq("#1347 AC10: the rejected strip+insert combination makes no PATCH", None, _patched)
+# The combination the resume arm actually issues — the strip beside the cloud
+# `gha:` hydration checkpoint — is legal and lands both effects in one call.
+_hyd = apply_mut(_INHERITED, make_args(
+    strip_inherited_checkpoints=True, status="Setup",
+    checkpoint=[["gha:9:2:phase1-hydrated", "Phase 1 workpad hydrated"]]))
+assert_eq("#1347: strip + a gha: hydration checkpoint is legal and both land",
+          (0, 1), (_hyd.count(_MK4),
+                   _hyd.count("<!-- prflow:checkpoint gha:9:2:phase1-hydrated -->")))
+# Strip-then-record across two calls (the sanctioned sequence) leaves exactly one row.
+_recorded = apply_mut(_stripped, make_args(checkpoint=[[_CP4_KEY, "checkpoint 4: this attempt"]]))
+assert_eq("#1347: a later same-key record after a strip writes exactly one fresh row",
+          1, _recorded.count(_MK4))
 
 # AC16 (positive control at the process level): an ABSENT-key checkpoint INSERT
 # through cmd_update DOES issue a PATCH carrying the new row — the counterpart to the

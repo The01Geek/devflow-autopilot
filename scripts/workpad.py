@@ -1970,6 +1970,19 @@ def _insert_section_after(
     return new_sections
 
 
+def _insert_section_at_head(
+    sections: list[tuple[str, str]], new_heading: str, new_content: str,
+) -> list[tuple[str, str]]:
+    """Insert a new section BEFORE every existing one.
+
+    The sibling of `_insert_section_after` for a section that has no anchor to
+    follow: `## Progress` is the first section in the canonical skeleton
+    (Progress -> Plan -> Acceptance Criteria -> Devflow Reflection), so a repair
+    that re-creates it cannot express its position as "after" anything.
+    """
+    return [(new_heading, new_content.rstrip('\n') + '\n')] + list(sections)
+
+
 def _join_preserving_newline(new_lines, content: str) -> str:
     """Re-join section lines, preserving whether the original `content` ended in a
     newline. The shared tail of every in-place line-rewrite helper in this file."""
@@ -3403,6 +3416,62 @@ def _checkpoint_marker(key: str) -> str:
     return f'<!-- prflow:checkpoint {key} -->'
 
 
+# The declared required-artifact checkpoint keys (issue #1347): keyed rows that
+# describe THIS attempt rather than the workpad, so a resumed run must not inherit
+# the previous attempt's copy. Every member is deliberately outside the `gha:`
+# prefix — that prefix is the review-tier cloud/local discriminator and checkpoint
+# 4 runs on both tiers — which is also what makes a strip scoped to this set unable
+# to reach a `gha:` row.
+_REQUIRED_ARTIFACT_CHECKPOINT_KEYS = (
+    'base-update-checkpoint-4',
+    'base-update-checkpoint-4-tier-refused',
+)
+
+
+def _repair_missing_progress_section(body: str) -> str:
+    """Re-create an absent `## Progress` section at the head of the section list.
+
+    `--checkpoint` writes into `## Progress` and fails structurally when it is
+    absent — and the documented `--note` degrade locates the same section, so an
+    otherwise intact workpad missing just that one section had no working path to
+    record a checkpoint outcome at all (issue #1347). This repairs it mid-update so
+    the run self-heals with no human involved.
+
+    Deliberately narrow: an empty/whitespace-only body is returned unchanged, so
+    `--checkpoint` still raises on it and no skeleton is ever synthesized (that is
+    `new-body`'s job). A body already carrying one or more `## Progress` sections is
+    likewise unchanged — the duplicate-section shape keeps failing closed.
+    """
+    if not body.strip():
+        return body
+    preamble, sections = _split_sections(body)
+    if any(h.strip().lower() == '## progress' for h, _c in sections):
+        return body
+    return _join_sections(
+        preamble, _insert_section_at_head(sections, '## Progress', ''),
+    )
+
+
+def _strip_required_artifact_checkpoint_rows(content: str) -> str:
+    """Remove every `## Progress` row carrying a declared required-artifact
+    checkpoint marker, in either marker spelling.
+
+    The sibling of `_strip_completion_marker_rows`, and the same idiom: a record
+    describing *this* attempt is per-attempt, so the Phase 1.3 resume arm clears an
+    inherited copy before the run proceeds rather than letting an earlier attempt's
+    row answer for this one. Scoped to `_REQUIRED_ARTIFACT_CHECKPOINT_KEYS`, whose
+    members are non-`gha:` by construction, so a `gha:` run-scoped row is never
+    reached.
+    """
+    variants = tuple(
+        v for key in _REQUIRED_ARTIFACT_CHECKPOINT_KEYS
+        for v in _marker_variants(_checkpoint_marker(key))
+    )
+    kept = [ln for ln in content.splitlines(keepends=True)
+            if not any(v in ln for v in variants)]
+    return ''.join(kept)
+
+
 class _NoOpReplay(Exception):
     """Signals a checkpoint-only call whose every key already exists — a pure
     replay. Raised by `_apply_mutations` BEFORE it mutates anything; `cmd_update`
@@ -3431,6 +3500,7 @@ def _has_non_checkpoint_mutation(args) -> bool:
         args.scope_decision_deferred, args.scope_decision_rewritten,
         args.bind_scope_decisions, args.mark_deferred_filed,
         getattr(args, 'record_completion_evidence', None),
+        getattr(args, 'strip_inherited_checkpoints', False),
     ])
 
 
@@ -3709,7 +3779,28 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
     # `cmd_update` skips the `Last updated` refresh and the PATCH entirely.
     checkpoint_reqs = getattr(args, 'checkpoint', None) or []
     checkpoint_inserts: list[tuple[str, str]] = []
+    strip_inherited = bool(getattr(args, 'strip_inherited_checkpoints', False))
+    if strip_inherited:
+        # AC10 (issue #1347): `_plan_checkpoints` computes its inserts against the
+        # PRE-strip body, so a single call that both stripped and inserted the same
+        # key would read the inherited row as a replay, skip the insert, then strip
+        # the row it just declined to rewrite — silently losing it. Reject the
+        # combination structurally (before any PATCH) rather than ordering around
+        # it, so the hazard is unreachable rather than merely avoided today.
+        _clash = sorted(
+            {k for k, _t in checkpoint_reqs}
+            & set(_REQUIRED_ARTIFACT_CHECKPOINT_KEYS)
+        )
+        if _clash:
+            raise _UpdateError(
+                "--strip-inherited-checkpoints cannot be combined with "
+                f"--checkpoint for the same declared key(s): {', '.join(_clash)}. "
+                "Strip and record in separate calls. No PATCH was made."
+            )
     if checkpoint_reqs:
+        # Repair an absent `## Progress` BEFORE the section-shape validation below,
+        # so the validation sees the repaired body (issue #1347).
+        body = _repair_missing_progress_section(body)
         checkpoint_inserts = _plan_checkpoints(body, checkpoint_reqs)
         if not checkpoint_inserts and not _has_non_checkpoint_mutation(args):
             raise _NoOpReplay()
@@ -3988,6 +4079,19 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
             f'completion verification recorded (flight {record_flight_key[:12]}…, '
             f'validated) {_checkpoint_marker(_ck)}'
         )
+    # Inherited required-artifact strip (issue #1347). Runs on BOTH resume arms —
+    # it rides its own flag rather than the cloud-only `--checkpoint`/`--expect-*`
+    # set the local arm drops — and BEFORE the note append below, so a row this
+    # call writes is never stripped by the same call. An absent `## Progress` is a
+    # no-op: there is nothing to strip, and the strip alone never fails the call.
+    if strip_inherited:
+        idx = _find_section(sections, 'Progress')
+        if idx is not None:
+            heading, content = sections[idx]
+            sections[idx] = (
+                heading, _strip_required_artifact_checkpoint_rows(content),
+            )
+
     if progress_notes:
         idx = _find_section(sections, 'Progress')
         if idx is None:
@@ -4414,6 +4518,14 @@ def main():
                         'combined with another mutation it applies that mutation '
                         'once and does not duplicate the checkpoint. KEY must match '
                         '[A-Za-z0-9._:-]+ . May be passed multiple times.')
+    u.add_argument('--strip-inherited-checkpoints', action='store_true',
+                   help='Remove every declared required-artifact checkpoint row '
+                        'from ## Progress (issue #1347), so a resumed run does not '
+                        'inherit the previous attempt\'s record. Declared keys: '
+                        + ', '.join(_REQUIRED_ARTIFACT_CHECKPOINT_KEYS)
+                        + '. Scoped to that set, so "gha:"-prefixed run checkpoints '
+                          'are untouched. Combining it with --checkpoint for one of '
+                          'those same keys is rejected before any PATCH.')
     u.add_argument('--record-completion-evidence', default=None, metavar='FLIGHT_KEY',
                    help='Record a validated completion verification-flight key '
                         '(issue #1087). The canonical record '
