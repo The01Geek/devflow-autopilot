@@ -25384,6 +25384,32 @@ with tempfile.TemporaryDirectory(prefix='psg1350s-') as _R1350s:
                   (_rc1350s,
                    '| `skills/alpha/SKILL.md` | +5 | 11 |' in _out1350s,
                    'not readable blobs' in _out1350s))
+        # The endpoint is named, so a reader knows WHICH column the omission distorts:
+        # a merge-base skip inflates a delta, a HEAD skip understates the totals. A
+        # single folded count could not say that, and for two disjoint skips would not
+        # even be a true count.
+        assert_eq("#1350 the skip disclosure names the ENDPOINT it applies to",
+                  True, 'at `HEAD` were not readable blobs' in _out1350s)
+
+        # The same disclosure must survive the NO-TABLE arm. That arm makes an
+        # absolute negative claim — "no covered path changed" — so a run that dropped
+        # an entry it could not read has the least business making it unqualified.
+        _psg_git1350(_MN1350, 'checkout', '-q', '-b', 'gitlink-only', 'main')
+        _sub_add2_1350 = _subprocess.run(
+            ('git', '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q',
+             _SUB1350, 'skills/other.md'),
+            cwd=_MN1350, capture_output=True, text=True)
+        if _sub_add2_1350.returncode == 0:
+            _psg_git1350(_MN1350, 'add', '-A')
+            _psg_git1350(_MN1350, 'commit', '-qm', 'gitlink-only')
+            _rc1350t, _out1350t = _psg_run1350(_MN1350)
+            assert_eq("#1350 the no-covered-change breadcrumb still carries the skip "
+                      "disclosure — an absolute negative claim is never left "
+                      "unqualified by a run that excluded entries",
+                      (0, True, True),
+                      (_rc1350t,
+                       'no tracked `*.md`' in _out1350t,
+                       'not readable blobs' in _out1350t))
     else:
         # Submodule creation can be refused by a host git policy; say so rather than
         # letting the scenario vanish into a silent pass.

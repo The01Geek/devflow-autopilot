@@ -57,6 +57,38 @@ _FALLBACK_REFS = ("origin/main", "main")
 _GIT = os.environ.get("DEVFLOW_GIT") or "git"
 
 
+# Degradation notes accumulated during the run. Every one of them qualifies the
+# figures, so every one must reach the reader who sees the figures — and that reader
+# gets **stdout only**: the consuming prompt extension renders this helper's stdout
+# verbatim and reads no stderr. Routing them through one list, emitted by `_emit()`
+# alongside whatever the run prints, is what stops the next degradation arm from
+# quietly re-inventing the stderr-only mistake at a new site. They are mirrored to
+# stderr as well, for an operator watching a terminal.
+_NOTES = []
+
+
+def _note(text):
+    """Record a degradation that qualifies this run's output."""
+    _NOTES.append(text)
+    print(f"prompt-surface growth: {text}", file=sys.stderr)
+
+
+def _emit(body):
+    """Print the run's output plus every degradation note, on stdout.
+
+    Both the table and the no-table breadcrumbs go through here, because a note is
+    at least as load-bearing on a breadcrumb as on a table: "no covered path changed"
+    is an absolute negative claim, and a run that excluded entries it could not read
+    has no business making it unqualified.
+    """
+    lines = list(body)
+    if _NOTES:
+        lines.append("")
+        lines.extend(f"> Note: {n}" for n in _NOTES)
+    print("\n".join(lines))
+    return 0
+
+
 def _repo_root():
     """The repository root, memoized — every git call runs from there.
 
@@ -76,12 +108,11 @@ def _repo_root():
             # not-a-repository, an unrunnable DEVFLOW_GIT, a dubious-ownership
             # refusal and a broken GIT_DIR alike, and naming only the
             # subdirectory case would misdiagnose three of the four.
-            print(
-                "prompt-surface growth: could not resolve the repository root"
-                + (f" — git said: {err.strip()}" if err.strip() else "")
-                + "; falling back to the working directory, so figures derived "
-                "from a subdirectory may under-report.",
-                file=sys.stderr,
+            _note(
+                "the repository root could not be resolved"
+                + (f" (git said: {err.strip()})" if err.strip() else "")
+                + ", so this run measured from the working directory and may "
+                "under-report."
             )
             root = os.getcwd()
         _repo_root.cached = root
@@ -146,18 +177,24 @@ def default_branch_refs():
 
 
 def resolve_merge_base():
-    """(merge_base_sha, ref, tried) — `tried` is the candidate list, resolved or not.
+    """(merge_base_sha, ref, tried, last_err) — `tried` is the candidate list.
 
     The candidates come back even on the failure path so the caller can name them in
     its breadcrumb without re-deriving them, which would re-spawn the `symbolic-ref`
-    probe purely to reformat data this call already has.
+    probe purely to reformat data this call already has. `last_err` carries git's own
+    message: `merge-base` also fails on UNRELATED HISTORIES (a `--depth=1` clone, a
+    grafted CI checkout), and a breadcrumb naming only the refs it tried sends the
+    reader to check branch names when the fix is `fetch --unshallow`.
     """
     tried = default_branch_refs()
+    last_err = ""
     for ref in tried:
-        rc, out, _ = _git(["merge-base", "HEAD", ref])
+        rc, out, err = _git(["merge-base", "HEAD", ref])
         if rc == 0 and out.strip():
-            return out.strip(), ref, tried
-    return None, None, tried
+            return out.strip(), ref, tried, ""
+        if err.strip():
+            last_err = err.strip()
+    return None, None, tried, last_err
 
 
 def surface_at(ref):
@@ -220,14 +257,8 @@ def _signed(n):
     return f"{n:+,}"
 
 
-def render(head_sha, base_sha, ref, rows, surface_delta, surface_total, skipped=0):
-    """The markdown table, as a list of lines.
-
-    A non-zero `skipped` appends a disclosure line **below the table, on the same
-    channel as the figures**. That placement is the point: the consuming prompt
-    extension renders this helper's stdout verbatim and reads no stderr, so a caveat
-    written to stderr would be stripped from exactly the runs whose numbers need it.
-    """
+def render(head_sha, base_sha, ref, rows, surface_delta, surface_total):
+    """The markdown table, as a list of lines. Degradation notes are `_emit`'s job."""
     lines = [
         "### Prompt-surface size",
         "",
@@ -244,46 +275,38 @@ def render(head_sha, base_sha, ref, rows, surface_delta, surface_total, skipped=
         f"| **Whole covered surface** | **{_signed(surface_delta)}** "
         f"| **{surface_total:,}** |"
     )
-    if skipped:
-        lines.append("")
-        lines.append(
-            f"> Note: {skipped} entr(ies) under a covered prefix were not readable "
-            "blobs (a submodule gitlink, or an unrecognised `ls-tree` record) and "
-            "are excluded from the figures above."
-        )
     return lines
 
 
 def main():
     rc, head_out, head_err = _git(["rev-parse", "HEAD"])
     if rc != 0 or not head_out.strip():
-        print(
+        return _emit([
             "prompt-surface growth: `HEAD` could not be resolved (not a git "
             "checkout, a repository with no commits, or an unrunnable git)"
             + (f" — git said: {head_err.strip()}" if head_err.strip() else "")
             + " — no table rendered."
-        )
-        return 0
+        ])
     head_sha = head_out.strip()
 
-    base_sha, ref, tried = resolve_merge_base()
+    base_sha, ref, tried, mb_err = resolve_merge_base()
     if base_sha is None:
-        print(
+        return _emit([
             "prompt-surface growth: the merge-base could not be resolved (tried "
             + ", ".join(f"`{r}`" for r in tried)
-            + ") — no table rendered."
-        )
-        return 0
+            + ")"
+            + (f" — git said: {mb_err}" if mb_err else "")
+            + " — no table rendered."
+        ])
 
     # AC1a arm (i): a checkout pinned to the default branch has no PR-side commits,
     # so every row would read zero. Say so instead of printing that table.
     if base_sha == head_sha:
-        print(
+        return _emit([
             f"prompt-surface growth: `HEAD` (`{head_sha}`) is the merge-base with "
             f"`{ref}`, so this checkout carries no branch commits to measure — "
             "no table rendered."
-        )
-        return 0
+        ])
 
     # Name the endpoint that failed, and quote git's own message: "could not be read
     # from A or B" leaves a reader with no starting point, and git already wrote the
@@ -296,25 +319,43 @@ def main():
         ("HEAD", head_sha, head_surface, head_err),
     ):
         if surface is None:
-            print(
+            return _emit([
                 "prompt-surface growth: the covered file set could not be read from "
                 f"{label} `{sha}`"
                 + (f" — git said: {err}" if err else "")
                 + " — no table rendered."
-            )
-            return 0
+            ])
+
+    # Report the two endpoints' skips separately rather than folding them into one
+    # number: they distort DIFFERENT columns — a base-side skip makes a delta read as
+    # a full-size addition, a head-side skip understates the totals — and neither a
+    # max nor a sum of two disjoint sets is a true count of anything.
+    if base_skipped:
+        _note(
+            f"{base_skipped} entr(ies) under a covered prefix at the merge-base were "
+            "not readable blobs (a submodule gitlink at a `.md` path, or an "
+            "unrecognised `ls-tree` record); the Δ column excludes them."
+        )
+    if head_skipped:
+        _note(
+            f"{head_skipped} entr(ies) under a covered prefix at `HEAD` were not "
+            "readable blobs (a submodule gitlink at a `.md` path, or an unrecognised "
+            "`ls-tree` record); the byte totals exclude them."
+        )
 
     rows = changed_rows(base_surface, head_surface)
 
     # AC1a arm (ii): the branch has commits, but none of them touched the covered
     # surface. This is the common, healthy case and it is reported, not rendered.
+    # It routes through `_emit` like every other arm: this is an absolute NEGATIVE
+    # claim, so a run that excluded entries it could not read has the least business
+    # of any making it unqualified.
     if not rows:
-        print(
+        return _emit([
             "prompt-surface growth: no tracked `*.md` under `skills/`, `agents/`, "
             f"or `.prflow/prompt-extensions/` changed between `{base_sha}` and "
             f"`{head_sha}` — no table rendered."
-        )
-        return 0
+        ])
 
     # The aggregate delta is the sum of the rows above it — an unchanged file
     # contributes nothing, so summing the rows and differencing the two endpoint
@@ -325,13 +366,9 @@ def main():
     # meaningful, which is this table's entire reason for existing.
     surface_delta = sum(delta for _, delta, _ in rows)
     surface_total = sum(size for _, size in head_surface.values())
-    print(
-        "\n".join(
-            render(head_sha, base_sha, ref, rows, surface_delta, surface_total,
-                   max(base_skipped, head_skipped))
-        )
+    return _emit(
+        render(head_sha, base_sha, ref, rows, surface_delta, surface_total)
     )
-    return 0
 
 
 if __name__ == "__main__":
