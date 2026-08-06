@@ -5,7 +5,7 @@
 
 Every acceptance criterion of issue #1209 that the eval or its committed fixtures can
 witness maps to at least one assertion here. The written-record ACs (AC5/AC6/AC7) are
-discharged by docs/implement-context.md, not by a suite test.
+discharged by docs/internal/implement-context.md, not by a suite test.
 
 The fixture-derived expected figures are RE-DERIVED from the committed fixtures
 (AC4/T1) rather than hard-coded: `_expected_from_fixture` re-computes each expected
@@ -14,6 +14,7 @@ value straight from the raw JSONL, so changing a fixture updates the assertion.
 Driven serially from lib/test/run.sh.
 """
 
+import datetime
 import io
 import importlib.util
 import json
@@ -47,17 +48,23 @@ def _write(dirpath, name, lines):
 
 # ── Independent re-derivation of the expected figures from the raw fixtures (AC4) ──
 
-def _expected_from_fixture(session_paths):
+def _expected_from_fixture(session_paths, corpus_root):
     """Re-derive the eval's per-run figures straight from raw JSONL session files.
 
-    This is an INDEPENDENT reimplementation of the measurement (context sum, main-thread
-    filtering, phase-file basename match) used only by the tests, so an assertion is
-    checked against the fixtures' own encoded content rather than a copied constant. It
-    intentionally does not share code with the eval.
+    This reimplements the *measurement logic* (context sum, main-thread filtering,
+    phase-file basename match, tool-call bucketing, inter-call gaps) independently of the
+    eval, so an assertion is checked against the fixtures' own encoded content rather
+    than a copied constant. It deliberately shares only the eval's declared CONSTANTS
+    (`PHASE_FILES`, `PHASE_READ_LABELS`, `TOOL_CATEGORY_BY_NAME`, `ATTRIBUTION`,
+    `UNESTABLISHED`) — whose own correctness is checked separately by
+    `PhaseFileSetCouplingTest` against the on-disk phase directory, since a re-derivation
+    that restated the tables could not witness a wrong one.
     """
     runs = []
     for path in sorted(session_paths):
         peaks, phase = [], {label: 0 for label in ICE.PHASE_READ_LABELS}
+        tools = {label: 0 for label in ICE.TOOL_CATEGORY_LABELS}
+        times = []
         attributed = False
         with open(path, encoding="utf-8") as fh:
             for line in fh:
@@ -78,18 +85,35 @@ def _expected_from_fixture(session_paths):
                         (usage.get("input_tokens") or 0)
                         + (usage.get("cache_read_input_tokens") or 0)
                         + (usage.get("cache_creation_input_tokens") or 0))
+                saw_tool = False
                 for block in rec["message"].get("content") or []:
-                    if block.get("type") == "tool_use" and block.get("name") == "Read":
+                    if block.get("type") != "tool_use":
+                        continue
+                    saw_tool = True
+                    tools[ICE.TOOL_CATEGORY_BY_NAME.get(
+                        block.get("name"), ICE.OTHER_TOOL_CATEGORY)] += 1
+                    if block.get("name") == "Read":
                         fp = block.get("input", {}).get("file_path", "")
                         label = ICE.PHASE_FILES.get(os.path.basename(fp))
                         if label is not None:
                             phase[label] += 1
+                if saw_tool and rec.get("timestamp"):
+                    # Independent stamp parse: the fixtures are all UTC `...Z` stamps.
+                    times.append(datetime.datetime.strptime(
+                        rec["timestamp"], "%Y-%m-%dT%H:%M:%SZ").replace(
+                            tzinfo=datetime.timezone.utc).timestamp())
         if attributed:
+            ordered = sorted(times)
+            gaps = [round(b - a, ICE.GAP_DECIMALS)
+                    for a, b in zip(ordered, ordered[1:])]
             runs.append({
-                "source": os.path.basename(path),
+                "source": os.path.relpath(path, corpus_root).replace(os.sep, "/"),
                 "peak_context": max(peaks) if peaks else ICE.UNESTABLISHED,
                 "phase_reads": phase,
                 "total_phase_reads": sum(phase.values()),
+                "tool_calls": tools,
+                "total_tool_calls": sum(tools.values()),
+                "gaps": gaps,
             })
     return runs
 
@@ -103,9 +127,13 @@ class FixtureDerivedTest(unittest.TestCase):
                 for dp, _d, files in os.walk(root)  # tree-walk-ok: rooted at the fixed committed implement-eval fixtures subdir, not the repo root
                 for f in files if f.endswith(".jsonl")]
 
+    def _expected(self, corpus):
+        root = os.path.join(_FIX, corpus)
+        return _expected_from_fixture(self._corpus_sessions(corpus), root)
+
     def test_corpus_matches_independent_rederivation(self):
         runs, skipped = ICE.eval_corpus(os.path.join(_FIX, "corpus"))
-        expected = _expected_from_fixture(self._corpus_sessions("corpus"))
+        expected = self._expected("corpus")
         self.assertEqual(sum(skipped.values()), 0)
         got = {r["source"]: r for r in runs}
         exp = {r["source"]: r for r in expected}
@@ -116,11 +144,45 @@ class FixtureDerivedTest(unittest.TestCase):
             self.assertEqual(
                 got[src]["total_phase_reads"], exp[src]["total_phase_reads"], src)
 
+    def test_tool_call_buckets_match_independent_rederivation(self):
+        # AC10: per-run tool calls bucketed by category, re-derived from the fixtures.
+        runs, _ = ICE.eval_corpus(os.path.join(_FIX, "corpus"))
+        exp = {r["source"]: r for r in self._expected("corpus")}
+        got = {r["source"]: r for r in runs}
+        self.assertEqual(set(got), set(exp))
+        for src in exp:
+            self.assertEqual(got[src]["tool_calls"], exp[src]["tool_calls"], src)
+            self.assertEqual(
+                got[src]["total_tool_calls"], exp[src]["total_tool_calls"], src)
+            # The buckets partition the population: they sum to the reported total.
+            self.assertEqual(sum(got[src]["tool_calls"].values()),
+                             got[src]["total_tool_calls"], src)
+        # The corpus must exercise more than one category, or the bucketing is untested.
+        exercised = {label for r in runs for label, n in r["tool_calls"].items() if n}
+        self.assertGreater(len(exercised), 1, "fixtures exercise only one tool category")
+
+    def test_tool_call_gaps_match_independent_rederivation(self):
+        # AC11: median, max AND total of the inter-tool-call wall-clock gaps.
+        runs, _ = ICE.eval_corpus(os.path.join(_FIX, "corpus"))
+        exp = {r["source"]: r for r in self._expected("corpus")}
+        for r in runs:
+            gaps = exp[r["source"]]["gaps"]
+            got = r["tool_call_gaps"]
+            self.assertEqual(got["count"], len(gaps), r["source"])
+            self.assertEqual(got["median_seconds"], ICE._median(gaps), r["source"])
+            self.assertEqual(got["max_seconds"], max(gaps), r["source"])
+            self.assertEqual(got["total_seconds"],
+                             round(sum(gaps), ICE.GAP_DECIMALS), r["source"])
+        # A mean alone would hide the tail, so the fixture must carry an uneven
+        # distribution for the median/max distinction to be witnessed at all.
+        self.assertNotEqual(runs[0]["tool_call_gaps"]["median_seconds"],
+                            runs[0]["tool_call_gaps"]["max_seconds"])
+
     def test_aggregate_median_and_max_are_rederivable(self):
         # AC3: median AND max are reported so tail behaviour is visible.
         runs, _ = ICE.eval_corpus(os.path.join(_FIX, "corpus"))
         summary = ICE.aggregate(runs)
-        expected = _expected_from_fixture(self._corpus_sessions("corpus"))
+        expected = self._expected("corpus")
         peaks = sorted(r["peak_context"] for r in expected)
         self.assertEqual(summary["run_count"], len(expected))
         self.assertEqual(summary["median_peak_context"], ICE._median(peaks))
@@ -130,6 +192,29 @@ class FixtureDerivedTest(unittest.TestCase):
             self.assertEqual(summary["median_{}_reads".format(label)], ICE._median(counts))
             self.assertEqual(summary["max_{}_reads".format(label)], max(counts))
             self.assertEqual(summary["total_{}_reads".format(label)], sum(counts))
+
+    def test_tool_call_and_gap_axes_are_aggregated_too(self):
+        # AC12: both new axes are aggregated across the corpus on the peak's footing.
+        runs, _ = ICE.eval_corpus(os.path.join(_FIX, "corpus"))
+        summary = ICE.aggregate(runs)
+        expected = self._expected("corpus")
+        for label in ICE.TOOL_CATEGORY_LABELS:
+            counts = sorted(r["tool_calls"][label] for r in expected)
+            self.assertEqual(summary["median_{}_calls".format(label)], ICE._median(counts))
+            self.assertEqual(summary["max_{}_calls".format(label)], max(counts))
+            self.assertEqual(summary["total_{}_calls".format(label)], sum(counts))
+        totals = [r["total_tool_calls"] for r in expected]
+        self.assertEqual(summary["median_total_tool_calls"], ICE._median(totals))
+        self.assertEqual(summary["max_total_tool_calls"], max(totals))
+        run_maxima = [max(r["gaps"]) for r in expected if r["gaps"]]
+        run_totals = [round(sum(r["gaps"]), ICE.GAP_DECIMALS)
+                      for r in expected if r["gaps"]]
+        self.assertEqual(summary["median_run_max_gap_seconds"], ICE._median(run_maxima))
+        self.assertEqual(summary["max_run_max_gap_seconds"], max(run_maxima))
+        self.assertEqual(summary["median_run_total_gap_seconds"], ICE._median(run_totals))
+        self.assertEqual(summary["max_run_total_gap_seconds"], max(run_totals))
+        self.assertEqual(summary["corpus_total_gap_seconds"],
+                         round(sum(run_totals), ICE.GAP_DECIMALS))
 
 
 class PhaseReadCountTest(unittest.TestCase):
@@ -145,11 +230,13 @@ class PhaseReadCountTest(unittest.TestCase):
 
     def test_phase3_reentry_counts_every_reentry(self):
         # T2: a run that re-enters Phase 3 several times; the phase-3 count reflects
-        # every re-entry (4 here), not 1. Re-derived from the fixture.
-        runs, _ = ICE.eval_corpus(os.path.join(_FIX, "phase3-reentry"))
+        # every re-entry, not the phase once. Re-derived from the fixture, so the
+        # assertion tracks the fixture rather than a transcribed count.
+        root = os.path.join(_FIX, "phase3-reentry")
+        runs, _ = ICE.eval_corpus(root)
         self.assertEqual(len(runs), 1)
-        expected = _expected_from_fixture([os.path.join(
-            _FIX, "phase3-reentry", "session-phase3-reentry.jsonl")])
+        expected = _expected_from_fixture(
+            [os.path.join(root, "session-phase3-reentry.jsonl")], root)
         self.assertEqual(runs[0]["phase_reads"]["phase3"],
                          expected[0]["phase_reads"]["phase3"])
         self.assertGreater(runs[0]["phase_reads"]["phase3"], 1,
@@ -272,6 +359,143 @@ class BoundaryTest(_SingleSessionMixin, unittest.TestCase):
         self.assertEqual(runs[0]["usage_missing_turns"], 0)
 
 
+class ToolCallAndGapBoundaryTest(_SingleSessionMixin, unittest.TestCase):
+    """AC10/AC11 boundary behaviour the committed corpus cannot express."""
+
+    def test_unusable_timestamp_is_tallied_not_a_zero_gap(self):
+        # AC11 + the unknown-is-not-zero rule: a tool-bearing turn whose timestamp is
+        # unparseable leaves the gap population ACCOUNTED in the skip tally. Folding it
+        # in as a 0 would silently shorten every total it appears in.
+        runs, skipped = self._run_one([
+            '{"type":"assistant","timestamp":"2026-01-01T00:00:00Z",'
+            '"attributionSkill":"prflow:implement","message":{"usage":{"input_tokens":1},'
+            '"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}',
+            '{"type":"assistant","timestamp":"not-a-timestamp",'
+            '"attributionSkill":"prflow:implement","message":{"usage":{"input_tokens":1},'
+            '"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{}}]}}',
+            '{"type":"assistant","attributionSkill":"prflow:implement",'
+            '"message":{"usage":{"input_tokens":1},'
+            '"content":[{"type":"tool_use","id":"t3","name":"Bash","input":{}}]}}',
+            '{"type":"assistant","timestamp":"2026-01-01T00:00:20Z",'
+            '"attributionSkill":"prflow:implement","message":{"usage":{"input_tokens":1},'
+            '"content":[{"type":"tool_use","id":"t4","name":"Bash","input":{}}]}}',
+        ])
+        self.assertEqual(skipped["unusable_timestamp"], 2)
+        gaps = runs[0]["tool_call_gaps"]
+        # Two usable stamps 20s apart -> exactly one gap of 20s. Had the two unusable
+        # turns contributed 0-gaps there would be three gaps and a 0 median.
+        self.assertEqual(gaps["count"], 1)
+        self.assertEqual(gaps["median_seconds"], 20.0)
+        self.assertEqual(gaps["total_seconds"], 20.0)
+        # All four tool calls still count on the AC10 axis — an unusable timestamp
+        # removes the turn from the GAP population only.
+        self.assertEqual(runs[0]["tool_calls"]["shell_commands"], 4)
+
+    def test_single_tool_call_run_has_unestablished_gaps_not_zero(self):
+        runs, _ = self._run_one([
+            '{"type":"assistant","timestamp":"2026-01-01T00:00:00Z",'
+            '"attributionSkill":"prflow:implement","message":{"usage":{"input_tokens":1},'
+            '"content":[{"type":"tool_use","id":"s1","name":"Read",'
+            '"input":{"file_path":"x.md"}}]}}',
+        ])
+        gaps = runs[0]["tool_call_gaps"]
+        self.assertEqual(gaps["count"], 0)
+        for field in ("median_seconds", "max_seconds", "total_seconds"):
+            self.assertEqual(gaps[field], ICE.UNESTABLISHED, field)
+
+    def test_unmapped_tool_name_lands_in_other_not_dropped(self):
+        runs, _ = self._run_one([
+            '{"type":"assistant","timestamp":"2026-01-01T00:00:00Z",'
+            '"attributionSkill":"prflow:implement","message":{"usage":{"input_tokens":1},'
+            '"content":[{"type":"tool_use","id":"u1","name":"SomeFutureTool","input":{}},'
+            '{"type":"tool_use","id":"u2","name":"Write","input":{}}]}}',
+        ])
+        self.assertEqual(runs[0]["tool_calls"][ICE.OTHER_TOOL_CATEGORY], 1)
+        self.assertEqual(runs[0]["tool_calls"]["file_edits_writes"], 1)
+        self.assertEqual(runs[0]["total_tool_calls"], 2)
+
+    def test_sidechain_tool_calls_and_gaps_excluded(self):
+        # The AC10/AC11 axes are main-thread axes: a subagent's calls must not inflate
+        # either one.
+        runs, _ = self._run_one([
+            '{"type":"assistant","timestamp":"2026-01-01T00:00:00Z",'
+            '"attributionSkill":"prflow:implement","message":{"usage":{"input_tokens":1},'
+            '"content":[{"type":"tool_use","id":"m1","name":"Bash","input":{}}]}}',
+            '{"type":"assistant","timestamp":"2026-01-01T09:00:00Z","isSidechain":true,'
+            '"attributionSkill":"prflow:implement","message":{"usage":{"input_tokens":1},'
+            '"content":[{"type":"tool_use","id":"sx","name":"Bash","input":{}}]}}',
+            '{"type":"assistant","timestamp":"2026-01-01T00:00:10Z",'
+            '"attributionSkill":"prflow:implement","message":{"usage":{"input_tokens":1},'
+            '"content":[{"type":"tool_use","id":"m2","name":"Bash","input":{}}]}}',
+        ])
+        self.assertEqual(runs[0]["tool_calls"]["shell_commands"], 2)
+        self.assertEqual(runs[0]["tool_call_gaps"]["max_seconds"], 10.0)
+
+
+class MedianPrimitiveTest(unittest.TestCase):
+    """`_median` is the one place a 0-collapse could re-enter, so drive it directly."""
+
+    def test_even_and_odd_populations(self):
+        # The even branch keeps an int when the two central values divide evenly, and
+        # yields a float when they do not — that split exists to keep output
+        # byte-stable, and nothing else exercises it.
+        self.assertEqual(ICE._median([3, 1, 2]), 2)          # odd: the middle value
+        self.assertEqual(ICE._median([3, 1]), 2)             # even, sum divides evenly
+        self.assertEqual(ICE._median([1, 2, 3, 5]), 2.5)     # even, sum does not
+        self.assertEqual(ICE._median([1, 2]), 1.5)
+        self.assertEqual(ICE._median([1, 2, 3, 4]), 2.5)
+        self.assertIsInstance(ICE._median([3, 1]), int)
+        self.assertIsInstance(ICE._median([1, 2]), float)
+
+    def test_empty_population_refuses_rather_than_returning_zero(self):
+        with self.assertRaises(ValueError):
+            ICE._median([])
+        self.assertEqual(ICE._median_or_unestablished([]), ICE.UNESTABLISHED)
+
+
+class AttributionFallbackTest(unittest.TestCase):
+    """`_attribution_ids` exists to prevent a vacuous zero-run measurement; both of its
+    degraded arms must produce the historical id rather than an empty set or a
+    traceback."""
+
+    def _with_identity_path(self, path):
+        saved_path, saved_err = ICE._IDENTITY_PATH, sys.stderr
+        ICE._IDENTITY_PATH = path
+        sys.stderr = io.StringIO()
+        try:
+            return ICE._attribution_ids(), sys.stderr.getvalue()
+        finally:
+            ICE._IDENTITY_PATH, sys.stderr = saved_path, saved_err
+
+    def test_missing_identity_source_falls_back_with_a_breadcrumb(self):
+        with tempfile.TemporaryDirectory() as d:
+            ids, err = self._with_identity_path(os.path.join(d, "absent.py"))
+        self.assertEqual(ids, ("devflow:implement",))
+        self.assertIn("implement-context-eval", err)
+
+    def test_raising_identity_source_falls_back_instead_of_detonating(self):
+        # lib/plugin_identity.py is FAIL-CLOSED and raises when the identifier set
+        # cannot be established; without the guard that exception would escape module
+        # import and even `--help` would die.
+        with tempfile.TemporaryDirectory() as d:
+            _write(d, "boom.py", [
+                "class IdentityError(Exception):",
+                "    pass",
+                "def agent_namespaces():",
+                "    raise IdentityError('no identity file')",
+            ])
+            ids, err = self._with_identity_path(os.path.join(d, "boom.py"))
+        self.assertEqual(ids, ("devflow:implement",))
+        self.assertIn("IdentityError", err)
+
+    def test_empty_namespace_set_falls_back(self):
+        with tempfile.TemporaryDirectory() as d:
+            _write(d, "empty.py", ["def agent_namespaces():", "    return []"])
+            ids, err = self._with_identity_path(os.path.join(d, "empty.py"))
+        self.assertEqual(ids, ("devflow:implement",))
+        self.assertIn("empty", err)
+
+
 class AdversarialTest(_SingleSessionMixin, unittest.TestCase):
     def test_malformed_records_degrade_and_are_reported(self):
         runs, skipped = self._run_one([
@@ -320,7 +544,12 @@ class AdversarialTest(_SingleSessionMixin, unittest.TestCase):
             sys.stderr = saved
         self.assertEqual(len(runs), 1)
         self.assertEqual(runs[0]["turn_count"], 2)
-        self.assertEqual(sum(skipped.values()), 0)
+        # A wrong-shape Read `input` is not a malformed RECORD — nothing here is a
+        # parse failure. The one expected tally is the timestamp-less tool-bearing turn
+        # leaving the gap population (AC11), which is accounting, not degradation.
+        self.assertEqual(skipped["malformed_record"], 0)
+        self.assertEqual(skipped["non_json_line"], 0)
+        self.assertEqual(skipped["unusable_timestamp"], 1)
 
     def test_defensive_dispatch_tallies_malformed_record(self):
         original = ICE.RunAccumulator.observe_system
@@ -367,10 +596,20 @@ class AdversarialTest(_SingleSessionMixin, unittest.TestCase):
             self.assertIn("broken.jsonl", err.getvalue())
 
     def test_determinism(self):
+        # Byte-identical OUTPUT is the claim, so compare the rendered text and JSON —
+        # comparing only the in-process return values would miss a render that relies on
+        # an unstable ordering.
         a, sa = ICE.eval_corpus(os.path.join(_FIX, "corpus"))
         b, sb = ICE.eval_corpus(os.path.join(_FIX, "corpus"))
         self.assertEqual(a, b)
         self.assertEqual(sa, sb)
+        self.assertEqual(ICE.render_text(a, ICE.aggregate(a), sa),
+                         ICE.render_text(b, ICE.aggregate(b), sb))
+        self.assertEqual(
+            json.dumps({"runs": a, "summary": ICE.aggregate(a), "skipped": sa},
+                       indent=2, sort_keys=True),
+            json.dumps({"runs": b, "summary": ICE.aggregate(b), "skipped": sb},
+                       indent=2, sort_keys=True))
 
     def test_symlink_escape_is_not_read_and_is_tallied(self):
         # The escaped_path guard is a security control: a symlink whose realpath escapes
@@ -498,10 +737,22 @@ class RenderAndCliTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         parsed = json.loads(out.getvalue())
         self.assertIn("summary", parsed)
-        self.assertEqual(parsed["summary"]["run_count"], 3)
+        # Re-derived from the committed corpus, not transcribed: adding a fixture
+        # session updates this expectation rather than turning the test RED.
+        corpus_sessions = [f for f in os.listdir(os.path.join(_FIX, "corpus"))
+                           if f.endswith(".jsonl")]
+        self.assertEqual(parsed["summary"]["run_count"], len(corpus_sessions))
+        # `sort_keys=True` is what makes the JSON byte-stable; assert it rather than
+        # only naming it in the test's title.
+        self.assertEqual(out.getvalue(),
+                         json.dumps(parsed, indent=2, sort_keys=True) + "\n")
 
 
-# ── Owner-id / transcript-shape scan over every committed file this change adds ──
+# ── Owner-id / transcript-shape scan over the eval, its findings doc, and the
+#    committed fixtures. This is NOT a scan of every file the change touches: the test
+#    file itself carries the detector patterns as literals and is deliberately out of
+#    scope, as are the registration edits (run.sh, coverage-map, config, matcher-probe,
+#    the changeset). ──
 
 _SECRET_PATTERNS = [
     re.compile(r"the01geek"),
@@ -523,15 +774,21 @@ class SecretDetectorTest(unittest.TestCase):
         self.assertTrue(hits, "planted positive control did not trip the secret detector")
 
     def test_added_files_are_clean(self):
-        targets = [_EVAL_PATH, os.path.join(_REPO, "docs", "implement-context.md")]
+        # The two named targets MUST exist. A `continue` past a missing one would make
+        # the scan silently stop covering a renamed or relocated file while staying
+        # green — a scan reporting "clean" about a file it never read.
+        named = [_EVAL_PATH, os.path.join(_REPO, "docs", "internal", "implement-context.md")]
+        for path in named:
+            self.assertTrue(os.path.exists(path),
+                            "secret-scan target is missing (renamed or moved?): "
+                            "{}".format(path))
+        targets = list(named)
         for dirpath, _dirs, files in os.walk(_FIX):  # tree-walk-ok: rooted at the fixed committed implement-eval fixtures subdir, not the repo root
             for f in sorted(files):
                 if f == "planted-owner-id.txt":
                     continue
                 targets.append(os.path.join(dirpath, f))
         for path in targets:
-            if not os.path.exists(path):
-                continue
             with open(path, encoding="utf-8") as fh:
                 hits = _scan_for_secrets(fh.read())
             self.assertFalse(hits, "owner-id/transcript shape {} found in {}".format(hits, path))
@@ -559,6 +816,19 @@ class PhaseFileSetCouplingTest(unittest.TestCase):
         self.assertEqual(len(set(ICE.PHASE_FILES.values())), len(ICE.PHASE_FILES))
         self.assertEqual(set(ICE.PHASE_READ_LABELS), set(ICE.PHASE_FILES.values()))
 
+    def test_each_basename_maps_to_its_own_phase_number(self):
+        # The set-level checks above survive a SWAPPED mapping (phase-3-review.md ->
+        # "phase2"): the key set is intact and the labels stay unique, while every
+        # report silently attributes one phase's re-read count to another. Derive the
+        # expected label from the basename itself so the association is checked, not
+        # restated.
+        for basename, label in sorted(ICE.PHASE_FILES.items()):
+            m = re.match(r"phase-(\d+)-", basename)
+            self.assertIsNotNone(
+                m, "phase file {} does not carry a phase number".format(basename))
+            self.assertEqual(label, "phase{}".format(m.group(1)),
+                             "{} is reported under the wrong phase label".format(basename))
+
 
 class NoAutoInvocationTest(unittest.TestCase):
     """AC1 + T3: nothing invokes the script automatically; only its own test does."""
@@ -581,9 +851,14 @@ class NoAutoInvocationTest(unittest.TestCase):
         # .github/ (workflows AND composite actions), scripts/, and lib/ (which includes
         # lib/test/, where T3 expects the test + registration to be the only hits) — and
         # confirm the only files naming the script are the allowed registration/self set.
+        # `.prflow/prompt-extensions` is in scope because a consumer prompt extension's
+        # bytes are appended verbatim to the implementing agent's prompt, so a line there
+        # telling a run to invoke the eval IS the auto-invocation this test forbids.
+        # `.prflow/logs` and `.prflow/learnings` are machine-appended corpora that quote
+        # arbitrary run text, so they are not part of the runtime path.
         needle = "implement-context-eval.py"
         offenders = []
-        for sub in ("skills", ".github", "scripts", "lib"):
+        for sub in ("skills", ".github", "scripts", "lib", ".prflow/prompt-extensions"):
             root = os.path.join(_REPO, sub)
             if not os.path.isdir(root):
                 continue
@@ -598,8 +873,12 @@ class NoAutoInvocationTest(unittest.TestCase):
                         with open(p, encoding="utf-8", errors="replace") as fh:
                             if needle in fh.read():
                                 offenders.append(rel)
-                    except OSError:
-                        continue
+                    except OSError as exc:
+                        # A file the scan could not open is UNKNOWN, not clean: skipping
+                        # it would report the invariant as holding over a file never
+                        # checked.
+                        self.fail("could not read {} while checking the "
+                                  "no-auto-invocation invariant: {}".format(rel, exc))
         self.assertEqual(sorted(offenders), [],
                          "unexpected reference(s) to the maintainer-only script: "
                          "{}".format(sorted(offenders)))

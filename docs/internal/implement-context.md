@@ -3,17 +3,16 @@
 This document is the single source of truth for **what the `/prflow:implement`
 skill's prompt text costs at runtime**, and for the behavioral instrument that
 measures it. It is the implement-side counterpart of
-[`docs/create-issue-context.md`](create-issue-context.md) (issue #767), and follows
-that document's practices: it separates static shipped size from runtime context, it
-declines to add any size gate, and it stamps every recorded measurement with its
-provenance and marks it a past-time snapshot.
+[`docs/internal/create-issue-context.md`](create-issue-context.md) (issue #767), and
+follows that document's practices: it separates static shipped size from runtime
+context, it declines to add any size gate, and it stamps every recorded measurement
+with its provenance and marks it a past-time snapshot.
 
 The instrument is `scripts/implement-context-eval.py` (stdlib-only Python), a
-**maintainer/CI-adjacent instrument, never invoked by the skill's runtime path**
-(neither the local nor the cloud tier), by any workflow, or by any test-suite gate —
-its only automated caller is its own focused test,
-`lib/test/test_implement_context_eval.py`. It adds **no gate, ceiling, or size
-threshold** anywhere.
+**maintainer/CI-adjacent instrument**. No skill, workflow, or suite gate invokes it for
+a measurement or a threshold, on either the local or the cloud tier; the only automated
+execution is its own focused unit test, `lib/test/test_implement_context_eval.py`, which
+asserts parser behavior. It adds **no gate, ceiling, or size threshold** anywhere.
 
 ## Static shipped size vs. runtime main-thread context
 
@@ -32,7 +31,7 @@ long implement run actually pays:
   per turn as `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`.
   This is the quantity `scripts/implement-context-eval.py` measures.
 
-## Two findings the obvious "455 KB of prompt" framing gets wrong
+## Two findings the obvious "whole-prompt sum" framing gets wrong
 
 These are the two corrections issue #1209 records as **findings, not background**. Each
 rests on specific entry-gate text in `skills/implement/SKILL.md`, quoted here.
@@ -46,10 +45,32 @@ Each reads, verbatim (Phase N, `<name>`):
 > `<skill-dir>/phases/phase-N-<name>.md` and follow it exactly …
 
 A run enters one phase at a time and reads that one phase file when it does. It never
-holds all four at once. So the highest phase-file cost at any single phase entry is
-roughly **94–131 KB** (whichever single phase file that entry loads — the four span ~94 KB to ~131 KB), not the ~455 KB sum of the four —
-with the always-loaded `SKILL.md` (~77 KB) resident alongside it. Optimising against
-the 455 KB total would be optimising a cost that does not exist.
+holds all four at once. So the highest phase-file cost at any single phase entry is the
+size of **whichever single phase file that entry loads**, not the sum of the four — with
+the always-loaded `SKILL.md` resident alongside it. Optimising against the four-file
+total would be optimising a cost that does not exist.
+
+**Phase-file size — past-time snapshot, NOT a live figure.** Generating revision
+`5e41227f3`, captured 2026-08-06. These are on-disk `wc -c` byte counts, quoted in KiB.
+They rot as the phase files change; re-derive them rather than trusting these numbers.
+
+| file | bytes | KiB |
+|---|---|---|
+| `skills/implement/phases/phase-1-setup.md` | 129,846 | 126.8 |
+| `skills/implement/phases/phase-2-implement.md` | 142,582 | 139.2 |
+| `skills/implement/phases/phase-3-review.md` | 105,231 | 102.8 |
+| `skills/implement/phases/phase-4-documentation.md` | 106,560 | 104.1 |
+| **four-file sum** | **484,219** | **472.9** |
+| `skills/implement/SKILL.md` (always resident) | 79,008 | 77.2 |
+
+Re-derive with:
+
+```
+wc -c skills/implement/SKILL.md skills/implement/phases/*.md
+```
+
+At that snapshot the per-entry phase-file cost spans ~103–139 KiB, against a four-file
+sum of ~473 KiB — the sum being the figure the framing above gets wrong.
 
 ### Finding 2 — the re-read on every re-entry and after every nested-skill return is the multiplier worth measuring
 
@@ -88,7 +109,8 @@ rather than buffering a whole session, degrades per malformed record without det
 (reporting what it skipped), is deterministic (re-running yields byte-identical output),
 and never reads a file whose real path escapes the supplied corpus directory.
 
-**Per-run metrics:** turn count; per-turn main-thread context; peak and final context;
+**Per-run metrics:** turn count; main-thread context measured per turn and reported as
+peak and final context;
 `compact_boundary` count; a count of attributed turns that carried no `usage` object
 (`usage_missing_turns` — such a turn's residency was never recorded, so it is tallied
 rather than folded in as a `0`, and a run whose every turn lacks usage reports its peak
@@ -101,13 +123,38 @@ plus their per-run total. A phase-file read is a `Read` tool_use whose
 path on the interactive tier and a vendored `.prflow/vendor/prflow/skills/implement/…`
 path on the cloud tier.
 
+It also reports two axes about *how the run spent its turns*, because a turn count alone
+mis-attributes the work — one assistant turn can carry several tool calls, so a run that
+batches its calls looks cheaper than one that does not while doing the same work:
+
+- **Main-thread tool calls, bucketed by category.** The category list the instrument
+  uses is exactly: `file_reads` (`Read`, `NotebookRead`), `file_edits_writes` (`Edit`,
+  `MultiEdit`, `Write`, `NotebookEdit`), `shell_commands` (`Bash`, `BashOutput`,
+  `KillShell`), `subagent_dispatches` (`Task`, `Agent`), `skill_invocations` (`Skill`),
+  and `other` — the catch-all that takes every unmapped tool name so the buckets sum to
+  the run's whole tool-call population and a new tool in a later harness release shows up
+  as a rising `other` count rather than vanishing. The per-run total is reported beside
+  the buckets.
+- **The distribution of wall-clock gaps between consecutive main-thread tool calls** —
+  the median, the maximum, and the total, never a mean alone, because a mean hides the
+  tail that dominates a long run. This is the axis that separates time a run spent
+  thinking from time it spent waiting on the harness. A tool-bearing turn whose record
+  carries no usable timestamp is counted in the skip accounting under
+  `unusable_timestamp` and **never** contributes a zero gap; a run with fewer than two
+  timestamped tool calls reports every gap field as `unestablished` rather than `0`.
+
 **Aggregate summary:** run count; corpus total of usage-missing turns; median and max
 peak context (over the runs with a measured peak — a usage-less run is counted in
 `run_count` but excluded from the peak population, never averaged in as a `0`); count of
-runs exceeding 200K and 400K; and per phase, the median, max, and corpus total read
-count, plus the median and max per-run total phase reads. Every run-derived field reads
-`unestablished` (never `0`) on an empty run population; `run_count` is the one field
-whose `0` is a measurement.
+runs exceeding 200K and 400K; per phase, the median, max, and corpus total read count,
+plus the median and max per-run total phase reads; per tool category, the median, max and
+corpus total call count, plus the median and max per-run total tool calls; and, for the
+gap axis, the median and max of the per-run maximum gap, the median and max of the
+per-run total gap, and the corpus total — a run with no measured gap is excluded from
+those populations exactly as a usage-less run is excluded from the peak population. Every
+run-derived field reads `unestablished` (never `0`) on an empty run population;
+`run_count` is the one field whose `0` is a measurement. None of these is a gate,
+ceiling, threshold, or budget — they are instrument outputs.
 
 ## Explicit non-goal: splitting the phase files by tier
 
@@ -127,7 +174,14 @@ not re-proposed:
    succeed, so there is no error for a gate to catch — and a gate can only fail closed on
    a read that fails.
 3. **It doubles the surface two other things must keep consistent** — `install.sh` and
-   the vendor slice would each have to track both tier variants of every phase file.
+   the vendor slice. Neither enumerates phase files today (`install.sh` ships workflows
+   and config and pulls the plugin tree by version pin;
+   `.github/actions/vendor-plugin/vendor-slice.sh` copies `skills/` wholesale), which is
+   precisely why a split is cheap to *introduce* and expensive to *keep honest*: the
+   duplicated file would ship with no edit to either, so nothing would flag a tier
+   variant that had silently drifted from its sibling, and the shipped-surface audits
+   (`lib/test/lint-shipped-pruned-path.py`, the anchor-fallback lint) would each grow a
+   tier dimension to cover both copies.
 
 If a future measurement shows a split is worth it, that is a separate issue with
 evidence behind it.
@@ -155,6 +209,6 @@ run over 200K, and a phase-3 re-entry); they are **not** a measurement of any re
 No real-corpus snapshot has been captured yet. When a maintainer captures one, record it
 here stamped with its provenance — the generating revision, the capture date, and the
 corpus size (run count) — and mark it clearly as a **past-time snapshot**, not a live
-figure, exactly as `docs/create-issue-context.md`'s "Corpus-derived headline snapshot"
-section does. Re-derive any figure with the command above rather than trusting a copied
+figure, exactly as `docs/internal/create-issue-context.md`'s "Corpus-derived headline
+snapshot" section does. Re-derive any figure with the command above rather than trusting a copied
 number; a figure a reader treats as current rots the moment the measured thing changes.

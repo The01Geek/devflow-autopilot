@@ -3,19 +3,19 @@
 # SPDX-License-Identifier: MIT
 """Behavioral eval for the runtime main-thread context cost of /prflow:implement.
 
-This is a maintainer/CI-adjacent instrument, NEVER invoked by the skill's runtime
-path (neither the local nor the cloud tier), by any workflow, or by any test-suite
-gate — its only automated caller is its own focused test
-(lib/test/test_implement_context_eval.py). It walks a supplied Claude Code transcript
-directory and measures the *runtime main-thread context* a `/prflow:implement` run
-accumulates from its session transcripts — a distinct quantity from the static shipped
-byte count of the phase files on disk (see docs/implement-context.md).
+This is a maintainer/CI-adjacent instrument. No skill, workflow, or suite gate invokes
+it for a measurement or a threshold; the only automated execution is its own focused
+unit test (lib/test/test_implement_context_eval.py), which asserts parser behavior. It
+walks a supplied Claude Code transcript directory and measures the *runtime main-thread
+context* a `/prflow:implement` run accumulates from its session transcripts — a distinct
+quantity from the static shipped byte count of the phase files on disk (see
+docs/internal/implement-context.md).
 
 It is the implement-side sibling of scripts/create-issue-context-eval.py (issue #767),
 and reuses that instrument's proven streaming / per-record degradation / symlink-escape
 / determinism design. It deliberately drops the create-issue-only machinery (audit-round
-attribution, redundant-Read / re-emission metrics, paired before/after mode); the two
-axes it measures are the two the implement skill's cost shape is dominated by
+attribution, redundant-Read / re-emission metrics, paired before/after mode); the four
+axes it measures are the ones the implement skill's cost shape is dominated by
 (issue #1209):
 
   1. **Peak main-thread context per run** — the same per-turn sum the create-issue
@@ -30,6 +30,23 @@ axes it measures are the two the implement skill's cost shape is dominated by
      COUNT — not the one-time byte size — is what a run's phase-file cost is driven by.
      This axis is reported SEPARATELY from the peak, because they are different
      quantities (issue #1209 AC2).
+
+  3. **Main-thread tool calls, bucketed by category** — file reads, file edits/writes,
+     shell commands, subagent dispatches, skill invocations, and an `other` catch-all so
+     the buckets sum to the run's whole tool-call population. A turn count alone
+     mis-attributes the work: one assistant turn can carry several tool calls, so a run
+     that batches its calls looks cheaper than one that does not while doing the same
+     work (issue #1209 AC10).
+
+  4. **The distribution of wall-clock gaps between consecutive main-thread tool calls** —
+     median, maximum and total, never a mean alone, because a mean hides the tail that
+     dominates a long run. A record carrying no usable timestamp is counted in the
+     `skipped` accounting under `unusable_timestamp` and NEVER contributes a zero gap
+     (issue #1209 AC11; `CLAUDE.md`'s *unknown is not zero* rule).
+
+Axes 3 and 4 are reported per run AND aggregated across the corpus, on the same footing
+as the peak-context aggregate (issue #1209 AC12). None of the four introduces a gate,
+ceiling, threshold, or budget — they are instrument outputs.
 
 A "run" is bounded by `attributionSkill` matching any declared `<ns>:implement` on
 `type == "assistant"` records. Only a **main-thread** (non-`isSidechain`) attributed
@@ -64,6 +81,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import datetime
 import importlib.util
 import json
 import os
@@ -96,8 +114,25 @@ def _attribution_ids():
         )
         return ("devflow:implement",)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    ids = tuple(ns + "implement" for ns in module.agent_namespaces())
+    try:
+        spec.loader.exec_module(module)
+        ids = tuple(ns + "implement" for ns in module.agent_namespaces())
+    except Exception as exc:  # noqa: BLE001 - lib/plugin_identity.py is FAIL-CLOSED and
+        # raises IdentityError when the identifier set cannot be established (an absent or
+        # malformed .claude-plugin/plugin.json or lib/plugin-identity.json — a vendored or
+        # partial-slice tree, a mid-migration checkout). Without this arm that exception
+        # propagates out of the module-level ATTRIBUTION assignment below, so the fallback
+        # this function documents would be unreachable on its likeliest failure and even
+        # `--help` would die with a traceback. Catch broadly and breadcrumb the cause: the
+        # exception type is the identity module's to choose, not this instrument's.
+        print(
+            "implement-context-eval: could not resolve the declared namespace set from "
+            "{} ({}: {}); falling back to the historical attribution id only — a run "
+            "recorded under a renamed namespace will not be attributed".format(
+                _IDENTITY_PATH, type(exc).__name__, exc),
+            file=sys.stderr,
+        )
+        return ("devflow:implement",)
     if not ids:
         print(
             "implement-context-eval: the declared namespace set is empty; falling "
@@ -124,6 +159,39 @@ PHASE_FILES = {
 }
 PHASE_READ_LABELS = tuple(sorted(PHASE_FILES.values()))
 
+# Tool name -> the category bucket its calls are counted under (issue #1209 AC10). The
+# five categories the AC names at minimum are file reads, file edits/writes, shell
+# commands, subagent dispatches and skill invocations; OTHER_TOOL_CATEGORY is the
+# catch-all that makes the buckets sum to the run's WHOLE main-thread tool-call
+# population, so `total_tool_calls` is never quietly smaller than the work performed.
+# An unmapped name lands in `other` rather than being dropped — a new tool in a later
+# harness release is then visible as a rising `other` count instead of vanishing.
+# This mapping is a standalone mirror of the harness's tool vocabulary (the eval imports
+# nothing from the harness); a renamed tool must be mirrored here in the same change.
+TOOL_CATEGORY_BY_NAME = {
+    "Read": "file_reads",
+    "NotebookRead": "file_reads",
+    "Edit": "file_edits_writes",
+    "MultiEdit": "file_edits_writes",
+    "Write": "file_edits_writes",
+    "NotebookEdit": "file_edits_writes",
+    "Bash": "shell_commands",
+    "BashOutput": "shell_commands",
+    "KillShell": "shell_commands",
+    "Task": "subagent_dispatches",
+    "Agent": "subagent_dispatches",
+    "Skill": "skill_invocations",
+}
+OTHER_TOOL_CATEGORY = "other"
+# The report's canonical, sorted key order for the tool-call axis — every run reports
+# every category, 0 where that category was never used.
+TOOL_CATEGORY_LABELS = tuple(sorted(
+    set(TOOL_CATEGORY_BY_NAME.values()) | {OTHER_TOOL_CATEGORY}))
+
+# Wall-clock gaps are rounded to this many decimal places so the rendered output stays
+# byte-stable across runs (a float's full repr is not).
+GAP_DECIMALS = 3
+
 # The peak-context bucket thresholds the aggregate summary reports on.
 BUCKET_200K = 200_000
 BUCKET_400K = 400_000
@@ -134,9 +202,16 @@ UNESTABLISHED = "unestablished"
 
 
 def _median(values):
-    """Deterministic median of a list of numbers (empty -> 0)."""
+    """Deterministic median of a NON-EMPTY list of numbers.
+
+    Refuses an empty population rather than returning 0: this module's central
+    discipline is that an unestablished measurement is never collapsed onto a real
+    value, and a primitive that answers `0` for "nothing was measured" is exactly that
+    collapse one call away from every future caller. `_median_or_unestablished` is the
+    only sanctioned empty-tolerant entry point.
+    """
     if not values:
-        return 0
+        raise ValueError("median of an empty population")
     ordered = sorted(values)
     n = len(ordered)
     mid = n // 2
@@ -167,12 +242,58 @@ def _sum_or_unestablished(values):
     """The sum of a non-empty list, else the UNESTABLISHED sentinel.
 
     The "empty population -> UNESTABLISHED, never 0" invariant is load-bearing (a
-    real `0` and "no runs" must never be the same output), so the sum/count fields go
-    through this helper rather than an inline `sum(...) if values else UNESTABLISHED`
-    ternary repeated per field — one chokepoint, so a field added later cannot quietly
-    reintroduce a 0-collapse.
+    real `0` and "no runs" must never be the same output), so the SUM fields go through
+    this helper rather than an inline `sum(...) if values else UNESTABLISHED` ternary
+    repeated per field. The `runs_over_*` bucket COUNTS deliberately do not — they guard
+    on a different population, for the reason recorded at their definition in
+    `aggregate`.
     """
     return sum(values) if values else UNESTABLISHED
+
+
+def _parse_timestamp(value):
+    """Epoch seconds for an ISO-8601 record timestamp, or None when unusable.
+
+    None is the *unestablished* answer — the caller tallies it into the skip accounting
+    and drops the turn from the gap population rather than contributing a zero gap
+    (issue #1209 AC11). A naive (offset-less) stamp is read as UTC so two stamps parsed
+    here are always differenced on the same clock.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith(("Z", "z")):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed.timestamp()
+
+
+def _tool_category(name):
+    """The AC10 bucket a tool_use block's `name` counts under (unmapped -> `other`)."""
+    if not isinstance(name, str):
+        return OTHER_TOOL_CATEGORY
+    return TOOL_CATEGORY_BY_NAME.get(name, OTHER_TOOL_CATEGORY)
+
+
+def _gap_stats(times):
+    """Median / max / total of the wall-clock gaps between sorted call timestamps.
+
+    Fewer than two timestamped calls yields no gap at all, so every field reads
+    UNESTABLISHED — never 0, which would claim a measured instantaneous run.
+    """
+    ordered = sorted(times)
+    gaps = [round(b - a, GAP_DECIMALS) for a, b in zip(ordered, ordered[1:])]
+    return {
+        "count": len(gaps),
+        "median_seconds": _median_or_unestablished(gaps),
+        "max_seconds": _max_or_unestablished(gaps),
+        "total_seconds": (round(sum(gaps), GAP_DECIMALS) if gaps else UNESTABLISHED),
+    }
 
 
 def _usage_field(usage, key):
@@ -199,12 +320,18 @@ def _context_tokens(usage):
 class RunAccumulator:
     """Streams one session file's records and accumulates one run's metrics.
 
-    Holds only bounded per-record state — the per-turn context list and the per-phase
-    read tally. It never retains full record bodies (the streaming property).
+    Holds only small per-turn scalars — one int per attributed turn, one float per
+    timestamped tool-bearing turn, and the fixed per-phase / per-category tallies. It
+    never retains full record bodies (the streaming property).
+
+    `skipped` is the caller's skip-tally dict (see `new_skip_tally`); the accumulator
+    writes the `unusable_timestamp` key into it, so a turn whose timestamp cannot be
+    parsed is *accounted*, never silently dropped and never counted as a zero gap.
     """
 
-    def __init__(self, source):
+    def __init__(self, source, skipped=None):
         self.source = source
+        self.skipped = new_skip_tally() if skipped is None else skipped
         self.turn_count = 0
         self.per_turn_context = []
         self.compact_boundary_count = 0
@@ -217,6 +344,12 @@ class RunAccumulator:
         self.usage_missing_turns = 0
         # phase label -> number of Read tool_use blocks that read that phase file.
         self.phase_reads = {label: 0 for label in PHASE_READ_LABELS}
+        # AC10: category label -> number of main-thread tool_use blocks in that category.
+        self.tool_calls = {label: 0 for label in TOOL_CATEGORY_LABELS}
+        # AC11: epoch seconds of each main-thread turn that carried at least one tool
+        # call. A turn whose timestamp is unusable is tallied into `skipped` instead of
+        # entering this list, so it can never contribute a zero gap.
+        self.tool_call_times = []
 
     def observe_system(self, record):
         if record.get("subtype") == "compact_boundary":
@@ -251,10 +384,17 @@ class RunAccumulator:
         content = message.get("content")
         if not isinstance(content, list):
             return
+        saw_tool_call = False
         for block in content:
             if not isinstance(block, dict):
                 continue
-            if block.get("type") == "tool_use" and block.get("name") == "Read":
+            if block.get("type") != "tool_use":
+                continue
+            saw_tool_call = True
+            # AC10: every main-thread tool call lands in exactly one category bucket, so
+            # the buckets sum to the run's whole tool-call population.
+            self.tool_calls[_tool_category(block.get("name"))] += 1
+            if block.get("name") == "Read":
                 # A Read block's `input` may be a non-dict (a list/string); `(x or {})`
                 # passes a truthy non-dict through to `.get()` and raises. isinstance-guard.
                 block_input = block.get("input")
@@ -266,6 +406,16 @@ class RunAccumulator:
                 label = PHASE_FILES.get(os.path.basename(file_path))
                 if label is not None:
                     self.phase_reads[label] += 1
+        if not saw_tool_call:
+            return
+        # AC11: a tool-bearing turn joins the gap population only with a usable
+        # timestamp. An unusable one is ACCOUNTED in the skip tally — never dropped
+        # silently, and never folded in as a zero gap.
+        stamp = _parse_timestamp(record.get("timestamp"))
+        if stamp is None:
+            self.skipped["unusable_timestamp"] += 1
+        else:
+            self.tool_call_times.append(stamp)
 
     def result(self):
         """The run record's own fields.
@@ -280,6 +430,7 @@ class RunAccumulator:
         # Emit the per-phase counts in the canonical sorted label order so the JSON /
         # text output is byte-stable across runs.
         phase_reads = {label: self.phase_reads[label] for label in PHASE_READ_LABELS}
+        tool_calls = {label: self.tool_calls[label] for label in TOOL_CATEGORY_LABELS}
         return {
             "source": self.source,
             "turn_count": self.turn_count,
@@ -293,7 +444,35 @@ class RunAccumulator:
             # peak because they are different quantities (AC2).
             "phase_reads": phase_reads,
             "total_phase_reads": sum(phase_reads.values()),
+            # Tool-call axis (issue #1209 axis 3 / AC10) — bucketed by category, because
+            # a turn count alone cannot tell "did more work" from "took more turns".
+            "tool_calls": tool_calls,
+            "total_tool_calls": sum(tool_calls.values()),
+            # Inter-tool-call wall-clock gap axis (issue #1209 axis 4 / AC11) — median,
+            # max AND total, never a mean alone.
+            "tool_call_gaps": _gap_stats(self.tool_call_times),
         }
+
+
+def new_skip_tally():
+    """A fresh, fully-seeded skip tally.
+
+    The key vocabulary has ONE home here rather than being seeded in `eval_corpus` and
+    written by `_iter_session_files` / `RunAccumulator`, which would make an
+    under-seeded dict a KeyError at the far end of the walk.
+    """
+    return {
+        "non_json_line": 0,
+        "not_object": 0,
+        "no_type": 0,
+        "unreadable_file": 0,
+        "escaped_path": 0,
+        "walk_error": 0,
+        "malformed_record": 0,
+        # A tool-bearing main-thread turn whose timestamp could not be parsed: it leaves
+        # the gap population accounted here rather than contributing a zero gap (AC11).
+        "unusable_timestamp": 0,
+    }
 
 
 def _iter_session_files(corpus_root, skipped):
@@ -338,20 +517,20 @@ def eval_corpus(corpus_root):
     """Return (runs, skipped) for a corpus directory.
 
     runs: list of per-run metric dicts (only sessions with attributed turns).
-    skipped: dict of {reason: count} of malformed records the parser stepped over.
+    skipped: dict of {reason: count} of records AND session files the walk stepped over —
+        malformed records, unreadable files, corpus-escaping symlinks, unwalkable
+        directories, and tool-bearing turns with an unusable timestamp. A non-zero total
+        is therefore not necessarily "bad transcript data"; read the per-reason keys.
     """
     runs = []
-    skipped = {
-        "non_json_line": 0,
-        "not_object": 0,
-        "no_type": 0,
-        "unreadable_file": 0,
-        "escaped_path": 0,
-        "walk_error": 0,
-        "malformed_record": 0,
-    }
+    skipped = new_skip_tally()
     for session_file in _iter_session_files(corpus_root, skipped):
-        acc = RunAccumulator(os.path.basename(session_file))
+        # The run's identity is the CORPUS-RELATIVE path, not the basename: a corpus with
+        # `a/session.jsonl` and `b/session.jsonl` would otherwise emit two run records
+        # with the same `source`, which the sort key and every by-source join treat as
+        # one. Normalized to forward slashes so the output is host-independent.
+        rel_source = os.path.relpath(session_file, corpus_root).replace(os.sep, "/")
+        acc = RunAccumulator(rel_source, skipped)
         try:
             handle = open(session_file, "r", encoding="utf-8", errors="replace")
         except OSError as exc:
@@ -453,6 +632,31 @@ def aggregate(runs):
     totals = [r["total_phase_reads"] for r in runs]
     summary["median_total_phase_reads"] = _median_or_unestablished(totals)
     summary["max_total_phase_reads"] = _max_or_unestablished(totals)
+    # Tool-call axis (issue #1209 axis 3 / AC10), aggregated across the corpus on the
+    # same footing as the peak above (AC12) — per category, median + max + corpus total,
+    # in the canonical sorted label order.
+    for label in TOOL_CATEGORY_LABELS:
+        counts = [r["tool_calls"][label] for r in runs]
+        summary["median_{}_calls".format(label)] = _median_or_unestablished(counts)
+        summary["max_{}_calls".format(label)] = _max_or_unestablished(counts)
+        summary["total_{}_calls".format(label)] = _sum_or_unestablished(counts)
+    call_totals = [r["total_tool_calls"] for r in runs]
+    summary["median_total_tool_calls"] = _median_or_unestablished(call_totals)
+    summary["max_total_tool_calls"] = _max_or_unestablished(call_totals)
+    # Gap axis (issue #1209 axis 4 / AC11), aggregated (AC12). A run with fewer than two
+    # timestamped tool calls has no measured gap, so it is EXCLUDED from these
+    # populations rather than entering them as a 0 — the same exclusion the usage-less
+    # run gets from the peak population above.
+    gap_maxima = [r["tool_call_gaps"]["max_seconds"] for r in runs
+                  if r["tool_call_gaps"]["max_seconds"] != UNESTABLISHED]
+    gap_totals = [r["tool_call_gaps"]["total_seconds"] for r in runs
+                  if r["tool_call_gaps"]["total_seconds"] != UNESTABLISHED]
+    summary["median_run_max_gap_seconds"] = _median_or_unestablished(gap_maxima)
+    summary["max_run_max_gap_seconds"] = _max_or_unestablished(gap_maxima)
+    summary["median_run_total_gap_seconds"] = _median_or_unestablished(gap_totals)
+    summary["max_run_total_gap_seconds"] = _max_or_unestablished(gap_totals)
+    summary["corpus_total_gap_seconds"] = (
+        round(sum(gap_totals), GAP_DECIMALS) if gap_totals else UNESTABLISHED)
     return summary
 
 
@@ -469,10 +673,21 @@ def build_report(corpus_root):
 def _render_run_line(r):
     phase = " ".join(
         "{}={}".format(label, r["phase_reads"][label]) for label in PHASE_READ_LABELS)
+    tools = " ".join(
+        "{}={}".format(label, r["tool_calls"][label]) for label in TOOL_CATEGORY_LABELS)
+    gaps = r["tool_call_gaps"]
     return (
         "- {source}: turns={turn_count} peak={peak_context} final={final_context} "
         "compactions={compact_boundary_count} usage_missing={usage_missing_turns} "
-        "phase_reads=[{phase}] total_phase_reads={total_phase_reads}".format(phase=phase, **r)
+        "phase_reads=[{phase}] total_phase_reads={total_phase_reads} "
+        "tool_calls=[{tools}] total_tool_calls={total_tool_calls} "
+        # The unit lives in the KEY, never appended to the value: a `{value}s` suffix
+        # renders the UNESTABLISHED sentinel as "unestablisheds".
+        "gap_seconds=[n={gap_count} median={gap_median} max={gap_max} "
+        "total={gap_total}]".format(
+            phase=phase, tools=tools, gap_count=gaps["count"],
+            gap_median=gaps["median_seconds"], gap_max=gaps["max_seconds"],
+            gap_total=gaps["total_seconds"], **r)
     )
 
 
