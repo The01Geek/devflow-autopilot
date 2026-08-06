@@ -8459,11 +8459,14 @@ assert_raises("#537 checkpoint AC14: a within-batch duplicate key is a structura
               workpad._UpdateError,
               lambda: apply_mut(_CP_BODY, make_args(checkpoint=[[_CPKEY, "a"], [_CPKEY, "b"]])))
 
-# AC14 structural shapes: absent/duplicate Progress, marker-outside-Progress, empty body.
-assert_raises("#537 checkpoint AC14: absent ## Progress is structural",
-              workpad._UpdateError,
-              lambda: apply_mut(_CP_BODY.replace("## Progress", "## Notprogress"),
-                                make_args(checkpoint=[[_CPKEY, "t"]])))
+# AC14 structural shapes: duplicate Progress, marker-outside-Progress, empty body. An
+# ABSENT ## Progress left this list in issue #1347 — it is now repaired, not refused,
+# because the documented `--note` degrade located the same section and raised too, so
+# that shape had no working path at all. Its replacement is the positive assertion below.
+_ac14_repaired = apply_mut(_CP_BODY.replace("## Progress", "## Notprogress"),
+                           make_args(checkpoint=[[_CPKEY, "t"]]))
+assert_eq("#1347 (was #537 AC14): an absent ## Progress is repaired, not structural",
+          (1, 1), (_ac14_repaired.count("## Progress\n"), _ac14_repaired.count(_MK)))
 assert_raises("#537 checkpoint AC14: duplicate ## Progress is structural",
               workpad._UpdateError,
               lambda: apply_mut(_CP_BODY.replace("## Plan", "## Progress\n- [ ] d\n\n## Plan"),
@@ -8628,13 +8631,14 @@ assert_eq("#1050: the checkpoint-4 first write adds exactly one hidden marker", 
 assert_raises("#1050: a same-key checkpoint-4 replay is a pure no-op (backstop-resume safe)",
               workpad._NoOpReplay,
               lambda: apply_mut(_out4, make_args(checkpoint=[[_CP4_KEY, "x"]])))
-assert_raises("#1050: checkpoint-4 on a body with no ## Progress is structural (why the note fallback exists)",
-              workpad._UpdateError,
-              lambda: apply_mut(_CP_BODY.replace("## Progress", "## Notprogress"),
-                                make_args(checkpoint=[[_CP4_KEY, "t"]])))
+# The absent-## Progress shape was a structural failure here until issue #1347; it is
+# now repaired, so the run records rather than falling back. The `--note` degrade the
+# phase prose keeps still covers the two shapes that DO still fail closed (a duplicated
+# ## Progress, an empty body) — pinned in the #1347 block below.
 _code, _out, _err, _patched = _drive_cmd_update(
     _CP_BODY.replace("## Progress", "## Notprogress"), checkpoint=[[_CP4_KEY, "t"]])
-assert_eq("#1050: checkpoint-4 structural failure makes no PATCH (degrade, do not wedge)", None, _patched)
+assert_eq("#1347 (was #1050): checkpoint-4 on a no-## Progress body now PATCHes the repaired body",
+          True, _patched is not None and _MK4 in _patched and "## Progress" in _patched)
 
 # ---------------------------------------------------------------------------
 # #1347: hardening the checkpoint-4 producer — (1) `--checkpoint` repairs an ABSENT
@@ -8672,7 +8676,7 @@ assert_eq("#1347: the repair preserves the pre-existing sections' content",
 # the same body that made no PATCH before now PATCHes a body carrying the marker.
 _code, _out, _err, _patched = _drive_cmd_update(_NOPROG_BODY, checkpoint=[[_CP4_KEY, "tok"]])
 assert_eq("#1347: the repaired checkpoint call PATCHes (validation saw the repaired body)",
-          (0, True), (_code, _patched is not None and _MK4 in _patched))
+          True, _patched is not None and _MK4 in _patched and "## Progress" in _patched)
 
 # (1b) The repair is narrowly scoped. An empty / whitespace-only body synthesizes no
 # skeleton and still raises, and a body already carrying ## Progress is untouched.
@@ -8816,9 +8820,10 @@ assert_eq("#537 checkpoint AC16: a matching precondition + a checkpoint insert l
           (_patched is not None,
            _patched is not None and _MK in _patched and "hydrated" in _patched))
 
-# AC13: a checkpoint on a legacy body lacking ## Progress fails structurally (no
-# PATCH) — the caller (Phase 1) migrates then retries, so the helper never aborts
-# the run here, it just declines to write.
+# AC13, as amended by issue #1347: a checkpoint on a legacy body lacking ## Progress no
+# longer declines to write — it repairs the section and records. The Phase 1 legacy
+# migration stays required for the OTHER writers (`--note`/`--tick-progress` still abort
+# on that shape); it is simply no longer the only path to a checkpoint write.
 _code, _out, _err, _patched = _drive_cmd_update(
     """<!-- devflow:workpad -->
 # DevFlow Workpad — Issue #999
@@ -8829,8 +8834,10 @@ _code, _out, _err, _patched = _drive_cmd_update(
 ## Plan
 - [ ] step
 """, checkpoint=[[_CPKEY, "entry"]])
-assert_eq("#537 checkpoint AC13: legacy no-Progress body -> structural, no PATCH",
-          (1, None), (_code, _patched))
+assert_eq("#1347 (was #537 AC13): legacy no-Progress body -> repaired and PATCHed",
+          True, _patched is not None and "## Progress" in _patched and _MK in _patched)
+assert_eq("#1347: the legacy repair keeps the body's pre-existing sections",
+          True, _patched is not None and "## Plan" in _patched and "- [ ] step" in _patched)
 
 # AC16 (silent-drop guard): a checkpoint REPLAY combined with ANY other mutation flag
 # must NOT be treated as a pure no-op — otherwise that mutation is silently dropped.

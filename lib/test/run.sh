@@ -4802,6 +4802,32 @@ assert_eq "#1050: the checkpoint-4 key is NOT gha:-prefixed (tier-discriminator 
   "$(case "$CP4_KEY" in gha:*) echo no ;; *) echo yes ;; esac)"
 unset CP4_KEY
 
+# ── #1347: the tier-refused arm's carrier + the Phase 1.3 inherited strip.
+# Same machine-consumed cross-file contract as #1050 above, one tier down: phase-4's
+# tier-refused arm writes `--checkpoint base-update-checkpoint-4-tier-refused`, workpad.py
+# declares that key in `_REQUIRED_ARTIFACT_CHECKPOINT_KEYS` (which is both what
+# `--strip-inherited-checkpoints` filters on and what the strip/insert exclusion reads), and
+# the same tier-discriminator invariant binds it — checkpoint 4 runs on both tiers, so a
+# `gha:` prefix here would misclassify every local run as cloud. The key must ALSO be distinct
+# from the clean-token key, or "reconciled" and "the tier refused" collapse into one row that
+# no consumer can tell apart — which is the whole point of the swap.
+CP4R_KEY=$(grep -oE -- '--checkpoint base-update-checkpoint-4-tier-refused' "$P4_FILE" | head -1 | sed -E 's/^--checkpoint //')
+assert_eq "#1347: phase-4's tier-refused arm records through its own keyed carrier" \
+  "base-update-checkpoint-4-tier-refused" "$CP4R_KEY"  # structural-pin-ok: cross-file-phase-contract -- the tier-refused carrier key is declared in workpad.py's _REQUIRED_ARTIFACT_CHECKPOINT_KEYS and drives the strip; a rename must reconcile both sites
+assert_eq "#1347: the tier-refused key is NOT gha:-prefixed (tier-discriminator invariant)" "yes" \
+  "$(case "$CP4R_KEY" in gha:*) echo no ;; *) echo yes ;; esac)"
+assert_eq "#1347: the tier-refused key is distinct from the clean-token key" "yes" \
+  "$([ "$CP4R_KEY" != "base-update-checkpoint-4" ] && echo yes || echo no)"
+# (That both keys are DECLARED in workpad.py's `_REQUIRED_ARTIFACT_CHECKPOINT_KEYS` — so the
+# strip reaches both and the strip/insert exclusion covers both — is asserted behaviorally in
+# lib/test/test_python_scripts.py, against the module's own constant rather than a second copy.)
+# The Phase 1.3 resume arm must carry the strip, and it must NOT be described as one of the
+# cloud-only flags the local arm drops — the record is per-attempt on both tiers.
+P1_FILE="$IMPL_PHASES_DIR/phase-1-setup.md"
+assert_eq "#1347: the Phase 1.3 resume arm passes --strip-inherited-checkpoints" "yes" \
+  "$(grep -q -- '--strip-inherited-checkpoints' "$P1_FILE" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the resume arm is the sole producer of the strip; without it the inherited row survives and base_update_checkpoint4_present describes the wrong attempt
+unset CP4R_KEY P1_FILE
+
 # ── Issue #755: Phase 2 §2.0 resume-idempotency gate ──
 # A stalled cloud run that stall_backstop auto-resumes must NOT re-dispatch the Phase 2
 # code-explorer/code-architect subagents from scratch. The gate (phase-2-implement.md §2.0)
@@ -34387,8 +34413,16 @@ fi
 # serialized runs" pair is now the one resolve-then-verify ordering (checkpoint 4's inherited
 # CONFLICT arm and the fix loop's conflict path). The ceiling is a `-le` bound and this change only
 # shrinks the file, so no raise is owed and none is taken.
+# Issue #1347 swaps the tier-refused arm's evidence carrier from a free-text reflection to its own
+# keyed `--checkpoint base-update-checkpoint-4-tier-refused` row, and corrects the clean arm's
+# now-stale claim that an absent `## Progress` makes `--checkpoint` a structural no-PATCH (it is
+# repaired since that issue). Neither can be routed behind a conditional progressively-loaded
+# reference: the tier-refused arm IS the reference-free degraded path a run reaches precisely when
+# its tooling was refused, and the corrected clause governs whether the run falls back at all — a
+# run that only knows to load a reference after choosing its carrier has already chosen wrong.
+# Raise the ceiling to the exact post-#1347 measurement, with NO added slack, exactly as above.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises — to raise it, see CONTRIBUTING.md 'Raising the phase-4 documentation byte ceiling'" "yes" \
-  "$([ "$(wc -c < "$I480_P4")" -le 106831 ] && echo yes || echo no)"
+  "$([ "$(wc -c < "$I480_P4")" -le 107371 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
 # the reference through this file's own entry-gate anchor, and degrades rather than halting
 # on a failed read — carry NO pin. Every mutation those sentences admit rewrites the one
