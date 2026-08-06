@@ -7,12 +7,9 @@ SPDX-License-Identifier: MIT
 This file is the **sole in-repo owner** of the create-issue Step 3.6 audit-prompt
 template, the generic dimension checklist, and the canonical
 **audit-dispatch instructions** the auditor is pointed at.
-`scripts/render-audit-prompt.py`
-reads it (resolved relative to that script's own location — `scripts/` and
-`skills/` are siblings under one root in both the repo checkout and the vendored
-plugin layout) and emits the arm-appropriate audit prompt. `skills/create-issue/SKILL.md`
-carries the invocation contract and the policy prose; the operative prompt text
-lives here.
+`scripts/render-audit-prompt.py` reads it and emits the arm-appropriate audit
+prompt. `skills/create-issue/SKILL.md` carries the invocation contract and the
+policy prose; the operative prompt text lives here.
 
 ## How this template is rendered (and read by the degraded manual arms)
 
@@ -33,8 +30,7 @@ same block/slot rules by hand.
   - `{DRAFT_PATH}` — the absolute `issue-draft-<slug>.md` path (file arm only).
   - `{SENTINEL_OPEN}` / `{SENTINEL_CLOSE}` — the `AUDIT-<tag>-OPEN` /
     `AUDIT-<tag>-CLOSE` tokens the state owner generated (embed arm only). The
-    embed splice slot is the one place the draft body is carried; the renderer
-    never touches the draft bytes.
+    renderer never touches the draft bytes.
   - `<slug>` — the run's kebab-case slug, substituted into the out-of-bounds
     paths.
   - the consumer-dimensions slot — the consumer `## Audit dimensions` section
@@ -45,42 +41,34 @@ same block/slot rules by hand.
     changed-section set, both read from the round's frozen dispatch-scope file.
   - `{DRAFT_TITLE}`, `{INSTRUCTIONS_PATH}`, `{TEMPLATE_PATH}`, `{RENDERER_PATH}`
     — the `di` (dispatch-instructions) blocks only. `{DRAFT_TITLE}` is read from
-    the draft file at `{DRAFT_PATH}`, never from a command-line argument, and is
-    substituted **last** alongside the consumer-dimensions slot so drafter text
-    is never re-scanned for slot tokens. `{RENDERER_PATH}` and `{TEMPLATE_PATH}`
-    are derived by the renderer from its own resolved location.
-- **The draft title appears only in the `di` blocks**, where it is
-  read from the draft file the same blocks name; the *audit-prompt* blocks
-  (`file` / `embed` / `inline` / `checklist`) still never carry it, and refer to
-  the draft by path or by the sentinel-bracketed body.
+    the draft file at `{DRAFT_PATH}`, never from a command-line argument.
+- **The draft title appears only in the `di` blocks.** The *audit-prompt* blocks
+  (`file` / `embed` / `inline` / `checklist`) never carry it, and refer to the
+  draft by path or by the sentinel-bracketed body.
 - **Dimension-key declarations**. Each generic audit dimension in
   the checklist block below is *declared* by a `<!-- dim-key: <lowercase-kebab> -->`
   marker line on the line immediately above its `- ` bullet. That declaration —
   not the bullet's prose — is the dimension's identity: `enumerate-dimensions`
   emits it as `g:<declared-key>`, and the human-facing checklist is the bullet
-  with the marker stripped, so the two projections render from one declaration.
-  Rewording a bullet therefore leaves its key byte-identical. The renderer fails
+  with the marker stripped, so rewording a bullet leaves its key byte-identical.
+  A manual arm reading this file by hand applies the same rule: strip the marker
+  lines from the emitted prose. **Declare a key for every bullet you add here.**
+  On the render path as well as the enumeration path, the renderer fails
   closed (rc≠0, empty stdout, stderr breadcrumb) on a bullet carrying no
   declaration, a declaration binding no bullet (stacked, or at the block's end), a
   declaration separated from its bullet by a non-blank line, a key that is not
-  lowercase kebab-case, or a duplicate key. **Every one of those arms fires on the
-  render path as well as the enumeration path**, which is what makes "the checklist
-  prose and the keyset cannot drift apart silently" structural rather than merely
-  asserted: a defect cannot render happily while the enumeration dies. A manual arm
-  reading this file by hand applies the same rule: strip the marker lines from the
-  emitted prose. A consumer `## Audit dimensions` bullet may carry the same marker
-  (keyed `c:<declared-key>`) and is held to the same fail-closed arms **for the
-  declarations it does carry**, with a breadcrumb naming the consumer extension rather
-  than this template. Three deliberate asymmetries: an *absent* consumer declaration is
-  legal (it selects the content-derived fallback below, where an undeclared *template*
-  bullet raises); a section carrying only declarations and no bullets declares no
-  dimensions, so it reads `absent` rather than raising; and a collision between two
-  *derived* keys degrades on the render path (it is a slug coincidence in a third-party
-  file, not an authoring defect) while staying fatal in the enumeration, whose keyset
-  must be unambiguous. When a bullet carries no declaration, its key is derived from its content — the bold-lead name's slug,
-  else a hash of the bullet text — never its position. Those two fallbacks are
-  insertion-stable but not reword-stable, so a consumer who wants a durable key
-  declares one.
+  lowercase kebab-case, or a duplicate key. A consumer `## Audit dimensions` bullet
+  may carry the same marker (keyed `c:<declared-key>`) and is held to the same
+  fail-closed arms **for the declarations it does carry**, with a breadcrumb naming
+  the consumer extension rather than this template — except that an *absent*
+  consumer declaration is legal (it selects the content-derived fallback below,
+  where an undeclared *template* bullet raises), a consumer section carrying only
+  declarations and no bullets reads `absent` rather than raising, and a collision
+  between two *derived* keys degrades on the render path while staying fatal in the
+  enumeration. When a bullet carries no declaration, its key is derived from its
+  content — the bold-lead name's slug, else a hash of the bullet text — never its
+  position. Those two fallbacks are insertion-stable but not reword-stable, so a
+  consumer who wants a durable key declares one.
 
 ## Extraction rule (for the `## Audit dimensions` / `## Evidence axes` forwarding)
 
