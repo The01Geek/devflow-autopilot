@@ -8880,6 +8880,59 @@ with contextlib.redirect_stderr(_quiet_err):
     apply_mut(_CP_BODY, make_args(checkpoint=[[_CPKEY + ".x", "tok"]]))
 assert_eq("#1347: a canonical body triggers no repair breadcrumb",
           False, "re-created it at the head" in _quiet_err.getvalue())
+# The breadcrumb must not announce a repair the call then DISCARDS. The repair runs
+# ahead of the section-shape validation by design, so a call that repairs and then
+# raises structurally writes nothing — claiming a self-heal there would tell a
+# maintainer the workpad was rewritten when no PATCH was ever issued.
+_discard_err = io.StringIO()
+with contextlib.redirect_stderr(_discard_err):
+    try:
+        apply_mut(_NOPROG_BODY, make_args(checkpoint=[[_CP4_KEY, "line one\nline two"]]))
+    except workpad._UpdateError:
+        pass
+assert_eq("#1347: a repair discarded by a later structural raise is not announced",
+          False, "re-created it at the head" in _discard_err.getvalue())
+
+# The REAL legacy-resume composition: strip + the `gha:` hydration checkpoint against a
+# body missing `## Progress`. Each mechanism is covered alone above; this is the shape
+# Phase 1.3's cloud arm actually issues, and it locks the phase prose's subtle claim —
+# the repaired section exists but is EMPTY of the phase-checklist rows, which is why the
+# legacy migration stays required rather than being subsumed by the repair.
+_legacy_resume = apply_mut(_NOPROG_BODY, make_args(
+    strip_inherited_checkpoints=True, status="Setup",
+    checkpoint=[["gha:7:1:phase1-hydrated", "run resumed; Phase 1 workpad hydrated"]]))
+_lr_progress = _legacy_resume.split('## Progress', 1)[1].split('\n## ', 1)[0]
+assert_eq("#1347: the legacy-resume composition repairs, strips, and records in one call",
+          (1, 1, 0),
+          (_legacy_resume.count("## Progress"),
+           _legacy_resume.count("<!-- prflow:checkpoint gha:7:1:phase1-hydrated -->"),
+           _legacy_resume.count(_MK4)))
+assert_eq("#1347: the repaired section carries NO phase-checklist row (migration still owed)",
+          [], [ln for ln in _lr_progress.split('\n') if ln.startswith('- [ ] **')])
+
+# The survivor breadcrumb at the DUPLICATE-SECTION locus — the shape the strip's own
+# comment names first and the one a legacy workpad actually produces. Covered above only
+# at the `## Plan` locus, so without this the enumeration is asserted for one member.
+_DUP_SURVIVOR = _INHERITED.replace(
+    "\n## Plan", f"\n## Progress\n- inherited {_MK4}\n\n## Plan", 1)
+_dup_surv_err = io.StringIO()
+with contextlib.redirect_stderr(_dup_surv_err):
+    _dup_surv_out = apply_mut(_DUP_SURVIVOR, make_args(strip_inherited_checkpoints=True))
+assert_eq("#1347: a survivor in a DUPLICATE ## Progress section is breadcrumbed too",
+          True, "--strip-inherited-checkpoints left" in _dup_surv_err.getvalue())
+assert_eq("#1347: the duplicate-section survivor really does survive the first-section strip",
+          1, _dup_surv_out.count(_MK4))
+
+# The tier-refused write through the full command path, not just the pure function: the
+# clean-token key has a `_drive_cmd_update` PATCH assertion and this one did not, so a
+# regression that swallowed the tier-refused insert would show only on the clean key.
+_code, _out, _err, _patched = _drive_cmd_update(
+    _CP_BODY, checkpoint=[[_CP4_REFUSED_KEY, "checkpoint 4: refused by this tier"]])
+assert_eq("#1347: the tier-refused checkpoint PATCHes through the full command path",
+          True,
+          _patched is not None
+          and workpad._checkpoint_marker(_CP4_REFUSED_KEY) in _patched
+          and "refused by this tier" in _patched)
 
 # AC16 (positive control at the process level): an ABSENT-key checkpoint INSERT
 # through cmd_update DOES issue a PATCH carrying the new row — the counterpart to the

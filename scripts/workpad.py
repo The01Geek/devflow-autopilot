@@ -3456,16 +3456,28 @@ def _repair_missing_progress_section(body: str) -> str:
     # `_plan_checkpoints`' own count check and fails closed there.
     if _find_section(sections, 'Progress') is not None:
         return body
-    # Announce the structural self-heal. A repair rewrites a human-visible GitHub
-    # artifact, so a maintainer reading the workpad later must be able to tell a
-    # re-created section from one that was always there; every sibling degrade in
-    # this file breadcrumbs to stderr for the same reason.
+    # Deliberately SILENT here — the caller announces it, and only once the rest of
+    # `--checkpoint`'s validation has passed. Breadcrumbing from inside the repair
+    # would claim a self-heal that a later structural raise (a multi-line text, a
+    # duplicate marker) then discards with zero PATCH, telling a maintainer the
+    # workpad was rewritten when nothing was written at all.
+    return _join_sections(
+        preamble, _insert_section_at_head(sections, '## Progress', ''),
+    )
+
+
+def _announce_progress_repair() -> None:
+    """Breadcrumb a `## Progress` repair that has cleared validation.
+
+    A repair rewrites a human-visible GitHub artifact, so a maintainer reading the
+    workpad later must be able to tell a re-created section from one that was
+    always there; every sibling degrade in this file breadcrumbs to stderr for the
+    same reason. Emitted by the caller after `_plan_checkpoints` accepts the
+    repaired body, so the claim tracks a repair that will actually be written.
+    """
     sys.stderr.write(
         "workpad.py update: '## Progress' was absent; re-created it at the head of "
         "the section list so the checkpoint could be recorded (issue #1347 repair)\n"
-    )
-    return _join_sections(
-        preamble, _insert_section_at_head(sections, '## Progress', ''),
     )
 
 
@@ -3834,9 +3846,17 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
             )
     if checkpoint_reqs:
         # Repair an absent `## Progress` BEFORE the section-shape validation below,
-        # so the validation sees the repaired body (issue #1347).
-        body = _repair_missing_progress_section(body)
+        # so the validation sees the repaired body (issue #1347). The breadcrumb is
+        # deferred until that validation ACCEPTS the repaired body: a call that
+        # repairs and then raises structurally (a multi-line text, a duplicate
+        # marker) writes nothing, and announcing a self-heal it discarded would
+        # report a rewrite that never happened.
+        _repaired_body = _repair_missing_progress_section(body)
+        _did_repair = _repaired_body is not body
+        body = _repaired_body
         checkpoint_inserts = _plan_checkpoints(body, checkpoint_reqs)
+        if _did_repair:
+            _announce_progress_repair()
         if not checkpoint_inserts and not _has_non_checkpoint_mutation(args):
             raise _NoOpReplay()
 
