@@ -145,7 +145,7 @@ The always-visible region (marker line, header, `Status`, links, `## Progress`, 
 
 ```markdown
 <!-- prflow:workpad -->
-# DevFlow Workpad — Issue #{number}
+# PRFlow Workpad — Issue #{number}
 
 **Status:** 🚀 Setup
 **Branch:** `{branch}`

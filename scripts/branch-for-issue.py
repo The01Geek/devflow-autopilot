@@ -45,6 +45,14 @@ _MIN_SLUG_HEAD_LEN = 20
 
 
 def _slugify(title: str) -> str:
+    # Delete apostrophes before the non-alphanumeric substitution (issue #1337) so a
+    # possessive like "create-issue's" contributes "create-issues" rather than the
+    # stray "-s-" fragment `_NON_SLUG_RE` would otherwise leave. The set is exactly
+    # the two apostrophe code points — U+0027 (typewriter ') and U+2019 (typographic
+    # ’) — deleted from the raw title, ahead of the ASCII fold on the next line
+    # (which independently drops U+2019 as non-ASCII, so deleting it here makes the
+    # closed set explicit rather than leaving one apostrophe's handling implicit).
+    title = title.replace("'", "").replace("’", "")
     normalized = unicodedata.normalize('NFKD', title).encode('ascii', 'ignore').decode('ascii')
     slug = _NON_SLUG_RE.sub('-', normalized.lower()).strip('-')
     if len(slug) <= _MAX_SLUG_LEN:
