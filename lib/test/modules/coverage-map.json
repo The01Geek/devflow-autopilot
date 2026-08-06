@@ -1044,10 +1044,6 @@
       "note": "issue #1333 P3x: the retrospective subagent brief carries no portable-anchor call site (by-value handoff), the complement of the #275 P3 presence pin it is exempted from",
       "owner": "unmodularized"
     },
-    "1341": {
-      "note": "",
-      "owner": "create-issue-contract"
-    },
     "139": {
       "note": "",
       "owner": "unmodularized"

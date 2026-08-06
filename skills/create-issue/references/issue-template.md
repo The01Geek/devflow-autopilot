@@ -233,28 +233,40 @@ followed by checkbox items (`- [ ]`), each a **single unconditional, testable as
   reports is unchanged") *is* a post-change fact about the diff's boundary, and it is written
   that way rather than avoided. The permission is this shape and this shape only; a criterion
   naming the edit the change must *make* stays out of scope for it.
-- **Supporting apparatus whose only readers are the drafter and the audit step is stated once
-  in the grounding block, not repeated inside each criterion.** The block carries the section's
-  shared framing: what a recurring term means across the criteria below, which grounding rules
-  the drafter has already discharged for the whole set, and any statement that exists so the
-  audit can check the section rather than so the implementer can act. Keeping it out of the
-  criteria is what stops a rule from expanding every criterion it touches into a paragraph.
-  **Apparatus the implementer reads stays inside the criterion it belongs to** — a quantitative
-  criterion's measurement instrument, an enumeration's `at minimum` floor marker, an
-  enumeration's closed-set exhaustiveness statement, and an obligation's named command each
-  live in their own criterion and are never moved into the block.
-  **The reason the boundary falls exactly there:** the implementing run mirrors this section
-  into its workpad with `scripts/parse-acs.py`, and only checkbox items are guaranteed to make
-  that crossing — an indented non-checkbox line continues the preceding item, while a blank
-  line or a non-indented non-checkbox line closes it, so block prose above the list does not
-  reach the workpad's `## Acceptance Criteria` section at all. That workpad section is what the
-  implementing run's acceptance-criteria gate reads, so an instruction the implementer must
-  obey is unenforceable there unless it sits inside a checkbox item.
+- **Supporting apparatus the drafter and the audit step read is stated once in the grounding
+  block; a statement stated inside a criterion rather than once in the block is misplaced the
+  same way.** The block carries the section's shared framing: which grounding rules the drafter
+  has already discharged for the whole set, and any statement that exists so the audit can check
+  the section rather than so the implementer can act. Keeping it out of the criteria is what
+  stops a rule from expanding every criterion it touches into a paragraph.
+  **The sorting test is consequence, not readership: a statement belongs in the block only if
+  deleting it changes no criterion's truth value.** Anything that narrows, bounds, quantifies,
+  defines a term used by, or names a verification route for a criterion is *part of* that
+  criterion and is written inside it, however much that repeats across criteria — repetition is
+  the correct cost here. A quantitative criterion's measurement instrument, an enumeration's
+  `at minimum` floor marker, an enumeration's closed-set exhaustiveness statement, and an
+  obligation's named command are the commonest such statements, **at minimum** — that list is a
+  floor, not the closed set, and a term definition the criteria's assertions depend on is
+  inside it however much it reads like shared framing.
+  **The block opens the section and never follows the criteria.** The reason the boundary falls
+  exactly there: the implementing run mirrors this section into its workpad with
+  `scripts/parse-acs.py`, and only checkbox items are guaranteed to make that crossing — an
+  indented non-checkbox line continues the preceding item, while a blank line or a non-indented
+  non-checkbox line closes it. Above the list, block prose does not reach the workpad's
+  `## Acceptance Criteria` section at all; placed *after* the criteria and indented, the very
+  same prose is instead welded onto the last criterion's text and crosses **with** it, so the
+  gate reads a corrupted row. That workpad section is what the implementing run's
+  acceptance-criteria gate reads, so an instruction the implementer must obey is unenforceable
+  there unless it sits inside a checkbox item.
   **The issue body stays separately visible to the implementing run**, which fetches and reads
-  it alongside the workpad — so the block is never the only place such an instruction appears,
-  and this boundary is about what the gate can enforce rather than about what the implementer
-  can see. The block is scanned by Step 3's unresolved-decision gate exactly like any other
-  prose, so it carries no choice, hedge, or deferral language and needs no carve-out of its own.
+  it alongside the workpad — so the block is never the only place such an instruction appears.
+  That visibility is why a misplaced statement is a *gate* defect rather than a lost one, and it
+  is never a reason to move an enforceable statement out of its criterion: the consequence test
+  above, not what the implementer can see, is what decides placement.
+  The block is scanned by Step 3's unresolved-decision gate exactly like any other prose, so it
+  carries no choice, hedge, or deferral language and needs no carve-out of its own — write its
+  definitional prose in stated form ("a floor, marked `at minimum`", "a closed set") rather than
+  as a disjunction, so shared framing never reads as an unresolved fork.
 - **Supplied criteria are challenged, never accepted at face value.** When the user's story
   arrives with its own acceptance-criteria list, that list is *suspect input*, not a finished
   section. Vet each item for **correctness** (is it atomic, testable, and a genuinely resolved
@@ -528,7 +540,7 @@ incomplete issues.
 - [ ] For a user-visible UI change, the Visual Specification section records a screenshot/mockup or a verbally-verified placement spec (screenshot preferred, verbal verification an accepted substitute); non-UI issues omit the section entirely
 - [ ] Acceptance criteria are measurable, testable, and unconditional
 - [ ] Each AC states what is true after the change rather than what the diff contains — with the untouched-surface shape ("X is present verbatim after the change", "Y is unchanged") admitted as a post-change fact about the diff's boundary
-- [ ] Apparatus read only by the drafter and the audit step sits once in the section's grounding block, while the measurement instrument, floor marker, closed-set marker, and obligation command each stay inside their own criterion — the block carries no choice/hedge/deferral language and is scanned by Step 3's unresolved-decision gate like any other prose
+- [ ] Criterion apparatus is sorted by the consequence test — a statement sits in the section's opening grounding block only if deleting it changes no criterion's truth value, so the measurement instrument, floor marker, closed-set marker, obligation command, and any depended-on term definition each stay inside their own criterion — and the block opens the section, carries no choice/hedge/deferral language, and is scanned by Step 3's unresolved-decision gate like any other prose
 - [ ] Quantitative ACs satisfy the measurement-instrument rule in the Acceptance Criteria guidance above
 - [ ] Value-comparison ACs/assertions state the comparison in the producing surface's observed-output terms, grounded by a boundary-covering probe (exercising the type-boundary fixture the comparison distinguishes) or a named implementer obligation carrying its execution-tier constraint — adjective-only or probe-silent-on-the-axis comparison language is non-conforming
 - [ ] Every universal quantifier ("never/always/each/every/all/cannot") the body asserts about the system under change, outside `## 🚫 Blocked`, is grounded — pinned per-arm/per-element (an accepted-loss/suppression claim pinned by a fixture in which the suppressed input is present), scoped to the mechanism's supported form, or removed — with only mandated-verbatim boilerplate and rule-text-shipped-as-artifact-content exempt, and detector-coverage claims additionally carrying a planted-defect positive-control obligation
