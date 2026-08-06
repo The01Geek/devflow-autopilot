@@ -32,11 +32,11 @@ than pointing at it, the restatement is the duplicated surface and should become
 - **implement.md:** the whole "Focused test modules are the iteration default" → "Verification-flight
   scope — the single statement" → "The final full-suite command is the parallel coordinator" →
   shard-decomposition (#1132) → "Every tier that maintains a workpad … Verification evidence" run of
-  sections (lines ~155–222).
+  sections.
 - **review-and-fix.md:** "Focused test modules are the fix-iteration default" through the
-  Verification-evidence-marker sections (lines ~47–90).
+  Verification-evidence-marker sections.
 - **receiving-code-review.md:** "Focused test modules in direct reception passes" through its
-  Verification-evidence section (lines ~134–153).
+  Verification-evidence section.
 - **Recommended allocation:** **Tier-scoped → CLAUDE.md is the correct single home for the
   *principle*.** In practice the operative detail is a self-declared **three-way coupled mirror**
   across the extensions (each carries a real copy because each extension is loaded independently and
