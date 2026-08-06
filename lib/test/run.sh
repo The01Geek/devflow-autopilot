@@ -5701,6 +5701,48 @@ assert_eq "#258(e): --status Blocked with an unticked AC still PATCHed (Status �
 # Source pin: the terminal gate + its post-merge exclusion live in workpad.py.
 assert_eq "#258: workpad.py carries the terminal --status Complete self-record gate" "yes" \
   "$(grep -q '_terminal_complete_gate' "$WP_PY" && grep -q "(post-merge)" "$WP_PY" && echo yes || echo no)"
+
+# ── issue #1348: the terminal required-artifact gate at the REAL CLI boundary ──
+# Drive the actual workpad.py subprocess (run258 sets a passing completion-evidence
+# flight, so a Complete write reaches the required-artifact gate) over the refusal
+# path, the compliant path, both marker spellings, the tier-refused carrier, and the
+# resumed-run (strip-then-Complete) case — asserting NO PATCH on every refusal. The
+# in-process Python tests bypass this gate by default; this block exercises it end to
+# end where the CLI actually runs it. all-ticked.md carries the clean checkpoint-4 row.
+# (a) A Complete whose ## Progress carries NO checkpoint-4 row is refused with NO PATCH,
+# naming the missing artifact and its producing command.
+grep -v 'checkpoint base-update-checkpoint-4' "$S258/all-ticked.md" > "$S258/cp4-missing.md"
+_c="$(run258 "$S258/cp4-missing.md" --status Complete)"
+assert_eq "#1348 CLI: a Complete with no checkpoint-4 row is refused (exit non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#1348 CLI: the missing-artifact refusal made NO PATCH" "yes" \
+  "$([ -s "$S258/patchlog" ] && echo no || echo yes)"
+assert_eq "#1348 CLI: the refusal names the missing artifact and its producer" "yes" \
+  "$(grep -q 'missing-artifact' "$S258/err" && grep -q 'update-branch-checkpoint.sh' "$S258/err" && echo yes || echo no)"
+# (b) The compliant path: the clean checkpoint-4 row lets the Complete finalize.
+_c="$(run258 "$S258/all-ticked.md" --status Complete)"
+assert_eq "#1348 CLI: a clean checkpoint-4 row finalizes Complete (exit 0)" "0" "$_c"
+assert_eq "#1348 CLI: the compliant finalize PATCHed Status → Complete" "yes" \
+  "$(grep -q '🎉 Complete' "$S258/out" && echo yes || echo no)"
+# (c) The superseded devflow: marker spelling also satisfies the gate.
+sed 's/prflow:checkpoint base-update-checkpoint-4/devflow:checkpoint base-update-checkpoint-4/' \
+  "$S258/all-ticked.md" > "$S258/cp4-devflow.md"
+_c="$(run258 "$S258/cp4-devflow.md" --status Complete)"
+assert_eq "#1348 CLI: the superseded devflow: checkpoint-4 spelling finalizes Complete (exit 0)" "0" "$_c"
+# (d) The tier-refused carrier satisfies the required artifact.
+sed 's/checkpoint base-update-checkpoint-4 -->/checkpoint base-update-checkpoint-4-tier-refused -->/' \
+  "$S258/all-ticked.md" > "$S258/cp4-refused.md"
+_c="$(run258 "$S258/cp4-refused.md" --status Complete)"
+assert_eq "#1348 CLI: the tier-refused checkpoint-4 carrier finalizes Complete (exit 0)" "0" "$_c"
+# (e) The resumed-run case: --strip-inherited-checkpoints clears the row in the same
+# call, so the post-mutation Complete gate finds no row and refuses with NO PATCH
+# (a resumed run cannot satisfy the gate on an inherited row).
+_c="$(run258 "$S258/all-ticked.md" --strip-inherited-checkpoints --status Complete)"
+assert_eq "#1348 CLI: a strip-then-Complete (resumed run) is refused (exit non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#1348 CLI: the resumed-run refusal made NO PATCH" "yes" \
+  "$([ -s "$S258/patchlog" ] && echo no || echo yes)"
+
 rm -rf "$S258" "$S258_ROOT"
 
 # ── issue #781: workpad-sourced acceptance criteria (acs / acs-resolve) ────────
