@@ -114,6 +114,24 @@ extractor is:
   block is an accepted limitation — no fence in `skills/review/SKILL.md` nests a
   `case`.
 
+**Audited population (issue #1354).** Both scanners take an explicit file list, so
+their reach is whatever `lib/test/run.sh` hands them. In addition to the skill
+bundles, `run.sh` now audits the repository's live tracked
+`.prflow/prompt-extensions/*.md` files (`.md.example` templates excluded — they are
+loaded by no run). A prompt extension is appended to the same agent prompt as the
+command it names and can invoke the same helpers, so an ungranted head or a
+matcher-denied shape authored there would otherwise be silent both at the desk and
+in the run (the matcher refuses such a command with no output and no error). Each
+extension is checked against the tier(s) that load it via a single explicitly
+enumerated extension→tier table, reconciled both ways against the on-disk set (a
+file with no row, or a row naming no file, fails). The head allowlist is the
+**union** of the tier's baked workflow `TOOLS` grant and the matching
+`.prflow/config.json` `allowed_tools` array — load-bearing, because the live fences
+invoke `lib/test/regenerate-artifacts.py`, whose grant lives only in the config
+array, not in `lib/capability-profiles.json`. The extractors' `_normalize()` anchor
+rewrite is a no-op on extension text (extensions do not use the portable anchor
+today), so no scanner logic forks for this population.
+
 ### Adding a command to a fence
 
 Grant it by adding the token to `lib/capability-profiles.json` (the versioned
