@@ -8884,14 +8884,38 @@ assert_eq("#1347: a canonical body triggers no repair breadcrumb",
 # ahead of the section-shape validation by design, so a call that repairs and then
 # raises structurally writes nothing — claiming a self-heal there would tell a
 # maintainer the workpad was rewritten when no PATCH was ever issued.
-_discard_err = io.StringIO()
-with contextlib.redirect_stderr(_discard_err):
-    try:
-        apply_mut(_NOPROG_BODY, make_args(checkpoint=[[_CP4_KEY, "line one\nline two"]]))
-    except workpad._UpdateError:
-        pass
-assert_eq("#1347: a repair discarded by a later structural raise is not announced",
-          False, "re-created it at the head" in _discard_err.getvalue())
+#
+# Two raise classes, and the SECOND is the one that discriminates the fix. A
+# multi-line text raises INSIDE `_plan_checkpoints`, i.e. before any announce point
+# ever considered — so it would pass even with the announce placed right after that
+# call, and on its own it verifies non-announcement trivially. The `Last updated`
+# raise fires LATER, after `_plan_checkpoints` has already accepted the repaired
+# body, so only an announce deferred to the successful return survives it. Keep both:
+# the first is the cheap regression, the second is the real boundary.
+for _bad, _label in [
+    (_NOPROG_BODY, "a multi-line text (raises inside _plan_checkpoints)"),
+    (_NOPROG_BODY.replace("**Last updated:** 2026-08-05 00:00 UTC\n", ""),
+     "a missing Last-updated line (raises AFTER _plan_checkpoints accepted it)"),
+]:
+    _args = make_args(checkpoint=[[_CP4_KEY, "line one\nline two"]]) \
+        if _bad is _NOPROG_BODY else make_args(checkpoint=[[_CP4_KEY, "tok"]])
+    _discard_err = io.StringIO()
+    _raised = False
+    with contextlib.redirect_stderr(_discard_err):
+        try:
+            apply_mut(_bad, _args)
+        except workpad._UpdateError:
+            _raised = True
+    assert_eq(f"#1347: a repair discarded by {_label} raises and is NOT announced",
+              (True, False),
+              (_raised, "re-created it at the head" in _discard_err.getvalue()))
+# ...and the same body at the process level makes no PATCH, so the discarded repair
+# is provably never written.
+_code, _out, _err, _patched = _drive_cmd_update(
+    _NOPROG_BODY.replace("**Last updated:** 2026-08-05 00:00 UTC\n", ""),
+    checkpoint=[[_CP4_KEY, "tok"]])
+assert_eq("#1347: the post-plan raise makes no PATCH and emits no repair breadcrumb",
+          (None, False), (_patched, "re-created it at the head" in (_err or "")))
 
 # The REAL legacy-resume composition: strip + the `gha:` hydration checkpoint against a
 # body missing `## Progress`. Each mechanism is covered alone above; this is the shape
