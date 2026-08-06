@@ -937,7 +937,7 @@
       "owner": "review-trigger-helpers"
     },
     "1174": {
-      "note": "",
+      "note": "issue #1174: the out-of-job review_finalize backstop in devflow.yml; its command-job arm selector (scripts/describe-command-job-arm.sh) is driven arm-by-arm and for arm ORDER, and its step body is extracted between its `review-finalizer BEGIN`/`END` markers and EXECUTED against recording helper stubs — the CAUSE ladder, the TARGET_NUMBER derivation, the suppress-vs-write gate, the verdict-oracle arg order and each degraded-helper arm — in the #1174 sections of lib/test/modules/review-trigger-helpers.sh",
       "owner": "review-trigger-helpers"
     },
     "1175": {

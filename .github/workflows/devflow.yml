@@ -2458,6 +2458,13 @@ jobs:
           ENGINE_ERROR: ${{ needs.command.outputs.engine_is_error }}
         run: |
           set -uo pipefail
+          # review-finalizer BEGIN
+          # (Everything between these markers is extracted verbatim and executed
+          # against recording helper stubs by the #1174 wiring block in
+          # lib/test/modules/review-trigger-helpers.sh, so every branch below —
+          # the CAUSE ladder, the TARGET_NUMBER derivation, the suppress-vs-write
+          # gate, the verdict-helper arg order and each degraded-helper arm — is
+          # driven as a real branch rather than grepped. Keep the markers.)
           # The JOB-level arm — did the command job report at all — decided by a
           # helper the suite drives arm-by-arm (issue #1174 AC6). This is a
           # DISTINCT decision from describe-dead-run-cause.sh (the cause clause),
@@ -2522,6 +2529,11 @@ jobs:
           # verdict suppresses the flip; everything else (no HEAD sha, deriver
           # absent, query failure, genuinely absent) reports `absent` and the
           # banner still writes, so a genuinely verdict-less dead run keeps it.
+          # CAVEAT: the oracle is HEAD-sha-scoped, not run-scoped — so a verdict an
+          # EARLIER round posted for the same unchanged HEAD also reads `present`
+          # and suppresses this dead run's banner. Deliberate, and identical to the
+          # in-job #1172 gate: at an unchanged HEAD the posted verdict still
+          # describes the reviewed tree, so "no verdict" would be the false claim.
           VERDICT_HELPER=.prflow/vendor/prflow/scripts/dead-run-verdict-present.sh
           [ -f "$VERDICT_HELPER" ] || VERDICT_HELPER=scripts/dead-run-verdict-present.sh
           SUPPRESS_FLIP=no
@@ -2562,3 +2574,4 @@ jobs:
             echo "::warning::review finalizer: flip-review-progress-failed.sh absent at $FLIP_HELPER; the review-progress comment for #$TARGET_NUMBER is NOT flipped to a terminal state (upgrade the vendored plugin pin)"
           fi
           exit 0
+          # review-finalizer END
