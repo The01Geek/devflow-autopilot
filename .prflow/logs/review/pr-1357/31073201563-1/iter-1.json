@@ -1,0 +1,147 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-06T05:30:00Z",
+  "fix_commit_sha": "b3eb6d58e99a40002692b8d12f59fa1c0d827094",
+  "fix_files": [
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "current_step": "3.5",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "sweep_defs_read": [
+    "phase-2-implement.md"
+  ],
+  "sweep_evidence": {
+    "status": "run"
+  },
+  "checklist": [],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:pr-test-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "run.sh comment cites exact count 'six live fences' (PR #553 rot class); '(both allowed_tools arrays)' imprecise; header omits the heads subcommand",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          7139,
+          7142
+        ],
+        "kind": "comment_rot"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "review-profile shape finder (find_violations/R1-R4) never exercised by an anti-vacuity control though review.md is scanned under it; AC3 could pass vacuously for review.md",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          7245,
+          7248
+        ],
+        "kind": "vacuous_test"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "T4 residual vacuity: would pass if the anchor fence were not parsed as a head at all",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          7263,
+          7265
+        ],
+        "kind": "vacuous_test"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "head gate relies on the extractor's non-zero-on-crash exit contract (2>/dev/null discards traceback); informational, fails closed today",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          7211,
+          7220
+        ],
+        "kind": "fail_closed_assumption"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "b3eb6d58e99a40002692b8d12f59fa1c0d827094"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "b3eb6d58e99a40002692b8d12f59fa1c0d827094"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "b3eb6d58e99a40002692b8d12f59fa1c0d827094"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "advisory",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "head gate relies on extractor exit-code-on-crash contract",
+      "skip_category": "advisory-parked",
+      "evidence": "fails closed today (non-strict ungranted exits 0 on success, 1 on crash); informational note, not a defect in this diff"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 5,
+    "fix_diff_lines": 14,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "clean",
+      "reason": null
+    }
+  },
+  "telemetry": {
+    "phase_3": {
+      "calls": 4,
+      "tokens": 268913,
+      "wall_clock_s": 192
+    }
+  },
+  "synthesized": false
+}
