@@ -125,8 +125,9 @@ or what same-commit change accompanied it.
    `## Prompt-surface edit routing evidence gate` heading is unchanged in both review extensions; the
    compressed gate-plus-advisory tail was authored once and spliced into `review.md` and
    `review-and-fix.md` from the same source, so the heading→EOF byte-identity extract still compares
-   equal. The trigger-glob list literal and the `Writing-skills evidence:` marker are unchanged in all
-   three files, the operative-sentence pins resolve, and every `_WSR_RETIRED_LITS` sweep and the
+   equal. The trigger-glob list literal and the `Writing-skills evidence:` marker are unchanged across
+   the lockstep set the `#506` block reads, the operative-sentence pins resolve, and every
+   `_WSR_RETIRED_LITS` sweep and the
    `module or path` / `focused path` zero-occurrence sweeps still read 0 across the six-file set.
    Two wrapped-literal near-misses were caught and fixed during the pass — `pin_count` is line-based,
    so re-wrapping `Cloud-tier runs use …` and `the review reports a **FAIL** finding naming` across a
