@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1357",
+  "generated_at": "2026-08-06T09:28:02Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.15",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.763009999999999,
+    "tokens": {
+      "input_tokens": 23,
+      "output_tokens": 8763,
+      "cache_read_input_tokens": 1193848,
+      "cache_creation_input_tokens": 111558,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 67,
+        "outputTokens": 43725,
+        "cacheReadInputTokens": 2816190,
+        "cacheCreationInputTokens": 294898,
+        "webSearchRequests": 0,
+        "costUSD": 4.763009999999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 13,
+    "duration_ms": 465454
+  },
+  "permission_denials": {
+    "count": 2,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh review 2>&1 | head -50; echo \"rc=${PIPESTATUS[0]}\"",
+      ".prflow/vendor/prflow/scripts/post-review-verdict.sh 1357 \"APPROVE WITH ADVISORY NOTES\" .prflow/tmp/review/pr1357/verdict.md e861b5c9d0e8db2b2c27ddacc81acbfafbb17bfd 2>.prflow/tmp/review/pr1357/post.err ; echo \"post-rc=$?\" ; cat .prflow/tmp/review/pr1357/post.err"
+    ],
+    "total": 2,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
