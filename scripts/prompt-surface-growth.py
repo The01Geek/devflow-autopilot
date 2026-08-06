@@ -15,8 +15,11 @@ third time a reader sees it; the running total beside it is what keeps the numbe
 meaningful as it repeats.
 
 Covered population: tracked files whose path ends in exactly `.md` under `skills/`,
-`agents/`, or `.prflow/prompt-extensions/`, enumerated from the git index at BOTH
-endpoints so a file the branch deletes still produces a row (total 0, negative delta).
+`agents/`, or `.prflow/prompt-extensions/`, enumerated from the committed tree at BOTH
+endpoints (the merge-base commit and `HEAD`) so a file the branch deletes still produces
+a row (total 0, negative delta). Reading the two *trees* rather than the index is what
+makes both endpoints addressable — a merge-base commit has no index — and it means
+staged-but-uncommitted edits are deliberately not counted.
 The exact-`.md` suffix test is what excludes `*.md.example` templates and every
 non-markdown asset — no separate exclusion mechanism exists or is needed.
 
@@ -54,12 +57,55 @@ _FALLBACK_REFS = ("origin/main", "main")
 _GIT = os.environ.get("DEVFLOW_GIT") or "git"
 
 
-def _git(args):
-    """Run git and return (rc, stdout). Never raises on a failed invocation."""
-    proc = subprocess.run(
-        [_GIT, *args], capture_output=True, text=True, check=False
-    )
-    return proc.returncode, proc.stdout
+def _repo_root():
+    """The repository root, memoized — every git call runs from there.
+
+    Anchoring on the root rather than the process working directory is the repo's
+    shared `.prflow/`-reader contract, and here it is load-bearing rather than tidy:
+    the `ls-tree` pathspecs below are repo-relative, so from a subdirectory they
+    would match nothing and the run would print a confident "no covered path
+    changed" — a false statement, rendered into a PR description as a generated
+    fact. A root that cannot be resolved falls back to the working directory with a
+    breadcrumb, so the degradation is stated rather than silent.
+    """
+    if _repo_root.cached is None:
+        rc, out, _ = _git(["rev-parse", "--show-toplevel"], cwd=os.getcwd())
+        root = out.strip() if rc == 0 else ""
+        if not root:
+            print(
+                "prompt-surface growth: could not resolve the repository root; "
+                "falling back to the working directory, so a run from a "
+                "subdirectory may under-report.",
+                file=sys.stderr,
+            )
+            root = os.getcwd()
+        _repo_root.cached = root
+    return _repo_root.cached
+
+
+_repo_root.cached = None
+
+
+def _git(args, cwd=None):
+    """Run git and return (rc, stdout, stderr). Never raises, for any reason.
+
+    `check=False` only covers a git that *runs* and fails. A git that cannot be
+    executed at all — absent from `PATH`, a `DEVFLOW_GIT` override naming a moved or
+    non-executable path — raises `OSError` before any return code exists, which would
+    end this helper in a traceback and defeat its always-exit-0 contract. Converting
+    that into an rc sentinel keeps every caller's existing rc check correct.
+    """
+    try:
+        proc = subprocess.run(
+            [_GIT, *args],
+            cwd=cwd if cwd is not None else _repo_root(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        return 127, "", f"git (`{_GIT}`) could not be executed: {exc}"
+    return proc.returncode, proc.stdout, proc.stderr
 
 
 def _covered(path):
@@ -78,7 +124,7 @@ def default_branch_refs():
     dropped so a repo whose default branch *is* `main` does not probe it twice.
     """
     refs = []
-    rc, out = _git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+    rc, out, _ = _git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
     if rc == 0 and out.strip():
         refs.append(out.strip())
     for ref in _FALLBACK_REFS:
@@ -96,25 +142,29 @@ def resolve_merge_base():
     """
     tried = default_branch_refs()
     for ref in tried:
-        rc, out = _git(["merge-base", "HEAD", ref])
+        rc, out, _ = _git(["merge-base", "HEAD", ref])
         if rc == 0 and out.strip():
             return out.strip(), ref, tried
     return None, None, tried
 
 
 def surface_at(ref):
-    """{path: (blob_sha, size)} for every covered `*.md` file in `ref`'s tree.
+    """({path: (blob_sha, size)}, git_stderr) for covered `*.md` files in `ref`'s tree.
+
+    On a git failure the map is `None` and the second element carries git's own
+    message, so the caller's breadcrumb can name a cause rather than only a symptom.
 
     One `ls-tree` call per endpoint carries the sizes with it (`--long`), so no
     per-file `cat-file -s` round trip is needed. `-z` keeps paths raw: without it
     git quotes any path with unusual bytes and the parse would silently mangle it.
     """
-    rc, out = _git(
+    rc, out, err = _git(
         ["ls-tree", "-r", "-z", "--long", ref, "--", *COVERED_PREFIXES]
     )
     if rc != 0:
-        return None
+        return None, err.strip()
     surface = {}
+    skipped = 0
     for record in out.split("\0"):
         if not record:
             continue
@@ -122,12 +172,23 @@ def surface_at(ref):
         if not path or not _covered(path):
             continue
         fields = meta.split()
-        # `<mode> <type> <sha> <size>` — a `-` size marks a non-blob entry, which
-        # `-r` should never emit, so skip rather than guess a number for it.
+        # `<mode> <type> <sha> <size>` — a `-` size marks a non-blob entry (a
+        # submodule gitlink is the realistic one), which `-r` should not emit here.
+        # Such a record is counted, not silently dropped: dropping it would subtract
+        # a file from a total the reader is told to treat as a generated fact, and a
+        # wrong precise number is worse than a missing one.
         if len(fields) != 4 or fields[1] != "blob" or not fields[3].isdigit():
+            skipped += 1
             continue
         surface[path] = (fields[2], int(fields[3]))
-    return surface
+    if skipped:
+        print(
+            f"prompt-surface growth: {skipped} entr(ies) under a covered prefix in "
+            f"`{ref}` were not readable blobs (a submodule gitlink, or an "
+            "unrecognised ls-tree record); the figures below omit them.",
+            file=sys.stderr,
+        )
+    return surface, ""
 
 
 def changed_rows(base_surface, head_surface):
@@ -171,11 +232,13 @@ def render(head_sha, base_sha, ref, rows, surface_delta, surface_total):
 
 
 def main():
-    rc, head_out = _git(["rev-parse", "HEAD"])
+    rc, head_out, head_err = _git(["rev-parse", "HEAD"])
     if rc != 0 or not head_out.strip():
         print(
             "prompt-surface growth: `HEAD` could not be resolved (not a git "
-            "checkout, or a repository with no commits) — no table rendered."
+            "checkout, a repository with no commits, or an unrunnable git)"
+            + (f" — git said: {head_err.strip()}" if head_err.strip() else "")
+            + " — no table rendered."
         )
         return 0
     head_sha = head_out.strip()
@@ -199,14 +262,24 @@ def main():
         )
         return 0
 
-    base_surface = surface_at(base_sha)
-    head_surface = surface_at(head_sha)
-    if base_surface is None or head_surface is None:
-        print(
-            "prompt-surface growth: the covered file set could not be read from "
-            f"`{base_sha}` or `{head_sha}` — no table rendered."
-        )
-        return 0
+    # Name the endpoint that failed, and quote git's own message: "could not be read
+    # from A or B" leaves a reader with no starting point, and git already wrote the
+    # reason. The message is quoted as data — its only caller-influenced content is a
+    # ref name.
+    base_surface, base_err = surface_at(base_sha)
+    head_surface, head_err = surface_at(head_sha)
+    for label, sha, surface, err in (
+        ("merge-base", base_sha, base_surface, base_err),
+        ("HEAD", head_sha, head_surface, head_err),
+    ):
+        if surface is None:
+            print(
+                "prompt-surface growth: the covered file set could not be read from "
+                f"{label} `{sha}`"
+                + (f" — git said: {err}" if err else "")
+                + " — no table rendered."
+            )
+            return 0
 
     rows = changed_rows(base_surface, head_surface)
 

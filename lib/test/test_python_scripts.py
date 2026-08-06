@@ -25041,14 +25041,24 @@ assert_eq("#1229 an omitted `single_flight_consulted` encodes as a present null"
 # the helper's whole contract is its stdout (a table, or a stated breadcrumb, always
 # exit 0), and an assertion against a file's `read_text()` would be an issue-#810
 # source-presence pin needing a declaration — a process-stdout assertion is an ordinary
-# behavioural test. The helper is invoked by PATH, never as `python3 <path>`: that
-# interpreter-head shape is the one the cloud matcher denies, so exercising the shebang
-# and the index exec bit here is what keeps the shipped invocation form honest.
+# behavioural test. The helper is invoked as a direct executable path, never as
+# `python3 <path>`: that interpreter-head shape is the one the cloud matcher denies, so
+# exercising the shebang and the index exec bit here is what keeps the shipped
+# invocation form honest.
 _PSG1350 = str(SCRIPTS / 'prompt-surface-growth.py')
 
 
 def _psg_git1350(cwd, *args):
-    return _subprocess.run(('git',) + args, cwd=cwd, capture_output=True, text=True)
+    proc = _subprocess.run(('git',) + args, cwd=cwd, capture_output=True, text=True)
+    # A failed fixture `git` must announce itself here. Left unchecked it surfaces
+    # much later as a mismatched table, sending the reader after the code under test
+    # instead of the host's git config.
+    if proc.returncode != 0 and args[0] in ('init', 'add', 'commit', 'checkout'):
+        raise AssertionError(
+            f"#1350 fixture git {' '.join(args)} failed (rc={proc.returncode}): "
+            f"{proc.stderr.strip()}"
+        )
+    return proc
 
 
 def _psg_write1350(root, rel, text):
@@ -25073,6 +25083,10 @@ def _psg_base1350(root):
     _psg_git1350(root, 'init', '-q', '-b', 'main')
     _psg_git1350(root, 'config', 'user.email', 'a@b.c')
     _psg_git1350(root, 'config', 'user.name', 'T')
+    # Signing off, matching every other git fixture in this suite: a maintainer whose
+    # global config signs commits would otherwise fail these assertions for a reason
+    # that has nothing to do with the code under test.
+    _psg_git1350(root, 'config', 'commit.gpgsign', 'false')
     _psg_write1350(root, 'skills/alpha/SKILL.md', 'alpha\n')                 # 6
     _psg_write1350(root, 'agents/beta.md', 'beta\n')                         # 5
     _psg_write1350(root, '.prflow/prompt-extensions/gamma.md', 'gamma\n')    # 6
@@ -25144,7 +25158,7 @@ with tempfile.TemporaryDirectory(prefix='psg1350-') as _R1350:
     _rc1350b, _out1350b = _psg_branch1350(_R1350, 'drop', _psg_mut_del1350)
     assert_eq("#1350 a deleted covered file exits 0", 0, _rc1350b)
     assert_eq("#1350 a covered file the branch deletes renders a row with total 0 and a "
-              "negative delta (enumeration is from the index at EITHER endpoint)",
+              "negative delta (enumeration is from the committed tree at EITHER endpoint)",
               ['| `agents/beta.md` | -5 | 0 |',
                '| **Whole covered surface** | **-5** | **12** |'],
               _psg_rows1350(_out1350b))
@@ -25187,6 +25201,48 @@ with tempfile.TemporaryDirectory(prefix='psg1350-') as _R1350:
                    '| **Whole covered surface** | **+2** | **19** |']),
               (_rc1350g, _psg_rows1350(_out1350g)))
 
+    # ── A same-LENGTH edit still earns a row ────────────────────────────────────────
+    # changed_rows() decides change by blob identity, not size. Nothing else here
+    # exercises that: every other fixture changes a file's length, so swapping the sha
+    # test for a size test would leave the suite green while the table silently dropped
+    # exactly the edit a prompt-surface reviewer most wants to see — a same-length
+    # reword of prose.
+    def _psg_mut_samelen1350(root):
+        _psg_write1350(root, 'skills/alpha/SKILL.md', 'ALPHA\n')             # 6 -> 6
+
+    _rc1350i, _out1350i = _psg_branch1350(_R1350, 'samelen', _psg_mut_samelen1350)
+    assert_eq("#1350 a same-LENGTH edit to a covered file still renders a row, with a "
+              "delta of 0 — change is blob identity, never byte count",
+              (0, ['| `skills/alpha/SKILL.md` | +0 | 6 |',
+                   '| **Whole covered surface** | **+0** | **17** |']),
+              (_rc1350i, _psg_rows1350(_out1350i)))
+
+    # ── The thousands-separated render form is the only one production shows ────────
+    # Every other fixture file is a handful of bytes, so no assertion would ever see a
+    # comma — yet a real prompt surface is megabytes and every rendered figure carries
+    # separators. This pins the format that actually ships.
+    def _psg_mut_big1350(root):
+        _psg_write1350(root, 'skills/alpha/SKILL.md', 'x' * 12345)
+
+    _rc1350j, _out1350j = _psg_branch1350(_R1350, 'big', _psg_mut_big1350)
+    assert_eq("#1350 rendered figures carry thousands separators (the only form a "
+              "real prompt surface ever produces)",
+              (0, ['| `skills/alpha/SKILL.md` | +12,339 | 12,345 |',
+                   '| **Whole covered surface** | **+12,339** | **12,356** |']),
+              (_rc1350j, _psg_rows1350(_out1350j)))
+
+    # ── Repo-root anchoring: a subdirectory invocation reports the same thing ───────
+    # The ls-tree pathspecs are repo-relative, so before the helper anchored on the
+    # repository root a run from a subdirectory matched nothing and printed a confident
+    # "no covered path changed" — a FALSE statement rendered into a PR description as a
+    # generated fact. That is strictly worse than an error, and invisible to the reader.
+    (Path(_R1350) / 'skills' / 'alpha').mkdir(parents=True, exist_ok=True)
+    _rc1350k, _out1350k = _psg_run1350(str(Path(_R1350) / 'skills' / 'alpha'))
+    assert_eq("#1350 a run from a SUBDIRECTORY renders the same table as one from the "
+              "repo root (never a false 'no covered path changed')",
+              (0, _psg_rows1350(_out1350j)),
+              (_rc1350k, _psg_rows1350(_out1350k)))
+
     # ── T7: the aggregate is derived from the per-file figures it summarises ─────────
     def _psg_mut_multi1350(root):
         _psg_write1350(root, 'skills/alpha/SKILL.md', 'alpha\nmore\n')       # +5
@@ -25215,6 +25271,7 @@ with tempfile.TemporaryDirectory(prefix='psg1350f-') as _R1350f:
     _psg_git1350(_R1350f, 'init', '-q', '-b', 'solo')
     _psg_git1350(_R1350f, 'config', 'user.email', 'a@b.c')
     _psg_git1350(_R1350f, 'config', 'user.name', 'T')
+    _psg_git1350(_R1350f, 'config', 'commit.gpgsign', 'false')
     _psg_write1350(_R1350f, 'skills/alpha/SKILL.md', 'alpha\n')
     _psg_git1350(_R1350f, 'add', '-A')
     _psg_git1350(_R1350f, 'commit', '-qm', 'solo')
@@ -25227,6 +25284,72 @@ with tempfile.TemporaryDirectory(prefix='psg1350f-') as _R1350f:
               ['merge-base could not be resolved' in _out1350f,
                '`main`' in _out1350f,
                '| ---' in _out1350f])
+
+# ── The origin/HEAD default-branch arm — the only one a non-`main` consumer uses ──────
+# Every other fixture has no `origin` remote, so the symbolic-ref probe fails and the run
+# falls through to the literal `main` fallback. That leaves the primary arm untested: a
+# consumer whose default branch is `develop` depends on it entirely, and deleting it
+# outright would keep this suite green while that consumer got the wrong base or no table.
+with tempfile.TemporaryDirectory(prefix='psg1350o-') as _R1350o:
+    _R1350oP = Path(_R1350o)
+    (_R1350oP / 'up').mkdir()
+    (_R1350oP / 'work').mkdir()
+    _UP1350 = str(_R1350oP / 'up')
+    _WK1350 = str(_R1350oP / 'work')
+    # An upstream whose default branch is deliberately NOT `main`.
+    _psg_git1350(_UP1350, 'init', '-q', '-b', 'develop')
+    _psg_git1350(_UP1350, 'config', 'user.email', 'a@b.c')
+    _psg_git1350(_UP1350, 'config', 'user.name', 'T')
+    _psg_git1350(_UP1350, 'config', 'commit.gpgsign', 'false')
+    _psg_write1350(_UP1350, 'skills/alpha/SKILL.md', 'alpha\n')
+    _psg_git1350(_UP1350, 'add', '-A')
+    _psg_git1350(_UP1350, 'commit', '-qm', 'base')
+    _psg_git1350(_WK1350, 'clone', '-q', _UP1350, '.')
+    _psg_git1350(_WK1350, 'config', 'user.email', 'a@b.c')
+    _psg_git1350(_WK1350, 'config', 'user.name', 'T')
+    _psg_git1350(_WK1350, 'config', 'commit.gpgsign', 'false')
+    _psg_git1350(_WK1350, 'checkout', '-q', '-b', 'feature')
+    _psg_write1350(_WK1350, 'skills/alpha/SKILL.md', 'alpha\nmore\n')
+    _psg_git1350(_WK1350, 'add', '-A')
+    _psg_git1350(_WK1350, 'commit', '-qm', 'feature')
+    _rc1350o, _out1350o = _psg_run1350(_WK1350)
+    assert_eq("#1350 the merge-base resolves through origin/HEAD, so a repo whose "
+              "default branch is not `main` is measured against ITS default",
+              (0, True, ['| `skills/alpha/SKILL.md` | +5 | 11 |',
+                         '| **Whole covered surface** | **+5** | **11** |']),
+              (_rc1350o, '(`origin/develop`)' in _out1350o,
+               _psg_rows1350(_out1350o)))
+
+# ── An unrunnable git is a stated breadcrumb and exit 0, never a traceback ────────────
+# `check=False` covers a git that RUNS and fails; it does nothing for a git that cannot be
+# executed at all, which raises before any return code exists. That path ended the helper
+# in a traceback with empty stdout — and the shipped extension tells the agent to omit the
+# section on empty output, so the measurement vanished with nobody told why.
+with tempfile.TemporaryDirectory(prefix='psg1350g-') as _R1350gone:
+    _env1350 = dict(os.environ, DEVFLOW_GIT=str(Path(_R1350gone) / 'no-such-git'))
+    _proc1350 = _subprocess.run([_PSG1350], cwd=_R1350gone, capture_output=True,
+                                text=True, env=_env1350)
+    assert_eq("#1350 an unrunnable DEVFLOW_GIT still exits 0 with a stated breadcrumb "
+              "naming the cause, never a traceback",
+              (0, True, True, False),
+              (_proc1350.returncode,
+               'no table rendered' in _proc1350.stdout,
+               'could not be executed' in _proc1350.stdout,
+               'Traceback' in _proc1350.stderr))
+    # Negative control: the breadcrumb above is reached THROUGH the DEVFLOW_GIT override,
+    # so a regression to a bare `git` would not produce it in a directory that is a repo.
+    assert_eq("#1350 DEVFLOW_GIT is honoured — the override, not a bare `git`, is what "
+              "the helper invokes",
+              True, str(Path(_R1350gone) / 'no-such-git') in _proc1350.stdout)
+
+# ── A non-git directory: HEAD unresolvable, still exit 0 ─────────────────────────────
+with tempfile.TemporaryDirectory(prefix='psg1350n-') as _R1350n:
+    _rc1350n, _out1350n = _psg_run1350(_R1350n)
+    assert_eq("#1350 a non-git directory exits 0 with the HEAD-unresolvable breadcrumb "
+              "and no table",
+              (0, True, False),
+              (_rc1350n, '`HEAD` could not be resolved' in _out1350n,
+               '| ---' in _out1350n))
 
 
 print()
