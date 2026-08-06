@@ -594,7 +594,7 @@
       "owner": "unmodularized"
     },
     "scripts/render-prompt-extension.sh": {
-      "note": "issue #1264 render-time prompt-extension injection wrapper; always exits 0 and emits the three-token PROMPT-EXTENSION-STATUS line, driven by the prompt-extension-reader module over all four input shapes",
+      "note": "issue #1264 render-time prompt-extension injection wrapper; always exits 0 and emits the three-token PROMPT-EXTENSION-STATUS line, driven by the prompt-extension-reader module over every input shape the contract names, including each unestablished cause",
       "owner": "prompt-extension-reader"
     },
     "scripts/request-review-backstop.sh": {

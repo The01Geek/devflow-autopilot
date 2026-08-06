@@ -709,6 +709,38 @@ assert_eq "rpe: no skill name → exit 0" "0" "$RPE_N_RC"
 assert_eq "rpe: no skill name → unestablished naming the missing argument" "yes" \
   "$(case "$RPE_N_OUT" in *'unestablished (no skill name'*) echo yes ;; *) echo no ;; esac)"
 
+# The loader is UNLOCATABLE beside the wrapper — a partial vendor copy, a pruned slice,
+# or a plugin cache that shipped one file of the pair. The wrapper self-anchors on its own
+# path and composes the sibling loader from it, so this is the one `unestablished` cause
+# that no loader exit status can report: with nothing to execute there is no exit status
+# at all. Without this row the whole branch is unexercised, and a regression there is
+# maximally silent — it would surface as the abort-at-zero-turns render the wrapper exists
+# to prevent. The fixture copies the WRAPPER ALONE into an empty directory, so the only
+# property under test is the missing sibling.
+RPE_LONE_DIR="$(mktemp -d)"
+mkdir -p "$RPE_LONE_DIR/bin" "$RPE_LONE_DIR/closure"
+cp "$RPE" "$RPE_LONE_DIR/bin/render-prompt-extension.sh"
+printf 'lone policy line\n' > "$RPE_LONE_DIR/closure/review.md"
+RPE_L_OUT="$(DEVFLOW_PROMPT_EXTENSION_ROOT="$RPE_LONE_DIR/closure" bash "$RPE_LONE_DIR/bin/render-prompt-extension.sh" review 2>/dev/null)"; RPE_L_RC=$?
+assert_eq "rpe: loader missing beside the wrapper → exit 0 (the render is never aborted)" "0" "$RPE_L_RC"
+assert_eq "rpe: loader missing beside the wrapper → unestablished, never present-empty" "yes" \
+  "$(case "$RPE_L_OUT" in 'PROMPT-EXTENSION-STATUS: unestablished ('*) echo yes ;; *) echo no ;; esac)"
+# Attribute the rejection to THIS guard: three other causes also emit `unestablished`, and a
+# bare shape assertion would stay green if the run were refused by, say, the absent-closure
+# guard instead. The reason names the locate failure and the directory it searched.
+assert_eq "rpe: loader missing → the reason names the LOCATE failure, not another unestablished cause" "yes" \
+  "$(case "$RPE_L_OUT" in *"could not locate load-prompt-extension.sh"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "rpe: loader missing → the reason names the directory that was searched" "yes" \
+  "$(case "$RPE_L_OUT" in *"$RPE_LONE_DIR/bin"*) echo yes ;; *) echo no ;; esac)"
+# Positive control on the SAME fixture: the closure and the skill name are otherwise valid,
+# so the run succeeds when the sibling loader IS present. Without it, a closure the wrapper
+# rejected for an unrelated reason would read as a passing locate-guard test.
+cp "$LPE" "$RPE_LONE_DIR/bin/load-prompt-extension.sh"
+RPE_LC_OUT="$(DEVFLOW_PROMPT_EXTENSION_ROOT="$RPE_LONE_DIR/closure" bash "$RPE_LONE_DIR/bin/render-prompt-extension.sh" review 2>/dev/null)"
+assert_eq "rpe: positive control — the same fixture renders content once the sibling loader is restored" \
+  "$(printf 'PROMPT-EXTENSION-STATUS: content-present\n\nlone policy line')" "$RPE_LC_OUT"
+rm -rf "$RPE_LONE_DIR"
+
 rm -rf "$RPE_DIR"
 
 # The render-time placeholder is INVISIBLE to every desk gate that guards an ordinary

@@ -35,7 +35,14 @@
 # subagent. This script gives the orchestrator's own load the counterpart it lacked.
 #
 #   PROMPT-EXTENSION-STATUS: content-present
-#       ...followed by a blank line and the extension's bytes, verbatim.
+#       ...followed by a blank line and the extension's content. Stated precisely,
+#       because the stronger claim would be false: the content is captured with `$(…)`
+#       and re-emitted with a single terminating newline, so it is byte-exact EXCEPT at
+#       the very end — trailing blank lines collapse to one newline, and an extension
+#       consisting only of blank lines therefore renders `present-empty`. Nothing between
+#       the first and last non-blank byte is altered. The whole-file byte-exact path is
+#       load-prompt-extension.sh's, not this wrapper's; prompt text does not depend on
+#       trailing whitespace, which is why the capture is not reworked to preserve it.
 #   PROMPT-EXTENSION-STATUS: present-empty
 #       The loader's single no-op class: the extension file is ABSENT, or present
 #       and empty. Both mean "this consumer configured no instructions", which the
@@ -93,7 +100,13 @@ set -u
 # the local checkout, a vendored consumer install, or a plugin cache. `dirname` is not
 # a tool lib/preflight.sh guarantees, so this uses the dirname-free spelling of the
 # anchor that load-prompt-extension.sh itself uses. `cd`/`pwd` are bash builtins.
-_RPE_SELF_DIR="$(cd "${BASH_SOURCE[0]%/*}" 2>/dev/null && pwd)" || _RPE_SELF_DIR=""
+# BASH_SOURCE is defaulted to `$0`: `set -u` is in force above, and an invocation shape
+# that leaves BASH_SOURCE unset would abort before the first status line — the one thing
+# this script promises never to do. When neither names a directory the `cd` fails, the
+# anchor is empty, and the locate guard below reports `unestablished`: fail closed, with
+# a status line, which is the contract.
+_RPE_SELF="${BASH_SOURCE[0]:-$0}"
+_RPE_SELF_DIR="$(cd "${_RPE_SELF%/*}" 2>/dev/null && pwd)" || _RPE_SELF_DIR=""
 _RPE_LOADER="${_RPE_SELF_DIR}/load-prompt-extension.sh"
 
 # Emit an `unestablished` line and leave. Every reason reaches stdout through here, so
@@ -134,9 +147,6 @@ if [ -n "${DEVFLOW_PROMPT_EXTENSION_ROOT:-}" ] && [ ! -d "${DEVFLOW_PROMPT_EXTEN
     _rpe_unestablished "DEVFLOW_PROMPT_EXTENSION_ROOT names '${DEVFLOW_PROMPT_EXTENSION_ROOT}', which is not a directory; the trusted prompt-extension closure was not established"
 fi
 
-# Run the loader, capturing stdout and stderr separately so a diagnostic can be quoted
-# into the status line without contaminating the extension bytes. `|| _rpe_rc=$?` keeps
-# the failure in hand instead of propagating it.
 # Redirect stderr to a scratch file so a diagnostic can be quoted into the status line
 # without contaminating the extension bytes. The redirect TARGET is parameterized rather
 # than the whole invocation being branched: when mktemp is unavailable the target falls
