@@ -508,6 +508,10 @@
       "note": "",
       "owner": "phase2-durability-checkpoint"
     },
+    "scripts/placeholder-probe-verdict.py": {
+      "note": "issue #1264 render-time placeholder precondition probe verdict helper (SUBSTITUTED_ENV_VISIBLE/SUBSTITUTED_ENV_UNSET/NOT_SUBSTITUTED/INCONCLUSIVE). Pure function over a parsed execution file — asserted inline from lib/test/run.sh (the #1264 block), matching the agents-seam/background-tasks/env-propagation/subagent-write probe-verdict precedents; no `focused_test`, which is what routes a change to it to the full suite rather than to a focused module. The block drives every verdict arm plus two discrimination guards (template-form marker, incidental placeholder-head mention) and a coupling assertion binding the helper's constants to the matcher-probe.yml job and the probe skill body — including that --allowed-tools DOES grant the placeholder's own head, read from the skill body rather than restated, so the grant cannot drift from the command it covers. That assertion is inverted from its original form because limb (c) has since been answered NEGATIVE (run 31058504896 refused the placeholder with `This command requires approval`); with (c) settled, the grant is what makes limbs (a) and (b) reachable at all.",
+      "owner": "unmodularized"
+    },
     "scripts/post-ci-review-trigger.sh": {
       "note": "ci.yml auto-review notification: the bare review-trigger payload contract and the per-SHA post-or-skip arms",
       "owner": "review-trigger-helpers"
@@ -1023,6 +1027,10 @@
     "1261": {
       "note": "empty-branch producer scripts/record-empty-branch.sh: the stall backstop records whether any commit reached a terminated run's remote branch. Driven per outcome (NO_COMMIT / HAS_COMMIT / UNESTABLISHED), plus the best-effort write-failure and idempotency arms, against a real bare-origin git fixture with a stubbed workpad writer; the workflow wiring (producer beside the pure stall-backstop-decide.sh, called only from the two flips, never on the resume path) is asserted from the parsed claude-job Stall backstop step.",
       "owner": "review-stall-backstop"
+    },
+    "1264": {
+      "note": "Inline run.sh assertions driving every VERDICT arm of scripts/placeholder-probe-verdict.py (the issue-1264 render-time placeholder precondition probe), unmodularized like its probe-verdict siblings. Driven: the three real measurements (SUBSTITUTED_ENV_VISIBLE / SUBSTITUTED_ENV_UNSET / NOT_SUBSTITUTED), all six degraded arms resolving INCONCLUSIVE (line-absent, no-marker, missing controls, records-nothing, unparseable, partially-corrupt, absent file), the build negative control, both routing lines a maintainer transcribes into the #1264 thread, and two discrimination guards — the marker in unexpanded template form must not count as a report, and an incidental mention of the placeholder head elsewhere must not forge NOT_SUBSTITUTED. Also driven: the coupling assertion binding the helper's constants to the matcher-probe.yml job env sentinel, the slash-command prompt shape, the probe skill body's markers, and — load-bearing — that the job's --allowed-tools DOES grant the placeholder's own head, read from the skill body so the grant cannot drift from the command it covers. That limb-(c) assertion is inverted from its original form: (c) was answered NEGATIVE by run 31058504896 (`This command requires approval`), and with it settled the grant is the precondition that makes limbs (a) and (b) observable at all. Genuinely undriven: main()'s output formatting beyond the VERDICT and ROUTES TO lines.",
+      "owner": "unmodularized"
     },
     "1267": {
       "note": "",
