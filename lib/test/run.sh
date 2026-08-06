@@ -7214,9 +7214,9 @@ while IFS= read -r _e1354_rel; do
   _e1354_all_heads+="$(python3 "$ECH" heads "$_e1354_ext" 2>/dev/null)"$'\n'
   for _e1354_tier in $_e1354_tiers; do
     _e1354_u="$(_e1354_union_ungranted "$_e1354_ext" "$_e1354_tier" "$CFG1354")"
-    [ -n "$_e1354_u" ] && _e1354_head_report+="$_e1354_bn[$_e1354_tier]: $(printf '%s' "$_e1354_u" | tr '\n' ',')"$'\n'
+    [ -n "$_e1354_u" ] && _e1354_head_report+="${_e1354_bn}[$_e1354_tier]: $(printf '%s' "$_e1354_u" | tr '\n' ',')"$'\n'
     _e1354_s="$(python3 "$ECS1354" --profile "$_e1354_tier" "$_e1354_ext" 2>&1)"
-    [ -n "$_e1354_s" ] && _e1354_shape_report+="$_e1354_bn[$_e1354_tier]: $(printf '%s' "$_e1354_s" | tr '\n' ',')"$'\n'
+    [ -n "$_e1354_s" ] && _e1354_shape_report+="${_e1354_bn}[$_e1354_tier]: $(printf '%s' "$_e1354_s" | tr '\n' ',')"$'\n'
   done
 done <<EOF
 $_e1354_ondisk
