@@ -17181,6 +17181,14 @@ assert_eq "#1174: devflow.yml has 4 vendor-plugin steps (config + gate + command
   "$(grep -c 'uses: \./\.github/actions/vendor-plugin' "$WF/devflow.yml" || true)"
 assert_eq "#1174: the review_finalize job materializes the plugin (a vendor-plugin step in its body)" "yes" \
   "$(awk '/^  review_finalize:/{f=1} f && /uses: \.\/\.github\/actions\/vendor-plugin/{print "yes"; exit}' "$WF/devflow.yml")"
+# AC8: the finalizer mint is opt-in on DEVFLOW_APP_ID, and its GH_TOKEN falls back to
+# the built-in github.token when that variable is unset — the behaviour a consumer who
+# has not configured the App relies on. Pin both halves so a future edit cannot drop the
+# fallback (which would make the finalizer's writes fail for every non-App consumer).
+assert_eq "#1174 AC8: the finalizer token mint is gated on vars.DEVFLOW_APP_ID" "yes" \
+  "$(awk '/id: finalize-token/{f=1} f && /if: \$\{\{ vars.DEVFLOW_APP_ID != .. \}\}/{print "yes"; exit}' "$WF/devflow.yml")"
+assert_eq "#1174 AC8: the finalizer GH_TOKEN falls back to github.token when the App token is empty" "1" \
+  "$(grep -cF 'GH_TOKEN: ${{ steps.finalize-token.outputs.token || github.token }}' "$WF/devflow.yml" || true)"
 
 # Early-ack reaction must stay correctly wired in BOTH gate jobs. These guard
 # the load-bearing properties that the react-to-trigger.sh unit tests above
