@@ -235,9 +235,12 @@ followed by checkbox items (`- [ ]`), each a **single unconditional, testable as
   **The block opens the section and never follows the criteria.** The implementing run mirrors
   this section into its workpad with `scripts/parse-acs.py`, and only checkbox items are
   guaranteed to make that crossing: block prose above the list does not reach the workpad's
-  `## Acceptance Criteria` section at all, while the same prose placed *after* the criteria and
-  indented is welded onto the last criterion and corrupts that row. An instruction the
-  implementer must obey is therefore unenforceable unless it sits inside a checkbox item.
+  `## Acceptance Criteria` section at all, and the same prose placed *after* the criteria loses
+  either way — silently dropped when a blank line separates it (the ordinary markdown shape,
+  since a blank line or a non-indented line closes the preceding item), and welded onto the last
+  criterion's text, corrupting that row, only when it is indented and abuts the list with no
+  blank line. An instruction the implementer must obey is therefore unenforceable unless it sits
+  inside a checkbox item.
   **The issue body stays separately visible to the implementing run**, so a misplaced statement
   is a *gate* defect rather than a lost one — and never a reason to move an enforceable statement
   out of its criterion: the consequence test above, not what the implementer can see, decides
@@ -419,7 +422,9 @@ bullet instead.
   as the override point naming where that repo's conventions actually live; cite sources by path
   when found. The record is a **claim to verify, not an attestation to accept**: the Step 3.6
   auditor re-runs the bounded search itself and flags the line when it finds a governing matrix
-  at a path the line omits.
+  at a path the line omits — **except on Step 3.6's degraded inline arm, where no independent
+  auditor re-runs it and the record is attestation-only**, which that arm's mandatory `degraded`
+  audit-summary marker already signals.
 
   **Move 2a also fires on *introduction*, not only on narrowing.** An issue that introduces a
   **reader of input the repo does not itself produce** — historical records, user- or
