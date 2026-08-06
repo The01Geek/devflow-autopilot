@@ -948,7 +948,9 @@ for _root801 in "$REVIEW_ROOT801" "$IMPL_SKILL415"; do
   rm -f "$_t801s"
 done
 unset _root801 _root801_label _t801s
-assert_eq "#801 grounding block renders the dispatch-barrier sentence" "yes" \
+# Like the two placement checks above, this binds the acknowledgment clause only — a rendered
+# collect requirement reworded or dropped is not covered here.
+assert_eq "#801 grounding block renders the launch-acknowledgment clause" "yes" \
   "$(printf '%s\n' "$GB408_OUT" | grep -qF "$BARRIER_LIT801" && echo yes || echo no)"
 
 # barrier-pointer-coverage — every LISTED dispatch site carries a pointer to its engine root's
