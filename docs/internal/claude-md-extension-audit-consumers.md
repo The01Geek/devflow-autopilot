@@ -70,11 +70,11 @@ Counts `^- **`-shaped bullets within a heading-delimited section of `create-issu
 CLAUDE.md is reached via `$LIB/../CLAUDE.md`, `$WSR_CLAUDE`, `$E711_CLAUDE`, and (in modules) `$CI_CLAUDE = $CI_ROOT/CLAUDE.md`. Each pin below is an exact literal that must survive verbatim in CLAUDE.md.
 
 `lib/test/run.sh`:
-- `#312 item 4: CLAUDE.md matrix gotcha carries the six-shape set (valid-falsy row)` — `$SIXSHAPE_SET` (six-shape valid-falsy matrix set) present in CLAUDE.md's best-effort-parser gotcha.
+- The `#312` six-shape-set assertion on the CLAUDE.md matrix gotcha (its item-4 leg) — `$SIXSHAPE_SET` (six-shape valid-falsy matrix set) present in CLAUDE.md's best-effort-parser gotcha.
 - `#366: CLAUDE.md carve-out bullet mirrors the SKILL rule (coupled half)` — `'is made **directly by the orchestrator**, citing this carve-out and recording it in the workpad, **never** by invoking'`.
 - `#366: CLAUDE.md carve-out bullet carries the same AC4 widening arm (coupled)` — `'whether by a Phase-3 review finding **or by the issue'`.
 - `#506 CLAUDE.md carries the autonomous-run routing sentence` — `'Autonomous \`/devflow:implement\` runs satisfy this mandate differently'` (via `$WSR_CLAUDE`).
-- `#142 CLAUDE.md references the EXTERNAL superpowers:writing-skills authoring convention (not a vendored devflow: id)` and its paired `#142 CLAUDE.md does NOT claim a vendored first-party devflow:writing-skills skill` — `$SP_PAT_WRI_DEV` present AND `'devflow:writing-skills'` absent in CLAUDE.md.
+- The `#142` pair asserting that CLAUDE.md references the EXTERNAL `writing-skills` authoring convention and does NOT claim a vendored first-party one — `$SP_PAT_WRI_DEV` present AND `'devflow:writing-skills'` absent in CLAUDE.md. (Both assertion names spell the external namespaced id verbatim; it is not quoted here because the `#142` bare-namespaced-id sweep does not except `docs/internal/`.)
 - `#711 CLAUDE.md carries the enumeration-source rule` — `'sources its population from an index-reading \`git ls-files\`'` (via `$E711_CLAUDE`; carries `# structural-pin-ok: helper-contract`).
 
 `lib/test/modules/capability-profiles.sh` (targets `$LIB/../CLAUDE.md`):
