@@ -1064,6 +1064,10 @@
       "note": "issue #1338 P3x/P0x/lpe-coverage: the Stage B retrospective-audit subagent brief carries no portable-anchor call site (by-value handoff), added to the no-call-site and by-path-extension sets alongside Stage A",
       "owner": "unmodularized"
     },
+    "1347": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "139": {
       "note": "",
       "owner": "unmodularized"
