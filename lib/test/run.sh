@@ -7131,25 +7131,15 @@ _suite_tmp_dir "$E1354"
 ECS1354="$LIB/test/extract-command-shapes.py"
 CFG1354="$LIB/../.prflow/config.json"
 
-# Per-tier attributes: the baked workflow allowlist (parsed via `tools-line`), the
-# .prflow/config.json `allowed_tools` key whose array unions in (AC2), and the shape
-# profile (== the tier name). The head grant is a UNION of the workflow TOOLS line and the
-# config array: a head is granted-by-union iff granted by EITHER source, so it is
-# ungranted-by-union iff ungranted by BOTH — computed below as the set INTERSECTION of the
-# two per-source `ungranted` reports. This union is load-bearing: the six live fences invoke
-# lib/test/regenerate-artifacts.py, whose grant exists ONLY in .prflow/config.json (both
-# allowed_tools arrays), never in a baked workflow literal — a workflow-only check would go
-# RED on a correctly-granted call site.
-_e1354_wf() { case "$1" in
-  implement) printf '%s' "$LIB/../.github/workflows/devflow-implement.yml" ;;
-  command)   printf '%s' "$LIB/../.github/workflows/devflow.yml" ;;
-  review)    printf '%s' "$LIB/../.github/workflows/devflow-runner.yml" ;;
-esac ; }
-_e1354_cfgkey() { case "$1" in
-  implement) printf '%s' ".prflow_implement.allowed_tools" ;;
-  command)   printf '%s' ".prflow.allowed_tools" ;;
-  review)    printf '%s' ".prflow_runner.allowed_tools" ;;
-esac ; }
+# The head grant is a UNION of the tier's baked workflow allowlist (parsed via `tools-line`)
+# and its .prflow/config.json `allowed_tools` array (AC2): a head is granted-by-union iff
+# granted by EITHER source, so it is ungranted-by-union iff ungranted by BOTH — computed in
+# _e1354_union_ungranted below as the set INTERSECTION of the two per-source `ungranted`
+# reports (each tier's workflow+config row is co-located in that function's `case`). This
+# union is load-bearing: the six live fences invoke lib/test/regenerate-artifacts.py, whose
+# grant exists ONLY in .prflow/config.json (both allowed_tools arrays), never in a baked
+# workflow literal — a workflow-only check would go RED on a correctly-granted call site. The
+# shape profile is just the tier name (extract-command-shapes.py --profile implement|command|review).
 
 # The extension→tier mapping — the SINGLE enumerated table (AC4), reconciled against the
 # on-disk set BOTH ways below. Every live tracked .prflow/prompt-extensions/*.md file has
@@ -7176,9 +7166,13 @@ docs-sync-internal.md:command"
 # failure is never read as "all granted".
 _e1354_union_ungranted() {  # <ext-file> <tier> <config-json>
   local ext="$1" tier="$2" cfgjson="$3" wf cfgkey a b
-  local cfgspecs="$E1354/cfgspecs" fa="$E1354/ua" fb="$E1354/ub"
-  wf="$(_e1354_wf "$tier")"
-  cfgkey="$(_e1354_cfgkey "$tier")"
+  local cfgspecs="$E1354/cfgspecs"
+  # One `case` per tier keeps its (workflow allowlist, config key) row co-located.
+  case "$tier" in
+    implement) wf="$LIB/../.github/workflows/devflow-implement.yml"; cfgkey=".prflow_implement.allowed_tools" ;;
+    command)   wf="$LIB/../.github/workflows/devflow.yml";           cfgkey=".prflow.allowed_tools" ;;
+    review)    wf="$LIB/../.github/workflows/devflow-runner.yml";     cfgkey=".prflow_runner.allowed_tools" ;;
+  esac
   # (KEY // []) so an absent/null array yields an empty allowlist, never a jq error.
   jq -r "( ${cfgkey} // [] )[]" "$cfgjson" > "$cfgspecs" 2>/dev/null || : > "$cfgspecs"
   if ! a="$(python3 "$ECH" ungranted "$ext" "$wf" tools-line 2>/dev/null)"; then
@@ -7186,13 +7180,12 @@ _e1354_union_ungranted() {  # <ext-file> <tier> <config-json>
   fi
   # Default mode over the isolated config array (no `tools-line`): every Bash(spec:*) rule
   # in the extracted array grants. The array holds only that tier's specs (a single jq key),
-  # so the whole-file default mode reads no unrelated grant.
+  # so the whole-file default mode reads no unrelated grant. A head is ungranted-by-union
+  # iff ungranted by BOTH sources — the comm -12 intersection of the two `ungranted` reports.
   if ! b="$(python3 "$ECH" ungranted "$ext" "$cfgspecs" 2>/dev/null)"; then
     printf '%s\n' '__extractor_error__'; return 0
   fi
-  printf '%s\n' "$a" | sed '/^$/d' | sort -u > "$fa"
-  printf '%s\n' "$b" | sed '/^$/d' | sort -u > "$fb"
-  comm -12 "$fa" "$fb"
+  comm -12 <(printf '%s\n' "$a" | sed '/^$/d' | sort -u) <(printf '%s\n' "$b" | sed '/^$/d' | sort -u)
 }
 
 # On-disk population (AC6): the git INDEX via `git ls-files`, NO --others, so a sibling
