@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1361",
+  "generated_at": "2026-08-06T09:18:32Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.14",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.104883249999999,
+    "tokens": {
+      "input_tokens": 1642,
+      "output_tokens": 11139,
+      "cache_read_input_tokens": 1816701,
+      "cache_creation_input_tokens": 133263,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 1693,
+        "outputTokens": 29370,
+        "cacheReadInputTokens": 3720589,
+        "cacheCreationInputTokens": 320342,
+        "webSearchRequests": 0,
+        "costUSD": 5.104883249999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 19,
+    "duration_ms": 330569
+  },
+  "permission_denials": {
+    "count": 12,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "gh pr diff 1361 > .prflow/tmp/pr1361.diff 2>&1; wc -l .prflow/tmp/pr1361.diff; echo \"---FILES---\"; gh pr diff 1361 --name-only",
+      "ls /home/runner/work/prflow/prflow/.changeset/*.md 2>/dev/null | grep -v README | head; echo \"=== existing changeset sample ===\"; for f in $(ls /home/runner/work/prflow/prflow/.changeset/*.md 2>/dev/null | grep -v README | head -2); do echo \"--- $f\"; sed -n '1,5p' \"$f\"; done",
+      "cd /tmp\ngit -C /home/runner/work/prflow/prflow show f2cfd5b0a~1:skills/implement/phases/phase-4-documentation.md > before.md\ngit -C /home/runner/work/prflow/prflow show f2cfd5b0a:skills/implement/phases/phase-4-documentation.md > after.md\npython3 - <<'PY'\nimport re\ndef fence_noncomment(path):\n    lines=open(path).read().split('\\n')\n    out=[]; infence=False\n    for l in lines:\n        if l.strip().startswith('```'):\n            infence=not infence; continue\n        if infence:\n            s=l.st …[per-command-truncated]",
+      "git -C /home/runner/work/prflow/prflow show f2cfd5b0a~1:skills/implement/phases/phase-4-documentation.md > /tmp/before.md\ngit -C /home/runner/work/prflow/prflow show f2cfd5b0a:skills/implement/phases/phase-4-documentation.md > /tmp/after.md\npython3 - <<'PY'\ndef fence_noncomment(path):\n    lines=open(path).read().split('\\n')\n    out=[]; infence=False\n    for l in lines:\n        if l.strip().startswith('```'):\n            infence=not infence; continue\n        if infence:\n            s=l.strip()\n   …[per-command-truncated]",
+      "git show f2cfd5b0a~1:skills/implement/phases/phase-4-documentation.md > /tmp/before.md; git show f2cfd5b0a:skills/implement/phases/phase-4-documentation.md > /tmp/after.md; echo done",
+      "git show f2cfd5b0a~1:skills/implement/phases/phase-4-documentation.md > /tmp/before.md",
+      "git show f2cfd5b0a:skills/implement/phases/phase-4-documentation.md > /tmp/after.md",
+      "git show f2cfd5b0a~1:skills/implement/phases/phase-4-documentation.md > /home/runner/work/prflow/prflow/.before.md",
+      "git show f2cfd5b0a:skills/implement/phases/phase-4-documentation.md > /home/runner/work/prflow/prflow/.after.md",
+      "cd /home/runner/work/prflow/prflow 2>/dev/null; git grep -n -E '107371|byte ceiling|Raising the phase-4' -- 'lib/**' 'skills/**' 'CONTRIBUTING.md' 'CLAUDE.md' 2>/dev/null | head; echo \"---help---\"; scripts/post-review-verdict.sh --help 2>&1 | head -40",
+      "scripts/post-review-verdict.sh 1361 APPROVE .prflow/tmp/review-1361-body.md 40851bf94df8b066ce96211d1596d216cae9e60f 2>&1; echo \"post-rc=$?\"",
+      "scripts/post-review-verdict.sh 1361 APPROVE .prflow/tmp/review-1361-body.md 40851bf94df8b066ce96211d1596d216cae9e60f"
+    ],
+    "total": 12,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
