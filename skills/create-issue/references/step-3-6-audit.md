@@ -386,7 +386,7 @@ While **any** holds, **offer one more audit round via the runner's user-question
 - On **"no"** — an **explicit decline** through the question tool, or one of **Step 2's three explicit disengagement replies** — record it with `record-override --kind user-decline --surface t1t2-boundary` and proceed to Step 4 with surviving findings quoted verbatim.
 - When the tool refuses the offer because the ceiling is reached, record `record-override --kind cap-reached` and proceed; the summary line names the ceiling.
 - A **silent non-response** follows the existing Step 2 silent-non-response rule: **pause and re-ask in the final chat message; never dispatch and never proceed on silence.**
-- When none of the offer's grounds holds — no T1, no T2, and no `unledgered_revise` round warranting one — proceed to Step 4 with no offer.
+- When none of the offer's grounds holds — no trigger component at `hold` (`t1=`, `t2=`, `coverage=`, `calibration=`) and no `unledgered_revise` round warranting one — proceed to Step 4 with no offer.
 
 On a **file-arm epoch**, every `record-override` call additionally passes `--draft-file "<absolute issue-draft-<slug>.md path>"` so the override is **digest-bound** to the bytes it was recorded over — a digest-unbound override survives byte changes until the next revision record; on **embed/inline epochs** omit the flag, there being no trustworthy file to bind to.
 
