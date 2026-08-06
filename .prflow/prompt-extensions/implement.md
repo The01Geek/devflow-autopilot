@@ -205,9 +205,9 @@ concurrently **only** where `CLAUDE.md`'s convention on committing before dispat
 been established as satisfied; anywhere it has not, that convention's own degraded arms govern the
 dispatch instead of this permission, and are deliberately not restated here — a concurrent dispatch
 made outside the established condition can lose the orchestrator's uncommitted work. Those
-concurrent dispatches are bound by the rule beginning *"Every dispatched subagent's completed result
-is in hand before you proceed past the dispatch point"* in the *Cloud headless-wait discipline* block
-in `skills/implement/SKILL.md` — the requirement lives there and is deliberately not restated here.
+concurrent dispatches are bound by the rule governing when a dispatched subagent's result must be in
+hand, stated in the *Cloud headless-wait discipline* block in `skills/implement/SKILL.md` — read the
+requirement there; it lives there and is deliberately not restated here.
 
 **A coupled set is one helper's work.** Trigger-glob files that must change together are one unit of
 work dispatched to a single helper. Which files those are is stated by the files themselves, in the
