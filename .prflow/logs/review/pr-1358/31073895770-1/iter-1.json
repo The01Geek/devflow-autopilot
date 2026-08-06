@@ -1,0 +1,145 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-06T00:00:00Z",
+  "fix_commit_sha": "92a896315",
+  "fix_files": [
+    "lib/test/test_python_scripts.py"
+  ],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:type-design-analyzer",
+    "prflow:pr-test-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "_REQUIRED_ARTIFACTS unenforced record schema; consider NamedTuple",
+      "defect_signature": {
+        "file": "scripts/workpad.py",
+        "line_range": [
+          3479,
+          3506
+        ],
+        "kind": "unenforced-record-schema"
+      },
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "prflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "empty accept_keys on a future member wedges every Complete (vacuous guard)",
+      "defect_signature": {
+        "file": "scripts/workpad.py",
+        "line_range": [
+          3402,
+          3414
+        ],
+        "kind": "vacuous-guard-on-empty-operand"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "no CLI-subprocess negative test for the missing-artifact refusal (redundant with _drive_cmd_update)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          5646,
+          5704
+        ],
+        "kind": "missing-negative-path-at-cli-boundary"
+      },
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "AC13 forward-skew is a proxy (cannot import a deleted old workpad.py)",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": [
+          9146,
+          9152
+        ],
+        "kind": "version-skew-tested-via-proxy"
+      },
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "92a896315"
+    },
+    {
+      "finding_id": "F-1",
+      "decision": "advisory",
+      "skip_category": "advisory-parked",
+      "evidence": "reviewer said optional, do not sweep — the file has no other NamedTuple; a single-member set does not warrant introducing the first one"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "advisory",
+      "skip_category": "out-of-scope",
+      "evidence": "redundant with the _drive_cmd_update process-level coverage; not a real hole"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "advisory",
+      "skip_category": "advisory-parked",
+      "evidence": "inherent limitation — a deleted prior version cannot be imported; the proxy assertion is honest and disclosed in-comment"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 8,
+    "new_corroborated_critical_count": 0
+  },
+  "shadow": {
+    "ran_at": "2026-08-06T00:00:00Z",
+    "reviewed_sha": "92a89631530611c26c508cd5bd432d537c844b77",
+    "verdict": "APPROVE",
+    "coverage": "not_verified",
+    "prompt_addenda": "provenance-clean",
+    "reviewers_dispatched": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:pr-test-analyzer"
+    ],
+    "expected_reviewers": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:comment-analyzer",
+      "prflow:type-design-analyzer",
+      "prflow:pr-test-analyzer"
+    ],
+    "reason": "focused correctness-critical shadow roster (3 of 5 applicable) — comment-analyzer and type-design-analyzer returned clean/advisory-only in the first pass; recorded not_verified rather than overclaiming full",
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "synthesized": false,
+  "telemetry": "unavailable"
+}
