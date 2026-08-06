@@ -233,14 +233,14 @@ followed by checkbox items (`- [ ]`), each a **single unconditional, testable as
   reports is unchanged") *is* a post-change fact about the diff's boundary, and it is written
   that way rather than avoided. The permission is this shape and this shape only; a criterion
   naming the edit the change must *make* stays out of scope for it.
-- **Supporting apparatus the drafter and the audit step read is stated once in the grounding
-  block; a statement stated inside a criterion rather than once in the block is misplaced the
-  same way.** The block carries the section's shared framing: which grounding rules the drafter
-  has already discharged for the whole set, and any statement that exists so the audit can check
-  the section rather than so the implementer can act. Keeping it out of the criteria is what
-  stops a rule from expanding every criterion it touches into a paragraph.
-  **The sorting test is consequence, not readership: a statement belongs in the block only if
-  deleting it changes no criterion's truth value.** Anything that narrows, bounds, quantifies,
+- **A statement belongs in the grounding block only if deleting it changes no criterion's truth
+  value — the sorting test is consequence, not readership.** Under that test the block carries
+  the section's shared framing: which grounding rules the drafter has already discharged for the
+  whole set, and any statement that exists so the audit can check the section rather than so the
+  implementer can act. Stating such framing once there, rather than inside each criterion, is
+  what stops a rule from expanding every criterion it touches into a paragraph; a statement that
+  passes the test but sits inside a criterion is misplaced too, just far more cheaply.
+  Anything that narrows, bounds, quantifies,
   defines a term used by, or names a verification route for a criterion is *part of* that
   criterion and is written inside it, however much that repeats across criteria — repetition is
   the correct cost here. A quantitative criterion's measurement instrument, an enumeration's
@@ -265,8 +265,12 @@ followed by checkbox items (`- [ ]`), each a **single unconditional, testable as
   above, not what the implementer can see, is what decides placement.
   The block is scanned by Step 3's unresolved-decision gate exactly like any other prose, so it
   carries no choice, hedge, or deferral language and needs no carve-out of its own — write its
-  definitional prose in stated form ("a floor, marked `at minimum`", "a closed set") rather than
-  as a disjunction, so shared framing never reads as an unresolved fork.
+  prose in stated form ("the value-comparison rule is discharged for the whole set below", "the
+  prerequisites are the three issues named in Technical Context") rather than as a disjunction,
+  so shared framing never reads as an unresolved fork. Note which examples those are *not*: a
+  floor marker or a closed-set exhaustiveness statement belongs to its own criterion's
+  enumeration under the consequence test above, so it is never hoisted into the block to make
+  its phrasing easier.
 - **Supplied criteria are challenged, never accepted at face value.** When the user's story
   arrives with its own acceptance-criteria list, that list is *suspect input*, not a finished
   section. Vet each item for **correctness** (is it atomic, testable, and a genuinely resolved
