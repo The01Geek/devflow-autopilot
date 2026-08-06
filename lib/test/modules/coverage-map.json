@@ -541,6 +541,11 @@
       "note": "issue #805 PreToolUse command-shape guard",
       "owner": "unmodularized"
     },
+    "scripts/prompt-surface-growth.py": {
+      "focused_test": "lib/test/test_python_scripts.py",
+      "note": "issue #1350 static prompt-surface byte-delta table rendered into the PR description by .prflow/prompt-extensions/pr-description.md; driven end-to-end over committed git fixtures (added/deleted/new covered file, out-of-population change, unresolvable merge-base, HEAD == merge-base, agents-only change, multi-file aggregate)",
+      "owner": "unmodularized"
+    },
     "scripts/provision-auto-mode.sh": {
       "note": "",
       "owner": "unmodularized"

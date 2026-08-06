@@ -18,6 +18,8 @@ precondition.
 
 Template: [Keeping prompt prose lean](implement.md#keeping-prompt-prose-lean-advisory).
 
+When a review finding on prompt-surface prose would be answered by adding text, prefer **rewording the existing sentence** over appending a new one. If the finding is that a rule could be misread, fix the rule's wording. Append only when the finding identifies a genuinely missing instruction or consequence.
+
 ## Wording-only pin review policy
 
 A wording-only pin is a test whose protected literal can change without changing executable

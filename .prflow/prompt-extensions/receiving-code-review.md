@@ -6,6 +6,8 @@ skill's technical-rigor discipline (verify before implementing, push back when w
 stands unchanged; this extension adds one repo-specific VERIFY step that a prior run
 got wrong on PR #190.
 
+When a review finding on prompt-surface prose would be answered by adding text, prefer **rewording the existing sentence** over appending a new one. If the finding is that a rule could be misread, fix the rule's wording. Append only when the finding identifies a genuinely missing instruction or consequence.
+
 ## Re-read the live issue spec — including any Addendum — before triaging findings
 
 This repo-specific step **sharpens** the base skill's Reception Preflight linked-issue fact (fact 6, which re-reads each linked issue body in this run as triage data): the preflight establishes the generic re-read, and this extension layers the Addendum/supersession discipline on top of it. The two do not conflict — the preflight gathers the current issue body as data, and this rule governs how an Addendum within that body is weighed.

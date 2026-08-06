@@ -354,6 +354,8 @@ state for a clean run, precisely so you never have to.
 
 ## Keeping prompt prose lean (advisory)
 
+Prompt-surface prose carries an instruction and its consequence; rationale for why the rule exists belongs in the review record, not in the prompt.
+
 Prefer moving rare-path detail and long explanations into progressively loaded references
 rather than growing mandatory prompt prose; when a tested helper owns a decision, let the
 skill point at it instead of restating the branch logic. Keep the mandatory path lean. This
