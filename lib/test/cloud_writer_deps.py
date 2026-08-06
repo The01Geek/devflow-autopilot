@@ -209,6 +209,18 @@ EXEC_EDGES = {
         ExecSpec("git", _EXT),
         ExecSpec("cat", _EXT, _PROFILE_GRANT),
     ],
+    # render-prompt-extension.sh self-anchors to run the sibling loader
+    # (a repo-owned exec edge), and uses mktemp/rm to capture the loader's stderr
+    # into a scratch file it quotes into the status line. printf/cd/pwd/test and
+    # its `$(<file)` read are bash builtins that start no process, so they are not
+    # exec edges. mktemp/rm are not preflight guarantees, so they carry the
+    # profile-grant marker (authorized transitively through the wrapper's own
+    # vendored-head grant).
+    "scripts/render-prompt-extension.sh": [
+        ExecSpec("scripts/load-prompt-extension.sh", _REPO),
+        ExecSpec("mktemp", _EXT, _PROFILE_GRANT),
+        ExecSpec("rm", _EXT, _PROFILE_GRANT),
+    ],
     "scripts/react-to-trigger.sh": [
         ExecSpec("dirname", _EXT, _PROFILE_GRANT),
         ExecSpec("gh", _EXT),
