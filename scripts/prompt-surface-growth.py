@@ -88,12 +88,18 @@ def default_branch_refs():
 
 
 def resolve_merge_base():
-    """(merge_base_sha, ref) for the first candidate that resolves, else (None, None)."""
-    for ref in default_branch_refs():
+    """(merge_base_sha, ref, tried) — `tried` is the candidate list, resolved or not.
+
+    The candidates come back even on the failure path so the caller can name them in
+    its breadcrumb without re-deriving them, which would re-spawn the `symbolic-ref`
+    probe purely to reformat data this call already has.
+    """
+    tried = default_branch_refs()
+    for ref in tried:
         rc, out = _git(["merge-base", "HEAD", ref])
         if rc == 0 and out.strip():
-            return out.strip(), ref
-    return None, None
+            return out.strip(), ref, tried
+    return None, None, tried
 
 
 def surface_at(ref):
@@ -164,7 +170,7 @@ def render(head_sha, base_sha, ref, rows, surface_delta, surface_total):
     return lines
 
 
-def main(argv=None):
+def main():
     rc, head_out = _git(["rev-parse", "HEAD"])
     if rc != 0 or not head_out.strip():
         print(
@@ -174,12 +180,12 @@ def main(argv=None):
         return 0
     head_sha = head_out.strip()
 
-    base_sha, ref = resolve_merge_base()
+    base_sha, ref, tried = resolve_merge_base()
     if base_sha is None:
-        tried = ", ".join(f"`{r}`" for r in default_branch_refs())
         print(
-            "prompt-surface growth: the merge-base could not be resolved "
-            f"(tried {tried}) — no table rendered."
+            "prompt-surface growth: the merge-base could not be resolved (tried "
+            + ", ".join(f"`{r}`" for r in tried)
+            + ") — no table rendered."
         )
         return 0
 
@@ -214,8 +220,15 @@ def main(argv=None):
         )
         return 0
 
+    # The aggregate delta is the sum of the rows above it — an unchanged file
+    # contributes nothing, so summing the rows and differencing the two endpoint
+    # totals give the same number, and taking it from the rows makes the identity
+    # structural rather than a coincidence a reader has to re-derive. The aggregate
+    # TOTAL is deliberately the whole covered surface at HEAD, not the changed rows'
+    # subtotal: the running total of the surface is what keeps a repeated delta
+    # meaningful, which is this table's entire reason for existing.
+    surface_delta = sum(delta for _, delta, _ in rows)
     surface_total = sum(size for _, size in head_surface.values())
-    surface_delta = surface_total - sum(size for _, size in base_surface.values())
     print(
         "\n".join(
             render(head_sha, base_sha, ref, rows, surface_delta, surface_total)
@@ -225,4 +238,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())

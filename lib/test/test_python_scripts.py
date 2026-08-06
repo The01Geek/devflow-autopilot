@@ -25082,12 +25082,18 @@ def _psg_base1350(root):
     _psg_git1350(root, 'commit', '-qm', 'base')
 
 
-def _psg_branch1350(root, mutate):
-    """Cut a feature branch off `main`, apply `mutate`, commit, and run the helper."""
-    _psg_git1350(root, 'checkout', '-q', '-b', 'feature')
+def _psg_branch1350(root, name, mutate):
+    """Return to `main`, cut branch `name` off it, apply `mutate`, commit, run the helper.
+
+    Returning to `main` first is what lets every scenario below share ONE baseline
+    repo: each branches from the same commit, so the baseline's five files and its
+    `git init`/`config`/`add`/`commit` are paid once rather than once per scenario.
+    """
+    _psg_git1350(root, 'checkout', '-q', 'main')
+    _psg_git1350(root, 'checkout', '-q', '-b', name)
     mutate(root)
     _psg_git1350(root, 'add', '-A')
-    _psg_git1350(root, 'commit', '-qm', 'feature')
+    _psg_git1350(root, 'commit', '-qm', name)
     return _psg_run1350(root)
 
 
@@ -25097,14 +25103,27 @@ def _psg_rows1350(out):
             if ln.startswith('|') and '---' not in ln and 'Δ bytes' not in ln]
 
 
-# ── AC1 / T1: bytes added to one covered file ─────────────────────────────────────────
-with tempfile.TemporaryDirectory(prefix='psg1350a-') as _R1350a:
-    _psg_base1350(_R1350a)
+# One baseline repo serves every scenario that branches off it: each `_psg_branch1350`
+# call returns to `main` and cuts its own branch, so the baseline's `git init`/`config`/
+# `add`/`commit` is paid once here instead of once per scenario. Only the unresolvable-
+# merge-base case below needs a repo of its own, because its whole point is a repository
+# whose `main` does not exist.
+with tempfile.TemporaryDirectory(prefix='psg1350-') as _R1350:
+    _psg_base1350(_R1350)
 
+    # ── AC1a(i): HEAD is the merge-base (the checkout-pinned-to-default-branch case) ──
+    # Runs first, while the checkout is still sitting on the baseline commit.
+    _rc1350e, _out1350e = _psg_run1350(_R1350)
+    assert_eq("#1350 a checkout sitting on the merge-base exits 0", 0, _rc1350e)
+    assert_eq("#1350 HEAD == merge-base prints its own stated breadcrumb and no table",
+              [True, False],
+              ['is the merge-base with' in _out1350e, '| ---' in _out1350e])
+
+    # ── AC1 / T1: bytes added to one covered file ────────────────────────────────────
     def _psg_mut_add1350(root):
         _psg_write1350(root, 'skills/alpha/SKILL.md', 'alpha\nmore\n')       # 6 -> 11
 
-    _rc1350a, _out1350a = _psg_branch1350(_R1350a, _psg_mut_add1350)
+    _rc1350a, _out1350a = _psg_branch1350(_R1350, 'grow', _psg_mut_add1350)
     assert_eq("#1350 a covered file gaining bytes exits 0", 0, _rc1350a)
     assert_eq("#1350 the growth table renders its own section heading",
               True, _out1350a.startswith('### Prompt-surface size'))
@@ -25113,19 +25132,16 @@ with tempfile.TemporaryDirectory(prefix='psg1350a-') as _R1350a:
               ['| `skills/alpha/SKILL.md` | +5 | 11 |',
                '| **Whole covered surface** | **+5** | **22** |'],
               _psg_rows1350(_out1350a))
-    _head1350a = _psg_git1350(_R1350a, 'rev-parse', 'HEAD').stdout.strip()
+    _head1350a = _psg_git1350(_R1350, 'rev-parse', 'HEAD').stdout.strip()
     assert_eq("#1350 the output carries the HEAD sha it was derived at, so a later "
               "commit makes the figure visibly self-dating rather than silently stale",
               True, _head1350a in _out1350a)
 
-# ── AC1 / T1: a covered file the branch DELETES renders 0 total and a negative delta ───
-with tempfile.TemporaryDirectory(prefix='psg1350b-') as _R1350b:
-    _psg_base1350(_R1350b)
-
+    # ── AC1 / T1: a covered file the branch DELETES ──────────────────────────────────
     def _psg_mut_del1350(root):
         (Path(root) / 'agents' / 'beta.md').unlink()
 
-    _rc1350b, _out1350b = _psg_branch1350(_R1350b, _psg_mut_del1350)
+    _rc1350b, _out1350b = _psg_branch1350(_R1350, 'drop', _psg_mut_del1350)
     assert_eq("#1350 a deleted covered file exits 0", 0, _rc1350b)
     assert_eq("#1350 a covered file the branch deletes renders a row with total 0 and a "
               "negative delta (enumeration is from the index at EITHER endpoint)",
@@ -25133,29 +25149,23 @@ with tempfile.TemporaryDirectory(prefix='psg1350b-') as _R1350b:
                '| **Whole covered surface** | **-5** | **12** |'],
               _psg_rows1350(_out1350b))
 
-# ── AC1 / T1: a NEW covered file the branch adds ──────────────────────────────────────
-with tempfile.TemporaryDirectory(prefix='psg1350c-') as _R1350c:
-    _psg_base1350(_R1350c)
-
+    # ── AC1 / T1: a NEW covered file the branch adds ─────────────────────────────────
     def _psg_mut_new1350(root):
         _psg_write1350(root, 'skills/omega/SKILL.md', 'om\n')                # new, 3
 
-    _rc1350c, _out1350c = _psg_branch1350(_R1350c, _psg_mut_new1350)
+    _rc1350c, _out1350c = _psg_branch1350(_R1350, 'birth', _psg_mut_new1350)
     assert_eq("#1350 a newly added covered file exits 0", 0, _rc1350c)
     assert_eq("#1350 a newly added covered file renders its full size as the delta",
               ['| `skills/omega/SKILL.md` | +3 | 3 |',
                '| **Whole covered surface** | **+3** | **20** |'],
               _psg_rows1350(_out1350c))
 
-# ── AC1a(ii) / T2 / AC2: a branch touching only paths outside the covered population ──
-with tempfile.TemporaryDirectory(prefix='psg1350d-') as _R1350d:
-    _psg_base1350(_R1350d)
-
+    # ── AC1a(ii) / T2 / AC2: a branch touching only paths OUTSIDE the population ──────
     def _psg_mut_outside1350(root):
         _psg_write1350(root, 'docs/outside.md', 'outside\nchanged\n')
         _psg_write1350(root, 'skills/delta/SKILL.md.example', 'ex\nchanged\n')
 
-    _rc1350d, _out1350d = _psg_branch1350(_R1350d, _psg_mut_outside1350)
+    _rc1350d, _out1350d = _psg_branch1350(_R1350, 'outside', _psg_mut_outside1350)
     assert_eq("#1350 a branch touching no covered path still exits 0", 0, _rc1350d)
     assert_eq("#1350 a tracked .md outside the covered prefixes, and a .md.example "
               "inside one, are BOTH absent from the output (AC2's population test)",
@@ -25166,14 +25176,37 @@ with tempfile.TemporaryDirectory(prefix='psg1350d-') as _R1350d:
               [True, False],
               ['no tracked `*.md`' in _out1350d, '| ---' in _out1350d])
 
-# ── AC1a(i): HEAD is the merge-base (the checkout-pinned-to-default-branch case) ───────
-with tempfile.TemporaryDirectory(prefix='psg1350e-') as _R1350e:
-    _psg_base1350(_R1350e)
-    _rc1350e, _out1350e = _psg_run1350(_R1350e)
-    assert_eq("#1350 a checkout sitting on the merge-base exits 0", 0, _rc1350e)
-    assert_eq("#1350 HEAD == merge-base prints its own stated breadcrumb and no table",
-              [True, False],
-              ['is the merge-base with' in _out1350e, '| ---' in _out1350e])
+    # ── T5: the third covered prefix is exercised, not merely declared ───────────────
+    def _psg_mut_agents1350(root):
+        _psg_write1350(root, 'agents/beta.md', 'beta\nx\n')                  # 5 -> 7
+
+    _rc1350g, _out1350g = _psg_branch1350(_R1350, 'agentsonly', _psg_mut_agents1350)
+    assert_eq("#1350 an agents/*.md-only change produces a row (agents/** is inside the "
+              "covered population, not beside it)",
+              (0, ['| `agents/beta.md` | +2 | 7 |',
+                   '| **Whole covered surface** | **+2** | **19** |']),
+              (_rc1350g, _psg_rows1350(_out1350g)))
+
+    # ── T7: the aggregate is derived from the per-file figures it summarises ─────────
+    def _psg_mut_multi1350(root):
+        _psg_write1350(root, 'skills/alpha/SKILL.md', 'alpha\nmore\n')       # +5
+        _psg_write1350(root, '.prflow/prompt-extensions/gamma.md', 'gamma\nyz\n')  # +3
+
+    _rc1350h, _out1350h = _psg_branch1350(_R1350, 'multi', _psg_mut_multi1350)
+    _rows1350h = _psg_rows1350(_out1350h)
+    assert_eq("#1350 a multi-file change renders one row per changed covered file plus "
+              "the aggregate",
+              (0, 3), (_rc1350h, len(_rows1350h)))
+    # The aggregate DELTA equals the sum of the per-file deltas (+5 +3). Its TOTAL is
+    # deliberately the WHOLE covered surface at HEAD (25), not the sum of the changed
+    # rows (20) — AC1 asks for the running total of the surface, which is the figure
+    # that keeps a repeated delta meaningful.
+    assert_eq("#1350 the aggregate row sums the per-file deltas and carries the WHOLE "
+              "covered surface's total at HEAD, not the changed rows' subtotal",
+              ['| `.prflow/prompt-extensions/gamma.md` | +3 | 9 |',
+               '| `skills/alpha/SKILL.md` | +5 | 11 |',
+               '| **Whole covered surface** | **+8** | **25** |'],
+              _rows1350h)
 
 # ── AC5 / T3: an unresolvable merge-base is a breadcrumb, never a silent empty table ───
 with tempfile.TemporaryDirectory(prefix='psg1350f-') as _R1350f:
@@ -25194,44 +25227,6 @@ with tempfile.TemporaryDirectory(prefix='psg1350f-') as _R1350f:
               ['merge-base could not be resolved' in _out1350f,
                '`main`' in _out1350f,
                '| ---' in _out1350f])
-
-# ── T5: the third covered prefix is exercised, not merely declared ────────────────────
-with tempfile.TemporaryDirectory(prefix='psg1350g-') as _R1350g:
-    _psg_base1350(_R1350g)
-
-    def _psg_mut_agents1350(root):
-        _psg_write1350(root, 'agents/beta.md', 'beta\nx\n')                  # 5 -> 7
-
-    _rc1350g, _out1350g = _psg_branch1350(_R1350g, _psg_mut_agents1350)
-    assert_eq("#1350 an agents/*.md-only change produces a row (agents/** is inside the "
-              "covered population, not beside it)",
-              (0, ['| `agents/beta.md` | +2 | 7 |',
-                   '| **Whole covered surface** | **+2** | **19** |']),
-              (_rc1350g, _psg_rows1350(_out1350g)))
-
-# ── T7: the aggregate delta is derived from the same per-file figures it summarises ────
-with tempfile.TemporaryDirectory(prefix='psg1350h-') as _R1350h:
-    _psg_base1350(_R1350h)
-
-    def _psg_mut_multi1350(root):
-        _psg_write1350(root, 'skills/alpha/SKILL.md', 'alpha\nmore\n')       # +5
-        _psg_write1350(root, '.prflow/prompt-extensions/gamma.md', 'gamma\nyz\n')  # +3
-
-    _rc1350h, _out1350h = _psg_branch1350(_R1350h, _psg_mut_multi1350)
-    _rows1350h = _psg_rows1350(_out1350h)
-    assert_eq("#1350 a multi-file change renders one row per changed covered file plus "
-              "the aggregate",
-              (0, 3), (_rc1350h, len(_rows1350h)))
-    # The aggregate DELTA equals the sum of the per-file deltas (+5 +3). Its TOTAL is
-    # deliberately the WHOLE covered surface at HEAD (25), not the sum of the changed
-    # rows (20) — AC1 asks for the running total of the surface, which is the figure
-    # that keeps a repeated delta meaningful.
-    assert_eq("#1350 the aggregate row sums the per-file deltas and carries the WHOLE "
-              "covered surface's total at HEAD, not the changed rows' subtotal",
-              ['| `.prflow/prompt-extensions/gamma.md` | +3 | 9 |',
-               '| `skills/alpha/SKILL.md` | +5 | 11 |',
-               '| **Whole covered surface** | **+8** | **25** |'],
-              _rows1350h)
 
 
 print()
