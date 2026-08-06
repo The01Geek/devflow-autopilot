@@ -3452,6 +3452,14 @@ def _repair_missing_progress_section(body: str) -> str:
     # `_plan_checkpoints`' own count check and fails closed there.
     if _find_section(sections, 'Progress') is not None:
         return body
+    # Announce the structural self-heal. A repair rewrites a human-visible GitHub
+    # artifact, so a maintainer reading the workpad later must be able to tell a
+    # re-created section from one that was always there; every sibling degrade in
+    # this file breadcrumbs to stderr for the same reason.
+    sys.stderr.write(
+        "workpad.py update: '## Progress' was absent; re-created it at the head of "
+        "the section list so the checkpoint could be recorded (issue #1347 repair)\n"
+    )
     return _join_sections(
         preamble, _insert_section_at_head(sections, '## Progress', ''),
     )
@@ -3544,6 +3552,18 @@ def _plan_checkpoints(body: str, checkpoint_reqs) -> list[tuple[str, str]]:
             raise _UpdateError(
                 f"--checkpoint key {key!r} appears more than once in a single "
                 f"batch; keys must be unique per call. No PATCH was made."
+            )
+        # A line boundary splits the row across physical lines and leaves the marker
+        # on the LAST one — so a line-filtering strip (`--strip-inherited-checkpoints`,
+        # `_strip_completion_marker_rows`) removes the marker while orphaning the
+        # visible text, leaving the human-readable workpad and the machine-read field
+        # asserting opposite things. Reject it before any PATCH, exactly as
+        # `--record-classification` rejects a multi-line rationale (issue #1347).
+        if not _is_single_line(_text):
+            raise _UpdateError(
+                f"--checkpoint text for key {key!r} must be a single line (a line "
+                f"boundary would split the row and orphan its marker). No PATCH was "
+                f"made."
             )
         _seen_keys.add(key)
     # 2. Canonical ## Progress: non-empty body + exactly one Progress heading.
@@ -4101,6 +4121,27 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
             heading, content = sections[idx]
             sections[idx] = (
                 heading, _strip_required_artifact_checkpoint_rows(content),
+            )
+        # Writer and reader disagree on scope, so never let a survivor pass in
+        # silence. This strip rewrites the FIRST `## Progress` section, while the
+        # consumer it exists to correct (`lib/fetch-pr-context.sh`'s
+        # `base_update_checkpoint4_present`) matches over the WHOLE body — so a
+        # declared marker living in a duplicate section, in the preamble, or under a
+        # heading `_find_section` does not recognise survives, and the resumed run
+        # would then be credited with a reconciliation an earlier attempt performed.
+        # Breadcrumb rather than raise: the caller is Phase 1.3's hydration write, and
+        # a non-canonical workpad must not be able to wedge a resume at setup.
+        _survivors = sorted(
+            v for v in _REQUIRED_ARTIFACT_MARKER_VARIANTS
+            if v in _join_sections(preamble, sections)
+        )
+        if _survivors:
+            sys.stderr.write(
+                "workpad.py update: WARNING: --strip-inherited-checkpoints left "
+                f"declared marker(s) {', '.join(_survivors)} in the body, outside "
+                "the '## Progress' section it rewrites (a duplicate, absent, or "
+                "unrecognised section heading). The inherited record was NOT fully "
+                "cleared; repair the workpad's section shape.\n"
             )
 
     if progress_notes:

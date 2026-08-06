@@ -8707,6 +8707,21 @@ _DUP_MARKER = _CP_BODY.replace(
 assert_raises("#1347: a checkpoint-4 marker appearing twice in ## Progress still raises",
               workpad._UpdateError,
               lambda: apply_mut(_DUP_MARKER, make_args(checkpoint=[[_CP4_KEY, "t"]])))
+_code, _out, _err, _patched = _drive_cmd_update(_DUP_MARKER, checkpoint=[[_CP4_KEY, "t"]])
+assert_eq("#1347: a twice-present marker makes no PATCH", None, _patched)
+# A multi-line checkpoint TEXT would split the row across physical lines and leave the
+# marker on the last one, so a line-filtering strip removes the marker while orphaning
+# the visible text — the human-readable workpad and the machine-read field would then
+# assert opposite things. Rejected before any PATCH, as --record-classification is.
+assert_raises("#1347: a multi-line --checkpoint text is structural (orphaned-marker hazard)",
+              workpad._UpdateError,
+              lambda: apply_mut(_CP_BODY, make_args(
+                  checkpoint=[[_CP4_KEY, "checkpoint 4: token UPDATED\n  (re-invoked once)"]])))
+_code, _out, _err, _patched = _drive_cmd_update(
+    _CP_BODY, checkpoint=[[_CP4_KEY, "line one\nline two"]])
+assert_eq("#1347: a multi-line --checkpoint text makes no PATCH", None, _patched)
+assert_eq("#1347: a single-line --checkpoint text is unaffected by that guard",
+          1, apply_mut(_CP_BODY, make_args(checkpoint=[[_CP4_KEY, "one line"]])).count(_MK4))
 
 # (2) The tier-refused arm's key. It is a member of the declared set, distinct from the
 # clean-token key, and — like it — carries no `gha:` prefix, because the review-tier
@@ -8797,6 +8812,59 @@ assert_eq("#1347: strip + a gha: hydration checkpoint is legal and both land",
 _recorded = apply_mut(_stripped, make_args(checkpoint=[[_CP4_KEY, "checkpoint 4: this attempt"]]))
 assert_eq("#1347: a later same-key record after a strip writes exactly one fresh row",
           1, _recorded.count(_MK4))
+# A strip-ONLY call must reach a PATCH at the process level. Every other strip assertion
+# here rides another flag, so without this one a regression that swallowed a bare strip as
+# a no-op — the exact shape `_has_non_checkpoint_mutation` exists to prevent — would leave
+# the inherited row in place with the suite green.
+_code, _out, _err, _patched = _drive_cmd_update(_INHERITED, strip_inherited_checkpoints=True)
+assert_eq("#1347: a strip-only invocation PATCHes and clears both inherited rows",
+          (True, 0, 0),
+          (_patched is not None,
+           (_patched or "").count(_MK4),
+           (_patched or "").count("base-update-checkpoint-4-tier-refused")))
+assert_eq("#1347: a strip-only invocation still leaves the gha: row",
+          1, (_patched or "").count("<!-- prflow:checkpoint gha:9:1:phase1-entered -->"))
+# The documented no-op: an absent ## Progress leaves the strip harmless rather than raising —
+# a legacy resume must not be wedged by a section that was never there. Untested, removing
+# the `idx is not None` guard would raise on exactly that population with the suite green.
+_no_prog_strip = apply_mut(_NOPROG_BODY, make_args(
+    strip_inherited_checkpoints=True, status="Setup"))
+assert_eq("#1347: the strip is a harmless no-op on a body with no ## Progress",
+          (True, True),
+          ("## Plan" in _no_prog_strip, "- [ ] criterion" in _no_prog_strip))
+# Writer/reader scope divergence: the strip rewrites the FIRST ## Progress while the
+# downstream consumer matches over the WHOLE body, so a declared marker parked outside that
+# section survives. That must never pass silently — the resumed run would otherwise be
+# credited with a reconciliation an earlier attempt performed.
+# The stray must land in a DIFFERENT section — a row placed before `## Plan` would still
+# be inside `## Progress`'s content (a section runs to the next heading) and be stripped.
+_SURVIVOR = _INHERITED.replace("- [ ] step", f"- [ ] step\n- stray {_MK4}", 1)
+_survivor_err = io.StringIO()
+with contextlib.redirect_stderr(_survivor_err):
+    _survivor_out = apply_mut(_SURVIVOR, make_args(strip_inherited_checkpoints=True))
+assert_eq("#1347: a declared marker surviving outside ## Progress is breadcrumbed, not silent",
+          True, "--strip-inherited-checkpoints left" in _survivor_err.getvalue())
+assert_eq("#1347: the survivor breadcrumb names the marker it could not clear",
+          True, _MK4 in _survivor_err.getvalue())
+# Negative control: a fully-cleared strip must NOT emit that warning, or it would fire on
+# every ordinary resume and train a reader to ignore it.
+_clean_err = io.StringIO()
+with contextlib.redirect_stderr(_clean_err):
+    apply_mut(_INHERITED, make_args(strip_inherited_checkpoints=True))
+assert_eq("#1347: a fully-cleared strip emits no survivor warning",
+          False, "--strip-inherited-checkpoints left" in _clean_err.getvalue())
+# The repair announces itself: a structural self-heal of a human-visible artifact must be
+# distinguishable later from a workpad that was always canonical.
+_repair_err = io.StringIO()
+with contextlib.redirect_stderr(_repair_err):
+    apply_mut(_NOPROG_BODY, make_args(checkpoint=[[_CP4_KEY, "tok"]]))
+assert_eq("#1347: the ## Progress repair writes a stderr breadcrumb",
+          True, "re-created it at the head" in _repair_err.getvalue())
+_quiet_err = io.StringIO()
+with contextlib.redirect_stderr(_quiet_err):
+    apply_mut(_CP_BODY, make_args(checkpoint=[[_CPKEY + ".x", "tok"]]))
+assert_eq("#1347: a canonical body triggers no repair breadcrumb",
+          False, "re-created it at the head" in _quiet_err.getvalue())
 
 # AC16 (positive control at the process level): an ABSENT-key checkpoint INSERT
 # through cmd_update DOES issue a PATCH carrying the new row — the counterpart to the
@@ -8834,8 +8902,9 @@ _code, _out, _err, _patched = _drive_cmd_update(
 ## Plan
 - [ ] step
 """, checkpoint=[[_CPKEY, "entry"]])
-assert_eq("#1347 (was #537 AC13): legacy no-Progress body -> repaired and PATCHed",
-          True, _patched is not None and "## Progress" in _patched and _MK in _patched)
+assert_eq("#1347 (was #537 AC13): legacy no-Progress body -> repaired and PATCHed at exit 0",
+          (None, True), (_code,
+                         _patched is not None and "## Progress" in _patched and _MK in _patched))
 assert_eq("#1347: the legacy repair keeps the body's pre-existing sections",
           True, _patched is not None and "## Plan" in _patched and "- [ ] step" in _patched)
 

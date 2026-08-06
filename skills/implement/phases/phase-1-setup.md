@@ -147,13 +147,13 @@ fi
 
    **`run resumed` is reserved for adoption of an *interim* workpad from an earlier execution** — a fresh same-run gate handoff (`created-current-run`) must NOT claim a resume. This is the whole point: a normal first run said "run resumed" falsely.
 
-**Cloud startup checkpoints.** On the cloud tier only, and only when the workpad carries a canonical `## Progress` section, timestamp two of the four startup boundaries here with the idempotent keyed-checkpoint API. Keys are `gha:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:<stage>` (both run id AND attempt, so a GitHub re-run gets fresh rows while a replay inside one attempt does not). The stage vocabulary is exactly the four tokens `gate-adopted` / `claude-invoke` / `phase1-entered` / `phase1-hydrated`.
+**Cloud startup checkpoints.** On the cloud tier only, timestamp two of the four startup boundaries here with the idempotent keyed-checkpoint API. Keys are `gha:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:<stage>` (both run id AND attempt, so a GitHub re-run gets fresh rows while a replay inside one attempt does not). The stage vocabulary is exactly the four tokens `gate-adopted` / `claude-invoke` / `phase1-entered` / `phase1-hydrated`.
 
 - **Entry checkpoint — AFTER the id/status/body triage passes and BEFORE the issue fetch (1.1) / AC parse (1.2):**
   ```bash
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update "$ISSUE_NUMBER" --checkpoint "gha:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:phase1-entered" "agent entered Phase 1 setup; workpad triage passed"
   ```
-  Best-effort: a checkpoint failure (or an old pinned helper lacking `--checkpoint`) warns and continues — it never blocks the run. A **legacy workpad lacking `## Progress`** makes this a structural no-op (the helper declines with no PATCH); warn, then follow the legacy-workpad migration below before recording hydration.
+  Best-effort: a checkpoint failure (or an old pinned helper lacking `--checkpoint`) warns and continues — it never blocks the run. A **legacy workpad lacking `## Progress`** no longer declines here: `--checkpoint` repairs the absent section and writes the row, so this boundary records rather than being skipped. The legacy-workpad migration below is still required before hydration, because `--note`/`--tick-progress` do not self-heal that shape.
 - **Hydration checkpoint — combined with the existing Phase 1 hydration update below** (so it adds no extra standalone PATCH): append `--checkpoint "gha:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:phase1-hydrated" "<the selected lifecycle event>"` to that update, alongside `--expect-comment-id`/`--expect-status`.
 
 - **`WORKPAD_ID` empty (fresh issue — local-tier run with no `gate` job)** → Build the lean skeleton with the helper and create it, then mirror the issue's Acceptance Criteria into it:

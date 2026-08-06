@@ -4816,17 +4816,21 @@ assert_eq "#1347: phase-4's tier-refused arm records through its own keyed carri
   "base-update-checkpoint-4-tier-refused" "$CP4R_KEY"  # structural-pin-ok: cross-file-phase-contract -- the tier-refused carrier key is declared in workpad.py's _REQUIRED_ARTIFACT_CHECKPOINT_KEYS and drives the strip; a rename must reconcile both sites
 assert_eq "#1347: the tier-refused key is NOT gha:-prefixed (tier-discriminator invariant)" "yes" \
   "$(case "$CP4R_KEY" in gha:*) echo no ;; *) echo yes ;; esac)"
-assert_eq "#1347: the tier-refused key is distinct from the clean-token key" "yes" \
-  "$([ "$CP4R_KEY" != "base-update-checkpoint-4" ] && echo yes || echo no)"
-# (That both keys are DECLARED in workpad.py's `_REQUIRED_ARTIFACT_CHECKPOINT_KEYS` — so the
-# strip reaches both and the strip/insert exclusion covers both — is asserted behaviorally in
-# lib/test/test_python_scripts.py, against the module's own constant rather than a second copy.)
-# The Phase 1.3 resume arm must carry the strip, and it must NOT be described as one of the
-# cloud-only flags the local arm drops — the record is per-attempt on both tiers.
-P1_FILE="$IMPL_PHASES_DIR/phase-1-setup.md"
+# NO "distinct from the clean-token key" assertion here: the grep pattern above already
+# spells the tier-refused key in full, so such a comparison could never be false — it would
+# add a green row carrying no information. The distinctness that CAN break is between the two
+# keys as workpad.py declares them, and that is asserted there, against the module's own
+# constant. (That both keys are DECLARED in `_REQUIRED_ARTIFACT_CHECKPOINT_KEYS` — so the strip
+# reaches both and the strip/insert exclusion covers both — is likewise asserted behaviorally in
+# lib/test/test_python_scripts.py rather than by a second literal here.)
+# The Phase 1.3 resume arm must carry the strip. This is a PRESENCE pin over the whole file and
+# claims only that: that the strip is not ALSO described as one of the cloud-only flags the
+# local arm drops is agent-executed prose no tool reads, so it carries no pin (the #843 policy)
+# and the review pass is its control. The behavior that matters — that the strip lands with
+# neither --checkpoint nor --expect-* in the call — is asserted in test_python_scripts.py.
 assert_eq "#1347: the Phase 1.3 resume arm passes --strip-inherited-checkpoints" "yes" \
-  "$(grep -q -- '--strip-inherited-checkpoints' "$P1_FILE" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the resume arm is the sole producer of the strip; without it the inherited row survives and base_update_checkpoint4_present describes the wrong attempt
-unset CP4R_KEY P1_FILE
+  "$(grep -q -- '--strip-inherited-checkpoints' "$IMPL_PHASES_DIR/phase-1-setup.md" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the resume arm is the sole producer of the strip; without it the inherited row survives and base_update_checkpoint4_present describes the wrong attempt
+unset CP4R_KEY
 
 # ── Issue #755: Phase 2 §2.0 resume-idempotency gate ──
 # A stalled cloud run that stall_backstop auto-resumes must NOT re-dispatch the Phase 2
@@ -12694,6 +12698,29 @@ assert_eq "clean: post_bot_commits=0"       "0"     "$(jq -r '.signals.post_bot_
 assert_eq "clean: ci_failures=0"            "0"     "$(jq -r '.signals.ci_failures_during_pr' <<<"$CTXC")"
 assert_eq "#1050: base_update_checkpoint4_present=false when the workpad carries no marker" "false" \
   "$(jq -r '.base_update_checkpoint4_present' <<<"$CTXC")"
+# ── #1347: the NEAR-MISS the two fixture cases above cannot reach. The tier-refused key
+# `base-update-checkpoint-4-tier-refused` is a PREFIX EXTENSION of the clean-token key, so the
+# only thing keeping "the tier refused the check" from reading downstream as "the base was
+# reconciled" is the closing ` -->` in the shipped globs. That is precisely the conflation the
+# two keys exist to prevent, and a later glob relaxed to `*base-update-checkpoint-4*` would
+# collapse them with a green suite. Drive the SHIPPED case program itself (extracted from
+# lib/fetch-pr-context.sh, never a transcribed copy — a transcribed glob would keep passing
+# after the shipped one drifted) over the three bodies that discriminate it.
+CP4_CASE_LINE=$(grep -n "BASE_UPDATE_CHECKPOINT4_PRESENT=false" "$LIB/fetch-pr-context.sh" | head -1 | cut -d: -f1)
+CP4_CASE_PROG=$(sed -n "${CP4_CASE_LINE},$((CP4_CASE_LINE + 4))p" "$LIB/fetch-pr-context.sh")
+for _row in \
+  "clean-prflow|<!-- prflow:checkpoint base-update-checkpoint-4 -->|true" \
+  "clean-devflow|<!-- devflow:checkpoint base-update-checkpoint-4 -->|true" \
+  "tier-refused-only|<!-- prflow:checkpoint base-update-checkpoint-4-tier-refused -->|false" \
+  "tier-refused-devflow-only|<!-- devflow:checkpoint base-update-checkpoint-4-tier-refused -->|false" \
+  "gha-only|<!-- prflow:checkpoint gha:1:1:phase1-entered -->|false"
+do
+  _name=${_row%%|*}; _rest=${_row#*|}; _body=${_rest%|*}; _want=${_rest##*|}
+  assert_eq "#1347: the shipped checkpoint-4 case reads a '$_name' workpad as $_want" \
+    "$_want" \
+    "$(WORKPAD_BODY="- a row $_body" bash -c "$CP4_CASE_PROG"'; printf %s "$BASE_UPDATE_CHECKPOINT4_PRESENT"')"
+done
+unset CP4_CASE_LINE CP4_CASE_PROG _row _name _rest _body _want
 assert_eq "ci_status_unknown=false (793 fixture)"   "false" "$(jq -r '.signals.ci_status_unknown' <<<"$CTX")"
 assert_eq "ci_status_unknown=false (CLEAN fixture)"  "false" "$(jq -r '.signals.ci_status_unknown' <<<"$CTXC")"
 # Fix 2: diff field must be a non-null string when the fixture has content
@@ -31597,8 +31624,10 @@ assert_eq "#289: gate already-exists branch extracted (non-empty)" "yes" \
   "$([ -n "$AE_REGION289" ] && echo yes || echo no)"
 # #537 AC13: the adopted-workpad branch records the gate-adopted startup checkpoint.
 # It is a SEPARATE best-effort call from the Run-link refresh (issue #537 review: a
-# combined call would abort structurally on a legacy workpad lacking ## Progress and
-# drop the link refresh too). Pin the checkpoint literal — unique to the adopted
+# combined call would abort structurally on a non-canonical workpad and drop the link
+# refresh too — issue #1347 narrowed which shapes those are, since a merely ABSENT
+# ## Progress is now repaired, but a duplicate section or an empty body still aborts,
+# so the split stands). Pin the checkpoint literal — unique to the adopted
 # branch (the create branch has no checkpoint) and removal-proof.
 assert_pin_unique "#537 AC13: the adopted branch records the gate-adopted checkpoint (separate best-effort call)" \
   'gha:${RUN_ID}:${RUN_ATTEMPT}:gate-adopted' "$WF289"
@@ -34420,7 +34449,13 @@ fi
 # reference: the tier-refused arm IS the reference-free degraded path a run reaches precisely when
 # its tooling was refused, and the corrected clause governs whether the run falls back at all — a
 # run that only knows to load a reference after choosing its carrier has already chosen wrong.
-# Raise the ceiling to the exact post-#1347 measurement, with NO added slack, exactly as above.
+# Trim attempt (the raise procedure's recover-room step): the tier-refused arm's addition was
+# held to three sentences — the distinct-key reason, the `gha:`-prefix prohibition, and the
+# degrade fallback — and its degrade sentence quotes the record text as `"<the same text>"`
+# rather than repeating the ~150-byte record string the arm already spells once. The clean arm's
+# correction is net-neutral: it replaces "an absent or duplicate `## Progress`" with the narrower,
+# now-true enumeration. No further room was recoverable without dropping a reason a run reading
+# only this arm needs. Raise to the exact post-#1347 measurement, with NO added slack, as above.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises — to raise it, see CONTRIBUTING.md 'Raising the phase-4 documentation byte ceiling'" "yes" \
   "$([ "$(wc -c < "$I480_P4")" -le 107371 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
