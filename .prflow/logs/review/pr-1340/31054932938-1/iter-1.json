@@ -1,0 +1,111 @@
+{
+  "iter": 1,
+  "loop_role": "fix",
+  "current_step": "3.5",
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:pr-test-analyzer",
+    "prflow:comment-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "differing-text checkpoint replay + byte-equal note silently drops the note",
+      "defect_signature": {
+        "file": "scripts/workpad.py",
+        "line_range": [
+          3966,
+          3967
+        ],
+        "kind": "silent_drop"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "backstop Complete predicate (== 'complete') diverges from terminal gate glyph predicate",
+      "defect_signature": {
+        "file": "scripts/workpad.py",
+        "line_range": [
+          3783,
+          3783
+        ],
+        "kind": "predicate_divergence"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "phase filter + AC-gate-interaction + combined-call + differing-replay tests missing",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": [
+          0,
+          0
+        ],
+        "kind": "test_gap"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "test comment 'ticks all five' is a transcribed mirror-count",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": [
+          0,
+          0
+        ],
+        "kind": "mirror_fact"
+      },
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "c7bda7d"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "c7bda7d"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "c7bda7d"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "c7bda7d"
+    }
+  ],
+  "fix_commit_sha": "c7bda7d",
+  "fix_files": [
+    "scripts/workpad.py",
+    "lib/test/test_python_scripts.py",
+    "scripts/devflow-cloud-writer-contract.json"
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 60,
+    "new_corroborated_critical_count": 0
+  },
+  "synthesized": false,
+  "telemetry": "unavailable"
+}
