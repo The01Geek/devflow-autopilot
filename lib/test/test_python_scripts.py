@@ -8722,6 +8722,13 @@ _code, _out, _err, _patched = _drive_cmd_update(
 assert_eq("#1347: a multi-line --checkpoint text makes no PATCH", None, _patched)
 assert_eq("#1347: a single-line --checkpoint text is unaffected by that guard",
           1, apply_mut(_CP_BODY, make_args(checkpoint=[[_CP4_KEY, "one line"]])).count(_MK4))
+# The guard is unconditional over the key space, so it now governs the `gha:` startup
+# checkpoints too — the population that carries an agent-substituted `<selected lifecycle
+# event>` and is therefore likelier than the cp4 keys to receive a stray newline.
+assert_raises("#1347: the multi-line guard governs a gha: startup key too, not just cp4",
+              workpad._UpdateError,
+              lambda: apply_mut(_CP_BODY, make_args(
+                  checkpoint=[["gha:5:1:phase1-hydrated", "run resumed\nPhase 1 hydrated"]])))
 
 # (2) The tier-refused arm's key. It is a member of the declared set, distinct from the
 # clean-token key, and — like it — carries no `gha:` prefix, because the review-tier
@@ -8800,6 +8807,14 @@ for _k in workpad._REQUIRED_ARTIFACT_CHECKPOINT_KEYS:
 _code, _out, _err, _patched = _drive_cmd_update(
     _INHERITED, strip_inherited_checkpoints=True, checkpoint=[[_CP4_KEY, "t"]])
 assert_eq("#1347 AC10: the rejected strip+insert combination makes no PATCH", None, _patched)
+# The rejection is presence-INDEPENDENT: it reads the requested keys, never the body. Tested
+# only against a body already carrying the row, the assertion above would still pass if the
+# guard had been written as "refuse when the row exists" — which would let the hazard through
+# on exactly the body where the insert is live.
+assert_raises("#1347 AC10: strip+insert is rejected even when the body carries no such row",
+              workpad._UpdateError,
+              lambda: apply_mut(_CP_BODY, make_args(
+                  strip_inherited_checkpoints=True, checkpoint=[[_CP4_KEY, "t"]])))
 # The combination the resume arm actually issues — the strip beside the cloud
 # `gha:` hydration checkpoint — is legal and lands both effects in one call.
 _hyd = apply_mut(_INHERITED, make_args(
