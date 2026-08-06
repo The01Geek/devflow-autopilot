@@ -246,8 +246,8 @@ followed by checkbox items (`- [ ]`), each a **single unconditional, testable as
   **The reason the boundary falls exactly there:** the implementing run mirrors this section
   into its workpad with `scripts/parse-acs.py`, and only checkbox items are guaranteed to make
   that crossing — an indented non-checkbox line continues the preceding item, while a blank
-  line or a non-indented non-checkbox line closes it, so block prose above the list reaches the
-  workpad's `## Acceptance Criteria` section not at all. The workpad section is what the
+  line or a non-indented non-checkbox line closes it, so block prose above the list does not
+  reach the workpad's `## Acceptance Criteria` section at all. That workpad section is what the
   implementing run's acceptance-criteria gate reads, so an instruction the implementer must
   obey is unenforceable there unless it sits inside a checkbox item.
   **The issue body stays separately visible to the implementing run**, which fetches and reads
