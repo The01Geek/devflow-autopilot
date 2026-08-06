@@ -3518,9 +3518,12 @@ begin = text.index("          # review-finalizer BEGIN")
 end = text.index("          # review-finalizer END", begin)
 block = text[begin:end].splitlines()[1:]
 with open(sys.argv[2], "w", encoding="utf-8") as handle:
-    # The shipped step's own options — NOT `set -e`; the block relies on running
-    # past a non-zero helper, so adding -e here would test a different program.
-    handle.write("set -uo pipefail\n")
+    # Match the SHIPPED execution environment exactly, errexit included. The step
+    # carries no `shell:` key, so Actions runs it under its default `bash -e {0}`,
+    # and the step's own first line adds `set -uo pipefail` on top — net -e -u
+    # -o pipefail. Dropping -e here would run the block under weaker options than
+    # production and hide an abort this harness exists to catch.
+    handle.write("set -euo pipefail\n")
     handle.write(textwrap.dedent("\n".join(block)))
     handle.write("\n")
 PY

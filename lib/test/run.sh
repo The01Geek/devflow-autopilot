@@ -17186,6 +17186,47 @@ assert_eq "#1174: devflow.yml has 4 vendor-plugin steps (config + gate + command
   "$(grep -c 'uses: \./\.github/actions/vendor-plugin' "$WF/devflow.yml" || true)"
 assert_eq "#1174: the review_finalize job materializes the plugin (a vendor-plugin step in its body)" "yes" \
   "$(awk '/^  review_finalize:/{f=1} f && /uses: \.\/\.github\/actions\/vendor-plugin/{print "yes"; exit}' "$WF/devflow.yml")"
+
+# ── The review_finalize job GATE (issue #1174). Actions evaluates this `if:` BEFORE
+# the step runs, so it is unreachable from the extracted step body the #1174 wiring
+# block in lib/test/modules/review-trigger-helpers.sh drives — nothing but a pin can
+# see it, and a dropped conjunct ships green. Each term prevents a distinct
+# spurious-banner class:
+#   always()                     — the only reason this job runs at all on a dead
+#                                  command-job path (the whole point of the backstop).
+#   needs.<upstream>.result      — a FAILED config/gate/review_dedupe leaves `command`
+#     == 'success' (x3)            skipped for an UPSTREAM reason, which the arm helper
+#                                  maps to did-not-report; requiring the chain succeeded
+#                                  confines that arm to a genuine command-level death.
+#   enabled / should_run /       — the command job's own screen; a dedupe-SUPPRESSED run
+#     suppress                     is benign, not a dead run, so it must draw no banner.
+#   the two review spellings     — AC7's transitional /devflow:review alias beside the
+#                                  canonical /prflow:review; losing one silently drops
+#                                  the backstop for that spelling.
+RF_IF="$(awk '/^  review_finalize:/{f=1} f && /^    if: /{print; exit}' "$WF/devflow.yml")"
+_rf_if_has() { case "$RF_IF" in *"$1"*) echo yes ;; *) echo no ;; esac; }
+assert_eq "#1174 gate: the review_finalize if: runs on every command-job exit path (always())" \
+  "yes" "$(_rf_if_has 'always()')"
+assert_eq "#1174 gate: the review_finalize if: requires config to have SUCCEEDED" \
+  "yes" "$(_rf_if_has "needs.config.result == 'success'")"
+assert_eq "#1174 gate: the review_finalize if: requires gate to have SUCCEEDED" \
+  "yes" "$(_rf_if_has "needs.gate.result == 'success'")"
+assert_eq "#1174 gate: the review_finalize if: requires review_dedupe to have SUCCEEDED" \
+  "yes" "$(_rf_if_has "needs.review_dedupe.result == 'success'")"
+assert_eq "#1174 gate: the review_finalize if: honours the workflow enable switch" \
+  "yes" "$(_rf_if_has "needs.config.outputs.enabled == 'true'")"
+assert_eq "#1174 gate: the review_finalize if: honours the gate's should_run screen" \
+  "yes" "$(_rf_if_has "needs.gate.outputs.should_run == 'true'")"
+assert_eq "#1174 gate: the review_finalize if: draws no banner on a dedupe-suppressed run" \
+  "yes" "$(_rf_if_has "needs.review_dedupe.outputs.suppress != 'true'")"
+assert_eq "#1174 gate: the review_finalize if: screens the canonical /prflow:review spelling" \
+  "yes" "$(_rf_if_has "startsWith(needs.gate.outputs.command, '/prflow:review')")"
+assert_eq "#1174 gate: the review_finalize if: screens the transitional /devflow:review spelling" \
+  "yes" "$(_rf_if_has "startsWith(needs.gate.outputs.command, '/devflow:review')")"
+# Negative control: the matcher really can report a missing conjunct, so the nine
+# assertions above are not nine vacuous passes on an unmatched-anything comparison.
+assert_eq "#1174 gate: the conjunct matcher reports a term the if: does NOT carry" \
+  "no" "$(_rf_if_has "needs.command.result == 'success'")"
 # AC8: the finalizer mint is opt-in on DEVFLOW_APP_ID, and its GH_TOKEN falls back to
 # the built-in github.token when that variable is unset — the behaviour a consumer who
 # has not configured the App relies on. Pin both halves so a future edit cannot drop the
