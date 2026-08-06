@@ -9159,12 +9159,10 @@ assert_eq("#1348 AC10: the marker-outside refusal is a tagged marker-anomaly nam
 assert_eq("#1348 AC10: the duplicate-marker refusal is a tagged marker-anomaly naming its remedy",
           True, "[marker-anomaly]" in _refusal_msgs["marker-dup"]
           and "Remedy" in _refusal_msgs["marker-dup"])
-assert_eq("#1348 AC10: the three shape categories (empty / dup-progress / marker-anomaly) are distinguishable",
-          3, len({
-              "[empty-body]" in _refusal_msgs["empty"] and "empty",
-              "[duplicate-progress]" in _refusal_msgs["dup-progress"] and "dupprog",
-              "[marker-anomaly]" in _refusal_msgs["marker-outside"] and "anomaly",
-          }))
+assert_eq("#1348 AC10: the three shape categories (empty / dup-progress / marker-anomaly) carry three distinct tags",
+          sorted(["[duplicate-progress]", "[empty-body]", "[marker-anomaly]"]),
+          sorted({t for t in ("[empty-body]", "[duplicate-progress]", "[marker-anomaly]")
+                  for m in _refusal_msgs.values() if t in m}))
 assert_eq("#1348 AC10: all four refusal messages are byte-distinct",
           4, len(set(_refusal_msgs.values())))
 
