@@ -113,14 +113,17 @@ extractor is:
 - The case-arm tracking is a **flag, not a depth counter**, so a **nested** `case`
   block is an accepted limitation — no fence in `skills/review/SKILL.md` nests a
   `case`.
-- **`.prflow/prompt-extensions/**` is outside the scanned population.** Both
-  extractors take the skills bundles as their input, but an extension's text is
-  appended to the same agent prompt and can invoke the same bundled helpers — so a
-  helper invoked only from an extension gets **no desk signal** when its grant is
-  missing, and the cloud matcher refuses it before it runs: no output, no error.
-  Add such a grant to the manifest by hand as part of authoring the call site.
-  Worked example: `scripts/prompt-surface-growth.py` (issue #1350), granted on the
-  `implement` and `command` profiles because its only call site is
+- **`.prflow/prompt-extensions/**` was outside the scanned population until issue
+  #1354** — see *Audited population* below, which supersedes this and states the
+  scope in force today. Historically both extractors took only the skills bundles
+  as their input, while an extension's text is appended to the same agent prompt
+  and can invoke the same bundled helpers — so a helper invoked only from an
+  extension got **no desk signal** when its grant was missing, and the cloud
+  matcher refuses it before it runs: no output, no error. Authoring such a call
+  site still means adding its grant (by hand, to the manifest or the matching
+  `allowed_tools` array); what changed is that a missing one is now caught at the
+  desk. Worked example: `scripts/prompt-surface-growth.py` (issue #1350), granted
+  on the `implement` and `command` profiles because its only call site is
   `.prflow/prompt-extensions/pr-description.md`.
 
 **Audited population (issue #1354).** Both scanners take an explicit file list, so

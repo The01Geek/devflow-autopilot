@@ -7189,15 +7189,25 @@ CFG1354="$LIB/../.prflow/config.json"
 # on-disk set BOTH ways below. Every live tracked .prflow/prompt-extensions/*.md file has
 # exactly one row; each row lists the tier(s) whose allowlist(s)/profile its fences are
 # checked against. implement.md loads on the implement tier; review.md on the command tier
-# and (auto-review) the review profile; the remaining command-reachable and docs /
-# create-issue extensions on the command tier — the general first-party command allowlist,
-# the conservative choice for an extension with no dedicated cloud dispatch, so a future
-# fence is audited against real grants rather than escaping the gate. A new extension added
-# without a row here fails the reconciliation, never silently shrinking the gate.
+# and (auto-review) the review profile; the remaining docs / create-issue extensions on the
+# command tier — the general first-party command allowlist, the conservative choice for an
+# extension with no dedicated cloud dispatch, so a future fence is audited against real
+# grants rather than escaping the gate. A new extension added without a row here fails the
+# reconciliation, never silently shrinking the gate.
+#
+# review.md, review-and-fix.md and receiving-code-review.md additionally carry the IMPLEMENT
+# tier because the review engine is dispatched INLINE inside the implement job: implement
+# Phase 3.3 (skills/implement/phases/phase-3-review.md) runs /prflow:review-and-fix in the
+# implement run's own context under devflow-implement.yml's baked --allowed-tools, and
+# skills/review-and-fix/SKILL.md loads review-and-fix.md + receiving-code-review.md while
+# skills/review/SKILL.md loads review.md. Checking these three against the command union
+# alone left a real hole: a helper granted in .prflow.allowed_tools but dropped from
+# .prflow_implement.allowed_tools stayed green here while every implement run's inline fix
+# loop hit a fence the matcher refuses silently.
 _E1354_MAP="implement.md:implement
-review.md:command review
-review-and-fix.md:command
-receiving-code-review.md:command
+review.md:command review implement
+review-and-fix.md:command implement
+receiving-code-review.md:command implement
 create-issue.md:command
 pr-description.md:command
 docs-bootstrap-external.md:command
@@ -7242,6 +7252,11 @@ _e1354_union_ungranted() {  # <ext-file> <tier> <config-json>
   # its vendored counterpart AND the union GRANTS that counterpart (it is not itself ungranted).
   # Drop exactly those; a bare-ONLY head (no granted vendored counterpart in the head set) is
   # kept — fail-closed, so a genuinely ungranted helper still surfaces.
+  # The pairing is FILE-scoped, not fence-scoped: a bare `scripts/X` anywhere in the extension
+  # is suppressed when that file emits a granted `.prflow/vendor/prflow/scripts/X` anywhere
+  # else in it, even from a different fence. That matches the #1256 tier-agnostic remedy (the
+  # vendored literal and its bare fallback arm are one authored pair, not necessarily one
+  # fence), so it is the intended scope rather than a looseness to tighten.
   local heads h vend
   heads="$(python3 "$ECH" heads "$ext" 2>/dev/null)"
   while IFS= read -r h; do
