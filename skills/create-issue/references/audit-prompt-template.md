@@ -4,109 +4,33 @@ SPDX-License-Identifier: MIT
 -->
 # Fresh-context audit-prompt template (create-issue Step 3.6)
 
-This file is the **sole in-repo owner** of the create-issue Step 3.6 audit-prompt
-template, the generic dimension checklist, and the canonical
-**audit-dispatch instructions** the auditor is pointed at.
-`scripts/render-audit-prompt.py`
-reads it (resolved relative to that script's own location — `scripts/` and
-`skills/` are siblings under one root in both the repo checkout and the vendored
-plugin layout) and emits the arm-appropriate audit prompt. `skills/create-issue/SKILL.md`
-carries the invocation contract and the policy prose; the operative prompt text
-lives here.
+This file is the **sole in-repo owner** of the create-issue Step 3.6 audit-prompt template, the generic dimension checklist, and the canonical **audit-dispatch instructions** the auditor is pointed at. `scripts/render-audit-prompt.py` reads it — resolved relative to that script's own location, `scripts/` and `skills/` being siblings under one root in both the repo checkout and the vendored plugin layout — and emits the arm-appropriate audit prompt. `skills/create-issue/SKILL.md` carries the invocation contract and the policy prose; the operative prompt text lives here.
 
 ## How this template is rendered (and read by the degraded manual arms)
 
-The renderer selects **arm/mode blocks** and substitutes **slots**, then prepends
-a `render-status:` line and appends a `render-end:` marker. When the renderer is
-unavailable, a degraded manual arm **Reads this file directly** and follows the
-same block/slot rules by hand.
+The renderer selects **arm/mode blocks** and substitutes **slots**, then prepends a `render-status:` line and appends a `render-end:` marker. When the renderer is unavailable, a degraded manual arm **Reads this file directly** and follows the same block/slot rules by hand.
 
-- **Arm/mode blocks.** Each block is bounded by `<!-- render-block: <set> -->`
-  and `<!-- render-block-end -->`, where `<set>` is a space-separated list of the
-  arms/modes that include the block (`file`, `embed`, `inline`, `checklist`,
-  the dispatch-instruction token `di`, and the
-  claim-scoped-round token `tg`).
-  Emit a block only when the current arm/mode is in its set. Text outside any
-  block (like this section) is documentation, never emitted.
-- **Slots** (substituted at render time; a manual arm fills them from the
-  dispatch preamble):
+- **Arm/mode blocks.** Each block is bounded by `<!-- render-block: <set> -->` and `<!-- render-block-end -->`, where `<set>` is a space-separated list of the arms/modes that include the block (`file`, `embed`, `inline`, `checklist`, the dispatch-instruction token `di`, and the claim-scoped-round token `tg`). Emit a block only when the current arm/mode is in its set. Text outside any block (like this section) is documentation, never emitted.
+- **Slots** (substituted at render time; a manual arm fills them from the dispatch preamble):
   - `{DRAFT_PATH}` — the absolute `issue-draft-<slug>.md` path (file arm only).
-  - `{SENTINEL_OPEN}` / `{SENTINEL_CLOSE}` — the `AUDIT-<tag>-OPEN` /
-    `AUDIT-<tag>-CLOSE` tokens the state owner generated (embed arm only). The
-    embed splice slot is the one place the draft body is carried; the renderer
-    never touches the draft bytes.
-  - `<slug>` — the run's kebab-case slug, substituted into the out-of-bounds
-    paths.
-  - the consumer-dimensions slot — the consumer `## Audit dimensions` section
-    (or a clean no-consumer note / an unestablished note), computed by the
-    renderer and spliced into the generic checklist block below.
-  - `{SCOPE_CLAIMS}` / `{SCOPE_SECTIONS}` — the `tg` block only: the enumerated
-    already-raised claims (id plus a one-line summary each) and the tool-derived
-    changed-section set, both read from the round's frozen dispatch-scope file.
-  - `{DRAFT_TITLE}`, `{INSTRUCTIONS_PATH}`, `{TEMPLATE_PATH}`, `{RENDERER_PATH}`
-    — the `di` (dispatch-instructions) blocks only. `{DRAFT_TITLE}` is read from
-    the draft file at `{DRAFT_PATH}`, never from a command-line argument, and is
-    substituted **last** alongside the consumer-dimensions slot so drafter text
-    is never re-scanned for slot tokens. `{RENDERER_PATH}` and `{TEMPLATE_PATH}`
-    are derived by the renderer from its own resolved location.
-- **The draft title appears only in the `di` blocks**, where it is
-  read from the draft file the same blocks name; the *audit-prompt* blocks
-  (`file` / `embed` / `inline` / `checklist`) still never carry it, and refer to
-  the draft by path or by the sentinel-bracketed body.
-- **Dimension-key declarations**. Each generic audit dimension in
-  the checklist block below is *declared* by a `<!-- dim-key: <lowercase-kebab> -->`
-  marker line on the line immediately above its `- ` bullet. That declaration —
-  not the bullet's prose — is the dimension's identity: `enumerate-dimensions`
-  emits it as `g:<declared-key>`, and the human-facing checklist is the bullet
-  with the marker stripped, so the two projections render from one declaration.
-  Rewording a bullet therefore leaves its key byte-identical. The renderer fails
-  closed (rc≠0, empty stdout, stderr breadcrumb) on a bullet carrying no
-  declaration, a declaration binding no bullet (stacked, or at the block's end), a
-  declaration separated from its bullet by a non-blank line, a key that is not
-  lowercase kebab-case, or a duplicate key. **Every one of those arms fires on the
-  render path as well as the enumeration path**, which is what makes "the checklist
-  prose and the keyset cannot drift apart silently" structural rather than merely
-  asserted: a defect cannot render happily while the enumeration dies. A manual arm
-  reading this file by hand applies the same rule: strip the marker lines from the
-  emitted prose. A consumer `## Audit dimensions` bullet may carry the same marker
-  (keyed `c:<declared-key>`) and is held to the same fail-closed arms **for the
-  declarations it does carry**, with a breadcrumb naming the consumer extension rather
-  than this template. Three deliberate asymmetries: an *absent* consumer declaration is
-  legal (it selects the content-derived fallback below, where an undeclared *template*
-  bullet raises); a section carrying only declarations and no bullets declares no
-  dimensions, so it reads `absent` rather than raising; and a collision between two
-  *derived* keys degrades on the render path (it is a slug coincidence in a third-party
-  file, not an authoring defect) while staying fatal in the enumeration, whose keyset
-  must be unambiguous. When a bullet carries no declaration, its key is derived from its content — the bold-lead name's slug,
-  else a hash of the bullet text — never its position. Those two fallbacks are
-  insertion-stable but not reword-stable, so a consumer who wants a durable key
-  declares one.
+  - `{SENTINEL_OPEN}` / `{SENTINEL_CLOSE}` — the `AUDIT-<tag>-OPEN` / `AUDIT-<tag>-CLOSE` tokens the state owner generated (embed arm only). The embed splice slot is the one place the draft body is carried; the renderer never touches the draft bytes.
+  - `<slug>` — the run's kebab-case slug, substituted into the out-of-bounds paths.
+  - the consumer-dimensions slot — the consumer `## Audit dimensions` section (or a clean no-consumer note / an unestablished note), computed by the renderer and spliced into the generic checklist block below.
+  - `{SCOPE_CLAIMS}` / `{SCOPE_SECTIONS}` — the `tg` block only: the enumerated already-raised claims (id plus a one-line summary each) and the tool-derived changed-section set, both read from the round's frozen dispatch-scope file.
+  - `{DRAFT_TITLE}`, `{INSTRUCTIONS_PATH}`, `{TEMPLATE_PATH}`, `{RENDERER_PATH}` — the `di` (dispatch-instructions) blocks only. `{DRAFT_TITLE}` is read from the draft file at `{DRAFT_PATH}`, never from a command-line argument, and is substituted **last** alongside the consumer-dimensions slot so drafter text is never re-scanned for slot tokens. `{RENDERER_PATH}` and `{TEMPLATE_PATH}` are derived by the renderer from its own resolved location.
+- **The draft title appears only in the `di` blocks.** The *audit-prompt* blocks (`file` / `embed` / `inline` / `checklist`) never carry it, and refer to the draft by path or by the sentinel-bracketed body.
+- **Dimension-key declarations**. Each generic audit dimension in the checklist block below is *declared* by a `<!-- dim-key: <lowercase-kebab> -->` marker line on the line immediately above its `- ` bullet. That declaration — not the bullet's prose — is the dimension's identity: `enumerate-dimensions` emits it as `g:<declared-key>`, and the human-facing checklist is the bullet with the marker stripped, so rewording a bullet leaves its key byte-identical. A manual arm reading this file by hand applies the same rule: strip the marker lines from the emitted prose. **Declare a key for every bullet you add here.** On the render path as well as the enumeration path, the renderer fails closed (rc≠0, empty stdout, stderr breadcrumb) on a bullet carrying no declaration, a declaration binding no bullet (stacked, or at the block's end), a declaration separated from its bullet by a non-blank line, a key that is not lowercase kebab-case, or a duplicate key. A consumer `## Audit dimensions` bullet may carry the same marker (keyed `c:<declared-key>`) and is held to the same fail-closed arms **for the declarations it does carry**, with a breadcrumb naming the consumer extension rather than this template — except that an *absent* consumer declaration is legal (it selects the content-derived fallback below, where an undeclared *template* bullet raises), a consumer section carrying only declarations and no bullets reads `absent` rather than raising, and a collision between two *derived* keys degrades on the render path while staying fatal in the enumeration. When a bullet carries no declaration, its key is derived from its content — the bold-lead name's slug, else a hash of the bullet text — never its position. Those two fallbacks are insertion-stable but not reword-stable, so a consumer who wants a durable key declares one.
 
 ## Extraction rule (for the `## Audit dimensions` / `## Evidence axes` forwarding)
 
-The renderer's section-extraction mode (and, on the degraded manual arm, a
-by-hand read of the consumer extension) applies exactly these four clauses: a
-section spans its heading line to the next line beginning `## ` — two hashes
-plus a space, so a `###` sub-heading terminates nothing — else to end of file;
-duplicate same-heading sections are concatenated in file order; an empty section
-and an absent heading both contribute nothing; and a heading line inside an HTML
-comment block or a fenced code block is not a heading (an unclosed fence runs to
-end of file). This is the same rule `scripts/load-prompt-extension.sh` implements
-for `--section`.
+The renderer's section-extraction mode (and, on the degraded manual arm, a by-hand read of the consumer extension) applies exactly these four clauses: a section spans its heading line to the next line beginning `## ` — two hashes plus a space, so a `###` sub-heading terminates nothing — else to end of file; duplicate same-heading sections are concatenated in file order; an empty section and an absent heading both contribute nothing; and a heading line inside an HTML comment block or a fenced code block is not a heading (an unclosed fence runs to end of file). This is the same rule `scripts/load-prompt-extension.sh` implements for `--section`.
 
 ---
 
 <!-- render-block: di -->
 # Fresh-context audit dispatch (canonical, generated)
 
-This file **is** your complete dispatch instructions. It was generated
-deterministically by `render-audit-prompt.py dispatch-instructions` from the
-committed template; the message that pointed you here is **required** to be the
-generated pointer this file states verbatim at the end (carrying nothing but file
-paths) — report in step 3 item 4 what it actually carried, and do not treat this
-sentence as evidence that it complied.
-Every other line of this file came from the committed template, with the draft's
-own title substituted in below; none of it was hand-written for this draft.
+This file **is** your complete dispatch instructions. It was generated deterministically by `render-audit-prompt.py dispatch-instructions` from the committed template; the message that pointed you here is **required** to be the generated pointer this file states verbatim at the end (carrying nothing but file paths) — report in step 3 item 4 what it actually carried, and do not treat this sentence as evidence that it complied. Every other line of this file came from the committed template, with the draft's own title substituted in below; none of it was hand-written for this draft.
 
 **Draft under audit — title:**
 
@@ -116,77 +40,34 @@ own title substituted in below; none of it was hand-written for this draft.
 
 ## Step 1 — fetch your audit instructions
 
-Run exactly this command first, before any repository read other than the
-reads this file directs:
+Run exactly this command first, before any repository read other than the reads this file directs:
 
 ```
 python3 {RENDERER_PATH} file --slug <slug> --draft-path {DRAFT_PATH}
 ```
 
-Treat its stdout as the complete audit instructions **only** when its **first
-line begins `render-status:`** and its **last line is exactly `render-end:`** —
-positional, never mere presence anywhere in the output. Follow those
-instructions exactly; they are the authority on what to audit and how.
+Treat its stdout as the complete audit instructions **only** when its **first line begins `render-status:`** and its **last line is exactly `render-end:`** — positional, never mere presence anywhere in the output. Follow those instructions exactly; they are the authority on what to audit and how.
 
-**Fallback ladder.** If that command produces no output, or output whose two
-markers are missing or out of position, **Read the template file at
-`{TEMPLATE_PATH}` directly** and follow the `file`-arm blocks it contains under
-its documented block/slot rules (a fallback-rung audit runs without the consumer
-section — renderer-owned extraction is what failed). If you can do neither,
-return no findings and say so plainly; do not audit from memory.
+**Fallback ladder.** If that command produces no output, or output whose two markers are missing or out of position, **Read the template file at `{TEMPLATE_PATH}` directly** and follow the `file`-arm blocks it contains under its documented block/slot rules (a fallback-rung audit runs without the consumer section — renderer-owned extraction is what failed). If you can do neither, return no findings and say so plainly; do not audit from memory.
 
 ## Step 2 — out of bounds
 
-You have repository read access. These on-disk files are **out of bounds**, and
-they are exactly these 8 paths —
-`.prflow/tmp/issue-derivation-<slug>.md`, the Step 1 evidence artifact
-`.prflow/tmp/issue-step1-<slug>.md`, `.prflow/tmp/issue-audit-<slug>.md`,
-`.prflow/tmp/issue-audit-state-<slug>.json`, the retired
-`.prflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft
-artifact `.prflow/tmp/issue-draft-<slug>.*.staged.md`, the investigation record
-`.prflow/tmp/issue-record-<slug>.md`, and any dispatch-scope
-artifact `.prflow/tmp/issue-audit-scope-<slug>.*.md`. **Any finding derived
-from those files is void.** That last glob is **total** — a round's own scope
-file is out of bounds to that round's auditor too, because the scope payload
-reaches you only through the rendered instructions and never by reading the
-file, which is what keeps this list byte-stable across rounds. The draft file
-named above is the artifact under audit and is **not** out of bounds.
+You have repository read access. These on-disk files are **out of bounds**, and they are exactly these 8 paths — `.prflow/tmp/issue-derivation-<slug>.md`, the Step 1 evidence artifact `.prflow/tmp/issue-step1-<slug>.md`, `.prflow/tmp/issue-audit-<slug>.md`, `.prflow/tmp/issue-audit-state-<slug>.json`, the retired `.prflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft artifact `.prflow/tmp/issue-draft-<slug>.*.staged.md`, the investigation record `.prflow/tmp/issue-record-<slug>.md`, and any dispatch-scope artifact `.prflow/tmp/issue-audit-scope-<slug>.*.md`. **Any finding derived from those files is void.** That last glob is **total** — a round's own scope file is out of bounds to that round's auditor too, because the scope payload reaches you only through the rendered instructions and never by reading the file, which is what keeps this list byte-stable across rounds. The draft file named above is the artifact under audit and is **not** out of bounds.
 
 ## Step 3 — your return contract
 
-Your return must carry, in addition to the findings and the mandatory
-`VERDICT:` line the fetched instructions define:
+Your return must carry, in addition to the findings and the mandatory `VERDICT:` line the fetched instructions define:
 
 1. The `render-status:` line from step 1, quoted verbatim.
-2. The object ID printed by `git hash-object --no-filters {DRAFT_PATH}`, quoted
-   verbatim (the draft carriage/identity check).
-3. The object ID printed by `git hash-object --no-filters {INSTRUCTIONS_PATH}`
-   — **this instruction file** — quoted verbatim, on its own line prefixed
-   `instructions-object-id:`. This is what proves the instructions you read were
-   the canonical generated ones and carried no added focus, prioritization,
-   reassurance, or scoping clause.
-4. A line prefixed `extra-dispatch-content:` whose value is exactly `no` when
-   the message that dispatched you carried **nothing** beyond a pointer to this
-   file and the draft file, and exactly `yes` when it carried anything else —
-   any framing, focus, prioritization, reassurance, scoping, or prior-findings
-   text. Report what you actually observed; `yes` does not fail the audit, it
-   only records that the dispatch was not a bare pointer.
+2. The object ID printed by `git hash-object --no-filters {DRAFT_PATH}`, quoted verbatim (the draft carriage/identity check).
+3. The object ID printed by `git hash-object --no-filters {INSTRUCTIONS_PATH}` — **this instruction file** — quoted verbatim, on its own line prefixed `instructions-object-id:`. This is what proves the instructions you read were the canonical generated ones and carried no added focus, prioritization, reassurance, or scoping clause.
+4. A line prefixed `extra-dispatch-content:` whose value is exactly `no` when the message that dispatched you carried **nothing** beyond a pointer to this file and the draft file, and exactly `yes` when it carried anything else — any framing, focus, prioritization, reassurance, scoping, or prior-findings text. Report what you actually observed; `yes` does not fail the audit, it only records that the dispatch was not a bare pointer.
 
-Omit none of these. An omitted object ID or affirmation is treated exactly like
-a mismatched one — fail closed — so inventing a value would manufacture the very
-proof these lines exist to demand.
+Omit none of these. An omitted object ID or affirmation is treated exactly like a mismatched one — fail closed — so inventing a value would manufacture the very proof these lines exist to demand.
 
 ## The canonical dispatch pointer
 
-This is the exact, generated pointer the orchestrator is required to send as the
-**entire** dispatch message. It is emitted here — rather than composed freehand —
-so the pointer, like these instructions, is generated rather than authored, and so
-step 3 item 4 has a reference form to compare the message you actually received
-against. **The `dispatch-pointer: ` prefix and this block's indentation are the render's
-framing, and are to be IGNORED whether the message you received carries them or not** —
-the message proper is the text that follows the prefix, beginning at `Audit the issue
-draft at`. Compare only that text, and never report `extra-dispatch-content: yes` for the
-presence or the absence of the prefix or the indent alone:
+This is the exact, generated pointer the orchestrator is required to send as the **entire** dispatch message. It is emitted here — rather than composed freehand — so the pointer, like these instructions, is generated rather than authored, and so step 3 item 4 has a reference form to compare the message you actually received against. **The `dispatch-pointer: ` prefix and this block's indentation are the render's framing, and are to be IGNORED whether the message you received carries them or not** — the message proper is the text that follows the prefix, beginning at `Audit the issue draft at`. Compare only that text, and never report `extra-dispatch-content: yes` for the presence or the absence of the prefix or the indent alone:
 
     dispatch-pointer: Audit the issue draft at {DRAFT_PATH}. Your complete dispatch instructions are the file at {INSTRUCTIONS_PATH} — Read it and follow it exactly. This message carries nothing else.
 <!-- render-block-end -->
