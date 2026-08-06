@@ -45855,6 +45855,23 @@ CICE_TEST_RC=$?
 assert_eq "issue #767: create-issue context eval focused tests pass" "0" "$CICE_TEST_RC"
 [ "$CICE_TEST_RC" -eq 0 ] || while IFS= read -r _cice_line || [ -n "$_cice_line" ]; do printf '    %s\n' "$_cice_line"; done <<< "$CICE_TEST_OUT"
 
+# issue #1209: the implement runtime main-thread context eval
+# (scripts/implement-context-eval.py) and its committed synthetic fixtures. Runs
+# SERIALLY on the main shell, mirroring the create-issue eval block above — a focused
+# unittest whose non-zero exit surfaces here with its own output. It witnesses every
+# #1209 AC the eval/fixtures can (per-run peak context, per-phase-file read count,
+# category-bucketed tool calls and the inter-tool-call wall-clock gap distribution as
+# distinct axes, each aggregated across the corpus; the phase-3 re-entry count, the
+# fixture-derived re-derivation, the missing-corpus diagnostic, malformed-record
+# degradation, the unusable-timestamp accounting, determinism, the no-owner-id scan with
+# its planted positive control, and the no-auto-invocation search); the two-corrections
+# and non-goal written records (AC5/AC6/AC7) live in
+# docs/internal/implement-context.md, not a suite test.
+ICE_TEST_OUT="$(python3 "$LIB/test/test_implement_context_eval.py" 2>&1)"
+ICE_TEST_RC=$?
+assert_eq "issue #1209: implement context eval focused tests pass" "0" "$ICE_TEST_RC"
+[ "$ICE_TEST_RC" -eq 0 ] || while IFS= read -r _ice_line || [ -n "$_ice_line" ]; do printf '    %s\n' "$_ice_line"; done <<< "$ICE_TEST_OUT"
+
 # issue #1314: the trusted-emitter review-verdict handoff importer is the trust
 # boundary between the untrusted review producer and the trusted emitter — its
 # focused tests drive the accepted shape and every documented rejection class

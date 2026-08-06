@@ -397,6 +397,10 @@ A receiving-review completion claim is now gated on a **producer-owned completio
 
 The plugin tree (the validator + skill bodies + tests) ships via the `prflow_version` vendor fetch; the two workflow allowlist grants ship via `install.sh` file-copy — the two-halves upgrade coupling applies. A consumer that upgrades one half gets a silently-denied validator on cloud runs, which the no-output-is-degraded rule converts into a visible `degraded: unvalidated` outcome, never a silent pass.
 
+### Runtime main-thread context (issue #1209)
+
+Separate from the phase files' *static shipped size*, a long `/prflow:implement` run accumulates a large **runtime main-thread context** across its many turns — and, because each phase file is loaded one at a time at phase entry and mandatorily re-read on every re-entry and after every nested-skill return, the **re-read count** is the multiplier worth measuring, not the once-off byte size. The behavioral instrument `scripts/implement-context-eval.py` (maintainer-run over a transcript corpus; never on the skill's runtime path, so the instrument itself needs no tool grant — only its focused test is granted, as for #767) measures the peak main-thread context per run, the per-phase-file read counts, the main-thread tool calls bucketed by category, and the distribution of wall-clock gaps between consecutive main-thread tool calls — each per run and aggregated across the corpus. It is the implement-side counterpart of the create-issue instrument (§11); the findings, the two corrections, the tier-split non-goal, and any recorded snapshot live in [`docs/internal/implement-context.md`](implement-context.md), the single source of truth for this axis. It is not paraphrased here.
+
 ---
 
 ## 8. Deep dive: the review engine
@@ -1052,9 +1056,9 @@ The plugin install above runs **no installer script** — `install.sh` belongs t
 
 **Cloud tier (optional, from repo root)** — download, read, then run, with both refs pinned to a release tag:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.31.9/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.31.10/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.31.9 bash devflow-install.sh
+DEVFLOW_REF=v2.31.10 bash devflow-install.sh
 ```
 The URL ref fixes which installer bytes you review and run; `DEVFLOW_REF` (default `main`; a tag, SHA, or branch) fixes which ref the installer clones its payload from — pinning the URL alone leaves the payload on `main`. Substitute a newer tag in both places to move the pin; every version is tagged, so the [Tags page](https://github.com/The01Geek/prflow/tags) names the current one, while the [Releases page](https://github.com/The01Geek/prflow/releases) announces the feature releases — see [`docs/internal/install.md`](install.md#pinning-the-installer). Piping the download straight to `bash` works but forfeits the review step. Thin by default (installs workflows, actions, a local marketplace, a config scaffold, and pins `prflow_version`). `DEVFLOW_VENDOR=1` commits the tree instead.
 
