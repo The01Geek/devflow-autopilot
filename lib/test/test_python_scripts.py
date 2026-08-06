@@ -9034,6 +9034,14 @@ assert_eq("#1348 AC1: the set's member keys are initially exactly {base-update-c
 assert_eq("#1348 AC1: the strip key set is DERIVED from the artifact set (single source)",
           tuple(k for a in workpad._REQUIRED_ARTIFACTS for k in a["accept_keys"]),
           workpad._REQUIRED_ARTIFACT_CHECKPOINT_KEYS)
+# Definition-time invariant (guards a FUTURE member, per the #1348 type-design review):
+# every member must carry a non-empty `accept_keys` naming itself — an empty accept_keys
+# would make the gate's `any(...)` unconditionally False, permanently unsatisfiable, silently
+# wedging every Complete write (a fail-too-closed a new member could introduce). This test is
+# the guard rather than a `python -O`-strippable module-load assert.
+assert_eq("#1348: every required-artifact member has a non-empty accept_keys containing its key",
+          True, all(a["accept_keys"] and a["key"] in a["accept_keys"]
+                    for a in workpad._REQUIRED_ARTIFACTS))
 
 # Complete-ready base: AC ticked, canonical body. `_MK4` / the tier-refused marker are
 # the checkpoint-4 markers; build variants that carry each in ## Progress.
