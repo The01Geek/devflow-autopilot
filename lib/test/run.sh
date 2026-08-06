@@ -11916,10 +11916,12 @@ echo "load-prompt-extension.sh: every skills/*/SKILL.md carries the standardized
 # of the wrong skill name, a half-applied removal, or a path drift all fail here
 # rather than shipping silently. Fails when a future skill omits the step.
 LPE_SKILL_COUNT=0
-# The one skill whose extension is handed to it BY PATH rather than loaded by the
-# helper (issue #1333). Named once here rather than inlined in the loop so the
-# by-value population stays a single declared value, like PORTABLE_ANCHOR_LITERAL.
-LPE_BYVALUE_SKILL='retrospective'
+# The skills whose extension is handed to them BY PATH rather than loaded by the
+# helper — dispatched subagent briefs that resolve no anchor (Stage A `retrospective`,
+# issue #1333; Stage B `retrospective-audit`, issue #1338). Named once here as a
+# space-delimited set rather than inlined in the loop so the by-value population stays a
+# single declared value, like PA_NO_CALLSITE / PORTABLE_ANCHOR_LITERAL.
+LPE_BYVALUE_SKILLS='retrospective retrospective-audit'
 for SKILL_DIR in "$LIB"/../skills/*/; do
   SKILL_NAME="$(basename "$SKILL_DIR")"
   SKILL_FILE="$SKILL_DIR/SKILL.md"
@@ -11944,8 +11946,9 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
   # PATH from the orchestrator and is read with the file-read tool, so both the
   # invocation line and the helper-exit-code prose are gone by design. Assert the
   # COMPLEMENT instead, so the exemption cannot hide a reintroduced invocation.
-  if [ "$SKILL_NAME" = "$LPE_BYVALUE_SKILL" ]; then
-    assert_eq "lpe-coverage(#1333): $SKILL_NAME/SKILL.md carries NO loader invocation (extension handed by path)" "yes" \
+  case " $LPE_BYVALUE_SKILLS " in *" $SKILL_NAME "*) LPE_BYVALUE_HIT=1 ;; *) LPE_BYVALUE_HIT=0 ;; esac
+  if [ "$LPE_BYVALUE_HIT" = 1 ]; then
+    assert_eq "lpe-coverage(#1333/#1338): $SKILL_NAME/SKILL.md carries NO loader invocation (extension handed by path)" "yes" \
       "$([ -f "$SKILL_FILE" ] && ! grep -Fxq "$LPE_EXPECT_LINE" "$SKILL_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin whose target is the $SKILL_FILE loop variable
     continue
   fi
@@ -14610,7 +14613,7 @@ PA_WRONGFB_ERE='\$\{CLAUDE_SKILL_DIR:[-=]([^<]|<[^a]|<a[^b]|<ab[^s])'
 # call site, space-delimited. P3 below inverts to an ABSENCE pin for these, so a member
 # is never merely unchecked. Pinned by size just as P0/R0 pin their enumerations, so a
 # later addition to this set is a visible, deliberate act rather than a silent widening.
-PA_NO_CALLSITE='skills/retrospective/SKILL.md'
+PA_NO_CALLSITE='skills/retrospective/SKILL.md skills/retrospective-audit/SKILL.md'
 PA_FILE_COUNT=0
 for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/phase-*.md; do
   PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
@@ -14620,13 +14623,15 @@ for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/pha
   assert_eq "#275 pin (P2): $PA_NAME has no cross-statement \$CLAUDE_SKILL_DIR anchor assignment" "yes" \
     "$(! grep -qE "$PA_XSTMT_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
   # P3 is a PRESENCE pin, so it presupposes the file has at least one helper call site.
-  # A dispatched SUBAGENT brief breaks that presupposition BY DESIGN (issue #1333): a
-  # subagent receives neither $CLAUDE_SKILL_DIR nor a runner-reported base directory
-  # (measured on Claude Code 2.1.222 in a Task subagent: `printenv CLAUDE_SKILL_DIR`
-  # exits 1 with no output, and no `Base directory for this skill:` line reaches it), so
-  # it can resolve no anchor at all and every path it needs is handed to it BY VALUE by
-  # its orchestrator. For such a file P3 would demand back the very call site the fix
-  # removed, so PA_NO_CALLSITE inverts it to an ABSENCE pin rather than skipping it.
+  # A dispatched SUBAGENT brief breaks that presupposition BY DESIGN (Stage A brief
+  # skills/retrospective/SKILL.md, issue #1333; Stage B brief
+  # skills/retrospective-audit/SKILL.md, issue #1338): a subagent receives neither
+  # $CLAUDE_SKILL_DIR nor a runner-reported base directory (measured on Claude Code
+  # 2.1.222 in a Task subagent: `printenv CLAUDE_SKILL_DIR` exits 1 with no output, and
+  # no `Base directory for this skill:` line reaches it), so it can resolve no anchor at
+  # all and every path it needs is handed to it BY VALUE by its orchestrator. For such a
+  # file P3 would demand back the very call site the fix removed, so PA_NO_CALLSITE
+  # inverts it to an ABSENCE pin rather than skipping it.
   # One assertion, two expectations: `yes` (the literal is present) for every file with
   # call sites, `no` (P3x — the literal is ABSENT) for the declared no-call-site set.
   # Keeping it as one grep means the two arms cannot drift apart.
@@ -14648,7 +14653,7 @@ assert_eq "#275 pin (P0): portable-anchor coverage spans every skill + implement
 # Size-pin the no-call-site set for the same reason P0 pins the enumeration: without it a
 # later `case` arm could grow the population exempted from the block's strongest positive
 # pin with the suite staying green. Widening it is then a deliberate, reviewable edit.
-assert_eq "#1333 pin (P0x): the no-portable-anchor-call-site set holds exactly one file" "1" \
+assert_eq "#1333/#1338 pin (P0x): the no-portable-anchor-call-site set holds exactly two files" "2" \
   "$(set -- $PA_NO_CALLSITE; echo $#)"  # raw-guard-ok: word-count of the declared set, not a source-text pin
 # The #529/#530 bundle splits moved authoritative procedure — helper call sites included —
 # out of the two SKILL.md roots and into skills/review/phases/*.md and

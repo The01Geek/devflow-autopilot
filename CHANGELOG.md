@@ -4,6 +4,43 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.4] — 2026-08-06
+
+### Changed
+### Fixed
+
+- The Stage B retrospective subagent brief (`skills/retrospective-audit/SKILL.md`) no
+  longer reaches for bundled helpers through the `${CLAUDE_SKILL_DIR}` anchor. A
+  dispatched subagent receives neither that variable nor a runner-reported base
+  directory, so those six invocations could not resolve — including the brief's *only*
+  sanctioned JSON-build route (`run-jq.sh`), under a "never hand-write or heredoc JSON"
+  hard rule — their prescribed stop-and-report failure arm would have broken the brief's
+  exactly-one-JSON-object stdout contract, and one of them (`load-prompt-extension.sh`)
+  resolves its default path with `git rev-parse`, which the brief forbids. The
+  orchestrator (`skills/retrospective-weekly/SKILL.md`) now resolves the bundled-helper
+  root itself and hands it to the child **by value**, extending the by-path `<REPO_ROOT>`
+  handoff it already performed and reusing the same resolution PR #1336 shipped for Stage
+  A. The child resolves nothing, invokes no helper that touches git, and reports every
+  residual through its JSON contract rather than as prose on stdout. The duplicated
+  anchor-resolved `load-prompt-extension.sh` fence is removed — the orchestrator's by-path
+  extension handoff is the single route.
+
+## [2.31.3] — 2026-08-06
+
+### Fixed
+- **Workpad record fidelity.** `workpad.py update` now suppresses a `--note` bullet whose
+  text byte-equals a `--checkpoint` text requested in the same invocation, so the Phase 1
+  cloud hydration event renders as a single marker-carrying `## Progress` row instead of a
+  duplicated pair. A terminal `--status Complete` write now deterministically ticks every
+  still-unticked top-level `## Progress` phase row (sourced from `_PROGRESS_PHASES`), a
+  backstop for the cooperative per-phase ticks that were observed silently not landing;
+  `Failed`/`Cancelled`/`Blocked` and the interim statuses tick nothing. Newly-produced
+  workpad display text finishes the `prflow` rename — `new-body` seeds `/prflow:implement
+  run started` and renders the `# PRFlow Workpad` H1 — while the machine-consumed
+  `## Devflow Reflection` heading stays frozen. `branch-for-issue.py` deletes apostrophes
+  (U+0027 and U+2019) before the slug substitution, so a possessive contributes a clean
+  token rather than a stray `-s-` fragment. (#1340)
+
 ## [2.31.2] — 2026-08-05
 
 ### Changed

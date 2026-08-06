@@ -89,7 +89,7 @@ fi
 
 # ── 5. Issue details ─────────────────────────────────────────────────────────
 ISSUE_JSON="null"
-# The workpad lives on the ISSUE (header `# DevFlow Workpad — Issue #<N>`,
+# The workpad lives on the ISSUE (header `# PRFlow Workpad — Issue #<N>`,
 # marker `<!-- prflow:workpad -->`), authored by github-actions — NOT on the PR
 # conversation thread. Default to an empty array so the workpad/reflection parse
 # below is safe even when no linked issue was found.

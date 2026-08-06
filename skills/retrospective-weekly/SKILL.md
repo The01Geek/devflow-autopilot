@@ -814,19 +814,28 @@ Stage B re-derive a root cause from metadata alone. No worktree is created or pa
 > read it, report that via the optional `extension_unreadable` key in your returned
 > JSON object.
 >
+> Bundled-helper root: the plugin is at the absolute path `<PLUGIN_ROOT>`. Use that
+> value wherever the retrospective-audit brief writes `[[PLUGIN_ROOT]]` — for example
+> `[[PLUGIN_ROOT]]/scripts/run-jq.sh`. Resolve no skill-directory anchor of your own.
+>
 > Make **no** edits and **no** worktree. Print exactly one JSON object (the
 > `findings`-array return contract from § 5 of that skill) and **nothing else**
 > on stdout.
 
-**Resolve `<REPO_ROOT>` before dispatch (by-path handoff).** As in
-Step 4, a subagent resolves no anchor of its own, so you (the orchestrator) resolve
-the repository root (`git rev-parse --show-toplevel`) and substitute it for
-`<REPO_ROOT>` in the handoff sentences above (both the pattern-metadata path and the
-prompt-extension path). Append the sentence
-**unconditionally** (it is inert when no extension exists), run **no** probe, and
-read **no** extension file yourself — no extension content enters this
-orchestrator's context. The child performs a file read, never a command
-invocation, so no allowlist entry or permission grant is needed on any tier.
+**Resolve `<REPO_ROOT>` and `<PLUGIN_ROOT>` before dispatch (by-value handoff).** As in
+Step 4, a subagent resolves no anchor of its own — neither to reach the pattern-metadata
+or extension file nor to reach a bundled helper — so you (the orchestrator) resolve both
+and substitute them into the handoff sentences above:
+
+- `<REPO_ROOT>` — `git rev-parse --show-toplevel` (the pattern-metadata path and the prompt-extension path).
+- `<PLUGIN_ROOT>` — the resolved value of `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../`, with the trailing slash dropped. Substitute the resolved absolute path; never hand the child the unexpanded anchor, which it cannot expand. The **same rule already governs the first handoff sentence** — the anchor-relative path to the brief itself — so resolve that one at emission too: a child that cannot expand it cannot find the brief it is told to follow.
+
+Append the sentences **unconditionally** (the extension sentence is inert when no extension
+exists), run **no** probe, and read **no** extension file yourself — no extension content
+enters this orchestrator's context. For `<REPO_ROOT>` the child performs a file read or a
+textual substitution, so that needs no allowlist entry on any tier — but `<PLUGIN_ROOT>`
+names a bundled helper the child **executes** (`[[PLUGIN_ROOT]]/scripts/run-jq.sh`), so the
+child's tier must grant that helper (the same grant Stage A's dispatch relies on).
 
 Wait for **all** subagents to finish. Pair each result JSON with its pattern.
 
