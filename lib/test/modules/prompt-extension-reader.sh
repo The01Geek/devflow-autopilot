@@ -633,4 +633,82 @@ assert_eq "lpe env: empty extension → the breadcrumb is on stderr, not stdout"
   "$([ -s "$LPE_ENV_DIR/err-e9" ] && echo yes || echo no)"
 rm -rf "$LPE_ENV_DIR"
 
+# ── scripts/render-prompt-extension.sh — the render-time injection wrapper (#1264) ──
+# The wrapper is a faithful, NON-PROPAGATING proxy of the loader above: it exists so a
+# `!`…`` placeholder in a SKILL.md body can deliver the extension as prompt text rather
+# than as a command the agent may or may not choose to run. Its whole contract is
+# "always exit 0, always print one status line", because a non-zero exit from an
+# injected command aborts the skill invocation at zero turns — turning the loader's
+# ordinary exit 2 into a silent no-verdict run. These assertions drive all four input
+# shapes the contract names, plus the two exit-status-neutralization paths, and they
+# assert the EXACT status line rather than merely "some output", so a vocabulary drift
+# that made `unestablished` read as `present-empty` fails here.
+RPE="$LIB/../scripts/render-prompt-extension.sh"
+RPE_DIR="$(mktemp -d)"
+mkdir -p "$RPE_DIR/closure"
+
+# Shape 1 — extension present WITH CONTENT.
+printf 'policy line one\npolicy line two\n' > "$RPE_DIR/closure/review.md"
+RPE_C_OUT="$(DEVFLOW_PROMPT_EXTENSION_ROOT="$RPE_DIR/closure" bash "$RPE" review 2>/dev/null)"; RPE_C_RC=$?
+assert_eq "rpe: content-present → exit 0" "0" "$RPE_C_RC"
+assert_eq "rpe: content-present → exact status line" "PROMPT-EXTENSION-STATUS: content-present" \
+  "$(printf '%s\n' "$RPE_C_OUT" | while IFS= read -r l; do printf '%s' "$l"; break; done)"
+assert_eq "rpe: content-present → the extension's bytes follow the status line" \
+  "$(printf 'PROMPT-EXTENSION-STATUS: content-present\n\npolicy line one\npolicy line two')" "$RPE_C_OUT"
+
+# Shape 2 — extension PRESENT BUT EMPTY. The status line is the whole of stdout.
+: > "$RPE_DIR/closure/docs.md"
+RPE_E_OUT="$(DEVFLOW_PROMPT_EXTENSION_ROOT="$RPE_DIR/closure" bash "$RPE" docs 2>/dev/null)"; RPE_E_RC=$?
+assert_eq "rpe: present-empty → exit 0" "0" "$RPE_E_RC"
+assert_eq "rpe: present-empty → exact status line, nothing else" "PROMPT-EXTENSION-STATUS: present-empty" "$RPE_E_OUT"
+
+# Shape 3 — extension ABSENT. Shares the loader's single no-op class with shape 2, by
+# design (the loader owns directory resolution; re-deriving the path here to tell the
+# two apart would duplicate that resolution in a second place, free to drift from it).
+RPE_A_OUT="$(DEVFLOW_PROMPT_EXTENSION_ROOT="$RPE_DIR/closure" bash "$RPE" implement 2>/dev/null)"; RPE_A_RC=$?
+assert_eq "rpe: absent → exit 0" "0" "$RPE_A_RC"
+assert_eq "rpe: absent → exact status line, nothing else" "PROMPT-EXTENSION-STATUS: present-empty" "$RPE_A_OUT"
+
+# Shape 4 — extension PRESENT BUT UNREADABLE. This is the loader's exit 2, the code
+# whose propagation would abort the whole skill render; the wrapper must absorb it AND
+# report it as unestablished, never as the empty no-op.
+printf 'unreadable content\n' > "$RPE_DIR/closure/create-issue.md"
+chmod 000 "$RPE_DIR/closure/create-issue.md"
+RPE_U_OUT="$(DEVFLOW_PROMPT_EXTENSION_ROOT="$RPE_DIR/closure" bash "$RPE" create-issue 2>/dev/null)"; RPE_U_RC=$?
+chmod 644 "$RPE_DIR/closure/create-issue.md"
+assert_eq "rpe: present-but-unreadable → exit 0 (the loader's exit 2 is NOT propagated)" "0" "$RPE_U_RC"
+assert_eq "rpe: present-but-unreadable → unestablished, never present-empty" "yes" \
+  "$(case "$RPE_U_OUT" in 'PROMPT-EXTENSION-STATUS: unestablished ('*')') echo yes ;; *) echo no ;; esac)"
+assert_eq "rpe: present-but-unreadable → the reason names the cause" "yes" \
+  "$(case "$RPE_U_OUT" in *"is not readable"*) echo yes ;; *) echo no ;; esac)"
+# The status line is ONE line: the reason carries a loader diagnostic that may itself
+# span lines, and a newline leaking through would break the single-line contract the
+# reading skill keys on.
+assert_eq "rpe: unestablished reason is collapsed onto a single line" "yes" \
+  "$(case "$RPE_U_OUT" in *$'\n'*) echo no ;; *) echo yes ;; esac)"
+
+# An ABSENT TRUSTED CLOSURE is unestablished, not empty. The loader alone would report
+# it as an ordinary absent file (exit 0, empty) — an empty-looking answer for a closure
+# that failed to materialize, which on the merge-gating review tier would read as a
+# clean policy pass the run never had.
+RPE_NC_OUT="$(DEVFLOW_PROMPT_EXTENSION_ROOT="$RPE_DIR/no-such-closure" bash "$RPE" review 2>/dev/null)"; RPE_NC_RC=$?
+assert_eq "rpe: absent trusted closure → exit 0" "0" "$RPE_NC_RC"
+assert_eq "rpe: absent trusted closure → unestablished, never present-empty" "yes" \
+  "$(case "$RPE_NC_OUT" in 'PROMPT-EXTENSION-STATUS: unestablished ('*"closure was not established"*) echo yes ;; *) echo no ;; esac)"
+
+# A bad skill name is the loader's OTHER exit-2 family (argument validation, refused
+# before any filesystem access). Same neutralization.
+RPE_B_OUT="$(bash "$RPE" ../escape 2>/dev/null)"; RPE_B_RC=$?
+assert_eq "rpe: rejected skill name → exit 0 (exit 2 neutralized)" "0" "$RPE_B_RC"
+assert_eq "rpe: rejected skill name → unestablished" "yes" \
+  "$(case "$RPE_B_OUT" in 'PROMPT-EXTENSION-STATUS: unestablished ('*) echo yes ;; *) echo no ;; esac)"
+
+# No argument at all — a caller bug must not abort the render either.
+RPE_N_OUT="$(bash "$RPE" 2>/dev/null)"; RPE_N_RC=$?
+assert_eq "rpe: no skill name → exit 0" "0" "$RPE_N_RC"
+assert_eq "rpe: no skill name → unestablished naming the missing argument" "yes" \
+  "$(case "$RPE_N_OUT" in *'unestablished (no skill name'*) echo yes ;; *) echo no ;; esac)"
+
+rm -rf "$RPE_DIR"
+
 rm -rf "$LPE_DIR"

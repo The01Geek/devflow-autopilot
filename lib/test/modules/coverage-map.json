@@ -467,8 +467,8 @@
       "owner": "issue-audit-state"
     },
     "scripts/load-prompt-extension.sh": {
-      "note": "",
-      "owner": "unmodularized"
+      "note": "consumer prompt-extension reader; its contract is driven by the prompt-extension-reader module",
+      "owner": "prompt-extension-reader"
     },
     "scripts/loop-verdict-marker.py": {
       "note": "#1212 review-and-fix loop-verdict marker: compose + read line-1 helper, driven by lib/test/loop-verdict-marker-test.py from run.sh over the compose/read/AC5-safe-direction matrix",
@@ -592,6 +592,10 @@
     "scripts/render-guard-visibility.sh": {
       "note": "issue #908 PreToolUse guard visibility renderer (neutralizes extract-execution-shape.sh's un-redacted permission_denials_commands before check-run rendering)",
       "owner": "unmodularized"
+    },
+    "scripts/render-prompt-extension.sh": {
+      "note": "issue #1264 render-time prompt-extension injection wrapper; always exits 0 and emits the three-token PROMPT-EXTENSION-STATUS line, driven by the prompt-extension-reader module over all four input shapes",
+      "owner": "prompt-extension-reader"
     },
     "scripts/request-review-backstop.sh": {
       "note": "",
