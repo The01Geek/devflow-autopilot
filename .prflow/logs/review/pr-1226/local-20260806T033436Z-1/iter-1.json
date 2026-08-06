@@ -1,0 +1,378 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-06T03:34:36Z",
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": "apply_fixes",
+  "pending_dispatch": null,
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:pr-test-analyzer",
+    "prflow:type-design-analyzer",
+    "prflow:requesting-code-review"
+  ],
+  "acceptance_criteria_source": "pr-identity-mismatch -> issue-body (12 ACs; workpad copy stale, DROPs AC10/AC11/AC12)",
+  "phase3_findings": [
+    {
+      "agent": "prflow:requesting-code-review",
+      "severity": "Critical",
+      "description": "AC10/AC11/AC12 entirely unimplemented: no tool-call category bucketing, no wall-clock gap distribution, neither per-run nor aggregated.",
+      "defect_signature": {
+        "file": "scripts/implement-context-eval.py",
+        "line_range": [
+          199,
+          296
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Important",
+      "description": "docs phase-file size figures (94-131 KB span, 455 KB sum) false against HEAD and unstamped despite the doc's own provenance pledge (AC7).",
+      "defect_signature": {
+        "file": "docs/internal/implement-context.md",
+        "line_range": [
+          35,
+          52
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 6,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Important",
+      "description": "Three diff-added cross-doc links resolve to nonexistent paths (docs/create-issue-context.md x2, docs/internal/implement-context.md from the overview).",
+      "defect_signature": {
+        "file": "docs/internal/implement-context.md",
+        "line_range": [
+          6,
+          6
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 5,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Important",
+      "description": "planted-owner-id.txt commits a real owner-specific filesystem path to a public repo; the create-issue sibling deliberately uses a synthetic one.",
+      "defect_signature": {
+        "file": "lib/test/fixtures/implement-eval/planted-owner-id.txt",
+        "line_range": [
+          7,
+          7
+        ],
+        "kind": "security"
+      },
+      "corroboration_count": 3,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Important",
+      "description": "'re-derives every expected figure' false: run_count == 3 is hard-coded.",
+      "defect_signature": {
+        "file": "lib/test/test_implement_context_eval.py",
+        "line_range": [
+          501,
+          501
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 4,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "_attribution_ids does not guard exec_module/agent_namespaces; lib/plugin_identity.py is fail-closed, so the documented fallback is unreachable on its likeliest failure and import dies with a traceback.",
+      "defect_signature": {
+        "file": "scripts/implement-context-eval.py",
+        "line_range": [
+          90,
+          108
+        ],
+        "kind": "unhandled_exception"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "Two silent skips in the security-adjacent test scans (OSError continue; missing-target continue) report 'clean' about files never read.",
+      "defect_signature": {
+        "file": "lib/test/test_implement_context_eval.py",
+        "line_range": [
+          525,
+          537
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Important",
+      "description": "Documented per-run metric 'per-turn main-thread context' is never reported.",
+      "defect_signature": {
+        "file": "docs/internal/implement-context.md",
+        "line_range": [
+          91,
+          91
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Important",
+      "description": "Non-goal reason 3 names a maintenance cost the code does not bear out (install.sh and the vendor slice do not track phase files).",
+      "defect_signature": {
+        "file": "docs/internal/implement-context.md",
+        "line_range": [
+          129,
+          130
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Important",
+      "description": "Secret-scan section header claims a scope the scan does not have (excludes the one added file that would trip it).",
+      "defect_signature": {
+        "file": "lib/test/test_implement_context_eval.py",
+        "line_range": [
+          504,
+          504
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "A swapped PHASE_FILES basename->label mapping survives the whole suite.",
+      "defect_signature": {
+        "file": "lib/test/test_implement_context_eval.py",
+        "line_range": [
+          540,
+          560
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "_median even-population branch untested; the aggregate median assertion is tautological. _attribution_ids fallback arms have no coverage.",
+      "defect_signature": {
+        "file": "lib/test/test_implement_context_eval.py",
+        "line_range": [
+          119,
+          132
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:type-design-analyzer",
+      "severity": "Important",
+      "description": "_median([]) returns 0 inside a module whose central invariant is that an unestablished figure is never 0.",
+      "defect_signature": {
+        "file": "scripts/implement-context-eval.py",
+        "line_range": [
+          136,
+          149
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "run record `source` is a basename and is not unique across corpus subdirectories.",
+      "defect_signature": {
+        "file": "scripts/implement-context-eval.py",
+        "line_range": [
+          353,
+          354
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "The skip-tally key vocabulary is declared in eval_corpus but written by _iter_session_files.",
+      "defect_signature": {
+        "file": "scripts/implement-context-eval.py",
+        "line_range": [
+          299,
+          352
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "NoAutoInvocationTest does not scan .prflow/prompt-extensions, whose bytes are appended to the implementing agent's prompt.",
+      "defect_signature": {
+        "file": "lib/test/test_implement_context_eval.py",
+        "line_range": [
+          563,
+          605
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "The determinism claim is tested at the return-value level, not the rendered output.",
+      "defect_signature": {
+        "file": "lib/test/test_implement_context_eval.py",
+        "line_range": [
+          369,
+          374
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "Comment drift: _sum_or_unestablished 'one chokepoint' claim, eval_corpus skipped docstring, RunAccumulator 'bounded' claim, _expected_from_fixture independence claim, the '(4 here)' self-referential ordinal, and the 'never invoked by any test-suite gate' self-tension in three locations.",
+      "defect_signature": {
+        "file": "scripts/implement-context-eval.py",
+        "line_range": [
+          166,
+          205
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "A zero-run report cannot be distinguished from an empty corpus or a broken attributionSkill shape; no session_files_scanned is reported.",
+      "defect_signature": {
+        "file": "scripts/implement-context-eval.py",
+        "line_range": [
+          459,
+          466
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-19",
+      "decision": "deferred",
+      "source_file": "scripts/implement-context-eval.py",
+      "claim_text": "a zero-run report cannot be distinguished from an empty corpus or a broken attribution shape",
+      "skip_category": "uncategorized",
+      "evidence": "Real but out of the reviewed spec: adding session_files_scanned changes eval_corpus's return arity, touching every call site in the focused test, for a reporting enhancement no AC of issue #1209 asks for. Deferred rather than bundled into a REJECT-driver fix batch that is already large."
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 18,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "verification_evidence": {
+    "focused_selection": {
+      "surfaces": [
+        {
+          "surface": "scripts/implement-context-eval.py",
+          "coverage_map_entry": "scripts/implement-context-eval.py",
+          "target": "lib/test/test_implement_context_eval.py",
+          "result": "47 passed"
+        },
+        {
+          "surface": "lib/test/test_implement_context_eval.py",
+          "coverage_map_entry": "scripts/implement-context-eval.py",
+          "target": "lib/test/test_implement_context_eval.py",
+          "result": "47 passed"
+        },
+        {
+          "surface": "lib/test/fixtures/implement-eval/**",
+          "coverage_map_entry": "scripts/implement-context-eval.py",
+          "target": "lib/test/test_implement_context_eval.py",
+          "result": "47 passed"
+        },
+        {
+          "surface": "docs/internal/implement-context.md",
+          "exemption": "no coverage-map entry (docs/ is outside the map's lib//scripts/ population)"
+        },
+        {
+          "surface": "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md",
+          "exemption": "no coverage-map entry"
+        },
+        {
+          "surface": ".changeset/issue-1209-implement-context-eval.md",
+          "exemption": "no coverage-map entry"
+        },
+        {
+          "surface": "lib/test/run.sh",
+          "exemption": "run.sh-resident comment-only edit; monolith shard / full suite is the covering instrument"
+        }
+      ]
+    }
+  },
+  "shadow": {
+    "ran_at": null,
+    "verdict": null,
+    "coverage": null,
+    "reason": "not reached — iteration 1 verdict was REJECT"
+  },
+  "synthesized": false,
+  "telemetry": "unavailable"
+}

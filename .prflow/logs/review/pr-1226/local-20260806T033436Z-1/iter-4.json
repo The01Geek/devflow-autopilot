@@ -1,0 +1,135 @@
+{
+  "iter": 4,
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "fix_commit_sha": "92f502115",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "prflow:comment-analyzer",
+    "prflow:silent-failure-hunter",
+    "prflow:requesting-code-review"
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 13,
+    "new_corroborated_critical_count": 0
+  },
+  "shadow": {
+    "ran_at": "2026-08-06T05:40:00Z",
+    "reviewed_sha": "b20bea928",
+    "verdict": "APPROVE",
+    "coverage": "not_verified",
+    "reason": "Partial roster: prflow:code-reviewer (which the repo's agent_overrides exclude from iterations >= 2, so it had not seen the fixed tree at all) and the prflow:requesting-code-review final pass were dispatched fresh with no prior-findings priming. prflow:comment-analyzer, prflow:silent-failure-hunter, prflow:pr-test-analyzer and prflow:type-design-analyzer were NOT re-dispatched for the shadow, so this is not the full Phases 0-4.3 fan-out the engine's shadow contract specifies.",
+    "reviewers_dispatched": [
+      "prflow:code-reviewer",
+      "prflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:comment-analyzer",
+      "prflow:pr-test-analyzer",
+      "prflow:type-design-analyzer",
+      "prflow:requesting-code-review"
+    ],
+    "phase3_findings": [
+      {
+        "agent": "prflow:code-reviewer",
+        "severity": "none",
+        "description": "No issues at or above confidence 80."
+      },
+      {
+        "agent": "prflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "spans_dropped_turns can read true when no interval spans the dropped turn; the doc's stated rationale did not cover that case.",
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "prflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "The overview's 'so no new tool grant' is true of the instrument but the change does grant its focused test.",
+        "fix_decision": "applied"
+      }
+    ],
+    "comparison": {
+      "shadow_total": 2,
+      "new": 2,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "verification_evidence": {
+    "focused_test": "lib/test/test_implement_context_eval.py — 56 passed, 0 failed",
+    "lint_gates": [
+      "ruff check scripts/implement-context-eval.py lib/test/test_implement_context_eval.py — clean",
+      "shellcheck --severity=warning -e SC1091 --extended-analysis=false lib/test/run.sh — clean",
+      "lib/test/lint-tree-enumeration.py — 131/131 audited, rc 0",
+      "lib/test/regenerate-artifacts.py — all artifacts reconciled, exit 0"
+    ],
+    "full_suite": "NOT run locally (owner default: prefer CI). CI `lib + python tests` reported success at b20bea928; the run for the final docs-only head 92f502115 was in flight at loop exit.",
+    "focused_selection": {
+      "surfaces": [
+        {
+          "surface": "scripts/implement-context-eval.py",
+          "coverage_map_entry": "scripts/implement-context-eval.py",
+          "target": "lib/test/test_implement_context_eval.py",
+          "result": "56 passed"
+        },
+        {
+          "surface": "lib/test/test_implement_context_eval.py",
+          "coverage_map_entry": "scripts/implement-context-eval.py",
+          "target": "lib/test/test_implement_context_eval.py",
+          "result": "56 passed"
+        },
+        {
+          "surface": "lib/test/fixtures/implement-eval/**",
+          "coverage_map_entry": "scripts/implement-context-eval.py",
+          "target": "lib/test/test_implement_context_eval.py",
+          "result": "56 passed"
+        },
+        {
+          "surface": "docs/internal/implement-context.md",
+          "exemption": "no coverage-map entry (the map's population is lib/ and scripts/)"
+        },
+        {
+          "surface": "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md",
+          "exemption": "no coverage-map entry"
+        },
+        {
+          "surface": ".changeset/issue-1209-implement-context-eval.md",
+          "exemption": "no coverage-map entry"
+        },
+        {
+          "surface": "lib/test/run.sh",
+          "exemption": "comment-only edit; the monolith shard / full suite is the covering instrument, deferred to CI per the owner's prefer-CI default"
+        }
+      ],
+      "single_flight_consulted": false
+    }
+  },
+  "deferred": [
+    {
+      "finding_id": "F-19",
+      "description": "No session_files_scanned in the report, so a zero-run result cannot be distinguished from an empty corpus.",
+      "skip_category": "uncategorized",
+      "evidence": "Changes eval_corpus's return arity and every call site for a reporting enhancement no AC asks for. Narrowed materially by iteration 3's widened _FALLBACK_ATTRIBUTION and iteration 4's namespace-shape validation, which remove the paths that would have produced a silent zero-run report."
+    },
+    {
+      "finding_id": "F-20",
+      "description": "The sibling instrument tallies sidechain_only_file; this eval drops an unattributed session with no counter.",
+      "skip_category": "uncategorized",
+      "evidence": "Same class as F-19; worth picking up together if that item is taken."
+    }
+  ],
+  "synthesized": false,
+  "telemetry": "unavailable"
+}
