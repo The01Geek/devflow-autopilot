@@ -1945,7 +1945,21 @@ assert_eq("new-body: run link applied", True, '[View run](https://x/1)' in _nb)
 assert_eq("new-body: has ## Progress checklist", True,
           '## Progress' in _nb and '**Setup**' in _nb)
 assert_eq("new-body: run-started note nested (indented) under Setup", True,
-          '  - ' in _nb and '/devflow:implement run started' in _nb)
+          '  - ' in _nb and '/prflow:implement run started' in _nb)
+# #1337: produced display text finishes the prflow rename — the seed says /prflow:
+# and NO /devflow: substring survives anywhere in the produced skeleton.
+assert_eq("#1337 new-body: seed uses /prflow:implement run started", True,
+          '/prflow:implement run started' in _nb)
+assert_eq("#1337 new-body: zero /devflow: occurrences in produced text", 0,
+          _nb.count('/devflow:'))
+# #1337: the H1 on the line after the marker reads PRFlow, not the stale product name.
+assert_eq("#1337 new-body: H1 renders '# PRFlow Workpad — Issue #7'", True,
+          '# PRFlow Workpad — Issue #7' in _nb and '# DevFlow Workpad' not in _nb)
+# #1337: the machine-consumed '## Devflow Reflection' heading is FROZEN (frozen in
+# lib/rename-map.json; lib/fetch-pr-context.sh matches it by regex) — the H1 rename
+# must not touch it.
+assert_eq("#1337 new-body: '## Devflow Reflection' heading unchanged (frozen)", True,
+          '## Devflow Reflection' in _nb)
 assert_eq("new-body: Plan + AC are placeholders (not populated)", True,
           '_(planning in progress)_' in _nb and '_(pending' in _nb)
 # Coupling pin (#258): the new-body template must emit the EXACT `_AC_PENDING_PLACEHOLDER`
@@ -4454,6 +4468,20 @@ for _modname, _mod in (
 ):
     assert_eq(f"#222: {_modname} defines _force_utf8_streams (entry-path helper)",
               True, hasattr(_mod, '_force_utf8_streams'))
+
+
+# #1337: apostrophes are deleted before the non-alphanumeric slug substitution, so a
+# possessive contributes a clean token instead of the stray `-s-` fragment. Both
+# apostrophe code points — U+0027 (') and U+2019 (’) — are the closed deleted set.
+assert_eq("#1337 slug: U+0027 apostrophe → create-issues (no stray -s-)",
+          True, 'create-issues' in _branch_for_issue._slugify("sharpen create-issue's authoring")
+          and 'create-issue-s' not in _branch_for_issue._slugify("sharpen create-issue's authoring"))
+assert_eq("#1337 slug: U+2019 typographic apostrophe → create-issues",
+          True, 'create-issues' in _branch_for_issue._slugify("sharpen create-issue’s authoring")
+          and 'create-issue-s' not in _branch_for_issue._slugify("sharpen create-issue’s authoring"))
+# The deletion is scoped to apostrophes only — other non-alphanumerics still become hyphens.
+assert_eq("#1337 slug: non-apostrophe punctuation still hyphenates",
+          'foo-bar', _branch_for_issue._slugify("foo, bar"))
 
 
 # #356: `Failed` must stay OUT of _STATUS_TO_PROGRESS_PHASE, so a --note passed with
@@ -8460,6 +8488,124 @@ _code, _out, _err, _patched = _drive_cmd_update(_CP_BODY.replace(
     checkpoint=[[_CPKEY, "x"]])
 assert_eq("#537 checkpoint AC16: a checkpoint-only replay makes no PATCH", None, _patched)
 assert_eq("#537 checkpoint AC16: a checkpoint-only replay exits 0", None, _code)
+
+# ── #1337: same-invocation --note/--checkpoint byte-equal de-dup ──────────────
+# The Phase 1 cloud hydration fence passes the selected lifecycle event twice in one
+# call — as --checkpoint text and again as --note — which used to render two rows.
+_DUP_KEY = "gha:31049963529:1:phase1-hydrated"
+_DUP_TEXT = "agent initialized; Phase 1 workpad hydrated"
+# AC1: fresh checkpoint + byte-equal --note → the text appears exactly once (on the
+# marker-carrying row); the bare note bullet is suppressed.
+_dd = apply_mut(_CP_BODY, make_args(checkpoint=[[_DUP_KEY, _DUP_TEXT]], note=[_DUP_TEXT]))
+assert_eq("#1337 dedup AC1: byte-equal note+checkpoint text appears exactly once",
+          1, _dd.count(_DUP_TEXT))
+assert_eq("#1337 dedup AC1: the single occurrence carries the checkpoint marker",
+          1, _dd.count(workpad._checkpoint_marker(_DUP_KEY)))
+# AC2 (non-suppression control): a --note that DIFFERS from every checkpoint text is
+# appended exactly as today — checkpoint text once, note text once.
+_dd2 = apply_mut(_CP_BODY, make_args(checkpoint=[[_DUP_KEY, _DUP_TEXT]], note=["a different note"]))
+assert_eq("#1337 dedup AC2: a differing note is still appended",
+          (1, 1), (_dd2.count("a different note"), _dd2.count(_DUP_TEXT)))
+# AC3: a REPLAYED checkpoint (key already present) + byte-equal note appends no new
+# row for that text — suppression keys on the REQUESTED set, not just absent inserts.
+_dd_pre = apply_mut(_CP_BODY, make_args(checkpoint=[[_DUP_KEY, _DUP_TEXT]]))
+_before = _dd_pre.count(_DUP_TEXT)
+_dd3 = apply_mut(_dd_pre, make_args(checkpoint=[[_DUP_KEY, _DUP_TEXT]], note=[_DUP_TEXT], status="Reviewing"))
+assert_eq("#1337 dedup AC3: replayed checkpoint + byte-equal note adds no new row",
+          _before, _dd3.count(_DUP_TEXT))
+assert_eq("#1337 dedup AC3: the combined status mutation still lands",
+          True, "🚀 Reviewing" in _dd3)
+
+# ── #1337: terminal --status Complete backstop ticks top-level phase rows ──────
+# A workpad whose every top-level ## Progress phase is unticked; --status Complete
+# ticks all five (sourced from _PROGRESS_PHASES) while leaving nested sub-items alone.
+_BK_BODY = """<!-- prflow:workpad -->
+# PRFlow Workpad — Issue #999
+
+**Status:** 🚀 Documenting
+**Branch:** `x`
+**Last updated:** 2026-05-15 00:00 UTC
+
+## Progress
+- [ ] **Setup** — branch & workpad
+- [ ] **Implement**
+  - [ ] code + sweeps
+- [ ] **Review**
+  - [ ] acceptance-criteria gate
+- [ ] **Documentation**
+- [ ] **PR marked ready**
+
+## Plan
+- [x] step
+
+## Acceptance Criteria
+- [x] AC1
+
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+</details>
+"""
+_bk = apply_mut(_BK_BODY, make_args(status="Complete"))
+# Every top-level phase row from _PROGRESS_PHASES is now ticked (iterate the constant,
+# sourced from _PROGRESS_PHASES — never a transcribed count/list).
+_bk_progress = _bk.split('## Progress', 1)[1].split('## Plan', 1)[0]
+_bk_rows = {m.group(2): m.group(1) for line in _bk_progress.split('\n')
+            if (m := workpad._TOP_LEVEL_CHECKBOX_RE.match(line))}
+for _ph in workpad._PROGRESS_PHASES:
+    assert_eq(f"#1337 backstop: top-level row for phase {_ph!r} is ticked at Complete",
+              True, any(_ph.lower() in _label.lower() and _state in 'xX'
+                        for _label, _state in _bk_rows.items()))
+# Nested sub-items keep their prior (unticked) state.
+assert_eq("#1337 backstop: nested 'code + sweeps' sub-item stays unticked", True,
+          '- [ ] code + sweeps' in _bk)
+assert_eq("#1337 backstop: nested 'acceptance-criteria gate' sub-item stays unticked", True,
+          '- [ ] acceptance-criteria gate' in _bk)
+# Negative controls: Failed / Cancelled / Blocked change no checkbox.
+for _neg in ("Failed", "Cancelled", "Blocked"):
+    _bkn = apply_mut(_BK_BODY, make_args(status=_neg))
+    assert_eq(f"#1337 backstop: --status {_neg} ticks no top-level phase row", 0,
+              _bkn.split('## Progress', 1)[1].split('## Plan', 1)[0].count('- [x]'))
+# A --status Complete write against a body with NO canonical ## Progress section
+# succeeds with the backstop tick a structural no-op.
+_bk_noprog = _BK_BODY.replace('## Progress', '## Notprogress')
+_bk_np = apply_mut(_bk_noprog, make_args(status="Complete"))
+assert_eq("#1337 backstop: Complete on a Progress-less body still flips Status", True,
+          '🎉 Complete' in _bk_np)
+assert_eq("#1337 backstop: Progress-less body has no injected top-level ticks", 0,
+          _bk_np.split('## Notprogress', 1)[1].split('## Plan', 1)[0].count('- [x]'))
+# The phase FILTER is load-bearing: a top-level non-phase row (no _PROGRESS_PHASES
+# substring) must NOT be ticked at Complete — guards against a regression that dropped
+# the filter and bulk-ticked every column-0 row.
+_bk_extra = _BK_BODY.replace("- [ ] **PR marked ready**",
+                             "- [ ] **PR marked ready**\n- [ ] **Housekeeping chore**")
+_bk_x = apply_mut(_bk_extra, make_args(status="Complete"))
+assert_eq("#1337 backstop: a top-level non-phase row is NOT ticked at Complete", True,
+          '- [ ] **Housekeeping chore**' in _bk_x)
+# The backstop's Progress ticks must NOT leak into the terminal-complete AC gate: an
+# unticked non-post-merge AC still hard-fails --status Complete (the backstop mutates
+# only ## Progress; _terminal_complete_gate reads only AC/Plan).
+_bk_open_ac = _BK_BODY.replace("- [x] AC1", "- [ ] AC1")
+assert_raises("#1337 backstop: an unticked AC still hard-fails --status Complete",
+              workpad._UpdateError,
+              lambda: apply_mut(_bk_open_ac, make_args(status="Complete")))
+# Combined --status Complete with a --note/--checkpoint in one call: both the phase
+# ticks AND the note/checkpoint row land (the backstop runs before the note append,
+# which re-reads the already-ticked Progress content).
+_bk_combined = apply_mut(_BK_BODY, make_args(
+    status="Complete", note=["a combined note"], checkpoint=[["gha:1:1:done", "a combined note"]]))
+assert_eq("#1337 backstop: combined Complete+note/checkpoint ticks phases", 0,
+          _bk_combined.split('## Progress', 1)[1].split('## Plan', 1)[0].count('- [ ] **'))
+assert_eq("#1337 backstop: combined Complete+note/checkpoint records the event once",
+          1, _bk_combined.count("a combined note"))
+
+# #1337: a DIFFERING-text checkpoint replay must NOT suppress its byte-equal note — the
+# replay keeps the row's existing text, so the new text would render nowhere if dropped.
+_dd_rt = apply_mut(_dd_pre, make_args(checkpoint=[[_DUP_KEY, "a changed hydration text"]],
+                                      note=["a changed hydration text"]))
+assert_eq("#1337 dedup: differing-text replay does NOT drop its byte-equal note", True,
+          "a changed hydration text" in _dd_rt)
 
 # #1050 (Slice A): the Phase 4.3 checkpoint-4 evidence record uses the SAME keyed-checkpoint
 # mechanism through the fixed key `base-update-checkpoint-4`, whose marker `lib/fetch-pr-context.sh`
