@@ -69,13 +69,18 @@ def _repo_root():
     breadcrumb, so the degradation is stated rather than silent.
     """
     if _repo_root.cached is None:
-        rc, out, _ = _git(["rev-parse", "--show-toplevel"], cwd=os.getcwd())
+        rc, out, err = _git(["rev-parse", "--show-toplevel"], cwd=os.getcwd())
         root = out.strip() if rc == 0 else ""
         if not root:
+            # Quote git rather than assert a cause: this one call fails for a
+            # not-a-repository, an unrunnable DEVFLOW_GIT, a dubious-ownership
+            # refusal and a broken GIT_DIR alike, and naming only the
+            # subdirectory case would misdiagnose three of the four.
             print(
-                "prompt-surface growth: could not resolve the repository root; "
-                "falling back to the working directory, so a run from a "
-                "subdirectory may under-report.",
+                "prompt-surface growth: could not resolve the repository root"
+                + (f" — git said: {err.strip()}" if err.strip() else "")
+                + "; falling back to the working directory, so figures derived "
+                "from a subdirectory may under-report.",
                 file=sys.stderr,
             )
             root = os.getcwd()
@@ -100,8 +105,15 @@ def _git(args, cwd=None):
             [_GIT, *args],
             cwd=cwd if cwd is not None else _repo_root(),
             capture_output=True,
-            text=True,
             check=False,
+            # Decode with replacement rather than `text=True`'s strict policy. `-z`
+            # is chosen below precisely so git does not quote unusual path bytes,
+            # which means those raw bytes reach the decoder — and a strict decode
+            # would raise UnicodeDecodeError (a ValueError, so the OSError guard
+            # would not catch it), ending the run in the traceback this contract
+            # exists to rule out. A mangled path in one row beats no output at all.
+            encoding="utf-8",
+            errors="replace",
         )
     except OSError as exc:
         return 127, "", f"git (`{_GIT}`) could not be executed: {exc}"
@@ -149,10 +161,12 @@ def resolve_merge_base():
 
 
 def surface_at(ref):
-    """({path: (blob_sha, size)}, git_stderr) for covered `*.md` files in `ref`'s tree.
+    """({path: (blob_sha, size)}, git_stderr, skipped) for covered `*.md` in `ref`'s tree.
 
     On a git failure the map is `None` and the second element carries git's own
     message, so the caller's breadcrumb can name a cause rather than only a symptom.
+    `skipped` counts records that were not readable blobs, so the caller can disclose
+    the omission beside the figures it affects.
 
     One `ls-tree` call per endpoint carries the sizes with it (`--long`), so no
     per-file `cat-file -s` round trip is needed. `-z` keeps paths raw: without it
@@ -162,7 +176,7 @@ def surface_at(ref):
         ["ls-tree", "-r", "-z", "--long", ref, "--", *COVERED_PREFIXES]
     )
     if rc != 0:
-        return None, err.strip()
+        return None, err.strip(), 0
     surface = {}
     skipped = 0
     for record in out.split("\0"):
@@ -172,23 +186,19 @@ def surface_at(ref):
         if not path or not _covered(path):
             continue
         fields = meta.split()
-        # `<mode> <type> <sha> <size>` — a `-` size marks a non-blob entry (a
-        # submodule gitlink is the realistic one), which `-r` should not emit here.
-        # Such a record is counted, not silently dropped: dropping it would subtract
-        # a file from a total the reader is told to treat as a generated fact, and a
-        # wrong precise number is worse than a missing one.
+        # `<mode> <type> <sha> <size>` — a `-` size marks a non-blob entry. `-r`
+        # does emit these (a submodule gitlink is `160000 commit … -`), but the
+        # `.md` suffix test above has already dropped almost all of them, so this
+        # guard is reached only by a non-blob whose path ends in `.md` — a gitlink
+        # or an unrecognised record shape at such a path. It is excluded from the
+        # figures and its exclusion is TALLIED, so the caller can disclose it beside
+        # the table: a total that quietly omits a file is a wrong precise number,
+        # which is worse than a missing one.
         if len(fields) != 4 or fields[1] != "blob" or not fields[3].isdigit():
             skipped += 1
             continue
         surface[path] = (fields[2], int(fields[3]))
-    if skipped:
-        print(
-            f"prompt-surface growth: {skipped} entr(ies) under a covered prefix in "
-            f"`{ref}` were not readable blobs (a submodule gitlink, or an "
-            "unrecognised ls-tree record); the figures below omit them.",
-            file=sys.stderr,
-        )
-    return surface, ""
+    return surface, "", skipped
 
 
 def changed_rows(base_surface, head_surface):
@@ -210,8 +220,14 @@ def _signed(n):
     return f"{n:+,}"
 
 
-def render(head_sha, base_sha, ref, rows, surface_delta, surface_total):
-    """The markdown table, as a list of lines."""
+def render(head_sha, base_sha, ref, rows, surface_delta, surface_total, skipped=0):
+    """The markdown table, as a list of lines.
+
+    A non-zero `skipped` appends a disclosure line **below the table, on the same
+    channel as the figures**. That placement is the point: the consuming prompt
+    extension renders this helper's stdout verbatim and reads no stderr, so a caveat
+    written to stderr would be stripped from exactly the runs whose numbers need it.
+    """
     lines = [
         "### Prompt-surface size",
         "",
@@ -228,6 +244,13 @@ def render(head_sha, base_sha, ref, rows, surface_delta, surface_total):
         f"| **Whole covered surface** | **{_signed(surface_delta)}** "
         f"| **{surface_total:,}** |"
     )
+    if skipped:
+        lines.append("")
+        lines.append(
+            f"> Note: {skipped} entr(ies) under a covered prefix were not readable "
+            "blobs (a submodule gitlink, or an unrecognised `ls-tree` record) and "
+            "are excluded from the figures above."
+        )
     return lines
 
 
@@ -266,8 +289,8 @@ def main():
     # from A or B" leaves a reader with no starting point, and git already wrote the
     # reason. The message is quoted as data — its only caller-influenced content is a
     # ref name.
-    base_surface, base_err = surface_at(base_sha)
-    head_surface, head_err = surface_at(head_sha)
+    base_surface, base_err, base_skipped = surface_at(base_sha)
+    head_surface, head_err, head_skipped = surface_at(head_sha)
     for label, sha, surface, err in (
         ("merge-base", base_sha, base_surface, base_err),
         ("HEAD", head_sha, head_surface, head_err),
@@ -304,7 +327,8 @@ def main():
     surface_total = sum(size for _, size in head_surface.values())
     print(
         "\n".join(
-            render(head_sha, base_sha, ref, rows, surface_delta, surface_total)
+            render(head_sha, base_sha, ref, rows, surface_delta, surface_total,
+                   max(base_skipped, head_skipped))
         )
     )
     return 0

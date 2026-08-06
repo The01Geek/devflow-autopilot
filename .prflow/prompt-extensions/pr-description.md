@@ -31,5 +31,11 @@ number it did not print. A figure you compose is an estimate, and an estimate pr
 beside generated ones is indistinguishable from them.
 
 The helper always exits 0 and gates nothing: a breadcrumb instead of a table is a normal
-outcome, never an error to work around or retry. If the invocation produces no output at
-all on either arm, omit the section and say nothing about prompt-surface size.
+outcome, never an error to work around or retry.
+
+It also prints on every path it can reach, so **no output at all is never the helper
+speaking** — it means the invocation never ran (a permission refusal, which is silent by
+design; `Permission denied` or rc 126 from a lost executable bit; a vendored copy that is
+absent in a way the two arms above did not match). That is a deployment or grant fault a
+maintainer needs to see, so do not omit the section silently: write one line in the PR
+body naming both paths you tried and the reading you got, and nothing about size.

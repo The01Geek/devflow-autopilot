@@ -6,6 +6,7 @@ skill's technical-rigor discipline (verify before implementing, push back when w
 stands unchanged; this extension adds one repo-specific VERIFY step that a prior run
 got wrong on PR #190.
 
+<!-- Coupled copy (same-commit reconciliation): the paragraph below is a real copy, mirrored in `.prflow/prompt-extensions/review-and-fix.md`; each extension is loaded independently, so a pointer would not resolve for its reader. Edit both together. -->
 When a review finding on prompt-surface prose would be answered by adding text, prefer **rewording the existing sentence** over appending a new one. If the finding is that a rule could be misread, fix the rule's wording. Append only when the finding identifies a genuinely missing instruction or consequence.
 
 ## Re-read the live issue spec — including any Addendum — before triaging findings

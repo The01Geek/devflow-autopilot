@@ -18,6 +18,7 @@ precondition.
 
 Template: [Keeping prompt prose lean](implement.md#keeping-prompt-prose-lean-advisory).
 
+<!-- Coupled copy (same-commit reconciliation): the paragraph below is a real copy, mirrored in `.prflow/prompt-extensions/receiving-code-review.md`; each extension is loaded independently, so a pointer would not resolve for its reader. Edit both together. -->
 When a review finding on prompt-surface prose would be answered by adding text, prefer **rewording the existing sentence** over appending a new one. If the finding is that a rule could be misread, fix the rule's wording. Append only when the finding identifies a genuinely missing instruction or consequence.
 
 ## Wording-only pin review policy

@@ -25342,6 +25342,55 @@ with tempfile.TemporaryDirectory(prefix='psg1350g-') as _R1350gone:
               "the helper invokes",
               True, str(Path(_R1350gone) / 'no-such-git') in _proc1350.stdout)
 
+# ── A non-blob entry under a covered prefix is DISCLOSED on stdout, not swallowed ────
+# A submodule gitlink whose path ends in `.md` is the shape that actually reaches the
+# skip counter: `ls-tree -r` does emit gitlinks (`160000 commit … -`), but the covered-
+# population `.md` suffix test drops all the ordinary ones first. Such an entry cannot be
+# sized, so it is excluded from the figures — and the disclosure of that exclusion must
+# ride the SAME channel as the figures, because the consuming prompt extension renders
+# stdout verbatim and reads no stderr. A caveat on stderr would be stripped from exactly
+# the runs whose numbers need it, publishing a quietly-wrong precise total as a fact.
+with tempfile.TemporaryDirectory(prefix='psg1350s-') as _R1350s:
+    _R1350sP = Path(_R1350s)
+    (_R1350sP / 'sub').mkdir()
+    (_R1350sP / 'main').mkdir()
+    _SUB1350 = str(_R1350sP / 'sub')
+    _MN1350 = str(_R1350sP / 'main')
+    for _r in (_SUB1350, _MN1350):
+        _psg_git1350(_r, 'init', '-q', '-b', 'main')
+        _psg_git1350(_r, 'config', 'user.email', 'a@b.c')
+        _psg_git1350(_r, 'config', 'user.name', 'T')
+        _psg_git1350(_r, 'config', 'commit.gpgsign', 'false')
+    _psg_write1350(_SUB1350, 'readme.md', 'sub\n')
+    _psg_git1350(_SUB1350, 'add', '-A')
+    _psg_git1350(_SUB1350, 'commit', '-qm', 'sub')
+    _psg_write1350(_MN1350, 'skills/alpha/SKILL.md', 'alpha\n')
+    _psg_git1350(_MN1350, 'add', '-A')
+    _psg_git1350(_MN1350, 'commit', '-qm', 'base')
+    _psg_git1350(_MN1350, 'checkout', '-q', '-b', 'feature')
+    _sub_add1350 = _subprocess.run(
+        ('git', '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q',
+         _SUB1350, 'skills/vendored.md'),
+        cwd=_MN1350, capture_output=True, text=True)
+    if _sub_add1350.returncode == 0:
+        _psg_write1350(_MN1350, 'skills/alpha/SKILL.md', 'alpha\nmore\n')
+        _psg_git1350(_MN1350, 'add', '-A')
+        _psg_git1350(_MN1350, 'commit', '-qm', 'feature')
+        _rc1350s, _out1350s = _psg_run1350(_MN1350)
+        assert_eq("#1350 a non-blob entry under a covered prefix is disclosed on STDOUT "
+                  "below the table (the channel the PR body actually renders), never "
+                  "only on stderr",
+                  (0, True, True),
+                  (_rc1350s,
+                   '| `skills/alpha/SKILL.md` | +5 | 11 |' in _out1350s,
+                   'not readable blobs' in _out1350s))
+    else:
+        # Submodule creation can be refused by a host git policy; say so rather than
+        # letting the scenario vanish into a silent pass.
+        assert_eq("#1350 submodule fixture could not be created, so the non-blob "
+                  f"disclosure path was NOT exercised: {_sub_add1350.stderr.strip()}",
+                  True, False)
+
 # ── A non-git directory: HEAD unresolvable, still exit 0 ─────────────────────────────
 with tempfile.TemporaryDirectory(prefix='psg1350n-') as _R1350n:
     _rc1350n, _out1350n = _psg_run1350(_R1350n)
