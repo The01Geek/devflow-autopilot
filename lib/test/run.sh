@@ -49043,13 +49043,18 @@ assert_eq "#1072 lint: derived prune set matches the checked-in expectation" \
   ".claude-plugin/marketplace.json docs/site lib/test" \
   "$(cd "$LIB/.." && python3 "$SP_LINT" --print-prune-set | python3 -c 'import sys; print(" ".join(sys.stdin.read().split()))')"
 
-# Prune-set derivation over synthetic slices, driven through --slice-source (AC10 matrix).
-sp_pruneset() {  # <slice> [schema] -> "rc=<n>|<one-line joined stdout+stderr>"
+# Prune-set / exempt-set derivation over synthetic slices, driven through --slice-source
+# (AC10 matrix). Both print-and-exit flags share one base so the rc-encoding and one-lining
+# — which the assertions compare against — cannot drift between the two. The schema defaults
+# to the real-shaped fixture so a lib/test-target slice is exemption-neutral; a caller needing
+# a specific exemption shape passes $3 (sp_printset) / $2 (the flag-specific wrappers).
+sp_printset() {  # <print-flag> <slice> [schema] -> "rc=<n>|<one-line joined stdout+stderr>"
   local out rc
-  # Default the schema to the real-shaped fixture so a lib/test-target slice is
-  # exemption-neutral; a caller needing a specific exemption shape passes $2.
-  out="$(python3 "$SP_LINT" --print-prune-set --slice-source "$1" --schema-source "${2:-$SP_SCHEMA}" 2>&1)"; rc=$?
+  out="$(python3 "$SP_LINT" "$1" --slice-source "$2" --schema-source "${3:-$SP_SCHEMA}" 2>&1)"; rc=$?
   printf 'rc=%s|%s' "$rc" "$(printf '%s' "$out" | tr '\n' ' ')"
+}
+sp_pruneset() {  # <slice> [schema]
+  sp_printset --print-prune-set "$@"
 }
 # test_nested_removal_is_a_target: a qualifying rm inside a conditional inside the body yields it.
 assert_eq "#1072 lint: a nested (conditional) removal is a target" "rc=0|lib/test" \
@@ -49115,10 +49120,8 @@ sp_run_schema() {  # <slice> <schema> <path…> -> "rc=<n>|<stdout+stderr>"
   rm -f "$list"
   printf 'rc=%s|%s' "$rc" "$out"
 }
-sp_exemptset() {  # <slice> [schema] -> "rc=<n>|<one-line joined stdout+stderr>"
-  local out rc
-  out="$(python3 "$SP_LINT" --print-exempt-set --slice-source "$1" --schema-source "${2:-$SP_SCHEMA}" 2>&1)"; rc=$?
-  printf 'rc=%s|%s' "$rc" "$(printf '%s' "$out" | tr '\n' ' ')"
+sp_exemptset() {  # <slice> [schema] — shares sp_printset's base with sp_pruneset (no drift)
+  sp_printset --print-exempt-set "$@"
 }
 # Assertion 1 (RED-first): a prune target that equals a docs.external default is subtracted from
 # the prune set; the co-pruned non-defaults (docs/site, lib/test) survive. RED before #1309: the
