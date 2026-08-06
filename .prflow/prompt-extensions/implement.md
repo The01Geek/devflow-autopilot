@@ -200,12 +200,14 @@ the orchestrator dispatches a context-isolated Agent-tool subagent whose prompt 
 invoke `superpowers:writing-skills` and perform the edit under that skill's RED/GREEN discipline,
 returning the edit and its evidence.
 
-**Concurrent dispatch.** Once `CLAUDE.md`'s convention on committing before dispatching a subagent
-is satisfied, helpers for trigger-glob files that need not change together are dispatched
-concurrently; a dispatch made before that condition holds can lose the orchestrator's uncommitted
-work. Those concurrent dispatches are bound by the collect-before-proceeding rule in the *Cloud
-headless-wait discipline* block in `skills/implement/SKILL.md` — the requirement lives there and is
-deliberately not restated here.
+**Concurrent dispatch.** Helpers for trigger-glob files that need not change together are dispatched
+concurrently **only** where `CLAUDE.md`'s convention on committing before dispatching a subagent has
+been established as satisfied; anywhere it has not, that convention's own degraded arms govern the
+dispatch instead of this permission, and are deliberately not restated here — a concurrent dispatch
+made outside the established condition can lose the orchestrator's uncommitted work. Those
+concurrent dispatches are bound by the rule beginning *"Every dispatched subagent's completed result
+is in hand before you proceed past the dispatch point"* in the *Cloud headless-wait discipline* block
+in `skills/implement/SKILL.md` — the requirement lives there and is deliberately not restated here.
 
 **A coupled set is one helper's work.** Trigger-glob files that must change together are one unit of
 work dispatched to a single helper. Which files those are is stated by the files themselves, in the
@@ -215,7 +217,10 @@ because a transcribed file inventory goes stale.
 **The marker under concurrency.** Each returning helper is recorded as its own line carrying the
 `Writing-skills evidence:` literal, naming the trigger files that helper edited and carrying all
 four slots below; slots are read per line and never merged across helpers. A slot left without a
-stated disposition is undischarged, exactly as it is for a single dispatch.
+stated disposition is undischarged, exactly as it is for a single dispatch. Per-line completeness is
+this producer's own discipline: the review gate reads the marker literal, not per-line structure, so
+a run that leaves one helper's line slot-incomplete has failed this rule while still satisfying that
+gate.
 
 **The repair arm (resumed/compacted runs).** Evaluated **at extension load and again at Phase 3
 entry**: when the branch diff already touches a trigger glob and the workpad carries no
