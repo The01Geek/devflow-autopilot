@@ -211,6 +211,8 @@ def make_args(**overrides):
         # issue #1087 completion verification-flight evidence — `_apply_mutations`
         # and the terminal gate read these on every call.
         record_completion_evidence=None, repo_root=None, claim_identity=None,
+        # issue #1347 inherited required-artifact strip — read on every call.
+        strip_inherited_checkpoints=False,
         print_body=False,
     )
     base.update(overrides)
@@ -8457,11 +8459,14 @@ assert_raises("#537 checkpoint AC14: a within-batch duplicate key is a structura
               workpad._UpdateError,
               lambda: apply_mut(_CP_BODY, make_args(checkpoint=[[_CPKEY, "a"], [_CPKEY, "b"]])))
 
-# AC14 structural shapes: absent/duplicate Progress, marker-outside-Progress, empty body.
-assert_raises("#537 checkpoint AC14: absent ## Progress is structural",
-              workpad._UpdateError,
-              lambda: apply_mut(_CP_BODY.replace("## Progress", "## Notprogress"),
-                                make_args(checkpoint=[[_CPKEY, "t"]])))
+# AC14 structural shapes: duplicate Progress, marker-outside-Progress, empty body. An
+# ABSENT ## Progress left this list in issue #1347 — it is now repaired, not refused,
+# because the documented `--note` degrade located the same section and raised too, so
+# that shape had no working path at all. Its replacement is the positive assertion below.
+_ac14_repaired = apply_mut(_CP_BODY.replace("## Progress", "## Notprogress"),
+                           make_args(checkpoint=[[_CPKEY, "t"]]))
+assert_eq("#1347 (was #537 AC14): an absent ## Progress is repaired, not structural",
+          (1, 1), (_ac14_repaired.count("## Progress\n"), _ac14_repaired.count(_MK)))
 assert_raises("#537 checkpoint AC14: duplicate ## Progress is structural",
               workpad._UpdateError,
               lambda: apply_mut(_CP_BODY.replace("## Plan", "## Progress\n- [ ] d\n\n## Plan"),
@@ -8626,13 +8631,255 @@ assert_eq("#1050: the checkpoint-4 first write adds exactly one hidden marker", 
 assert_raises("#1050: a same-key checkpoint-4 replay is a pure no-op (backstop-resume safe)",
               workpad._NoOpReplay,
               lambda: apply_mut(_out4, make_args(checkpoint=[[_CP4_KEY, "x"]])))
-assert_raises("#1050: checkpoint-4 on a body with no ## Progress is structural (why the note fallback exists)",
-              workpad._UpdateError,
-              lambda: apply_mut(_CP_BODY.replace("## Progress", "## Notprogress"),
-                                make_args(checkpoint=[[_CP4_KEY, "t"]])))
+# The absent-## Progress shape was a structural failure here until issue #1347; it is
+# now repaired, so the run records rather than falling back. The `--note` degrade the
+# phase prose keeps still covers the two shapes that DO still fail closed (a duplicated
+# ## Progress, an empty body) — pinned in the #1347 block below.
 _code, _out, _err, _patched = _drive_cmd_update(
     _CP_BODY.replace("## Progress", "## Notprogress"), checkpoint=[[_CP4_KEY, "t"]])
-assert_eq("#1050: checkpoint-4 structural failure makes no PATCH (degrade, do not wedge)", None, _patched)
+assert_eq("#1347 (was #1050): checkpoint-4 on a no-## Progress body now PATCHes the repaired body",
+          True, _patched is not None and _MK4 in _patched and "## Progress" in _patched)
+
+# ---------------------------------------------------------------------------
+# #1347: hardening the checkpoint-4 producer — (1) `--checkpoint` repairs an ABSENT
+# `## Progress`, (2) the declared required-artifact keys carry a tier-refused sibling,
+# (3) `--strip-inherited-checkpoints` clears an inherited row on the resume arm.
+# ---------------------------------------------------------------------------
+
+# (1) The repair. An otherwise intact body missing ONLY `## Progress` had no working
+# path at all before this: `--checkpoint` raised, and the documented `--note` degrade
+# locates the same section and raised too. Now the section is created at the HEAD of
+# the section list (the canonical skeleton order Progress -> Plan -> AC -> Reflection)
+# and the row is written, so the run self-heals mid-flight.
+_NOPROG_BODY = """<!-- prflow:workpad -->
+# PRFlow Workpad — Issue #1347
+
+**Status:** 🚀 Documenting
+**Branch:** `b`
+**Last updated:** 2026-08-05 00:00 UTC
+
+## Plan
+- [ ] step
+
+## Acceptance Criteria
+- [ ] criterion
+"""
+_rep = apply_mut(_NOPROG_BODY, make_args(
+    checkpoint=[[_CP4_KEY, "checkpoint 4: observed token UP_TO_DATE"]]))
+assert_eq("#1347: --checkpoint repairs an absent ## Progress and writes the row",
+          (1, 1), (_rep.count("## Progress"), _rep.count(_MK4)))
+assert_eq("#1347: the repaired ## Progress lands at the head of the section list",
+          True, _rep.index("## Progress") < _rep.index("## Plan") < _rep.index("## Acceptance Criteria"))
+assert_eq("#1347: the repair preserves the pre-existing sections' content",
+          (True, True), ("- [ ] step" in _rep, "- [ ] criterion" in _rep))
+# The repair runs AHEAD of the section-shape validation, proven at the process level:
+# the same body that made no PATCH before now PATCHes a body carrying the marker.
+_code, _out, _err, _patched = _drive_cmd_update(_NOPROG_BODY, checkpoint=[[_CP4_KEY, "tok"]])
+assert_eq("#1347: the repaired checkpoint call PATCHes (validation saw the repaired body)",
+          True, _patched is not None and _MK4 in _patched and "## Progress" in _patched)
+
+# (1b) The repair is narrowly scoped. An empty / whitespace-only body synthesizes no
+# skeleton and still raises, and a body already carrying ## Progress is untouched.
+for _empty, _label in [("", "empty"), ("   \n\t\n ", "whitespace-only")]:
+    assert_raises(f"#1347: a {_label} body is untouched by the repair and still raises",
+                  workpad._UpdateError,
+                  lambda b=_empty: apply_mut(b, make_args(checkpoint=[[_CP4_KEY, "t"]])))
+    _code, _out, _err, _patched = _drive_cmd_update(_empty, checkpoint=[[_CP4_KEY, "t"]])
+    assert_eq(f"#1347: a {_label} body makes no PATCH", None, _patched)
+assert_eq("#1347: the repair is a no-op when ## Progress is already present",
+          _CP_BODY, workpad._repair_missing_progress_section(_CP_BODY))
+
+# (1c) The two remaining fail-closed shapes keep raising structurally with no PATCH.
+_DUP_PROG = _CP_BODY.replace("## Plan", "## Progress\n- [ ] dup\n\n## Plan", 1)
+assert_raises("#1347: a duplicated ## Progress still raises structurally",
+              workpad._UpdateError,
+              lambda: apply_mut(_DUP_PROG, make_args(checkpoint=[[_CP4_KEY, "t"]])))
+_code, _out, _err, _patched = _drive_cmd_update(_DUP_PROG, checkpoint=[[_CP4_KEY, "t"]])
+assert_eq("#1347: a duplicated ## Progress makes no PATCH", None, _patched)
+_MARKER_OUTSIDE = _CP_BODY.replace("## Plan", f"## Plan\n- stray {_MK4}", 1)
+assert_raises("#1347: a checkpoint-4 marker outside ## Progress still raises structurally",
+              workpad._UpdateError,
+              lambda: apply_mut(_MARKER_OUTSIDE, make_args(checkpoint=[[_CP4_KEY, "t"]])))
+_code, _out, _err, _patched = _drive_cmd_update(_MARKER_OUTSIDE, checkpoint=[[_CP4_KEY, "t"]])
+assert_eq("#1347: a marker outside ## Progress makes no PATCH", None, _patched)
+_DUP_MARKER = _CP_BODY.replace(
+    "\n## Plan", f"\n- a {_MK4}\n- b {_MK4}\n\n## Plan", 1)
+assert_raises("#1347: a checkpoint-4 marker appearing twice in ## Progress still raises",
+              workpad._UpdateError,
+              lambda: apply_mut(_DUP_MARKER, make_args(checkpoint=[[_CP4_KEY, "t"]])))
+_code, _out, _err, _patched = _drive_cmd_update(_DUP_MARKER, checkpoint=[[_CP4_KEY, "t"]])
+assert_eq("#1347: a twice-present marker makes no PATCH", None, _patched)
+# A multi-line checkpoint TEXT would split the row across physical lines and leave the
+# marker on the last one, so a line-filtering strip removes the marker while orphaning
+# the visible text — the human-readable workpad and the machine-read field would then
+# assert opposite things. Rejected before any PATCH, as --record-classification is.
+assert_raises("#1347: a multi-line --checkpoint text is structural (orphaned-marker hazard)",
+              workpad._UpdateError,
+              lambda: apply_mut(_CP_BODY, make_args(
+                  checkpoint=[[_CP4_KEY, "checkpoint 4: token UPDATED\n  (re-invoked once)"]])))
+_code, _out, _err, _patched = _drive_cmd_update(
+    _CP_BODY, checkpoint=[[_CP4_KEY, "line one\nline two"]])
+assert_eq("#1347: a multi-line --checkpoint text makes no PATCH", None, _patched)
+assert_eq("#1347: a single-line --checkpoint text is unaffected by that guard",
+          1, apply_mut(_CP_BODY, make_args(checkpoint=[[_CP4_KEY, "one line"]])).count(_MK4))
+# The guard is unconditional over the key space, so it now governs the `gha:` startup
+# checkpoints too — the population that carries an agent-substituted `<selected lifecycle
+# event>` and is therefore likelier than the cp4 keys to receive a stray newline.
+assert_raises("#1347: the multi-line guard governs a gha: startup key too, not just cp4",
+              workpad._UpdateError,
+              lambda: apply_mut(_CP_BODY, make_args(
+                  checkpoint=[["gha:5:1:phase1-hydrated", "run resumed\nPhase 1 hydrated"]])))
+
+# (2) The tier-refused arm's key. It is a member of the declared set, distinct from the
+# clean-token key, and — like it — carries no `gha:` prefix, because the review-tier
+# discriminator reads any `gha:` row as cloud and checkpoint 4 runs on both tiers.
+_CP4_REFUSED_KEY = "base-update-checkpoint-4-tier-refused"
+assert_eq("#1347: the tier-refused key is distinct from the clean-token key",
+          True, _CP4_REFUSED_KEY != _CP4_KEY)
+assert_eq("#1347: both declared checkpoint-4 keys are non-gha: and grammar-valid",
+          [(False, True)] * 2,
+          [(k.startswith("gha:"), bool(workpad._CHECKPOINT_KEY_RE.match(k)))
+           for k in (_CP4_KEY, _CP4_REFUSED_KEY)])
+assert_eq("#1347: both keys are members of the declared required-artifact set",
+          True, {_CP4_KEY, _CP4_REFUSED_KEY} <= set(workpad._REQUIRED_ARTIFACT_CHECKPOINT_KEYS))
+assert_eq("#1347: no declared required-artifact key carries a gha: prefix",
+          [], [k for k in workpad._REQUIRED_ARTIFACT_CHECKPOINT_KEYS if k.startswith("gha:")])
+# A local/interactive run records the tier-refused outcome and its workpad still
+# carries NO `<!-- prflow:checkpoint gha:… -->` row (the executable proof AC6 asks for).
+_refused = apply_mut(_CP_BODY, make_args(
+    checkpoint=[[_CP4_REFUSED_KEY,
+                 "checkpoint 4: the update-branch-checkpoint invocation was refused by this tier"]]))
+assert_eq("#1347: the tier-refused row is written under its own marker",
+          1, _refused.count(workpad._checkpoint_marker(_CP4_REFUSED_KEY)))
+assert_eq("#1347: a local run's workpad carries no gha:-prefixed checkpoint row",
+          [], [ln for ln in _refused.splitlines() if "checkpoint gha:" in ln])
+
+# (3) The inherited strip. Scoped to the declared set, both marker spellings, and
+# `gha:`-prefixed rows left untouched.
+_INHERITED = """<!-- prflow:workpad -->
+# PRFlow Workpad — Issue #1347
+
+**Status:** 🎉 Complete
+**Branch:** `b`
+**Last updated:** 2026-08-05 00:00 UTC
+
+## Progress
+- [x] **Setup** — branch & workpad
+  - 10:00:00 — clean cp4 <!-- prflow:checkpoint base-update-checkpoint-4 -->
+  - 10:00:01 — refused cp4 <!-- devflow:checkpoint base-update-checkpoint-4-tier-refused -->
+  - 10:00:02 — entered <!-- prflow:checkpoint gha:9:1:phase1-entered -->
+  - 10:00:03 — an ordinary note
+
+## Plan
+- [ ] step
+"""
+_stripped = apply_mut(_INHERITED, make_args(strip_inherited_checkpoints=True, status="Setup"))
+assert_eq("#1347: the strip removes the clean-token row (current marker spelling)",
+          0, _stripped.count(_MK4))
+assert_eq("#1347: the strip removes the tier-refused row (superseded marker spelling too)",
+          0, _stripped.count("base-update-checkpoint-4-tier-refused"))
+assert_eq("#1347: the strip leaves gha:-prefixed rows untouched",
+          1, _stripped.count("<!-- prflow:checkpoint gha:9:1:phase1-entered -->"))
+assert_eq("#1347: the strip leaves ordinary Progress rows untouched",
+          True, "an ordinary note" in _stripped and "- [x] **Setup**" in _stripped)
+# The strip rides its OWN flag, not the cloud-only --checkpoint/--expect-* set §1.3
+# drops on local — so a local-arm call carrying neither still strips.
+_local_stripped = apply_mut(_INHERITED, make_args(
+    strip_inherited_checkpoints=True, status="Setup", note=["run resumed"]))
+assert_eq("#1347: the strip runs on the local resume arm (no --checkpoint, no --expect-*)",
+          (0, 0), (_local_stripped.count(_MK4),
+                   _local_stripped.count("base-update-checkpoint-4-tier-refused")))
+assert_eq("#1347: the local-arm strip still applies the call's other mutations",
+          True, "run resumed" in _local_stripped)
+# The strip alone is a real mutation, so a checkpoint replay combined with it is
+# never mistaken for a pure no-op that would silently drop it.
+assert_eq("#1347: --strip-inherited-checkpoints counts as a non-checkpoint mutation",
+          True, workpad._has_non_checkpoint_mutation(
+              make_args(strip_inherited_checkpoints=True)))
+# AC10: a single invocation can never both strip and insert the same declared key —
+# `_plan_checkpoints` computes inserts against the PRE-strip body, so that combination
+# would read the inherited row as a replay and then strip it. Rejected before any PATCH.
+for _k in workpad._REQUIRED_ARTIFACT_CHECKPOINT_KEYS:
+    assert_raises(f"#1347 AC10: strip + --checkpoint {_k} in one call is rejected",
+                  workpad._UpdateError,
+                  lambda k=_k: apply_mut(_INHERITED, make_args(
+                      strip_inherited_checkpoints=True, checkpoint=[[k, "t"]])))
+_code, _out, _err, _patched = _drive_cmd_update(
+    _INHERITED, strip_inherited_checkpoints=True, checkpoint=[[_CP4_KEY, "t"]])
+assert_eq("#1347 AC10: the rejected strip+insert combination makes no PATCH", None, _patched)
+# The rejection is presence-INDEPENDENT: it reads the requested keys, never the body. Tested
+# only against a body already carrying the row, the assertion above would still pass if the
+# guard had been written as "refuse when the row exists" — which would let the hazard through
+# on exactly the body where the insert is live.
+assert_raises("#1347 AC10: strip+insert is rejected even when the body carries no such row",
+              workpad._UpdateError,
+              lambda: apply_mut(_CP_BODY, make_args(
+                  strip_inherited_checkpoints=True, checkpoint=[[_CP4_KEY, "t"]])))
+# The combination the resume arm actually issues — the strip beside the cloud
+# `gha:` hydration checkpoint — is legal and lands both effects in one call.
+_hyd = apply_mut(_INHERITED, make_args(
+    strip_inherited_checkpoints=True, status="Setup",
+    checkpoint=[["gha:9:2:phase1-hydrated", "Phase 1 workpad hydrated"]]))
+assert_eq("#1347: strip + a gha: hydration checkpoint is legal and both land",
+          (0, 1), (_hyd.count(_MK4),
+                   _hyd.count("<!-- prflow:checkpoint gha:9:2:phase1-hydrated -->")))
+# Strip-then-record across two calls (the sanctioned sequence) leaves exactly one row.
+_recorded = apply_mut(_stripped, make_args(checkpoint=[[_CP4_KEY, "checkpoint 4: this attempt"]]))
+assert_eq("#1347: a later same-key record after a strip writes exactly one fresh row",
+          1, _recorded.count(_MK4))
+# A strip-ONLY call must reach a PATCH at the process level. Every other strip assertion
+# here rides another flag, so without this one a regression that swallowed a bare strip as
+# a no-op — the exact shape `_has_non_checkpoint_mutation` exists to prevent — would leave
+# the inherited row in place with the suite green.
+_code, _out, _err, _patched = _drive_cmd_update(_INHERITED, strip_inherited_checkpoints=True)
+assert_eq("#1347: a strip-only invocation PATCHes and clears both inherited rows",
+          (True, 0, 0),
+          (_patched is not None,
+           (_patched or "").count(_MK4),
+           (_patched or "").count("base-update-checkpoint-4-tier-refused")))
+assert_eq("#1347: a strip-only invocation still leaves the gha: row",
+          1, (_patched or "").count("<!-- prflow:checkpoint gha:9:1:phase1-entered -->"))
+# The documented no-op: an absent ## Progress leaves the strip harmless rather than raising —
+# a legacy resume must not be wedged by a section that was never there. Untested, removing
+# the `idx is not None` guard would raise on exactly that population with the suite green.
+_no_prog_strip = apply_mut(_NOPROG_BODY, make_args(
+    strip_inherited_checkpoints=True, status="Setup"))
+assert_eq("#1347: the strip is a harmless no-op on a body with no ## Progress",
+          (True, True),
+          ("## Plan" in _no_prog_strip, "- [ ] criterion" in _no_prog_strip))
+# Writer/reader scope divergence: the strip rewrites the FIRST ## Progress while the
+# downstream consumer matches over the WHOLE body, so a declared marker parked outside that
+# section survives. That must never pass silently — the resumed run would otherwise be
+# credited with a reconciliation an earlier attempt performed.
+# The stray must land in a DIFFERENT section — a row placed before `## Plan` would still
+# be inside `## Progress`'s content (a section runs to the next heading) and be stripped.
+_SURVIVOR = _INHERITED.replace("- [ ] step", f"- [ ] step\n- stray {_MK4}", 1)
+_survivor_err = io.StringIO()
+with contextlib.redirect_stderr(_survivor_err):
+    _survivor_out = apply_mut(_SURVIVOR, make_args(strip_inherited_checkpoints=True))
+assert_eq("#1347: a declared marker surviving outside ## Progress is breadcrumbed, not silent",
+          True, "--strip-inherited-checkpoints left" in _survivor_err.getvalue())
+assert_eq("#1347: the survivor breadcrumb names the marker it could not clear",
+          True, _MK4 in _survivor_err.getvalue())
+# Negative control: a fully-cleared strip must NOT emit that warning, or it would fire on
+# every ordinary resume and train a reader to ignore it.
+_clean_err = io.StringIO()
+with contextlib.redirect_stderr(_clean_err):
+    apply_mut(_INHERITED, make_args(strip_inherited_checkpoints=True))
+assert_eq("#1347: a fully-cleared strip emits no survivor warning",
+          False, "--strip-inherited-checkpoints left" in _clean_err.getvalue())
+# The repair announces itself: a structural self-heal of a human-visible artifact must be
+# distinguishable later from a workpad that was always canonical.
+_repair_err = io.StringIO()
+with contextlib.redirect_stderr(_repair_err):
+    apply_mut(_NOPROG_BODY, make_args(checkpoint=[[_CP4_KEY, "tok"]]))
+assert_eq("#1347: the ## Progress repair writes a stderr breadcrumb",
+          True, "re-created it at the head" in _repair_err.getvalue())
+_quiet_err = io.StringIO()
+with contextlib.redirect_stderr(_quiet_err):
+    apply_mut(_CP_BODY, make_args(checkpoint=[[_CPKEY + ".x", "tok"]]))
+assert_eq("#1347: a canonical body triggers no repair breadcrumb",
+          False, "re-created it at the head" in _quiet_err.getvalue())
 
 # AC16 (positive control at the process level): an ABSENT-key checkpoint INSERT
 # through cmd_update DOES issue a PATCH carrying the new row — the counterpart to the
@@ -8656,9 +8903,10 @@ assert_eq("#537 checkpoint AC16: a matching precondition + a checkpoint insert l
           (_patched is not None,
            _patched is not None and _MK in _patched and "hydrated" in _patched))
 
-# AC13: a checkpoint on a legacy body lacking ## Progress fails structurally (no
-# PATCH) — the caller (Phase 1) migrates then retries, so the helper never aborts
-# the run here, it just declines to write.
+# AC13, as amended by issue #1347: a checkpoint on a legacy body lacking ## Progress no
+# longer declines to write — it repairs the section and records. The Phase 1 legacy
+# migration stays required for the OTHER writers (`--note`/`--tick-progress` still abort
+# on that shape); it is simply no longer the only path to a checkpoint write.
 _code, _out, _err, _patched = _drive_cmd_update(
     """<!-- devflow:workpad -->
 # DevFlow Workpad — Issue #999
@@ -8669,8 +8917,11 @@ _code, _out, _err, _patched = _drive_cmd_update(
 ## Plan
 - [ ] step
 """, checkpoint=[[_CPKEY, "entry"]])
-assert_eq("#537 checkpoint AC13: legacy no-Progress body -> structural, no PATCH",
-          (1, None), (_code, _patched))
+assert_eq("#1347 (was #537 AC13): legacy no-Progress body -> repaired and PATCHed at exit 0",
+          (None, True), (_code,
+                         _patched is not None and "## Progress" in _patched and _MK in _patched))
+assert_eq("#1347: the legacy repair keeps the body's pre-existing sections",
+          True, _patched is not None and "## Plan" in _patched and "- [ ] step" in _patched)
 
 # AC16 (silent-drop guard): a checkpoint REPLAY combined with ANY other mutation flag
 # must NOT be treated as a pure no-op — otherwise that mutation is silently dropped.

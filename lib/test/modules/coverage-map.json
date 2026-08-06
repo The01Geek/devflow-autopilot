@@ -442,6 +442,11 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/implement-context-eval.py": {
+      "focused_test": "lib/test/test_implement_context_eval.py",
+      "note": "issue #1209 implement runtime-context eval; maintainer-only instrument, tested directly by lib/test/test_implement_context_eval.py (serial)",
+      "owner": "unmodularized"
+    },
     "scripts/import-review-verdict-handoff.py": {
       "focused_test": "lib/test/test_import_review_verdict_handoff.py",
       "note": "issue #1314 trusted-emitter review-verdict handoff importer (the untrusted-input validation trust boundary); accepted shape + full rejection matrix driven by lib/test/test_import_review_verdict_handoff.py",
@@ -977,6 +982,10 @@
       "note": "",
       "owner": "regenerate-artifacts"
     },
+    "1209": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "1211": {
       "note": "",
       "owner": "unmodularized"
@@ -1067,6 +1076,10 @@
     },
     "1338": {
       "note": "issue #1338 P3x/P0x/lpe-coverage: the Stage B retrospective-audit subagent brief carries no portable-anchor call site (by-value handoff), added to the no-call-site and by-path-extension sets alongside Stage A",
+      "owner": "unmodularized"
+    },
+    "1347": {
+      "note": "",
       "owner": "unmodularized"
     },
     "139": {
