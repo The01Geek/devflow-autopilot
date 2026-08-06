@@ -3445,11 +3445,26 @@ def _repair_missing_progress_section(body: str) -> str:
     if not body.strip():
         return body
     preamble, sections = _split_sections(body)
-    if any(h.strip().lower() == '## progress' for h, _c in sections):
+    # `_find_section` is the file's canonical (case-insensitive) section locator —
+    # the same one `_plan_checkpoints` and every Progress writer use, so "present"
+    # cannot mean something different here than it does downstream. It answers with
+    # the FIRST match, which is why the duplicate-section shape still reaches
+    # `_plan_checkpoints`' own count check and fails closed there.
+    if _find_section(sections, 'Progress') is not None:
         return body
     return _join_sections(
         preamble, _insert_section_at_head(sections, '## Progress', ''),
     )
+
+
+# Both marker spellings of every declared key, derived once at import from the key
+# set above — never a transcribed literal, so adding a key extends the strip by
+# construction. The dual spelling is the #1003 rename read-through: a row written
+# before the rename is still this attempt's inheritance.
+_REQUIRED_ARTIFACT_MARKER_VARIANTS = tuple(
+    v for key in _REQUIRED_ARTIFACT_CHECKPOINT_KEYS
+    for v in _marker_variants(_checkpoint_marker(key))
+)
 
 
 def _strip_required_artifact_checkpoint_rows(content: str) -> str:
@@ -3463,12 +3478,8 @@ def _strip_required_artifact_checkpoint_rows(content: str) -> str:
     members are non-`gha:` by construction, so a `gha:` run-scoped row is never
     reached.
     """
-    variants = tuple(
-        v for key in _REQUIRED_ARTIFACT_CHECKPOINT_KEYS
-        for v in _marker_variants(_checkpoint_marker(key))
-    )
     kept = [ln for ln in content.splitlines(keepends=True)
-            if not any(v in ln for v in variants)]
+            if not any(v in ln for v in _REQUIRED_ARTIFACT_MARKER_VARIANTS)]
     return ''.join(kept)
 
 
