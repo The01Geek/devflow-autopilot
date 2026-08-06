@@ -13,8 +13,7 @@ you have already chosen. Write an **Interaction-surface map** block into this ru
 artifact (`.prflow/tmp/issue-derivation-<slug>.md`, which the Step 2 gate already requires; in a
 read-only sandbox it goes in the same visible chat block that stands in for that file). The block has
 four parts, in this order. Every entry is a **`Verified:` bullet quoting the sentence from the file
-verbatim, with its location** — the repo's existing cited-evidence convention, applied to contract
-text:
+verbatim, with its location**:
 
 1. **Firing conditions** — the surface's current trigger predicate, quoted whole, **plus the rule
    that orders it against its neighbours** (what is evaluated first, what dominates, what is
@@ -32,21 +31,16 @@ text:
    **whitespace-normalized** search (a contract phrase wrapped across lines lives on no single line).
    This sweep is repo-wide: enumeration covers the whole tracked tree for every contract sentence the draft amends, and a directory-scoped sweep does not discharge enumeration.
 
-**Quote, never paraphrase — this is the part that carries the weight.** A contract sentence is where
-the design error is born, and it is born in the summary of it. A sentence of the form *"an X in state
-S cannot drive outcome O"* paraphrases with equal ease into "S demotes it," "S excludes it from the
-count," and "S does not apply here" — three different mechanisms, one contract, and at most one of
-them correct. Each reading feels verified, because you did read the file; what you carried away was
-your compression of it. The quote is what makes the contradiction visible while the design is still
-cheap to change. Design against the quoted text, and keep the quote where the next reader can check
-it against the source.
+**Quote, never paraphrase.** A sentence of the form *"an X in state S cannot drive outcome O"*
+paraphrases with equal ease into "S demotes it," "S excludes it from the count," and "S does not
+apply here" — three different mechanisms, one contract, and at most one of them correct. The quote is
+what makes the contradiction visible while the design is still cheap to change.
 
 **Then design, and cite the map.** Each mechanism claim that rests on a mapped fact points at the
-entry that established it. A mechanism claim resting on a contract you did not quote is unverified —
-write it as a flagged assumption or resolve it now, exactly as the Step 3.5 steelman requires of every
-other load-bearing premise. The map persists in the derivation artifact as this run's verified-claims
-ledger, so a later audit round spot-checks it and audits the delta instead of re-deriving the whole
-surface from scratch.
+entry that established it, because a claim resting on a contract you did not quote is unverified —
+write it as a flagged assumption or resolve it now, exactly as the Step 3.5 steelman requires. The
+map persists in the derivation artifact as this run's verified-claims ledger, so a later audit round
+spot-checks it and audits the delta instead of re-deriving the whole surface.
 
 ## Deployment-variance steelman — design for the consumer's repo, not this one
 
@@ -54,16 +48,11 @@ surface from scratch.
 `lib/`, `.github/workflows/`, the config schema, or `install.sh`. It does not fire on a draft that
 touches only repo-internal surfaces (the suite, CI wiring, dev-only docs).
 
-**Why it exists.** This repo is the plugin's development tree, not its deployment target, and every
-premise you absorb from working here — that `scripts/` sits at the repo root, that the shell is
-bash 5 on macOS, that a human is present to answer a question, that a denied command fails loudly —
-is false somewhere in the installed base. A mechanism that is correct here and wrong there does not
-announce itself: it no-ops, or it silently selects the wrong branch, and the consumer sees a
-degraded run they cannot diagnose. So before you present the draft, walk the four axes below and,
-for each one your mechanism touches, either **resolve it against cited evidence or write it into
-the draft as a flagged assumption** — the same discharge the Step 3.5 steelman demands of every
-other load-bearing premise. Silence on an axis your mechanism touches is not "not applicable"; it
-is an unexamined premise.
+Before you present the draft, walk the four axes below and, for each one your mechanism touches,
+either **resolve it against cited evidence or write it into the draft as a flagged assumption** —
+the same discharge the Step 3.5 steelman demands of every other load-bearing premise. A mechanism
+that is correct here and wrong in a consumer's repo does not announce itself: it no-ops, or it
+silently selects the wrong branch, and the consumer sees a degraded run they cannot diagnose.
 
 1. **Consumer-repo shape.** A consumer's checkout has the plugin vendored under
    `.prflow/vendor/prflow/` and **no repo-root `scripts/`** — a workflow step invoking

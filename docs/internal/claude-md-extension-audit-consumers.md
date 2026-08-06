@@ -108,6 +108,65 @@ CLAUDE.md is reached via `$LIB/../CLAUDE.md`, `$WSR_CLAUDE`, `$E711_CLAUDE`, and
 
 ---
 
+### Enumeration gap this audit shipped with, and how it surfaced
+
+This inventory swept `lib/test/run.sh` and three named modules. The issue's Implementation Notes
+directed a sweep of the **whole** `lib/test/modules/` directory, and
+`lib/test/modules/regenerate-artifacts.sh` was never opened — so its `#655`/`#1055` population,
+which pins the two generated-artifact sections per extension, is absent from the consumer list
+below. CI caught the resulting 13 module failures plus 5 `run.sh` pin failures; the rules were
+restored and recorded as permitted exception **P9** in the duplicate list. Treat the numbered
+consumers below as the verified set, not as the complete one.
+
+### Post-edit disposition, consumer by consumer (AC3's second limb)
+
+For each consumer above, whether its dependency **survives unchanged** under the #1352 placement edits
+or what same-commit change accompanied it.
+
+1. **`render-audit-prompt.py` heading + `dim-key` extractor — SURVIVES UNCHANGED.** No `## ` heading
+   was renamed, none was inserted inside either hooked section, and no `dim-key` marker moved. The
+   three non-exempt `create-issue.md` sections that were compressed all precede `## Audit dimensions`.
+   Verified by extracting both sections from the pre-edit blob and the edited file and comparing:
+   `## Audit dimensions` 9,470 B identical, `## Evidence axes` 4,571 B identical.
+2. **`load-prompt-extension.sh --section` and `prompt-extension-reader.sh` — SURVIVES UNCHANGED.** Both
+   hooks were run against the edited file; the extractions are non-empty and neither leaks the other's
+   section, and the `## Evidence axes` body hashes to the same bytes as before the edit.
+3. **`run.sh`'s `#506`/`#719` block — SURVIVES, with the gate text rewritten in lockstep.** The
+   `## Prompt-surface edit routing evidence gate` heading is unchanged in both review extensions; the
+   compressed gate-plus-advisory tail was authored once and spliced into `review.md` and
+   `review-and-fix.md` from the same source, so the heading→EOF byte-identity extract still compares
+   equal. The trigger-glob list literal and the `Writing-skills evidence:` marker are unchanged across
+   the lockstep set the `#506` block reads, the operative-sentence pins resolve, and every
+   `_WSR_RETIRED_LITS` sweep and the
+   `module or path` / `focused path` zero-occurrence sweeps still read 0 across the six-file set.
+   Two wrapped-literal near-misses were caught and fixed during the pass — `pin_count` is line-based,
+   so re-wrapping `Cloud-tier runs use …` and `the review reports a **FAIL** finding naming` across a
+   line break would have read as absent; both were restored to a single line.
+4. **`lint-subagent-extension-handoff.py` section-proximity rule — SURVIVES UNCHANGED.** Sections were
+   removed and compressed but no skill reference was moved next to a dispatch token; the lint was run
+   against the edited tree and audited 5 of 5 records clean, and `lib/subagent-dispatch-sites.json`
+   needed no `declared_non_dispatch` entry.
+5. **`create-issue-contract.sh` bullet-count assertions — SURVIVE UNCHANGED, and are untouched.** Both
+   counted sections are AC6-exempt and byte-identical to their pre-edit bytes, so neither the 9 nor the
+   6 literal was edited — which AC8 names as the signal that the exemption held.
+6. **The `CLAUDE.md` and `review-and-fix.md` pin populations — SURVIVE UNCHANGED.** Every pinned literal
+   reached through `$LIB/../CLAUDE.md`, `$WSR_CLAUDE`, `$E711_CLAUDE`, `$CI_CLAUDE` and
+   `review-and-fix-contract.sh`'s `_raf_pin_unique` was re-verified present **and unique** after each
+   splice, using a line-based count that mirrors `pin_count`'s `grep -oF` semantics. `assert_pin_unique`
+   fails on duplication as well as absence, and a compression pass that de-duplicates prose is exactly
+   the shape that can break a uniqueness pin, so the check was re-run after every edit rather than once
+   at the end.
+7. **Trusted materialization and the dispatch-namespace guards — SURVIVE UNCHANGED.** No extension file
+   was added, removed, or renamed, so `DEVFLOW_PROTECTED_PROMPT_EXTENSIONS` and both `run.sh` drift
+   guards are untouched; `lint-subagent-dispatch-namespace.py` was run against the edited tree and
+   audited 62 prompt surfaces clean.
+
+One consumer outside this list was affected and reconciled in the same change:
+`run.sh`'s `#376 AC8` assertion **name** claimed the implement extension's preflight enumeration was
+pinned "by w2-preflight-set-coupling below". That pin was retired, so the name was reworded to say the
+assertion covers the `lib/preflight.sh` header alone — the same-commit reconciliation for removing the
+extension's matching (and equally stale) claim.
+
 ### Cross-cutting audit cautions
 
 - The two `## Audit dimensions` / `## Evidence axes` headings in `create-issue.md` are read by **four** independent machine consumers (render-audit-prompt `_HOOKS`, load-prompt-extension `--section`, prompt-extension-reader module, create-issue-contract bullet counts) — renaming either heading breaks all four, some silently (extractors) and some loudly (counts).

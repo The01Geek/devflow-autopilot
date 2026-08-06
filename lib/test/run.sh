@@ -10202,7 +10202,7 @@ assert_pin_unique "#230: phase-2 §2.1 keeps the operational 'narrow or suppress
 # the bullet shapes #230 exploited.
 assert_pin_unique "#230: phase-4 §4.1 keeps the absent/empty/contradictory trigger enumeration (AC3 discriminator)" \
   'absent, empty, or contradictory' "$P4_FILE"
-assert_eq "#376 AC8: lib/preflight.sh header enumerates the same guaranteed set the implement extension mirrors (coupled mirror; extension side pinned by w2-preflight-set-coupling below)" \
+assert_eq "#376 AC8: lib/preflight.sh header enumerates the guaranteed set (the extension-side w2-preflight-set-coupling pin was retired, so this asserts the header alone)" \
   "yes" \
   "$(grep -qF 'git, gh (authenticated), jq, and' "$LIB/preflight.sh" \
      && grep -qF 'python3 (>=3.11) with PyYAML' "$LIB/preflight.sh" && echo yes || echo no)"
