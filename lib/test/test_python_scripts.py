@@ -8916,6 +8916,55 @@ _code, _out, _err, _patched = _drive_cmd_update(
     checkpoint=[[_CP4_KEY, "tok"]])
 assert_eq("#1347: the post-plan raise makes no PATCH and emits no repair breadcrumb",
           (None, False), (_patched, "re-created it at the head" in (_err or "")))
+# Attribute the rejection. The loop above asserts only THAT `_UpdateError` raised, which
+# an unrelated precondition would satisfy just as well — so pin each fixture to the guard
+# it is meant to trip, and prove each fixture really lost the one property under test.
+_NOUPD_NOPROG = _NOPROG_BODY.replace("**Last updated:** 2026-08-05 00:00 UTC\n", "")
+assert_eq("#1347 (control): the late-raise fixture lost only its Last-updated line",
+          (False, False, True),
+          ("**Last updated:**" in _NOUPD_NOPROG, "## Progress" in _NOUPD_NOPROG,
+           "**Status:**" in _NOUPD_NOPROG))
+try:
+    apply_mut(_NOUPD_NOPROG, make_args(checkpoint=[[_CP4_KEY, "tok"]]))
+    _upd_raised = ""
+except workpad._UpdateError as _e:
+    _upd_raised = str(_e)
+assert_eq("#1347: the late-raise fixture is refused by the Last-updated guard specifically",
+          "Last updated line not found in workpad", _upd_raised)
+
+# A SECOND post-plan guard, so the deferred placement is pinned by more than one raise
+# site: `--status` on a body with no `**Status:**` line. This is also the exact
+# `--status ... --checkpoint gha:...` shape Phase 1.3's cloud resume arm issues.
+_NOSTATUS_NOPROG = _NOPROG_BODY.replace("**Status:** 🚀 Documenting\n", "")
+assert_eq("#1347 (control): the Status fixture lost only its Status line",
+          (False, False, True),
+          ("**Status:**" in _NOSTATUS_NOPROG, "## Progress" in _NOSTATUS_NOPROG,
+           "**Last updated:**" in _NOSTATUS_NOPROG))
+_late_err = io.StringIO()
+with contextlib.redirect_stderr(_late_err):
+    try:
+        apply_mut(_NOSTATUS_NOPROG, make_args(
+            status="Setup",
+            checkpoint=[["gha:7:1:phase1-hydrated", "run resumed; Phase 1 hydrated"]]))
+        _late_raised = ""
+    except workpad._UpdateError as _e:
+        _late_raised = str(_e)
+assert_eq("#1347: the Status fixture is refused by the Status guard specifically",
+          "Status line not found in workpad", _late_raised)
+assert_eq("#1347: a repair discarded by the --status raise is not announced either",
+          False, "re-created it at the head" in _late_err.getvalue())
+# Positive control on the same fixture: restore only the one property under test and the
+# call succeeds AND announces — so the non-announcement assertions above cannot pass
+# vacuously through some unrelated precondition rejecting the fixture.
+_late_ok_err = io.StringIO()
+with contextlib.redirect_stderr(_late_ok_err):
+    _late_ok = apply_mut(_NOPROG_BODY, make_args(
+        status="Setup",
+        checkpoint=[["gha:7:1:phase1-hydrated", "run resumed; Phase 1 hydrated"]]))
+assert_eq("#1347 (positive control): the same call with a Status line writes and announces",
+          (True, True),
+          ("**Status:**" in _late_ok,
+           "re-created it at the head" in _late_ok_err.getvalue()))
 
 # The REAL legacy-resume composition: strip + the `gha:` hydration checkpoint against a
 # body missing `## Progress`. Each mechanism is covered alone above; this is the shape
@@ -8933,6 +8982,20 @@ assert_eq("#1347: the legacy-resume composition repairs, strips, and records in 
            _legacy_resume.count(_MK4)))
 assert_eq("#1347: the repaired section carries NO phase-checklist row (migration still owed)",
           [], [ln for ln in _lr_progress.split('\n') if ln.startswith('- [ ] **')])
+# The `_MK4` element above is necessarily a no-marker observation, not a strip
+# observation: the strip rewrites the FIRST `## Progress` section, and on a body that has
+# none there is nothing it could remove — seeding an inherited row anywhere else would
+# make it a SURVIVOR (breadcrumbed, still present), not a stripped row. What IS genuinely
+# observable on this composition is that the no-op strip stays silent: it neither raises
+# nor warns about survivors on a body whose repaired section is empty. The strip's
+# removal half is exercised against a Progress-carrying body in the `_INHERITED` block.
+_lr_err = io.StringIO()
+with contextlib.redirect_stderr(_lr_err):
+    apply_mut(_NOPROG_BODY, make_args(
+        strip_inherited_checkpoints=True, status="Setup",
+        checkpoint=[["gha:7:1:phase1-hydrated", "run resumed; Phase 1 workpad hydrated"]]))
+assert_eq("#1347: the no-op strip on a repaired body emits no survivor warning",
+          False, "--strip-inherited-checkpoints left" in _lr_err.getvalue())
 
 # The survivor breadcrumb at the DUPLICATE-SECTION locus — the shape the strip's own
 # comment names first and the one a legacy workpad actually produces. Covered above only
