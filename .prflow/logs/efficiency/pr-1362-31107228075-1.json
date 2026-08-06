@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1362",
+  "generated_at": "2026-08-06T13:54:03Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.16",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.166281,
+    "tokens": {
+      "input_tokens": 39,
+      "output_tokens": 17503,
+      "cache_read_input_tokens": 2664962,
+      "cache_creation_input_tokens": 139603,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 39,
+        "outputTokens": 17503,
+        "cacheReadInputTokens": 2664962,
+        "cacheCreationInputTokens": 139603,
+        "webSearchRequests": 0,
+        "costUSD": 3.166281,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 22,
+    "duration_ms": 584681
+  },
+  "permission_denials": {
+    "count": 5,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "cd /home/runner/work/prflow/prflow\necho \"DEVFLOW_PROMPT_EXTENSION_ROOT=[${DEVFLOW_PROMPT_EXTENSION_ROOT:-<unset>}]\"\necho \"=== does the PR diff touch load-prompt-extension.sh or its tests? ===\"\ngh pr diff 1362 --name-only 2>&1\necho \"=== run same failing tests on main ===\"\ngit stash 2>/dev/null; git checkout main 2>&1 | tail -1\nlib/test/run-shard.sh monolith 2>&1 | tail -12",
+      "printf 'DEVFLOW_PROMPT_EXTENSION_ROOT=[%s]\\n' \"${DEVFLOW_PROMPT_EXTENSION_ROOT:-UNSET}\"\ngh pr diff 1362 --name-only 2>&1",
+      "cd /home/runner/work/prflow/prflow\n.prflow/vendor/prflow/scripts/post-review-verdict.sh --help 2>&1 | head -30 || scripts/post-review-verdict.sh --help 2>&1 | head -30",
+      "cd /home/runner/work/prflow/prflow\nscripts/post-review-verdict.sh --help 2>&1 | head -40",
+      "cd /home/runner/work/prflow/prflow\nscripts/post-review-verdict.sh 1362 \"APPROVE with advisory notes\" .prflow/tmp/review/pr-1362/verdict.md 9a5f6b785873df95534ba40125dee00d1afe8b0a 2>&1; echo \"post-rc=$?\""
+    ],
+    "total": 5,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
