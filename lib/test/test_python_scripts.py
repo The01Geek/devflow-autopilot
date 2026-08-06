@@ -8469,8 +8469,9 @@ assert_raises("#537 checkpoint AC14: a within-batch duplicate key is a structura
 
 # AC14 structural shapes: duplicate Progress, marker-outside-Progress, empty body. An
 # ABSENT ## Progress left this list in issue #1347 — it is now repaired, not refused,
-# because the documented `--note` degrade located the same section and raised too, so
-# that shape had no working path at all. Its replacement is the positive assertion below.
+# because the then-documented `--note` degrade (removed outright by issue #1348) located
+# the same section and raised too, so that shape had no working path at all. Its
+# replacement is the positive assertion below.
 _ac14_repaired = apply_mut(_CP_BODY.replace("## Progress", "## Notprogress"),
                            make_args(checkpoint=[[_CPKEY, "t"]]))
 assert_eq("#1347 (was #537 AC14): an absent ## Progress is repaired, not structural",
@@ -8625,8 +8626,9 @@ assert_eq("#1337 dedup: differing-text replay does NOT drop its byte-equal note"
 # reads into `base_update_checkpoint4_present`. Assert this specific key end-to-end: it is a VALID
 # key (accepted, not gha:-prefixed), a first write inserts exactly one hidden marker, a same-key
 # replay is a pure no-op (so a stall-backstop-resumed Phase 4.3 does not double-record), and a
-# non-canonical body is a STRUCTURAL failure with zero PATCH — which is precisely why the phase
-# prose must degrade to `--note` rather than let the carrier swap wedge the run's last step.
+# non-canonical body is a STRUCTURAL failure with zero PATCH. The phase prose once degraded that
+# to `--note`; issue #1348 removed that fallback outright and gates the terminal Complete write on
+# the keyed row, so a non-canonical-body failure now fails Phase 4.3 closed rather than degrading.
 _CP4_KEY = "base-update-checkpoint-4"
 assert_eq("#1050: the checkpoint-4 key is NOT gha:-prefixed (tier-discriminator invariant)",
           False, _CP4_KEY.startswith("gha:"))
@@ -8640,9 +8642,10 @@ assert_raises("#1050: a same-key checkpoint-4 replay is a pure no-op (backstop-r
               workpad._NoOpReplay,
               lambda: apply_mut(_out4, make_args(checkpoint=[[_CP4_KEY, "x"]])))
 # The absent-## Progress shape was a structural failure here until issue #1347; it is
-# now repaired, so the run records rather than falling back. The `--note` degrade the
-# phase prose keeps still covers the two shapes that DO still fail closed (a duplicated
-# ## Progress, an empty body) — pinned in the #1347 block below.
+# now repaired, so the run records rather than failing. The two shapes that DO still fail
+# closed (a duplicated ## Progress, an empty body) are pinned in the #1347 block below;
+# issue #1348 removed the §4.3 `--note` degrade, so those failures now fail Phase 4.3
+# closed at the terminal gate rather than degrading to an unkeyed carrier.
 _code, _out, _err, _patched = _drive_cmd_update(
     _CP_BODY.replace("## Progress", "## Notprogress"), checkpoint=[[_CP4_KEY, "t"]])
 assert_eq("#1347 (was #1050): checkpoint-4 on a no-## Progress body now PATCHes the repaired body",
@@ -8655,8 +8658,8 @@ assert_eq("#1347 (was #1050): checkpoint-4 on a no-## Progress body now PATCHes 
 # ---------------------------------------------------------------------------
 
 # (1) The repair. An otherwise intact body missing ONLY `## Progress` had no working
-# path at all before this: `--checkpoint` raised, and the documented `--note` degrade
-# locates the same section and raised too. Now the section is created at the HEAD of
+# path at all before this: `--checkpoint` raised, and the then-documented `--note` degrade
+# (removed outright by issue #1348) located the same section and raised too. Now the section is created at the HEAD of
 # the section list (the canonical skeleton order Progress -> Plan -> AC -> Reflection)
 # and the row is written, so the run self-heals mid-flight.
 _NOPROG_BODY = """<!-- prflow:workpad -->

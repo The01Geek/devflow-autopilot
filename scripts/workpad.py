@@ -3443,8 +3443,9 @@ def _terminal_complete_gate(sections, args) -> list[str]:
 #     DUPLICATE ## Progress / empty body is a structural failure that mutates
 #     nothing. An ABSENT ## Progress is the one shape that is not a failure: it is
 #     repaired (created at the head of the section list) ahead of that validation,
-#     because the documented `--note` degrade locates the same section and raises
-#     too, so that shape had no working path at all (issue #1347).
+#     because the then-documented `--note` degrade (removed outright by issue #1348)
+#     located the same section and raised too, so that shape had no working path at
+#     all (issue #1347).
 #   * `handoff-state FILE …` validates the workflow-owned gate→claude handoff record
 #     OFFLINE (no gh, no network) and prints one of three origin tokens, degrading
 #     every malformed/mismatched shape to `unknown` with a targeted breadcrumb.
@@ -3506,9 +3507,10 @@ def _repair_missing_progress_section(body: str) -> str:
     """Re-create an absent `## Progress` section at the head of the section list.
 
     `--checkpoint` writes into `## Progress` and fails structurally when it is
-    absent — and the documented `--note` degrade locates the same section, so an
-    otherwise intact workpad missing just that one section had no working path to
-    record a checkpoint outcome at all (issue #1347). This repairs it mid-update so
+    absent — and the then-documented `--note` degrade (removed outright by issue
+    #1348) located the same section, so an otherwise intact workpad missing just that
+    one section had no working path to record a checkpoint outcome at all (issue
+    #1347). This repairs it mid-update so
     the run self-heals with no human involved.
 
     Deliberately narrow: an empty/whitespace-only body is returned unchanged, so
