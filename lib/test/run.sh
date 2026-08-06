@@ -5623,6 +5623,7 @@ cat > "$S258/all-ticked.md" <<WPMD
 ## Progress
 - [x] **Setup**
   - 00:00:00 — completion verification recorded <!-- prflow:checkpoint completion-verification:$S258_KEY -->
+  - 00:00:01 — checkpoint 4 clean <!-- prflow:checkpoint base-update-checkpoint-4 --> (issue #1348: the required-artifact gate needs this row before a Complete finalize)
 
 ## Plan
 - [x] Plan step one
