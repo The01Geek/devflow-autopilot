@@ -3,9 +3,9 @@ name: docs-release-notes
 description: Use when a change needs a user-visible release-note, changelog, or changeset entry — "add a release note", "add a changeset for this", "what goes in the changelog?", "write up what shipped", "note this for the next release" — or when finalizing a branch whose customer-visible features, bug fixes, or UI changes should be announced before merge. Narrower than prflow:docs, which sweeps internal docs, external docs, and release notes together.
 ---
 > **Configuration:** Read paths from `.prflow/config.json`:
-> - Internal docs: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/` <!-- pruned-path-ok: the configurable consumer-owned internal-doc root, not a path expected inside the vendored plugin -->
-> - External docs: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.external docs/external/` <!-- pruned-path-ok: this is the configurable consumer-owned external-doc root, not a path expected inside the vendored plugin -->
-> - Release notes file: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.release_notes_file docs/external/release-notes.md` <!-- pruned-path-ok: this is the configurable consumer-owned release-notes default, not a path expected inside the vendored plugin -->
+> - Internal docs: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/`
+> - External docs: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.external docs/external/`
+> - Release notes file: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.release_notes_file docs/external/release-notes.md`
 > - CHANGELOG file: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.changelog_file CHANGELOG.md`
 > - PR number: `gh pr view --json number -q '.number'` (resolves from current branch)
 >
