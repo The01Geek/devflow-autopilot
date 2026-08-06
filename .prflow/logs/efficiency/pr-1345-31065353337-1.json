@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1345",
+  "generated_at": "2026-08-06T02:32:27Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.6",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 8.95519,
+    "tokens": {
+      "input_tokens": 1789,
+      "output_tokens": 22795,
+      "cache_read_input_tokens": 3583305,
+      "cache_creation_input_tokens": 200030,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 1835,
+        "outputTokens": 60682,
+        "cacheReadInputTokens": 4972080,
+        "cacheCreationInputTokens": 670850,
+        "webSearchRequests": 0,
+        "costUSD": 8.95519,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 30,
+    "duration_ms": 602643
+  },
+  "permission_denials": {
+    "count": 4,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"${CLAUDE_SKILL_DIR:-/home/runner/work/prflow/prflow/skills/review}\"",
+      "echo \"$CLAUDE_SKILL_DIR\"",
+      "cd /home/runner/work/prflow/prflow\necho \"=== generic dimension bullets in audit-prompt-template.md ===\"\nsed -n '/^\\*\\*Audit dimensions/,/^{CONSUMER_DIMENSIONS}/p' skills/create-issue/references/audit-prompt-template.md | grep -c '^- \\*\\*'\necho \"=== dim-key markers ===\"\ngrep -c '^<!-- dim-key:' skills/create-issue/references/audit-prompt-template.md\necho \"=== the dim-keys ===\"\ngrep '^<!-- dim-key:' skills/create-issue/references/audit-prompt-template.md",
+      "ls /home/runner/work/prflow/prflow/.changeset/*.md 2>/dev/null | head; echo \"---sample frontmatter---\"; for f in $(ls /home/runner/work/prflow/prflow/.changeset/*.md 2>/dev/null | grep -v issue-1341 | head -3); do echo \"== $f ==\"; sed -n '1,5p' \"$f\"; done"
+    ],
+    "total": 4,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
