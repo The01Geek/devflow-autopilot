@@ -637,7 +637,7 @@ assert_eq "#1177 asv: the result-channel diagnostic is verdict-INERT (stays INST
 assert_eq "#1177 asv: the result-channel diagnostic cannot reach SEAM_PROVEN even with --adjudicated-governed" "yes" \
   "$(asv_has_row_adj "$ASV_F" '| **INSTRUMENT_NOT_FIRED** | no |')"
 # The tool_result-typed content-block shape is accepted too (the execution-file schema is a
-# dated observation, not a contract — docs/execution-file-shape.md).
+# dated observation, not a contract — docs/internal/execution-file-shape.md).
 printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}},{"type":"tool_result","content":"SEAM_PROBE_FORWARDED_OK SEAM_PROBE_EFFORT=low"}]' > "$ASV_F"
 assert_eq "#1177 asv: a tool_result-typed content block is read by the diagnostic channel too" "yes" \
   "$(asv_has "$ASV_F" 'forwarded_marker_in_result_channel=yes')"
@@ -1306,7 +1306,7 @@ unset BGV_UNREAD BGV_F
 # structural-pin-ok: cross-file-phase-contract -- the matcher-probe.yml job (producer) and the
 # DEVFLOW_SYSTEM_OVERVIEW.md verdict record (consumer of that job's only output) are a
 # two-sided contract that no single-file assertion can hold; each half is separately mutable.
-DSO812="$REPO_ROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+DSO812="$REPO_ROOT/docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md"
 probe_row_present812() {  # file -> yes|no : the job exists AND carries the variable under test
   # The window ENDS on the job's own claude_args key, never on a generic job-header
   # pattern: `  background-tasks-probe:` would match such a pattern itself, collapsing the
@@ -1355,7 +1355,7 @@ rm -f "$_t812p" "$_t812d"
 unset _t812p _t812d
 
 # #839 AC1 — the recorded verdict has TWO docs mirrors, and only DEVFLOW_SYSTEM_OVERVIEW.md
-# was gated (recorded_verdict812 above). docs/implement-skill.md carries the SAME run
+# was gated (recorded_verdict812 above). docs/internal/implement-skill.md carries the SAME run
 # identifiers as a second copy of that dated observation — the coupled-mirror class CLAUDE.md
 # warns about — so a re-probe that updates one file and not the other would ship two
 # disagreeing dated observations with the suite green. Assert the two run identifiers recorded
@@ -1364,7 +1364,7 @@ unset _t812p _t812d
 # structural-pin-ok: cross-file-phase-contract -- the two docs mirrors of one dated probe
 # observation are a coupled pair; each file is separately mutable and neither alone holds the
 # contract.
-IMPL812="$REPO_ROOT/docs/implement-skill.md"
+IMPL812="$REPO_ROOT/docs/internal/implement-skill.md"
 impl_ids_agree812() {  # impl-file -> yes|no : both #812 run ids from the overview appear in the impl mirror's bg-tasks record
   local ids id f="$1"
   # Pull the run-id pair from the overview's #812 background-tasks FOREGROUND sentence, so the
@@ -1377,7 +1377,7 @@ impl_ids_agree812() {  # impl-file -> yes|no : both #812 run ids from the overvi
   # And the impl file must actually be the bg-tasks record, not merely contain the digits.
   grep -qF 'background-tasks-probe' "$f" && echo yes || echo no
 }
-assert_eq "#839 recorded-verdict: docs/implement-skill.md mirrors the overview's background-tasks run identifiers" \
+assert_eq "#839 recorded-verdict: docs/internal/implement-skill.md mirrors the overview's background-tasks run identifiers" \
   "yes" "$(impl_ids_agree812 "$IMPL812")"
 # Planted-defect control on a COPY: mutating implement-skill.md's run id breaks the agreement,
 # proving the added half turns RED.
@@ -1834,14 +1834,178 @@ assert_eq "#1156 degraded: a reader that cannot compose the receipt path is UNES
   "$(v1156_check_at_with "$V1156_NOLIB/scripts/check-verdict-post-reached.sh" "$V1156_NONE/nothing-here.txt")"
 rm -rf "$V1156_NOLIB"
 
+# ── issue #1250: the head-reviews classifier. It reads a reviews-API payload, the
+# reviewed head SHA and the run's reviewer login, and prints exactly ONE line from
+# `{ none | marked | unmarked <id>… | unestablished <reason> }`, always exiting 0. Every
+# arm (a–j from the issue's acceptance table) is asserted against an EXACT expected line.
+V1156_CLS="$REPO_ROOT/scripts/classify-head-reviews.sh"
+V1156_CSHA=3333333333333333333333333333333333333333
+V1156_COTHER=4444444444444444444444444444444444444444
+V1156_CLOGIN='prflow-reviewer[bot]'
+V1156_CLSD="$(mktemp -d)"
+# One own-identity review on the head; $1 id, $2 body (JSON-escaped), emitted as a
+# one-element array so the fixtures stay compact and legible.
+v1156_cls_one() {  # $1 id $2 commit $3 login $4 body-json -> writes a payload file, echoes path
+  local f; f="$V1156_CLSD/p$$-$RANDOM.json"
+  printf '[{"id":%s,"commit_id":"%s","user":{"login":"%s"},"body":%s}]' "$1" "$2" "$3" "$4" > "$f"
+  printf '%s' "$f"
+}
+v1156_cls() {  # $1 payload-file -> the classifier's single line for the head + reviewer login
+  bash "$V1156_CLS" "$1" "$V1156_CSHA" "$V1156_CLOGIN" 2>/dev/null
+}
+V1156_MARKED_L1="\"<!-- prflow:review-verdict head=$V1156_CSHA verdict=REJECT -->\\n## Verdict: REJECT\""
+V1156_MARKED_L2="\"first line\\n<!-- prflow:review-verdict head=$V1156_CSHA verdict=REJECT -->\""
+
+# arm a — empty review list -> none
+printf '[]' > "$V1156_CLSD/empty.json"
+assert_eq "#1250 classify arm a: an empty review list is none" \
+  "none" "$(v1156_cls "$V1156_CLSD/empty.json")"
+# arm b — own-identity review on head, marker on line 1 -> marked
+assert_eq "#1250 classify arm b: an own review on head with a line-1 marker is marked" \
+  "marked" "$(v1156_cls "$(v1156_cls_one 42 "$V1156_CSHA" "$V1156_CLOGIN" "$V1156_MARKED_L1")")"
+# arm c — own-identity review on head, no marker -> unmarked <id>
+assert_eq "#1250 classify arm c: an own review on head with no marker is unmarked <id>" \
+  "unmarked 4849248513" "$(v1156_cls "$(v1156_cls_one 4849248513 "$V1156_CSHA" "$V1156_CLOGIN" '"## Verdict: REJECT\nfindings"')")"
+# arm d — own-identity review on head, marker on LINE 2 -> unmarked (readers scan line 1)
+assert_eq "#1250 classify arm d: a marker on line 2 is unmarked, not marked (line-1 only)" \
+  "unmarked 7" "$(v1156_cls "$(v1156_cls_one 7 "$V1156_CSHA" "$V1156_CLOGIN" "$V1156_MARKED_L2")")"
+# arm e — unmarked review by a login that is NOT the run's reviewer -> none
+assert_eq "#1250 classify arm e: an unmarked review by another login is none" \
+  "none" "$(v1156_cls "$(v1156_cls_one 9 "$V1156_CSHA" "someone-else" '"no marker"')")"
+# arm f — own MARKERLESS review whose commit_id is NOT the head. `commit_id` is the only
+# key such a review carries and issue #1247 ruled it non-authoritative (GitHub rewrites it
+# after submission), so this review cannot be positively placed OFF the head — and `none`
+# is the one arm the renderer turns into "left the reviews API untouched". It is therefore
+# UNESTABLISHED, never `none`: a run that posted an unmarked bypass review and then saw the
+# head advance before this classification leaves exactly this shape behind.
+assert_eq "#1250 classify arm f: an own unmarked review this helper cannot place off the head is unestablished, never none" \
+  "unestablished review-placement-unprovable" "$(v1156_cls "$(v1156_cls_one 9 "$V1156_COTHER" "$V1156_CLOGIN" '"no marker"')")"
+# The same shape with NO usable commit_id at all — JSON null, the key absent, or a
+# non-string the API does not produce — is the same answer, and none of the three may abort
+# the filter: an absent comparand never reads as "off the head".
+printf '[{"id":9,"commit_id":null,"user":{"login":"%s"},"body":"no marker"}]' "$V1156_CLOGIN" > "$V1156_CLSD/cid-null.json"
+printf '[{"id":9,"user":{"login":"%s"},"body":"no marker"}]' "$V1156_CLOGIN" > "$V1156_CLSD/cid-absent.json"
+printf '[{"id":9,"commit_id":17,"user":{"login":"%s"},"body":"no marker"}]' "$V1156_CLOGIN" > "$V1156_CLSD/cid-number.json"
+assert_eq "#1250 classify arm f: a markerless own review with no usable commit_id (null/absent/non-string) is unestablished, never none" \
+  "unestablished review-placement-unprovable|unestablished review-placement-unprovable|unestablished review-placement-unprovable" \
+  "$(v1156_cls "$V1156_CLSD/cid-null.json")|$(v1156_cls "$V1156_CLSD/cid-absent.json")|$(v1156_cls "$V1156_CLSD/cid-number.json")"
+# arm g — unparseable payload -> unestablished <reason>
+printf 'not json{' > "$V1156_CLSD/bad.json"
+assert_eq "#1250 classify arm g: an unparseable payload is unestablished payload-unparseable" \
+  "unestablished payload-unparseable" "$(v1156_cls "$V1156_CLSD/bad.json")"
+# arm h — absent/empty head SHA -> unestablished (never none)
+assert_eq "#1250 classify arm h: an absent head SHA is unestablished head-sha-absent" \
+  "unestablished head-sha-absent" "$(bash "$V1156_CLS" "$V1156_CLSD/empty.json" "" "$V1156_CLOGIN" 2>/dev/null)"
+# arm i — body field is not a string -> unestablished or none, NEVER a crash, NEVER marked
+V1156_CI="$(v1156_cls "$(v1156_cls_one 9 "$V1156_CSHA" "$V1156_CLOGIN" '123')")"
+assert_eq "#1250 classify arm i: a non-string body is unestablished/none, never marked, never a crash" \
+  "yes" "$(case "$V1156_CI" in 'unestablished '*|none) echo yes;; *) echo no;; esac)"
+assert_eq "#1250 classify arm i: a non-string body specifically reports body-not-a-string" \
+  "unestablished body-not-a-string" "$V1156_CI"
+# The body-type guard covers EVERY own-identity review, not only the ones already known to
+# be on the head: since #1247 the body is what PLACES a review (its line-1 marker), so a
+# non-string body anywhere in the own set leaves the placement unreadable and must not be
+# passed over as "not on the head, so it does not matter".
+assert_eq "#1250 classify arm i: a non-string body on an OFF-head own review is still body-not-a-string" \
+  "unestablished body-not-a-string" "$(v1156_cls "$(v1156_cls_one 9 "$V1156_COTHER" "$V1156_CLOGIN" '123')")"
+# arm j — two unmarked own reviews -> both ids on the one line (sorted ascending)
+printf '[{"id":20,"commit_id":"%s","user":{"login":"%s"},"body":"a"},{"id":10,"commit_id":"%s","user":{"login":"%s"},"body":"b"}]' \
+  "$V1156_CSHA" "$V1156_CLOGIN" "$V1156_CSHA" "$V1156_CLOGIN" > "$V1156_CLSD/two.json"
+assert_eq "#1250 classify arm j: two unmarked own reviews put both ids on the one line, sorted" \
+  "unmarked 10 20" "$(v1156_cls "$V1156_CLSD/two.json")"
+# Positive control for the line-1 test: a body whose ONLY difference from arm b is the
+# marker moving to line 2 flips marked -> unmarked, so arm b is not passing vacuously.
+assert_eq "#1250 classify: the line-1 marker test is load-bearing (b marked, d unmarked over the same marker)" \
+  "marked/unmarked 7" \
+  "$(v1156_cls "$(v1156_cls_one 42 "$V1156_CSHA" "$V1156_CLOGIN" "$V1156_MARKED_L1")")/$(v1156_cls "$(v1156_cls_one 7 "$V1156_CSHA" "$V1156_CLOGIN" "$V1156_MARKED_L2")")"
+# Every arm exits 0 (the reach-record step must never change its job's result).
+assert_eq "#1250 classify: every arm exits 0" "0000" \
+  "$(bash "$V1156_CLS" "$V1156_CLSD/empty.json" "$V1156_CSHA" "$V1156_CLOGIN" >/dev/null 2>&1; printf '%s' "$?"
+     bash "$V1156_CLS" "$V1156_CLSD/bad.json" "$V1156_CSHA" "$V1156_CLOGIN" >/dev/null 2>&1; printf '%s' "$?"
+     bash "$V1156_CLS" "" "$V1156_CSHA" "$V1156_CLOGIN" >/dev/null 2>&1; printf '%s' "$?"
+     bash "$V1156_CLS" "$V1156_CLSD/nope.json" "$V1156_CSHA" "$V1156_CLOGIN" >/dev/null 2>&1; printf '%s' "$?")"
+# A missing reviewer login is unestablished, never none (unknown is not zero).
+assert_eq "#1250 classify: an absent reviewer login is unestablished, never none" \
+  "unestablished reviewer-login-absent" "$(bash "$V1156_CLS" "$V1156_CLSD/empty.json" "$V1156_CSHA" "" 2>/dev/null)"
+# The unmarked id list is digits only by construction, so no review-body byte reaches the
+# emitted line: a crafted body cannot inject through the id field.
+printf '[{"id":55,"commit_id":"%s","user":{"login":"%s"},"body":"$(id) `whoami` ::warning::x"}]' \
+  "$V1156_CSHA" "$V1156_CLOGIN" > "$V1156_CLSD/inject.json"
+assert_eq "#1250 classify: a review body cannot inject into the emitted line (id field is digits only)" \
+  "unmarked 55" "$(v1156_cls "$V1156_CLSD/inject.json")"
+# The payload-shape reason tokens the arms above have not already reached are asserted here
+# against their exact line — every reason renders verbatim into a ::warning:: and a PR
+# comment, so a reason a regression reclassified would ship green if only its sibling
+# reasons were pinned. Deliberately count-free: the closed vocabulary grows (issue #1250
+# added `review-placement-unprovable`, asserted with arm f above), and a comment carrying
+# the tally would rot on the very edit that extends it.
+printf '{"not":"an array"}' > "$V1156_CLSD/obj.json"
+assert_eq "#1250 classify: a valid-JSON non-array payload is unestablished payload-not-an-array" \
+  "unestablished payload-not-an-array" "$(v1156_cls "$V1156_CLSD/obj.json")"
+assert_eq "#1250 classify: an unreadable payload path is unestablished payload-unreadable" \
+  "unestablished payload-unreadable" "$(v1156_cls "$V1156_CLSD/does-not-exist.json")"
+mkdir -p "$V1156_CLSD/adir.json"
+assert_eq "#1250 classify: a directory at the payload path is unestablished payload-unreadable" \
+  "unestablished payload-unreadable" "$(v1156_cls "$V1156_CLSD/adir.json")"
+# The 'any unmarked wins -> unmarked' precedence within $own is the operative behavior for
+# the live bypass (a run that stamped a marked review AND left an unmarked one). A change
+# that emitted `marked` whenever any marked review existed would pass arm b and arm j.
+printf '[{"id":30,"commit_id":"%s","user":{"login":"%s"},"body":"<!-- prflow:review-verdict head=%s verdict=APPROVE -->\\nmarked one"},{"id":31,"commit_id":"%s","user":{"login":"%s"},"body":"no marker"}]' \
+  "$V1156_CSHA" "$V1156_CLOGIN" "$V1156_CSHA" "$V1156_CSHA" "$V1156_CLOGIN" > "$V1156_CLSD/mixed.json"
+assert_eq "#1250 classify: a mixed own set (one marked + one unmarked) names ONLY the unmarked id" \
+  "unmarked 31" "$(v1156_cls "$V1156_CLSD/mixed.json")"
+# The APPROVE marker alternation (not only REJECT) is a real branch of the regex.
+assert_eq "#1250 classify: an APPROVE-verdict line-1 marker is marked, exercising the regex alternation" \
+  "marked" "$(v1156_cls "$(v1156_cls_one 33 "$V1156_CSHA" "$V1156_CLOGIN" "\"<!-- prflow:review-verdict head=$V1156_CSHA verdict=APPROVE -->\\napproved\"")")"
+# The stdin ('-') payload source is a distinct jq invocation; drive it once end to end.
+assert_eq "#1250 classify: the stdin ('-') payload source classifies identically to a file" \
+  "none" "$(printf '[]' | bash "$V1156_CLS" - "$V1156_CSHA" "$V1156_CLOGIN" 2>/dev/null)"
+# ── issue #1247 precedence, the same one PR #1255 gave dismiss-stale-rejections.sh: the
+# verdict marker's `head=` is the AUTHORITATIVE record of the reviewed tree and the
+# reviews-API `commit_id` is not (GitHub rewrites it after submission — observed on pull
+# request #1234). So the marker decides placement whenever a review carries one, in BOTH
+# directions, and `commit_id` is consulted only for a markerless review.
+#
+# Direction 1 — the marker places a review ON the head that `commit_id` has moved off.
+# This is the shape the finding names: before the precedence the review vanished from the
+# scoped set and the empty set graded `none`, so the renderer asserted the reviews API was
+# untouched about a head it had a recorded verdict for.
+assert_eq "#1250 classify #1247: a marked review whose commit_id no longer names the head is placed by its MARKER, not by commit_id" \
+  "marked" "$(v1156_cls "$(v1156_cls_one 45 "$V1156_COTHER" "$V1156_CLOGIN" "\"<!-- prflow:review-verdict head=$V1156_CSHA verdict=APPROVE -->\\nok\"")")"
+# Direction 2 — the marker places a review OFF the head that `commit_id` claims is on it.
+# A review whose line-1 marker names another tree reviewed that tree, so it is positively
+# off this head and `none` stays reachable: this is what keeps the marker-first precedence
+# from collapsing `none` into a state nothing can reach.
+assert_eq "#1250 classify #1247: a marker naming a DIFFERENT head places the review OFF this head, so none stays reachable" \
+  "none" "$(v1156_cls "$(v1156_cls_one 44 "$V1156_CSHA" "$V1156_CLOGIN" "\"<!-- prflow:review-verdict head=$V1156_COTHER verdict=REJECT -->\\nbody\"")")"
+# The marker head is compared case-insensitively, so a hand-authored uppercase marker head
+# still places its review — normalized in jq, never through a non-preflight `tr` or a
+# bash-4 `${var,,}`. The head ARGUMENT is normalized the same way, from either side.
+assert_eq "#1250 classify #1247: marker-head placement is case-insensitive from both sides" \
+  "marked" "$(bash "$V1156_CLS" "$(v1156_cls_one 46 "$V1156_CSHA" "$V1156_CLOGIN" "\"<!-- prflow:review-verdict head=ABCDEF3333333333333333333333333333333333 verdict=REJECT -->\\nx\"")" \
+     abcdef3333333333333333333333333333333333 "$V1156_CLOGIN" 2>/dev/null)"
+# PRECEDENCE. An unplaceable review blocks ONLY `none` — the one arm the renderer turns
+# into "left the reviews API untouched". It never displaces `unmarked` or `marked`, which
+# assert that something EXISTS and so cannot be falsified by a review that could not be
+# placed. Both rows share the same unplaceable second review, so a change that hoisted the
+# indeterminate arm would flip them while arm f stayed green.
+printf '[{"id":60,"commit_id":"%s","user":{"login":"%s"},"body":"<!-- prflow:review-verdict head=%s verdict=APPROVE -->\\nm"},{"id":61,"commit_id":"%s","user":{"login":"%s"},"body":"no marker"}]' \
+  "$V1156_CSHA" "$V1156_CLOGIN" "$V1156_CSHA" "$V1156_COTHER" "$V1156_CLOGIN" > "$V1156_CLSD/marked-plus-unplaceable.json"
+printf '[{"id":62,"commit_id":"%s","user":{"login":"%s"},"body":"no marker"},{"id":61,"commit_id":"%s","user":{"login":"%s"},"body":"no marker"}]' \
+  "$V1156_CSHA" "$V1156_CLOGIN" "$V1156_COTHER" "$V1156_CLOGIN" > "$V1156_CLSD/unmarked-plus-unplaceable.json"
+assert_eq "#1250 classify: an unplaceable review blocks none but never displaces marked or unmarked" \
+  "marked|unmarked 62" \
+  "$(v1156_cls "$V1156_CLSD/marked-plus-unplaceable.json")|$(v1156_cls "$V1156_CLSD/unmarked-plus-unplaceable.json")"
+rm -rf "$V1156_CLSD"
+
 # ── AC6-AC10: the arm-dispatch helper. It selects the arm and composes every byte the
 # arm emits; the workflow renders those bytes and chooses nothing.
 V1156_GAPD="$(mktemp -d)"
 V1156_WARN="$V1156_GAPD/warn.txt"
 V1156_BODY="$V1156_GAPD/body.md"
-v1156_gap() {  # $1 reader line, $2 run id, $3 pr, $4 head -> "<ARM line>|<exit code>"
+v1156_gap() {  # $1 reader line, $2 run id, $3 pr, $4 head, [$5 review class] -> "<ARM line>|<exit code>"
   local out rc
-  out="$(bash "$V1156_GAP" "$1" "$2" "$3" "$4" "$V1156_WARN" "$V1156_BODY" 2>/dev/null)"; rc=$?
+  out="$(bash "$V1156_GAP" "$1" "$2" "$3" "$4" "$V1156_WARN" "$V1156_BODY" "${5:-}" 2>/dev/null)"; rc=$?
   printf '%s|%s' "$out" "$rc"
 }
 V1156_GRUN=30759180188
@@ -1860,7 +2024,11 @@ V1156_STALE="$(v1156_gap "REACHED SKIP not-numeric" "$V1156_GRUN" 1150 "$V1156_G
 assert_eq "#1156 gap: the reached arm truncates a stale warning and a stale body left by an earlier step" \
   "ARM reached|0-0-0" "$V1156_STALE-$(v1156_present "$V1156_WARN")-$(v1156_present "$V1156_BODY")"
 
-# NOT-REACHED: one warning naming the run id and the pull-request number, and one comment.
+# NOT-REACHED, DEFAULT REVIEW_CLASS (empty — an older deployment, or a step that did not
+# classify). One warning naming the run id and the pull-request number, and one comment
+# that asserts NOTHING about the reviews API either way (issue #1250 AC5, applied to the
+# not-classified case). The shared skeleton — header, both causes, the closing paragraph,
+# the run-keyed marker — is asserted here and is identical on every class.
 assert_eq "#1156 gap: a NOT-REACHED line selects the not-reached arm and exits 0" \
   "ARM not-reached|0" "$(v1156_gap "NOT-REACHED" "$V1156_GRUN" 1150 "$V1156_GSHA")"
 assert_eq "#1156 gap: the not-reached warning is exactly one line" "1" "$(grep -c . "$V1156_WARN")"
@@ -1878,27 +2046,17 @@ assert_eq "#1156 gap: the not-reached comment body states the resolved head SHA"
   "yes" "$(v1156_has "$V1156_BODY" "$V1156_GSHA")"
 assert_eq "#1156 gap: the not-reached comment body states the OBSERVATION (no receipt was found)" \
   "yes" "$(v1156_has "$V1156_BODY" 'No run-scoped verdict-post receipt was found for this run')"
-# The review finding this replaces: the body used to assert categorically that the
-# emitter did not run and that the reviews API was unchanged. Receipt absence has TWO
-# causes (the emitter never ran, or it ran and its write failed), so on the second one
-# with a POSTED review outcome both claims are FALSE on a public pull-request comment.
 V1156_A="$(v1156_has "$V1156_BODY" 'either Phase 4.4'"'"'s')"
 V1156_B="$(v1156_has "$V1156_BODY" 'or it ran and could not write its receipt')"
 assert_eq "#1156 gap: the not-reached comment body names BOTH causes of an absent receipt" \
   "yes-yes" "$V1156_A-$V1156_B"
-assert_eq "#1156 gap: the not-reached comment body names the check that separates the two causes" \
-  "yes" "$(v1156_has "$V1156_BODY" 'review exists in the reviews API for the head above, the emitter ran.')"
 assert_eq "#1156 gap: the not-reached comment body never asserts categorically that the emitter did not run in this run" \
   "no" "$(v1156_has "$V1156_BODY" 'verdict emitter did not run in this run')"
-V1156_A="$(v1156_has "$V1156_BODY" 'reviews API')"
-V1156_B="$(v1156_has "$V1156_BODY" 'reviewDecision')"
-assert_eq "#1156 gap: the not-reached comment body still addresses the reviews API and reviewDecision" \
-  "yes-yes" "$V1156_A-$V1156_B"
-# ...but CONDITIONALLY. A categorical "unchanged by this run" is exactly the false
-# statement the write-failure cause produces, so it must not appear.
-V1156_A="$(v1156_has "$V1156_BODY" 'are unchanged by this run')"
-V1156_B="$(v1156_has "$V1156_BODY" 'this comment asserts')"
-assert_eq "#1156 gap: the reviews-API claim is conditioned on the cause, never asserted categorically" \
+# AC5 (not-classified): with no REVIEW_CLASS the body asserts NEITHER that the API is
+# untouched NOR that a review exists — unknown is not zero, two levels down.
+V1156_A="$(v1156_has "$V1156_BODY" 'left the reviews API and `reviewDecision` untouched')"
+V1156_B="$(v1156_has "$V1156_BODY" 'this comment asserts nothing about the reviews API')"
+assert_eq "#1156 gap: an unclassified not-reached body asserts neither 'untouched' nor a review-exists claim" \
   "no-yes" "$V1156_A-$V1156_B"
 V1156_A="$(v1156_has "$V1156_BODY" 'carries no producer-emitted verdict marker')"
 V1156_B="$(v1156_has "$V1156_BODY" 'do not read it as a verdict')"
@@ -1922,6 +2080,86 @@ V1156_A="$(v1156_has "$V1156_BODY" 'could not write the verdict-post receipt')"
 V1156_B="$(v1156_has "$V1156_BLOCK/err" 'could not write the verdict-post receipt')"
 assert_eq "#1156 gap: the body's discriminating breadcrumb is the literal the emitter really writes to stderr" \
   "yes-yes" "$V1156_A-$V1156_B"
+
+# ── issue #1250: the REVIEW_CLASS arm of the not-reached body. The reach-record step
+# passes scripts/classify-head-reviews.sh's reading of the reviews recorded on the head,
+# so the body stops asserting the reviews API was untouched when it was NOT — the live
+# failure the issue records (run 30860699039 / review 4849248513).
+#
+# UNMARKED (AC4): the false claims are GONE, and the offending review is named. The body
+# neither says "left the reviews API and reviewDecision untouched" NOR names a plain
+# pull-request comment as the only out-of-band channel; it names the review id and states
+# a review exists for the head that the verdict consumers do not read as a verdict.
+V1156_UM="$(v1156_gap "NOT-REACHED" "$V1156_GRUN" 1150 "$V1156_GSHA" "unmarked 4849248513")"
+assert_eq "#1156 gap #1250: the unmarked class still selects the not-reached arm, exit 0" \
+  "ARM not-reached|0" "$V1156_UM"
+assert_eq "#1156 gap #1250: the unmarked body does NOT claim the reviews API was left untouched" \
+  "no" "$(v1156_has "$V1156_BODY" 'left the reviews API and `reviewDecision` untouched')"
+assert_eq "#1156 gap #1250: the unmarked body names no plain pull-request comment as the out-of-band channel" \
+  "no" "$(v1156_has "$V1156_BODY" 'plain pull-request comment')"
+assert_eq "#1156 gap #1250: the unmarked body names the offending review id" \
+  "yes" "$(v1156_has "$V1156_BODY" 'review 4849248513 is recorded there')"
+assert_eq "#1156 gap #1250: the unmarked body states the review exists but is not read as a verdict" \
+  "yes" "$(v1156_has "$V1156_BODY" 'do not read an unmarked review as a verdict')"
+# AC6: the unmarked arm ALSO adds a ::warning:: naming the review id.
+assert_eq "#1156 gap #1250: the unmarked warning names the offending review id" \
+  "yes" "$(v1156_has "$V1156_WARN" 'review 4849248513')"
+assert_eq "#1156 gap #1250: the unmarked warning is exactly one line (AC6 stays a record, not a gate)" \
+  "1" "$(grep -c . "$V1156_WARN")"
+# The review id on the unmarked body is validated as digits: an id-position injection is
+# reduced to `unavailable`-style dropping, degrading to the unestablished body rather than
+# reaching the comment.
+bash "$V1156_GAP" "NOT-REACHED" "$V1156_GRUN" 1150 "$V1156_GSHA" "$V1156_WARN" "$V1156_BODY" 'unmarked $(id) `whoami`' >/dev/null 2>&1
+assert_eq "#1156 gap #1250: a non-digit id on the unmarked line reaches neither warning nor body" "0" \
+  "$(cat "$V1156_BODY" "$V1156_WARN" | grep -c -E '\$\(id\)|`whoami`')"
+assert_eq "#1156 gap #1250: an unmarked line with no valid id degrades to the unestablished body" \
+  "yes" "$(v1156_has "$V1156_BODY" 'this comment asserts nothing about the reviews API')"
+
+# NONE: the run's reviewer identity left no review on the head, so the API WAS untouched —
+# and that is the only class on which the body may say so, because it is the only one on
+# which it was measured.
+bash "$V1156_GAP" "NOT-REACHED" "$V1156_GRUN" 1150 "$V1156_GSHA" "$V1156_WARN" "$V1156_BODY" 'none' >/dev/null 2>&1
+assert_eq "#1156 gap #1250: the none class asserts the reviews API and reviewDecision were left untouched" \
+  "yes" "$(v1156_has "$V1156_BODY" 'left the reviews API and `reviewDecision` untouched')"
+assert_eq "#1156 gap #1250: the none warning names no review id (there is none), one line" \
+  "1" "$(grep -c . "$V1156_WARN")"
+
+# MARKED: a marked review is recorded on the head (the receipt write failed), so the
+# verdict IS recorded — the body must not claim the API was untouched.
+bash "$V1156_GAP" "NOT-REACHED" "$V1156_GRUN" 1150 "$V1156_GSHA" "$V1156_WARN" "$V1156_BODY" 'marked' >/dev/null 2>&1
+assert_eq "#1156 gap #1250: the marked class states a marked review was recorded" \
+  "yes" "$(v1156_has "$V1156_BODY" 'recorded a MARKED review in the reviews API')"
+assert_eq "#1156 gap #1250: the marked class does NOT claim the reviews API was left untouched" \
+  "no" "$(v1156_has "$V1156_BODY" 'left the reviews API and `reviewDecision` untouched')"
+
+# UNESTABLISHED (AC5): the classification could not be settled, so the body asserts
+# NEITHER 'untouched' NOR that a review exists, and carries the closed reason token.
+bash "$V1156_GAP" "NOT-REACHED" "$V1156_GRUN" 1150 "$V1156_GSHA" "$V1156_WARN" "$V1156_BODY" 'unestablished body-not-a-string' >/dev/null 2>&1
+V1156_A="$(v1156_has "$V1156_BODY" 'left the reviews API and `reviewDecision` untouched')"
+V1156_B="$(v1156_has "$V1156_BODY" 'is recorded there')"
+assert_eq "#1156 gap #1250: the unestablished class asserts neither 'untouched' nor a review-exists claim" \
+  "no-no" "$V1156_A-$V1156_B"
+assert_eq "#1156 gap #1250: the unestablished class carries its closed reason token" \
+  "yes" "$(v1156_has "$V1156_BODY" 'be established (body-not-a-string)')"
+# The classifier's #1247 placement reason travels the SAME path end to end: the token the
+# classifier really emits for an unplaceable review is fed to the renderer, which must
+# accept it as a closed token (assert nothing either way, carry the reason) rather than
+# drop it as unrecognized. This is the coupled contract between the two helpers'
+# vocabularies — a new reason token the renderer's validator rejected would degrade to the
+# unreasoned paragraph while both helpers' own tests stayed green.
+V1156_UNPL="$(mktemp -d)"
+printf '[{"id":9,"commit_id":"4444444444444444444444444444444444444444","user":{"login":"r[bot]"},"body":"no marker"}]' > "$V1156_UNPL/p.json"
+V1156_A="$(bash "$V1156_CLS" "$V1156_UNPL/p.json" 3333333333333333333333333333333333333333 'r[bot]' 2>/dev/null)"
+bash "$V1156_GAP" "NOT-REACHED" "$V1156_GRUN" 1150 "$V1156_GSHA" "$V1156_WARN" "$V1156_BODY" "$V1156_A" >/dev/null 2>&1
+V1156_B="$(v1156_has "$V1156_BODY" 'be established (review-placement-unprovable)')"
+assert_eq "#1250 end to end: an unplaceable own review reaches the renderer as a closed reason and asserts nothing about the API" \
+  "unestablished review-placement-unprovable-yes-no" \
+  "$V1156_A-$V1156_B-$(v1156_has "$V1156_BODY" 'left the reviews API and `reviewDecision` untouched')"
+rm -rf "$V1156_UNPL"
+# A reason outside the closed lowercase-token shape is dropped, never quoted into the body.
+bash "$V1156_GAP" "NOT-REACHED" "$V1156_GRUN" 1150 "$V1156_GSHA" "$V1156_WARN" "$V1156_BODY" 'unestablished $(id)' >/dev/null 2>&1
+assert_eq "#1156 gap #1250: an unsafe unestablished reason is never quoted into the body" "0" \
+  "$(grep -c -E '\$\(id\)' "$V1156_BODY")"
 
 # UNESTABLISHED: warns carrying the reason VERBATIM, and posts NOTHING — the not-reached
 # claim is exactly what was not established.
@@ -2048,6 +2286,30 @@ assert_eq "#1156 workflow: the step invokes the reader and the arm-dispatch help
   "True" "$(v1156_step '".prflow/vendor/prflow/scripts/check-verdict-post-reached.sh" in step["run"] and ".prflow/vendor/prflow/scripts/describe-verdict-post-gap.sh" in step["run"]')"
 assert_eq "#1156 workflow: each helper carries the repo-root fallback a self-repo checkout needs" \
   "True" "$(v1156_step '"CHECK=scripts/check-verdict-post-reached.sh" in step["run"] and "GAP=scripts/describe-verdict-post-gap.sh" in step["run"]')"
+# issue #1250: the reach-record step also resolves the head-reviews classifier at the
+# vendored path with the same repo-root fallback, queries the reviews recorded on the
+# head, and passes the classifier's token as the renderer's REVIEW_CLASS argument. This
+# is the coupled contract between the workflow, the renderer's positional list and the
+# classifier — adding the argument without wiring all three leaves the suite green while
+# the workflow passes the wrong slot.
+assert_eq "#1250 workflow: the step invokes the classifier at the vendored path with a repo-root fallback" \
+  "True" "$(v1156_step '".prflow/vendor/prflow/scripts/classify-head-reviews.sh" in step["run"] and "CLS=scripts/classify-head-reviews.sh" in step["run"]')"
+assert_eq "#1250 workflow: the step queries the reviews recorded on the head" \
+  "True" "$(v1156_step '"pulls/$PR_NUMBER/reviews" in step["run"]')"
+# --paginate is load-bearing, not cosmetic: without it the query returns only the first
+# page, so a bypass review sitting past it is absent from the payload, the classifier reads
+# an own set that does not contain it, and the renderer reaches the ONE arm licensed to
+# assert the reviews API was untouched — the exact false statement #1250 exists to remove.
+# Dropping the flag changes no helper and breaks no other assertion, so it is pinned here on
+# the reviews query itself, together with the explicit page size it pages over.
+assert_eq "#1250 workflow: the reviews query is paginated, so a bypass review past the first page is still seen" \
+  "True" "$(v1156_step '"gh api --paginate \"repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100\"" in step["run"]')"
+assert_eq "#1250 workflow: the step resolves the run's reviewer login and passes it to the classifier" \
+  "True" "$(v1156_step '"REVIEWER_LOGIN" in step["env"] and "$REVIEWER_LOGIN" in step["run"]')"
+assert_eq "#1250 workflow: the reviewer login is the DevFlow-Reviewer bot when minted, github-actions[bot] otherwise" \
+  "True" "$(v1156_step '"steps.reviewer-token.outputs.app-slug" in step["env"]["REVIEWER_LOGIN"] and "github-actions[bot]" in step["env"]["REVIEWER_LOGIN"]')"
+assert_eq "#1250 workflow: the classifier token is passed to the arm-dispatch helper as its REVIEW_CLASS argument" \
+  "True" "$(v1156_step '"\"$REVIEW_CLASS\"" in step["run"] and "REVIEW_CLASS=$(bash \"$CLS\"" in step["run"]')"
 assert_eq "#1156 workflow: the step ends with an explicit exit 0 so it never changes the job's result" \
   "True" "$(v1156_step 'step["run"].rstrip().endswith("exit 0")')"
 # The selection is NOT in the YAML: the step renders the helper's two sinks and picks nothing.
@@ -2085,7 +2347,268 @@ rm -rf "$V1156_BIN"
 assert_eq "#1156 workflow: the step carries a token that can post an issue comment" \
   "True" "$(v1156_step '"steps.app-token.outputs.token || github.token" in step["env"]["GH_TOKEN"]')"
 
+# ── issue #1271: the job-status gate. The reach-record step no longer launders a
+# verdict-less review as `success`. scripts/decide-verdict-gap-job-status.sh owns the
+# arm-to-job-status decision (a FAIL/PASS token over the full closed arm vocabulary), and
+# the step's only remaining job is to exit with the status it reports.
+V1271_DECIDE="$REPO_ROOT/scripts/decide-verdict-gap-job-status.sh"
+assert_eq "#1271 helper: the job-status decision helper exists" \
+  "yes" "$([ -f "$V1271_DECIDE" ] && echo yes || echo no)"
+
+# Drive the helper over the full CLOSED reach-record arm vocabulary × oracle vocabulary ×
+# cancellation. The gate is conjunctive: it FIRES on exactly one shape — the emitter not
+# reached AND the head-scoped oracle POSITIVELY established absence (`none`) AND the run is
+# not cancelled. Every could-not-tell arm and every non-`none` oracle answer, and every
+# cancelled run, PASS.
+v1271_decide() { bash "$V1271_DECIDE" "$1" "$2" "$3"; }
+# The one firing shape.
+assert_eq "#1271 helper: not-reached + established-absence (none) + not cancelled FAILs the job" \
+  "FAIL" "$(v1271_decide not-reached none false | { read -r d _; printf '%s' "$d"; })"
+# The cancellation carve-out — same firing conjuncts, but cancelled -> PASS.
+assert_eq "#1271 helper: the cancellation carve-out passes the otherwise-firing shape" \
+  "PASS" "$(v1271_decide not-reached none true | { read -r d _; printf '%s' "$d"; })"
+# Every non-`none` oracle answer on the not-reached arm is a could-not-tell / verdict-present
+# answer and must NOT fire — the "unknown is not zero" conjunct.
+for V1271_RC in "marked" "unmarked 42" "unestablished payload-unreadable" "" "unestablished review-placement-unprovable"; do
+  assert_eq "#1271 helper: not-reached + non-establishing oracle ('$V1271_RC') never fires the gate" \
+    "PASS" "$(v1271_decide not-reached "$V1271_RC" false | { read -r d _; printf '%s' "$d"; })"
+done
+# Every reach-record arm OTHER than not-reached passes regardless of the oracle — a reached
+# emitter is discharged; unestablished/no-line/unrecognized-line each mean the reach question
+# itself could not be settled.
+for V1271_ARM in reached unestablished no-line unrecognized-line garbage-arm; do
+  for V1271_RC in "none" "marked" "unmarked 7" "unestablished x" ""; do
+    assert_eq "#1271 helper: arm '$V1271_ARM' (not not-reached) with oracle '$V1271_RC' passes" \
+      "PASS" "$(v1271_decide "$V1271_ARM" "$V1271_RC" false | { read -r d _; printf '%s' "$d"; })"
+  done
+done
+# Cancellation short-circuits before the conjuncts on every arm.
+for V1271_ARM in reached not-reached unestablished no-line unrecognized-line; do
+  assert_eq "#1271 helper: cancelled run passes on arm '$V1271_ARM' regardless of oracle" \
+    "PASS cancelled" "$(v1271_decide "$V1271_ARM" none true)"
+done
+# A CANCELLED value other than exactly `true` is treated as not-cancelled (so the gate can
+# still fire on the firing shape) — the fail-closed direction. Both a bogus token (`TRUE`)
+# and the EMPTY string (the value the workflow's `${JOB_CANCELLED:-false}` default guards,
+# checked here at the helper boundary too) resolve to not-cancelled and still FAIL.
+assert_eq "#1271 helper: a non-'true' cancelled value is treated as not cancelled" \
+  "FAIL" "$(v1271_decide not-reached none TRUE | { read -r d _; printf '%s' "$d"; })"
+assert_eq "#1271 helper: an empty cancelled value is treated as not cancelled (the firing shape still FAILs)" \
+  "FAIL" "$(v1271_decide not-reached none "" | { read -r d _; printf '%s' "$d"; })"
+# The helper always exits 0 — the decision is the stdout token, never the exit code — on
+# BOTH the FAIL firing shape and a PASS shape, so a nonzero exit can never leak the verdict.
+v1271_decide not-reached none false >/dev/null 2>&1
+assert_eq "#1271 helper: always exits 0 on the FAIL shape (the decision is the stdout token, not the exit code)" \
+  "0" "$?"
+v1271_decide reached none false >/dev/null 2>&1
+assert_eq "#1271 helper: always exits 0 on a PASS shape too" \
+  "0" "$?"
+# The helper header's residual/disposition DISCLOSURES (the oracle completeness residual, the
+# possibly-vacuous cancellation premise, and the two non-defect non-reaching dispositions the
+# issue's ACs require) are prose read only by the reviewing agent, so they carry NO pin — a
+# comment-presence pin over them is exactly the class issues #375/#666/#810 prohibit for new
+# work, and the compensating control is the review pass, not a grep (the recorded #843/#876
+# decision). They are asserted nowhere here by design.
+
+# Structural workflow assertions (parsed YAML). The step must resolve the helper at the
+# vendored path with a repo-root fallback, pass the cancellation state as an ARGUMENT (via
+# a JOB_CANCELLED env expression derived from job.status, never the status-check function
+# cancelled() outside an `if:` or a step-level `if: !cancelled()`), and reach
+# an `exit 1` from a branch keyed on the helper's own FAIL token that sits ABOVE the terminal
+# `exit 0`. The pre-existing "ends with exit 0" and "no NOT-REACHED/UNESTABLISHED/REACHED"
+# assertions above stay green; these make the FAILING branch and the terminal-exit SHAPE
+# visible, which those two cannot (the RED-first positive control is exactly that "ends with
+# exit 0" assertion — it fails the moment the step stops ending in an unconditional exit 0).
+assert_eq "#1271 workflow: the step resolves the job-status helper at the vendored path with a repo-root fallback" \
+  "True" "$(v1156_step '".prflow/vendor/prflow/scripts/decide-verdict-gap-job-status.sh" in step["run"] and "DECIDE=scripts/decide-verdict-gap-job-status.sh" in step["run"]')"
+assert_eq "#1271 workflow: the cancellation state is derived from job.status and passed via JOB_CANCELLED, not cancelled() outside an if" \
+  "True" "$(v1156_step '"JOB_CANCELLED" in step["env"] and "job.status ==" in step["env"]["JOB_CANCELLED"] and step["env"]["JOB_CANCELLED"].count("cancelled") == 1 and "cancelled()" not in step["env"]["JOB_CANCELLED"] and "JOB_CANCELLED" in step["run"] and "!cancelled()" not in step.get("if","")')"
+assert_eq "#1271 workflow: the step invokes the job-status helper and passes it the arm token, the oracle class, and the cancellation state" \
+  "True" "$(v1156_step '"bash \"$DECIDE\"" in step["run"] and "$ARM_TOKEN" in step["run"] and "$REVIEW_CLASS" in step["run"] and "${JOB_CANCELLED" in step["run"]')"
+assert_eq "#1271 workflow: a FAIL token from the helper reaches an explicit exit 1 hoisted ABOVE the terminal exit 0" \
+  "True" "$(v1156_step '"= \"FAIL\"" in step["run"] and "exit 1" in step["run"] and step["run"].rindex("exit 1") < step["run"].rindex("exit 0") and step["run"].rstrip().endswith("exit 0")')"
+assert_eq "#1271 workflow: the FAIL branch emits an ::error:: so the gap is loud in the run log" \
+  "True" "$(v1156_step '"::error::" in step["run"]')"
+# The job-status helper's absence from an older vendored tree warns and leaves the job status
+# unchanged — inline workflow shell the suite cannot execute, so structural assertion is the
+# available control (the same class as the CHECK/GAP absence guard above).
+assert_eq "#1271 workflow: the helper's absence from an older vendored tree warns and leaves the job status unchanged" \
+  "True" "$(v1156_step '"[ ! -f \"$DECIDE\" ]" in step["run"] and "decide-verdict-gap-job-status.sh) is absent" in step["run"] and step["run"][step["run"].index("[ ! -f \"$DECIDE\" ]"):].split("fi",1)[0].strip().endswith("exit 0")')"
+
 chmod 700 "$V1156_SHAPES/adir" 2>/dev/null || true
 chmod 600 "$V1156_SHAPES/noread" "$V1156_SHAPES/zero-noread" 2>/dev/null || true
 rm -rf "$V1156_ROOT" "$V1156_BLOCK" "$V1156_NONE" "$V1156_MUTR" "$V1156_GAPD" "$V1156_SHAPES"
 unset V1156_ROOT V1156_BLOCK V1156_NONE V1156_MUT V1156_MUTR V1156_GAPD V1156_SHAPES V1156_RCPT V1156_TOP V1156_L V1156_A V1156_B V1156_NOLIB
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#1261 empty-branch producer (terminated run records whether any commit reached its remote branch)"
+# ────────────────────────────────────────────────────────────────────────────
+# scripts/record-empty-branch.sh is the producer's DECISION + the note it writes,
+# extracted beside the Stall backstop step so the suite can DRIVE every outcome —
+# no commit / at least one commit / could-not-establish — against a scratch git
+# repository and a stubbed workpad writer (issue #1261 AC7), rather than pinning
+# message wording alone. stall-backstop-decide.sh gains no I/O (AC1).
+EB1261="$REPO_ROOT/scripts/record-empty-branch.sh"
+assert_eq "#1261 record-empty-branch.sh exists and is executable" "yes" \
+  "$([ -x "$EB1261" ] && echo yes || echo no)"
+
+# AC1: the pure decision helper still carries NO I/O — no gh, no jq, no workpad.py
+# in any NON-comment line (its header prose legitimately names them). Comment lines
+# are stripped before the grep so the purity claim is about invocation, not prose.
+DECIDE1261="$REPO_ROOT/scripts/stall-backstop-decide.sh"
+DECIDE1261_CODE="$(grep -vE '^[[:space:]]*#' "$DECIDE1261")"
+assert_eq "#1261 AC1: stall-backstop-decide.sh invokes no gh (non-comment lines)" "no" \
+  "$(printf '%s\n' "$DECIDE1261_CODE" | grep -qE '(^|[^a-zA-Z_])gh ' && echo yes || echo no)"
+assert_eq "#1261 AC1: stall-backstop-decide.sh invokes no jq (non-comment lines)" "no" \
+  "$(printf '%s\n' "$DECIDE1261_CODE" | grep -qE '(^|[^a-zA-Z_])jq(\.| )' && echo yes || echo no)"
+assert_eq "#1261 AC1: stall-backstop-decide.sh invokes no workpad.py (non-comment lines)" "no" \
+  "$(printf '%s\n' "$DECIDE1261_CODE" | grep -qF 'workpad.py' && echo yes || echo no)"
+
+# Scratch git repo with a real bare origin so the fetch+rev-list probe runs for
+# real. base=main; feat is 0 commits ahead (NO_COMMIT); feat2 is 1 commit ahead
+# (HAS_COMMIT). The stubbed workpad writer captures each --note into a file so the
+# statement actually written is observable (AC2/AC3).
+T1261="$(mktemp -d)"
+mkdir -p "$T1261/origin.git" "$T1261/work" "$T1261/scripts"
+git init -q --bare "$T1261/origin.git"
+(
+  cd "$T1261/work" || exit 1
+  git init -q; git config user.email a@b.c; git config user.name t
+  git commit -q --allow-empty -m base1
+  git branch -M main
+  git remote add origin "$T1261/origin.git"
+  git push -q origin main
+  git checkout -q -b feat
+  git push -q origin feat                 # zero commits ahead
+  git checkout -q -b feat2
+  git commit -q --allow-empty -m work
+  git push -q origin feat2                # one commit ahead
+) >/dev/null 2>&1
+# Stubbed workpad writer: append each --note value to a capture file (drivable
+# proxy for the real workpad — issue #1261 "stubbed workpad writer").
+cat > "$T1261/scripts/workpad.py" <<EOF
+#!/usr/bin/env python3
+import sys
+a = sys.argv[1:]
+if a and a[0] == "update" and "--note" in a:
+    i = a.index("--note")
+    open("$T1261/notes.txt", "a", encoding="utf-8").write(a[i + 1] + "\n")
+sys.exit(0)
+EOF
+chmod +x "$T1261/scripts/workpad.py"
+
+eb1261_run() {  # $1=BRANCH $2=BASE [$3=REMOTE]  -> prints the decision= line
+  ( cd "$T1261/work" && ISSUE_NUMBER=1 BRANCH="$1" BASE="$2" REMOTE="${3:-origin}" \
+      V="$T1261/scripts" RUN_URL=http://run/1 bash "$EB1261" )
+}
+
+# AC2 — 0 commits ahead → NO_COMMIT decision AND an explicit statement is written.
+: > "$T1261/notes.txt"
+D_NC="$(eb1261_run feat main | sed -n 's/^decision=//p')"
+assert_eq "#1261 AC2: a branch 0 commits ahead of base decides NO_COMMIT" "NO_COMMIT" "$D_NC"
+assert_eq "#1261 AC2: the NO_COMMIT statement is written to the workpad, carrying the marker" "yes" \
+  "$(grep -qF '<!-- prflow:empty-branch -->' "$T1261/notes.txt" && grep -qF 'no commit reached the remote branch `feat`' "$T1261/notes.txt" && echo yes || echo no)"
+
+# AC3 — >=1 commit ahead → HAS_COMMIT AND NO statement (the negative control).
+: > "$T1261/notes.txt"
+D_HC="$(eb1261_run feat2 main | sed -n 's/^decision=//p')"
+assert_eq "#1261 AC3: a branch >=1 commit ahead decides HAS_COMMIT" "HAS_COMMIT" "$D_HC"
+assert_eq "#1261 AC3: HAS_COMMIT writes NO statement (negative control — an always-firing note carries no info)" "0" \
+  "$(wc -l < "$T1261/notes.txt" | tr -d ' ')"
+
+# AC4 — could-not-establish: branch name unavailable, and remote branch absent.
+: > "$T1261/notes.txt"
+D_UN1="$(eb1261_run '' main | sed -n 's/^decision=//p')"
+assert_eq "#1261 AC4: an unavailable branch name decides UNESTABLISHED" "UNESTABLISHED" "$D_UN1"
+assert_eq "#1261 AC4: the UNESTABLISHED note says the fact could not be established, not that the branch is empty" "yes" \
+  "$(grep -qF 'could not establish whether any commit reached the remote branch' "$T1261/notes.txt" && echo yes || echo no)"
+assert_eq "#1261 AC4: the UNESTABLISHED note never claims a confirmed no-commit outcome" "no" \
+  "$(grep -qF 'left nothing on its branch' "$T1261/notes.txt" && echo yes || echo no)"
+: > "$T1261/notes.txt"
+D_UN2="$(eb1261_run does-not-exist main | sed -n 's/^decision=//p')"
+assert_eq "#1261 AC4: a branch absent from the remote decides UNESTABLISHED (not NO_COMMIT)" "UNESTABLISHED" "$D_UN2"
+# The base ref could not be resolved (distinct UNESTABLISHED arm): feat exists but
+# the base is absent.
+D_UN3="$(eb1261_run feat nonexistent-base | sed -n 's/^decision=//p')"
+assert_eq "#1261 AC4: an unresolvable base ref decides UNESTABLISHED (not NO_COMMIT)" "UNESTABLISHED" "$D_UN3"
+# A genuinely unreachable remote: the fetch fails, so the outcome is UNESTABLISHED
+# rather than a definite answer read off a stale tracking ref (unknown-is-not-zero).
+D_UN4="$(eb1261_run feat main no-such-remote | sed -n 's/^decision=//p')"
+assert_eq "#1261 AC4: an unreachable remote decides UNESTABLISHED, never a stale definite answer" "UNESTABLISHED" "$D_UN4"
+
+# AC5 — best-effort write: a failing workpad writer emits a ::warning:: AND the
+# helper still exits 0 (the caller's exit arm is never changed).
+mkdir -p "$T1261/failscripts"
+cat > "$T1261/failscripts/workpad.py" <<'EOF'
+#!/usr/bin/env python3
+import sys
+sys.exit(1)
+EOF
+chmod +x "$T1261/failscripts/workpad.py"
+OUT_FAIL1261="$( cd "$T1261/work" && ISSUE_NUMBER=1 BRANCH=feat BASE=main REMOTE=origin \
+  V="$T1261/failscripts" RUN_URL=http://run/1 bash "$EB1261" 2>&1 )"
+RC_FAIL1261=$?
+assert_eq "#1261 AC5: a workpad write failure emits a ::warning:: breadcrumb" "yes" \
+  "$(printf '%s\n' "$OUT_FAIL1261" | grep -qF '::warning::stall backstop: could not record the empty-branch statement' && echo yes || echo no)"
+assert_eq "#1261 AC5: the producer always exits 0 (the caller's exit arm is never changed)" "0" "$RC_FAIL1261"
+assert_eq "#1261 AC5: the decision is still printed on the write-failure arm" "yes" \
+  "$(printf '%s\n' "$OUT_FAIL1261" | grep -qF 'decision=NO_COMMIT' && echo yes || echo no)"
+
+# Idempotency — a second invocation on a workpad already carrying the marker does
+# not duplicate the statement (EB_WORKPAD_BODY carries the prior note).
+: > "$T1261/notes.txt"
+OUT_DEDUP1261="$( cd "$T1261/work" && ISSUE_NUMBER=1 BRANCH=feat BASE=main REMOTE=origin \
+  V="$T1261/scripts" RUN_URL=http://run/1 EB_WORKPAD_BODY='body ... <!-- prflow:empty-branch --> ...' bash "$EB1261" )"
+assert_eq "#1261 idempotency: a workpad already carrying the marker is deduped" "yes" \
+  "$(printf '%s\n' "$OUT_DEDUP1261" | grep -qF 'deduped=yes' && echo yes || echo no)"
+assert_eq "#1261 idempotency: no duplicate statement is written on the deduped invocation" "0" \
+  "$(wc -l < "$T1261/notes.txt" | tr -d ' ')"
+
+# Branch resolved from the workpad body when BRANCH is empty: a real `**Branch:**`
+# line resolves the branch (→ NO_COMMIT here), and a placeholder line with no
+# backticks stays unresolved (→ UNESTABLISHED, never a false NO_COMMIT).
+: > "$T1261/notes.txt"
+D_BODY="$( cd "$T1261/work" && ISSUE_NUMBER=1 BRANCH='' BASE=main REMOTE=origin \
+  V="$T1261/scripts" RUN_URL=http://run/1 EB_WORKPAD_BODY='**Branch:** `feat`' bash "$EB1261" | sed -n 's/^decision=//p' )"
+assert_eq "#1261 branch parsed from the workpad body when BRANCH is empty (0-ahead → NO_COMMIT)" "NO_COMMIT" "$D_BODY"
+D_PLACEHOLDER="$( cd "$T1261/work" && ISSUE_NUMBER=1 BRANCH='' BASE=main REMOTE=origin \
+  V="$T1261/scripts" RUN_URL=http://run/1 EB_WORKPAD_BODY='**Branch:** _(creating…)_' bash "$EB1261" | sed -n 's/^decision=//p' )"
+assert_eq "#1261 a placeholder Branch line (no backticks) stays UNESTABLISHED, never a false NO_COMMIT" "UNESTABLISHED" "$D_PLACEHOLDER"
+
+# ── Workflow wiring (AC1 producer-in-the-step, AC6 coexists-with-flips, and the
+# never-on-the-resume-path guard). Parsed from the claude job's Stall backstop
+# step, the way the module asserts the existing flips.
+eb1261_step() {  # $1 = python expression over `step`
+  python3 - "$WFI415" "$1" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+steps = doc["jobs"]["claude"]["steps"]
+named = [s for s in steps if s.get("name") == "Stall backstop"]
+if len(named) != 1:
+    print(f"expected exactly one Stall backstop step, found {len(named)}")
+    raise SystemExit(0)
+step = named[0]
+print(eval(sys.argv[2], {"step": step, "run": step["run"]}))
+PY
+}
+assert_eq "#1261 AC1: the Stall backstop step invokes record-empty-branch.sh (the producer beside the step)" \
+  "True" "$(eb1261_step '"record-empty-branch.sh" in run')"
+# Region delimiters are function headers / a stable following comment, not brace
+# matching (the bodies carry ${1:-…} and inline { … } that defeat a naive `}` split).
+# Definition order in the step is: record_empty_branch(), flip_to_failed(),
+# flip_to_cancelled(), then the "# Master switch first" comment.
+assert_eq "#1261 the record_empty_branch function carries the POSITIONAL CLASS=interim guard (never on the resume path)" \
+  "True" "$(eb1261_step 'run.split("record_empty_branch() {",1)[1].split("flip_to_failed() {",1)[0].count("= \"interim\" ] || return 0") == 1')"
+assert_eq "#1261 AC6: flip_to_failed calls record_empty_branch so 💥 Failed and the statement coexist" \
+  "True" "$(eb1261_step '"record_empty_branch" in run.split("flip_to_failed() {",1)[1].split("flip_to_cancelled() {",1)[0]')"
+assert_eq "#1261 AC6: flip_to_cancelled calls record_empty_branch so 🛑 Cancelled and the statement coexist" \
+  "True" "$(eb1261_step '"record_empty_branch" in run.split("flip_to_cancelled() {",1)[1].split("# Master switch first",1)[0]')"
+# The producer token appears exactly three times — one definition header and one
+# call inside each of the two flips — which pins that it is called ONLY from the
+# flips and NEVER on the resume path (a no-commit statement written before a resume
+# would be stale the moment the resumed run pushes).
+assert_eq "#1261 record_empty_branch is referenced exactly 3x (def + 2 flips) — never on the resume path" \
+  "True" "$(eb1261_step 'run.count("record_empty_branch") == 3')"
+
+rm -rf "$T1261"
+unset EB1261 DECIDE1261 DECIDE1261_CODE T1261 D_NC D_HC D_UN1 D_UN2 D_UN3 D_UN4 D_BODY D_PLACEHOLDER OUT_FAIL1261 RC_FAIL1261 OUT_DEDUP1261

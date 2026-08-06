@@ -169,6 +169,41 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import NamedTuple
 
+# The `-c core.quotePath=false` option pair, imported from the shared population reader
+# (issue #1217) rather than re-spelled here, so the literal keeps one home in the tree.
+# This module composes its own `git -C <root> …` prefix through `_run_git`, so it cannot
+# use `lint_population`'s ready-made argvs — only the option pair they are built from.
+# Without it, git's default C-quoting returns a tracked non-ASCII path as a string that
+# names no real file. Each enumeration below then selects by an EXACT path form — a prefix
+# test (`is_machine_consumer_path`), a `re.fullmatch`, or membership in
+# `AUDITED_PIN_SOURCES` — none of which the C-quoted spelling satisfies, so such a file
+# would silently drop out of the corpus. (The `_git_ls_files` enumeration further down
+# passes `-z` and is unquoted by construction, so it needs no splice.)
+_POP_PATH_PC = Path(__file__).resolve().parent / "lint_population.py"
+try:
+    _pop_spec_pc = importlib.util.spec_from_file_location("lint_population", _POP_PATH_PC)
+    if _pop_spec_pc is None or _pop_spec_pc.loader is None:
+        raise ImportError(f"no loadable spec for {_POP_PATH_PC}")
+    _pop_pc = importlib.util.module_from_spec(_pop_spec_pc)
+    _pop_spec_pc.loader.exec_module(_pop_pc)
+except Exception as _exc_pc:
+    raise SystemExit(
+        f"pin-corpus-lint: the shared population reader {_POP_PATH_PC} could not be "
+        f"loaded ({_exc_pc.__class__.__name__}: {_exc_pc}); refusing to audit"
+    ) from _exc_pc
+# Validate the SHAPE, not just presence: `hasattr` is satisfied by an emptied
+# `QUOTE_PATH_OFF = ()`, which splices nothing and silently reinstates the defect, and by a
+# bare string, which `tuple()` would explode into one argv element per character. Comparing
+# against the expected pair makes either failure name the constant rather than surfacing as
+# a green run or an unrecognised-git-option error.
+_qp = getattr(_pop_pc, "QUOTE_PATH_OFF", None)
+if _qp != ("-c", "core.quotePath=false"):
+    raise SystemExit(
+        f"pin-corpus-lint: {_POP_PATH_PC}'s `QUOTE_PATH_OFF` is not the expected "
+        f"`-c core.quotePath=false` option pair (got {_qp!r}); refusing to audit"
+    )
+QUOTE_PATH_OFF = tuple(_qp)
+
 # Non-source trees always excluded from the relocation search set (issue #661): a
 # committed vendored plugin copy and the run's own draft/derivation artifacts both
 # quote pin literals and would otherwise be reported as spurious destinations.
@@ -1324,6 +1359,7 @@ AUDITED_PIN_SOURCES = frozenset(
         "lib/test/modules/issue-audit-state.sh",
         "lib/test/modules/tier1-rename-migration.sh",
         "lib/test/modules/parallel-suite-runner.sh",
+        "lib/test/modules/phase2-durability-checkpoint.sh",
     }
 )
 
@@ -1720,7 +1756,7 @@ def _normalize_retirement_target(token):
     manifest ``.devflow/...`` target and a live ``.prflow/...`` target for one
     asset compare equal. Only the state-directory prefix is rewritten -- never
     arbitrary ``devflow`` tokens inside a filename -- so a frozen path like
-    ``docs/DEVFLOW_SYSTEM_OVERVIEW.md`` is left byte-identical. The #1002 rename
+    ``docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`` is left byte-identical. The #1002 rename
     also moved the vendored plugin sub-path (``vendor/devflow`` -> ``vendor/prflow``);
     that is deliberately NOT normalized here because no pin ``resolved_target`` is a
     vendored path (confirmed against all three frozen manifests), and the safe
@@ -5285,6 +5321,7 @@ def load_machine_consumer_sources(repo_root, git_runner=subprocess.run):
     listing = _run_git(
         git_runner,
         repo_root,
+        *QUOTE_PATH_OFF,
         "ls-files",
         "--",
         *MACHINE_CONSUMER_PATH_PREFIXES,
@@ -5690,6 +5727,7 @@ def scan_static_pin_changes(
             _run_git(
                 git_runner,
                 repo_root,
+                *QUOTE_PATH_OFF,
                 "ls-files",
                 "--others",
                 "--exclude-standard",
@@ -5753,6 +5791,7 @@ def scan_static_pin_changes(
             _run_git(
                 git_runner,
                 repo_root,
+                *QUOTE_PATH_OFF,
                 "ls-files",
                 "--others",
                 "--exclude-standard",

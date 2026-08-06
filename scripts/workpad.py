@@ -74,7 +74,7 @@ if sys.version_info < (3, 11):  # fail fast, before any PEP 604 annotation is ev
     sys.stderr.write(
         "devflow: Python 3.11+ required (found %s.%s.%s). This helper requires"
         " features of Python 3.11+. Install Python 3.11+; on Windows/Git-Bash"
-        " run scripts/provision-python3-shim.sh --apply (see docs/install.md).\n"
+        " run scripts/provision-python3-shim.sh --apply.\n"
         % sys.version_info[:3]
     )
     sys.exit(1)
@@ -341,7 +341,7 @@ def _workpad_marker(explicit=None):
     except (OSError, ValueError) as e:
         # ValueError covers json.JSONDecodeError AND UnicodeDecodeError — a
         # config.json written by PowerShell 5.x `>` redirection is UTF-16LE
-        # with a BOM (the docs/install.md pitfall), which raises
+        # with a BOM (the PowerShell UTF-16LE redirection pitfall), which raises
         # UnicodeDecodeError, not JSONDecodeError, at read time.
         # A present-but-unreadable/malformed config is otherwise
         # indistinguishable from "no marker override configured": both fall
@@ -569,6 +569,15 @@ _ACS_SOURCE_NONE = 'none'
 # all, exactly what `resolver-unavailable` names — so it reuses that existing token
 # rather than widening the `acceptance_criteria_source` vocabulary Phase 4 renders.
 _ACS_SOURCE_RESOLVER_UNAVAILABLE = 'resolver-unavailable'
+# The /prflow:implement Phase 3.4 gate's defined-degradation read (`acs-gate`,
+# issue #1214). `workpad-absent` names a CLEAN absence (no workpad) — kept
+# distinct from `workpad-read-failed` (a transport/parse failure) so the gate
+# never reroutes a benign first-run absence onto the transport-failure label
+# (AC6). `unestablished` names the both-surfaces-down shape: the workpad read
+# failed AND the issue-body fallback also failed, so no criteria could be
+# resolved and the gate must not pass (AC5).
+_ACS_SOURCE_WORKPAD_ABSENT = 'workpad-absent'
+_ACS_SOURCE_UNESTABLISHED = 'unestablished'
 
 _ACS_SECTION = 'Acceptance Criteria'
 
@@ -670,6 +679,101 @@ def cmd_acs(args):
         out.append(rendered)
     if out:
         print('\n'.join(out))
+
+
+# Exit codes for the degrading Phase 3.4 acceptance-criteria read (issue #1214).
+# Each shape carries a distinct code AND a distinct `source:` token so the gate
+# can tell a clean read from a transport-degraded fallback from an unestablished
+# measurement — and never read any degraded shape as a passing gate.
+_ACS_GATE_OK = 0             # workpad read cleanly; criteria + tick state authoritative
+_ACS_GATE_ABSENT = 2         # clean absence — no workpad (the existing benign shape; AC6)
+_ACS_GATE_DEGRADED = 3       # workpad read FAILED; criteria recovered from the issue body
+_ACS_GATE_UNESTABLISHED = 4  # workpad read FAILED and the issue-body fallback also failed
+
+
+def _acs_gate_issue_body_criteria(issue: str) -> "str | None":
+    """Recover the acceptance criteria from the issue BODY via `parse-acs.py`.
+
+    The issue body is read through a DIFFERENT GitHub endpoint than the workpad
+    comment-listing address, so it stays reachable during the one-endpoint outage
+    the gate degradation exists to survive. AC3 names `scripts/parse-acs.py` as
+    the fallback source, so this shells out to the sibling script (via the current
+    interpreter — never a `.sh`/porcelain hop) rather than re-deriving the parse.
+
+    Returns the rendered `md` criteria (an empty string when the issue carries no
+    `## Acceptance Criteria` section), or `None` when the issue body itself could
+    not be read. That None-on-failure is the recovery-poll discipline (issue
+    #1214, and the model `check-completion-evidence.py`'s `_probe_remote` sets): a
+    non-zero exit or an exec failure means GitHub was not reached, so the criteria
+    are UNKNOWN — never collapsed onto "the issue has no criteria".
+    """
+    parse_acs = str(Path(__file__).resolve().parent / 'parse-acs.py')
+    try:
+        r = subprocess.run(
+            [sys.executable, parse_acs, '--issue', str(issue), '--format', 'md'],
+            capture_output=True, text=True, check=False,
+        )
+    except OSError:
+        return None
+    if r.returncode != 0:
+        return None
+    return r.stdout.strip('\n')
+
+
+def cmd_acs_gate(args):
+    """Acceptance-criteria read for the /prflow:implement Phase 3.4 gate, with a
+    DEFINED degradation when the workpad cannot be read (issue #1214).
+
+    The gate reads the workpad's `## Acceptance Criteria` section to confirm every
+    non-post-merge criterion is ticked. A GitHub fault confined to the
+    comment-listing endpoint fails that read while the issue body itself stays
+    reachable — so, exactly as `cmd_acs_resolve` already does for the review
+    engine, a workpad read failure is ROUTED to a distinct label and the criteria
+    are recovered from the issue body via `scripts/parse-acs.py`, NEVER read as a
+    passing gate.
+
+    Line 1 of stdout is always `source: <token>`; the rendered criteria follow.
+    The (code, token) pairs are:
+      0  source: workpad             — clean workpad read; tick state authoritative.
+      2  source: workpad-absent      — clean absence, no workpad. The existing
+                                        absent-case shape, kept distinct from the
+                                        transport-failure label (AC6).
+      3  source: workpad-read-failed — the workpad read failed (transport/parse);
+                                        criteria recovered from the issue body. The
+                                        gate must NOT pass — the tick state could
+                                        not be established (AC3/AC4).
+      4  source: unestablished       — the workpad read failed AND the issue-body
+                                        fallback also failed; no criteria could be
+                                        resolved (AC5). The gate must NOT pass.
+    """
+    _require_section_parse('acs-gate')
+    try:
+        _, _section_lines, items = _acs_read_workpad('acs-gate', str(args.issue))
+    except SystemExit as e:
+        if e.code == 2:
+            # Clean absence — the existing benign shape. Kept distinct from the
+            # transport-failure label (AC6); the exit-2 contract is preserved.
+            print(f'source: {_ACS_SOURCE_WORKPAD_ABSENT}')
+            sys.exit(_ACS_GATE_ABSENT)
+        if e.code == 3:
+            # A transport/parse failure reaching the workpad. Fall back to the
+            # issue body — the endpoint the outage did not touch.
+            body_md = _acs_gate_issue_body_criteria(str(args.issue))
+            if body_md is None:
+                print(f'source: {_ACS_SOURCE_UNESTABLISHED}')
+                sys.exit(_ACS_GATE_UNESTABLISHED)
+            print(f'source: {_ACS_SOURCE_WORKPAD_READ_FAILED}')
+            if body_md:
+                print(body_md)
+            sys.exit(_ACS_GATE_DEGRADED)
+        # Any other SystemExit is an unexpected shape this handler must not absorb.
+        raise
+    # Clean workpad read: render the section exactly as `acs` does (unfiltered,
+    # tick state and (post-merge) tags preserved), prefixed with the source token.
+    print(f'source: {_ACS_SOURCE_WORKPAD}')
+    rendered = _acs_render(items, exclude_post_merge=False, neutralize_boxes=False)
+    if rendered:
+        print(rendered)
 
 
 def _acs_diverge(issue_items: list[dict], workpad_items: list[dict],
@@ -1227,6 +1331,23 @@ def _render_deferred_filed(normalized_text: str) -> str:
     return f'<!-- prflow:deferred-filed text={_b64(normalized_text)} -->'
 
 
+def _single_section_content(
+    sections: list[tuple[str, str]], name: str
+) -> str | None:
+    """The content of the ONE section headed `## {name}`, or None when the body
+    presents zero or more than one of it.
+
+    The exactly-one rule is the load-bearing half: `_find_section` answers with
+    the FIRST match, so a duplicated section would otherwise read as a clean
+    single one and a reader built on it would silently speak for only half the
+    body. The heading compare matches `_find_section`'s — case-insensitive over
+    the whitespace-stripped heading line.
+    """
+    target = f'## {name}'.lower()
+    hits = [c for h, c in sections if h.strip().lower() == target]
+    return hits[0] if len(hits) == 1 else None
+
+
 def _progress_content_or_none(body: str) -> str | None:
     """The single canonical `## Progress` section's content, or None.
 
@@ -1238,15 +1359,7 @@ def _progress_content_or_none(body: str) -> str | None:
     stranding failure the three-state contract exists to avoid.
     """
     _, sections = _split_sections(body)
-    idx = _find_section(sections, 'Progress')
-    if idx is None:
-        return None
-    # `_find_section` answers with the FIRST match, so a duplicated section would
-    # otherwise read as a clean single one and this reader would silently speak
-    # for only half the body.
-    if sum(1 for h, _ in sections if h.strip().lower() == '## progress') != 1:
-        return None
-    return sections[idx][1]
+    return _single_section_content(sections, 'Progress')
 
 
 def _isolated_progress_markers(content: str, pattern: 're.Pattern[str]'):
@@ -1524,7 +1637,7 @@ def cmd_new_body(args):
         else _REPRODUCTION_ROW + '\n'
     )
     sys.stdout.write(f"""{marker}
-# DevFlow Workpad — Issue #{args.issue}
+# PRFlow Workpad — Issue #{args.issue}
 
 **Status:** 🚀 Setup
 **Branch:** {branch}
@@ -1534,7 +1647,7 @@ def cmd_new_body(args):
 
 ## Progress
 - [ ] **Setup** — branch & workpad
-  - {seed_ts} — /devflow:implement run started
+  - {seed_ts} — /prflow:implement run started
 - [ ] **Implement**
 {repro}  - [ ] code + sweeps
 - [ ] **Review**
@@ -1801,6 +1914,33 @@ def _find_section(sections: list[tuple[str, str]], name: str) -> int | None:
         if heading.strip().lower() == target:
             return i
     return None
+
+
+def _tick_top_level_progress_phases(sections: list[tuple[str, str]]) -> None:
+    """Tick every still-unticked top-level ## Progress phase row (issue #1337).
+
+    The deterministic backstop for the cooperative per-phase `--tick-progress`
+    calls: the terminal `--status Complete` write invokes this so a Complete
+    workpad never sits above a `- [ ] **Implement**` / `- [ ] **Review**` row that
+    a volatile tick miss left unticked. The row set is sourced from
+    `_PROGRESS_PHASES` (the single source of truth, never a transcribed list); rows
+    are matched with `_TOP_LEVEL_CHECKBOX_RE`, so only column-0 checkbox rows are
+    considered and nested sub-items keep their prior state. Absent (or non-canonical)
+    `## Progress` is a structural no-op — the Complete write still succeeds exactly
+    as before. Mutates `sections` in place."""
+    idx = _find_section(sections, 'Progress')
+    if idx is None:
+        return
+    heading, content = sections[idx]
+    out = []
+    for line in content.split('\n'):
+        m = _TOP_LEVEL_CHECKBOX_RE.match(line)
+        if m and m.group(1) == ' ' and any(
+            ph.lower() in m.group(2).lower() for ph in _PROGRESS_PHASES
+        ):
+            line = line.replace('[ ]', '[x]', 1)
+        out.append(line)
+    sections[idx] = (heading, '\n'.join(out))
 
 
 def _set_section_content(
@@ -2287,6 +2427,25 @@ def _read_reflection_payload(path: str) -> str:
     return text
 
 
+def _reflection_file_payload(args) -> str:
+    """Read `--reflection-file`'s payload at most once per invocation, memoized on
+    `args`.
+
+    Two consumers need the SAME text: `_apply_mutations`, which renders the bullet,
+    and `cmd_update`'s failed-write buffering (issue #1214), which must persist it
+    when the PATCH drops it. The `-`/stdin arm can only be read once — a second read
+    returns empty and would raise the empty-payload `_UpdateError` against a payload
+    that was in fact fine — so the first read is cached and a later caller is served
+    from that cache. Failure modes are `_read_reflection_payload`'s unchanged
+    `_UpdateError` contract; only a SUCCESSFUL read is cached, so a caller that
+    retries after a failure re-reads rather than seeing a half-populated cache."""
+    cached = getattr(args, '_reflection_file_payload_cache', None)
+    if cached is None:
+        cached = _read_reflection_payload(args.reflection_file)
+        args._reflection_file_payload_cache = cached
+    return cached
+
+
 class _UpdateError(Exception):
     """Raised by mutation helpers in `_apply_mutations` to signal a *structural*
     failure — a missing target section, a missing `Status`/`Last updated` line, an
@@ -2318,6 +2477,263 @@ def _report_failed_ticks(failed_ticks, preamble):
     sys.stderr.write(f"workpad.py update: {preamble}:\n")
     for ft in failed_ticks:
         sys.stderr.write(f"  - {ft}\n")
+
+
+# ---------------------------------------------------------------------------
+# Failed-write buffering and replay (issue #1214, part (c))
+# ---------------------------------------------------------------------------
+# When a workpad PATCH fails (a GitHub fault confined to the comment endpoint),
+# the append-only history the call intended — its `--note` bullets and its
+# `## Devflow Reflection` bullets — is otherwise lost, exactly the stranded state
+# issue #1214 describes (a run that cannot record its Blocked reflection or its
+# completion evidence). So a failed call BUFFERS that append-only content to
+# local storage under the gitignored `.prflow/tmp/`, and the next successful
+# `update` — which includes every terminal-status transition, since that is
+# itself an `update` — REPLAYS the buffered content idempotently: a buffered
+# item already RENDERED as its own bullet in the live body is skipped, so a
+# replay never duplicates content (AC9). Status and tick mutations are
+# deliberately NOT buffered — they are transient state a later call
+# re-establishes, whereas a dropped note/reflection is a permanent hole in the
+# run's record.
+
+_WORKPAD_BUFFER_DIRNAME = 'workpad-buffer'
+
+
+def _workpad_buffer_path(comment_id) -> Path:
+    """Local buffer file for one workpad comment's failed-write records.
+
+    Anchored under the repo-root `.prflow/tmp/` (gitignored in this repo and in
+    every install.sh-scaffolded consumer), so a buffered record never lands as a
+    tracked file. Keyed by comment id so two issues' buffers never collide.
+    """
+    root = _repo_root() or str(Path.cwd())
+    return (Path(root) / '.prflow' / 'tmp' / _WORKPAD_BUFFER_DIRNAME
+            / f'{comment_id}.json')
+
+
+def _read_workpad_buffer(comment_id) -> list:
+    """Return the list of buffered records for a comment (empty on any degraded
+    shape — absent file, unreadable, malformed, or a non-list payload). A read
+    failure never raises: buffering is a best-effort safety net."""
+    try:
+        raw = _workpad_buffer_path(comment_id).read_text(encoding='utf-8')
+    except OSError:
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        # Loud, not silent: the caller goes on to append to an empty list and
+        # overwrite this file, so an undiagnosed malformed buffer is buffered
+        # content discarded without a trace. `_write_workpad_buffer` writes
+        # atomically, so this shape is not one this helper can produce itself.
+        sys.stderr.write(
+            f"workpad.py: the workpad buffer for comment {comment_id} is not valid "
+            f"JSON ({e}); treating it as empty — any records it held are not "
+            f"replayable and the next buffered write replaces it.\n")
+        return []
+    if not isinstance(data, list):
+        sys.stderr.write(
+            f"workpad.py: the workpad buffer for comment {comment_id} is a "
+            f"{type(data).__name__}, not a list of records; treating it as empty.\n")
+        return []
+    return data
+
+
+def _write_workpad_buffer(path: Path, records: list) -> None:
+    """Write the buffer file atomically: a temp file in the same directory, then an
+    `os.replace`. A plain `write_text` can be interrupted mid-write during the very
+    outage this buffer exists for, leaving partial JSON that the next read cannot
+    parse — so the durability guarantee would fail exactly when it is needed. The
+    rename is atomic on POSIX and on Windows (`os.replace` overwrites), so a reader
+    observes the prior contents or the new contents, not a half-written state.
+    Raises `OSError` for the caller's existing best-effort handling."""
+    tmp = path.with_name(f'{path.name}.tmp')
+    tmp.write_text(
+        json.dumps(records, ensure_ascii=False, indent=2), encoding='utf-8')
+    os.replace(tmp, path)
+
+
+def _buffer_failed_change(comment_id, notes, reflections, kind) -> "Path | None":
+    """Persist the append-only content of a FAILED update so it is not lost (AC7).
+
+    Records only `--note` and `--reflection` bullets (with their kind); status and
+    tick mutations are transient and not buffered. Best-effort: returns the buffer
+    path on a successful write, or None when there was nothing to buffer or the
+    write itself failed — a buffering failure never changes the caller's own
+    fail-loud outcome."""
+    notes = [n for n in (notes or []) if n]
+    reflections = [r for r in (reflections or []) if r]
+    if not notes and not reflections:
+        return None
+    record = {
+        'notes': notes,
+        'reflections': reflections,
+        'reflection_kind': kind or _DEFAULT_REFLECTION_KIND,
+    }
+    path = _workpad_buffer_path(comment_id)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existing = _read_workpad_buffer(comment_id)
+        existing.append(record)
+        _write_workpad_buffer(path, existing)
+    except OSError as e:
+        sys.stderr.write(
+            f"workpad.py update: could not buffer the failed change: {e}\n")
+        return None
+    return path
+
+
+# ── Replay identity: "already applied" is an EXACT rendered-bullet match ────
+#
+# A buffered item counts as already applied only when the live body carries the
+# bullet the RENDERER would have produced for it — never when its text merely
+# occurs somewhere in the body. The distinction is the whole safety property of
+# this feature: `fully_replayed` authorizes `_clear_workpad_buffer`, so a
+# false positive here does not merely skip an append, it DESTROYS the only
+# surviving copy of the item. A containment test (`text in body`) false-positives
+# on any item whose text is a substring of unrelated content — a terse Blocked
+# reflection, a status word, an error code, an AC-label fragment, or the same
+# text embedded inside a longer note — which is silent loss of the operator's
+# record inside the feature built to prevent exactly that.
+#
+# Both predicates below are therefore whole-LINE equality against the shapes the
+# two append helpers emit, scoped to the one section each writes into:
+#
+#   * a note      — `_append_progress_note` writes `{indent}- HH:MM:SS — {note}`
+#     into `## Progress`; the note text is the ENTIRE remainder of the line, so
+#     comparing that captured remainder for equality (plus, for a multi-line
+#     note, its continuation lines) cannot be satisfied by a line that merely
+#     contains the text.
+#   * a reflection — `_insert_reflection_bullet` writes `- {glyph} {label}{text}`
+#     into `## Devflow Reflection`, with the text collapsed to one line; the
+#     candidate set is built from `_REFLECTION_KINDS` itself, so it is exactly
+#     the finite set of renderings that text could have, and a whole-line
+#     equality against it cannot be satisfied by containment either.
+#
+# Both fail toward re-appending: an unresolvable section, a legacy un-kinded
+# bullet, or any shape the renderer does not emit reads as NOT-applied, which
+# risks a duplicate bullet and never a dropped record. That direction is chosen
+# deliberately — a visible duplicate is recoverable, a silent deletion is not.
+
+
+def _note_already_rendered(progress_content: "str | None", note: str) -> bool:
+    """True when `note` is already present in the resolved `## Progress` content
+    as a rendered note bullet — `_PROGRESS_BULLET_RE`'s captured text equal to
+    the whole note, with a multi-line note's continuation lines matching verbatim
+    on the lines that follow. None content (section absent or duplicated) reads
+    as not-present."""
+    if progress_content is None:
+        return False
+    want = note.split('\n')
+    lines = progress_content.split('\n')
+    for i, line in enumerate(lines):
+        m = _PROGRESS_BULLET_RE.match(line)
+        if m is None or m.group(1) != want[0]:
+            continue
+        if lines[i + 1:i + len(want)] == want[1:]:
+            return True
+    return False
+
+
+def _reflection_already_rendered(
+    reflection_content: "str | None", text: str
+) -> bool:
+    """True when `text` is already present in the resolved `## Devflow Reflection`
+    content as a bullet `_insert_reflection_bullet` could have written for it.
+
+    The comparison is whole-line equality against the candidate renderings for
+    every kind, because a replayed reflection is filed under the REPLAYING call's
+    kind rather than its own — so the glyph/label the original write used is not
+    knowable here and all of them must count as the same item."""
+    if reflection_content is None:
+        return False
+    one_line = ' '.join(text.splitlines())
+    candidates = {
+        f'- {glyph} ' + (f'**{label}:** ' if label else '') + one_line
+        for glyph, label, _ in _REFLECTION_KINDS.values()
+    }
+    return any(ln.strip() in candidates for ln in reflection_content.split('\n'))
+
+
+def _plan_buffer_replay(comment_id, body, args,
+                        pending_notes=None, pending_reflections=None) -> bool:
+    """Fold any buffered failed-write content for this comment into `args` so it
+    replays on THIS successful update, idempotently (AC8/AC9).
+
+    Idempotency has THREE sources, not one, and all three are needed for the
+    "a replay never duplicates content" guarantee to hold. A buffered item is
+    skipped when its text is (a) already RENDERED as its own bullet in the live
+    `body`'s target section — an exact whole-line identity, never a containment
+    test over the body; see the block comment above for why that distinction is
+    the difference between skipping an append and destroying the record —
+    (b) already carried inline by THIS call (`pending_notes`/`pending_reflections` — the shape a
+    retry of the same update takes during an outage), or (c) already queued by an
+    earlier buffered record in this same pass (two failed calls carrying the same
+    `--note` buffer two records, and deduping against the body alone folds both).
+    Anything not yet present is appended to `args.note` / `args.reflection`, but
+    ONLY when the target section (`## Progress` for notes, `## Devflow Reflection`
+    for reflections) exists in the body — so a replay never turns a valid call
+    into a structural abort against a truncated/malformed workpad.
+
+    Returns True ONLY when every buffered item is now accounted for — either
+    already present in the live body, or foldable because its section exists.
+    Returns False when a buffered item could NOT be folded (its section is absent
+    from this body), so the caller must NOT clear the buffer: the content stays
+    buffered for a later, healthy body to replay, rather than being silently
+    dropped along with the buffer file. A buffered reflection replays under the
+    CALL's kind rather than its own: the record's durability matters more than
+    its sub-section placement on this degraded path."""
+    records = _read_workpad_buffer(comment_id)
+    if not records:
+        return False
+    add_notes = []
+    add_reflections = []
+    # This call's own inline content. Deduping against it is what keeps the
+    # retry-the-same-update shape from rendering the item twice — once from the
+    # buffer, once from the flag. Only the BUFFERED copy is ever skipped; a caller
+    # that deliberately passes the same `--note` twice in one call still gets both.
+    _pending_notes = list(pending_notes or [])
+    _pending_reflections = list(pending_reflections or [])
+    # Resolve both target sections once, and read "already applied" out of the
+    # rendered bullets they hold rather than out of the raw body text.
+    _, _sections = _split_sections(body)
+    _progress = _single_section_content(_sections, 'Progress')
+    _reflections = _single_section_content(_sections, 'Devflow Reflection')
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        for n in rec.get('notes') or []:
+            if (isinstance(n, str) and n
+                    and not _note_already_rendered(_progress, n)
+                    and n not in _pending_notes and n not in add_notes):
+                add_notes.append(n)
+        for rfl in rec.get('reflections') or []:
+            if (isinstance(rfl, str) and rfl
+                    and not _reflection_already_rendered(_reflections, rfl)
+                    and rfl not in _pending_reflections
+                    and rfl not in add_reflections):
+                add_reflections.append(rfl)
+    notes_replayable = '## Progress' in body
+    reflections_replayable = '## Devflow Reflection' in body
+    if add_notes and notes_replayable:
+        args.note = list(args.note or []) + add_notes
+    if add_reflections and reflections_replayable:
+        args.reflection = list(args.reflection or []) + add_reflections
+    # Safe to clear only when nothing was left un-replayed: any not-yet-present
+    # item whose target section is absent stays buffered (return False).
+    fully_replayed = (
+        (not add_notes or notes_replayable)
+        and (not add_reflections or reflections_replayable)
+    )
+    return fully_replayed
+
+
+def _clear_workpad_buffer(comment_id) -> None:
+    """Remove a comment's buffer file after its records have been replayed."""
+    try:
+        _workpad_buffer_path(comment_id).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def cmd_update(args):
@@ -2398,6 +2814,37 @@ def cmd_update(args):
             )
             sys.exit(4)
 
+    # Failed-write buffering/replay (issue #1214). Capture THIS call's own
+    # append-only content first, so a PATCH failure buffers exactly it — never the
+    # replayed content `_plan_buffer_replay` is about to fold in. Then fold any
+    # previously-buffered content for this comment into `args` so it replays on
+    # this (successful) PATCH, idempotently.
+    # Kept as raw lists symmetric with `_own_reflections`; `_buffer_failed_change`
+    # applies the single empty-string filter for both.
+    _own_notes = list(args.note or [])
+    _own_reflections = list(args.reflection or [])
+    _own_kind = args.reflection_kind or _DEFAULT_REFLECTION_KIND
+    if args.reflection_file:
+        # A file-sourced reflection is buffered exactly like an inline one. This is
+        # the case issue #1214 exists for: the mandated stop-path recipe delivers the
+        # Blocked reflection in its OWN `--reflection-file` call carrying no inline
+        # --note/--reflection, and that recipe's documented inline fallback covers a
+        # *structural* error only — never a PATCH failure — so leaving the payload
+        # uncaptured drops the run's terminal reflection on the one path the feature
+        # was built to rescue. The read is memoized (see `_reflection_file_payload`),
+        # so `_apply_mutations` below reuses this text rather than re-reading, which
+        # is also what keeps the `-`/stdin arm single-read. Pulling the read forward
+        # of `_apply_mutations` means a bad payload now reports before a
+        # co-occurring structural fault rather than after it; both still abort the
+        # whole call with exit 1 and no PATCH, which is the contract that matters.
+        try:
+            _own_reflections.append(_reflection_file_payload(args))
+        except _UpdateError as e:
+            sys.stderr.write(f"workpad.py update: {e}\n")
+            sys.exit(1)
+    _buffer_safe_to_clear = _plan_buffer_replay(
+        comment_id, body, args, _own_notes, _own_reflections)
+
     # `failed_ticks` collects *volatile* per-row tick misses (see _TickMatchError):
     # the call still applies and PATCHes every other mutation, then exits non-zero
     # naming the ticks that did not land. A *structural* _UpdateError still aborts
@@ -2422,6 +2869,15 @@ def cmd_update(args):
             "workpad.py update: checkpoint replay — all requested checkpoint "
             "key(s) already present; no Last updated refresh, no PATCH.\n"
         )
+        # Reclaim the buffer on this arm too. Reaching here means the call carried no
+        # non-checkpoint mutation, and `args.note`/`args.reflection` are part of that
+        # enumeration — so if the replay above had folded anything, this arm would not
+        # have been taken. A True flag here therefore means every buffered item was
+        # already present in the live body: reclaimable, and nothing is being dropped
+        # by clearing. Without this the buffer file survives an arbitrary number of
+        # checkpoint-replay calls before a later non-noop update collects it.
+        if _buffer_safe_to_clear:
+            _clear_workpad_buffer(comment_id)
         if args.print_body:
             sys.stdout.write(body)
         return
@@ -2467,9 +2923,30 @@ def cmd_update(args):
                 f"the PATCH itself failed, so NO workpad change was persisted; "
                 f"these {len(failed_ticks)} tick(s) had also not resolved",
             )
+        # Buffer this call's OWN append-only content before failing (issue #1214),
+        # so the note/reflection the PATCH dropped survives to be replayed by the
+        # next successful call. Any previously-buffered records stay buffered (the
+        # buffer is only cleared on a successful PATCH), so no content is lost.
+        _buf_path = _buffer_failed_change(
+            comment_id, _own_notes, _own_reflections, _own_kind)
+        if _buf_path is not None:
+            sys.stderr.write(
+                f"workpad.py update: buffered this call's note/reflection content "
+                f"to {_buf_path} for replay on the next successful update "
+                f"(issue #1214).\n"
+            )
         _fail('update patch', e)
     finally:
         Path(tmp_path).unlink(missing_ok=True)
+    # The PATCH succeeded: drop the buffer file ONLY when `_plan_buffer_replay`
+    # reported that every buffered item is now accounted for (folded into this
+    # body or already present). When a buffered item could not be folded — its
+    # target section was absent from this (truncated/malformed) body — the buffer
+    # is left intact so a later healthy body replays it, never dropping content
+    # along with the file. Idempotency is guaranteed by the presence check, so a
+    # retained-and-later-replayed item is replay-and-skip, never a duplicate.
+    if _buffer_safe_to_clear:
+        _clear_workpad_buffer(comment_id)
     # Issue #814: the patched body is echoed only under `--print-body`, or on the
     # volatile-tick-miss path below. This one statement is reached by BOTH the clean
     # return and the miss exit (the `failed_ticks` branch is evaluated after it), so
@@ -3297,6 +3774,18 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
     _apply_section_ticks(
         sections, 'Progress', 'progress', args.tick_progress, [], failed_ticks,
     )
+    # Terminal-Complete backstop (issue #1337): a --status Complete write ticks
+    # every still-unticked top-level ## Progress phase row, so a terminal 🎉 Complete
+    # workpad never sits above an unticked **Implement** / **Review** parent that a
+    # dropped or volatile-missed cooperative --tick-progress left behind. Only
+    # Complete ticks — Failed/Cancelled/Blocked and the interim words change no
+    # checkbox, keeping the record honest about where a non-complete run stopped.
+    # Gate on the SAME derived glyph the terminal-complete self-record gate uses
+    # (`_status_glyph(args.status) == '🎉'`, below) rather than an exact-word match,
+    # so the two decisions cannot diverge: any status the gate treats as terminal
+    # Complete also gets its parent rows ticked.
+    if args.status and _status_glyph(args.status) == '🎉':
+        _tick_top_level_progress_phases(sections)
     _apply_section_ticks(
         sections, 'Plan', 'plan', args.tick_plan, args.tick_plan_n, failed_ticks,
     )
@@ -3467,7 +3956,27 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
                     f"`criterion:` line `deferred-presence` printed, verbatim\n"
                 )
     deferred_filed_notes = [_render_deferred_filed(t) for t in mark_filed]
-    progress_notes = list(args.note) + scope_decision_notes + deferred_filed_notes + [
+    # Same-invocation note/checkpoint de-dup (issue #1337): the Phase 1 cloud
+    # hydration fence passes the selected lifecycle event twice in one call — as a
+    # --checkpoint text and again as a --note — which rendered the event as two
+    # ## Progress rows (a bare note bullet and the marker-carrying checkpoint row).
+    # Suppress a --note only when its text will already be RECORDED by a checkpoint
+    # row, so the marker-carrying row is the single record and no note is ever
+    # dropped without its text appearing somewhere. A text is "covered" when it is
+    # being inserted this call (an absent-key checkpoint in `checkpoint_inserts`) OR
+    # a byte-equal row already exists in the body under a replayed key (`{text}
+    # {marker}` present). This keeps the same-text replay case suppressing the
+    # duplicate note (the row is already there) while a differing-text replay — whose
+    # new text is recorded nowhere, because a replay keeps the row's existing text —
+    # is NOT suppressed, so that text still renders rather than silently vanishing.
+    # A --note that differs from every covered text (the local-tier call passes
+    # --note with no checkpoint flags) is untouched.
+    _checkpoint_covered_texts = {text for _key, text in checkpoint_inserts}
+    for _ckey, _ctext in checkpoint_reqs:
+        if f'{_ctext} {_checkpoint_marker(_ckey)}' in body:
+            _checkpoint_covered_texts.add(_ctext)
+    _notes = [n for n in args.note if n not in _checkpoint_covered_texts]
+    progress_notes = _notes + scope_decision_notes + deferred_filed_notes + [
         f'{text} {_checkpoint_marker(key)}' for key, text in checkpoint_inserts
     ]
     # Completion-evidence marker (issue #1087): validated above; a later validated key
@@ -3508,10 +4017,12 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         # The --reflection-file bullet appends AFTER the inline --reflection
         # bullets, under the same kind. Its reader raises _UpdateError (unreadable
         # path, undecodable payload, empty/whitespace-only) before the PATCH, so a
-        # bad payload aborts the whole call with no partial write.
+        # bad payload aborts the whole call with no partial write. The read goes
+        # through the memo so `cmd_update`'s failed-write buffering sees the same
+        # text without re-reading (and without re-consuming stdin on the `-` arm).
         if args.reflection_file:
             content = _append_reflection(
-                content, kind, _read_reflection_payload(args.reflection_file))
+                content, kind, _reflection_file_payload(args))
         sections[idx] = (heading, content)
 
     # Record the reproduce-first content classification (issue #449) as a
@@ -3649,6 +4160,20 @@ def main():
                         'issue-body), so the un-mirrored placeholder is '
                         'distinguishable from a legitimately empty section.')
     s.set_defaults(func=cmd_acs)
+
+    s = sub.add_parser(
+        'acs-gate',
+        help="Read the workpad's ## Acceptance Criteria for the /prflow:implement "
+             'Phase 3.4 gate WITH a defined degradation (issue #1214). Line 1 of '
+             'stdout is always "source: <token>". Exit/token pairs: 0 source: '
+             'workpad (clean read); 2 source: workpad-absent (clean absence, the '
+             'existing benign shape); 3 source: workpad-read-failed (workpad read '
+             'failed, criteria recovered from the issue body via parse-acs.py — the '
+             'gate must NOT pass); 4 source: unestablished (workpad read failed AND '
+             'the issue-body fallback also failed — the gate must NOT pass).',
+    )
+    s.add_argument('issue', type=int)
+    s.set_defaults(func=cmd_acs_gate)
 
     s = sub.add_parser(
         'acs-resolve',

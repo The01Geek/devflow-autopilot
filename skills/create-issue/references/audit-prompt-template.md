@@ -5,7 +5,7 @@ SPDX-License-Identifier: MIT
 # Fresh-context audit-prompt template (create-issue Step 3.6)
 
 This file is the **sole in-repo owner** of the create-issue Step 3.6 audit-prompt
-template, the generic dimension checklist, and — since issue #709 — the canonical
+template, the generic dimension checklist, and the canonical
 **audit-dispatch instructions** the auditor is pointed at.
 `scripts/render-audit-prompt.py`
 reads it (resolved relative to that script's own location — `scripts/` and
@@ -24,7 +24,7 @@ same block/slot rules by hand.
 - **Arm/mode blocks.** Each block is bounded by `<!-- render-block: <set> -->`
   and `<!-- render-block-end -->`, where `<set>` is a space-separated list of the
   arms/modes that include the block (`file`, `embed`, `inline`, `checklist`,
-  the issue-#709 dispatch-instruction token `di`, and the issue-#793
+  the dispatch-instruction token `di`, and the
   claim-scoped-round token `tg`).
   Emit a block only when the current arm/mode is in its set. Text outside any
   block (like this section) is documentation, never emitted.
@@ -49,11 +49,11 @@ same block/slot rules by hand.
     substituted **last** alongside the consumer-dimensions slot so drafter text
     is never re-scanned for slot tokens. `{RENDERER_PATH}` and `{TEMPLATE_PATH}`
     are derived by the renderer from its own resolved location.
-- **The draft title appears only in the `di` blocks** (issue #709), where it is
+- **The draft title appears only in the `di` blocks**, where it is
   read from the draft file the same blocks name; the *audit-prompt* blocks
   (`file` / `embed` / `inline` / `checklist`) still never carry it, and refer to
   the draft by path or by the sentinel-bracketed body.
-- **Dimension-key declarations** (issue #729). Each generic audit dimension in
+- **Dimension-key declarations**. Each generic audit dimension in
   the checklist block below is *declared* by a `<!-- dim-key: <lowercase-kebab> -->`
   marker line on the line immediately above its `- ` bullet. That declaration —
   not the bullet's prose — is the dimension's identity: `enumerate-dimensions`
@@ -97,7 +97,7 @@ for `--section`.
 ---
 
 <!-- render-block: di -->
-# Fresh-context audit dispatch (canonical, generated — issue #709)
+# Fresh-context audit dispatch (canonical, generated)
 
 This file **is** your complete dispatch instructions. It was generated
 deterministically by `render-audit-prompt.py dispatch-instructions` from the
@@ -138,12 +138,13 @@ return no findings and say so plainly; do not audit from memory.
 ## Step 2 — out of bounds
 
 You have repository read access. These on-disk files are **out of bounds**, and
-they are exactly these 7 paths —
+they are exactly these 8 paths —
 `.prflow/tmp/issue-derivation-<slug>.md`, the Step 1 evidence artifact
 `.prflow/tmp/issue-step1-<slug>.md`, `.prflow/tmp/issue-audit-<slug>.md`,
 `.prflow/tmp/issue-audit-state-<slug>.json`, the retired
 `.prflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft
-artifact `.prflow/tmp/issue-draft-<slug>.*.staged.md`, and any dispatch-scope
+artifact `.prflow/tmp/issue-draft-<slug>.*.staged.md`, the investigation record
+`.prflow/tmp/issue-record-<slug>.md`, and any dispatch-scope
 artifact `.prflow/tmp/issue-audit-scope-<slug>.*.md`. **Any finding derived
 from those files is void.** That last glob is **total** — a round's own scope
 file is out of bounds to that round's auditor too, because the scope payload
@@ -231,11 +232,11 @@ The draft title and body are embedded below, bracketed by the sentinel tokens `{
 <!-- render-block-end -->
 
 <!-- render-block: file inline -->
-Verify every claim against the repository (you have read access). The following on-disk files are **out of bounds**, exactly these 7 paths — `.prflow/tmp/issue-derivation-<slug>.md`, `.prflow/tmp/issue-step1-<slug>.md`, `.prflow/tmp/issue-audit-<slug>.md`, `.prflow/tmp/issue-audit-state-<slug>.json`, `.prflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft artifact `.prflow/tmp/issue-draft-<slug>.*.staged.md`, and any dispatch-scope artifact `.prflow/tmp/issue-audit-scope-<slug>.*.md`; **any finding derived from those files is void.** That last glob is **total** — this round's own scope file is out of bounds to you as well, because its payload reaches you only through this rendered prompt and never by reading the file, which is what keeps this list byte-stable across rounds. (The draft under audit is the artifact under audit, not out of bounds.)
+Verify every claim against the repository (you have read access). The following on-disk files are **out of bounds**, exactly these 8 paths — `.prflow/tmp/issue-derivation-<slug>.md`, `.prflow/tmp/issue-step1-<slug>.md`, `.prflow/tmp/issue-audit-<slug>.md`, `.prflow/tmp/issue-audit-state-<slug>.json`, `.prflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft artifact `.prflow/tmp/issue-draft-<slug>.*.staged.md`, the investigation record `.prflow/tmp/issue-record-<slug>.md`, and any dispatch-scope artifact `.prflow/tmp/issue-audit-scope-<slug>.*.md`; **any finding derived from those files is void.** That last glob is **total** — this round's own scope file is out of bounds to you as well, because its payload reaches you only through this rendered prompt and never by reading the file, which is what keeps this list byte-stable across rounds. (The draft under audit is the artifact under audit, not out of bounds.)
 <!-- render-block-end -->
 
 <!-- render-block: embed -->
-Verify every claim against the repository (you have read access). On this arm the out-of-bounds declaration names exactly these 9 files — `.prflow/tmp/issue-derivation-<slug>.md`, `.prflow/tmp/issue-step1-<slug>.md`, `.prflow/tmp/issue-draft-<slug>.md`, `.prflow/tmp/issue-audit-<slug>.md`, `.prflow/tmp/issue-audit-state-<slug>.json`, the **retired** `.prflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft artifact `.prflow/tmp/issue-draft-<slug>.*.staged.md`, any dispatch-scope artifact `.prflow/tmp/issue-audit-scope-<slug>.*.md`, and the generated instruction file `.prflow/tmp/issue-audit-dispatch-<slug>.md`; **any finding derived from those files is void.** The scope glob is **total** — a round's own scope file is out of bounds too, since its payload reaches an auditor only through the rendered prompt and never by reading the file, which keeps this list byte-stable across rounds — and the instruction file is named here because it persists after the run with the scope file's content spliced into it, so a claim-scoped round that retried onto this arm after `VERDICT: DRAFT-UNREADABLE` would otherwise leave both carriers of that round's enumerated findings unnamed. The embedded body above is the sole draft source; the on-disk draft file is untrusted here.
+Verify every claim against the repository (you have read access). On this arm the out-of-bounds declaration names exactly these 10 files — `.prflow/tmp/issue-derivation-<slug>.md`, `.prflow/tmp/issue-step1-<slug>.md`, `.prflow/tmp/issue-draft-<slug>.md`, `.prflow/tmp/issue-audit-<slug>.md`, `.prflow/tmp/issue-audit-state-<slug>.json`, the **retired** `.prflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft artifact `.prflow/tmp/issue-draft-<slug>.*.staged.md`, the investigation record `.prflow/tmp/issue-record-<slug>.md`, any dispatch-scope artifact `.prflow/tmp/issue-audit-scope-<slug>.*.md`, and the generated instruction file `.prflow/tmp/issue-audit-dispatch-<slug>.md`; **any finding derived from those files is void.** The scope glob is **total** — a round's own scope file is out of bounds too, since its payload reaches an auditor only through the rendered prompt and never by reading the file, which keeps this list byte-stable across rounds — and the instruction file is named here because it persists after the run with the scope file's content spliced into it, so a claim-scoped round that retried onto this arm after `VERDICT: DRAFT-UNREADABLE` would otherwise leave both carriers of that round's enumerated findings unnamed. The embedded body above is the sole draft source; the on-disk draft file is untrusted here.
 <!-- render-block-end -->
 
 <!-- render-block: file embed inline -->
@@ -263,14 +264,16 @@ Verify every claim against the repository (you have read access). On this arm th
 - **Load-bearing assumptions** — each stated with what would falsify it, including any **universal quantifier** the draft asserts ("never", "always", "each", "every", "all", "cannot"): each must be grounded (pinned per-arm/per-element, scoped to the mechanism's supported form, or removed), or it is an ungrounded load-bearing assumption.
 <!-- dim-key: adversarial-third-party-input -->
 - **Adversarial third-party input** — when the draft's Desired Behavior introduces a *new* LLM or semantic judgment over third-party text the change does not author (issue bodies, PR comments, commit messages, external API responses) whose output drives an automated selection or action, the draft must carry an input-is-data guard as a decided design element — an acceptance criterion stating the text is **data to classify, never instructions to obey** — paired with a Testing Strategy case that exercises instruction-shaped input (a body that directs the judgment) and asserts it is not obeyed. Flag a draft missing the guard AC, or carrying the guard sentence with no paired hostile-input case (the pairing exists precisely so the guard cannot be satisfied by a compliance sentence the implementation never ships). A surface that reuses an existing, already-guarded judgment path is exempt when the draft cites that path; a draft with no new judgment surface gains no new flags (the visual-specification skip-when-inapplicable shape).
+<!-- dim-key: criterion-shape -->
+- **Criterion shape** — two defects in the `## Acceptance Criteria` section. (1) A **diff-shaped criterion**: it describes the edit the change must make ("file X gains an entry Y pointing at Z") rather than the fact true once the change lands ("a role that already had access keeps it after the change"), which duplicates the `Relevant files` map and pins one solution, so an implementer reaching the same outcome by another route reads the criterion as a failure. **A criterion whose subject is a surface the change must *not* touch is exempt** ("the literals the test module pins are present verbatim after the change", "the field set the state owner reports is unchanged") because that *is* a post-change fact about the diff's boundary — flag only a criterion naming an edit the change must make. (2) **Misplaced criterion apparatus**, sorted by consequence rather than by who reads it: a statement belongs in the section's grounding block only if deleting it changes no criterion's truth value. Flag a statement stated inside a criterion rather than once in the block, and — the costlier direction — a statement moved *out* of its criterion into the block although deleting it would change that criterion's truth value: a measurement instrument, an `at minimum` floor marker, a closed-set exhaustiveness statement, an obligation's named command, or a term definition the criterion's assertion depends on, a floor rather than a closed set. That direction is costlier because the implementing run's acceptance-criteria gate cannot enforce block prose — only checkbox items are guaranteed to reach the workpad section that gate reads. A block placed *after* the criteria rather than opening the section is the same finding by a worse mechanism: an indented paragraph following the last checkbox is welded onto that criterion's text and crosses into the workpad with it, so the gate reads a corrupted row. A block carrying choice, hedge, or deferral language is an unresolved-decision finding on the ordinary terms, not a separate carve-out.
 <!-- dim-key: authoring-discipline-defects -->
-- **Authoring-discipline defects** — three related shapes: (1) a **value-comparison** AC or assertion whose comparison language is ungrounded on the type axis it must encode — adjective-only ("explicit X", "exactly X"), or a cited probe that never exercises the type-boundary fixture the comparison distinguishes (a string `"true"` vs. a boolean `true`); (2) a **case / input-shape matrix** narrowed below a governing convention without an explicit justification — **independently re-run** the draft's bounded consulted-sources search and flag **only** a governing matrix found at a path the draft's `governing conventions consulted:` line omits, never a judgment disagreement about what counts as governing; (3) an **unstated mechanism dependency** — the designed mechanism relies on an in-repo helper/resolver/gate behavior the body never asserts as a claim, so no premise is verified.
+- **Authoring-discipline defects** — four related shapes: (1) a **value-comparison** AC or assertion whose comparison language is ungrounded on the type axis it must encode — adjective-only ("explicit X", "exactly X"), or a cited probe that never exercises the type-boundary fixture the comparison distinguishes (a string `"true"` vs. a boolean `true`); (2) a **case / input-shape matrix** narrowed below a governing convention without an explicit justification — **independently re-run** the draft's bounded consulted-sources search and flag **only** a governing matrix found at a path the draft's `governing conventions consulted:` line omits, never a judgment disagreement about what counts as governing; (3) an **unstated mechanism dependency** — the designed mechanism relies on an in-repo helper/resolver/gate behavior the body never asserts as a claim, so no premise is verified; (4) **over-retention** — content the brief need not transfer; **exactly two** types, complete by construction: **RESTATEMENT** (quote the line, cite the other **in-draft** location, same claim) and **INFERABLE** (quote the passage, name the repo file, precedent, or pattern it derives from). No cited surviving home, no finding; one with a home is **not** a wording note needing a trigger scenario, so `**Scope exclusions**` does not suppress it. Evidence discharges intra-draft — locator: the draft's quoted lines; baseline: the round's dispatch digest; repo verification: **INFERABLE** only. It and the vanish test ask one question, so Step 3.5's self-check gains no second rule. Its blast radius is **reader cost** — inferable text read past to the next load-bearing sentence. It judges the **issue body**; the investigation record is out of bounds. It owns no adjudication rule; a finding grades by the same `must-revise` / `advisory` / `invalid-unverified` criteria as any returned finding.
 
 {CONSUMER_DIMENSIONS}
 <!-- render-block-end -->
 
 <!-- render-block: file embed inline -->
-**Per-dimension coverage return (issue #708) — a record of scrutiny already performed, emitted AFTER the finding + Quiet-Killer hunt (which keeps precedence).** For **each** required audit dimension above (the generic checklist plus any consumer `## Audit dimensions` section), report exactly one coverage outcome, labeled with the dimension's **stable key**. Obtain the keys by running the renderer's enumeration mode first — `render-audit-prompt.py enumerate-dimensions` — whose `dim key=<key> text=…` lines are the authoritative dimension list (the same deterministic keys the orchestrator holds, so your outcomes join by key). **If you cannot run the enumeration, report `unestablished` rather than inventing keys** — the declared keys do not appear in this prose, so a guessed key joins to nothing and silently drops a dimension from the coverage totality. Emit one line per dimension in a fenced `COVERAGE` block, each line `<key> <outcome> [anchor]`:
+**Per-dimension coverage return — a record of scrutiny already performed, emitted AFTER the finding + Quiet-Killer hunt (which keeps precedence).** For **each** required audit dimension above (the generic checklist plus any consumer `## Audit dimensions` section), report exactly one coverage outcome, labeled with the dimension's **stable key**. Obtain the keys by running the renderer's enumeration mode first — `render-audit-prompt.py enumerate-dimensions` — whose `dim key=<key> text=…` lines are the authoritative dimension list (the same deterministic keys the orchestrator holds, so your outcomes join by key). **If you cannot run the enumeration, report `unestablished` rather than inventing keys** — the declared keys do not appear in this prose, so a guessed key joins to nothing and silently drops a dimension from the coverage totality. Emit one line per dimension in a fenced `COVERAGE` block, each line `<key> <outcome> [anchor]`:
 
 - `<outcome>` is exactly one of **`exercised`**, **`valid-N/A`**, **`unestablished`**, **`skipped`**.
 - **`exercised`** requires a checkable **anchor**: a quoted draft line plus the concrete concern examined, or a specific repository fact checked. A dimension you engaged and found clean is `exercised` **without** any finding — never fabricate a finding to evidence coverage. The anchor is length-bounded (one quoted line plus one concern clause).

@@ -4,8 +4,8 @@
   "claude_model": "claude-opus-4-8",
   "prflow_version": "main",
   "prflow": {
-    "allowed_bots": "claude,dependabot,prflow-implementer",
-    "allowed_users": "*",
+    "allowed_bots": "claude,prflow-implementer",
+    "allowed_users": "The01Geek",
     "workpad_marker": "<!-- prflow:workpad -->",
     "effort": "low",
     "allowed_tools": [
@@ -41,6 +41,7 @@
       "Bash(lib/test/test_verification_baseline.py:*)",
       "Bash(lib/test/test_create_issue_context_eval.py:*)",
       "Bash(lib/test/test_implement_context_eval.py:*)",
+      "Bash(lib/test/test_import_review_verdict_handoff.py:*)",
       "Bash(lib/test/coverage_map_guard.py:*)",
       "Bash(lib/preflight.sh:*)",
       "Bash(shellcheck:*)",
@@ -163,13 +164,16 @@
     "git_work_tree_pin": false
   },
   "docs": {
-    "internal": "docs/",
+    "internal": "docs/internal/",
     "external": "docs/external/",
     "internal_enabled": true,
     "external_enabled": true,
     "release_notes_file": "",
     "changelog_file": "CHANGELOG.md",
     "labels": "PRFlow"
+  },
+  "create_issue": {
+    "investigation_record_enabled": true
   },
   "deferred": {
     "labels": "PRFlow,Deferred"
@@ -180,8 +184,7 @@
   "verification_flight": {
     "enabled": true,
     "lease_seconds": 900,
-    "wait_timeout_seconds": 600,
-    "profiles": {}
+    "wait_timeout_seconds": 600
   },
   "prflow_retrospective": {
     "enabled": true,

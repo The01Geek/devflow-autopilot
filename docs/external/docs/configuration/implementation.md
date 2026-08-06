@@ -1,0 +1,46 @@
+---
+title: "Implementation Settings"
+description: "Configure implementation output, checkpoints, stalls and verification reuse."
+---
+
+# Implementation Settings
+
+This page is for maintainers tuning `/prflow:implement` and same-checkout verification coordination.
+
+| **Setting** | **Type and accepted values** | **Fallback or scaffold** | **Tier and security note** | **Example** |
+| --- | --- | --- | --- | --- |
+| `prflow_implement.effort` | `low`, `medium`, `high`, `xhigh` or `max` | Scaffold: `low`; absent uses the session or workflow fallback | Local and cloud implementation. Higher values can increase cost and latency. | `"effort": "low"` |
+| `prflow_implement.implement_pr_state` | `ready_for_review` or `draft` | `ready_for_review`; invalid values also publish | Implementation. `draft` leaves the completed pull request for a human to publish. PRFlow never merges it. | `"implement_pr_state": "draft"` |
+| `prflow_implement.update_branch_checkpoints` | Boolean | `true`; only an explicit false disables | Implementation and pushed fix-loop checkpoints. Merges the configured base into the feature branch at defined boundaries. | `"update_branch_checkpoints": true` |
+| `prflow_implement.stall_backstop.enabled` | Boolean | `true`; unrecognized values enable | Cloud implementation. When false, an interim run can end without an automatic resume or loud failure. | `"enabled": true` |
+| `prflow_implement.stall_backstop.max_resume_attempts` | Integer zero or greater | `2`; invalid values use `2` | Cloud implementation. `0` detects and fails without resuming. Each resume can incur another run. | `"max_resume_attempts": 2` |
+| `prflow.attribute_commits_to_triggerer` | Boolean | Runtime and scaffold: `false` | Cloud writer jobs. Applies only to verified human users and changes Git metadata, not the push credential. Trigger-time and post-merge-only. | `"attribute_commits_to_triggerer": true` |
+| `verification_flight.enabled` | Boolean | `true` | Local implementation and inline review-and-fix. Disabling reuse does not turn a missing or stale record into a pass. | `"enabled": true` |
+| `verification_flight.lease_seconds` | Integer zero or greater | `900` | Reserved for future use. Changing this setting has no effect in the current release. | `"lease_seconds": 900` |
+| `verification_flight.wait_timeout_seconds` | Integer zero or greater | Scaffold: `600` | Reserved for future use. Changing this setting has no effect in the current release. | `"wait_timeout_seconds": 600` |
+
+Provider and model overrides for implementation are documented in [Providers](/docs/configuration/providers). Implementation tool grants are documented in [Tool Permissions](/docs/configuration/tool-permissions).
+
+## Valid Implementation Example
+
+```json
+{
+  "prflow": {
+    "attribute_commits_to_triggerer": false
+  },
+  "prflow_implement": {
+    "effort": "low",
+    "implement_pr_state": "ready_for_review",
+    "update_branch_checkpoints": true,
+    "stall_backstop": {
+      "enabled": true,
+      "max_resume_attempts": 2
+    }
+  },
+  "verification_flight": {
+    "enabled": true,
+    "lease_seconds": 900,
+    "wait_timeout_seconds": 600
+  }
+}
+```

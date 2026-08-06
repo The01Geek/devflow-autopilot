@@ -694,9 +694,11 @@ devflow_module_pin_unique "#462 rule3: zero arm states the falsifiable no-depend
 
 # ── issue #467: retain the executable dimension-count boundary.
 # A3 count guard — the generic dimension checklist size is guard-locked (dimension-growth policy).
-# The count is 9 after issue #464 (merged) appended the "Adversarial third-party input" dimension;
-# #467 sharpened the "Load-bearing assumptions" dimension in place, adding no row (the growth-policy
-# carve-out #464 pins sanctions that single standalone addition). Guard the sed range with an
+# The count literal on the assertion below is the enforcement; do not restate it here, and do not
+# accumulate a per-issue provenance breakdown beside it (that arithmetic rots on the next append).
+# The growth policy is consolidate-before-appending, and the sanctioned standalone additions are
+# enumerated with their grounds in skills/create-issue/references/step-3-6-audit.md, not here.
+# #467 sharpened the "Load-bearing assumptions" dimension in place, adding no row. Guard the sed range with an
 # existence pin for its END anchor plus exact line-start counts for both anchors below. A
 # start-anchor drift already fails the range count (sed prints nothing -> count 0), while an
 # end-anchor drift could let sed run to EOF and coincidentally preserve the count. The END pin
@@ -710,7 +712,7 @@ assert_eq "#467 A3: the generic-dimension-checklist sed START anchor matches at 
   "$(grep -c '^\*\*Audit dimensions' "$CI_TMPL_AUDIT")"
 assert_eq "#467 A3: the generic-dimension-checklist sed END anchor matches at line-start exactly once" "1" \
   "$(grep -c '^{CONSUMER_DIMENSIONS}' "$CI_TMPL_AUDIT")"
-assert_eq "#467 A3: Step 3.6 generic dimension checklist is 9 bullets (8 base + #464's dimension; #467 added none)" "9" \
+assert_eq "#467 A3: Step 3.6 generic dimension checklist is guard-locked at its sanctioned bullet count" "10" \
   "$(sed -n '/^\*\*Audit dimensions/,/^{CONSUMER_DIMENSIONS}/p' "$CI_TMPL_AUDIT" | grep -c '^- \*\*')"
 # Cluster B — occurrence-count premise class (coupled template<->Step-3.5) + checklist mirror; AC
 # mutual-consistency check (Step 3.5 + template AC guidance + checklist mirror).

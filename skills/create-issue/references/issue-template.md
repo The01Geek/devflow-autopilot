@@ -27,6 +27,27 @@ If drafting surfaces any of these, you have an unresolved decision. Resolve it w
 user, or — only if the user has disengaged — move it verbatim into the Blocked section.
 Never leave it as prose in the body.
 
+## Brief / investigation-record routing (decided rule — sort as you draft)
+
+The draft produces **two artifacts**, and drafting sorts content into their two buckets **as it is written** — not as a cleanup pass afterward:
+
+- The **issue body** is the implementer's **brief**: what is broken, what "done" looks like, which files to start in, which hazards matter. It is the only content channel a `/prflow:implement` run reads, so it carries what an implementer needs and nothing more.
+- The **investigation record** is everything the brief does not need to transfer: rejected designs and why they lost, refutation prose, evidence confirming what nobody would have doubted, deliberation, and lower-severity hazards. It is posted as the **first comment** on the created issue (a separate artifact — see `references/step-4-present-create.md`), never folded into the body.
+
+**The boundary is decided by one test — the vanish test:** *if this sentence vanished, would the implementer build the wrong thing?* **Yes → the brief. No → the record. Ambiguity resolves to the brief** — a misclassification then costs length rather than a missing instruction. Apply the developer's own framing when unsure: *would a competent implementer working in this codebase have discovered this on their own?* If yes, it belongs in the record, not the brief.
+
+**These body sections NEVER move to the record — exactly these five, complete by construction**, each being body content a **named in-repo consumer parses from the created issue** (so removing it would silently break that consumer):
+
+1. **`## Dependencies`** — parsed by `scripts/apply-issue-dependencies.py`, which reads prerequisites only from this section of the created issue's body; a `Blocked by #N` line in a comment registers nothing.
+2. **`## Acceptance Criteria`** — parsed by `scripts/parse-acs.py` and the implement Phase 3.4 gate.
+3. **the `- **Documentation Needed**` bold-bullet under `## Implementation Notes`** — parsed by `scripts/extract-doc-needed-paths.sh` (a suite-pinned producer/consumer pair).
+4. **`## 🚫 Blocked`** — read by Step 4 sub-step 6's implement-offer gate.
+5. **every `Verified:` bullet** — **unconditional** (a "bullets the brief relies on" scoping has no decidable predicate); `scripts/check-verified-premises.py` re-checks these premises from the body at implement Phase 1.6 Pass 6.
+
+**The routing rule governs revisions too, not only first-draft composition.** When an audit round (Step 3.6) causes content to be added, that content is sorted by the same vanish test rather than appended to the brief unconditionally — an audit that surfaces deliberation or a lower-severity hazard routes it to the record, exactly as first-draft composition would.
+
+The record's **sorting** runs on every draft whatever the config says; only its **publication** is gated by `create_issue.investigation_record_enabled` (default `true`) — see `references/step-4-present-create.md`. When publication is withheld the record bucket is simply never written or posted; the brief is unaffected either way, so this routing never removes an instruction the brief needs.
+
 ## Issue structure
 
 Every issue includes these sections, in this order. (A **`## Dependencies`** section
@@ -61,6 +82,15 @@ implement run while any listed prerequisite is still open (and fails closed on a
 unresolvable reference). Omit the section entirely when no prerequisite is open — exactly as
 the Visual Specification and Blocked sections are omitted when empty; never write
 "Dependencies: none".
+
+The `<reason>` text after the em-dash is free-form prose for a human reader and does not
+change how the line is parsed: the recognizer reads the `Blocked by #N` declaration and its
+issue number, and a reason whose outbound ordering words ("must merge before", "blocks",
+"required by") are plain prose introducing no `#N` of their own neither alters nor suppresses
+the declaration (the outbound-direction filter is narrowed so that it governs a line only
+when a number run follows the keyword — a keyword that introduces no number run governs
+nothing; a reason that writes such a keyword immediately followed by its own number, as in
+`Blocked by #7 — blocks #5 downstream`, still matches and drops every number on the line). <!-- pruned-path-ok: illustrative dependency-declaration example, not a citation -->
 
 Keep this section distinct from the two other "dependency"-flavored surfaces, or drafters
 will file entries in the wrong one:
@@ -121,10 +151,10 @@ fallback ladder**, in order, stopping at the first rung that resolves it: **(1)*
 **official documentation via `WebFetch`** (not memory); **(2)** when the official docs are not
 reachable, **`WebSearch`**; **(3)** when search is unavailable or fails, **ask the user to
 provide the documentation**. Record the verified fact and its source URL in the draft's
-`Technical Context` before the relied-on claim is written. This is the premise class the #304
-run missed: it prescribed a `check_suite`/`workflow_run` mechanism GitHub cannot deliver
-(Actions-created check suites never emit `check_suite`; `workflow_run` requires a named
-workflow list), which only surfaced mid-implement — a `WebFetch` of the events docs at
+`Technical Context` before the relied-on claim is written. This is the premise class a past
+drafting pass missed: it prescribed a `check_suite`/`workflow_run` mechanism GitHub cannot
+deliver (Actions-created check suites never emit `check_suite`; `workflow_run` requires a
+named workflow list), which only surfaced mid-implement — a `WebFetch` of the events docs at
 drafting time would have caught it. This class is **not** re-derived downstream: an
 implementing run re-checks claims against the tree it builds on, and vendor behavior is not
 in the tree.
@@ -151,8 +181,9 @@ Give that reader the means to re-derive the premise **mechanically**, in the bul
 **repository path in backticks plus the sentence quoted verbatim** from it. A bullet that merely *asserts* a premise in prose — no path, no
 quotation — hands the reader nothing to re-run, and a stale one of those is strictly
 worse than no bullet at all, because it converts "go and check" into "this was already checked".
-Issue #857 is the worked case: three of its handle-less premises were false by the time #864
-implemented it, and two acceptance criteria were unimplementable as prescribed. The handle is what
+In the worked case, three of a filed issue's handle-less premises were false by the time an
+implementing run picked it up, and two of its acceptance criteria were unimplementable as
+prescribed. The handle is what
 `scripts/check-verified-premises.py` reads — **Step 3.6's pre-dispatch canonical write** runs it over the assembled draft, and an
 implementing run re-checks the filed issue with it — so a bullet written without one is not
 re-checkable by either.
@@ -189,7 +220,57 @@ Record one of two things, per what Step 2 obtained from the user:
   accepted substitute.
 
 ### Acceptance Criteria
-Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
+An optional short **grounding block** — plain prose, no checkbox rows — may open the section,
+followed by checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
+- **A criterion states what is true after the change, not what the change's diff contains.**
+  Write the post-change fact the reader can check against the finished system ("a role that
+  already had access keeps it after the change"), not the edit that produces it ("file X gains
+  an entry Y pointing at Z"). A diff-shaped criterion duplicates the Implementation Notes
+  `Relevant files` map and pins one solution, so an implementer who reaches the same outcome by
+  a cleaner route reads it as a failure. **A criterion may describe the diff where its subject
+  is a surface the change must not touch** — an untouched-surface criterion ("the four literals
+  the test module pins are present verbatim after the change", "the field set the state owner
+  reports is unchanged") *is* a post-change fact about the diff's boundary, and it is written
+  that way rather than avoided. The permission is this shape and this shape only; a criterion
+  naming the edit the change must *make* stays out of scope for it.
+- **A statement belongs in the grounding block only if deleting it changes no criterion's truth
+  value — the sorting test is consequence, not readership.** Under that test the block carries
+  the section's shared framing: which grounding rules the drafter has already discharged for the
+  whole set, and any statement that exists so the audit can check the section rather than so the
+  implementer can act. Stating such framing once there, rather than inside each criterion, is
+  what stops a rule from expanding every criterion it touches into a paragraph; a statement that
+  passes the test but sits inside a criterion is misplaced too, just far more cheaply.
+  Anything that narrows, bounds, quantifies,
+  defines a term used by, or names a verification route for a criterion is *part of* that
+  criterion and is written inside it, however much that repeats across criteria — repetition is
+  the correct cost here. A quantitative criterion's measurement instrument, an enumeration's
+  `at minimum` floor marker, an enumeration's closed-set exhaustiveness statement, and an
+  obligation's named command are the commonest such statements, **at minimum** — that list is a
+  floor, not the closed set, and a term definition the criteria's assertions depend on is
+  inside it however much it reads like shared framing.
+  **The block opens the section and never follows the criteria.** The reason the boundary falls
+  exactly there: the implementing run mirrors this section into its workpad with
+  `scripts/parse-acs.py`, and only checkbox items are guaranteed to make that crossing — an
+  indented non-checkbox line continues the preceding item, while a blank line or a non-indented
+  non-checkbox line closes it. Above the list, block prose does not reach the workpad's
+  `## Acceptance Criteria` section at all; placed *after* the criteria and indented, the very
+  same prose is instead welded onto the last criterion's text and crosses **with** it, so the
+  gate reads a corrupted row. That workpad section is what the implementing run's
+  acceptance-criteria gate reads, so an instruction the implementer must obey is unenforceable
+  there unless it sits inside a checkbox item.
+  **The issue body stays separately visible to the implementing run**, which fetches and reads
+  it alongside the workpad — so the block is never the only place such an instruction appears.
+  That visibility is why a misplaced statement is a *gate* defect rather than a lost one, and it
+  is never a reason to move an enforceable statement out of its criterion: the consequence test
+  above, not what the implementer can see, is what decides placement.
+  The block is scanned by Step 3's unresolved-decision gate exactly like any other prose, so it
+  carries no choice, hedge, or deferral language and needs no carve-out of its own — write its
+  prose in stated form ("the value-comparison rule is discharged for the whole set below", "the
+  prerequisites are the three issues named in Technical Context") rather than as a disjunction,
+  so shared framing never reads as an unresolved fork. Note which examples those are *not*: a
+  floor marker or a closed-set exhaustiveness statement belongs to its own criterion's
+  enumeration under the consequence test above, so it is never hoisted into the block to make
+  its phrasing easier.
 - **Supplied criteria are challenged, never accepted at face value.** When the user's story
   arrives with its own acceptance-criteria list, that list is *suspect input*, not a finished
   section. Vet each item for **correctness** (is it atomic, testable, and a genuinely resolved
@@ -198,6 +279,7 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
   discipline at draft time — a polished, comprehensive-looking list earns the same scrutiny a
   terse story gets.
 - Specific and implementable — a developer knows exactly when it's met.
+- **A quantitative AC names its measurement instrument.** When an AC expresses a number — a word, byte, or line ceiling, a count, a coverage threshold, or a percentage tolerance — state the exact command or counting rule that produces the measured value. Name the counter, not merely the unit; for example, specify Python `str.split()` over the UTF-8 contents of the files named by the AC, summed once per file. If the command or rule cannot be established, record `unestablished` for that criterion and do not publish an unnamed counter as an accepted quantitative AC. GNU and BSD `wc -w` can disagree in both directions on the same prompt corpus, so an unnamed word counter can flip the threshold verdict.
 - **A value-comparison AC states its comparison in the producing surface's observed-output
   terms — in the AC's own language.** When an AC (or a Testing-Strategy assertion) compares a
   produced value against a literal, phrase the comparison in the terms the producing surface
@@ -215,7 +297,7 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
   2 decision fork resolved with the user (Blocked on disengagement). **Adjective-only comparison
   language** ("explicit `true`", "reads as exactly `true`") without that grounding is
   **non-conforming** — including the shape where a probe is present in the issue but **silent on
-  the axis** the AC's language gestures at (the named #446 defect). **Obligation arms are
+  the axis** the AC's language gestures at. **Obligation arms are
   implement-tier verification commands (this governs this value-comparison AC and the Step 3.5
   unstated-mechanism-dependency hunt alike):** an obligation whose discharge requires *executing* an in-repo command must name a
   command already granted on the consuming tier (the repo's declared test/lint commands in
@@ -461,6 +543,9 @@ incomplete issues.
 - [ ] Open cross-issue prerequisites are listed in `## Dependencies` as `Blocked by #N — <reason>` lines (rendered above Problem Statement, only when a prerequisite is still open at drafting time; already-closed prerequisites recorded as Technical Context provenance instead)
 - [ ] For a user-visible UI change, the Visual Specification section records a screenshot/mockup or a verbally-verified placement spec (screenshot preferred, verbal verification an accepted substitute); non-UI issues omit the section entirely
 - [ ] Acceptance criteria are measurable, testable, and unconditional
+- [ ] Each AC states what is true after the change rather than what the diff contains — with the untouched-surface shape ("X is present verbatim after the change", "Y is unchanged") admitted as a post-change fact about the diff's boundary
+- [ ] Criterion apparatus is sorted by the consequence test — a statement sits in the section's opening grounding block only if deleting it changes no criterion's truth value, so the measurement instrument, floor marker, closed-set marker, obligation command, and any depended-on term definition each stay inside their own criterion — and the block opens the section, carries no choice/hedge/deferral language, and is scanned by Step 3's unresolved-decision gate like any other prose
+- [ ] Quantitative ACs satisfy the measurement-instrument rule in the Acceptance Criteria guidance above
 - [ ] Value-comparison ACs/assertions state the comparison in the producing surface's observed-output terms, grounded by a boundary-covering probe (exercising the type-boundary fixture the comparison distinguishes) or a named implementer obligation carrying its execution-tier constraint — adjective-only or probe-silent-on-the-axis comparison language is non-conforming
 - [ ] Every universal quantifier ("never/always/each/every/all/cannot") the body asserts about the system under change, outside `## 🚫 Blocked`, is grounded — pinned per-arm/per-element (an accepted-loss/suppression claim pinned by a fixture in which the suppressed input is present), scoped to the mechanism's supported form, or removed — with only mandated-verbatim boilerplate and rule-text-shipped-as-artifact-content exempt, and detector-coverage claims additionally carrying a planted-defect positive-control obligation
 - [ ] No AC forbids a surface (a path, a file class, a tier) that another AC's discharge must touch — the ACs are mutually consistent
@@ -483,9 +568,9 @@ incomplete issues.
 ## GitHub autolink hygiene
 
 The body is posted to GitHub, which turns `#`-number into a link. Never put a bare `#`
-before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link
+before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link <!-- pruned-path-ok: illustrative autolink-rendering example, not a citation -->
 to issue/PR 2 and misleads readers. For an ordinal, count, or list position, spell it out
-("item 2", "step 3"). Genuine references like `#123` stay as-is.
+("item 2", "step 3"). Genuine references like `#123` stay as-is. <!-- pruned-path-ok: illustrative autolink example, not a citation -->
 
 ## Posting the issue
 

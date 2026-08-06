@@ -97,6 +97,19 @@ from pathlib import Path
 
 MECHANICAL_ARTIFACT = "scripts/devflow-cloud-writer-contract.json"
 
+# The preflight's MACHINE-READABLE verdict line (issue #1244). COUPLED CONTRACT, edited
+# together with `lib/test/run-parallel.sh`: the parallel coordinator keys its fail-closed
+# refusal on the exact line `regenerate-artifacts: preflight-verdict: drift` and on nothing
+# else, so the human remedy sentences below it are free prose a reword cannot break. Before
+# this line existed the coordinator matched a substring of that prose, which meant a
+# rewording in THIS file would silently make the coordinator fail OPEN on real drift.
+#
+# Emitted for all three verdicts rather than only for drift, so a consumer can distinguish
+# "checked and clean" from "could not check" without re-deriving either from an exit code —
+# and matched LINE-EXACTLY by the coordinator, so the same text quoted inside a row's own
+# diagnostic (which is always indented or row-prefixed) can never be mistaken for a verdict.
+PREFLIGHT_VERDICT_PREFIX = "regenerate-artifacts: preflight-verdict: "
+
 # The closed set of conflict-resolution classes (issue #655). A merge conflict in a
 # checked-in generated artifact must never be hand-merged: hand-merged bytes match no
 # source of truth, and the row's own gate then reports the result as drift with a remedy
@@ -145,6 +158,17 @@ ROWS = (
             "`python3 lib/test/cloud_writer_contract.py generate`"
         ),
         "conflict_class": "regenerate",
+        # Preflight (issue #1244): read-only and sub-second, so eligible — but the row's
+        # own `argv` is the WRITING `generate` form, which the read-only preflight must
+        # never run. `preflight_argv` names the non-writing `verify` form instead, and
+        # `preflight_positive_marker` is what makes an exit-1 attributable to real drift:
+        # `verify` prints a `cloud-writer-contract:`-prefixed line on both a stale manifest
+        # and a broken closure (the states this row exists to catch), while a CPython
+        # traceback also exits 1 with no such marker — so the preflight classifies an
+        # unmarked exit-1 as UNCHECKABLE rather than dressing a crash up as drift.
+        "preflight_eligible": True,
+        "preflight_argv": ("python3", "lib/test/cloud_writer_contract.py", "verify"),
+        "preflight_positive_marker": "cloud-writer-contract:",
     },
     {
         "name": "capability-profile-literals",
@@ -186,6 +210,10 @@ ROWS = (
             "target workflow file absent:",
             "reviewer security boundary lock unreadable:",
         ),
+        # Preflight (issue #1244): `--check` is read-only and sub-second (~0.04 s). The
+        # preflight reuses this row's `infra_markers` to keep an input failure out of the
+        # drift verdict, exactly as the batched pass does.
+        "preflight_eligible": True,
     },
     {
         "name": "plugin-identity-regions",
@@ -251,6 +279,8 @@ ROWS = (
             "after its begin banner",
             "Traceback (most recent call last)",
         ),
+        # Preflight (issue #1244): `--check` is read-only and sub-second (~0.05 s).
+        "preflight_eligible": True,
     },
     {
         "name": "coverage-map-ratchet",
@@ -258,7 +288,7 @@ ROWS = (
         "argv": ("python3", "lib/test/coverage_map_guard.py", "."),
         "clean": (0,),
         "exits": (0, 1),
-        "policy": "add the missing coverage rows per the issue-591 ratchet in lib/test/modules/coverage-map.json (for a run_sh_blocks completeness/attribution item, `python3 lib/test/coverage_map_guard.py . --fix` is the hand-invoked repair)",
+        "policy": "add the missing coverage rows per the issue-591 ratchet in lib/test/modules/coverage-map.json (for a run_sh_blocks completeness/attribution item, `python3 lib/test/coverage_map_guard.py . --fix` is the hand-invoked repair). For a MERGE-CONFLICT resolution of this file, do NOT reach for `--fix`: it cannot restore a key a resolution dropped (issue #1194), so keep every key from BOTH sides — let the registered JSON-aware merge driver union them (register with `python3 lib/test/coverage-map-merge-driver.py --register`, verify with `--check`), or take both sides by hand then re-canonicalize; `python3 lib/test/coverage-map-retention-check.py` fails RED on any dropped key/content and backstops the web-editor path the driver cannot reach",
         # by-hand, and it STAYS by-hand: since issue #695 coverage_map_guard.py does have
         # a write path, but only behind the explicit, hand-invoked `--fix` flag. The
         # `argv` above deliberately omits it, so this row still runs a non-writing check
@@ -292,6 +322,10 @@ ROWS = (
             "[arm4] ",
             "[arm8] ",
         ),
+        # Preflight (issue #1244): `argv` is the non-writing `.` check (the `--fix` write
+        # path is deliberately never wired into this row), read-only and sub-second
+        # (~0.27 s).
+        "preflight_eligible": True,
     },
     {
         "name": "exact-module-floors",
@@ -329,6 +363,13 @@ ROWS = (
             "scripts/workflow-flight-recorder-registry.json",
             "lib/test/run.sh",
         ),
+        # Preflight (issue #1244): INELIGIBLE. Two independent disqualifiers: this row
+        # WRITES its declared outputs, so it can never run in a write-nothing preflight;
+        # and its check runs the real focused module runners, measured at 465.9 s (7.8 min)
+        # on issue #1244's host — three orders of magnitude above the eligible rows and far
+        # past any pre-suite budget. The preflight skips it and the coordinator still
+        # launches; the full suite remains its only detector.
+        "preflight_eligible": False,
     },
     {
         "name": "env-freeze-advisory-region",
@@ -350,12 +391,134 @@ ROWS = (
         # has no by-hand sibling to reconcile, so re-running the writer against the merged
         # tree IS the answer, and the policy above names a runnable WRITE command.
         "conflict_class": "regenerate",
-        "conflict_paths": ("docs/cloud-setup.md",),
+        "conflict_paths": ("docs/internal/cloud-setup.md",),
         # The one exit-1 path that is NOT drift: an unhandled exception exits 1 under
         # CPython, aliasing an unchecked run onto the resolvable "regenerate me" state.
         # Deliberately EXCLUDED: the region-differs diff, which is the genuine finding this
         # row exists to surface — matching it would hide the drift it reports.
         "infra_markers": ("Traceback (most recent call last)",),
+        # Preflight (issue #1244): `--check` is read-only and sub-second (~0.04 s).
+        "preflight_eligible": True,
+    },
+)
+
+# ── Coupled-site registry (issue #1206) ──────────────────────────────────────
+# The question `--list` answers today is "what did a generator write?". This second
+# table answers the FORWARD question a person or an automated run asks BEFORE editing:
+# "I am about to edit X — what else must change with it?". A coupled site is a value,
+# literal, or contract kept in more than one place by hand, where changing one place
+# obliges changing the others. Some of these have a standalone checker; some have NONE
+# at all and are invisible unless you happen to read the right part of a very large
+# script. Recording them here — as data, printable read-only from
+# `--list` — makes them findable and greppable before the edit, not one round trip later
+# when the suite goes red or a reviewer rejects the change.
+#
+# This registry deliberately does NOT check whether the coupled files actually agree
+# (issue #1206 "out of scope"): each entry keeps whatever checker it already has, or
+# none. The table is a MAP, not a net.
+#
+# REQUIRED FIELDS per entry (enforced at import by `_validate_coupled_sites`):
+#   name           — unique short id; the uniqueness rule this table enforces, and the
+#                    join key of the two emitted line kinds. A duplicate name raises.
+#   original       — the file that is the source/original of the coupled value.
+#   partners       — a non-empty sequence of one or more files that must change with it.
+#   coupling_class — a short class name saying what KIND of coupling it is.
+#   note           — a one-line instruction: what an editor has to do.
+# OPTIONAL FIELD:
+#   holds_old_paths — bool, default False. When True this entry's PARTNERS are
+#                    superseded/old paths (arguments to `git show <old-commit>:<path>`
+#                    that only resolve under their old names), so the AC4 path-existence
+#                    check in `emit_list` skips the partners. The marker is what exempts
+#                    them — never a hardcoded path list inside the checker. The `original`
+#                    is the live file an editor opens to change the coupled value, so it is
+#                    always current and always checked, marker or not.
+#
+# EMITTED LINES (issue #1206) — printed by `emit_list` AFTER everything the command
+# prints today, so a tree with no entries here leaves the existing `artifact` /
+# `conflict-*` / `preflight` output byte-for-byte unchanged and every prefix-anchored
+# consumer parses as before. Two tab-separated line kinds, each parseable by its own
+# tab-delimited first field (`coupled-site` is a string prefix of `coupled-site-partner`,
+# so split on the tab, do not prefix-match; partners are on their own lines so a path is
+# individually greppable):
+#   coupled-site\t<name>\t<coupling_class>\t<original>\t<note>
+#   coupled-site-partner\t<name>\t<partner-path>
+COUPLED_SITES = (
+    {
+        # AC5 — the EXTRAS copy of the tool-grant list (the note names its checker).
+        "name": "matcher-probe-extras",
+        "original": ".prflow/config.json",
+        "partners": (".github/workflows/matcher-probe.yml",),
+        "coupling_class": "allowlist-mirror",
+        "note": (
+            "prflow_implement.allowed_tools in .prflow/config.json is partly copied into "
+            "the EXTRAS='…' line in .github/workflows/matcher-probe.yml; keep them in "
+            "step. The only checker is the '#480 matcher-probe EXTRAS mirrors "
+            "probe-eligible prflow_implement.allowed_tools' check in lib/test/run.sh, and "
+            "it runs only as part of the full suite."
+        ),
+    },
+    {
+        # AC6 — _WSR_SWEPT_RELPATHS, which holds OLD paths by design (AC4 exemption).
+        "name": "wsr-swept-relpaths",
+        "original": "lib/test/run.sh",
+        "partners": (
+            ".devflow/prompt-extensions/implement.md",
+            ".devflow/prompt-extensions/review-and-fix.md",
+            ".devflow/prompt-extensions/receiving-code-review.md",
+            "CLAUDE.md",
+            "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+            "CONTRIBUTING.md",
+        ),
+        "coupling_class": "frozen-old-paths",
+        "holds_old_paths": True,
+        "note": (
+            "_WSR_SWEPT_RELPATHS in lib/test/run.sh holds `git show <old-commit>:<path>` "
+            "arguments that resolve only under their OLD names, so a repo-wide rename must "
+            "NOT rewrite them. The warning comment above the array stays for a reader at "
+            "that spot; this entry is what makes the list findable without reading the file."
+        ),
+    },
+    {
+        # AC7 — the files coupled to lib/rename-map.json: four that read it directly, plus
+        # the two workflows whose config jobs mirror a shape run.sh reconciles against it.
+        "name": "rename-map-readers",
+        "original": "lib/rename-map.json",
+        "partners": (
+            "scripts/scaffold-config.sh",
+            "scripts/config-get.sh",
+            "scripts/migrate-consumer-tier1.sh",
+            "lib/test/pin-corpus-lint.py",
+            ".github/workflows/devflow.yml",
+            ".github/workflows/devflow-implement.yml",
+        ),
+        "coupling_class": "single-source-readers",
+        "note": (
+            "The first four partners open lib/rename-map.json and parse its superseded-name "
+            "data at run time, so a change to the map's keys or structure must update each "
+            "of them. The two workflows never open the file: their config jobs carry a "
+            "hardcoded jq shape (a `^devflow(_|$)` top-level-key match) that lib/test/run.sh "
+            "reconciles against the map's config_keys, so the map and that mirrored shape "
+            "must move together even though the coupling runs through the suite rather than "
+            "through a read. The map's own `_comment` field describes this coupling in "
+            "prose and is left untouched."
+        ),
+    },
+    {
+        # AC7 — the two files that deliberately keep their OWN copy of paths.state_dir
+        # instead of reading the map.
+        "name": "rename-map-state-dir-mirror",
+        "original": "lib/rename-map.json",
+        "partners": (
+            "lib/resolve-state-dir.sh",
+            "lib/state_dir.py",
+        ),
+        "coupling_class": "deliberate-mirror",
+        "note": (
+            "lib/resolve-state-dir.sh and lib/state_dir.py deliberately carry their own "
+            "copy of paths.state_dir instead of reading the map (a .sh cannot be sourced by "
+            "the Python reader and a .py cannot be sourced into a shell); the "
+            "tier1-rename-migration suite module asserts all three agree."
+        ),
     },
 )
 
@@ -697,6 +860,151 @@ def _monotonic_outcome(row, proc, output, before, after, report):
     return False, True
 
 
+def run_preflight_row(row, root, report):
+    """Run ONE eligible row read-only for the preflight. Returns (drift, uncheckable).
+
+    Distinct from `run_row` in two load-bearing ways (issue #1244):
+      * it takes NO byte snapshots and runs only the row's `preflight_argv` (defaulting to
+        the row's own `argv` when the row's check is already non-writing), so a preflight
+        can never be blamed for a write — the coordinator's fail-closed refusal must never
+        rest on a check that itself mutated the tree; and
+      * a non-clean-but-in-set exit is DRIFT only when it is positively attributable. For a
+        row carrying `preflight_positive_marker` (the cloud-writer row, whose read-only
+        `verify` prints that marker on a stale/broken closure), an unmarked exit-1 is a
+        crash, classified UNCHECKABLE. For a judgment row, the row's own `infra_markers`
+        route an input failure to UNCHECKABLE, exactly as the batched pass does; anything
+        else is drift.
+    """
+    name = row["name"]
+    argv = row.get("preflight_argv", row["argv"])
+    joined = " ".join(argv)
+    target_rel = next((a for a in argv[1:] if not a.startswith("-")), None)
+    try:
+        proc = subprocess.run(
+            argv, cwd=str(root), capture_output=True, text=True, check=False
+        )
+    except OSError as error:
+        report.append(f"[{name}] UNCHECKABLE the preflight command failed to launch: {joined} ({error})")
+        return False, True
+    output = (proc.stdout + proc.stderr).strip()
+    declared = row["exits"]
+    if proc.returncode not in declared:
+        missing = (
+            ""
+            if target_rel is None or (root / target_rel).exists()
+            else f" (target absent: {target_rel})"
+        )
+        report.append(
+            f"[{name}] UNCHECKABLE `{joined}` exited {proc.returncode}, outside its "
+            f"declared set {declared}{missing}\n    output: {output or '(none)'}"
+        )
+        return False, True
+    if proc.returncode in row["clean"]:
+        report.append(f"[{name}] clean — `{joined}` exited {proc.returncode}")
+        return False, False
+    marker = row.get("preflight_positive_marker")
+    if marker is not None:
+        if _marker_hit((marker,), output) is not None:
+            report.append(
+                f"[{name}] DRIFT `{joined}` exited {proc.returncode} — regenerate needed:\n"
+                f"    output: {output or '(none)'}\n"
+                f"    governing policy: {row['policy']}"
+            )
+            return True, False
+        report.append(
+            f"[{name}] UNCHECKABLE `{joined}` exited {proc.returncode} without its drift "
+            f"marker {marker!r} (a crash, not a reconcilable drift):\n"
+            f"    output: {output or '(none)'}"
+        )
+        return False, True
+    # A crash (an uncaught traceback) is never a reconcilable drift. The preflight fails
+    # OPEN on any unusable check (issue #1244 / AC5 — "a crash warns and proceeds"), so a
+    # traceback routes to UNCHECKABLE for EVERY judgment row regardless of that row's own
+    # `infra_markers` — which are tuned for the BATCHED pass, where two judgment rows
+    # (`capability-profile-literals`, `coverage-map-ratchet`) deliberately omit the traceback
+    # marker because there an unmarked exit-1 is a reportable JUDGMENT item, not a suite
+    # block. Here it would instead fail CLOSED and block the whole suite with a misleading
+    # "regenerate" message, so the universal traceback marker is added to the preflight's
+    # classification only. This is preflight-local: `run_row` (the batched pass) is unchanged.
+    hit = _marker_hit(
+        row.get("infra_markers", ()) + ("Traceback (most recent call last)",), output
+    )
+    if hit is not None:
+        report.append(
+            f"[{name}] UNCHECKABLE `{joined}` exited {proc.returncode} reporting a crash or "
+            f"input failure, not drift (matched {hit!r}):\n    output: {output or '(none)'}"
+        )
+        return False, True
+    report.append(
+        f"[{name}] DRIFT `{joined}` exited {proc.returncode}\n"
+        f"    output: {output or '(none)'}\n"
+        f"    governing policy: {row['policy']}"
+    )
+    return True, False
+
+
+def run_preflight(root):
+    """Read-only preflight over the eligible rows only (issue #1244).
+
+    Writes nothing, prints one line per row it ran, then a machine verdict line
+    (`PREFLIGHT_VERDICT_PREFIX` + one of `clean` / `drift` / `uncheckable`) followed by
+    the human remedy sentence, and exits:
+      0 — every eligible row is clean;
+      1 — at least one eligible row DRIFTED (a positively-attributed, reconcilable drift);
+      2 — no drift, but at least one eligible row could not be checked.
+    The verdict line is the contract `lib/test/run-parallel.sh` reads; the sentence beside
+    it is for a human and carries no consumer.
+    DRIFT takes precedence over UNCHECKABLE: a positively-detected drift must fail closed
+    (the coordinator refuses to launch) and must never be masked by an unrelated row that
+    happened to be uncheckable. Exit 2 is therefore the purely-unestablished case, which
+    the coordinator treats as fail-open (warn and proceed). This precedence is the reverse
+    of the batched pass's infra-over-drift ordering, deliberately: the batched pass writes
+    and its exit 2 means "nothing was reconciled", whereas the preflight's exit 1 is a
+    refusal signal that a caught drift must dominate.
+    """
+    report = []
+    drift = False
+    uncheckable = False
+    for row in ROWS:
+        if not row.get("preflight_eligible"):
+            continue
+        # A row's classification must never abort the whole preflight: an unexpected raise
+        # AFTER an earlier row already set drift would otherwise propagate to the top-level
+        # net, exit 2 with no report and no drift summary, and the coordinator would then
+        # fail OPEN — losing a positively-detected drift (the fail-closed contract this
+        # function documents). Catch per row → that row is UNCHECKABLE, the loop continues,
+        # and any already-detected drift survives the drift-precedence check below.
+        try:
+            row_drift, row_uncheckable = run_preflight_row(row, root, report)
+        except Exception as error:  # noqa: BLE001 — defensive per-row net, mirrors main()'s
+            report.append(
+                f"[{row['name']}] UNCHECKABLE the preflight row raised "
+                f"{type(error).__name__}: {error} — nothing was established for it"
+            )
+            row_drift, row_uncheckable = False, True
+        drift = row_drift or drift
+        uncheckable = row_uncheckable or uncheckable
+    for line in report:
+        print(line)
+    if drift:
+        print(f"{PREFLIGHT_VERDICT_PREFIX}drift")
+        print(
+            "regenerate-artifacts: preflight detected drift — regenerate the artifact(s) "
+            "above under their governing policy and commit before the suite run — exit 1"
+        )
+        return 1
+    if uncheckable:
+        print(f"{PREFLIGHT_VERDICT_PREFIX}uncheckable")
+        print(
+            "regenerate-artifacts: preflight could not check at least one eligible "
+            "artifact — exit 2"
+        )
+        return 2
+    print(f"{PREFLIGHT_VERDICT_PREFIX}clean")
+    print("regenerate-artifacts: preflight — every eligible artifact reconciled — exit 0")
+    return 0
+
+
 # The capability row's extra paths come from the capability generator's own REGIONS. Bound
 # here rather than in the table (which is defined above the function it names), and as a
 # FIELD, so `conflict_paths` never keys on a row name.
@@ -746,6 +1054,29 @@ def _validate_registry():
             )
         if not (row.get("policy") or "").strip():
             raise ValueError(f"registry row {row['name']!r} declares an empty recipe (policy)")
+        # Preflight eligibility is DECLARED DATA (issue #1244), so every row must state a
+        # boolean — an absent or non-boolean field is a registry defect, never a silent
+        # "assume eligible" (which could run a writing row inside the write-nothing
+        # preflight) or a silent "assume ineligible" (which would drop a cheap detector).
+        if not isinstance(row.get("preflight_eligible"), bool):
+            raise ValueError(
+                f"registry row {row['name']!r} declares preflight_eligible "
+                f"{row.get('preflight_eligible')!r}, which is not a bool"
+            )
+        # Enforce the "preflight writes nothing" invariant in DATA, not prose (issue #1244).
+        # The coordinator's fail-closed refusal rests on the preflight being read-only, so a
+        # row that is eligible AND declares `writes` (its own `argv` mutates that output) must
+        # supply a non-writing `preflight_argv` — otherwise the read-only preflight would run
+        # the writing command. A row with no `writes` field declares no mutation, so its `argv`
+        # is the read-only check the preflight runs directly. Without this, a future eligible
+        # writing row that forgot `preflight_argv` would silently mutate the tree during the
+        # "read-only" preflight and no guard would catch it.
+        if row["preflight_eligible"] and row.get("writes") and "preflight_argv" not in row:
+            raise ValueError(
+                f"registry row {row['name']!r} is preflight_eligible and declares writes "
+                f"{row.get('writes')!r} but no non-writing preflight_argv; an eligible writing "
+                "row must name a read-only preflight command"
+            )
         # A row must declare SOME static path source, checked at this same import-time point
         # rather than left to KeyError inside emit_list: a row that reaches `--list` before
         # failing has already been handed to a consumer.
@@ -766,11 +1097,111 @@ def _validate_registry():
             )
 
 
+_COUPLED_SITE_REQUIRED_STR_FIELDS = ("name", "original", "coupling_class", "note")
+
+
+def _validate_coupled_sites(sites=None):
+    """Fail closed on a malformed coupled-site entry (issue #1206).
+
+    Run at import (below) alongside `_validate_registry`, so every entry path — main,
+    `--list`, an importing test — hits it and a malformed entry never reaches `--list`.
+    An importing caller sees the raw ValueError (a test asserts the exception itself);
+    a script run routes the same failure to the exit-2 infrastructure state via the
+    shared import-time try below — never a shortened list called success.
+
+    The default `None` reads the module table; a test passes an explicit `sites` to
+    exercise a crafted bad table without editing the shipped one.
+    """
+    if sites is None:
+        sites = COUPLED_SITES
+    seen_names = set()
+    for index, entry in enumerate(sites):
+        # The entry must be a MAPPING before any field lookup: a bare string, tuple, or
+        # None would raise AttributeError/TypeError out of `.get` below, and the
+        # import-time net catches only ValueError — so the script would exit 1 with a
+        # traceback instead of the documented exit-2 INFRASTRUCTURE routing. The index
+        # names the offending row, which has no `name` to be reported by.
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"coupled-site entry at index {index} must be a dict, got {entry!r}"
+            )
+        name = entry.get("name")
+        # Every required string field must be a present, non-empty string, so a row that
+        # silently omits the original, class, or note can never reach `--list`.
+        for field in _COUPLED_SITE_REQUIRED_STR_FIELDS:
+            value = entry.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(
+                    f"coupled-site entry {name!r} field {field!r} must be a non-empty "
+                    f"string, got {value!r}"
+                )
+        # An entry must couple at least one PARTNER file — a coupled site with no partner
+        # records no coupling and would print a `coupled-site` header with nothing to
+        # change alongside it.
+        partners = entry.get("partners")
+        if not isinstance(partners, (list, tuple)) or not partners:
+            raise ValueError(
+                f"coupled-site entry {name!r} must list one or more partner files, "
+                f"got partners={partners!r}"
+            )
+        for partner in partners:
+            if not isinstance(partner, str) or not partner.strip():
+                raise ValueError(
+                    f"coupled-site entry {name!r} declares a partner that is not a "
+                    f"non-empty string: {partner!r}"
+                )
+        # `holds_old_paths` is DECLARED DATA (it exempts an entry from the AC4 path check),
+        # so a present value must be a real bool — never a truthy string that silently
+        # disables the existence check.
+        if "holds_old_paths" in entry and not isinstance(entry["holds_old_paths"], bool):
+            raise ValueError(
+                f"coupled-site entry {name!r} declares holds_old_paths "
+                f"{entry['holds_old_paths']!r}, which is not a bool"
+            )
+        # The uniqueness rule this table enforces: a name is the join key of the two
+        # emitted line kinds, so a duplicate would map one partner line to two entries.
+        if name in seen_names:
+            raise ValueError(
+                f"coupled-site entry name {name!r} is declared more than once; names "
+                "must be unique"
+            )
+        seen_names.add(name)
+
+
+def _coupled_site_path_failures(sites, root):
+    """List of (name, path) an entry names that does not exist under `root` (issue #1206).
+
+    Confirms every path an entry names exists in the tracked tree (AC4). A pure
+    filesystem stat — no subprocess — because `--list` "runs nothing" (its own `--help`
+    contract). `is_file()`, not `exists()`, because every coupled site is a file: a
+    directory or dangling symlink at the path is not a resolved coupled site.
+
+    `holds_old_paths` exempts only the PARTNERS: they are the superseded paths that
+    resolve solely under their old names, and the marker is what exempts them (never a
+    hardcoded path list in the checker). The `original` is the live file an editor opens
+    to change the coupled value, so it is always current and always checked — a marker
+    scoped to the old partner paths must not silently stop guarding the current source
+    file the entry points at.
+    """
+    failures = []
+    for entry in sites:
+        paths = (
+            (entry["original"],)
+            if entry.get("holds_old_paths")
+            else (entry["original"], *entry["partners"])
+        )
+        for path in paths:
+            if not (root / path).is_file():
+                failures.append((entry["name"], path))
+    return failures
+
+
 # Validate at import — but route a script run's failure to exit 2 (INFRASTRUCTURE), never the
 # exit 1 a bare module-level raise would produce. An IMPORTING caller still gets the raw
 # ValueError, so a test can assert the exception itself.
 try:
     _validate_registry()
+    _validate_coupled_sites()
 except ValueError as _bind_error:
     if __name__ != "__main__":
         raise
@@ -840,6 +1271,39 @@ def emit_list(root):
         print(f"conflict-recipe\t{row['name']}\t{row['policy']}")
         for path, sibling_class in row.get("coupled_by_hand", ()):
             print(f"conflict-sibling\t{row['name']}\t{path}\t{sibling_class}")
+    # Preflight eligibility (issue #1244), emitted LAST so every existing prefix-anchored
+    # consumer (`artifact\t…`, `conflict-…\t…`) parses byte-unchanged. Each line names the
+    # read-only command the preflight would run (the row's `preflight_argv`, defaulting to
+    # its `argv`), so the eligibility declaration and the command are auditable together.
+    for row in ROWS:
+        eligible = "eligible" if row.get("preflight_eligible") else "ineligible"
+        command = " ".join(row.get("preflight_argv", row["argv"]))
+        print(f"preflight\t{row['name']}\t{eligible}\t{command}")
+    # Coupled-site registry (issue #1206), emitted LAST so every existing prefix-anchored
+    # consumer (`artifact\t…`, `conflict-…\t…`, `preflight\t…`) parses byte-unchanged and a
+    # tree with an empty COUPLED_SITES leaves the output above untouched.
+    #
+    # AC4 path-existence check runs HERE, when the list is printed, because existence is
+    # root-dependent (a fixture root differs from the live tree). A named path that does
+    # not exist is a LOUD failure naming both the entry and the path — never quietly
+    # dropped: the raise routes to the exit-2 infrastructure state via the top-level net,
+    # exactly like emit_list's existing duplicate-path raise. The check is collected across
+    # ALL entries first so the message can name every offender, and it fires BEFORE any
+    # coupled-site line is printed so a consumer never sees a partial list.
+    path_failures = _coupled_site_path_failures(COUPLED_SITES, root)
+    if path_failures:
+        detail = "; ".join(f"{name!r} names missing path {path!r}" for name, path in path_failures)
+        raise ValueError(
+            f"coupled-site entr{'y' if len(path_failures) == 1 else 'ies'} name a path "
+            f"absent from the tree under {root!r}: {detail}"
+        )
+    for entry in COUPLED_SITES:
+        print(
+            f"coupled-site\t{entry['name']}\t{entry['coupling_class']}\t"
+            f"{entry['original']}\t{entry['note']}"
+        )
+        for partner in entry["partners"]:
+            print(f"coupled-site-partner\t{entry['name']}\t{partner}")
     return 0
 
 
@@ -864,11 +1328,22 @@ def main(argv=None):
         action="store_true",
         help="Print the registered artifacts; run no row.",
     )
+    parser.add_argument(
+        "--preflight",
+        action="store_true",
+        help=(
+            "Read-only preflight: run only the preflight-eligible rows, write nothing, "
+            "and exit 0 (all clean) / 1 (drift) / 2 (a row could not be checked)."
+        ),
+    )
     args = parser.parse_args(argv)
     root = Path(args.repo_root).resolve() if args.repo_root else default_repo_root()
 
     if args.list:
         return emit_list(root)
+
+    if args.preflight:
+        return run_preflight(root)
 
     report = []
     forces_one = False

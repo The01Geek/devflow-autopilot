@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/The01Geek/prflow/.prflow/config.schema.json",
   "title": "PRFlow project config",
-  "description": "PRFlow project configuration. The LOCAL tier (the /prflow:implement, /prflow:review, /prflow:docs skills you run inside Claude Code) works with NO config file at all \u2014 every value has a sane built-in default. You only need this file if you enable the GitHub Actions automation (the optional cloud/autopilot tier). See docs/cloud-setup.md.",
+  "description": "PRFlow project configuration. The LOCAL tier (the /prflow:implement, /prflow:review, /prflow:docs skills you run inside Claude Code) works with NO config file at all \u2014 every value has a sane built-in default. You only need this file if you enable the GitHub Actions automation (the optional cloud/autopilot tier).",
   "type": "object",
   "additionalProperties": true,
   "properties": {
@@ -27,7 +27,7 @@
     },
     "providers": {
       "type": "object",
-      "description": "OPT-IN, BEST-EFFORT third-party model providers for the CLOUD tier (issue #313). A named map of Anthropic-compatible endpoints — a hosted model gateway, or a self-run proxy exposing Anthropic's message API — that the devflow / prflow_implement / prflow_runner sections can each route to via their own `provider` key. With no providers map and no per-section `provider`, cloud behavior matches the Anthropic-OAuth default (unchanged for a given `claude_model`; the runner's default-path model now resolves from base-ref config). The provider API credential is NOT named here — it is always the fixed repository secret DEVFLOW_PROVIDER_API_KEY (kept greppable/auditable and fail-closed on absence). Anthropic does not support routing Claude Code to non-Claude models, so this is best-effort. See docs/cloud-setup.md.",
+      "description": "OPT-IN, BEST-EFFORT third-party model providers for the CLOUD tier (issue #313). A named map of Anthropic-compatible endpoints — a hosted model gateway, or a self-run proxy exposing Anthropic's message API — that the devflow / prflow_implement / prflow_runner sections can each route to via their own `provider` key. With no providers map and no per-section `provider`, cloud behavior matches the Anthropic-OAuth default (unchanged for a given `claude_model`; the runner's default-path model now resolves from base-ref config). The provider API credential is NOT named here — it is always the fixed repository secret DEVFLOW_PROVIDER_API_KEY (kept greppable/auditable and fail-closed on absence). Anthropic does not support routing Claude Code to non-Claude models, so this is best-effort.",
       "additionalProperties": {
         "type": "object",
         "required": ["base_url", "auth"],
@@ -54,7 +54,7 @@
           "env": {
             "type": "object",
             "additionalProperties": { "type": "string" },
-            "description": "Extra environment variables exported verbatim into the job environment (consumed by the action step) (e.g. ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL so background/subagent calls resolve to a real model the endpoint serves; CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS='1' to avoid anthropic-beta-header gateway 400s; CLAUDE_CODE_ATTRIBUTION_HEADER='0' to preserve gateway prompt caching — two distinct concerns). See docs/cloud-setup.md."
+            "description": "Extra environment variables exported verbatim into the job environment (consumed by the action step) (e.g. ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL so background/subagent calls resolve to a real model the endpoint serves; CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS='1' to avoid anthropic-beta-header gateway 400s; CLAUDE_CODE_ATTRIBUTION_HEADER='0' to preserve gateway prompt caching — two distinct concerns)."
           }
         }
       }
@@ -155,7 +155,7 @@
             "ready_for_review",
             "draft"
           ],
-          "description": "Final state of the PR a /prflow:implement run produces. 'ready_for_review' (the default) publishes the PR in Phase 4.3 via `gh pr ready`, exactly as before. 'draft' leaves it the draft created in Phase 3.1 (the run still finalizes with Status: Complete and the outcome reaction, but does not publish, so the cloud review and CI ready_for_review listener do not auto-fire until a human publishes). Any other value \u2014 missing key, empty string, or an unrecognized string \u2014 resolves to 'ready_for_review'; default-to-publish is the safe direction. See docs/implement-skill.md for the full Phase 4.3 behavior.",
+          "description": "Final state of the PR a /prflow:implement run produces. 'ready_for_review' (the default) publishes the PR in Phase 4.3 via `gh pr ready`, exactly as before. 'draft' leaves it the draft created in Phase 3.1 (the run still finalizes with Status: Complete and the outcome reaction, but does not publish, so the cloud review and CI ready_for_review listener do not auto-fire until a human publishes). Any other value \u2014 missing key, empty string, or an unrecognized string \u2014 resolves to 'ready_for_review'; default-to-publish is the safe direction.",
           "default": "ready_for_review"
         },
         "allowed_tools": {
@@ -168,7 +168,7 @@
         },
         "update_branch_checkpoints": {
           "type": "boolean",
-          "description": "Master switch for the base-branch update checkpoints (issue #448). true (the default) brings the feature branch up to date with base_branch at four checkpoints of a /prflow:implement run \u2014 the end of Phase 1.4 (every \u00a71.4 arm since issue #779 \u2014 new branch, adopted branch, and landed resume alike), pre-draft-PR (Phase 3.1), each fix iteration + loop exit of the review-and-fix loop under --push-each-iteration (Checkpoint 3), and pre-ready (Phase 4.3) \u2014 via scripts/update-branch-checkpoint.sh, so every state the merge gate or an auto-review consumes is current, including the terminal pushed state. This same key also governs the checkpoint inside a standalone /prflow:review-and-fix --push-each-iteration run. Disabled exactly when the value serializes to the string 'false' via config-get.sh \u2014 an explicit JSON false, the JSON string \"false\", or [false] (arrays comma-join); a missing key, empty string, or any other value leaves the checkpoints enabled (issue #312 valid-falsy discipline). A consumer repo without an up-to-date branch-protection rule keeps working unchanged apart from ordinary base merges on feature branches. See docs/implement-skill.md.",
+          "description": "Master switch for the base-branch update checkpoints (issue #448). true (the default) brings the feature branch up to date with base_branch at four checkpoints of a /prflow:implement run \u2014 the end of Phase 1.4 (every \u00a71.4 arm since issue #779 \u2014 new branch, adopted branch, and landed resume alike), pre-draft-PR (Phase 3.1), each fix iteration + loop exit of the review-and-fix loop under --push-each-iteration (Checkpoint 3), and pre-ready (Phase 4.3) \u2014 via scripts/update-branch-checkpoint.sh, so every state the merge gate or an auto-review consumes is current, including the terminal pushed state. This same key also governs the checkpoint inside a standalone /prflow:review-and-fix --push-each-iteration run. Disabled exactly when the value serializes to the string 'false' via config-get.sh \u2014 an explicit JSON false, the JSON string \"false\", or [false] (arrays comma-join); a missing key, empty string, or any other value leaves the checkpoints enabled (issue #312 valid-falsy discipline). A consumer repo without an up-to-date branch-protection rule keeps working unchanged apart from ordinary base merges on feature branches.",
           "default": true
         },
         "stall_backstop": {
@@ -230,7 +230,7 @@
     },
     "prflow_review_and_fix": {
       "type": "object",
-      "description": "Settings for /prflow:review-and-fix: the fix-loop iteration cap, the fix-severity routing threshold, and per-run subagent effectiveness telemetry. See docs/shadow-review.md and docs/efficiency-trace.md.",
+      "description": "Settings for /prflow:review-and-fix: the fix-loop iteration cap, the fix-severity routing threshold, and per-run subagent effectiveness telemetry.",
       "properties": {
         "fix_severity_threshold": {
           "type": "string",
@@ -245,12 +245,12 @@
         "max_iterations": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum number of fix-loop iterations /prflow:review-and-fix runs before exiting with its latest verdict. Higher converges on a clean verdict more often at greater subagent cost; lower saves cost. A value below 1 is clamped up to 1, and a non-integer/empty/unparseable value (or an unreadable config) falls back to the default. No upper bound is imposed. See docs/shadow-review.md.",
+          "description": "Maximum number of fix-loop iterations /prflow:review-and-fix runs before exiting with its latest verdict. Higher converges on a clean verdict more often at greater subagent cost; lower saves cost. A value below 1 is clamped up to 1, and a non-integer/empty/unparseable value (or an unreadable config) falls back to the default. No upper bound is imposed.",
           "default": 5
         },
         "efficiency_telemetry_enabled": {
           "type": "boolean",
-          "description": "When true, /prflow:review-and-fix derives a per-subagent effectiveness trace at Loop Exit, prints it to chat, and persists one per-run record to .prflow/logs/efficiency/. When false, the loop neither renders the trace nor writes any file under .prflow/logs/. Derivation is best-effort: a failure never aborts the fix loop.",
+          "description": "When true, /prflow:review-and-fix derives a per-subagent effectiveness trace at Loop Exit, prints it to chat, and persists one per-run record to .prflow/logs/efficiency/. When false, the loop neither renders the trace nor writes any file under .prflow/logs/. Derivation is best-effort: a failure never aborts the fix loop. This key ALSO gates permission-denial forensics: the durable record of what the harness refused on a run (its count, denied tool names and scrubbed command text) is persisted as the permission_denials key on that same per-run record, so setting this to false to save telemetry cost silently gives up denial forensics too -- a run that ends with no verdict then leaves only an expiring job log.",
           "default": true
         },
         "efficiency_cut_candidate_min_dispatch": {
@@ -263,7 +263,7 @@
     },
     "prflow_review": {
       "type": "object",
-      "description": "Settings for the standalone /prflow:review engine. See docs/workflow-triggers.md (live progress comment) and docs/efficiency-trace.md (telemetry + effectiveness trace).",
+      "description": "Settings for the standalone /prflow:review engine.",
       "properties": {
         "verdict_severity_threshold": {
           "type": "string",
@@ -332,7 +332,7 @@
         },
         "agent_overrides": {
           "type": "object",
-          "description": "Per-subagent model/effort overrides for the shared /prflow:review engine. Applies to BOTH standalone /prflow:review AND the Phase-3 review pass of /prflow:review-and-fix (and thus /prflow:implement), since both drive the same engine. Keys are the nine review-engine subagent leaves, each accepted under EITHER declared plugin namespace — `prflow:` (canonical) or the `devflow:` alias, so an override committed before the plugin rename keeps resolving — giving 18 accepted subagent keys (byte-identical to the telemetry strings) plus an optional `default` fallback. The accepted namespace set is derived from lib/plugin-identity.json, and this enumeration is its mirror: `additionalProperties` stays false, so the allowlist remains closed. Each value optionally sets `model` (free-form model id, forwarded to the dispatch as given), `effort` (one of low/medium/high/xhigh/max \u2014 an out-of-enum value warns and falls back to the session effort rather than aborting), and/or `iterations` (issue #425; only valid value `first-only` \u2014 an agent whose resolved override carries it is excluded from the Phase-3 review roster on fix-loop iterations >= 2, enforced engine-side; an out-of-enum value warns and is dropped rather than aborting; key absent = today's behavior). Resolution is entry-level: a subagent with its own entry uses only that entry (the `default` does NOT backfill its missing fields); `default` supplies model/effort only for subagents with no entry of their own. A subagent with neither its own entry nor a `default` is dispatched exactly as today \u2014 global claude_model + session effort \u2014 with no --agents override emitted for it. See docs/review-agent-overrides.md.",
+          "description": "Per-subagent model/effort overrides for the shared /prflow:review engine. Applies to BOTH standalone /prflow:review AND the Phase-3 review pass of /prflow:review-and-fix (and thus /prflow:implement), since both drive the same engine. Keys are the nine review-engine subagent leaves, each accepted under EITHER declared plugin namespace — `prflow:` (canonical) or the `devflow:` alias, so an override committed before the plugin rename keeps resolving — giving 18 accepted subagent keys (byte-identical to the telemetry strings) plus an optional `default` fallback. The accepted namespace set is derived from lib/plugin-identity.json, and this enumeration is its mirror: `additionalProperties` stays false, so the allowlist remains closed. Each value optionally sets `model` (free-form model id, forwarded to the dispatch as given), `effort` (one of low/medium/high/xhigh/max \u2014 an out-of-enum value warns and falls back to the session effort rather than aborting), and/or `iterations` (issue #425; only valid value `first-only` \u2014 an agent whose resolved override carries it is excluded from the Phase-3 review roster on fix-loop iterations >= 2, enforced engine-side; an out-of-enum value warns and is dropped rather than aborting; key absent = today's behavior). Resolution is entry-level: a subagent with its own entry uses only that entry (the `default` does NOT backfill its missing fields); `default` supplies model/effort only for subagents with no entry of their own. A subagent with neither its own entry nor a `default` is dispatched exactly as today \u2014 global claude_model + session effort \u2014 with no --agents override emitted for it.",
           "additionalProperties": false,
           "properties": {
             "default": {
@@ -966,6 +966,17 @@
         }
       }
     },
+    "create_issue": {
+      "type": "object",
+      "description": "Settings for /prflow:create-issue.",
+      "properties": {
+        "investigation_record_enabled": {
+          "type": "boolean",
+          "description": "When false, /prflow:create-issue does NOT publish the investigation record: it writes no record file and posts no investigation-record comment, so record-bucket content reaches neither the issue body nor the disk. The brief/record SORTING still runs on every draft regardless of this value; only publication of the record artifact is gated. Default true (publish the investigation record as the first comment on the created issue).",
+          "default": true
+        }
+      }
+    },
     "deferred": {
       "type": "object",
       "description": "Settings for the follow-up issues /prflow:implement files for deferred work.",
@@ -1007,69 +1018,7 @@
         "wait_timeout_seconds": {
           "type": "integer",
           "minimum": 0,
-          "description": "Default bound for an attacher's `wait` poll. A wait-bound expiry returns a non-mutating `wait_expired` observation and leaves an active flight unchanged; only the owner records a terminal `timed_out` after its command invocation reports a real timeout. DECLARATIVE in Wave 2: the skill prose passes `wait`'s bound via its own `--timeout`, and does not yet thread this config scalar, so editing this key alone has no effect on a coordinated flight today — like `lease_seconds` it documents the intended default and forward-compatible override surface.",
-          "default": 600
-        },
-        "profiles": {
-          "type": "object",
-          "description": "Named verification profiles. Each profile is a data-only declaration of one verification command's identity and hermetic inputs. This namespace is DECLARATIVE ONLY in Wave 2: the helper takes its profile inline via `--input-file` and implements no lookup-by-name, so no profile name here is resolved by scripts/verification-flight.py today. The `required` list below mirrors the helper's own `_PROFILE_REQUIRED` tuple exactly, so a schema-valid profile is also declaration-valid at runtime.",
-          "additionalProperties": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "profile_version",
-              "argv",
-              "cwd",
-              "environment",
-              "toolchain",
-              "dependencies",
-              "output_roots",
-              "external_services"
-            ],
-            "properties": {
-              "profile_version": {
-                "type": "integer",
-                "minimum": 1,
-                "description": "Monotonic version of this profile. A byte-distinct profile_version produces a distinct command descriptor and thus a distinct binding, so bumping it invalidates reuse of any prior flight."
-              },
-              "argv": {
-                "type": "array",
-                "minItems": 1,
-                "items": { "type": "string" },
-                "description": "The exact argv of the already-authorized verification command, as a data descriptor operand. The helper NEVER executes this argv; the existing caller retains command ownership and allowlist enforcement. The leading token must be the same allowlisted literal head the caller invokes (e.g. `lib/test/run.sh`)."
-              },
-              "cwd": {
-                "type": "string",
-                "description": "Working directory the command runs in, as a descriptor operand."
-              },
-              "environment": {
-                "type": "object",
-                "additionalProperties": { "type": "string" },
-                "description": "Declared NONSECRET environment inputs that affect the command's output. Secret-dependent inputs must not appear here; a secret-dependent profile is non-reusable."
-              },
-              "toolchain": {
-                "type": "object",
-                "additionalProperties": { "type": "string" },
-                "description": "Toolchain identities (interpreter/tool -> version or path identity) the command's result depends on."
-              },
-              "dependencies": {
-                "type": "object",
-                "additionalProperties": { "type": "string" },
-                "description": "Dependency identities (dependency -> resolved identity) the command's result depends on. A relevant dependency change invalidates reuse."
-              },
-              "output_roots": {
-                "type": "array",
-                "items": { "type": "string" },
-                "description": "Roots the suite WRITES to. Generated verification outputs under these roots do not become inputs merely because the suite created them, so they never churn the flight key."
-              },
-              "external_services": {
-                "type": "string",
-                "enum": ["none"],
-                "description": "Must be `none`. A profile that depends on any external service is non-reusable and is rejected by the helper as non-hermetic."
-              }
-            }
-          },
-          "default": {}
+          "description": "Default bound for an attacher's `wait` poll. A wait-bound expiry returns a non-mutating `wait_expired` observation and leaves an active flight unchanged; only the owner records a terminal `timed_out` after its command invocation reports a real timeout. DECLARATIVE in Wave 2: the skill prose passes `wait`'s bound via its own `--timeout`, and does not yet thread this config scalar, so editing this key alone has no effect on a coordinated flight today — like `lease_seconds` it documents the intended default and forward-compatible override surface."
         }
       }
     },
@@ -1152,7 +1101,7 @@
         },
         "prflow-review": {
           "type": "boolean",
-          "description": "Enable the automatic pull-request-triggered reviewer (devflow-review.yml). WITHHELD from this release: fresh installations no longer receive devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so setting this true in a fresh installation enables nothing. The tier remains LIVE for a repository that already installed those three files, and such a repository stays exposed to the fork-pull-request defects in issues #930 and #920 for as long as this key is true. The property is retained so existing consumer configs keep validating. The always-available review path is a repository collaborator commenting /prflow:review on a pull request; a consumer can additionally opt into having that comment posted automatically once their CI is green, with the documented snippet in docs/workflow-triggers.md."
+          "description": "Enable the automatic pull-request-triggered reviewer (devflow-review.yml). WITHHELD from this release: fresh installations no longer receive devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so setting this true in a fresh installation enables nothing. The tier remains LIVE for a repository that already installed those three files, and such a repository stays exposed to the fork-pull-request defects in issues #930 and #920 for as long as this key is true. The property is retained so existing consumer configs keep validating. The always-available review path is a repository collaborator commenting /prflow:review on a pull request; a consumer can additionally opt into having that comment posted automatically once their CI is green, using a documented pull_request workflow snippet."
         }
       }
     }

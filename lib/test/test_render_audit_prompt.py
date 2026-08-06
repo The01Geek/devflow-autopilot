@@ -30,10 +30,10 @@ READ_INSTRUCTION = "Read the draft file"
 DRAFT_UNREADABLE_EMIT = "If you cannot read the file, return **no findings** and end with"
 HASH_OBJECT = "run `git hash-object --no-filters` on that draft file and quote the object ID it prints verbatim"
 FILE_ARM_OOB = (
-    "The following on-disk files are **out of bounds**, exactly these 7 paths — "
+    "The following on-disk files are **out of bounds**, exactly these 8 paths — "
     "`.prflow/tmp/issue-derivation-"
 )
-EMBED_ARM_OOB = "the out-of-bounds declaration names exactly these 9 files"
+EMBED_ARM_OOB = "the out-of-bounds declaration names exactly these 10 files"
 READ_ORDERING_AMENDED = (
     "before any repository read other than the renderer invocation, or the "
     "documented template-file fallback read, that produced these instructions"
@@ -970,7 +970,31 @@ class EnumerateDimensions(unittest.TestCase):
             r = run_renderer(["enumerate-dimensions", "--extension-file", str(ext)])
         self.assertEqual(r.returncode, 0, r.stderr)
         _, dims = self._parse(r.stdout)
-        self.assertEqual(len(dims), 9, [k for k, _ in dims])
+        self.assertEqual(len(dims), 10, [k for k, _ in dims])
+
+    def test_authoring_discipline_fourth_shape_present_and_bounded(self):
+        # Issue #1334: the `authoring-discipline-defects` bullet carries a fourth
+        # numbered shape (over-retention) admitting RESTATEMENT and INFERABLE
+        # findings. The enumeration payload is a machine-parsed CLI contract, so
+        # both facts are asserted at the renderer's output.
+        with tempfile.TemporaryDirectory() as d:
+            ext = Path(d) / "create-issue.md"  # absent -> generic floor only
+            r = run_renderer(["enumerate-dimensions", "--extension-file", str(ext)])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        _, dims = self._parse(r.stdout)
+        payloads = {k: t for k, t in dims}
+        text = payloads.get("g:authoring-discipline-defects")
+        self.assertIsNotNone(
+            text, "g:authoring-discipline-defects dimension missing from enumeration"
+        )
+        self.assertIn("RESTATEMENT", text)
+        self.assertIn("INFERABLE", text)
+        # Enforcement constant: the payload was 885 chars at 504fc951e; the fourth
+        # shape may grow it by at most 1000 characters (<= 1885 total). The literal
+        # IS the enforcement (CLAUDE.md's enforcement-constant exemption). The shipped
+        # fourth shape realizes ~1880 chars, so the margin under the ceiling is small
+        # by design — any later append to this bullet must trim elsewhere or re-adjudicate.
+        self.assertLessEqual(len(text), 1885, len(text))
 
     def test_two_checklist_blocks_fail_closed(self):
         # Two checklist blocks would silently MERGE two dimension sets into one
@@ -1002,7 +1026,7 @@ class EnumerateDimensions(unittest.TestCase):
         _, dims = self._parse(r.stdout)
         keys = [k for k, _ in dims]
         self.assertEqual([k for k in keys if k.startswith("c:")], [])
-        self.assertEqual(len(keys), 9)
+        self.assertEqual(len(keys), 10)
 
     def test_deterministic_stable_keys_across_renders(self):
         # The orchestrator's render and the auditor's render must key identically.
@@ -1535,22 +1559,30 @@ class OutOfBoundsEnumerations(unittest.TestCase):
 
     SCOPE_GLOB = "`.prflow/tmp/issue-audit-scope-<slug>.*.md`"
     DISPATCH_FILE = "`.prflow/tmp/issue-audit-dispatch-<slug>.md`"
+    RECORD_FILE = "`.prflow/tmp/issue-record-<slug>.md`"  # issue #1331: the investigation record
 
     def _slug_glob(self, slug="my-slug"):
         return self.SCOPE_GLOB.replace("<slug>", slug)
 
-    def test_O1_file_arm_names_seven_paths_including_the_scope_glob(self):
-        out = run_renderer(["file", "--slug", "my-slug", "--draft-path", "/a/d.md"]).stdout
-        self.assertIn("exactly these 7 paths", out)
-        self.assertIn(self._slug_glob(), out)
+    def _record_file(self, slug="my-slug"):
+        return self.RECORD_FILE.replace("<slug>", slug)
 
-    def test_O2_embed_arm_names_nine_files_including_both_new_artifacts(self):
+    def test_O1_file_arm_names_eight_paths_including_the_scope_glob(self):
+        # issue #1331: the investigation record added the 8th path on the file arm.
+        out = run_renderer(["file", "--slug", "my-slug", "--draft-path", "/a/d.md"]).stdout
+        self.assertIn("exactly these 8 paths", out)
+        self.assertIn(self._slug_glob(), out)
+        self.assertIn(self._record_file(), out)
+
+    def test_O2_embed_arm_names_ten_files_including_both_new_artifacts(self):
+        # issue #1331: the investigation record added the 10th file on the embed arm.
         out = run_renderer(["embed", "--slug", "my-slug",
                             "--sentinel-open", "AUDIT-AA11BB-OPEN",
                             "--sentinel-close", "AUDIT-AA11BB-CLOSE"]).stdout
-        self.assertIn("exactly these 9 files", out)
+        self.assertIn("exactly these 10 files", out)
         self.assertIn(self._slug_glob(), out)
         self.assertIn(self.DISPATCH_FILE.replace("<slug>", "my-slug"), out)
+        self.assertIn(self._record_file(), out)
 
     def test_O3_the_instruction_file_is_named_on_the_embed_arm_ONLY(self):
         # On the file arm it is the artifact the auditor is told to read and hash, so
@@ -1570,8 +1602,9 @@ class OutOfBoundsEnumerations(unittest.TestCase):
                 "--draft-path", str(draft),
                 "--instructions-path", str(Path(td) / "i.md")]).stdout
             flat = " ".join(out.split())
-            self.assertIn("exactly these 7 paths", flat)
+            self.assertIn("exactly these 8 paths", flat)
             self.assertIn(self._slug_glob(), flat)
+            self.assertIn(self._record_file(), flat)
             self.assertNotIn(self.DISPATCH_FILE.replace("<slug>", "my-slug"), flat)
 
     def test_O5_the_scope_glob_is_TOTAL_across_rounds(self):

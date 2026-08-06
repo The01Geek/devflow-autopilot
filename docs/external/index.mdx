@@ -1,37 +1,47 @@
 ---
 title: "PRFlow"
-description: "Turn a GitHub issue into a reviewed, documented, merge-ready pull request."
+description: "Turn a GitHub issue into a documented, review-ready pull request with verification and review evidence for human evaluation."
 mode: "custom"
 ---
 
-# Ship the PR, not the cleanup
+# Ship the Pull Request, Not the Cleanup
 
-PRFlow is a Claude Code plugin that carries a GitHub issue through implementation, testing, review and documentation. You stay in control of the final review and merge.
+Coding agents are good at drafting code. Finishing a real ticket in a large codebase takes more: repository discovery, tests, review, documentation and a clear handoff.
+
+PRFlow carries an existing GitHub issue through a pull-request preparation cycle. It prepares a review-ready pull request, then leaves the final review and merge to you.
 
 <CardGroup cols={2}>
-  <Card title="Get started" icon="rocket" href="/docs/getting-started/index">
-    Install PRFlow and complete your first workflow.
+  <Card title="Start Here" icon="rocket" href="/docs/getting-started/index">
+    Install PRFlow and complete your first issue-to-pull-request run.
+  </Card>
+  <Card title="Choose a Workflow" icon="route" href="/docs/workflows/index">
+    Find the right command for creating, implementing, reviewing or documenting work.
+  </Card>
+  <Card title="Run in the Cloud" icon="cloud" href="/docs/runs/cloud/index">
+    Start authorized PRFlow runs from GitHub comments with optional automation.
   </Card>
   <Card title="View on GitHub" icon="github" href="https://github.com/The01Geek/prflow">
     Explore the source, releases and issue tracker.
   </Card>
 </CardGroup>
 
-## One request, four disciplined phases
+## One Issue, One Delivery Path
 
 <Steps>
-  <Step title="Create">
-    Turn a rough idea into an implementation-ready GitHub issue.
+  <Step title="Define the Work">
+    Start with a clear GitHub issue, or ask PRFlow to help create one from a rough request.
   </Step>
-  <Step title="Implement">
-    Plan against the real codebase, write the change and run the required tests.
+  <Step title="Implement and Verify">
+    PRFlow writes the change, runs the configured checks available in the run environment and records any check it could not complete.
   </Step>
-  <Step title="Review">
-    Find and fix defects through independent review passes.
+  <Step title="Review and Improve">
+    Independent review passes can identify findings, check their evidence and apply authorized corrections.
   </Step>
-  <Step title="Document">
-    Update internal documentation, public guidance and release notes alongside the code.
+  <Step title="Document and Hand Off">
+    Relevant documentation is updated before the pull request is handed to you for final review and merge.
   </Step>
 </Steps>
 
-PRFlow produces a review-ready pull request for your final human review. It does not automatically merge your work.
+PRFlow can run locally in a supported coding client or through optional GitHub Actions workflows. Start with the [installation guide](/docs/getting-started/installation), or read [how PRFlow works](/docs/concepts/index) before you begin.
+
+**Human control:** PRFlow does not automatically merge pull requests. Your repository protections and normal approval process remain in control.

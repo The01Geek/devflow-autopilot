@@ -907,6 +907,555 @@ for _row in $RA_ROW_NAMES; do
   esac
 done
 
+# ── AP — read-only preflight mode (issue #1244) ──────────────────────────────
+# The preflight runs ONLY the preflight-eligible rows, read-only, and refuses (exit 1)
+# only on a positively-attributed drift. Every arm runs against a temp fixture, never the
+# live checkout, for the same confinement reason A1/A2 do.
+_ra_preflight() {  # <root>
+  python3 "$RA_HELPER" --preflight --repo-root "$1" >"$1/.rap.out" 2>&1
+  printf '%s\n' "$?" >"$1/.rap.rc"
+}
+_ra_prc() { cat "$1/.rap.rc"; }
+
+# AP1 — clean fixture: exit 0, writes nothing, one clean line per eligible row, and the
+# ineligible exact-module-floors row is never touched (AC1/AC2).
+RA_AP1="$_ra_tmp_root/ap1"; _ra_fixture "$RA_AP1"
+RA_AP1_MAN_BEFORE="$(cat "$RA_AP1/scripts/devflow-cloud-writer-contract.json")"
+_ra_preflight "$RA_AP1"
+assert_eq "#1244 AP1 clean fixture preflight exits 0" "0" "$(_ra_prc "$RA_AP1")"
+_ra_same "#1244 AP1 preflight writes nothing (manifest byte-unchanged)" \
+  "$RA_AP1_MAN_BEFORE" "$(cat "$RA_AP1/scripts/devflow-cloud-writer-contract.json")" \
+  "the read-only preflight mutated the manifest"
+for _erow in cloud-writer-manifest capability-profile-literals plugin-identity-regions coverage-map-ratchet env-freeze-advisory-region; do
+  case "$(cat "$RA_AP1/.rap.out")" in
+    *"[$_erow] clean"*) assert_eq "#1244 AP1 eligible row reports clean: $_erow" yes yes ;;
+    *) assert_eq "#1244 AP1 eligible row reports clean: $_erow" yes "no(no clean line for $_erow)" ;;
+  esac
+done
+# The ineligible row's argv (reconcile-module-floors.py, a WRITING 7.8-min check) must
+# never be invoked, so neither its name nor its script appears in the preflight output.
+case "$(cat "$RA_AP1/.rap.out")" in
+  *exact-module-floors*|*reconcile-module-floors*) assert_eq "#1244 AP1 preflight never runs the ineligible exact-module-floors row" yes "no(ineligible row referenced in preflight output)" ;;
+  *) assert_eq "#1244 AP1 preflight never runs the ineligible exact-module-floors row" yes yes ;;
+esac
+
+# AP2 — planted manifest drift: the cloud-writer row's read-only `verify` exits 1 with its
+# marker, so the preflight classifies DRIFT, exits 1, and names the governing policy.
+RA_AP2="$_ra_tmp_root/ap2"; _ra_fixture "$RA_AP2"
+printf '{"corrupted": true}\n' > "$RA_AP2/scripts/devflow-cloud-writer-contract.json"
+RA_AP2_MAN_BEFORE="$(cat "$RA_AP2/scripts/devflow-cloud-writer-contract.json")"
+_ra_preflight "$RA_AP2"
+assert_eq "#1244 AP2 planted drift preflight exits 1" "1" "$(_ra_prc "$RA_AP2")"
+_ra_has_file "#1244 AP2 preflight reports the drift and its summary line" "$RA_AP2/.rap.out" \
+  "preflight detected drift"
+_ra_has_file "#1244 AP2 drift names the cloud-writer row's governing policy" "$RA_AP2/.rap.out" \
+  "regenerate against the merged tree with"
+# Even on the drift arm the preflight writes nothing — `verify` is read-only, so the
+# corrupt fixture manifest is left exactly as planted (the fail-closed refusal must never
+# rest on a mutating check).
+_ra_same "#1244 AP2 preflight writes nothing on the drift arm" \
+  "$RA_AP2_MAN_BEFORE" "$(cat "$RA_AP2/scripts/devflow-cloud-writer-contract.json")" \
+  "the read-only preflight mutated the manifest on the drift arm"
+
+# AP3 — --list reports eligibility per row, and the ineligible row is declared ineligible.
+case "$RA_LIST" in
+  *"preflight	exact-module-floors	ineligible	"*) assert_eq "#1244 AP3 --list declares exact-module-floors ineligible" yes yes ;;
+  *) assert_eq "#1244 AP3 --list declares exact-module-floors ineligible" yes "no(exact-module-floors not declared ineligible)" ;;
+esac
+for _erow in cloud-writer-manifest capability-profile-literals plugin-identity-regions coverage-map-ratchet env-freeze-advisory-region; do
+  case "$RA_LIST" in
+    *"preflight	$_erow	eligible	"*) assert_eq "#1244 AP3 --list declares eligible: $_erow" yes yes ;;
+    *) assert_eq "#1244 AP3 --list declares eligible: $_erow" yes "no($_erow not declared eligible)" ;;
+  esac
+done
+# The cloud-writer eligibility line names the read-only `verify` form, never the writing
+# `generate` form the row's own argv carries.
+case "$RA_LIST" in
+  *"preflight	cloud-writer-manifest	eligible	python3 lib/test/cloud_writer_contract.py verify"*) assert_eq "#1244 AP3 cloud-writer preflight uses the read-only verify form" yes yes ;;
+  *) assert_eq "#1244 AP3 cloud-writer preflight uses the read-only verify form" yes "no(cloud-writer preflight command is not the verify form)" ;;
+esac
+
+# AP4 — an eligible judgment row that cannot be checked routes to exit 2 (UNCHECKABLE),
+# driven by the REAL preflight (not a coordinator stub). A malformed lib/capability-profiles.json
+# makes `generate-capability-profiles.py --check` exit 1 with its `manifest malformed JSON:`
+# infra-marker, which the preflight classifies UNCHECKABLE. No row drifts, so exit 2.
+RA_AP4="$_ra_tmp_root/ap4"; _ra_fixture "$RA_AP4"
+printf 'not valid json {' > "$RA_AP4/lib/capability-profiles.json"
+RA_AP4_MAN_BEFORE="$(cat "$RA_AP4/scripts/devflow-cloud-writer-contract.json")"
+_ra_preflight "$RA_AP4"
+assert_eq "#1244 AP4 an uncheckable eligible row exits 2" "2" "$(_ra_prc "$RA_AP4")"
+_ra_has_file "#1244 AP4 the uncheckable row is reported UNCHECKABLE" "$RA_AP4/.rap.out" \
+  "[capability-profile-literals] UNCHECKABLE"
+_ra_has_file "#1244 AP4 the exit-2 summary names an uncheckable artifact" "$RA_AP4/.rap.out" \
+  "could not check at least one eligible artifact"
+_ra_same "#1244 AP4 preflight writes nothing on the uncheckable arm" \
+  "$RA_AP4_MAN_BEFORE" "$(cat "$RA_AP4/scripts/devflow-cloud-writer-contract.json")" \
+  "the read-only preflight mutated the manifest on the uncheckable arm"
+
+# AP5 — DRIFT takes precedence over UNCHECKABLE. With BOTH a drifted manifest (cloud-writer
+# verify exits 1 with its marker) AND an uncheckable capability row, the run must exit 1 (drift),
+# never 2 — the reverse of the batched pass's infra-over-drift ordering. A reversed comparand
+# in run_preflight would ship green without this.
+RA_AP5="$_ra_tmp_root/ap5"; _ra_fixture "$RA_AP5"
+printf '{"corrupted": true}\n' > "$RA_AP5/scripts/devflow-cloud-writer-contract.json"
+printf 'not valid json {' > "$RA_AP5/lib/capability-profiles.json"
+_ra_preflight "$RA_AP5"
+assert_eq "#1244 AP5 drift outranks uncheckable — exits 1, not 2" "1" "$(_ra_prc "$RA_AP5")"
+_ra_has_file "#1244 AP5 the drift summary line is printed, not the exit-2 summary" "$RA_AP5/.rap.out" \
+  "preflight detected drift"
+case "$(cat "$RA_AP5/.rap.out")" in
+  *"could not check at least one eligible artifact"*) assert_eq "#1244 AP5 the exit-2 summary is suppressed when drift dominates" yes "no(exit-2 summary printed despite drift)" ;;
+  *) assert_eq "#1244 AP5 the exit-2 summary is suppressed when drift dominates" yes yes ;;
+esac
+
+# AP6 — a crashing judgment generator (a traceback, exit 1, NO row infra-marker) routes to
+# UNCHECKABLE, not DRIFT. capability-profile-literals deliberately omits the traceback marker
+# from its batched-pass infra_markers, so this exercises the preflight's OWN universal
+# traceback→UNCHECKABLE guard (issue #1244 fail-open contract): without it this crash would be
+# misclassified DRIFT and the coordinator would block the whole suite.
+RA_AP6="$_ra_tmp_root/ap6"; _ra_fixture "$RA_AP6"
+cat > "$RA_AP6/lib/generate-capability-profiles.py" <<'PY'
+#!/usr/bin/env python3
+raise RuntimeError("simulated generator crash")
+PY
+chmod 755 "$RA_AP6/lib/generate-capability-profiles.py"
+_ra_preflight "$RA_AP6"
+assert_eq "#1244 AP6 a crashing judgment generator exits 2 (UNCHECKABLE, not drift)" "2" "$(_ra_prc "$RA_AP6")"
+_ra_has_file "#1244 AP6 the crash is reported as a crash, not drift" "$RA_AP6/.rap.out" \
+  "reporting a crash or input failure, not drift"
+case "$(cat "$RA_AP6/.rap.out")" in
+  *"preflight detected drift"*) assert_eq "#1244 AP6 a crash is never reported as drift" yes "no(a crash was misclassified as drift)" ;;
+  *) assert_eq "#1244 AP6 a crash is never reported as drift" yes yes ;;
+esac
+
+# AP7 — the marker row's OWN crash arm: `verify` exits 1 with a bare traceback and NO
+# `cloud-writer-contract:` marker. This is the exact safety the positive-marker mechanism
+# exists for, and it is the one branch neither AP2 nor AP6 reaches: AP2 drives the MARKED
+# exit-1 (real drift) on this row, and AP6 drives a crash on a JUDGMENT row, which is
+# classified by the universal traceback marker instead. Only here does the row-level
+# `preflight_positive_marker` check itself decide the outcome — so only here does a
+# reversed or deleted marker check change the answer, from "warn and proceed" to a
+# fail-CLOSED refusal that blocks the whole suite on a `verify` crash.
+RA_AP7="$_ra_tmp_root/ap7"; _ra_fixture "$RA_AP7"
+cat > "$RA_AP7/lib/test/cloud_writer_contract.py" <<'PY'
+#!/usr/bin/env python3
+raise RuntimeError("simulated cloud-writer verify crash")
+PY
+chmod 755 "$RA_AP7/lib/test/cloud_writer_contract.py"
+# Positive control on the stub itself: the arm below is only meaningful if `verify` really
+# produces the unmarked exit-1 shape. A stub that exited 0, or that happened to print the
+# marker, would leave every assertion below measuring a different branch.
+RA_AP7_PROBE="$( cd "$RA_AP7" && python3 lib/test/cloud_writer_contract.py verify 2>&1 )"
+assert_eq "#1244 AP7 the stubbed verify really exits 1" "1" "$?"
+_ra_ok "#1244 AP7 the stubbed verify emits NO cloud-writer-contract marker" \
+  "$(case "$RA_AP7_PROBE" in *cloud-writer-contract:*) printf no ;; *) printf yes ;; esac)" \
+  "the stub printed the positive marker, so the unmarked branch is not the one under test"
+RA_AP7_MAN_BEFORE="$(cat "$RA_AP7/scripts/devflow-cloud-writer-contract.json")"
+_ra_preflight "$RA_AP7"
+# Exit 2 is the coordinator's fail-OPEN signal (the tested `parallel-suite-runner` exit-2
+# arm warns and launches the shards); exit 1 would be the refusal. So this exit code IS
+# the "warn and proceed rather than refuse" limb of the contract.
+assert_eq "#1244 AP7 an unmarked verify crash exits 2 (UNCHECKABLE, the coordinator's fail-open signal)" \
+  "2" "$(_ra_prc "$RA_AP7")"
+# The exit code alone does not discriminate: with the marker check DELETED this row falls
+# through to the judgment path, whose universal traceback marker also yields exit 2. Pin
+# the row-level diagnostic that only the marker branch can emit, so a deleted check is
+# caught as well as a reversed one.
+_ra_has_file "#1244 AP7 the crash is attributed to the ABSENT positive marker on this row" \
+  "$RA_AP7/.rap.out" "without its drift marker"
+_ra_has_file "#1244 AP7 the unmarked exit-1 is named a crash, not a reconcilable drift" \
+  "$RA_AP7/.rap.out" "(a crash, not a reconcilable drift)"
+_ra_has_file "#1244 AP7 the exit-2 summary the coordinator reads is printed" \
+  "$RA_AP7/.rap.out" "could not check at least one eligible artifact"
+RA_AP7_OUT="$(cat "$RA_AP7/.rap.out")"
+_ra_ok "#1244 AP7 an unmarked verify crash is never reported as drift" \
+  "$(case "$RA_AP7_OUT" in
+       *"preflight detected drift"*|*"[cloud-writer-manifest] DRIFT"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "a verify crash was misclassified as drift, which would fail closed and block the suite"
+_ra_same "#1244 AP7 preflight writes nothing on the unmarked-crash arm" \
+  "$RA_AP7_MAN_BEFORE" "$(cat "$RA_AP7/scripts/devflow-cloud-writer-contract.json")" \
+  "the read-only preflight mutated the manifest on the unmarked-crash arm"
+_ra_live_unchanged "#1244 AP7 live manifest byte-unchanged after the unmarked-crash preflight"
+
+# AP8 — a JUDGMENT row's own DRIFT arm, which is the preflight's primary detection path.
+# Four of the five eligible rows are judgment rows carrying no `preflight_positive_marker`,
+# so for them drift is reached by the terminal fall-through in `run_preflight_row` — the arm
+# that fires when the exit is in-set, non-clean, and matches NO infra marker and NO
+# traceback. Every other AP arm reaches a different branch: AP2/AP5 drive the marker-bearing
+# cloud-writer row, AP4 drives a judgment row's infra-marker arm, AP6/AP7 drive crashes. So
+# without this arm the fall-through could be inverted to "not drift" and the whole module
+# would stay green while genuine drift silently launched the suite.
+#
+# The plant is the A3b shape — an identity SOURCE edit with the baked regions left stale —
+# because it is a NON-CRASHING content drift: the generator runs to completion and reports
+# its own diagnostic, which is what distinguishes this arm from every crash arm above.
+RA_AP8="$_ra_tmp_root/ap8"; _ra_fixture "$RA_AP8"
+python3 - "$RA_AP8" <<'RA_AP8_PLANT' >/dev/null 2>&1 \
+  || assert_eq "#1244 AP8 planted identity drift applied" yes "no(plant failed)"
+import json, sys
+p = sys.argv[1] + "/lib/plugin-identity.json"
+d = json.load(open(p))
+d["plugin_aliases"] = list(d.get("plugin_aliases", [])) + ["devflow-ap8-alias"]
+json.dump(d, open(p, "w"), indent=2)
+open(p, "a").write("\n")
+RA_AP8_PLANT
+# Positive control, in two parts, because the arm under test is selected by what the
+# generator did NOT print as much as by its exit code. (1) the plant must really drift —
+# otherwise every assertion below measures a clean tree; (2) the generator's output must
+# carry none of this row's infra markers and no traceback — otherwise the run lands on the
+# UNCHECKABLE arm AP4/AP6 already cover and the fall-through stays undriven.
+RA_AP8_PROBE="$( cd "$RA_AP8" && python3 lib/generate-plugin-identity.py --check 2>&1 )"
+assert_eq "#1244 AP8 the plant really drifts the baked regions (exit 1)" "1" "$?"
+_ra_ok "#1244 AP8 the drift carries NO infra marker and no traceback (so the judgment fall-through is the branch under test)" \
+  "$(case "$RA_AP8_PROBE" in
+       *"Traceback (most recent call last)"*|*"banner(s); expected exactly 1"*|*"after its begin banner"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "the planted drift matched an UNCHECKABLE marker, so this arm would measure AP4/AP6's branch instead"
+RA_AP8_IDENT="$(_ra_ident_regions "$RA_AP8")"
+_ra_preflight "$RA_AP8"
+assert_eq "#1244 AP8 a judgment row's content drift exits 1" "1" "$(_ra_prc "$RA_AP8")"
+_ra_has_file "#1244 AP8 the drifting judgment row is reported DRIFT by name" \
+  "$RA_AP8/.rap.out" "[plugin-identity-regions] DRIFT"
+_ra_has_file "#1244 AP8 the judgment drift carries the generator's own drift diagnostic" \
+  "$RA_AP8/.rap.out" "baked identity region(s) differ from"
+_ra_has_file "#1244 AP8 the judgment drift names its governing policy" \
+  "$RA_AP8/.rap.out" "rewrite the baked regions with"
+_ra_has_file "#1244 AP8 the judgment drift prints the drift summary line" \
+  "$RA_AP8/.rap.out" "preflight detected drift"
+# The machine verdict line is what the coordinator actually reads (AP10 drives that end to
+# end); assert it here too so a judgment-row drift is proven to emit the refusal contract
+# and not merely the human sentence beside it.
+_ra_has_file "#1244 AP8 the judgment drift emits the machine drift verdict the coordinator reads" \
+  "$RA_AP8/.rap.out" "regenerate-artifacts: preflight-verdict: drift"
+_ra_ok "#1244 AP8 a judgment drift never reports the uncheckable summary" \
+  "$(case "$(cat "$RA_AP8/.rap.out")" in
+       *"could not check at least one eligible artifact"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "a positively-detected judgment drift was reported as uncheckable, which fails OPEN"
+_ra_same "#1244 AP8 preflight writes nothing on the judgment-drift arm" \
+  "$RA_AP8_IDENT" "$(_ra_ident_regions "$RA_AP8")" \
+  "the read-only preflight rewrote the identity regions it reported as drifted"
+_ra_live_unchanged "#1244 AP8 live manifest byte-unchanged after the judgment-drift preflight"
+
+# AP9 — the machine verdict line exists for all three verdicts, so a consumer never has to
+# re-derive "checked and clean" from "could not check" out of an exit code alone. Read off
+# the fixtures already run above rather than re-running them.
+_ra_has_file "#1244 AP9 a clean preflight emits the clean verdict line" \
+  "$RA_AP1/.rap.out" "regenerate-artifacts: preflight-verdict: clean"
+_ra_has_file "#1244 AP9 an uncheckable preflight emits the uncheckable verdict line" \
+  "$RA_AP4/.rap.out" "regenerate-artifacts: preflight-verdict: uncheckable"
+# The verdicts are mutually exclusive: a clean run that also emitted the drift verdict would
+# make the coordinator refuse on a reconciled tree.
+_ra_ok "#1244 AP9 a clean preflight emits no drift verdict" \
+  "$(case "$(cat "$RA_AP1/.rap.out")" in
+       *"preflight-verdict: drift"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "the clean run emitted the drift verdict, which would make the coordinator refuse to launch"
+_ra_ok "#1244 AP9 an uncheckable preflight emits no drift verdict (it must fail OPEN)" \
+  "$(case "$(cat "$RA_AP4/.rap.out")" in
+       *"preflight-verdict: drift"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "an unestablished check emitted the drift verdict, which would block the suite on nothing"
+
+# ── AP10 — the coordinator end-to-end against the REAL preflight (issue #1244) ─
+# The `parallel-suite-runner` module drives every coordinator arm through an INJECTED stub,
+# so two things stayed unasserted there and are asserted here instead, in the one module
+# that owns a full checkout image:
+#   * the DEFAULT binding — nothing pinned that an unset DEVFLOW_ARTIFACT_PREFLIGHT resolves
+#     to the bundled helper at all. Emptying that default, or renaming the helper, left the
+#     feature absent from every real run with the whole suite green.
+#   * the CROSS-FILE verdict contract — the coordinator's refusal comparand is produced in
+#     `regenerate-artifacts.py`, and every stub hardcoded its own copy of it, so the two
+#     could drift apart with nothing red.
+# The dispatcher stays stubbed (the shard seam is orthogonal, and a real population here
+# would fork a second suite); the PREFLIGHT is the real one, resolved by default.
+_ra_plant_dispatcher() {  # <fixture-root> — a shard dispatcher that writes one real tally
+  cat > "$1/ra-dispatch.sh" <<'RA_DISPATCH_EOF'
+#!/usr/bin/env bash
+set -u
+HERE="$(cd "$(dirname "$0")" && pwd -P)"
+case "${1-}" in
+  --list-shards) printf '%s\n' alpha; exit 0 ;;
+esac
+D="${DEVFLOW_SHARD_TALLY_DIR:?}"
+mkdir -p "$D"
+LOG="$D/log.txt"
+printf '2 passed, 0 failed\n' > "$LOG"
+python3 "$HERE/lib/test/shard-tally.py" extract --shard "$1" --tier monolith \
+  --log "$LOG" --rc 0 --out "$D" >/dev/null
+RA_DISPATCH_EOF
+  chmod +x "$1/ra-dispatch.sh"
+}
+
+# AP10a — the drifted tree from AP8, run through the coordinator with NO override: the real
+# default preflight must be reached, must detect the judgment-row drift, and the coordinator
+# must refuse to launch. This single arm binds all three surfaces — default resolution,
+# the real Python producer's verdict, and the shell comparand that reads it.
+_ra_plant_dispatcher "$RA_AP8"
+RA_AP10_OUT="$( cd "$RA_AP8" && DEVFLOW_SHARD_DISPATCHER="$RA_AP8/ra-dispatch.sh" \
+  bash lib/test/run-parallel.sh 2>&1 )"; RA_AP10_RC=$?
+_ra_ok "#1244 AP10a the coordinator refuses (non-zero) on real drift with the DEFAULT preflight" \
+  "$([ "$RA_AP10_RC" -ne 0 ] && printf yes || printf no)" \
+  "the coordinator exited 0 on a drifted tree; output: $(printf '%s' "$RA_AP10_OUT" | tr '\n' '|')"
+_ra_ok "#1244 AP10a the coordinator launches NO shard on real drift" \
+  "$(case "$RA_AP10_OUT" in *"launched shard"*) printf no ;; *) printf yes ;; esac)" \
+  "a shard was launched despite detected drift; output: $(printf '%s' "$RA_AP10_OUT" | tr '\n' '|')"
+_ra_ok "#1244 AP10a the coordinator refuses by name" \
+  "$(case "$RA_AP10_OUT" in *"launching no shard"*) printf yes ;; *) printf no ;; esac)" \
+  "the refusal message is absent; output: $(printf '%s' "$RA_AP10_OUT" | tr '\n' '|')"
+# The real helper's own row line, echoed by the coordinator: this is what proves the
+# DEFAULT resolved to the bundled helper rather than to nothing (an empty default warns and
+# proceeds, printing no row line at all).
+_ra_ok "#1244 AP10a the echoed report is the REAL helper's row output, not a stub's" \
+  "$(case "$RA_AP10_OUT" in *"[plugin-identity-regions] DRIFT"*) printf yes ;; *) printf no ;; esac)" \
+  "the coordinator printed no real preflight row line, so the default binding was not exercised"
+_ra_ok "#1244 AP10a the coordinator never treated the real drift as inconclusive" \
+  "$(case "$RA_AP10_OUT" in *"preflight was inconclusive"*) printf no ;; *) printf yes ;; esac)" \
+  "real drift took the fail-OPEN arm; output: $(printf '%s' "$RA_AP10_OUT" | tr '\n' '|')"
+
+# AP10b — the reconciled counterpart, so AP10a's refusal is attributable to the planted
+# drift and not to the coordinator refusing on every fixture. A clean tree with the same
+# real default preflight launches the shard and completes.
+RA_AP10B="$_ra_tmp_root/ap10b"; _ra_fixture "$RA_AP10B"; _ra_plant_dispatcher "$RA_AP10B"
+RA_AP10B_OUT="$( cd "$RA_AP10B" && DEVFLOW_SHARD_DISPATCHER="$RA_AP10B/ra-dispatch.sh" \
+  bash lib/test/run-parallel.sh 2>&1 )"; RA_AP10B_RC=$?
+_ra_same "#1244 AP10b a reconciled tree with the DEFAULT preflight exits 0" "0" "$RA_AP10B_RC" \
+  "output: $(printf '%s' "$RA_AP10B_OUT" | tr '\n' '|')"
+_ra_ok "#1244 AP10b a reconciled tree still launches its shard" \
+  "$(case "$RA_AP10B_OUT" in *"launched shard alpha"*) printf yes ;; *) printf no ;; esac)" \
+  "no shard launched on a clean tree; output: $(printf '%s' "$RA_AP10B_OUT" | tr '\n' '|')"
+_ra_ok "#1244 AP10b a reconciled tree emits no preflight warning and no refusal" \
+  "$(case "$RA_AP10B_OUT" in
+       *"generated-artifact preflight"*|*"launching no shard"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "a clean real preflight was reported as inconclusive or refused; output: $(printf '%s' "$RA_AP10B_OUT" | tr '\n' '|')"
+# AP10c/AP10d — the STANDALONE `--preflight` route (issue #1288) against the same REAL
+# default preflight, mirroring AP10a/AP10b. The `parallel-suite-runner` module drives every
+# `--preflight` arm through an injected stub, so the same two surfaces AP10a exists to bind
+# for the coordinator were unbound for this route: that an unset DEVFLOW_ARTIFACT_PREFLIGHT
+# resolves to the bundled helper on the `--preflight` case at all, and that the cross-file
+# verdict contract holds there. The route runs no shard, so no dispatcher is planted — a
+# launched shard would itself be a failure, and is asserted against.
+RA_AP10C_OUT="$( cd "$RA_AP8" && bash lib/test/run-parallel.sh --preflight 2>&1 )"; RA_AP10C_RC=$?
+_ra_ok "#1288 AP10c --preflight refuses (non-zero) on real drift with the DEFAULT preflight" \
+  "$([ "$RA_AP10C_RC" -ne 0 ] && printf yes || printf no)" \
+  "--preflight exited 0 on a drifted tree; output: $(printf '%s' "$RA_AP10C_OUT" | tr '\n' '|')"
+_ra_ok "#1288 AP10c --preflight refuses by name" \
+  "$(case "$RA_AP10C_OUT" in *"launching no shard"*) printf yes ;; *) printf no ;; esac)" \
+  "the refusal message is absent; output: $(printf '%s' "$RA_AP10C_OUT" | tr '\n' '|')"
+# The real helper's own row line: this is what proves the DEFAULT resolved to the bundled
+# helper on the `--preflight` case rather than to nothing (an empty default warns, proceeds,
+# and prints no row line at all).
+_ra_ok "#1288 AP10c the echoed report is the REAL helper's row output, not a stub's" \
+  "$(case "$RA_AP10C_OUT" in *"[plugin-identity-regions] DRIFT"*) printf yes ;; *) printf no ;; esac)" \
+  "--preflight printed no real preflight row line, so the default binding was not exercised"
+_ra_ok "#1288 AP10c --preflight never treated the real drift as inconclusive" \
+  "$(case "$RA_AP10C_OUT" in *"preflight was inconclusive"*) printf no ;; *) printf yes ;; esac)" \
+  "real drift took the fail-OPEN arm; output: $(printf '%s' "$RA_AP10C_OUT" | tr '\n' '|')"
+_ra_ok "#1288 AP10c --preflight launches NO shard on real drift" \
+  "$(case "$RA_AP10C_OUT" in *"launched shard"*) printf no ;; *) printf yes ;; esac)" \
+  "a shard was launched by the standalone route; output: $(printf '%s' "$RA_AP10C_OUT" | tr '\n' '|')"
+
+# AP10d — the reconciled counterpart (the positive control on the same fixture shape), so
+# AP10c's refusal is attributable to the planted drift rather than to `--preflight` refusing
+# on every tree. Reuses AP10b's already-reconciled fixture; its planted dispatcher is
+# irrelevant here because this route exits before the shard population is derived.
+RA_AP10D_OUT="$( cd "$RA_AP10B" && bash lib/test/run-parallel.sh --preflight 2>&1 )"; RA_AP10D_RC=$?
+_ra_same "#1288 AP10d --preflight on a reconciled tree with the DEFAULT preflight exits 0" \
+  "0" "$RA_AP10D_RC" "output: $(printf '%s' "$RA_AP10D_OUT" | tr '\n' '|')"
+_ra_ok "#1288 AP10d --preflight on a reconciled tree emits no warning and no refusal" \
+  "$(case "$RA_AP10D_OUT" in
+       *"generated-artifact preflight"*|*"launching no shard"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "a clean real preflight was reported as inconclusive or refused; output: $(printf '%s' "$RA_AP10D_OUT" | tr '\n' '|')"
+_ra_ok "#1288 AP10d --preflight on a reconciled tree launches no shard and claims no aggregate" \
+  "$(case "$RA_AP10D_OUT" in *"launched shard"*|*passed,*) printf no ;; *) printf yes ;; esac)" \
+  "the standalone route produced shard or aggregate output; output: $(printf '%s' "$RA_AP10D_OUT" | tr '\n' '|')"
+
+_ra_live_unchanged "#1244 AP10 live manifest byte-unchanged after the coordinator integration arms"
+
+# ── AP11 — an exit OUTSIDE the row's declared `exits` set ────────────────────
+# `run_preflight_row` compares the observed exit against the row's declared `exits` BEFORE any
+# clean / positive-marker / infra-marker / traceback classification, and routes an out-of-set
+# exit to UNCHECKABLE. Every AP arm above drives an IN-SET exit (0 or 1), so this was the one
+# classification branch nothing reached — and it is the most expensive one to get wrong in the
+# wrong direction: it is fail-OPEN by contract, so miswiring it to return drift would make the
+# coordinator fail CLOSED and refuse the whole suite over a result the preflight never
+# established (the "unknown is not zero" collapse, at suite scale).
+#
+# The row is `env-freeze-advisory-region`, whose registry entry deliberately leaves 2 outside
+# its declared set so its generator's own INPUT failures land on this branch; the stub below
+# fixes the exit at 3 so AP11a measures the classification rather than any generator's
+# behavior.
+#
+# The declared set is read from the FIXTURE's own registry rather than transcribed here: the
+# controls below have to establish that a probe's exit really is outside the set
+# `run_preflight_row` compares against, and a hardcoded `0 1` would go on asserting that after
+# a registry edit widened the set — leaving these arms silently measuring the in-set path.
+_ra_declared_exits() {  # <root> <row-name> — space-separated declared exit codes
+  python3 - "$1" "$2" <<'RA_EXITS_EOF'
+import importlib.util, sys
+
+spec = importlib.util.spec_from_file_location(
+    "ra_registry", sys.argv[1] + "/lib/test/regenerate-artifacts.py"
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(" ".join(str(c) for row in mod.ROWS if row["name"] == sys.argv[2] for c in row["exits"]))
+RA_EXITS_EOF
+}
+# "yes" when <rc> is absent from the space-separated <declared-set>. Spelled once so both
+# sub-arms ask the question identically.
+_ra_rc_out_of_set() {  # <declared-set> <rc>
+  local _code
+  # An unreadable registry yields an EMPTY set, which would make the loop below vacuous and
+  # report "out of set" for every rc — this control failing open on exactly the broken tree it
+  # exists to catch. Report it unestablished so the caller's assertion goes RED instead.
+  case "$1" in '') printf 'unestablished'; return 0 ;; esac
+  for _code in $1; do
+    if [ "$_code" = "$2" ]; then printf no; return 0; fi
+  done
+  printf yes
+}
+
+# AP11a — out-of-set exit, target PRESENT: UNCHECKABLE, and no absent-target sub-clause.
+RA_AP11A="$_ra_tmp_root/ap11a"; _ra_fixture "$RA_AP11A"
+cat > "$RA_AP11A/lib/generate-env-freeze-advisory.py" <<'PY'
+#!/usr/bin/env python3
+raise SystemExit(3)
+PY
+chmod 755 "$RA_AP11A/lib/generate-env-freeze-advisory.py"
+RA_AP11A_EXITS="$(_ra_declared_exits "$RA_AP11A" env-freeze-advisory-region)"
+# Positive control, in four parts, because this arm is selected by the exit CODE alone and a
+# stub that missed the shape would land on a neighbouring branch with every assertion below
+# still green: (1) the declared set was actually read, (2) the stub really exits 3, (3) 3
+# really is outside that set, and (4) the stub prints no traceback — otherwise the UNCHECKABLE
+# verdict could be coming from the universal traceback marker AP6/AP7 already cover.
+_ra_ok "#1244 AP11a the row's declared exit set is established (the out-of-set control is live)" \
+  "$([ -n "$RA_AP11A_EXITS" ] && printf yes || printf no)" \
+  "the declared exits could not be read from the fixture registry, so the control below would be vacuous"
+RA_AP11A_PROBE="$( cd "$RA_AP11A" && python3 lib/generate-env-freeze-advisory.py --check 2>&1 )"
+RA_AP11A_PRC=$?
+assert_eq "#1244 AP11a the stubbed generator really exits 3" "3" "$RA_AP11A_PRC"
+_ra_ok "#1244 AP11a the stub's exit really is OUTSIDE the row's declared set" \
+  "$(_ra_rc_out_of_set "$RA_AP11A_EXITS" "$RA_AP11A_PRC")" \
+  "exit $RA_AP11A_PRC is inside the declared set ($RA_AP11A_EXITS), so the in-set path is what would be measured"
+_ra_ok "#1244 AP11a the stub prints no traceback (so the out-of-set branch, not the traceback marker, decides)" \
+  "$(case "$RA_AP11A_PROBE" in *"Traceback (most recent call last)"*) printf no ;; *) printf yes ;; esac)" \
+  "the stub emitted a traceback, so this arm would measure the universal traceback marker instead"
+_ra_ok "#1244 AP11a the row's target is PRESENT (so the absent-target sub-clause must not render)" \
+  "$([ -f "$RA_AP11A/lib/generate-env-freeze-advisory.py" ] && printf yes || printf no)" \
+  "the generator is missing, so this arm is AP11c's absent-target case rather than the present-target one"
+RA_AP11A_MAN_BEFORE="$(cat "$RA_AP11A/scripts/devflow-cloud-writer-contract.json")"
+RA_AP11A_REGION_BEFORE="$(cat "$RA_AP11A/docs/internal/cloud-setup.md")"
+_ra_preflight "$RA_AP11A"
+# Exit 2 is the coordinator's fail-OPEN signal; exit 1 would be the refusal. AP11b drives that
+# consequence end to end.
+assert_eq "#1244 AP11a an out-of-set exit exits 2 (UNCHECKABLE, the coordinator's fail-open signal)" \
+  "2" "$(_ra_prc "$RA_AP11A")"
+_ra_has_file "#1244 AP11a the out-of-set row is reported UNCHECKABLE by name" \
+  "$RA_AP11A/.rap.out" "[env-freeze-advisory-region] UNCHECKABLE"
+# The row name and exit code alone do not discriminate — a row routed here by any other arm
+# would satisfy them — so pin the diagnostic only this branch can emit.
+_ra_has_file "#1244 AP11a the diagnostic names the out-of-set exit as the reason" \
+  "$RA_AP11A/.rap.out" "outside its declared set"
+_ra_has_file "#1244 AP11a the exit-2 summary the coordinator reads is printed" \
+  "$RA_AP11A/.rap.out" "could not check at least one eligible artifact"
+_ra_has_file "#1244 AP11a the machine uncheckable verdict is emitted" \
+  "$RA_AP11A/.rap.out" "regenerate-artifacts: preflight-verdict: uncheckable"
+RA_AP11A_OUT="$(cat "$RA_AP11A/.rap.out")"
+_ra_ok "#1244 AP11a an out-of-set exit is never reported as drift" \
+  "$(case "$RA_AP11A_OUT" in
+       *"preflight-verdict: drift"*|*"preflight detected drift"*|*"[env-freeze-advisory-region] DRIFT"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "an unestablished result was classified as drift, which fails CLOSED and blocks the whole suite"
+_ra_ok "#1244 AP11a the absent-target sub-clause does NOT render while the target exists" \
+  "$(case "$RA_AP11A_OUT" in *"(target absent:"*) printf no ;; *) printf yes ;; esac)" \
+  "the sub-clause rendered for a target that is present, so it discriminates nothing in AP11c"
+_ra_same "#1244 AP11a preflight writes nothing on the out-of-set arm (manifest)" \
+  "$RA_AP11A_MAN_BEFORE" "$(cat "$RA_AP11A/scripts/devflow-cloud-writer-contract.json")" \
+  "the read-only preflight mutated the manifest on the out-of-set arm"
+_ra_same "#1244 AP11a preflight writes nothing on the out-of-set arm (the row's own artifact)" \
+  "$RA_AP11A_REGION_BEFORE" "$(cat "$RA_AP11A/docs/internal/cloud-setup.md")" \
+  "the read-only preflight rewrote the advisory region of the row it could not check"
+_ra_live_unchanged "#1244 AP11a live manifest byte-unchanged after the out-of-set preflight"
+
+# AP11b — the coordinator's response to that same tree, end to end with NO
+# DEVFLOW_ARTIFACT_PREFLIGHT override, so the REAL default preflight is what it reads. This is
+# the limb the fail-open contract is actually about: an unestablished row must warn and launch,
+# never refuse. AP10a proves this same coordinator DOES refuse on real drift, so a green result
+# here is attributable to the classification rather than to a coordinator that never refuses.
+_ra_plant_dispatcher "$RA_AP11A"
+RA_AP11B_OUT="$( cd "$RA_AP11A" && DEVFLOW_SHARD_DISPATCHER="$RA_AP11A/ra-dispatch.sh" \
+  bash lib/test/run-parallel.sh 2>&1 )"; RA_AP11B_RC=$?
+_ra_same "#1244 AP11b the coordinator proceeds (exit 0) despite the unestablished row" \
+  "0" "$RA_AP11B_RC" "output: $(printf '%s' "$RA_AP11B_OUT" | tr '\n' '|')"
+_ra_ok "#1244 AP11b the coordinator still launches its shard" \
+  "$(case "$RA_AP11B_OUT" in *"launched shard alpha"*) printf yes ;; *) printf no ;; esac)" \
+  "no shard launched on an unestablished preflight; output: $(printf '%s' "$RA_AP11B_OUT" | tr '\n' '|')"
+_ra_ok "#1244 AP11b the coordinator warns that the preflight was inconclusive, naming its exit" \
+  "$(case "$RA_AP11B_OUT" in *"preflight was inconclusive (exit 2, no drift verdict)"*) printf yes ;; *) printf no ;; esac)" \
+  "the fail-open warning is absent or misreports the exit, so the operator is not told the check never ran; output: $(printf '%s' "$RA_AP11B_OUT" | tr '\n' '|')"
+_ra_ok "#1244 AP11b the coordinator never refuses over the unestablished row" \
+  "$(case "$RA_AP11B_OUT" in *"launching no shard"*) printf no ;; *) printf yes ;; esac)" \
+  "the coordinator refused the whole suite over a result the preflight never established; output: $(printf '%s' "$RA_AP11B_OUT" | tr '\n' '|')"
+
+# AP11c — the `(target absent: …)` sub-clause. `run_preflight_row` derives the target from the
+# row's own preflight argv (its first non-flag argument) and appends the sub-clause only when
+# that path is missing from the tree — the renamed-or-deleted-generator case, the one shape
+# where "outside its declared set" alone would send the reader hunting for a bug inside a
+# generator that is not there. Deleting the generator is also HOW the out-of-set exit arises
+# here: python3 itself refuses to open the file, so the exit code is not under this test's
+# control, which is why the control below establishes it against the registry rather than
+# assuming a value.
+RA_AP11C="$_ra_tmp_root/ap11c"; _ra_fixture "$RA_AP11C"
+rm -f "$RA_AP11C/lib/generate-env-freeze-advisory.py"
+_ra_ok "#1244 AP11c the row's target really is absent" \
+  "$([ -e "$RA_AP11C/lib/generate-env-freeze-advisory.py" ] && printf no || printf yes)" \
+  "the generator is still present, so the sub-clause under test cannot render"
+RA_AP11C_EXITS="$(_ra_declared_exits "$RA_AP11C" env-freeze-advisory-region)"
+_ra_ok "#1244 AP11c the row's declared exit set is established (the out-of-set control is live)" \
+  "$([ -n "$RA_AP11C_EXITS" ] && printf yes || printf no)" \
+  "the declared exits could not be read from the fixture registry, so the control below would be vacuous"
+RA_AP11C_PROBE_RC=0
+( cd "$RA_AP11C" && python3 lib/generate-env-freeze-advisory.py --check ) >/dev/null 2>&1
+RA_AP11C_PROBE_RC=$?
+_ra_ok "#1244 AP11c running the absent generator really exits OUTSIDE the declared set" \
+  "$(_ra_rc_out_of_set "$RA_AP11C_EXITS" "$RA_AP11C_PROBE_RC")" \
+  "exit $RA_AP11C_PROBE_RC is inside the declared set ($RA_AP11C_EXITS), so the out-of-set branch is not the one under test"
+RA_AP11C_MAN_BEFORE="$(cat "$RA_AP11C/scripts/devflow-cloud-writer-contract.json")"
+RA_AP11C_REGION_BEFORE="$(cat "$RA_AP11C/docs/internal/cloud-setup.md")"
+_ra_preflight "$RA_AP11C"
+assert_eq "#1244 AP11c an absent target also exits 2 (UNCHECKABLE)" "2" "$(_ra_prc "$RA_AP11C")"
+_ra_has_file "#1244 AP11c the absent-target row is reported UNCHECKABLE by name" \
+  "$RA_AP11C/.rap.out" "[env-freeze-advisory-region] UNCHECKABLE"
+_ra_has_file "#1244 AP11c the sub-clause renders and names the missing target" \
+  "$RA_AP11C/.rap.out" "(target absent: lib/generate-env-freeze-advisory.py)"
+_ra_has_file "#1244 AP11c the absent-target diagnostic still names the out-of-set exit" \
+  "$RA_AP11C/.rap.out" "outside its declared set"
+_ra_ok "#1244 AP11c an absent target is never reported as drift" \
+  "$(case "$(cat "$RA_AP11C/.rap.out")" in
+       *"preflight-verdict: drift"*|*"preflight detected drift"*|*"[env-freeze-advisory-region] DRIFT"*) printf no ;;
+       *) printf yes ;;
+     esac)" \
+  "a missing generator was reported as reconcilable drift, aiming the remedy at a script that is not there"
+_ra_same "#1244 AP11c preflight writes nothing on the absent-target arm (manifest)" \
+  "$RA_AP11C_MAN_BEFORE" "$(cat "$RA_AP11C/scripts/devflow-cloud-writer-contract.json")" \
+  "the read-only preflight mutated the manifest on the absent-target arm"
+_ra_same "#1244 AP11c preflight writes nothing on the absent-target arm (the row's own artifact)" \
+  "$RA_AP11C_REGION_BEFORE" "$(cat "$RA_AP11C/docs/internal/cloud-setup.md")" \
+  "the read-only preflight rewrote the advisory region while its generator was absent"
+_ra_live_unchanged "#1244 AP11c live manifest byte-unchanged after the absent-target preflight"
+
 # The row integration itself has two non-clean states. A measured raise is a mechanical
 # reconciliation that changes the registry and `run.sh`; a measured decrease is a non-writing
 # judgment. The fake runner above supplies the actual summary boundary while these fixtures
@@ -1500,6 +2049,18 @@ _ra_bind_fails_closed "an empty recipe" \
 _ra_bind_fails_closed "an unsupported row kind" \
   's/"kind": "mechanical"/"kind": "mechanicl"/' \
   "kind 'mechanicl'" "outside"
+# issue #1244: preflight eligibility is declared data, validated at bind time.
+# A non-bool `preflight_eligible` fails closed. `"preflight_eligible": False` occurs
+# exactly once (the ineligible exact-module-floors row); `0` is not a bool in Python.
+_ra_bind_fails_closed "a non-bool preflight_eligible" \
+  's/"preflight_eligible": False/"preflight_eligible": 0/' \
+  "not a bool"
+# The write-nothing invariant is enforced in data: deleting the cloud-writer row's
+# non-writing `preflight_argv` line (its `"verify"` tuple is the file's only `"verify"`)
+# leaves an eligible row that declares `writes` with no read-only preflight command.
+_ra_bind_fails_closed "an eligible writing row lacking a non-writing preflight_argv" \
+  '/"verify"/d' \
+  "no non-writing preflight_argv"
 
 # ── (f2) an underivable region set exits 2 (INFRASTRUCTURE), never 1 ────────────
 # `_capability_region_targets` documents that it RAISES rather than returning a partial set, and
@@ -1738,3 +2299,109 @@ assert_eq "#1055 the exact-floor recipe routes through the granted batch entry p
   "yes" "$(_ra_recipe_names exact-module-floors 'lib/test/regenerate-artifacts.py')"
 assert_eq "#1055 the exact-floor recipe does not expose its subprocess-only child" \
   "no" "$(_ra_recipe_names exact-module-floors 'python3 lib/test/reconcile-module-floors.py')"
+
+# ── #1206 — the coupled-site registry (issue #1206) ──────────────────────────
+# `--list` prints a coupled-site registry AFTER everything it printed before, so a person
+# or an automated run can ask "what else must change when I edit X?" read-only. RA_LIST
+# (captured at A4) is the live `--list` output; RA_LIST_RC its exit code.
+
+# (a) — AC1/AC8(a): the addition leaves the pre-existing output byte-for-byte unchanged.
+# Emit with an EMPTIED table and compare against the live list with its coupled-site lines
+# stripped: if the two match, nothing above the coupled-site block moved.
+RA_1206_EMPTY_EMIT="$(python3 - "$RA_HELPER" "$RA_REPO" <<'RA_1206_EMPTY'
+import contextlib, importlib.util, io, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("ra1206empty", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+mod.COUPLED_SITES = ()
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    mod.emit_list(Path(sys.argv[2]).resolve())
+sys.stdout.write(buf.getvalue())
+RA_1206_EMPTY
+)"
+RA_1206_LIST_NOCOUPLED="$(printf '%s\n' "$RA_LIST" | grep -v '^coupled-site')"
+_ra_same "#1206 (a) an empty COUPLED_SITES leaves the artifact/conflict/preflight output unchanged" \
+  "$RA_1206_LIST_NOCOUPLED" "$RA_1206_EMPTY_EMIT" \
+  "adding the coupled-site registry changed a line printed before it"
+# And the coupled-site lines really are LAST: nothing above them in the live list is a
+# coupled-site line (the empty-table compare above only proves the non-coupled lines match).
+RA_1206_FIRST_COUPLED="$(printf '%s\n' "$RA_LIST" | grep -n '^coupled-site' | head -1 | cut -d: -f1)"
+RA_1206_LAST_PREFLIGHT="$(printf '%s\n' "$RA_LIST" | grep -n '^preflight	' | tail -1 | cut -d: -f1)"
+_ra_ok "#1206 (a) the coupled-site block prints after the preflight block" \
+  "$([ -n "$RA_1206_FIRST_COUPLED" ] && [ -n "$RA_1206_LAST_PREFLIGHT" ] && [ "$RA_1206_FIRST_COUPLED" -gt "$RA_1206_LAST_PREFLIGHT" ] && printf yes || printf no)" \
+  "a coupled-site line printed before the last preflight line"
+
+# (b) — AC8(b): the new lines print in the documented tab-separated shape, and each
+# required entry (AC5/AC6/AC7) is present with its class, original, and partners.
+_ra_has_file "#1206 (b) AC5 the EXTRAS entry prints in the documented shape" "$RA_C_LIST_F" \
+  "coupled-site	matcher-probe-extras	allowlist-mirror	.prflow/config.json	"
+_ra_has_file "#1206 (b) AC5 the EXTRAS partner is the matcher-probe workflow" "$RA_C_LIST_F" \
+  "coupled-site-partner	matcher-probe-extras	.github/workflows/matcher-probe.yml"
+_ra_has_file "#1206 (b) AC6 the _WSR_SWEPT_RELPATHS entry is present" "$RA_C_LIST_F" \
+  "coupled-site	wsr-swept-relpaths	frozen-old-paths	lib/test/run.sh	"
+_ra_has_file "#1206 (b) AC7 the rename-map readers entry names lib/rename-map.json" "$RA_C_LIST_F" \
+  "coupled-site	rename-map-readers	single-source-readers	lib/rename-map.json	"
+_ra_has_file "#1206 (b) AC7 a rename-map reader partner is a shipped workflow config job" "$RA_C_LIST_F" \
+  "coupled-site-partner	rename-map-readers	.github/workflows/devflow.yml"
+_ra_has_file "#1206 (b) AC7 the deliberate state-dir mirror entry is present" "$RA_C_LIST_F" \
+  "coupled-site	rename-map-state-dir-mirror	deliberate-mirror	lib/rename-map.json	"
+_ra_has_file "#1206 (b) AC7 the state-dir mirror names lib/state_dir.py" "$RA_C_LIST_F" \
+  "coupled-site-partner	rename-map-state-dir-mirror	lib/state_dir.py"
+
+# AC6/AC4 exemption, observed LIVE: the old-path entry names a `.devflow/` path that does
+# NOT exist in the tree, yet `--list` still exits 0 — the holds_old_paths marker exempts it.
+assert_eq "#1206 (b) AC4/AC6 --list still exits 0 despite the old-path entry" "0" "$RA_LIST_RC"
+_ra_has_file "#1206 (b) AC6 the old-path partner is emitted verbatim" "$RA_C_LIST_F" \
+  "coupled-site-partner	wsr-swept-relpaths	.devflow/prompt-extensions/implement.md"
+
+# (c) — AC3/AC8(c): a structurally-bad entry raises at import; a script run routes that to
+# the exit-2 infrastructure state naming the bad entry, never a shortened list called
+# success. Driven end-to-end through the shared `_ra_bind_fails_closed` harness.
+_ra_bind_fails_closed "a coupled-site entry with an empty coupling_class" \
+  's/"coupling_class": "allowlist-mirror"/"coupling_class": ""/' \
+  "'matcher-probe-extras'" "non-empty string"
+# AC3: a NON-DICT entry (a bare string, a stray tuple, None) is rejected as a ValueError
+# naming its index — not as the AttributeError/TypeError a `.get` on a non-mapping would
+# raise, which the import-time net (ValueError only) would let out as an exit-1 traceback
+# instead of the documented exit-2 INFRASTRUCTURE routing. The index is the only handle:
+# such a row has no `name` to be reported by.
+_ra_bind_fails_closed "a non-dict coupled-site entry is rejected" \
+  's/^COUPLED_SITES = \($/COUPLED_SITES = ("stray-string",/' \
+  "index 0" "must be a dict"
+_ra_bind_fails_closed "a duplicate coupled-site name" \
+  's/"name": "rename-map-state-dir-mirror"/"name": "rename-map-readers"/' \
+  "declared more than once"
+
+# (d) — AC4/AC8(d): an entry naming a path absent from the tree is a loud exit-2 failure
+# naming BOTH the entry and the path. The check runs when the list is printed (`--repo-root`
+# points at a fixture root here). `#` sed delimiter because the paths carry `/`.
+_ra_bind_fails_closed "a coupled-site entry naming a missing path" \
+  's#"original": ".prflow/config.json"#"original": ".prflow/nonexistent-xyz.json"#' \
+  "matcher-probe-extras" ".prflow/nonexistent-xyz.json" "absent from the tree"
+# AC4/AC6: removing the holds_old_paths marker EXPOSES the old paths to the existence
+# check — proving the marker (not a hardcoded path list) is what exempts them.
+_ra_bind_fails_closed "removing holds_old_paths exposes the old paths to the AC4 check" \
+  's/"holds_old_paths": True,//' \
+  "wsr-swept-relpaths" ".devflow/prompt-extensions/implement.md" "absent from the tree"
+# AC4: the holds_old_paths marker exempts only the PARTNERS — the `original` is a live file
+# and stays existence-checked even on an old-path entry. A missing `original` on the
+# holds_old_paths entry still fails closed (this would PASS under a whole-entry skip). `#`
+# sed delimiter because the paths carry `/`.
+_ra_bind_fails_closed "an old-path entry with a missing original still fails the AC4 check" \
+  's#"original": "lib/test/run.sh"#"original": "lib/test/nonexistent-run.sh"#' \
+  "wsr-swept-relpaths" "lib/test/nonexistent-run.sh" "absent from the tree"
+# AC3: a non-bool holds_old_paths is rejected at import — a truthy STRING must not silently
+# disable the AC4 existence check (the fail-open guard-class CLAUDE.md warns about).
+_ra_bind_fails_closed "a non-bool holds_old_paths is rejected" \
+  's/"holds_old_paths": True,/"holds_old_paths": "yes",/' \
+  "wsr-swept-relpaths" "not a bool"
+# AC3: an entry with an empty partners tuple is rejected — a coupled site with no partner
+# records no coupling. matcher-probe-extras' partners is a single-line tuple, so this
+# mutation is unambiguous.
+# The `(`/`)` are escaped: `_ra_bind_fails_closed` runs `sed -E`, so bare parens are ERE
+# grouping metacharacters, not literals.
+_ra_bind_fails_closed "a coupled-site entry with no partners is rejected" \
+  's#"partners": \(".github/workflows/matcher-probe.yml",\),#"partners": (),#' \
+  "matcher-probe-extras" "one or more partner"

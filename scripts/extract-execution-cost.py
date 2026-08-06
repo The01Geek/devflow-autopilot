@@ -31,8 +31,8 @@ Contract (issue #475 AC1/AC2):
   - Best-effort: ALWAYS exits 0 (the ensure-label.sh / describe-denial-count.sh
     contract) so the backstop step that runs it is never aborted by a bad file.
 
-The `execution_file` schema is NOT a public contract (see docs/execution-file-shape.md,
-a dated observation of one action version), so the key lookups below are tolerant and
+The `execution_file` schema is NOT a public contract (only a dated observation of
+one action version), so the key lookups below are tolerant and
 preference-ordered rather than a brittle single-shape parse.
 """
 import json

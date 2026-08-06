@@ -1,15 +1,39 @@
 ---
 title: "Runs"
-description: "Choose whether PRFlow executes in your local Claude Code session or through GitHub Actions."
+description: "Choose local interactive execution or optional GitHub Actions automation."
 ---
 
 # Runs
 
-PRFlow supports two execution models:
+This page is for teams choosing where PRFlow should execute. The lifecycle is similar in both modes, but the credentials, permission boundary and interaction model differ.
 
-- [Local runs](/docs/runs/local/index) execute in your current Claude Code session and are the fastest way to get started.
-- [Cloud runs](/docs/runs/cloud/index) execute through repository automation after an authorized GitHub comment.
+```mermaid
+flowchart TD
+    accTitle: Choose between a local run and a cloud run
+    accDescr: Use a local run for interactive work in your current development session. Use a cloud run for unattended work only after the GitHub Actions workflow, runner, secrets, setup and permissions are ready.
+    start{"Do you want PRFlow to run<br/>in your current development session?"}
+    start -- "Yes" --> local["Use a local run<br/>Interactive and easiest to start"]
+    start -- "No" --> unattended{"Do you need authorized GitHub comments<br/>to start unattended work?"}
+    unattended -- "No" --> local
+    unattended -- "Yes" --> ready{"Are the workflow, runner, secrets,<br/>setup and permissions ready?"}
+    ready -- "Not yet" --> prepare["Start locally<br/>Then configure and test cloud runs"]
+    ready -- "Yes" --> cloud["Use a cloud run<br/>GitHub Actions executes the work"]
+    prepare --> cloud
+```
 
-The workflows are conceptually the same, but the execution environment changes. Local runs inherit the tools and credentials available to your session. Cloud runs use explicit GitHub permissions, repository secrets and a declared setup process.
+| **Run Type** | **Execution Environment** | **Best For** |
+| --- | --- | --- |
+| [Local runs](/docs/runs/local/index) | Your Claude Code, GitHub Copilot CLI or Codex CLI session. | First use, interactive decisions and access to an existing development environment. |
+| [Cloud runs](/docs/runs/cloud/index) | GitHub Actions after an authorized comment. | Headless, comment-driven implementation and review with repository-managed credentials. |
 
-Begin locally. Add cloud automation when comment-driven execution provides enough value to justify the additional repository configuration.
+Local runs inherit tools, authentication and permission prompts from your client session. They need no GitHub Actions workflows or cloud secret.
+
+Cloud runs use committed workflows, explicit GitHub permissions, repository secrets and a declared setup process. Fresh cloud installations support issue-driven implementation and collaborator-triggered review. They require more maintenance than the local path.
+
+Begin locally. Add cloud automation after the workflow, verification commands and permission scopes are understood.
+
+## Related Documentation
+
+- [Client Command Syntax](/docs/runs/local/client-commands)
+- [Local Permissions](/docs/runs/local/permissions)
+- [Cloud Setup](/docs/runs/cloud/setup)

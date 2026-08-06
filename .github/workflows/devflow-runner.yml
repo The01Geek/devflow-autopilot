@@ -12,7 +12,7 @@ name: DevFlow Runner (reusable)
 # read-only caller like devflow-review.yml could not call the consolidated
 # devflow.yml without a `startup_failure` (the listener jobs' scopes exceeded
 # the caller's grant). Keeping the runner here, alone, restores the invariant
-# that the callee's scopes ⊆ the caller's. See docs/cloud-setup.md.
+# that the callee's scopes ⊆ the caller's. See docs/internal/cloud-setup.md.
 #
 # Keep plugin_marketplaces / plugins / claude_args in sync with devflow.yml's
 # `command` job and devflow-implement.yml so every path resolves identical
@@ -128,7 +128,7 @@ on:
       DEVFLOW_REVIEWER_PRIVATE_KEY:
         description: |
           PEM private key of the optional dedicated **DevFlow-Reviewer** GitHub
-          App (see docs/cloud-setup.md). Consumed by the downscoped
+          App (see docs/internal/cloud-setup.md). Consumed by the downscoped
           DevFlow-Reviewer review-token mint step, which is gated on
           `vars.DEVFLOW_REVIEWER_APP_ID != ''` — so this secret is only read
           when the reviewer App is configured. The review path deliberately
@@ -437,7 +437,7 @@ jobs:
           # for its own review, nor inject `setup.install` commands into this
           # pull_request_target write-token job. (The build commands themselves
           # still run PR-author code once provisioning is on — that is the
-          # maintainer's documented opt-in; see docs/cloud-setup.md.)
+          # maintainer's documented opt-in; see docs/internal/cloud-setup.md.)
           #
           # Deliberate: on any trigger that carries no `pull_request` (the caller
           # devflow-review.yml currently wires only check_run Re-runs — see its
@@ -1016,7 +1016,7 @@ jobs:
               # boundary by lib/review-profile.tokens — do NOT hand-edit it; change the
               # manifest and regenerate, and widening the reviewer requires a visible diff
               # to that lock. lib/test/run.sh's --check turns any drift RED.
-              # devflow-capability-manifest: region=runner-review manifest_version=17 sha256=75ab06c02ea4ac253111aac1a1ef8e06f2006b2f7770a8ff83a9e7b9e3061cc3
+              # devflow-capability-manifest: region=runner-review manifest_version=20 sha256=75ab06c02ea4ac253111aac1a1ef8e06f2006b2f7770a8ff83a9e7b9e3061cc3
               TOOLS='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git hash-object:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.prflow/vendor/prflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.prflow/vendor/prflow/scripts/match-deferrals.py:*),Bash(.prflow/vendor/prflow/scripts/match-lint-adjudications.py:*),Bash(.prflow/vendor/prflow/scripts/normalize-verdicts.py:*),Bash(.prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh:*),Bash(.prflow/vendor/prflow/scripts/post-review-verdict.sh:*),Bash(.prflow/vendor/prflow/scripts/workpad.py:*),Bash(.prflow/vendor/prflow/scripts/seed-review-progress.sh:*),Bash(.prflow/vendor/prflow/scripts/config-get.sh:*),Bash(.prflow/vendor/prflow/scripts/load-prompt-extension.sh:*),Bash(.prflow/vendor/prflow/scripts/resolve-review-overrides.py:*),Bash(.prflow/vendor/prflow/scripts/stale-prose-lint.py:*),Bash(.prflow/vendor/prflow/lib/efficiency-trace.sh:*),Write(.prflow/tmp/**)'
               # When the trusted base config opted into provisioning, the runner
               # has a built env (setup-project-env ran below), so grant the
@@ -1076,7 +1076,7 @@ jobs:
                 # parameterized file-tool strip) to take effect; until then a
                 # base ref with no helper fails closed (no build tools, warning,
                 # read-only review still works). Both are stated in
-                # docs/DEVFLOW_SYSTEM_OVERVIEW.md's deny-floor paragraph.
+                # docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md's deny-floor paragraph.
                 # Anchor the relative vendored-copy candidate to the git repo ROOT
                 # (issue #409 item 8, #295 convention: `git rev-parse --show-toplevel`,
                 # falling back to `pwd`). A bare relative `.prflow/vendor/…` path
@@ -1185,7 +1185,7 @@ jobs:
       # comment — so
       # for a given `claude_model` the rendered invocation is unchanged, while a PR
       # can no longer swap the privileged reviewer's model via head config.)
-      # See docs/cloud-setup.md.
+      # See docs/internal/cloud-setup.md.
       - name: Resolve model provider
         id: provider
         env:
@@ -1365,7 +1365,7 @@ jobs:
       # setup-project-env already documents for `services`. (The action body and
       # the install commands still execute from / against the PR checkout once
       # enabled; that residual vector is the documented opt-in — see
-      # docs/cloud-setup.md.) When the flag is absent/false this step is skipped
+      # docs/internal/cloud-setup.md.) When the flag is absent/false this step is skipped
       # and the runner behaves exactly as before: read-only, no build tools.
       - name: Provision project environment (opt-in)
         id: provision
@@ -1719,7 +1719,7 @@ jobs:
       # When no trusted helper resolves the step fails closed INLINE (trusted
       # workflow shell), stubbing every target. The implement job needs no such
       # step: it checks out the DEFAULT branch (never a PR head), so its hook
-      # scripts are already trusted. See docs/DEVFLOW_SYSTEM_OVERVIEW.md.
+      # scripts are already trusted. See docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md.
       - name: Harden Stop-hook script sources (trusted base copy or fail-closed stub)
         id: harden_hooks
         env:
@@ -1878,7 +1878,7 @@ jobs:
               done
             fi
           else
-            echo "::warning::harden-stop-hooks: could not fetch base ref '${BASE_REF:-}' to materialize trusted Stop-hook copies; failing closed (no-op stubs for every hook target). NOTE (issue #460 review, FP-S1): in a CONSUMER repo a base-ref fetch failure means the relevance gate cannot run, so the DevFlow-layout closure paths are stubbed/created over any same-named consumer files during this (read-only) review — a deliberate fail-closed-over-consumer-fidelity trade, disclosed in docs/DEVFLOW_SYSTEM_OVERVIEW.md."
+            echo "::warning::harden-stop-hooks: could not fetch base ref '${BASE_REF:-}' to materialize trusted Stop-hook copies; failing closed (no-op stubs for every hook target). NOTE (issue #460 review, FP-S1): in a CONSUMER repo a base-ref fetch failure means the relevance gate cannot run, so the DevFlow-layout closure paths are stubbed/created over any same-named consumer files during this (read-only) review — a deliberate fail-closed-over-consumer-fidelity trade, disclosed in docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md."
           fi
           # RELEVANCE GATE early-out (issue #460 review, FP1): the trusted base ref
           # demonstrably does not wire these Stop hooks, so there is nothing to harden
@@ -2490,7 +2490,7 @@ jobs:
           # /code-review and /revise-claude-md slash commands), NOT engine dependencies —
           # DevFlow's engine dispatches neither. The "zero companion-plugin dependencies"
           # claim is scoped to the consumer install + what the engine dispatches; see
-          # docs/DEVFLOW_SYSTEM_OVERVIEW.md §6. devflow@ is DevFlow itself. The baked
+          # docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md §6. devflow@ is DevFlow itself. The baked
           # baseline three are composed by the step above; settings-declared extras are
           # appended beyond them.
           plugins: ${{ steps.plugins.outputs.plugins }}
@@ -2632,7 +2632,8 @@ jobs:
       # guard fires but denies nothing does not create that file, so its absence is
       # ambiguous between "guard did not fire" and "guard fired, zero denials" unless
       # disambiguated against the heartbeat, written from `_write_heartbeat` on every
-      # invocation including a defer/allow. This step distinguishes FOUR outcomes
+      # invocation including the no-decision fall-through (exit 0 with no stdout, the
+      # guard's only non-`deny` outcome). This step distinguishes FOUR outcomes
       # (issue #908 review — an earlier revision of this comment named only the first
       # two, which is what let the third go untested; the fourth arrived with the
       # confirmatory review's zero-byte finding):

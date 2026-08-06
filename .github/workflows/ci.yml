@@ -24,6 +24,34 @@ on:
 permissions:
   contents: read
 
+# Supersession-cancellation (issue #1236), WORKFLOW-LEVEL and deliberately distinct
+# from the job-scoped `auto_review_trigger` block far below. When a new commit is
+# pushed to a pull-request branch, the CI run for the now-superseded commit keeps
+# executing a full suite for a commit that has already been replaced, on runners the
+# new commit is waiting for — cancel it.
+#
+# This does NOT contradict the repository's standing doctrine that GitHub-native
+# `concurrency` is not a duplicate-SUPPRESSION primitive (scripts/dedupe-review-command.sh,
+# docs/internal/workflow-triggers.md). That doctrine governs DUPLICATE COMMANDS — two requests for
+# the same work, where the wanted behavior is "ignore the second, leave the first
+# untouched", which neither `concurrency` mode expresses. Supersession is the opposite
+# shape: two CI runs for two DIFFERENT commits are not duplicates — the first has been made
+# obsolete by the second and the wanted behavior IS "cancel the in-flight one", which is the
+# one thing `cancel-in-progress: true` does natively well.
+#
+# The group is keyed on the pull request (its number), so two pushes to one PR branch
+# share a group and two DIFFERENT pull requests never do. On a `main` push
+# `github.event.pull_request.number` is empty, so `github.run_id` gives each main run its
+# OWN group — main runs are neither cancelled (each merged commit is a distinct artifact,
+# not a superseded draft; version-consolidate.yml pushes bump commits that arrive in bursts)
+# nor serialized behind one another. And `cancel-in-progress` resolves `true` ONLY for
+# `pull_request` events, a second guard on the same intent. This block stays on ci.yml ONLY:
+# a `concurrency` cancel on devflow.yml / devflow-implement.yml would feed a deliberate
+# cancel into the run-identity machinery (issues #498/#1054/#1172).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # The suite is split across concurrent SHARD jobs (issue #877) so wall-clock is
   # bounded by the slowest shard rather than the sum. Each shard runs a subset via
@@ -241,7 +269,43 @@ jobs:
     name: lint (shellcheck + actionlint + ruff)
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 so the coverage-map key-retention check (issue #1194) can resolve
+      # the merge base against origin/<base_branch>; a single-commit checkout has no base.
+      #
+      # This coupling ENFORCES ITSELF — do not read the comment as its only guard. The
+      # check distinguishes "no key was lost" (exit 0) from "I could not establish whether
+      # a key was lost" (exit 3), so removing `fetch-depth: 0` cannot silently drop the
+      # protection: a shallow checkout leaves origin/<base_branch> unresolvable (exit 1)
+      # or the merge base uncomputable / its tree empty (exit 3), and either way the step
+      # below goes RED. `--allow-degraded-base` would suppress exit 3 and MUST NOT be
+      # added here — CI is exactly the caller that has a real comparand.
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # issue #1194: the coverage map is two large string-sorted JSON objects, so a
+      # semantic-free adjacent-key conflict resolved by taking one side silently drops the
+      # other branch's entry — a class no coverage-guard arm inspects. The JSON-aware merge
+      # driver removes it on the local merge path, but it cannot run on GitHub's servers or
+      # in the web conflict editor; this CI-side check covers that path regardless of local
+      # config, failing RED when any key or its note/owner content disappears relative to
+      # the merge base. A legitimate removal is declared in coverage-map-retention-allow.json.
+      - name: Coverage-map key-retention check
+        run: python3 lib/test/coverage-map-retention-check.py .
+
+      # issue #1287: a test module's assertion floor lives in two coupled sites
+      # (`minimum_assertions` in the flight-recorder registry and the run.sh call-site
+      # literal). The suite enforces they AGREE and that a tally is not BELOW them, but
+      # only the `exact`-policy modules get a measured equality — so for the modules
+      # carrying no `assertion_floor_policy` a coordinated LOWERING of both sites is
+      # green everywhere. (That population is named by its property, never counted:
+      # it changes as modules are added and re-policed.)
+      # This diff-time gate makes a decrease a declared act: it fails RED on any lowered
+      # registry floor, for every registered module, unless declared in
+      # assertion-floor-retention-allow.json. It needs the same full history the
+      # coverage-map check above relies on (fetch-depth: 0) to resolve the merge base.
+      - name: Assertion-floor retention check
+        run: python3 lib/test/assertion-floor-retention-check.py .
 
       # Pin ShellCheck instead of using the runner image's (issue #745). Two
       # coupled requirements force this, and BOTH are load-bearing:
@@ -320,8 +384,10 @@ jobs:
             lib/test/modules/experiment-records.sh \
             lib/test/modules/efficiency-trace-telemetry.sh \
             lib/test/modules/issue-audit-state.sh \
+            lib/test/modules/phase2-durability-checkpoint.sh \
             lib/test/cloud-form-layout-test.sh \
-            lib/test/path-portability-test.sh
+            lib/test/path-portability-test.sh \
+            lib/test/warn-ignored-signals.sh
 
       # lib/test/run.sh is the suite driver — the largest and most-edited shell
       # file in the repo, and the last one brought under the lint (issue #745).

@@ -15,13 +15,22 @@ decision whose `permissionDecisionReason` names the permitted alternative for th
 the harness's own refusal uses (`permissionDecisionReason` is "shown to Claude in the
 tool result", per https://code.claude.com/docs/en/hooks).
 
-REGISTRATION IS NOT YET WIRED (scope of this change). This change ships the guard BODY,
-its unit coverage, and its trusted-source hardening only. Nothing in the tree registers
-it: `.claude/settings.json` carries no `PreToolUse` key, and
-`.github/workflows/devflow-runner.yml` passes no `settings` input to the action. Until
-both land the guard never executes, so every runtime behavior described below is the
-contract this file implements, not behavior observable at this HEAD. Registration is
-where the two channels below become live.
+REGISTRATION IS SHIPPED BUT UNREACHABLE HERE — not "unwired", and not dead code. One of
+the two channels below has since landed: `.github/workflows/devflow-runner.yml` passes a
+`settings` input registering a `PreToolUse`/`Bash` hook that execs this guard, alongside
+its own step hardening the guard's trusted-source closure. The other has not — the
+committed `.claude/settings.json` carries a `Stop` hook and no `PreToolUse` key — which is
+what leaves the #458 relevance gate unarmed (see TRUST BOUNDARY below). What stops the
+guard executing IN THIS REPOSITORY is therefore an unreachable registration rather than a
+missing one: `devflow-runner.yml` declares `workflow_call` as its only trigger and nothing
+in the tracked tree calls it, its sole caller having been the auto-review tier withheld
+under issue #936. So the runtime behavior described below is read
+here as the contract this file implements, not as something a run in this repository
+exhibits — but NOT as dead code: the withheld tier and its helpers are deliberately
+retained so the tier stays reconstructable and an already-installed consumer keeps working,
+and such a consumer still has the caller this tree lacks, so the guard can be live on that
+copy. Observed against `origin/main` when this paragraph was written; a caller landing
+later falsifies "unreachable" with no edit here, so re-derive it rather than trust it.
 
 DENY SET (arms, not rule ids). The guard denies exactly `R1`, the `/tmp`-target arm of
 R3 (`R3-tmp`), and `R4` — every `lib/test/extract-command-shapes.py` `REVIEW_RULES` arm
@@ -36,12 +45,36 @@ classifier.
 
 FAIL-OPEN, AND ITS ONE EXCLUSION. Every failure in the CLASSIFICATION path — an
 unparseable payload, a dependency that cannot be loaded, any other internal exception —
-resolves to `defer` (the default permission flow) and exit 0. A guard that blocked on an
-unparsed payload would deny legitimate commands; a guard that exited non-zero with no
-heartbeat would read to the workflow as the never-fired case for a guard that in fact
-ran, destroying the distinguishability the heartbeat exists to provide. The harness also
-caps consecutive hook blocks, so a guard that denied everything would stall a run — the
-`defer` majority path is what bounds it.
+resolves to NO DECISION: exit 0 with an EMPTY stdout, which is the documented way for a
+`PreToolUse` hook to report nothing and let the normal permission flow decide ("Exit code
+0 with no output means the hook has no decision to report, so the tool call continues
+through the normal permission flow", https://code.claude.com/docs/en/hooks). A guard that
+blocked on an unparsed payload would deny legitimate commands; a guard that exited
+non-zero with no heartbeat would read to the workflow as the never-fired case for a guard
+that in fact ran, destroying the distinguishability the heartbeat exists to provide.
+
+THE FALL-THROUGH IS NOT `defer` — THAT WAS MEASURED WRONG (run 30967680822). Until this
+change every fall-open path emitted `permissionDecision: "defer"`, on the belief that the
+token means "fall through". The `defer-probe` arm of `.github/workflows/matcher-probe.yml`
+measured the opposite on the CLI the action installs: `DEFER-BLOCKED` — the hook fired,
+the granted command's side effect was ABSENT, so the tool did not execute — corroborated
+by `STOP-REASON-DEFERRED` (the transcript carries `tool_deferred`). So on that harness
+every one of this guard's "fail-open" paths was in fact fail-CLOSED, and a wired run would
+have ended on the first command the guard did not recognize. The published decision-control
+table calls `defer` equivalent to "exiting with code 0 and printing no JSON"; the
+measurement contradicts that for the emitted-token form, and agrees with it for the
+empty-stdout form. So the guard emits the shape both the documentation and the measurement
+agree on — nothing at all — and never the token.
+
+WHY THAT ALSO STRENGTHENS THE BOUND ON BLOCKING. The superseded prose argued the `defer`
+majority path was load-bearing because the harness caps consecutive hook blocks. That
+argument was unsound in both halves: `defer` was a block (see above), so the majority path
+bounded nothing, and no evidence in this repository establishes such a cap in the first
+place. The no-decision fall-through makes the bound REAL rather than assumed, and does so
+without depending on the cap existing: a hook that reports no decision has not blocked
+anything, so the majority path cannot count toward a consecutive-block cap if the harness
+has one. Blocking is now confined to exactly the deny-set arms `_matched_arms` returns —
+which is the property the bound was always meant to name.
 
 The BOOKKEEPING writes are deliberately NOT on that fail-open path. A failed heartbeat
 write, a failed counter write, an unavailable `fcntl`, or a lock the guard could not
@@ -53,14 +86,14 @@ this exclusion is the contract those two comments implement, so do not "restore"
 uniform fail-open here.
 
 DISARMED-RUN SIGNAL (issue #1077). The fail-open above means an unloadable classifier
-resolves to `defer` + exit 0 — byte-identical on every PUBLISHED artifact to a run that
+resolves to no decision + exit 0 — byte-identical on every PUBLISHED artifact to a run that
 fired and matched nothing, because the heartbeat says "fired" for both and stderr is
 ephemeral. So when the classifier cannot be loaded (`_load_shapes_module`) OR exercised (a
 renamed interface raising inside `_matched_arms`), `_run` writes a `_DISARMED` marker on the
 SAME path as the heartbeat (best-effort telemetry, then re-raises so main()'s
-fail-open-to-defer + stderr breadcrumb are unchanged). The marker's cause line is keyed on
-the exception ACTUALLY raised — `FileNotFoundError` from `exec_module`, NOT the unreachable
-`ImportError` spec branch — and names the workspace-relative path
+fail-open-to-no-decision + stderr breadcrumb are unchanged). The marker's cause line is
+keyed on the exception ACTUALLY raised — `FileNotFoundError` from `exec_module`, NOT the
+unreachable `ImportError` spec branch — and names the workspace-relative path
 `lib/test/extract-command-shapes.py`, giving "this tree has no lib/test" as the cause,
 deliberately not the vendor slice's prune.
 
@@ -78,30 +111,69 @@ sessions on a persistent checkout and the escalation can fire on a later session
 denial of an arm. That degradation costs an over-eager remediation suffix, never a
 decision.
 
-UNESTABLISHED: THE HARNESS'S `permissionDecision` VOCABULARY. `deny` and `defer` are the
-tokens the published hooks reference names, and this guard emits only those two. What the
-harness does with an UNRECOGNIZED token is not established by anything in this repository,
-and no local test can establish it — the answer lives in the harness, not here. It matters
-because the whole fail-open design rests on `defer` meaning "fall through to the default
-permission flow": if a future harness version ignored or rejected it, every fail-open path
-would change character silently. Resolving this is part of the `pretooluse-probe` arm
-recorded in docs/cloud-allowlist.md (its reason-delivery verdict observes what the harness
-actually does with the emitted object); until that arm runs, treat the vocabulary as an
-ASSUMPTION this file depends on, not as a measured fact.
+MEASURED: THE HARNESS'S `permissionDecision` VOCABULARY (run 30967680822). This block used
+to say the vocabulary was an unresolved ASSUMPTION and point the reader at the
+`pretooluse-probe` arm to settle it. That pointer was always wrong — that arm's hook emits
+`allow`, so it can observe neither `deny` nor `defer` — and the question is now answered by
+two arms purpose-built for it, both in run 30967680822 on branch `hook-probe-arms`:
 
-TRUST BOUNDARY (the contract registration must satisfy). This file is inert unless its
-path is in the trusted-base HOOK_TARGETS: the hook command a `settings` input would
-register points at a path the #458 harden step has already displaced-or-stubbed from the
-base ref, so a pull-request-head guard body never executes in the secrets-bearing review
-job. That half IS shipped here — the path is in `HOOK_ENTRY_TARGETS` and `HOOK_TARGETS`.
-The two registration channels are not, and each has a distinct job: a committed
-`.claude/settings.json` `PreToolUse` entry is what would ARM the #458 relevance gate
-(`--wired-check` substring-matches `HOOK_ENTRY_TARGETS` against the trusted base
-settings, so a guard registered only through the action's `settings` input leaves that
-gate unarmed), while the action's `settings` input is what would make the guard
-EFFECTIVE in a run. Registering through `settings` alone would run pull-request-editable
-guard code in a secrets-bearing job; both channels must land together. See
-scripts/harden-stop-hooks.sh and docs/cloud-allowlist.md.
+  * `deny` IS HONORED, AND ITS REASON REACHES THE TRANSCRIPT (`pretooluse-deny-probe`,
+    job 92185120507). `DENY-HONORED` — the hook took its deny arm and the sacrificial
+    command's side effect was absent — with `CONTROL-RAN` confirming a non-matching command
+    was left alone, and `REASON-DELIVERED` confirming the probe's `permissionDecisionReason`
+    sentinel appears in the execution transcript. That is the whole delivery mechanism this
+    guard's REMEDIATION table depends on, and it works.
+  * `defer` BLOCKS THE TOOL AND ENDS THE PROCESS (`defer-probe`, job 92185120496).
+    `DEFER-BLOCKED` / `STOP-REASON-DEFERRED`; see the fall-through section above, which is
+    why this file emits no `defer` anywhere.
+  * A HOOK-ISSUED DENY IS VISIBLE TO THE DENIAL COUNT, BUT WITHOUT ITS REASON TEXT
+    (`pretooluse-deny-probe`). `COMMAND-RECORDED`: a `permission_denials` entry names the
+    denied command. The reason text is NOT in that entry (the probe's own verdict cell reads
+    `HOOK-DENY-NOT-RECORDED` because it searches the array for the reason sentinel, count 1).
+    So a denial-count measurement sees that this guard fired; it cannot read back WHICH arm
+    fired from that array alone — the per-arm store under `.prflow/tmp/` remains the only
+    source for that.
+
+VERDICT PROVENANCE AND EXPIRY. Both arms report `observed CLI version: 2.1.222`, and
+`claude-code-action@v1` is a FLOATING tag that installs whatever CLI it currently pins — so
+these verdicts are a measurement of one harness build, not a standing property, and an
+action or CLI upgrade can expire any of them. Re-running the two arms is how they are
+re-established after an upgrade, and since the `hook-probe-arms` branch landed (PR #1308)
+that is actionable from this tree: `defer-probe` and `pretooluse-deny-probe` are jobs of
+`.github/workflows/matcher-probe.yml`, beside the older `pretooluse-probe` (which emits
+`allow` and can observe neither token). Two triggers reach them — a bare
+`workflow_dispatch`, and a `pull_request` trigger whose `paths` filter is that workflow's
+own file, so any same-repo pull request touching it re-probes automatically. BATCH A
+RE-PROBE INTO ONE PUSH: neither trigger selects a job, so either one fires the whole
+workflow — fifteen jobs when #1308 landed, fourteen of them starting a paid Claude session.
+The workflow's `concurrency` group cancels a superseded run on the same ref, which reclaims
+the unfinished remainder of an iterated push sequence but not what the cancelled sessions
+already spent, nor the verdicts they never reached.
+
+STILL OPEN. What the harness does with an UNRECOGNIZED `permissionDecision` token is still
+unmeasured, and no local test can establish it — the answer lives in the harness, not here.
+It no longer gates this file's design (the fall-through emits no token at all, so the only
+token the guard ever writes is the measured-honored `deny`), but a future arm that adds a
+third token would reopen it.
+
+TRUST BOUNDARY (the contract registration satisfies). This file is inert unless its path is
+in the trusted-base HOOK_TARGETS: the hook command the `settings` input registers points at
+a path the #458 harden step has already displaced-or-stubbed from the base ref, so a
+pull-request-head guard body never executes in the secrets-bearing review job. That half IS
+shipped here — the path is in `HOOK_ENTRY_TARGETS` and `HOOK_TARGETS`. So is one of the two
+registration channels: the action's `settings` input, the one that makes the guard
+EFFECTIVE in a run. The other — a committed `.claude/settings.json` `PreToolUse` entry — is
+not, and its job is narrower than making the guard work: it is what would ARM the #458
+relevance gate (`--wired-check` substring-matches `HOOK_ENTRY_TARGETS` against the trusted
+base settings), which therefore stays unarmed while only the `settings` channel is shipped.
+An earlier revision of this paragraph concluded that both channels must land together,
+since `settings` alone would run pull-request-editable guard code in a secrets-bearing job.
+Issue #908 closed that hole from the other side instead: `devflow-runner.yml` carries a
+dedicated `Harden PreToolUse guard closure (unconditional)` step, deliberately
+unconditioned by the relevance gate, that always materializes a trusted base copy of the
+guard's three-file import closure or stubs it inline, fail-closed. The channels need not
+land together any more — but a registration added by any OTHER route still owes its own
+hardening. See scripts/harden-stop-hooks.sh.
 """
 
 from __future__ import annotations
@@ -116,9 +188,9 @@ import time
 
 # ── Arm → permitted-alternative remediation (issue #805) ──────────────────────
 # This table is the guard's own named table; NO remediation text is composed at runtime,
-# and it carries NO entry for an excluded arm (R2, R3-heredoc). docs/cloud-allowlist.md
-# is the AUTHORITATIVE record of each arm's permitted alternative and this table is its
-# mirror — a lib/test/run.sh assertion ties each arm's ROW here to that document's table
+# and it carries NO entry for an excluded arm (R2, R3-heredoc). The cloud allowlist
+# evidence record is the AUTHORITATIVE record of each arm's permitted alternative and this
+# table is its mirror — a lib/test/run.sh assertion ties each arm's ROW here to that record's table
 # ROW for the same arm (both sides extracted by arm id, never whole-file substring tests:
 # a whole-file test cannot distinguish the row it claims to pin from any other mention of
 # the same literal, and would be inert). The JOIN LITERAL differs by arm and is NOT
@@ -151,9 +223,9 @@ REMEDIATION = {
 # The arm identifiers this guard denies, DERIVED from REMEDIATION rather than re-typed:
 # `REMEDIATION[arm]` is an unguarded subscript reached AFTER the deny is decided, so a
 # deny-set arm with no remediation row would raise a KeyError that main()'s blanket
-# handler converts into a `defer` — silently revoking an established deny. Deriving the
-# set makes that disagreement unrepresentable. `sorted` also fixes the multi-match
-# tie-break order (a command matching more than one deny-set arm emits the first-sorting
+# handler converts into a no-decision fall-through — silently revoking an established
+# deny. Deriving the set makes that disagreement unrepresentable. `sorted` also fixes the
+# multi-match tie-break order (a command matching more than one deny-set arm emits the first-sorting
 # arm's remediation), so the choice is deterministic across invocations rather than
 # dependent on an unstated spelling.
 DENY_ARMS = tuple(sorted(REMEDIATION))
@@ -267,6 +339,24 @@ def _emit(obj: dict) -> None:
     sys.stdout.write("\n")
 
 
+def _emit_no_decision() -> None:
+    """The fall-through: report NO decision, so the normal permission flow decides.
+
+    Deliberately writes NOTHING. This is the documented no-decision shape ("Exit code 0
+    with no output means the hook has no decision to report") and, per run 30967680822, the
+    only one that actually falls through on the CLI `claude-code-action@v1` installs — an
+    emitted `permissionDecision: "defer"` was measured BLOCKING the tool and ending the
+    process (`DEFER-BLOCKED` / `STOP-REASON-DEFERRED`). See the module docstring.
+
+    It exists as a named function rather than a bare `return` at each site so the
+    fall-through is one greppable, single-sourced shape: each fail-open site routes here,
+    the calls to it are the guard's whole fail-open surface, and a future edit that
+    reintroduces an emitted token at one of them is visible as a call that stopped being
+    this one. (Deliberately count-free: an ordinal here would rot on the next edit that
+    adds or removes a fail-open site.)"""
+    return
+
+
 def _load_shapes_module():
     """Load lib/test/extract-command-shapes.py by its committed relative position.
 
@@ -339,8 +429,8 @@ def _note_disarm(tmp: str | None, exc: BaseException) -> None:
     """Publish the distinguishing disarmed-run signal on the heartbeat path (best-effort).
 
     Telemetry, so a failure here never changes the decision — the caller re-raises to main()'s
-    fail-open-to-defer handler regardless. When the heartbeat itself could not be written
-    (`tmp is None`) there is no directory to publish into; stderr (from main()) remains the
+    fail-open-to-no-decision handler regardless. When the heartbeat itself could not be
+    written (`tmp is None`) there is no directory to publish into; stderr (from main()) remains the
     only signal, exactly as before this marker existed."""
     detail = _disarm_detail(exc)
     if tmp is not None:
@@ -368,16 +458,18 @@ def _clear_disarm(tmp: str | None) -> None:
         # `os.remove(str)` realistically raises only OSError (FileNotFoundError included — the
         # benign "no stale marker" case), but this call sits on the SUCCESS/decision path, so
         # a broad catch keeps it aligned with the file's "BOOKKEEPING NEVER DECIDES" contract:
-        # no cleanup failure may propagate into main() and flip a real deny into a defer.
+        # no cleanup failure may propagate into main() and flip a real deny into a
+        # fall-through.
         pass
 
 
 def _read_command(payload) -> str | None:
     """The Bash command string, or None for any shape the guard cannot classify.
 
-    Every None path is a fail-open route to `defer`: valid JSON that is not an object, an
-    object whose `tool_name` is not `Bash`, an object with no `tool_input`, a `tool_input`
-    that is not an object, or an object with no `command` string. The `tool_name` check is
+    Every None path is a fail-open route to the NO-DECISION fall-through (exit 0, empty
+    stdout): valid JSON that is not an object, an object whose `tool_name` is not `Bash`, an
+    object with no `tool_input`, a `tool_input` that is not an object, or an object with no
+    `command` string. The `tool_name` check is
     defense-in-depth: this guard is registered for `Bash` today, but any non-`Bash` tool
     whose input happens to carry a `command`-shaped string field must not be classified as
     a shell command if the matcher is ever registered more broadly."""
@@ -419,8 +511,9 @@ def _bump_counts(tmp: str, arm: str, seen_key: str) -> tuple[bool, bool]:
 
     `fcntl` is imported lazily so a platform without it raises HERE — inside the call the
     caller wraps — rather than at module import. Per the module docstring's fail-open
-    exclusion, the caller converts that into "no escalation", NOT into a defer: a command
-    already classified as a denied shape is still denied on a platform with no `fcntl`."""
+    exclusion, the caller converts that into "no escalation", NOT into a fall-through: a
+    command already classified as a denied shape is still denied on a platform with no
+    `fcntl`."""
     import fcntl
 
     counts_name, lock_name = _store_names()
@@ -549,12 +642,13 @@ def _run() -> None:
     # BOOKKEEPING NEVER DECIDES. The heartbeat and the counter store are telemetry; a
     # failure in either must not change the decision. Un-guarded, an unwritable
     # .prflow/tmp raised here — BEFORE any classification — and main()'s blanket handler
-    # turned it into a `defer`, silently disarming the guard for the whole run. So the
+    # turned it into a fall-through, silently disarming the guard for the whole run. So the
     # store is best-effort and `tmp is None` simply means "classify, do not count".
     root = _repo_root()
     try:
         tmp = _tmp_dir(root)
-        _write_heartbeat(tmp)  # every invocation, incl. a defer — the never-fired signal
+        # Every invocation, including a fall-through — this is the never-fired signal.
+        _write_heartbeat(tmp)
     except Exception as exc:  # noqa: BLE001 - telemetry must never decide
         sys.stderr.write(
             "devflow: pretooluse-shape-guard: heartbeat/store unavailable "
@@ -563,7 +657,7 @@ def _run() -> None:
         tmp = None
 
     # Clear any stale disarmed-run marker up front, so EVERY non-disarm exit (the benign
-    # early-defer paths below AND a clean armed classify) retracts a prior run's marker on a
+    # early fall-through paths below AND a clean armed classify) retracts a prior run's marker on a
     # persistent checkout — a run that actually disarms re-writes it via _note_disarm. (When
     # the heartbeat failed, tmp is None and there is nothing to clear; stderr stays the only
     # signal, as documented.)
@@ -573,20 +667,20 @@ def _run() -> None:
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
-        _emit(_decision_object("defer", None))
+        _emit_no_decision()
         return
     if not text.strip():
-        _emit(_decision_object("defer", None))
+        _emit_no_decision()
         return
     try:
         payload = json.loads(text)
     except ValueError:
-        _emit(_decision_object("defer", None))
+        _emit_no_decision()
         return
 
     command = _read_command(payload)
     if command is None:
-        _emit(_decision_object("defer", None))
+        _emit_no_decision()
         return
 
     tool_use_id = payload.get("tool_use_id") if isinstance(payload, dict) else None
@@ -598,23 +692,24 @@ def _run() -> None:
         # or unloadable raises here, and one that loads but no longer exposes the expected
         # interface (a renamed symbol) raises inside _matched_arms — both leave the run unable
         # to classify while the heartbeat still says "fired". Publish the distinguishing signal
-        # on the heartbeat path (issue #1077), then re-raise so main() fails OPEN to defer with
-        # its stderr breadcrumb, unchanged. The decision is untouched; the only new thing is
-        # that the disarm is now visible in a published artifact, not just in ephemeral stderr.
+        # on the heartbeat path (issue #1077), then re-raise so main() fails OPEN to a
+        # no-decision with its stderr breadcrumb, unchanged. The decision is untouched; the
+        # only new thing is that the disarm is now visible in a published artifact, not just
+        # in ephemeral stderr.
         shapes = _load_shapes_module()
         matched = _matched_arms(command, shapes)
     except BaseException as exc:  # noqa: BLE001 - telemetry write then re-raise; never decides
         _note_disarm(tmp, exc)
         raise
     if not matched:
-        _emit(_decision_object("defer", None))
+        _emit_no_decision()
         return
 
     # Deterministic tie-break: the first-sorting matched deny-set arm.
     arm = sorted(matched)[0]
     # The deny is already decided; counting it is telemetry. A store write that raises
     # must cost the ESCALATION, never the decision — an obstructed counts file used to
-    # revoke an established deny and emit `defer` with no signal at all.
+    # revoke an established deny and fall through with no signal at all.
     escalated = False
     if tmp is not None:
         try:
@@ -635,9 +730,11 @@ def _run() -> None:
 
 def main() -> int:
     # Catch EVERY exception (BaseException, so a stubbed dependency's SystemExit at import
-    # cannot escape) and fail open to defer. An uncaught internal error would exit
-    # non-zero with no decision, which the workflow reports as never-fired for a guard
-    # that ran. The heartbeat is best-effort inside _run and is itself covered here.
+    # cannot escape) and fail open to a NO-DECISION. An uncaught internal error would exit
+    # non-zero, and a non-zero PreToolUse exit is a BLOCK, not a fall-through — the exact
+    # inversion the emitted-`defer` fall-through turned out to be (run 30967680822). Exit 0
+    # is therefore load-bearing here, and the empty stdout is what makes it a no-decision.
+    # The heartbeat is best-effort inside _run and is itself covered here.
     try:
         _run()
     except BaseException as exc:
@@ -648,15 +745,15 @@ def main() -> int:
         # would have is the denied shapes reappearing.
         try:
             sys.stderr.write(
-                "devflow: pretooluse-shape-guard: failed open to defer "
+                "devflow: pretooluse-shape-guard: failed open to no decision "
                 f"({type(exc).__name__}: {exc}) — this command was NOT classified\n"
             )
         except Exception:
             pass
-        try:
-            _emit(_decision_object("defer", None))
-        except Exception:
-            pass
+        # Emit NOTHING. This arm can also be reached AFTER _run's own `_emit` began writing
+        # a deny — appending a second object there would have made stdout unparseable JSON;
+        # writing nothing leaves whatever _run managed to write as the only content.
+        _emit_no_decision()
     return 0
 
 

@@ -2,7 +2,7 @@
 name: docs-bootstrap-internal
 description: Use when a codebase has no structured developer documentation yet and needs it built from scratch — "we have no docs at all", "set up internal docs for this repo", "the docs directory is a mess, start over", "create developer documentation for this codebase" — including an empty or disorganized docs directory or a ground-up reorganization. For incremental updates to docs that already exist, use prflow:docs-sync-internal.
 ---
-> **Configuration:** Read the internal documentation path from `.prflow/config.json` using: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/`. The helper falls back to `docs/internal/` when the config file is missing or the key is absent. Use the result as `[[INTERNAL_DOC_LOCATION]]` throughout this skill.
+> **Configuration:** Read the internal documentation path from `.prflow/config.json` using: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/`. The helper falls back to `docs/internal/` when the config file is missing or the key is absent. Use the result as `[[INTERNAL_DOC_LOCATION]]` throughout this skill. <!-- pruned-path-ok: the configurable consumer-owned internal-doc root, not a path expected inside the vendored plugin -->
 
 **Portable helper anchor (single-statement).** The bundled-helper commands in this skill resolve the skill directory inline at each call site via `${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}`. When `$CLAUDE_SKILL_DIR` is set and non-empty (Claude Code), run each command exactly as written. On a runner where it is unset or empty, replace the placeholder with the skill base directory the runner reports in context (e.g. a `Base directory for this skill:` line) before running the command; if that reported path is Windows-form (`C:\...`), first convert it to this shell's POSIX form with one standalone `wslpath -u '<path>'` (WSL) or `cygpath -u '<path>'` (Git Bash/MSYS2) command and substitute the printed result **only if the command succeeds and prints a non-empty path — otherwise fall through to the drive-letter rules exactly as if the tool were absent, the same success-and-non-empty acceptance the platform's path-normalization rules apply** (if neither tool exists: lowercase the drive letter, map `C:\` to `/mnt/c` on WSL or `/c` on MSYS2, and turn backslashes into `/`; if the environment is neither WSL nor MSYS2, use the path unchanged and report that it could not be normalized — the same arm the platform's path-normalization rules take). Resolve the anchor inline at every call site — never capture it into a shell variable that a later statement reads, because some runners' inline-bash marshaling drops such variables (observed on Copilot CLI). If neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available, stop and report that the helper anchor could not be resolved rather than running a command with a broken path.
 
@@ -30,20 +30,20 @@ Organize by **business domain and feature area**, not by technical layer.
 
 **Wrong** (mirrors code structure):
 ```
-docs/internal/backend/
-docs/internal/frontend/
-docs/internal/api/
-docs/internal/cron/
-docs/internal/plugins/
+[[INTERNAL_DOC_LOCATION]]backend/
+[[INTERNAL_DOC_LOCATION]]frontend/
+[[INTERNAL_DOC_LOCATION]]api/
+[[INTERNAL_DOC_LOCATION]]cron/
+[[INTERNAL_DOC_LOCATION]]plugins/
 ```
 
 **Right** (domain-based):
 ```
-docs/internal/orders/
-docs/internal/customers/
-docs/internal/authentication/
-docs/internal/integrations/
-docs/internal/setup/
+[[INTERNAL_DOC_LOCATION]]orders/
+[[INTERNAL_DOC_LOCATION]]customers/
+[[INTERNAL_DOC_LOCATION]]authentication/
+[[INTERNAL_DOC_LOCATION]]integrations/
+[[INTERNAL_DOC_LOCATION]]setup/
 ```
 
 Why: Developers look for docs about the *feature* they're working on ("how do orders work?"), not the *code layer* ("what's in the backend directory?"). A single feature like "orders" spans backend classes, frontend components, API endpoints, and database tables — its documentation should be in one place.
@@ -52,8 +52,8 @@ Why: Developers look for docs about the *feature* they're working on ("how do or
 
 Use **one level** of subdirectories under `[[INTERNAL_DOC_LOCATION]]`. No nesting.
 
-**Wrong:** `docs/internal/integrations/payments/stripe/`
-**Right:** `docs/internal/integrations/` (with files like `payment-stripe.md`)
+**Wrong:** `[[INTERNAL_DOC_LOCATION]]integrations/payments/stripe/`
+**Right:** `[[INTERNAL_DOC_LOCATION]]integrations/` (with files like `payment-stripe.md`)
 
 Why: Flat structures are easier to navigate, easier for `/docs-sync-internal` to manage, and prevent category proliferation.
 
@@ -92,7 +92,28 @@ Run exploratory commands:
 cat CLAUDE.md | head -100
 
 # Top-level structure
-ls -d */
+# An unquoted glob must survive zsh's default `nomatch`, which would otherwise refuse to run
+# the command at all — a SKIPPED enumeration that reads like an empty one. The guard turns
+# nomatch off under native zsh and is a no-op elsewhere ($ZSH_VERSION unset -> `&&`
+# short-circuits, `|| :` stays rc-0). With nomatch off an unmatched glob leaves $1 the
+# literal pattern, so `[ -e "$1" ]` decides match-vs-no-match structurally: no `2>/dev/null`
+# to hide a real error, and exactly one of the three arms can print. An empty directory and a
+# PERMISSION-unlistable one both leave the glob unmatched, so the second arm separates those
+# two -- it tests mode bits only, so a failure with another cause (dead mount, EIO) still
+# reaches the empty arm. Listing needs BOTH the read bit (to name the entries) and the search
+# bit (to stat them for the trailing `/`), so that arm tests both. All three arms print on
+# stdout so a caller capturing stdout can still tell "nothing here" from "could not look".
+# Unhandled: bash's `failglob`,
+# where an unmatched pattern aborts `set --` before it runs.
+[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
+set -- */
+if [ -e "$1" ]; then
+  printf '%s\n' "$@"
+elif [ ! -r . ] || [ ! -x . ]; then
+  echo "(current directory is not listable - listing NOT established)"
+else
+  echo "(no subdirectories)"
+fi
 
 # Database tables (if schema files exist)
 find . -name "*.sql" -o -name "*.schema" | head -10

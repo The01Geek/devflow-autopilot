@@ -47,7 +47,7 @@ monolith.
 **Four documentation-presence assertions from the `#532` section** stay in
 `lib/test/run.sh`, in a commented block beside this module's full-suite call: the
 `et-fresh(R14)` residual-window assertion and the three `docs-fetch-scope(R9)`
-assertions, all of which `grep` prose out of `docs/efficiency-trace.md`.
+assertions, all of which `grep` prose out of `docs/internal/efficiency-trace.md`.
 
 The reason is a real gate, not convenience. `lib/test/pin-corpus-lint.py`'s
 issue-#948 routing ladder scans every pin site that the merge-base-to-HEAD diff

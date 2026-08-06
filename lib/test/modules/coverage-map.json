@@ -107,6 +107,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "lib/probe-observation.sh": {
+      "note": "shared execution-file readers (exec state, CLI version, transcript/permission_denials search) for the matcher-probe hook-arm observation renderers; driven through those renderers' arm matrices",
+      "owner": "unmodularized"
+    },
     "lib/recurring-targets.jq": {
       "note": "",
       "owner": "unmodularized"
@@ -241,6 +245,14 @@
       "note": "issue #868 Verified-premise re-check helper",
       "owner": "unmodularized"
     },
+    "scripts/checkout-fingerprint.py": {
+      "note": "issue #1243 checkout-fingerprint producer for the verification-flight ledger; driven by lib/test/test_verification_flight.py (TestStaleFlightRegression) + the harness-python-guards module that runs it",
+      "owner": "harness-python-guards"
+    },
+    "scripts/classify-head-reviews.sh": {
+      "note": "#1250 closed-vocabulary classifier for the reviews recorded on the reviewed head (none | marked | unmarked <id>… | unestablished <reason>); driven per arm (a–j) by the review-stall-backstop module's #1250 block, and wired into the reach-record step so describe-verdict-post-gap.sh stops asserting the reviews API was untouched when the granted gh api posted an unmarked review. Placement follows the #1247 precedence (verdict-marker head= authoritative, reviews-API commit_id a non-authoritative fallback), so a markerless own review the helper cannot place off the head grades review-placement-unprovable rather than none.",
+      "owner": "review-stall-backstop"
+    },
     "scripts/classify-id-exit.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -278,6 +290,10 @@
       "note": "issue #1172: the verdict-presence gate for devflow.yml's dead-run flip step; reuses derive-review-verdict.sh and is driven per arm (both-channels + truly-absent) in the #1172 section of lib/test/modules/review-trigger-helpers.sh",
       "owner": "review-trigger-helpers"
     },
+    "scripts/decide-verdict-gap-job-status.sh": {
+      "note": "#1271 conjunctive arm-to-job-status decision helper for the always() reach-record step: FAILs the job only when the emitter was not reached AND the head-scoped oracle positively establishes no verdict (none), and PASSes on every could-not-tell arm and on a cancelled run (carve-out passed as an argument). Driven over the full closed arm vocabulary x oracle vocabulary x cancellation by the review-stall-backstop module's #1271 block.",
+      "owner": "review-stall-backstop"
+    },
     "scripts/dedupe-implement-run.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -294,9 +310,17 @@
       "note": "retained unreachable-in-tree: called only by the withheld auto-review tier's workflow, kept so an installed consumer copy still resolves it (issue #936); now ALSO reached by scripts/dead-run-verdict-present.sh, wired into devflow.yml's dead-run flip gate (issue #1172)",
       "owner": "review-trigger-helpers"
     },
+    "scripts/describe-command-job-arm.sh": {
+      "note": "issue #1174: the out-of-job review_finalize backstop's command-job arm selector (completed-normally / cancelled / did-not-report from needs.command.result); every arm and the arm ORDER are driven in the #1174 section of lib/test/modules/review-trigger-helpers.sh — a distinct decision from describe-dead-run-cause.sh, which it must not duplicate",
+      "owner": "review-trigger-helpers"
+    },
     "scripts/describe-dead-run-cause.sh": {
       "note": "issue #1154: the dead-run cause selector extracted out of devflow.yml's inline chain; every arm and the arm ORDER are driven in the #1154 section of lib/test/modules/review-trigger-helpers.sh, alongside the #1054 review-progress marker-ownership block it shares a subject with",
       "owner": "review-trigger-helpers"
+    },
+    "scripts/describe-defer-probe.sh": {
+      "note": "matcher-probe PreToolUse `defer` fall-through observation renderer: a breadcrumb-only primary verdict (a honored defer may leave no usable execution file), with the documented tool_deferred stop reason as a secondary axis",
+      "owner": "unmodularized"
     },
     "scripts/describe-denial-count.sh": {
       "note": "",
@@ -306,8 +330,16 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/describe-permissionrequest-probe.sh": {
+      "note": "matcher-probe PermissionRequest hook-arm observation renderer: hook-firing attribution (granted control vs ungranted call), control execution, deny-message delivery, hook-deny visibility in permission_denials, and the event-absent vs nothing-reached-it inference",
+      "owner": "unmodularized"
+    },
     "scripts/describe-plugin-compose.sh": {
       "note": "",
+      "owner": "unmodularized"
+    },
+    "scripts/describe-pretooluse-deny-probe.sh": {
+      "note": "matcher-probe PreToolUse deny-path observation renderer: deny honored, granted-control untouched, deny-reason delivery (the axis the allow-only pretooluse-probe cannot answer), and hook-deny visibility in permission_denials",
       "owner": "unmodularized"
     },
     "scripts/describe-pretooluse-probe.sh": {
@@ -397,6 +429,11 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/focused_selection.py": {
+      "focused_test": "lib/test/test_python_scripts.py",
+      "note": "issue #1229 focused-first selection record producer/reader",
+      "owner": "unmodularized"
+    },
     "scripts/gh-fresh.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -408,6 +445,11 @@
     "scripts/implement-context-eval.py": {
       "focused_test": "lib/test/test_implement_context_eval.py",
       "note": "issue #1209 implement runtime-context eval; maintainer-only instrument, tested directly by lib/test/test_implement_context_eval.py (serial)",
+      "owner": "unmodularized"
+    },
+    "scripts/import-review-verdict-handoff.py": {
+      "focused_test": "lib/test/test_import_review_verdict_handoff.py",
+      "note": "issue #1314 trusted-emitter review-verdict handoff importer (the untrusted-input validation trust boundary); accepted shape + full rejection matrix driven by lib/test/test_import_review_verdict_handoff.py",
       "owner": "unmodularized"
     },
     "scripts/import-workflow-transcript.py": {
@@ -431,6 +473,10 @@
     },
     "scripts/load-prompt-extension.sh": {
       "note": "",
+      "owner": "unmodularized"
+    },
+    "scripts/loop-verdict-marker.py": {
+      "note": "#1212 review-and-fix loop-verdict marker: compose + read line-1 helper, driven by lib/test/loop-verdict-marker-test.py from run.sh over the compose/read/AC5-safe-direction matrix",
       "owner": "unmodularized"
     },
     "scripts/match-deferrals.py": {
@@ -461,6 +507,14 @@
     },
     "scripts/parse-engine-error.sh": {
       "note": "",
+      "owner": "unmodularized"
+    },
+    "scripts/phase2-durability-checkpoint.sh": {
+      "note": "",
+      "owner": "phase2-durability-checkpoint"
+    },
+    "scripts/placeholder-probe-verdict.py": {
+      "note": "issue #1264 render-time placeholder precondition probe verdict helper (SUBSTITUTED_ENV_VISIBLE/SUBSTITUTED_ENV_UNSET/NOT_SUBSTITUTED/INCONCLUSIVE). Pure function over a parsed execution file — asserted inline from lib/test/run.sh (the #1264 block), matching the agents-seam/background-tasks/env-propagation/subagent-write probe-verdict precedents; no `focused_test`, which is what routes a change to it to the full suite rather than to a focused module. The block drives every verdict arm plus two discrimination guards (template-form marker, incidental placeholder-head mention) and a coupling assertion binding the helper's constants to the matcher-probe.yml job and the probe skill body — including that --allowed-tools DOES grant the placeholder's own head, read from the skill body rather than restated, so the grant cannot drift from the command it covers. That assertion is inverted from its original form because limb (c) has since been answered NEGATIVE (run 31058504896 refused the placeholder with `This command requires approval`); with (c) settled, the grant is what makes limbs (a) and (b) reachable at all.",
       "owner": "unmodularized"
     },
     "scripts/post-ci-review-trigger.sh": {
@@ -519,6 +573,10 @@
     "scripts/reception_identity.py": {
       "note": "issue #668 receiving-review session identity library; driven by lib/test/test_reception_identity.py + its block in the harness-python-guards module",
       "owner": "harness-python-guards"
+    },
+    "scripts/record-empty-branch.sh": {
+      "note": "issue #1261 stall-backstop empty-branch producer (NO_COMMIT / HAS_COMMIT / UNESTABLISHED); every outcome plus the best-effort write-failure and idempotency arms are driven from the review-stall-backstop module's #1261 block against a real bare-origin git fixture with a stubbed workpad writer.",
+      "owner": "review-stall-backstop"
     },
     "scripts/refresh-app-credentials.sh": {
       "note": "",
@@ -847,6 +905,22 @@
       "note": "",
       "owner": "issue-audit-state"
     },
+    "1124": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1139": {
+      "note": "",
+      "owner": "phase2-durability-checkpoint"
+    },
+    "1152": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1153": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "1154": {
       "note": "",
       "owner": "unmodularized"
@@ -854,6 +928,10 @@
     "1156": {
       "note": "",
       "owner": "review-stall-backstop"
+    },
+    "1163": {
+      "note": "",
+      "owner": "unmodularized"
     },
     "1165": {
       "note": "",
@@ -865,6 +943,10 @@
     },
     "1172": {
       "note": "",
+      "owner": "review-trigger-helpers"
+    },
+    "1174": {
+      "note": "issue #1174: the out-of-job review_finalize backstop in devflow.yml; its command-job arm selector (scripts/describe-command-job-arm.sh) is driven arm-by-arm and for arm ORDER, and its step body is extracted between its `review-finalizer BEGIN`/`END` markers and EXECUTED against recording helper stubs — the CAUSE ladder, the TARGET_NUMBER derivation, the suppress-vs-write gate, the verdict-oracle arg order and each degraded-helper arm — in the #1174 sections of lib/test/modules/review-trigger-helpers.sh",
       "owner": "review-trigger-helpers"
     },
     "1175": {
@@ -879,11 +961,35 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "1188": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "1196": {
       "note": "",
       "owner": "unmodularized"
     },
+    "1197": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1206": {
+      "note": "",
+      "owner": "regenerate-artifacts"
+    },
     "1209": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1211": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1212": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1217": {
       "note": "",
       "owner": "unmodularized"
     },
@@ -891,8 +997,80 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "1222": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1234": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1236": {
+      "note": "",
+      "owner": "review-trigger-helpers"
+    },
+    "1241": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1244": {
+      "note": "",
+      "owner": "parallel-suite-runner"
+    },
+    "1247": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1248": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1250": {
+      "note": "",
+      "owner": "review-stall-backstop"
+    },
     "126": {
       "note": "",
+      "owner": "unmodularized"
+    },
+    "1261": {
+      "note": "empty-branch producer scripts/record-empty-branch.sh: the stall backstop records whether any commit reached a terminated run's remote branch. Driven per outcome (NO_COMMIT / HAS_COMMIT / UNESTABLISHED), plus the best-effort write-failure and idempotency arms, against a real bare-origin git fixture with a stubbed workpad writer; the workflow wiring (producer beside the pure stall-backstop-decide.sh, called only from the two flips, never on the resume path) is asserted from the parsed claude-job Stall backstop step.",
+      "owner": "review-stall-backstop"
+    },
+    "1264": {
+      "note": "Inline run.sh assertions driving every VERDICT arm of scripts/placeholder-probe-verdict.py (the issue-1264 render-time placeholder precondition probe), unmodularized like its probe-verdict siblings. Driven: the three real measurements (SUBSTITUTED_ENV_VISIBLE / SUBSTITUTED_ENV_UNSET / NOT_SUBSTITUTED), all six degraded arms resolving INCONCLUSIVE (line-absent, no-marker, missing controls, records-nothing, unparseable, partially-corrupt, absent file), the build negative control, both routing lines a maintainer transcribes into the #1264 thread, and two discrimination guards — the marker in unexpanded template form must not count as a report, and an incidental mention of the placeholder head elsewhere must not forge NOT_SUBSTITUTED. Also driven: the coupling assertion binding the helper's constants to the matcher-probe.yml job env sentinel, the slash-command prompt shape, the probe skill body's markers, and — load-bearing — that the job's --allowed-tools DOES grant the placeholder's own head, read from the skill body so the grant cannot drift from the command it covers. That limb-(c) assertion is inverted from its original form: (c) was answered NEGATIVE by run 31058504896 (`This command requires approval`), and with it settled the grant is the precondition that makes limbs (a) and (b) observable at all. Genuinely undriven: main()'s output formatting beyond the VERDICT and ROUTES TO lines.",
+      "owner": "unmodularized"
+    },
+    "1267": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1271": {
+      "note": "",
+      "owner": "review-stall-backstop"
+    },
+    "1288": {
+      "note": "",
+      "owner": "parallel-suite-runner"
+    },
+    "1312": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "1314": {
+      "note": "issue #1314 review-verdict handoff importer focused-test invocation",
+      "owner": "unmodularized"
+    },
+    "1331": {
+      "note": "issue #1331 create_issue.investigation_record_enabled config-read publication decision + scaffold backfill",
+      "owner": "unmodularized"
+    },
+    "1333": {
+      "note": "issue #1333 P3x: the retrospective subagent brief carries no portable-anchor call site (by-value handoff), the complement of the #275 P3 presence pin it is exempted from",
+      "owner": "unmodularized"
+    },
+    "1338": {
+      "note": "issue #1338 P3x/P0x/lpe-coverage: the Stage B retrospective-audit subagent brief carries no portable-anchor call site (by-value handoff), added to the no-call-site and by-path-extension sets alongside Stage A",
       "owner": "unmodularized"
     },
     "139": {
@@ -1578,6 +1756,10 @@
     "533": {
       "note": "",
       "owner": "installer-wiring"
+    },
+    "534": {
+      "note": "",
+      "owner": "efficiency-trace-telemetry"
     },
     "536": {
       "note": "",

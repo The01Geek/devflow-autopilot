@@ -1195,11 +1195,11 @@ print(" ".join(sorted(r["name"] for r in b["adjudicated_out"])))' "$T1_MAP" 2>/d
 # tree happens to contain.
 _t1_env_fixture() { # <root> <workflow-body> <consumer-doc-body> <shipped-reader-body>
   local r="$1"
-  mkdir -p "$r/.github/workflows" "$r/docs" "$r/lib"
+  mkdir -p "$r/.github/workflows" "$r/docs/internal" "$r/lib"
   printf '%s\n' "$2" > "$r/.github/workflows/devflow.yml"
   printf 'name: b\n' > "$r/.github/workflows/devflow-implement.yml"
   printf '%s\n' "$3" > "$r/README.md"
-  printf 'placeholder\n' > "$r/docs/install.md"
+  printf 'placeholder\n' > "$r/docs/internal/install.md"
   printf '%s\n' "$4" > "$r/install.sh"
   ( cd "$r" && git init -q . && git add -A . ) >/dev/null 2>&1
 }
@@ -1226,7 +1226,7 @@ block = {
     "policy": "an inventory of names not to rename",
     "criterion": {"A1": "cloud", "A2": "operator",
                   "shipped_workflows": ["devflow.yml", "devflow-implement.yml"],
-                  "consumer_docs": ["README.md", "docs/install.md"]},
+                  "consumer_docs": ["README.md", "docs/internal/install.md"]},
     "pair_asymmetry": "the variable half fails silent",
     "identifiers": [row(n) for n in ins.split(",") if n],
     "adjudicated_out": [{"name": n, "selected_by": "A2", "decided_by": "doc-declaration",
@@ -1345,12 +1345,12 @@ _t1_env_fixture "$_t1_env_r4" "$_t1_env_wf" "$_t1_env_doc" "$_t1_env_reader"
 _t1_env_map "$_t1_env_r4" "DEVFLOW_ALPHA,DEVFLOW_BETA,DEVFLOW_HATCH" ""
 { printf 'intro\n\n'
   printf '<!-- prflow-env-freeze:begin freeze_version=0 sha256=%064d (placeholder) -->\n' 0
-  printf '<!-- prflow-env-freeze:end -->\n\ntail\n'; } > "$_t1_env_r4/docs/cloud-setup.md"
+  printf '<!-- prflow-env-freeze:end -->\n\ntail\n'; } > "$_t1_env_r4/docs/internal/cloud-setup.md"
 assert_eq "#1004 the generator writes the region into a placeholder" "0" \
   "$(python3 "$T1_ENVGEN" --repo-root "$_t1_env_r4" >/dev/null 2>&1; printf '%s' $?)"
 assert_eq "#1004 the freshly generated region passes its own check" "0" \
   "$(python3 "$T1_ENVGEN" --check --repo-root "$_t1_env_r4" >/dev/null 2>&1; printf '%s' $?)"
-_t1_env_rendered="$(cat "$_t1_env_r4/docs/cloud-setup.md")"
+_t1_env_rendered="$(cat "$_t1_env_r4/docs/internal/cloud-setup.md")"
 assert_eq "#1004 the rendered region names every recorded identifier" "yes yes yes" \
   "$(_t1_has "$_t1_env_rendered" 'DEVFLOW_ALPHA') $(_t1_has "$_t1_env_rendered" 'DEVFLOW_BETA') $(_t1_has "$_t1_env_rendered" 'DEVFLOW_HATCH')"
 assert_eq "#1004 the rendered region carries each row's failure mode" "yes" \
@@ -1366,7 +1366,7 @@ assert_eq "#1004 the rendered region carries the do-not-rename instruction" "yes
   "$(_t1_has "$_t1_env_rendered" 'Do not rename them')"
 
 assert_eq "#1004 the tamper fixture was applied" "done" \
-  "$(python3 - "$_t1_env_r4/docs/cloud-setup.md" <<'T1ENVTAMPER'
+  "$(python3 - "$_t1_env_r4/docs/internal/cloud-setup.md" <<'T1ENVTAMPER'
 import pathlib, sys
 p = pathlib.Path(sys.argv[1])
 lines = p.read_text(encoding="utf-8").split("\n")
@@ -1393,12 +1393,12 @@ for _t1_env_case in absent duplicate; do
   _t1_env_fixture "$_t1_env_r5" "$_t1_env_wf" "$_t1_env_doc" "$_t1_env_reader"
   _t1_env_map "$_t1_env_r5" "DEVFLOW_ALPHA" ""
   if [ "$_t1_env_case" = absent ]; then
-    printf 'no region here\n' > "$_t1_env_r5/docs/cloud-setup.md"
+    printf 'no region here\n' > "$_t1_env_r5/docs/internal/cloud-setup.md"
   else
     { printf '<!-- prflow-env-freeze:begin freeze_version=1 sha256=%064d (x) -->\n' 0
       printf '<!-- prflow-env-freeze:end -->\n'
       printf '<!-- prflow-env-freeze:begin freeze_version=1 sha256=%064d (x) -->\n' 0
-      printf '<!-- prflow-env-freeze:end -->\n'; } > "$_t1_env_r5/docs/cloud-setup.md"
+      printf '<!-- prflow-env-freeze:end -->\n'; } > "$_t1_env_r5/docs/internal/cloud-setup.md"
   fi
   assert_eq "#1004 a $_t1_env_case begin banner fails closed (exit 2) rather than guessing" "2" \
     "$(python3 "$T1_ENVGEN" --repo-root "$_t1_env_r5" >/dev/null 2>&1; printf '%s' $?)"
@@ -1417,7 +1417,7 @@ _t1_env_upgrade="$(_t1_env_installer_arm 'an existing')"
 assert_eq "#1004 install.sh warns an EXISTING installation not to rename these names" "yes" \
   "$(_t1_has "$_t1_env_upgrade" 'DEVFLOW_* names are unchanged and must stay that way')"
 assert_eq "#1004 the installer advisory routes to the generated inventory" "yes" \
-  "$(_t1_has "$_t1_env_upgrade" 'docs/cloud-setup.md')"
+  "$(_t1_has "$_t1_env_upgrade" 'docs/internal/cloud-setup.md')"
 assert_eq "#1004 the installer advisory states that renaming fails silently" "yes" \
   "$(_t1_has "$_t1_env_upgrade" 'SILENTLY')"
 assert_eq "#1004 install.sh stays SILENT for a first-time install (nothing is actionable yet)" \
@@ -1751,3 +1751,20 @@ assert_eq "#1028 scaffold integration: a second scaffold leaves the config BYTE-
 assert_eq "#1028 scaffold integration: an already-current config draws no rename line" "no" \
   "$("$T1_SCAFFOLD" "$(_t1_scaffold_root '{"prflow":{"workpad_marker":"<!-- prflow:workpad -->"}}')" 2>&1 \
     | { grep -q 'migrated superseded config value' && printf 'yes' || printf 'no'; })"
+
+# — The migration helper's TRACKED MODE (issue #1312 residual) —
+# install.sh gates the atomic Tier-1 migration on
+# `[ -x "$SRC/scripts/migrate-consumer-tier1.sh" ]` and falls through to a warning when
+# that test fails, so a lost executable bit silently no-ops the whole migration in every
+# consumer. install.sh is a NAMED RESIDUAL of lib/test/lint-executable-helper-mode.py
+# (its `$SRC` anchor is positively runtime — a materialized source tree, not this
+# checkout), so this module owns that helper's mode. The INDEX mode is what ships, hence
+# `git ls-files -s` rather than a filesystem stat; the field is split with a bash builtin
+# read (not `cut`, a non-preflight PATH tool).
+_t1_index_mode() {
+  local mode _rest
+  read -r mode _rest < <(git -C "$LIB/.." ls-files -s -- "$1" 2>/dev/null)
+  printf '%s' "${mode:-ABSENT}"
+}
+assert_eq "#1312 migrate-consumer-tier1.sh is tracked executable (install.sh -x-gates it)" \
+  "100755" "$(_t1_index_mode scripts/migrate-consumer-tier1.sh)"

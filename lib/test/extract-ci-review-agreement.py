@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
-"""Agreement predicate between the consumer snippet in docs/workflow-triggers.md
+"""Agreement predicate between the consumer snippet in docs/internal/workflow-triggers.md
 and the auto_review_trigger job region in .github/workflows/ci.yml (issue #990).
 
 A consumer copies BYTES out of the documented snippet, so the copy is unavoidable;

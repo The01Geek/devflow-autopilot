@@ -386,7 +386,7 @@ jobs:
       # notice below (no contents/workflows: this job neither reads code with
       # it nor pushes; the early workpad comment below deliberately stays on
       # github.token — detection is marker-based, so authorship never matters). Same opt-in/fail-loud/downscope contract as the review
-      # mint in devflow-runner.yml — see docs/cloud-setup.md. NOTE: fail-loud
+      # mint in devflow-runner.yml — see docs/internal/cloud-setup.md. NOTE: fail-loud
       # means a configured-but-broken App fails THIS gate job (and so blocks
       # the run) — deliberate, so a broken App is never silently degraded
       # around. Minted only when a consumer will actually run (should_run
@@ -713,7 +713,7 @@ jobs:
       # `.prflow/config.json`'s `setup` block. The logic lives in the
       # setup-project-env composite action so devflow.yml and
       # devflow-implement.yml share ONE copy (checkout above gives the action
-      # the repo + config to read). See docs/cloud-setup.md for the rationale.
+      # the repo + config to read). See docs/internal/cloud-setup.md for the rationale.
       - id: cfg
         uses: ./.github/actions/read-project-config
       - uses: ./.github/actions/setup-project-env
@@ -739,7 +739,7 @@ jobs:
       # before the claude step) can pipe it; an in-process `unset` alone would NOT
       # scrub the long-lived refresher's /proc environ, which snapshots exec time
       # (proc(5)). The loop traps TERM/exits 0, so the job conclusion never rides on
-      # it; the `if: always()` pidfile-kill step retires it. See docs/cloud-setup.md.
+      # it; the `if: always()` pidfile-kill step retires it. See docs/internal/cloud-setup.md.
       - name: Start credential refresher (optional)
         id: refresher
         if: ${{ vars.DEVFLOW_APP_ID != '' }}
@@ -777,7 +777,7 @@ jobs:
       # present — at the consumer's pinned `prflow_version`. A pin predating
       # this installer has no such file, and the step fails LOUDLY (rc 127,
       # before the agent) until workflows and the pin are refreshed together
-      # (see docs/install.md's update section). The installer's own output-2
+      # (see docs/internal/install.md's update section). The installer's own output-2
       # wrapper-SOURCE lookup carries a vendored-or-repo fallback — that is a
       # different path (the gh-fresh.sh bytes to copy), not this invocation.
       - name: Install fresh-gh wrapper (optional)
@@ -796,7 +796,7 @@ jobs:
       # provider) reproduces today's Anthropic-OAuth wiring for a given
       # `claude_model` (one deliberate change: an empty resolved model now fails
       # loud instead of rendering `--model null`) — the provider path is strictly
-      # opt-in. See docs/cloud-setup.md.
+      # opt-in. See docs/internal/cloud-setup.md.
       - name: Resolve model provider
         id: provider
         env:
@@ -1064,7 +1064,7 @@ jobs:
           # must NOT suppress the splice ::notice:: for the valid extras. Without
           # COMPOSE to render the annotation, mirror the helper's arms inline and
           # emit each independently, so a spliced entry is never added without an
-          # audit line (docs/cloud-setup.md: every spliced entry logged, never silent).
+          # audit line (docs/internal/cloud-setup.md: every spliced entry logged, never silent).
           if [ -f "$COMPOSE" ]; then
             # Capture the renderer's status rather than `|| true`-swallowing it: the
             # extras were already spliced above, so a non-zero renderer must still
@@ -1287,8 +1287,8 @@ jobs:
           EXTRA: ${{ needs.config.outputs.allowed_tools_extra }}
         run: |
           set -euo pipefail
-          # devflow-capability-manifest: region=implement manifest_version=17 sha256=c78d54331922d3e740e9b094a00c2dc4736587a791287c1ec127d8eda923e776
-          TOOLS='Read, Write, Edit, Glob, Grep, LS, Skill, Agent, TodoWrite, EnterPlanMode, ExitPlanMode, WebFetch, WebSearch, Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git pull:*), Bash(git fetch:*), Bash(git ls-remote:*), Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git show:*), Bash(git hash-object:*), Bash(git checkout:*), Bash(git branch:*), Bash(git stash:*), Bash(git rm:*), Bash(git mv:*), Bash(git restore:*), Bash(git revert:*), Bash(git blame:*), Bash(git ls-files:*), Bash(git rev-parse:*), Bash(git merge-base:*), Bash(git merge:*), Bash(gh pr create:*), Bash(gh pr edit:*), Bash(gh pr comment:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh pr ready:*), Bash(gh pr list:*), Bash(gh pr checks:*), Bash(gh pr status:*), Bash(gh pr reopen:*), Bash(gh issue view:*), Bash(gh issue comment:*), Bash(gh issue list:*), Bash(gh issue edit:*), Bash(gh issue create:*), Bash(gh issue reopen:*), Bash(gh issue status:*), Bash(gh search:*), Bash(gh label list:*), Bash(gh repo view:*), Bash(gh run view:*), Bash(gh run list:*), Bash(gh workflow view:*), Bash(gh workflow list:*), Bash(gh api:*), Bash(jq:*), Bash(.prflow/vendor/prflow/scripts/run-jq.sh:*), Bash(.prflow/vendor/prflow/scripts/config-get.sh:*), Bash(.prflow/vendor/prflow/scripts/workpad.py:*), Bash(.prflow/vendor/prflow/scripts/seed-review-progress.sh:*), Bash(.prflow/vendor/prflow/scripts/verification-flight.py:*), Bash(.prflow/vendor/prflow/scripts/reception-record.py:*), Bash(.prflow/vendor/prflow/scripts/check-completion-evidence.py:*), Bash(.prflow/vendor/prflow/scripts/parse-acs.py:*), Bash(.prflow/vendor/prflow/scripts/check-verified-premises.py:*), Bash(.prflow/vendor/prflow/scripts/preflight.py:*), Bash(.prflow/vendor/prflow/scripts/branch-for-issue.py:*), Bash(.prflow/vendor/prflow/scripts/update-branch-checkpoint.sh:*), Bash(.prflow/vendor/prflow/scripts/file-deferrals.py:*), Bash(.prflow/vendor/prflow/scripts/discover-deferral-manifests.py:*), Bash(.prflow/vendor/prflow/scripts/match-deferrals.py:*), Bash(.prflow/vendor/prflow/scripts/resolve-review-overrides.py:*), Bash(.prflow/vendor/prflow/scripts/apply-labels.sh:*), Bash(.prflow/vendor/prflow/scripts/ensure-label.sh:*), Bash(.prflow/vendor/prflow/scripts/apply-pr-triggerer.sh:*), Bash(.prflow/vendor/prflow/scripts/apply-issue-dependencies.py:*), Bash(.prflow/vendor/prflow/scripts/resolve-existing-pr.sh:*), Bash(.prflow/vendor/prflow/lib/efficiency-trace.sh:*), Bash(.prflow/vendor/prflow/scripts/stale-prose-lint.py:*), Bash(.prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh:*), Bash(.prflow/vendor/prflow/scripts/post-review-verdict.sh:*), Bash(.prflow/vendor/prflow/scripts/match-lint-adjudications.py:*), Bash(.prflow/vendor/prflow/scripts/normalize-verdicts.py:*), Bash(.prflow/vendor/prflow/scripts/load-prompt-extension.sh:*), Bash(.prflow/vendor/prflow/scripts/react-to-trigger.sh:*), Bash(.prflow/vendor/prflow/scripts/extract-doc-needed-paths.sh:*), Bash(pip install:*), Bash(pip:*), Bash(python:*), Bash(python3:*), Bash(python -m:*), Bash(python3 -m:*), Bash(ruff:*), Bash(ruff check:*), Bash(ruff format:*), Bash(pytest:*), Bash(mypy:*), Bash(grep:*), Bash(rg:*), Bash(find:*), Bash(wc:*), Bash(sort:*), Bash(uniq:*), Bash(cut:*), Bash(tr:*), Bash(xargs:*), Bash(awk:*), Bash(sed:*), Bash(diff:*), Bash(cmp:*), Bash(comm:*), Bash(cat:*), Bash(head:*), Bash(tail:*), Bash(less:*), Bash(ls:*), Bash(tree:*), Bash(file:*), Bash(stat:*), Bash(date:*), Bash(pwd:*), Bash(realpath:*), Bash(dirname:*), Bash(basename:*), Bash(which:*), Bash(type:*), Bash(env:*), Bash(echo:*), Bash(printf:*), Bash(test:*), Bash(touch:*), Bash(mkdir:*), Bash(rmdir:*), Bash(rm:*), Bash(mv:*), Bash(cp:*), Bash(tee:*)'
+          # devflow-capability-manifest: region=implement manifest_version=20 sha256=de7da82895e93399eca6ef35cae4c4dbab71a21aeb45d39861de0164a4deb616
+          TOOLS='Read, Write, Edit, Glob, Grep, LS, Skill, Agent, TodoWrite, EnterPlanMode, ExitPlanMode, WebFetch, WebSearch, Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git pull:*), Bash(git fetch:*), Bash(git ls-remote:*), Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git show:*), Bash(git hash-object:*), Bash(git checkout:*), Bash(git branch:*), Bash(git stash:*), Bash(git rm:*), Bash(git mv:*), Bash(git restore:*), Bash(git revert:*), Bash(git blame:*), Bash(git ls-files:*), Bash(git rev-parse:*), Bash(git merge-base:*), Bash(git merge:*), Bash(gh pr create:*), Bash(gh pr edit:*), Bash(gh pr comment:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh pr ready:*), Bash(gh pr list:*), Bash(gh pr checks:*), Bash(gh pr status:*), Bash(gh pr reopen:*), Bash(gh issue view:*), Bash(gh issue comment:*), Bash(gh issue list:*), Bash(gh issue edit:*), Bash(gh issue create:*), Bash(gh issue reopen:*), Bash(gh issue status:*), Bash(gh search:*), Bash(gh label list:*), Bash(gh repo view:*), Bash(gh run view:*), Bash(gh run list:*), Bash(gh workflow view:*), Bash(gh workflow list:*), Bash(gh api:*), Bash(jq:*), Bash(.prflow/vendor/prflow/scripts/run-jq.sh:*), Bash(.prflow/vendor/prflow/scripts/config-get.sh:*), Bash(.prflow/vendor/prflow/scripts/workpad.py:*), Bash(.prflow/vendor/prflow/scripts/seed-review-progress.sh:*), Bash(.prflow/vendor/prflow/scripts/verification-flight.py:*), Bash(.prflow/vendor/prflow/scripts/reception-record.py:*), Bash(.prflow/vendor/prflow/scripts/checkout-fingerprint.py:*), Bash(.prflow/vendor/prflow/scripts/check-completion-evidence.py:*), Bash(.prflow/vendor/prflow/scripts/parse-acs.py:*), Bash(.prflow/vendor/prflow/scripts/check-verified-premises.py:*), Bash(.prflow/vendor/prflow/scripts/preflight.py:*), Bash(.prflow/vendor/prflow/scripts/branch-for-issue.py:*), Bash(.prflow/vendor/prflow/scripts/update-branch-checkpoint.sh:*), Bash(.prflow/vendor/prflow/scripts/phase2-durability-checkpoint.sh:*), Bash(.prflow/vendor/prflow/scripts/file-deferrals.py:*), Bash(.prflow/vendor/prflow/scripts/discover-deferral-manifests.py:*), Bash(.prflow/vendor/prflow/scripts/match-deferrals.py:*), Bash(.prflow/vendor/prflow/scripts/resolve-review-overrides.py:*), Bash(.prflow/vendor/prflow/scripts/apply-labels.sh:*), Bash(.prflow/vendor/prflow/scripts/ensure-label.sh:*), Bash(.prflow/vendor/prflow/scripts/apply-pr-triggerer.sh:*), Bash(.prflow/vendor/prflow/scripts/apply-issue-dependencies.py:*), Bash(.prflow/vendor/prflow/scripts/resolve-existing-pr.sh:*), Bash(.prflow/vendor/prflow/lib/efficiency-trace.sh:*), Bash(.prflow/vendor/prflow/scripts/stale-prose-lint.py:*), Bash(.prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh:*), Bash(.prflow/vendor/prflow/scripts/post-review-verdict.sh:*), Bash(.prflow/vendor/prflow/scripts/loop-verdict-marker.py:*), Bash(.prflow/vendor/prflow/scripts/match-lint-adjudications.py:*), Bash(.prflow/vendor/prflow/scripts/normalize-verdicts.py:*), Bash(.prflow/vendor/prflow/scripts/load-prompt-extension.sh:*), Bash(.prflow/vendor/prflow/scripts/react-to-trigger.sh:*), Bash(.prflow/vendor/prflow/scripts/extract-doc-needed-paths.sh:*), Bash(pip install:*), Bash(pip:*), Bash(python:*), Bash(python3:*), Bash(python -m:*), Bash(python3 -m:*), Bash(ruff:*), Bash(ruff check:*), Bash(ruff format:*), Bash(pytest:*), Bash(mypy:*), Bash(grep:*), Bash(rg:*), Bash(find:*), Bash(wc:*), Bash(sort:*), Bash(uniq:*), Bash(cut:*), Bash(tr:*), Bash(xargs:*), Bash(awk:*), Bash(sed:*), Bash(diff:*), Bash(cmp:*), Bash(comm:*), Bash(cat:*), Bash(head:*), Bash(tail:*), Bash(less:*), Bash(ls:*), Bash(tree:*), Bash(file:*), Bash(stat:*), Bash(date:*), Bash(pwd:*), Bash(realpath:*), Bash(dirname:*), Bash(basename:*), Bash(which:*), Bash(type:*), Bash(env:*), Bash(echo:*), Bash(printf:*), Bash(test:*), Bash(touch:*), Bash(mkdir:*), Bash(rmdir:*), Bash(rm:*), Bash(mv:*), Bash(cp:*), Bash(tee:*)'
           # Randomized-delimiter heredoc, not `tools=<value>`: EXTRA is config-derived
           # (`prflow_implement.allowed_tools`), so a newline anywhere in it would truncate
           # the appended value at that point and silently shorten the allowlist feeding
@@ -1504,7 +1504,7 @@ jobs:
           # /code-review and /revise-claude-md slash commands), NOT engine dependencies —
           # DevFlow's engine dispatches neither. The "zero companion-plugin dependencies"
           # claim is scoped to the consumer install + what the engine dispatches; see
-          # docs/DEVFLOW_SYSTEM_OVERVIEW.md §6. devflow@ is DevFlow itself. The baked
+          # docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md §6. devflow@ is DevFlow itself. The baked
           # baseline three are composed by the step above; settings-declared extras are
           # appended beyond them.
           plugins: ${{ steps.plugins.outputs.plugins }}
@@ -1767,7 +1767,7 @@ jobs:
       # class — it fails loud without consuming a resume attempt and is never
       # mislabeled unreadable. Auto-resume needs the optional DEVFLOW_APP_ID App
       # token AND that App's bot login in prflow.allowed_bots; fail-loud works
-      # under either token — see docs/implement-skill.md for the full boundary
+      # under either token — see docs/internal/implement-skill.md for the full boundary
       # discussion.
       - name: Stall backstop
         if: ${{ always() }}
@@ -1834,11 +1834,56 @@ jobs:
           # flip_to_failed itself — omitting the call silently regresses the
           # flip on that arm.
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          # Base branch for the empty-branch probe (issue #1261). Resolved the same
+          # way §1.4 does — config .base_branch, default main. config-get prints a
+          # fully-resolved value or nothing, so one emptiness fallback covers both
+          # its soft and hard failure paths.
+          BASE_BRANCH="$("$V/config-get.sh" .base_branch main)"
+          [ -n "$BASE_BRANCH" ] || BASE_BRANCH=main
+          # Empty-branch producer (issue #1261): when a terminated run pushed no
+          # commit to its remote branch, record that fact on the workpad so an
+          # empty branch does not read as a partial success. The three-valued
+          # decision (no commit / at least one commit / could-not-establish) and
+          # the note it writes live in scripts/record-empty-branch.sh (beside the
+          # step, NOT inside the pure decision helper, which keeps its no-I/O
+          # purity — AC1) so the suite can drive every outcome against a scratch
+          # repo + stubbed workpad. It is
+          # called ONLY from the two flip helpers below, which inherit their
+          # POSITIONAL CLASS=interim guard — so it is written only at a genuine
+          # terminal flip and NEVER on the resume path (issue #1261 gotcha: a
+          # no-commit statement written before a resume would be stale the moment
+          # the resumed run pushes). The run's feature branch is read from the
+          # workpad Branch line best-effort; when it cannot be resolved the helper
+          # itself records the unestablished case. Best-effort throughout: the
+          # helper always exits 0 and self-warns on a write failure, so the exit
+          # arm is never changed (AC5).
+          record_empty_branch() {
+            [ "${CLASS:-}" = "interim" ] || return 0
+            local wp_id wp_body
+            wp_id="$(python3 "$V/workpad.py" id "$ISSUE_NUMBER" 2>/dev/null)" || wp_id=""
+            wp_body=""
+            [ -n "$wp_id" ] && { wp_body="$(python3 "$V/workpad.py" body "$wp_id" 2>/dev/null)" || wp_body=""; }
+            # BRANCH is left empty: the helper parses it from the workpad body it
+            # receives as EB_WORKPAD_BODY (which is also its idempotency source), so
+            # the fragile line parse is driven by the suite rather than stranded in
+            # untestable workflow YAML.
+            # V is deliberately NOT passed in the env prefix: the helper self-anchors
+            # it off its own BASH_SOURCE, which is the same "$V" directory we invoke
+            # it from, and an assignment in this prefix would not be visible to the
+            # "$V/..." expansion in the same command anyway (SC2097/SC2098).
+            ISSUE_NUMBER="$ISSUE_NUMBER" BRANCH="" BASE="$BASE_BRANCH" REMOTE=origin \
+              RUN_URL="$RUN_URL" EB_WORKPAD_BODY="$wp_body" \
+              bash "$V/record-empty-branch.sh" \
+              || echo "::warning::stall backstop: empty-branch producer exited non-zero; workpad note may be unwritten"
+          }
           flip_to_failed() {
             [ "${CLASS:-}" = "interim" ] || return 0
             python3 "$V/workpad.py" update "$ISSUE_NUMBER" --status Failed \
               --note "run died: ${1:-dead-end exit} — ${RUN_URL}" \
               || echo "::warning::stall backstop: could not flip workpad Status to 💥 Failed (${1:-dead-end exit}); leaving it unchanged"
+            # Record the empty-branch fact alongside the terminal flip (AC6): the
+            # 💥 Failed Status and the no-commit statement coexist.
+            record_empty_branch
           }
           # Cancelled-run flip (issue #498): mirror of flip_to_failed — the same
           # POSITIONAL CLASS=interim guard, best-effort ::warning:: on failure,
@@ -1853,6 +1898,9 @@ jobs:
             python3 "$V/workpad.py" update "$ISSUE_NUMBER" --status Cancelled \
               --note "run cancelled (job.status=cancelled) — ${RUN_URL}" \
               || echo "::warning::stall backstop: could not flip workpad Status to 🛑 Cancelled; leaving it unchanged"
+            # Record the empty-branch fact alongside the terminal flip (AC6): the
+            # 🛑 Cancelled Status and the no-commit statement coexist.
+            record_empty_branch
           }
           # Master switch first: disabled → fully skipped (no status read, no
           # comment, no resume, no fail). Unrecognized/missing resolves to

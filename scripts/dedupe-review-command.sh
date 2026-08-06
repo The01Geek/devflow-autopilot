@@ -21,7 +21,7 @@
 #     the vehicle for a seed-time head and is left untouched.
 # Only the review engine writes the seeded comment, so the candidate population is
 # reviews rather than conversation, and no `run-name` / command-class matcher is
-# needed. (See docs/workflow-triggers.md and issue #989's Decision section.)
+# needed. (See issue #989's Decision section.)
 #
 # THE SEED-TIME HEAD KEY (issue #1010). The engine stamps a distinct, machine-only
 # producer key into the SAME comment at seed time — an HTML-comment marker
@@ -38,8 +38,7 @@
 # assumed on a head that could not be established.
 #
 # Two accepted, deliberate costs (issue #989; the third, pull-request scope, was
-# recorded on PR #993's review and RETIRED by issue #1010 — see
-# docs/workflow-triggers.md, which carries the same list):
+# recorded on PR #993's review and RETIRED by issue #1010):
 #   1. Configuration-dependent: with prflow_review.live_progress_comment_enabled
 #      off there is no seeded comment, so this fails OPEN (no suppression) — the
 #      direction this job is already contractually required to take. The
@@ -53,7 +52,7 @@
 #      nothing is reviewing, which the commit scope correctly lets through.
 #
 # GitHub-native `concurrency` is NOT the mechanism (shared repository doctrine —
-# see scripts/dedupe-implement-run.sh's header and docs/workflow-triggers.md):
+# see scripts/dedupe-implement-run.sh's header):
 # `cancel-in-progress: true` cancels the in-flight run (wrong run) and `false`
 # QUEUES the duplicate so it eventually runs (not ignored). GitHub has no
 # "skip if already running" primitive, so both DevFlow duplicate checks — the
@@ -82,8 +81,10 @@
 #   REPO           owner/repo, for the `gh api` comments call (detect mode).
 #   PR             the pull-request / thread number to inspect (detect mode). The
 #                  workflow derives it as
-#                  `github.event.issue.number || github.event.pull_request.number`
-#                  so it resolves on all three events devflow.yml accepts.
+#                  `github.event.issue.number || github.event.pull_request.number`.
+#                  Since issue #1163 devflow.yml accepts issue_comment alone (which
+#                  populates github.event.issue.number); the `|| pull_request.number`
+#                  fallback is retained as a defensive form but is now degenerate.
 #   RUN_ID         github.run_id of THIS run — a review-progress comment keyed to
 #                  this run (run=<RUN_ID>-...) is excluded, so a run can never
 #                  suppress on its own seeded comment.

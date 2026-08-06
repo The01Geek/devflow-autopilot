@@ -121,7 +121,14 @@ measured before/after figures are recorded once, in
 #### Coverage-map block ownership (every PR that adds an assertion)
 
 `lib/test/modules/coverage-map.json` is the ranked to-do list for future
-extractions, and its `run_sh_blocks` half is **derived**, not curated. The coverage
+extractions. Its `run_sh_blocks` half is **mostly derived** — a label asserted in the
+tree that carries no entry is added mechanically by `--fix` — but it is **not purely
+derived**: an entry whose assertions were later deleted or renamed has no live
+derivation behind it and becomes a **curated historical record** the guard deliberately
+neither reports nor removes (a few dozen such `run_sh_blocks` keys), and every
+`note` in both halves plus every `files`-row's content is curated. So treat the half as
+derived *for the ratchet's completeness arm* and curated *for the content a merge must
+not lose*. The coverage
 guard (`lib/test/coverage_map_guard.py`, driven by the complete suite) derives the
 issue labels asserted by `lib/test/run.sh` and by every `lib/test/modules/*.sh` —
 anchored on assertion-name position, so a `#NNN` in a comment derives nothing — and
@@ -163,6 +170,53 @@ The arm is deliberately **one-directional**: it reports a label the tree asserts
 map does not carry, never the reverse. A map entry with no derivation behind it — a
 block whose assertions were deleted or renamed — is a curated historical record, so it is
 neither reported nor removed by `--fix`. Prune such an entry by hand when you want it gone.
+
+**Merge conflicts in this file are NOT resolved with `--fix` (issue #1194).** The map is
+two large string-sorted JSON objects, so two branches that each *add* a different key at
+an adjacent sort position conflict textually even though they never semantically
+conflict — and resolving by taking either side silently **drops the other branch's
+entry**. `--fix` cannot undo that: it only *adds* missing derivable rows, so it cannot
+restore a curated `run_sh_blocks` record, any dropped `note`, or any `files`-row content —
+running it after a lossy resolution just produces a green suite over the loss. So when
+this file conflicts, keep **every key from both sides**:
+
+- Register the **JSON-aware merge driver** once per clone and let it union the objects
+  automatically on your next merge/rebase (it conflicts only on a genuine same-key
+  divergence):
+
+  ```bash
+  python3 lib/test/coverage-map-merge-driver.py --register   # then: --check to verify it is active
+  ```
+
+  The `.gitattributes` `merge=coverage-map-json` declaration only *names* the driver;
+  git falls back silently to its line-based merge until the driver is registered locally,
+  so `--check` (which prints the exact registration command when it is not) is the thing
+  to run if you are unsure.
+- If you resolve by hand (or in GitHub's web editor, where the driver cannot run), take
+  **both** sides' entries and then re-canonicalize with `--fix` (canonical form only — the
+  entries must already all be present first).
+
+The CI-side **key-retention check** backstops both paths regardless of local
+configuration — it fails RED when a key or its `note`/`owner` content disappears relative
+to the merge base, including for the curated keys no ratchet arm inspects:
+
+```bash
+python3 lib/test/coverage-map-retention-check.py .
+```
+
+A genuinely legitimate removal (a deleted tracked file, a truly retired block) is declared
+with a non-empty reason in `lib/test/coverage-map-retention-allow.json`.
+
+It reports **three** outcomes, because "I could not establish whether a key was lost" is
+not "no key was lost": `0` clean, `1` a dropped key (or an input it could not read), and
+`3` **the base comparand could not be established**. Exit 3 is what you get on a shallow
+or partial clone, where `git merge-base` either fails outright or succeeds against a
+truncated commit graph and names a boundary commit whose tree predates the map — either
+way the comparison proves nothing, so it must not report green. The remedy is a real
+comparand (`git fetch --unshallow`, which is why CI checks out with `fetch-depth: 0`); if
+you are deliberately working in a shallow clone and want the run to exit 0 anyway, pass
+`--allow-degraded-base`, which still prints the reasons and reports the run as
+acknowledged-degraded rather than as a verified clean pass. Do not add that flag to CI.
 
 **Retired mutation-pin helpers (issue #810 follow-up).** The required
 `mutation-routing-worktree` gate builds the audited test-source census and requires
@@ -463,7 +517,7 @@ by the manifest protocol, not by editing a refresh row.
 
 **Declaring a repository-tree walk (issue #711).** `# tree-walk-ok: <reason>` is a
 member of the same declaration-marker family (`# structural-pin-ok:`, `# raw-guard-ok:`,
-`# tree-walk-ok:`, `# argjson-ok:`, `# pruned-path-ok:`), in the same one-line-reason framing. A tracked `.py` or `.sh` file under `lib/test/`
+`# tree-walk-ok:`, `# argjson-ok:`, `# pruned-path-ok:`, `# glob-ok:`), in the same one-line-reason framing. A tracked `.py` or `.sh` file under `lib/test/`
 that enumerates with a recursive walk — `rglob(`, `os.walk(`, `iglob(`, a `recursive=True`
 call, a `glob(` whose pattern carries a `**` component or is not a string literal (these two
 are judged by a Python parse, so they apply to `.py` files only), or a shell `find` / `grep -r`
@@ -477,6 +531,64 @@ because a root-anchored walk descends into every sibling worktree under `.claude
 and reports a count that has nothing to do with the repository's state. `lib/test/lint-tree-enumeration.py`
 turns the suite RED for an undeclared walk; it never judges what a reason claims, so a marked
 walk still ships — it ships visibly.
+
+**Declaring an unguarded filename pattern in a shipped shell fence (issue #1211).**
+`# glob-ok: <reason>` is the newest member of that same family. A fenced shell snippet
+under `skills/` is prose an agent runs verbatim, in whatever shell its harness supplies —
+commonly zsh, whose default `nomatch` makes an unmatched filename pattern a refusal of
+*that one command*: the shell prints `zsh: no matches found: <pattern>` and skips it, then
+carries on with the rest of the block (no skill fence sets `set -e`). The harm is a
+silently empty enumeration — nothing distinguishes "there is nothing here" from "the shell
+declined to look". The standard remedy is one line beside the glob, inside the same fence:
+
+```bash
+[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
+```
+
+It is a no-op on every other shell (`$ZSH_VERSION` is unset, `&&` short-circuits, `|| :`
+holds the exit status at zero). Reporting the empty case explicitly is better still.
+`lib/test/lint-skills-glob-guard.py` (driven from `lib/test/run.sh`) is the mechanical
+backstop: it flags the narrow, high-confidence shape only, and is discharged by either
+that guard line earlier in the same fence or a `# glob-ok: <reason>` marker. It
+deliberately claims no completeness — its recognised shape and its accepted residuals are
+enumerated in the helper's own module docstring, which is the place to read them rather
+than a copy here that would drift. The written convention is the primary control; the
+check is the backstop for the commonest shape.
+
+### Raising the phase-4 documentation byte ceiling
+
+`skills/implement/phases/phase-4-documentation.md` is loaded on every implement
+run, so it carries a hard byte-size ceiling enforced by the test suite — the
+`lib/test/run.sh` check whose name begins *"#815 phase-4-documentation.md is at
+or below the byte ceiling the move authorises"*. An edit that grows the file past
+the ceiling turns the whole suite red on that one check.
+
+The ceiling is a **ratchet**: it only ever moves up, only when a contributor
+deliberately raises it, and it is **never loosened to leave breathing room**. It
+is a registered exception under the `#656` rule (*prefer generated evidence over
+exact checked-in numbers — except where an exact literal is itself the
+enforcement*): here the exact number *is* the enforcement, so it stays
+hand-written rather than computed, with no slack added — the next edit that grows
+the file goes red and must register its own raise.
+
+When your edit trips this check and the new content genuinely belongs in this
+always-loaded file, raise the ceiling in these four steps, in order:
+
+1. **Justify the weight.** Write down why the new content cannot instead live in
+   a file that is only loaded when it is needed (a progressively-loaded
+   `references/` or `phases/` reference), rather than in this always-resident
+   file.
+2. **Trim first, and record what you trimmed.** Recover as much room as you can
+   from the file before raising the number, and note what you removed.
+3. **Hand-edit the number to the new exact file size.** Set it to the file's new
+   `wc -c` byte count exactly — no rounding up, no spare room.
+4. **Add a paragraph explaining the raise** to the comment block directly above
+   the check in `lib/test/run.sh`.
+
+That comment block holds the reasoning for every past raise, one paragraph per
+raise — read it there rather than duplicating it here. The original registration
+of the ceiling, and the `#656` enforcement-constant exception it rests on, are
+documented in `docs/internal/cutovers/issue-815-deferred-ac-followups-relocate.md`.
 
 ### Regenerating suite-owned artifacts
 
@@ -500,6 +612,24 @@ edits them. Exit codes: `0` clean, `1` action required, `2` infrastructure failu
 (which wins over `1`). Use `--list` to see the registered artifacts and `--repo-root` to
 point it at another checkout.
 
+#### The parallel coordinator refuses to launch on a drifted artifact
+
+Running the batched pass is a discipline, so it can be skipped — and before issue #1244 a
+stale generated artifact was then caught only by a full ~13-minute suite run. The parallel
+coordinator `lib/test/run-parallel.sh` now closes that gap mechanically: before it launches
+any shard it runs `lib/test/regenerate-artifacts.py --preflight`, a **read-only** pass over
+the registry's sub-second, non-writing rows (the `cloud-writer-manifest` verify plus the
+judgment-gated `--check` rows; the multi-minute `exact-module-floors` row is declared
+ineligible). On detected drift the coordinator prints the failing row and its governing
+policy, launches no shard, and exits non-zero in under a couple of seconds — so you fix the
+artifact with the batched pass above rather than paying a whole suite run to discover it. An
+*inconclusive* preflight (a crash, an unreadable exit, or a disabled check) warns and
+launches the shards anyway: detected drift fails closed, an unestablished check does not. The
+preflight is read-only and reconciles nothing — the batched `regenerate-artifacts.py` pass
+stays the only writer, and running it after your edits is what keeps the coordinator from
+refusing your own launch. It touches neither `.github/workflows/ci.yml` nor
+`lib/test/run-shard.sh`, so CI's per-shard behaviour is unchanged.
+
 #### The registry is also the merge-conflict oracle
 
 When a branch update lands a merge conflict in a checked-in **generated** artifact, do
@@ -518,9 +648,9 @@ instead, via `--list`:
   governed by **that line's own** class (e.g. `lib/review-profile.tokens`, the reviewer
   security-boundary lock the capability generator never writes, is `by-hand`).
 
-These four line kinds are emitted strictly *after* the existing `artifact` and
-`budget-watch` lines, whose formats are byte-unchanged, so prefix-anchored consumers parse
-as before. The rule is fail-closed at both ends: a conflicted path that is **not** among
+These four line kinds are emitted strictly *after* the existing `artifact` lines,
+whose format is byte-unchanged, so prefix-anchored consumers parse as before. The
+rule is fail-closed at both ends: a conflicted path that is **not** among
 the emitted `conflict-path`/`conflict-sibling` paths is an ordinary hand-merge, and a
 `--list` that cannot run — or that emits no `artifact`/`conflict-class` lines — means
 needs-human-reconciliation and stop, never a guessed hand-merge.
@@ -584,9 +714,13 @@ selectable module, complete all of the following in the same PR:
    asserted nowhere in `run.sh`) whose entry is absent or still names
    `unmodularized`. A **partially extracted** label — one a module carries while
    assertions remain in `run.sh` — correctly keeps `unmodularized`, because a single
-   `owner` string cannot describe split coverage. Repair the map with
-   `python3 lib/test/coverage_map_guard.py . --fix` rather than by hand (see
-   *Coverage-map block ownership* under Running the tests).
+   `owner` string cannot describe split coverage. Repair a *ratchet violation* (a
+   label the tree asserts but the map does not carry) with
+   `python3 lib/test/coverage_map_guard.py . --fix` rather than by hand. **A merge
+   conflict in this file is a different case — `--fix` is NOT the remedy there**
+   (it cannot restore a key a resolution dropped); register the JSON-aware merge
+   driver or take both sides by hand, and let the CI key-retention check backstop it
+   (see *Coverage-map block ownership* under Running the tests for both).
 7. **Module-contract compliance** — the module must satisfy the module contract
    documented in `lib/test/module-harness.sh`'s header (private fixture root and
    cleanup, caller-provided `LIB`/`RESULTS_FILE`/`assert_eq`, no self-skip, no
@@ -693,7 +827,7 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
   from who owns the file:** the cloud review tier checks out the pull request's head, so
   the extensions it loads come from the trusted base ref through
   `DEVFLOW_PROMPT_EXTENSION_ROOT` instead (issue #874) — see
-  [`docs/DEVFLOW_SYSTEM_OVERVIEW.md`](docs/DEVFLOW_SYSTEM_OVERVIEW.md)'s base-ref trust
+  [`docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`](docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md)'s base-ref trust
   boundary bullet for the canonical statement. A skill's own load step is unchanged by
   that: it invokes the helper identically on every tier. When you **add a new skill**, copy this step verbatim (substituting the
   new skill's directory name) so it inherits the convention, **and** add the new skill's
@@ -712,7 +846,7 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
   the fix loop applies those principles without ever invoking that skill. When you add or
   change a skill, ask which other skills' principles it applies un-invoked. The rule and
   its coverage are stated in
-  [`docs/DEVFLOW_SYSTEM_OVERVIEW.md`](docs/DEVFLOW_SYSTEM_OVERVIEW.md) under *Extending
+  [`docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md`](docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md) under *Extending
   skills with prompt extensions*.
 - Prompt cutovers, trims, and relocations follow the advisory sole-owner discipline in
   [`CLAUDE.md`](CLAUDE.md)'s **Helper cutover** convention, with the lean-prose guidance in
@@ -724,7 +858,7 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
 The `.github/workflows/*.yml` files run inside GitHub Actions, where they reference
 plugin scripts at `.prflow/vendor/prflow/scripts/…`. That path assumes the cloud
 tier is used with the plugin **vendored** into the consuming repo at that path (see
-`docs/cloud-setup.md`). This is intentional and distinct from the local skills, which
+`docs/internal/cloud-setup.md`). This is intentional and distinct from the local skills, which
 resolve the portable `${CLAUDE_SKILL_DIR:-…}` anchor at runtime.
 
 ## Submitting changes

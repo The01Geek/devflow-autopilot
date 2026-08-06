@@ -85,6 +85,9 @@
     "changelog_file": "CHANGELOG.md",
     "labels": "Documented"
   },
+  "create_issue": {
+    "investigation_record_enabled": true
+  },
   "deferred": {
     "labels": "PRFlow,Deferred"
   },
@@ -94,8 +97,7 @@
   "verification_flight": {
     "enabled": true,
     "lease_seconds": 900,
-    "wait_timeout_seconds": 600,
-    "profiles": {}
+    "wait_timeout_seconds": 600
   },
   "prflow_retrospective": {
     "enabled": true,

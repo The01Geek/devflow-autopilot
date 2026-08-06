@@ -198,14 +198,19 @@ STUB=$'#!/usr/bin/env bash\n# Installed by scripts/harden-stop-hooks.sh (#458): 
 # Language-appropriate stub for a .py target (issue #805). The PreToolUse guard is the
 # first Python ENTRY hook; writing the bash STUB above into a file the harness runs as a
 # Python hook raises SyntaxError on `exit 0`, failing the hook on every call instead of
-# the intended benign no-op. This Python stub emits a `defer` decision (the documented
-# non-approving default the hook contract wants) and exits 0 — but ONLY under __main__.
-# That guard is DEFENSIVE, not a description of any current routing: `write_stub` below
-# installs STUB_PY for a .py ENTRY target only, and every .py EXEC dep keeps the bash
-# STUB, so no file the closure imports can carry STUB_PY today. It keeps the stub inert
-# should a future .py entry target also be imported — without it a top-level
-# `sys.exit(0)` would raise SystemExit into the importer.
-STUB_PY=$'#!/usr/bin/env python3\n# Installed by scripts/harden-stop-hooks.sh (#458/#805): no trusted base copy of this\n# Python hook target was available, so it is neutralized rather than run from the PR-head\n# checkout. Fail-closed: emit a benign defer decision and exit 0, never a PR-controlled\n# body.\nimport json, sys\nif __name__ == "__main__":\n    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "defer", "permissionDecisionReason": "devflow: stubbed hook (no trusted base copy)"}}))\n    sys.exit(0)'
+# the intended benign no-op. This Python stub therefore does in Python exactly what the
+# bash STUB does in bash: print NOTHING and exit 0 — the documented no-decision shape, so
+# the stubbed hook reports no decision and the normal permission flow proceeds untouched.
+# It used to print a `permissionDecision: "defer"` object instead, on the belief that the
+# token was the fall-through; run 30967680822's `defer-probe` measured that token BLOCKING
+# the tool and ending the process (DEFER-BLOCKED / STOP-REASON-DEFERRED), which would have
+# made this "benign" stub terminate the very run it is meant to leave alone. The __main__
+# guard is DEFENSIVE, not a description of any current routing: `write_stub` below installs
+# STUB_PY for a .py ENTRY target only, and every .py EXEC dep keeps the bash STUB, so no
+# file the closure imports can carry STUB_PY today. It keeps the stub inert should a future
+# .py entry target also be imported — without it a top-level `sys.exit(0)` would raise
+# SystemExit into the importer.
+STUB_PY=$'#!/usr/bin/env python3\n# Installed by scripts/harden-stop-hooks.sh (#458/#805): no trusted base copy of this\n# Python hook target was available, so it is neutralized rather than run from the PR-head\n# checkout. Fail-closed: report NO decision (print nothing) and exit 0, never a\n# PR-controlled body.\nimport sys\nif __name__ == "__main__":\n    sys.exit(0)'
 
 # Membership tests — pure bash (a SELECTION-deciding value must not route through a
 # non-preflight PATH tool: the repo's guard-class 2).
@@ -259,7 +264,8 @@ write_stub() {
   # `exit 0` in a file the harness runs as a Python hook raises SyntaxError on `exit 0`).
   # A .py EXEC dep (workpad.py, config_fingerprint.py, extract-command-*.py) keeps the bash
   # STUB — it runs in a SUBPROCESS (`python3 <path>`) or is imported, so a bash stub just
-  # makes it a no-op/import-error and the caller degrades (the guard fails open to defer),
+  # makes it a no-op/import-error and the caller degrades (the guard fails open to a
+  # no-decision: exit 0, empty stdout),
   # the established exec-dep behavior. Pure suffix + membership `case`/`if` — no PATH tool
   # decides this SELECTION (guard-class 2).
   local _stub

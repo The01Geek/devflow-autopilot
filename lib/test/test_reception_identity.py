@@ -54,6 +54,19 @@ rr = _load_hyphenated("reception_record", "reception-record.py")
 vf = _load_hyphenated("verification_flight", "verification-flight.py")
 
 
+def _valid_checkout() -> dict:
+    """A shape-valid checkout fingerprint (issue #1243): the four content fields are
+    git object ids, the shape checkout-fingerprint.py emits and _validate_checkout now
+    requires. The old {k: "v"} placeholder is rejected by that shape gate."""
+    return {
+        "checkout_id": "r1",
+        "head": "a" * 40,
+        "index_digest": "b" * 40,
+        "tracked_digest": "c" * 40,
+        "untracked_digest": "d" * 40,
+    }
+
+
 def git(cwd, *args, check=True, env=None):
     e = os.environ.copy()
     e.setdefault("GIT_AUTHOR_NAME", "t")
@@ -636,7 +649,7 @@ class FlightExtensionTests(unittest.TestCase):
                 "output_roots": [],
                 "external_services": "none",
             },
-            "checkout": {k: "v" for k in vf._CHECKOUT_REQUIRED},
+            "checkout": _valid_checkout(),
         }
         if with_ci:
             d["candidate_identity"] = "deadbeef" * 5
@@ -1081,7 +1094,7 @@ class ReviewFixTests(unittest.TestCase):
                         "environment": {}, "toolchain": {}, "dependencies": {},
                         "output_roots": [], "external_services": "none",
                     },
-                    "checkout": {k: "v" for k in vf._CHECKOUT_REQUIRED},
+                    "checkout": _valid_checkout(),
                     "candidate_identity": bad,
                 }
                 with self.assertRaises(vf.DeclarationError) as cm:
@@ -1097,7 +1110,7 @@ class ReviewFixTests(unittest.TestCase):
                 "environment": {}, "toolchain": {}, "dependencies": {},
                 "output_roots": [], "external_services": "none",
             },
-            "checkout": {k: "v" for k in vf._CHECKOUT_REQUIRED},
+            "checkout": _valid_checkout(),
         }
         self.assertIsNone(vf._derive(d)["candidate_identity"])
 

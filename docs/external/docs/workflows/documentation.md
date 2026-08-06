@@ -1,22 +1,52 @@
 ---
 title: "Documentation"
-description: "Keep developer docs, public guidance and release notes synchronized with code changes."
+description: "Choose the PRFlow documentation workflow for branch changes, one topic or a new documentation set."
 ---
 
 # Documentation
 
-Use the documentation workflow when a branch's docs need to catch up before merge:
+Use this workflow guide when you want to verify or update documentation. The selected workflow can edit the documented files unless you choose report-only verification. A run returns updated documentation or a report that names the skipped work and any blocker.
+
+## Choose a Documentation Workflow
+
+| **Need** | **Command** | **Behavior** |
+| --- | --- | --- |
+| Run a complete branch documentation pass | `docs` | Runs internal sync, external sync and release notes in sequence. Internal and external steps can be disabled by configuration. |
+| Update developer documentation for changed code | `docs-sync-internal` | Edits internal docs in proportion to functional changes on the current branch. |
+| Align existing public docs with internal docs or shipped behavior | `docs-sync-external` | Edits existing customer-facing docs and removes internal-only detail. Both internal and external documentation trees must already exist. |
+| Verify one named topic and fix its internal docs | `docs-verify <topic>` | Compares the topic's documentation with code and edits missing or inaccurate internal docs. |
+| Inspect one topic without changing files | `docs-verify --report-only <topic>` | Returns a structured code and documentation findings report with no edits, commits or pushes. |
+| Create or reorganize developer docs from scratch | `docs-bootstrap-internal` | Builds a domain-based internal documentation structure with substantive seed pages. |
+| Create or comprehensively rebuild public docs | `docs-bootstrap-external` | Generates customer-facing docs from existing internal documentation. Stops if the internal source is absent or empty. |
+| Add a customer-facing release note | `docs-release-notes` | Adds a note only for customer-visible changes and reconciles an applicable changelog entry. |
+
+## Run the Complete Pass
+
+Use `docs` when a branch needs a general documentation check before merge:
 
 ```text
 /prflow:docs
 ```
 
-PRFlow treats documentation as part of implementation, not a separate publishing task. Depending on the change, it can update:
+The router first updates internal developer docs, then aligns external docs and finally evaluates release notes. It does not commit its changes. A caller such as [Implement](/docs/workflows/implement) owns the commit.
 
-- Internal developer documentation
-- Public, customer-facing documentation
-- Release notes or changesets
+## Sync or Bootstrap
 
-The repository configuration defines where each documentation family lives. Public docs should explain supported user behavior without exposing secrets, private operational details or internal-only implementation mechanics.
+Use a sync command when the relevant documentation tree already exists. Use a bootstrap command when the tree is absent, empty or needs a comprehensive rebuild.
 
-When `/prflow:implement` changes user-visible behavior, it normally invokes the relevant documentation checks as part of the same pull request.
+External documentation depends on an internal source of truth. Run `docs-bootstrap-internal` first when internal docs do not exist. `docs-bootstrap-external` refuses to fabricate public guidance without that source.
+
+## Verify Without Editing
+
+The default `docs-verify` mode can change internal documentation. Add `--report-only` when you need analysis without file changes.
+
+```text
+/prflow:docs-verify --report-only retry handling
+```
+
+Create Issue uses this report-only mode to inspect a topic before it drafts a ticket.
+
+## Related Articles
+
+- [Command Reference](/docs/reference/command-reference)
+- [Configuration Settings](/docs/configuration/settings)

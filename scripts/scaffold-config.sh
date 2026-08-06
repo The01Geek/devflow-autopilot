@@ -246,9 +246,7 @@ else
            '' \
            'To activate, copy this file to the same name without the .example suffix' \
            '(for example create-issue.md.example becomes create-issue.md) and replace' \
-           'this comment with your own instructions. For the full convention and a' \
-           'worked example, see the "Extending skills with prompt extensions" section' \
-           'in docs/DEVFLOW_SYSTEM_OVERVIEW.md.' &&
+           'this comment with your own instructions.' &&
          { [ "$pe_skill" != "create-issue" ] || printf '%s\n' \
              '' \
              'Step 3.6 (the fresh-context audit) reads an optional "## Audit dimensions"' \

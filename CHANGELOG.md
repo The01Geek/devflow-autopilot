@@ -4,6 +4,678 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.8] — 2026-08-06
+
+### Fixed
+- **A review run whose `command` job dies now still leaves a truthful, PR-visible record.** Every review post-run handler on `devflow.yml`'s `command` job was an `always()`-conditioned step inside that job, so a runner death (OOM, eviction, infrastructure loss) took all of them down with the job — the one failure mode they existed to cover. A new out-of-job `review_finalize` job (which does not share a runner with the `claude` step) now reads `needs.command.result` plus the GitHub API and, when the review command job did not report, flips the frozen `🚀 Reviewing` progress comment to a terminal "did not report" state naming the run URL. The flip is idempotent, so it never stacks a second banner and never fights the surviving in-job copy on an alive failure. Covers both `/prflow:review` and `/prflow:review-and-fix`. (#1174)
+
+## [2.31.7] — 2026-08-06
+
+### Changed
+- **`/prflow:create-issue` drafts shorter acceptance criteria that state outcomes, ground their apparatus once, and report how many there are.** The drafting rules now require each criterion to state what is true after the change rather than what the diff must contain, and describe the one permitted diff-shaped form — a criterion whose subject is a surface the change must *not* touch — instead of banning the shape. An optional prose **grounding block** may open the Acceptance Criteria section and carry the apparatus whose only readers are the drafter and the audit step, while apparatus the implementer reads (a measurement instrument, an `at minimum` floor marker, a closed-set exhaustiveness statement, an obligation's named command) stays inside its own criterion — because only checkbox items are guaranteed to reach the workpad section an implementing run's acceptance-criteria gate reads. The Step 4 audit summary line now carries the criterion count as a skill-composed marker, read from the parser invocation the drafting run already performs; it is reported and never enforced, so an unsplit scope is visible to the approver while no count becomes a threshold. No rule the section enforced was dropped, and the mirrored restatements in the steelman step and the audit-dimension template were reconciled in the same change. (#1345)
+
+## [2.31.6] — 2026-08-06
+
+### Changed
+### Added
+
+- A maintainer-dispatched `matcher-probe.yml` arm measuring whether `claude-code-action`
+  substitutes a render-time `` !`<command>` `` placeholder in a plugin-sourced `SKILL.md`
+  reached by a slash-command prompt, whether the injected command sees
+  `DEVFLOW_PROMPT_EXTENSION_ROOT`, and whether rendering is gated by `--allowed-tools`.
+  This discharges issue #1264's precondition, whose outcome routes that issue between
+  render-time injection and workflow-side prompt composition. The probe carries its own
+  throwaway marketplace under `.github/probe-plugin/`, which no consumer receives, and its
+  verdict is derived deterministically by `scripts/placeholder-probe-verdict.py`.
+
+## [2.31.5] — 2026-08-06
+
+### Fixed
+- **Implement Phase 3.1.1 now emits the granted vendored literal for the PR-assignment helper, with the portable anchor retained as a fallback arm.** The call site previously prescribed the bare `${CLAUDE_SKILL_DIR:-…}` anchor as its leading token — a shape the cloud matcher denies (issue #1124) — so cloud implement runs assigned the triggering user only intermittently. It now emits `.prflow/vendor/prflow/scripts/apply-pr-triggerer.sh <draft-pr-number>` first and falls back to the anchor form only when the vendored path is absent, matching the tier-agnostic remedy already used for the `load-prompt-extension.sh` call sites. The site is also enrolled in `lint-anchor-fallback-arm.py` so a future edit that drops the fallback arm turns the suite RED. (#1343)
+
+## [2.31.4] — 2026-08-06
+
+### Changed
+### Fixed
+
+- The Stage B retrospective subagent brief (`skills/retrospective-audit/SKILL.md`) no
+  longer reaches for bundled helpers through the `${CLAUDE_SKILL_DIR}` anchor. A
+  dispatched subagent receives neither that variable nor a runner-reported base
+  directory, so those six invocations could not resolve — including the brief's *only*
+  sanctioned JSON-build route (`run-jq.sh`), under a "never hand-write or heredoc JSON"
+  hard rule — their prescribed stop-and-report failure arm would have broken the brief's
+  exactly-one-JSON-object stdout contract, and one of them (`load-prompt-extension.sh`)
+  resolves its default path with `git rev-parse`, which the brief forbids. The
+  orchestrator (`skills/retrospective-weekly/SKILL.md`) now resolves the bundled-helper
+  root itself and hands it to the child **by value**, extending the by-path `<REPO_ROOT>`
+  handoff it already performed and reusing the same resolution PR #1336 shipped for Stage
+  A. The child resolves nothing, invokes no helper that touches git, and reports every
+  residual through its JSON contract rather than as prose on stdout. The duplicated
+  anchor-resolved `load-prompt-extension.sh` fence is removed — the orchestrator's by-path
+  extension handoff is the single route.
+
+## [2.31.3] — 2026-08-06
+
+### Fixed
+- **Workpad record fidelity.** `workpad.py update` now suppresses a `--note` bullet whose
+  text byte-equals a `--checkpoint` text requested in the same invocation, so the Phase 1
+  cloud hydration event renders as a single marker-carrying `## Progress` row instead of a
+  duplicated pair. A terminal `--status Complete` write now deterministically ticks every
+  still-unticked top-level `## Progress` phase row (sourced from `_PROGRESS_PHASES`), a
+  backstop for the cooperative per-phase ticks that were observed silently not landing;
+  `Failed`/`Cancelled`/`Blocked` and the interim statuses tick nothing. Newly-produced
+  workpad display text finishes the `prflow` rename — `new-body` seeds `/prflow:implement
+  run started` and renders the `# PRFlow Workpad` H1 — while the machine-consumed
+  `## Devflow Reflection` heading stays frozen. `branch-for-issue.py` deletes apostrophes
+  (U+0027 and U+2019) before the slug substitution, so a possessive contributes a clean
+  token rather than a stray `-s-` fragment. (#1340)
+
+## [2.31.2] — 2026-08-05
+
+### Changed
+### Fixed
+
+- The Stage A retrospective subagent brief (`skills/retrospective/SKILL.md`) no longer
+  reaches for bundled helpers through the `${CLAUDE_SKILL_DIR}` anchor. A dispatched
+  subagent receives neither that variable nor a runner-reported base directory, so those
+  invocations could not resolve, their prescribed stop-and-report failure arm would have
+  broken the brief's exactly-one-JSON-object stdout contract, and the config reader they
+  called resolves its default path with `git rev-parse` — which the brief forbids. The
+  orchestrator (`skills/retrospective-weekly/SKILL.md`) now resolves the bundled-helper
+  root and the internal-documentation root itself and hands both to the child **by
+  value**, extending the by-path `<REPO_ROOT>` handoff it already performed. The child
+  resolves nothing, invokes no helper that touches git, and reports every residual
+  through its JSON contract rather than as prose on stdout. ([#1336](https://github.com/The01Geek/prflow/pull/1336))
+
+## [2.31.1] — 2026-08-05
+
+### Changed
+Sharpen `/prflow:create-issue`'s `authoring-discipline-defects` audit dimension with a fourth **over-retention** shape, giving the Step 3.6 auditor (and the Step 3.5 drafter self-check that renders the same block) a subtractive move. The shape admits two finding types — RESTATEMENT (content restated elsewhere in the draft) and INFERABLE (content a competent implementer would derive from a cited repository file, precedent, or pattern) — each requiring a cited surviving home, so the audit can shrink a draft rather than only grow it. The dimension list stays at nine.
+
+## [2.31.0] — 2026-08-05
+
+### Added
+- **`/prflow:create-issue` now splits its output into an implementer brief plus a gated investigation-record comment.** Drafting sorts content into two buckets as it is written — the issue body carries the implementer's brief (what is broken, what "done" looks like, which files to start in, which hazards matter), and a separate **investigation record** (rejected designs, refutation prose, confirmatory evidence, deliberation, lower-severity hazards) is posted as the first comment on the created issue, with its workflow-trigger tokens neutralized. The boundary is the vanish test — *if this sentence vanished, would the implementer build the wrong thing?* — with five body sections that never move (`## Dependencies`, `## Acceptance Criteria`, the `- **Documentation Needed**` bullet, `## 🚫 Blocked`, and every `Verified:` bullet), each parsed by a named in-repo consumer. The new `create_issue.investigation_record_enabled` config key (default `true`) gates publication only; sorting always runs. (#1331)
+
+## [2.30.118] — 2026-08-05
+
+### Fixed
+- **Persisted iteration records now affirmatively record their provenance.** `lib/efficiency-trace.sh --persist` deterministically stamps `synthesized: false` onto the durable copy of any agent-written `iter-<N>.json` record that lacks a `synthesized` key, moving the emitted-record provenance stamp off the agent's decision path. An emitted record (`.synthesized == false`) and a backstop-synthesized one (`.synthesized == true`) are now distinguished by a deterministic JSON boolean rather than by field-absence, so a skipped emit surfaces as the absent record. Synthesized records are unchanged (they already carry `synthesized: true`). (#534)
+
+## [2.30.117] — 2026-08-05
+
+### Added
+- **Coupled-site registry printable from `lib/test/regenerate-artifacts.py --list`.** The
+  `--list` command now prints a coupled-site registry — a declared, greppable table of which
+  files must change together — after everything it printed before, so the existing `artifact`
+  and `conflict-*` output stays byte-for-byte unchanged. Each entry names an original file, one
+  or more partner files, a coupling class, and a one-line editor note; the table is
+  structurally validated at import and every named path is confirmed to exist when the list is
+  printed (an entry deliberately holding old paths exempts itself with a marker). First entries
+  register the `matcher-probe.yml` `EXTRAS` copy, `_WSR_SWEPT_RELPATHS`, and the
+  `lib/rename-map.json` reader/mirror couplings. (#1324)
+
+### Changed
+Stall backstop: record when a terminated implement run left an empty remote branch.
+
+When a cloud `/prflow:implement` run ends abnormally, the trailing `Stall backstop`
+step now records on the workpad whether any commit actually reached the run's remote
+branch. A branch that is zero commits ahead of its base gets an explicit "empty
+branch" statement so it no longer reads as a partially-completed attempt; a branch
+that carries work gets no such statement (the negative control); and a state that
+cannot be established (unreachable remote, unavailable branch name, or a failed
+query) is recorded as unestablished rather than collapsed onto "no commit". The
+three-valued decision lives in `scripts/record-empty-branch.sh` beside the step —
+`scripts/stall-backstop-decide.sh` stays pure — and it is best-effort: a write
+failure warns and never changes the step's exit arm, coexisting with the existing
+`💥 Failed` / `🛑 Cancelled` terminal flips.
+
+## [2.30.116] — 2026-08-05
+
+### Fixed
+- **Bind `[[INTERNAL_DOC_LOCATION]]` in two more shipped skills.** `skills/implement/phases/phase-2-implement.md` and `skills/retrospective/SKILL.md` now carry the configuration preamble that reads `.docs.internal` through `config-get.sh` and binds the result to `[[INTERNAL_DOC_LOCATION]]`, and the prose and example sites in each that hardcoded a docs path now use the placeholder instead. A consumer who reconfigured `.docs.internal` is no longer handed the default path in these two skills. (#1310)
+
+## [2.30.115] — 2026-08-05
+
+### Fixed
+- **`scripts/dedupe-review-command.sh` now ships executable (`100755`).** It was tracked
+  `100644`, so both `[ ! -x … ]` guards in `.github/workflows/devflow.yml` were true on every
+  run and Candidate-C in-flight-review dedupe — and its suppression notice — never fired since
+  the feature landed. A new suite check, `lib/test/lint-executable-helper-mode.py`, derives the
+  `-x`-gated bundled-helper set mechanically (joining `VAR=<path>` assignments to `[ -x "$VAR" ]`
+  tests across the tracked workflows and `scripts/*.sh` / `lib/*.sh`) and fails RED if a resolved
+  repo helper is not tracked `100755`, so a lost executable bit is caught at the desk instead of
+  failing open in production. (#1312)
+
+## [2.30.114] — 2026-08-05
+
+### Fixed
+- **Correct a stale clause in the runner's PreToolUse guard-heartbeat comment.** The comment
+  block above the guard-visibility step described the heartbeat as written "on every
+  invocation including a defer/allow", naming two `permissionDecision` tokens that
+  `scripts/pretooluse-shape-guard.py` no longer emits — its `defer` fall-through was replaced
+  with a true no-decision path (exit 0 with no stdout) after that token was measured to block
+  the tool and end the process, and `allow` was never emitted. The clause now names the
+  no-decision fall-through and records that `deny` is the guard's only decision token.
+  Comment prose only — no executable content changed, and the four-outcome disambiguation the
+  block describes is unaffected. (#1323)
+
+## [2.30.113] — 2026-08-05
+
+### Added
+- **Add the strict review-verdict handoff importer (`scripts/import-review-verdict-handoff.py`).** This is the security-critical validation core of the trusted cloud-review-emitter design (issue #1314, Part 1): it validates the small producer-written handoff as untrusted input — opening with `O_NOFOLLOW`, rejecting non-regular files, extra hard links, oversized data, invalid UTF-8, NUL bytes, disallowed control characters, unstable metadata, unknown fields, and any handoff outside the closed `schema_version:1` / `complete:true` schema or the three legal review-event/marker-verdict pairs — and publishes a normalized artifact only after every check passes, so no write-capable emitter work is ever scheduled on bad input. The producer/emitter workflow wiring is tracked in follow-up work. (#1314)
+
+## [2.30.112] — 2026-08-05
+
+### Fixed
+- **`scripts/pretooluse-shape-guard.py`'s `VERDICT PROVENANCE AND EXPIRY` header no longer
+  tells a maintainer the harness verdicts cannot be re-established.** That paragraph exists
+  to say how the `deny` and `defer` verdicts are re-measured after a `claude-code-action` or
+  CLI upgrade expires them, but it still claimed neither probe arm was merged and that
+  re-running them "is not actionable from this tree alone" — written before PR #1308 landed
+  `defer-probe` and `pretooluse-deny-probe` into `.github/workflows/matcher-probe.yml`. It
+  now carries the actual recipe: both triggers that reach those jobs (a bare
+  `workflow_dispatch`, and a `pull_request` trigger whose `paths` filter is the workflow's
+  own file), and the cost that governs how the recipe should be used — neither trigger can
+  select a job, so either fires the whole workflow, most of whose jobs start a paid Claude
+  session, which is why a re-probe belongs in one push rather than an iterated sequence.
+- **Its `REGISTRATION` and `TRUST BOUNDARY` paragraphs no longer rest on a false premise
+  either.** Both still said nothing in the tree registers the guard and that
+  `devflow-runner.yml` passes no `settings` input — but that workflow does register a
+  `PreToolUse`/`Bash` hook execing this guard, so a reader checking the evidence would find
+  it false and could conclude the guard is live. The conclusion survives and the reasoning
+  is now the real one: the registration is shipped but unreachable in this repository,
+  because `devflow-runner.yml` declares `workflow_call` as its only trigger and its sole
+  caller was the auto-review tier withheld under issue #936 — explicitly not dead code,
+  since a consumer that installed that tier before it was withheld still has the caller
+  this tree lacks. `TRUST BOUNDARY` likewise no longer claims both registration channels
+  must land together: issue #908 closed that hole from the other side, with a dedicated
+  unconditional harden step for the guard's import closure.
+- Comment-only throughout: the guard's executable body is byte-identical, checked by
+  comparing the module AST with its docstring removed.
+
+## [2.30.111] — 2026-08-05
+
+### Fixed
+- **Removed PRFlow-internal issue/PR and acceptance-criterion citations from consumer-shipped
+  skill and agent bodies.** `skills/**` and `agents/**` ship verbatim into every consumer repo,
+  so a `(issue #441)` / `(#524)` / `(AC5)` citation resolved against this project's own tracker
+  and pointed at nothing in a consumer's checkout. The provenance is now stripped while every
+  sentence's meaning and binding force are preserved, and a genuinely-instructive citation (an
+  autolink-rendering example, an upstream `cli/cli#5398` reference) is kept behind an explicit
+  `pruned-path-ok` declaration marker. `lib/test/lint-shipped-pruned-path.py` now fails the suite
+  on any new unmarked issue/PR-number or acceptance-criterion citation in that population. (#1241)
+
+## [2.30.110] — 2026-08-05
+
+### Fixed
+- `/prflow:review-and-fix` now carries its own Cloud command-shape discipline in the bundle root, so an agent that meets a matcher denial on the `command` tier switches to a permitted shape instead of improvising a second variant. Step 0.5 is now a fail-closed gate that proves the checked-out branch is the PR head before any diff or review work and stops with a named cause on a mismatch, a failed `gh pr checkout`, or a head ref or head commit it could not resolve. Removed the fence-less `.prflow/tmp/` ignore-coverage instruction that provoked an improvised `git check-ignore` (granted on no profile), and documented the conditional push-mode re-review consequence. (#1305)
+
+## [2.30.109] — 2026-08-05
+
+### Added
+- **Three new `matcher-probe.yml` jobs measure the cloud harness's hook surface.**
+  `permissionrequest-probe` registers a `PermissionRequest`/`Bash` hook that records the
+  tool input it saw and denies with a distinctive message, and brackets the ungranted
+  command between two GRANTED control commands — so the run establishes not only whether
+  the event fires but **which** calls reach it (the published permission order does not
+  place `PermissionRequest` anywhere, and a hook that sees calls the allowlist would have
+  approved is a very different thing from one that sees only what the allowlist declined),
+  and a session that silently declines to issue the ungranted command is reported as such
+  rather than as an ambiguous negative. `pretooluse-deny-probe` emits a real `deny` with a sentinel reason
+  on a sacrificial command, measuring deny-path reason delivery — an axis the existing
+  allow-only `pretooluse-probe` structurally cannot answer, since
+  `permissionDecisionReason` is specified to be ignored on an `allow`. `defer-probe`
+  settles whether a `defer` falls through to the default permission flow, the
+  unestablished premise `scripts/pretooluse-shape-guard.py` records in its own header.
+  All three additionally measure whether a **hook-issued** deny still appears in
+  `permission_denials`, and record the observed CLI version beside the run id so a verdict
+  cannot silently outlive the `@v1` action ref it was taken on. Unlike the older probe
+  jobs they pass no `--permission-mode`, matching both live tiers.
+- Verdicts are rendered by three suite-driven helpers —
+  `scripts/describe-permissionrequest-probe.sh`,
+  `scripts/describe-pretooluse-deny-probe.sh`, `scripts/describe-defer-probe.sh` — over
+  the shared execution-file readers in `lib/probe-observation.sh`. Each verdict is
+  breadcrumb-first (derivable from a truncated run, and on the `defer` arm from a run
+  whose execution file a honored defer destroyed), and each keeps an established negative
+  distinct from `unavailable`. The `permission_denials` axes are three-state: a present
+  array's length is a real measurement (`0` meaning the harness refused nothing), while an
+  execution file that parses with **no such array at all** — the shape a
+  `claude-code-action` upgrade that renames or restructures the field would produce, given
+  the floating `@v1` ref — reads `unavailable`, so no renderer can publish a confident
+  `HOOK-DENY-NOT-RECORDED` or a zero count out of a quantity nothing measured.
+  Measurement only: no production behavior changes.
+
+## [2.30.108] — 2026-08-05
+
+### Security
+- **`devflow.yml` now subscribes to `issue_comment` alone and pins every checkout to the default branch.** The two review-triggered subscriptions (`pull_request_review[submitted]` and `pull_request_review_comment[created]`) were removed: on those events GitHub resolved `GITHUB_REF` to the pull-request merge ref, so every job — `config`, `review_dedupe`, `gate`, and `command` — checked out pull-request-author content, including the `config` job's authorization inputs (`prflow.allowed_users`/`allowed_bots`/`allowed_tools`) and the agent's tool grants. Each checkout now pins `ref: ${{ github.event.repository.default_branch }}` so the trusted-workspace property is stated in the file rather than inferred from the trigger set. Requesting a review by commenting on the pull-request conversation still works; requesting one from the review-submission box or an inline diff comment no longer does. This closes the accident class (a pull request's content executed by a review-triggered run with nobody intending it); the adversarial residual — a branch that re-adds a trigger or drops a pin in its own copy of the workflow — is tracked in #1300. (#1163)
+
+## [2.30.107] — 2026-08-05
+
+### Fixed
+- **The PreToolUse shape guard's fall-through was fail-CLOSED, not fail-open — it now
+  reports no decision instead of emitting `defer`.** Every classification-path failure in
+  `scripts/pretooluse-shape-guard.py` (an unparseable payload, a non-`Bash` tool, an
+  unloadable classifier, a clean command matching no deny-set arm, and `main()`'s blanket
+  exception handler) emitted `permissionDecision: "defer"`, documented as the guard's
+  fail-open majority path. Run
+  [`30967680822`](https://github.com/The01Geek/prflow/actions/runs/30967680822)'s
+  `defer-probe` arm measured the opposite on the CLI `claude-code-action@v1` installs
+  (2.1.222): `DEFER-BLOCKED` — the hook fired and the granted command's side effect was
+  absent, so the tool did not execute — corroborated by `STOP-REASON-DEFERRED`. A wired
+  guard would therefore have ended the run on the first command it did not recognize.
+  Every fail-open site now takes the documented true fall-through — exit 0 with an empty stdout, the
+  no-decision shape — through a single named `_emit_no_decision()`, and `deny` (measured
+  honored, with its `permissionDecisionReason` delivered to the transcript) is the only
+  token the guard writes. `scripts/harden-stop-hooks.sh`'s Python stub for a `.py` entry
+  target, which printed the same `defer` object as its "benign" no-op, now prints nothing
+  and exits 0. The guard's header records the measured `deny`/`defer` verdicts in place of
+  its superseded `UNESTABLISHED … permissionDecision VOCABULARY` block — including that
+  they were taken on CLI 2.1.222 and that the floating `claude-code-action@v1` tag can
+  expire them — and its consecutive-hook-block-cap rationale is rewritten: a no-decision is
+  not a hook block, so the bound on blocking now holds without depending on such a cap
+  existing. Registration remains unwired; this change only makes the guard correct if and
+  when it is wired.
+
+## [2.30.106] — 2026-08-05
+
+### Changed
+- **Relocated all internal documentation from `docs/` root to `docs/internal/`, making the public/internal split structural.** `docs/external/` remains the published Mintlify source; everything else under `docs/` now lives at `docs/internal/` (with `docs/execution-file-shape.observed.txt` moving to `lib/test/fixtures/`). `.prflow/config.json` now resolves `docs.internal` to `docs/internal/`, matching the shipped schema default. The vendor slice prunes `docs/internal` alongside `docs/external`/`docs/site`, so DevFlow's maintainer documentation no longer ships into consumer repositories, and `lint-shipped-pruned-path.py` is armed against reintroduction. (#1188)
+
+## [2.30.105] — 2026-08-05
+
+### Fixed
+- **A permission-denial record is no longer discarded when the run produced no usable
+  cost figures.** Denial forensics ride the per-run efficiency record as its
+  `permission_denials` key, and `apply_denial_floor` could only ever *merge* onto a host
+  record — so a run that died before yielding cost figures lost its fully-built denial
+  record entirely. `scripts/prepare-harness-floor.sh` refuses to stage an all-null
+  `harness_cost`, which empties the cost handoff, which returns `apply_harness_floor`
+  before its own skeleton arm, so no host record existed to merge onto and the denial
+  record was dropped with only an expiring job-log warning — precisely the stall / crash /
+  execution-ceiling class where denial forensics matter most. The denial floor now has a
+  skeleton arm mirroring the cost floor's (same run-id targeting, same overwrite guard,
+  same minimal `synthesized: true, source: null` shape), so the record is written rather
+  than declined. An unjoinable denial record still beats a vanished one. This **closes the
+  all-null-cost drop path**; it is not an unconditional guarantee — the mirrored skeleton
+  inherits the cost skeleton's two gates, and each remains a named, breadcrumbed drop
+  path: a `pr-description` or unclassified command class, and an unresolvable PR number
+  (the record has no slug to be keyed by). How often either is reached is unestablished.
+- **The PR number is now resolved even when the cost is inert.**
+  `scripts/prepare-harness-floor.sh` short-circuited its PR resolution on every
+  cost-inert branch, back when `DEVFLOW_EXECUTION_PR` was the cost floor's operand alone.
+  It has a second consumer now, and the two operands fail independently — so the
+  short-circuit made the denial skeleton unreachable on exactly the path it exists for.
+  The cost side is unchanged: `apply_harness_floor` still returns at its first guard on an
+  empty cost, so no all-null `harness_cost` and no cost skeleton is ever staged.
+- **`efficiency_telemetry_enabled` now documents that it also gates denial forensics.**
+  Its schema description and the `docs/efficiency-trace.md` config table mentioned only
+  trace rendering and record writes, so a consumer disabling it for cost had nothing
+  warning them that they were also giving up the durable record of what the harness
+  refused.
+
+## [2.30.104] — 2026-08-04
+
+### Fixed
+- **`apply-issue-dependencies.py` now names a prerequisite it skipped for outbound
+  direction instead of dropping it silently or misdescribing the body.** A
+  `## Dependencies` line that reads as an OUTBOUND relation (this issue is the
+  prerequisite) is dropped by the recognizer; previously the native-registration
+  helper either said nothing at all (the some-dropped-some-kept path) or claimed the
+  issue "declares no prerequisites" (the every-entry-dropped path), breaking its own
+  no-silent-path contract. The helper now emits an `apply-issue-dependencies.py:`-prefixed
+  breadcrumb naming each skipped number and the direction on both paths, and the
+  every-entry-dropped summary no longer asserts "no prerequisites" when one was
+  skipped for direction. `preflight.py` gains a `dependency_section_scan` accessor
+  returning `(found, skipped)`; the existing `dependency_numbers` /
+  `dependency_section_numbers` wrappers keep their `list[str]` shape unchanged. (#1268)
+
+## [2.30.103] — 2026-08-04
+
+### Added
+- **Measure the `devflow.yml` command tier's command shapes.** The manual
+  `/prflow:review-and-fix` / `/prflow:pr-description` command tier is now linted and probed
+  on both axes the review and implement tiers already were: `extract-command-shapes.py`
+  gains a `--profile command` desk lint (rule set `CR1`–`CR5`, inheriting the implement
+  tier's denied shapes), and `matcher-probe.yml` gains a `command-probe` job whose
+  allowlist baseline is a generated region compiled from the `command` profile — so a
+  command-tier shape defect turns the suite RED at the desk instead of shipping as a burnt
+  budget with a green check. Adds no grant. (#1298)
+
+## [2.30.102] — 2026-08-04
+
+### Changed
+- **Register the deferred cloud-writer helper heads and advance the legacy profile baseline.** `apply-issue-dependencies.py` (issue #1011) and `resolve-existing-pr.sh` (issue #782) are now members of `REQUIRED_HELPER_HEADS["implement"]`, and `LEGACY_PROFILE_BASELINE` advances from `2.15.13` to `2.30.100`, so the required-subset guarantee finally covers both heads. A cadence rule now lives at the constant's definition: the baseline advances — and the frozen legacy-grant snapshot re-snapshots with it — whenever a profile's granted helper-head set in `lib/capability-profiles.json` changes. (#1034)
+
+## [2.30.101] — 2026-08-04
+
+### Changed
+Extend the read-only generated-artifact drift preflight to the sanctioned shard-decomposition route (issue #1288).
+
+The pre-launch drift preflight (issue #1244) was coordinator-only, so the #1132 decomposition route — the one a run takes when the tier terminates the parallel coordinator at its per-command execution ceiling — ran `lib/test/run-shard.sh` per shard and recombined without any pre-launch drift check, paying the full sharded suite to rediscover a stale generated artifact a sub-second read-only check would have named before launch.
+
+`lib/test/run-parallel.sh` now exposes the same check as a standalone `--preflight` mode: it launches no shard and exits with the coordinator's exact verdict contract — proceed on clean or a fail-open inconclusive result, refuse only on a positively-attributed drift. The verdict interpretation is factored into a single shared function so it stays single-sourced rather than duplicated into a second coupled shell copy. `.prflow/prompt-extensions/implement.md`'s decomposition route names `lib/test/run-parallel.sh --preflight` once before its shard loop.
+
+## [2.30.100] — 2026-08-04
+
+### Changed
+Reconcile `shard-tally.py combine` against the true shard partition by name (#1289, PR #1293)
+
+`combine` gains an optional `--require-shards` naming the shard partition a recombination must cover. It is checked by shard *name*, not only by the caller-supplied `--expect` count, so a recombination over a subset that satisfies `--expect` now fails closed naming the missing shard(s) instead of printing a whole-suite-shaped green summary. The parallel coordinator `run-parallel.sh` feeds it the authoritative `run-shard.sh --list-shards` population. `--expect 0` remains the documented explicit opt-out, and omitting the new flag leaves existing output unchanged.
+
+## [2.30.99] — 2026-08-04
+
+### Changed
+Phase 2 now makes mid-run work durable at each sub-step boundary. Previously an implement run held every change in an uncommitted working tree until Phase 2 §2.5 — its only commit and push — so a run that terminated earlier (an external interruption, an execution-ceiling kill) lost all of it. A new executable helper, `scripts/phase2-durability-checkpoint.sh`, commits and pushes explicitly-scoped paths at each Phase 2 sub-step boundary (and at §2.3's sweep boundaries), bounding the worst-case loss window to roughly ten minutes. The helper owns the cloud-tier workflow-edit guard's detect-and-do-not-stage behavior, refuses `git add -A`/`.`/intent-to-add, keeps §2.1.5 proof edits out of history by ordering, and treats a push as landed only when `git rev-parse HEAD` equals `@{u}`. (#1139)
+
+## [2.30.98] — 2026-08-04
+
+### Fixed
+- **Dispatching skills now assert that invoking them constitutes the user's request for subagent dispatch.** Recent Claude Code versions inject a conditional instruction ("do not call the AgentTool unless the user requested it") observed on Opus 5; because no skill asserted the condition was met, dispatch could silently collapse to inline work. Each dispatch-dependent skill (`implement`, `review`, `review-and-fix`, `create-issue`, `retrospective-weekly`, `requesting-code-review`) now carries a scoped authorizing clause naming only its own dispatch points, satisfying the injected condition without weakening the existing restrictive rules or granting dispatch for inline work. (#1200)
+
+## [2.30.97] — 2026-08-04
+
+### Changed
+Stop reporting a verdict-less standalone `/prflow:review` run as `success` (#1271). The Phase 4.4 verdict-emitter reach-record step in `.github/workflows/devflow.yml` now fails its job when — and only when — the emitter was not reached **and** the head-scoped review oracle (`scripts/classify-head-reviews.sh`) **positively establishes** that no verdict exists for the reviewed head. A new bundled helper, `scripts/decide-verdict-gap-job-status.sh`, owns the conjunctive arm-to-job-status decision (a `FAIL`/`PASS` token over the full closed arm vocabulary, always exit 0); the workflow step reads the token and exits accordingly, keeping every observable surface it emits today (the `::notice::`, the `::warning::`, and the `prflow:verdict-post-gap` cause-naming comment). Every "could not tell" answer — an `unestablished`/`marked`/`unmarked` oracle result, a `no-line`/`unrecognized-line` reach arm — leaves the job status unchanged, honouring *unknown is not zero*. The cancellation carve-out is passed as an argument (`JOB_CANCELLED`), not a step-level `if: !cancelled()`, so a cancelled run keeps its records. The change is inert inside its own pull request (these triggers run the workflow from the default branch) and takes effect after merge.
+
+## [2.30.96] — 2026-08-04
+
+### Changed
+### Fixed
+
+- The `command` tier (`devflow.yml` — the manual `/prflow:review` and
+  `/prflow:review-and-fix` path a collaborator triggers by comment) passed no `settings:`
+  input to its Claude step, so the Bash tool's per-command ceiling fell back to Claude
+  Code's `BASH_MAX_TIMEOUT_MS` default of 600000 ms (10 min). The prompt extension this
+  tier loads names the parallel verification coordinator `lib/test/run-parallel.sh` as
+  the run's final whole-suite gate, and that coordinator was measured at ~10.5 min in a
+  cloud run — so the mandated command could not complete there: it was killed at the wall
+  with no output and the run was pushed onto the slower shard-decomposition fallback to
+  redo the same work. The step now sets a bounded 1200000 ms (20 min) ceiling, matching
+  the implement tier's existing value so the two agree.
+
+## [2.30.95] — 2026-08-04
+
+### Changed
+- **Removed PRFlow-internal `docs/` references from the shipped `scripts/`, `lib/`, and config-schema surfaces.** These files vendor into consumer repos, where the maintainer `docs/` tree does not resolve — most notably `resolve-review-overrides.py`'s `::notice::` string and the `prflow_review.agent_overrides` schema description, both of which a consumer's review run surfaces. 63 of the 65 references were removed (maintainer navigation pointers) or replaced (runtime-emitted diagnostics and schema descriptions, restated inline); the two remaining are functional references (`generate-env-freeze-advisory.py`'s `REGION_FILE` constant and `rename-map.json`'s programmatically-read `consumer_docs` list) that the internal-docs move will re-path. (#1204)
+
+## [2.30.94] — 2026-08-04
+
+### Changed
+### Changed
+
+- `/prflow:implement` Phase 4.3 no longer runs the project test suite twice over one tree. The base-branch update checkpoint 4 `UPDATED` arm previously mandated a post-merge whole-suite re-run before publishing; the Phase 4.3 completion-evidence flight (issue #1087) already runs after that checkpoint and before the publish decision, over the same merged tree — checkpoint 4's merge is one of the candidate-changing operations it exists to cover — and already routes a failed suite, a non-empty skip population, or an unrunnable verification command to `Blocked` instead of publishing. The redundant earlier run is removed, saving one whole-suite run on every run whose base branch advanced. The completion gate keeps its whole-suite requirement and its Blocked-on-non-pass behavior unchanged, and the `UP_TO_DATE` / `DISABLED` / `CONFLICT` arms are untouched.
+
+## [2.30.93] — 2026-08-04
+
+### Changed
+### Changed
+
+- The five `pr-review-toolkit` review agents (`code-reviewer`, `comment-analyzer`, `pr-test-analyzer`, `silent-failure-hunter`, `type-design-analyzer`) now scope their mutation/half-revert verification to the narrowest test target covering the guard under test, instead of launching the project's whole test suite. All five are dispatched on every review roster pass and again on every shadow pass, and each could previously launch a full suite per finding from inside a subagent where the orchestrator never saw the cost. Mutation evidence needs only one assertion to go RED, so a whole-suite run proved nothing extra. The block stays read-only and advisory and keeps its `mktemp` temporary-copy discipline unchanged.
+
+## [2.30.92] — 2026-08-04
+
+### Fixed
+- **Route the review engine's consumer-prompt-extension loads through the cloud-granted
+  vendored literal, keeping the portable anchor as a fallback arm.** The cloud matcher
+  denies the unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor as a leading token, so
+  `skills/review/SKILL.md` and both `load-prompt-extension.sh` invocations in
+  `skills/review-and-fix/SKILL.md` now emit `.prflow/vendor/prflow/scripts/…` first (the
+  #1256 tier-agnostic form) and fall back to the anchor for the local and non-Claude-Code
+  tiers, so the load executes on the cloud tiers while staying portable everywhere else. A
+  new desk-time gate `lib/test/lint-anchor-fallback-arm.py` fails when an enrolled
+  cloud-reachable call site emits the anchor leading token with no vendored fallback arm,
+  and the anchor's argument-position denial (run `30695072336`) is recorded in
+  `docs/cloud-allowlist.md`. (#1124)
+
+## [2.30.91] — 2026-08-04
+
+### Changed
+Stop coverage-map merges from silently dropping a key (#1194)
+
+`lib/test/modules/coverage-map.json` is two large string-sorted JSON objects, so two
+branches that each *add* a distinct key at an adjacent sort position conflict textually
+even though they never semantically conflict — and resolving such a conflict by taking
+either side silently deletes the other branch's entry, which the documented `--fix`
+remedy cannot restore. Two mechanisms now close the class:
+
+- New `lib/test/coverage-map-merge-driver.py`: a JSON-aware git merge driver, declared
+  for the map in `.gitattributes`. It unions the `files`/`run_sh_blocks` objects per key
+  (both distinct additions survive) and conflicts only on a genuine same-key divergence.
+  It ships a `--register` path and a `--check` that fails RED — naming the exact
+  registration command — when the driver is not active in the current clone, because a
+  `.gitattributes` `merge=` attribute alone lets git fall back silently to its line-based
+  merge. The merged output reuses the coverage guard's canonical serializer, so it is
+  byte-identical to what `--fix` writes.
+- New `lib/test/coverage-map-retention-check.py`: a CI-side key-retention check wired
+  into `.github/workflows/ci.yml` (and desk-runnable against the same inputs). It compares
+  the map at the merge base against HEAD and fails when a key — or its `note`/`owner`
+  content — disappears in either half, covering the ~30 non-derivable `run_sh_blocks`
+  keys no coverage-guard arm inspects and the web-conflict-editor path the driver cannot
+  reach. Legitimate removals are declared with a non-empty reason in
+  `lib/test/coverage-map-retention-allow.json`. It reports **three** outcomes rather
+  than two, applying *unknown is not zero* to its own base comparand: `0` clean, `1` a
+  dropped key or an unreadable input, and `3` "the base comparand could not be
+  established". A shallow or partial clone previously reported the degraded comparand
+  only on stderr and exited `0`, laundering a genuinely merge-dropped key into a green
+  pass — including the shape that looks healthiest, where `git merge-base` *succeeds*
+  against a truncated commit graph and names a boundary commit whose tree predates the
+  map. Because a shallow clone is a legitimate desk workflow, the degraded case is not
+  an unconditional hard failure: `--allow-degraded-base` is an explicit per-invocation
+  acknowledgement that exits `0` while still printing the reasons and reporting the run
+  as acknowledged-degraded, never as a verified clean pass. That acknowledgement reaches
+  the *differences* a degraded run turns up, not just its silence: when no merge base can
+  be computed the check falls back to the base ref's own **tip**, and a key that ref added
+  after the branch forked reads as "absent from head" there. Such a difference is reported
+  as unconfirmed — with the substituted comparand named beside it — and takes the `3`/
+  acknowledged-`0` path rather than being misattributed as `1` "a merge/resolution dropped
+  it", which no flag could acknowledge away. A loss measured against a *sound* comparand is
+  unaffected: still `1`, still un-acknowledgeable. This also makes CI's
+  `fetch-depth: 0` coupling self-enforcing — stripping it turns the step RED instead of
+  silently removing the protection.
+
+Both `--fix` remedy statements are corrected — `CONTRIBUTING.md`'s coverage-map section
+and module-authoring checklist, and `lib/test/regenerate-artifacts.py`'s
+`coverage-map-ratchet` `policy`/`conflict-recipe` — to stop presenting `--fix` as the
+response to a merge-conflict resolution. Tests: `lib/test/test_coverage_map_merge.py`
+drives the driver against real offline `git merge`s and the retention core over every
+loss shape, wired into the `harness-python-guards` module (floor 43 -> 44). The coverage
+ratchet's existing guarantee is unchanged.
+
+## [2.30.90] — 2026-08-04
+
+### Changed
+Detect and truthfully report the verdict-post `gh api` bypass (#1250)
+
+A cloud run that cannot reach the verdict-post helper could still create a real,
+merge-blocking pull-request review by calling the reviews endpoint directly through the
+granted `gh api` — a review GitHub records but which carries no producer-emitted verdict
+marker, so no verdict-derivation consumer reads it as a verdict. The run's own reach
+record then falsely stated it "left the reviews API and `reviewDecision` untouched".
+
+- New `scripts/classify-head-reviews.sh`: a closed-vocabulary classifier
+  (`none | marked | unmarked <id>… | unestablished <reason>`, always exit 0) over the
+  reviews recorded on the reviewed head, scoped to the run's own reviewer identity. It
+  places each review by the issue-#1247 precedence — the verdict marker's `head=` is
+  authoritative and the reviews-API `commit_id` is only a fallback — so a markerless own
+  review it cannot place off the head grades `review-placement-unprovable` instead of
+  reaching `none`, the one arm that reports the reviews API as untouched.
+- The `devflow.yml` reach-record step now queries the reviews API, classifies them, and
+  passes the token to `scripts/describe-verdict-post-gap.sh`, which stops asserting the
+  API was untouched when it was not, names the offending review on the unmarked arm, and
+  asserts nothing either way when the classification cannot be established.
+- No capability profile changes: the grant cannot express the read/write distinction, so
+  the control is downstream. Corrected the falsified "sole granted post path" prose in
+  `docs/DEVFLOW_SYSTEM_OVERVIEW.md` §8, `CLAUDE.md`, and the capability-profiles test
+  module, and recorded that unmarked reviews remain producible on the cloud tiers, so the
+  transitional-prose retirement criterion is not yet satisfiable.
+
+## [2.30.89] — 2026-08-04
+
+### Fixed
+- **The dependency-section outbound-direction filter no longer drops a number because of the human reason text.** A correctly-drafted `Blocked by #N — <reason>` line under `## Dependencies` whose reason prose happened to contain an ordering word (`must merge before`, `blocks`, `required by`, …) had its issue number silently discarded, so the early implement dependency gate fell open and the GitHub-native blocked-by stamp registered nothing. `OUTBOUND_DECLARATION` in `scripts/preflight.py` is narrowed so an outbound keyword governs its line only when a number run follows it within a bounded same-clause window; the vocabulary and line-level governance are unchanged, and — because the narrowing only ever removes matches — no false `BLOCKED` is introduced for the outbound separator shapes (`Blocks: #N`, `Blocks issue #N`, `| Blocks | #N |`). (#1269)
+
+## [2.30.88] — 2026-08-04
+
+### Changed
+Add `scripts/checkout-fingerprint.py`, the single producer of the five-field checkout fingerprint the verification-flight ledger keys on, and close the fingerprint fail-open (#1243). `_validate_checkout` now requires the four content fields to be git object ids (rejecting invented placeholders like `"v"`/`"clean"`), and `verification-flight.py status`/`wait` enforce the state-pass **and** checkout-verified condition themselves — a read that could not verify the working tree no longer reports `satisfies_verification: true` or exits 0, with an explicit `--allow-unverified-checkout` opt-out for the weaker read. The unused `verification_flight.profiles` config namespace is removed.
+
+## [2.30.87] — 2026-08-04
+
+### Fixed
+- **Phase 4.4 now states one tier-agnostic verdict-post procedure and a desk lint catches a reintroduced ungranted helper spelling.** Phase 4.4 previously offered the verdict-post/dismissal helpers at two spellings — the granted vendored literal in its fence and an ungranted repo-relative `scripts/…` form in a "on the local tier, invoke …" parenthetical — leaving the agent to classify its own tier; a cloud run that picked the ungranted spelling was silently denied and finished with no verdict marker (three completed review runs). The parentheticals are replaced by a single procedure that emits the vendored literal first on every tier and falls back to the helper's repo-root path **only on an observable not-found/rc-127 reading** of that attempt, never on a tier judgement — reaching a working path in this repo's local tree, a consumer's local tree, and the cloud tiers alike. The three name-only mentions of the helpers now use the bare filename. A new suite-driven lint, `lib/test/lint-ungranted-helper-spelling.py` (sibling of the #1072 pruned-path lint), audits `skills/**`/`agents/**` for the ungranted repo-relative spelling of the two verdict-post helpers — its forbidden set derived from `lib/capability-profiles.json` (vendored-only) so `extract-command-heads.py`'s fence-only blind spot no longer lets the spelling ship. No capability-manifest grant moves. (#1248)
+
+## [2.30.86] — 2026-08-04
+
+### Fixed
+- **`parse-acs.py` now distinguishes an unreadable acceptance-criteria section from an absent one.** A `## Acceptance Criteria` section that is present and correctly named but writes its criteria as bold paragraphs or a numbered list parses to zero checkbox items, exactly like a section that does not exist — collapsing "the parser could not read the criteria" onto "this issue has no criteria". `scripts/parse-acs.py` now emits an item-shape stderr diagnostic and sets `acceptance_criteria_unreadable: true` in its `--format json` output for that case, while still exiting 0 (so the implement skill's fail-closed §1.2 fence does not halt the run). The accepted item shape is unchanged. The implement skill's Phase 1.2 routes on that signal: the run continues, the criteria are hand-extracted into the workpad, and a friction (`issue-accuracy`) reflection records the event so it surfaces in the weekly retrospective. The misdirecting near-miss diagnostic (which blamed a heading that already matched) is fixed. (#1198)
+
+## [2.30.85] — 2026-08-04
+
+### Added
+- **Give the focused-first and single-flight rules a named place to record what the run did.**
+  Added `scripts/focused_selection.py`, a named, round-trippable producer/reader for the
+  focused-first selection record: per touched surface it records either the coverage-map entry
+  consulted and the target selected (a discharging focused result) or the exemption ground that
+  applied, plus whether the `scripts/verification-flight.py` single flight was consulted before a
+  full-suite relaunch. The implement/review-and-fix/receiving-code-review prompt extensions now
+  name that sink (the issue workpad for an implement run, `iter-<N>.json`'s
+  `verification_evidence.focused_selection` for a standalone fix loop), complete the stale-prose
+  rule with its positive action (commit the tree, then continue), and state that the single flight
+  is consulted before a relaunch. `skills/implement/phases/phase-3-review.md` §3.2 now states that
+  no verification round is owed between the `/simplify` commit and §3.3 — the `/simplify` edits
+  ride into §3.3's first verification. No launch counter, launch ordinal, or mechanical
+  changed-file-to-module routing is introduced. Its `encode` command rejects unparseable stdin,
+  an unclassifiable surface entry, an unrecognized top-level key, and a missing `surfaces` with a
+  one-line message rather than an unhandled traceback or a valid-looking marker for an empty
+  record — so a run that followed the rule and one that was called wrongly cannot emit the same
+  bytes (an empty record states itself as `{"surfaces": []}`; `single_flight_consulted` stays
+  optional). Its read path validates the record shape without normalizing it: `decode_markers`
+  now returns only well-shaped records, so a caller can index one safely, and the new
+  `decode_marker_outcomes` keeps a marker that was present but rejected distinguishable from no
+  marker at all and from a producer-recorded null, naming why it was rejected (the `decode`
+  command breadcrumbs that to stderr). Unknown keys are tolerated on the read path so a record
+  written by a later producer still reads back. (#1229)
+
+## [2.30.84] — 2026-08-04
+
+### Changed
+Fix: use the verdict marker's `head=` as the reviewed-tree comparand in the stale-REJECT dismisser and the Phase 0.3.6 blocker-recheck fast path
+
+A pull-request review's reviews-API `commit_id` is not stable — GitHub can change it after the review is submitted, to a commit that did not exist at review time (observed on PR #1234). `scripts/dismiss-stale-rejections.sh` now reads the reviewed tree from the producer-emitted `prflow:review-verdict` marker's `head=` when the review carries one, falling back to `commit_id` only for a markerless review, so a genuinely-superseded REJECT whose `commit_id` GitHub advanced to the current head becomes dismissible again (and, inversely, a review whose marker head is the current head is no longer wrongly dismissed). The Phase 0.3.6 blocker-recheck fast path derives `$REJECTED_HEAD` the same way. `scripts/derive-review-verdict.sh` keeps failing closed on a head/`commit_id` disagreement by decision. The surrounding contract statements (docs, script headers, CLAUDE.md) are corrected to describe `commit_id` as mutable rather than authoritative, and the disagreement as ordinary GitHub behavior rather than a producer defect.
+
+## [2.30.83] — 2026-08-04
+
+### Changed
+- **Record a `Verification evidence:` marker on every tier that maintains a workpad, once per whole-suite launch.** The implement/review-and-fix/receiving-code-review prompt extensions now bind the `Verification evidence:` obligation to every tier — cloud `/prflow:implement` included, not only local/interactive — and require one record per whole-suite launch (distinguished by the coordinator's per-launch run root, with no launch counter), so a repeated or failed cloud launch is legible in the repository's own records rather than recoverable only from a run transcript. The shared review-engine advisory now acts on cloud-classified PRs too, and `lib/cheap-gate.jq`'s head comment is reconciled to drop the superseded population-coverage reason. (#1249)
+
+## [2.30.82] — 2026-08-04
+
+### Fixed
+- **Stop spending CI capacity and review tokens on results nobody reads.** `ci.yml` gains a
+  workflow-level `concurrency:` key so a push that supersedes a still-running pull-request CI
+  run cancels it, while `main` pushes are neither cancelled nor serialized (each merged commit
+  is a distinct artifact). And `scripts/post-ci-review-trigger.sh` now checks the target pull
+  request's state before posting an automatic `/prflow:review` request: a pull request that was
+  merged or closed while CI was running gets no review request (its output would land on a dead
+  target), and an unestablished state fails closed to not-posting with a `::warning::`. (#1236)
+
+## [2.30.81] — 2026-08-04
+
+### Changed
+### Fixed
+
+- Two shipped skill snippets expanded an unquoted filename pattern with no guard, so under zsh's default `nomatch` the command was skipped and the enumeration came back silently empty in a consumer repo that lacked the matching directory. `skills/implement/phases/phase-1-setup.md`'s agent enumeration and `skills/docs-bootstrap-internal/SKILL.md`'s top-level structure survey now carry the `setopt nonomatch` guard and report the empty case explicitly.
+
+### Added
+
+- A written portability convention in `CLAUDE.md` stating that shell snippets in skill files must survive a non-bash interactive shell, naming the zsh unmatched-glob behaviour and giving the guard line as the standard remedy — plus a note that `\b` is a GNU extension BSD `sed`/`grep -E` accept while matching nothing, with `(^|[^a-zA-Z_])` as the portable replacement.
+- `lib/test/lint-skills-glob-guard.py`, a narrow marker-aware check that fails the suite when a fenced shell block under `skills/` expands an unguarded filename pattern. It recognises one high-confidence shape and is discharged by the `setopt nonomatch` guard or a `# glob-ok: <reason>` declaration marker.
+
+## [2.30.80] — 2026-08-04
+
+### Fixed
+- **Phase 3.1 now ensures the feature branch is pushed before `gh pr create`, and the create fence names the cause when it fails.** `gh pr create` only defaults `--head` correctly when the branch is already pushed at the same commit; Phase 3.1 previously assumed this without stating or ensuring it, so an unpushed branch made `gh` refuse and the fence reported every failure as the single word `create: failed`. Phase 3.1 now pushes `HEAD` to an explicitly-named destination (`origin` + the branch's full ref, never a bare `git push`) right before the create, the create fence captures `gh`'s stderr and carries it into the `blocked` note, and the corrected cause is documented (a `gh` refusal that cannot confirm a pushed branch and cannot prompt — not a git-worktree effect, since `refs/remotes/*` is shared). Phase 2.5's commit-push now detects and acts on a failed push, naming the local permission-refusal and cloud `.github/workflows/`-only rejection modes. (#1210)
+
+## [2.30.79] — 2026-08-04
+
+### Fixed
+- **A `/prflow:implement` run no longer wedges when a workpad write fails.** Three changes give the run a defined degradation instead of a dead end. (1) The fix loop's local per-iteration JSON file is now named the *iteration record* in `skills/review-and-fix/SKILL.md`, so the term *workpad* no longer refers both to it and to the GitHub issue comment. (2) The Phase 3.4 acceptance-criteria gate reads through a new degrading `workpad.py acs-gate` subcommand: a workpad read that fails for a reason other than a clean absence is routed to a distinct `workpad-read-failed` label and the criteria are recovered from the issue body via `scripts/parse-acs.py` — never a silent pass — with `unestablished` when the issue body is also unreachable. (3) A workpad change that fails to PATCH is buffered under `.prflow/tmp/` and replayed on the next successful `workpad.py update`, so a dropped note or reflection — inline or read from a `--reflection-file` payload, the shape a stop-path Blocked reflection uses — survives an outage. The replay is idempotent against the live body, against the replaying call's own inline content, and across duplicate buffered records, so it never duplicates content — and "already in the live body" is an exact match against the bullet the workpad renderer writes, so a buffered note or reflection whose text merely occurs inside unrelated content is still replayed rather than dropped. The buffer file is written atomically and a malformed one is reported rather than silently discarded. (#1214)
+
+## [2.30.78] — 2026-08-04
+
+### Changed
+### Fixed
+- **The declared-dependency gate no longer inverts an outbound `Blocks #N` under `## Dependencies`.** `scripts/preflight.py`'s section scan captured every `#N` on every line under that heading with no keyword test at all, so an outbound declaration — `Blocks #N`, meaning *this* issue is the prerequisite — was read as its exact inverse and halted the run on a dependency that does not exist. The out-of-section limb had parsed direction correctly all along, so direction was parsed everywhere except in the one section reserved for declaring it. Direction is now governed **at the line level** inside the section: a line carrying an outbound direction word contributes no numbers at all, rather than only the number run adjacent to that word — per-number governance would let a mixed line partially contribute, and cannot handle a line that repeats the same `#N` later in its prose. Inbound declarations (`Blocked by`, `Depends on`, `Must merge after`, `Follow-up to`, a line-anchored `After`) are unchanged, and so is the out-of-section limb — the outbound vocabulary is deliberately kept out of `DECLARATIONS`, which is the *inbound* set. A line with no direction word (a bare `- #N`, `Part of #N`, any unrecognised phrasing) keeps its previous behaviour and is still returned as a blocker: a decided disposition, never a silent inversion. The skip is observable — `dependency_numbers()` breadcrumbs each dropped number with the reason and the remedy, while `dependency_section_numbers()` keeps its no-stderr contract. That second entry point is where the stakes are highest: `scripts/apply-issue-dependencies.py` consumes it and `POST`s a `blocked_by` relationship that persists on GitHub, so it would have registered the inverse of what the author wrote. The `/prflow:implement` §1.3.5 Blocked-path remedy now names checking a declaration's direction alongside its freshness. (#1197)
+
+## [2.30.77] — 2026-08-04
+
+### Changed
+- **Remove PRFlow-internal provenance citations from the loop-verdict-marker prose in three consumer-shipped skill bodies.** `skills/implement/phases/phase-3-review.md`, `skills/review-and-fix/SKILL.md` and `skills/review-and-fix/references/loop-exit.md` ship verbatim into consumer repos, where an internal issue number resolves to nothing and an acceptance-criterion tag (`AC5`) resolves to nothing at all. Five citations are dropped — three `(issue #1212)`, one `(issues #843/#876)`, and the `AC5` tag in the safe-direction rule, which now reads `**Safe direction — non-negotiable.**` and keeps its binding force. The marker mechanism, its closed routing vocabulary, and the safe-direction rule itself are unchanged: they are a real contract between `/prflow:implement` and `/prflow:review-and-fix` that a consumer repo depends on, so they stay in the shipped skills rather than moving to a prompt extension. Prose-only; no behavior changes. (#1212)
+
+## [2.30.76] — 2026-08-04
+
+### Added
+- **Tell the implement run how to terminate a process it launched — by the recorded identifier, never by a command-line pattern.** `skills/implement/SKILL.md`'s always-resident section now carries a general rule (terminate by the identifier recorded at launch; never `pgrep`/`pkill`-style name matching, which cannot distinguish an unrelated process on the same host and cannot be attributed afterwards), including the no-recorded-identifier and single-stale-process arms, and `.prflow/prompt-extensions/implement.md` gains the PRFlow instantiation (the `.claude/worktrees/` sibling-checkout concurrency hazard, the parallel-suite run-root PID mechanism, and the `ps`-cross-checked stale-coordinator remedy). (#1202)
+
+## [2.30.75] — 2026-08-04
+
+### Added
+- **The implement engine now maps coupled sites *before* editing, not only after.**
+  `skills/implement/phases/phase-2-implement.md` gains a §2.2.7 "Pre-flight coupled-site
+  map" step, placed after §2.2.6 and before §2.3. When the plan touches a value, contract,
+  or literal replicated across more than one place, the run now lists those other places
+  first — enumerating them with searches it actually runs (in the granted forms and order
+  the §2.3 "Sweep selection" preamble already gives), recording the commands and their
+  results through the workpad before the first edit, and recording any refused search — or
+  any search that cannot be confirmed to have run — as a gap rather than treating an unrun
+  search as "there were no other places," while an honest zero-match result stays clean. A project that
+  publishes a coupled-site registry is told to consult it too, worded so it reads correctly
+  where none exists. This runs the same check the §2.3 relocation and contract-completeness
+  sweeps make after the edits, so a missed copy is caught up front instead of when the
+  suite goes red or a reviewer rejects the change. `CLAUDE.md` no longer points a reader at
+  `git grep` (granted in no capability profile, so silently refused on the cloud runs); both
+  occurrences are reworded to a permitted search form. (#1207)
+
+## [2.30.74] — 2026-08-04
+
+### Added
+- **Add a producer-emitted loop-verdict marker across the implement ↔ review-and-fix skill boundary.** `/prflow:review-and-fix` now emits a machine-readable `<!-- prflow:loop-verdict result=<token> coverage=<full|not-verified> -->` line as line 1 of its chat output, composed by the new `scripts/loop-verdict-marker.py` helper (never hand-written), and `/prflow:implement` Phase 3.3 reads it first — routing on a closed vocabulary — while keeping its exact-wording headline match as a version-gap fallback. This replaces the fragile exact-string-match contract that could silently read an `APPROVE WITH UNRESOLVED SHADOW FINDINGS` run as a clean approve across a plugin-version boundary. A missing, malformed, or out-of-vocabulary marker is never read as a clean, fully-covered approval. Both directions of the supported one-version gap work; version pinning is not adopted. (#1212)
+
+## [2.30.73] — 2026-08-04
+
+### Changed
+Record the owning session in the implement liveness marker so the local Stop-hook guard no longer blocks unrelated sessions in the same checkout.
+
+The `/prflow:implement` run marker (`.prflow/tmp/implement-active-<issue>`) now records the runner's session id as its first line when one is supplied (Claude Code's `CLAUDE_CODE_SESSION_ID`, byte-identical to the Stop payload's `session_id`), and stays empty otherwise. `lib/implement-stop-guard.sh` reads that first line: an interim marker owned by a *different* live session no longer blocks the stopping session — it prints an issue+status breadcrumb (so the "a run may be stuck" signal survives), writes no sentinel, and keeps scanning. Ownership is compared like with like, so every absent, blank, malformed, or unreadable owner — including every zero-byte marker written before this change — fails closed and blocks exactly as before. Self-heal of terminal or workpad-less markers is unchanged and applies regardless of owner.
+
+## [2.30.72] — 2026-08-03
+
+### Added
+- **Document the `git -C` refusal and deliver the cloud command-shape discipline to dispatched review subagents.** The grounding block's denied-shape list (`scripts/render-grounding-block.sh`) now names `git -C <path> <subcommand>`, so every tier that renders the block carries it; `docs/cloud-allowlist.md` records `git -C` as a refused form (it cannot be granted without matching every git subcommand behind `-C`, including the write ones the read-only review profile excludes) and names the permitted bare `git <subcommand>` alternative. Each review agent definition (`agents/*.md`) now carries a repo-agnostic command-shape discipline in its own body, so a dispatched review subagent receives it independent of the orchestrator's per-dispatch prompt, and `skills/review/phases/phase-3-agents.md` records why that surface (not an appended dispatch paragraph) carries it and that a dispatch prompt gives the agent no absolute filesystem path. (#1231)
+
+## [2.30.71] — 2026-08-03
+
+### Fixed
+- **The `#1219` checkout-depth pins are anchored on the value, closing a spelling that
+  satisfied both of them at once.** As merged, the positive pin matched `fetch-depth: 0` as a
+  *prefix* and the negative pin looked for a `1-9` digit immediately after the space — so
+  `fetch-depth: 050` answered `yes` to the positive pin and `no` to the negative one, leaving
+  both green with a bounded depth in force. The positive pin now requires the value to *be*
+  `0`, and the negative pin tolerates leading zeros before the first nonzero digit. The
+  mutation control gained planted copies for every spelling the patterns claim to handle —
+  bare, single-quoted, double-quoted, and leading-zero — because a claimed spelling with no
+  planted copy is an unproven claim, which is exactly how this hole survived its own review.
+  (#1219)
+
+## [2.30.70] — 2026-08-03
+
+### Changed
+- **Require quantitative acceptance criteria to name their measurement instrument.** The
+  create-issue guidance now rejects unnamed counters, documents the GNU/BSD `wc -w`
+  portability risk, and keeps planning-agent estimates explicitly unverified. (#1223)
+
 ## [2.30.69] — 2026-08-03
 
 ### Fixed

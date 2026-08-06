@@ -120,8 +120,12 @@ def agent_leaves(plugin_root: Path) -> frozenset[str]:
     dispatchable. An empty result is fatal: with no leaves nothing could match and the
     audit would pass vacuously over every prompt surface.
     """
+    # Composes the shared INDEX constant — which states the #711 index-read choice and
+    # carries `-c core.quotePath=false` (issue #1217), without which a tracked non-ASCII
+    # `agents/` path arrives C-quoted, loses its `agents/` prefix, and drops out of the
+    # leaf set silently — and appends only the pathspec this call site needs.
     paths = _pop.enumerate_population(
-        plugin_root, None, ls_files_argv=("git", "ls-files", "--", "agents/*.md")
+        plugin_root, None, ls_files_argv=(*_pop.LS_FILES_INDEX, "--", "agents/*.md")
     )
     leaves = set(
         Path(p).stem for p in paths if p.replace("\\", "/").startswith("agents/")
@@ -171,8 +175,10 @@ def audit(root: Path, files_from: Path | None) -> tuple[list[str], int]:
     # plugin (and keeps the leaf enumeration on the real index, per issue #711).
     leaves = agent_leaves(_PLUGIN_ROOT)
 
+    # The shared INDEX constant again: same #711 index read, same issue-#1217 quoting
+    # fix, so a tracked non-ASCII prompt surface is audited rather than dropped.
     population = _pop.enumerate_population(
-        root, files_from, ls_files_argv=("git", "ls-files")
+        root, files_from, ls_files_argv=_pop.LS_FILES_INDEX
     )
     errors: list[str] = []
     audited = 0

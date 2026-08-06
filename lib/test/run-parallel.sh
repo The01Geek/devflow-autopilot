@@ -15,8 +15,18 @@
 # This script runs that SAME tested partition concurrently inside ONE checkout and
 # prints a compact aggregate. It is the single agent-facing command shape:
 #
-#   lib/test/run-parallel.sh          run the suite in parallel, print the aggregate
-#   lib/test/run-parallel.sh --help   this header
+#   lib/test/run-parallel.sh            run the suite in parallel, print the aggregate
+#   lib/test/run-parallel.sh --preflight  run ONLY the read-only generated-artifact drift
+#                                         preflight, launch no shard, exit with its verdict
+#   lib/test/run-parallel.sh --help     this header
+#
+# `--preflight` exists for the #1132 shard-decomposition route: when the tier terminates the
+# coordinator at its per-command execution ceiling, that route runs `lib/test/run-shard.sh
+# <shard>` one shard at a time and recombines, and names `--preflight` once before its shard
+# loop so the whole-suite result it produces carries the SAME pre-launch drift check the
+# coordinator's own run does (issue #1288). It is read-only and sub-second — nowhere near the
+# ceiling — and exits 0 to proceed (clean, or a fail-open inconclusive result) or non-zero on
+# a positively-attributed drift, exactly as the coordinator's own pre-launch check decides.
 #
 # The bare form is the whole contract on purpose. Every environment assignment,
 # redirect, background process, capacity decision and aggregation lives INSIDE this
@@ -26,8 +36,12 @@
 # is a caller whose command is silently denied.
 #
 # `lib/test/run.sh` stays the serial primitive: the `monolith` shard runs it, and the
-# documented uncovered-surface fallback still names it. Focused modules
-# (`lib/test/run-module.sh <id>`) stay the iteration default. This script is the
+# documented uncovered-surface fallback still names it — and, mid-iteration on a tier
+# where this coordinator meaningfully exceeds a single shard (the cloud implement tier),
+# that `monolith` shard may stand in for the whole suite on a `run.sh`-resident surface
+# (`lib/test/run-shard.sh monolith`), which never discharges the completion gate this
+# script is (issue #1253; the operative rule lives in the prompt extensions). Focused
+# modules (`lib/test/run-module.sh <id>`) stay the iteration default. This script is the
 # FINAL gate, not the iteration loop.
 #
 # Differences from CI that the timing here does NOT let you infer:
@@ -43,13 +57,23 @@
 #                                 positive integer fails closed to 1.
 #   DEVFLOW_SHARD_DISPATCHER      path to a shard dispatcher other than the sibling
 #                                 run-shard.sh (fixtures only).
+#   DEVFLOW_ARTIFACT_PREFLIGHT    command for the read-only generated-artifact preflight
+#                                 (issue #1244); defaults to the bundled
+#                                 `regenerate-artifacts.py --preflight`. Set empty to skip
+#                                 the preflight. Fixtures inject a stub here to drive its
+#                                 clean/drift/uncheckable arms; the DEFAULT binding and the
+#                                 verdict contract are driven end-to-end against the real
+#                                 helper from lib/test/modules/regenerate-artifacts.sh.
 #   TMPDIR                        parent of the per-shard scratch roots (always), and
 #                                 the fallback run-root parent when the checkout root is
 #                                 unusable (read-only, full, or name space exhausted).
 #
-# Exit status: 0 only when the aggregate is clean. Every named failure below exits
-# non-zero with a `run-parallel:`-prefixed diagnostic naming what could not be done —
-# including a shard whose process exited non-zero even when its tally reads clean.
+# Exit status (coordinator run): 0 only when the aggregate is clean. Every named failure
+# below exits non-zero with a `run-parallel:`-prefixed diagnostic naming what could not be
+# done — including a shard whose process exited non-zero even when its tally reads clean.
+# `--preflight` runs no shard and produces no aggregate, so it is governed by its own exit
+# contract stated above (0 to proceed, non-zero on a positively-attributed drift), not by
+# this sentence.
 #
 # KNOWN EXPOSURE, stated rather than assumed away: CI has only ever run these shards in
 # SEPARATE checkouts on separate runners. Running them in one checkout under deliberate
@@ -108,9 +132,101 @@ die() { # message
   exit 2
 }
 
-[ "$#" -le 1 ] || die "this command takes at most one argument (--help) — the agent-facing command shape is the bare invocation"
+# ── Generated-artifact preflight — definition (read-only; issue #1244) ───────
+# The read-only, sub-second drift check the coordinator runs before launching any
+# shard. Factored into a function (issue #1288) so the SAME verdict interpretation
+# serves both the coordinator's main flow below AND the standalone `--preflight`
+# mode the #1132 shard-decomposition route names before its shard loop — that route
+# runs `lib/test/run-shard.sh <shard>` one shard at a time and recombines, and would
+# otherwise carry no pre-launch drift check at all. Keeping it here, in the one file
+# that already owns the verdict contract, is what keeps that contract single-sourced
+# rather than duplicated into a second coupled shell copy.
+#
+# A checked-in generated artifact can go stale from an ordinary prompt-surface edit, and
+# before this the ONLY thing that reliably caught it was the ~13-minute suite (issue
+# #1244, the run-30861787562 incident). `lib/test/regenerate-artifacts.py --preflight`
+# runs the sub-second, READ-ONLY subset of the same generated-artifact registry and reports
+# drift in well under a second, so a caller can refuse to launch rather than pay a whole
+# suite run to discover it. The registry is the single source of truth: no artifact path and
+# no command is hardcoded here, so the two cannot drift.
+#
+# DEVFLOW_ARTIFACT_PREFLIGHT is injectable like DEVFLOW_SHARD_DISPATCHER (the sibling test
+# seam), so parallel-suite-runner.sh drives every arm from its synthetic trees. Set it empty
+# to disable the preflight entirely. The default is the bundled helper's --preflight form,
+# invoked directly (its exec bit is set) — word-split so the default expands to the script
+# path plus its flag, and an override may be a whole command string, exactly the DISPATCHER
+# idiom. `-` (not `:-`) so an explicitly-empty override DISABLES the preflight, while an
+# unset variable takes the bundled default — the escape hatch the header documents.
+#
+# Returns 0 to PROCEED (every eligible artifact reconciled, OR a fail-open inconclusive
+# result), and 1 on a positively-attributed drift — the caller decides the refusal action
+# (the main flow and `--preflight` mode both `die`). Prints the drift report / inconclusive
+# warning to stderr; a clean run is silent.
+#
+# SETTLED, not an oversight (raised and disposed on PR #1294): "clean" and "fail-open
+# inconclusive/denied" share the return 0 / exit 0 code, so a caller reading ONLY the exit
+# status cannot tell them apart. That IS the fail-open posture — an unusable check must
+# never block — and the compensating control is the stderr channel above, which is silent
+# on clean and warns by name on every inconclusive arm. A CLEAN run is therefore silent too,
+# so silence alone does not distinguish clean from a matcher denial — the prompt-extension
+# prose carries that ambiguity and its resolution (fall back and run the shards, which costs
+# nothing on a clean tree), rather than this exit contract. Revisit only if a caller
+# appears that must branch on the distinction and cannot read stderr.
+_artifact_preflight() {
+  local preflight_cmd preflight_out preflight_rc drift line
+  preflight_cmd="${DEVFLOW_ARTIFACT_PREFLIGHT-$SCRIPT_DIR/regenerate-artifacts.py --preflight}"
+  [ -n "$preflight_cmd" ] || return 0
+  # shellcheck disable=SC2086  # deliberate word-split: a command plus its argument(s)
+  preflight_out="$($preflight_cmd 2>&1)"
+  preflight_rc=$?
+  [ "$preflight_rc" -eq 0 ] && return 0
+  # Refuse ONLY on a positively-attributed drift: exit 1 AND the preflight's own MACHINE
+  # verdict line. Keying the refusal on the verdict (a bash-builtin read/case, never a
+  # non-preflight PATH tool per CLAUDE.md guard-class 2) rather than on the exit code alone
+  # is what makes a crash safe — the preflight itself routes a crashed row to UNCHECKABLE (a
+  # traceback in any row → exit 2, never the drift verdict), and even a stub that exits 1
+  # from a traceback carries no verdict line and takes the fail-open warn-and-proceed arm —
+  # so an unusable check never blocks (only a detected drift does). Exit 2 (uncheckable),
+  # rc 127 (refused/absent), and any other non-zero all fall through to that same arm.
+  #
+  # COUPLED CONTRACT, edited together with `lib/test/regenerate-artifacts.py`: the literal
+  # below is that helper's `PREFLIGHT_VERDICT_PREFIX` + `drift`, and it is the ONLY thing
+  # read here. The human remedy sentence the helper prints beside it is free prose with no
+  # consumer. Matched LINE-EXACTLY (never as a substring of the blob) so a row diagnostic
+  # that happens to quote the verdict — always indented or row-prefixed — cannot be mistaken
+  # for the verdict itself. `lib/test/modules/regenerate-artifacts.sh` drives the real helper
+  # end-to-end through this coordinator, so the pair goes RED together rather than drifting.
+  drift=0
+  while IFS= read -r line; do
+    case "$line" in
+      "regenerate-artifacts: preflight-verdict: drift") drift=1; break ;;
+    esac
+  done <<< "$preflight_out"
+  if [ "$preflight_rc" -eq 1 ] && [ "$drift" -eq 1 ]; then
+    printf '%s\n' "$preflight_out" >&2
+    return 1
+  fi
+  printf 'run-parallel: WARNING: the generated-artifact preflight was inconclusive (exit %s, no drift verdict); proceeding\n' "$preflight_rc" >&2
+  [ -z "$preflight_out" ] || printf '%s\n' "$preflight_out" >&2
+  return 0
+}
+
+# The refusal message is identical on both routes, so it is spelled once. `die` exits 2.
+_refuse_on_drift() {
+  die "generated-artifact preflight reported drift (see above); launching no shard — regenerate the artifact(s) under their governing policy and re-run"
+}
+
+[ "$#" -le 1 ] || die "this command takes at most one argument (--help or --preflight) — the agent-facing command shape is the bare invocation"
 case "${1-}" in
   '') ;;
+  --preflight)
+    # Standalone read-only preflight for the #1132 shard-decomposition route (issue #1288):
+    # run the drift check, launch NO shard, and exit with the same verdict contract the
+    # coordinator applies — 0 to proceed (clean or fail-open inconclusive), non-zero (via
+    # die) on a positively-attributed drift. The route names this before its shard loop.
+    _artifact_preflight || _refuse_on_drift
+    exit 0
+    ;;
   --help|-h)
     # Delimited by sentinels rather than line numbers: a hardcoded `4,50p` range silently
     # truncates or overspills the moment any header line is added or removed, and nothing
@@ -167,6 +283,13 @@ for shard in $SHARDS; do
 done
 [ "$SHARD_COUNT" -gt 0 ] || \
   die "the shard dispatcher returned an empty population; refusing to report a clean suite over zero shards"
+
+# ── Generated-artifact preflight — invocation (read-only; issue #1244) ───────
+# The shared `_artifact_preflight` function (defined above, near `die`, so the same
+# verdict interpretation also backs the `--preflight` mode the #1132 decomposition route
+# names) runs the sub-second read-only drift check before a single shard launches, and
+# the coordinator refuses to launch on a positively-attributed drift.
+_artifact_preflight || _refuse_on_drift
 
 # ── Run root ─────────────────────────────────────────────────────────────────
 # Fresh per invocation, so a stale sibling's tally directory can never be mistaken
@@ -459,7 +582,13 @@ fi
 # lib/test/module-harness.sh's top-level `declare -A` already needs 4.0 of every shard, and
 # 4.4 is where the bare form stopped tripping `nounset`. On 4.4+ the two forms behave
 # identically, so nothing on this repository's CI or desk tier changes.
-if ! python3 "$TALLY_HELPER" combine ${TALLY_ARGS[@]+"${TALLY_ARGS[@]}"} --expect "$EXPECTED" --detail-cap "$DETAIL_CAP"; then
+# `--require-shards "$SHARDS"` reconciles the recombination against the TRUE partition by
+# name, not just the `--expect` count (issue #1289): `$SHARDS` is the authoritative
+# `--list-shards` population this coordinator enumerated, so a shard that never wrote a
+# tally (launch failure, crash-before-upload) is named as missing in `combine`'s own output
+# too — the count floor alone could be satisfied by a subset. This is additive to the
+# `--expect`/`MISSING`/`SHARD_RCS` diagnostics above, never a replacement.
+if ! python3 "$TALLY_HELPER" combine ${TALLY_ARGS[@]+"${TALLY_ARGS[@]}"} --expect "$EXPECTED" --require-shards "$SHARDS" --detail-cap "$DETAIL_CAP"; then
   AGGREGATE_RC=1
 fi
 

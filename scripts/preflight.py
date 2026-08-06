@@ -85,6 +85,78 @@ DECLARATIONS = tuple(
 # `## Dependencies` section scan below still catches an in-section `after #N`
 # regardless of position.
 AFTER_DECLARATION = re.compile(rf"^[ \t>*\-]*after\s+{_NUMBER_RUN}", re.IGNORECASE)
+# OUTBOUND direction words (issue #1197). Every keyword above declares an INBOUND
+# relation — the named issue is a prerequisite OF THIS ONE. These declare the exact
+# inverse: THIS issue is the prerequisite of the named one, so the named one is not a
+# blocker and must not be reported as one. They are matched ONLY inside the
+# `## Dependencies` section, where the old scan captured every `#N` with no keyword
+# test at all and so read `Blocks #N` as its own opposite. The out-of-section limb
+# needs no counterpart and gets none: it recognizes an inbound keyword or nothing, so
+# an outbound line there already yields no number — and adding one of these words to
+# DECLARATIONS (the inbound vocabulary) would make that limb wrong in exactly the way
+# the section limb was.
+#
+# The vocabulary is deliberately TIGHT, because a false outbound match DROPS a real
+# blocker (fail-open) while a miss only leaves today's fail-closed behaviour. Every
+# entry is unambiguously outbound in English regardless of surrounding prose, and no
+# entry is a prefix of an inbound one — `blocks`/`blocking` cannot match `blocked by`,
+# and `required by` cannot match `requires`.
+_OUTBOUND_KEYWORDS = (
+    r"blocks",
+    r"blocking",
+    r"unblocks",
+    r"unblocking",
+    r"prerequisite for",
+    r"required by",
+    r"must merge before",
+)
+# An outbound keyword governs its line only when a NUMBER RUN follows it within the
+# same clause (issue #1267). The shipped bare-keyword form matched the keyword
+# ANYWHERE on the line — including inside the human reason prose of a template-shaped
+# `Blocked by #N — <one-line reason it must land first>` line, where "must merge
+# before" / "blocks" / "required by" / … routinely appear (the issue template's own
+# reason prompt invites them) — so a correctly-drafted INBOUND prerequisite silently
+# lost its number (fail-open: the early gate PROCEEDs, the native stamp registers
+# nothing). Requiring a following number run keeps every outbound spelling the shipped
+# recognizer treated as outbound — all of them place the number adjacent to, or a few
+# characters after, the keyword (`Blocks #N`, `Blocks: #N`, `**Blocks:** #N`,
+# `Blocks issue #N`, `| Blocks | #N |`) — while a keyword that introduces no number
+# run (a reason-prose occurrence) now governs nothing.
+#
+# The separator is a BOUNDED CHARACTER WINDOW, deliberately NOT whitespace-only: a
+# `\s+`-adjacency rule would fail to match `Blocks: #N` / `**Blocks:** #N` /
+# `Blocks issue #N` and start RETURNING their numbers — a false BLOCKED, which is
+# strictly worse than the fail-open bug because it ships a spurious stop to
+# auto-updating consumers (issue #1267's reverse axis, and why the `\s+` prototype was
+# rejected). The window bound (`_OUTBOUND_WINDOW`) is small enough that a reason-prose
+# keyword far from an unrelated later number does not match, and large enough for the
+# widest real separator (` issue ` / `| Blocks | `). Narrowing only ever REMOVES
+# matches versus the shipped rule, so it cannot drop a number the old rule returned — it
+# can only add numbers back. For the canonical outbound form (number adjacent to the
+# keyword) and for the matrix separator shapes, adding numbers back is pure recovery.
+#
+# The ONE place it is not pure recovery — a disclosed residual, same family as the
+# code-span residual pinned in lib/test/run.sh, because the scanner is not
+# markdown/semantic-aware — is a genuinely-OUTBOUND free-prose line whose own number
+# sits BEYOND the window: `- Blocks the whole downstream release train, see #10`. The
+# shipped bare-keyword rule dropped #10 (correct: this issue blocks #10, so #10 is not a
+# blocker of it); the narrowed rule no longer matches and returns #10 (a spurious
+# blocker, and — via `dependency_section_numbers` — a persistent inverted stamp). This
+# residual is accepted, not overlooked: it is the unavoidable cost of a bounded
+# character window (any finite bound has it), the issue selected the bounded window with
+# its reverse axis operationalized by the two lib/test/run.sh matrices (which this rule
+# passes), and the canonical `Blocks #N` outbound form places the number adjacent to the
+# keyword and is unaffected. It is pinned as a disclosed residual in lib/test/run.sh; the
+# remedy for a real far-separated outbound line is to write the number adjacent to the
+# keyword.
+#
+# Line-level governance is unchanged: when this matches, `_scan_dependencies` still drops
+# EVERY number on the line, including one repeated later outside any number run.
+_OUTBOUND_WINDOW = 30
+OUTBOUND_DECLARATION = re.compile(
+    rf"\b(?:{'|'.join(_OUTBOUND_KEYWORDS)})\b.{{0,{_OUTBOUND_WINDOW}}}?{_NUMBER_RUN}",
+    re.IGNORECASE,
+)
 # Dependency-flavoured phrasings the fixed vocabulary does NOT recognize. When a
 # `#N` sits next to one of these and no declaration matched the line, emit a
 # stderr breadcrumb so a missed declaration is observable (issue #547 Important
@@ -96,29 +168,70 @@ SOFT_KEYWORDS = re.compile(
 )
 
 
-def _scan_dependencies(body: str, *, section_only: bool) -> list[str]:
+def _scan_dependencies(body: str, *, section_only: bool) -> tuple[list[str], list[str]]:
     """Shared single-definition scanner for declared dependency numbers.
 
+    Returns a two-element ``(found, skipped)`` tuple (issue #1268): ``found`` is
+    the declared prerequisite numbers, ``skipped`` is the numbers dropped because
+    their ``## Dependencies`` line reads as an OUTBOUND relation. Both lists are
+    unique in source order, and ``skipped`` is disjoint from ``found`` — a number
+    an inbound line also declared is registered, not reported as skipped. The two
+    public wrappers unpack ``found`` and keep
+    their historic ``list[str]`` shape; ``dependency_section_scan`` returns the
+    pair so its section-only caller can name what direction dropped.
+
     This is the ONE definition of the declared-dependency vocabulary: the
-    ``## Dependencies`` section boundary (every ``#N`` on a line under that
-    heading, regardless of keyword) and the out-of-section declaration keywords.
+    ``## Dependencies`` section boundary (every ``#N`` on a line under that heading
+    whose direction is not OUTBOUND — see below) and the out-of-section declaration
+    keywords.
+
+    **Direction inside the section is governed at the LINE level** (issue #1197). A
+    section line matching OUTBOUND_DECLARATION declares that THIS issue is the
+    prerequisite of the numbers it names, so that line contributes NO numbers at all —
+    not merely the number run adjacent to the outbound word. An outbound keyword matches
+    only when a number run FOLLOWS it within a bounded same-clause window (issue #1267):
+    a keyword appearing only in the human reason prose of a ``Blocked by #N — <reason>``
+    line — with no number run it introduces — governs nothing, so a correctly-drafted
+    inbound prerequisite whose reason happens to say "must merge before" / "blocks" / …
+    keeps its number. Per-number governance was
+    considered and rejected: it lets a mixed line partially contribute (more complex,
+    harder to test, and the same ambiguity that produced the inversion this fixes), and
+    it cannot handle the live case, whose outbound line repeats the same ``#N`` later in
+    its prose, outside any number run. The accepted cost is stated rather than hidden:
+    an INBOUND declaration sharing a line with an outbound word is dropped with the
+    line, so that one shape is fail-open; the ``dependency_numbers`` breadcrumb below
+    makes it observable, and the remedy is to declare each direction on its own line.
+
+    A line carrying NEITHER an inbound nor an outbound word — a bare ``- #N`` bullet,
+    ``Part of #N``, any unrecognised phrasing — keeps its pre-#1197 behaviour and is
+    still returned, because the section heading itself is the author's inbound
+    declaration and the template's sanctioned form lives under it. That is a decided
+    disposition, not a fall-through: the one thing this function must never do is
+    silently INVERT a direction it does not recognise.
+
     Both public entry points route through here — `dependency_section_numbers`
     with ``section_only=True`` (the section limb alone) and `dependency_numbers`
     with ``section_only=False`` (both limbs, plus the SOFT_KEYWORDS observability
     breadcrumb) — so the section vocabulary has a single source and cannot drift
     between the two.
 
-    Numbers are returned unique in source order. When ``section_only`` is True the
-    out-of-section sweep (the only path that writes stderr) is never reached, so a
-    caller (the apply-issue-dependencies helper) that imports the section-only
+    Numbers are returned unique in source order. Both stderr-writing paths — the
+    outbound-skip breadcrumb and the out-of-section SOFT_KEYWORDS sweep — are gated
+    on ``not section_only``, so when ``section_only`` is True neither is reached and
+    a caller (the apply-issue-dependencies helper) that imports the section-only
     entry point never leaks a ``preflight.py:`` breadcrumb into its own
     caller-facing output.
     """
     found: list[str] = []
+    skipped: list[str] = []
 
     def add(number: str) -> None:
         if number not in found:
             found.append(number)
+
+    def add_skipped(number: str) -> None:
+        if number not in skipped:
+            skipped.append(number)
 
     in_dependencies = False
     for line in body.splitlines():
@@ -128,7 +241,28 @@ def _scan_dependencies(body: str, *, section_only: bool) -> list[str]:
         if in_dependencies and HEADING.match(line):
             in_dependencies = False
         if in_dependencies:
-            for number in ISSUE_REF.findall(line):
+            numbers = ISSUE_REF.findall(line)
+            if numbers and OUTBOUND_DECLARATION.search(line):
+                # Line-level: the outbound word governs every number on the line.
+                # Record every dropped number as `skipped` on BOTH entry points
+                # (issue #1268) so a section-only caller can name what it lost;
+                # the stderr breadcrumb still rides the stderr-carrying entry point
+                # only, because `dependency_section_numbers` has a no-stderr
+                # contract its caller (apply-issue-dependencies.py) depends on.
+                for number in numbers:
+                    add_skipped(number)
+                if not section_only:
+                    for number in dict.fromkeys(numbers):
+                        print(
+                            f"preflight.py: skipped #{number} under `## Dependencies` — "
+                            f"the line declares an OUTBOUND relation (this issue is the "
+                            f"prerequisite), not a blocker of this one; if #{number} must "
+                            f"land first, restate it on its own line as "
+                            f"`blocked by #{number}`",
+                            file=sys.stderr,
+                        )
+                continue
+            for number in numbers:
                 add(number)
             continue
         if section_only:
@@ -152,7 +286,13 @@ def _scan_dependencies(body: str, *, section_only: bool) -> list[str]:
                     f"or list it under a `## Dependencies` section",
                     file=sys.stderr,
                 )
-    return found
+    # A number governed OUTBOUND on one line but declared inbound on another lands
+    # in both lists (each is deduped only against itself). Such a number IS
+    # registered as a prerequisite, so reporting it as skipped-and-unregistered
+    # would be a false breadcrumb (issue #1268): keep `skipped` disjoint from
+    # `found`, so a caller only ever names numbers no inbound line rescued.
+    skipped = [number for number in skipped if number not in found]
+    return found, skipped
 
 
 def dependency_section_numbers(body: str) -> list[str]:
@@ -164,6 +304,29 @@ def dependency_section_numbers(body: str) -> list[str]:
     also honours out-of-section declaration keywords because a false positive in
     the reversible implement gate costs only a human override, whereas a
     registered dependency is a persistent relationship. Emits no stderr of its own.
+
+    Direction is honoured here exactly as `_scan_dependencies` describes it (issue
+    #1197), and this is the entry point where it matters most: a persistent
+    ``blocked_by`` write registering the INVERSE of what the author declared is not a
+    stop a human can override away. The no-stderr contract survives that arm — the
+    outbound-skip breadcrumb rides `dependency_numbers` only.
+
+    Returns `found` only, unchanged (issue #1268); a section-only caller that
+    also needs the outbound-skipped numbers uses `dependency_section_scan`.
+    """
+    return _scan_dependencies(body, section_only=True)[0]
+
+
+def dependency_section_scan(body: str) -> tuple[list[str], list[str]]:
+    """Section-only scan returning ``(found, skipped)`` (issue #1268).
+
+    Same scope and direction handling as `dependency_section_numbers` — every
+    ``#N`` on a ``## Dependencies`` line whose direction is not OUTBOUND — but it
+    also returns the numbers dropped for outbound direction, so the section-only
+    caller (`apply-issue-dependencies.py`) can name what it skipped instead of
+    dropping it silently or misdescribing the body. Emits no stderr of its own;
+    the no-stderr contract is unchanged, and the skip breadcrumb is the calling
+    helper's responsibility under its own prefix.
     """
     return _scan_dependencies(body, section_only=True)
 
@@ -173,8 +336,9 @@ def dependency_numbers(body: str) -> list[str]:
 
     In-section results are derived from the same single-definition scanner that
     backs `dependency_section_numbers`, so the section vocabulary has one source.
+    Returns `found` only, unchanged (issue #1268).
     """
-    return _scan_dependencies(body, section_only=False)
+    return _scan_dependencies(body, section_only=False)[0]
 
 
 def _gh_issue_view(number: object, field: str) -> str:
@@ -287,7 +451,7 @@ def dependencies(args: argparse.Namespace) -> int:
 # PR-vouched-only path the untrusted workpad is neutralized rather than consulted.
 # The threat model this admission rests on — who can write each source, and the
 # population overlap that bounds what it defends against — has its CANONICAL
-# statement in docs/implement-skill.md's "Two provenance sources for ahead history"
+# statement in the implement skill's "Two provenance sources for ahead history"
 # section. This header states only the operative rules above; the skill body and the
 # system overview carry coupled summaries. Edit those three together, and do not add
 # a fourth copy of the rationale here — a security rationale copied further drifts.

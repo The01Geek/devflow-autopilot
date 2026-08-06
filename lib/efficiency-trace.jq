@@ -300,7 +300,7 @@ def iter_view:
       # version, and the #431 assembler handles presence/absence uniformly
       # (falling back to `git show <merge_sha>:.prflow/config.json` when it is
       # null/absent). A bump would imply a breaking change this is not — records
-      # predating the field remain valid. (Decision recorded in docs/efficiency-trace.md.)
+      # predating the field remain valid.
       schema_version: 1,
       slug: $slug,
       generated_at: $generated_at,

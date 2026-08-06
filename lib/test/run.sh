@@ -16,6 +16,14 @@ set -u
 
 LIB="$(cd "$(dirname "$0")/.." && pwd)"
 
+# issue #1216 (AC4/AC5): before any trap is installed, detect a SIGINT/SIGQUIT
+# that arrived already ignored (SIG_IGN) — bash cannot un-ignore it, so the
+# suite's signal-trap assertions would fail or hang for an otherwise invisible
+# reason. This is strictly ADVISORY: the helper always exits 0, writes only to
+# stderr, and registers no skipped check, so it cannot change the suite's exit
+# code or skip tally. Best-effort — a missing/denied helper never blocks the run.
+bash "$LIB/test/warn-ignored-signals.sh" >&2 || true
+
 # issue #533 (AC13): clear an INHERITED DEVFLOW_GH before any fixture runs. The
 # resolvers treat a non-empty DEVFLOW_GH as the strongest explicit override (no
 # probe), so a value leaked in from the invoking environment — historically the
@@ -858,8 +866,14 @@ assert_eq "cg: missing file → default"  "dfl"                "$("$CG" .x dfl /
 assert_eq "cg: missing key + empty default → exit 0" "0" "$?"
 # Run from an empty cwd so the default config path is deterministically absent
 # (don't couple this to the repo's live .prflow/config.json being valid JSON).
-( cd "$(mktemp -d)" && "$CG" .nope.nope >/dev/null 2>&1 )
-assert_eq "cg: missing key/file + no default → exit 1" "1" "$?"
+# ONE invocation feeds both assertions below, so they cannot end up describing two
+# different runs. The second (issue #1333 T2) pins the stdout shape the exit code leaves
+# open: a caller could otherwise assume the no-default read yields an empty STRING it can
+# bind a placeholder to. It yields no value at all.
+CG_NODEF_OUT="$( cd "$(mktemp -d)" && "$CG" .nope.nope 2>/dev/null )"
+CG_NODEF_RC=$?
+assert_eq "cg: missing key/file + no default → exit 1" "1" "$CG_NODEF_RC"
+assert_eq "cg: missing key/file + no default → EMPTY stdout (not an empty-string value)" "" "$CG_NODEF_OUT"
 "$CG" "" >/dev/null 2>&1
 assert_eq "cg: empty KEY → exit 2" "2" "$?"
 CG_BAD="$(mktemp)"; printf '{ not valid json' > "$CG_BAD"
@@ -946,6 +960,86 @@ printf '%s' '{ not valid json' > "$CG_COERCE"
 assert_eq "cg(coerce): malformed JSON breadcrumb on stderr (python backend)" "yes" \
   "$(grep -qF 'config-get.sh:' "$CG_PARSEERR" && echo yes || echo no)"
 rm -f "$CG_COERCE" "$CG_PARSEERR"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "create_issue.investigation_record_enabled (config read → publication decision) (#1331)"
+# ────────────────────────────────────────────────────────────────────────────
+# /prflow:create-issue resolves this key via
+#   config-get.sh .create_issue.investigation_record_enabled true
+# and WITHHOLDS publication of the investigation record when, and ONLY when, the
+# resolved value is exactly the literal `false`. The skill compares with bash
+# builtins only. This block asserts the PUBLICATION DECISION (not the resolver's
+# raw stdout) across the config-JSON six-shape adversarial matrix, so the
+# issue-#312-class inversion (an `!= true` spelling that reads `True`/`0`/the
+# exit-2 empty output as disabled) is caught. The decision function mirrors the
+# skill's `case` compare against the literal `false`.
+ir_decision() {  # $1 = resolved config-get value → publish|withhold
+  case "$1" in
+    false) echo withhold ;;
+    *)     echo publish ;;
+  esac
+}
+IR_CFG="$(mktemp)"
+# object family with a boolean false → the ONLY withhold shape.
+printf '%s' '{"create_issue":{"investigation_record_enabled":false}}' > "$IR_CFG"
+assert_eq "ir(boolean false): withhold" "withhold" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# string "false" also coerces to `false` → withhold (a JSON string false is still false).
+printf '%s' '{"create_issue":{"investigation_record_enabled":"false"}}' > "$IR_CFG"
+assert_eq "ir(string \"false\"): withhold" "withhold" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# boolean true → publish.
+printf '%s' '{"create_issue":{"investigation_record_enabled":true}}' > "$IR_CFG"
+assert_eq "ir(boolean true): publish" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# string "True" coerces to the literal `True` (capital) — NOT the literal `false`,
+# so publication stays ENABLED. This is the inversion an `!= true` spelling breaks.
+# Resolve once and feed both asserts (verbatim value + decision) from the capture.
+printf '%s' '{"create_issue":{"investigation_record_enabled":"True"}}' > "$IR_CFG"
+IR_V="$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")"
+assert_eq "ir(config-get returns 'True' verbatim)" "True" "$IR_V"
+assert_eq "ir(string \"True\"): publish (not the literal false)" "publish" "$(ir_decision "$IR_V")"
+# number 0 coerces to `0` — not `false` — so publication stays ENABLED.
+printf '%s' '{"create_issue":{"investigation_record_enabled":0}}' > "$IR_CFG"
+IR_V="$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")"
+assert_eq "ir(config-get returns '0' verbatim)" "0" "$IR_V"
+assert_eq "ir(number 0): publish (not the literal false)" "publish" "$(ir_decision "$IR_V")"
+# absent key → default `true` → publish.
+printf '%s' '{"create_issue":{"other":1}}' > "$IR_CFG"
+assert_eq "ir(absent key): publish (default true)" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# absent family → default `true` → publish.
+printf '%s' '{"docs":{"labels":"X"}}' > "$IR_CFG"
+assert_eq "ir(absent family): publish (default true)" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# wrong-type family (array-valued) → descend into non-dict → default `true` → publish.
+printf '%s' '{"create_issue":[1,2]}' > "$IR_CFG"
+assert_eq "ir(array-valued family): publish (default true)" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# scalar-valued family → descend into scalar → default `true` → publish.
+printf '%s' '{"create_issue":"on"}' > "$IR_CFG"
+assert_eq "ir(scalar-valued family): publish (default true)" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# null value → empty → default `true` → publish.
+printf '%s' '{"create_issue":{"investigation_record_enabled":null}}' > "$IR_CFG"
+assert_eq "ir(null value): publish (default true)" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# empty-string value → config-get treats an explicit "" as default → true → publish.
+printf '%s' '{"create_issue":{"investigation_record_enabled":""}}' > "$IR_CFG"
+assert_eq "ir(empty-string value): publish (default true)" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG")")"
+# malformed JSON → config-get exit 2, EMPTY stdout → decision publishes (empty ≠ false).
+# Pin the empty-stdout precondition explicitly (not just the decision) so a regression that
+# emitted a non-empty non-`false` string on a parse error would still be caught here.
+printf '%s' '{ not valid json' > "$IR_CFG"
+assert_eq "ir(malformed config → exit-2 EMPTY stdout precondition)" "" \
+  "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG" 2>/dev/null)"
+assert_eq "ir(malformed config → exit-2 empty stdout): publish (empty is not the literal false)" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true "$IR_CFG" 2>/dev/null)")"
+# absent file → default `true` → publish.
+assert_eq "ir(absent file): publish (default true)" "publish" \
+  "$(ir_decision "$("$CG" .create_issue.investigation_record_enabled true /no/such/config.json)")"
+rm -f "$IR_CFG"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "deferred.labels (schema + example + resolution + normalization)"
@@ -2148,6 +2242,16 @@ NV_P4="$LIB/../skills/review/phases/phase-4-verdict.md"
 if python3 "$NV_TEST" >/dev/null 2>&1; then _NV_UNIT=ok; else _NV_UNIT=FAILED; fi
 assert_eq "#556 T-1/T-3/T-6: normalize-verdicts helper unit tests pass over the fixture matrix" "ok" "$_NV_UNIT"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# #1212: the review-and-fix loop-verdict marker. scripts/loop-verdict-marker.py
+# composes the producer marker and reads line 1 of the loop's chat output; the
+# standalone test drives the compose matrix, the read routing tokens, and every
+# AC5 safe-direction branch (no marker / malformed / unknown token never yields
+# CLEAN-FULL). Exit 0 == all green, mirroring the normalize-verdicts idiom above.
+LVM_TEST="$LIB/test/loop-verdict-marker-test.py"
+if python3 "$LVM_TEST" >/dev/null 2>&1; then _LVM_UNIT=ok; else _LVM_UNIT=FAILED; fi
+assert_eq "#1212: loop-verdict-marker helper unit tests pass over the compose/read/safe-direction matrix" "ok" "$_LVM_UNIT"
+
 # T-4 (AC5) — the removed PASS-with-note softener must be ABSENT from the 2.1b dispatch prompt.
 assert_eq "#556 T-4(AC5): the 'Reserve FAIL' softener is gone from phase-2-verification.md" \
   "0" "$(pin_count 'Reserve FAIL for cases where the code itself is wrong' "$NV_P2")"
@@ -2677,14 +2781,26 @@ assert_pin_unique "#466: review-and-fix extension carries the six-shape set (val
 R620_PROBE_SHA='f2162d7683bc7a352fce4efce3f092e864aab8b9'
 # Paths are anchored to $LIB/.. — $REPO_ROOT is not yet bound this early in the suite, and under
 # `set -u` referencing it here aborts the whole run.
-for _r620_probe_site in "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" "$LIB/../docs/implement-skill.md" "$LIB/../.github/workflows/matcher-probe.yml"; do
+for _r620_probe_site in "$LIB/../docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md" "$LIB/../docs/internal/implement-skill.md" "$LIB/../.github/workflows/matcher-probe.yml"; do
   assert_eq "#620: implement-probe evidence SHA is identical in ${_r620_probe_site##*/}" "yes" \
     "$(grep -qF "$R620_PROBE_SHA" "$_r620_probe_site" && echo yes || echo no)"
 done
 RCR_EXT="$LIB/../.prflow/prompt-extensions/receiving-code-review.md"
 RCR_PIN_MODULE='A reception pass iterates on a focused module only after recording the selected module ID'
 RCR_PIN_PUSH='A reception pass that pushes uses an explicit destination ref'
-RAF_PIN_LOAD='load-prompt-extension.sh receiving-code-review'
+# #1124: the review-and-fix loads now carry BOTH the granted vendored-literal leading
+# token (the cloud-emitted form) AND the portable anchor line (the fallback arm), so the
+# bare `load-prompt-extension.sh <name>` substring recurs (vendored line + anchor line +
+# an inline prose mention) and is no longer unique. Re-anchor these two entry-load pins on
+# the FULL portable-anchor literal — which matches ONLY the anchor line — exactly as the
+# #275 P3-live pins prepend $PORTABLE_ANCHOR_LITERAL to each helper path. The vendored
+# leading-token form is covered separately by lib/test/lint-anchor-fallback-arm.py.
+LPE_ANCHOR_PREFIX='"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh '
+# The assert_pin_unique literals below are written as FULLY STATIC single-quoted strings
+# (not variable-composed) so the pin corpus keys them by their stable literal hash rather
+# than a fragile file:line site key; the $LPE_ANCHOR_PREFIX variable is used only for the
+# runtime grep line-number lookups further down, where a site key is not derived.
+RAF_PIN_LOAD='"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh receiving-code-review'
 assert_pin_unique "#620: reception extension carries the focused-test-module iteration rule" \
   "$RCR_PIN_MODULE" "$RCR_EXT"
 assert_pin_unique "#620: reception extension carries the explicit push-destination-ref rule" \
@@ -2784,9 +2900,9 @@ assert_pin_unique "#620: interactive directives are non-binding on loop runs" \
 # The own-load literal needs its own uniqueness pin: `read` takes the FIRST match, so a later prose
 # mention of the same command earlier in the root would silently retarget the ordering check.
 assert_pin_unique "#620: the skill's own extension load is a single unambiguous fence" \
-  'load-prompt-extension.sh review-and-fix' "$MAXI_ROOT"
-IFS= read -r _r620_own < <(grep -n 'load-prompt-extension.sh review-and-fix' "$MAXI_ROOT") || _r620_own=""   # raw-guard-ok: line-number lookup
-IFS= read -r _r620_rcv < <(grep -n 'load-prompt-extension.sh receiving-code-review' "$MAXI_ROOT") || _r620_rcv=""   # raw-guard-ok: line-number lookup
+  '"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh review-and-fix' "$MAXI_ROOT"
+IFS= read -r _r620_own < <(grep -nF "${LPE_ANCHOR_PREFIX}review-and-fix" "$MAXI_ROOT") || _r620_own=""   # raw-guard-ok: line-number lookup (#1124: anchor-line form is unique; bare substring recurs across the vendored + anchor + prose forms)
+IFS= read -r _r620_rcv < <(grep -nF "${LPE_ANCHOR_PREFIX}receiving-code-review" "$MAXI_ROOT") || _r620_rcv=""   # raw-guard-ok: line-number lookup (#1124: anchor-line form is unique)
 IFS= read -r _r620_hdr < <(grep -n '^## Engine source of truth' "$MAXI_ROOT") || _r620_hdr=""   # raw-guard-ok: line-number lookup
 _r620_own="${_r620_own%%:*}"; _r620_rcv="${_r620_rcv%%:*}"; _r620_hdr="${_r620_hdr%%:*}"
 # Fail closed on a non-numeric/absent operand: an unresolved line number must read "no", never
@@ -3915,15 +4031,15 @@ rm -f "$DT_COMPARE" "$DT_COMPARE_RUN"
 assert_pin_unique "#167 coupled-site: SKILL.md states detect_all_audit is intentionally not persisted" \
   'detect_all_audit`, is intentionally **not** persisted here' "$MAXI_SKILL"
 
-# Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
-# sync — the sweep body in the implement skill (phases/phase-2-implement.md), the "Sweep selection" always-run
-# index in the same file, and the rationale table in docs/implement-skill.md. The
-# error-handling & silent-failure sweep (2.3.6) front-loads the Phase 3.3
-# silent-failure-hunter agent; if any of the three loses it the catch reverts to
-# the contingent, inconsistent homing the baseline showed. Pin all three so a
-# half-applied removal fails here instead of silently shipping.
+# The Phase 2.3 sweep's executable contract lives in the implement-skill bundle:
+# its sweep body plus the "Sweep selection" always-run index in
+# phases/phase-2-implement.md. Those operative sites remain protected below through
+# $IMPL_SKILL_BUNDLE / $P2_FILE assertions. The rationale table in
+# docs/internal/implement-skill.md is a secondary prose mirror: issue #1188 retires
+# its row-presence pins (see the cluster note below), while the surviving derived
+# cross-site enumeration still reconciles the overall contract-sweep membership.
 IMPL_SKILL="$IMPL_SKILL_BUNDLE"   # issue #218: the whole implement-skill bundle (orchestrator + 4 phase files)
-IMPL_DOC="$LIB/../docs/implement-skill.md"
+IMPL_DOC="$LIB/../docs/internal/implement-skill.md"
 
 # ── issue #218: implement skill split into orchestrator + per-phase reference files ──
 # The implement skill is now a thin orchestrator (skills/implement/SKILL.md) plus four
@@ -4487,20 +4603,14 @@ _P4_ROUTING_BULLETS="$(awk '/further exits before any label is applied/,/^If the
 assert_eq "#555 the §4.0.5 reader-routing list still carries exactly 8 bullets (6 exits + 2 qualifiers) — the count-locked header's numerals are only true at this population" \
   "8" "$_P4_ROUTING_BULLETS"
 
-assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \
-  "$(grep -qF '| 2.3.6 Error-handling & silent-failure |' "$IMPL_DOC" && echo yes || echo no)"
-# The docs rationale row remains covered independently of the phase prose.
-
-# The docs rationale mirror for the peer-checkpoint-completeness sweep remains covered.
-assert_eq "sweep 2.3.0a: docs/implement-skill.md keeps the rationale table row" "yes" \
-  "$(grep -qF '| 2.3.0a Peer-checkpoint completeness |' "$IMPL_DOC" && echo yes || echo no)"
-# Issue #165's docs and overview mirrors for the enum-enumeration reconciliation
-# sweep remain covered independently of the phase prose.
-assert_eq "sweep 2.3.0b: docs/implement-skill.md keeps the rationale table row" "yes" \
-  "$(grep -qF '| 2.3.0b Enum-enumeration reconciliation |' "$IMPL_DOC" && echo yes || echo no)"
-# The overview sweep-list entry is the other retained mirror.
-assert_eq "sweep 2.3.0b: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" "yes" \
-  "$(grep -qF '**2.3.0b** Enum-enumeration reconciliation sweep (added value to an enumerated set' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
+# Issue #1188: the docs-rationale/overview MIRROR presence pins that used to sit here
+# (sweep 2.3.6 / 2.3.0a / 2.3.0b keeps-the-rationale-row, and the 2.3.0b overview
+# sweep-list entry) were retired prose-presence pins exempted by the frozen
+# .prflow/logs retirement manifests, keyed by resolved_target. Moving the mirror docs
+# from docs/ to docs/internal/ orphans that resolved_target key, and the #810 gate
+# enforces frozen manifests, so the retirement can no longer be tracked. Their
+# retirement is completed by removal here (#876). The docs content itself is unchanged;
+# only these regression guards are dropped. See the workpad issue-accuracy note.
 
 # Substrate-agnostic re-anchor (issue #171): the "Sweep selection (run first)" preamble
 # must state that its trigger shapes apply to prose/SKILL/doc/config as much as to code,
@@ -4525,19 +4635,15 @@ assert_pin_unique "#661: Sweep-selection index cues a relocated prose literal/he
   'or a relocated prose literal, heading, section, or file path' "$P2_FILE"
 # AC2 — the enumeration mandates a whitespace-normalized search.
 # AC3 — content recovery from the diff's deletion hunks and both old-location citation forms.
-# AC11 — docs/implement-skill.md rationale reconciled with the hardened §2.3.0 (coupled mirror).
-assert_eq "#661: docs/implement-skill.md carries the relocation-is-a-contract-change rationale" "yes" \
-  "$(grep -qF 'Relocation is a contract change too (issue #661)' "$IMPL_DOC" && echo yes || echo no)"
+# AC11 — the docs/internal/implement-skill.md relocation-rationale MIRROR presence pin
+# was removed here (issue #1188): a retired prose-presence pin whose frozen retirement
+# key resolved_target moved with the doc; see the cluster note above.
 
 # ── issue #474: exact-one/static checks preserve the collection-cardinality and
 # derived-comparand contracts plus their coupled documentation mirrors.
-OVERVIEW_DOC474="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
-# The assertions below preserve the documentation rationale and overview-index
-# mirrors for the collection-cardinality contract.
-assert_eq "#474(2.3.7): docs/implement-skill.md keeps the rationale table row" "yes" \
-  "$(grep -qF '| 2.3.7 Collection-cardinality |' "$IMPL_DOC" && echo yes || echo no)"
-assert_eq "#474(2.3.7): DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-index entry" "yes" \
-  "$(grep -qF '**2.3.7** Collection-cardinality sweep' "$OVERVIEW_DOC474" && echo yes || echo no)"
+# Issue #1188: the #474 docs-rationale AND overview mirror presence pins (2.3.7 rationale
+# table row + sweep-index entry) were retired prose-presence pins orphaned by the
+# docs/internal move; removed per the cluster note above.
 # Each absence guard is paired with an INJECTION non-vacuity proof (the #465 delta form,
 # 7f7161a): an absolute `== 0` alone cannot tell "phrase removed" from "grep blind", so it
 # would degrade to a no-op if the phrase were reworded. Inject the phrase into a copy and
@@ -4670,9 +4776,10 @@ assert_eq "#779: the checkpoint-4 tool-boundary test precedes the token routing 
 # The key stays OUTSIDE the `gha:` prefix so the review/review-and-fix tier discriminator (which
 # reads `gha:` checkpoints as a cloud marker) is unaffected. A non-canonical body makes `--checkpoint`
 # a structural no-PATCH where `--note` degrades, so the prose keeps a degrade-to-`--note` fallback.
-# The ORDERING clause is separately operative: without it the record can assert the run is
-# proceeding to publish on an UPDATED run the post-merge suite then routes to Blocked — a
-# workpad self-record contradicting what happened.
+# The row carries no UPDATED-specific ordering condition: checkpoint 4 no longer runs a suite of
+# its own, so the row records the CHECKPOINT's result on all three clean tokens alike. The
+# completion-evidence flight (issue #1087) still runs after it and can route the run to Blocked
+# before anything is published — the row is not a claim about the run's outcome.
 # The observable discriminator for "no token reported" — "produced no output at all" is unusable
 # because the helper rebinds fd 1 to stderr and a successful invocation is never silent.
 # A tier that REFUSES the invocation is a distinct case from a non-clean token: it publishes,
@@ -6748,6 +6855,13 @@ assert_eq "#356 flip: helper carries the matching '❌ Review failed' literal" "
 M356_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 assert_pin_unique "#356 marker: devflow.yml rebuilds the identical run-keyed marker" \
   'FLIP_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_DEVFLOW_YML"
+# The out-of-job review_finalize backstop (issue #1174) rebuilds the SAME run-keyed
+# marker under a distinct variable name (RP_RUN_MARKER) so this uniqueness pin — and
+# the #1054 module's FLIP_MARKER extraction — stays anchored to the in-job flip's
+# sole FLIP_MARKER literal. Both must construct the byte-identical marker string, so
+# a positional pin over that shared literal keeps the finalizer's copy honest.
+assert_eq "#1174 marker: review_finalize also constructs the run-keyed review-progress marker" "1" \
+  "$(grep -cF 'RP_RUN_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_DEVFLOW_YML" || true)"
 # The former cross-FILE identity check compared the two workflow copies of FLIP_MARKER
 # against each other. Issue #936 removed the second copy with devflow-review.yml, and no
 # separate prefix assertion replaces it: the module's runtime equality is stronger than
@@ -6919,6 +7033,26 @@ assert_eq "#484/#530 every review-and-fix bundle (root+references) head is grant
 sed -E 's/, Bash\(gh pr checkout:\*\)//' "$LIB/../.github/workflows/devflow.yml" > "$E484/manual-no-checkout.yml"
 assert_eq "#484 manual gh pr checkout grant is removal-proof" "yes" \
   "$(_manual_ungranted "$MAXI_SKILL" "$E484/manual-no-checkout.yml" tools-line | grep -qxF 'gh pr checkout' && echo yes || echo no)"
+
+# AC (#1153): git check-ignore is granted on NO profile, and a review-and-fix run
+# (Actions run 29854795625) improvised one when the fence-less ignore-coverage prose asked
+# it to evaluate .prflow/tmp/ coverage. That prose is removed (this issue's AC3); this guard
+# is the RED-on-reintroduction backstop, proved by PLANTING the exact denied command as a
+# bundle fence and asserting the whole-bundle head scan reports it ungranted against
+# devflow.yml's TOOLS. It covers the "emits" (fenced command head) shape only; an
+# inline-backtick/table prose `git check-ignore` is out of the head extractor's
+# bash-fence-only reach — a residual stated (not silently closed) in the issue-1153 workpad.
+{ cat "$MAXI_SKILL"; printf '\n```bash\ngit check-ignore -q .prflow/tmp/\n```\n'; } > "$E484/raf-plus-checkignore.md"
+assert_eq "#1153 a reintroduced git check-ignore head anywhere in the review-and-fix bundle is reported ungranted" "yes" \
+  "$(_manual_ungranted "$E484/raf-plus-checkignore.md" "$LIB/../.github/workflows/devflow.yml" tools-line | grep -qxF 'git check-ignore' && echo yes || echo no)"
+# Positive control: the unmodified bundle emits no such head, so the planted fence is the
+# sole source of the report above — the guard is not vacuously green.
+# This control is not self-guarding: an extractor error emitting e.g. __extractor_error__
+# would also yield "no" here. The anti-vacuity weight is carried by the PLANTED assertion
+# immediately above, which runs the identical extractor and requires "yes" — so an
+# extractor error fails there, loudly, rather than passing silently as a green control.
+assert_eq "#1153 the unmodified review-and-fix bundle emits no git check-ignore head" "no" \
+  "$(_manual_ungranted "$MAXI_SKILL" "$LIB/../.github/workflows/devflow.yml" tools-line | grep -qxF 'git check-ignore' && echo yes || echo no)"
 
 # Skill-level recovery contracts: unit tests prove the helper behavior, while
 # these removal pins prove the orchestrator still requests a failure signal and
@@ -7173,6 +7307,15 @@ assert_eq "#814: a PATCH-call failure exits non-zero" "no" \
   "$([ "$_c" = "0" ] && echo yes || echo no)"
 assert_eq "#814: a PATCH-call failure writes nothing to stdout and no success breadcrumb" "yes" \
   "$([ ! -s "$S356/out8" ] && [ "$(grep -c '^workpad.py update: PATCHed comment' "$S356/err8")" = "0" ] && echo yes || echo no)"
+# That failing PATCH is a real failed write, so issue #1214's replay buffer captured
+# its `--note` into the CHECKOUT's own `.prflow/tmp/workpad-buffer/<comment-id>.json`
+# — the buffer is anchored on the repo root, not on this block's $S356 sandbox, and
+# nothing else here would reclaim it. Every later block driving `workpad.py update`
+# against a stub that answers with the SAME comment id would then have that note
+# replayed into its call (the stub ids are fixture constants, unique only in
+# production), which is a cross-block fixture leak, not a product behavior. Drop it
+# with the rest of this block's state.
+rm -f "$LIB/../.prflow/tmp/workpad-buffer/7.json"
 
 rm -rf "$S356"
 
@@ -7923,6 +8066,13 @@ sed 's/- \[ \] AC two/- [x] AC two/' "$S338/base.md" > "$S338/base-ticked.md"
 # ...and one whose ticked AC two is already tagged (for the tag-preserving no-false-fire control).
 sed 's/- \[ \] AC two/- [x] AC two (post-merge)/' "$S338/base.md" > "$S338/base-ticked-tagged.md"
 
+# These cases turn on whether the call carries a non-empty --note, and issue #1214's
+# replay FOLDS a buffered note into `args.note` — so a replay buffer left over for the
+# comment id this block's stub answers with (7) would satisfy the very guard T1 asserts
+# fires. The producing block reclaims its own buffer; clear it here too so this block's
+# precondition is stated where it is relied on rather than 700 lines away.
+rm -f "$LIB/../.prflow/tmp/workpad-buffer/7.json"
+
 # run338 <body-file> <args...> → prints the exit code; leaves out/err/patchlog on disk.
 run338() {
   local body="$1"; shift
@@ -7956,7 +8106,7 @@ assert_eq "#338(T2): the with-note retag PATCHed the row with the (post-merge) t
 # OTHER pair (the plain AC one rewrite) and never mentions the tag or the retagged row,
 # and must still pass. Without this pin a refactor that bound the note to the specific
 # appending pair would tighten the contract past what workpad.py's guard comment,
-# SKILL.md, and docs/implement-skill.md all promise, while every other S338 test — whose
+# SKILL.md, and docs/internal/implement-skill.md all promise, while every other S338 test — whose
 # notes all happen to describe the retag itself — stayed green. Compare T5: the same
 # batched shape with NO note is refused.
 _c="$(run338 "$S338/base.md" --rewrite-ac "AC one" "AC one edited" \
@@ -8015,7 +8165,7 @@ assert_eq "#338(T3b): the tag-removing rewrite PATCHed" "yes" \
 # a text tweak on a row that ALREADY ends with the tag creates no new deferral, so it
 # needs no note — even when the OLD substring does not itself span the tag. The
 # argument-string-only predicate classified this as an append and demanded a --note,
-# contradicting the exemption workpad.py's docstring, SKILL.md and docs/implement-skill.md
+# contradicting the exemption workpad.py's docstring, SKILL.md and docs/internal/implement-skill.md
 # all publish. Fails CLOSED (an extra-note demand, never a laundered deferral), but the
 # published contract must match the code. RED against the OLD-string-only predicate.
 _c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC two" "AC two clarified (post-merge)")"
@@ -8270,7 +8420,7 @@ assert_eq "#338: SKILL.md publishes the row-scoped (post-merge) exemption" "yes"
 # GREEN if only ONE of them is reverted to the stale OLD-only form. Asserting the stale form
 # is ABSENT catches a partial reversion at either site — and does so without a brittle
 # occurrence-count pin that a third legitimate mention would break. Same for the docs mirror.
-for _f338 in "$LIB/../skills/implement/SKILL.md" "$LIB/../docs/implement-skill.md"; do
+for _f338 in "$LIB/../skills/implement/SKILL.md" "$LIB/../docs/internal/implement-skill.md"; do
   assert_eq "#338: $(basename "$_f338") carries no stale OLD-only (post-merge) contract sentence" "yes" \
     "$(grep -q 'NEW ends with it, OLD does not' "$_f338" && echo no || echo yes)"
 done
@@ -8616,6 +8766,259 @@ P547R_EMPTYBF="$(PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --
 assert_eq "#547/#572 Suggestion 2: empty '--body-file \"\"' fails closed on the body path (UNAVAILABLE body)" "UNAVAILABLE body" "$P547R_EMPTYBF"
 assert_eq "#547/#572 Suggestion 2: the empty-body-file failure returns the unavailable exit class" "3" "$P547R_EMPTYBF_RC"
 rm -rf "$P547R"
+
+# ── issue #1197: direction is governed inside `## Dependencies`, at the LINE level ──
+# The defect: the in-section limb captured every `#N` with NO keyword test, so an
+# OUTBOUND declaration (`Blocks #N` — meaning THIS issue is the prerequisite) was read
+# as its exact inverse and BLOCKED the run on a dependency that does not exist, while
+# the out-of-section limb parsed direction correctly all along.
+#
+# The ruling this matrix encodes (issue #1197 AC4): direction governs the WHOLE LINE.
+# A section line carrying an outbound direction word contributes NO numbers — not
+# merely the number run adjacent to that word. Per-number governance cannot satisfy
+# AC2 (issue #1190's real body repeats `#1188` later on the same outbound line,
+# outside any number run) and would let a mixed line partially contribute.
+#
+# Every row is DISCRIMINATING by construction: the OPEN number is #10, so "captured"
+# renders `BLOCKED 10` and "not captured" renders `PROCEED`. The stub resolves state
+# only — bodies come from --body-file fixtures — and #1188 is OPEN so the real-body
+# fixture below reads `BLOCKED 1188` on the pre-fix scanner (the RED it was written
+# against) rather than degrading to UNAVAILABLE.
+P1197="$(mktemp -d)"
+mkdir -p "$P1197/bin"
+cat > "$P1197/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+# argv: issue view <number> --json state -q .state
+case "${3:-}" in
+  10|1188) printf '%s\n' OPEN ;;
+  11) printf '%s\n' CLOSED ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$P1197/bin/gh"
+P1197_HELPER="$LIB/../scripts/preflight.py"
+# Each fixture is one `## Dependencies` section holding exactly the shape under test,
+# followed by a `## Notes` heading so the section exit is exercised too.
+_p1197_body() {  # <name> <section-line…>
+  local _name="$1"; shift
+  { printf '%s\n' '## Dependencies'
+    printf '%s\n' "$@"
+    printf '%s\n' '## Notes' 'nothing further'
+  } > "$P1197/$_name.md"
+}
+_p1197() { PATH="$P1197/bin:$PATH" python3 "$P1197_HELPER" dependencies --body-file "$P1197/$1.md" 2>/dev/null; }
+# stderr only: the `{ …; } 2>&1` grouping is the unambiguous spelling of "drop stdout,
+# keep stderr" (a bare `2>&1 >/dev/null` is SC2069).
+_p1197_err() { { PATH="$P1197/bin:$PATH" python3 "$P1197_HELPER" dependencies --body-file "$P1197/$1.md" >/dev/null; } 2>&1; }
+
+# ── AC1: outbound declarations under the heading contribute nothing ──
+_p1197_body outbound '- Blocks #10'
+_p1197_body outbound_bold '- **Blocks #10** — the reason it must land first'
+_p1197_body outbound_run '- Blocks #10 and #11'
+_p1197_body outbound_upper '- BLOCKS #10'
+P1197_OUT="$(_p1197 outbound)"; P1197_OUT_RC=$?
+assert_eq "#1197 AC1: an outbound 'Blocks #N' under the heading is not a blocker" "PROCEED" "$P1197_OUT"
+assert_eq "#1197 AC1: the outbound line proceeds (exit 0), not the BLOCKED class" "0" "$P1197_OUT_RC"
+assert_eq "#1197 AC1: the bold/em-dash authoring variant is outbound too" "PROCEED" "$(_p1197 outbound_bold)"
+assert_eq "#1197 AC1: an outbound multi-number run drops the whole run, both numbers" "PROCEED" "$(_p1197 outbound_run)"
+assert_eq "#1197 AC1: outbound matching is case-insensitive" "PROCEED" "$(_p1197 outbound_upper)"
+
+# ── AC3: every inbound declaration under the heading is unchanged ──
+_p1197_body in_blockedby '- Blocked by #10 — still a real prerequisite'
+_p1197_body in_dependson '- Depends on #10'
+_p1197_body in_mustmerge '- Must merge after #10'
+_p1197_body in_followup '- Follow-up to #10'
+_p1197_body in_after '- After #10 lands, ship this'
+assert_eq "#1197 AC3: in-section 'Blocked by #N' still blocks" "BLOCKED 10" "$(_p1197 in_blockedby)"
+assert_eq "#1197 AC3: in-section 'Depends on #N' still blocks" "BLOCKED 10" "$(_p1197 in_dependson)"
+assert_eq "#1197 AC3: in-section 'Must merge after #N' still blocks" "BLOCKED 10" "$(_p1197 in_mustmerge)"
+assert_eq "#1197 AC3: in-section 'Follow-up to #N' still blocks" "BLOCKED 10" "$(_p1197 in_followup)"
+assert_eq "#1197 AC3: in-section line-anchored 'After #N' still blocks" "BLOCKED 10" "$(_p1197 in_after)"
+
+# ── AC4: the decided dispositions for the direction-word-free and mixed shapes ──
+# bare `- #N` and `Part of #N` carry no direction word, so the section heading's own
+# inbound implication stands and today's behaviour is KEPT — a stated decision, not an
+# inherited one. `Related to #N` is the AC7 class (a direction-flavoured phrase the fix
+# recognises as neither inbound nor outbound): also a blocker, deliberately, never
+# silently inverted.
+_p1197_body bare '- #10'
+_p1197_body partof '- Part of #10'
+_p1197_body unknown_direction '- Related to #10 in some unspecified way'
+assert_eq "#1197 AC4: a bare '- #N' bullet keeps today's behaviour (still a blocker)" "BLOCKED 10" "$(_p1197 bare)"
+assert_eq "#1197 AC4: 'Part of #N' keeps today's behaviour (still a blocker)" "BLOCKED 10" "$(_p1197 partof)"
+assert_eq "#1197 AC7: a direction word in neither vocabulary stays a blocker (documented choice, never inverted)" "BLOCKED 10" \
+  "$(_p1197 unknown_direction)"
+# The mixed line — the row that DISCRIMINATES line-level governance from per-number
+# governance. Under per-number governance the trailing `blocked by #10` would still
+# block; under the ruling the line's outbound word governs the whole line, so nothing
+# is contributed. The OPEN number is the INBOUND one, so this cannot pass vacuously.
+_p1197_body mixed '- Blocks #11 but blocked by #10'
+assert_eq "#1197 AC4: a mixed-direction line contributes NO numbers (line-level, not per-run)" "PROCEED" "$(_p1197 mixed)"
+# issue #1267: the bounded-window narrowing closes this residual FOR THIS SPECIFIC
+# FIXTURE, not in general. The code-span `Blocks` no longer governs the line because no
+# number run follows it within the window, so the genuine inbound `blocked by #10` at
+# the end of the line now contributes its number. The scanner is STILL NOT
+# markdown-aware — a code-span outbound word written ADJACENT to a number would still
+# govern its line; only this fixture's far-separated shape flips. Same disclosed family
+# as the fenced-code-block gap (a `## Dependencies` heading inside a fence still opens a
+# section), which remains open.
+_p1197_body codespan '- The word `Blocks` is the outbound spelling — blocked by #10'
+assert_eq "#1267 residual (flipped): the bounded-window narrowing closes the code-span residual for this fixture — the far-separated outbound word no longer governs, so inbound #10 contributes (scanner still not markdown-aware)" \
+  "BLOCKED 10" "$(_p1197 codespan)"
+
+# ── The out-of-section limb is UNTOUCHED (it parsed direction correctly all along) ──
+# Written without the heading, so the same three shapes route through DECLARATIONS.
+printf '%s\n' 'Blocks #10' > "$P1197/oos_outbound.md"
+printf '%s\n' 'blocked by #10' > "$P1197/oos_inbound.md"
+printf '%s\n' 'Blocks #11 but blocked by #10' > "$P1197/oos_mixed.md"
+assert_eq "#1197: an out-of-section 'Blocks #N' was already ignored and still is" "PROCEED" "$(_p1197 oos_outbound)"
+assert_eq "#1197: an out-of-section 'blocked by #N' still blocks" "BLOCKED 10" "$(_p1197 oos_inbound)"
+assert_eq "#1197: the line-level rule is IN-SECTION only — an out-of-section mixed line still blocks on its inbound half" \
+  "BLOCKED 10" "$(_p1197 oos_mixed)"
+
+# ── AC2: issue #1190's real body, captured verbatim as a fixture ──
+# FROZEN record: the fixture is a byte-for-byte capture of the live issue body and
+# is never path-swept or respelled to track tree relocations — rewriting it
+# falsifies the record (same class as _WSR_SWEPT_RELPATHS' revision-side rule).
+# The live case. `BLOCKED 1188` / exit 2 before the fix (the stub resolves #1188 OPEN),
+# `PROCEED` / exit 0 after — an issue that declares itself the PREREQUISITE of #1188 and
+# states it has no blocker is no longer reported as blocked by the issue it unblocks.
+P1197_REAL="$(PATH="$P1197/bin:$PATH" python3 "$P1197_HELPER" dependencies --body-file "$LIB/test/fixtures/issue-1190-body.md" 2>/dev/null)"; P1197_REAL_RC=$?
+assert_eq "#1197 AC2: the live case's captured real body proceeds (it declares itself the prerequisite, not the dependent)" "PROCEED" "$P1197_REAL"
+assert_eq "#1197 AC2: the real-body fixture returns the proceed exit class" "0" "$P1197_REAL_RC"
+
+# ── AC7: the outbound skip is OBSERVABLE on the stderr-carrying entry point ──
+# The dropped-number direction is fail-open (a mixed line's inbound half goes with it),
+# so the skip must not be silent. The breadcrumb names the skipped number and rides the
+# existing `preflight.py:` prefix, alongside the SOFT_KEYWORDS observability arm.
+assert_eq "#1197 AC7: an outbound skip emits a preflight.py breadcrumb naming the skipped number" "yes" \
+  "$(_p1197_err outbound | grep -q '^preflight.py: .*#10' && echo yes || echo no)"
+assert_eq "#1197 AC7: the breadcrumb names the outbound direction as the reason" "yes" \
+  "$(_p1197_err outbound | grep -qi 'outbound' && echo yes || echo no)"
+# Negative control: an INBOUND section line emits no outbound breadcrumb, so the
+# assertion above is attributable to the outbound predicate rather than to any
+# unconditional emit.
+assert_eq "#1197 AC7 control: an inbound section line emits no outbound breadcrumb" "" \
+  "$(_p1197_err in_blockedby)"
+
+# ── issue #1267: the outbound word governs its line only when a number run FOLLOWS it ──
+# The shipped bare-keyword rule matched an outbound word ANYWHERE on the line, so a
+# template-shaped `Blocked by #N — <reason it must land first>` line whose reason prose
+# carried an outbound keyword ("must merge before", "blocks", …) dropped its number
+# (fail-open). The narrowing requires a following number run within a bounded window.
+# Every row below is DISCRIMINATING: #10 is OPEN in the stub, so a returned number
+# renders `BLOCKED 10` and a dropped one renders `PROCEED`.
+#
+# ── #1267 positive control: a template `Blocked by #N — <reason>` line RETURNS #N even
+# when the reason prose contains an outbound keyword. The seven reason wordings are the
+# exact ones the issue measured as dropped, so the reported regression is pinned
+# verbatim rather than paraphrased. This matrix is un-dischargeable by an implementation
+# that returns an empty list / hardcodes empty / drops everything: each asserts BLOCKED
+# 10, i.e. the specific number, not merely "non-empty".
+_p1197_body pc_mustmerge  'Blocked by #10 — it must merge before this refactor can start'
+_p1197_body pc_blocks     'Blocked by #10 — it blocks the schema change this depends on'
+_p1197_body pc_requiredby 'Blocked by #10 — the parser work is required by this one'
+_p1197_body pc_unblocks   'Blocked by #10 — unblocks the whole series'
+_p1197_body pc_blocking   'Blocked by #10 — this is blocking the release'
+_p1197_body pc_prereq     'Blocked by #10 — prerequisite for the cutover'
+_p1197_body pc_unblocking 'Blocked by #10 — it is unblocking the downstream cutover'
+assert_eq "#1267 positive control: reason prose 'must merge before' no longer drops the number" "BLOCKED 10" "$(_p1197 pc_mustmerge)"
+assert_eq "#1267 positive control: reason prose 'blocks' no longer drops the number" "BLOCKED 10" "$(_p1197 pc_blocks)"
+assert_eq "#1267 positive control: reason prose 'required by' no longer drops the number" "BLOCKED 10" "$(_p1197 pc_requiredby)"
+assert_eq "#1267 positive control: reason prose 'unblocks' no longer drops the number" "BLOCKED 10" "$(_p1197 pc_unblocks)"
+assert_eq "#1267 positive control: reason prose 'blocking' no longer drops the number" "BLOCKED 10" "$(_p1197 pc_blocking)"
+assert_eq "#1267 positive control: reason prose 'prerequisite for' no longer drops the number" "BLOCKED 10" "$(_p1197 pc_prereq)"
+assert_eq "#1267 positive control: reason prose 'unblocking' no longer drops the number" "BLOCKED 10" "$(_p1197 pc_unblocking)"
+
+# ── #1267 separator matrix: an outbound keyword ADJACENT to a number (across many
+# separators) still governs — returns NO number. Each shape returns no number correctly
+# on the shipped recognizer too. A rule that required whitespace between keyword and
+# number would start returning the number on these separator shapes (a false BLOCKED); a
+# rule that allowed only punctuation there would still miss `Blocks issue #N` /
+# `Blocks PR #N`, where the separator is a word. The bounded window handles them.
+_p1197_body sep_colon     '- Blocks: #10'
+_p1197_body sep_paren     '- Blocks (#10)'
+_p1197_body sep_emdash    '- Blocks — #10'
+_p1197_body sep_boldkw    '- **Blocks**: #10'
+_p1197_body sep_boldcolon '- **Blocks:** #10'
+_p1197_body sep_comma     '- Blocks, #10'
+_p1197_body sep_table     '| Blocks | #10 |'
+_p1197_body sep_issue     '- Blocks issue #10'
+_p1197_body sep_pr        '- Blocks PR #10'
+assert_eq "#1267 separator: 'Blocks: #N' still governs (no number)" "PROCEED" "$(_p1197 sep_colon)"
+assert_eq "#1267 separator: 'Blocks (#N)' still governs (no number)" "PROCEED" "$(_p1197 sep_paren)"
+assert_eq "#1267 separator: 'Blocks — #N' still governs (no number)" "PROCEED" "$(_p1197 sep_emdash)"
+assert_eq "#1267 separator: '**Blocks**: #N' still governs (no number)" "PROCEED" "$(_p1197 sep_boldkw)"
+assert_eq "#1267 separator: '**Blocks:** #N' still governs (no number)" "PROCEED" "$(_p1197 sep_boldcolon)"
+assert_eq "#1267 separator: 'Blocks, #N' still governs (no number)" "PROCEED" "$(_p1197 sep_comma)"
+assert_eq "#1267 separator: '| Blocks | #N |' (table cell) still governs (no number)" "PROCEED" "$(_p1197 sep_table)"
+assert_eq "#1267 separator: 'Blocks issue #N' still governs (no number)" "PROCEED" "$(_p1197 sep_issue)"
+assert_eq "#1267 separator: 'Blocks PR #N' still governs (no number)" "PROCEED" "$(_p1197 sep_pr)"
+
+# ── #1267 positive-polarity keyword coverage: each of the SEVEN outbound keywords,
+# written adjacent to a number, returns NO number. Six of the seven had no such
+# coverage anywhere before, so this is what stops an implementation that narrows the
+# VOCABULARY (rather than the match) from passing everything that already exists.
+_p1197_body pol_blocks     '- Blocks #10'
+_p1197_body pol_blocking   '- Blocking #10'
+_p1197_body pol_unblocks   '- Unblocks #10'
+_p1197_body pol_unblocking '- Unblocking #10'
+_p1197_body pol_prereq     '- prerequisite for #10'
+_p1197_body pol_requiredby '- required by #10'
+_p1197_body pol_mustmerge  '- must merge before #10'
+assert_eq "#1267 keyword: 'blocks' adjacent to #N governs (no number)" "PROCEED" "$(_p1197 pol_blocks)"
+assert_eq "#1267 keyword: 'blocking' adjacent to #N governs (no number)" "PROCEED" "$(_p1197 pol_blocking)"
+assert_eq "#1267 keyword: 'unblocks' adjacent to #N governs (no number)" "PROCEED" "$(_p1197 pol_unblocks)"
+assert_eq "#1267 keyword: 'unblocking' adjacent to #N governs (no number)" "PROCEED" "$(_p1197 pol_unblocking)"
+assert_eq "#1267 keyword: 'prerequisite for' adjacent to #N governs (no number)" "PROCEED" "$(_p1197 pol_prereq)"
+assert_eq "#1267 keyword: 'required by' adjacent to #N governs (no number)" "PROCEED" "$(_p1197 pol_requiredby)"
+assert_eq "#1267 keyword: 'must merge before' adjacent to #N governs (no number)" "PROCEED" "$(_p1197 pol_mustmerge)"
+
+# ── #1267 line-level governance retained: a governing outbound match drops EVERY number
+# on the line, including one appearing later outside any number run. #11 is CLOSED and
+# #10 OPEN; per-number governance would return the trailing #10 (→ BLOCKED 10), so this
+# row cannot pass vacuously — line-level governance renders PROCEED.
+_p1197_body line_level '- Blocks #11 — see also #10 for the follow-up'
+assert_eq "#1267 line-level: a governing outbound match drops a number later on the line too" "PROCEED" "$(_p1197 line_level)"
+
+# ── #1267 end-to-end through the subcommand (stdout + exit code, what §1.3.5 reads): a
+# template-shaped outbound-reason line naming an OPEN issue → BLOCKED/exit 2; naming a
+# CLOSED issue → a proceed result/exit 0.
+_p1197_body e2e_open   'Blocked by #10 — it must merge before this refactor can start'
+_p1197_body e2e_closed 'Blocked by #11 — it must merge before this refactor can start'
+P1267_E2E_OPEN="$(_p1197 e2e_open)"; P1267_E2E_OPEN_RC=$?
+assert_eq "#1267 e2e: an open-issue template-reason line prints BLOCKED <n>" "BLOCKED 10" "$P1267_E2E_OPEN"
+assert_eq "#1267 e2e: …and exits 2 (the BLOCKED class §1.3.5 routes on)" "2" "$P1267_E2E_OPEN_RC"
+P1267_E2E_CLOSED="$(_p1197 e2e_closed)"; P1267_E2E_CLOSED_RC=$?
+assert_eq "#1267 e2e: the same body naming a CLOSED issue prints a proceed result" "PROCEED 11" "$P1267_E2E_CLOSED"
+assert_eq "#1267 e2e: …and exits 0 (the proceed class)" "0" "$P1267_E2E_CLOSED_RC"
+
+# ── #1267 DISCLOSED RESIDUAL of the bounded window (asserted, not left to be found).
+# A genuinely-OUTBOUND free-prose line whose own number sits BEYOND the window is no
+# longer recognised as outbound, so its number is RETURNED — a spurious blocker the
+# shipped bare-keyword rule dropped. This is the unavoidable cost of ANY finite
+# character window (the mechanism issue #1267 selected) and is the same family as the
+# codespan residual above: the scanner is NOT markdown/semantic-aware. It is pinned here
+# so a later change that closes it (or a widened `_OUTBOUND_WINDOW`) flips a test rather
+# than silently changing behavior. #10 is OPEN, so the returned number renders
+# `BLOCKED 10`; the canonical `- Blocks #10` adjacent form (pinned above) is unaffected.
+# This row ALSO pins the window's UPPER bound: widening `_OUTBOUND_WINDOW` far enough to
+# span this gap would flip it back to PROCEED and turn this assertion RED.
+_p1197_body far_outbound '- Blocks the whole downstream release train, everyone waits on #10'
+assert_eq "#1267 residual: a far-separated outbound free-prose number is no longer governed (bounded-window cost; scanner not semantic-aware) — pinned, not overlooked" \
+  "BLOCKED 10" "$(_p1197 far_outbound)"
+
+# ── #1267 template mixed-number edge: a `Blocked by #N` line whose reason writes an
+# outbound ordering word ADJACENT to a *second* number is governed (line-level), so BOTH
+# numbers drop. #10 (the intended inbound) is OPEN and #11 (the outbound object) CLOSED,
+# so a per-number reading would return #10 → BLOCKED 10; line-level governance renders
+# PROCEED. This is the shape the issue-template clarification is careful to condition
+# ("a reason whose ordering words introduce no #N of their own"), pinned here.
+_p1197_body tmpl_mixed 'Blocked by #10 — must merge before #11 ships'
+assert_eq "#1267 template mixed-number: an ordering word adjacent to a second number governs the whole line (both numbers drop)" \
+  "PROCEED" "$(_p1197 tmpl_mixed)"
+
+rm -rf "$P1197"
 
 # ── PR #572 review (Approve-with-notes): main() top-level fail-closed catch-all ─
 # main() wraps args.func(args) in `except Exception → UNAVAILABLE/exit 3`, so an
@@ -9489,10 +9892,7 @@ assert_eq "#376 AC8: lib/preflight.sh header enumerates the same guaranteed set 
 # (the fourth-mirror-site idiom of the 2.3.0b OVERVIEW pin above). assert_eq + grep -qF like that
 # precedent (a presence check on a non-$IMPL_DOC doc; the bare grep -qF needs no raw-guard-ok marker
 # for the same SKILL-token-scope reason as AC8).
-assert_eq "#376 AC11 w2-overview-2.3.0c-row: DEVFLOW_SYSTEM_OVERVIEW keeps the §2.3.0c sweep-index entry (docs↔skill coupled invariant)" \
-  "yes" \
-  "$(grep -qF -- '- **2.3.0c** Operand-trace sweep (a diff that adds a guard/predicate/validator/coverage invariant in code' \
-     "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
+# Issue #1188: prose-presence §2.3.0c overview sweep-index doc mirror pin removed (retired, orphaned by the docs/internal move).
 # AC6 (carve-out clause) — the static prose coverage preserves the cosmetic-sanitization
 # fail-closed condition in the un-guaranteed-tool bullet.
 # AC2/AC3 (completion criterion) — the static check preserves §2.3.0c's enforcement sentence.
@@ -9705,10 +10105,10 @@ assert_eq "#185A helper exists and is executable" "yes" \
 fx_paths="## Implementation Notes
 
 - **Approach** — edit \`scripts/foo.sh\`.
-- **Documentation Needed** — update \`docs/DEVFLOW_SYSTEM_OVERVIEW.md\` and docs/implement-skill.md; also \`README.md\` via the \`devflow:docs\` subagent.
+- **Documentation Needed** — update \`docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md\` and docs/internal/implement-skill.md; also \`README.md\` via the \`devflow:docs\` subagent.
 - **Potential Gotchas** — see path/to/ignored.py"
 assert_eq "#185A matrix: bullet-with-paths emits exactly the named paths (scoped, no skill token)" \
-  "$(printf 'README.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md\ndocs/implement-skill.md')" \
+  "$(printf 'README.md\ndocs/internal/DEVFLOW_SYSTEM_OVERVIEW.md\ndocs/internal/implement-skill.md')" \
   "$(printf '%s\n' "$fx_paths" | bash "$EXTRACT_HELPER")"
 
 # Case 2: a bullet with no file paths is a no-op (empty output).
@@ -9772,13 +10172,13 @@ fx_247="## Implementation Notes
 - **Approach** — do the thing.
 - **Documentation Needed**
   - Document \`DEVFLOW_JQ\` as the Windows \`jq\` escape hatch in
-    \`docs/install.md\` / \`README.md\` requirements.
+    \`docs/internal/install.md\` / \`README.md\` requirements.
   - Record the shared resolver-family expansion (\`jq\` + \`gh\`) and the path
     normalizer in the \`CLAUDE.md\` tool-resolution gotcha, via
     \`/claude-md-management:revise-claude-md\`.
 - **Potential Gotchas** — none."
-assert_eq "#254: the #247 body yields exactly CLAUDE.md, README.md, docs/install.md (skill-ref dropped)" \
-  "$(printf 'CLAUDE.md\nREADME.md\ndocs/install.md')" \
+assert_eq "#254: the #247 body yields exactly CLAUDE.md, README.md, docs/internal/install.md (skill-ref dropped)" \
+  "$(printf 'CLAUDE.md\nREADME.md\ndocs/internal/install.md')" \
   "$(printf '%s\n' "$fx_247" | bash "$EXTRACT_HELPER")"
 
 # Case 8 (issue #254): bare-directory tokens (trailing-slash and extensionless
@@ -9888,7 +10288,7 @@ fx_309="## Implementation Notes
 
 **Code Patterns** — Part A mirrors the existing branches.
 
-**Documentation Needed** — \`docs/DEVFLOW_SYSTEM_OVERVIEW.md\` (review auto-trigger section) and any
+**Documentation Needed** — \`docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md\` (review auto-trigger section) and any
 internal workflow doc under \`docs/internal/workflows/\` describing the trigger policy must document
 the new preconditions, the neutral-check-with-re-trigger behavior, and the two config keys. The
 \`CLAUDE.md\` review-engine / gotchas notes should mention the preconditions if they become a
@@ -9897,7 +10297,7 @@ load-bearing invariant. \`.prflow/config.example.json\` documents the keys inlin
 **Potential Gotchas.**
 - **Do not extract \`other/leak.md\` named in this closing bullet.**"
 assert_eq "#309: bare bold-paragraph (no '- ') em-dash Documentation Needed form IS extracted; dir/prose dropped, gotchas bullet closes scope" \
-  "$(printf '.prflow/config.example.json\nCLAUDE.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md')" \
+  "$(printf '.prflow/config.example.json\nCLAUDE.md\ndocs/internal/DEVFLOW_SYSTEM_OVERVIEW.md')" \
   "$(printf '%s\n' "$fx_309" | bash "$EXTRACT_HELPER")"
 
 # Case 15 (issue #309, review fail-open guard): a bold-emphasis span that BEGINS a
@@ -9932,6 +10332,11 @@ assert_eq "#309 fail-open guard: a bold-led continuation line does NOT close sco
 # document layout (Case 14 has a single `## Implementation Notes` section), so a
 # structural drift in the real body can never keep the suite green while it
 # no-ops. Also exercises the $1 file-arg path.
+# The fixture is a FROZEN verbatim capture of the real issue body: it is never
+# path-swept, respelled, or otherwise edited to track tree relocations (rewriting
+# it falsifies the record, exactly like the _WSR_SWEPT_RELPATHS revision-side rule
+# and the sha-keyed adjudication tables). The expected value below therefore
+# carries the path spelling the issue body itself uses, NOT the current tree's.
 # Expected: the three backticked doc files; the `docs/internal/workflows/`
 # directory ref is dropped (directories are not file deliverables) and the
 # parenthetical prose ("(review auto-trigger section)") yields no path tokens.
@@ -10455,9 +10860,9 @@ assert_pin_unique "#380 W6A: extractor header names the ### Documentation Needed
 # emits the grant's embedded path (the executed repro in Current Behavior).
 fx_644_grant="## Implementation Notes
 
-- **Documentation Needed** — update \`docs/implement-skill.md\` and the grant \`Bash(.prflow/vendor/prflow/scripts/config-get.sh:*)\`."
+- **Documentation Needed** — update \`docs/internal/implement-skill.md\` and the grant \`Bash(.prflow/vendor/prflow/scripts/config-get.sh:*)\`."
 assert_eq "#644 AC1: a backticked grant literal beside a genuine deliverable emits only the genuine path" \
-  "docs/implement-skill.md" \
+  "docs/internal/implement-skill.md" \
   "$(printf '%s\n' "$fx_644_grant" | bash "$EXTRACT_HELPER" 2>/dev/null)"
 
 # Case 46 (#644 AC2): backticked command spans (`bash lib/test/run.sh`) and a
@@ -10837,6 +11242,27 @@ assert_eq "scaffold-backfill: existing array left unchanged (allowed_tools)" \
 # The documented log line fires when a backfill actually happens.
 assert_eq "scaffold-backfill: backfill emits the documented log line" "yes" \
   "$(printf '%s' "$SC_BF_OUT" | grep -q 'backfilled newly-added keys' && echo yes || echo no)"
+
+# 5a-#1331. The new create_issue family grafts into a consumer config that lacks it,
+# and a create_issue.investigation_record_enabled ALREADY set to false is left
+# unchanged on a re-run — the existing absent-keys-only deep-merge behavior,
+# asserted here so the family's addition cannot regress it.
+# (i) Absent family → grafted with the example default (true).
+SC_CI1="$(mktemp -d)"; mkdir -p "$SC_CI1/.prflow"
+printf '%s' '{"base_branch":"main"}' > "$SC_CI1/.prflow/config.json"
+bash "$SC" "$SC_CI1" >/dev/null 2>&1
+assert_eq "scaffold-backfill(#1331): absent create_issue family grafted with default true" \
+  "true" "$(jq -r '.create_issue.investigation_record_enabled' "$SC_CI1/.prflow/config.json")"
+# (ii) Family holding a deliberate false → left unchanged (never re-grafted to true),
+#      and an unrecognized sibling key inside the family is preserved.
+SC_CI2="$(mktemp -d)"; mkdir -p "$SC_CI2/.prflow"
+printf '%s' '{"create_issue":{"investigation_record_enabled":false,"custom_sibling":"keep"}}' \
+  > "$SC_CI2/.prflow/config.json"
+bash "$SC" "$SC_CI2" >/dev/null 2>&1
+assert_eq "scaffold-backfill(#1331): deliberate false left unchanged on re-run" \
+  "false" "$(jq -r '.create_issue.investigation_record_enabled' "$SC_CI2/.prflow/config.json")"
+assert_eq "scaffold-backfill(#1331): unrecognized sibling key inside the family preserved" \
+  "keep" "$(jq -r '.create_issue.custom_sibling' "$SC_CI2/.prflow/config.json")"
 
 # 5b. A config already holding every example key is a no-op: byte-for-byte
 #     identical afterwards (the merge changed nothing, so the file isn't rewritten)
@@ -11490,6 +11916,12 @@ echo "load-prompt-extension.sh: every skills/*/SKILL.md carries the standardized
 # of the wrong skill name, a half-applied removal, or a path drift all fail here
 # rather than shipping silently. Fails when a future skill omits the step.
 LPE_SKILL_COUNT=0
+# The skills whose extension is handed to them BY PATH rather than loaded by the
+# helper — dispatched subagent briefs that resolve no anchor (Stage A `retrospective`,
+# issue #1333; Stage B `retrospective-audit`, issue #1338). Named once here as a
+# space-delimited set rather than inlined in the loop so the by-value population stays a
+# single declared value, like PA_NO_CALLSITE / PORTABLE_ANCHOR_LITERAL.
+LPE_BYVALUE_SKILLS='retrospective retrospective-audit'
 for SKILL_DIR in "$LIB"/../skills/*/; do
   SKILL_NAME="$(basename "$SKILL_DIR")"
   SKILL_FILE="$SKILL_DIR/SKILL.md"
@@ -11507,6 +11939,19 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
   # marshaling defeats). One canonical line, pinned whole-line (grep -Fx), so a
   # name/path drift still fails here.
   LPE_EXPECT_LINE='"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh '"$SKILL_NAME"
+  # #1333: the enumeration presupposes the skill can RUN the loader. That is false for
+  # a dispatched subagent brief, which resolves no anchor (measured on Claude Code
+  # 2.1.222: `printenv CLAUDE_SKILL_DIR` exits 1 with no output inside a Task subagent,
+  # and no `Base directory for this skill:` line reaches it). Its extension arrives BY
+  # PATH from the orchestrator and is read with the file-read tool, so both the
+  # invocation line and the helper-exit-code prose are gone by design. Assert the
+  # COMPLEMENT instead, so the exemption cannot hide a reintroduced invocation.
+  case " $LPE_BYVALUE_SKILLS " in *" $SKILL_NAME "*) LPE_BYVALUE_HIT=1 ;; *) LPE_BYVALUE_HIT=0 ;; esac
+  if [ "$LPE_BYVALUE_HIT" = 1 ]; then
+    assert_eq "lpe-coverage(#1333/#1338): $SKILL_NAME/SKILL.md carries NO loader invocation (extension handed by path)" "yes" \
+      "$([ -f "$SKILL_FILE" ] && ! grep -Fxq "$LPE_EXPECT_LINE" "$SKILL_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin whose target is the $SKILL_FILE loop variable
+    continue
+  fi
   assert_eq "lpe-coverage: $SKILL_NAME/SKILL.md invokes the helper for its own name" "yes" \
     "$([ -f "$SKILL_FILE" ] && grep -Fxq "$LPE_EXPECT_LINE" "$SKILL_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: SKILL target is the $SKILL_FILE loop variable, not a static pin
   # The invocation line alone is half the contract — the step must also tell the
@@ -13906,7 +14351,7 @@ assert_eq "#126 pin: workpad.py documents the --reflection-kind flag" "yes" \
 assert_eq "#126 pin: every --reflection call-site in the implement skill carries a --reflection-kind" "" \
   "$REFL_UNKINDED"
 assert_eq "#126 pin: docs describe the grouped reflection structure + --reflection-kind" "yes" \
-  "$(grep -q -- '--reflection-kind' "$LIB/../docs/implement-skill.md" && grep -q -- '--reflection-kind' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
+  "$(grep -q -- '--reflection-kind' "$LIB/../docs/internal/implement-skill.md" && grep -q -- '--reflection-kind' "$LIB/../docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
 
 # ── issue #476: reflection style contract + interpolation-safe file-based recipe ──
 # Retain the reflection routing and file-based recipe safety boundaries.
@@ -13921,7 +14366,7 @@ assert_pin_unique "#476: file-based recipe mandates deleting the payload file af
 # Removal-proof presence pin (assert_pin_unique fails closed if the literal is deleted or
 # paraphrased). Literals are apostrophe-free + unique.
 CI_SKILL_242="$CREATE_ISSUE_BUNDLE"   # #614: content-survival target — the split bundle, not the root alone
-CI_OVERVIEW_242="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+CI_OVERVIEW_242="$LIB/../docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_pin_unique "#242 A1: create-issue caps clarification with a runner-neutral total-question budget" \
   'runner-neutral total-clarifying-question budget' "$CI_SKILL_242"
 # A2 (regression, AC1/AC5/AC6/AC7): the skill no longer MANDATES AskUserQuestion as the
@@ -14164,6 +14609,11 @@ PA_XSTMT_ERE='[A-Za-z_0-9]+="?\$\{?CLAUDE_SKILL_DIR'
 # which requires EVERY `${CLAUDE_SKILL_DIR:` occurrence to carry the full sanctioned
 # literal — so a deep-typo fallback still goes RED there, not here.
 PA_WRONGFB_ERE='\$\{CLAUDE_SKILL_DIR:[-=]([^<]|<[^a]|<a[^b]|<ab[^s])'
+# PA_NO_CALLSITE is the declared set of enumerated files that carry NO portable-anchor
+# call site, space-delimited. P3 below inverts to an ABSENCE pin for these, so a member
+# is never merely unchecked. Pinned by size just as P0/R0 pin their enumerations, so a
+# later addition to this set is a visible, deliberate act rather than a silent widening.
+PA_NO_CALLSITE='skills/retrospective/SKILL.md skills/retrospective-audit/SKILL.md'
 PA_FILE_COUNT=0
 for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/phase-*.md; do
   PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
@@ -14172,8 +14622,23 @@ for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/pha
     "$(! grep -qE "$PA_BARE_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
   assert_eq "#275 pin (P2): $PA_NAME has no cross-statement \$CLAUDE_SKILL_DIR anchor assignment" "yes" \
     "$(! grep -qE "$PA_XSTMT_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
-  assert_eq "#275 pin (P3): $PA_NAME invokes helpers via the portable single-statement inline anchor" "yes" \
-    "$(grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: presence pin over the enumerated $PA_FILE loop variable; literal recurs per call site by design
+  # P3 is a PRESENCE pin, so it presupposes the file has at least one helper call site.
+  # A dispatched SUBAGENT brief breaks that presupposition BY DESIGN (Stage A brief
+  # skills/retrospective/SKILL.md, issue #1333; Stage B brief
+  # skills/retrospective-audit/SKILL.md, issue #1338): a subagent receives neither
+  # $CLAUDE_SKILL_DIR nor a runner-reported base directory (measured on Claude Code
+  # 2.1.222 in a Task subagent: `printenv CLAUDE_SKILL_DIR` exits 1 with no output, and
+  # no `Base directory for this skill:` line reaches it), so it can resolve no anchor at
+  # all and every path it needs is handed to it BY VALUE by its orchestrator. For such a
+  # file P3 would demand back the very call site the fix removed, so PA_NO_CALLSITE
+  # inverts it to an ABSENCE pin rather than skipping it.
+  # One assertion, two expectations: `yes` (the literal is present) for every file with
+  # call sites, `no` (P3x — the literal is ABSENT) for the declared no-call-site set.
+  # Keeping it as one grep means the two arms cannot drift apart.
+  PA_P3_WANT=yes
+  case " $PA_NO_CALLSITE " in *" $PA_NAME "*) PA_P3_WANT=no ;; esac
+  assert_eq "#275/#1333 pin (P3): $PA_NAME anchor call sites present=$PA_P3_WANT (portable single-statement inline form)" "$PA_P3_WANT" \
+    "$(grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: presence/absence pin over the enumerated $PA_FILE loop variable; literal recurs per call site by design
   assert_eq "#275 pin (P1c): $PA_NAME has no wrong-fallback (non-placeholder) CLAUDE_SKILL_DIR expansion" "yes" \
     "$(! grep -qE "$PA_WRONGFB_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable
   # P3c — per-occurrence completeness: every `${CLAUDE_SKILL_DIR:` expansion in the file
@@ -14185,6 +14650,11 @@ for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/pha
 done
 assert_eq "#275 pin (P0): portable-anchor coverage spans every skill + implement phase file (enumeration reconciled)" \
   "22" "$PA_FILE_COUNT"
+# Size-pin the no-call-site set for the same reason P0 pins the enumeration: without it a
+# later `case` arm could grow the population exempted from the block's strongest positive
+# pin with the suite staying green. Widening it is then a deliberate, reviewable edit.
+assert_eq "#1333/#1338 pin (P0x): the no-portable-anchor-call-site set holds exactly two files" "2" \
+  "$(set -- $PA_NO_CALLSITE; echo $#)"  # raw-guard-ok: word-count of the declared set, not a source-text pin
 # The #529/#530 bundle splits moved authoritative procedure — helper call sites included —
 # out of the two SKILL.md roots and into skills/review/phases/*.md and
 # skills/review-and-fix/references/*.md. Those families were outside the loop above, so a
@@ -14586,9 +15056,9 @@ assert_eq "#275 behavioral: the unsubstituted placeholder does NOT resolve (empt
 # DEVFLOW_GH's shim remedy predates #275 and its pin lives with the #245 block; what remains
 # pinned here is the install.md side of the gotchas #275 added.
 assert_eq "#275 docs: install.md documents the PowerShell UTF-16LE write pitfall + no-BOM remedy" "yes" \
-  "$(grep -q 'UTF-16LE' "$LIB/../docs/install.md" && grep -q 'utf8NoBOM' "$LIB/../docs/install.md" && echo yes || echo no)"  # raw-guard-ok: compound doc presence pin (two coupled fragments of one gotcha)
+  "$(grep -q 'UTF-16LE' "$LIB/../docs/internal/install.md" && grep -q 'utf8NoBOM' "$LIB/../docs/internal/install.md" && echo yes || echo no)"  # raw-guard-ok: compound doc presence pin (two coupled fragments of one gotcha)
 assert_pin_unique "#275 docs: install.md documents the inline-bash variable-stripping constraint" \
-  "reads **empty** in a later statement of the same command" "$LIB/../docs/install.md"
+  "reads **empty** in a later statement of the same command" "$LIB/../docs/internal/install.md"  # structural-pin-ok: cross-file-phase-contract -- boundary-adjudicated (literal:1316523, runner_scope_contract): install.md forbids the assign-then-use command shape that erases helper-path variables on the supported runner; the docs/internal move (issue #1188) re-scoped this site into the #810 diff, so the recorded boundary now needs the co-located site tag
 assert_eq "#97 pin: implement applies DevFlow label at PR create via REST helper" "yes" \
   "$(grep -q 'ensure-label.sh PRFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh <draft-pr-number> PRFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md). #480: the PR number is a substituted LITERAL, not "$PR_NUM" — that variable is set in a previous fence and does not survive into this separate command on the cloud runner, so the old form passed an empty number and the helper refused at its arg-slip guard (the label never landed on the PR).
 assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels via REST helper" "yes" \
@@ -14679,7 +15149,7 @@ assert_eq "#152: orchestrator pins the never-report-unfiled-as-filed invariant" 
 # suite's own classify-input strings are intentionally excluded — note git
 # pathspec `*` crosses `/`, so lib/test/ is excluded explicitly).
 PRUNE_SCAN=$( cd "$LIB/.." && git grep -lFe 'audit-intervention' -e 'devflow/audit' -- \
-    'lib/*.sh' 'lib/*.jq' 'skills/*/SKILL.md' 'docs/DEVFLOW_SYSTEM_OVERVIEW.md' \
+    'lib/*.sh' 'lib/*.jq' 'skills/*/SKILL.md' 'docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md' \
     'CLAUDE.md' '.prflow/config.schema.json' 'lib/intervention-surfaces.md' \
     ':(exclude)lib/test/' 2>/dev/null || true )
 assert_eq "#152: no operative file references audit-intervention / devflow-audit" "" "$PRUNE_SCAN"
@@ -14881,7 +15351,7 @@ assert_eq "#520: empty store → empty array" "0" "$(bash "$LIB/recurring-target
 # candidate_targets — NOT hand-authored identical stubs) asserts the report
 # section renders NON-EMPTY — the anti-"green-suite/empty-production" guard.
 cat > "$RT_TMP/real.jsonl" <<'JSONL'
-{"schema_version":2,"kind":"implementation","pr":62,"issue":61,"merged_at":"2026-05-27T13:35:11Z","branch":"issue-61-x","head_sha":"85a6394","merge_commit_sha":"0469798","verdict":"imperfect","categories":["incomplete-edit","lenient-verdict"],"descriptors":["holes the standalone cloud review flagged Critical"],"signals":{"review_comments_count":0,"post_bot_commits":12,"workpad_final_status":"Complete"},"summary":"PR #62 hardened the shadow pass.","suggested_interventions":[{"summary":"Strengthen the review-and-fix loop-exit contract so a run that exits at the iteration cap with unresolved shadow findings does not present as clean.","candidate_targets":["skills/review-and-fix/SKILL.md","docs/shadow-review.md"],"change_type":"skill-update","confidence":"medium"}]}
+{"schema_version":2,"kind":"implementation","pr":62,"issue":61,"merged_at":"2026-05-27T13:35:11Z","branch":"issue-61-x","head_sha":"85a6394","merge_commit_sha":"0469798","verdict":"imperfect","categories":["incomplete-edit","lenient-verdict"],"descriptors":["holes the standalone cloud review flagged Critical"],"signals":{"review_comments_count":0,"post_bot_commits":12,"workpad_final_status":"Complete"},"summary":"PR #62 hardened the shadow pass.","suggested_interventions":[{"summary":"Strengthen the review-and-fix loop-exit contract so a run that exits at the iteration cap with unresolved shadow findings does not present as clean.","candidate_targets":["skills/review-and-fix/SKILL.md","docs/internal/shadow-review.md"],"change_type":"skill-update","confidence":"medium"}]}
 {"schema_version":2,"kind":"implementation","pr":91,"issue":90,"merged_at":"2026-06-02T09:10:00Z","branch":"issue-90-y","head_sha":"aa11bb2","merge_commit_sha":"cc33dd4","verdict":"imperfect","categories":["convention-violation"],"descriptors":["skill edit shipped without the writing-skills gate"],"signals":{"review_comments_count":2,"post_bot_commits":4,"workpad_final_status":"Complete"},"summary":"PR #91 tightened the fix loop.","suggested_interventions":[{"summary":"Add a tripwire so the fix loop cannot approve while shadow findings remain unresolved.","candidate_targets":["skills/review-and-fix/SKILL.md"],"change_type":"skill-update","confidence":"high"}]}
 JSONL
 ( . "$LIB/render-report.sh"
@@ -15364,7 +15834,7 @@ assert_eq "#1029 dismisser: a REJECT on the PR's current head is refused, not di
 assert_eq "#1029 dismisser: the refused current-head review gets no dismissals request" \
   "0" "$(dsr_calls 'dismissals')"
 assert_eq "#1029 dismisser: the current-head refusal names the head on stderr" \
-  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c "current head ($DSR_HEAD_SHA)")"
+  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c "current head (reviews-API commit_id=$DSR_HEAD_SHA)")"
 
 # One page carrying every shape at once. The exact dismissed set is the whole
 # claim: the two superseded Devflow reports go, and nothing else does.
@@ -15388,7 +15858,7 @@ assert_eq "#1029 dismisser: mixed page issues exactly two dismissals requests" \
 assert_eq "#1029 dismisser: mixed page exits 3 — something refused, nothing failed" \
   "3" "$DSR_RC"
 assert_eq "#1029 dismisser: an absent commit_id fails closed with an attributable warning" \
-  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c 'review 13 on PR .* records no commit_id')"
+  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c 'review 13 on PR .* records neither a verdict-marker head nor a commit_id')"
 
 dsr_run rev-mixed.json pull-head.json DSR_PUT_RC=1
 assert_eq "#1029 dismisser: a real dismissal failure outranks a refusal in the exit status" \
@@ -15490,6 +15960,82 @@ assert_eq "#1030 dismisser: a marker quoted in prose below line 1 is not selecte
 # review must not make the head read eager.
 assert_eq "#1030 dismisser: an unowned-only page still reads no head" \
   "0" "$(dsr_calls 'read-head')"
+
+# ── #1247: the marker `head=` is the reviewed-tree comparand; commit_id is fallback ──
+# GitHub can advance a review's reviews-API commit_id after submission to a commit that
+# did not exist at review time (observed on PR #1234). So the staleness comparand is the
+# verdict marker's head= when the review carries one, and commit_id only for a markerless
+# review. Each fixture below distinguishes the new marker-first logic from the old
+# commit_id-only logic, and the first three FAIL against pre-#1247 code by exhibiting the
+# wedge (or its inverse). DSR_HEAD_SHA is the current head; DSR_OLD_SHA a superseded tree.
+DSR_MARK_REJECT="<!-- prflow:review-verdict head=$DSR_OLD_SHA verdict=REJECT -->"
+DSR_MARK_REJECT_HEAD="<!-- prflow:review-verdict head=$DSR_HEAD_SHA verdict=REJECT -->"
+# (30) PR #1234 shape: marker head is the SUPERSEDED tree, commit_id was advanced to the
+# current head. Pre-#1247 compares commit_id, finds equality, and REFUSES with the
+# "current head" warning; #1247 compares the marker head (superseded) and DISMISSES.
+cat > "$DSR_SB/rev-marker-mutated.json" <<EOS
+[{"id":30,"state":"CHANGES_REQUESTED","commit_id":"$DSR_HEAD_SHA","body":"$DSR_MARK_REJECT\n## Verdict: REJECT (marker head superseded, commit_id mutated to head)"}]
+EOS
+dsr_run rev-marker-mutated.json pull-head.json
+assert_eq "#1247 dismisser: marker head superseded + commit_id==head → DISMISSED (PR #1234 shape)" \
+  "1-0" "$(dsr_calls 'reviews/30/dismissals')-$DSR_RC"
+# The dismissal's -f message= is recorded in the stub log, so the message naming the
+# key the decision used is an observation. A marker-driven dismissal names the marker head.
+assert_eq "#1247 dismisser: the marker-driven dismissal message names the verdict-marker head key" \
+  "1" "$(grep -c 'verdict-marker head=' "$DSR_SB/log")"
+# (31) inverse: marker head IS the current head, commit_id names a superseded tree.
+# Pre-#1247 compares commit_id, finds inequality, and DISMISSES a review about the tree
+# being merged; #1247 compares the marker head (== head) and REFUSES.
+cat > "$DSR_SB/rev-marker-athead.json" <<EOS
+[{"id":31,"state":"CHANGES_REQUESTED","commit_id":"$DSR_OLD_SHA","body":"$DSR_MARK_REJECT_HEAD\n## Verdict: REJECT (marker head == current head)"}]
+EOS
+dsr_run rev-marker-athead.json pull-head.json
+assert_eq "#1247 dismisser: marker head==head + commit_id superseded → REFUSED (exit 3, no dismissal)" \
+  "0-3" "$(dsr_calls 'reviews/31/dismissals')-$DSR_RC"
+assert_eq "#1247 dismisser: the marker-head refusal names the marker-head key on stderr" \
+  "1" "$(printf '%s\n' "$DSR_ERR" | grep -c "current head (verdict-marker head=$DSR_HEAD_SHA)")"
+# (32) marker head present + commit_id NULL: decided on the marker, dismissed, and NO
+# "records no commit_id" warning. Pre-#1247 refuses with that warning.
+cat > "$DSR_SB/rev-marker-nullcommit.json" <<EOS
+[{"id":32,"state":"CHANGES_REQUESTED","commit_id":null,"body":"$DSR_MARK_REJECT\n## Verdict: REJECT (marker head superseded, no commit_id)"}]
+EOS
+dsr_run rev-marker-nullcommit.json pull-head.json
+assert_eq "#1247 dismisser: marker head + null commit_id → dismissed on the marker (exit 0)" \
+  "1-0" "$(dsr_calls 'reviews/32/dismissals')-$DSR_RC"
+assert_eq "#1247 dismisser: the marker-decided null-commit_id row emits no 'records no commit_id' warning" \
+  "0" "$(printf '%s\n' "$DSR_ERR" | grep -c 'records no commit_id\|records neither')"
+# (33) adversarial: an OWNED transitional-prose REJECT (line 1 == '## Verdict: REJECT')
+# that QUOTES a marker naming the CURRENT head below line 1. The quoted marker must NOT be
+# read as the head — line 1 is not a marker, so the row falls back to commit_id (superseded)
+# and is DISMISSED. Were the quoted head read, commit_id==head would refuse instead.
+cat > "$DSR_SB/rev-marker-quoted-head.json" <<EOS
+[{"id":33,"state":"CHANGES_REQUESTED","commit_id":"$DSR_OLD_SHA","body":"## Verdict: REJECT\n\nThe contract line is:\n\n$DSR_MARK_REJECT_HEAD"}]
+EOS
+dsr_run rev-marker-quoted-head.json pull-head.json
+assert_eq "#1247 dismisser: a marker quoted below line 1 is not read as the head (falls back to commit_id, dismissed)" \
+  "1-0" "$(dsr_calls 'reviews/33/dismissals')-$DSR_RC"
+
+# (commit_id-driven dismissal): a markerless superseded REJECT is dismissed and its
+# dismissal message names the commit_id key it decided on (the fallback SRC label), so a
+# regression that swapped the two SRC labels in the *dismissal* message is caught, not only
+# in the refusal message. rev-stale.json is markerless (## Verdict: REJECT) + superseded.
+dsr_run rev-stale.json pull-head.json
+assert_eq "#1247 dismisser: a markerless (commit_id-driven) dismissal message names the reviews-API commit_id key" \
+  "1" "$(grep -c 'reviews-API commit_id=' "$DSR_SB/log")"
+
+# (case-normalization, #1247): the marker head is ascii_downcase'd before comparison, so a
+# hand-authored UPPERCASE marker head naming the current head is refused (normalized ==
+# head), not dismissed. Needs a head carrying hex letters — the all-digit DSR_*_SHA cannot
+# exhibit case. Without the ascii_downcase this fixture DISMISSES (uppercase != lowercase
+# head → treated superseded), the fail-open the silent-failure review flagged.
+DSR_HEX_HEAD="abc0000000000000000000000000000000000def"
+printf '{"head":{"sha":"%s"}}\n' "$DSR_HEX_HEAD" > "$DSR_SB/pull-hexhead.json"
+cat > "$DSR_SB/rev-marker-uphead.json" <<EOS
+[{"id":34,"state":"CHANGES_REQUESTED","commit_id":"$DSR_OLD_SHA","body":"<!-- prflow:review-verdict head=ABC0000000000000000000000000000000000DEF verdict=REJECT -->\n## Verdict: REJECT (uppercase marker head == current head)"}]
+EOS
+dsr_run rev-marker-uphead.json pull-hexhead.json
+assert_eq "#1247 dismisser: an UPPERCASE marker head equal to the current head is refused (ascii_downcase normalization, not a case-mismatch fail-open)" \
+  "0-3" "$(dsr_calls 'reviews/34/dismissals')-$DSR_RC"
 
 rm -rf "$DSR_SB"
 
@@ -15828,7 +16374,7 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # together, or test_module_runner.py's tranche test goes RED.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 761; then
+  "review-trigger-helpers" 827; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
@@ -16402,15 +16948,17 @@ done
 #     trigger the workflow at all (no run, no error, nothing to notice);
 #   * drop the /prflow:implement negation -> a /prflow:implement comment fires BOTH
 #     devflow.yml and devflow-implement.yml, breaking the partition invariant.
-# Asserted per-clause over all three event arms, because a disjunct dropped from
-# one arm leaves the other two green.
+# Asserted per-clause over the gate's event arm(s). Issue #1163 removed the two
+# pull_request_review* subscriptions, so the gate now carries a SINGLE event clause
+# (issue_comment); the per-clause form is retained (rather than collapsed) so a
+# future re-subscription that re-adds an event arm is still audited arm-by-arm.
 GATE_YML="$WF/devflow.yml"
 # Echoes the gate clause lines that do NOT match $2 — empty means every clause carries it.
 gate_clauses_missing() {  # $1=file $2=ERE every gate clause must match
   grep -nE "github\.event_name == '" "$1" | grep -vE "$2" || true
 }
 GATE_CLAUSE_COUNT="$(grep -cE "github\.event_name == '" "$GATE_YML" || true)"
-assert_eq "trigger-gate: devflow.yml gate carries all three event clauses" "3" "$GATE_CLAUSE_COUNT"
+assert_eq "trigger-gate: devflow.yml gate carries the sole issue_comment event clause" "1" "$GATE_CLAUSE_COUNT"
 # Half 1 — the POSITIVE set accepts the canonical namespace on every clause.
 assert_eq "trigger-gate: every devflow.yml clause accepts /prflow:review" \
   "" "$(gate_clauses_missing "$GATE_YML" "contains\([^)]*'/prflow:review'\)")"
@@ -16443,10 +16991,12 @@ assert_eq "trigger-gate CONTROL B: the exclusion-half mutation really changed th
 assert_eq "trigger-gate CONTROL B: dropping the /prflow:implement negation turns the exclusion check RED" \
   "yes" "$([ -n "$(gate_clauses_missing "$TG_TMP/no-negation.yml" "!contains\([^)]*'/prflow:implement'\)")" ] && echo yes || echo no)"
 # Control C — the extractor itself is not matching everything: a token absent from
-# every clause must be reported missing on all three, so an always-empty result
-# (which would make every row above vacuously green) is ruled out.
-assert_eq "trigger-gate CONTROL C: a token no clause carries is reported missing on all three" \
-  "3" "$(gate_clauses_missing "$GATE_YML" "contains\([^)]*'/nosuchns:review'\)" | grep -c . || true)"
+# every clause must be reported missing on every clause, so an always-empty result
+# (which would make every row above vacuously green) is ruled out. With the sole
+# issue_comment clause the expected count is 1 (it was 3 before issue #1163 removed
+# the two review-event clauses).
+assert_eq "trigger-gate CONTROL C: a token no clause carries is reported missing on the sole clause" \
+  "1" "$(gate_clauses_missing "$GATE_YML" "contains\([^)]*'/nosuchns:review'\)" | grep -c . || true)"
 rm -rf "$TG_TMP"
 
 # The label trigger is gone: neither workflow may listen on `labeled`.
@@ -16458,14 +17008,16 @@ done
 # Comment-only triggers: a /devflow:* phrase in an issue/PR DESCRIPTION must
 # never start a run. Neither workflow may (a) listen on the `issues` event, nor
 # (b) match the trigger phrase against an issue body/title in its gate `if:`.
-# Only real comment/review bodies are valid trigger sources.
+# Only real comment bodies are valid trigger sources (issue #1163 dropped the
+# light path's two review-triggered subscriptions, so no gate reads
+# `github.event.review.body` any more).
 for f in devflow devflow-implement; do
   bad="$(grep -nE "^[[:space:]]*issues:[[:space:]]*$" "$WF/$f.yml" || true)"
   assert_eq "partition: $f.yml does not listen on the issues event" "" "$bad"
   # No gate matching against issue.body / issue.title (those are descriptions).
   bad="$(grep -nE "contains\(github\.event\.issue\.(body|title)" "$WF/$f.yml" || true)"
   assert_eq "partition: $f.yml gate never matches an issue body/title" "" "$bad"
-  # TRIGGER_TEXT must be sourced only from comment/review bodies.
+  # TRIGGER_TEXT must be sourced only from comment bodies.
   bad="$(grep -nE "TRIGGER_TEXT:.*github\.event\.issue\.(body|title)" "$WF/$f.yml" || true)"
   assert_eq "partition: $f.yml TRIGGER_TEXT excludes issue body/title" "" "$bad"
 done
@@ -16497,11 +17049,192 @@ assert_eq "partition: devflow-implement.yml gate if: filters PR comments (issue.
 #     invert the guard and decline issues instead of PRs.
 assert_eq "partition: devflow-implement.yml wires IS_PULL_REQUEST from issue.pull_request != null" \
   "1" "$(grep -cF 'IS_PULL_REQUEST: ${{ github.event.issue.pull_request != null }}' "$IMPL")"
-# (d) Complement (AC #5): the LIGHT path stays PR-aware — /devflow:review and
-#     /devflow:pr-description act on PRs, so devflow.yml MUST keep its PR-review
-#     subscriptions. Guards against an over-eager edit stripping them too.
-assert_eq "partition: devflow.yml stays PR-aware (keeps PR-review subscriptions)" \
-  "2" "$(grep -cE 'pull_request_review(_comment)?:' "$WF/devflow.yml")"
+# (d) Issue #1163 SUPERSEDES the earlier "stays PR-aware" decision. That decision
+#     kept devflow.yml subscribed to pull_request_review[submitted] and
+#     pull_request_review_comment[created] so /prflow:review and /prflow:pr-description
+#     could be requested from the review-submission box and inline diff comments. But
+#     on those two events GITHUB_REF resolves to refs/pull/N/merge, so every job
+#     checked out PR-author content — including the config job's authorization inputs
+#     and the agent's tool grants. The light path is now issue_comment-only (a review
+#     requested by commenting on the PR conversation is an issue_comment and still
+#     works); the review-submission-box and inline-diff-comment paths are dropped.
+#     So devflow.yml must carry NO pull_request_review* subscription, mirroring the
+#     heavy path's (a) above.
+assert_eq "partition: devflow.yml has no PR-review subscriptions (issue #1163 superseded the earlier stays-PR-aware decision)" \
+  "0" "$(grep -cE 'pull_request_review(_comment)?:' "$WF/devflow.yml")"
+# (d+) Positive complement to (d): devflow.yml MUST still subscribe to issue_comment —
+#      its SOLE event entry point now. Without this a future edit deleting the
+#      issue_comment subscription would make the whole light path silently inert while
+#      (d) still reads 0 and every other test stays green (the over-narrowing twin of
+#      the bug (d) guards — same shape as the heavy path's (a+) above).
+assert_eq "partition: devflow.yml subscribes to issue_comment (sole event entry point)" \
+  "1" "$(grep -cE '^[[:space:]]*issue_comment:[[:space:]]*$' "$WF/devflow.yml")"
+# (e) Issue #1163's OTHER half: every actions/checkout step in devflow.yml pins
+#     `ref:` to the default branch. Dropping the subscriptions (d) makes the
+#     trigger resolve GITHUB_REF to the default branch, but the pin is what states
+#     that property in the file, so a future re-subscription cannot silently
+#     reinstate a PR-head checkout of the authorization inputs and tool grants.
+#     Asserted STRUCTURALLY — per checkout step, not as a whole-file count — so
+#     all three regressions are caught: a dropped pin, an added unpinned fifth
+#     checkout, and a pin rewritten with a `||` fallback (an empty `ref` makes
+#     actions/checkout fall back to GITHUB_REF) or a literal branch name (a
+#     consumer's default branch may not be `main`). Emits one `<line> <ref>` row
+#     per checkout step; a step with no `ref:` in its `with:` block emits NONE.
+#     Comment lines are skipped so the header prose quoting the expression is not
+#     mistaken for wiring, and the row is flushed at the next step boundary so the
+#     sibling `- uses: ./.github/actions/vendor-plugin` step's own
+#     `ref: ${{ needs.config.outputs.prflow_version }}` is never attributed to a
+#     checkout. The `uses:` match accepts an optionally quoted value; the step
+#     boundary is keyed on this file's uniform 6-space step indentation, which is
+#     a deliberate limit rather than an omission — a differently indented step
+#     would go unrecognised, and the `count == 4` row above is what fails safe on
+#     it (it is an equality, not a floor), which CONTROL D below exercises.
+devflow_checkout_ref_rows() {
+  awk '
+    function flush(   v) {
+      if (isck) { v = (refv == "" ? "NONE" : refv); printf "%d %s\n", ln, v }
+      isck = 0; refv = ""
+    }
+    /^[[:space:]]*#/ { next }
+    /^      - / { flush(); ln = NR }
+    /uses:[[:space:]]*["'"'"']?actions\/checkout@/ { isck = 1 }
+    /^[[:space:]]*ref:[[:space:]]*/ {
+      if (isck && refv == "") { sub(/^[[:space:]]*ref:[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); refv = $0 }
+    }
+    END { flush() }
+  ' "$1"
+}
+devflow_checkout_rows="$(devflow_checkout_ref_rows "$WF/devflow.yml")"
+# 5 checkout steps: config, review_dedupe, gate, command, review_finalize (issue #1174).
+assert_eq "partition: devflow.yml has exactly 5 actions/checkout steps (issue #1163)" \
+  "5" "$(printf '%s\n' "$devflow_checkout_rows" | grep -c . || true)"
+# Every one of them pins the default branch verbatim — no fallback, no literal.
+devflow_unpinned_checkouts="$(
+  printf '%s\n' "$devflow_checkout_rows" \
+    | grep -v ' \${{ github\.event\.repository\.default_branch }}$' || true
+)"
+assert_eq "partition: devflow.yml pins every checkout ref: to the default branch (issue #1163)" \
+  "" "$devflow_unpinned_checkouts"
+# PLANTED-DEFECT CONTROLS for the auditor above, mirroring the trigger-gate
+# CONTROL A/B/C pattern three blocks up. The `count == 4` row backstops only the
+# "emits too few rows" mode; without these controls an over-accepting extractor
+# (an `isck` that never resets, a reordered `flush()`, a `ref:` capture that
+# misses) would leave `devflow_unpinned_checkouts` silently empty while a real
+# dropped pin sat in the file. Each control first asserts the mutation really
+# changed the file, then asserts the auditor reports the mutated step.
+CK_TMP="$(mktemp -d)"
+devflow_unpinned_in() {  # $1=file -> the rows the auditor does NOT accept as pinned
+  devflow_checkout_ref_rows "$1" \
+    | grep -v ' \${{ github\.event\.repository\.default_branch }}$' || true
+}
+# Control A — a dropped pin. The step must report NONE, and must NOT silently
+# inherit the `ref:` of the sibling vendor-plugin step that follows it (the
+# isck-never-resets mode).
+# NOTE: the first-occurrence-only mutations below use awk, not `sed '0,/re/'` —
+# the `0,` address form is a GNU extension that BSD sed (macOS) rejects.
+devflow_mutate_first_pin() {  # $1=replacement text, or the empty string to delete the line
+  awk -v repl="$1" '
+    !done && $0 == "          ref: ${{ github.event.repository.default_branch }}" {
+      done = 1
+      if (repl != "") print repl
+      next
+    }
+    { print }
+  ' "$WF/devflow.yml"
+}
+devflow_mutate_first_pin "" > "$CK_TMP/dropped-pin.yml"
+assert_eq "checkout-pin CONTROL A: the dropped-pin mutation really changed devflow.yml" \
+  "no" "$(cmp -s "$WF/devflow.yml" "$CK_TMP/dropped-pin.yml" && echo yes || echo no)"
+assert_eq "checkout-pin CONTROL A: a checkout with no ref: is reported unpinned as NONE" \
+  "1" "$(devflow_unpinned_in "$CK_TMP/dropped-pin.yml" | grep -c ' NONE$' || true)"
+assert_eq "checkout-pin CONTROL A: the dropped-pin file still emits 5 checkout rows" \
+  "5" "$(devflow_checkout_ref_rows "$CK_TMP/dropped-pin.yml" | grep -c . || true)"
+# Control B — a `||` fallback pin. An empty `ref` makes actions/checkout fall back
+# to GITHUB_REF with no error, so the fallback form must be rejected, not accepted.
+devflow_mutate_first_pin "          ref: \${{ github.event.repository.default_branch || 'main' }}" \
+  > "$CK_TMP/fallback-pin.yml"
+assert_eq "checkout-pin CONTROL B: the fallback-pin mutation really changed devflow.yml" \
+  "no" "$(cmp -s "$WF/devflow.yml" "$CK_TMP/fallback-pin.yml" && echo yes || echo no)"
+assert_eq "checkout-pin CONTROL B: a \`||\` fallback ref: is reported unpinned" \
+  "1" "$(devflow_unpinned_in "$CK_TMP/fallback-pin.yml" | grep -c . || true)"
+# Control C — a literal branch name, which is wrong for a consumer whose default
+# branch is not `main`.
+devflow_mutate_first_pin "          ref: main" > "$CK_TMP/literal-pin.yml"
+assert_eq "checkout-pin CONTROL C: the literal-branch mutation really changed devflow.yml" \
+  "no" "$(cmp -s "$WF/devflow.yml" "$CK_TMP/literal-pin.yml" && echo yes || echo no)"
+assert_eq "checkout-pin CONTROL C: a literal branch-name ref: is reported unpinned" \
+  "1" "$(devflow_unpinned_in "$CK_TMP/literal-pin.yml" | grep -c ' main$' || true)"
+# Control D — an added extra, unpinned checkout must be caught by BOTH rows: the
+# count row (which is not merely `>= 5`) and the pin row.
+awk 'NR==1{print "      - uses: actions/checkout@v6"} {print}' \
+  "$WF/devflow.yml" > "$CK_TMP/fifth-checkout.yml"
+assert_eq "checkout-pin CONTROL D: an added extra checkout is counted" \
+  "6" "$(devflow_checkout_ref_rows "$CK_TMP/fifth-checkout.yml" | grep -c . || true)"
+assert_eq "checkout-pin CONTROL D: an added extra unpinned checkout is reported unpinned" \
+  "1" "$(devflow_unpinned_in "$CK_TMP/fifth-checkout.yml" | grep -c ' NONE$' || true)"
+rm -rf "$CK_TMP"
+
+# ── review_finalize must MATERIALIZE the plugin (issue #1174). Every helper-consuming
+# job runs the vendor-plugin action after its checkout; without it a thin-install
+# consumer's bare checkout has no .prflow/vendor/prflow/scripts/ tree AND no repo-root
+# scripts/, so the finalizer's helpers all hit their absent-arm no-op and the dead-run
+# backstop silently produces nothing — the exact failure #1174 fixes, invisible in this
+# self-repo where the repo-root scripts/ fallback masks it. Assert the vendor-plugin
+# step count includes the finalizer's (config + gate + command + review_finalize = 4),
+# and that a vendor-plugin step appears within the review_finalize job body.
+assert_eq "#1174: devflow.yml has 4 vendor-plugin steps (config + gate + command + review_finalize)" "4" \
+  "$(grep -c 'uses: \./\.github/actions/vendor-plugin' "$WF/devflow.yml" || true)"
+assert_eq "#1174: the review_finalize job materializes the plugin (a vendor-plugin step in its body)" "yes" \
+  "$(awk '/^  review_finalize:/{f=1} f && /uses: \.\/\.github\/actions\/vendor-plugin/{print "yes"; exit}' "$WF/devflow.yml")"
+
+# ── The review_finalize job GATE (issue #1174). Actions evaluates this `if:` BEFORE
+# the step runs, so it is unreachable from the extracted step body the #1174 wiring
+# block in lib/test/modules/review-trigger-helpers.sh drives — nothing but a pin can
+# see it, and a dropped conjunct ships green. Each term prevents a distinct
+# spurious-banner class:
+#   always()                     — the only reason this job runs at all on a dead
+#                                  command-job path (the whole point of the backstop).
+#   needs.<upstream>.result      — a FAILED config/gate/review_dedupe leaves `command`
+#     == 'success' (x3)            skipped for an UPSTREAM reason, which the arm helper
+#                                  maps to did-not-report; requiring the chain succeeded
+#                                  confines that arm to a genuine command-level death.
+#   enabled / should_run /       — the command job's own screen; a dedupe-SUPPRESSED run
+#     suppress                     is benign, not a dead run, so it must draw no banner.
+#   the two review spellings     — AC7's transitional /devflow:review alias beside the
+#                                  canonical /prflow:review; losing one silently drops
+#                                  the backstop for that spelling.
+RF_IF="$(awk '/^  review_finalize:/{f=1} f && /^    if: /{print; exit}' "$WF/devflow.yml")"
+_rf_if_has() { case "$RF_IF" in *"$1"*) echo yes ;; *) echo no ;; esac; }
+assert_eq "#1174 gate: the review_finalize if: runs on every command-job exit path (always())" \
+  "yes" "$(_rf_if_has 'always()')"
+assert_eq "#1174 gate: the review_finalize if: requires config to have SUCCEEDED" \
+  "yes" "$(_rf_if_has "needs.config.result == 'success'")"
+assert_eq "#1174 gate: the review_finalize if: requires gate to have SUCCEEDED" \
+  "yes" "$(_rf_if_has "needs.gate.result == 'success'")"
+assert_eq "#1174 gate: the review_finalize if: requires review_dedupe to have SUCCEEDED" \
+  "yes" "$(_rf_if_has "needs.review_dedupe.result == 'success'")"
+assert_eq "#1174 gate: the review_finalize if: honours the workflow enable switch" \
+  "yes" "$(_rf_if_has "needs.config.outputs.enabled == 'true'")"
+assert_eq "#1174 gate: the review_finalize if: honours the gate's should_run screen" \
+  "yes" "$(_rf_if_has "needs.gate.outputs.should_run == 'true'")"
+assert_eq "#1174 gate: the review_finalize if: draws no banner on a dedupe-suppressed run" \
+  "yes" "$(_rf_if_has "needs.review_dedupe.outputs.suppress != 'true'")"
+assert_eq "#1174 gate: the review_finalize if: screens the canonical /prflow:review spelling" \
+  "yes" "$(_rf_if_has "startsWith(needs.gate.outputs.command, '/prflow:review')")"
+assert_eq "#1174 gate: the review_finalize if: screens the transitional /devflow:review spelling" \
+  "yes" "$(_rf_if_has "startsWith(needs.gate.outputs.command, '/devflow:review')")"
+# Negative control: the matcher really can report a missing conjunct, so the nine
+# assertions above are not nine vacuous passes on an unmatched-anything comparison.
+assert_eq "#1174 gate: the conjunct matcher reports a term the if: does NOT carry" \
+  "no" "$(_rf_if_has "needs.command.result == 'success'")"
+# AC8: the finalizer mint is opt-in on DEVFLOW_APP_ID, and its GH_TOKEN falls back to
+# the built-in github.token when that variable is unset — the behaviour a consumer who
+# has not configured the App relies on. Pin both halves so a future edit cannot drop the
+# fallback (which would make the finalizer's writes fail for every non-App consumer).
+assert_eq "#1174 AC8: the finalizer token mint is gated on vars.DEVFLOW_APP_ID" "yes" \
+  "$(awk '/id: finalize-token/{f=1} f && /if: \$\{\{ vars.DEVFLOW_APP_ID != .. \}\}/{print "yes"; exit}' "$WF/devflow.yml")"
+assert_eq "#1174 AC8: the finalizer GH_TOKEN falls back to github.token when the App token is empty" "1" \
+  "$(grep -cF 'GH_TOKEN: ${{ steps.finalize-token.outputs.token || github.token }}' "$WF/devflow.yml" || true)"
 
 # Early-ack reaction must stay correctly wired in BOTH gate jobs. These guard
 # the load-bearing properties that the react-to-trigger.sh unit tests above
@@ -16570,7 +17303,7 @@ echo "#936 — surviving references to the withheld devflow-review.yml"
 # tier before it was withheld keeps it, and the installer must report it, leave it alone by
 # default, and remove it only on the explicit opt-in — so the filename has to appear there.
 #
-# Stated reference, docs/cloud-allowlist.md (issue #1051): a withheld-tier statement. That page's
+# Stated reference, docs/internal/cloud-allowlist.md (issue #1051): a withheld-tier statement. That page's
 # PreToolUse section has to name the deleted workflow to say WHY the #908 guard is inert — the
 # guard's registration rides on devflow-runner.yml, which is `workflow_call`-only and lost its
 # sole caller when #936 deleted devflow-review.yml. The filename is the caller that no longer
@@ -16592,14 +17325,15 @@ _936_EXPECTED="$(cat <<'EOF'
 .prflow/config.schema.json
 CLAUDE.md
 README.md
-docs/DEVFLOW_SYSTEM_OVERVIEW.md
-docs/cloud-allowlist.md
-docs/cloud-setup.md
-docs/execution-file-shape.md
+docs/external/docs/runs/cloud/installation.md
 docs/external/release-notes.md
-docs/implement-skill.md
-docs/install.md
-docs/workflow-triggers.md
+docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md
+docs/internal/cloud-allowlist.md
+docs/internal/cloud-setup.md
+docs/internal/execution-file-shape.md
+docs/internal/implement-skill.md
+docs/internal/install.md
+docs/internal/workflow-triggers.md
 install.sh
 lib/rename-map.json
 lib/test/fixtures/issue-304-body.md
@@ -16971,7 +17705,7 @@ done
 # above (a deleted mint step would otherwise only fail its own block extract).
 assert_eq "app-token: devflow-implement.yml has exactly 3 mint steps (writer + gate + stall-backstop)" "3" \
   "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow-implement.yml")"
-assert_eq "app-token: devflow.yml has exactly 5 mint steps (command primary + command reviewer + gate + review_dedupe + review-backstop)" "5" \
+assert_eq "app-token: devflow.yml has exactly 6 mint steps (command primary + command reviewer + gate + review_dedupe + review-backstop + review_finalize)" "6" \
   "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow.yml")"
 assert_eq "app-token: devflow-runner.yml has exactly 1 mint step (DevFlow-Reviewer review)" "1" \
   "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow-runner.yml")"
@@ -17166,7 +17900,7 @@ assert_eq "app-token: devflow.yml BRANCH_ERR temp-file allocation is mktemp-fail
 # #300) hardcodes the review token's permission set; pin it so a future scope
 # change that reconciles the REVIEWER_SITES loop but not the doc goes RED.
 assert_eq "app-token: cloud-setup.md DevFlow-Reviewer section carries the review token's exact permission set" "1" \
-  "$(grep -cF '**`Contents: read`**, **`Issues: read`**, **`Pull requests: write`**, and **`Actions: read`**' "$LIB/../docs/cloud-setup.md" || true)"
+  "$(grep -cF '**`Contents: read`**, **`Issues: read`**, **`Pull requests: write`**, and **`Actions: read`**' "$LIB/../docs/internal/cloud-setup.md" || true)"
 # Consumer-condition conjuncts on the three downscoped gate/dedupe mints: the
 # second half of each mint's if: keeps the common rejection path mint-free AND
 # bounds fail-loud to runs where a consumer actually posts. Dropping it would
@@ -17181,35 +17915,36 @@ for pair in "devflow|Mint downscoped reaction token (optional)|&& steps.resolve.
 done
 # Docs carry the opt-in contract: the var, the secret, ALL five required App
 # permissions, and the per-site downscope story (no more "reviewer untouched").
-CS="$LIB/../docs/cloud-setup.md"
-for tok in 'DEVFLOW_APP_ID' 'DEVFLOW_APP_PRIVATE_KEY'; do
-  assert_eq "app-token: cloud-setup.md documents $tok" "yes" \
-    "$(grep -qF "$tok" "$CS" && echo yes || echo no)"
-done
+CS="$LIB/../docs/internal/cloud-setup.md"
+# Issue #1188: unrolled from a `for tok in …` loop so the pinned literals are static
+# (the $CS path move brought this site into the #810 diff scope, where a loop-variable
+# literal is <unresolved-literal> and fails closed). Both tokens are machine-consumed in
+# .github/workflows/, so the classifier's Step-1 consumer check clears them.
+assert_eq "app-token: cloud-setup.md documents DEVFLOW_APP_ID" "yes" \
+  "$(grep -qF 'DEVFLOW_APP_ID' "$CS" && echo yes || echo no)"
+assert_eq "app-token: cloud-setup.md documents DEVFLOW_APP_PRIVATE_KEY" "yes" \
+  "$(grep -qF 'DEVFLOW_APP_PRIVATE_KEY' "$CS" && echo yes || echo no)"
 for perm in 'Contents:[[:space:]]*write' 'Workflows:[[:space:]]*write' 'Pull requests:[[:space:]]*write' 'Issues:[[:space:]]*write' 'Actions:[[:space:]]*read'; do
   assert_eq "app-token: cloud-setup.md documents App permission ${perm//\[\[:space:\]\]\*/ }" "yes" \
     "$(grep -qiE "$perm" "$CS" && echo yes || echo no)"
 done
 assert_eq "app-token: cloud-setup.md no longer claims the reviewer is untouched" "0" \
   "$(grep -cF 'is untouched' "$CS")"
-assert_eq "app-token: cloud-setup.md documents the per-site downscope" "yes" \
-  "$(grep -qF 'downscoped to exactly' "$CS" && echo yes || echo no)"
+# Issue #1188: prose-presence app-token doc mirror pin removed (retired, orphaned by the docs/internal move).
 # §15 of the overview: still no bare "No GitHub App." claim, still names the
 # opt-in variable, names the primary App's reactions + notices surfaces, and —
 # post-#300 — routes the review agent's posts to the separate DevFlow-Reviewer
 # App rather than listing them under the primary App.
-OV="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+OV="$LIB/../docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_eq "app-token: overview §15 no longer asserts a bare 'No GitHub App.'" "0" \
   "$(grep -cF 'No GitHub App.' "$OV")"
 assert_eq "app-token: overview §15 positively documents the optional App (DEVFLOW_APP_ID)" "yes" \
   "$(grep -qF 'DEVFLOW_APP_ID' "$OV" && echo yes || echo no)"
-assert_eq "app-token: overview §15 names the primary App's reactions + notices surfaces" "yes" \
-  "$(grep -qF 'the trigger reactions and the notice comments' "$OV" && echo yes || echo no)"
+# Issue #1188: prose-presence overview §15 doc mirror pin removed (retired, orphaned by the docs/internal move).
 # #300: §15 must route the review agent's posts to the DevFlow-Reviewer App, not
 # list them under the primary App — pin the reviewer-app name so a revert that
 # re-attributes review posts to the primary App goes RED.
-assert_eq "app-token: overview §15 routes the review agent's posts to DevFlow-Reviewer (not the primary App)" "yes" \
-  "$(grep -qF 'run instead under the separate **`DevFlow-Reviewer`** App' "$OV" && echo yes || echo no)"
+# Issue #1188: prose-presence overview §15 DevFlow-Reviewer routing doc mirror pin removed (retired, orphaned by the docs/internal move).
 
 # efficiency-trace + telemetry-persistence coverage (extracted from this file into
 # a focused module): the efficiency-trace.jq/.sh derivation surface, --persist and
@@ -17220,13 +17955,13 @@ assert_eq "app-token: overview §15 routes the review agent's posts to DevFlow-R
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/efficiency-trace-telemetry.sh" \
-  "efficiency-trace-telemetry" 903; then
+  "efficiency-trace-telemetry" 938; then
   printf 'ERROR: efficiency-trace-telemetry boundary could not record its result\n'
   exit 1
 fi
 
 # ── Retained here, deliberately not moved with the region above ───────────────
-# Four docs/efficiency-trace.md presence assertions from the extracted #532 section
+# Four docs/internal/efficiency-trace.md presence assertions from the extracted #532 section
 # stay in this file. They are not left behind for convenience: three of their four
 # pinned literals resolve into ORDINARY PROSE in that document, and the issue-#948
 # routing ladder in lib/test/pin-corpus-lint.py admits such a site only when the
@@ -17241,17 +17976,13 @@ fi
 # documentation-presence pins should exist at all — see CLAUDE.md's #375/#666/#810
 # bullet) to the pass that is draining that population. The fourth assertion moves
 # with nothing to gain by separation and is kept beside its two siblings.
-# et-fresh(R14) — the residual-windows doc entry names the transient-failure window.
-assert_eq "et-fresh(R14): docs name the transient-failure residual window (offline / lost ref-lock race)" "yes" \
-  "$(grep -qF 'transient-failure' "$LIB/../docs/efficiency-trace.md" && grep -qF 'losing the' "$LIB/../docs/efficiency-trace.md" && echo yes || echo no)"
-# docs-fetch-scope(R9) — docs state the base-ref refresh, the fetch scope, AND the
-# PR-number cutoff clause (surface-presence contract pin).
-assert_eq "docs-fetch-scope(R9): docs state --persist refreshes the base ref before synthesis" "yes" \
-  "$(grep -qF 'refreshes the base ref before synthesis' "$LIB/../docs/efficiency-trace.md" && echo yes || echo no)"
+# Issue #1188: the prose-presence efficiency-trace doc mirror pins (transient-failure
+# residual window; --persist refreshes-the-base-ref; PR-number cutoff clause) were
+# retired prose-presence pins orphaned by the docs/internal move; removed per the
+# cluster note earlier. The machine-shaped `refs/remotes/origin/<base>` token pin stays
+# (distinctive token, machine-consumed, not retirement-exempt).
 assert_eq "docs-fetch-scope(R9): docs state the fetch scope (refs/remotes/origin/<base> cache only)" "yes" \
-  "$(grep -qF 'refs/remotes/origin/<base>' "$LIB/../docs/efficiency-trace.md" && echo yes || echo no)"
-assert_eq "docs-fetch-scope(R9): docs record the PR-number cutoff clause" "yes" \
-  "$(grep -qF "predating this change's merge" "$LIB/../docs/efficiency-trace.md" && echo yes || echo no)"
+  "$(grep -qF 'refs/remotes/origin/<base>' "$LIB/../docs/internal/efficiency-trace.md" && echo yes || echo no)"
 
 # ── Also retained here: the #442 Critical-1 behavioral arm ────────────────────
 # The static half of that guard (telemetry-branch.sh carries no bare "${arr[@]}"
@@ -18305,7 +19036,7 @@ rm -rf "$HSH_UR_DIR" "$HSH_UR_DIR2"
 
 # ── #805 PreToolUse shape guard: closure edge fail-closed, remediation mirror, stub ──
 GUARD_PY="$LIB/../scripts/pretooluse-shape-guard.py"
-ALLOWLIST_DOC="$LIB/../docs/cloud-allowlist.md"
+ALLOWLIST_DOC="$LIB/../docs/internal/cloud-allowlist.md"
 # The guard's importlib edge to extract-command-shapes.py is a REAL, trust-sensitive edge
 # the walker must model — assert it is DETECTED and REQUIRED: dropping shapes from the
 # closure surfaces the guard->shapes violation (fail-closed), so an importlib-edge regex
@@ -18352,7 +19083,7 @@ else
   printf '  FAIL  #805 drift-guard: mktemp -d failed (UNRESOLVABLE-IMPORT arm not exercised; not a vacuous skip)\n' >&2
 fi
 # Remediation mirror (issue #805): each deny-set arm's join literal appears in BOTH the
-# guard's REMEDIATION ENTRY FOR THAT ARM and docs/cloud-allowlist.md's authoritative TABLE
+# guard's REMEDIATION ENTRY FOR THAT ARM and docs/internal/cloud-allowlist.md's authoritative TABLE
 # ROW FOR THAT ARM, so the scripts/-to-docs/ coupled mirror cannot drift silently. This is
 # a machine-consumed cross-file contract (the guard's remediation text is the emitted
 # permissionDecisionReason), not a prose-presence pin.
@@ -18373,22 +19104,22 @@ spec.loader.exec_module(mod)
 sys.stdout.write(mod.REMEDIATION.get(sys.argv[2], ""))
 PY
 }
-_805_doc_row() {  # $1 = arm id -> that arm's docs/cloud-allowlist.md table row, or empty
+_805_doc_row() {  # $1 = arm id -> that arm's docs/internal/cloud-allowlist.md table row, or empty
   grep -F "| \`$1\` |" "$ALLOWLIST_DOC" || true
 }
 assert_eq "#805 remediation mirror: arm R1 join literal is in the guard's R1 REMEDIATION entry" "yes" \
-  "$(_805_guard_cell R1 | grep -qF 'VAR=$(cmd)' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
+  "$(_805_guard_cell R1 | grep -qF 'VAR=$(cmd)' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/internal/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
 assert_eq "#805 remediation mirror: arm R1 join literal is in the docs R1 table row" "yes" \
   "$(_805_doc_row R1 | grep -qF 'VAR=$(cmd)' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's permitted-alternative cell is the authoritative form the guard's emitted remediation must name
 assert_eq "#805 remediation mirror: arm R3-tmp join literal is in the guard's R3-tmp REMEDIATION entry" "yes" \
-  "$(_805_guard_cell R3-tmp | grep -qF '.prflow/tmp/' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
+  "$(_805_guard_cell R3-tmp | grep -qF '.prflow/tmp/' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/internal/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
 assert_eq "#805 remediation mirror: arm R3-tmp join literal is in the docs R3-tmp table row" "yes" \
   "$(_805_doc_row R3-tmp | grep -qF '.prflow/tmp/' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's permitted-alternative cell is the authoritative form the guard's emitted remediation must name
 # R4's permitted alternative reads as a whitespace-bearing English phrase on the docs side,
 # which the issue-810 boundary classifies as prose; the arm's DENIED-SHAPE cell carries the
 # whitespace-free join key verbatim on both sides, so the R4 row is mirrored on that.
 assert_eq "#805 remediation mirror: arm R4 interpreter-head shape is in the guard's R4 REMEDIATION entry" "yes" \
-  "$(_805_guard_cell R4 | grep -qF 'python3/python/node' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
+  "$(_805_guard_cell R4 | grep -qF 'python3/python/node' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/internal/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
 assert_eq "#805 remediation mirror: arm R4 interpreter-head shape is in the docs R4 table row" "yes" \
   "$(_805_doc_row R4 | grep -qF 'python3/python/node' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's R4 row is the authoritative record of the denied interpreter-head shape the guard refuses
 # NEGATIVE CONTROLS for the row-scoping itself: the extractors must return the arm's OWN
@@ -18411,11 +19142,15 @@ assert_eq "#805 stub: the .py entry target's stub parses under python3" "0" \
   "$(python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$HSH_STUB_WS/scripts/pretooluse-shape-guard.py" >/dev/null 2>&1; echo $?)"
 assert_eq "#805 stub: a .sh entry target's stub parses under bash" "0" \
   "$(bash -n "$HSH_STUB_WS/lib/efficiency-trace.sh" 2>/dev/null; echo $?)"
-# The .py stub run as __main__ emits a benign defer decision and exits 0 (never a
-# SyntaxError-on-`exit 0` that would fail the hook on every call).
-HSH_STUB_OUT="$(python3 "$HSH_STUB_WS/scripts/pretooluse-shape-guard.py" </dev/null 2>/dev/null)"
-assert_eq "#805 stub: the .py stub emits a defer decision when run as a hook" "1" \
-  "$(printf '%s' "$HSH_STUB_OUT" | grep -c '"permissionDecision": "defer"' || true)"
+# The .py stub run as __main__ reports NO decision — empty stdout, exit 0 — which is the
+# documented fall-through, and never a SyntaxError-on-`exit 0` that would fail the hook on
+# every call. It used to print a `permissionDecision: "defer"` object; run 30967680822's
+# `defer-probe` measured that token BLOCKING the tool and ending the process, so a stub
+# emitting it would terminate the run it exists to leave untouched. Both halves are
+# asserted: an EMPTY stdout (a stub that printed any decision object fails this) and rc 0.
+HSH_STUB_OUT="$(python3 "$HSH_STUB_WS/scripts/pretooluse-shape-guard.py" </dev/null 2>/dev/null; echo "rc=$?")"
+assert_eq "#805 stub: the .py stub reports NO decision (empty stdout) and exits 0 when run as a hook" "rc=0" \
+  "$HSH_STUB_OUT"
 rm -rf "$HSH_STUB_WS"
 # Denied-command visibility (issue #805, Part 3): extract-execution-shape.sh emits the
 # denied commands the permission_denials array carries, alongside the existing token.
@@ -21293,7 +22028,7 @@ scenarios = {
     # type/id/name/input. Reading the field off the tool_use node therefore yields None on
     # every real record — PERMITTED would be unreachable by construction and the
     # orchestrator exclusion silently inert. The committed census cannot settle this
-    # (docs/execution-file-shape.md records that its flattened key set "erases parentage"),
+    # (docs/internal/execution-file-shape.md records that its flattened key set "erases parentage"),
     # so these fixtures pin the resolution on the shape the helper will actually meet.
     "envelope_permitted": [envelope(None, [D_BLK]),
                            envelope("d1", [CB_BLK, WRITE_BLK, CA_BLK])],
@@ -21917,7 +22652,7 @@ with open(fixture, encoding="utf-8") as fh:
 print("conforms")
 PY_CONF
 assert_eq "#858 subagent-write: the production-realistic fixture conforms to the committed execution-shape census" "conforms" \
-  "$(python3 "$SWV_TMP/conform.py" "$SWV_TMP/exec.jsonl" "$LIB/../docs/execution-file-shape.observed.txt")"
+  "$(python3 "$SWV_TMP/conform.py" "$SWV_TMP/exec.jsonl" "$LIB/test/fixtures/execution-file-shape.observed.txt")"
 # COVERAGE, not just non-vacuity. The gate above proves the CENSUS is readable; it does not
 # prove the check covers the fixtures. Run against `permitted` alone it saw only the flat
 # record vocabulary — never `message`/`content` (produced only by the envelope scenarios, the
@@ -21928,7 +22663,7 @@ assert_eq "#858 subagent-write: the production-realistic fixture conforms to the
 for _scen in envelope_permitted denied; do
   devflow_swv_build_ok "$_scen"
   assert_eq "#858 subagent-write: the '$_scen' fixture also conforms to the committed execution-shape census" "conforms" \
-    "$(python3 "$SWV_TMP/conform.py" "$SWV_TMP/exec.jsonl" "$LIB/../docs/execution-file-shape.observed.txt")"
+    "$(python3 "$SWV_TMP/conform.py" "$SWV_TMP/exec.jsonl" "$LIB/test/fixtures/execution-file-shape.observed.txt")"
 done
 # Restore the fixture the assertions after this point expect.
 devflow_swv_build_ok permitted
@@ -22274,6 +23009,219 @@ PY_COUPLED
 )"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#1264 render-time placeholder probe verdict helper"
+# ────────────────────────────────────────────────────────────────────────────
+# scripts/placeholder-probe-verdict.py is a branch-selecting core: its verdict ROUTES
+# issue #1264's design (a negative limb sends the work to workflow-side composition
+# instead of the placeholder mechanism), so every arm is driven here rather than left to
+# a paid probe run to exercise. Same treatment, and same rationale, as the #858/#874/#812
+# probe-verdict siblings: unmodularized, no focused_test, driven inline from run.sh.
+PPV="$LIB/../scripts/placeholder-probe-verdict.py"
+PPV_TMP="$(mktemp -d)"
+ppv_build() {  # $1 scenario -> writes $PPV_TMP/exec.jsonl; rc 0 AND non-empty on success
+  python3 - "$PPV_TMP/exec.jsonl" "$1" <<'PY_PPV'
+import json, sys
+out, scen = sys.argv[1], sys.argv[2]
+BEFORE = "PHPROBE_SKILL_REACHED"
+AFTER = "PHPROBE_CONTROL_AFTER"
+def tu(cmd):
+    return {"type": "tool_use", "name": "Bash", "input": {"command": cmd}}
+def echo(payload):
+    return tu("printf '%s\\n' '" + payload + "'")
+controls = [echo(BEFORE), echo(AFTER)]
+# The echo-back the agent is instructed to produce, one shape per scenario.
+shapes = {
+    "visible":      [echo("PHPROBE_SAW PHPROBE_ENV DEVFLOW_PHPROBE_SENTINEL_1264")],
+    "unset":        [echo("PHPROBE_SAW PHPROBE_ENV UNSET")],
+    # The placeholder survived verbatim: the echo-back carries the raw backtick-bang and
+    # the script path, neither of which can appear in the script's own stdout.
+    "unexecuted":   [echo("PHPROBE_SAW !`.github/probe-plugin/phprobe-read-env.sh`")],
+    "line_absent":  [echo("PHPROBE_LINE_A_ABSENT")],
+    "no_marker":    [],
+    # A marker-shaped entry with NO SAW prefix: not the measurement, so it must not be
+    # read as a report. Both readers are scoped to the SAW token for exactly this reason.
+    "template_only": [tu("printf 'PHPROBE_ENV %s\\n' \"$DEVFLOW_PROMPT_EXTENSION_ROOT\"")],
+    # A real sentinel report PLUS an unrelated command mentioning the script path. The
+    # unexecuted-form test is scoped to the SAW echo-back, so this must stay
+    # SUBSTITUTED_ENV_VISIBLE rather than flipping to NOT_SUBSTITUTED.
+    "incidental":   [echo("PHPROBE_SAW PHPROBE_ENV DEVFLOW_PHPROBE_SENTINEL_1264"),
+                     tu("ls .github/probe-plugin/phprobe-read-env.sh")],
+}
+if scen == "no_controls":
+    recs = shapes["visible"]
+elif scen == "empty":
+    recs = []
+elif scen in shapes:
+    recs = [controls[0]] + shapes[scen] + [controls[1]]
+elif scen in ("unparseable", "partial_corrupt"):
+    recs = [controls[0]] + shapes["visible"] + [controls[1]]
+else:
+    raise SystemExit("unrecognised scenario: %s" % scen)
+with open(out, "w", encoding="utf-8") as fh:
+    if scen == "unparseable":
+        fh.write("{ not json at all\n")
+    else:
+        for r in recs:
+            fh.write(json.dumps(r) + "\n")
+        if scen == "partial_corrupt":
+            fh.write("{ this line is not valid json\n")
+        if scen == "empty":
+            # A file that PARSES cleanly but holds no tool_use records — distinct from
+            # unparseable, and it must reach the no-tool_uses arm rather than the parse arm.
+            fh.write(json.dumps({"type": "system", "note": "no tool uses here"}) + "\n")
+PY_PPV
+  _ppv_rc=$?
+  [ "$_ppv_rc" -eq 0 ] && [ -s "$PPV_TMP/exec.jsonl" ]
+}
+ppv() {  # $1 scenario -> the VERDICT token, or a build sentinel the extractor cannot forge
+  if ! ppv_build "$1"; then printf 'FIXTURE_BUILD_FAILED'; return 0; fi
+  local _out; _out="$(python3 "$PPV" "$PPV_TMP/exec.jsonl" 2>/dev/null)"
+  # Pure parameter expansion (CLAUDE.md guard-class 2: no tr/sed/cut, whose absence
+  # would fail OPEN and hand every assertion an empty string to compare).
+  case "$_out" in
+    *'VERDICT: '*) local _v="${_out#*'VERDICT: '}"; printf '%s' "${_v%%$'\n'*}" ;;
+    *) printf 'NO_VERDICT' ;;
+  esac
+}
+# NEGATIVE CONTROL — the assertion that makes the scenario sweep non-vacuous. An
+# unrecognised scenario must FAIL the build rather than leave an empty fixture that the
+# helper would read as unparseable, passing every arm below for the wrong reason.
+assert_eq "#1264 placeholder: an unrecognised fixture scenario fails the build" "failed" \
+  "$(ppv_build __no_such_scenario__ 2>/dev/null && echo built || echo failed)"
+assert_eq "#1264 placeholder: a recognised fixture scenario still builds" "built" \
+  "$(ppv_build visible 2>/dev/null && echo built || echo failed)"
+
+# The three real measurements.
+assert_eq "#1264 placeholder: substituted + sentinel observed -> SUBSTITUTED_ENV_VISIBLE" \
+  "SUBSTITUTED_ENV_VISIBLE" "$(ppv visible)"
+assert_eq "#1264 placeholder: substituted but env UNSET -> SUBSTITUTED_ENV_UNSET (limb b negative)" \
+  "SUBSTITUTED_ENV_UNSET" "$(ppv unset)"
+assert_eq "#1264 placeholder: unexecuted placeholder text -> NOT_SUBSTITUTED (limb a negative, routes the design)" \
+  "NOT_SUBSTITUTED" "$(ppv unexecuted)"
+
+# Every degraded arm resolves INCONCLUSIVE — never a confident negative. Collapsing
+# "could not look" onto "does not substitute" would route issue #1264 away from its
+# selected direction on no evidence, which is the whole reason the arms are ordered
+# degraded-first in the helper.
+assert_eq "#1264 placeholder: agent reported the line absent -> INCONCLUSIVE" \
+  "INCONCLUSIVE" "$(ppv line_absent)"
+assert_eq "#1264 placeholder: no marker reported at all -> INCONCLUSIVE (unestablished, not negative)" \
+  "INCONCLUSIVE" "$(ppv no_marker)"
+assert_eq "#1264 placeholder: controls missing -> INCONCLUSIVE" \
+  "INCONCLUSIVE" "$(ppv no_controls)"
+assert_eq "#1264 placeholder: file parses but records nothing -> INCONCLUSIVE" \
+  "INCONCLUSIVE" "$(ppv empty)"
+assert_eq "#1264 placeholder: unparseable execution file -> INCONCLUSIVE" \
+  "INCONCLUSIVE" "$(ppv unparseable)"
+assert_eq "#1264 placeholder: PARTIALLY corrupt file -> INCONCLUSIVE (a dropped line is not a clean read)" \
+  "INCONCLUSIVE" "$(ppv partial_corrupt)"
+assert_eq "#1264 placeholder: an absent execution file -> INCONCLUSIVE" \
+  "INCONCLUSIVE" \
+  "$(_o="$(python3 "$PPV" "$PPV_TMP/definitely-not-here.jsonl" 2>/dev/null)"; case "$_o" in *'VERDICT: '*) _v="${_o#*'VERDICT: '}"; printf '%s' "${_v%%$'\n'*}" ;; *) printf 'NO_VERDICT' ;; esac)"
+
+# The two discrimination guards. Each pins a way the helper could report a measurement
+# it never made.
+assert_eq "#1264 placeholder: the marker in TEMPLATE form is not counted as a report" \
+  "INCONCLUSIVE" "$(ppv template_only)"
+assert_eq "#1264 placeholder: an incidental /bin/echo elsewhere does not forge NOT_SUBSTITUTED" \
+  "SUBSTITUTED_ENV_VISIBLE" "$(ppv incidental)"
+
+# The routing line is what a maintainer transcribes into the #1264 thread, so pin that a
+# cleared verdict says so and a negative one does not.
+assert_eq "#1264 placeholder: a cleared verdict routes to the placeholder mechanism" "yes" \
+  "$(ppv_build visible >/dev/null 2>&1 && python3 "$PPV" "$PPV_TMP/exec.jsonl" 2>/dev/null | grep -q 'ROUTES TO: the placeholder mechanism' && echo yes || echo no)"
+assert_eq "#1264 placeholder: a NOT_SUBSTITUTED verdict routes AWAY from the placeholder mechanism" "yes" \
+  "$(ppv_build unexecuted >/dev/null 2>&1 && python3 "$PPV" "$PPV_TMP/exec.jsonl" 2>/dev/null | grep -q 'ROUTES TO: workflow-side composition' && echo yes || echo no)"
+
+# COUPLED SITES: the workflow job and the helper's constants are one contract. The
+# sentinel must match, and — the load-bearing one — the job's --allowed-tools must NOT
+# grant the placeholder's own head. Widening that list would leave limb (c) measuring
+# nothing while every assertion above still passed, which is exactly the silently-vacuous
+# probe the #858 coupling assertion exists to prevent for its own markers.
+assert_eq "#1264 placeholder: workflow sentinel and probe markers are coupled to the helper's constants" "coupled" \
+  "$(python3 - "$LIB/../.github/workflows/matcher-probe.yml" "$LIB/../scripts/placeholder-probe-verdict.py" "$LIB/../.github/probe-plugin/skills/placeholder-probe/SKILL.md" <<'PY_PPV_COUPLED'
+import re, sys, yaml
+wf_path, helper_path, skill_path = sys.argv[1], sys.argv[2], sys.argv[3]
+src = open(helper_path, encoding="utf-8").read()
+def const(name):
+    m = re.search(r'^%s = "([^"]+)"' % name, src, re.M)
+    return m.group(1) if m else None
+names = ("SENTINEL", "MARKER", "LINE_ABSENT", "CONTROL_BEFORE", "CONTROL_AFTER", "SAW")
+vals = {n: const(n) for n in names}
+if not all(vals.values()):
+    print("helper constants not readable: %r" % (vals,)); sys.exit(0)
+job = (yaml.safe_load(open(wf_path, encoding="utf-8"))["jobs"] or {}).get("placeholder-probe")
+if not job:
+    print("matcher-probe.yml has no placeholder-probe job"); sys.exit(0)
+steps = job.get("steps") or []
+claude = [s for s in steps if isinstance(s.get("with"), dict) and "claude_args" in s["with"]]
+if not claude:
+    print("placeholder-probe job has no claude-code-action step"); sys.exit(0)
+step = claude[0]
+if (step.get("env") or {}).get("DEVFLOW_PROMPT_EXTENSION_ROOT") != vals["SENTINEL"]:
+    print("job env sentinel does not match the helper's SENTINEL"); sys.exit(0)
+args = step["with"]["claude_args"]
+# The placeholder's head must be GRANTED. This assertion is INVERTED from its original
+# form, and the inversion is the record of a completed measurement rather than a
+# loosening: while limb (c) ("is rendering refused by --allowed-tools?") was open, the
+# head was deliberately withheld and the answer came back NEGATIVE — run 31058504896
+# refused the placeholder with `This command requires approval`. With (c) answered, the
+# grant is what makes limbs (a) and (b) reachable at all; four consecutive runs were
+# refused before substitution could ever be observed. Read the head from the skill body
+# rather than restating it here, so the grant cannot drift from the command it covers.
+body = open(skill_path, encoding="utf-8").read()
+m = re.search(r'!`([^\s`]+)', body)
+if not m:
+    print("skill body carries no `!` placeholder"); sys.exit(0)
+head = m.group(1)
+if head not in args:
+    print("--allowed-tools does not grant the placeholder head %r, so every run is "
+          "refused before limbs (a)/(b) can be observed" % head)
+    sys.exit(0)
+# The skill body must carry both controls, the absent-line token and the SAW prefix the
+# helper scopes its readers to. MARKER is deliberately NOT required here: since the
+# expansion moved into the script, the body no longer names it — the SCRIPT emits it, and
+# the coupling to that producer is asserted just below.
+for n in ("CONTROL_BEFORE", "CONTROL_AFTER", "LINE_ABSENT", "SAW"):
+    if vals[n] not in body:
+        print("skill body does not carry %s (%s)" % (n, vals[n])); sys.exit(0)
+# The injected command must exist, be executable, and emit the helper's MARKER — an
+# injected command that cannot run is the zero-turn abort hazard, and one that emits a
+# different token would make every future run INCONCLUSIVE with the suite still green.
+import os, subprocess
+script = os.path.normpath(os.path.join(os.path.dirname(wf_path), "..", "probe-plugin", "phprobe-read-env.sh"))
+if not os.path.isfile(script):
+    print("the injected command %s does not exist" % script); sys.exit(0)
+if not os.access(script, os.X_OK):
+    print("the injected command %s is not executable" % script); sys.exit(0)
+env = dict(os.environ); env.pop("DEVFLOW_PROMPT_EXTENSION_ROOT", None)
+r = subprocess.run([script], capture_output=True, text=True, env=env)
+if r.returncode != 0:
+    print("the injected command exits %d on an UNSET variable — the abort hazard" % r.returncode)
+    sys.exit(0)
+if vals["MARKER"] not in r.stdout:
+    print("the injected command does not emit %s" % vals["MARKER"]); sys.exit(0)
+prompt = step["with"].get("prompt", "")
+# The PRODUCTION prompt shape, and both halves are load-bearing. The slash command must be
+# the LAST line (that is what limb (a) measures), and there must be leading prose before it:
+# a prompt consisting of a bare slash command naming a plugin SKILL returns num_turns 0 in
+# ~37ms with an empty result — the CLI resolves it as a slash command, finds no matching
+# COMMAND, and exits before the model is called. Measured on the bare CLI and in this job's
+# own first run (31057622518 / job 92478457854). A regression to the bare form would make
+# every paid probe run resolve INCONCLUSIVE while this suite stayed green, and the zero-turn
+# signature is indistinguishable from the abort hazard the probe is built to avoid.
+lines = [ln for ln in prompt.strip().splitlines() if ln.strip()]
+if not lines or lines[-1].strip() != "/phprobe:placeholder-probe":
+    print("the probe prompt does not END with the slash command limb (a) measures"); sys.exit(0)
+if len(lines) < 2:
+    print("the probe prompt is a BARE slash command, which dispatches nothing (num_turns 0)")
+    sys.exit(0)
+print("coupled")
+PY_PPV_COUPLED
+)"
+rm -rf "$PPV_TMP"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "docs per-step toggles (docs.internal_enabled / docs.external_enabled)"
 # ────────────────────────────────────────────────────────────────────────────
 # The /devflow:docs pass gates Step 1 (internal) and Step 2 (external) on these
@@ -22321,6 +23269,13 @@ assert_eq "vendor: committed branch is a no-op (sentinel survives)" "yes" "$(vex
 
 # self branch — cwd is the repo root (has scripts/ + skills/ + plugin.json), so
 # the in-tree plugin is copied into dest through the shared slice definition.
+# Establish the source population independently of the destination-absence guard:
+# otherwise an accidentally emptied checkout would let "excludes docs/internal" pass
+# without exercising the prune. This closed docs/internal subtree cannot reach sibling
+# worktrees, and `-print -quit` avoids both a hand-maintained filename and a full walk.
+VS_SELF_INTERNAL_SOURCE="$(find "$REPO_ROOT/docs/internal" -type f -print -quit 2>/dev/null)"  # tree-walk-ok: closed docs/internal subtree; no sibling worktree or dependency tree is reachable
+assert_eq "#1188 vendor: self source carries at least one docs/internal file before pruning (non-vacuity precondition)" "yes" \
+  "$([ -n "$VS_SELF_INTERNAL_SOURCE" ] && echo yes || echo no)"
 VS_SELF="$(mktemp -d)/dest"
 ( cd "$REPO_ROOT" && DEVFLOW_DEST="$VS_SELF" bash "$VENDOR" >/dev/null 2>&1 )
 assert_eq "vendor: self branch copies scripts from checkout root" "yes" "$(vexists "$VS_SELF/scripts/resolve-implement-trigger.sh")"
@@ -22368,16 +23323,18 @@ printf '{}' > "$VS_REMOTE/.claude-plugin/marketplace.json"
 # git won't track empty dirs — give each slice dir a file so the clone carries
 # the whole slice (mirrors the real repo, where none of these dirs are empty).
 : > "$VS_REMOTE/agents/placeholder.md"
-: > "$VS_REMOTE/docs/efficiency-trace.md"
 : > "$VS_REMOTE/lib/placeholder.sh"
 : > "$VS_REMOTE/skills/placeholder.md"
 : > "$VS_REMOTE/LICENSES/placeholder-LICENSE"   # #671: LICENSES/ is now a copy-list member, so the fetch fixture must carry it
-# The fixture must CARRY all three excluded subtrees, otherwise the fetch-branch
+# The fixture must CARRY every excluded subtree, otherwise the fetch-branch
 # exclusion assertions below would pass vacuously — absent from the source, never
 # pruned. With these present the assertions observe the prune actually running.
-mkdir -p "$VS_REMOTE/docs/site" "$VS_REMOTE/docs/external" "$VS_REMOTE/lib/test"
+# docs/internal carries a file so its exclusion (issue #1188) is non-vacuous and so the
+# docs/ directory has content to be copied before the prune empties it.
+mkdir -p "$VS_REMOTE/docs/site" "$VS_REMOTE/docs/external" "$VS_REMOTE/docs/internal" "$VS_REMOTE/lib/test"
 : > "$VS_REMOTE/docs/site/index.html"
 : > "$VS_REMOTE/docs/external/index.mdx"
+: > "$VS_REMOTE/docs/internal/efficiency-trace.md"
 : > "$VS_REMOTE/lib/test/run.sh"
 printf '{}' > "$VS_REMOTE/.prflow/config.example.json"
 printf '{}' > "$VS_REMOTE/.prflow/config.schema.json"
@@ -22401,17 +23358,17 @@ VS_FETCH="$(mktemp -d)/dest"
     bash "$VENDOR" >/dev/null 2>&1 )
 assert_eq "vendor: fetch branch clones the pinned ref and copies the slice" "yes" "$(vexists "$VS_FETCH/scripts/resolve-implement-trigger.sh")"
 assert_eq "vendor: fetch branch drops the vendored marketplace.json" "no" "$(vexists "$VS_FETCH/.claude-plugin/marketplace.json")"
-# docs/ must travel with the slice so a consumer maintainer reading the materialized
-# plugin has the reference tree offline (no web access in the runner sandbox). Issue
-# #1190 removed the last shipped skill-body link into docs/, so this no longer guards
-# a link resolution — it guards against over-pruning until the prune follow-up lands.
-assert_eq "vendor: fetch branch copies docs/" "yes" "$(vexists "$VS_FETCH/docs/efficiency-trace.md")"
+# The source carries content under every docs subtree, but no documentation belongs in
+# the runtime slice after issue #1188. Requiring the root itself to be absent makes this
+# a content-bearing contract rather than preserving a purposeless empty directory.
+assert_eq "vendor: fetch branch ships no docs/ tree after pruning" "no" "$(vexists "$VS_FETCH/docs")"
 # #677 on the CONSUMER-FACING branch: the self-branch assertions further below cover
 # the same shared devflow_copy_slice, but `fetch` is what a real thin consumer runs,
 # so pin the prune there directly rather than relying on the shared path transitively.
 # Non-vacuous by construction — the fixture above carries both subtrees.
 assert_eq "#677 vendor: fetch slice excludes docs/site (published-page HTML)" "no" "$(vexists "$VS_FETCH/docs/site")"
 assert_eq "vendor: fetch slice excludes docs/external (published Mintlify source)" "no" "$(vexists "$VS_FETCH/docs/external")"
+assert_eq "#1188 vendor: fetch slice excludes docs/internal (DevFlow's maintainer documentation)" "no" "$(vexists "$VS_FETCH/docs/internal")"
 assert_eq "#677 vendor: fetch slice excludes lib/test (DevFlow's own test suite)" "no" "$(vexists "$VS_FETCH/lib/test")"
 assert_eq "#677 vendor: fetch slice keeps non-test lib/ contents" "yes" "$(vexists "$VS_FETCH/lib/placeholder.sh")"
 
@@ -22498,11 +23455,9 @@ assert_eq "vendor: committed branch beats self (precedence)" "yes" "$(vexists "$
 # self branch copies the FULL slice, not just scripts/ (a dropped cp arg would
 # silently ship a plugin missing agents/lib/skills or the tool registry).
 assert_eq "vendor: self copies agents/" "yes" "$(vexists "$VS_SELF/agents")"
-assert_eq "vendor: self copies docs/" "yes" "$(vexists "$VS_SELF/docs")"
-# A known doc lands, so an over-prune of docs/ contents is caught rather than only an
-# absent docs/ directory. (Before issue #1190 this named the shipped skill link into
-# this file; that link is gone, and the over-prune guard is what survives.)
-assert_eq "vendor: self copies docs/efficiency-trace.md" "yes" "$(vexists "$VS_SELF/docs/efficiency-trace.md")"
+# The independently asserted self source carries docs/internal content. The runtime slice
+# deliberately ships no documentation at all, so even the now-empty docs/ root is absent.
+assert_eq "vendor: self ships no docs/ tree after pruning" "no" "$(vexists "$VS_SELF/docs")"
 assert_eq "vendor: self copies lib/" "yes" "$(vexists "$VS_SELF/lib")"
 assert_eq "vendor: self copies skills/" "yes" "$(vexists "$VS_SELF/skills")"
 assert_eq "vendor: self copies .prflow/tool-presets.json" "yes" "$(vexists "$VS_SELF/.prflow/tool-presets.json")"
@@ -22516,28 +23471,16 @@ assert_eq "vendor: self copies .prflow/tool-presets.json" "yes" "$(vexists "$VS_
 # subtree and turns these RED, so the exclusion cannot be silently reverted.
 assert_eq "#677 vendor: self slice excludes docs/site (published-page HTML)" "no" "$(vexists "$VS_SELF/docs/site")"
 assert_eq "vendor: self slice excludes docs/external (published Mintlify source)" "no" "$(vexists "$VS_SELF/docs/external")"
+assert_eq "#1188 vendor: self slice excludes docs/internal (DevFlow's maintainer documentation)" "no" "$(vexists "$VS_SELF/docs/internal")"
 assert_eq "#677 vendor: self slice excludes lib/test (DevFlow's own test suite)" "no" "$(vexists "$VS_SELF/lib/test")"
 # #677 presence backstops: the exclusion must not over-prune. Proving absence alone
-# would be satisfied by an implementation that pruned too much (e.g. all of docs/ or
-# all of lib/), so pair each excluded subtree with the reachable siblings that MUST
-# survive: the docs/ files that were reachable from shipped skill bodies when these
-# pins were written and still ship today (each pinned individually below — issue #1190
-# removed those links, so the set is now a historical selection this guard holds in
-# place until the prune follow-up revisits it), the non-test lib/ contents, and the
-# load-bearing top-level members. The
-# per-file pins matter — the "vendor: self copies docs/" assertion above only checks
-# the docs/ directory exists, so an over-prune of a single linked doc would slip past
-# it but not past these.
-# (docs/architecture.md is named in the issue's AC3 but does not exist in the tree —
-# its only mention is an illustrative example string in agents/checklist-generator.md,
-# not a shipped link — so it is deliberately NOT asserted here; recorded as an
-# issue-accuracy reflection.)
-assert_eq "#677 vendor: self slice keeps docs/DEVFLOW_SYSTEM_OVERVIEW.md" "yes" "$(vexists "$VS_SELF/docs/DEVFLOW_SYSTEM_OVERVIEW.md")"
-assert_eq "#677 vendor: self slice keeps docs/cloud-setup.md" "yes" "$(vexists "$VS_SELF/docs/cloud-setup.md")"
-assert_eq "#677 vendor: self slice keeps docs/efficiency-trace.md" "yes" "$(vexists "$VS_SELF/docs/efficiency-trace.md")"
-assert_eq "#677 vendor: self slice keeps docs/implement-skill.md" "yes" "$(vexists "$VS_SELF/docs/implement-skill.md")"
-assert_eq "#677 vendor: self slice keeps docs/review-agent-overrides.md" "yes" "$(vexists "$VS_SELF/docs/review-agent-overrides.md")"
-assert_eq "#677 vendor: self slice keeps docs/shadow-review.md" "yes" "$(vexists "$VS_SELF/docs/shadow-review.md")"
+# would be satisfied by an implementation that pruned too much (e.g. all of lib/), so
+# pair each excluded subtree with reachable siblings that MUST survive: the non-test
+# lib/ contents and the load-bearing top-level members.
+# (Issue #1188: the six per-file "self slice keeps docs/<name>.md" pins that used to sit
+# here were DELETED, not re-anchored to docs/internal/ — docs/internal is now pruned, so
+# each one would assert the presence of a file the slice no longer ships. The
+# "excludes docs/internal" assertion above is the replacement over-prune-direction guard.)
 assert_eq "#677 vendor: self slice keeps non-test lib/ contents (preflight.sh)" "yes" "$(vexists "$VS_SELF/lib/preflight.sh")"
 assert_eq "#677 vendor: self slice keeps scripts/" "yes" "$(vexists "$VS_SELF/scripts")"
 assert_eq "#677 vendor: self slice keeps agents/" "yes" "$(vexists "$VS_SELF/agents")"
@@ -24074,7 +25017,7 @@ assert_eq "pls: bare invocation write-state matches the shipped contract (#1073)
   "$PLS_WC_RC:$([ -f "$PLS_WC/.claude/settings.json" ] && echo yes || echo no)"
 rm -rf "$PLS_WC"
 
-# Issue #1073 — the fenced jsonc blocks in docs/install.md and docs/cloud-setup.md
+# Issue #1073 — the fenced jsonc blocks in docs/internal/install.md and docs/internal/cloud-setup.md
 # reproduce the provisioned settings and are byte-mirrors of the script's $DEFAULTS
 # jq program. Assert they parse to the SAME JSON a write-performing invocation of
 # the shipped script produces, compared key-for-key (deep equality). This is a
@@ -24136,10 +25079,10 @@ if len(candidates) != 1:
 print("match" if candidates[0] == produced else "mismatch")
 PY
 }
-assert_eq "pls: shipped defaults match the documented jsonc block in docs/install.md (#1073)" "match" \
-  "$(pls_doc_cmp "$PLS_DOC/.claude/settings.json" "$LIB/../docs/install.md")"
-assert_eq "pls: shipped defaults match the documented jsonc block in docs/cloud-setup.md (#1073)" "match" \
-  "$(pls_doc_cmp "$PLS_DOC/.claude/settings.json" "$LIB/../docs/cloud-setup.md")"
+assert_eq "pls: shipped defaults match the documented jsonc block in docs/internal/install.md (#1073)" "match" \
+  "$(pls_doc_cmp "$PLS_DOC/.claude/settings.json" "$LIB/../docs/internal/install.md")"
+assert_eq "pls: shipped defaults match the documented jsonc block in docs/internal/cloud-setup.md (#1073)" "match" \
+  "$(pls_doc_cmp "$PLS_DOC/.claude/settings.json" "$LIB/../docs/internal/cloud-setup.md")"
 rm -rf "$PLS_DOC"
 unset -f pls_doc_cmp
 
@@ -25063,13 +26006,13 @@ PRT_AGENTS="code-reviewer silent-failure-hunter comment-analyzer type-design-ana
 #   - CHANGELOG.md                    release history (past entries describing prior config
 #                                     state) PLUS the new #141 entry, which documents the
 #                                     breaking rename and so necessarily names the old id.
-#   - docs/review-agent-overrides.md  carries the migration table (old-key -> new-key) that
+#   - docs/internal/review-agent-overrides.md  carries the migration table (old-key -> new-key) that
 #                                     tells operators what to rename; its OPERATIVE table /
 #                                     example are rewired to devflow: (asserted positively
 #                                     below), only the migration section names the old id.
 PRT_PAT="pr-review-""toolkit:"
 assert_eq "#141 no operative surface references the namespaced pr-review-toolkit agent id (logs/CHANGELOG/migration-doc excepted)" \
-  "" "$(tracked_scan "$FDROOT" "$PRT_PAT" ':!.prflow/logs' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md')"
+  "" "$(tracked_scan "$FDROOT" "$PRT_PAT" ':!.prflow/logs' ':!CHANGELOG.md' ':!docs/internal/review-agent-overrides.md')"
 
 # (2/2b/2c) Per-agent vendoring + dispatch-resolves + structural validity. For each of the
 # five review agents: the file exists first-party under agents/; the shared review engine
@@ -25212,11 +26155,11 @@ assert_eq "#141 no cloud workflow installs the pr-review-toolkit companion plugi
 # this most — it is EXCLUDED from (1) (it carries the old-id migration table), so its
 # operative override example would otherwise be unguarded; the other two are inside (1)'s
 # scan but a dropped-mention regression is still invisible to a negative scan.
-assert_eq "#141 docs/review-agent-overrides.md operative example uses the internalized devflow: key" \
-  "yes" "$(grep -qF '"devflow:code-reviewer": { "model"' "$FDROOT/docs/review-agent-overrides.md" && echo yes || echo no)"
+assert_eq "#141 docs/internal/review-agent-overrides.md operative example uses the internalized devflow: key" \
+  "yes" "$(grep -qF '"devflow:code-reviewer": { "model"' "$FDROOT/docs/internal/review-agent-overrides.md" && echo yes || echo no)"
 for d in DEVFLOW_SYSTEM_OVERVIEW.md shadow-review.md; do
   assert_eq "#141 docs/$d describes the internalized first-party review roster (devflow:code-reviewer present)" \
-    "yes" "$(grep -qF 'devflow:code-reviewer' "$FDROOT/docs/$d" && echo yes || echo no)"
+    "yes" "$(grep -qF 'devflow:code-reviewer' "$FDROOT/docs/internal/$d" && echo yes || echo no)"
 done
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -25242,7 +26185,7 @@ SP_SKILLS="requesting-code-review receiving-code-review"
 # identifier for the two internalized skills (the plugin-name + colon form). Excepted:
 # .prflow/logs (append-only audit scratch), CHANGELOG.md (historical entries + the #142
 # breaking-rename entry, which necessarily names the old override key), and (for the final-
-# pass key only) docs/review-agent-overrides.md (carries the old->new migration table) —
+# pass key only) docs/internal/review-agent-overrides.md (carries the old->new migration table) —
 # mirrors the #141 migration-doc exception. Patterns are split-literal so this run.sh never
 # self-matches its own grep, and the descriptions avoid the contiguous colon form for the
 # same reason (a description literal would itself be a tracked hit). writing-skills is NOT
@@ -25251,7 +26194,7 @@ SP_SKILLS="requesting-code-review receiving-code-review"
 SP_PAT_REQ="superpowers:""requesting-code-review"
 SP_PAT_REC="superpowers:""receiving-code-review"
 assert_eq "#142 no operative surface references the old namespaced requesting-code-review id (logs/CHANGELOG/migration-doc excepted)" \
-  "" "$(tracked_scan "$FDROOT" "$SP_PAT_REQ" ':!.prflow/logs' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md')"
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_REQ" ':!.prflow/logs' ':!CHANGELOG.md' ':!docs/internal/review-agent-overrides.md')"
 assert_eq "#142 no operative surface references the old namespaced receiving-code-review id (logs/CHANGELOG excepted)" \
   "" "$(tracked_scan "$FDROOT" "$SP_PAT_REC" ':!.prflow/logs' ':!CHANGELOG.md')"
 
@@ -25314,7 +26257,7 @@ SP_PAT_NS="superpowers"":"
 # CHANGELOG.md on merge, so a changeset that legitimately names `superpowers:writing-skills`
 # (this issue's own does) is exactly as sanctioned as the CHANGELOG entry it becomes.
 assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration/learnings/design-specs/prompt-extensions/changeset excepted)" \
-  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.prflow/logs' ':!.prflow/learnings' ':!.prflow/prompt-extensions' ':!.changeset' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!docs/superpowers/specs' ':!lib/test' ':!CLAUDE.md')"
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.prflow/logs' ':!.prflow/learnings' ':!.prflow/prompt-extensions' ':!.changeset' ':!CHANGELOG.md' ':!docs/internal/review-agent-overrides.md' ':!docs/superpowers/specs' ':!lib/test' ':!CLAUDE.md')"
 
 # (2/2b/2c) Per-skill vendoring + structural validity. For each of the two skills the file
 # exists first-party under skills/<name>/SKILL.md; its frontmatter declares name: <name> (so
@@ -25486,7 +26429,7 @@ _WSR_RETIRED_REFS=(
 # carried. The sweep only proves the old rule is gone, so the new rule gets its own
 # positive pin below.
 for _WSR_RETIRED_FILE in "$WSR_IMPL" "$WSR_RAF" "$FDROOT/.prflow/prompt-extensions/receiving-code-review.md" \
-  "$WSR_CLAUDE" "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md" "$FDROOT/CONTRIBUTING.md"; do
+  "$WSR_CLAUDE" "$FDROOT/docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md" "$FDROOT/CONTRIBUTING.md"; do
   # An absence guard cannot tell "the text is gone" from "the file was never read":
   # pin_count prints 0 for a missing/unreadable path, so a renamed or mistyped member of
   # this list would contribute a silent zero and the guard would pass BECAUSE it could not
@@ -25868,7 +26811,7 @@ assert_eq "#719 review-and-fix.md carries no undefined path disjunct in the full
 assert_eq "#719 receiving-code-review.md carries no undefined path disjunct in the full-suite trigger" "0" \
   "$(pin_count 'module or path' "$FDROOT/.prflow/prompt-extensions/receiving-code-review.md")"
 assert_eq "#719 overview mirror carries no undefined path disjunct in the full-suite trigger" "0" \
-  "$(pin_count 'module or path' "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md")"
+  "$(pin_count 'module or path' "$FDROOT/docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md")"
 assert_eq "#719 CONTRIBUTING.md carries no undefined path disjunct in the full-suite trigger" "0" \
   "$(pin_count 'focused path' "$FDROOT/CONTRIBUTING.md")"
 
@@ -26016,12 +26959,10 @@ assert_eq "#142 review engine no longer assumes the final-pass reviewer is an in
 # name the internalized devflow:requesting-code-review id — a negative scan (1) catches a
 # leftover OLD id but not a doc that DROPPED the mention. review-agent-overrides.md (excluded
 # from (1) for its migration table) needs this most.
-assert_eq "#142 docs/review-agent-overrides.md operative table uses the internalized devflow:requesting-code-review key" \
-  "yes" "$(grep -qF 'devflow:requesting-code-review' "$FDROOT/docs/review-agent-overrides.md" && echo yes || echo no)"
-for d in DEVFLOW_SYSTEM_OVERVIEW.md shadow-review.md; do
-  assert_eq "#142 docs/$d references the internalized devflow:requesting-code-review final-pass reviewer" \
-    "yes" "$(grep -qF 'devflow:requesting-code-review' "$FDROOT/docs/$d" && echo yes || echo no)"
-done
+# Issue #1188: the #142 prose-presence doc mirror pins (review-agent-overrides.md operative
+# table + the DEVFLOW_SYSTEM_OVERVIEW/shadow-review references to devflow:requesting-code-review)
+# were retired prose-presence pins orphaned by the docs/internal move; removed per the cluster
+# note earlier. The docs still carry the roster; only these regression guards are dropped.
 
 # (8) Positive pin for the implement skill's Phase-3 review-roster line (PR #143 review,
 # Minor #2). The implement skill (phases/phase-3-review.md) names the five first-party
@@ -26537,11 +27478,11 @@ vp_index() { git -C "$1" add -A >/dev/null 2>&1; }
 
 vp_repo() {  # -> prints an isolated fake repo root carrying both pin forms
   local d; d="$(mktemp -d)"
-  mkdir -p "$d/.claude-plugin" "$d/docs" "$d/lib/test" "$d/.changeset" "$d/.prflow/logs" \
-           "$d/.prflow/vendor/prflow/docs" "$d/.prflow/learnings" "$d/.claude/worktrees/wt/docs"
+  mkdir -p "$d/.claude-plugin" "$d/docs/internal" "$d/lib/test" "$d/.changeset" "$d/.prflow/logs" \
+           "$d/.prflow/vendor/prflow/docs/internal" "$d/.prflow/learnings" "$d/.claude/worktrees/wt/docs/internal"
   printf '{\n  "name": "devflow",\n  "version": "3.1.4"\n}\n' > "$d/.claude-plugin/plugin.json"
   printf 'curl -fsSL https://raw.githubusercontent.com/o/r/v3.1.4/install.sh -o i.sh\nDEVFLOW_REF=v3.1.4 bash i.sh\n' \
-    > "$d/docs/install.md"
+    > "$d/docs/internal/install.md"
   # Version-shaped tokens that are NOT release pins: a spec URL, a vendored tool version,
   # an upstream runner version, a historical migration note. None may be rewritten.
   printf 'semver.org/spec/v2.0.0.html SHELLCHECK v0.11.0 Copilot CLI v1.0.67 migration v2.8.12\n' \
@@ -26559,10 +27500,10 @@ vp_repo() {  # -> prints an isolated fake repo root carrying both pin forms
   printf 'DEVFLOW_REF=v0.0.4 machine-appended corpus\n' > "$d/.prflow/logs/x.md"
   # A materialized copy of some OTHER release of the plugin — the most realistic carrier of
   # a stale pin, and the one whose accidental inclusion would make every scan drift-red.
-  printf 'DEVFLOW_REF=v0.0.5 vendored copy of another release\n' > "$d/.prflow/vendor/prflow/docs/install.md"
+  printf 'DEVFLOW_REF=v0.0.5 vendored copy of another release\n' > "$d/.prflow/vendor/prflow/docs/internal/install.md"
   printf 'DEVFLOW_REF=v0.0.6 machine-appended learnings corpus\n' > "$d/.prflow/learnings/p.md"
   # The issue-#711 sibling-worktree guard: another branch's checkout under .claude/worktrees/.
-  printf 'DEVFLOW_REF=v0.0.7 another branch checkout\n' > "$d/.claude/worktrees/wt/docs/install.md"
+  printf 'DEVFLOW_REF=v0.0.7 another branch checkout\n' > "$d/.claude/worktrees/wt/docs/internal/install.md"
   git -C "$d" init -q >/dev/null 2>&1
   vp_index "$d"
   printf '%s\n' "$d"
@@ -26573,7 +27514,7 @@ python3 "$VP" --root "$VPD" --check >/dev/null 2>&1
 assert_eq "#953 fixture: a self-consistent tree passes --check" "0" "$?"
 VPL="$(python3 "$VP" --root "$VPD" --list)"
 assert_eq "#953 fixture: derives exactly the two real pin sites" "2" \
-  "$(printf '%s\n' "$VPL" | grep -c 'docs/install.md')"
+  "$(printf '%s\n' "$VPL" | grep -c 'docs/internal/install.md')"
 for vp_excluded in CHANGELOG.md lib/test .changeset .prflow/logs .prflow/vendor .prflow/learnings .claude/worktrees; do
   assert_eq "#953 fixture: the excluded population $vp_excluded contributes no pin site" "0" \
     "$(printf '%s\n' "$VPL" | grep -cF "$vp_excluded")"
@@ -26609,7 +27550,7 @@ done
 # ...and the guard is NOT merely blind: staling a TRACKED site in the same tree still reddens,
 # so the control above is exclusion-by-tracking, not a disabled check.
 printf 'curl -fsSL https://raw.githubusercontent.com/o/r/v3.1.3/install.sh -o i.sh\nDEVFLOW_REF=v3.1.4 bash i.sh\n' \
-  > "$VPD/docs/install.md"
+  > "$VPD/docs/internal/install.md"
 python3 "$VP" --root "$VPD" --check >/dev/null 2>&1
 assert_eq "#953 #711: a TRACKED drifted pin in that same tree still fails --check" "1" "$?"
 rm -rf "$VPD"
@@ -26619,7 +27560,7 @@ rm -rf "$VPD"
 # — a silent fallback would restore the untracked-host-state dependence just removed.
 VPD="$(mktemp -d)"; mkdir -p "$VPD/.claude-plugin" "$VPD/docs"
 printf '{ "version": "3.1.4" }\n' > "$VPD/.claude-plugin/plugin.json"
-printf 'DEVFLOW_REF=v3.1.4\n' > "$VPD/docs/install.md"
+printf 'DEVFLOW_REF=v3.1.4\n' > "$VPD/docs/internal/install.md"
 python3 "$VP" --root "$VPD" --check >"$VPD/out" 2>&1
 assert_eq "#953 #711: a non-git root exits 2 (fails closed, never degrades to a walk)" "2" "$?"
 assert_eq "#953 #711: that fault names the index-derived population contract" "1" \
@@ -26634,10 +27575,10 @@ rm -rf "$VPD"
 # ── both when every pin agrees and when the derivation matched nothing at all, so a pattern
 # ── regression would silence this guard AND the merge-time render_rewrites at the same
 # ── moment — the guard passing loudest exactly where it has stopped working.
-VPD="$(mktemp -d)"; mkdir -p "$VPD/.claude-plugin" "$VPD/docs"
+VPD="$(mktemp -d)"; mkdir -p "$VPD/.claude-plugin" "$VPD/docs/internal"
 printf '{ "version": "3.1.4" }\n' > "$VPD/.claude-plugin/plugin.json"
 printf 'A documentation page with no release pin in either machine-recognizable form.\n' \
-  > "$VPD/docs/install.md"
+  > "$VPD/docs/internal/install.md"
 git -C "$VPD" init -q >/dev/null 2>&1; vp_index "$VPD"
 python3 "$VP" --root "$VPD" --check >"$VPD/out" 2>&1
 assert_eq "#953 vacuity floor: a derivation that matches NOTHING exits 2, never a clean 0" "2" "$?"
@@ -26645,7 +27586,7 @@ assert_eq "#953 vacuity floor: the diagnostic says an empty site set is a fault"
   "$(grep -c 'empty site set is a fault' "$VPD/out")"
 # Positive control: the SAME tree with one real pin added passes, so the floor is a floor and
 # not a check that now rejects everything.
-printf 'DEVFLOW_REF=v3.1.4 payload ref\n' >> "$VPD/docs/install.md"; vp_index "$VPD"
+printf 'DEVFLOW_REF=v3.1.4 payload ref\n' >> "$VPD/docs/internal/install.md"; vp_index "$VPD"
 python3 "$VP" --root "$VPD" --check >/dev/null 2>&1
 assert_eq "#953 vacuity floor: one real pin site is enough to pass (the floor is not a wall)" "0" "$?"
 rm -rf "$VPD"
@@ -26654,15 +27595,15 @@ rm -rf "$VPD"
 VPD="$(vp_repo)"
 VP_OUT="$(python3 "$VP" --root "$VPD" --rewrite 3.2.0)"
 assert_eq "#953 --rewrite: both pin forms in the tracked doc move to the new version" "yes" \
-  "$([ "$(grep -cF 'githubusercontent.com/o/r/v3.2.0/' "$VPD/docs/install.md")" = "1" ] &&
-    [ "$(grep -cF 'DEVFLOW_REF=v3.2.0' "$VPD/docs/install.md")" = "1" ] && echo yes || echo no)"
-assert_eq "#953 --rewrite: prints exactly the files it changed" "docs/install.md" "$VP_OUT"
+  "$([ "$(grep -cF 'githubusercontent.com/o/r/v3.2.0/' "$VPD/docs/internal/install.md")" = "1" ] &&
+    [ "$(grep -cF 'DEVFLOW_REF=v3.2.0' "$VPD/docs/internal/install.md")" = "1" ] && echo yes || echo no)"
+assert_eq "#953 --rewrite: prints exactly the files it changed" "docs/internal/install.md" "$VP_OUT"
 assert_eq "#953 --rewrite: a file with no pin is never listed and never touched" "0" \
   "$(printf '%s\n' "$VP_OUT" | grep -cF 'history.md')"
 # An excluded/untracked population is not rewritten either — --rewrite shares --check's
 # population, so the two can never disagree about what the pin set is.
 assert_eq "#953 --rewrite: the vendored copy of another release is left alone" "1" \
-  "$(grep -cF 'DEVFLOW_REF=v0.0.5' "$VPD/.prflow/vendor/prflow/docs/install.md")"
+  "$(grep -cF 'DEVFLOW_REF=v0.0.5' "$VPD/.prflow/vendor/prflow/docs/internal/install.md")"
 # Idempotent: a second --rewrite to the same version writes nothing (files already at it are
 # omitted from the write set — the documented no-op-bump claim).
 assert_eq "#953 --rewrite: re-running at the same version is a no-op (empty write set)" "" \
@@ -26677,7 +27618,7 @@ import importlib.util as u, sys
 s=u.spec_from_file_location('vp','$VP'); m=u.module_from_spec(s); s.loader.exec_module(m)
 _real=open
 def boom(path, *a, **k):
-    if str(path).endswith('docs/install.md') and 'w' in (a[0] if a else k.get('mode','r')):
+    if str(path).endswith('docs/internal/install.md') and 'w' in (a[0] if a else k.get('mode','r')):
         raise OSError('injected write fault')
     return _real(path, *a, **k)
 m.open = boom
@@ -26685,7 +27626,7 @@ sys.exit(m.main(['--root','$VPD','--rewrite','3.3.0']))
 " 2>"$VPD/werr"; echo $?)"
 assert_eq "#953 --rewrite: a write OSError exits 2" "2" "$VP_RC"
 assert_eq "#953 --rewrite: that fault names the unwritable path" "1" \
-  "$(grep -cF 'docs/install.md: cannot write: injected write fault' "$VPD/werr")"
+  "$(grep -cF 'docs/internal/install.md: cannot write: injected write fault' "$VPD/werr")"
 assert_eq "#953 --rewrite: no bare traceback on a write fault" "0" "$(grep -cF 'Traceback' "$VPD/werr")"
 rm -rf "$VPD"
 
@@ -26693,11 +27634,11 @@ rm -rf "$VPD"
 # go RED, naming that site. This is the exact regression the guard exists for.
 VPD="$(vp_repo)"
 printf 'curl -fsSL https://raw.githubusercontent.com/o/r/v3.1.3/install.sh -o i.sh\nDEVFLOW_REF=v3.1.4 bash i.sh\n' \
-  > "$VPD/docs/install.md"
+  > "$VPD/docs/internal/install.md"
 python3 "$VP" --root "$VPD" --check >"$VPD/out" 2>&1; VP_RC=$?
 assert_eq "#953 drift negative control: one stale pin site fails --check (exit 1)" "1" "$VP_RC"
 assert_eq "#953 drift negative control: the diagnostic names the drifted file, line and pattern" "1" \
-  "$(grep -cF 'docs/install.md:1: raw-url pins v3.1.3, expected v3.1.4' "$VPD/out")"
+  "$(grep -cF 'docs/internal/install.md:1: raw-url pins v3.1.3, expected v3.1.4' "$VPD/out")"
 assert_eq "#953 drift negative control: the still-correct sibling site is NOT reported" "0" \
   "$(grep -c 'devflow-ref' "$VPD/out")"
 rm -rf "$VPD"
@@ -26715,7 +27656,7 @@ rm -rf "$VPD"
 # ── The bump rewrites every derived pin site, in the consolidator's own run. ─────────
 VPD="$(vp_repo)"
 printf 'curl -fsSL https://raw.githubusercontent.com/o/r/v3.1.4/install.sh -o i.sh\nDEVFLOW_REF=v3.1.4 bash i.sh\n' \
-  > "$VPD/docs/install.md"
+  > "$VPD/docs/internal/install.md"
 # A SECOND documentation page, added after the fact — the derived-set property under test.
 printf 'Also pinned: DEVFLOW_REF=v3.1.4 for the payload.\n' > "$VPD/docs/late-arrival.md"
 printf '# Changelog\n\nPreamble.\n\n## [3.1.4] - 2026-07-03\n\n### Fixed\n- old (#1)\n' > "$VPD/CHANGELOG.md"
@@ -26725,9 +27666,9 @@ python3 "$CS_SCRIPT" --root "$VPD" --date 2026-07-30 \
   --emit-bump-to "$VPD/bump.out" >/dev/null 2>&1
 assert_eq "#953 bump: the manifest moved to 3.1.5" "3.1.5" "$(cs_ver "$VPD")"
 assert_eq "#953 bump: the URL pin moved in the same run" "1" \
-  "$(grep -cF 'githubusercontent.com/o/r/v3.1.5/' "$VPD/docs/install.md")"
+  "$(grep -cF 'githubusercontent.com/o/r/v3.1.5/' "$VPD/docs/internal/install.md")"
 assert_eq "#953 bump: the DEVFLOW_REF pin moved in the same run" "1" \
-  "$(grep -cF 'DEVFLOW_REF=v3.1.5' "$VPD/docs/install.md")"
+  "$(grep -cF 'DEVFLOW_REF=v3.1.5' "$VPD/docs/internal/install.md")"
 assert_eq "#953 bump: a doc added later is covered because the site set is DERIVED, not listed" "1" \
   "$(grep -cF 'DEVFLOW_REF=v3.1.5' "$VPD/docs/late-arrival.md")"
 # Index the later-added page before re-checking: the CLI's population is the index (#711),
@@ -26737,7 +27678,7 @@ assert_eq "#953 bump: the tree is self-consistent afterwards (the tagged tree's 
   "$(python3 "$VP" --root "$VPD" --check >/dev/null 2>&1; echo $?)"
 # The write set is what the workflow stages; an omitted pin file is silently discarded by
 # the next `git reset --hard`, so every rewritten file must appear in it.
-for vp_w in .claude-plugin/plugin.json CHANGELOG.md docs/install.md docs/late-arrival.md; do
+for vp_w in .claude-plugin/plugin.json CHANGELOG.md docs/internal/install.md docs/late-arrival.md; do
   assert_eq "#953 bump: --emit-write-set-to names the rewritten file $vp_w" "1" \
     "$(grep -cxF "$vp_w" "$VPD/ws.out")"
 done
@@ -26804,13 +27745,13 @@ printf -- '---\nbump: patch\n---\n\n- Bumped. (#953)\n' > "$VPD/.changeset/a.md"
 VP_RC="$(python3 -c "
 import importlib.util as u, sys
 s=u.spec_from_file_location('c','$CS_SCRIPT'); m=u.module_from_spec(s); s.loader.exec_module(m)
-def boom(root, version): raise m.version_pins.VersionPinError('docs/install.md: injected read fault')
+def boom(root, version): raise m.version_pins.VersionPinError('docs/internal/install.md: injected read fault')
 m.version_pins.render_rewrites = boom
 sys.exit(m.main(['--root','$VPD','--date','2026-07-30']))
 " 2>"$VPD/out"; echo $?)"
 assert_eq "#953 pin-rewrite fault: exits 2" "2" "$VP_RC"
 assert_eq "#953 pin-rewrite fault: the diagnostic names the file" "1" \
-  "$(grep -cF 'docs/install.md: injected read fault' "$VPD/out")"
+  "$(grep -cF 'docs/internal/install.md: injected read fault' "$VPD/out")"
 assert_eq "#953 pin-rewrite fault: no bare traceback" "0" "$(grep -cF 'Traceback' "$VPD/out")"
 assert_eq "#953 pin-rewrite fault: the manifest is left unbumped (aborts before any write)" "3.1.4" \
   "$(cs_ver "$VPD")"
@@ -28021,7 +28962,7 @@ EOF
   #    this suite, so retiring this catch-all loses no real coverage.
 
   # ── AC12: the three docs document the Windows interpreter-resolution path. ──
-  for _doc in CONTRIBUTING.md docs/install.md docs/DEVFLOW_SYSTEM_OVERVIEW.md; do
+  for _doc in CONTRIBUTING.md docs/internal/install.md docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md; do
     assert_eq "#225 docs: $_doc documents the python3 resolution path (AC12)" "yes" \
       "$(grep -q 'provision-python3-shim.sh' "$REPO_ROOT/$_doc" && echo yes || echo no)"
   done
@@ -30737,8 +31678,22 @@ echo "#408 cloud review no-verdict auto-resume backstop + #414 post-and-annotate
 # module re-derives REPO_ROOT and rebuilds the review-engine bundle itself;
 # see its .inventory.md for the coverage map back to this location.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-stall-backstop.sh" \
-  "review-stall-backstop" 337; then
+  "review-stall-backstop" 459; then
   printf 'ERROR: review-stall-backstop boundary could not record its result\n'
+  exit 1
+fi
+# ────────────────────────────────────────────────────────────────────────────
+echo "#1139 Phase 2 mid-run durability checkpoint"
+# ────────────────────────────────────────────────────────────────────────────
+# scripts/phase2-durability-checkpoint.sh driven against a scratch git repository
+# with a real bare remote (git plumbing not mocked): the AC1 RED control and its AC2
+# GREEN counterpart, per-invocation commit behavior, the cloud-tier workflow-edit
+# guard's detect-and-do-not-stage half, §2.1.5 proof-edit exclusion, AC6 explicit-path
+# scoping, AC7 landing verification (HEAD==@{u}), and AC8 idempotency. See its
+# .inventory.md for the coverage map back to this location.
+if ! devflow_run_full_suite_module "$LIB/test/modules/phase2-durability-checkpoint.sh" \
+  "phase2-durability-checkpoint" 78; then
+  printf 'ERROR: phase2-durability-checkpoint boundary could not record its result\n'
   exit 1
 fi
 # ────────────────────────────────────────────────────────────────────────────
@@ -32548,28 +33503,57 @@ assert_eq "#401 skills/review/SKILL.md teaches no proven-denied command shape" "
 assert_eq "#401 shape-lint exits 0 on the clean review skill" "0" \
   "$(python3 "$ECS" "${_review_members[@]}" >/dev/null 2>&1; echo $?)"
 
-# ── #530 review-and-fix bundle shape lint (thin root + every references/*.md) ──
+# ── #530/#1152 review-and-fix bundle shape lint (thin root + every references/*.md,
+# ── plus the shared review-engine files it executes inline) — the COMMAND profile ──
 # review-and-fix carried NO extract-command-shapes.py coverage before the #530 split.
-# The APPLICABLE shape gate is the IMPLEMENT profile: review-and-fix is dispatched inline
-# by /devflow:implement Phase 3 (implement tier) and via the manual /devflow:review-and-fix
-# comment path (devflow.yml) — it is NEVER dispatched on the read-only cloud `review`
-# profile (devflow-runner.yml). The default profile of extract-command-shapes.py encodes
-# that read-only review-runner matcher (R1–R4), which legitimately denies leading-`VAR=…$(…)`
-# assignments (e.g. the loop-start `RUN_ID=`) and the unexpanded `${CLAUDE_SKILL_DIR:-…}`
-# anchor-as-leading-token + redirect — source forms review-and-fix relies on and that ARE
-# permitted on the tiers it actually runs on (the implement-profile lint below is clean).
-# So the whole bundle is shape-linted under `--profile implement` (root + every reference).
-# The manual-command (devflow.yml) tier's SHAPES are unprobed — matcher-probe.yml carries no
-# manual-command-tier shape-probe job (its review probe and implement-probe jobs cover the two
-# cloud allowlist tiers) — so the implement profile
-# stands in as the closest MEASURED proxy for the manual push path (probe-inference, not
-# measurement; if a shape denial ever surfaces there the real fix is a manual-probe job, not
-# more lint). The manual tier's HEADS are separately covered by the whole-bundle head scan
-# against devflow.yml above. Grants are unchanged — desk-time coverage only.
-for f in "$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../skills/review-and-fix/references"/*.md; do
-  assert_eq "#530 review-and-fix shape-lint (implement profile): $(basename "$f") teaches no denied shape" "" \
-    "$(python3 "$ECS" --profile implement "$f" 2>&1)"
+# It is dispatched inline by /prflow:implement Phase 3 (implement tier) AND via the
+# manual /prflow:review-and-fix comment path — the devflow.yml `command` tier. That
+# manual-command tier is now DIRECTLY linted and probed (issue #1152): the whole bundle
+# is shape-linted here under `--profile command`, and matcher-probe.yml's `command-probe`
+# job (baseline generated from the `command` profile) MEASURES the same tier, so the desk
+# rule set is grounded in measurement rather than inferred from a sibling tier. The
+# command rule set inherits the implement tier's denied shapes (extract-command-shapes.py's
+# COMMAND_RULES == the IR* shapes remapped to CR*), so it legitimately permits the source
+# forms review-and-fix relies on (leading-`VAR=…$(…)` captures, the unexpanded
+# `${CLAUDE_SKILL_DIR:-…}` anchor in source) that the read-only review matcher (R1–R4)
+# would deny. Before #1152 this block ran `--profile implement` as the closest MEASURED
+# proxy for the manual push path; that proxy is retired now the command tier has its own
+# probe. The manual tier's HEADS remain covered by the whole-bundle head scan against
+# devflow.yml above. Grants are unchanged — desk-time coverage only.
+_raf_cmd_members=("$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../skills/review-and-fix/references"/*.md "${_review_members[@]}")
+for f in "${_raf_cmd_members[@]}"; do
+  assert_eq "#530/#1152 review-and-fix shape-lint (command profile): $(basename "$f") teaches no denied shape" "" \
+    "$(python3 "$ECS" --profile command "$f" 2>&1)"
 done
+
+# ── #1152 command-profile planted-defect controls (anti-vacuity): each CR rule must
+# ── be observed RED on a planted fence, and a clean fence must exit 0 with no output.
+# ── The controls inherit the implement tier's five denied shapes (a label-helper `for`
+# ── loop, a label-helper `while` loop, a label-helper capture, a leading `cd`, and a
+# ── `/tmp`-targeted redirect), one per rule id, following the $E363 fixture convention.
+printf '%s\n' '```bash' 'for L in a b; do .prflow/vendor/prflow/scripts/apply-labels.sh "$L" X; done' '```' > "$E363/cr1.md"
+printf '%s\n' '```bash' 'printf "a\nb\n" | while read -r L; do .prflow/vendor/prflow/scripts/apply-labels.sh "$L" X; done' '```' > "$E363/cr2.md"
+printf '%s\n' '```bash' 'OUT="$(.prflow/vendor/prflow/scripts/apply-labels.sh 9999 X)"' '```' > "$E363/cr3.md"
+printf '%s\n' '```bash' 'cd /tmp' '```' > "$E363/cr4.md"
+printf '%s\n' '```bash' 'echo hi > /tmp/cr5' '```' > "$E363/cr5.md"
+# The unexpanded anchor as a leading token is DELIBERATELY not a command-tier rule
+# (AC7, matching the implement table's #275 decision), so this fixture must be CLEAN.
+printf '%s\n' '```bash' '"${CLAUDE_SKILL_DIR:-x}"/../../scripts/config-get.sh .base_branch main' '```' > "$E363/cr-anchor-clean.md"
+printf '%s\n' '```bash' 'echo just a plainly granted command' '```' > "$E363/cr-clean.md"
+for _crn in CR1 CR2 CR3 CR4 CR5; do
+  # ${_crn,,} is a bash builtin lowercase — the fixture filename that SELECTS which
+  # planted fence to lint must not be derived through a non-preflight PATH tool like
+  # `tr` (guard-class 2), even in a test.
+  _crf="$E363/${_crn,,}.md"
+  assert_eq "#1152 command profile: a planted $_crn violation is observed RED" "yes" \
+    "$(python3 "$ECS" --profile command "$_crf" 2>/dev/null | grep -qF "  $_crn  " && echo yes || echo no)"
+done
+assert_eq "#1152 command profile: the unexpanded anchor as a leading token is NOT a rule (AC7)" "" \
+  "$(python3 "$ECS" --profile command "$E363/cr-anchor-clean.md" 2>&1)"
+assert_eq "#1152 command profile: a clean fence produces empty output" "" \
+  "$(python3 "$ECS" --profile command "$E363/cr-clean.md" 2>&1)"
+assert_eq "#1152 command profile: a clean fence exits 0 (negative control)" "0" \
+  "$(python3 "$ECS" --profile command "$E363/cr-clean.md" >/dev/null 2>&1; echo $?)"
 
 # #539 review (Important): the reference SET was only incidentally asserted — every #530 loop
 # enumerates references/*.md by GLOB, so deleting a whole reference file (e.g.
@@ -33353,7 +34337,7 @@ fi
 # register its own raise, exactly as #815 intended. It is pinned rather than rendered
 # because a rendered figure would move with the file and enforce nothing. Provenance, both
 # measured deltas, and the raise rationale:
-# docs/cutovers/issue-815-deferred-ac-followups-relocate.md. Issue #1039's shared writing
+# docs/internal/cutovers/issue-815-deferred-ac-followups-relocate.md. Issue #1039's shared writing
 # standard adds a per-phase reflection compose-point read block to every implement phase
 # file, including this one, so the ceiling is raised again here at the post-#1039
 # measurement with NO added slack, exactly as above. That measurement is the one taken
@@ -33391,8 +34375,20 @@ fi
 # below already single-sources scope to the same extension statement, so the sentence states
 # only parallelization and the two serialized runs. Raise the ceiling to the exact post-#1053
 # measurement, with no slack.
-assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
-  "$([ "$(wc -c < "$I480_P4")" -le 106299 ] && echo yes || echo no)"
+# Issue #1243 names the checkout-fingerprint producer in item 1's completion-evidence flight
+# (the `claim` declaration's `checkout` and the `--current-checkout-file` re-anchor). That
+# sentence is read on the way INTO the same flight, so — like the amendments above — it cannot
+# be routed behind a conditional progressively-loaded reference. Raise the ceiling to the exact
+# post-#1243 measurement, with no slack.
+# Checkpoint 4's UPDATED arm no longer mandates a post-merge suite re-run: the completion-evidence
+# flight below runs after that checkpoint and before the publish decision over the SAME merged tree
+# and already Blocks on a non-pass, so the second run re-verified an already-gated tree. The #1053
+# entry above is retained as the past-time record of why the ceiling was raised then — its "two
+# serialized runs" pair is now the one resolve-then-verify ordering (checkpoint 4's inherited
+# CONFLICT arm and the fix loop's conflict path). The ceiling is a `-le` bound and this change only
+# shrinks the file, so no raise is owed and none is taken.
+assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises — to raise it, see CONTRIBUTING.md 'Raising the phase-4 documentation byte ceiling'" "yes" \
+  "$([ "$(wc -c < "$I480_P4")" -le 106831 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
 # the reference through this file's own entry-gate anchor, and degrades rather than halting
 # on a failed read — carry NO pin. Every mutation those sentences admit rewrites the one
@@ -33447,8 +34443,8 @@ assert_eq "#815 the module-runner fixture materialises the gated reference" "yes
   "$(grep -qF 'skills/implement/references' "$LIB/../lib/test/test_module_runner.py" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the fixture's partial copy must carry every bundle member or its emptied-phase proof is confounded
 I815_REG='{"glob": "skills/implement/references/*.md", "load_class": "reference", "required": false}'
 assert_eq "#815 the flight-recorder registry carries a reference load_class row for implement" "yes" "$(grep -qF "$I815_REG" "$LIB/../scripts/workflow-flight-recorder-registry.json" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- the registry row's own load_class/required vocabulary; required:false records that a predicate-gated surface is correctly absent from most runs
-# The prose mirrors this change updates (docs/DEVFLOW_SYSTEM_OVERVIEW.md,
-# docs/cloud-allowlist.md, lib/intervention-surfaces.md, docs/implement-skill.md, and the
+# The prose mirrors this change updates (docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md,
+# docs/internal/cloud-allowlist.md, lib/intervention-surfaces.md, docs/internal/implement-skill.md, and the
 # prompt-extension trigger-glob lists) deliberately carry NO presence pin:
 # a documentation-presence assertion is exactly the wording-only class the #810 authoring
 # policy prohibits, and the #434 stale-prose self-scan is what covers doc drift.
@@ -34708,7 +35704,7 @@ assert_eq "#363 skill: does not attribute a suite-execution obligation to Phase 
 # ...and the same absence in the doc that PARAPHRASES this section. The paraphrase is the
 # coupled mirror site: it carried the repudiated attribution verbatim after the skill
 # dropped it, so pinning only the skill would have left the falsehood shipping in docs/.
-_OVERVIEW_MD="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+_OVERVIEW_MD="$LIB/../docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_eq "#363 docs: the overview's paraphrase does not attribute that obligation to Phase 2 either" "0" \
   "$(pin_count 'Phase 2'"'"'s "establish the suite passes" obligation' "$_OVERVIEW_MD")"
 # Terminal ❌ on ANY no-verdict path, not only a fatal abort.
@@ -35225,6 +36221,155 @@ ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidI"}' \
 assert_eq "#362 isg: a different session is still blocked once (exit 2)" "2" "${ISG_R%%|*}"
 rm -rf "$ISG_D"
 
+# ── marker OWNERSHIP (issue #1222). The marker's first line records the owning
+# session id. An interim marker owned by ANOTHER live session must not block the
+# stopper (a non-owner can never drive that run's workpad terminal); a marker
+# owned by THIS session, or one with no usable owner, still blocks as today.
+
+# AC2 — a foreign-owned interim marker does NOT block. First line is a well-formed
+# session id differing from the payload session_id: allow (exit 0), write NO sentinel,
+# and emit a breadcrumb naming the issue and stating another session owns the run.
+ISG_D="$(isg_repo "isg: foreign-owned interim marker")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+printf '%s\n' "owner-session-A" > "$ISG_D/.prflow/tmp/implement-active-604"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"stopper-session-B"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
+assert_eq "#1222 isg: a foreign-owned interim marker -> allow (exit 0), never a block" "0" "${ISG_R%%|*}"
+assert_eq "#1222 isg: foreign-owner arm names the issue number in its breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#604' && echo yes || echo no)"
+assert_eq "#1222 isg: foreign-owner arm states another session owns the run" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'owned by another session' && echo yes || echo no)"
+# Pin BOTH interpolated identities (owner and stopper), so a garbled/ swapped/ dropped
+# operand in the breadcrumb is caught — a bare 'owned by another session' substring would
+# survive dropping $MARKER_OWNER or $SESSION_ID.
+assert_eq "#1222 isg: foreign-owner breadcrumb names the recorded owner" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'owner-session-A' && echo yes || echo no)"
+assert_eq "#1222 isg: foreign-owner breadcrumb names the stopping session" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'stopper-session-B' && echo yes || echo no)"
+assert_eq "#1222 isg: foreign-owner arm surfaces the interim status word (the 'may be stuck' signal survives)" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'Reviewing' && echo yes || echo no)"
+assert_eq "#1222 isg: foreign-owner arm writes NO sentinel for the stopping session" "no" \
+  "$([ -e "$ISG_D/.prflow/tmp/stop-guard-stopper-session-B" ] && echo yes || echo no)"
+assert_eq "#1222 isg: foreign-owner arm leaves the marker in place (only the block is suppressed)" "yes" \
+  "$([ -e "$ISG_D/.prflow/tmp/implement-active-604" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# AC3 — a marker owned by THIS session still blocks, byte-for-byte today's behavior:
+# write the sentinel, print the instruction, exit 2.
+ISG_D="$(isg_repo "isg: self-owned interim marker")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+printf '%s\n' "my-session-X" > "$ISG_D/.prflow/tmp/implement-active-604"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"my-session-X"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
+assert_eq "#1222 isg: a self-owned interim marker still BLOCKS (exit 2)" "2" "${ISG_R%%|*}"
+assert_eq "#1222 isg: self-owned block writes the session-keyed sentinel" "yes" \
+  "$([ -e "$ISG_D/.prflow/tmp/stop-guard-my-session-X" ] && echo yes || echo no)"
+assert_eq "#1222 isg: self-owned block prints the terminal-status instruction" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'return to the phase that owns the remaining work' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# AC4 — ABSENT identity fails CLOSED and blocks exactly as today. Four shapes, each
+# asserted to still exit 2. The zero-byte case is the compatibility case (every marker
+# written before this change), asserted explicitly so no legacy marker changes behavior.
+#   zero-byte : today's `: >` shape
+#   blank     : a first line that is whitespace-only
+#   malformed : a first line carrying a char outside the filename-safe charset
+# (the unreadable-marker shape is asserted separately below — it needs a chmod dance.)
+for ISG_CASE in zero-byte blank malformed; do
+  ISG_D="$(isg_repo "isg: absent-identity $ISG_CASE marker")"
+  cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+  case "$ISG_CASE" in
+    zero-byte) : > "$ISG_D/.prflow/tmp/implement-active-604" ;;
+    blank)     printf '   \n' > "$ISG_D/.prflow/tmp/implement-active-604" ;;
+    malformed) printf '%s\n' "not/a/valid/id" > "$ISG_D/.prflow/tmp/implement-active-604" ;;
+  esac
+  ISG_R="$(isg_run "$ISG_D" '{"session_id":"stopper-session-Z"}' \
+    "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
+  assert_eq "#1222 isg: absent-identity ($ISG_CASE) interim marker fails CLOSED — still BLOCKS (exit 2)" "2" "${ISG_R%%|*}"
+  assert_eq "#1222 isg: absent-identity ($ISG_CASE) block writes the sentinel" "yes" \
+    "$([ -e "$ISG_D/.prflow/tmp/stop-guard-stopper-session-Z" ] && echo yes || echo no)"
+  rm -rf "$ISG_D"
+done
+
+# AC4 (unreadable marker) — a present-but-unreadable marker file cannot yield an owner,
+# so it fails CLOSED and blocks. The status query keys on the issue number in the
+# filename, not the file body, so an unreadable marker still reaches the block arm.
+ISG_D="$(isg_repo "isg: unreadable interim marker")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+printf '%s\n' "owner-session-A" > "$ISG_D/.prflow/tmp/implement-active-604"
+chmod 000 "$ISG_D/.prflow/tmp/implement-active-604"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"stopper-session-Z"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
+chmod 644 "$ISG_D/.prflow/tmp/implement-active-604"
+assert_eq "#1222 isg: an unreadable interim marker fails CLOSED — still BLOCKS (exit 2)" "2" "${ISG_R%%|*}"
+rm -rf "$ISG_D"
+
+# AC7 — a foreign marker cannot suppress a REAL block. Two interim markers in one scan:
+# one foreign-owned (must not block), one that must block (owned by this session, or
+# identity-free). The guard still blocks, in EITHER scan order. Markers glob lexically by
+# issue number, so 613 precedes 614 — swapping which issue carries the foreign owner
+# exercises both orders. Distinct interim workpad fixtures are keyed per issue.
+sed 's/#604/#613/' "$ISG_GHD/interim.md" > "$ISG_GHD/interim613.md"
+sed 's/#604/#614/' "$ISG_GHD/interim.md" > "$ISG_GHD/interim614.md"
+
+# Order 1: foreign marker FIRST (613), a blocking identity-free marker SECOND (614).
+ISG_D="$(isg_repo "isg: foreign-then-blocking scan")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+printf '%s\n' "owner-session-A" > "$ISG_D/.prflow/tmp/implement-active-613"   # foreign -> skip
+: > "$ISG_D/.prflow/tmp/implement-active-614"                                  # identity-free -> blocks
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"stopper-session-B"}' "DEVFLOW_GH=$ISG_GHD/gh" \
+  "ISG_BODY_613=$ISG_GHD/interim613.md" "ISG_BODY_614=$ISG_GHD/interim614.md")"
+assert_eq "#1222 isg: a foreign marker earlier in scan order does not suppress the later real block (exit 2)" "2" "${ISG_R%%|*}"
+assert_eq "#1222 isg: the block names the blocking issue (614), not the skipped foreign one" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#614' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# Order 2: a blocking identity-free marker FIRST (613), foreign marker SECOND (614).
+ISG_D="$(isg_repo "isg: blocking-then-foreign scan")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.prflow/tmp/implement-active-613"                                  # identity-free -> blocks first
+printf '%s\n' "owner-session-A" > "$ISG_D/.prflow/tmp/implement-active-614"   # foreign (never reached)
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"stopper-session-B"}' "DEVFLOW_GH=$ISG_GHD/gh" \
+  "ISG_BODY_613=$ISG_GHD/interim613.md" "ISG_BODY_614=$ISG_GHD/interim614.md")"
+assert_eq "#1222 isg: a real block earlier in scan order still fires with a foreign marker after it (exit 2)" "2" "${ISG_R%%|*}"
+assert_eq "#1222 isg: that block names the blocking issue (613)" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#613' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# AC6 — self-heal is preserved regardless of owner: a FOREIGN-owned marker whose workpad
+# is terminal is still deleted on Stop (ownership only gates the interim block arm).
+ISG_D="$(isg_repo "isg: foreign-owned terminal self-heal")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+printf '%s\n' "owner-session-A" > "$ISG_D/.prflow/tmp/implement-active-603"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"stopper-session-B"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_603=$ISG_GHD/terminal.md")"
+assert_eq "#1222 isg: a foreign-owned terminal marker still allows the stop (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#1222 isg: a foreign-owned terminal marker still self-heals (deleted regardless of owner)" "no" \
+  "$([ -e "$ISG_D/.prflow/tmp/implement-active-603" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# The headline #1222 scenario: MULTIPLE concurrent live sessions in one checkout, none
+# owned by the stopper. Every interim marker is foreign-owned, so the stopper is blocked by
+# none of them and the scan ends by ALLOWING the stop (exit 0) with no sentinel written —
+# the exact false-positive the issue reports. Two foreign markers (613, 614) prove the skip
+# CONTINUEs past the first foreign marker to the second rather than stopping the scan.
+sed 's/#604/#613/' "$ISG_GHD/interim.md" > "$ISG_GHD/interim613.md"
+sed 's/#604/#614/' "$ISG_GHD/interim.md" > "$ISG_GHD/interim614.md"
+ISG_D="$(isg_repo "isg: all-foreign multi-session scan")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+printf '%s\n' "owner-session-A" > "$ISG_D/.prflow/tmp/implement-active-613"   # foreign -> skip
+printf '%s\n' "owner-session-C" > "$ISG_D/.prflow/tmp/implement-active-614"   # foreign -> skip
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"stopper-session-B"}' "DEVFLOW_GH=$ISG_GHD/gh" \
+  "ISG_BODY_613=$ISG_GHD/interim613.md" "ISG_BODY_614=$ISG_GHD/interim614.md")"
+assert_eq "#1222 isg: every interim marker foreign-owned -> allow the stop (exit 0), the reported false-positive is gone" "0" "${ISG_R%%|*}"
+assert_eq "#1222 isg: all-foreign scan writes NO sentinel for the stopping session" "no" \
+  "$([ -e "$ISG_D/.prflow/tmp/stop-guard-stopper-session-B" ] && echo yes || echo no)"
+assert_eq "#1222 isg: all-foreign scan skips the SECOND foreign marker too (continue, not stop-scan)" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#614' && echo yes || echo no)"
+assert_eq "#1222 isg: all-foreign scan leaves both foreign markers in place" "yes" \
+  "$([ -e "$ISG_D/.prflow/tmp/implement-active-613" ] && [ -e "$ISG_D/.prflow/tmp/implement-active-614" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
 # ── allow: the sentinel write itself fails (read-only .prflow/tmp). The guard
 # must NOT exit 2 without a sentinel — that would break the one-block bound and
 # could trap the session in a re-block loop.
@@ -35369,7 +36514,7 @@ assert_eq "#362 settings.json: nested launch writes no session-keyed state under
 rm -f "$ISG_NESTED_ERR" "$ISG_NESTED_WT_ERR" "$ISG_HEAL_ERR"
 rm -rf "$ISG_FX-wt" "$ISG_FX"
 
-# ── Doc-fence equality pin (issue #627, AC10): the docs/efficiency-trace.md "Stop hook
+# ── Doc-fence equality pin (issue #627, AC10): the docs/internal/efficiency-trace.md "Stop hook
 # (local-tier only)" example is pinned EQUAL to the tracked .claude/settings.json Stop
 # entries (command strings + timeouts, in order), so ANY wiring drift — a dropped
 # stop-hook-probe.sh entry, a helper-path typo, a lost `|| echo` diagnostic tail, a
@@ -35433,7 +36578,7 @@ if not entries:
     fail("no Stop entries extracted")
 sys.stdout.write(json.dumps(entries, ensure_ascii=False))
 '
-ISG_DOC="$LIB/../docs/efficiency-trace.md"
+ISG_DOC="$LIB/../docs/internal/efficiency-trace.md"
 ISG_DOC_ENTRIES="$(python3 -c "$ISG_DOCPIN_PY" md "$ISG_DOC" 2>/dev/null)"; ISG_DOC_RC=$?
 ISG_REAL_ENTRIES="$(python3 -c "$ISG_DOCPIN_PY" json "$ISG_SETTINGS" 2>/dev/null)"; ISG_REAL_RC=$?
 assert_eq "#362 efficiency-trace doc: Stop example extraction succeeds (fail-closed contract)" "0" "$ISG_DOC_RC"
@@ -38516,7 +39661,7 @@ assert_eq "#438 describe-hook-probe: no-argument invocation leaves the stderr br
 # The committed evidence record's 'unedited helper output' claim stays coupled to the
 # emitter: the structural-section heading literal must match on both sides (#438 review).
 assert_eq "#438 exec-shape: observed.txt carries the emitter's structural-section heading verbatim" "yes" \
-  "$(grep -qxF '## Structural key-paths (redacted; string leaves shown as type only)' "$REPO_ROOT/docs/execution-file-shape.observed.txt" \
+  "$(grep -qxF '## Structural key-paths (redacted; string leaves shown as type only)' "$REPO_ROOT/lib/test/fixtures/execution-file-shape.observed.txt" \
      && grep -qF '## Structural key-paths (redacted; string leaves shown as type only)' "$REPO_ROOT/scripts/extract-execution-shape.sh" \
      && echo yes || echo no)"
 # The workflow must actually route through the helper (the extraction is only coverage if
@@ -38535,36 +39680,52 @@ assert_eq "#438 describe-hook-probe: matcher-probe.yml routes the observation th
 # DERIVED on both sides (never a transcribed literal) so adding an 18th shape cannot rot it:
 # the count is read from the preamble and compared against the row-tuple count.
 _MP789_YML="$REPO_ROOT/.github/workflows/matcher-probe.yml"
-# Both derivations are scoped to the IMPLEMENT-probe job: the file carries a second,
-# independent review-tier probe with its own rows list and its own count phrasings, and an
-# unscoped read would compare one job's table against the other's prose.
-_MP789_ROWS="$(python3 - "$_MP789_YML" <<'PY789'
+# Both derivations are scoped to a SINGLE probe job: the file carries several
+# independent probe jobs, each with its own rows list and its own count phrasings, and
+# an unscoped read would compare one job's table against another's prose. The slice is
+# bounded to the job by cutting at the next top-level job key (2-space indent), so a
+# job that FOLLOWS the one under test (e.g. command-probe after implement-probe,
+# issue #1152) cannot bleed its own counts in. Checked for both the implement-probe and
+# command-probe jobs — each is a hand-maintained count↔rows coupled pair (#789/#1152).
+_mp789_check() {
+  local _job="$1"
+  local _out _rows _said
+  # One python pass computes the job slice once and prints `<rows>|<said>`: the
+  # row-tuple count and the set of count phrasings the prompt states. The shell splits
+  # the two fields with parameter expansion (bash builtins — no non-preflight PATH tool,
+  # guard-class 2).
+  _out="$(python3 - "$_MP789_YML" "$_job" <<'PY789'
 import re, sys
 text = open(sys.argv[1], encoding="utf-8").read()
-job = text[text.index("\n  implement-probe:"):]
+job = text[text.index("\n  " + sys.argv[2] + ":"):]
+# Bound to this job: cut at the next top-level job key (2-space indent, not this one).
+nxt = re.search(r"\n  [A-Za-z][\w-]*:\n", job[1:])
+if nxt:
+    job = job[: nxt.start() + 1]
 block = job[job.index("rows = ["):]
 block = block[: block.index("\n          ]")]
-print(len(re.findall(r"^\s*\(\s*\d+\s*,", block, re.M)))
-PY789
-)"
-_MP789_SAID="$(python3 - "$_MP789_YML" <<'PY789'
-import re, sys
-text = open(sys.argv[1], encoding="utf-8").read()
-job = text[text.index("\n  implement-probe:"):]
+rows = len(re.findall(r"^\s*\(\s*\d+\s*,", block, re.M))
 found = set(re.findall(r"the (\d+) numbered command shapes", job)) \
       | set(re.findall(r"1 through (\d+)\.", job)) \
       | set(re.findall(r"attempting all (\d+),", job))
-print(",".join(sorted(found)) if found else "UNRESOLVED")
+said = ",".join(sorted(found)) if found else "UNRESOLVED"
+print("%d|%s" % (rows, said))
 PY789
 )"
-# The implement-probe prompt is the only one carrying all three count phrasings, so the
-# resolved set must be a single value equal to the row count; anything else is drift.
-assert_eq "#789 matcher-probe: the prompt's attempt-count matches its row table (a listed-but-unattempted shape is silently unmeasured)" \
-  "$_MP789_ROWS" "$_MP789_SAID"
-unset _MP789_YML _MP789_ROWS _MP789_SAID
+  _rows="${_out%%|*}"
+  _said="${_out#*|}"
+  # The prompt carries all three count phrasings, so the resolved set must be a single
+  # value equal to the row count; anything else is drift.
+  assert_eq "#789 matcher-probe: the $_job prompt's attempt-count matches its row table (a listed-but-unattempted shape is silently unmeasured)" \
+    "$_rows" "$_said"
+}
+_mp789_check implement-probe
+_mp789_check command-probe
+unset _MP789_YML
+unset -f _mp789_check
 # #457: the docs AC6 record must state the observed FIRED result (with the run cited) and no
 # longer carry the stale 'unavailable (pending)' verdict.
-DHP_DOC="$REPO_ROOT/docs/execution-file-shape.md"
+DHP_DOC="$REPO_ROOT/docs/internal/execution-file-shape.md"
 assert_eq "#457 execution-file-shape: AC6 no longer records 'unavailable (pending)'" "yes" \
   "$(grep -qF 'unavailable` (pending)' "$DHP_DOC" && echo no || echo yes)"
 assert_eq "#457 execution-file-shape: AC6 records the FIRED observation citing run 29224205805" "yes" \
@@ -38882,7 +40043,7 @@ assert_eq "#505 AC skew: devflow.yml skew arm names prflow_version" "yes" \
 # The write-tier inline annotation fallback (HELPER present, COMPOSE absent) must
 # surface a SILENT SPLICE too, not only a degraded file: valid extras were composed
 # unconditionally, so a partial-vendor skew that drops describe-plugin-compose.sh must
-# still emit the audit ::notice:: (docs/cloud-setup.md: every spliced entry logged,
+# still emit the audit ::notice:: (docs/internal/cloud-setup.md: every spliced entry logged,
 # never silent). Without this arm the extras splice into the credentialed runner with
 # no audit line. Grep-pin the splice-notice fallback on both write tiers.
 for _f in devflow-implement devflow; do
@@ -39745,41 +40906,47 @@ assert_eq "#456 ci.yml: the shard job checkout sets fetch-depth: 0" "yes" \
 # checkouts, and only the agent-running job runs the suite.
 _I1219_IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
 _I1219_CMD_YML="$LIB/../.github/workflows/devflow.yml"
+# Both patterns are ANCHORED on the VALUE, not merely prefix-matched, because an unanchored
+# pair is defeated by a single input: `fetch-depth: 050` matches `fetch-depth: 0` as a
+# PREFIX (so the positive pin answers yes) while `[[:space:]]*[1-9]` never sees a digit in
+# 1-9 immediately after the space (so the negative pin answers no) — both pins green with a
+# bounded depth in force. So the positive pin requires the value to BE `0` (end of line) and
+# the negative pin tolerates leading zeros before the first nonzero digit. A trailing
+# comment or a quoted `'0'` makes the positive pin answer no, i.e. RED — the fail-closed
+# direction, and the reason the value pattern is stated once here rather than loosened.
 # structural-pin-ok: cross-file-phase-contract -- the executed checkout line is what supplies the history the #719 baseline-corpus gate needs; bounding it makes that gate self-skip while the workflow stays green
 assert_eq "#1219 devflow-implement.yml: the claude job checkout sets fetch-depth: 0" "yes" \
-  "$(devflow_wf_job_has claude 'fetch-depth: 0' "$_I1219_IMPL_YML")"
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_IMPL_YML")"
 # A PLAIN revert to a bounded depth is already caught by the positive pin above, which goes
 # RED on its own the moment `fetch-depth: 0` is gone — the negative pin's job is the narrower
 # one the positive pin cannot do: forbid a SECOND, bounded fetch-depth line added BESIDE a
 # retained `fetch-depth: 0`, whose effective value is parser-dependent and which a line
-# matcher cannot rank. The optional quote in the pattern is load-bearing there: `'50'` and
-# `"50"` are valid YAML scalars actions/checkout accepts, and a bare `[1-9]` would let the
-# added line through while the retained `0` kept the positive pin green.
+# matcher cannot rank. The optional quote is load-bearing there: `'50'` and `"50"` are valid
+# YAML scalars actions/checkout accepts, and a bare `[1-9]` would let the added line through
+# while the retained `0` kept the positive pin green.
 # structural-pin-ok: cross-file-phase-contract -- a bounded depth anywhere in this job re-arms the shallow-checkout failure the positive pin above exists to prevent
 assert_eq "#1219 devflow-implement.yml: the claude job checkout sets no bounded fetch-depth" "no" \
-  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_IMPL_YML")"
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_IMPL_YML")"
 # structural-pin-ok: cross-file-phase-contract -- the command job hosts /prflow:review-and-fix, whose in-env verification runs the same suite under the same no-skip accounting
 assert_eq "#1219 devflow.yml: the command job checkout sets fetch-depth: 0" "yes" \
-  "$(devflow_wf_job_has command 'fetch-depth: 0' "$_I1219_CMD_YML")"
+  "$(devflow_wf_job_has command 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_CMD_YML")"
 # structural-pin-ok: cross-file-phase-contract -- a bounded depth anywhere in this job re-arms the shallow-checkout failure the positive pin above exists to prevent
 assert_eq "#1219 devflow.yml: the command job checkout sets no bounded fetch-depth" "no" \
-  "$(devflow_wf_job_has command 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_CMD_YML")"
+  "$(devflow_wf_job_has command 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_CMD_YML")"
 # Discriminating controls for the helper itself, so a `no`/`yes` above is evidence rather
 # than an artifact of a matcher that can only answer one way: an absent job must answer
 # `no` (not `yes`, and not the job-agnostic whole-file answer), and an unreadable file must
 # answer `unreadable` (not `no`, which would let a mistyped path pass every pin above).
 assert_eq "#1219 devflow_wf_job_has control: an absent job answers no" "no" \
-  "$(devflow_wf_job_has no_such_job 'fetch-depth: 0' "$_I1219_IMPL_YML")"
+  "$(devflow_wf_job_has no_such_job 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_IMPL_YML")"
 assert_eq "#1219 devflow_wf_job_has control: an unreadable file answers unreadable" "unreadable" \
-  "$(devflow_wf_job_has claude 'fetch-depth: 0' "$_I1219_IMPL_YML.nope")"
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_IMPL_YML.nope")"
 # Positive control for the NEGATIVE pattern itself — the norm the #671 block states below
 # ("`no` is the value the arm's assertion accepts, so [something] that silently produced an
 # unusable [input] would satisfy every arm while proving nothing"), applied here. Without
 # it a valid-but-wrong ERE (a typo'd bracket class, a `;` for `:`) yields a permanent
-# vacuous `no` and the two negative pins above forbid nothing. Plant a bounded depth into a
-# copy of the claude job in BOTH spellings the widened pattern now covers and require the
-# same pattern to answer `yes`; the copy is discarded, so the real workflow is untouched.
-# git_sandbox, not probe_tmp: this needs a temp DIRECTORY to hold two mutated copies, and
+# vacuous `no` and the two negative pins above forbid nothing.
+# git_sandbox, not probe_tmp: this needs a temp DIRECTORY to hold the mutated copies, and
 # probe_tmp allocates a FILE — redirecting into `<file>/bare.yml` is ENOTDIR, so the copies
 # would never exist and the matcher would answer `unreadable` against the expected `yes`.
 # (Learned the hard way: the first authoring used probe_tmp and went RED in CI.) On failure
@@ -39787,16 +40954,30 @@ assert_eq "#1219 devflow_wf_job_has control: an unreadable file answers unreadab
 # redirects below fail closed rather than writing anywhere real.
 _I1219_MUT="$(git_sandbox '#1219 negative-pattern positive control')"
 _suite_tmp_dir "$_I1219_MUT"
+# One planted copy per spelling the two patterns CLAIM to handle — bare, single-quoted,
+# double-quoted, and leading-zero. A claimed spelling with no planted copy is an unproven
+# claim: the pattern could be wrong for that arm alone and every assertion would stay green,
+# which is exactly how the pre-anchoring `050` hole survived its own review.
 sed 's/^          fetch-depth: 0$/          fetch-depth: 50/' "$_I1219_IMPL_YML" > "$_I1219_MUT/bare.yml" 2>/dev/null
-sed "s/^          fetch-depth: 0$/          fetch-depth: '50'/" "$_I1219_IMPL_YML" > "$_I1219_MUT/quoted.yml" 2>/dev/null
+sed "s/^          fetch-depth: 0$/          fetch-depth: '50'/" "$_I1219_IMPL_YML" > "$_I1219_MUT/squoted.yml" 2>/dev/null
+sed 's/^          fetch-depth: 0$/          fetch-depth: "50"/' "$_I1219_IMPL_YML" > "$_I1219_MUT/dquoted.yml" 2>/dev/null
+sed 's/^          fetch-depth: 0$/          fetch-depth: 050/' "$_I1219_IMPL_YML" > "$_I1219_MUT/leadzero.yml" 2>/dev/null
 assert_eq "#1219 negative-pattern control: a planted bare bounded depth answers yes" "yes" \
-  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_MUT/bare.yml")"
-assert_eq "#1219 negative-pattern control: a planted QUOTED bounded depth answers yes" "yes" \
-  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?[1-9]' "$_I1219_MUT/quoted.yml")"
-# The mutated copies must otherwise still parse as the same job, or the two `yes` answers
-# above could come from a `sed` that mangled the file rather than from the planted line.
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_MUT/bare.yml")"
+assert_eq "#1219 negative-pattern control: a planted SINGLE-quoted bounded depth answers yes" "yes" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_MUT/squoted.yml")"
+assert_eq "#1219 negative-pattern control: a planted DOUBLE-quoted bounded depth answers yes" "yes" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_MUT/dquoted.yml")"
+# The leading-zero arm is the one the unanchored pair let through: BOTH pins must react to
+# it, so it is the only planted copy asserted against both patterns.
+assert_eq "#1219 negative-pattern control: a planted LEADING-ZERO bounded depth answers yes" "yes" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*['"'"'"]?0*[1-9]' "$_I1219_MUT/leadzero.yml")"
+assert_eq "#1219 positive-pin control: a planted LEADING-ZERO depth is NOT read as fetch-depth 0" "no" \
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_MUT/leadzero.yml")"
+# The mutated copies must otherwise still parse as the same job, or the `yes` answers above
+# could come from a `sed` that mangled the file rather than from the planted line.
 assert_eq "#1219 negative-pattern control: the bare mutated copy lost its fetch-depth: 0" "no" \
-  "$(devflow_wf_job_has claude 'fetch-depth: 0' "$_I1219_MUT/bare.yml")"
+  "$(devflow_wf_job_has claude 'fetch-depth:[[:space:]]*0[[:space:]]*$' "$_I1219_MUT/bare.yml")"
 unset _I1219_IMPL_YML _I1219_CMD_YML _I1219_MUT
 #
 # ci.yml: the shard job installs the Claude Code CLI, which is what ARMS the #671
@@ -40414,7 +41595,7 @@ checks = []
 def chk(name, expected, actual):
     checks.append((name, str(expected), str(actual)))
 
-ROW = tsv("STALE", "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills")
+ROW = tsv("STALE", "count-locked", "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills")
 CBOT = adj_comment("devflow-reviewer[bot]", "Bot", ROW)
 
 # mla-match: exact (rule,path,detail) payload, Bot author -> demoted, run_key surfaced
@@ -40425,14 +41606,14 @@ chk("mla-match row_index 0", "0", out["demoted"][0]["row_index"])
 chk("mla-match run_key surfaced", "999-1", out["demoted"][0]["run_key"])
 
 # mla-detail-drift: one-char detail change -> not demoted
-_, out, _ = run([tsv("STALE", "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 6 skills")], [CBOT])
+_, out, _ = run([tsv("STALE", "count-locked", "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 6 skills")], [CBOT])
 chk("mla-detail-drift not demoted", "0", len(out["demoted"]))
 
 # mla-key-scope: diff rule (no), diff path (no), line-only diff (yes -> line excluded from key)
 rows = [
-    tsv("STALE", "other-rule", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills"),
+    tsv("STALE", "other-rule", "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills"),
     tsv("STALE", "count-locked", "OTHER.md", 42, "claims 5 skills"),
-    tsv("STALE", "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 7777, "claims 5 skills"),
+    tsv("STALE", "count-locked", "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md", 7777, "claims 5 skills"),
 ]
 _, out, _ = run(rows, [CBOT])
 chk("mla-key-scope only line-diff demoted (len 1)", "1", len(out["demoted"]))
@@ -40446,7 +41627,7 @@ chk("mla-key-scope line-diff row_index 2", "2", out["demoted"][0]["row_index"])
 # passed against the exact mutant it exists to kill (guard-class shape 3 — refusal from the
 # wrong guard). Alone, a mutant demotes the row (len 1) and reports stale_rows 1 -> RED.
 for _v in ("VERIFIED", "UNRESOLVABLE"):
-    _r = tsv(_v, "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills")
+    _r = tsv(_v, "count-locked", "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills")
     _, out, _ = run([_r], [CBOT])
     chk(f"mla-verdict-scope {_v} alone: not demoted", "0", len(out["demoted"]))
     chk(f"mla-verdict-scope {_v} alone: not counted as a STALE row", "0", out["stats"]["stale_rows"])
@@ -40466,7 +41647,7 @@ chk("mla-rule-scope R4 exclusion counted", "1", out_r4["stats"]["rows_rule_exclu
 # ("R3" — referent-bearing detail), not a synthetic token: it IS carried forward. This proves
 # the exclusion is rule-scoped rather than a blanket "nothing demotes" regression, and that the
 # eligible ids in CARRY_FORWARD_EXCLUDED_RULES' complement are the ones the lint really emits.
-R3ROW = tsv("STALE", "R3", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills but adjacent block has 6")
+R3ROW = tsv("STALE", "R3", "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills but adjacent block has 6")
 _, out_r3, _ = run([R3ROW], [adj_comment("devflow-reviewer[bot]", "Bot", R3ROW)])
 chk("mla-rule-scope real R3 row still demotes (positive control)", "1", len(out_r3["demoted"]))
 chk("mla-rule-scope real R3 row not rule-excluded", "0", out_r3["stats"]["rows_rule_excluded"])
@@ -40653,7 +41834,7 @@ chk("mla-1003 ...and counted as outside-sentinels", "1",
 # mla-zero-match: a trusted, honored payload whose (rule,path,detail) is absent from the
 # current STALE rows (the common real case — the FP was fixed so the lint no longer emits
 # it) -> silent no-op: not demoted, not a collision.
-other_row = tsv("STALE", "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 9, "claims 99 skills")
+other_row = tsv("STALE", "count-locked", "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md", 9, "claims 99 skills")
 _, out, _ = run([other_row], [CBOT])
 chk("mla-zero-match not demoted", "0", len(out["demoted"]))
 chk("mla-zero-match no collision", "0", out["stats"]["collisions"])
@@ -41030,6 +42211,153 @@ assert_eq "#664 scanner: a non-repository root fails closed naming git ls-files"
      rmdir "$E664_SB" 2>/dev/null || true
      case "$E664_RC3:$E664_OUT3" in 0:*) echo "no: exited 0" ;; *"git ls-files exited"*) echo yes ;; *) echo no ;; esac)"
 
+echo "#1312 executable-helper-mode: an -x-gated bundled helper must be tracked 100755"
+# Mechanical guard (issue #1312): scripts/dedupe-review-command.sh shipped 100644 while
+# devflow.yml gates on `[ ! -x ... ]`, so Candidate-C dedupe never fired and no test caught
+# it (both arms fail open). This lint derives the -x-gated helper set by joining VAR=<path>
+# assignments to `[ -x "$VAR" ]` tests across tracked .github/workflows/*.yml, scripts/*.sh,
+# lib/*.sh and asserts every resolved repo helper is tracked 100755. Driven like the sibling
+# #664/#711 lints: the real tree as the live gate, plus fresh git sandboxes for the RED cases.
+E1312_LINT="$LIB/test/lint-executable-helper-mode.py"
+
+# Real-tree run: exit 0, and the audited tally is asserted POSITIVE so a collapsed enumeration
+# (which would audit nothing yet exit 0) cannot read as clean.
+E1312_OUT="$(python3 "$E1312_LINT" 2>&1)"; E1312_RC=$?
+assert_eq "#1312 helper-mode lint: clean on the tree as it stands" "rc=0" \
+  "$([ "$E1312_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$E1312_RC" "$E1312_OUT")"
+assert_eq "#1312 helper-mode lint: the real-tree run audited a positive number of files" "yes" \
+  "$(printf '%s' "$E1312_OUT" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) of", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+assert_eq "#1312 helper-mode lint: the real-tree run checks at least one -x-gated repo helper" "yes" \
+  "$(printf '%s' "$E1312_OUT" | python3 -c 'import re,sys
+m = re.search(r"\((\d+) -x-gated repo helper", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+
+# Fresh git sandbox with a workflow -x-gating two vendored helpers (`.prflow/vendor/prflow/…`,
+# mapped to the repo-root path before the mode lookup), a script-dir-anchored -x test, a runtime
+# -x site (a `gh` binary, classified out of scope, not asserted), a `source`d/`-f`-guarded 644
+# helper (must NOT be swept — AC4), plus any extra run-block lines the caller appends. $1 is the
+# mode of the variable-mode helper scripts/dedupe.sh.
+e1312_make() {  # <dedupe-mode> [extra-run-lines]  -> prints repo dir
+  local d; d="$(git_sandbox "#1312 fixture")" || { printf '%s\n' "$d"; return 1; }
+  git -C "$d" init -q; git -C "$d" config user.email t@t; git -C "$d" config user.name t
+  mkdir -p "$d/scripts" "$d/.github/workflows" "$d/lib"
+  printf '#!/usr/bin/env bash\necho hi\n' > "$d/scripts/dedupe.sh"
+  printf '#!/usr/bin/env bash\necho ok\n' > "$d/scripts/detector.sh"
+  printf '#!/usr/bin/env bash\necho c\n' > "$d/scripts/child.sh"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"' \
+    'if [ ! -x "$SELF/child.sh" ]; then echo warn; fi' > "$d/scripts/self.sh"
+  # lib/sourced.sh (644) is only `source`d / `-f`-guarded here, never `-x`-tested — AC4.
+  printf '%s\n' '#!/usr/bin/env bash' 'X=/tmp' \
+    'if [ -f "$X/lib/sourced.sh" ]; then source "$X/lib/sourced.sh"; fi' > "$d/lib/user.sh"
+  printf '#!/usr/bin/env bash\ntrue\n' > "$d/lib/sourced.sh"
+  # scripts/probe644.sh (644) is un-referenced by the base workflow; the resolution-shape
+  # variants below `-x`-gate it via each supported operand form, so an appended form is the
+  # SOLE source of RED and a regression in that form's parsing flips the assertion.
+  printf '#!/usr/bin/env bash\ntrue\n' > "$d/scripts/probe644.sh"
+  chmod 644 "$d/scripts/probe644.sh"
+  { printf '%s\n' 'jobs:' '  a:' '    steps:' '      - run: |' \
+      '          CC_HELPER=.prflow/vendor/prflow/scripts/dedupe.sh' \
+      '          if [ ! -x "$CC_HELPER" ]; then echo w; fi' \
+      '          DETECTOR=.prflow/vendor/prflow/scripts/detector.sh' \
+      '          if [ ! -x "$DETECTOR" ]; then echo w; fi' \
+      '          REAL="$(command -v gh 2>/dev/null || true)"' \
+      '          if [ -n "$REAL" ] && [ -x "$REAL" ]; then :; fi'
+    [ -n "$2" ] && printf '%s\n' "$2"
+  } > "$d/.github/workflows/wf.yml"
+  chmod 755 "$d/scripts/detector.sh" "$d/scripts/child.sh" "$d/scripts/self.sh" "$d/lib/user.sh"
+  chmod 644 "$d/lib/sourced.sh"
+  chmod "$1" "$d/scripts/dedupe.sh"
+  git -C "$d" add -A
+  printf '%s\n' "$d"
+}
+e1312_run() {  # <root>  -> prints "rc=<n>|<stdout+stderr>"
+  local out rc
+  out="$(python3 "$E1312_LINT" --root "$1" 2>&1)"; rc=$?
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+
+# GREEN: every -x-gated repo helper is 755 → exit 0; the runtime `gh` site and the 644
+# `source`d/`-f`-guarded lib/sourced.sh are not flagged.
+E1312_GREEN="$(e1312_make 755)"
+if [ -d "$E1312_GREEN" ]; then
+  E1312_G_OUT="$(e1312_run "$E1312_GREEN")"
+  assert_eq "#1312 lint: fixed tree (every -x-gated helper 755) passes" "yes" \
+    "$(case "$E1312_G_OUT" in "rc=0|"*) echo yes ;; *) echo "no: $E1312_G_OUT" ;; esac)"
+  assert_eq "#1312 lint: AC4 a source'd/-f-guarded 644 helper is not swept" "yes" \
+    "$(case "$E1312_G_OUT" in *"sourced.sh is tracked"*|*"sourced.sh resolves"*) echo no ;; *) echo yes ;; esac)"
+  assert_eq "#1312 lint: the runtime gh -x site is classified, not asserted" "yes" \
+    "$(case "$E1312_G_OUT" in *"RUNTIME"*"REAL"*) echo yes ;; *) echo no ;; esac)"
+  rm -rf "$E1312_GREEN"
+fi
+
+# RED AC6: the -x-gated helper is 644 → RED naming the file and its mode.
+E1312_RED="$(e1312_make 644)"
+if [ -d "$E1312_RED" ]; then
+  E1312_R_OUT="$(e1312_run "$E1312_RED")"
+  assert_eq "#1312 lint: AC6 a 644 -x-gated helper fails RED naming file+mode" "yes" \
+    "$(case "$E1312_R_OUT" in "rc=1|"*"scripts/dedupe.sh is tracked mode 100644"*) echo yes ;; *) echo "no: $E1312_R_OUT" ;; esac)"
+  rm -rf "$E1312_RED"
+fi
+
+# RED AC5 (untracked resolution): an -x operand resolving to an in-repo path that is not a
+# tracked file is named and RED — never silently skipped.
+E1312_GHOST="$(e1312_make 755 '          GHOST=.prflow/vendor/prflow/scripts/ghost.sh
+          if [ ! -x "$GHOST" ]; then echo w; fi')"
+if [ -d "$E1312_GHOST" ]; then
+  E1312_GH_OUT="$(e1312_run "$E1312_GHOST")"
+  assert_eq "#1312 lint: AC5 an operand resolving to an untracked in-repo path fails RED, named" "yes" \
+    "$(case "$E1312_GH_OUT" in "rc=1|"*"scripts/ghost.sh"*"not a tracked repo file"*) echo yes ;; *) echo "no: $E1312_GH_OUT" ;; esac)"
+  rm -rf "$E1312_GHOST"
+fi
+
+# RED AC5 (unresolvable shape): an -x operand whose shape the resolver cannot account for is
+# named and RED, never skipped.
+E1312_SHAPE="$(e1312_make 755 '          if [ -x "$UNRESOLVABLE_A$UNRESOLVABLE_B" ]; then echo w; fi')"
+if [ -d "$E1312_SHAPE" ]; then
+  E1312_SH_OUT="$(e1312_run "$E1312_SHAPE")"
+  assert_eq "#1312 lint: AC5 an unresolvable operand shape fails RED, named" "yes" \
+    "$(case "$E1312_SH_OUT" in "rc=1|"*"could not be resolved"*"refusing to silently skip"*) echo yes ;; *) echo "no: $E1312_SH_OUT" ;; esac)"
+  rm -rf "$E1312_SHAPE"
+fi
+
+# Resolution-shape regression fixtures. Each gates the un-referenced 644 scripts/probe644.sh
+# via one supported operand form, so the appended form is the SOLE source of RED — a parsing
+# regression in that form flips the assertion. These cover the forms that had no exercising
+# test (test -x, [[ -x ]], var-ref transitive) and the fail-open closures (a ${VAR:-<literal>}
+# default naming a real helper; a real assignment winning over a read/for name collision).
+e1312_form_red() {  # <label> <extra-run-lines>
+  local d out
+  d="$(e1312_make 755 "$2")"; [ -d "$d" ] || return 0
+  out="$(e1312_run "$d")"
+  assert_eq "#1312 lint: $1 resolves to the 644 helper and fails RED" "yes" \
+    "$(case "$out" in "rc=1|"*"scripts/probe644.sh is tracked mode 100644"*) echo yes ;; *) echo "no: $out" ;; esac)"
+  rm -rf "$d"
+}
+e1312_form_red "test -x form" '          PB3=.prflow/vendor/prflow/scripts/probe644.sh
+          if test ! -x "$PB3"; then echo w; fi'
+e1312_form_red "[[ -x ]] form" '          PB4=scripts/probe644.sh
+          if [[ ! -x "$PB4" ]]; then echo w; fi'
+e1312_form_red "var-ref transitive resolution" '          PBASE=.prflow/vendor/prflow/scripts
+          PB5="$PBASE/probe644.sh"
+          if [ ! -x "$PB5" ]; then echo w; fi'
+e1312_form_red "brace-default operand (fail-open closure)" '          if [ ! -x "${MISSING:-.prflow/vendor/prflow/scripts/probe644.sh}" ]; then echo w; fi'
+e1312_form_red "brace-default assignment (fail-open closure)" '          PB6=${MISSING:-scripts/probe644.sh}
+          if [ ! -x "$PB6" ]; then echo w; fi'
+e1312_form_red "real assignment wins over read/for name collision (fail-open closure)" '          PB7=scripts/probe644.sh
+          echo "please read PB7 before running"
+          if [ ! -x "$PB7" ]; then echo w; fi'
+
+# Fail-closed: a non-repository root names the git failure rather than reporting clean.
+E1312_NONREPO="$(probe_tmp '#1312 non-repo root')"
+rm -f "$E1312_NONREPO"; mkdir -p "$E1312_NONREPO"
+assert_eq "#1312 lint: a non-repository root fails closed naming git" "yes" \
+  "$(E1312_NR_OUT="$(python3 "$E1312_LINT" --root "$E1312_NONREPO" 2>&1)"; E1312_NR_RC=$?
+     rmdir "$E1312_NONREPO" 2>/dev/null || true
+     case "$E1312_NR_RC:$E1312_NR_OUT" in 0:*) echo "no: exited 0" ;; *"git ls-files"*) echo yes ;; *) echo no ;; esac)"
+
 echo "#711 tree enumeration: a repository-root recursive walk is declared, not silent"
 # The guard joins the desk-time static-lint family (extract-command-heads.py, pin-corpus-lint.py,
 # lint-gh-api-repo-path.py, lint-issue-body-refetch.py, coverage_map_guard.py — deliberately no
@@ -41040,7 +42368,7 @@ echo "#711 tree enumeration: a repository-root recursive walk is declared, not s
 # a tracked fixture carrying an unmarked walk would be caught by the guard's own real-tree run.
 E711_LINT="$LIB/test/lint-tree-enumeration.py"
 E711_CLAUDE="$LIB/../CLAUDE.md"
-E711_GROWTH="$LIB/../docs/cutovers/issue-711-tree-enumeration-growth.md"
+E711_GROWTH="$LIB/../docs/internal/cutovers/issue-711-tree-enumeration-growth.md"
 
 # Anchored at "$LIB/.." rather than left to resolve from the process cwd: the helper accepts
 # --root, and the repo's #295 contract is to audit the tree the caller means, not whichever git
@@ -41661,6 +42989,144 @@ case "$E1196_EMPTY" in
      ;;
 esac
 
+
+# ────────────────────────────────────────────────────────────────────────────
+# Shared-population PATH-QUOTING regression (issue #1217).
+# `core.quotePath` defaults to ON, so `git ls-files` renders a tracked non-ASCII path in
+# C-quoted form: a legal `café.md` comes back as the literal string `"caf\303\251.md"`.
+# That string names no real file, and the lints sharing `lib/test/lint_population.py`
+# mishandled it in two distinct ways, so BOTH classes are pinned here:
+#   * SILENT-DROP — a lint selecting by path PREFIX stops recognising the file (git puts
+#     the opening quote at the FRONT of the whole path, so `lib/test/café.py` becomes
+#     `"lib/test/caf\303\251.py"`, which no longer starts with `lib/test/`). It drops the
+#     file before opening it, reports `audited 0 of 0` and exits 0 — a FALSE CLEAN. The
+#     comparand here is therefore the lint's own audited TALLY, never its exit code: the
+#     buggy behaviour already exits 0, so an exit-code assertion could not go RED first.
+#   * HARD-FAIL — a lint selecting everything MINUS an exclusion list keeps the string,
+#     fails to open it, records a skip and exits 1 — a FALSE RED for a character the path
+#     does not contain, which would take the whole suite (and CI's required check) down
+#     until someone renamed a perfectly legal file.
+# Both are driven through a THROWAWAY git repo (git_sandbox — never the real one) because
+# each is a property of the live `git ls-files` call, which `--files-from` bypasses
+# entirely. The fixture name is built from `printf` octal escapes so the bytes under test
+# are fixed here rather than inherited from whatever encoding this file is read with, and
+# NO exotically-named file is committed to this repository (issue #1196).
+echo "#1217 shared-population path-quoting"
+E1217_SB="$(git_sandbox '#1217 path-quoting sandbox')" || E1217_SB=""
+E1217_DROP="rc=sandbox-unavailable|git_sandbox allocated no usable directory"
+E1217_HARD="$E1217_DROP"
+case "$E1217_SB" in
+  ""|/dev/null*) : ;;
+  *)
+    E1217_NAME="$(printf 'caf\303\251')"
+    # `core.quotePath` defaults to true, but it is a SETTABLE option: on a host that sets it
+    # false globally the pre-fix behaviour is unreproducible and every assertion below would
+    # pass with the splice deleted — a RED-first claim silently degrading to a tautology.
+    # Pin the defect precondition in the sandbox's own config rather than inheriting it. The
+    # command-line `-c core.quotePath=false` still wins over a repo-local setting, so only the
+    # negative control is affected, never the post-fix assertion.
+    if git -C "$E1217_SB" init -q 2>/dev/null &&
+       git -C "$E1217_SB" config core.quotePath true 2>/dev/null &&
+       mkdir -p "$E1217_SB/lib/test" "$E1217_SB/scripts" 2>/dev/null &&
+       printf 'x\n' > "$E1217_SB/lib/test/$E1217_NAME.py" 2>/dev/null &&
+       printf 'x\n' > "$E1217_SB/scripts/$E1217_NAME.sh" 2>/dev/null &&
+       git -C "$E1217_SB" add -A -f >/dev/null 2>&1; then
+      E1217_DOUT="$(python3 "$LIB/test/lint-tree-enumeration.py" --root "$E1217_SB" 2>&1)"
+      E1217_DROP="rc=$?|$E1217_DOUT"
+      E1217_HOUT="$(python3 "$LIB/test/lint-gh-api-repo-path.py" --root "$E1217_SB" 2>&1)"
+      E1217_HARD="rc=$?|$E1217_HOUT"
+    else
+      # A setup that did not complete must not read as a pass: route it to a sentinel that
+      # is neither "rc=0" nor a matching tally, so each assertion goes RED naming the cause.
+      E1217_DROP="rc=sandbox-setup-failed|could not stage the non-ASCII fixtures in the sandbox"
+      E1217_HARD="$E1217_DROP"
+    fi
+    rm -rf "$E1217_SB"
+    ;;
+esac
+# SILENT-DROP class. The tally is the discriminating comparand (see above): before the fix
+# this reads `audited 0 of 0 files` at rc=0, which no exit-code assertion can distinguish
+# from a clean run.
+assert_eq "#1217 silent-drop class: the non-ASCII tracked path is actually audited" "yes" \
+  "$(case "$E1217_DROP" in *"audited 1 of 1 files"*) echo yes ;; *) echo "no: $E1217_DROP" ;; esac)"
+assert_eq "#1217 silent-drop class: the run still exits clean" "rc=0" "${E1217_DROP%%|*}"
+# HARD-FAIL class. Here the exit code IS discriminating — rc=1 before the fix — and the
+# tally is asserted too so a run that exits 0 having audited nothing cannot satisfy it.
+assert_eq "#1217 hard-fail class: no false RED for a character the path does not contain" "rc=0" \
+  "${E1217_HARD%%|*}"
+assert_eq "#1217 hard-fail class: the path was audited rather than skipped" "yes" \
+  "$(case "$E1217_HARD" in *SKIPPED*) echo "no (skipped): $E1217_HARD" ;; *"audited 1 of 1 files"*) echo yes ;; *) echo "no: $E1217_HARD" ;; esac)"
+# Two more enumeration classes are exercised BEHAVIOURALLY rather than by a source-shape
+# grep, because a grep over a Python literal breaks on a cosmetic reformat while passing if
+# the constant later loses the flag — and because a source-presence pin is what issue #810
+# prohibits. Both classes reinstate the original defect when their splice is deleted, with
+# nothing else in the suite noticing:
+#   * lint-subagent-dispatch-namespace.py's audited-surface argv (the second of the two
+#     formerly-inline argvs a constants-only fix would have missed, issue #1217 AC3). Its
+#     `is_audited` selects by the `skills/` prefix, so a C-quoted surface drops and the
+#     tally falls to `audited 0 prompt surfaces` — the same silent-drop shape as above.
+#   * coverage_map_guard.py's `_git_tracked` AND `_git_executable`, two of the non-reader call
+#     sites that splice QUOTE_PATH_OFF by hand. Both are called directly (they are importable
+#     helpers) and their RETURNED PATHS are the comparand: pre-fix each is the C-quoted
+#     spelling. `_git_executable` is driven as well as `_git_tracked` because its own docstring
+#     states the concrete regression — its mode row must still join against `_git_tracked`'s
+#     path — and a splice deleted from only one of the two silently breaks that join, grading a
+#     non-ASCII coverage-map-referenced script as non-executable rather than unestablished.
+#     pin-corpus-lint.py's three splices are deliberately NOT driven here (they need a far
+#     richer sandbox); lint_population.py's docstring records that they are review-gated.
+E1217_SB2="$(git_sandbox '#1217 non-reader splice sandbox')" || E1217_SB2=""
+E1217_NS="rc=sandbox-unavailable|git_sandbox allocated no usable directory"
+E1217_CMG="sandbox-unavailable"
+case "$E1217_SB2" in
+  ""|/dev/null*) : ;;
+  *)
+    # Same host-independence pin as the sandbox above.
+    if git -C "$E1217_SB2" init -q 2>/dev/null &&
+       git -C "$E1217_SB2" config core.quotePath true 2>/dev/null &&
+       mkdir -p "$E1217_SB2/skills" "$E1217_SB2/bin" 2>/dev/null &&
+       printf 'no qualified ids here\n' > "$E1217_SB2/skills/$(printf 'caf\303\251').md" 2>/dev/null &&
+       printf '#!/bin/sh\n' > "$E1217_SB2/bin/$(printf 'caf\303\251').sh" 2>/dev/null &&
+       chmod +x "$E1217_SB2/bin/$(printf 'caf\303\251').sh" 2>/dev/null &&
+       git -C "$E1217_SB2" add -A -f >/dev/null 2>&1; then
+      E1217_NSOUT="$(python3 "$LIB/test/lint-subagent-dispatch-namespace.py" --root "$E1217_SB2" 2>&1)"
+      E1217_NS="rc=$?|$E1217_NSOUT"
+      # `_git_tracked` is imported and called directly; the assertion is that the returned
+      # path is the RAW spelling, i.e. it does not begin with git's C-quoting double quote.
+      E1217_CMG="$(E1217_SB2="$E1217_SB2" python3 -c '
+import importlib.util, os, sys
+from pathlib import Path
+s = importlib.util.spec_from_file_location("g", sys.argv[1])
+g = importlib.util.module_from_spec(s); s.loader.exec_module(g)
+root = Path(os.environ["E1217_SB2"])
+tracked = g._git_tracked(root)
+execs = g._git_executable(root)
+q = chr(34)
+bad = [p for p in tracked if p.startswith(q)] + [p for p in (execs or ()) if p.startswith(q)]
+if bad:
+    print("quoted: %r" % (bad,))
+elif execs is None:
+    print("exec-unestablished")
+elif not (set(execs) <= set(tracked)) or not execs:
+    print("join-broken: tracked=%r execs=%r" % (tracked, sorted(execs)))
+else:
+    print("raw")
+' "$LIB/test/coverage_map_guard.py" 2>&1)"
+    else
+      E1217_NS="rc=sandbox-setup-failed|could not stage the non-ASCII prompt surface"
+      E1217_CMG="sandbox-setup-failed"
+    fi
+    rm -rf "$E1217_SB2"
+    ;;
+esac
+assert_eq "#1217 the dispatch-namespace audited-surface argv enumerates the non-ASCII surface" "yes" \
+  "$(case "$E1217_NS" in *"audited 1 prompt surface"*) echo yes ;; *) echo "no: $E1217_NS" ;; esac)"
+assert_eq "#1217 coverage_map_guard returns raw paths and its mode row still joins against them" \
+  "raw" "$E1217_CMG"
+# The AC8 claim (the flag alters only how a path is PRINTED, so the index-reading argv
+# acquired no `--others`) is pinned by the #724 preset assertion further down, which
+# already reported `index-has-others=False` and gained a `quote-off=True` conjunct in the
+# same change, from a module load it already performs. Asserting it a second time here
+# would only pay a second `python3` start for a signal that block already carries.
 # ────────────────────────────────────────────────────────────────────────────
 # Subagent DISPATCH-NAMESPACE guard (lib/test/lint-subagent-dispatch-namespace.py).
 # A qualified subagent id in prompt prose is a dispatch string whose namespace half is
@@ -42076,6 +43542,276 @@ assert_eq "#834 Stage B parser: the .title-and-.body gate passes with the added 
 assert_eq "#834 Stage B parser: .title/.body extraction ignores the added key" "T|B" \
   "$(printf '%s|%s' "$("$LIB/../scripts/run-jq.sh" -r '.title' < "$E834_SB")" "$("$LIB/../scripts/run-jq.sh" -r '.body' < "$E834_SB")")"
 
+echo "#1211 skills/ shell fences: no unguarded filename pattern (zsh nomatch)"
+# A fenced shell block under skills/ is prose an agent runs verbatim, in whatever shell its
+# harness supplies — commonly zsh, whose default `nomatch` SKIPS a command whose glob matched
+# nothing (it does not abort the block; no skill fence sets `set -e`). The result is a silently
+# empty enumeration the surrounding prose cannot tell from a legitimate empty answer. The guard
+# is narrow by design (issue #1211): the recognised shape and the disclosed residuals are
+# enumerated in the helper's own docstring, which is their single home — this block asserts the
+# BEHAVIOUR at each boundary rather than restating the enumeration.
+E1211_LINT="$LIB/test/lint-skills-glob-guard.py"
+
+# Real-tree run: clean now, plus a POSITIVE tally so a collapsed audited set cannot read clean.
+E1211_OUT="$(python3 "$E1211_LINT" --root "$LIB/.." 2>&1)"; E1211_RC=$?
+assert_eq "#1211 the real tree audits clean" "rc=0" \
+  "$([ "$E1211_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$E1211_RC" "$E1211_OUT")"
+# Bash `case` rather than a python3 -c re-match: the value decides an assertion, so it stays on
+# builtins (guard-class 2), and the assertion mechanism stops being heavier than what it asserts.
+assert_eq "#1211 the real-tree run audited a positive number of files" "yes" \
+  "$(case "$E1211_OUT" in *"audited 0 of"*) printf no ;; *"audited "*) printf yes ;; *) printf no ;; esac)"
+
+# One scratch tree and one --files-from list for the whole shape matrix: the scaffolding is
+# byte-identical across every case, so allocating it per case bought only extra process spawns and
+# nothing else. Fixtures are synthetic rather than checked in because the population predicate is
+# a `skills/` PREFIX test — a fixture under lib/test/fixtures/ could never enter the real-tree
+# population, but a synthetic root also keeps each case's fence body beside its assertion.
+E1211_DIR="$(probe_tmp '#1211 fixture dir')"
+case "$E1211_DIR" in
+  ""|/dev/null) E1211_DIR="" ;;
+  *) rm -f "$E1211_DIR"
+     mkdir -p "$E1211_DIR/skills/probe" || E1211_DIR=""
+     ;;
+esac
+if [ -n "$E1211_DIR" ]; then
+  printf '%s\n' 'skills/probe/SKILL.md' > "$E1211_DIR/list"
+fi
+e1211_case() {  # <fence body text> -> "rc=<n>|<classifier>" (or a value no expectation matches)
+  # The classifier is what stops a `rc=1` expectation from passing on a BROKEN harness: the
+  # helper also exits 1 for "enumeration unusable" and for an unreadable path, so a fixture
+  # write that silently failed (read-only TMPDIR, full disk) would make every violation
+  # assertion green while proving nothing. Derived with a bash `case` on the captured output —
+  # no grep/sed, since this value decides an assertion (guard-class 2).
+  [ -n "$E1211_DIR" ] || { printf 'rc=probe-unavailable'; return 0; }
+  printf '%s' "$1" > "$E1211_DIR/skills/probe/SKILL.md"
+  local out rc
+  out="$(python3 "$E1211_LINT" --root "$E1211_DIR" --files-from "$E1211_DIR/list" 2>&1)"; rc=$?
+  case "$out" in
+    *"unguarded filename pattern"*) printf 'rc=%s|violation' "$rc" ;;
+    *"SKIPPED"*|*"enumeration unusable"*|*"refusing to report clean"*|*"empty audited population"*)
+      printf 'rc=%s|unestablished' "$rc" ;;
+    *"audited "*) printf 'rc=%s|scanned' "$rc" ;;
+    *) printf 'rc=%s|unrecognized' "$rc" ;;
+  esac
+}
+
+# Positive control: the exact shape the two shipped sites carried before this change.
+assert_eq "#1211 an unguarded glob in a bash fence is a violation" "rc=1|violation" \
+  "$(e1211_case '```bash
+ls -d agents/*/
+```
+')"
+# The two sanctioned discharges.
+assert_eq "#1211 the nonomatch guard on an earlier fence line discharges it" "rc=0|scanned" \
+  "$(e1211_case '```bash
+[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
+ls -d agents/*/
+```
+')"
+assert_eq "#1211 a glob-ok declaration marker discharges it" "rc=0|scanned" \
+  "$(e1211_case '```bash
+ls -d agents/*/   # glob-ok: illustrative, empty result is reported
+```
+')"
+# ...but the marker must carry a REASON, matching the sibling declaration-marker family.
+assert_eq "#1211 a bare glob-ok marker with no reason does NOT discharge it" "rc=1|violation" \
+  "$(e1211_case '```bash
+ls -d agents/*/   # glob-ok:
+```
+')"
+# The guard is fence-scoped, not file-scoped: a guard in one fence must not silence the next.
+assert_eq "#1211 a guard in an EARLIER fence does not discharge a later fence" "rc=1|violation" \
+  "$(e1211_case '```bash
+[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
+ls -d src/*/
+```
+
+```bash
+ls -d agents/*/
+```
+')"
+# Boundary cases the shape excludes, each an assertion rather than an unproven docstring claim.
+assert_eq "#1211 an untagged fence is outside the audited population" "rc=0|scanned" \
+  "$(e1211_case '```
+ls -d agents/*/
+```
+')"
+assert_eq "#1211 a quoted pattern is not a candidate (the shell never expands it)" "rc=0|scanned" \
+  "$(e1211_case '```bash
+grep -l "*/pages/*" ./here
+```
+')"
+assert_eq "#1211 a case branch label is excluded by the paren filter" "rc=0|scanned" \
+  "$(e1211_case '```bash
+case "$CUR" in
+  claude/issue-*|issue-*) USE_CURRENT=1 ;;
+esac
+```
+')"
+assert_eq "#1211 markdown emphasis inside a fence is not a candidate" "rc=0|scanned" \
+  "$(e1211_case '```bash
+- **Relevant Classes/Files** — the files this touches.
+```
+')"
+# The paren/`$` exclusion, on a line carrying NO comment — so the case reaches the token filter
+# rather than being discharged earlier by the comment strip (the shape an earlier fixture, a
+# whole-line `# Bash(…:*)` comment, silently duplicated).
+assert_eq "#1211 a token carrying parens is not a candidate" "rc=0|scanned" \
+  "$(e1211_case '```bash
+ls -d $(pwd)/agents/*/
+```
+')"
+# The bare-`$` arm, driven separately — the parens case above is discharged by the paren filter
+# before `$` is ever consulted. This shape is a REAL glob zsh refuses, so the expectation records
+# the largest disclosed residual rather than asserting the shell does not expand it.
+assert_eq "#1211 a token carrying a parameter expansion is outside the narrow shape (disclosed residual)" "rc=0|scanned" \
+  "$(e1211_case '```bash
+ls -d $ROOT/agents/*/
+```
+')"
+# Trailing-comment prose is not code: without the quote-aware strip this reported a violation
+# for a pattern the shell never sees.
+assert_eq "#1211 a pattern inside a trailing comment is not a candidate" "rc=0|scanned" \
+  "$(e1211_case '```bash
+ls .   # see docs/site/*/ for the layout
+```
+')"
+# ...but the strip is QUOTE-aware, so a `#` inside a string does not swallow a real glob after it.
+# A naive `line.split("#")[0]` passes every other case here and fails only this one.
+assert_eq "#1211 a hash inside a quoted string does not swallow a later real glob" "rc=1|violation" \
+  "$(e1211_case '```bash
+echo "a # b" ; ls -d agents/*/
+```
+')"
+# A pattern in the INTERIOR of a multi-word quoted string carries no quote character of its own.
+# Dropping tokens that *carry* a quote (rather than tokens inside a quoted span) flagged these.
+assert_eq "#1211 a pattern inside a multi-word quoted string is not a candidate" "rc=0|scanned" \
+  "$(e1211_case '```bash
+echo "see docs/site/*/ for the layout"
+```
+')"
+# The guard is matched against the COMMENT-STRIPPED, unquoted code. Prose that merely NAMES the
+# remedy must not discharge the fence — a guard that looks present and checks nothing is the
+# exact failure signature this change exists to remove, so both shapes get a negative control.
+assert_eq "#1211 prose NAMING the guard in a comment does not discharge the fence" "rc=1|violation" \
+  "$(e1211_case '```bash
+# we deliberately do not use setopt nonomatch here
+ls -d agents/*/
+```
+')"
+assert_eq "#1211 the guard named inside a quoted string does not discharge the fence" "rc=1|violation" \
+  "$(e1211_case '```bash
+echo "setopt nonomatch"
+ls -d agents/*/
+```
+')"
+# A heredoc introducer inside a string is a mention: honouring it would skip the rest of the
+# fence waiting for a delimiter line that never arrives (fail-open, bounded to the fence).
+assert_eq "#1211 a heredoc introducer inside a string does not skip the rest of the fence" "rc=1|violation" \
+  "$(e1211_case '```bash
+echo "write it with <<'"'"'EOF'"'"' please"
+ls -d agents/*/
+```
+')"
+# A quoted heredoc body is data, not commands.
+assert_eq "#1211 a pattern inside a quoted heredoc body is not a candidate" "rc=0|scanned" \
+  "$(e1211_case '```bash
+cat > f <<'"'"'EOF'"'"'
+see docs/site/*/ here
+EOF
+```
+')"
+# Two fail-OPEN shapes an earlier draft of the case-branch predicate silenced. Both must FLAG:
+# a line closing a command substitution, and a `for … in` list, are ordinary code.
+assert_eq "#1211 a line closing a command substitution does not silence a later glob" "rc=1|violation" \
+  "$(e1211_case '```bash
+x=$(echo hi
+)
+ls -d agents/*/
+```
+')"
+assert_eq "#1211 a for-in list carrying a glob is a violation, not a case header" "rc=1|violation" \
+  "$(e1211_case '```bash
+for f in agents/*/
+do :; done
+```
+')"
+# A fence QUOTED inside another fence (indented four spaces) must not desync the open/close
+# parity. Before this, a real shipped skill body ended inside an unterminated fence and the
+# scanner reported `audited N of N` having examined none of its shell lines — the change's own
+# thesis turned on itself. The trailing top-level fence is what discriminates: under the old
+# parity it was read inside-out and its violation was missed.
+assert_eq "#1211 a fence quoted inside another fence does not desync the scan" "rc=1|violation" \
+  "$(e1211_case '```
+here is how you write one:
+
+    ```bash
+    ls -d agents/*/
+    ```
+```
+
+```bash
+ls -d agents/*/
+```
+')"
+# ...and a parity desync that never recovers is an UNESTABLISHED scan, not a clean one.
+assert_eq "#1211 an unterminated fence at EOF fails closed rather than reporting clean" "rc=1|unestablished" \
+  "$(e1211_case '```bash
+echo hello
+')"
+# The quote mask honours backslash escapes; without that, `\"` toggles the state and masks the
+# rest of the line as quoted, hiding a real glob after it.
+assert_eq "#1211 a backslash-escaped quote does not mask a later real glob" "rc=1|violation" \
+  "$(e1211_case '```bash
+echo "a \" b" ; ls -d agents/*/
+```
+')"
+# A separator-free pattern is a DISCLOSED residual of the narrow shape, not a safe case:
+# zsh would refuse `*.py` too. The expectation is a boundary RECORD, to be updated on purpose
+# if the shape is ever widened — not an invariant that widening would be wrong to break.
+assert_eq "#1211 a pattern with no path separator is outside the narrow shape (disclosed residual)" "rc=0|scanned" \
+  "$(e1211_case '```bash
+wc -l *.py
+```
+')"
+case "$E1211_DIR" in ""|/dev/null) : ;; *) rm -rf "$E1211_DIR" ;; esac
+
+# Fail-closed arms, driven in ONE process over the three unestablished shapes: an unreadable
+# audited path, an enumeration that yielded nothing at all, and — the shape a `--files-from`
+# caller reaches — a population that survives enumeration but has nothing under `skills/`.
+# Each must exit 1 with its own breadcrumb; none may report clean. Scratch is removed, so the
+# suite leaks no temp directories.
+assert_eq "#1211 every unestablished population shape fails closed with its own breadcrumb" \
+  "unreadable=yes empty=yes post-filter-empty=yes" \
+  "$(E1211_LINT="$E1211_LINT" python3 -c '
+import importlib.util, io, os, shutil, tempfile, contextlib
+s = importlib.util.spec_from_file_location("g", os.environ["E1211_LINT"])
+m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+
+def run(listing):
+    d = tempfile.mkdtemp()
+    try:
+        lst = os.path.join(d, "list")
+        with open(lst, "w") as fh:
+            fh.write(listing)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            rc = m.main(["--root", d, "--files-from", lst])
+        return rc, buf.getvalue()
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+rc1, o1 = run("skills/probe/absent.md\n")
+rc2, o2 = run("")
+rc3, o3 = run("README.md\n")
+def verdict(rc, out, needle):
+    return "yes" if rc == 1 and needle in out else "no(rc=%s|%s)" % (rc, out.strip())
+print("unreadable=%s empty=%s post-filter-empty=%s" % (
+    verdict(rc1, o1, "refusing to report clean"),
+    verdict(rc2, o2, "enumeration unusable"),
+    verdict(rc3, o3, "empty audited population")))
+')"
+
 echo "#693 issue-body cache: no cut-over site re-fetches the body"
 IBR_LINT="$LIB/test/lint-issue-body-refetch.py"
 IBR_FX="$LIB/test/fixtures/issue-body-refetch"
@@ -42199,15 +43935,21 @@ print(" ".join(n for n in names if hasattr(m, n)))
 ')"
 # The two ls-files argv presets are the parameterisation axis (AC2): they must differ, and the
 # index preset must carry no --others (its worktree immunity is exactly that absence).
-assert_eq "#724 the index and working-tree ls-files presets are distinct, and only the working-tree one lists untracked files" \
-  "index=('git', 'ls-files') wt-has-others=True index-has-others=False distinct=True" \
+# The expected `index=` tuple is a coupled literal: issue #1217 inserted
+# `-c core.quotePath=false` into BOTH presets (raw path bytes rather than git's C-quoted
+# rendering), so this expectation moved with the constant in that same change. The
+# `quote-off=` conjunct pins the flag on both presets, which is what keeps a future edit
+# that drops it from one of them silent-passing here.
+assert_eq "#724 the index and working-tree ls-files presets are distinct, only the working-tree one lists untracked files, and both disable path quoting" \
+  "index=('git', '-c', 'core.quotePath=false', 'ls-files') wt-has-others=True index-has-others=False distinct=True quote-off=True" \
   "$(E724_POP="$E724_POP" python3 -c '
 import importlib.util, os
 s = importlib.util.spec_from_file_location("lint_population", os.environ["E724_POP"])
 m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
-print("index=%r wt-has-others=%s index-has-others=%s distinct=%s" % (
+print("index=%r wt-has-others=%s index-has-others=%s distinct=%s quote-off=%s" % (
   tuple(m.LS_FILES_INDEX), "--others" in m.LS_FILES_WORKING_TREE,
-  "--others" in m.LS_FILES_INDEX, m.LS_FILES_INDEX != m.LS_FILES_WORKING_TREE))
+  "--others" in m.LS_FILES_INDEX, m.LS_FILES_INDEX != m.LS_FILES_WORKING_TREE,
+  "core.quotePath=false" in m.LS_FILES_INDEX and "core.quotePath=false" in m.LS_FILES_WORKING_TREE))
 ')"
 # enumerate_population fail-closed arms: an unreadable --files-from, an empty population, and a
 # failing ls-files argv each raise EnumerationError (never a silent empty list read as clean).
@@ -44032,7 +45774,7 @@ fi
 # missing-corpus diagnostic, the no-transcript/no-owner-id scan with its planted
 # positive control, malformed-record degradation, determinism, and the symlink-escape
 # guard); the orchestrator-instruction reduction's preservation is a code-reading
-# obligation recorded in docs/create-issue-context.md, not a suite test.
+# obligation recorded in docs/internal/create-issue-context.md, not a suite test.
 CICE_TEST_OUT="$(python3 "$LIB/test/test_create_issue_context_eval.py" 2>&1)"
 CICE_TEST_RC=$?
 assert_eq "issue #767: create-issue context eval focused tests pass" "0" "$CICE_TEST_RC"
@@ -44053,13 +45795,23 @@ ICE_TEST_RC=$?
 assert_eq "issue #1209: implement context eval focused tests pass" "0" "$ICE_TEST_RC"
 [ "$ICE_TEST_RC" -eq 0 ] || while IFS= read -r _ice_line || [ -n "$_ice_line" ]; do printf '    %s\n' "$_ice_line"; done <<< "$ICE_TEST_OUT"
 
+# issue #1314: the trusted-emitter review-verdict handoff importer is the trust
+# boundary between the untrusted review producer and the trusted emitter — its
+# focused tests drive the accepted shape and every documented rejection class
+# (AC5), and the security-critical invariant that a rejection publishes NO output
+# artifact. A non-zero exit surfaces the unittest output here.
+IRVH_TEST_OUT="$(python3 "$LIB/test/test_import_review_verdict_handoff.py" 2>&1)"
+IRVH_TEST_RC=$?
+assert_eq "issue #1314: review-verdict handoff importer focused tests pass" "0" "$IRVH_TEST_RC"
+[ "$IRVH_TEST_RC" -eq 0 ] || while IFS= read -r _irvh_line || [ -n "$_irvh_line" ]; do printf '    %s\n' "$_irvh_line"; done <<< "$IRVH_TEST_OUT"
+
 # harness-python-guards contract coverage (issue #707: extracted from this file's
 # #600 / #527 / #528 / #668 / #798 / #810 / #591 Python guard blocks into a focused
 # module, plus the #985 profiler unit tests added there directly). The registry and
 # this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/harness-python-guards.sh" \
-  "harness-python-guards" 43; then
+  "harness-python-guards" 45; then
   printf 'ERROR: harness-python-guards boundary could not record its result\n'
   exit 1
 fi
@@ -45233,6 +46985,629 @@ PY
 )"
 assert_eq "#908 AC7: matcher-probe.yml declares a pretooluse-probe job that registers its hook via the settings input" "declared-with-settings" "$_908_PROBE_JOB"
 
+echo "hook-arm probe renderers (PermissionRequest / PreToolUse-deny / defer observation matrices)"
+# ────────────────────────────────────────────────────────────────────────────
+# Three matcher-probe observation renderers, each driven over its full arm matrix.
+# The house discipline these lock: a PRIMARY verdict derived from on-disk markers
+# (so a truncated run still yields one), and an ESTABLISHED negative kept distinct
+# from `unavailable` on every execution-file axis — an unparseable file, a
+# zero-byte file and an unrunnable jq must all read `unavailable`, never as a
+# confident "not there".
+HAP_D="$(mktemp -d)"
+HAP_PRQ="$REPO_ROOT/scripts/describe-permissionrequest-probe.sh"
+HAP_PTUD="$REPO_ROOT/scripts/describe-pretooluse-deny-probe.sh"
+HAP_DFR="$REPO_ROOT/scripts/describe-defer-probe.sh"
+
+# Shared execution-file fixtures. The "wrapped" one is the issue-#908 review
+# regression this family inherits: a hook-supplied string may arrive nested inside
+# a larger transcript envelope, on which `startswith` would report a confident
+# false negative about the one thing these probes measure.
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[{"tool_name":"Bash","tool_input":{"command":"touch .prflow/tmp/prqprobe-ungranted-ran"}}],"text":"devflow permissionrequest-probe: PRQ-DENY-SENTINEL"}]' > "$HAP_D/prq-exec.json"
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[{"tool_name":"Bash","tool_input":{"command":"touch .prflow/tmp/prqprobe-ungranted-ran"}}],"text":"PermissionRequest:Bash [hook] devflow permissionrequest-probe: PRQ-DENY-SENTINEL (denied)"}]' > "$HAP_D/prq-exec-wrapped.json"
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[]}]' > "$HAP_D/exec-clean.json"
+printf 'not json at all' > "$HAP_D/exec-bad.json"
+: > "$HAP_D/exec-empty.json"
+# THE THIRD STATE of every `permission_denials` axis. `exec-clean.json` above is the
+# array PRESENT AND EMPTY — an established "the harness refused nothing". This one
+# parses just as cleanly but carries NO `permission_denials` array anywhere, which is
+# what a renamed or restructured field looks like after a claude-code-action upgrade
+# (the ref floats at `@v1` and the recorded on-disk shape is a dated observation, not
+# a contract). A length-only read would publish a confident `0` and let the renderers
+# emit HOOK-DENY-NOT-RECORDED / "the array under-reports refusals" about a quantity
+# nothing measured — the unknown-is-not-zero collapse. Every renderer must degrade to
+# `unavailable` on it instead.
+printf '[{"type":"result","claude_code_version":"2.1.220","text":"devflow permissionrequest-probe: PRQ-DENY-SENTINEL","messages":[{"type":"tool_use","name":"Bash","input":{"command":"mkdir -p .prflow/tmp/prqprobe-control-ran"}}]}]' > "$HAP_D/exec-nodenials.json"
+# A `permission_denials` field that is present but NOT an array is unestablished too:
+# the entries are not where this reader can count them, so it must not skip past it
+# into a zero.
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":{"entries":[]}}]' > "$HAP_D/exec-denials-wrongtype.json"
+# The cosmetic-sanitization fail-closed row: a version string outside the plausible
+# version alphabet is never echoed into a Markdown step summary.
+printf '[{"type":"result","claude_code_version":"2.1.220 <script>alert(1)</script>","permission_denials":[]}]' > "$HAP_D/exec-badversion.json"
+
+printf '{"tool_name":"Bash","tool_input":{"command":"touch .prflow/tmp/prqprobe-ungranted-ran"}}\n' > "$HAP_D/prq-seen-ungranted.jsonl"
+printf '{"tool_name":"Bash","tool_input":{"command":"mkdir -p .prflow/tmp/prqprobe-control-ran"}}\n' > "$HAP_D/prq-seen-granted.jsonl"
+printf '{"tool_name":"Bash","tool_input":{"command":"echo unrelated"}}\n' > "$HAP_D/prq-seen-neither.jsonl"
+printf '{"tool_name":"Bash","tool_input":{"command":"mkdir -p .prflow/tmp/prqprobe-control-ran"}}\n{"tool_name":"Bash","tool_input":{"command":"touch .prflow/tmp/prqprobe-ungranted-ran"}}\n' > "$HAP_D/prq-seen-both.jsonl"
+# A denials entry that DOES carry the hook's own `message` sentinel — the positive
+# direction of the hook-deny-visibility axis.
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[{"tool_name":"Bash","message":"devflow permissionrequest-probe: PRQ-DENY-SENTINEL"}]}]' > "$HAP_D/prq-exec-hookdeny.json"
+# A refusal recorded in a file that carries no denials array at all: the side effect
+# still establishes the refusal, but nothing establishes what the array held.
+printf '[{"type":"result","claude_code_version":"2.1.220","messages":[{"type":"tool_use","name":"Bash","input":{"command":"touch .prflow/tmp/prqprobe-ungranted-ran"}}]}]' > "$HAP_D/prq-exec-refused-nodenials.json"
+mkdir -p "$HAP_D/prq-control-present" "$HAP_D/prq-after-present"
+# The model-skipped-the-arm shape, which is ALSO the prompt-echo regression lock.
+# Every probe prompt necessarily quotes the very command tokens an "was it
+# attempted" axis searches for, so this fixture carries the ungranted token in a
+# `prompt` string while NO tool call carries it: a search over the transcript at
+# large would report a confident ATTEMPTED for a command the session never issued.
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[],"prompt":"Action 2 (THE ARM): touch .prflow/tmp/prqprobe-ungranted-ran","messages":[{"type":"tool_use","name":"Bash","input":{"command":"mkdir -p .prflow/tmp/prqprobe-control-ran"}},{"type":"tool_use","name":"Bash","input":{"command":"mkdir -p .prflow/tmp/prqprobe-after-ran"}}]}]' > "$HAP_D/prq-exec-skipped.json"
+
+# ── describe-permissionrequest-probe.sh ─────────────────────────────────────
+# The discriminating arm this probe exists for: a hook that saw ONLY the ungranted
+# call is consistent with the canUseTool slot (a blanket-deny hook is then safe),
+# while one that saw the GRANTED control proves it resolves earlier (such a hook
+# would block granted work). The two must render different verdicts AND different
+# inferences, so both are asserted.
+HAP_PRQ_UNGRANTED="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec.json" 2>/dev/null)"
+assert_eq "hook-arm probe: a breadcrumb recording only the UNGRANTED call renders HOOK-SAW-UNGRANTED-ONLY" "yes" \
+  "$(printf '%s' "$HAP_PRQ_UNGRANTED" | grep -qF 'hook firing: **HOOK-SAW-UNGRANTED-ONLY**' && echo yes || echo no)"
+assert_eq "hook-arm probe: the ungranted-only arm infers canUseTool-slot behavior" "yes" \
+  "$(printf '%s' "$HAP_PRQ_UNGRANTED" | grep -qF 'consistent with the `canUseTool` slot' && echo yes || echo no)"
+HAP_PRQ_GRANTED="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-granted.jsonl" "$HAP_D/prq-control-present" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-present" "$HAP_D/prq-exec.json" 2>/dev/null)"
+assert_eq "hook-arm probe: a breadcrumb recording the GRANTED control renders HOOK-SAW-GRANTED-CONTROL" "yes" \
+  "$(printf '%s' "$HAP_PRQ_GRANTED" | grep -qF 'hook firing: **HOOK-SAW-GRANTED-CONTROL**' && echo yes || echo no)"
+assert_eq "hook-arm probe: the granted-control arm infers the event does NOT sit at the canUseTool slot" "yes" \
+  "$(printf '%s' "$HAP_PRQ_GRANTED" | grep -qF 'does NOT sit at the `canUseTool` slot' && echo yes || echo no)"
+assert_eq "hook-arm probe: a present control side effect renders CONTROL-RAN" "yes" \
+  "$(printf '%s' "$HAP_PRQ_GRANTED" | grep -qF 'granted control: **CONTROL-RAN**' && echo yes || echo no)"
+HAP_PRQ_NEITHER="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-neither.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec.json" 2>/dev/null)"
+assert_eq "hook-arm probe: a breadcrumb carrying neither command token renders FIRED-UNATTRIBUTED, not a false attribution" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NEITHER" | grep -qF 'hook firing: **FIRED-UNATTRIBUTED**' && echo yes || echo no)"
+# The Axis-5 arm that pairs with it. A firing the breadcrumb cannot attribute still
+# answers question (a) — the event EXISTS — while leaving question (b) open, and the
+# two neighbouring arms both answer (b) confidently in opposite directions. So this
+# arm must not be reachable-but-silent: it has to say the event fires AND decline the
+# slot question, never borrow either neighbour's conclusion.
+assert_eq "hook-arm probe: an unattributed firing infers the event FIRES but leaves WHICH calls reach it unestablished" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NEITHER" | grep -qF 'neither command token was recoverable from the breadcrumb' && echo yes || echo no)"
+assert_eq "hook-arm probe: an unattributed firing never borrows either slot conclusion from its neighbouring arms" "no" \
+  "$(printf '%s' "$HAP_PRQ_NEITHER" | grep -qE 'inference: .*(does NOT sit at the|consistent with the)' && echo yes || echo no)"
+# The deny `message` axis, including the wrapped-envelope shape.
+assert_eq "hook-arm probe: a deny message found in the transcript renders SENTINEL-DELIVERED" "yes" \
+  "$(printf '%s' "$HAP_PRQ_UNGRANTED" | grep -qF 'deny message in transcript: **SENTINEL-DELIVERED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: a WRAPPED deny message still renders SENTINEL-DELIVERED (contains, never startswith)" "yes" \
+  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec-wrapped.json" 2>/dev/null | grep -qF 'SENTINEL-DELIVERED' && echo yes || echo no)"
+assert_eq "hook-arm probe: a clean transcript with no deny message renders SENTINEL-ABSENT (distinct from unavailable)" "yes" \
+  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/exec-clean.json" 2>/dev/null | grep -qF 'deny message in transcript: **SENTINEL-ABSENT**' && echo yes || echo no)"
+# The event-absent vs nothing-reached-it disambiguation — the whole reason the
+# renderer emits an inference line rather than leaving it to a reader.
+HAP_PRQ_NOFIRE_DENIED="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-missing.jsonl" "$HAP_D/prq-control-present" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-present" "$HAP_D/prq-exec.json" 2>/dev/null)"
+assert_eq "hook-arm probe: no breadcrumb WITH a recorded denial infers the CLI does not deliver the event" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NOFIRE_DENIED" | grep -qF 'does not deliver a `PermissionRequest` event' && echo yes || echo no)"
+assert_eq "hook-arm probe: an unfired hook renders its denial-visibility arm NOT-APPLICABLE, never a hook-deny claim" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NOFIRE_DENIED" | grep -qF 'permission_denials`: **NOT-APPLICABLE**' && echo yes || echo no)"
+HAP_PRQ_NOFIRE_CLEAN="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-missing.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/exec-clean.json" 2>/dev/null)"
+assert_eq "hook-arm probe: no breadcrumb, no denial and no readable tool-call record infers UNESTABLISHED, never an established negative" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NOFIRE_CLEAN" | grep -qF 'UNESTABLISHED' && echo yes || echo no)"
+assert_eq "hook-arm probe: that same shape names the reason it is unestablished (nothing establishes whether anything was refused)" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NOFIRE_CLEAN" | grep -qF 'could not be read well enough to say whether anything was refused' && echo yes || echo no)"
+# THE DENIALS-ONLY INFERENCE ARM (suggestion 4, PR #1308 review). Reachable and
+# previously unfixtured: an execution file that parses and carries a NON-EMPTY
+# `permission_denials` but records NO tool-call inputs at all. The ungranted-arm
+# outcome is then `unavailable` (an empty search population cannot establish a
+# negative), so the refused/executed/unattempted arms are all skipped and the
+# denials-count arm is the one that must fire — the difference matters because it
+# is the ONE remaining path to a confident "the CLI does not deliver the event"
+# claim, and the fallthrough below it says the opposite (UNESTABLISHED).
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[{"tool_name":"Bash","message":"refused some other command"}]}]' > "$HAP_D/prq-exec-denials-only.json"
+HAP_PRQ_DENIALS_ONLY="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-missing.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec-denials-only.json" 2>/dev/null)"
+assert_eq "hook-arm probe: no breadcrumb and an unreadable ungranted outcome, but a non-empty denials array, infers the event is undelivered via the denials arm" "yes" \
+  "$(printf '%s' "$HAP_PRQ_DENIALS_ONLY" | grep -qF 'was refused (it is in `permission_denials`)' && echo yes || echo no)"
+assert_eq "hook-arm probe: that denials-only shape does NOT fall through to the UNESTABLISHED arm" "yes" \
+  "$(printf '%s' "$HAP_PRQ_DENIALS_ONLY" | grep -qF 'could not be read well enough' && echo no || echo yes)"
+assert_eq "hook-arm probe: that denials-only shape still reports its ungranted outcome as unavailable, never as refused" "yes" \
+  "$(printf '%s' "$HAP_PRQ_DENIALS_ONLY" | grep -qF 'ungranted arm outcome: **unavailable**' && echo yes || echo no)"
+# WHY THE REMAINING SUB-ARMS ARE DRIVEN TOO (superseding the deferral this block
+# used to carry). That deferral read the leftover sub-arms — pretooluse-deny-probe's
+# Axis 2/3 UNATTEMPTED and `unavailable` rows, its Axis 5 NOT-APPLICABLE row,
+# describe-defer-probe.sh's "command issued (secondary)" line — as pure restatements
+# of a sibling selection, hence wording-only pins under CLAUDE.md's #375/#666/#810
+# rule. They are not: each is its own `case` arm with its own predicate, and WHICH ARM
+# A `case` SELECTS IS A DECISION, not wording. The rule's own reference implementation
+# is scripts/describe-denial-count.sh, extracted precisely so the suite could drive
+# every arm AND the arm order — a reordered arm or a mistyped glob misattributes the
+# diagnosis while a sibling-arm-only suite stays green. Every assertion added below
+# compares PROCESS OUTPUT and pairs the arm it selects with a neighbour it must NOT
+# have selected, so it fails when the selection breaks rather than when the sentence
+# is reworded.
+# CONTROL-UNATTEMPTED needs tool calls to have been RECORDED and none of them to be
+# the control; with no tool calls at all the axis is unestablished instead (asserted
+# just below), which is the distinction the whole family turns on.
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[],"messages":[{"type":"tool_use","name":"Bash","input":{"command":"echo something else entirely"}}]}]' > "$HAP_D/prq-exec-othercall.json"
+assert_eq "hook-arm probe: an absent control side effect with recorded tool calls that are not it renders CONTROL-UNATTEMPTED" "yes" \
+  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-missing.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec-othercall.json" 2>/dev/null | grep -qF 'granted control: **CONTROL-UNATTEMPTED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an absent control side effect with NO recorded tool calls renders unavailable, never CONTROL-UNATTEMPTED" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NOFIRE_CLEAN" | grep -qF 'granted control: **unavailable**' && echo yes || echo no)"
+assert_eq "hook-arm probe: a zero denial count renders as the digit 0, never as unavailable" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NOFIRE_CLEAN" | grep -qF '(count: 0)' && echo yes || echo no)"
+# THE ARM-SKIPPED SHAPE, and the prompt-echo regression lock. The probe's first live
+# run (30966800385) ran the control and answered without ever issuing the ungranted
+# command — a run indistinguishable from "the hook did not fire" unless the renderer
+# can say the session skipped the arm. The attempt read must therefore scan tool-call
+# INPUTS: this fixture quotes the ungranted token in its `prompt`, so a transcript-wide
+# search would report a confident ATTEMPTED for a command nothing ever issued.
+HAP_PRQ_SKIPPED="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-missing.jsonl" "$HAP_D/prq-control-present" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-present" "$HAP_D/prq-exec-skipped.json" 2>/dev/null)"
+assert_eq "hook-arm probe: the ungranted token appearing ONLY in the prompt renders NOT-ATTEMPTED (tool-call inputs, never the transcript at large)" "yes" \
+  "$(printf '%s' "$HAP_PRQ_SKIPPED" | grep -qF 'ungranted arm attempt: **NOT-ATTEMPTED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: a post-arm control side effect renders AFTER-CONTROL-RAN" "yes" \
+  "$(printf '%s' "$HAP_PRQ_SKIPPED" | grep -qF 'post-arm control: **AFTER-CONTROL-RAN**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an unissued arm is inferred as a SESSION SKIP, not as a hook that did not fire" "yes" \
+  "$(printf '%s' "$HAP_PRQ_SKIPPED" | grep -qF 'SESSION SKIPPED the arm' && echo yes || echo no)"
+assert_eq "hook-arm probe: the session-skip inference still reports the availability as UNESTABLISHED, never negative" "yes" \
+  "$(printf '%s' "$HAP_PRQ_SKIPPED" | grep -qF 'UNESTABLISHED, not negative' && echo yes || echo no)"
+assert_eq "hook-arm probe: a session skip WITH the post-arm control present says the session reached past the arm" "yes" \
+  "$(printf '%s' "$HAP_PRQ_SKIPPED" | grep -qF 'the control placed after the arm did run' && echo yes || echo no)"
+# The other side of that same inline conditional. `AFTER_RAN` is read only inside a
+# command substitution appended to the session-skip sentence, so a predicate that
+# inverted or fell open would still emit a well-formed inference — while asserting
+# that the session demonstrably reached past an arm whose post-arm control produced
+# nothing. This shape (no breadcrumb, tool calls recorded but none of them the
+# ungranted command, every marker absent) is the negative direction.
+HAP_PRQ_SKIPPED_NOAFTER="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-missing.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec-othercall.json" 2>/dev/null)"
+assert_eq "hook-arm probe: a session skip with NO post-arm side effect still infers a SESSION SKIP" "yes" \
+  "$(printf '%s' "$HAP_PRQ_SKIPPED_NOAFTER" | grep -qF 'SESSION SKIPPED the arm' && echo yes || echo no)"
+assert_eq "hook-arm probe: a session skip with NO post-arm side effect never claims the session reached past the arm" "no" \
+  "$(printf '%s' "$HAP_PRQ_SKIPPED_NOAFTER" | grep -qF 'the control placed after the arm did run' && echo yes || echo no)"
+# The positive direction of the same axis: a tool call really carrying the ungranted
+# command reads ATTEMPTED, so the NOT-ATTEMPTED row above is discriminating rather
+# than an artifact of a scan that finds nothing.
+assert_eq "hook-arm probe: a recorded tool-call input carrying the ungranted command renders ATTEMPTED" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NOFIRE_DENIED" | grep -qF 'ungranted arm attempt: **ATTEMPTED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an absent post-arm side effect renders AFTER-CONTROL-ABSENT" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NOFIRE_CLEAN" | grep -qF 'post-arm control: **AFTER-CONTROL-ABSENT**' && echo yes || echo no)"
+# REFUSED vs EXECUTED — the discrimination the denials array could NOT make. The
+# second live run (30967286749) issued the ungranted command, reached past it, and
+# recorded zero denials, leaving "silently refused" and "allowed outright" both open;
+# only the command's own side effect separates them, and only one of the two makes a
+# non-firing hook meaningful.
+assert_eq "hook-arm probe: an issued ungranted command with no side effect renders UNGRANTED-REFUSED" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NOFIRE_DENIED" | grep -qF 'ungranted arm outcome: **UNGRANTED-REFUSED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: a REFUSED arm with no hook breadcrumb infers the CLI does not deliver the event" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NOFIRE_DENIED" | grep -qF 'does not deliver a `PermissionRequest` event' && echo yes || echo no)"
+mkdir -p "$HAP_D/prq-ungranted-present"
+HAP_PRQ_EXECUTED="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-missing.jsonl" "$HAP_D/prq-control-present" "$HAP_D/prq-ungranted-present" "$HAP_D/prq-after-present" "$HAP_D/prq-exec.json" 2>/dev/null)"
+assert_eq "hook-arm probe: an ungranted command that left its side effect renders UNGRANTED-EXECUTED" "yes" \
+  "$(printf '%s' "$HAP_PRQ_EXECUTED" | grep -qF 'ungranted arm outcome: **UNGRANTED-EXECUTED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an EXECUTED arm makes a non-firing hook uninformative, and the inference says so" "yes" \
+  "$(printf '%s' "$HAP_PRQ_EXECUTED" | grep -qF 'the harness declined nothing on this run' && echo yes || echo no)"
+assert_eq "hook-arm probe: an EXECUTED arm is never reported as evidence the event is absent" "no" \
+  "$(printf '%s' "$HAP_PRQ_EXECUTED" | grep -qF 'does not deliver a `PermissionRequest` event' && echo yes || echo no)"
+# A refusal the denials array never recorded is still a refusal, and the renderer
+# says both things rather than letting the empty array override the side effect.
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[],"messages":[{"type":"tool_use","name":"Bash","input":{"command":"touch .prflow/tmp/prqprobe-ungranted-ran"}}]}]' > "$HAP_D/prq-exec-refused-unrecorded.json"
+HAP_PRQ_UNRECORDED="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-missing.jsonl" "$HAP_D/prq-control-present" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-present" "$HAP_D/prq-exec-refused-unrecorded.json" 2>/dev/null)"
+assert_eq "hook-arm probe: a refusal absent from permission_denials is still read as a refusal" "yes" \
+  "$(printf '%s' "$HAP_PRQ_UNRECORDED" | grep -qF 'ungranted arm outcome: **UNGRANTED-REFUSED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an unrecorded refusal is reported as a denials-array under-report, not as no refusal" "yes" \
+  "$(printf '%s' "$HAP_PRQ_UNRECORDED" | grep -qF 'the array under-reports refusals in this configuration' && echo yes || echo no)"
+# An execution file recording NO tool calls at all cannot establish "never issued",
+# so the attempt axis degrades to unavailable rather than forging a negative.
+assert_eq "hook-arm probe: an execution file recording no tool calls renders the attempt axis unavailable, never NOT-ATTEMPTED" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NOFIRE_CLEAN" | grep -qF 'ungranted arm attempt: **unavailable**' && echo yes || echo no)"
+# THE THREE STATES OF THE `permission_denials` AXIS, driven in all three directions.
+# States 1 and 2 (present-with-entries, present-and-empty) are asserted above via
+# prq-exec.json and exec-clean.json; state 3 is an execution file that parses with NO
+# such array at all. Without the presence gate the renderer emits a CONFIDENT verdict
+# built on an unestablished value — HOOK-DENY-NOT-RECORDED plus "(count: 0)" — which
+# is the exact collapse the file's own fail-closed contract forbids, so the negative
+# rows below are as load-bearing as the positive one.
+HAP_PRQ_NODENIALS="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/exec-nodenials.json" 2>/dev/null)"
+assert_eq "hook-arm probe: an execution file carrying NO permission_denials array renders the hook-deny axis unavailable" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NODENIALS" | grep -qF 'hook deny in `permission_denials`: **unavailable**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an absent permission_denials array is never rendered as HOOK-DENY-NOT-RECORDED" "no" \
+  "$(printf '%s' "$HAP_PRQ_NODENIALS" | grep -qF 'HOOK-DENY-NOT-RECORDED' && echo yes || echo no)"
+assert_eq "hook-arm probe: an absent permission_denials array reports the count as unavailable, never as the digit 0" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NODENIALS" | grep -qF '(count: unavailable)' && echo yes || echo no)"
+assert_eq "hook-arm probe: an absent permission_denials array never publishes a measured zero count" "no" \
+  "$(printf '%s' "$HAP_PRQ_NODENIALS" | grep -qF '(count: 0)' && echo yes || echo no)"
+assert_eq "hook-arm probe: an absent permission_denials array leaves the ungranted-arm denials axis unavailable, never no" "yes" \
+  "$(printf '%s' "$HAP_PRQ_NODENIALS" | grep -qF 'ungranted arm in `permission_denials`: **unavailable**' && echo yes || echo no)"
+# A present-but-not-an-array field is unestablished for the same reason: the entries
+# are not where the reader can count them, so it must not skip past into a zero.
+assert_eq "hook-arm probe: a permission_denials field that is not an array renders the count unavailable, never 0" "yes" \
+  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/exec-denials-wrongtype.json" 2>/dev/null | grep -qF '(count: unavailable)' && echo yes || echo no)"
+# State 3 must not silently swallow the REFUSED inference's denials clause either:
+# "the array under-reports refusals" is a claim about a measured empty array, so an
+# array that was never there must not produce it.
+HAP_PRQ_REFUSED_NODENIALS="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-missing.jsonl" "$HAP_D/prq-control-present" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-present" "$HAP_D/prq-exec-refused-nodenials.json" 2>/dev/null)"
+assert_eq "hook-arm probe: a refusal read from an execution file with no denials array is still read as a refusal" "yes" \
+  "$(printf '%s' "$HAP_PRQ_REFUSED_NODENIALS" | grep -qF 'ungranted arm outcome: **UNGRANTED-REFUSED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an unreadable denials array never yields the under-reports-refusals claim (that needs a measured empty array)" "no" \
+  "$(printf '%s' "$HAP_PRQ_REFUSED_NODENIALS" | grep -qF 'the array under-reports refusals' && echo yes || echo no)"
+# The POSITIVE direction of the same axis, so the two negatives above discriminate
+# rather than being an artifact of a search that never finds anything.
+assert_eq "hook-arm probe: a denials entry carrying the hook's own sentinel renders HOOK-DENY-RECORDED" "yes" \
+  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec-hookdeny.json" 2>/dev/null | grep -qF 'permission_denials`: **HOOK-DENY-RECORDED**' && echo yes || echo no)"
+# The ESTABLISHED-NEGATIVE arm of the same axis, on THIS renderer. It is the one that
+# publishes the family's most consequential claim — that a production hook deny would
+# be invisible to any denial-count measurement — and it is only sound because THIS
+# hook denies unconditionally, so a firing IS a hook deny. Its predicate is therefore
+# `no:yes` (sentinel absent AND the hook fired), not sentinel-absence alone; the
+# NOT-APPLICABLE row asserted above is what a sentinel-only predicate would collapse
+# it onto, so both directions are driven.
+assert_eq "hook-arm probe: a fired hook whose sentinel is absent from a readable denials array renders HOOK-DENY-NOT-RECORDED" "yes" \
+  "$(printf '%s' "$HAP_PRQ_UNGRANTED" | grep -qF 'permission_denials`: **HOOK-DENY-NOT-RECORDED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: that established negative names the consequence (a production hook deny would be invisible to a denial count)" "yes" \
+  "$(printf '%s' "$HAP_PRQ_UNGRANTED" | grep -qF 'invisible to any denial-count measurement' && echo yes || echo no)"
+assert_eq "hook-arm probe: a FIRED hook is never rendered NOT-APPLICABLE on that axis (that arm means there was no hook deny to record)" "no" \
+  "$(printf '%s' "$HAP_PRQ_UNGRANTED" | grep -qF 'permission_denials`: **NOT-APPLICABLE**' && echo yes || echo no)"
+# The remaining firing-attribution arm: a breadcrumb recording BOTH commands. It is
+# the strongest form of the "does NOT sit at the canUseTool slot" answer, so it must
+# not fall through to either single-command verdict.
+HAP_PRQ_BOTH="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-both.jsonl" "$HAP_D/prq-control-present" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-present" "$HAP_D/prq-exec.json" 2>/dev/null)"
+assert_eq "hook-arm probe: a breadcrumb recording BOTH commands renders HOOK-SAW-BOTH" "yes" \
+  "$(printf '%s' "$HAP_PRQ_BOTH" | grep -qF 'hook firing: **HOOK-SAW-BOTH**' && echo yes || echo no)"
+assert_eq "hook-arm probe: the HOOK-SAW-BOTH arm still infers the event does NOT sit at the canUseTool slot" "yes" \
+  "$(printf '%s' "$HAP_PRQ_BOTH" | grep -qF 'does NOT sit at the `canUseTool` slot' && echo yes || echo no)"
+# CONTROL-BLOCKED: the control was issued and left no side effect. Distinct from
+# CONTROL-UNATTEMPTED (issued nothing) and from unavailable (nothing readable), and
+# the only one of the three that would mean a hook blocked GRANTED work.
+assert_eq "hook-arm probe: a control that was issued but left no side effect renders CONTROL-BLOCKED" "yes" \
+  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-missing.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-present" "$HAP_D/prq-exec-skipped.json" 2>/dev/null | grep -qF 'granted control: **CONTROL-BLOCKED**' && echo yes || echo no)"
+# The three unestablished-input shapes. Each must degrade to `unavailable`.
+assert_eq "hook-arm probe: an unparseable execution file renders the message axis unavailable, never SENTINEL-ABSENT" "yes" \
+  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/exec-bad.json" 2>/dev/null | grep -qF 'deny message in transcript: **unavailable**' && echo yes || echo no)"
+assert_eq "hook-arm probe: a zero-byte execution file renders the message axis unavailable" "yes" \
+  "$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/exec-empty.json" 2>/dev/null | grep -qF 'deny message in transcript: **unavailable**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an unrunnable DEVFLOW_JQ renders every execution-file axis unavailable, never a false negative" "yes" \
+  "$(DEVFLOW_JQ=/nonexistent/not-a-real-jq bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec.json" 2>/dev/null | grep -qF 'deny message in transcript: **unavailable**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an unrunnable DEVFLOW_JQ reports the CLI version as unavailable, never a fabricated one" "yes" \
+  "$(DEVFLOW_JQ=/nonexistent/not-a-real-jq bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec.json" 2>/dev/null | grep -qF 'observed CLI version: `unavailable`' && echo yes || echo no)"
+# The version is recorded beside the verdict because the action ref floats, so a
+# verdict taken on an older CLI would otherwise expire with nothing noticing.
+assert_eq "hook-arm probe: the observed CLI version is read out of the execution file" "yes" \
+  "$(printf '%s' "$HAP_PRQ_UNGRANTED" | grep -qF 'observed CLI version: `2.1.220`' && echo yes || echo no)"
+# Cosmetic sanitization that fails CLOSED: the version comes out of a file this repo
+# does not produce and lands verbatim in a Markdown step summary, so a value outside
+# the plausible version alphabet is reported unavailable rather than echoed.
+HAP_PRQ_BADVER="$(bash "$HAP_PRQ" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/exec-badversion.json" 2>/dev/null)"
+assert_eq "hook-arm probe: a CLI version outside the plausible alphabet renders unavailable, never the raw value" "yes" \
+  "$(printf '%s' "$HAP_PRQ_BADVER" | grep -qF 'observed CLI version: `unavailable`' && echo yes || echo no)"
+assert_eq "hook-arm probe: a rejected CLI version string is not echoed into the step summary" "no" \
+  "$(printf '%s' "$HAP_PRQ_BADVER" | grep -qF '<script>' && echo yes || echo no)"
+bash "$HAP_PRQ" >/dev/null 2>&1
+assert_eq "hook-arm probe: describe-permissionrequest-probe.sh with no arguments exits 0 (best-effort renderer)" "0" "$?"
+assert_eq "hook-arm probe: describe-permissionrequest-probe.sh with no arguments leaves a stderr breadcrumb and renders nothing" "yes:" \
+  "$(bash "$HAP_PRQ" 2>&1 >/dev/null | grep -qF 'needs <seen-file> <control-marker> <ungranted-marker> <after-marker>' && printf 'yes:' || printf 'no:')$(bash "$HAP_PRQ" 2>/dev/null)"
+
+# ── describe-pretooluse-deny-probe.sh ───────────────────────────────────────
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[],"text":"PreToolUse:Bash [hook] devflow pretooluse-deny-probe: PTUD-DENY-SENTINEL"}]' > "$HAP_D/ptud-exec.json"
+: > "$HAP_D/ptud-fired"; : > "$HAP_D/ptud-denied"; mkdir -p "$HAP_D/ptud-control"
+HAP_PTUD_OK="$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/ptud-exec.json" 2>/dev/null)"
+assert_eq "hook-arm probe: a fired hook that took its deny arm renders FIRED-AND-DENIED" "yes" \
+  "$(printf '%s' "$HAP_PTUD_OK" | grep -qF 'hook firing: **FIRED-AND-DENIED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an absent sacrificial side effect beside a deny breadcrumb renders DENY-HONORED" "yes" \
+  "$(printf '%s' "$HAP_PTUD_OK" | grep -qF 'deny honored: **DENY-HONORED**' && echo yes || echo no)"
+# The narrow-scoping requirement: the deny hook must not touch the control command
+# even inside its own job, so the control arm is a first-class verdict here.
+assert_eq "hook-arm probe: the deny probe reports the granted control as untouched when its side effect is present" "yes" \
+  "$(printf '%s' "$HAP_PTUD_OK" | grep -qF 'granted control: **CONTROL-RAN**' && echo yes || echo no)"
+# The axis the allow-only pretooluse-probe structurally cannot answer.
+assert_eq "hook-arm probe: a deny reason found in the transcript renders REASON-DELIVERED" "yes" \
+  "$(printf '%s' "$HAP_PTUD_OK" | grep -qF 'deny reason in transcript: **REASON-DELIVERED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: a deny that left no sentinel in permission_denials renders HOOK-DENY-NOT-RECORDED" "yes" \
+  "$(printf '%s' "$HAP_PTUD_OK" | grep -qF 'permission_denials`: **HOOK-DENY-NOT-RECORDED**' && echo yes || echo no)"
+# The sentinel axis alone cannot separate "the hook deny produced no denials entry at
+# all" from "it produced one that simply carries no reason text" — and those have
+# opposite consequences for a denial-count measurement. The live run hit exactly the
+# second shape (no sentinel, count 1), so the COMMAND is looked for in the array too.
+assert_eq "hook-arm probe: an entry-free denials array renders COMMAND-NOT-RECORDED" "yes" \
+  "$(printf '%s' "$HAP_PTUD_OK" | grep -qF 'denied command in `permission_denials`: **COMMAND-NOT-RECORDED**' && echo yes || echo no)"
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[{"tool_name":"Bash","tool_input":{"command":"mkdir -p .prflow/tmp/ptudprobe-sacrificial-ran"}}]}]' > "$HAP_D/ptud-exec-denialentry.json"
+assert_eq "hook-arm probe: a denials entry naming the sacrificial command renders COMMAND-RECORDED (the hook deny IS visible to a denial count)" "yes" \
+  "$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/ptud-exec-denialentry.json" 2>/dev/null | grep -qF 'denied command in `permission_denials`: **COMMAND-RECORDED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an unreadable execution file renders the denied-command axis unavailable, never COMMAND-NOT-RECORDED" "yes" \
+  "$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/exec-bad.json" 2>/dev/null | grep -qF 'denied command in `permission_denials`: **unavailable**' && echo yes || echo no)"
+# THE THIRD STATE on this renderer too. With the deny arm taken and an execution file
+# that parses but carries NO denials array, a length-only read would emit the
+# renderer's most consequential verdict — "a production hook deny would be invisible
+# to any denial-count measurement" — out of a value nothing measured. It is exactly
+# the shape a claude-code-action upgrade that renames the field produces, and the
+# `pretooluse-deny-probe` job's own live observation (no sentinel, count 1) is the
+# reading it would silently displace.
+HAP_PTUD_NODENIALS="$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/exec-nodenials.json" 2>/dev/null)"
+assert_eq "hook-arm probe: the deny probe renders its hook-deny axis unavailable when no permission_denials array exists" "yes" \
+  "$(printf '%s' "$HAP_PTUD_NODENIALS" | grep -qF 'hook deny in `permission_denials`: **unavailable**' && echo yes || echo no)"
+assert_eq "hook-arm probe: a taken deny arm plus an ABSENT denials array is never rendered as HOOK-DENY-NOT-RECORDED" "no" \
+  "$(printf '%s' "$HAP_PTUD_NODENIALS" | grep -qF 'HOOK-DENY-NOT-RECORDED' && echo yes || echo no)"
+assert_eq "hook-arm probe: the deny probe reports an absent denials array as count unavailable, never 0" "yes" \
+  "$(printf '%s' "$HAP_PTUD_NODENIALS" | grep -qF '(count: unavailable)' && echo yes || echo no)"
+assert_eq "hook-arm probe: an absent denials array leaves the denied-command axis unavailable, never COMMAND-NOT-RECORDED" "yes" \
+  "$(printf '%s' "$HAP_PTUD_NODENIALS" | grep -qF 'denied command in `permission_denials`: **unavailable**' && echo yes || echo no)"
+# The positive direction, so the negatives above discriminate.
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[{"tool_name":"Bash","reason":"devflow pretooluse-deny-probe: PTUD-DENY-SENTINEL"}]}]' > "$HAP_D/ptud-exec-hookdeny.json"
+assert_eq "hook-arm probe: a denials entry carrying the deny hook's reason sentinel renders HOOK-DENY-RECORDED" "yes" \
+  "$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/ptud-exec-hookdeny.json" 2>/dev/null | grep -qF 'permission_denials`: **HOOK-DENY-RECORDED**' && echo yes || echo no)"
+# CONTROL-BLOCKED is this job's scoping failure: the hook was supposed to deny only
+# the sacrificial command, so a control that was issued and produced no side effect
+# means the scoping did not hold.
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[],"messages":[{"type":"tool_use","name":"Bash","input":{"command":"mkdir -p .prflow/tmp/ptudprobe-control-ran"}}]}]' > "$HAP_D/ptud-exec-controlcall.json"
+assert_eq "hook-arm probe: a granted control that was issued and left no side effect renders CONTROL-BLOCKED (the scoping did not hold)" "yes" \
+  "$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control-absent" "$HAP_D/ptud-exec-controlcall.json" 2>/dev/null | grep -qF 'granted control: **CONTROL-BLOCKED**' && echo yes || echo no)"
+mkdir -p "$HAP_D/ptud-sacrificial-present"
+assert_eq "hook-arm probe: a present sacrificial side effect renders DENY-NOT-HONORED (the tool ran despite the deny)" "yes" \
+  "$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied" "$HAP_D/ptud-sacrificial-present" "$HAP_D/ptud-control" "$HAP_D/ptud-exec.json" 2>/dev/null | grep -qF 'deny honored: **DENY-NOT-HONORED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: a hook that ran without taking its deny arm renders FIRED-WITHOUT-DENY, not FIRED-AND-DENIED" "yes" \
+  "$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied-missing" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/ptud-exec.json" 2>/dev/null | grep -qF 'hook firing: **FIRED-WITHOUT-DENY**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an absent hook breadcrumb renders NOT-FIRED" "yes" \
+  "$(bash "$HAP_PTUD" "$HAP_D/ptud-fired-missing" "$HAP_D/ptud-denied-missing" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/ptud-exec.json" 2>/dev/null | grep -qF 'hook firing: **NOT-FIRED**' && echo yes || echo no)"
+# ── the Axis-2 `else` chain: no side effect AND no deny breadcrumb ────────────
+# DENY-HONORED is this renderer's headline verdict and it is attributive — "the hook
+# denied, therefore the tool did not run". With the deny breadcrumb absent that
+# attribution is unavailable no matter what else is true, so the three sub-arms below
+# exist to keep an absent side effect from being read as a working deny. Each is
+# asserted together with the DENY-HONORED it must not have emitted.
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[],"messages":[{"type":"tool_use","name":"Bash","input":{"command":"mkdir -p .prflow/tmp/ptudprobe-sacrificial-ran"}}]}]' > "$HAP_D/ptud-exec-sacrificialcall.json"
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[],"messages":[{"type":"tool_use","name":"Bash","input":{"command":"echo something else entirely"}}]}]' > "$HAP_D/ptud-exec-othercall.json"
+HAP_PTUD_SACATT="$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied-missing" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control-absent" "$HAP_D/ptud-exec-sacrificialcall.json" 2>/dev/null)"
+assert_eq "hook-arm probe: an attempted sacrificial command with no side effect and no deny breadcrumb renders unavailable, never DENY-HONORED" "yes" \
+  "$(printf '%s' "$HAP_PTUD_SACATT" | grep -qF 'deny honored: **unavailable**' && echo yes || echo no)"
+assert_eq "hook-arm probe: that shape says why — the absence is not attributable to the deny" "yes" \
+  "$(printf '%s' "$HAP_PTUD_SACATT" | grep -qF 'not attributable to the deny' && echo yes || echo no)"
+assert_eq "hook-arm probe: an absent side effect without a deny breadcrumb is never rendered DENY-HONORED" "no" \
+  "$(printf '%s' "$HAP_PTUD_SACATT" | grep -qF 'DENY-HONORED' && echo yes || echo no)"
+HAP_PTUD_UNATT="$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied-missing" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control-absent" "$HAP_D/ptud-exec-othercall.json" 2>/dev/null)"
+assert_eq "hook-arm probe: recorded tool calls that are neither command render UNATTEMPTED on the deny axis" "yes" \
+  "$(printf '%s' "$HAP_PTUD_UNATT" | grep -qF 'deny honored: **UNATTEMPTED**' && echo yes || echo no)"
+# Axis 3's own UNATTEMPTED, driven off the same run: the control arm reads a DIFFERENT
+# token out of the same tool-call population, so a scan that matched anything (or
+# nothing) would move both rows together.
+assert_eq "hook-arm probe: the deny probe renders CONTROL-UNATTEMPTED when tool calls were recorded and none is the control" "yes" \
+  "$(printf '%s' "$HAP_PTUD_UNATT" | grep -qF 'granted control: **CONTROL-UNATTEMPTED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an unattempted control is never rendered CONTROL-BLOCKED (which would mean the hook's scoping failed)" "no" \
+  "$(printf '%s' "$HAP_PTUD_UNATT" | grep -qF 'CONTROL-BLOCKED' && echo yes || echo no)"
+# The unreadable-execution-file sub-arm of both chains: with nothing readable, neither
+# axis may claim UNATTEMPTED — an empty search population cannot establish a negative.
+HAP_PTUD_UNREADABLE="$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied-missing" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control-absent" "$HAP_D/exec-bad.json" 2>/dev/null)"
+assert_eq "hook-arm probe: an unreadable execution file leaves the deny axis unavailable, never UNATTEMPTED" "yes" \
+  "$(printf '%s' "$HAP_PTUD_UNREADABLE" | grep -qF 'deny honored: **unavailable**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an unreadable execution file leaves the control axis unavailable, never UNATTEMPTED" "yes" \
+  "$(printf '%s' "$HAP_PTUD_UNREADABLE" | grep -qF 'granted control: **unavailable**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an unreadable execution file never yields either UNATTEMPTED verdict" "no" \
+  "$(printf '%s' "$HAP_PTUD_UNREADABLE" | grep -qF 'UNATTEMPTED' && echo yes || echo no)"
+# Axis 5's NOT-APPLICABLE arm. Its predicate is the deny ARM, not the hook firing:
+# this hook is command-scoped, so it can run without denying anything, and a denials
+# array carrying some OTHER refusal must not be read as evidence about a hook deny
+# that never happened. The HOOK-DENY-NOT-RECORDED row asserted above is exactly what
+# a firing-keyed predicate would emit here instead.
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[{"tool_name":"Bash","message":"refused some other command"}]}]' > "$HAP_D/ptud-exec-otherdenial.json"
+HAP_PTUD_NOTAPP="$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied-missing" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/ptud-exec-otherdenial.json" 2>/dev/null)"
+assert_eq "hook-arm probe: a hook that never took its deny arm renders its denial-visibility axis NOT-APPLICABLE" "yes" \
+  "$(printf '%s' "$HAP_PTUD_NOTAPP" | grep -qF 'hook deny in `permission_denials`: **NOT-APPLICABLE**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an untaken deny arm never yields HOOK-DENY-NOT-RECORDED, even beside a non-empty denials array" "no" \
+  "$(printf '%s' "$HAP_PTUD_NOTAPP" | grep -qF 'HOOK-DENY-NOT-RECORDED' && echo yes || echo no)"
+assert_eq "hook-arm probe: that NOT-APPLICABLE arm still publishes the real measured count, not unavailable" "yes" \
+  "$(printf '%s' "$HAP_PTUD_NOTAPP" | grep -qF '(count: 1)' && echo yes || echo no)"
+assert_eq "hook-arm probe: a clean transcript carrying no deny reason renders REASON-ABSENT (distinct from unavailable)" "yes" \
+  "$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/exec-clean.json" 2>/dev/null | grep -qF 'deny reason in transcript: **REASON-ABSENT**' && echo yes || echo no)"
+assert_eq "hook-arm probe: the deny probe renders its reason axis unavailable on an unparseable execution file" "yes" \
+  "$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/exec-bad.json" 2>/dev/null | grep -qF 'deny reason in transcript: **unavailable**' && echo yes || echo no)"
+assert_eq "hook-arm probe: the deny probe renders its reason axis unavailable on a zero-byte execution file" "yes" \
+  "$(bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/exec-empty.json" 2>/dev/null | grep -qF 'deny reason in transcript: **unavailable**' && echo yes || echo no)"
+assert_eq "hook-arm probe: the deny probe renders its reason axis unavailable under an unrunnable DEVFLOW_JQ" "yes" \
+  "$(DEVFLOW_JQ=/nonexistent/not-a-real-jq bash "$HAP_PTUD" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/ptud-exec.json" 2>/dev/null | grep -qF 'deny reason in transcript: **unavailable**' && echo yes || echo no)"
+bash "$HAP_PTUD" "$HAP_D/ptud-fired" >/dev/null 2>&1
+assert_eq "hook-arm probe: describe-pretooluse-deny-probe.sh with too few arguments exits 0 (best-effort renderer)" "0" "$?"
+assert_eq "hook-arm probe: describe-pretooluse-deny-probe.sh with too few arguments leaves a stderr breadcrumb and renders nothing" "yes:" \
+  "$(bash "$HAP_PTUD" 2>&1 >/dev/null | grep -qF 'needs <fired-marker>' && printf 'yes:' || printf 'no:')$(bash "$HAP_PTUD" 2>/dev/null)"
+
+# ── describe-defer-probe.sh ─────────────────────────────────────────────────
+# This renderer's verdict is breadcrumb-ONLY by design: a honored defer may leave
+# no usable execution file, so a file-derived verdict would read `unavailable` in
+# exactly the case the arm exists to detect. The no-execution-file rows below are
+# the lock on that.
+printf '[{"type":"result","claude_code_version":"2.1.220","stop_reason":"tool_deferred","permission_denials":[]}]' > "$HAP_D/dfr-exec.json"
+: > "$HAP_D/dfr-hook"
+HAP_DFR_BLOCKED="$(bash "$HAP_DFR" "$HAP_D/dfr-hook" "$HAP_D/dfr-tool-absent" "$HAP_D/dfr-exec.json" 2>/dev/null)"
+assert_eq "hook-arm probe: a fired defer hook whose tool left no side effect renders DEFER-BLOCKED" "yes" \
+  "$(printf '%s' "$HAP_DFR_BLOCKED" | grep -qF 'behavior: **DEFER-BLOCKED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: the defer probe corroborates a blocked defer with the documented stop reason" "yes" \
+  "$(printf '%s' "$HAP_DFR_BLOCKED" | grep -qF 'stop reason (secondary): **STOP-REASON-DEFERRED**' && echo yes || echo no)"
+mkdir -p "$HAP_D/dfr-tool-present"
+HAP_DFR_THROUGH="$(bash "$HAP_DFR" "$HAP_D/dfr-hook" "$HAP_D/dfr-tool-present" 2>/dev/null)"
+assert_eq "hook-arm probe: a present tool side effect renders DEFER-FELL-THROUGH with NO execution file at all" "yes" \
+  "$(printf '%s' "$HAP_DFR_THROUGH" | grep -qF 'behavior: **DEFER-FELL-THROUGH**' && echo yes || echo no)"
+assert_eq "hook-arm probe: a missing execution file on the defer arm is reported as an EXPECTED unavailable, not a contradiction" "yes" \
+  "$(printf '%s' "$HAP_DFR_THROUGH" | grep -qF 'neither confirms nor contradicts the breadcrumb verdict' && echo yes || echo no)"
+assert_eq "hook-arm probe: an unfired defer hook renders UNESTABLISHED, never DEFER-BLOCKED" "yes" \
+  "$(bash "$HAP_DFR" "$HAP_D/dfr-hook-missing" "$HAP_D/dfr-tool-absent" "$HAP_D/dfr-exec.json" 2>/dev/null | grep -qF 'behavior: **UNESTABLISHED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: the defer probe still renders its breadcrumb verdict on an unparseable execution file" "yes" \
+  "$(bash "$HAP_DFR" "$HAP_D/dfr-hook" "$HAP_D/dfr-tool-present" "$HAP_D/exec-bad.json" 2>/dev/null | grep -qF 'behavior: **DEFER-FELL-THROUGH**' && echo yes || echo no)"
+assert_eq "hook-arm probe: the defer probe degrades its stop-reason axis to unavailable on a zero-byte execution file" "yes" \
+  "$(bash "$HAP_DFR" "$HAP_D/dfr-hook" "$HAP_D/dfr-tool-absent" "$HAP_D/exec-empty.json" 2>/dev/null | grep -qF 'stop reason (secondary): **unavailable**' && echo yes || echo no)"
+assert_eq "hook-arm probe: the defer probe degrades its stop-reason axis to unavailable under an unrunnable DEVFLOW_JQ" "yes" \
+  "$(DEVFLOW_JQ=/nonexistent/not-a-real-jq bash "$HAP_DFR" "$HAP_D/dfr-hook" "$HAP_D/dfr-tool-absent" "$HAP_D/dfr-exec.json" 2>/dev/null | grep -qF 'stop reason (secondary): **unavailable**' && echo yes || echo no)"
+assert_eq "hook-arm probe: a clean transcript with no deferred stop reason renders STOP-REASON-NOT-DEFERRED (distinct from unavailable)" "yes" \
+  "$(bash "$HAP_DFR" "$HAP_D/dfr-hook" "$HAP_D/dfr-tool-present" "$HAP_D/exec-clean.json" 2>/dev/null | grep -qF 'stop reason (secondary): **STOP-REASON-NOT-DEFERRED**' && echo yes || echo no)"
+# This renderer prints the denials count verbatim, so it is the plainest place to see
+# all three states of that axis. A present-and-empty array is the digit 0; an
+# execution file carrying no such array at all is `unavailable`, never 0.
+assert_eq "hook-arm probe: the defer probe reports a present-but-empty denials array as the digit 0" "yes" \
+  "$(bash "$HAP_DFR" "$HAP_D/dfr-hook" "$HAP_D/dfr-tool-present" "$HAP_D/exec-clean.json" 2>/dev/null | grep -qF '`permission_denials` entries (secondary): **0**' && echo yes || echo no)"
+assert_eq "hook-arm probe: the defer probe reports an ABSENT denials array as unavailable, never as the digit 0" "yes" \
+  "$(bash "$HAP_DFR" "$HAP_D/dfr-hook" "$HAP_D/dfr-tool-present" "$HAP_D/exec-nodenials.json" 2>/dev/null | grep -qF '`permission_denials` entries (secondary): **unavailable**' && echo yes || echo no)"
+# The "command issued" secondary, in all three directions. It carries the same
+# prompt-echo trap the PRQ attempt axis does — this renderer's prompt dictates exactly
+# one command, so the transcript is guaranteed to quote the very token this line
+# searches for. A transcript-wide scan would therefore report a confident `yes` for
+# every run, including a DEFER-BLOCKED one where nothing was issued: the line would
+# read as corroboration of a fall-through while measuring only the prompt.
+printf '[{"type":"result","claude_code_version":"2.1.220","permission_denials":[],"messages":[{"type":"tool_use","name":"Bash","input":{"command":"mkdir -p .prflow/tmp/deferprobe-tool-ran"}}]}]' > "$HAP_D/dfr-exec-toolcall.json"
+printf '[{"type":"result","claude_code_version":"2.1.220","stop_reason":"tool_deferred","permission_denials":[],"prompt":"run: mkdir -p .prflow/tmp/deferprobe-tool-ran","messages":[{"type":"tool_use","name":"Bash","input":{"command":"echo unrelated"}}]}]' > "$HAP_D/dfr-exec-promptonly.json"
+assert_eq "hook-arm probe: the defer probe reports a recorded tool-call input carrying its command as issued" "yes" \
+  "$(bash "$HAP_DFR" "$HAP_D/dfr-hook" "$HAP_D/dfr-tool-absent" "$HAP_D/dfr-exec-toolcall.json" 2>/dev/null | grep -qF 'command issued (secondary): **yes**' && echo yes || echo no)"
+assert_eq "hook-arm probe: the defer probe's command token appearing ONLY in the prompt reports NOT issued (tool-call inputs, never the transcript at large)" "yes" \
+  "$(bash "$HAP_DFR" "$HAP_D/dfr-hook" "$HAP_D/dfr-tool-absent" "$HAP_D/dfr-exec-promptonly.json" 2>/dev/null | grep -qF 'command issued (secondary): **no**' && echo yes || echo no)"
+assert_eq "hook-arm probe: the defer probe reports its command-issued secondary as unavailable with no execution file, never as an established no" "yes" \
+  "$(bash "$HAP_DFR" "$HAP_D/dfr-hook" "$HAP_D/dfr-tool-absent" 2>/dev/null | grep -qF 'command issued (secondary): **unavailable**' && echo yes || echo no)"
+bash "$HAP_DFR" >/dev/null 2>&1
+assert_eq "hook-arm probe: describe-defer-probe.sh with no arguments exits 0 (best-effort renderer)" "0" "$?"
+assert_eq "hook-arm probe: describe-defer-probe.sh with no arguments leaves a stderr breadcrumb and renders nothing" "yes:" \
+  "$(bash "$HAP_DFR" 2>&1 >/dev/null | grep -qF 'needs <hook-fired-marker>' && printf 'yes:' || printf 'no:')$(bash "$HAP_DFR" 2>/dev/null)"
+
+# ── the partial-deployment fallback stub, all three renderers ────────────────
+# Each renderer sources lib/probe-observation.sh and, if that fails, defines a local
+# stub for every reader. That stub is the deployment-safety contract: the vendored
+# slice is a copy, so a renderer can legitimately arrive beside an absent sibling —
+# and the failure mode it prevents is not a crash but a CONFIDENT WRONG ANSWER. With
+# the readers undefined, `$(devflow_probe_denials_have …)` expands to the empty string
+# under `set -uo pipefail` (a command-not-found is not a `-u` error), every three-state
+# `case` falls to its `no` arm, and the renderers publish HOOK-DENY-NOT-RECORDED,
+# REASON-ABSENT and "(count: )" about a file nothing read. So this is driven from a
+# staged tree with only that one file missing — the primary breadcrumb verdict must
+# still render, and every execution-file axis must read `unavailable`.
+HAP_STAGE="$HAP_D/stage"
+mkdir -p "$HAP_STAGE/scripts" "$HAP_STAGE/lib"
+cp "$HAP_PRQ" "$HAP_PTUD" "$HAP_DFR" "$HAP_STAGE/scripts/"
+cp "$REPO_ROOT/lib/resolve-jq.sh" "$REPO_ROOT/lib/resolve-bin.sh" "$HAP_STAGE/lib/"
+HAP_STUB_PRQ="$(bash "$HAP_STAGE/scripts/describe-permissionrequest-probe.sh" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec-hookdeny.json" 2>/dev/null)"
+assert_eq "hook-arm probe: an absent lib/probe-observation.sh still renders the PermissionRequest breadcrumb verdict (it needs no execution file)" "yes" \
+  "$(printf '%s' "$HAP_STUB_PRQ" | grep -qF 'hook firing: **HOOK-SAW-UNGRANTED-ONLY**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an absent lib/probe-observation.sh renders the CLI version unavailable, never a fabricated one" "yes" \
+  "$(printf '%s' "$HAP_STUB_PRQ" | grep -qF 'observed CLI version: `unavailable`' && echo yes || echo no)"
+# The load-bearing row: the execution file handed in DOES carry the hook sentinel, so
+# a renderer that lost its stub would answer this axis from an empty string rather
+# than from the file — and answer it wrongly, in the confident direction.
+assert_eq "hook-arm probe: an absent lib/probe-observation.sh renders every PermissionRequest execution-file axis unavailable" "0" \
+  "$(printf '%s' "$HAP_STUB_PRQ" | grep -cE 'deny message in transcript: \*\*(SENTINEL-DELIVERED|SENTINEL-ABSENT)\*\*|permission_denials`: \*\*(HOOK-DENY-RECORDED|HOOK-DENY-NOT-RECORDED|NOT-APPLICABLE)\*\*|\(count: [0-9]')"
+# The two axes that interpolate a reader's output DIRECTLY rather than through a
+# `case`. They are what makes the stub load-bearing: a `case` over an undefined
+# reader's empty output still falls to its `*` arm and prints `unavailable`, so only a
+# directly-interpolated value exposes a missing stub — as `(count: )` and an empty
+# version, an unestablished quantity rendered as blank rather than as unknown.
+assert_eq "hook-arm probe: an absent lib/probe-observation.sh renders the denial count as unavailable, never as a blank" "yes" \
+  "$(printf '%s' "$HAP_STUB_PRQ" | grep -qF '(count: unavailable)' && echo yes || echo no)"
+assert_eq "hook-arm probe: an absent lib/probe-observation.sh emits a stderr breadcrumb naming the file" "yes" \
+  "$(bash "$HAP_STAGE/scripts/describe-permissionrequest-probe.sh" "$HAP_D/prq-seen-ungranted.jsonl" "$HAP_D/prq-control-absent" "$HAP_D/prq-ungranted-absent" "$HAP_D/prq-after-absent" "$HAP_D/prq-exec-hookdeny.json" 2>&1 >/dev/null | grep -qF 'lib/probe-observation.sh not sourceable' && echo yes || echo no)"
+HAP_STUB_PTUD="$(bash "$HAP_STAGE/scripts/describe-pretooluse-deny-probe.sh" "$HAP_D/ptud-fired" "$HAP_D/ptud-denied" "$HAP_D/ptud-sacrificial-absent" "$HAP_D/ptud-control" "$HAP_D/ptud-exec-hookdeny.json" 2>/dev/null)"
+assert_eq "hook-arm probe: an absent lib/probe-observation.sh still renders the deny probe's breadcrumb verdict" "yes" \
+  "$(printf '%s' "$HAP_STUB_PTUD" | grep -qF 'hook firing: **FIRED-AND-DENIED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an absent lib/probe-observation.sh renders every deny-probe execution-file axis unavailable" "0" \
+  "$(printf '%s' "$HAP_STUB_PTUD" | grep -cE 'deny reason in transcript: \*\*REASON-(DELIVERED|ABSENT)\*\*|permission_denials`: \*\*(HOOK-DENY-RECORDED|HOOK-DENY-NOT-RECORDED|NOT-APPLICABLE|COMMAND-RECORDED|COMMAND-NOT-RECORDED)\*\*|\(count: [0-9]')"
+HAP_STUB_DFR="$(bash "$HAP_STAGE/scripts/describe-defer-probe.sh" "$HAP_D/dfr-hook" "$HAP_D/dfr-tool-absent" "$HAP_D/dfr-exec.json" 2>/dev/null)"
+assert_eq "hook-arm probe: an absent lib/probe-observation.sh still renders the defer probe's breadcrumb-only verdict" "yes" \
+  "$(printf '%s' "$HAP_STUB_DFR" | grep -qF 'behavior: **DEFER-BLOCKED**' && echo yes || echo no)"
+assert_eq "hook-arm probe: an absent lib/probe-observation.sh renders every defer-probe execution-file axis unavailable" "0" \
+  "$(printf '%s' "$HAP_STUB_DFR" | grep -cE 'stop reason \(secondary\): \*\*STOP-REASON-(DEFERRED|NOT-DEFERRED)\*\*|command issued \(secondary\): \*\*(yes|no)\*\*|entries \(secondary\): \*\*[0-9]')"
+# This renderer interpolates two readers directly, so both are stub-exposing here.
+assert_eq "hook-arm probe: an absent lib/probe-observation.sh renders the defer probe's two directly-interpolated secondaries as unavailable, never blank" "2" \
+  "$(printf '%s' "$HAP_STUB_DFR" | grep -cE '(command issued \(secondary\)|entries \(secondary\)): \*\*unavailable\*\*')"
+
+# ── the workflow declarations the three renderers observe ───────────────────
+# Parsed from the YAML rather than grepped, so a renamed/removed job, a dropped
+# `settings` input, a lost helper invocation, or a reintroduced `--permission-mode`
+# is caught. The permission-mode row is the production-parity requirement: both
+# live tiers pass none, and under `acceptEdits` the permission-mode step resolves
+# before allow rules, which would make the PermissionRequest verdict an artifact
+# of the probe's own mode.
+HAP_JOBS="$(python3 - "$REPO_ROOT/.github/workflows/matcher-probe.yml" <<'PY'
+import sys, yaml
+try:
+    doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
+except Exception as exc:  # a parse failure must read as "not established", never as pass
+    print(f"unparseable: {exc.__class__.__name__}")
+    raise SystemExit(0)
+jobs = doc.get("jobs")
+if not isinstance(jobs, dict):
+    print("no jobs mapping")
+    raise SystemExit(0)
+wanted = {
+    "permissionrequest-probe": "describe-permissionrequest-probe.sh",
+    "pretooluse-deny-probe": "describe-pretooluse-deny-probe.sh",
+    "defer-probe": "describe-defer-probe.sh",
+}
+out = []
+for name, helper in wanted.items():
+    job = jobs.get(name)
+    if not isinstance(job, dict) or not isinstance(job.get("steps"), list):
+        out.append(f"{name}=absent")
+        continue
+    steps = job["steps"]
+    withs = [s.get("with") or {} for s in steps if isinstance(s, dict)]
+    settings = "yes" if any("settings" in w for w in withs) else "no"
+    args = " ".join(str(w.get("claude_args", "")) for w in withs)
+    mode = "present" if "--permission-mode" in args else "absent"
+    runs = " ".join(str(s.get("run", "")) for s in steps if isinstance(s, dict))
+    invoked = "yes" if helper in runs else "no"
+    out.append(f"{name}=settings:{settings},permission-mode:{mode},helper:{invoked}")
+print(" ".join(out))
+PY
+)"
+assert_eq "hook-arm probe: matcher-probe.yml declares all three hook-arm jobs, each with a settings-registered hook, no --permission-mode, and its own verdict helper" \
+  "permissionrequest-probe=settings:yes,permission-mode:absent,helper:yes pretooluse-deny-probe=settings:yes,permission-mode:absent,helper:yes defer-probe=settings:yes,permission-mode:absent,helper:yes" \
+  "$HAP_JOBS"
+# The hook commands must remain valid JSON-emitting shell: a broken escape would
+# make every one of the arms above unfalsifiable in the live run while the fixture
+# assertions here stayed green. So this does not stop at "the settings blob parses
+# and the command string is non-empty" — it extracts the decision payload each
+# command prints and parses THAT, which is the artifact a bad escape actually
+# corrupts.
+HAP_HOOKS="$(python3 - "$REPO_ROOT/.github/workflows/matcher-probe.yml" <<'PY'
+import json, re, sys, yaml
+try:
+    doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
+except Exception as exc:
+    print(f"unparseable: {exc.__class__.__name__}")
+    raise SystemExit(0)
+jobs = doc.get("jobs") or {}
+out = []
+for name, event in (
+    ("permissionrequest-probe", "PermissionRequest"),
+    ("pretooluse-deny-probe", "PreToolUse"),
+    ("defer-probe", "PreToolUse"),
+):
+    job = jobs.get(name) or {}
+    blob = None
+    for step in job.get("steps") or []:
+        if isinstance(step, dict) and isinstance(step.get("with"), dict) and "settings" in step["with"]:
+            blob = step["with"]["settings"]
+    if blob is None:
+        out.append(f"{name}=no-settings")
+        continue
+    try:
+        parsed = json.loads(blob)
+        entries = parsed["hooks"][event]
+        cmd = entries[0]["hooks"][0]["command"]
+    except Exception as exc:
+        out.append(f"{name}=malformed:{exc.__class__.__name__}")
+        continue
+    # The stated guarantee: the DECISION JSON the hook command prints must itself
+    # parse. Extract every single-quoted `printf '%s' '<payload>'` argument in the
+    # command (the deny arm of pretooluse-deny-probe emits its payload from inside
+    # a `case`, so there can be one anywhere in the string) and json.loads each.
+    # A count of 0 is a failure too — an escape break that swallowed the printf
+    # would otherwise read as "nothing to check" and stay green.
+    payloads = re.findall(r"printf\s+'%s'\s+'([^']*)'", cmd)
+    if not payloads:
+        decisions = "no-payload"
+    else:
+        try:
+            for payload in payloads:
+                obj = json.loads(payload)
+                if not isinstance(obj, dict) or "hookSpecificOutput" not in obj:
+                    raise ValueError("not a hook decision object")
+            decisions = f"json-ok:{len(payloads)}"
+        except Exception as exc:
+            decisions = f"json-broken:{exc.__class__.__name__}"
+    out.append(f"{name}={event}:{'matcher-bash' if entries[0].get('matcher') == 'Bash' else 'matcher-other'}:{'nonempty' if cmd.strip() else 'empty'}:{decisions}")
+print(" ".join(out))
+PY
+)"
+assert_eq "hook-arm probe: each hook-arm job's settings input parses as JSON, registers a non-empty Bash-matched hook for its own event, and prints a decision payload that itself parses as a hook decision object" \
+  "permissionrequest-probe=PermissionRequest:matcher-bash:nonempty:json-ok:1 pretooluse-deny-probe=PreToolUse:matcher-bash:nonempty:json-ok:1 defer-probe=PreToolUse:matcher-bash:nonempty:json-ok:1" \
+  "$HAP_HOOKS"
+
 echo "#908 resolve-guard-counts-file.sh (run-keyed/bare/glob counts-file selection — arm-driven)"
 # ────────────────────────────────────────────────────────────────────────────
 RGC="$REPO_ROOT/scripts/resolve-guard-counts-file.sh"
@@ -45350,6 +47725,14 @@ echo "#908 devflow-runner.yml PreToolUse guard wiring (statically verifiable, is
 # ────────────────────────────────────────────────────────────────────────────
 _908_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
 _908_IMPLEMENT_YML="$LIB/../.github/workflows/devflow-implement.yml"
+# The `command` tier (manual /prflow:review, /prflow:review-and-fix). It carries the same
+# #1179 ceiling for the same reason the implement tier does — the whole-suite coordinator
+# its prompt extension names as the final gate exceeds Claude Code's 600000 ms default —
+# and is driven through the same ceiling extractor below. It is driven through the HOOK
+# extractor below for the same reason the implement tier is: the #908 tier-scope decision
+# registers the shape guard on the review tier ONLY, so a hooks key appearing in this
+# tier's settings input is out of scope by that decision and not merely undeclared.
+_908_COMMAND_YML="$LIB/../.github/workflows/devflow.yml"
 assert_eq "#908 AC1: devflow-runner.yml's claude-code-action step carries a settings: input" "yes" \
   "$(grep -qF 'settings: |' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- pins the effectiveness channel AC1 requires: the claude-code-action settings input is what registers the PreToolUse hook with the review-tier runner
 assert_eq "#908 AC1: the settings input registers a PreToolUse hook naming the guard script" "yes" \
@@ -45361,9 +47744,9 @@ assert_eq "#908 AC1: the settings input registers a PreToolUse hook naming the g
 # registration would evade it entirely. Parse the YAML with PyYAML instead and check,
 # structurally, that no step registers a PreToolUse hook — the same precision the #460
 # errexit fixture above uses to extract a step's `run:` body, applied here to a `with:`
-# key check instead. The property #908 protects on the implement tier is "no PreToolUse
-# guard" (that shape guard is review-tier-only), NOT "no settings input at all": issue
-# #1179 legitimately adds an env-only `settings` block here to raise BASH_MAX_TIMEOUT_MS,
+# key check instead. The property #908 protects on the implement and command tiers is "no
+# PreToolUse guard" (that shape guard is review-tier-only), NOT "no settings input at all":
+# issue #1179 legitimately adds an env-only `settings` block to each to raise BASH_MAX_TIMEOUT_MS,
 # which registers no hook. So a `settings` block is allowed IFF it declares no `hooks`
 # key and no `with` value mentions "PreToolUse". Falls back to a PreToolUse-only grep
 # when python3/PyYAML is unavailable, so the assertion still runs somewhere.
@@ -45399,13 +47782,24 @@ _wfg_grep_fallback() {
   [ -r "$1" ] || { echo unreadable; return 0; }
   grep -vE '^[[:space:]]*#' "$1" | grep -qE 'PreToolUse|pretooluse-shape-guard' && echo no || echo yes
 }
-# Both directions of that guard, driven on EVERY host (they need neither python3/PyYAML nor
-# scratch space, so they stay outside the armed/degraded split below): an unreadable input
-# yields the non-passing token, and a readable one still resolves to a real verdict.
+# Every verdict that guard can reach, driven on EVERY host (these rows need neither
+# python3/PyYAML nor scratch space, so they stay outside the armed/degraded split below): an
+# unreadable input yields the non-passing token, a readable compliant one resolves to a real
+# verdict, and a readable non-compliant one is refused.
 assert_eq "#908 fallback: an unreadable input fails closed rather than reading as compliant" "unreadable" \
   "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML.no-such-file")"
 assert_eq "#908 fallback: a readable input still resolves to a real verdict" "yes" \
   "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML")"
+# ...and it must REFUSE a workflow that really does register the guard, on every host too.
+# The review tier's live devflow-runner.yml is that workflow — AC1 above pins the registration
+# it carries, inside its `settings:` block scalar where no comment filter can reach it — so
+# this row is the fallback's discrimination proof and needs neither python3/PyYAML nor scratch
+# space. Without it the arm that runs on a degraded host asserted only `yes` verdicts, so a
+# pattern that had silently stopped matching anything would have read as a clean pass on
+# exactly the hosts with nothing better to fall back to; the fixture-driven and composed
+# refusal rows that would otherwise catch that all live in the armed arm and never run there.
+assert_eq "#908 fallback: it REFUSES the review tier's live workflow, which really does register the guard" "no" \
+  "$(_wfg_grep_fallback "$_908_RUNNER_YML")"
 _WFG_D=""
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
   _WFG_D="$(mktemp -d 2>/dev/null || true)"
@@ -45511,11 +47905,86 @@ def bounded(val):
 
 print("ok" if vals and all(bounded(v) for v in vals) else "no")
 PY
-  # Both runners fail CLOSED: a YAML parse error or an otherwise unhandled shape exits
+  # NEGATIVE-CONTROL COMPOSER for the live-workflow hook rows. A guard shown only to PASS
+  # on a clean file is the "passes on the very inputs it was added to catch" class: such a
+  # row reads identically whether the guard works, is hardwired to `yes`, or is pointed at
+  # a workflow carrying no claude-code-action step for it to inspect. This writes a copy of
+  # a LIVE workflow with a hooks key spliced into its existing `settings: |` block scalar —
+  # every other byte, authoring comments included, intact — so the refusal is demonstrated
+  # against the real file rather than against a synthetic stand-in for it.
+  #
+  # It fails LOUDLY on a splice target it cannot pin down: zero matches (the settings input
+  # reshaped away) or more than one (an ambiguous target) exits nonzero rather than emitting
+  # an unmutated copy, which would make the refusal rows below pass vacuously. What it does
+  # NOT establish is that the copy it emits carries a well-formed hooks key — it edits text
+  # and never parses the block scalar it edits, so that half is asserted separately, by the
+  # settings-shape read-back below. (An earlier `if out == src: sys.exit(1)` arm claimed to
+  # cover it and could not: the insertion is a fixed non-empty literal, so once a single match
+  # is found `out` is strictly longer than `src` and that arm could never fire.)
+  cat > "$_WFG_D/compose-hook-negative.py" <<'PY'
+import re, sys
+
+src = open(sys.argv[1], encoding="utf-8").read()
+matches = list(re.finditer(r"^(?P<ind>[ \t]*)settings: \|\n(?P<body>[ \t]*)\{\n", src, re.M))
+if len(matches) != 1:
+    sys.exit(1)
+m = matches[0]
+out = (
+    src[: m.end()]
+    + m.group("body")
+    + '  "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": []}]},\n'
+    + src[m.end() :]
+)
+open(sys.argv[2], "w", encoding="utf-8").write(out)
+print("composed")
+PY
+  # SETTINGS-SHAPE READ-BACK, the attribution half of the negative control below. hook-check.py
+  # answers `no` for a present hooks key AND for a settings block it cannot parse as a JSON
+  # object — its deliberate fail-closed arm. Those two verdicts are indistinguishable at the
+  # assertion, so if the composer's hooks literal were ever reworded into invalid JSON the
+  # refusal row would stay green while exercising the parse arm and never touching hook
+  # detection: the same vacuity the negative control exists to rule out, displaced one level.
+  # This reports WHICH case holds, so the refusal is attributable to the spliced hooks key.
+  # It is not redundant with the refusal row — the refusal row is precisely what cannot tell
+  # the two apart. Deliberately independent of hook-check.py rather than a call into it: a
+  # read-back that shared the program under test could not contradict it.
+  cat > "$_WFG_D/settings-shape.py" <<'PY'
+import sys, yaml, json
+
+doc = yaml.safe_load(open(sys.argv[1]))
+shapes = []
+for job in doc.get("jobs", {}).values():
+    for s in job.get("steps", []) or []:
+        if not str(s.get("uses") or "").startswith("anthropics/claude-code-action"):
+            continue
+        settings = (s.get("with") or {}).get("settings")
+        if settings is None:
+            shapes.append("absent")
+            continue
+        if isinstance(settings, dict):
+            parsed = settings
+        elif isinstance(settings, str):
+            try:
+                parsed = json.loads(settings)
+            except (ValueError, TypeError):
+                parsed = None
+        else:
+            parsed = None
+        if not isinstance(parsed, dict):
+            shapes.append("not-an-object")
+        else:
+            shapes.append("object-with-hooks" if "hooks" in parsed else "object-no-hooks")
+# One token per claude-code-action step, joined — never a first-match read, so a second step
+# appearing in either file changes the verdict visibly instead of hiding behind the first.
+print(",".join(shapes) if shapes else "no-action-step")
+PY
+  # Every runner below fails CLOSED: a YAML parse error or an otherwise unhandled shape exits
   # nonzero, and the caller substitutes a value that satisfies no assertion below (issue
   # #908 confirmatory review; mirrors the _908_PROBE_JOB extractor's discipline).
   _wfg_hook() { local o; o="$(python3 "$_WFG_D/hook-check.py" "$1" 2>/dev/null)" || o="extractor-failed"; printf '%s\n' "$o"; }
   _wfg_ceiling() { local o; o="$(python3 "$_WFG_D/ceiling-check.py" "$1" 2>/dev/null)" || o="extractor-failed"; printf '%s\n' "$o"; }
+  _wfg_compose_neg() { local o; o="$(python3 "$_WFG_D/compose-hook-negative.py" "$1" "$2" 2>/dev/null)" || o="composer-failed"; printf '%s\n' "$o"; }
+  _wfg_settings_shape() { local o; o="$(python3 "$_WFG_D/settings-shape.py" "$1" 2>/dev/null)" || o="extractor-failed"; printf '%s\n' "$o"; }
   # Compose a synthetic workflow fixture named $1 whose single claude-code-action step
   # carries the `with:` body supplied on stdin (indented to its position under `with:`).
   # The result is a real YAML document reaching the extractors through the same entry
@@ -45641,6 +48110,49 @@ YML
     "$(_wfg_hook "$_908_IMPLEMENT_YML")"
   assert_eq "#1179: devflow-implement.yml sets a finite BASH_MAX_TIMEOUT_MS > 600000 ms via the claude-code-action settings env (AC1)" "ok" \
     "$(_wfg_ceiling "$_908_IMPLEMENT_YML")"
+  # The command tier carries the same ceiling. Its failure mode when absent is SILENT:
+  # the coordinator is killed at the default wall with no output, which reads in the job
+  # log like a command that produced nothing rather than one that was terminated — so a
+  # regression that drops this input is invisible without a guard. Same behavioral
+  # extractor, no new mechanism.
+  assert_eq "#1179: devflow.yml (command tier) sets a finite BASH_MAX_TIMEOUT_MS > 600000 ms via the claude-code-action settings env" "ok" \
+    "$(_wfg_ceiling "$_908_COMMAND_YML")"
+  # The command tier gets the SAME hook guard as the implement tier above. Until this row
+  # existed the hook extractor was invoked against devflow-implement.yml alone, so adding a
+  # hooks key to devflow.yml's action step passed the suite in silence — and devflow.yml is
+  # the SHIPPED tier: install.sh copies it into every consumer repo, and its own Step 0.5
+  # branch sync moves the working tree onto the PR head before the agent runs, so a hook
+  # registered through this input would be PR-author-editable code running ahead of every
+  # tool call. Whether such a hook should ever exist here is a separate open decision; this
+  # row makes either answer a visible one rather than a silent default. Same extractor, same
+  # allowance: an env-only settings block (the #1179 ceiling this tier also carries) passes.
+  assert_eq "#908 AC1: devflow.yml (command tier) registers no PreToolUse guard (env-only settings allowed)" "yes" \
+    "$(_wfg_hook "$_908_COMMAND_YML")"
+  # ── Negative control for the row above ────────────────────────────────────
+  # The composed fixture is devflow.yml byte-for-byte apart from one hooks key spliced into
+  # its settings block scalar, so the rows below isolate exactly that difference: the shape
+  # read-back establishes that the difference IS a hooks key inside still-valid JSON, and both
+  # the armed extractor and the degraded-host grep must then flip to a refusal. The grep row is
+  # the one that also confirms the fallback's `PreToolUse|pretooluse-shape-guard` pattern still
+  # discriminates on THIS file — devflow.yml names neither token anywhere today, in code or
+  # in comment, so the clean row below cannot distinguish a working pattern from one that
+  # matches nothing; this row can.
+  _WFG_NEG_YML="$_WFG_D/command-tier-with-hook.yml"
+  assert_eq "#908 negative control: a hook-bearing copy of devflow.yml is composed from the live workflow" "composed" \
+    "$(_wfg_compose_neg "$_908_COMMAND_YML" "$_WFG_NEG_YML")"
+  # Attribution, asserted both directions so the pair pins the whole delta: the clean file's
+  # settings input parses as a JSON object WITHOUT a hooks key, the composed copy as a JSON
+  # object WITH one. Together they establish that the refusal below is caused by hook
+  # detection and not by hook-check.py's unparseable-settings arm, which returns the same
+  # token. Do not drop either row as redundant with the refusal — see the extractor's note.
+  assert_eq "#908 negative control: the clean devflow.yml settings input parses as a JSON object carrying no hooks key" "object-no-hooks" \
+    "$(_wfg_settings_shape "$_908_COMMAND_YML")"
+  assert_eq "#908 negative control: the spliced copy still parses as a JSON object, now carrying a hooks key" "object-with-hooks" \
+    "$(_wfg_settings_shape "$_WFG_NEG_YML")"
+  assert_eq "#908 negative control: the hook guard REFUSES a devflow.yml carrying a settings-input hook" "no" \
+    "$(_wfg_hook "$_WFG_NEG_YML")"
+  assert_eq "#908 negative control: the degraded-host grep fallback also refuses that same devflow.yml" "no" \
+    "$(_wfg_grep_fallback "$_WFG_NEG_YML")"
   # ── The hook guard over the fixture matrix ────────────────────────────────
   assert_eq "#908 matrix: an env-only settings block in string form is allowed" "yes" \
     "$(_wfg_hook "$_WFG_D/env-string.yml")"
@@ -45673,6 +48185,8 @@ YML
   # filter landed, which is why both directions are asserted.
   assert_eq "#908 matrix: the degraded-host grep fallback clears a workflow whose only guard mentions are comments" "yes" \
     "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML")"
+  assert_eq "#908 matrix: the degraded-host grep fallback clears the command tier's live workflow" "yes" \
+    "$(_wfg_grep_fallback "$_908_COMMAND_YML")"
   assert_eq "#908 matrix: the degraded-host grep fallback still catches a real PreToolUse registration" "no" \
     "$(_wfg_grep_fallback "$_WFG_D/hook-mapping.yml")"
   # ── The ceiling guard over the fixture matrix ─────────────────────────────
@@ -45709,11 +48223,20 @@ YML
 else
   assert_eq "#908 AC1: devflow-implement.yml registers no PreToolUse guard (env-only settings allowed)" "yes" \
     "$(_wfg_grep_fallback "$_908_IMPLEMENT_YML")"
+  assert_eq "#908 AC1: devflow.yml (command tier) registers no PreToolUse guard (env-only settings allowed)" "yes" \
+    "$(_wfg_grep_fallback "$_908_COMMAND_YML")"
+  # These two rows assert only `yes`, so on their own they could not tell a working grep from
+  # one that had stopped matching. What discriminates for them is the always-on refusal row
+  # above the armed/degraded split, which drives this same fallback over the review tier's live
+  # workflow and requires a `no`. The command tier's file-specific negative control additionally
+  # needs the composed fixture (python3 + scratch space), so it stays in the armed arm only and
+  # is covered by the fixture-matrix skip below rather than vanishing into this arm's clean pass.
   # No grep fallback is meaningful for "finite int > 600000", so on a host lacking
   # python3/PyYAML (or lacking scratch space for the fixtures) these guards SELF-SKIP as
   # host-capability rather than vanishing into a clean pass (#456: a silently-absent guard
   # is never a clean pass). PyYAML is a suite prerequisite, so CI always arms them.
   skip "#1179 finite BASH_MAX_TIMEOUT_MS > 600000 via settings env (AC1)" host-capability "python3/PyYAML or scratch space unavailable — cannot parse the workflow settings env"
+  skip "#1179 finite BASH_MAX_TIMEOUT_MS > 600000 via settings env (command tier)" host-capability "python3/PyYAML or scratch space unavailable — cannot parse the workflow settings env"
   skip "#908/#1179 workflow-settings guard adversarial fixture matrix" host-capability "python3/PyYAML or scratch space unavailable — cannot compose or parse the synthetic workflow fixtures"
 fi
 assert_eq "#908 AC2: HOOK_TARGETS (harden-stop-hooks.sh) already lists the guard script" "yes" \
@@ -45739,7 +48262,7 @@ assert_eq "#908: describe-denial-count.sh is byte-unmodified by this issue (AC6)
 # HEAD-relative diff is vacuous once this PR's own commits land.
 #
 # NARROWED to its own stated subject. This pin was a whole-file
-# `git diff --quiet <merge-base> -- docs/cloud-allowlist.md`, which discharged
+# `git diff --quiet <merge-base> -- docs/internal/cloud-allowlist.md`, which discharged
 # #908's AC8 on #908's branch but, once merged, generalized into a standing
 # prohibition on ANY branch editing that page at all — including the additions this
 # very file's cloud-allowlist rules tell an author to make there. That is a
@@ -45752,8 +48275,19 @@ assert_eq "#908: describe-denial-count.sh is byte-unmodified by this issue (AC6)
 # now: every placeholder entry still declares itself PENDING. Legitimate additions
 # elsewhere on the page pass; silently promoting a placeholder to a measurement
 # goes RED, which is the regression the original pin existed to catch.
-assert_eq "#908: docs/cloud-allowlist.md's placeholder probe-evidence entries still declare themselves PENDING (AC8)" "3" \
-  "$(grep -c '^\*\*This measurement is PENDING' "$LIB/../docs/cloud-allowlist.md")"
+#
+# The expected count is data, not an invariant: it drops as placeholders are legitimately
+# promoted by a cited measurement, and the promotion reconciles this literal in the SAME
+# commit (the coupled-invariant discipline). It went 3 -> 1 when the two issue-858
+# dispatched-subagent Write entries (review and implement tiers) were filled from run
+# 30956039324 with run/job/head/ref recorded on the page and the jobs' verbatim machine
+# output committed at docs/internal/subagent-write-probe.observed.md — a cited promotion, which is
+# exactly what this pin asks for and the opposite of the silent one it forbids. The
+# remaining entry is the issue-874 env: propagation probe, which stays PENDING because the
+# observed run returned INCONCLUSIVE (hop1_reported=False) — an unestablished measurement,
+# not a verdict, so its cell is deliberately still unfilled.
+assert_eq "#908: docs/internal/cloud-allowlist.md's placeholder probe-evidence entries still declare themselves PENDING (AC8)" "1" \
+  "$(grep -c '^\*\*This measurement is PENDING' "$LIB/../docs/internal/cloud-allowlist.md")"
 # ────────────────────────────────────────────────────────────────────────────
 
 echo "#908 review finding: harden_guard step — the PreToolUse guard's own trusted-source displacement is unconditional"
@@ -46155,7 +48689,7 @@ PY
 # ────────────────────────────────────────────────────────────────────────────
 
 # ── #1072 shipped-pruned-path lint (lib/test/lint-shipped-pruned-path.py) ──
-# The vendor slice prunes lib/test / docs/site / docs/external /
+# The vendor slice prunes lib/test / docs/site / docs/external / docs/internal /
 # .claude-plugin/marketplace.json from the
 # vendored plugin, so a shipped prompt sentence naming one of them resolves against a consumer
 # tree where it does not exist. This lint derives the prune set from vendor-slice.sh itself (not
@@ -46181,7 +48715,7 @@ print("yes" if m and int(m.group(1)) > 0 else "no")')"
 # one live member (lib/test) still leaves a non-empty set, so a bare non-empty check would pass
 # over a population it no longer covers. Reading the live vendor-slice.sh through --print-prune-set.
 assert_eq "#1072 lint: derived prune set matches the checked-in expectation" \
-  ".claude-plugin/marketplace.json docs/external docs/site lib/test" \
+  ".claude-plugin/marketplace.json docs/external docs/internal docs/site lib/test" \
   "$(cd "$LIB/.." && python3 "$SP_LINT" --print-prune-set | python3 -c 'import sys; print(" ".join(sys.stdin.read().split()))')"
 
 # Prune-set derivation over synthetic slices, driven through --slice-source (AC10 matrix).
@@ -46269,6 +48803,52 @@ assert_eq "#1072 lint: an HTML comment that is not the marker does not suppress"
 # A clean file with no reference is silent.
 assert_eq "#1072 lint: a file with no reference is clean" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
   "$(sp_run "$SP_SIMPLE" skills/clean.md)"
+
+# ── #1241 citation check: PRFlow-internal issue/PR-number + acceptance-criterion references ──
+# skills/** and agents/** ship verbatim into a consumer, so a `#441`/`issue #441`/`AC5`
+# citation resolves against THIS repo's own tracker and points at nothing in a consumer.
+# The citation scan rides the SAME audited population and the SAME pruned-path-ok marker
+# family as the prune-path scan. Both directions are exercised (AC4): an unmarked citation
+# is reported, a marked one is suppressed; the AC-reference row covers the second shape.
+assert_eq "#1241 lint: an unmarked issue-number citation is reported" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/cite-unmarked.md)" in "rc=1|"*"skills/cite-unmarked.md:1:"*"cites PRFlow-internal '#441'"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1241 lint: a marked citation is not reported" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/cite-marked.md)"
+assert_eq "#1241 lint: an unmarked acceptance-criterion reference is reported" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/cite-ac.md)" in "rc=1|"*"skills/cite-ac.md:1:"*"cites PRFlow-internal 'AC5'"*) echo yes ;; *) echo no ;; esac)"
+# The `#\d+\b` word boundary exists precisely so a hex colour (`#1D76DB`, whose `#1` is
+# followed by a letter) and a bare run id (no `#`) are NOT citations — guard that boundary
+# so dropping the `\b` (which would flip a hex colour into a false finding) fails RED.
+assert_eq "#1241 lint: a hex colour and a run id are not citations (word-boundary control)" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/cite-hex-clean.md)"
+# `\bAC\d+\b`'s LEADING boundary is the counterpart control to `cite-hex-clean`'s trailing
+# one: `MAC5` embeds `AC5` and `AC-5` is a non-recognized adjacent spelling, so dropping the
+# leading `\b` (or broadening to the hyphenated form) turns this fixture RED.
+assert_eq "#1241 lint: MAC5 and AC-5 are not citations (AC leading-boundary control)" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/cite-ac-boundary-clean.md)"
+# The docstring advertises the `PR`-prefixed number shape distinctly from the bare one;
+# exercise it so the advertised form is a tested claim rather than a prose assertion. The
+# assertion LABEL must not itself spell a `#`-number: the issue-591 coverage-map guard reads
+# `#N` out of run.sh assertion labels as a coverage label, so a fixture shape quoted into a
+# label is indistinguishable there from a real issue reference and files a phantom entry.
+assert_eq "#1241 lint: an unmarked PR-prefixed number citation is reported" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/cite-pr-unmarked.md)" in "rc=1|"*"skills/cite-pr-unmarked.md:1:"*"cites PRFlow-internal '#123'"*) echo yes ;; *) echo no ;; esac)"
+# `_scan` reports the FIRST match per line only. Pin it with an exact-output assertion: a
+# change to per-match reporting would emit a second finding line and turn this RED.
+assert_eq "#1241 lint: two citations on one line report the first only" \
+  "rc=1|skills/cite-two-on-one-line.md:1: cites PRFlow-internal '#441' (issue/PR or acceptance-criterion reference) with no pruned-path-ok marker
+lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/cite-two-on-one-line.md)"
+# Fence branch for the CITATION scan (the prune-path scan's fence matrix below covers only
+# path references). `_scan` newly decides these three for citations too, so each is driven:
+# an unmarked citation inside a fence is reported; the shell-form marker suppresses inside a
+# fence; the HTML-form marker does NOT (a fenced line is emitted verbatim into a shell).
+assert_eq "#1241 lint fence-state: an unmarked citation inside a fence is reported" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/cite-fence-unmarked.md)" in "rc=1|"*"skills/cite-fence-unmarked.md:3:"*"cites PRFlow-internal '#441'"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1241 lint fence-state: a # marker inside a fence suppresses a citation" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/cite-fence-shell-marked.md)"
+assert_eq "#1241 lint fence-state: an HTML marker inside a fence does not suppress a citation" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/cite-fence-html-marked.md)" in "rc=1|"*"skills/cite-fence-html-marked.md:3:"*"cites PRFlow-internal '#441'"*) echo yes ;; *) echo no ;; esac)"
 # test_marker_in_emitted_fence + fence-state matrix (AC14/AC15). Each row states its own reason.
 while IFS='|' read -r _sp_file _sp_expect _sp_why; do
   [ -n "$_sp_file" ] || continue
@@ -46380,6 +48960,155 @@ r_skip = run(lambda root, ff, *, ls_files_argv: ["skills/x.md"],
 print(r_enum, r_skip)
 PY
 )"
+
+# ── #1248 ungranted-helper-spelling lint (lib/test/lint-ungranted-helper-spelling.py) ──
+# The cloud matcher grants each bundled helper ONLY at the vendored literal
+# .prflow/vendor/prflow/scripts/<name>, so a shipped prompt sentence spelling a
+# verdict-post helper scripts/<name> is a leading token no profile grants — a cloud run
+# that emits it is silently denied and finishes with no verdict marker (the three review
+# runs of issue #1248). extract-command-heads.py cannot see it (fence-only by design);
+# this lint audits skills/**+agents/** for the ungranted repo-relative spelling of the
+# two in-scope verdict helpers, its forbidden set DERIVED from capability-profiles.json
+# (vendored-only) intersected with the documented in-scope basenames. Sibling of the
+# #1072 pruned-path lint; driven the same way (real tree as the live gate, plus synthetic
+# fixtures through --root/--files-from/--manifest).
+UH_LINT="$LIB/test/lint-ungranted-helper-spelling.py"
+UH_FX="$LIB/test/fixtures/ungranted-helper-spelling"
+UH_M="$UH_FX/manifests/vendored-only.json"
+# The clean single-file summary line (audited 1 of 1, both in-scope literals in the
+# forbidden set), reused by every green fixture assertion below so the format lives once.
+UH_CLEAN1="rc=0|lint-ungranted-helper-spelling: audited 1 of 1 files; forbidden set: scripts/dismiss-stale-rejections.sh scripts/post-review-verdict.sh"
+
+# Real-tree run: exits 0 AND audited a positive number of files (a green run whose count
+# had silently collapsed to zero would read as clean while auditing nothing).
+UH_OUT="$(cd "$LIB/.." && python3 "$UH_LINT" 2>&1)"; UH_RC=$?
+assert_eq "#1248 lint: clean on the tree as it stands" "rc=0" \
+  "$([ "$UH_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$UH_RC" "$UH_OUT")"
+assert_eq "#1248 lint: the real-tree run audited a positive number of files" "yes" \
+  "$(printf '%s' "$UH_OUT" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) of", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+# The forbidden set derived from the REAL manifest is exactly the two in-scope verdict
+# helpers — the floor a bare non-empty check would not give (a dropped member still
+# leaves a non-empty set).
+assert_eq "#1248 lint: derived forbidden set matches the two in-scope verdict helpers" \
+  "scripts/dismiss-stale-rejections.sh scripts/post-review-verdict.sh" \
+  "$(cd "$LIB/.." && python3 "$UH_LINT" --print-forbidden-set | python3 -c 'import sys; print(" ".join(sys.stdin.read().split()))')"
+
+# Forbidden-set fail-closed arms, driven through --manifest over fixture manifests.
+uh_forbidden() {  # <manifest> -> "rc=<n>|<one-line joined stdout+stderr>"
+  local out rc
+  out="$(python3 "$UH_LINT" --print-forbidden-set --manifest "$1" 2>&1)"; rc=$?
+  printf 'rc=%s|%s' "$rc" "$(printf '%s' "$out" | tr '\n' ' ')"
+}
+# A vendored-only manifest yields exactly the two in-scope literals.
+assert_eq "#1248 lint: a vendored-only fixture manifest derives the two literals" \
+  "rc=0|scripts/dismiss-stale-rejections.sh scripts/post-review-verdict.sh" \
+  "$(uh_forbidden "$UH_FX/manifests/vendored-only.json")"
+# A bare grant on an in-scope helper voids the ungranted premise → refuse, naming it.
+assert_eq "#1248 lint: a bare grant on an in-scope helper refuses (premise void)" "yes" \
+  "$(case "$(uh_forbidden "$UH_FX/manifests/bare-grant.json")" in "rc=1|"*"ALSO granted at the bare"*) echo yes ;; *) echo no ;; esac)"
+# An in-scope helper not granted at any vendored literal → refuse, naming it.
+assert_eq "#1248 lint: an in-scope helper absent from the manifest refuses" "yes" \
+  "$(case "$(uh_forbidden "$UH_FX/manifests/missing-inscope.json")" in "rc=1|"*"not granted at any vendored literal"*) echo yes ;; *) echo no ;; esac)"
+# A non-JSON manifest refuses, attributed to the parse.
+assert_eq "#1248 lint: a non-JSON manifest refuses, attributed to the JSON parse" "yes" \
+  "$(case "$(uh_forbidden "$UH_FX/manifests/bad.json")" in "rc=1|"*"not valid JSON"*) echo yes ;; *) echo no ;; esac)"
+
+# Audited-population behavior, driven over the fixture skills/agents tree with the
+# fixture vendored-only manifest. Every list rides through probe_tmp so the fixtures stay
+# unreachable from the default index enumeration.
+uh_run() {  # <path…> -> "rc=<n>|<stdout+stderr>"
+  local list out rc
+  list="$(probe_tmp '#1248 fixture list')" || return 0
+  printf '%s\n' "$@" > "$list"
+  out="$(python3 "$UH_LINT" --root "$UH_FX" --files-from "$list" --manifest "$UH_M" 2>&1)"; rc=$?
+  rm -f "$list"
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+# AC3 discriminating pair: the unmarked reference is REPORTED, the clean file is not.
+assert_eq "#1248 lint: an unmarked reference is reported (AC3 RED)" "yes" \
+  "$(case "$(uh_run skills/unmarked.md)" in "rc=1|"*"skills/unmarked.md:1:"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1248 lint: a clean file with no reference is silent (AC3 GREEN)" \
+  "$UH_CLEAN1" \
+  "$(uh_run skills/clean.md)"
+# AC4 combined negative control: the vendored literal, a bare-filename naming sentence,
+# English prose containing "scripts", and the #275 anchor form all PASS in one file.
+assert_eq "#1248 lint: the AC4 combined negative control passes (vendored literal + bare name + English + anchor)" \
+  "$UH_CLEAN1" \
+  "$(uh_run skills/negative-control.md)"
+# A marker with a non-empty reason suppresses; an empty-reason marker does not.
+assert_eq "#1248 lint: a marked (HTML) reference is not reported" \
+  "$UH_CLEAN1" \
+  "$(uh_run skills/marked-html.md)"
+assert_eq "#1248 lint: a marker with an empty reason is reported" "yes" \
+  "$(case "$(uh_run skills/marked-empty.md)" in "rc=1|"*"skills/marked-empty.md:1:"*) echo yes ;; *) echo no ;; esac)"
+# A # marker inside an emitted shell fence suppresses (fence-state tracking).
+assert_eq "#1248 lint: a # marker inside a backtick fence suppresses" \
+  "$UH_CLEAN1" \
+  "$(uh_run skills/fence-shell.md)"
+# The agents/ prefix (second audited prefix), reported like skills/.
+assert_eq "#1248 lint: an agents/ path is audited and reported like skills/" "yes" \
+  "$(case "$(uh_run agents/unmarked-agent.md)" in "rc=1|"*"agents/unmarked-agent.md:1:"*) echo yes ;; *) echo no ;; esac)"
+# Empty-audited floor: a list naming only a non-audited path refuses rather than
+# reporting a clean pass over an unchecked surface; adding one audited path audits 1 of 1
+# (floor control + is_audited negative half).
+assert_eq "#1248 lint: an enumeration selecting no skills/agents path refuses (empty-audited floor)" "yes" \
+  "$(case "$(uh_run manifests/vendored-only.json)" in "rc=1|"*"selected no file under skills/ or agents/"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1248 lint: the same list plus one audited path audits 1 of 1 (floor control + is_audited negative)" \
+  "$UH_CLEAN1" \
+  "$(uh_run manifests/vendored-only.json skills/clean.md)"
+# The read-failure/skip fail-closed arm (issue #1248 review): an audited-prefix path that
+# read_source cannot open is a SKIPPED refuse-to-report-clean (rc=1), never a silent
+# exclusion — the lint's core fail-closed guarantee. Without this, a regression converting
+# the terminal `if skipped: return 1` into a silent `continue` would leave every
+# readable-fixture assertion green while the refuse-on-unreadable guard was gone. The
+# clean.md alongside it proves the run still scanned the readable member (audited 1 of 2).
+assert_eq "#1248 lint: an unreadable/absent audited path is a fail-closed skip, not a silent exclusion" "yes" \
+  "$(case "$(uh_run skills/does-not-exist.md skills/clean.md)" in "rc=1|"*"SKIPPED skills/does-not-exist.md"*"refusing to report clean"*) echo yes ;; *) echo no ;; esac)"
+
+# AC5: this repository's own local tier resolves the repo-root form (the vendored tree is
+# materialized only at runtime and is absent from the working tree), so the repo-root
+# helpers must exist and be executable here — neither local context is left pathless.
+assert_eq "#1248 AC5: the repo-root verdict-post helper resolves in this repo's local tree" "yes" \
+  "$([ -x "$LIB/../scripts/post-review-verdict.sh" ] && echo yes || echo no)"
+assert_eq "#1248 AC5: the repo-root dismiss helper resolves in this repo's local tree" "yes" \
+  "$([ -x "$LIB/../scripts/dismiss-stale-rejections.sh" ] && echo yes || echo no)"
+
+# ── #1124 anchor-fallback-arm lint (lib/test/lint-anchor-fallback-arm.py) ──────
+# The cloud matcher denies the unexpanded ${CLAUDE_SKILL_DIR:-…} anchor as a helper's
+# leading token (recorded in CLAUDE.md; run 30695072336 for the argument-position
+# sibling), so an ENROLLED cloud-reachable call site must emit the granted vendored
+# literal as the leading token (the #1256 tier-agnostic form) with the anchor line kept
+# as the fallback arm. This inventory-driven lint fails when an enrolled site carries the
+# anchor leading token with NO vendored-literal fallback arm. It is deliberately NOT a
+# blanket rule against the anchor (ruling consequence 2 / #1152/#1153: such a rule "would
+# flag every call site") — it audits only the enrolled review-engine loads. Driven the
+# same way as the #1248 sibling: real tree as the live gate, plus checked-in RED/GREEN
+# fixtures so the guard is proven non-vacuous.
+AF_LINT="$LIB/test/lint-anchor-fallback-arm.py"
+AF_FX="$LIB/test/fixtures/anchor-fallback-arm"
+# Real tree (default --root is the repo root, cwd-independent): the three enrolled
+# review-engine loads now carry both forms → clean.
+AF_OUT="$(python3 "$AF_LINT" 2>&1)"; AF_RC=$?
+assert_eq "#1124 lint: clean on the tree as it stands (enrolled loads carry the fallback arm)" "rc=0" \
+  "$([ "$AF_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$AF_RC" "$AF_OUT")"
+# RED fixture: enrolled sites emit the anchor leading token with no vendored fallback →
+# rc=1 AND the report names the specific call site. Captured once, asserted twice.
+AF_RED_OUT="$(python3 "$AF_LINT" --root "$AF_FX/red" 2>&1)"; AF_RED_RC=$?
+assert_eq "#1124 lint: an anchor-only enrolled site is reported (RED, non-vacuous)" "1" "$AF_RED_RC"
+assert_eq "#1124 lint: the RED report names the enrolled call site" "yes" \
+  "$(case "$AF_RED_OUT" in *"skills/review/SKILL.md: 'load-prompt-extension.sh review' is invoked via the unexpanded"*) echo yes ;; *) echo no ;; esac)"
+# GREEN fixture: both forms present at every enrolled site → rc=0.
+assert_eq "#1124 lint: a both-forms enrolled site passes (GREEN)" "yes" \
+  "$(python3 "$AF_LINT" --root "$AF_FX/green" >/dev/null 2>&1 && echo yes || echo no)"
+# NEITHER fixture: an enrolled site carrying neither form is a stale inventory → fail
+# CLOSED (rc=1, naming the stale site), never a silent pass. Guards the fail-closed arm
+# most likely to regress into a silent skip.
+AF_NEITHER_OUT="$(python3 "$AF_LINT" --root "$AF_FX/neither" 2>&1)"; AF_NEITHER_RC=$?
+assert_eq "#1124 lint: an enrolled site carrying neither form fails closed (stale inventory)" "1" "$AF_NEITHER_RC"
+assert_eq "#1124 lint: the neither-form report names the stale enrolled site" "yes" \
+  "$(case "$AF_NEITHER_OUT" in *"carries NEITHER the anchor nor the vendored-literal"*) echo yes ;; *) echo no ;; esac)"
 
 # ── Public documentation source contract ────────────────────────────────────
 # The public site is source-only: Markdown/MDX plus docs.json. Mintlify reads
@@ -46548,7 +49277,7 @@ assert_eq "public site: README links to the public site" "yes" \
 assert_eq "public site: README no longer links to the retired GitHub Pages site" "no" \
   "$(public_file_contains "$LIB/../README.md" 'https://the01geek.github.io/prflow/')"
 assert_eq "public site: publishing runbook exists" "yes" \
-  "$([ -f "$LIB/../docs/mintlify-publishing.md" ] && echo yes || echo no)"
+  "$([ -f "$LIB/../docs/internal/mintlify-publishing.md" ] && echo yes || echo no)"
 
 # Fixture controls for the public-doc guards. Top-level release notes are owned by
 # the release-notes workflow and intentionally excluded from the docs/** navigation

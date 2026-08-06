@@ -1223,7 +1223,7 @@ class ModuleRunnerTests(unittest.TestCase):
             "The registry and this full-suite call share the same lower-bound contract",
             run_text,
         )
-        overview_text = (ROOT / "docs/DEVFLOW_SYSTEM_OVERVIEW.md").read_text(
+        overview_text = (ROOT / "docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md").read_text(
             encoding="utf-8"
         )
         self.assertIn(
@@ -2019,6 +2019,10 @@ SERIAL_BY_EXCLUSION_SUITES = (
     # main shell (invoked directly by run.sh, like test_create_issue_context_eval.py
     # above), not through the pool or a full-suite module.
     "test_implement_context_eval.py",
+    # issue #1314: the review-verdict handoff importer's focused unittest runs
+    # serially on the main shell (invoked directly by run.sh, like the entries
+    # above), not through the pool or a full-suite module.
+    "test_import_review_verdict_handoff.py",
 )
 MODULE_DRIVEN_SUITES = (
     "test_reconcile_module_floors.py",
@@ -2027,6 +2031,8 @@ MODULE_DRIVEN_SUITES = (
     "test_verification_flight.py",
     "test_reception_identity.py",
     "test_coverage_map_guard.py",
+    "test_coverage_map_merge.py",
+    "test_assertion_floor_retention.py",
     "test_pin_corpus_classifier.py",
     "test_pin_corpus_lint.py",
     "test_profile_suite.py",

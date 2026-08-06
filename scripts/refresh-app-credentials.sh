@@ -20,8 +20,7 @@
 #      apply: on Windows the umask/chmod below are ineffective (the filesystem
 #      honors only a read-only flag), so the file is left to whatever the
 #      filesystem's ACLs provide — a comment-only reconciliation of existing
-#      behavior, kept in step with docs/cloud-setup.md and
-#      docs/DEVFLOW_SYSTEM_OVERVIEW.md (issue #690). Narrowing that exposure is
+#      behavior (issue #690). Narrowing that exposure is
 #      tracked separately; this script's behavior is unchanged.
 #
 # Subcommands:

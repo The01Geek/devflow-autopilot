@@ -414,8 +414,9 @@ HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DE
   DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"$DRV_M_REJECT\n## 🔴 Devflow Review — REJECT\"}]" \
   drv "#1030 marker-carrying non-conforming REJECT body on HEAD -> reject" "reject true"
 
-# The two verdict keys must agree. A marker naming another commit is a reportable
-# producer defect, never a verdict to join on.
+# The two verdict keys can disagree as ordinary GitHub behavior (GitHub can change a
+# review's commit_id after submission — issue #1247), so this deriver fails closed and
+# joins on neither when they disagree, rather than guessing a verdict.
 HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
   DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"$DRV_M_OLDHEAD\"}]" \
   drv "#1030 marker head disagreeing with the review commit_id -> incomplete (fail closed)" "incomplete false"
@@ -2578,14 +2579,14 @@ assert_eq "drc: guard's review-backstop marker matches the producer (coupling ho
 # so the helper's paginated fetch is not computed and discarded (efficiency).
 assert_eq "drc: Candidate-C helper is consulted only when both legacy signals are 0" "1" \
   "$(grep -cF 'if [ "$IC" = "0" ] && [ "$IR" = "0" ]; then' "$RDWF")"
-# resolves-the-thread-key-on-a-review-comment-event (issue #989 named assertion):
-# devflow.yml accepts three events, but only issue_comment populates
-# github.event.issue.number — pull_request_review[_comment] populate only
-# github.event.pull_request.number. Both the guard job's PR env and the notice
-# step's PR env must derive the thread key with the `||` fallback, or Candidate C
-# silently never suppresses on two of the three trigger events (the helper's own
-# numeric-PR guard fails open on an empty PR). Pin BOTH sites (guard + notice).
-assert_eq "drc: guard+notice PR env derive the thread key on ALL three events (|| fallback)" "2" \
+# resolves-the-thread-key (issue #989 named assertion): since issue #1163 devflow.yml
+# fires on issue_comment alone (the two pull_request_review* subscriptions were
+# removed), and issue_comment populates github.event.issue.number. Both the guard
+# job's PR env and the notice step's PR env retain the `|| github.event.pull_request.number`
+# fallback as a defensive form so the two sites derive the thread key identically;
+# the fallback is now degenerate under the sole trigger but harmless (issue.number is
+# always populated), and pinning BOTH sites (guard + notice) keeps them coupled.
+assert_eq "drc: guard+notice PR env derive the thread key with the || fallback (both sites coupled)" "2" \
   "$(grep -cF 'PR: ${{ github.event.issue.number || github.event.pull_request.number }}' "$RDWF")"
 
 rm -rf "$DRC_STUB"
@@ -3293,6 +3294,93 @@ s1154_seed "$S1154_ROOT/superseded-foreign.md"
 assert_eq "#1154 upsert: another run's key in the superseded namespace stays foreign — untouched, own comment created" "0/1" \
   "$(s1154_run 55 "$S1154_MARK" 'job died' >/dev/null; s1154_writes)"
 
+# ════════════════════════════════════════════════════════════════════════════
+# #1174 — the out-of-job review finalizer's command-job ARM selector, and the
+# idempotency of the flip it reuses.
+# ════════════════════════════════════════════════════════════════════════════
+# Every review post-run handler used to be an always() step inside the `command`
+# job, so a runner death silenced all of them. devflow.yml's new `review_finalize`
+# job survives that loss and decides what to do from `needs.command.result`. That
+# JOB-level arm selection is a branch chain the suite must be able to catch
+# defeated (CLAUDE.md's inline-shell-extraction convention), so it lives in
+# scripts/describe-command-job-arm.sh and is driven here arm-by-arm and for arm
+# order — a DISTINCT decision from describe-dead-run-cause.sh, which it must not
+# duplicate.
+S1174_ARM="$LIB/../scripts/describe-command-job-arm.sh"
+
+# T1 — every arm. The three-way partition IS the contract: a healthy job produces
+# nothing, a cancellation is named as such, and every non-report shape leaves the
+# dead-run record.
+assert_eq "#1174 arm: a successful command job is completed-normally" \
+  "completed-normally" "$(bash "$S1174_ARM" success)"
+assert_eq "#1174 arm: a cancelled command job is cancelled" \
+  "cancelled" "$(bash "$S1174_ARM" cancelled)"
+assert_eq "#1174 arm: a failed command job did-not-report" \
+  "did-not-report" "$(bash "$S1174_ARM" failure)"
+assert_eq "#1174 arm: a skipped command job did-not-report" \
+  "did-not-report" "$(bash "$S1174_ARM" skipped)"
+# A runner-death job leaves an EMPTY result — the exact case this issue exists for
+# — and any unforeseen token is a did-not-report residual, never silently dropped.
+assert_eq "#1174 arm: an empty result (the runner-death shape) did-not-report" \
+  "did-not-report" "$(bash "$S1174_ARM" '')"
+assert_eq "#1174 arm: an absent argument did-not-report" \
+  "did-not-report" "$(bash "$S1174_ARM")"
+assert_eq "#1174 arm: an unforeseen token is a did-not-report residual" \
+  "did-not-report" "$(bash "$S1174_ARM" neutralized)"
+# The three arms are three DISTINCT tokens, or the partition collapses.
+assert_eq "#1174 arm: the three command-job arms are three distinct tokens" "3" \
+  "$( { bash "$S1174_ARM" success; bash "$S1174_ARM" cancelled; bash "$S1174_ARM" failure; } | sort -u | grep -c . || true)"
+S1174_RC=0
+bash "$S1174_ARM" >/dev/null 2>&1 || S1174_RC=$?
+assert_eq "#1174 arm: always exits 0 (it can never change the finalizer job's result)" "0" "$S1174_RC"
+
+# ARM ORDER. `success` is matched FIRST, before the did-not-report catch-all — a
+# reordering that let the catch-all shadow it would post a dead-run banner on a
+# healthy run. Prove the order is load-bearing with a disposable mutant: move the
+# catch-all `*)` arm ahead of the `success)` arm and confirm a `success` input now
+# grades wrong — i.e. a reordering is observable here, not something the arm
+# assertions above would sail past.
+S1174_MUT="$(mktemp -d)"
+python3 - "$S1174_ARM" "$S1174_MUT/reordered.sh" <<'PY'
+import sys
+src = open(sys.argv[1], encoding="utf-8").read()
+# Rewrite the case so the did-not-report catch-all is tested first.
+mutant = src.replace(
+    'case "$COMMAND_RESULT" in\n'
+    '  success)   printf \'%s\\n\' "completed-normally" ;;\n'
+    '  cancelled) printf \'%s\\n\' "cancelled" ;;\n'
+    '  *)         printf \'%s\\n\' "did-not-report" ;;\n'
+    'esac',
+    'case "$COMMAND_RESULT" in\n'
+    '  *)         printf \'%s\\n\' "did-not-report" ;;\n'
+    '  success)   printf \'%s\\n\' "completed-normally" ;;\n'
+    '  cancelled) printf \'%s\\n\' "cancelled" ;;\n'
+    'esac',
+)
+if mutant == src:
+    sys.exit("mutation did not apply — the case shape drifted; update this test")
+open(sys.argv[2], "w", encoding="utf-8").write(mutant)
+PY
+assert_eq "#1174 arm ORDER: the reordered mutant mis-grades a success (proving order is load-bearing)" \
+  "did-not-report" "$(bash "$S1174_MUT/reordered.sh" success)"
+assert_eq "#1174 arm ORDER: the canonical helper grades that same success correctly" \
+  "completed-normally" "$(bash "$S1174_ARM" success)"
+rm -rf "$S1174_MUT"
+
+# T2 (AC2) — the finalizer reuses the idempotent flip helper, so applying the
+# dead-run flip TWICE over the same progress comment leaves a SINGLE banner. The
+# first pass flips the interim comment (one PATCH); feeding the flipped body back
+# in must take the already-terminal arm and write nothing — no second banner.
+s1154_seed "$S1154_ROOT/interim.md"
+assert_eq "#1174 T2: the finalizer's first flip PATCHes exactly once" "1/0" \
+  "$(s1154_run 55 "$S1154_MARK" 'the review command job did not report (needs.command.result=failure)' >/dev/null; s1154_writes)"
+cp "$S1154_STATE/patched-body" "$S1154_ROOT/flipped-once.md"
+s1154_seed "$S1154_ROOT/flipped-once.md"
+assert_eq "#1174 T2: a second flip over the same comment stacks NO second banner (writes nothing)" "0/0" \
+  "$(s1154_run 55 "$S1154_MARK" 'the review command job did not report (needs.command.result=failure)' >/dev/null; s1154_writes)"
+assert_eq "#1174 T2: the twice-flipped body carries exactly one terminal Status line" "1" \
+  "$(grep -cF '**Status:** ❌ Review failed' "$S1154_ROOT/flipped-once.md" || true)"
+
 rm -rf "$S1154_ROOT"
 
 # ── devflow.yml wiring, executed rather than grepped. Extract the shipped step's
@@ -3411,6 +3499,220 @@ assert_eq "#1154 wiring: an absent upsert helper warns" "1" \
   "$(grep -cF 'flip-review-progress-failed.sh absent' <<<"$S1154_WF_OUT" || true)"
 
 rm -rf "$S1154_WF"
+
+# ── devflow.yml wiring, executed rather than grepped (#1174). The review_finalize
+# job's own step body selects branches AND composes user-facing message text — the
+# exact shape CLAUDE.md's inline-shell-extraction convention governs — so extract
+# the shipped block between its BEGIN/END markers and run it against recording
+# helper stubs. Driving the real block is what catches a reordered CAUSE arm, a
+# TARGET_NUMBER/CONTEXT_NUMBER mix-up, an inverted SUPPRESS_FLIP, or a swapped
+# verdict-helper arg — none of which a pin on a message literal can see.
+S1174_WF="$(mktemp -d)"
+mkdir -p "$S1174_WF/.prflow/vendor/prflow/scripts"
+python3 - "$RDWF" "$S1174_WF/finalizer-block.sh" <<'PY'
+import sys
+import textwrap
+
+text = open(sys.argv[1], encoding="utf-8").read()
+begin = text.index("          # review-finalizer BEGIN")
+end = text.index("          # review-finalizer END", begin)
+block = text[begin:end].splitlines()[1:]
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    # Match the SHIPPED execution environment exactly, errexit included. The step
+    # carries no `shell:` key, so Actions runs it under its default `bash -e {0}`,
+    # and the step's own first line adds `set -uo pipefail` on top — net -e -u
+    # -o pipefail. Dropping -e here would run the block under weaker options than
+    # production and hide an abort this harness exists to catch.
+    handle.write("set -euo pipefail\n")
+    handle.write(textwrap.dedent("\n".join(block)))
+    handle.write("\n")
+PY
+# The two decision helpers are the REAL scripts — the block's job is to route to
+# them correctly, so stubbing them would hide a mis-wired call.
+cp "$LIB/../scripts/describe-command-job-arm.sh" "$S1174_WF/.prflow/vendor/prflow/scripts/describe-command-job-arm.sh"
+cp "$S1154_CAUSE" "$S1174_WF/.prflow/vendor/prflow/scripts/describe-dead-run-cause.sh"
+# Recording flip stub: writes its args, so "the banner was written / was not
+# written" and the composed CAUSE text are both proven rather than assumed.
+cat > "$S1174_WF/.prflow/vendor/prflow/scripts/flip-review-progress-failed.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s|%s|%s\n' "$1" "$2" "$3" >> "$S1174_WF_RECORD"
+exit 0
+SH
+chmod +x "$S1174_WF/.prflow/vendor/prflow/scripts/flip-review-progress-failed.sh"
+# Controllable verdict-presence stub: echoes $S1174_FAKE_VERDICT and RECORDS its
+# positional args, so the suppress-vs-write selection is driven from both sides and
+# the <repo> <target_number> <engine_is_error> arg ORDER is asserted — a swapped or
+# dropped arg in the workflow would otherwise stay green, the real helper's own
+# tests proving the helper and never its caller.
+cat > "$S1174_WF/.prflow/vendor/prflow/scripts/dead-run-verdict-present.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$S1174_WF_ARGS"
+printf '%s\n' "${S1174_FAKE_VERDICT:-absent}"
+exit 0
+SH
+chmod +x "$S1174_WF/.prflow/vendor/prflow/scripts/dead-run-verdict-present.sh"
+S1174_WF_RECORD="$S1174_WF/record"
+S1174_WF_ARGS="$S1174_WF/verdict-args"
+: > "$S1174_WF_RECORD"; : > "$S1174_WF_ARGS"
+s1174_wf() {  # <command-result> <command> <claude-outcome> <engine-error> [context-number] [fake-verdict]
+  ( cd "$S1174_WF" && COMMAND_RESULT="$1" COMMAND="$2" CLAUDE_OUTCOME="$3" ENGINE_ERROR="$4" \
+      CONTEXT_NUMBER="${5-55}" S1174_FAKE_VERDICT="${6-absent}" REPO=o/r GH_TOKEN=secret \
+      GITHUB_RUN_ID=1174 GITHUB_RUN_ATTEMPT=3 \
+      S1174_WF_RECORD="$S1174_WF_RECORD" S1174_WF_ARGS="$S1174_WF_ARGS" \
+      bash "$S1174_WF/finalizer-block.sh" )
+}
+s1174_cause() { sed -n '1p' "$S1174_WF_RECORD" | sed 's/^.*|//'; }
+
+# ── The completed-normally no-op (AC3/T3). A healthy command job already ran its
+# own in-job handlers, so the finalizer must produce NOTHING — no verdict query,
+# no banner, no second comment.
+: > "$S1174_WF_RECORD"; : > "$S1174_WF_ARGS"
+S1174_WF_OUT="$(s1174_wf success '/prflow:review 55' success false)"
+assert_eq "#1174 wiring: a completed-normally command job never reaches the flip helper" "0" \
+  "$(grep -c . "$S1174_WF_RECORD" || true)"
+assert_eq "#1174 wiring: a completed-normally command job never even asks the verdict oracle" "0" \
+  "$(grep -c . "$S1174_WF_ARGS" || true)"
+assert_eq "#1174 wiring: the completed-normally arm says so rather than exiting silently" "1" \
+  "$(grep -cF 'completed normally' <<<"$S1174_WF_OUT" || true)"
+
+# ── CAUSE arm 1: cancelled. Named as a cancellation, not lumped in with a failure.
+: > "$S1174_WF_RECORD"
+s1174_wf cancelled '/prflow:review 55' '' '' >/dev/null
+assert_eq "#1174 wiring: a cancelled command job composes the cancellation cause" \
+  "the review run was cancelled (needs.command.result=cancelled); no verdict was recorded" "$(s1174_cause)"
+# The cancelled arm is tested BEFORE the promoted-outputs arm, so a cancelled job
+# whose outputs DID survive is still named a cancellation — reordering the ladder
+# would silently reroute it through describe-dead-run-cause.sh instead.
+: > "$S1174_WF_RECORD"
+s1174_wf cancelled '/prflow:review 55' success true >/dev/null
+assert_eq "#1174 wiring: cancelled wins over surviving promoted outputs (CAUSE arm order)" \
+  "the review run was cancelled (needs.command.result=cancelled); no verdict was recorded" "$(s1174_cause)"
+
+# ── CAUSE arm 2: the ALIVE failure, where the promoted outputs survived. The block
+# must route to describe-dead-run-cause.sh and use its richer diagnosis verbatim.
+: > "$S1174_WF_RECORD"
+s1174_wf failure '/prflow:review 55' success true >/dev/null
+assert_eq "#1174 wiring: an alive failure with surviving outputs names the engine error via the cause helper" \
+  "review engine ended with an error (is_error)" "$(s1174_cause)"
+: > "$S1174_WF_RECORD"
+s1174_wf failure '/prflow:review 55' failure false >/dev/null
+assert_eq "#1174 wiring: an alive failure routes each promoted outcome through the cause helper" \
+  "claude step failure" "$(s1174_cause)"
+
+# ── CAUSE arm 3: the runner-DEATH path (AC4). A dead job emits no outputs, so the
+# promoted operands read EMPTY and the message must say plainly that the job did
+# not report — never guess a cause from an unavailable operand.
+: > "$S1174_WF_RECORD"
+s1174_wf failure '/prflow:review 55' '' '' >/dev/null
+assert_eq "#1174 wiring: empty promoted outputs take the generic did-not-report arm naming the result" \
+  "the review command job did not report (needs.command.result=failure); the job or its runner was lost before it could record a verdict" \
+  "$(s1174_cause)"
+# An empty result — the job that never started at all — renders `unavailable`
+# rather than an empty parenthetical.
+: > "$S1174_WF_RECORD"
+s1174_wf '' '/prflow:review 55' '' '' >/dev/null
+assert_eq "#1174 wiring: an empty command-job result renders 'unavailable', never a blank" \
+  "the review command job did not report (needs.command.result=unavailable); the job or its runner was lost before it could record a verdict" \
+  "$(s1174_cause)"
+# The three CAUSE arms are three DISTINCT messages, or the ladder has collapsed.
+assert_eq "#1174 wiring: the three CAUSE arms compose three distinct messages" "3" \
+  "$( : > "$S1174_WF_RECORD"; s1174_wf cancelled '/prflow:review 55' '' '' >/dev/null
+     s1174_wf failure '/prflow:review 55' success true >/dev/null
+     s1174_wf failure '/prflow:review 55' '' '' >/dev/null
+     sed 's/^.*|//' "$S1174_WF_RECORD" | sort -u | grep -c . || true)"
+
+# ── TARGET_NUMBER: where the write LANDS. The resolved command carries its own
+# target number and that is the thread the engine seeded its progress comment on;
+# addressing the event's number instead would banner an unrelated thread.
+: > "$S1174_WF_RECORD"
+s1174_wf failure '/prflow:review 42' '' '' 10 >/dev/null
+assert_eq "#1174 wiring: the command's own trailing number wins over a differing event number" "42" \
+  "$(sed -n '1p' "$S1174_WF_RECORD" | sed 's/|.*//')"
+: > "$S1174_WF_RECORD"
+s1174_wf failure '/prflow:review' '' '' 10 >/dev/null
+assert_eq "#1174 wiring: a command carrying no number falls back to the event's own" "10" \
+  "$(sed -n '1p' "$S1174_WF_RECORD" | sed 's/|.*//')"
+: > "$S1174_WF_RECORD"
+s1174_wf failure '/prflow:review-and-fix HEAD' '' '' 10 >/dev/null
+assert_eq "#1174 wiring: a non-numeric trailing token falls back to the event's own number" "10" \
+  "$(sed -n '1p' "$S1174_WF_RECORD" | sed 's/|.*//')"
+: > "$S1174_WF_RECORD"
+s1174_wf failure '' '' '' 10 >/dev/null
+assert_eq "#1174 wiring: an empty command falls back to the event's own number" "10" \
+  "$(sed -n '1p' "$S1174_WF_RECORD" | sed 's/|.*//')"
+# No number on the event at all: nothing to finalize, and that guard fires before
+# any verdict query or write.
+: > "$S1174_WF_RECORD"; : > "$S1174_WF_ARGS"
+S1174_WF_OUT="$(s1174_wf failure '/prflow:review 55' '' '' '')"
+assert_eq "#1174 wiring: an event with no issue/PR number writes nothing" "0" \
+  "$(grep -c . "$S1174_WF_RECORD" || true)"
+assert_eq "#1174 wiring: the no-number arm emits its own notice" "1" \
+  "$(grep -cF 'no issue/PR number on this event' <<<"$S1174_WF_OUT" || true)"
+
+# ── SUPPRESS_FLIP: a verdict that WAS posted must never draw a "no verdict"
+# banner beside it, and an absent verdict must always keep the banner.
+: > "$S1174_WF_RECORD"; : > "$S1174_WF_ARGS"
+S1174_WF_OUT="$(s1174_wf failure '/prflow:review 55' '' '' 55 present)"
+assert_eq "#1174 wiring: a present verdict suppresses the flip — the flip helper is never reached" "0" \
+  "$(grep -c . "$S1174_WF_RECORD" || true)"
+assert_eq "#1174 wiring: the suppressed path emits its reach record" "1" \
+  "$(grep -cF 'WAS posted' <<<"$S1174_WF_OUT" || true)"
+: > "$S1174_WF_RECORD"
+S1174_WF_OUT="$(s1174_wf failure '/prflow:review 55' '' '' 55 absent)"
+assert_eq "#1174 wiring: an absent verdict reaches the flip with this run's own marker" \
+  "55|<!-- prflow:review-progress run=1174-3 -->" \
+  "$(sed -n '1p' "$S1174_WF_RECORD" | sed 's/|[^|]*$//')"
+assert_eq "#1174 wiring: the absent-verdict path records the absence" "1" \
+  "$(grep -cF 'was found; recording the dead-run state' <<<"$S1174_WF_OUT" || true)"
+# The verdict oracle is called with <repo> <target_number> <engine_is_error> in
+# that order, and with the TARGET number (not the event's) — a swapped or dropped
+# arg here silently breaks the real gate while every other assertion stays green.
+: > "$S1174_WF_ARGS"
+s1174_wf failure '/prflow:review 42' success true 10 absent >/dev/null
+assert_eq "#1174 wiring: the gate calls the verdict oracle with repo, target number, engine-error in that order" \
+  "o/r 42 true" "$(sed -n '1p' "$S1174_WF_ARGS")"
+
+# ── Degraded arms. A consumer whose vendored pin predates a helper must DEGRADE
+# loudly (warn, exit 0) — never fail the finalizer and never silently drop the
+# record. Removed one at a time, innermost first, so each arm is reached.
+rm -f "$S1174_WF/.prflow/vendor/prflow/scripts/describe-dead-run-cause.sh"
+: > "$S1174_WF_RECORD"
+S1174_WF_RC=0
+s1174_wf failure '/prflow:review 55' success true >/dev/null || S1174_WF_RC=$?
+assert_eq "#1174 wiring: an absent cause helper does not fail the step" "0" "$S1174_WF_RC"
+assert_eq "#1174 wiring: the degraded cause still names both promoted observables" \
+  "the review command job failed (claude step success, engine is_error=true)" "$(s1174_cause)"
+
+rm -f "$S1174_WF/.prflow/vendor/prflow/scripts/dead-run-verdict-present.sh"
+: > "$S1174_WF_RECORD"
+S1174_WF_RC=0
+S1174_WF_OUT="$(s1174_wf failure '/prflow:review 55' '' '' 55 present)" || S1174_WF_RC=$?
+assert_eq "#1174 wiring: an absent verdict oracle does not fail the step" "0" "$S1174_WF_RC"
+assert_eq "#1174 wiring: an absent verdict oracle warns instead of suppressing" "1" \
+  "$(grep -cF 'dead-run-verdict-present.sh absent' <<<"$S1174_WF_OUT" || true)"
+assert_eq "#1174 wiring: with the verdict oracle absent the flip is still reached (fail toward the banner)" "1" \
+  "$(grep -c . "$S1174_WF_RECORD" || true)"
+
+rm -f "$S1174_WF/.prflow/vendor/prflow/scripts/flip-review-progress-failed.sh"
+S1174_WF_RC=0
+S1174_WF_OUT="$(s1174_wf failure '/prflow:review 55' '' '')" || S1174_WF_RC=$?
+assert_eq "#1174 wiring: an absent flip helper does not fail the step either" "0" "$S1174_WF_RC"
+assert_eq "#1174 wiring: an absent flip helper warns" "1" \
+  "$(grep -cF 'flip-review-progress-failed.sh absent' <<<"$S1174_WF_OUT" || true)"
+
+# The arm helper is the FIRST resolution; without it the block cannot decide
+# anything, so it warns and produces no record at all rather than guessing an arm.
+rm -f "$S1174_WF/.prflow/vendor/prflow/scripts/describe-command-job-arm.sh"
+: > "$S1174_WF_ARGS"
+S1174_WF_RC=0
+S1174_WF_OUT="$(s1174_wf failure '/prflow:review 55' '' '')" || S1174_WF_RC=$?
+assert_eq "#1174 wiring: an absent arm helper does not fail the step" "0" "$S1174_WF_RC"
+assert_eq "#1174 wiring: an absent arm helper warns naming the upgrade remedy" "1" \
+  "$(grep -cF 'describe-command-job-arm.sh absent' <<<"$S1174_WF_OUT" || true)"
+assert_eq "#1174 wiring: an absent arm helper asks the verdict oracle nothing" "0" \
+  "$(grep -c . "$S1174_WF_ARGS" || true)"
+
+rm -rf "$S1174_WF"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "dead-run verdict-presence gate: dead-run-verdict-present.sh + devflow.yml wiring (#1172)"
@@ -4359,14 +4661,24 @@ assert_eq "pcrt: negative control — the marker alone resolves to NO command" \
 PCRT_SB="$(mktemp -d)"
 cat > "$PCRT_SB/gh" <<'EOS'
 #!/usr/bin/env bash
-# gh stub. A POST is recorded to $PCRT_REC and honours $PCRT_POST_RC; anything
-# else is the comment-list read, which honours $PCRT_LIST_RC and serves
-# $PCRT_LIST_OUT (the ids the helper's marker filter would have matched).
+# gh stub. A POST is recorded to $PCRT_REC and honours $PCRT_POST_RC; a `pulls/<n>`
+# read is the PR-state guard (issue #1236), which honours $PCRT_STATE_RC and serves
+# the post-jq state $PCRT_PR_STATE (default `open`, so an unset value keeps every
+# pre-#1236 arm on the actionable path); anything else is the comment-list read,
+# which honours $PCRT_LIST_RC and serves $PCRT_LIST_OUT (the ids the helper's marker
+# filter would have matched).
 case "$*" in
   *"--method POST"*)
     printf '%s\n' "$*" >> "$PCRT_REC"
     [ "${PCRT_POST_RC:-0}" = 0 ] || { echo "HTTP 403" >&2; exit 1; }
     printf '{"id":1}\n'; exit 0 ;;
+  *"pulls/"*)
+    # Serves the POST-jq state verbatim ($PCRT_PR_STATE), so the helper's own jq
+    # (`if .merged then "merged" else (.state // "") end`) runs server-side on real
+    # gh and is NOT exercised here — the merged-vs-closed disambiguation is a
+    # disclosed, accepted stub boundary; these arms test the case-word routing.
+    [ "${PCRT_STATE_RC:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }
+    printf '%s' "${PCRT_PR_STATE-open}"; exit 0 ;;
 esac
 [ "${PCRT_LIST_RC:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }
 printf '%s' "${PCRT_LIST_OUT-}"
@@ -4408,6 +4720,165 @@ assert_eq "pcrt: the fail-closed arm warns and names the choice, so a missed rev
 pcrt_run PCRT_LIST_OUT="" PCRT_POST_RC=1
 assert_eq "pcrt: a POST that fails is NEVER annotated as a fired trigger (the #408 lesson)" \
   "0-1" "$(printf '%s\n' "$PCRT_OUT" | grep -c 'posted the review trigger')-$(printf '%s\n' "$PCRT_OUT" | grep -c 'did NOT post')"
+
+# --- PR-state guard, arm by arm (issue #1236) -------------------------------
+# When CI goes green the caller fires the trigger unconditionally, so a PR merged
+# or closed mid-CI would draw a full review run on a dead target — paid spend with
+# no reader. The guard reads the PR state (stubbed via PCRT_PR_STATE / PCRT_STATE_RC)
+# and posts ONLY while the PR is open; every no-post arm leaves its OWN distinct
+# annotation and the helper still exits 0. PCRT_PR_STATE defaults to `open`, so every
+# arm above is unaffected.
+pcrt_run PCRT_LIST_OUT="" PCRT_PR_STATE=open
+assert_eq "pcrt #1236-open: an OPEN PR still posts the trigger (state guard falls through)" \
+  "1" "$PCRT_POSTS"
+
+pcrt_run PCRT_PR_STATE=merged
+assert_eq "pcrt #1236-merged: a MERGED PR posts nothing (no review on a merged target)" \
+  "0" "$PCRT_POSTS"
+assert_eq "pcrt #1236-merged: the merged arm warns with its OWN distinct annotation" \
+  "1" "$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::ci auto-review trigger: PR #7 is already merged; NOT posting')"
+
+pcrt_run PCRT_PR_STATE=closed
+assert_eq "pcrt #1236-closed: a CLOSED-unmerged PR posts nothing (no review on a closed target)" \
+  "0" "$PCRT_POSTS"
+assert_eq "pcrt #1236-closed: the closed arm warns with its OWN distinct annotation" \
+  "1" "$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::ci auto-review trigger: PR #7 is closed without merging; NOT posting')"
+
+pcrt_run PCRT_STATE_RC=1
+assert_eq "pcrt #1236-state-unreadable: an unreadable PR state fails CLOSED, posting nothing" \
+  "0" "$PCRT_POSTS"
+assert_eq "pcrt #1236-state-unreadable: the fail-closed arm warns naming the unresolved state" \
+  "1" "$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::ci auto-review trigger: could not read PR #7 state.*fail-closed')"
+
+pcrt_run PCRT_PR_STATE=""
+assert_eq "pcrt #1236-state-empty: an empty (unestablished) PR state fails CLOSED, posting nothing" \
+  "0" "$PCRT_POSTS"
+assert_eq "pcrt #1236-state-empty: the unestablished-state arm warns with its OWN distinct annotation" \
+  "1" "$(printf '%s\n' "$PCRT_OUT" | grep -c '^::warning::ci auto-review trigger: PR #7 state could not be established')"
+
+# --- ci.yml supersession concurrency static check (issue #1236, Half A / AC2) --
+# ci.yml's workflow-level `concurrency:` behavior lives on GitHub's scheduler and
+# cannot be executed locally; lib/test/check-ci-concurrency.py is the closest
+# mechanical surface — a static check over the workflow file's concurrency region.
+# Drive it against the REAL ci.yml (all three properties hold) and synthetic
+# fixtures that each violate exactly one property, plus the fail-closed
+# unreadable-file arm.
+CICC="$LIB/test/check-ci-concurrency.py"
+# Run the checker ONCE per case, capturing its stdout and exit code together, then
+# reduce stdout to the verdict word (ok|fail|unavailable). One helper avoids
+# spawning the checker twice per assertion and the four-way duplication of the
+# extraction pipeline below.
+cicc_run() {  # $@ = args to the checker; sets CICC_VERDICT + CICC_RC
+  local out
+  out="$(python3 "$CICC" "$@" 2>&1)"; CICC_RC=$?
+  CICC_VERDICT="$(printf '%s\n' "$out" | grep -oE '^CI_CONCURRENCY (ok|fail|unavailable)' | awk '{print $2}')"
+}
+cicc_run
+assert_eq "cicc #1236: the real ci.yml carries a valid workflow-level supersession concurrency key" \
+  "ok|0" "$CICC_VERDICT|$CICC_RC"
+
+CICC_SB="$(mktemp -d)"
+cat > "$CICC_SB/absent.yml" <<'EOY'
+name: CI
+on:
+  push:
+    branches: [main]
+jobs:
+  x:
+    runs-on: ubuntu-latest
+EOY
+cat > "$CICC_SB/nonpr-group.yml" <<'EOY'
+name: CI
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs: {}
+EOY
+cat > "$CICC_SB/cancel-main.yml" <<'EOY'
+name: CI
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+jobs: {}
+EOY
+# A group that varies with the PR but carries NO github.run_id fallback: on a main
+# push github.event.pull_request.number is empty, so EVERY main run collapses into
+# one shared group and cancels/serializes — the "Design caution 4" bug. This is the
+# fixture that covers the second sub-check of property 2 (run_id present), which the
+# nonpr-group.yml fixture cannot reach (it fails the first sub-check).
+cat > "$CICC_SB/pr-no-runid.yml" <<'EOY'
+name: CI
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs: {}
+EOY
+# check-ci-concurrency.py is a best-effort parser over a human-mutable YAML file, so
+# the repo's adversarial-shape matrix applies: drive each fail-closed arm.
+cat > "$CICC_SB/scalar-conc.yml" <<'EOY'
+name: CI
+concurrency: enabled
+jobs: {}
+EOY
+cat > "$CICC_SB/no-group.yml" <<'EOY'
+name: CI
+concurrency:
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs: {}
+EOY
+cat > "$CICC_SB/no-cancel.yml" <<'EOY'
+name: CI
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+jobs: {}
+EOY
+: > "$CICC_SB/empty.yml"
+cat > "$CICC_SB/bad-yaml.yml" <<'EOY'
+name: CI
+concurrency: [unbalanced
+EOY
+cat > "$CICC_SB/list-doc.yml" <<'EOY'
+- a
+- b
+EOY
+
+cicc_run --ci-file "$CICC_SB/absent.yml"
+assert_eq "cicc #1236: an ABSENT workflow-level concurrency key fails (this is the pre-change ci.yml shape)" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/nonpr-group.yml"
+assert_eq "cicc #1236: a group that does NOT vary with the pull request fails" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/cancel-main.yml"
+assert_eq "cicc #1236: a cancel-in-progress that would resolve true for a main push fails" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/does-not-exist.yml"
+assert_eq "cicc #1236: an unreadable workflow file fails CLOSED as unavailable, never a silent pass" \
+  "unavailable|3" "$CICC_VERDICT|$CICC_RC"
+# Property 2, second sub-check: a PR-varying group with no run_id fallback fails,
+# so a main push cannot collapse every run into one cancelled group (Design caution 4).
+cicc_run --ci-file "$CICC_SB/pr-no-runid.yml"
+assert_eq "cicc #1236: a PR-varying group with NO github.run_id fallback fails (main runs would collapse into one group)" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+# Adversarial-shape matrix over the parser's fail-closed arms.
+cicc_run --ci-file "$CICC_SB/scalar-conc.yml"
+assert_eq "cicc #1236: a scalar (non-mapping) concurrency fails" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/no-group.yml"
+assert_eq "cicc #1236: a concurrency mapping with no group fails" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/no-cancel.yml"
+assert_eq "cicc #1236: a concurrency mapping with no cancel-in-progress fails" \
+  "fail|1" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/empty.yml"
+assert_eq "cicc #1236: an empty workflow file fails CLOSED as unavailable" \
+  "unavailable|3" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/bad-yaml.yml"
+assert_eq "cicc #1236: an unparseable workflow file fails CLOSED as unavailable" \
+  "unavailable|3" "$CICC_VERDICT|$CICC_RC"
+cicc_run --ci-file "$CICC_SB/list-doc.yml"
+assert_eq "cicc #1236: a non-mapping (list) document fails CLOSED as unavailable" \
+  "unavailable|3" "$CICC_VERDICT|$CICC_RC"
+rm -rf "$CICC_SB"
 
 # A missing/blank head SHA cannot key the marker, so dedupe would be impossible —
 # refuse rather than post an unkeyed comment on every run.
@@ -4524,7 +4995,7 @@ rm -rf "$PCRT_SB"
 # snippet, so the copy is unavoidable and the extractor keeps the doc snippet and
 # the auto_review_trigger job region from drifting); it is not a prose-presence pin.
 CIREV_EX="$LIB/test/extract-ci-review-agreement.py"
-CIREV_DOC="$LIB/../docs/workflow-triggers.md"
+CIREV_DOC="$LIB/../docs/internal/workflow-triggers.md"
 CIREV_CI="$LIB/../.github/workflows/ci.yml"
 cirev() { python3 "$CIREV_EX" "$1" "$2" 2>/dev/null; }
 
