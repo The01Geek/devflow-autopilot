@@ -7,8 +7,9 @@ type: Changed
   references.** `skills/create-issue/SKILL.md` and the `fallback-no-task-tool`,
   `fallback-read-only-sandbox`, `fallback-audit-dispatch-arms`, `fallback-state-owner-unavailable`
   and `revision-delta` references shed multi-sentence rationale, runner archaeology, per-item
-  justification tails, epistemics commentary and anti-refactor notes, and gained sub-headings with
-  their mega-paragraphs split at sentence boundaries. The prompt surface is **rewritten, not merely
+  justification tails, epistemics commentary and anti-refactor notes; the four fallback references
+  gained sub-headings with their mega-paragraphs split at sentence boundaries, while `SKILL.md` and
+  `revision-delta` gained none. The prompt surface is **rewritten, not merely
   trimmed**: instructions, prohibitions, degraded arms, named failure tokens and exact command forms
   are carried over, but several are restated more compactly rather than kept verbatim — notably the
   read-only fallback's per-arm entry signal and reduced-durability duties, now stated once at the

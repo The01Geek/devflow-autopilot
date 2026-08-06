@@ -15,7 +15,7 @@ argument-hint: <user-story>
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh create-issue
 ```
 
-Four outcomes. A **missing helper path** (`No such file`, exit 127, or the platform equivalent — e.g. `The system cannot find the path specified` on Windows shells, or a localized message) is the anchor-resolution failure above — fix the anchor, do not report a missing extension. On a **non-zero exit** a consumer extension exists but could not be loaded: surface its stderr message, never silently proceed as if none existed. **Exit 0 with text** is consumer-owned customization under `.prflow/prompt-extensions/` — treat it as instructions appended to the end of this skill's own prompt for this run. **Exit 0, no output**: proceed unchanged.
+Four outcomes. A **missing helper path** (`No such file`, exit 127, or the platform equivalent — e.g. `The system cannot find the path specified` on Windows shells, or a localized message) is the anchor-resolution failure above — fix the anchor, do not report a missing extension. Otherwise, on a **non-zero exit** where the helper runs but fails, a consumer extension exists but could not be loaded: surface its stderr message, never silently proceed as if none existed. **Exit 0 with text** is consumer-owned customization under `.prflow/prompt-extensions/` — treat it as instructions appended to the end of this skill's own prompt for this run. **Exit 0, no output**: proceed unchanged.
 
 ## Prerequisites
 
