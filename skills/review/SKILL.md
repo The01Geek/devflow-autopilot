@@ -65,7 +65,17 @@ When the block IS present:
 
 This discipline reduces the early-quit frequency; the workflow-level `prflow_review.stall_backstop` is the deterministic backstop guaranteeing convergence when a run stalls anyway (a bounded, App-token-authored `/prflow:review` re-trigger).
 
-**Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run the **granted vendored-literal leading token** — the matcher denies the unexpanded anchor as a leading token (recorded in `CLAUDE.md`; run `30695072336` for the argument-position sibling), so on the cloud tiers this form is the one that executes:
+**Consumer prompt extension (load first).** This skill's consumer extension is rendered inline, below, before you see this skill — you do not decide whether to load it:
+
+!`${CLAUDE_SKILL_DIR}/../../scripts/render-prompt-extension.sh review`
+
+Read the `PROMPT-EXTENSION-STATUS:` line rendered above and route on it:
+
+- `content-present` — the text following it is consumer instructions appended to this skill's own prompt for this run (consumer-owned, committed under `.prflow/prompt-extensions/`). Honor it.
+- `present-empty` — this consumer configured no extension. Proceed unchanged.
+- `unestablished (<reason>)` — the extension's state could not be established. **Report this in the review output**; never treat it as a clean policy pass (*unknown is not zero*).
+
+**Fallback — applies ONLY when the placeholder did not render**, i.e. no `PROMPT-EXTENSION-STATUS:` line appears above, or it appears as literal placeholder text. The render-time placeholder is a Claude-Code-specific preprocessing step that other runners (Copilot CLI, Cursor, Codex CLI, Gemini CLI) do not support, which is why the portable anchor form below is preserved. On that path only, load the extension yourself: from the repo root, run the **granted vendored-literal leading token** — the matcher denies the unexpanded anchor as a leading token (recorded in `CLAUDE.md`; run `30695072336` for the argument-position sibling), so on the cloud tiers this form is the one that executes:
 
 ```bash
 .prflow/vendor/prflow/scripts/load-prompt-extension.sh review
