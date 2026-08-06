@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1342",
+  "generated_at": "2026-08-06T01:40:11Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.5",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 12.870695749999998,
+    "tokens": {
+      "input_tokens": 92,
+      "output_tokens": 51267,
+      "cache_read_input_tokens": 8865130,
+      "cache_creation_input_tokens": 271743,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 135,
+        "outputTokens": 93538,
+        "cacheReadInputTokens": 9953744,
+        "cacheCreationInputTokens": 725706,
+        "webSearchRequests": 0,
+        "costUSD": 12.870695749999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 55,
+    "duration_ms": 956186
+  },
+  "permission_denials": {
+    "count": 6,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"run=${GITHUB_RUN_ID:-none}-${GITHUB_RUN_ATTEMPT:-1}\"; echo \"actions=${GITHUB_ACTIONS:-none}\"; echo \"server=${GITHUB_SERVER_URL:-none}\"; echo \"repo=${GITHUB_REPOSITORY:-none}\"",
+      ".prflow/vendor/prflow/scripts/workpad.py acs-resolve \"1264\" --pr \"1342\" 2>.prflow/tmp/review/pr-1342/31062555562-1/acs.err ; echo \"acs-rc=$?\"",
+      "grep -c $'^STALE\\t' /home/runner/.claude/projects/-home-runner-work-prflow-prflow/0166024a-2232-417d-9b3c-1a18f63c3494/tool-results/bvk4e4jc5.txt; echo \"---any STALE lines---\"; grep $'^STALE\\t' /home/runner/.claude/projects/-home-runner-work-prflow-prflow/0166024a-2232-417d-9b3c-1a18f63c3494/tool-results/bvk4e4jc5.txt || echo \"NONE\"",
+      ".prflow/vendor/prflow/scripts/resolve-review-overrides.py \"prflow:checklist-generator\" 2>&1 | head -5 ; echo \"ovr-rc=${PIPESTATUS[0]}\"",
+      "mkdir -p .prflow/tmp\nrm -f .prflow/tmp/review-dirty-tree-before .prflow/tmp/review-dirty-tree-disabled 2>/dev/null\ngit status --porcelain -z > .prflow/tmp/review-dirty-tree-before && git hash-object .prflow/tmp/review-dirty-tree-before\necho \"=== overrides ===\"\n.prflow/vendor/prflow/scripts/resolve-review-overrides.py \"prflow:code-reviewer\" \"prflow:silent-failure-hunter\" \"prflow:comment-analyzer\" \"prflow:pr-test-analyzer\" \"prflow:requesting-code-review\"; echo \"ovr-rc=$?\"",
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh requesting-code-review 2>/dev/null | head -50; echo \"---EXIT:${PIPESTATUS[0]}---\""
+    ],
+    "total": 6,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
