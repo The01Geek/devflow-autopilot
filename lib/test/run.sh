@@ -7082,6 +7082,172 @@ sed -E 's/, Bash\(\.prflow\/vendor\/prflow\/scripts\/stale-prose-lint\.py:\*\)//
 assert_eq "#484 guard-behavior: with the stale-prose-lint.py grant removed the extractor reports it ungranted over review/SKILL.md" \
   "yes" "$(python3 "$ECH" ungranted "$REVIEW_BUNDLE" "$E484/impl-no-spl.yml" tools-line 2>/dev/null | grep -qF 'stale-prose-lint.py' && echo yes || echo no)"
 
+# ── #1354 command call sites in .prflow/prompt-extensions/** ───────────────────
+# extract-command-heads.py / extract-command-shapes.py are the desk gates that turn an
+# ungranted head or a matcher-denied shape RED before it ever reaches a cloud run. Their
+# audited population was the skills bundles only. But a live prompt extension is appended
+# to the SAME agent prompt and can invoke the same helpers, so an ungranted head or a
+# denied shape authored in an extension was caught by nothing at the desk — and, because
+# the matcher refuses such a command silently (no output, no error, no non-zero exit), it
+# was invisible in the run too. This block widens the audited population to the repo's live
+# tracked prompt extensions, each paired with the allowlist(s)/profile of the tier(s) that
+# load it. Only lib/test/run.sh changes: the gate is driven entirely through the existing
+# `extract-command-heads.py ungranted` and `extract-command-shapes.py --profile`
+# subcommands (no new extractor). Consumer-authored extensions are out of scope — this
+# repo's suite scans this repo's tree (a consumer-runnable gate is a separate deliverable).
+E1354=
+E1354="$(mktemp -d)" || { echo "FAIL  #1354: mktemp -d failed"; exit 1; }
+_suite_tmp_dir "$E1354"
+ECS1354="$LIB/test/extract-command-shapes.py"
+CFG1354="$LIB/../.prflow/config.json"
+
+# Per-tier attributes: the baked workflow allowlist (parsed via `tools-line`), the
+# .prflow/config.json `allowed_tools` key whose array unions in (AC2), and the shape
+# profile (== the tier name). The head grant is a UNION of the workflow TOOLS line and the
+# config array: a head is granted-by-union iff granted by EITHER source, so it is
+# ungranted-by-union iff ungranted by BOTH — computed below as the set INTERSECTION of the
+# two per-source `ungranted` reports. This union is load-bearing: the six live fences invoke
+# lib/test/regenerate-artifacts.py, whose grant exists ONLY in .prflow/config.json (both
+# allowed_tools arrays), never in a baked workflow literal — a workflow-only check would go
+# RED on a correctly-granted call site.
+_e1354_wf() { case "$1" in
+  implement) printf '%s' "$LIB/../.github/workflows/devflow-implement.yml" ;;
+  command)   printf '%s' "$LIB/../.github/workflows/devflow.yml" ;;
+  review)    printf '%s' "$LIB/../.github/workflows/devflow-runner.yml" ;;
+esac ; }
+_e1354_cfgkey() { case "$1" in
+  implement) printf '%s' ".prflow_implement.allowed_tools" ;;
+  command)   printf '%s' ".prflow.allowed_tools" ;;
+  review)    printf '%s' ".prflow_runner.allowed_tools" ;;
+esac ; }
+
+# The extension→tier mapping — the SINGLE enumerated table (AC4), reconciled against the
+# on-disk set BOTH ways below. Every live tracked .prflow/prompt-extensions/*.md file has
+# exactly one row; each row lists the tier(s) whose allowlist(s)/profile its fences are
+# checked against. implement.md loads on the implement tier; review.md on the command tier
+# and (auto-review) the review profile; the remaining command-reachable and docs /
+# create-issue extensions on the command tier — the general first-party command allowlist,
+# the conservative choice for an extension with no dedicated cloud dispatch, so a future
+# fence is audited against real grants rather than escaping the gate. A new extension added
+# without a row here fails the reconciliation, never silently shrinking the gate.
+_E1354_MAP="implement.md:implement
+review.md:command review
+review-and-fix.md:command
+receiving-code-review.md:command
+create-issue.md:command
+docs-bootstrap-external.md:command
+docs-sync-external.md:command
+docs-sync-internal.md:command"
+
+# Union-ungranted heads for one extension file under one tier, against a given config JSON
+# (parameterized so the T2 fixture can drop a grant and prove the config channel is really
+# consulted). Emits the intersection of the two per-source `ungranted` reports, or the
+# sentinel __extractor_error__ if either extractor run fails — fail-closed, so a parse
+# failure is never read as "all granted".
+_e1354_union_ungranted() {  # <ext-file> <tier> <config-json>
+  local ext="$1" tier="$2" cfgjson="$3" wf cfgkey a b
+  local cfgspecs="$E1354/cfgspecs" fa="$E1354/ua" fb="$E1354/ub"
+  wf="$(_e1354_wf "$tier")"
+  cfgkey="$(_e1354_cfgkey "$tier")"
+  # (KEY // []) so an absent/null array yields an empty allowlist, never a jq error.
+  jq -r "( ${cfgkey} // [] )[]" "$cfgjson" > "$cfgspecs" 2>/dev/null || : > "$cfgspecs"
+  if ! a="$(python3 "$ECH" ungranted "$ext" "$wf" tools-line 2>/dev/null)"; then
+    printf '%s\n' '__extractor_error__'; return 0
+  fi
+  # Default mode over the isolated config array (no `tools-line`): every Bash(spec:*) rule
+  # in the extracted array grants. The array holds only that tier's specs (a single jq key),
+  # so the whole-file default mode reads no unrelated grant.
+  if ! b="$(python3 "$ECH" ungranted "$ext" "$cfgspecs" 2>/dev/null)"; then
+    printf '%s\n' '__extractor_error__'; return 0
+  fi
+  printf '%s\n' "$a" | sed '/^$/d' | sort -u > "$fa"
+  printf '%s\n' "$b" | sed '/^$/d' | sort -u > "$fb"
+  comm -12 "$fa" "$fb"
+}
+
+# On-disk population (AC6): the git INDEX via `git ls-files`, NO --others, so a sibling
+# worktree under .claude/worktrees/ cannot change the result (issue #711). The `*.md`
+# pathspec structurally excludes .md.example (AC7 — a path ending .example does not end .md).
+_e1354_ondisk="$( cd "$LIB/.." && git ls-files '.prflow/prompt-extensions/*.md' )"
+
+# Both-ways table↔disk reconciliation (AC4): a file with no row fails, a row with no file fails.
+_e1354_table_names="$(printf '%s\n' "$_E1354_MAP" | sed 's/:.*//' | sort -u)"
+_e1354_disk_names="$(printf '%s\n' "$_e1354_ondisk" | sed 's#.*/##' | sort -u)"
+assert_eq "#1354 AC4: every on-disk prompt-extension has a mapping-table row" "" \
+  "$(comm -23 <(printf '%s\n' "$_e1354_disk_names") <(printf '%s\n' "$_e1354_table_names") | sed '/^$/d' | tr '\n' ' ' | sed 's/ *$//')"
+assert_eq "#1354 AC4: every mapping-table row names an on-disk prompt-extension" "" \
+  "$(comm -13 <(printf '%s\n' "$_e1354_disk_names") <(printf '%s\n' "$_e1354_table_names") | sed '/^$/d' | tr '\n' ' ' | sed 's/ *$//')"
+
+# Head gate (AC1/AC2) + shape gate (AC3) over the live population, each extension under every
+# tier its row names. T1: collect the live head set to assert it is non-empty (non-vacuous).
+_e1354_head_report=""
+_e1354_shape_report=""
+_e1354_all_heads=""
+while IFS= read -r _e1354_rel; do
+  [ -n "$_e1354_rel" ] || continue
+  _e1354_ext="$LIB/../$_e1354_rel"
+  _e1354_bn="${_e1354_rel##*/}"
+  _e1354_tiers="$(printf '%s\n' "$_E1354_MAP" | awk -F: -v b="$_e1354_bn" '$1==b{print $2}')"
+  _e1354_all_heads+="$(python3 "$ECH" heads "$_e1354_ext" 2>/dev/null)"$'\n'
+  for _e1354_tier in $_e1354_tiers; do
+    _e1354_u="$(_e1354_union_ungranted "$_e1354_ext" "$_e1354_tier" "$CFG1354")"
+    [ -n "$_e1354_u" ] && _e1354_head_report+="$_e1354_bn[$_e1354_tier]: $(printf '%s' "$_e1354_u" | tr '\n' ',')"$'\n'
+    _e1354_s="$(python3 "$ECS1354" --profile "$_e1354_tier" "$_e1354_ext" 2>&1)"
+    [ -n "$_e1354_s" ] && _e1354_shape_report+="$_e1354_bn[$_e1354_tier]: $(printf '%s' "$_e1354_s" | tr '\n' ',')"$'\n'
+  done
+done <<EOF
+$_e1354_ondisk
+EOF
+
+assert_eq "#1354 AC1/AC2: every prompt-extension command head is granted by its tier(s)' allowlist union" "" \
+  "$(printf '%s' "$_e1354_head_report" | sed '/^$/d' | tr '\n' ';' | sed 's/;*$//')"
+assert_eq "#1354 AC3: every prompt-extension command shape is clean under its tier(s)' profile" "" \
+  "$(printf '%s' "$_e1354_shape_report" | sed '/^$/d' | tr '\n' ';' | sed 's/;*$//')"
+assert_eq "#1354 T1: the live prompt-extension head set is non-empty (the gate is not vacuously green)" "yes" \
+  "$(printf '%s' "$_e1354_all_heads" | sed '/^$/d' | grep -q . && echo yes || echo no)"
+
+# AC5 (head) anti-vacuity + negative control: an ungranted head in a fixture extension is
+# reported; a fixture with only a granted head is not. Proves the head assertion path
+# discriminates rather than always printing nothing.
+printf '%s\n' '```bash' 'totally-not-a-granted-head --x' '```' > "$E1354/fx-ungranted.md"
+assert_eq "#1354 AC5: a fixture extension's ungranted head is reported (command tier)" "totally-not-a-granted-head" \
+  "$(_e1354_union_ungranted "$E1354/fx-ungranted.md" command "$CFG1354")"
+printf '%s\n' '```bash' 'git status' '```' > "$E1354/fx-clean.md"
+assert_eq "#1354 AC5 negative control: a fixture with only a granted head reports nothing" "" \
+  "$(_e1354_union_ungranted "$E1354/fx-clean.md" command "$CFG1354")"
+
+# AC5 (shape) anti-vacuity + negative control: a proven-denied shape (a leading `cd`, IR4/CR4)
+# in a fixture extension is reported; a clean-shape fixture is not.
+printf '%s\n' '```bash' 'cd .prflow/tmp && git status' '```' > "$E1354/fx-badshape.md"
+assert_eq "#1354 AC5: a fixture extension's denied shape (leading cd) is reported (implement profile)" "yes" \
+  "$(python3 "$ECS1354" --profile implement "$E1354/fx-badshape.md" 2>&1 | grep -q . && echo yes || echo no)"
+assert_eq "#1354 AC5 negative control: a clean-shape fixture reports nothing (implement profile)" "" \
+  "$(python3 "$ECS1354" --profile implement "$E1354/fx-clean.md" 2>&1)"
+
+# T2/AC2: dropping the regenerate-artifacts.py grant from a fixture copy of the config turns
+# implement.md's head union RED, proving the config array is really consulted (the grant
+# exists in NO baked workflow literal, so the workflow-only check already reports it — the
+# union clears it only because the config channel is unioned in).
+jq 'del(.prflow_implement.allowed_tools[] | select(. == "Bash(lib/test/regenerate-artifacts.py:*)"))' "$CFG1354" > "$E1354/cfg-no-regen.json"
+assert_eq "#1354 T2: removing the config grant reports implement.md's head ungranted (config channel is consulted)" "yes" \
+  "$(_e1354_union_ungranted "$LIB/../.prflow/prompt-extensions/implement.md" implement "$E1354/cfg-no-regen.json" | grep -qF 'regenerate-artifacts.py' && echo yes || echo no)"
+assert_eq "#1354 T2 positive control: with the real config, implement.md's head is granted by the union" "" \
+  "$(_e1354_union_ungranted "$LIB/../.prflow/prompt-extensions/implement.md" implement "$CFG1354")"
+
+# T4: a fence using the portable ${CLAUDE_SKILL_DIR:-…} anchor normalises to the vendored
+# literal (extract-command-heads.py's shared _normalize) and is granted, proving the
+# normalization transfers to this population rather than being a claim.
+printf '%s\n' '```bash' '"${CLAUDE_SKILL_DIR:-/x}"/../../scripts/workpad.py id 1' '```' > "$E1354/fx-anchor.md"
+assert_eq "#1354 T4: an anchor-spelled helper fence normalises to the vendored literal and is granted (implement tier)" "" \
+  "$(_e1354_union_ungranted "$E1354/fx-anchor.md" implement "$CFG1354")"
+
+# AC7: a tracked .md.example file is excluded from the *.md population — it IS in the index
+# (git resolves it) yet is NOT in the scanned set. Proves the exclusion is real, not assumed.
+assert_eq "#1354 AC7: a tracked .md.example is tracked yet excluded from the *.md population" "tracked-excluded" \
+  "$( cd "$LIB/.." && { git ls-files --error-unmatch '.prflow/prompt-extensions/docs.md.example' >/dev/null 2>&1 \
+        && ! git ls-files '.prflow/prompt-extensions/*.md' | grep -qxF '.prflow/prompt-extensions/docs.md.example'; } \
+     && echo tracked-excluded || echo mismatch )"
+
 # Implement flip: the function + each of its fail-loud call sites (at least the four
 # pinned below), guarded on interim. Each pin quotes that site's unique cause string,
 # so deleting the call goes RED; a fifth site added later never falsifies this prose.
