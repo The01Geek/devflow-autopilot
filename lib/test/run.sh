@@ -7200,6 +7200,11 @@ assert_eq "#1354 AC4: every on-disk prompt-extension has a mapping-table row" ""
   "$(comm -23 <(printf '%s\n' "$_e1354_disk_names") <(printf '%s\n' "$_e1354_table_names") | sed '/^$/d' | tr '\n' ' ' | sed 's/ *$//')"
 assert_eq "#1354 AC4: every mapping-table row names an on-disk prompt-extension" "" \
   "$(comm -13 <(printf '%s\n' "$_e1354_disk_names") <(printf '%s\n' "$_e1354_table_names") | sed '/^$/d' | tr '\n' ' ' | sed 's/ *$//')"
+# T3 anti-vacuity: reconciling the REAL table against a disk set carrying a synthetic EXTRA
+# file reports that file — proving the AC4 missing-row direction (comm -23) genuinely goes RED
+# when an extension is added on disk without a table row, rather than being vacuously empty.
+assert_eq "#1354 T3: an on-disk extension absent from the mapping table is reported RED (AC4 missing-row direction)" "unmapped-new.md" \
+  "$(comm -23 <(printf '%s\n' "$_e1354_disk_names" 'unmapped-new.md' | sort -u) <(printf '%s\n' "$_e1354_table_names") | sed '/^$/d' | tr '\n' ' ' | sed 's/ *$//')"
 
 # Head gate (AC1/AC2) + shape gate (AC3) over the live population, each extension under every
 # tier its row names. T1: collect the live head set to assert it is non-empty (non-vacuous).
