@@ -13116,7 +13116,7 @@ _CW_REFRESH_ACTION = ("refresh your installed workflows and vendored plugin cont
                       "together before your next cloud-writer run")
 
 # Frozen legacy profile grants — the vendored helper heads each cloud profile
-# granted at `legacy_profile_baseline` (cwc.LEGACY_PROFILE_BASELINE, "2.30.100"),
+# granted at `legacy_profile_baseline` (cwc.LEGACY_PROFILE_BASELINE, "2.31.16"),
 # the immediately-preceding supported profile set. This is a DELIBERATE frozen
 # snapshot (an enforcement constant, not a live read): pairing 2 below validates
 # the LIVE checked-in manifest against it, so a future PR that adds a newly-
@@ -13143,7 +13143,8 @@ _FROZEN_LEGACY_GRANTS = {
         _cwv("ensure-label.sh"), _cwv("apply-issue-dependencies.py"),
         _cwv("stale-prose-lint.py"),
         _cwv("dismiss-stale-rejections.sh"), _cwv("match-lint-adjudications.py"),
-        _cwv("load-prompt-extension.sh"), _cwv("react-to-trigger.sh"),
+        _cwv("load-prompt-extension.sh"), _cwv("render-prompt-extension.sh"),
+        _cwv("react-to-trigger.sh"),
         _cwv("extract-doc-needed-paths.sh"), _cwl("efficiency-trace.sh"),
     },
     "light-command": {
@@ -13153,13 +13154,15 @@ _FROZEN_LEGACY_GRANTS = {
         _cwv("match-deferrals.py"), _cwv("match-lint-adjudications.py"),
         _cwv("resolve-review-overrides.py"), _cwv("stale-prose-lint.py"),
         _cwv("dismiss-stale-rejections.sh"), _cwv("load-prompt-extension.sh"),
+        _cwv("render-prompt-extension.sh"),
         _cwl("efficiency-trace.sh"),
     },
     "review": {
         _cwv("run-jq.sh"), _cwv("match-deferrals.py"),
         _cwv("match-lint-adjudications.py"), _cwv("dismiss-stale-rejections.sh"),
         _cwv("workpad.py"), _cwv("config-get.sh"),
-        _cwv("load-prompt-extension.sh"), _cwv("resolve-review-overrides.py"),
+        _cwv("load-prompt-extension.sh"), _cwv("render-prompt-extension.sh"),
+        _cwv("resolve-review-overrides.py"),
         _cwv("stale-prose-lint.py"), _cwl("efficiency-trace.sh"),
     },
 }

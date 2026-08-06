@@ -17,6 +17,7 @@
     "scripts/parse-acs.py": "c4bacc2a4a8a6ba4d8f425ba7ef42f709d229f97bb809f51bfa17caefc2ad4af",
     "scripts/react-to-trigger.sh": "652b657c01693bb854bbdabb841ce08dd30f5f146d2b4dd25d13b9bf1d8b7802",
     "scripts/reception_identity.py": "983565c531961be7d47c083feb2d34e67f261a21efda5a825f2b4b6a42924f94",
+    "scripts/render-prompt-extension.sh": "099a43ca8519c54993ff2f8329a8cfb4c79c0d8b1140c469df56f8b02df3c946",
     "scripts/resolve-existing-pr.sh": "372452a8bf310f96700375550380389df0e8e3c852ebd9e89b978841d62db478",
     "scripts/resolve-review-overrides.py": "d6281afc429636c7c59774c2ac3f0c1d7fde80be6e084993fee452066a2444af",
     "scripts/run-jq.sh": "1bcf3697f7fb24a50cbc246ef42ab9503be8fef4478103da0d183dcd971ad1fd",
@@ -58,7 +59,7 @@
     "skills/review/phases/phase-4-4-github-post.md": "e51a798d4012e5c167e84d65ede205ac683df4dc8fdbd7521c9d07f336c769ce",
     "skills/review/phases/phase-4-verdict.md": "c5401a24bc9221bcba5b3110376423a0588151437bf298fc021bf65f7591d9e3"
   },
-  "legacy_profile_baseline": "2.30.100",
+  "legacy_profile_baseline": "2.31.16",
   "protocol": "devflow-cloud-writer-contract-v1",
   "required_helper_heads": {
     "implement": [
@@ -80,6 +81,7 @@
       ".prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh",
       ".prflow/vendor/prflow/scripts/match-lint-adjudications.py",
       ".prflow/vendor/prflow/scripts/load-prompt-extension.sh",
+      ".prflow/vendor/prflow/scripts/render-prompt-extension.sh",
       ".prflow/vendor/prflow/scripts/react-to-trigger.sh",
       ".prflow/vendor/prflow/scripts/extract-doc-needed-paths.sh",
       ".prflow/vendor/prflow/lib/efficiency-trace.sh"
@@ -98,6 +100,7 @@
       ".prflow/vendor/prflow/scripts/stale-prose-lint.py",
       ".prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh",
       ".prflow/vendor/prflow/scripts/load-prompt-extension.sh",
+      ".prflow/vendor/prflow/scripts/render-prompt-extension.sh",
       ".prflow/vendor/prflow/lib/efficiency-trace.sh"
     ],
     "review": [
@@ -108,6 +111,7 @@
       ".prflow/vendor/prflow/scripts/workpad.py",
       ".prflow/vendor/prflow/scripts/config-get.sh",
       ".prflow/vendor/prflow/scripts/load-prompt-extension.sh",
+      ".prflow/vendor/prflow/scripts/render-prompt-extension.sh",
       ".prflow/vendor/prflow/scripts/resolve-review-overrides.py",
       ".prflow/vendor/prflow/scripts/stale-prose-lint.py",
       ".prflow/vendor/prflow/lib/efficiency-trace.sh"

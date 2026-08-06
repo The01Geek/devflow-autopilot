@@ -101,7 +101,7 @@ PROTOCOL = "devflow-cloud-writer-contract-v1"
 # with the current plugin still validates cleanly) satisfiable. This is authoring
 # guidance at its single source; the mechanical gate is the pairing-2 fixture
 # going RED, not a wording pin.
-LEGACY_PROFILE_BASELINE = "2.30.100"
+LEGACY_PROFILE_BASELINE = "2.31.16"
 
 # The one repo-relative prefix a cloud-reached bundled helper is granted under.
 VENDOR_PREFIX = ".prflow/vendor/prflow/"
@@ -263,6 +263,15 @@ REQUIRED_HELPER_HEADS = {
         ".prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh",
         ".prflow/vendor/prflow/scripts/match-lint-adjudications.py",
         ".prflow/vendor/prflow/scripts/load-prompt-extension.sh",
+        # The prompt-extension render wrapper (scripts/render-prompt-extension.sh,
+        # issue #1264), reached from every entry SKILL.md through the render-time
+        # `!`…`` placeholder that injects the consumer extension. Registered at the
+        # issue-#1359 baseline bump: it first shipped in 2.31.13, and the baseline now
+        # advances past that release, so the AC19 pairing-2 invariant (an N-1 workflow
+        # paired with the current plugin still validates cleanly) is satisfied by the
+        # re-snapshotted frozen legacy grants rather than broken by this head. Its
+        # basename-wildcard companion grant is sanctioned per profile below.
+        ".prflow/vendor/prflow/scripts/render-prompt-extension.sh",
         ".prflow/vendor/prflow/scripts/react-to-trigger.sh",
         ".prflow/vendor/prflow/scripts/extract-doc-needed-paths.sh",
         ".prflow/vendor/prflow/lib/efficiency-trace.sh",
@@ -287,6 +296,12 @@ REQUIRED_HELPER_HEADS = {
         ".prflow/vendor/prflow/scripts/stale-prose-lint.py",
         ".prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh",
         ".prflow/vendor/prflow/scripts/load-prompt-extension.sh",
+        # The prompt-extension render wrapper (issue #1264), registered at the
+        # issue-#1359 baseline bump like its implement-profile sibling above — every
+        # entry SKILL.md the light-command listener dispatches injects it through the
+        # render-time placeholder. Its basename-wildcard companion grant is sanctioned
+        # per profile below.
+        ".prflow/vendor/prflow/scripts/render-prompt-extension.sh",
         ".prflow/vendor/prflow/lib/efficiency-trace.sh",
     ],
     "review": [
@@ -297,6 +312,11 @@ REQUIRED_HELPER_HEADS = {
         ".prflow/vendor/prflow/scripts/workpad.py",
         ".prflow/vendor/prflow/scripts/config-get.sh",
         ".prflow/vendor/prflow/scripts/load-prompt-extension.sh",
+        # The prompt-extension render wrapper (issue #1264), registered at the
+        # issue-#1359 baseline bump like its siblings above — the review engine's
+        # entry SKILL.md injects it through the render-time placeholder. Its
+        # basename-wildcard companion grant is sanctioned per profile below.
+        ".prflow/vendor/prflow/scripts/render-prompt-extension.sh",
         ".prflow/vendor/prflow/scripts/resolve-review-overrides.py",
         ".prflow/vendor/prflow/scripts/stale-prose-lint.py",
         ".prflow/vendor/prflow/lib/efficiency-trace.sh",
@@ -580,23 +600,30 @@ _VENDORED_GRANT_RE = re.compile(
 _ANY_BASH_GRANT_RE = re.compile(r"Bash\(\s*([^\s:)]+)")
 
 # Deliberately-sanctioned basename-wildcard grants (NOT widening defects),
-# **keyed per profile**. The light-command and review profiles grant
-# Bash(*/load-prompt-extension.sh:*) ALONGSIDE the explicit vendored literal
-# (lib/capability-profiles.json): the prompt-extension loader is reached through
-# the portable ${CLAUDE_SKILL_DIR:-…} anchor, which can resolve to a non-vendored
-# absolute path on some runners, so the wildcard is an intentional companion to
-# the tight grant, not a replacement of it.
+# **keyed per profile**. Every profile grants Bash(*/load-prompt-extension.sh:*)
+# and Bash(*/render-prompt-extension.sh:*) ALONGSIDE the explicit vendored
+# literals (lib/capability-profiles.json): both the prompt-extension loader and
+# its render wrapper are reached through the portable ${CLAUDE_SKILL_DIR:-…}
+# anchor, which can resolve to a non-vendored absolute path on some runners, so
+# each wildcard is an intentional companion to its tight grant, not a replacement
+# of it. (The implement profile carries only the render-wrapper wildcard, because
+# its workflow grants no load-prompt-extension wildcard — the table mirrors each
+# profile's actual grants rather than a uniform set.)
 #
-# The per-profile keying is load-bearing, not tidiness. The implement profile
-# does NOT carry that wildcard, so a global exemption set would wave it through
-# there too — re-opening, for the read-write profile, exactly the basename-
-# wildcard widening arm (2) exists to reject. An unknown profile gets an EMPTY
-# exemption set (see the `.get(profile, frozenset())` read), so the failure
-# direction of a future profile addition is fail-closed.
+# The per-profile keying is load-bearing, not tidiness. A profile's sanctioned
+# set names exactly the basename wildcards ITS workflow grants and no others: a
+# global exemption set would wave a wildcard through on a profile whose workflow
+# does not grant it — re-opening, for that profile, exactly the basename-wildcard
+# widening arm (2) exists to reject. The implement profile now carries a sanctioned
+# render-wrapper wildcard (issue #1359) because devflow-implement.yml grants that
+# exact companion; it still grants no load-prompt-extension wildcard, so that one
+# stays out of its set. An unknown profile gets an EMPTY exemption set (see the
+# `.get(profile, frozenset())` read), so the failure direction of a future profile
+# addition is fail-closed.
 SANCTIONED_WILDCARD_GRANTS = {
-    "implement": frozenset(),
-    "light-command": frozenset({"*/load-prompt-extension.sh"}),
-    "review": frozenset({"*/load-prompt-extension.sh"}),
+    "implement": frozenset({"*/render-prompt-extension.sh"}),
+    "light-command": frozenset({"*/load-prompt-extension.sh", "*/render-prompt-extension.sh"}),
+    "review": frozenset({"*/load-prompt-extension.sh", "*/render-prompt-extension.sh"}),
 }
 
 
