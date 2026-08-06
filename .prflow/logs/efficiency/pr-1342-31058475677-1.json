@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1342",
+  "generated_at": "2026-08-06T00:10:54Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.2",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.106597,
+    "tokens": {
+      "input_tokens": 55,
+      "output_tokens": 20925,
+      "cache_read_input_tokens": 4113534,
+      "cache_creation_input_tokens": 152643,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 55,
+        "outputTokens": 20925,
+        "cacheReadInputTokens": 4113534,
+        "cacheCreationInputTokens": 152643,
+        "webSearchRequests": 0,
+        "costUSD": 4.106597,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 31,
+    "duration_ms": 321268
+  },
+  "permission_denials": {
+    "count": 5,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "gh pr diff 1342 > .prflow/tmp/review/pr-1342/local-run/diff.full 2>.prflow/tmp/review/pr-1342/local-run/diff.err; echo \"rc=$?\"; wc -l .prflow/tmp/review/pr-1342/local-run/diff.full; echo \"---err---\"; cat .prflow/tmp/review/pr-1342/local-run/diff.err; echo \"---grep diff headers---\"; grep -c '^diff --git' .prflow/tmp/review/pr-1342/local-run/diff.full",
+      "cd /home/runner/work/prflow/prflow 2>/dev/null\nruff check scripts/placeholder-probe-verdict.py 2>&1 | tail -20\necho \"=== shellcheck ===\"\nshellcheck --severity=warning -e SC1091 .github/probe-plugin/phprobe-read-env.sh 2>&1 | tail -20\necho \"=== phprobe script run (unset) ===\"\nenv -u DEVFLOW_PROMPT_EXTENSION_ROOT .github/probe-plugin/phprobe-read-env.sh; echo \"rc=$?\"\necho \"=== phprobe script run (set) ===\"\nDEVFLOW_PROMPT_EXTENSION_ROOT=XYZ .github/probe-plugin/phprobe-read-env.sh; echo \"rc=$?\"",
+      "scripts/post-review-verdict.sh --help 2>&1 | head -40",
+      "scripts/post-review-verdict.sh 1342 APPROVE .prflow/tmp/review/pr-1342/local-run/verdict.md 0b6a00f287290864f04501d5684b9d01b0253bf5; echo \"post-rc=$?\"",
+      "scripts/post-review-verdict.sh 1342 APPROVE .prflow/tmp/review/pr-1342/local-run/verdict.md 0b6a00f287290864f04501d5684b9d01b0253bf5"
+    ],
+    "total": 5,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
