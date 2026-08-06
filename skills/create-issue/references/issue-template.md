@@ -44,9 +44,9 @@ The draft produces **two artifacts**, and drafting sorts content into their two 
 4. **`## 🚫 Blocked`** — read by Step 4 sub-step 6's implement-offer gate.
 5. **every `Verified:` bullet** — **unconditional** (a "bullets the brief relies on" scoping has no decidable predicate); `scripts/check-verified-premises.py` re-checks these premises from the body at implement Phase 1.6 Pass 6.
 
-**The routing rule governs revisions too, not only first-draft composition.** When an audit round (Step 3.6) causes content to be added, that content is sorted by the same vanish test rather than appended to the brief unconditionally — an audit that surfaces deliberation or a lower-severity hazard routes it to the record, exactly as first-draft composition would.
+**The routing rule governs revisions too, not only first-draft composition.** Content an audit round (Step 3.6) adds is sorted by the same vanish test rather than appended to the brief unconditionally.
 
-The record's **sorting** runs on every draft whatever the config says; only its **publication** is gated by `create_issue.investigation_record_enabled` (default `true`) — see `references/step-4-present-create.md`. When publication is withheld the record bucket is simply never written or posted; the brief is unaffected either way, so this routing never removes an instruction the brief needs.
+The record's **sorting** runs on every draft whatever the config says; only its **publication** is gated by `create_issue.investigation_record_enabled` (default `true`) — see `references/step-4-present-create.md`. When publication is withheld the record bucket is simply never written or posted, and the brief is unaffected either way.
 
 ## Issue structure
 
@@ -61,9 +61,9 @@ export for survey results"). If you are tempted to write "and" joining two featu
 issue should have been split in Step 2 — ask the user to split before drafting.
 
 Exception: if the scope-split decision is itself unresolved because the user disengaged
-(it is the first item in `## 🚫 Blocked`), a neutral multi-feature title is acceptable —
-it honestly reflects the unresolved scope. Do not silently pick one feature to satisfy the
-title rule; that would be inventing a default the skill forbids.
+(it is the first item in `## 🚫 Blocked`), a neutral multi-feature title is acceptable.
+Do not silently pick one feature to satisfy the title rule — that invents a default the
+skill forbids.
 
 ### Dependencies (include only when a prerequisite is still open at drafting time)
 Rendered as the **first body section, above `## Problem Statement`** — and included **only**
@@ -76,21 +76,18 @@ Blocked by #N — <one-line reason it must land first>
 ```
 
 Both the `## Dependencies` heading and the `Blocked by #N` phrasing are exactly the forms
-`/prflow:implement` early Phase 1 dependency preflight recognizes as a declared sequencing dependency, so the
-existing implement gate consumes this section with **no recognizer change** — it blocks an
-implement run while any listed prerequisite is still open (and fails closed on an
-unresolvable reference). Omit the section entirely when no prerequisite is open — exactly as
-the Visual Specification and Blocked sections are omitted when empty; never write
-"Dependencies: none".
+`/prflow:implement` early Phase 1 dependency preflight recognizes as a declared sequencing
+dependency — it blocks an implement run while any listed prerequisite is still open (and
+fails closed on an unresolvable reference). Omit the section entirely when no prerequisite is
+open — exactly as the Visual Specification and Blocked sections are omitted when empty; never
+write "Dependencies: none".
 
-The `<reason>` text after the em-dash is free-form prose for a human reader and does not
-change how the line is parsed: the recognizer reads the `Blocked by #N` declaration and its
-issue number, and a reason whose outbound ordering words ("must merge before", "blocks",
-"required by") are plain prose introducing no `#N` of their own neither alters nor suppresses
-the declaration (the outbound-direction filter is narrowed so that it governs a line only
-when a number run follows the keyword — a keyword that introduces no number run governs
-nothing; a reason that writes such a keyword immediately followed by its own number, as in
-`Blocked by #7 — blocks #5 downstream`, still matches and drops every number on the line). <!-- pruned-path-ok: illustrative dependency-declaration example, not a citation -->
+The `<reason>` text after the em-dash is free-form prose and does not change how the line is
+parsed: the recognizer reads the `Blocked by #N` declaration and its issue number. Outbound
+ordering words ("must merge before", "blocks", "required by") that introduce no number of their
+own neither alter nor suppress the declaration; a reason that writes such a keyword immediately
+followed by its own number, as in
+`Blocked by #7 — blocks #5 downstream`, still matches and drops every number on the line. <!-- pruned-path-ok: illustrative dependency-declaration example, not a citation -->
 
 Keep this section distinct from the two other "dependency"-flavored surfaces, or drafters
 will file entries in the wrong one:
@@ -102,8 +99,7 @@ land before this work can start. This is the only surface the early dependency p
   depends on, not another issue.
 
 A prerequisite that is **already closed at drafting time** is not listed here — record it as
-provenance in `Technical Context` instead (e.g. "builds on #M, merged"), never in this
-section, so producer and the early-dependency-preflight consumer agree on the open-at-drafting-time inclusion rule.
+provenance in `Technical Context` instead (e.g. "builds on #M, merged"), never in this section.
 
 ### Problem Statement
 Why is this needed? Which user hits what pain.
@@ -151,13 +147,9 @@ fallback ladder**, in order, stopping at the first rung that resolves it: **(1)*
 **official documentation via `WebFetch`** (not memory); **(2)** when the official docs are not
 reachable, **`WebSearch`**; **(3)** when search is unavailable or fails, **ask the user to
 provide the documentation**. Record the verified fact and its source URL in the draft's
-`Technical Context` before the relied-on claim is written. This is the premise class a past
-drafting pass missed: it prescribed a `check_suite`/`workflow_run` mechanism GitHub cannot
-deliver (Actions-created check suites never emit `check_suite`; `workflow_run` requires a
-named workflow list), which only surfaced mid-implement — a `WebFetch` of the events docs at
-drafting time would have caught it. This class is **not** re-derived downstream: an
-implementing run re-checks claims against the tree it builds on, and vendor behavior is not
-in the tree.
+`Technical Context` before the relied-on claim is written. This class is **not** re-derived
+downstream: an implementing run re-checks claims against the tree it builds on, and vendor
+behavior is not in the tree.
 
 **Ladder terminal arm — decided two ways.** When the ladder yields **no documentation** and
 **no working example in this codebase already proves** the relied-on behavior, the item
@@ -173,17 +165,12 @@ load-bearing for the Desired Behavior, an AC, or the Approach) stays light and t
 verification, and drafting is never blocked in a data-less authoring context.
 
 **Every "Verified:" bullet carries a self-contained re-derivation handle.** A bullet is true when
-you write it and nothing re-checks it afterwards, so the reader who matters is both a human
-developer who does not know this codebase, reading to understand what the issue asks, and an
-implementing run weeks later, deciding whether it may skip its own investigation on the strength of
-your sentence — and this re-derivability discipline serves both.
-Give that reader the means to re-derive the premise **mechanically**, in the bullet itself: the
+you write it and nothing re-checks it afterwards, so give the reader — a human developer who does
+not know this codebase, or an implementing run weeks later — the means to re-derive the premise
+**mechanically**, in the bullet itself: the
 **repository path in backticks plus the sentence quoted verbatim** from it. A bullet that merely *asserts* a premise in prose — no path, no
-quotation — hands the reader nothing to re-run, and a stale one of those is strictly
-worse than no bullet at all, because it converts "go and check" into "this was already checked".
-In the worked case, three of a filed issue's handle-less premises were false by the time an
-implementing run picked it up, and two of its acceptance criteria were unimplementable as
-prescribed. The handle is what
+quotation — is strictly worse than no bullet at all, because it converts "go and check" into
+"this was already checked". The handle is what
 `scripts/check-verified-premises.py` reads — **Step 3.6's pre-dispatch canonical write** runs it over the assembled draft, and an
 implementing run re-checks the filed issue with it — so a bullet written without one is not
 re-checkable by either.
@@ -198,8 +185,6 @@ configuration** states that precondition **inside the claim**, never as a bare "
 This same discipline runs **twice**: here at drafting time, and again in the calling
 skill's Step 3.5 self-steelman, which re-applies it to the *assembled* draft (fresh
 targeted reads/greps against the code, never ambient context) before the user sees it.
-Keep the two coherent — a change to the re-derivation-handle rule or the "code does X"
-gate-reading discipline above must carry into Step 3.5's checks.
 
 ### Visual Specification (include only for user-visible UI changes)
 Include this section **only** when the issue involves user-visible UI changes (Step 2's
@@ -238,8 +223,7 @@ followed by checkbox items (`- [ ]`), each a **single unconditional, testable as
   the section's shared framing: which grounding rules the drafter has already discharged for the
   whole set, and any statement that exists so the audit can check the section rather than so the
   implementer can act. Stating such framing once there, rather than inside each criterion, is
-  what stops a rule from expanding every criterion it touches into a paragraph; a statement that
-  passes the test but sits inside a criterion is misplaced too, just far more cheaply.
+  what stops a rule from expanding every criterion it touches into a paragraph.
   Anything that narrows, bounds, quantifies,
   defines a term used by, or names a verification route for a criterion is *part of* that
   criterion and is written inside it, however much that repeats across criteria — repetition is
@@ -248,29 +232,22 @@ followed by checkbox items (`- [ ]`), each a **single unconditional, testable as
   obligation's named command are the commonest such statements, **at minimum** — that list is a
   floor, not the closed set, and a term definition the criteria's assertions depend on is
   inside it however much it reads like shared framing.
-  **The block opens the section and never follows the criteria.** The reason the boundary falls
-  exactly there: the implementing run mirrors this section into its workpad with
-  `scripts/parse-acs.py`, and only checkbox items are guaranteed to make that crossing — an
-  indented non-checkbox line continues the preceding item, while a blank line or a non-indented
-  non-checkbox line closes it. Above the list, block prose does not reach the workpad's
-  `## Acceptance Criteria` section at all; placed *after* the criteria and indented, the very
-  same prose is instead welded onto the last criterion's text and crosses **with** it, so the
-  gate reads a corrupted row. That workpad section is what the implementing run's
-  acceptance-criteria gate reads, so an instruction the implementer must obey is unenforceable
-  there unless it sits inside a checkbox item.
-  **The issue body stays separately visible to the implementing run**, which fetches and reads
-  it alongside the workpad — so the block is never the only place such an instruction appears.
-  That visibility is why a misplaced statement is a *gate* defect rather than a lost one, and it
-  is never a reason to move an enforceable statement out of its criterion: the consequence test
-  above, not what the implementer can see, is what decides placement.
+  **The block opens the section and never follows the criteria.** The implementing run mirrors
+  this section into its workpad with `scripts/parse-acs.py`, and only checkbox items are
+  guaranteed to make that crossing: block prose above the list does not reach the workpad's
+  `## Acceptance Criteria` section at all, while the same prose placed *after* the criteria and
+  indented is welded onto the last criterion and corrupts that row. An instruction the
+  implementer must obey is therefore unenforceable unless it sits inside a checkbox item.
+  **The issue body stays separately visible to the implementing run**, so a misplaced statement
+  is a *gate* defect rather than a lost one — and never a reason to move an enforceable statement
+  out of its criterion: the consequence test above, not what the implementer can see, decides
+  placement.
   The block is scanned by Step 3's unresolved-decision gate exactly like any other prose, so it
   carries no choice, hedge, or deferral language and needs no carve-out of its own — write its
   prose in stated form ("the value-comparison rule is discharged for the whole set below", "the
-  prerequisites are the three issues named in Technical Context") rather than as a disjunction,
-  so shared framing never reads as an unresolved fork. Note which examples those are *not*: a
-  floor marker or a closed-set exhaustiveness statement belongs to its own criterion's
-  enumeration under the consequence test above, so it is never hoisted into the block to make
-  its phrasing easier.
+  prerequisites are the three issues named in Technical Context") rather than as a disjunction.
+  A floor marker or a closed-set exhaustiveness statement is *not* such framing: each belongs to
+  its own criterion's enumeration, and is never hoisted into the block to ease its phrasing.
 - **Supplied criteria are challenged, never accepted at face value.** When the user's story
   arrives with its own acceptance-criteria list, that list is *suspect input*, not a finished
   section. Vet each item for **correctness** (is it atomic, testable, and a genuinely resolved
@@ -307,9 +284,8 @@ followed by checkbox items (`- [ ]`), each a **single unconditional, testable as
   obligation forms name work for the implementer rather than a drafting-time probe by the
   drafter** — an obligation to *add* a capability as new work, and an obligation to *establish*
   whether a capability exists — both routed by the existence-determination rule whose single home is Step 3.5's item 4
-  (`skills/create-issue/references/step-3-5-steelman.md`). **This constraint reaches them on the
-  same terms as any other obligation:** it governs whatever in-repo command their discharge names,
-  and an obligation whose discharge names none is unaffected by it.
+  (`skills/create-issue/references/step-3-5-steelman.md`). This constraint reaches them on the
+  same terms as any other obligation: it governs whatever in-repo command their discharge names.
 - **Every universal quantifier the body asserts about the system under change is grounded,
   or it does not ship.** A universal quantifier — "never", "always", "each", "every", "all",
   "cannot" — asserted anywhere outside `## 🚫 Blocked` (in Desired Behavior, an
@@ -319,7 +295,7 @@ followed by checkbox items (`- [ ]`), each a **single unconditional, testable as
   dropped", "never surfaces Y") is pinned by a fixture in which the suppressed input is
   *present*, so the claimed absence is actually exercised; **(b) scoped** — rewritten to the
   precise form the mechanism supports ("no *per-file* filename arguments", not "no filename
-  arguments"); or **(c) removed**. The carve-out is stated inside this rule and is
+  arguments"); or **(c) removed**. The carve-out is
   **extensional, not grammatical**: exempt are only (i) mandated-verbatim template boilerplate
   (the Technical Context scope note, `Blocked by #N` lines) and (ii) rule text the change ships
   as artifact content (a convention sentence the change adds to a file, quoted in the body). An
@@ -355,8 +331,7 @@ followed by checkbox items (`- [ ]`), each a **single unconditional, testable as
   non-conforming — the pairing exists so the guard cannot be satisfied by a compliance
   sentence the implementation never ships. A surface that **reuses an existing,
   already-guarded judgment path is exempt when the draft cites that path**; a draft with **no
-  new judgment surface gains no new questions and no new flags** (the same
-  skip-when-inapplicable shape as the visual-specification guidance).
+  new judgment surface gains no new questions and no new flags**.
 - **Every enumerated test/case/example list inside an AC declares its closure.** Such a list
   takes one of two forms: a **floor**, carrying the exact marker `at minimum`, or a **closed
   set**, carrying an explicit exhaustiveness statement of the shape `exactly these N —
@@ -372,8 +347,8 @@ followed by checkbox items (`- [ ]`), each a **single unconditional, testable as
 ### Implementation Notes
 Describe the **one** approach the user chose — not a comparison of candidates. The
 one-approach rule governs the **Approach**, **Code Patterns**, and **Testing Strategy**
-bullets. The **Relevant files** block below is different in kind — a floor-declared *map*
-rather than a comparison of candidates — so its own bullet, not this rule, governs it.
+bullets; the **Relevant files** block below is a floor-declared *map*, governed by its own
+bullet instead.
 - **Approach** — the decided design: what changes and why, and how it fits the existing code.
   Name the surfaces the change is expected to reach in the `Relevant files` block below, not here.
 - **Relevant files** — a floor-declared map of the file and function surfaces the decided
@@ -430,9 +405,8 @@ rather than a comparison of candidates — so its own bullet, not this rule, gov
 
   **Move 2a — Reconcile an enumerated case matrix against governing conventions.** *This
   applies only when the Testing Strategy enumerates an input-shape or case matrix* for a
-  surface (a parser, a config consumer, a best-effort input handler) — a matrix-free Testing
-  Strategy imposes nothing here, so a convention-free repo's issues carry at most one bounded-search
-  line and only when they enumerate a matrix. When it *does* enumerate one, and a repo-published
+  surface (a parser, a config consumer, a best-effort input handler); a matrix-free Testing
+  Strategy imposes nothing here. When it *does* enumerate one, and a repo-published
   convention already governs that surface's matrix, the issue either enumerates the **full
   convention matrix** or states the **narrowing explicitly with its justification** — a silently
   narrower list must never override the convention. Such a Testing Strategy (only this class of
@@ -444,11 +418,8 @@ rather than a comparison of candidates — so its own bullet, not this rule, gov
   guidance under the repo's configured internal-docs path — with the **consumer prompt extension**
   as the override point naming where that repo's conventions actually live; cite sources by path
   when found. The record is a **claim to verify, not an attestation to accept**: the Step 3.6
-  auditor independently re-runs the bounded search and its flag condition is **defined** — it
-  fires when the auditor finds a governing matrix at a path the line omits, never on a judgment
-  disagreement about what counts as governing. (On a runner where Step 3.6 takes its degraded
-  inline arm, the verify-not-attest property does not hold — the record is attestation-only there,
-  which the mandatory "degraded" audit-summary marker already signals.)
+  auditor re-runs the bounded search itself and flags the line when it finds a governing matrix
+  at a path the line omits.
 
   **Move 2a also fires on *introduction*, not only on narrowing.** An issue that introduces a
   **reader of input the repo does not itself produce** — historical records, user- or
@@ -540,25 +511,25 @@ incomplete issues.
 - [ ] Desired Behavior is stated as one decided behavior, not a menu
 - [ ] Technical Context opens with the standardized scope note, included verbatim
 - [ ] Technical context cites real file paths / class names from this project
-- [ ] Open cross-issue prerequisites are listed in `## Dependencies` as `Blocked by #N — <reason>` lines (rendered above Problem Statement, only when a prerequisite is still open at drafting time; already-closed prerequisites recorded as Technical Context provenance instead)
-- [ ] For a user-visible UI change, the Visual Specification section records a screenshot/mockup or a verbally-verified placement spec (screenshot preferred, verbal verification an accepted substitute); non-UI issues omit the section entirely
+- [ ] Open cross-issue prerequisites are listed in `## Dependencies` as `Blocked by #N — <reason>` lines, per the *Dependencies* section above
+- [ ] For a user-visible UI change, the Visual Specification section carries what that section above requires; non-UI issues omit it entirely
 - [ ] Acceptance criteria are measurable, testable, and unconditional
-- [ ] Each AC states what is true after the change rather than what the diff contains — with the untouched-surface shape ("X is present verbatim after the change", "Y is unchanged") admitted as a post-change fact about the diff's boundary
-- [ ] Criterion apparatus is sorted by the consequence test — a statement sits in the section's opening grounding block only if deleting it changes no criterion's truth value, so the measurement instrument, floor marker, closed-set marker, obligation command, and any depended-on term definition each stay inside their own criterion — and the block opens the section, carries no choice/hedge/deferral language, and is scanned by Step 3's unresolved-decision gate like any other prose
-- [ ] Quantitative ACs satisfy the measurement-instrument rule in the Acceptance Criteria guidance above
-- [ ] Value-comparison ACs/assertions state the comparison in the producing surface's observed-output terms, grounded by a boundary-covering probe (exercising the type-boundary fixture the comparison distinguishes) or a named implementer obligation carrying its execution-tier constraint — adjective-only or probe-silent-on-the-axis comparison language is non-conforming
-- [ ] Every universal quantifier ("never/always/each/every/all/cannot") the body asserts about the system under change, outside `## 🚫 Blocked`, is grounded — pinned per-arm/per-element (an accepted-loss/suppression claim pinned by a fixture in which the suppressed input is present), scoped to the mechanism's supported form, or removed — with only mandated-verbatim boilerplate and rule-text-shipped-as-artifact-content exempt, and detector-coverage claims additionally carrying a planted-defect positive-control obligation
+- [ ] Each AC states what is true after the change rather than what the diff contains (untouched-surface shape excepted) — *Acceptance Criteria*, first bullet
+- [ ] Criterion apparatus is sorted by the consequence test and the grounding block opens the section — *Acceptance Criteria*, grounding-block bullet
+- [ ] Quantitative ACs name their measurement instrument — *Acceptance Criteria*
+- [ ] Value-comparison ACs/assertions are grounded by a boundary-covering probe or a named implementer obligation carrying its execution-tier constraint — *Acceptance Criteria*
+- [ ] Every universal quantifier the body asserts about the system under change, outside `## 🚫 Blocked`, is pinned, scoped, or removed — *Acceptance Criteria*
 - [ ] No AC forbids a surface (a path, a file class, a tier) that another AC's discharge must touch — the ACs are mutually consistent
 - [ ] An AC establishing a trust/integrity boundary over executable artifacts defines the protected set over the transitive source/exec/import closure of its entry points, or states the residual unprotected surface explicitly
-- [ ] A Testing Strategy that enumerates an input-shape/case matrix for a convention-governed surface carries the full convention matrix (or an explicit named-and-justified narrowing) and a `governing conventions consulted:` discharge line bounded to `CLAUDE.md`, `CONTRIBUTING.md`, and the configured internal-docs path
-- [ ] The draft's own unstated mechanism dependencies (relied-on in-repo helper/resolver/gate behaviors, and existence-shaped reliances, it never asserts as claims) each have their existence determined first and are then routed per Step 3.5's item 4 (`skills/create-issue/references/step-3-5-steelman.md`), an undetermined one recording **not established** and taking its implementer-obligation route
-- [ ] Every relied-on third-party behavior (load-bearing for the Desired Behavior, an AC, or the Approach) is checked against official docs via the WebFetch → WebSearch → ask-the-user ladder with the source recorded — or, when unverifiable, becomes a `## 🚫 Blocked` vendor-behavior question (or a flagged assumption citing an in-repo example); an incidental mention triggers none of this
-- [ ] Every "Verified:" bullet carries a self-contained re-derivation handle — the repository path in backticks plus the sentence quoted verbatim from it — so an implementing run can re-check the premise mechanically rather than re-investigating it
+- [ ] A Testing Strategy enumerating a case matrix for a convention-governed surface carries the full matrix (or a named, justified narrowing) and its `governing conventions consulted:` line — *Implementation Notes*, Move 2a
+- [ ] The draft's own unstated mechanism dependencies have their existence determined and are routed per Step 3.5's item 4 (`skills/create-issue/references/step-3-5-steelman.md`), an undetermined one recording **not established**
+- [ ] Every relied-on third-party behavior went through the WebFetch → WebSearch → ask-the-user ladder with its source recorded, or became a Blocked question / flagged assumption — *Technical Context*
+- [ ] Every "Verified:" bullet carries a self-contained re-derivation handle — the repository path in backticks plus the sentence quoted verbatim from it
 - [ ] A premise verified as "the code does X" was read with its enclosing gates/conditionals and their defaults on the path to X, and any claim that holds only under a non-default configuration states that precondition inside the claim
-- [ ] A designed LLM/semantic-judgment surface over third-party text (issue bodies, PR comments, commit messages, external API responses) carries the input-is-data guard AC paired with a hostile-input Testing Strategy case that asserts instruction-shaped input is not obeyed — or cites the existing already-guarded judgment path it reuses; a draft with no such surface adds nothing here
-- [ ] Every enumerated test/case/example list inside an AC declares its form — the `at minimum` floor marker or an explicit closed-set exhaustiveness statement — and each floor-marked list has had Move 2's coverage sweep (state, case variants, multiplicity, absence) written back as additional closed AC items
-- [ ] Implementation notes describe a single chosen approach (the `Relevant files` block excepted — it is a floor-declared map, hedges permitted)
-- [ ] Testing Strategy classifies the boundary + level, walks the coverage dimensions (boundary/error/adversarial/state/scale/security as they apply), and gives test-first assertions with every AC mapped to ≥1 assertion and no orphan assertions — bug fixes reproduce the defect first; guarantee-class changes test the skipped-step path; or it names a reproducible stand-in verification when no automated test applies
+- [ ] A designed LLM/semantic-judgment surface over third-party text carries the input-is-data guard AC paired with a hostile-input Testing Strategy case — or cites the already-guarded judgment path it reuses; a draft with no such surface adds nothing here
+- [ ] Every enumerated list inside an AC declares its form (`at minimum` floor marker or an explicit closed-set statement), and each floor-marked list has had Move 2's coverage sweep written back as closed AC items
+- [ ] Implementation notes describe a single chosen approach (the `Relevant files` block excepted — a floor-declared map, hedges permitted)
+- [ ] Testing Strategy runs all three moves and names test-first assertions, every AC mapped to at least one assertion and no orphans — bug fixes reproduce the defect first; guarantee-class changes test the skipped-step path; or it names a reproducible stand-in verification
 - [ ] **No-options gate passed**: no choice/hedge/deferral language outside `## 🚫 Blocked` and the Implementation Notes `Relevant files` block
 - [ ] Any unresolved decision is in `## 🚫 Blocked`, phrased as a question — nowhere else
 - [ ] Edge cases and error handling are considered
@@ -601,19 +572,16 @@ always exit 0 — it refuses with a non-zero exit and empty stdout). **Do not pi
 
 Instead emit to a temp file, **guard it non-empty, and only then post** — so a refusal stops
 creation rather than filing an empty issue. Do this in **one single statement** (a shell
-variable assigned in one statement and read in a later statement of the same inline command is
-stripped by some runners' marshaling — the cross-statement hazard this repo bans), and go
-through a file rather than a `"$(…)"` capture: command substitution strips trailing newlines
-and a re-emitting `printf '%s\n'` re-adds exactly one, mutating the posted bytes against the
-recorded body-only digest (a false attestation mismatch). The file round-trip is **byte-exact**.
+variable assigned in one statement and read in a later one of the same inline command is
+stripped by some runners' marshaling), and go through a file rather than a `"$(…)"` capture,
+whose trailing-newline stripping and re-added `printf '%s\n'` newline mutate the posted bytes
+against the recorded body-only digest. The file round-trip is **byte-exact**.
 Substitute `<main-root>` with the main working-tree root Step 4 sub-step 2 already resolved
-via `resolve-main-root.sh` (the root whose `.prflow/tmp` that sub-step already created —
-a cwd-relative `.prflow/tmp/` may not exist inside a linked worktree checkout). The
-guarded file is handed to `gh` directly via `--body-file <path>` — never re-piped through
-`cat`, whose absence (a non-preflight PATH tool) would feed `gh` empty stdin and create the
-empty-bodied issue the guard exists to prevent; this temp file IS the gated `emit-body`
-output, so the old never-`--body-file` rule (which banned the unaudited preview copy) does
-not apply to it:
+via `resolve-main-root.sh` — a cwd-relative `.prflow/tmp/` may not exist inside a linked
+worktree checkout. Hand the guarded file to `gh` directly via `--body-file <path>`, never
+re-piped through `cat`, whose absence (a non-preflight PATH tool) would feed `gh` empty stdin;
+this temp file IS the gated `emit-body` output, so the never-`--body-file` rule (which banned
+the unaudited preview copy) does not apply to it:
 
 ```bash
 python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/issue-audit-state.py emit-body "<slug>" --nonce "<nonce>" --draft-file "<absolute issue-draft-<slug>.md path>" > "<main-root>/.prflow/tmp/issue-body-<slug>.md" && test -s "<main-root>/.prflow/tmp/issue-body-<slug>.md" && gh issue create --title "Action-oriented title here" --body-file "<main-root>/.prflow/tmp/issue-body-<slug>.md" <assignee-args>
