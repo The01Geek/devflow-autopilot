@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1363",
+  "generated_at": "2026-08-06T14:14:47Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.16",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.3584715,
+    "tokens": {
+      "input_tokens": 51,
+      "output_tokens": 12573,
+      "cache_read_input_tokens": 3372823,
+      "cache_creation_input_tokens": 135748,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 51,
+        "outputTokens": 12573,
+        "cacheReadInputTokens": 3372823,
+        "cacheCreationInputTokens": 135748,
+        "webSearchRequests": 0,
+        "costUSD": 3.3584715,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 28,
+    "duration_ms": 232239
+  },
+  "permission_denials": {
+    "count": 5,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"CLAUDE_SKILL_DIR=${CLAUDE_SKILL_DIR:-<unset>}\"; ls -d skills/review 2>/dev/null; ls .prflow/vendor 2>/dev/null && echo \"vendor-present\" || echo \"no-vendor\"",
+      "scripts/load-prompt-extension.sh review 2>&1; echo \"rc=$?\"",
+      "python3 -c \"\nimport lib.test.cloud_writer_deps as d\nprint('deps', d.check_dependencies())\nca = d.classify_all()\n# find render wrapper classification\nimport json\nkey='scripts/render-prompt-extension.sh'\nprint('classify keys sample:', [k for k in (ca if isinstance(ca,dict) else {}) ][:3] if isinstance(ca,dict) else type(ca))\nprint(json.dumps(ca.get(key) if isinstance(ca,dict) else 'n/a', default=str)[:500])\n\"",
+      "scripts/post-review-verdict.sh 1363 APPROVE .prflow/tmp/review/pr-1363/verdict.md c0c96fa07c7bce9fa1726709ea84133c771ab151 2>.prflow/tmp/review/pr-1363/post.err ; echo \"post-rc=$?\" ; test -s .prflow/tmp/review/pr-1363/post.err && cat .prflow/tmp/review/pr-1363/post.err || echo \"stderr-empty\"",
+      "scripts/post-review-verdict.sh 1363 APPROVE .prflow/tmp/review/pr-1363/verdict.md c0c96fa07c7bce9fa1726709ea84133c771ab151"
+    ],
+    "total": 5,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
