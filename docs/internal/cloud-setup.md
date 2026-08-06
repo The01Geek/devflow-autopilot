@@ -1485,6 +1485,22 @@ profile does **not** carry the wildcard — under the Phase-3 dispatch the orche
 the reviewer the **vendored literal** `.prflow/vendor/prflow/scripts/load-prompt-extension.sh`,
 which `implement` already grants, so no wildcard is needed there.
 
+**`render-prompt-extension.sh` carries the wildcard on all three profiles (issue #1264).**
+The render-time placeholder in `skills/review/SKILL.md`, `skills/review-and-fix/SKILL.md`
+and `skills/implement/SKILL.md` invokes the wrapper through the `${CLAUDE_SKILL_DIR}`
+anchor, which resolves to an **absolute** path in the plugin checkout — a path no vendored
+literal matches. Rendering is matcher-gated (run `31058504896` recorded a
+`Shell command permission check failed` on an ungranted placeholder), so
+`Bash(*/render-prompt-extension.sh:*)` is granted on `review`, `implement` **and**
+`command`, alongside the vendored literal for the fallback path. This is the one grant that
+`implement` needs the wildcard for, unlike the loader above. It also **widens the read-only
+`review` profile**, so `lib/review-profile.tokens` moved in the same change. The wrapper is
+read-only in the same sense as the loader it wraps — it runs that loader and prints a status
+line — and inherits the same trusted-closure provenance, because
+`DEVFLOW_PROMPT_EXTENSION_ROOT` is exported through `$GITHUB_ENV` and read inside the
+wrapper's own body rather than at the call site. Accepted placeholder shape, probe run IDs,
+and the two unmeasured residuals: [`cloud-allowlist.md`](cloud-allowlist.md).
+
 ## Effectiveness telemetry on the cloud `/prflow:implement` job
 
 `/prflow:implement`'s Phase 3.3 drives `review-and-fix` **inline in the orchestrator's

@@ -11792,7 +11792,7 @@ echo "load-prompt-extension.sh (consumer prompt-extension reader)"
 # module owns the whole former in-file section; see its .inventory.md for the
 # coverage map back to this location.
 if ! devflow_run_full_suite_module "$LIB/test/modules/prompt-extension-reader.sh" \
-  "prompt-extension-reader" 127; then
+  "prompt-extension-reader" 156; then
   printf 'ERROR: prompt-extension-reader boundary could not record its result\n'
   exit 1
 fi
@@ -14677,8 +14677,19 @@ PA_FILE_COUNT=0
 for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/phase-*.md; do
   PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
   PA_FILE_COUNT=$((PA_FILE_COUNT + 1))
-  assert_eq "#275 pin (P1): $PA_NAME has no bare \$CLAUDE_SKILL_DIR/../../ expansion" "yes" \
-    "$(! grep -qE "$PA_BARE_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
+  # The render-time placeholder (issue #1264) is the ONE sanctioned bare-anchor shape, and it
+  # is excluded by its own full-line form rather than by relaxing the ERE. P1's rationale is
+  # that a bare anchor "collapses to a broken path when the var is empty" — which is a claim
+  # about a SHELL INVOCATION. A `!`…`` placeholder is not one: Claude Code substitutes the
+  # anchor before the model sees the skill, and on a runner where the variable is empty the
+  # placeholder is not a supported construct at all, so it stays inert literal text and the
+  # demoted fallback ladder (which still carries the portable `:-` form, pinned by P3 below)
+  # is what runs. The portable form is also unavailable here: `${VAR:-default}` inside
+  # placeholder text is refused with `Contains expansion` (measured, run 31058109064), so the
+  # bare anchor is the only shape that can work. The exclusion is anchored to the whole line
+  # and names the helper, so it cannot widen to an ordinary fenced call site.
+  assert_eq "#275 pin (P1): $PA_NAME has no bare \$CLAUDE_SKILL_DIR/../../ expansion outside the #1264 render-time placeholder" "yes" \
+    "$([ -z "$(grep -E "$PA_BARE_ERE" "$PA_FILE" | grep -vE '^!`\$\{CLAUDE_SKILL_DIR\}/\.\./\.\./scripts/render-prompt-extension\.sh [a-z-]+`$')" ] && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
   assert_eq "#275 pin (P2): $PA_NAME has no cross-statement \$CLAUDE_SKILL_DIR anchor assignment" "yes" \
     "$(! grep -qE "$PA_XSTMT_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
   # P3 is a PRESENCE pin, so it presupposes the file has at least one helper call site.
@@ -36754,13 +36765,29 @@ done
 # tick arm nor the "deferred to CI" (post-merge) retag arm. Negative pins (RED today):
 assert_eq "#405 AC2 phase-3.4: no 'verified via CI' tick arm remains" "0" "$(pin_count 'verified via CI' "$I405_P3")"
 assert_eq "#405 AC2 phase-3.4: no gate-time 'deferred to CI' retag arm remains" "0" "$(pin_count 'deferred to CI' "$I405_P3")"
-# AC8: after this change, neither writer TOOLS list carries a Bash(/-prefixed rule, and the only
-# wildcard-path rule is the pre-existing Bash(*/load-prompt-extension.sh:*) in devflow.yml.
+# AC8: after this change, neither writer TOOLS list carries a Bash(/-prefixed rule, and every
+# wildcard-path rule is one of the two SANCTIONED prompt-extension helpers.
+#
+# The absolute-path pins are unchanged. The wildcard pins are stated as "every wildcard rule is
+# accounted for" rather than as a fixed count, which is what keeps them a real guard while the
+# sanctioned set grows: an unaccounted `Bash(*/…)` grant still goes RED here, because the
+# accounted-for tally is summed from the named helpers alone.
+#
+# Issue #1264 added the second sanctioned helper, `render-prompt-extension.sh`, and — unlike its
+# sibling — it needs the wildcard on the IMPLEMENT profile too, where this pin previously
+# asserted zero. That is deliberate, not an oversight to be pinned away: the render-time
+# placeholder's `${CLAUDE_SKILL_DIR}` resolves to an ABSOLUTE path, which no vendored literal
+# matches, so a vendored-literal-only grant would leave the placeholder silently refused on that
+# tier. Widening a wildcard grant is exactly the kind of change this pin exists to make visible,
+# so the new member is named here explicitly rather than the pin being relaxed to a pattern.
 assert_eq "#405 AC8 devflow-implement.yml: no Bash(/ absolute-path rule" "0" "$(pin_count 'Bash(/' "$I405_IMPL_YML")"
 assert_eq "#405 AC8 devflow.yml: no Bash(/ absolute-path rule" "0" "$(pin_count 'Bash(/' "$I405_DEVFLOW_YML")"
-assert_eq "#405 AC8 devflow-implement.yml: no wildcard-path Bash(*/ rule" "0" "$(pin_count 'Bash(*/' "$I405_IMPL_YML")"
-assert_eq "#405 AC8 devflow.yml: every wildcard-path Bash(*/ rule is the load-prompt-extension one" \
-  "$(pin_count 'Bash(*/load-prompt-extension.sh' "$I405_DEVFLOW_YML")" "$(pin_count 'Bash(*/' "$I405_DEVFLOW_YML")"
+assert_eq "#405 AC8 devflow-implement.yml: every wildcard-path Bash(*/ rule is a sanctioned prompt-extension helper" \
+  "$(( $(pin_count 'Bash(*/load-prompt-extension.sh' "$I405_IMPL_YML") + $(pin_count 'Bash(*/render-prompt-extension.sh' "$I405_IMPL_YML") ))" \
+  "$(pin_count 'Bash(*/' "$I405_IMPL_YML")"
+assert_eq "#405 AC8 devflow.yml: every wildcard-path Bash(*/ rule is a sanctioned prompt-extension helper" \
+  "$(( $(pin_count 'Bash(*/load-prompt-extension.sh' "$I405_DEVFLOW_YML") + $(pin_count 'Bash(*/render-prompt-extension.sh' "$I405_DEVFLOW_YML") ))" \
+  "$(pin_count 'Bash(*/' "$I405_DEVFLOW_YML")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "stale-prose-lint.py (#423 deterministic stale counted-prose lint)"
