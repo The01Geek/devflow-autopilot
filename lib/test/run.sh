@@ -12708,6 +12708,12 @@ assert_eq "#1050: base_update_checkpoint4_present=false when the workpad carries
 # after the shipped one drifted) over the three bodies that discriminate it.
 CP4_CASE_LINE=$(grep -n "BASE_UPDATE_CHECKPOINT4_PRESENT=false" "$LIB/fetch-pr-context.sh" | head -1 | cut -d: -f1)
 CP4_CASE_PROG=$(sed -n "${CP4_CASE_LINE},$((CP4_CASE_LINE + 4))p" "$LIB/fetch-pr-context.sh")
+# Name a failed extraction directly. Every drift shape already fails the rows below RED (two of
+# them expect `true`, which an empty or truncated program cannot produce), so this adds no
+# coverage — it turns five confusing "expected true, got ''" mismatches into one diagnostic
+# naming the cause, for the day the shipped block grows past the five-line window.
+assert_eq "#1347: the shipped checkpoint-4 case program extracted cleanly (whole case…esac)" "yes" \
+  "$(case "$CP4_CASE_PROG" in *esac*) echo yes ;; *) echo no ;; esac)"
 for _row in \
   "clean-prflow|<!-- prflow:checkpoint base-update-checkpoint-4 -->|true" \
   "clean-devflow|<!-- devflow:checkpoint base-update-checkpoint-4 -->|true" \

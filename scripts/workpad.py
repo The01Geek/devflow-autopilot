@@ -3397,8 +3397,12 @@ def _terminal_complete_gate(sections, args) -> list[str]:
 #     no duplicate row; a checkpoint-only replay whose every key already exists is a
 #     pure no-op — no `Last updated` refresh, no PATCH (see `_NoOpReplay`). The key
 #     grammar and the ## Progress structure are validated BEFORE any PATCH, so an
-#     invalid key / duplicate marker / marker-outside-Progress / absent-or-duplicate
-#     ## Progress / empty body is a structural failure that mutates nothing.
+#     invalid key / multi-line TEXT / duplicate marker / marker-outside-Progress /
+#     DUPLICATE ## Progress / empty body is a structural failure that mutates
+#     nothing. An ABSENT ## Progress is the one shape that is not a failure: it is
+#     repaired (created at the head of the section list) ahead of that validation,
+#     because the documented `--note` degrade locates the same section and raises
+#     too, so that shape had no working path at all (issue #1347).
 #   * `handoff-state FILE …` validates the workflow-owned gate→claude handoff record
 #     OFFLINE (no gh, no network) and prints one of three origin tokens, degrading
 #     every malformed/mismatched shape to `unknown` with a targeted breadcrumb.

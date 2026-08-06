@@ -481,10 +481,13 @@ jobs:
             # an operator watching a stalled/retried run can click through to the
             # active job's logs, THEN record the gate-adopted startup checkpoint. These
             # are two SEPARATE best-effort calls, not one combined update: the
-            # `--checkpoint` requires a canonical `## Progress` section, so a legacy
-            # workpad predating that checklist would make a combined call abort
-            # structurally and silently drop the Run-link refresh too (the gate has no
-            # legacy-migration path) — issue #537 review. Splitting adds one PATCH only
+            # `--checkpoint` requires a canonical `## Progress` section, so a workpad
+            # carrying a DUPLICATE one (or an empty body) would make a combined call
+            # abort structurally and silently drop the Run-link refresh too (the gate
+            # has no legacy-migration path) — issue #537 review. Issue #1347 narrowed
+            # which shapes those are: a merely ABSENT `## Progress` is now repaired
+            # rather than aborted, but the remaining shapes keep the split earning its
+            # keep, so it stands. Splitting adds one PATCH only
             # on the adopted/resume path, never on a normal fresh run (which creates
             # rather than adopts), so AC19's fresh-run write budget is unchanged.
             if ! python3 "$WP" update "$NUMBER" --run-link "[View run]($RUN_URL)"; then
