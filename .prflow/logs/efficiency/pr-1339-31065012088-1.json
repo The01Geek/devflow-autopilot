@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1339",
+  "generated_at": "2026-08-06T02:26:35Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.6",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 12.033525250000004,
+    "tokens": {
+      "input_tokens": 65,
+      "output_tokens": 34674,
+      "cache_read_input_tokens": 6294311,
+      "cache_creation_input_tokens": 249960,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 127,
+        "outputTokens": 84535,
+        "cacheReadInputTokens": 8174918,
+        "cacheCreationInputTokens": 783153,
+        "webSearchRequests": 0,
+        "costUSD": 12.033525250000004,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 42,
+    "duration_ms": 671459
+  },
+  "permission_denials": {
+    "count": 5,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"run=${GITHUB_RUN_ID:-none} attempt=${GITHUB_RUN_ATTEMPT:-none}\"; gh pr view 1339 --json headRefName,baseRefName,baseRefOid,headRefOid,body,closingIssuesReferences --jq '{head:.headRefName,base:.baseRefName,baseOid:.baseRefOid,headOid:.headRefOid,closes:.closingIssuesReferences}'",
+      "printf 'run=%s attempt=%s\\n' \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\"",
+      "/home/runner/work/prflow/prflow/skills/review/../../scripts/seed-review-progress.sh \"1339\" \"\" .prflow/tmp/review/pr-1339/31065012088-1/review-wp.md ; echo \"seed-rc=$?\"",
+      "mkdir -p .prflow/tmp\nrm -f .prflow/tmp/review-dirty-tree-before .prflow/tmp/review-dirty-tree-disabled 2>/dev/null\ngit status --porcelain -z > .prflow/tmp/review-dirty-tree-before && git hash-object .prflow/tmp/review-dirty-tree-before",
+      ".prflow/vendor/prflow/scripts/resolve-review-overrides.py \"prflow:code-reviewer\" \"prflow:silent-failure-hunter\" \"prflow:comment-analyzer\" \"prflow:pr-test-analyzer\" \"prflow:requesting-code-review\" 2>.prflow/tmp/review/pr-1339/31065012088-1/rv-ovr.phase3.err ; echo \"ovr-rc=$?\"; echo \"---stderr---\"; cat .prflow/tmp/review/pr-1339/31065012088-1/rv-ovr.phase3.err"
+    ],
+    "total": 5,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
