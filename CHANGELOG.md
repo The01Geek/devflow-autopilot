@@ -4,6 +4,53 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.11] — 2026-08-06
+
+### Changed
+### Added
+
+- `scripts/prompt-surface-growth.py` renders the prompt-surface byte delta a branch introduces, alongside the running byte total at `HEAD`, as a markdown table for the PR description. The covered population is tracked `*.md` files under `skills/`, `agents/`, and `.prflow/prompt-extensions/`, enumerated from the committed tree at both the merge-base and `HEAD` so a deleted file still renders (total `0`, negative delta). It is measurement only — no threshold, ceiling, or budget — and always exits 0, printing a stated breadcrumb instead of a table when `HEAD` is the merge-base, when no covered path changed, or when the merge-base cannot be resolved. Anything that qualifies the figures — an unresolvable repository root, an entry that could not be read as a blob — is disclosed as a `> Note:` line on stdout beside them, rather than on a stderr channel the consumer does not read. The helper ships with the plugin but is invoked only from a `pr-description` prompt extension, so an installed repo sees no change until it adds one. (#1355)
+- The `implement` and `command` capability profiles grant the new helper, so a cloud run can invoke it rather than having it silently refused. (#1355)
+
+## [2.31.10] — 2026-08-06
+
+### Added
+- **Add a behavioral eval (`scripts/implement-context-eval.py`) that measures the
+  runtime main-thread context cost of `/prflow:implement` runs from a transcript
+  corpus, plus a findings doc (`docs/internal/implement-context.md`).** The instrument
+  reports, per run, the peak main-thread context; as a separate axis, how many times
+  each of the four phase files was read — the multiplier the skill's cost shape is
+  dominated by; the main-thread tool calls bucketed by category; and the distribution
+  (median, max and total) of wall-clock gaps between consecutive main-thread tool calls,
+  measured at turn granularity as a disclosed proxy, because a transcript record carries
+  one timestamp however many tool calls its turn holds. Every axis is aggregated across
+  the corpus with at least a median and a max. It is
+  maintainer-run only: no skill, workflow, or suite gate invokes it for a measurement or
+  a threshold, and it adds no size gate or threshold.
+  The doc records the two corrections issue #1209 makes (the phase files load one per
+  phase entry, and the re-read on every re-entry and after every nested-skill return is
+  what matters) and declares a tier-conditional phase-file split a non-goal. (#1209)
+
+## [2.31.9] — 2026-08-06
+
+### Fixed
+- **Hardened the Phase 4.3 checkpoint-4 evidence producer so every legitimate completing run can
+  record one.** Three independent defects are fixed. `workpad.py update --checkpoint` now repairs
+  an absent `## Progress` section — creating it at the head of the section list, ahead of its own
+  section-shape validation — where previously both it and its documented `--note` fallback raised
+  on that shape, leaving a run with no way to record at all; an empty or whitespace-only body is
+  untouched and still raises, and a duplicated `## Progress` or a misplaced marker still fails
+  closed with no PATCH. The Phase 4.3 tier-refused arm now records through its own keyed
+  checkpoint, `base-update-checkpoint-4-tier-refused`, instead of a prose-only reflection, so a
+  consumer can distinguish "the base was reconciled" from "the tier refused the check"; like the
+  clean-token key it carries no `gha:` prefix, and the arm still publishes and still does not
+  route to `Blocked`. And the Phase 1.3 resume arm now passes the new
+  `workpad.py update --strip-inherited-checkpoints`, on both the cloud and local arms, so a
+  resumed run no longer inherits the previous attempt's checkpoint-4 row and
+  `base_update_checkpoint4_present` describes the last attempt rather than any attempt; the strip
+  is scoped to the declared key set so `gha:`-prefixed rows are untouched, and combining it with
+  `--checkpoint` for one of those same keys is rejected before any PATCH. (#1347)
+
 ## [2.31.8] — 2026-08-06
 
 ### Fixed

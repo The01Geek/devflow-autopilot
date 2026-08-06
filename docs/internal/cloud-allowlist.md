@@ -113,6 +113,15 @@ extractor is:
 - The case-arm tracking is a **flag, not a depth counter**, so a **nested** `case`
   block is an accepted limitation — no fence in `skills/review/SKILL.md` nests a
   `case`.
+- **`.prflow/prompt-extensions/**` is outside the scanned population.** Both
+  extractors take the skills bundles as their input, but an extension's text is
+  appended to the same agent prompt and can invoke the same bundled helpers — so a
+  helper invoked only from an extension gets **no desk signal** when its grant is
+  missing, and the cloud matcher refuses it before it runs: no output, no error.
+  Add such a grant to the manifest by hand as part of authoring the call site.
+  Worked example: `scripts/prompt-surface-growth.py` (issue #1350), granted on the
+  `implement` and `command` profiles because its only call site is
+  `.prflow/prompt-extensions/pr-description.md`.
 
 ### Adding a command to a fence
 
