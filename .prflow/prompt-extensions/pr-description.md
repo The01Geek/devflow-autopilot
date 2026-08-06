@@ -20,9 +20,13 @@ scripts/prompt-surface-growth.py
 ```
 
 Insert the helper's stdout into the PR description **verbatim**, exactly as printed and
-with no edits. It prints either a markdown table (which already carries its own `###`
-heading) or a single breadcrumb line explaining why there is nothing to show — place
-whichever it printed near the end of the body, after the change summary.
+with no edits — **all of it**, however many lines it is. It prints either a markdown
+table (which already carries its own `###` heading) or a short breadcrumb explaining why
+there is nothing to show, and either of those may be followed by one or more `> Note:`
+lines disclosing something that qualifies the figures. Those notes are the reason the
+helper prints to stdout at all rather than stderr, so dropping them republishes numbers
+whose stated unreliability has been stripped. Place everything it printed near the end of
+the body, after the change summary.
 
 **Compose no figure yourself.** Every byte count, delta, total, and sha in that section
 comes from the helper's output. Do not estimate, round, re-order, re-total, summarize,

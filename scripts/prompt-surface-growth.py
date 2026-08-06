@@ -25,7 +25,7 @@ non-markdown asset — no separate exclusion mechanism exists or is needed.
 
 This is measurement, never a gate. It defines no threshold, ceiling, or budget, and
 compares nothing against a limit: every path — including an unresolvable merge-base
-and a checkout with nothing to measure — exits 0 with a stated one-line breadcrumb
+and a checkout with nothing to measure — exits 0 with a stated breadcrumb
 instead of a table. A table of zeros is deliberately never printed: a reader would
 misread it as "this PR added nothing", which is worse than no table at all.
 
