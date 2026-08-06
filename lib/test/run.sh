@@ -7238,6 +7238,15 @@ assert_eq "#1354 AC5: a fixture extension's ungranted head is reported (command 
 printf '%s\n' '```bash' 'git status' '```' > "$E1354/fx-clean.md"
 assert_eq "#1354 AC5 negative control: a fixture with only a granted head reports nothing" "" \
   "$(_e1354_union_ungranted "$E1354/fx-clean.md" command "$CFG1354")"
+# The `review` tier's `case` arm (devflow-runner.yml + .prflow_runner.allowed_tools) is
+# selected only for review.md, which today carries zero command heads — so drive that arm
+# directly with a fixture pair so a wrong workflow/config selection in it cannot pass
+# unnoticed: an ungranted head is reported, and a review-granted head (`gh pr diff`) is clean.
+assert_eq "#1354 AC5: a fixture extension's ungranted head is reported (review tier)" "totally-not-a-granted-head" \
+  "$(_e1354_union_ungranted "$E1354/fx-ungranted.md" review "$CFG1354")"
+printf '%s\n' '```bash' 'gh pr diff 1' '```' > "$E1354/fx-review-clean.md"
+assert_eq "#1354 AC5 negative control: a review-granted head reports nothing (review tier)" "" \
+  "$(_e1354_union_ungranted "$E1354/fx-review-clean.md" review "$CFG1354")"
 
 # AC5 (shape) anti-vacuity + negative control: a proven-denied shape (a leading `cd`, IR4/CR4)
 # in a fixture extension is reported; a clean-shape fixture is not.
