@@ -27798,6 +27798,85 @@ assert_eq "#290 .changeset/README documents the bump frontmatter key" "yes" \
   "$(grep -qiF 'bump' "$FDROOT/.changeset/README.md" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#1373 repo's own pending changesets validate against the consolidator's parser"
+# ────────────────────────────────────────────────────────────────────────────
+# A .changeset/*.md using the npm form (`"prflow": patch`) instead of the required
+# `bump: patch` parses to a human eye and passes every PR-side check, then aborts
+# version-consolidate at merge time on main. lib/test/check_pending_changesets.py parses
+# every tracked .changeset/*.md with the SAME _parse_changeset the consolidator uses
+# (imported, never the consolidator itself — that mutates the tree), enumerating the
+# population from the git index rather than a repo-root walk. Each AC of #1373 maps to at
+# least one behavioral assertion below.
+CS_CHECK="$FDROOT/lib/test/check_pending_changesets.py"
+assert_eq "#1373 check_pending_changesets.py exists" "yes" "$([ -f "$CS_CHECK" ] && echo yes || echo no)"
+
+# The repo's own pending changesets (enumerated from the git index) all parse — the live
+# guard: a bad changeset committed to this branch turns the suite RED at the desk and in CI.
+python3 "$CS_CHECK" --root "$FDROOT" >/dev/null 2>&1; CS_RC=$?
+assert_eq "#1373 repo's own tracked .changeset/*.md all parse cleanly" "0" "$CS_RC"
+
+# AC: the npm `"pkg": patch` form turns the check RED, naming the offending file AND the
+# parser's own error text (proving the failure is diagnosable, not a bare non-zero exit).
+TMP_CSFX="$(mktemp -d)"
+printf -- '---\n"prflow": patch\n---\n\n- npm form (#1373)\n' > "$TMP_CSFX/npm.md"
+python3 "$CS_CHECK" "$TMP_CSFX/npm.md" >"$TMP_CSFX/out" 2>&1; CS_RC=$?
+assert_eq "#1373 npm form: check exits non-zero (RED)" "yes" "$([ "$CS_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#1373 npm form: message names the offending file" "yes" \
+  "$(grep -qF 'npm.md' "$TMP_CSFX/out" && echo yes || echo no)"
+assert_eq "#1373 npm form: message carries the parser's own error text" "yes" \
+  "$(grep -qF "missing required 'bump:' key" "$TMP_CSFX/out" && echo yes || echo no)"
+
+# AC: the correct `bump:` form is green.
+printf -- '---\nbump: patch\ntype: Fixed\n---\n\n- correct form (#1373)\n' > "$TMP_CSFX/good.md"
+python3 "$CS_CHECK" "$TMP_CSFX/good.md" >/dev/null 2>&1; CS_RC=$?
+assert_eq "#1373 correct bump: form parses cleanly (green)" "0" "$CS_RC"
+
+# AC: parse-only — the check never runs the consolidator (which deletes consumed changesets
+# and rewrites tracked files). Run it on a VALID fixture changeset in a directory of its own
+# and assert the helper ran clean, the changeset survived (the consolidator would have deleted
+# it), and no consolidator output (plugin.json / CHANGELOG.md) was materialized.
+CSPO="$(mktemp -d)"
+printf -- '---\nbump: patch\n---\n\n- keep (#1373)\n' > "$CSPO/keep.md"
+python3 "$CS_CHECK" "$CSPO/keep.md" >/dev/null 2>&1; CS_RC=$?
+assert_eq "#1373 parse-only: helper ran to a clean verdict on the valid fixture" "0" "$CS_RC"
+assert_eq "#1373 parse-only: valid changeset NOT deleted (consolidator would delete it)" "yes" \
+  "$([ -f "$CSPO/keep.md" ] && echo yes || echo no)"
+assert_eq "#1373 parse-only: no consolidator output written (tree byte-identical)" "yes" \
+  "$([ ! -f "$CSPO/CHANGELOG.md" ] && [ ! -e "$CSPO/.claude-plugin" ] && echo yes || echo no)"
+rm -rf "$CSPO" "$TMP_CSFX"
+
+# AC: enumeration reads the git INDEX, not a filesystem walk. A tracked-good + untracked-bad
+# .changeset pair must pass — git ls-files sees only the tracked good file, while a recursive
+# repo-root walk would find the untracked malformed file and (wrongly) go RED. This is also
+# what makes the result worktree-immune (issue #711).
+CSIDX="$(mktemp -d)"
+git -C "$CSIDX" init -q >/dev/null 2>&1
+mkdir -p "$CSIDX/.changeset"
+printf -- '---\nbump: patch\n---\n\n- tracked good (#1373)\n' > "$CSIDX/.changeset/good.md"
+git -C "$CSIDX" add .changeset/good.md >/dev/null 2>&1
+printf -- '---\n"prflow": patch\n---\n\n- untracked bad (#1373)\n' > "$CSIDX/.changeset/bad.md"
+python3 "$CS_CHECK" --root "$CSIDX" >/dev/null 2>&1; CS_RC=$?
+assert_eq "#1373 index enumeration: an UNTRACKED malformed changeset is not audited (index, not walk)" "0" "$CS_RC"
+# And a TRACKED malformed changeset in the same fixture does go RED — the enumeration is live.
+git -C "$CSIDX" add .changeset/bad.md >/dev/null 2>&1
+python3 "$CS_CHECK" --root "$CSIDX" >/dev/null 2>&1; CS_RC=$?
+assert_eq "#1373 index enumeration: a TRACKED malformed changeset turns the check RED" "yes" \
+  "$([ "$CS_RC" -ne 0 ] && echo yes || echo no)"
+rm -rf "$CSIDX"
+
+# AC: README.md is exempt (the consolidator's own _is_consumable predicate), so a tracked
+# README.md that is not a changeset does not turn the check RED.
+CSRD="$(mktemp -d)"
+git -C "$CSRD" init -q >/dev/null 2>&1
+mkdir -p "$CSRD/.changeset"
+printf '# Changesets\nprose, not a changeset\n' > "$CSRD/.changeset/README.md"
+printf -- '---\nbump: patch\n---\n\n- good (#1373)\n' > "$CSRD/.changeset/good.md"
+git -C "$CSRD" add .changeset/README.md .changeset/good.md >/dev/null 2>&1
+python3 "$CS_CHECK" --root "$CSRD" >/dev/null 2>&1; CS_RC=$?
+assert_eq "#1373 README.md is exempt from the changeset audit" "0" "$CS_RC"
+rm -rf "$CSRD"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "#953 pinned release-tag sites: derivation, drift guard, bump rewrite, tag/release"
 # ────────────────────────────────────────────────────────────────────────────
 # The install docs pin a release tag in two machine-recognizable forms (the installer
