@@ -1295,9 +1295,9 @@ ci614_purity "$CI_REF_FB_DISPATCH" \
   'Bracket the embedded body with **exactly those printed tokens**'
 ci614_purity "$CI_REF_FB_STATEOWNER" \
   'A fallback lifecycle is **never silent**'
-# #1372: the five arms gated out of the step references. Each literal is body prose from
-# the arm's own procedure, so its presence here and absence from every step reference is
-# what proves the clean run no longer carries that arm's bytes.
+# #1372: the arms gated out of the step references, enumerated by CI614_FALLBACK_REFS above.
+# Each literal is body prose from the arm's own procedure, so its presence here and absence
+# from every step reference is what proves the clean run no longer carries that arm's bytes.
 ci614_purity "$CI_REF_FB_RECON" \
   'A recurrence of an INVALIDATED entry'
 ci614_purity "$CI_REF_FB_OFFER" \
