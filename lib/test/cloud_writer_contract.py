@@ -180,6 +180,9 @@ SKILL_ASSETS = {
         # classified skill recursively, so leaving it out is reported as an
         # unclassified reachable asset rather than silently unpinned.
         "skills/implement/references/deferred-ac-followups.md",
+        # issue #1374: Phase 4.0.5's deferred-review-finding filing procedure is
+        # reached the same way, through its own presence predicate.
+        "skills/implement/references/deferred-review-findings.md",
     ],
     "review": [
         "skills/review/SKILL.md",

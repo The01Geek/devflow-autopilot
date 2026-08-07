@@ -46,7 +46,7 @@ before any root is classified and therefore emits only the usage message.
 Failed roots additionally emit a per-root breadcrumb, and a discovery run emits
 at most one aggregate discrimination marker the fence greps.
 
-Exit codes:
+Exit codes (discovery mode):
     0  no root classified `failed` (all ok/absent, including zero total matches)
     2  invoked with zero root arguments (usage message; NO discovery marker)
     3  partial — at least one `failed` AND at least one `ok`/`absent`
@@ -55,14 +55,54 @@ Exit codes:
 An uncaught exception exits non-zero (interpreter default), which the fence's
 else-arm treats as failed — ambiguous failures fail closed.
 
+PRESENCE MODE (issue #1374). `--presence-for-pr N` answers a different question:
+is any deferred review finding present for PR N? Phase 4.0.5's filing procedure now
+lives in a gated reference the phase file reads only when this predicate says so, and
+this mode is that predicate. It derives BOTH candidate search directories itself —
+including the branch slug, in Python rather than through the fence's `tr` chain, so a
+host without `tr` resolves the same directories as a host with it — and answers over
+BOTH presence sources: the run-scoped manifests (which a re-entry after filing has
+already consumed) and the slug-level aggregate (which has no producer on a first
+entry). Reading either alone fails open.
+
+Exit codes (presence mode) — three states, complete by construction:
+    0  present       stdout `present: <n>`
+    1  absent        stdout `absent: 0`
+    2  unestablished stdout `unestablished: reason=<token>` (+ an optional `root:` line)
+Discovery mode's `3` and `4` are unreachable here: an unreadable candidate collapses
+into `2` regardless of how many others were readable. That flattening is deliberate,
+so both gated Phase 4 sub-steps document one identical three-state contract; the cost
+is that presence mode cannot tell a partial failure from a total one. A malformed
+invocation reports `2` as well — the same fail-closed convention `workpad.py
+deferred-presence` adopts, so a bad call loads the reference rather than silently
+skipping it. Every state is decided from the exit status alone; no caller parses stdout
+to route.
+
 Usage:
     discover-deferral-manifests.py ROOT [ROOT ...]
+    discover-deferral-manifests.py --presence-for-pr N
 """
 
 import os
+import subprocess
 import sys
 
 MANIFEST_NAME = "deferrals.json"
+
+# The presence-mode dispatch token. It is recognized ONLY as argv[0], so a root path
+# in any later position stays a root path: the filing fence passes `$SEARCH_DIRS`
+# unquoted for word-splitting, and a positional-anywhere flag would let a root that
+# happened to match it switch modes mid-list.
+PRESENCE_FLAG = "--presence-for-pr"
+
+# The review scratch root, cwd-relative — the identical literal the §4.0.5 filing
+# fence composes SLUG_DIR and BRANCH_DIR from. Anchoring this to the git toplevel
+# instead would search directories the fence never writes to.
+REVIEW_ROOT = ".prflow/tmp/review"
+
+# The character set the fence's `tr -cd 'a-z0-9._-'` keeps, spelled out so the port
+# and the shell chain cannot drift through an interpretation of a range expression.
+_SLUG_KEEP = frozenset("abcdefghijklmnopqrstuvwxyz0123456789._-")
 
 # Aggregate discrimination markers the §4.0.5 fence greps. At most one is emitted
 # per run (the partial/all-failed arms are exclusive branches), and the per-root
@@ -165,9 +205,157 @@ def classify_root(root):
     return "ok", matches
 
 
+def _derive_branch_slug(branch):
+    """Port the §4.0.5 fence's `tr '/' '-' | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-'`
+    chain into Python, so this mode's search directories do not depend on `tr` — a tool
+    the project's preflight does not guarantee, whose absence would empty the slug and
+    silently drop the branch-slug candidate (guard-class 2).
+
+    The case fold is an explicit ASCII A–Z shift rather than str.lower(), which is
+    Unicode-aware and would map characters `tr` leaves alone in the C locale — after
+    which the keep-filter drops them either way, so the two agree on the result but not
+    on the reasoning; the explicit shift is what makes the agreement true by construction
+    rather than by coincidence.
+    """
+    out = []
+    for ch in branch.replace("/", "-"):
+        if "A" <= ch <= "Z":
+            ch = chr(ord(ch) + 32)
+        if ch in _SLUG_KEEP:
+            out.append(ch)
+    return "".join(out)
+
+
+def _slug_escapes_review_root(review_root, slug):
+    """True when joining `slug` onto `review_root` resolves outside it.
+
+    The keep-filter above passes `.` and `-`, so a branch named `..` slugs to `..` and
+    would point the branch candidate at the review root's parent. Discovery there would
+    walk an unrelated tree and could report a manifest that belongs to no run of this PR.
+    """
+    base = os.path.normpath(review_root)
+    candidate = os.path.normpath(os.path.join(base, slug))
+    return not candidate.startswith(base + os.sep)
+
+
+def _resolve_current_branch():
+    """The checked-out branch name, or "" when it cannot be resolved.
+
+    Every failure — a non-zero git, a detached HEAD, no repository, git absent, a hung
+    call — collapses onto the empty string, which is the fence's own benign
+    detached-HEAD case: search the PR slug alone. This is deliberately NOT an
+    unestablished state; a branch that cannot be named contributes no second candidate,
+    and the PR slug is the one the aggregate lives under regardless.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "branch", "--show-current"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if proc.returncode != 0:
+        return ""
+    return proc.stdout.strip()
+
+
+def _print_presence_unestablished(reason, root=None):
+    """The single owner of presence mode's `unestablished` line's format.
+
+    Every fail-closed exit routes through here, mirroring `workpad.py`'s
+    `_print_unestablished`, so the token the phase-file stub quotes back into its
+    reflection cannot drift between call sites. Returns the exit code rather than
+    exiting, so `main` keeps one return path and the suite can drive it in-process.
+    """
+    sys.stdout.write("unestablished: reason=%s\n" % reason)
+    if root is not None:
+        sys.stdout.write("root: %s\n" % os.path.abspath(root))
+    return 2
+
+
+def cmd_presence(rest):
+    """Answer whether a deferred review finding is present for the PR named in `rest`."""
+    # Arity and type first, before any filesystem or git work: a malformed call must
+    # not be able to produce a partial roots-echo that reads like a real search.
+    if len(rest) != 1 or not rest[0].isdigit():
+        sys.stderr.write(
+            "devflow: presence: usage: discover-deferral-manifests.py %s N\n"
+            % PRESENCE_FLAG
+        )
+        return _print_presence_unestablished("malformed-invocation")
+    pr_number = rest[0]
+
+    slug_dir = "%s/pr-%s" % (REVIEW_ROOT, pr_number)
+    candidates = [slug_dir]
+    branch_slug = _derive_branch_slug(_resolve_current_branch())
+    if branch_slug:
+        if _slug_escapes_review_root(REVIEW_ROOT, branch_slug):
+            sys.stderr.write(
+                "devflow: presence: branch slug %r would resolve outside %s — dropping "
+                "the branch candidate; searching the pr-%s slug alone\n"
+                % (branch_slug, os.path.abspath(REVIEW_ROOT), pr_number)
+            )
+        else:
+            branch_dir = "%s/%s" % (REVIEW_ROOT, branch_slug)
+            if branch_dir != slug_dir:
+                candidates.append(branch_dir)
+
+    # Reuse the discovery mode's own traversal, so the depth-2 and non-zero-size rules
+    # this predicate answers on are the same rules the filing fence then files from.
+    results = []
+    present = 0
+    first_failed = None
+    for root in candidates:
+        status, matches = classify_root(root)
+        results.append((root, status))
+        if status == "failed" and first_failed is None:
+            first_failed = root
+        present += len(matches)
+
+    # The slug-level aggregate is a single file one level above the run-scoped
+    # manifests, so the walk above never sees it. It is checked independently because
+    # it is the ONLY surviving source once a prior entry has filed and consumed the
+    # run-scoped manifests.
+    agg_path = "%s/%s" % (slug_dir, MANIFEST_NAME)
+    agg_state = "absent"
+    if os.path.exists(agg_path):
+        if not os.path.isfile(agg_path):
+            agg_state = "failed"
+        else:
+            try:
+                agg_state = "ok" if os.path.getsize(agg_path) > 0 else "empty"
+            except OSError as exc:
+                sys.stderr.write(
+                    "devflow: presence: aggregate %s could not be sized (%s)\n"
+                    % (os.path.abspath(agg_path), exc)
+                )
+                agg_state = "failed"
+
+    sys.stderr.write(
+        "devflow: presence roots: %s aggregate %s=%s\n"
+        % (" ".join("%s=%s" % (os.path.abspath(r), s) for r, s in results),
+           os.path.abspath(agg_path), agg_state)
+    )
+
+    # Present wins over an unreadable sibling: a finding this mode positively saw is
+    # not made less present by a directory it could not read, and both answers route
+    # the caller to the same place.
+    if present or agg_state == "ok":
+        sys.stdout.write("present: %d\n" % present)
+        return 0
+    if agg_state == "failed":
+        return _print_presence_unestablished("unreadable-aggregate", agg_path)
+    if first_failed is not None:
+        return _print_presence_unestablished("unreadable-directory", first_failed)
+    sys.stdout.write("absent: 0\n")
+    return 1
+
+
 def main(argv=None):
     _force_utf8_streams()
     args = list(sys.argv[1:] if argv is None else argv)
+    if args and args[0] == PRESENCE_FLAG:
+        return cmd_presence(args[1:])
     if not args:
         # NO discovery marker here — a usage error is not a discovery outcome, so
         # it must not be mistaken for a PARTIAL one. Emitting neither marker is

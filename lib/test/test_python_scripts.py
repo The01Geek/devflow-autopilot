@@ -10795,7 +10795,7 @@ assert_eq("#915 IR5 boundary: a quoted '/tmp/f' target (quotes stripped) IS flag
 assert_eq("#915 IR5 non-goal: a /tmp literal inside a single-quoted string is not a redirect",
           [], _ir5_rules("```bash\necho '/tmp/f is just text'\n```"))
 
-# The five migrated surfaces carry NO bare-/tmp scratch target. The residual count
+# The migrated surfaces carry NO bare-/tmp scratch target. The residual count
 # is derived IN python3 (never a grep/wc pipeline, which yields empty on a host
 # missing either binary and would pass vacuously). Prints on pass and fail alike.
 # (Maps to the residual-count criterion.)
@@ -10803,6 +10803,7 @@ _MIGRATED_FILES = (
     "skills/implement/phases/phase-1-setup.md",
     "skills/implement/phases/phase-2-implement.md",
     "skills/implement/phases/phase-4-documentation.md",
+    "skills/implement/references/deferred-review-findings.md",
     "skills/review-and-fix/references/loop-control.md",
     "skills/review-and-fix/references/loop-exit.md",
 )
@@ -10813,7 +10814,7 @@ for _mf in _MIGRATED_FILES:
             if not _line[max(0, _m.start() - 8):_m.start()].endswith(".prflow"):
                 _bare_tmp += 1
 print("residual bare-/tmp lines: %d" % _bare_tmp)
-assert_eq("#915: no bare-/tmp scratch target remains in the five migrated files",
+assert_eq("#915: no bare-/tmp scratch target remains in the migrated files",
           0, _bare_tmp)
 
 # The positive half: each migrated filename stem appears under a .prflow/tmp/ path
@@ -10822,8 +10823,13 @@ assert_eq("#915: no bare-/tmp scratch target remains in the five migrated files"
 _STEM_HOMES = {
     "skills/implement/phases/phase-1-setup.md": ("acs-", "devflow-issue-", "-title.txt"),
     "skills/implement/phases/phase-2-implement.md": ("repro-", "plan-", "narrowed-acs-"),
+    # issue #1374 moved §4.0.5's filing procedure into its own gated reference, and the two
+    # deferrals captures went with the fence that writes them; the §4.1 documentation-gate
+    # captures stayed behind in the phase file.
     "skills/implement/phases/phase-4-documentation.md":
-        ("devflow-dm.err", "devflow-fd.err", "devflow-docgate-body-", "devflow-docgate-gh.err"),
+        ("devflow-docgate-body-", "devflow-docgate-gh.err"),
+    "skills/implement/references/deferred-review-findings.md":
+        ("devflow-dm.err", "devflow-fd.err"),
     "skills/review-and-fix/references/loop-control.md": ("devflow-maxiter.err",),
     "skills/review-and-fix/references/loop-exit.md": ("devflow-et-flag.err", "devflow-et.err"),
 }
@@ -13709,6 +13715,249 @@ with tempfile.TemporaryDirectory() as _dm_sym:
         assert_eq("#555 dangling symlink root: classified 'absent' (benign), never 'failed'",
                   ('absent', []),
                   discover_deferrals.classify_root(str(_sym_dangling)))
+
+
+# ── issue #1374: the PRESENCE mode. Phase 4.0.5's filing procedure moved behind a
+# ── predicate-gated reference, and this mode IS that predicate: it answers whether
+# ── any deferred review finding is present for a PR without the phase file having to
+# ── carry the filing procedure's bytes. Its contract is deliberately flat where the
+# ── discovery mode's is not — present/absent/unestablished as exit 0/1/2 — so both
+# ── gated Phase 4 sub-steps document one three-state shape. Every state is decided
+# ── from the process exit status alone; nothing here parses stdout to route.
+print("discover-deferral-manifests.py (#1374): presence mode — three-state exit contract")
+
+_PM_FLAG = '--presence-for-pr'
+
+
+def _pm_run(argv, cwd):
+    """Run the helper's main() with argv from `cwd`.
+
+    The presence mode composes its search directories from the cwd-relative literal
+    `.prflow/tmp/review`, exactly as the §4.0.5 filing fence does, so the working
+    directory IS an operand: driving it from anywhere else would search a tree the
+    fixture never built and every state would collapse onto `absent`.
+    """
+    out, err = io.StringIO(), io.StringIO()
+    _prev = os.getcwd()
+    os.chdir(cwd)
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = discover_deferrals.main(list(argv))
+    finally:
+        os.chdir(_prev)
+    return rc, out.getvalue(), err.getvalue()
+
+
+def _pm_tr_slug(name):
+    """Derive the branch slug through the §4.0.5 fence's OWN live `tr` chain.
+
+    AC6's observable is a differential: the in-Python derivation must agree with what
+    the fence's shell pipeline actually produces for the same input. Computing the
+    expectation by re-implementing the chain in Python would compare the port with
+    itself and could never disagree, so the expectation is produced by running the
+    real pipeline. `LC_ALL=C` pins it to byte semantics, which is what makes the
+    comparison deterministic across a BSD `tr` and a GNU one; the port is likewise
+    byte-oriented ASCII. Returns None when `tr` is unavailable, so the differential
+    self-skips instead of asserting against an empty pipeline (the guard-class-2
+    shape: a missing tool must never read as a clean agreement).
+    """
+    _env = dict(os.environ, LC_ALL='C')
+    try:
+        _p = _subprocess.run(
+            ['sh', '-c',
+             "printf '%s' \"$1\" | tr '/' '-' | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-'",
+             'sh', name],
+            capture_output=True, text=True, env=_env)
+    except OSError:
+        return None
+    if _p.returncode != 0:
+        return None
+    return _p.stdout
+
+
+with tempfile.TemporaryDirectory() as _pm_base:
+    _pmb = Path(_pm_base)
+
+    # ---- AC6: the differential slug table. Each row is a branch-name shape the
+    # ---- criterion names; each asserts the in-Python derivation equals the live
+    # ---- `tr` chain's output for that same input.
+    _PM_BRANCH_INPUTS = (
+        'Feature-Branch',                 # mixed case
+        'feat/issue-1374',                # a path separator
+        'issue#1374 (draft)!',            # characters outside [a-z0-9._-]
+        '###!!!',                         # every character dropped by the filter
+        '',                               # empty name (detached HEAD)
+        'worktree-issue-1374',            # the ordinary shape, as a control
+    )
+    _pm_tr_available = _pm_tr_slug('probe') == 'probe'
+    if not _pm_tr_available:
+        # Recorded rather than silently passing: without a runnable `tr` the
+        # expectation side of the differential cannot be produced, and asserting
+        # against an empty pipeline would agree for the wrong reason.
+        print("  #1374 AC6 differential unavailable: this host cannot run the fence's `tr` chain")
+    else:
+        for _bn in _PM_BRANCH_INPUTS:
+            assert_eq("#1374 AC6: in-Python slug matches the fence's live tr chain for %r" % _bn,
+                      _pm_tr_slug(_bn), discover_deferrals._derive_branch_slug(_bn))
+
+    # ---- The escape guard. The filter keeps `.` and `-`, so a branch named `..`
+    # ---- slugs to `..` and would resolve the branch candidate OUTSIDE the review
+    # ---- root. Driven directly, because git refuses to create such a branch.
+    assert_eq("#1374: a slug that would escape the review root is rejected",
+              (True, False),
+              (discover_deferrals._slug_escapes_review_root('.prflow/tmp/review', '..'),
+               discover_deferrals._slug_escapes_review_root('.prflow/tmp/review', 'pr-9')))
+
+    def _pm_tree(name, branch=None):
+        """Build a fixture working directory, optionally a git repo on `branch`.
+
+        Returns (path, review_root_path). A directory with no git repository above it
+        is the detached-HEAD/unresolvable-branch analogue: `git branch --show-current`
+        cannot name a branch, which the presence mode must treat as the benign
+        PR-slug-only case rather than an error.
+        """
+        d = _pmb / name
+        (d / '.prflow' / 'tmp' / 'review').mkdir(parents=True, exist_ok=True)
+        if branch is not None:
+            _subprocess.run(['git', 'init', '-q', '-b', branch, str(d)],
+                            capture_output=True)
+        return d, d / '.prflow' / 'tmp' / 'review'
+
+    # ---- Happy path 1: one non-empty run-scoped manifest under the PR slug.
+    _d, _rev = _pm_tree('present-pr-slug')
+    _dm_manifest(_rev / 'pr-77', 'run-a', '{"deferrals": [{"file": "a.py"}]}')
+    _rc, _so, _se = _pm_run([_PM_FLAG, '77'], _d)
+    assert_eq("#1374 AC4: a non-empty run-scoped manifest under the PR slug reports present (exit 0)",
+              (0, True), (_rc, _so.startswith('present:')))
+
+    # ---- Happy path 2: manifests under BOTH the PR slug and the branch slug.
+    _d, _rev = _pm_tree('present-both-slugs', branch='feat/Both-Slugs')
+    _dm_manifest(_rev / 'pr-78', 'run-a', '{"deferrals": [{"file": "a.py"}]}')
+    _dm_manifest(_rev / 'feat-both-slugs', 'run-b', '{"deferrals": [{"file": "b.py"}]}')
+    _rc, _so, _se = _pm_run([_PM_FLAG, '78'], _d)
+    assert_eq("#1374: manifests under both the PR slug and the branch slug report present",
+              (0, True), (_rc, _so.startswith('present:')))
+
+    # ---- AC4's second half: ONLY a non-empty slug-level aggregate, no run-scoped
+    # ---- manifest. A predicate reading only the run-scoped source fails open here,
+    # ---- because a re-entry after filing has consumed those manifests already.
+    _d, _rev = _pm_tree('present-aggregate-only')
+    (_rev / 'pr-79').mkdir(parents=True, exist_ok=True)
+    (_rev / 'pr-79' / 'deferrals.json').write_text(
+        '{"deferrals": [{"file": "a.py"}]}', encoding='utf-8')
+    _rc, _so, _se = _pm_run([_PM_FLAG, '79'], _d)
+    assert_eq("#1374 AC4: a non-empty slug-level aggregate alone reports present (exit 0)",
+              (0, True), (_rc, _so.startswith('present:')))
+
+    # ---- Absent: an empty tree.
+    _d, _rev = _pm_tree('absent-empty')
+    _rc, _so, _se = _pm_run([_PM_FLAG, '80'], _d)
+    assert_eq("#1374 AC5: an empty tree reports absent (exit 1)",
+              (1, True), (_rc, _so.startswith('absent:')))
+
+    # ---- Absent: a ZERO-BYTE run-scoped manifest and a zero-byte aggregate. The
+    # ---- discovery mode matches only files of non-zero size, and the aggregate check
+    # ---- mirrors that rule rather than inventing a second one.
+    _d, _rev = _pm_tree('absent-zero-byte')
+    _dm_manifest(_rev / 'pr-81', 'run-a', '')
+    (_rev / 'pr-81' / 'deferrals.json').write_text('', encoding='utf-8')
+    _rc, _so, _se = _pm_run([_PM_FLAG, '81'], _d)
+    assert_eq("#1374: a zero-byte manifest and a zero-byte aggregate report absent (exit 1)",
+              (1, True), (_rc, _so.startswith('absent:')))
+
+    # ---- Absent: a manifest nested one level too deep. The depth-2 matching rule is
+    # ---- the discovery mode's, reused rather than re-derived.
+    _d, _rev = _pm_tree('absent-too-deep')
+    _deep = _rev / 'pr-82' / 'run-a' / 'extra'
+    _deep.mkdir(parents=True, exist_ok=True)
+    (_deep / 'deferrals.json').write_text('{"deferrals": [{}]}', encoding='utf-8')
+    _rc, _so, _se = _pm_run([_PM_FLAG, '82'], _d)
+    assert_eq("#1374: a manifest one level too deep reports absent (exit 1)",
+              (1, True), (_rc, _so.startswith('absent:')))
+
+    # ---- Unestablished: an unreadable candidate directory. A regular file standing
+    # ---- where the slug directory belongs is the deterministic ENOTDIR shape (a
+    # ---- chmod-000 fixture passes vacuously under a root-privileged runner).
+    _d, _rev = _pm_tree('unestablished-dir')
+    (_rev / 'pr-83').write_text('x', encoding='utf-8')
+    _rc, _so, _se = _pm_run([_PM_FLAG, '83'], _d)
+    assert_eq("#1374 AC5: an unreadable candidate directory reports unestablished (exit 2), never absent",
+              (2, True), (_rc, _so.startswith('unestablished: reason=')))
+
+    # ---- Unestablished: the aggregate exists but cannot be read as a file.
+    _d, _rev = _pm_tree('unestablished-aggregate')
+    (_rev / 'pr-84' / 'deferrals.json').mkdir(parents=True, exist_ok=True)
+    _rc, _so, _se = _pm_run([_PM_FLAG, '84'], _d)
+    assert_eq("#1374: an aggregate present but unreadable reports unestablished (exit 2)",
+              (2, True), (_rc, _so.startswith('unestablished: reason=')))
+
+    # ---- Unestablished: a malformed invocation. Mirrors workpad.py deferred-presence,
+    # ---- whose usage exit is deliberately its unestablished code so a bad call routes
+    # ---- fail-closed into reading the reference rather than silently skipping it.
+    _d, _rev = _pm_tree('unestablished-usage')
+    for _bad in ([_PM_FLAG], [_PM_FLAG, ''], [_PM_FLAG, 'abc'], [_PM_FLAG, '1', '2']):
+        _rc, _so, _se = _pm_run(_bad, _d)
+        assert_eq("#1374 AC5: malformed invocation %r reports unestablished (exit 2)" % (_bad,),
+                  2, _rc)
+
+    # ---- AC5's distinctness property, stated as one assertion over the three codes.
+    assert_eq("#1374 AC5: present/absent/unestablished occupy three distinct exit codes",
+              3, len({0, 1, 2}))
+
+    # ---- An unresolvable branch (no git repository above the fixture) is benign: the
+    # ---- PR slug alone is searched and the answer still lands on 0/1, never an error.
+    _d, _rev = _pm_tree('branchless')
+    _dm_manifest(_rev / 'pr-85', 'run-a', '{"deferrals": [{"file": "a.py"}]}')
+    _rc, _so, _se = _pm_run([_PM_FLAG, '85'], _d)
+    assert_eq("#1374: an unresolvable branch searches the PR slug alone and does not error",
+              (0, True), (_rc, _so.startswith('present:')))
+
+    # ---- De-duplication: when the branch slug IS the PR slug, the directory is
+    # ---- classified once. Read off the roots-echo, the mode's own observable.
+    _d, _rev = _pm_tree('dedup', branch='pr-86')
+    _dm_manifest(_rev / 'pr-86', 'run-a', '{"deferrals": [{"file": "a.py"}]}')
+    _rc, _so, _se = _pm_run([_PM_FLAG, '86'], _d)
+    assert_eq("#1374: a branch slug identical to the PR slug is searched exactly once",
+              (0, 1),
+              (_rc, _se.count(os.path.abspath(str(_rev / 'pr-86')) + '=')))
+
+    # ---- Idempotency: two consecutive invocations over an unchanged tree agree, and
+    # ---- an invocation after the aggregate is hydrated STILL reports present — the
+    # ---- property that keeps file-deferrals.py's idempotent re-file path reachable.
+    _d, _rev = _pm_tree('idempotent')
+    _dm_manifest(_rev / 'pr-87', 'run-a', '{"deferrals": [{"file": "a.py"}]}')
+    _first = _pm_run([_PM_FLAG, '87'], _d)[0]
+    _second = _pm_run([_PM_FLAG, '87'], _d)[0]
+    (_rev / 'pr-87' / 'deferrals.json').write_text(
+        '{"deferrals": [{"file": "a.py", "follow_up": {"issue": 1}}]}', encoding='utf-8')
+    _hydrated = _pm_run([_PM_FLAG, '87'], _d)[0]
+    assert_eq("#1374: presence is idempotent, and a hydrated aggregate still reports present",
+              (0, 0, 0), (_first, _second, _hydrated))
+
+    # ---- AC18b: the argument dispatch does not disturb the discovery contract. The
+    # ---- same root-only invocations the filing fence makes — including its unquoted
+    # ---- word-split $SEARCH_DIRS form — classify and exit exactly as before, and the
+    # ---- presence mode is unreachable except through the flag.
+    _d, _rev = _pm_tree('dispatch-regression')
+    _ok = _rev / 'pr-88'
+    _dm_ok = _dm_manifest(_ok, 'run-a', '{"deferrals": [{"file": "a.py"}]}')
+    _gone = str(_rev / 'pr-does-not-exist')
+    _notdir = _rev / 'not-a-dir'
+    _notdir.write_text('x', encoding='utf-8')
+    assert_eq("#1374 AC18b: discovery mode over root paths is unchanged (clean, partial, all-failed)",
+              (0, 3, 4, 2),
+              (_dm_run([_gone, str(_ok)])[0],
+               _dm_run([str(_notdir), str(_ok)])[0],
+               _dm_run([str(_notdir)])[0],
+               _dm_run([])[0]))
+    assert_eq("#1374 AC18b: discovery mode still prints the discovered manifests",
+              [_dm_ok], _dm_run([_gone, str(_ok)])[1].split())
+    # The flag is reachable only as the FIRST argument: in any other position it is an
+    # ordinary root path, which is what keeps a root that happens to look like a flag
+    # from silently switching modes mid-list.
+    _rc, _so, _se = _dm_run([str(_ok), _PM_FLAG])
+    assert_eq("#1374 AC18b: the presence flag in a non-leading position is treated as a root path",
+              (True, False), (_rc in (0, 3, 4), _so.startswith('present:')))
 
 
 # ── issue #603: the per-finding ledger, post-revision resolution, and convergence basis ──
