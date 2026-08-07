@@ -3,9 +3,7 @@ title: "Updates"
 description: "Update local plugins and cloud repository automation without mixing the two paths."
 ---
 
-# Updates
-
-This page is for maintainers updating an existing PRFlow installation. Local plugin updates and cloud repository updates are separate operations.
+Keep an existing PRFlow installation current by updating the local plugin and cloud repository files separately.
 
 ## Update a Local Plugin
 

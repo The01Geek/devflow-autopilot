@@ -3,8 +3,6 @@ title: "Review"
 description: "Assess a pull request or branch without changing the reviewed tree."
 ---
 
-# Review
-
 Use this workflow when you want findings, verification results and a review verdict for human evaluation without authorizing code edits. It does not change the reviewed tree. The result is a report and verdict, or a report naming incomplete checks and any missing GitHub review signal.
 
 ```text

@@ -3,9 +3,7 @@ title: "Cloud Installation"
 description: "Install PRFlow's GitHub Actions workflows from matching version references."
 ---
 
-# Cloud Installation
-
-This page is for repository maintainers adding PRFlow's optional GitHub Actions tier. Local plugin users do not need this installer.
+Add PRFlow's optional GitHub Actions tier to a repository when your team needs cloud runs. Local plugin users do not need this installer.
 
 ## Prerequisites
 

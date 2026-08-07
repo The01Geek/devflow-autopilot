@@ -3,9 +3,7 @@ title: "The Review System"
 description: "Understand how PRFlow verifies claims, combines reviewers and fixes findings."
 ---
 
-# The Review System
-
-This page is for developers deciding how much confidence to place in a PRFlow review. The system combines mechanical evidence and independent review passes, but it does not prove that a change is perfect.
+PRFlow combines mechanical evidence with independent review passes to find defects before handoff. The result increases confidence, but it does not prove that a change is perfect.
 
 ![The prflow:review skill moves through setup and classification, a verification checklist, specialized reviewers and a verdict. The prflow:review-and-fix skill uses the same engine, applies justified corrections, verifies them and reviews the result again. A shadow pass checks an approval-side result before the loop exits.](/images/review-system-loop.svg)
 

@@ -3,9 +3,7 @@ title: "Installation"
 description: "Install the PRFlow plugin in Claude Code, GitHub Copilot CLI or Codex CLI."
 ---
 
-# Installation
-
-This page is for developers installing the local PRFlow plugin. Plugin installation makes the skills available in your coding client. Repository initialization is a separate, recommended step.
+Install the PRFlow plugin to make its skills available in your coding client. Repository initialization is a separate, recommended step.
 
 The plugin is named `prflow`. Its marketplace intentionally keeps the `devflow-marketplace` name. PRFlow has no companion-plugin dependencies.
 

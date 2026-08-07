@@ -3,9 +3,7 @@ title: "Client Command Syntax"
 description: "Use the correct PRFlow command syntax in Claude Code, GitHub Copilot CLI and Codex CLI."
 ---
 
-# Client Command Syntax
-
-This page is for local users switching between supported coding clients. The command names are the same, but each client uses a different namespace separator.
+Run the same PRFlow workflows from Claude Code, GitHub Copilot CLI or Codex CLI by using each client's namespace syntax.
 
 ## Syntax Table
 

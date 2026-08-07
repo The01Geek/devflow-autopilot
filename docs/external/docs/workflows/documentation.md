@@ -3,8 +3,6 @@ title: "Documentation"
 description: "Choose the PRFlow documentation workflow for branch changes, one topic or a new documentation set."
 ---
 
-# Documentation
-
 Use this workflow guide when you want to verify or update documentation. The selected workflow can edit the documented files unless you choose report-only verification. A run returns updated documentation or a report that names the skipped work and any blocker.
 
 ## Choose a Documentation Workflow

@@ -3,9 +3,7 @@ title: "Cloud Updates"
 description: "Preview, apply and review PRFlow cloud-tier updates with a review-first process."
 ---
 
-# Cloud Updates
-
-This page is for maintainers moving an existing cloud installation to a newer PRFlow release.
+Move an existing cloud installation to a newer PRFlow release without losing repository-specific configuration.
 
 ## Preview an Update
 

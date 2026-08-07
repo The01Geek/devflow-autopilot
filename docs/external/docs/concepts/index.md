@@ -3,9 +3,7 @@ title: "How PRFlow Works"
 description: "Understand PRFlow's lifecycle, progress records, review system and human control points."
 ---
 
-# How PRFlow Works
-
-This section is for developers who want the mental model behind a PRFlow run before trusting it with repository changes.
+Understand how PRFlow moves a request through an established repository while preserving human control, durable progress and independent review.
 
 PRFlow is an orchestrated delivery workflow. It turns an issue into a branch and workpad, builds a draft pull request, verifies and reviews the change, updates documentation and hands the result to a human. It does not merge.
 

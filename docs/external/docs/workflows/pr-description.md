@@ -3,8 +3,6 @@ title: "Pull Request Description"
 description: "Generate or update a structured pull request description from the current branch."
 ---
 
-# Pull Request Description
-
 Use this workflow when you want the current branch's pull request body to match the current code. It can update an existing pull request body but does not edit branch files. The result is an updated pull request body or a complete description in chat when no pull request exists.
 
 ```text

@@ -3,8 +3,6 @@ title: "Weekly Retrospective"
 description: "Run PRFlow's local, human-governed learning loop over recently merged pull requests."
 ---
 
-# Weekly Retrospective
-
 Use this workflow when you want to turn recurring delivery problems into bounded issues for human triage. It changes the local checkout and writes learning records. It can also create GitHub issues and a state pull request. The result is a report with those records or explicit blockers.
 
 This is a mutating local workflow. It requires a clean working tree and can switch the checkout to `main`. It writes learning records, opens or updates a state pull request and files selected findings as GitHub issues. It never edits product code or merges a pull request.
