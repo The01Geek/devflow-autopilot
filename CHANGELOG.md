@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.31] — 2026-08-07
+
+### Changed
+Compressed `skills/implement/phases/phase-1-setup.md` under the instruction-plus-consequence prose rule. The Phase 1 procedure an implement run executes now carries each instruction with at most one sentence naming what breaks if it is skipped; the threat-model essay under *Two provenance sources*, the checkpoint-1 anti-refactor note, the rejected-design records, the motivating-incident archaeology and Pass 5's restatements are gone, and fence comments are held to the same standard. The honest scope statements that keep the Verdict B screen from being overclaimed are retained deliberately, and the PR body records where the pass stopped short. Every shell fence is byte-identical apart from its comments, and every instruction, prohibition, degraded arm, named failure token, exact command form and closed-set enumeration is preserved, so run behaviour is unchanged.
+
 ## [2.31.30] — 2026-08-07
 
 ### Changed
