@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1381",
+  "generated_at": "2026-08-07T04:48:15Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.24",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 9.670806500000001,
+    "tokens": {
+      "input_tokens": 127,
+      "output_tokens": 28188,
+      "cache_read_input_tokens": 9609030,
+      "cache_creation_input_tokens": 175428,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 159,
+        "outputTokens": 39105,
+        "cacheReadInputTokens": 10354913,
+        "cacheCreationInputTokens": 457132,
+        "webSearchRequests": 0,
+        "costUSD": 9.670806500000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 85,
+    "duration_ms": 1652991
+  },
+  "permission_denials": {
+    "count": 3,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"GHA=$GITHUB_ACTIONS\"; git status --porcelain; git branch --show-current; git rev-parse --show-toplevel",
+      "git status --porcelain; echo \"---branch---\"; git branch --show-current; echo \"GHA:${GITHUB_ACTIONS}\"",
+      "gh pr create --draft --base main --head issue-1380-implement-docs-subagent-shorthand-fix --title \"fix(#1380): reword prflow:docs dispatch shorthand as a skill-in-a-subagent\" --body \"Closes #1380.\n\n## Summary\n\nNine sites across the implement skill files described the Phase 4.1 documentation pass as \\\"the \\`prflow:docs\\` subagent\\\", which reads as an Agent *type*. \\`prflow:docs\\` is a **skill**, not an agent type, so a literal \\`subagent_type: prflow:docs\\` dispatch fails with *Agent type 'prflow: …[per-command-truncated]"
+    ],
+    "total": 3,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
