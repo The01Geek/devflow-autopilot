@@ -47,24 +47,27 @@ A malformed invocation reports `2`, the same fail-closed convention `scripts/wor
 deferred-presence` adopts, so a bad call loads the reference rather than silently skipping it.
 
 **`1` is also CPython's exit status for an uncaught exception**, and `1` here means "skip the
-procedure" — so a crash anywhere in the traversal would otherwise read as "nothing was deferred"
-and strand every acknowledged finding, writing no reflection, since the stub records one only on
-exit `2`. `_run_presence` wraps the mode in a `BaseException` handler that routes any escaping
-exception to `unestablished: reason=internal-error`, and the stub's skip arm requires **both**
-exit `1` **and** the literal `absent: 0` line. The three states are complete by construction only
-because of those two, not because the enumeration says so.
+procedure" — so a caller routing on the exit status alone, which the mode's own contract says is
+sufficient, would read a crash as "nothing was deferred" and strand every acknowledged finding.
+Two layers close that. In the helper, `_run_presence` wraps the mode in a `BaseException` handler
+that routes any escaping exception to `unestablished: reason=internal-error`. In the stub, the
+skip arm requires **both** exit `1` **and** the literal `absent: 0` line, so an exit `1` carrying
+no such line falls to the residual arm — read the reference, record a `note` reflection — rather
+than to the skip. The three states are complete by construction only because of those two, not
+because the enumeration says so.
 
 The `reason=` tokens are a consumed contract — the stub quotes the token into its reflection — so
 each names the operand that could not be established: `malformed-invocation`,
-`unreadable-review-root`, `branch-unresolvable`, `branch-slug-escapes-review-root`,
-`unreadable-directory`, `unreadable-aggregate`, `internal-error`, `branch-slug-empty` (a
-non-empty branch whose every character the keep-filter drops, leaving the candidate
-unformable) and `branch-slug-escapes-review-root` (a slug that is formable but resolves
+`unreadable-review-root`, `branch-unresolvable`, `unreadable-directory`,
+`unreadable-aggregate`, `internal-error`, `branch-slug-empty` (a non-empty branch whose
+every character the keep-filter drops, leaving the candidate unformable) and
+`branch-slug-escapes-review-root` (a slug that is formable but resolves
 outside the review root). Eight in all, named as module constants rather than literals at
 each call site, because the stub quotes the token into its reflection and a drifted token
 would be invisible until a reader met an unfamiliar word in a workpad.
 
-The filing fence handles both of those by breadcrumbing and falling back to `pr-<N>`-only search,
+The filing fence handles both branch-slug reasons — an empty slug and one escaping the review
+root — by breadcrumbing and falling back to `pr-<N>`-only search,
 which is right for a best-effort filing step. It is wrong for a *gate*: on a first Phase 4 entry
 the branch candidate is the sole source, so a fallback there would report `absent` over evidence
 the mode never looked at.
