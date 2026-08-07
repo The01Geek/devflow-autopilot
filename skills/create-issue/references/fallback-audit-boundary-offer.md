@@ -2,7 +2,7 @@
 
 ## The Step 3.6 → Step 4 boundary offer
 
-This file is loaded only when `query-boundary` (called unconditionally in `references/step-3-6-audit.md`) reports a trigger component at `hold`. Read its answer back rather than re-calling it.
+This file is loaded from `references/step-3-6-audit.md`, whose unconditional `query-boundary` call reports a trigger component at `hold` — or which found an `unledgered_revise` round. Read that answer back rather than re-calling it.
 
 Its trigger component answers `t1=hold|not-hold t2=hold|not-hold coverage=hold|not-hold calibration=hold|not-hold reason=…`.
 
@@ -24,9 +24,7 @@ While **any of the four trigger components** holds, **offer one more audit round
 - A **silent non-response** follows the existing Step 2 silent-non-response rule: **pause and re-ask in the final chat message; never dispatch and never proceed on silence.**
 - When none of the offer's grounds holds — no trigger component at `hold` (`t1=`, `t2=`, `coverage=`, `calibration=`) and no `unledgered_revise` round warranting one — proceed to Step 4 with no offer.
 
-On a **file-arm epoch**, every `record-override` call additionally passes `--draft-file "<absolute issue-draft-<slug>.md path>"` so the override is **digest-bound** to the bytes it was recorded over — a digest-unbound override survives byte changes until the next revision record; on **embed/inline epochs** omit the flag, there being no trustworthy file to bind to.
 
-**Edit-sequencing rule (stated once, here, for digest-bound overrides only).** Every draft-byte edit — presentation-time cleanups and within-text reconciliations included — completes **before** a digest-bound override is recorded; a byte edit made **after** recording invalidates that override, and `query-eligibility --mode approve` then refuses with `stale-override`. The sanctioned recovery is to **record the revision, re-present the revised draft, and record a new override only on a fresh explicit user election through the offer surfaces** (a fresh clean audit round being the other eligibility ground) — **never a bare record-revision-then-record-override pair**, which would re-arm a user election the user never made. The rule's scope is **digest-bound** overrides only: a digest-unbound (embed/inline-epoch) override is **not** invalidated by byte edits — a revision record is what invalidates it, and a later query on a file-arm epoch skips it fail-closed as the absent-comparand shape.
 
 This boundary offer fires only *before* presentation; once inside Step 4's iterate-on-feedback loop, sub-step 4's re-audit offer is the only discovery-offer surface there. Step 4's final-byte trigger (`query-final-byte`) is evaluated at the **approval election on every run** — not after that loop's offer resolves, since a run approved on first presentation never enters the loop — and is **suppressed only when that loop's offer opened a round in the same pause**, so exactly one offer fires per pause.
 

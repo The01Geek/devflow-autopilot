@@ -63,6 +63,7 @@ The per-step procedures and the conditional fallback arms live in `references/`,
 | A staged `apply` answers `agree=no`, or `query-draft-binding` answers `bound=none … reason=foreign-nonce` | `references/fallback-draft-write-recovery.md` | `step=fallback-draft-write-recovery` | Report `--write-landed no` to `query-arm` and present from the in-context bytes, surfacing the write disagreement or the nonce drift to the user rather than composing a path from the answer |
 | The leading-token `config-get.sh .workflows.prflow` read is denied or fails | `references/fallback-implement-offer-tier-read.md` | `step=fallback-implement-offer-tier-read` | Withhold the implement offer, naming *config unreadable* as the one-line withheld-offer reason |
 | The issue involves user-visible UI changes | `references/fallback-visual-specification.md` | `step=fallback-visual-specification` | Verify the visual details with the user inline before finalizing the draft and report that the visual-specification guidance was unavailable |
+| `record-return` classifies a round `no-parseable-verdict` on absent or mismatched carriage evidence, the instruction-file generation exits non-zero or empty, or the audit-prompt render produces no output or misplaced markers | `references/fallback-audit-evidence-degraded.md` | `step=fallback-audit-evidence-degraded` | Mark the round degraded in the audit summary line naming the arm that fired, and proceed to presentation with that disclosure — filing is never blocked |
 
 ## Non-degradable invariants
 
