@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1403",
+  "generated_at": "2026-08-07T22:04:31Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.29",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 4.430448500000001,
+    "tokens": {
+      "input_tokens": 58,
+      "output_tokens": 19142,
+      "cache_read_input_tokens": 4235577,
+      "cache_creation_input_tokens": 183382,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 58,
+        "outputTokens": 19142,
+        "cacheReadInputTokens": 4235577,
+        "cacheCreationInputTokens": 183382,
+        "webSearchRequests": 0,
+        "costUSD": 4.430448500000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 35,
+    "duration_ms": 297273
+  },
+  "permission_denials": {
+    "count": 9,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "scripts/load-prompt-extension.sh review; echo \"load-rc=$?\"",
+      "echo \"${CLAUDE_SKILL_DIR:-unset}\"; echo \"GITHUB_RUN_ID=${GITHUB_RUN_ID:-unset}\"; echo \"PWD=$(pwd)\"",
+      "scripts/load-prompt-extension.sh review",
+      "echo \"run=${GITHUB_RUN_ID:-unset} pwd=$(pwd) skilldir=${CLAUDE_SKILL_DIR:-unset}\"",
+      "git diff origin/main...b3ebca5fb56b21e1d8cc316ec163f2a621a12b1a -- skills/implement/phases/phase-1-setup.md > .prflow/tmp/net-phase1.diff 2>&1; wc -l .prflow/tmp/net-phase1.diff",
+      "for f in skills/implement/phases/phase-1-setup.md skills/implement/phases/phase-2-implement.md; do echo \"=== $f ===\"; grep -n -e '- \\*\\*Read-target rule\\.\\*\\*' -e '- \\*\\*Cross-pass coherence rule\\.\\*\\*' \"$f\"; done",
+      "sed -n '639,640p' skills/implement/phases/phase-1-setup.md > .prflow/tmp/p1.txt; sed -n '77,78p' skills/implement/phases/phase-2-implement.md > .prflow/tmp/p2.txt; diff .prflow/tmp/p1.txt .prflow/tmp/p2.txt && echo \"BYTE-IDENTICAL\" || echo \"DIFFERS\"",
+      "sed -n '639,640p' skills/implement/phases/phase-1-setup.md > .prflow/tmp/p1.txt",
+      "sed -n '77,78p' skills/implement/phases/phase-2-implement.md > .prflow/tmp/p2.txt"
+    ],
+    "total": 9,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
