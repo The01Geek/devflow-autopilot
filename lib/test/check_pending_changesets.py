@@ -14,8 +14,8 @@ This check parses every tracked ``.changeset/*.md`` with the **same** ``_parse_c
 consolidator uses (imported, never re-implemented, so the check cannot drift from the parser it
 protects) and fails RED naming any file that would raise ``ChangesetError``. It reuses the
 consolidator's own ``_is_consumable`` predicate so the audited population is the tracked subset
-of the set the consolidator would consume (``README.md`` exempt; the npm ``config.json``
-excluded by the ``.md`` filter). It is the *tracked* subset because the enumeration reads the git
+of the set the consolidator would consume (``README.md`` exempt; the npm ``config.json`` is not
+``.md``, so it is excluded from the audited population either way). It is the *tracked* subset because the enumeration reads the git
 index (below); at merge time on ``main`` there are no untracked changesets, so the gap is inert
 where it matters.
 

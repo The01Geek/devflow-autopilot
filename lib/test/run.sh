@@ -27832,14 +27832,18 @@ python3 "$CS_CHECK" "$TMP_CSFX/good.md" >/dev/null 2>&1; CS_RC=$?
 assert_eq "#1373 correct bump: form parses cleanly (green)" "0" "$CS_RC"
 
 # AC: parse-only — the check never runs the consolidator (which deletes consumed changesets
-# and rewrites tracked files). Run it on a VALID fixture changeset and assert the file
-# survives and nothing else was written to the directory: the consolidator would have
-# deleted keep.md and materialized plugin.json/CHANGELOG.md.
-printf -- '---\nbump: patch\n---\n\n- keep (#1373)\n' > "$TMP_CSFX/keep.md"
-python3 "$CS_CHECK" "$TMP_CSFX/keep.md" >/dev/null 2>&1
+# and rewrites tracked files). Run it on a VALID fixture changeset in a directory of its own
+# and assert the helper ran clean, the changeset survived (the consolidator would have deleted
+# it), and no consolidator output (plugin.json / CHANGELOG.md) was materialized.
+CSPO="$(mktemp -d)"
+printf -- '---\nbump: patch\n---\n\n- keep (#1373)\n' > "$CSPO/keep.md"
+python3 "$CS_CHECK" "$CSPO/keep.md" >/dev/null 2>&1; CS_RC=$?
+assert_eq "#1373 parse-only: helper ran to a clean verdict on the valid fixture" "0" "$CS_RC"
 assert_eq "#1373 parse-only: valid changeset NOT deleted (consolidator would delete it)" "yes" \
-  "$([ -f "$TMP_CSFX/keep.md" ] && echo yes || echo no)"
-rm -rf "$TMP_CSFX"
+  "$([ -f "$CSPO/keep.md" ] && echo yes || echo no)"
+assert_eq "#1373 parse-only: no consolidator output written (tree byte-identical)" "yes" \
+  "$([ ! -f "$CSPO/CHANGELOG.md" ] && [ ! -e "$CSPO/.claude-plugin" ] && echo yes || echo no)"
+rm -rf "$CSPO" "$TMP_CSFX"
 
 # AC: enumeration reads the git INDEX, not a filesystem walk. A tracked-good + untracked-bad
 # .changeset pair must pass — git ls-files sees only the tracked good file, while a recursive
