@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1407",
+  "generated_at": "2026-08-07T22:58:52Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.31",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.839444249999999,
+    "tokens": {
+      "input_tokens": 37,
+      "output_tokens": 14449,
+      "cache_read_input_tokens": 2291742,
+      "cache_creation_input_tokens": 135326,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 73,
+        "outputTokens": 21788,
+        "cacheReadInputTokens": 3158076,
+        "cacheCreationInputTokens": 193259,
+        "webSearchRequests": 0,
+        "costUSD": 3.839444249999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 22,
+    "duration_ms": 408084
+  },
+  "permission_denials": {
+    "count": 9,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"CLAUDE_SKILL_DIR=${CLAUDE_SKILL_DIR:-<unset>}\"; echo \"GITHUB_RUN_ID=${GITHUB_RUN_ID:-<unset>}\"; echo \"---diff stat---\"; git fetch origin main 2>&1 | tail -1; git diff --stat origin/main...8a211418e31ab9e1ca2cb385c618e44b3e82f913 2>&1 | tail -80",
+      "cd /home/runner/work/prflow/prflow\n# For each changed .md doc page, check the PR-head version has title: frontmatter\nfor f in $(git diff --name-only origin/main...8a211418e31ab9e1ca2cb385c618e44b3e82f913 -- 'docs/external/docs/**/*.md' 'docs/external/docs/*.md'); do\n  has_title=$(git show 8a211418e31ab9e1ca2cb385c618e44b3e82f913:\"$f\" | awk 'NR<=6 && /^title:/{print \"yes\"}' | head -1)\n  first_h1=$(git show 8a211418e31ab9e1ca2cb385c618e44b3e82f913:\"$f\" | grep -nE '^# ' | head -1)\n  printf '%-60s t …[per-command-truncated]",
+      "cd /tmp && rm -rf t && git -C /home/runner/work/prflow/prflow archive 8a211418e31ab9e1ca2cb385c618e44b3e82f913 docs/external/docs | tar -x -C /tmp 2>/dev/null; mkdir -p /tmp/t && git -C /home/runner/work/prflow/prflow archive 8a211418e31ab9e1ca2cb385c618e44b3e82f913 docs/external | tar -x -C /tmp/t; python3 - /tmp/t/docs/external/docs <<'PY'\nimport re,sys\nfrom pathlib import Path\nroot=Path(sys.argv[1])\nfence=re.compile(r\"^\\s*(```|~~~)\")\nheading=re.compile(r\"^#\\s+\")\nbad=[]\nfor page in root.rglob( …[per-command-truncated]",
+      "rm -rf /tmp/t && mkdir -p /tmp/t && git archive 8a211418e31ab9e1ca2cb385c618e44b3e82f913 docs/external | tar -x -C /tmp/t; python3 - /tmp/t/docs/external/docs <<'PY'\nimport re,sys\nfrom pathlib import Path\nroot=Path(sys.argv[1])\nfence=re.compile(r\"^\\s*(```|~~~)\")\nheading=re.compile(r\"^#\\s+\")\nbad=[]\nfor page in root.rglob(\"*.md\"):\n    inf=False\n    for i,line in enumerate(page.read_text(encoding=\"utf-8\").splitlines(),1):\n        if fence.match(line):\n            inf=not inf; continue\n        if no …[per-command-truncated]",
+      "rm -rf /tmp/t; mkdir -p /tmp/t; git archive 8a211418e31ab9e1ca2cb385c618e44b3e82f913 docs/external | tar -x -C /tmp/t; python3 - /tmp/t/docs/external/docs <<'PY'\nimport re,sys\nfrom pathlib import Path\nroot=Path(sys.argv[1])\nfence=re.compile(r\"^\\s*(```|~~~)\")\nheading=re.compile(r\"^#\\s+\")\nbad=[]\nfor page in root.rglob(\"*.md\"):\n    inf=False\n    for i,line in enumerate(page.read_text(encoding=\"utf-8\").splitlines(),1):\n        if fence.match(line):\n            inf=not inf; continue\n        if not in …[per-command-truncated]",
+      "rm -rf /tmp/t && mkdir -p /tmp/t && git archive 8a211418e31ab9e1ca2cb385c618e44b3e82f913 docs/external | tar -x -C /tmp/t",
+      "git archive 8a211418e31ab9e1ca2cb385c618e44b3e82f913 docs/external -o /tmp/ext.tar",
+      "for f in $(git ls-tree -r --name-only 8a211418e31ab9e1ca2cb385c618e44b3e82f913 -- docs/external/docs | grep '\\.md$'); do git show 8a211418e31ab9e1ca2cb385c618e44b3e82f913:\"$f\" | head -5 | grep -q '^title:' || echo \"MISSING TITLE: $f\"; done; echo done",
+      "git ls-tree -r --name-only 8a211418e31ab9e1ca2cb385c618e44b3e82f913 -- docs/external/docs | grep '\\.md$' > /tmp/mdlist.txt; wc -l /tmp/mdlist.txt"
+    ],
+    "total": 9,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
