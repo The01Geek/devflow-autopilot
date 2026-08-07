@@ -11,16 +11,19 @@ This change applies §4.0's shape (issue #815) to the other deferral channel: a 
 the phase file, one predicate, and a gated reference read only when the predicate says a
 deferred review finding is present.
 
-## Measured delta (a past-time snapshot, counted with `wc -c` at commit `42f894af6`, captured 2026-08-07)
+## Measured delta (a past-time snapshot, counted with `wc -c` at commit `22e059c18` against
+merge base `d51335bfb`, captured 2026-08-07)
 
 | File | Before | After |
 | --- | --- | --- |
-| `skills/implement/phases/phase-4-documentation.md` | 95,988 | 68,764 |
+| `skills/implement/phases/phase-4-documentation.md` | 95,924 | 69,266 |
 | `skills/implement/references/deferred-review-findings.md` | — | 30,316 |
 
-The phase file is the always-read surface, so the always-read count falls from 95,988 to
-68,764 bytes per mandated read — 27,224 fewer, and 54,448 fewer across the two reads a Phase
-4 run makes. These figures are a **past-time snapshot**, not a live measurement: they record
+The phase file is the always-read surface, so the always-read count falls from 95,924 to
+69,266 bytes per mandated read — 26,658 fewer, and 53,316 fewer across the two reads a Phase
+4 run makes. The stub is larger than a minimal routing stub would be because review hardened
+its arms: the skip requires both exit `1` and the literal `absent: 0` line, and the
+fallback-arm trigger names `Permission denied` and rc 126 alongside the not-found readings. These figures are a **past-time snapshot**, not a live measurement: they record
 what the move cost at the moment it was made, so a later change to either file does not
 retroactively falsify the record. **No byte ceiling on either file is enforced anywhere in
 the tree**, and this page registers none — the same correction this change made to the #815
