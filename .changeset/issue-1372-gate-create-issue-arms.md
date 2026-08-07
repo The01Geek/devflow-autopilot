@@ -1,5 +1,5 @@
 ---
-"prflow": patch
+bump: patch
 ---
 
 Gate `/prflow:create-issue`'s rarely-taken step-reference arms behind their own routing-table predicates.
