@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1379",
+  "generated_at": "2026-08-07T05:48:41Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.24",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 6.216289499999999,
+    "tokens": {
+      "input_tokens": 83,
+      "output_tokens": 17996,
+      "cache_read_input_tokens": 7502989,
+      "cache_creation_input_tokens": 201448,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 83,
+        "outputTokens": 17996,
+        "cacheReadInputTokens": 7502989,
+        "cacheCreationInputTokens": 201448,
+        "webSearchRequests": 0,
+        "costUSD": 6.216289499999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 44,
+    "duration_ms": 323313
+  },
+  "permission_denials": {
+    "count": 13,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "git status --porcelain; echo \"---BRANCH---\"; git branch --show-current; echo \"---RUNID---\"; echo \"GITHUB_RUN_ID=${GITHUB_RUN_ID:-unset} ATTEMPT=${GITHUB_RUN_ATTEMPT:-unset}\"",
+      "gh pr diff 1379 > .prflow/tmp/review/pr-1379/run-1379/diff.raw\nawk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' .prflow/tmp/review/pr-1379/run-1379/diff.raw > .prflow/tmp/review/pr-1379/run-1379/diff.patch\nwc -l .prflow/tmp/review/pr-1379/run-1379/diff.patch",
+      "gh pr diff 1379 > .prflow/tmp/review/pr-1379/run-1379/diff.patch; wc -l .prflow/tmp/review/pr-1379/run-1379/diff.patch",
+      "base=$(mktemp -d); d=\"$base/t\"; mkdir -p \"$d/.prflow/tmp/review\"; git init -q -b feat/Foo \"$d\"\nmkdir -p \"$d/.prflow/tmp/review/feat-foo/run-a\"; printf '{\"deferrals\":[{\"file\":\"a.py\"}]}' > \"$d/.prflow/tmp/review/feat-foo/run-a/deferrals.json\"\nS=\"$(realpath scripts/discover-deferral-manifests.py)\"\ncd \"$d\"; echo \"--branch-only--\"; python3 \"$S\" --presence-for-pr 5; echo \"rc=$?\"\nrm -rf \"$d/.prflow/tmp/review/feat-foo\"; echo \"--absent--\"; python3 \"$S\" --presence-for-pr 5; echo \"rc=$?\"\necho \"--malformed …[per-command-truncated]",
+      "cd /tmp && rm -rf pmtest && mkdir -p pmtest/.prflow/tmp/review/feat-foo/run-a && git init -q -b feat/Foo pmtest\nprintf '{\"deferrals\":[{\"file\":\"a.py\"}]}' > pmtest/.prflow/tmp/review/feat-foo/run-a/deferrals.json\nS=/home/runner/work/prflow/prflow/scripts/discover-deferral-manifests.py\ncd /tmp/pmtest && echo \"--branch-only--\" && python3 \"$S\" --presence-for-pr 5; echo \"rc=$?\"",
+      "rm -rf /tmp/pmtest; mkdir -p /tmp/pmtest/.prflow/tmp/review/feat-foo/run-a; git init -q -b feat/Foo /tmp/pmtest",
+      "mkdir -p /tmp/pmtest/.prflow/tmp/review/feat-foo/run-a",
+      "git init -q -b feat/Foo .prflow/tmp/pmtest 2>&1 | head",
+      "git init -q -b feat/Foo .prflow/tmp/pmtest",
+      "S=/home/runner/work/prflow/prflow/scripts/discover-deferral-manifests.py\ncd /home/runner/work/prflow/prflow/.prflow/tmp/pmt2\necho \"--aggregate-present (expect present:1 rc0)--\"; python3 \"$S\" --presence-for-pr 9; echo \"rc=$?\"\necho \"--absent (expect absent:0 rc1)--\"; python3 \"$S\" --presence-for-pr 8; echo \"rc=$?\"\necho \"--malformed (expect unestablished rc2)--\"; python3 \"$S\" --presence-for-pr abc; echo \"rc=$?\"\necho \"--nonascii-digit (expect unestablished rc2)--\"; python3 \"$S\" --presence-for-pr $'²' …[per-command-truncated]",
+      "git show 3d1aa5a1d4b00aa5d2a6e11790e7800ed3347b8a:scripts/discover-deferral-manifests.py > .prflow/tmp/dm-pr.py 2>&1; wc -l .prflow/tmp/dm-pr.py; head -3 .prflow/tmp/dm-pr.py",
+      "scripts/post-review-verdict.sh --help 2>&1 | head -40; echo \"rc=$?\"",
+      "rm -rf /home/runner/work/prflow/prflow/.prflow/tmp/verdict-1379.md /home/runner/work/prflow/prflow/.prflow/tmp/review/pr-1379 /home/runner/work/prflow/prflow/.prflow/tmp/pmtest /home/runner/work/prflow/prflow/.prflow/tmp/pmt2"
+    ],
+    "total": 13,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
