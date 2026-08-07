@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1394",
+  "generated_at": "2026-08-07T13:52:08Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.28",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 10.131902,
+    "tokens": {
+      "input_tokens": 5157,
+      "output_tokens": 18433,
+      "cache_read_input_tokens": 1903777,
+      "cache_creation_input_tokens": 154067,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 5325,
+        "outputTokens": 72237,
+        "cacheReadInputTokens": 7781464,
+        "cacheCreationInputTokens": 612939,
+        "webSearchRequests": 0,
+        "costUSD": 10.131902,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 23,
+    "duration_ms": 455550
+  },
+  "permission_denials": {
+    "count": 16,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh review 2>&1 || scripts/load-prompt-extension.sh review 2>&1 || echo \"RC=$?\"",
+      "mkdir -p .prflow/tmp/review/pr-1394/run1\ngh pr diff 1394 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1394/run1/diff.patch\necho \"lines=$(wc -l < .prflow/tmp/review/pr-1394/run1/diff.patch)\"\necho \"--- changed files ---\"\ngrep -E '^diff --git' .prflow/tmp/review/pr-1394/run1/diff.patch | sed -E 's#^diff --git a/(.*) b/.*#\\1#'",
+      "git fetch origin worktree-issue-1277 --depth=1 2>&1 | tail -2; git show origin/worktree-issue-1277:scripts/classify-portability-risk.py > /tmp/classify.py 2>&1; git show origin/worktree-issue-1277:scripts/run-bash32-fixtures.py > /tmp/runfix.py; git show origin/worktree-issue-1277:scripts/gh_json_ex.py > /tmp/ghjson.py; git show origin/worktree-issue-1277:lib/test/check-shell-surface-totality.py > /tmp/totality.py; git show origin/worktree-issue-1277:lib/test/gate-portability-result.sh > /tmp/ga …[per-command-truncated]",
+      "git fetch origin worktree-issue-1277 2>&1 | tail -1; mkdir -p .prflow/tmp/pr1394; for f in scripts/classify-portability-risk.py scripts/run-bash32-fixtures.py scripts/gh_json_ex.py lib/test/check-shell-surface-totality.py lib/test/gate-portability-result.sh scripts/render-grounding-block.sh; do git show origin/worktree-issue-1277:$f > .prflow/tmp/pr1394/$(basename $f); done; ls -la .prflow/tmp/pr1394/",
+      "git ls-tree -r origin/worktree-issue-1277 --name-only | grep -iE 'shell-surface|classify-portability|totality'",
+      "git ls-tree -r origin/worktree-issue-1277 --name-only > /tmp/pr_files.txt; grep -iE 'shell-surface|classify-portability|totality' /tmp/pr_files.txt",
+      "git show origin/worktree-issue-1277:scripts/classify-portability-risk.py > .prflow/tmp/pr1394/classify.py; git show origin/worktree-issue-1277:scripts/run-bash32-fixtures.py > .prflow/tmp/pr1394/runfix.py; git show origin/worktree-issue-1277:scripts/gh_json_ex.py > .prflow/tmp/pr1394/ghjson.py; git show origin/worktree-issue-1277:lib/test/check-shell-surface-totality.py > .prflow/tmp/pr1394/totality.py; git show origin/worktree-issue-1277:lib/test/gate-portability-result.sh > .prflow/tmp/pr1394/ …[per-command-truncated]",
+      "git ls-tree -r origin/worktree-issue-1277 --name-only",
+      "git show origin/worktree-issue-1277:scripts/classify-portability-risk.py > .prflow/tmp/pr1394/classify.py",
+      "git ls-files > /tmp/all.txt; wc -l /tmp/all.txt",
+      "git ls-files > /tmp/all.txt",
+      "git ls-files > .prflow/tmp/all.txt 2>/dev/null || { mkdir -p .prflow/tmp && git ls-files > .prflow/tmp/all.txt; }; wc -l .prflow/tmp/all.txt",
+      "git show origin/worktree-issue-1277:lib/test/fixtures/bash32/manifest.tsv 2>&1; echo \"=== FILES ===\"; git ls-tree -r origin/worktree-issue-1277 --name-only lib/test/fixtures/bash32/ 2>&1",
+      "git show origin/worktree-issue-1277:lib/shell-surface-registry.json > .git/reg.json 2>/dev/null; python3 - <<'PY'\nimport json\nd=json.load(open('.git/reg.json'))\ne=d['entries']\nprint('entries',len(e))\nfor k in ['lib/test/gate-portability-result.sh','lib/test/modules/portability-lane.sh','lib/test/check-shell-surface-totality.py']:\n    print(k, k in e)\n# any keys not ending .sh?\nnon=[k for k in e if not k.endswith('.sh')]\nprint('non-.sh keys:',non)\nPY",
+      "git show origin/worktree-issue-1277:lib/test/fixtures/bash32/manifest.tsv 2>/dev/null; echo \"=====FILES=====\"; git ls-tree -r --name-only origin/worktree-issue-1277 -- lib/test/fixtures/bash32/ | cat",
+      "git show origin/worktree-issue-1277:lib/shell-surface-registry.json > .prflow/tmp/reg.json; python3 - <<'PY'\nimport json\nd=json.load(open('.prflow/tmp/reg.json'))\ne=d['entries']\nprint('schema',d.get('schema_version'),'entries',len(e))\nfor k in ['lib/test/gate-portability-result.sh','lib/test/modules/portability-lane.sh']:\n    print(k, k in e)\nnon=[k for k in e if not k.endswith('.sh')]\nprint('non-.sh keys:',non[:10])\nPY"
+    ],
+    "total": 16,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
