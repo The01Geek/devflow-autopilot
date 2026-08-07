@@ -299,10 +299,21 @@ def main(argv=None) -> int:
 
 
 def _emit(result, result_file) -> None:
-    payload = json.dumps(result, sort_keys=True)
-    print(f"DOMAIN_RESULT: {result['domain_result']}")
+    """Print the domain result and, when asked, persist it.
+
+    The persisted file leads with the same `DOMAIN_RESULT: <token>` line the console
+    gets, because `lib/test/gate-portability-result.sh` reads that line with shell
+    builtins — no `grep`/`jq`, neither of which the lane can assume on a stock macOS
+    runner, and either of which would leave the gate reading an empty value as an
+    unestablished lane rather than as the tooling gap it is. The JSON follows for a
+    human and for any later consumer; the workflow appends the native Actions
+    conclusion as its own line, which the gate ignores and a reader does not.
+    """
+    line = f"DOMAIN_RESULT: {result['domain_result']}"
+    print(line)
     if result_file:
-        Path(result_file).write_text(payload + "\n", encoding="utf-8")
+        Path(result_file).write_text(line + "\n" + json.dumps(result, sort_keys=True) + "\n",
+                                     encoding="utf-8")
 
 
 if __name__ == "__main__":

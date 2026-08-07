@@ -69,7 +69,6 @@ SELECT_ALL_PATHS = (
     "lib/test/check-shell-surface-totality.py",
     "scripts/classify-portability-risk.py",
     "scripts/run-bash32-fixtures.py",
-    "scripts/describe-portability-conclusion.sh",
     "lib/test/gate-portability-result.sh",
     "lib/test/fixtures/bash32/manifest.tsv",
     ".github/workflows/ci.yml",
