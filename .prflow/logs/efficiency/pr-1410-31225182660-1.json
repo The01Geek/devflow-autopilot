@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1410",
+  "generated_at": "2026-08-07T22:55:27Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.31",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 2.472820499999999,
+    "tokens": {
+      "input_tokens": 31,
+      "output_tokens": 11732,
+      "cache_read_input_tokens": 1646291,
+      "cache_creation_input_tokens": 135622,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 31,
+        "outputTokens": 11732,
+        "cacheReadInputTokens": 1646291,
+        "cacheCreationInputTokens": 135622,
+        "webSearchRequests": 0,
+        "costUSD": 2.472820499999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 16,
+    "duration_ms": 206013
+  },
+  "permission_denials": {
+    "count": 1,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "gh pr diff 1410 2>&1 | tail -n +6 | wc -l; echo \"=== full diff to file ===\"; mkdir -p .prflow/tmp/review/pr1410/local; gh pr diff 1410 > .prflow/tmp/review/pr1410/local/diff.txt 2>&1; wc -l .prflow/tmp/review/pr1410/local/diff.txt"
+    ],
+    "total": 1,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
