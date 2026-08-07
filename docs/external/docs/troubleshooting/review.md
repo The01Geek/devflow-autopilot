@@ -3,9 +3,7 @@ title: "Review Problems"
 description: "Fix unresolved pull-request targets, stale bases, missing progress and verdict problems."
 ---
 
-# Review Problems
-
-This page is for users whose review cannot resolve or finish the intended pull request.
+Recover a review that cannot identify, inspect or finish the intended pull request.
 
 ## The Pull Request Cannot Be Resolved
 

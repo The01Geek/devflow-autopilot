@@ -3,9 +3,7 @@ title: "Configuration Problems"
 description: "Fix missing, invalid, ignored or not-yet-effective PRFlow settings."
 ---
 
-# Configuration Problems
-
-This page is for maintainers whose `.prflow/config.json` cannot be read or does not produce the expected behavior.
+Diagnose `.prflow/config.json` when PRFlow cannot read it or a setting does not produce the expected behavior.
 
 ## The Workflow Reports `config.json not found`
 

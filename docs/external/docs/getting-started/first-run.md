@@ -1,11 +1,9 @@
 ---
 title: "First Run"
-description: "Create or select a GitHub issue and turn it into a review-ready pull request."
+description: "Turn a user story, feature request or existing issue into a review-ready pull request."
 ---
 
-# First Run
-
-This guide is for developers running PRFlow locally for the first time. It starts with a GitHub issue and ends with a pull request for human review.
+Start with a user story, feature request or existing GitHub issue. PRFlow helps you create an approved issue when needed, then turns it into a pull request for human review.
 
 ## Before You Start
 

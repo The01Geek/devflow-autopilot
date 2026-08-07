@@ -3,9 +3,7 @@ title: "Installation Problems"
 description: "Fix plugin loading, missing prerequisites, Windows shims and cloud installer sidecars."
 ---
 
-# Installation Problems
-
-This page is for users whose plugin commands or installer prerequisites are unavailable.
+Restore missing plugin commands or resolve installer prerequisites that prevent PRFlow from starting.
 
 ## PRFlow Commands Do Not Appear
 

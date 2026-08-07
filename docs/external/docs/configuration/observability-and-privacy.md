@@ -3,9 +3,7 @@ title: "Observability and Privacy"
 description: "Configure diagnostics, transcript artifacts, denied-command records and telemetry storage."
 ---
 
-# Observability and Privacy
-
-This page is for maintainers balancing cloud-run diagnostics against the sensitivity of prompts, repository content and command text.
+Balance useful cloud-run diagnostics against the sensitivity of prompts, repository content and command text.
 
 | **Setting** | **Type and accepted values** | **Fallback or scaffold** | **Tier and privacy note** | **Example** |
 | --- | --- | --- | --- | --- |

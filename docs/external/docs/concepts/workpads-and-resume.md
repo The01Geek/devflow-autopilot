@@ -3,9 +3,7 @@ title: "Workpads and Resume"
 description: "Understand PRFlow's recorded progress and interruption boundaries."
 ---
 
-# Workpads and Resume
-
-This page is for developers who need to understand what survives when an implementation run pauses, stops or is retriggered.
+PRFlow records durable implementation progress so a paused, stopped or retriggered run can continue without reconstructing the work from scratch.
 
 ![The prflow:implement skill resumes from two kinds of recovery evidence: the GitHub issue workpad and the remote branch. A Blocked workpad causes PRFlow to surface the recorded cause. If matching open work exists, PRFlow adopts it, inspects the current tree and repeats blocking checks.](/images/workpad-resume.svg)
 
