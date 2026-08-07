@@ -1162,7 +1162,7 @@ Each mapping declares its source path and a positive `minimum_assertions` floor.
 |---|---|
 | **Workpad** | The single marker-tagged GitHub issue comment `/prflow:implement` maintains as the run's durable progress surface. |
 | **Verification checklist** | The list of every verifiable claim a diff makes, generated and then verified against source by the review engine. |
-| **`defect_signature`** | The tuple used to mechanically corroborate findings across reviewers; `skills/review/phases/phase-3-agents.md` Phase 3.2 defines its fields and the corroboration rule over them. |
+| **`defect_signature`** | The tuple used to mechanically corroborate findings across reviewers; `skills/review/phases/phase-3-agents.md` defines its fields and, at Phase 3.2, the corroboration rule over them. |
 | **Shadow review** | A structurally-independent re-review run before declaring a clean approval, to audit the loop's self-agreement. |
 | **Scope-Acknowledged Findings** | The contract that lets a deliberately-deferred finding be tracked in a follow-up issue instead of re-raised as a REJECT. |
 | **Retrospective loop** | The weekly evaluator/optimizer pass that reads merged bot-PR evidence and proposes interventions. |
