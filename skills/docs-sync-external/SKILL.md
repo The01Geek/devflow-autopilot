@@ -3,8 +3,8 @@ name: docs-sync-external
 description: Use when customer-facing or public documentation needs to catch up with internal docs or shipped changes — "our public docs still mention the old flag", "sync the user guide", "update the customer docs", "is anything in the external docs outdated or leaking internal detail?", "update the docs site". Narrower than prflow:docs; use prflow:docs-bootstrap-external when external docs do not exist yet.
 ---
 > **Configuration:** Read documentation paths from `.prflow/config.json`:
-> - Internal: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/` <!-- pruned-path-ok: the configurable consumer-owned internal-doc root, not a path expected inside the vendored plugin -->
-> - External: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.external docs/external/` <!-- pruned-path-ok: this is the configurable consumer-owned external-doc root, not a path expected inside the vendored plugin -->
+> - Internal: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/`
+> - External: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.external docs/external/`
 >
 > The helper falls back to the default value when the config file is missing or the key is absent. Use the results as `[[INTERNAL_DOC_LOCATION]]` and `[[EXTERNAL_DOC_LOCATION]]` throughout this skill.
 

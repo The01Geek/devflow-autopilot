@@ -1,0 +1,9 @@
+{
+  "properties": {
+    "docs": {
+      "properties": {
+        "external": { "type": "string", "default": "docs/external/" }
+      }
+    }
+  }
+}

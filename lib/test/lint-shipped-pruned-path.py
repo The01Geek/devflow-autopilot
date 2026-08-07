@@ -14,10 +14,10 @@ same per-line declaration marker described below.
 
 Why this exists: `.github/actions/vendor-plugin/vendor-slice.sh`'s
 `devflow_copy_slice()` deletes subtrees from the vendored plugin before it lands in
-a consumer (`lib/test`, `docs/site`, `docs/external`,
-`.claude-plugin/marketplace.json`). A shipped
-prompt sentence that names one of those paths as an instruction to *run* — or even
-merely mentions it — resolves against a consumer's own tree, where the path does not
+a consumer (`lib/test`, `docs/site`, `docs/external`, `docs/internal`,
+`.claude-plugin/marketplace.json`). For a *forbidden* prune target — one not exempted
+below — a shipped prompt sentence that names it as an instruction to *run*, or even
+merely mentions it, resolves against a consumer's own tree, where the path does not
 exist. The guards that predated this lint were hand-written per-file negatives over
 a closed literal blacklist covering two files out of the shipped prompt surface's
 sixty-three. This lint replaces that with a derivation: it parses the prune set out
@@ -37,6 +37,22 @@ silently missed. When the prune set cannot be established (the function, the
 destination parameter, the composing assignment, or any qualifying target is
 missing) the lint **refuses non-zero naming the slice source**, auditing nothing: an
 empty or unparseable prune set is never a clean run.
+
+Docs-default exemption (issue #1309): two prune targets — `docs/external` and
+`docs/internal` on today's slice — are simultaneously the documented default values
+of consumer-facing config keys (`.docs.external`, `.docs.internal`). Those directories
+ARE the consumer's own tree, exactly where the docs skills teach a consumer to keep
+their docs, so a shipped sentence naming them is documentation, not a dangling path.
+The exemption set is **derived, never transcribed** by the same principle as the prune
+set: `parse_docs_defaults()` reads the path-shaped string `default` values under
+`properties.docs.properties` of `.prflow/config.schema.json` and subtracts, by
+trailing-slash-normalized EQUALITY (never prefix containment), any prune target that
+equals one — so a future `docs.*` default change moves the exemption with it. It
+preserves the fail-closed posture: an unestablished exemption derivation (an absent,
+unreadable, unparseable, keyless, or non-object schema) refuses non-zero naming the
+schema, and an exemption set that empties the forbidden set refuses on the same terms
+as the empty-prune-set refusal one level up. The exemption applies to the derived
+prune set only; the issue-#1241 citation scan carries no target list and is unaffected.
 
 Deliberate divergence from the closest structural sibling
 (`lib/test/lint-superseded-config-keys.py`, issue #1084): #1084 exempts sites via an
@@ -59,19 +75,28 @@ no `--others`, no repository-root-anchored recursive walk, per issue #711).
 
 Usage:
     lint-shipped-pruned-path.py [--root DIR] [--files-from PATH]
-                                [--slice-source PATH] [--print-prune-set]
+                                [--slice-source PATH] [--schema-source PATH]
+                                [--print-prune-set | --print-exempt-set]
 
-Exit status is 0 only when the prune set was established, the enumeration selected at
-least one audited file, every selected file was read, and none referenced a prune
-target without a marker. It is non-zero when a reference is found, when the prune set
-cannot be established, when the enumeration is unusable, when it selects no audited
-file at all, and when any selected path could not be read.
+`--print-exempt-set` prints, one per line, the prune targets the docs.* exemption
+subtracted from the forbidden set (a path-shaped docs.* default that is not itself a
+prune target subtracts nothing and is not printed); it exits 0 even when the exemption
+selects nothing, so the derivation is observable on the success path.
+
+Exit status is 0 only when the prune set AND the docs.* exemption set were established,
+the post-exemption forbidden set is non-empty, the enumeration selected at least one
+audited file, every selected file was read, and none referenced a prune target without
+a marker. It is non-zero when a reference is found, when the prune set or the exemption
+set cannot be established, when the exemption empties the forbidden set, when the
+enumeration is unusable, when it selects no audited file at all, and when any selected
+path could not be read.
 """
 
 from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import re
 import shlex
 import sys
@@ -109,9 +134,23 @@ AUDITED_PREFIXES = ("skills/", "agents/")
 #: The default slice source, relative to the resolved root.
 DEFAULT_SLICE_REL = ".github/actions/vendor-plugin/vendor-slice.sh"
 
+#: The default schema source, relative to the resolved root. The exemption set (issue
+#: #1309) is derived from the documented `docs.*` config defaults it declares.
+DEFAULT_SCHEMA_REL = ".prflow/config.schema.json"
+
 
 class PruneParseError(Exception):
     """The prune set could not be established from the slice source. Fails closed."""
+
+
+class DocsDefaultsParseError(Exception):
+    """The `docs.*` default set could not be established from the schema source.
+
+    Mirrors `PruneParseError`: raised on every shape of `.prflow/config.schema.json`
+    that cannot yield a real exemption derivation, so the two derivations fail closed
+    on identical terms. The caller catches it in `main` and refuses non-zero naming the
+    schema source — an unestablished exemption set is never silently an empty one.
+    """
 
 
 def _function_body(slice_text: str) -> str:
@@ -236,6 +275,54 @@ def parse_prune_targets(slice_text: str) -> list[str]:
     if not targets:
         raise PruneParseError("no qualifying rm target found in devflow_copy_slice()")
     return sorted(targets)
+
+
+def parse_docs_defaults(schema_bytes: bytes) -> set[str]:
+    """Return the trailing-slash-normalized set of **path-shaped** `docs.*` string
+    defaults declared under `properties.docs.properties` of the config schema (issue
+    #1309). A member here is a candidate exemption: a prune target that string-equals
+    one of these (after both sides are trailing-slash-stripped) is a documented
+    consumer-facing docs path, not a path that vanishes from a consumer's checkout.
+
+    Path-shaped means the string default contains a `/`, which is what keeps the
+    block's non-path defaults (`labels` = `Documented`, `changelog_file` =
+    `CHANGELOG.md`) from ever contributing an exemption. A non-string default
+    contributes nothing and raises nothing.
+
+    Raises `DocsDefaultsParseError` on every shape that cannot yield a real default
+    set: bytes that do not parse as JSON, no `properties.docs.properties` key, or a
+    `properties.docs.properties` value that is not a JSON object. (An absent or
+    unreadable file is an `OSError` at the read in `main`, handled there.) Returning an
+    empty set is legitimate — a schema with a `docs.properties` block whose defaults are
+    all non-path — and is never itself an error; only an *unestablished* set refuses.
+    """
+    try:
+        data = json.loads(schema_bytes)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise DocsDefaultsParseError(f"bytes do not parse as JSON: {exc}") from exc
+    props = data.get("properties") if isinstance(data, dict) else None
+    docs = props.get("docs") if isinstance(props, dict) else None
+    if not (isinstance(docs, dict) and "properties" in docs):
+        raise DocsDefaultsParseError(
+            "no properties.docs.properties key in the schema"
+        )
+    docs_props = docs["properties"]
+    if not isinstance(docs_props, dict):
+        raise DocsDefaultsParseError(
+            "properties.docs.properties is not a JSON object"
+        )
+    defaults: set[str] = set()
+    for spec in docs_props.values():
+        if not isinstance(spec, dict):
+            continue
+        default = spec.get("default")
+        # A non-string default contributes no exemption (and raises nothing); a
+        # path-shaped one (contains '/') is normalized by trailing-slash stripping,
+        # mirroring parse_prune_targets' own `suffix.rstrip("/")`.
+        if not isinstance(default, str) or "/" not in default:
+            continue
+        defaults.add(default.rstrip("/"))
+    return defaults
 
 
 #: A recognized declaration marker, by fence context. Each requires a non-empty reason.
@@ -373,14 +460,37 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--schema-source",
+        default=None,
+        help=(
+            "the config schema to derive the docs.* exemption set from "
+            "(default: <root>/" + DEFAULT_SCHEMA_REL + ")"
+        ),
+    )
+    print_group = parser.add_mutually_exclusive_group()
+    print_group.add_argument(
         "--print-prune-set",
         action="store_true",
-        help="print the derived prune set (one per line) and exit, auditing nothing",
+        help=(
+            "print the post-exemption prune set (one per line) and exit, "
+            "auditing nothing"
+        ),
+    )
+    print_group.add_argument(
+        "--print-exempt-set",
+        action="store_true",
+        help=(
+            "print the prune targets exempted by a docs.* default (one per line) "
+            "and exit, auditing nothing"
+        ),
     )
     args = parser.parse_args(argv)
 
     root = _pop.resolve_root(args.root, tool="lint-shipped-pruned-path")
     slice_source = Path(args.slice_source) if args.slice_source else root / DEFAULT_SLICE_REL
+    schema_source = (
+        Path(args.schema_source) if args.schema_source else root / DEFAULT_SCHEMA_REL
+    )
 
     try:
         slice_text = slice_source.read_text(encoding="utf-8", errors="replace")
@@ -400,6 +510,59 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+
+    # Derive the docs.* exemption set from the schema and subtract it from the prune
+    # set (issue #1309). A prune target that is also a documented docs.* default names
+    # the consumer's OWN docs path, which is expected to exist in their checkout — the
+    # opposite of the vanishing-path premise this lint guards. The read fails closed:
+    # an absent/unreadable file is an OSError, an unparseable/keyless/non-object schema
+    # is a DocsDefaultsParseError, and either refuses non-zero naming the schema — an
+    # unestablished exemption set is never silently an empty one.
+    try:
+        schema_bytes = schema_source.read_bytes()
+    except OSError as exc:
+        print(
+            f"lint-shipped-pruned-path: could not read schema source {schema_source}: "
+            f"{exc}; auditing nothing",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        docs_defaults = parse_docs_defaults(schema_bytes)
+    except DocsDefaultsParseError as exc:
+        print(
+            f"lint-shipped-pruned-path: could not establish a docs.* exemption set "
+            f"from {schema_source}: {exc}; auditing nothing",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Membership is EQUALITY after trailing-slash normalization, never prefix
+    # containment — a coarse prune target (`docs`) must not be exempted by a finer
+    # default (`docs/internal/`), which would silently empty the guard.
+    exempt = [t for t in targets if t.rstrip("/") in docs_defaults]
+    targets = [t for t in targets if t.rstrip("/") not in docs_defaults]
+
+    # The empty-post-exemption-set refusal is the fail-open shape one level down from
+    # parse_prune_targets' own empty-set refusal: an exemption set covering every prune
+    # target would leave nothing forbidden and audit the shipped surface against no
+    # targets at all. It fires BEFORE either print branch, so --print-prune-set never
+    # prints an empty set with exit 0. It is independent of the later `if not audited:`
+    # population floor, which covers a different fail-open shape.
+    if not targets:
+        print(
+            "lint-shipped-pruned-path: the docs.* exemption set derived from "
+            f"{schema_source} covers every prune target derived from {slice_source}, "
+            "leaving the forbidden set empty — refusing to audit the shipped surface "
+            "against no targets",
+            file=sys.stderr,
+        )
+        return 1
+
+    if args.print_exempt_set:
+        for target in exempt:
+            print(target)
+        return 0
 
     if args.print_prune_set:
         for target in targets:

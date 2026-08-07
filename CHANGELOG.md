@@ -4,6 +4,34 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.22] — 2026-08-07
+
+### Changed
+The review engine root now states its cloud headless-wait barrier the same way the implement root does: every dispatched subagent's completed result is collected before the orchestrator proceeds past the dispatch point and before the turn ends, with more than one dispatch permitted to be outstanding at a time provided every one is collected within the turn. The previous per-dispatch "blocks until" phrasing described something the engine does not do — its own verification phase batches up to eight verifier dispatches in a single message under this same barrier — so a reviewer agent reading the root literally could serialize a batch it was entitled to run concurrently. The prohibition on treating a launch acknowledgment as the return is unchanged, as is the framing of `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` and `run_in_background: false` as current runner examples rather than as the definition. This is a clarification of meaning, not a relaxation. (#1365)
+
+## [2.31.21] — 2026-08-07
+
+### Fixed
+- **Exempt documented `docs.*` config defaults from `lint-shipped-pruned-path.py` (#1366).** The
+  shipped-surface lint pruned-path check flagged an unmarked shipped skill sentence naming `docs/external`
+  or `docs/internal` — which are simultaneously the documented defaults of the `.docs.external` /
+  `.docs.internal` config keys, i.e. the consumer's own doc roots that are expected to exist in
+  their checkout. The lint now derives an exemption set from the path-shaped `docs.*` defaults in
+  `.prflow/config.schema.json` (by trailing-slash-normalized equality, never prefix) and subtracts
+  it from the derived prune set before scanning, so a shipped line naming a documented `docs.*`
+  default needs no `<!-- pruned-path-ok: … -->` marker. The exemption keeps the lint's fail-closed
+  posture: an unestablished schema, or an exemption that empties the forbidden set, refuses non-zero
+  rather than auditing nothing. The new `--print-exempt-set` flag and the existing
+  `--print-prune-set` flag's post-exemption output expose the derivation. The now-redundant `pruned-path-ok`
+  marker lines the false-positive class had forced into consumer-facing skill prose are removed.
+
+## [2.31.20] — 2026-08-07
+
+### Changed
+### Changed
+
+- The implement engine's headless-wait barrier now states its requirement as **collect-before-proceeding**: every dispatched subagent's result is in hand before the run proceeds past the dispatch point and before the turn ends, and more than one dispatch may be outstanding at a time provided all of them are collected within the turn. The previous wording read as a per-dispatch block — one subagent at a time — which is not what it ever meant: the review engine already batches up to eight dispatches in one message under this same barrier, and keeping subagents in the foreground is not the same as serializing them. The prohibition on treating a launch acknowledgment as the return is unchanged, and the runner mechanisms are still named as current examples rather than as the definition, so the rule still holds on a runtime that exposes no equivalent switch. (#1254)
+
 ## [2.31.19] — 2026-08-07
 
 ### Changed
