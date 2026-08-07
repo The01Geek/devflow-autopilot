@@ -442,6 +442,53 @@ assert_eq "#1277 supervisor: an unrecognised classifier schema_version is refuse
   "2" "$(python3 "$PL_SUPERVISOR" --root "$PL_REPO" --bash /nonexistent/bash --registry "$PL_REGISTRY" \
       --classification "$_pl_tmp_root/bad-schema.json" >/dev/null 2>&1; printf '%s' "$?")"
 
+# Failure PROPAGATION, on its own: a fixture that exits non-zero must reach the domain
+# result. This is the arm a mutant that swallowed a fixture's status would survive —
+# the watchdog arm above cannot catch it, because a watchdog expiry takes a different
+# code path from an ordinary non-zero exit.
+_pl_redfx_dir="$_pl_tmp_root/red-fixture"
+mkdir -p "$_pl_redfx_dir"
+printf '#!/usr/bin/env bash\necho "deliberately failing fixture" >&2\nexit 1\n' > "$_pl_redfx_dir/red.sh"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$_pl_redfx_dir/green.sh"
+chmod +x "$_pl_redfx_dir/red.sh" "$_pl_redfx_dir/green.sh"
+cp "$PL_FIXTURE_DIR/parse-under-bash32.sh" "$_pl_redfx_dir/parse-under-bash32.sh"
+printf '{"schema_version": 1, "execution": "conservative", "established": false, "selected": ["lib/preflight.sh"]}\n' \
+  > "$_pl_tmp_root/one-surface.json"
+
+printf 'green\tgreen.sh\ta fixture that passes\t30\n' > "$_pl_redfx_dir/manifest.tsv"
+_pl_green_only="$(_pl_supervise --root "$PL_REPO" --bash "$(command -v bash)" \
+  --manifest "$_pl_redfx_dir/manifest.tsv" --classification "$_pl_tmp_root/one-surface.json")"
+
+printf 'green\tgreen.sh\ta fixture that passes\t30\nred\tred.sh\ta fixture that fails\t30\n' \
+  > "$_pl_redfx_dir/manifest.tsv"
+_pl_with_red="$(_pl_supervise --root "$PL_REPO" --bash "$(command -v bash)" \
+  --manifest "$_pl_redfx_dir/manifest.tsv" --classification "$_pl_tmp_root/one-surface.json")"
+
+# Both runs use a non-3.2 interpreter, so both stop at the precondition and read `fail`.
+# That makes the pair a CONTROL rather than a discriminator on this host — the two must
+# agree here, and the discriminating run happens on the macOS lane itself. Asserting
+# them separately is what keeps a reader from mistaking the control for the proof.
+assert_eq "#1277 supervisor: a green-only corpus under a non-3.2 interpreter still fails at the precondition (control)" \
+  "rc=1|fail" "$_pl_green_only"
+assert_eq "#1277 supervisor: adding a deliberately failing fixture cannot make the lane report anything but fail" \
+  "rc=1|fail" "$_pl_with_red"
+
+# The propagation itself, isolated from the interpreter precondition: run the failing
+# fixture through the supervisor's own launcher and assert a non-zero child status maps
+# to the `fail` outcome rather than being swallowed.
+assert_eq "#1277 supervisor: a fixture's non-zero exit maps to the fail outcome, not a swallowed status" \
+  "fail 1" "$(python3 - "$PL_REPO" "$(command -v bash)" "$_pl_redfx_dir/red.sh" <<'PL_PROPAGATE'
+import importlib.util, sys
+from pathlib import Path
+root, bash, fixture = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+spec = importlib.util.spec_from_file_location("sup", root / "scripts/run-bash32-fixtures.py")
+sup = importlib.util.module_from_spec(spec); spec.loader.exec_module(sup)
+launcher = sup._load_signal_launcher(root)
+outcome, status, _duration, _output = sup.run_supervised([bash, str(fixture)], 30, launcher)
+print(outcome, status)
+PL_PROPAGATE
+)"
+
 assert_eq "#1277 supervisor: an unusable classifier result refuses to run rather than verifying nothing" \
   "2" "$(python3 "$PL_SUPERVISOR" --root "$PL_REPO" --registry "$PL_REGISTRY" \
       --classification "$_pl_tmp_root/no-such-classification.json" >/dev/null 2>&1; printf '%s' "$?")"
