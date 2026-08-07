@@ -13743,31 +13743,45 @@ print("discover-deferral-manifests.py (#1374): presence mode — three-state exi
 _PM_FLAG = '--presence-for-pr'
 
 
-def _pm_tr_slugs(names):
-    """Derive each branch slug through the §4.0.5 fence's OWN live `tr` chain.
+def _pm_fence_tr_chain():
+    """Extract the §4.0.5 fence's OWN `tr` chain from the shipped reference file.
 
-    AC6's observable is a differential: the in-Python derivation must agree with what
-    the fence's shell pipeline actually produces for the same input. Computing the
-    expectation by re-implementing the chain in Python would compare the port with
-    itself and could never disagree, so the expectation is produced by running the
-    real pipeline. `LC_ALL=C` pins it to byte semantics, which is what makes the
-    comparison deterministic across a BSD `tr` and a GNU one; the port is likewise
-    byte-oriented ASCII.
+    Reading the chain out of the artifact is what makes this a differential rather than a
+    third copy: a hand-typed chain in this file would keep agreeing with the port after
+    someone widened the fence's keep-set, and the drift the AC exists to catch would ship
+    green. Returns the pipeline text after `printf '%s' "$CUR_BRANCH" | `, or None when the
+    line cannot be located — which the caller records as a degradation, never as agreement.
+    """
+    ref = cwc.REPO_ROOT / 'skills/implement/references/deferred-review-findings.md'
+    try:
+        text = ref.read_text(encoding='utf-8')
+    except OSError:
+        return None
+    marker = 'BRANCH_SLUG=$(printf \'%s\' "$CUR_BRANCH" | '
+    for line in text.splitlines():
+        if marker in line:
+            chain = line.split(marker, 1)[1]
+            return chain[:-1] if chain.endswith(')') else None
+    return None
 
-    The whole table runs in ONE shell, emitting one NUL-terminated slug per input, so
-    the differential costs a single spawn rather than one per row. Returns None when
-    `tr` is unavailable or the run is not attributable, so the differential records a
-    degradation instead of asserting against an empty pipeline (the guard-class-2
-    shape: a missing tool must never read as a clean agreement).
+
+def _pm_tr_slugs(names, chain):
+    """Derive each branch slug through the fence's own extracted `tr` chain.
+
+    `LC_ALL=C` pins it to byte semantics, which is what makes the comparison deterministic
+    across a BSD `tr` and a GNU one; the port is likewise byte-oriented ASCII. The whole
+    table runs in ONE shell, emitting one NUL-terminated slug per input, so the
+    differential costs a single spawn rather than one per row. Returns None when the chain
+    could not be run or the output is not attributable, so the differential records a
+    degradation instead of asserting against an empty pipeline (the guard-class-2 shape: a
+    missing tool must never read as a clean agreement).
     """
     _env = dict(os.environ, LC_ALL='C')
+    script = ('for a in "$@"; do printf \'%s\' "$a" | ' + chain
+              + "; printf '\\000'; done")
     try:
-        _p = _subprocess.run(
-            ['sh', '-c',
-             'for a in "$@"; do printf \'%s\' "$a" | tr \'/\' \'-\' '
-             "| tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-'; printf '\\000'; done",
-             'sh'] + list(names),
-            capture_output=True, text=True, env=_env)
+        _p = _subprocess.run(['sh', '-c', script, 'sh'] + list(names),
+                             capture_output=True, text=True, env=_env)
     except OSError:
         return None
     if _p.returncode != 0:
@@ -13790,7 +13804,11 @@ with tempfile.TemporaryDirectory() as _pm_base:
         '',                               # empty name (detached HEAD)
         'worktree-issue-1374',            # the ordinary shape, as a control
     )
-    _pm_expected = _pm_tr_slugs(_PM_BRANCH_INPUTS)
+    _pm_chain = _pm_fence_tr_chain()
+    assert_eq("#1374 AC6: the fence's tr chain is locatable in the shipped reference "
+              "(the differential reads the artifact, not a copy of it)",
+              True, _pm_chain is not None)
+    _pm_expected = _pm_tr_slugs(_PM_BRANCH_INPUTS, _pm_chain) if _pm_chain else None
     if _pm_expected is None:
         # Recorded rather than silently passing: without a runnable `tr` the
         # expectation side of the differential cannot be produced, and asserting
@@ -13809,19 +13827,26 @@ with tempfile.TemporaryDirectory() as _pm_base:
               (discover_deferrals._slug_escapes_review_root('.prflow/tmp/review', '..'),
                discover_deferrals._slug_escapes_review_root('.prflow/tmp/review', 'pr-9')))
 
-    def _pm_tree(name, branch=None):
-        """Build a fixture working directory, optionally a git repo on `branch`.
+    def _pm_tree(name, branch='fixture-branch'):
+        """Build a fixture working directory as a git repo checked out on `branch`.
 
-        Returns (path, review_root_path). A directory with no git repository above it
-        is the detached-HEAD/unresolvable-branch analogue: `git branch --show-current`
-        cannot name a branch, which the presence mode must treat as the benign
-        PR-slug-only case rather than an error.
+        ALWAYS a repository, because that is the production shape: the predicate runs from
+        a checkout, so a directory with no repository above it is an anomaly the mode now
+        reports as unestablished rather than a benign stand-in for a detached HEAD. The
+        detached-HEAD case (git answering cleanly with no branch) is driven by substituting
+        the resolver instead. Returns (path, review_root_path).
         """
         d = _pmb / name
         (d / '.prflow' / 'tmp' / 'review').mkdir(parents=True, exist_ok=True)
-        if branch is not None:
-            _subprocess.run(['git', 'init', '-q', '-b', branch, str(d)],
-                            capture_output=True)
+        _gi = _subprocess.run(['git', 'init', '-q', '-b', branch, str(d)],
+                              capture_output=True, text=True)
+        if _gi.returncode != 0:
+            # A silently branchless fixture would still satisfy the dedup count below
+            # (one candidate, counted once) while the de-duplication under test never
+            # ran — the fixture passing for the wrong reason. Raise instead.
+            raise AssertionError(
+                '#1374 harness: git init -b %r failed (rc=%d); the presence-mode fixtures '
+                'cannot be built: %s' % (branch, _gi.returncode, _gi.stderr))
         return d, d / '.prflow' / 'tmp' / 'review'
 
     # ---- Happy path 1: one non-empty run-scoped manifest under the PR slug.
@@ -13840,6 +13865,16 @@ with tempfile.TemporaryDirectory() as _pm_base:
     _rc, _so, _se = _dm_run([_PM_FLAG, '78'], _d)
     assert_eq("#1374: a manifest under the branch slug alone reports present (the PR slug holds none)",
               (0, True), (_rc, _so.startswith('present:')))
+
+    # ---- Happy path 3: manifests under BOTH candidates. Asserts the printed COUNT, not
+    # ---- just the prefix: `present += 1`, `present = len(matches)`, or a `break` after the
+    # ---- first ok root all still print a `present:` line and would otherwise pass.
+    _d, _rev = _pm_tree('present-both-slugs', branch='feat/Both-Slugs')
+    _dm_manifest(_rev / 'pr-93', 'run-a', '{"deferrals": [{"file": "a.py"}]}')
+    _dm_manifest(_rev / 'feat-both-slugs', 'run-b', '{"deferrals": [{"file": "b.py"}]}')
+    _rc, _so, _se = _dm_run([_PM_FLAG, '93'], _d)
+    assert_eq("#1374: manifests under both candidates are summed into the reported count",
+              (0, 'present: 2'), (_rc, _so.strip()))
 
     # ---- AC4's second half: ONLY a non-empty slug-level aggregate, no run-scoped
     # ---- manifest. A predicate reading only the run-scoped source fails open here,
@@ -13884,15 +13919,21 @@ with tempfile.TemporaryDirectory() as _pm_base:
     _d, _rev = _pm_tree('unestablished-dir')
     (_rev / 'pr-83').write_text('x', encoding='utf-8')
     _rc, _so, _se = _dm_run([_PM_FLAG, '83'], _d)
-    assert_eq("#1374 AC5: an unreadable candidate directory reports unestablished (exit 2), never absent",
-              (2, True), (_rc, _so.startswith('unestablished: reason=')))
+    assert_eq("#1374 AC5: an unreadable candidate directory reports unestablished (exit 2) naming that reason, never absent",
+              (2, True, True),
+              (_rc, 'unestablished: reason=unreadable-directory' in _so, 'root: ' in _so))
+    # Attribution, not merely exit code: the aggregate path under a non-directory slug dir
+    # also fails to stat, so a naive aggregate probe would name the wrong operand in the
+    # reason token the stub quotes into its reflection.
+    assert_eq("#1374: that stop is attributed to the directory, not to the aggregate beneath it",
+              False, 'unreadable-aggregate' in _so)
 
     # ---- Unestablished: the aggregate exists but cannot be read as a file.
     _d, _rev = _pm_tree('unestablished-aggregate')
     (_rev / 'pr-84' / 'deferrals.json').mkdir(parents=True, exist_ok=True)
     _rc, _so, _se = _dm_run([_PM_FLAG, '84'], _d)
-    assert_eq("#1374: an aggregate present but unreadable reports unestablished (exit 2)",
-              (2, True), (_rc, _so.startswith('unestablished: reason=')))
+    assert_eq("#1374: an aggregate present but unreadable reports unestablished (exit 2) naming that reason",
+              (2, True), (_rc, 'unestablished: reason=unreadable-aggregate' in _so))
 
     # ---- Unestablished: a malformed invocation. Mirrors workpad.py deferred-presence,
     # ---- whose usage exit is deliberately its unestablished code so a bad call routes
@@ -13900,8 +13941,14 @@ with tempfile.TemporaryDirectory() as _pm_base:
     _d, _rev = _pm_tree('unestablished-usage')
     for _bad in ([_PM_FLAG], [_PM_FLAG, ''], [_PM_FLAG, 'abc'], [_PM_FLAG, '1', '2']):
         _rc, _so, _se = _dm_run(_bad, _d)
-        assert_eq("#1374 AC5: malformed invocation %r reports unestablished (exit 2)" % (_bad,),
-                  2, _rc)
+        assert_eq("#1374 AC5: malformed invocation %r reports unestablished (exit 2) naming that reason" % (_bad,),
+                  (2, True), (_rc, 'unestablished: reason=malformed-invocation' in _so))
+    # `str.isdigit()` is Unicode-aware, so a non-ASCII digit would otherwise compose a
+    # search directory no producer writes and report `absent` — the one answer this mode
+    # must never reach by accident.
+    _rc, _so, _se = _dm_run([_PM_FLAG, '\u00b2'], _d)
+    assert_eq("#1374: a non-ASCII digit is a malformed invocation, not an absent PR",
+              (2, True), (_rc, 'unestablished: reason=malformed-invocation' in _so))
 
     # ---- AC5's distinctness property, asserted over the codes the fixtures OBSERVED.
     # ---- A `len({0, 1, 2})` form would be a tautology over the test's own constants and
@@ -13915,13 +13962,21 @@ with tempfile.TemporaryDirectory() as _pm_base:
     assert_eq("#1374 AC5: present/absent/unestablished occupy three distinct exit codes",
               3, len({_pm_present_rc, _pm_absent_rc, _pm_unest_rc}))
 
-    # ---- An unresolvable branch (no git repository above the fixture) is benign: the
-    # ---- PR slug alone is searched and the answer still lands on 0/1, never an error.
-    _d, _rev = _pm_tree('branchless')
+    # ---- A detached HEAD — git answering cleanly with NO branch name — is benign: the PR
+    # ---- slug alone is searched and the answer still lands on 0/1, never an error. This
+    # ---- is the one empty-branch shape that is not a failure, which is exactly why the
+    # ---- mode distinguishes it from the unresolvable case asserted further below.
+    _d, _rev = _pm_tree('detached-head')
     _dm_manifest(_rev / 'pr-85', 'run-a', '{"deferrals": [{"file": "a.py"}]}')
-    _rc, _so, _se = _dm_run([_PM_FLAG, '85'], _d)
-    assert_eq("#1374: an unresolvable branch searches the PR slug alone and does not error",
-              (0, True), (_rc, _so.startswith('present:')))
+    _saved_detach = discover_deferrals._resolve_current_branch
+    try:
+        discover_deferrals._resolve_current_branch = lambda: ''
+        _rc, _so, _se = _dm_run([_PM_FLAG, '85'], _d)
+    finally:
+        discover_deferrals._resolve_current_branch = _saved_detach
+    assert_eq("#1374: a detached HEAD searches the PR slug alone and does not error",
+              (0, True, 1),
+              (_rc, _so.startswith('present:'), _se.count('/review/pr-85=')))
 
     # ---- De-duplication: when the branch slug IS the PR slug, the directory is
     # ---- classified once. Read off the roots-echo, the mode's own observable.
@@ -13944,6 +13999,81 @@ with tempfile.TemporaryDirectory() as _pm_base:
     _hydrated = _dm_run([_PM_FLAG, '87'], _d)[0]
     assert_eq("#1374: presence is idempotent, and a hydrated aggregate still reports present",
               (0, 0, 0), (_first, _second, _hydrated))
+
+    # ---- The fail-closed arms this mode's whole premise rests on. Each was a fail-OPEN
+    # ---- hole before PR #1379's review: every one of them reported `absent` (exit 1,
+    # ---- "skip the procedure") on an input the mode could not actually answer for.
+
+    # A crash must not read as absent. CPython exits 1 on an uncaught exception and 1 IS
+    # `absent` here, so without the wrapper a traversal crash strands every acknowledged
+    # finding and writes no reflection — the stub records one only on exit 2.
+    _d, _rev = _pm_tree('crash-is-unestablished')
+    _saved_classify = discover_deferrals.classify_root
+
+    def _boom_classify(_root):
+        raise RuntimeError('simulated traversal crash')
+
+    try:
+        discover_deferrals.classify_root = _boom_classify
+        _rc, _so, _se = _dm_run([_PM_FLAG, '95'], _d)
+    finally:
+        discover_deferrals.classify_root = _saved_classify
+    assert_eq("#1374: an uncaught exception reports unestablished (exit 2), NOT absent (exit 1, which CPython also returns on a crash)",
+              (2, True, True),
+              (_rc, 'unestablished: reason=internal-error' in _so,
+               'simulated traversal crash' in _se))
+    # Positive control on the same fixture: unpatched, it answers normally, so the arm
+    # above measures the wrapper rather than a broken fixture.
+    assert_eq("#1374 positive control: the same fixture answers absent when nothing crashes",
+              1, _dm_run([_PM_FLAG, '95'], _d)[0])
+
+    # A branch git could not resolve must not read as a detached HEAD: on a FIRST entry
+    # there is no aggregate, so a branch-mode run's manifest lives ONLY under the branch
+    # slug and that candidate is the sole evidence.
+    _d, _rev = _pm_tree('branch-unresolvable')
+    _saved_branch = discover_deferrals._resolve_current_branch
+    try:
+        discover_deferrals._resolve_current_branch = (
+            lambda: discover_deferrals.BRANCH_UNRESOLVABLE)
+        _rc, _so, _se = _dm_run([_PM_FLAG, '96'], _d)
+    finally:
+        discover_deferrals._resolve_current_branch = _saved_branch
+    assert_eq("#1374: an unresolvable branch reports unestablished, never absent (the branch slug is the sole source on a first entry)",
+              (2, True), (_rc, 'unestablished: reason=branch-unresolvable' in _so))
+    assert_eq("#1374 positive control: the same fixture reports absent when the branch resolves",
+              1, _dm_run([_PM_FLAG, '96'], _d)[0])
+
+    # The escape guard, driven END-TO-END through cmd_presence. git will not create a `..`
+    # branch, so the consuming branch is unreachable without substituting the resolver —
+    # and a unit test of the predicate alone cannot catch an inverted or deleted guard.
+    _d, _rev = _pm_tree('branch-escapes')
+    try:
+        discover_deferrals._resolve_current_branch = lambda: '..'
+        _rc, _so, _se = _dm_run([_PM_FLAG, '97'], _d)
+    finally:
+        discover_deferrals._resolve_current_branch = _saved_branch
+    assert_eq("#1374: a branch slug that would escape the review root reports unestablished, and the escaping candidate is never searched",
+              (2, True, False),
+              (_rc, 'unestablished: reason=branch-slug-escapes-review-root' in _so,
+               'presence roots:' in _se))
+
+    # A review root that exists but cannot be inspected is NOT the cheap missing-root
+    # skip: reading it as missing reintroduces the #555 silent-loss shape one level up.
+    _d = _pmb / 'review-root-not-a-dir'
+    (_d / '.prflow' / 'tmp').mkdir(parents=True, exist_ok=True)
+    (_d / '.prflow' / 'tmp' / 'review').write_text('x', encoding='utf-8')
+    _rc, _so, _se = _dm_run([_PM_FLAG, '98'], _d)
+    assert_eq("#1374: a review root that exists but is not a directory reports unestablished, never absent",
+              (2, True), (_rc, 'unestablished: reason=unreadable-review-root' in _so))
+
+    # The genuinely-missing review root takes the cheap skip and still answers absent —
+    # the fast path the predicate exists for, which no other fixture reaches because they
+    # all mkdir the root.
+    _d = _pmb / 'no-review-root'
+    _d.mkdir(parents=True, exist_ok=True)
+    _rc, _so, _se = _dm_run([_PM_FLAG, '99'], _d)
+    assert_eq("#1374: a missing review root answers absent without deriving the branch",
+              (1, 'absent: 0'), (_rc, _so.strip()))
 
     # ---- AC18b: the argument dispatch does not disturb the discovery contract. The
     # ---- same root-only invocations the filing fence makes — including its unquoted
@@ -13969,6 +14099,16 @@ with tempfile.TemporaryDirectory() as _pm_base:
     _rc, _so, _se = _dm_run([str(_ok), _PM_FLAG])
     assert_eq("#1374 AC18b: the presence flag in a non-leading position is treated as a root path",
               (True, False), (_rc in (0, 3, 4), _so.startswith('present:')))
+    # The fence passes $SEARCH_DIRS UNQUOTED, so the shell — not this process — splits it.
+    # The in-process assertions above hand main() an already-split list and therefore
+    # cannot observe that shape; this one drives the real word-split through `sh -c`.
+    _ws = _subprocess.run(
+        ['sh', '-c',
+         'SEARCH_DIRS="$1 $2"; exec python3 "$0" $SEARCH_DIRS',
+         str(SCRIPTS / 'discover-deferral-manifests.py'), _gone, str(_ok)],
+        capture_output=True, text=True)
+    assert_eq("#1374 AC18b: the fence's UNQUOTED $SEARCH_DIRS word-split still classifies both roots and prints the manifest",
+              (0, [_dm_ok]), (_ws.returncode, _ws.stdout.split()))
 
 
 # ── issue #603: the per-finding ledger, post-revision resolution, and convergence basis ──

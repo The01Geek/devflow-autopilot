@@ -40,9 +40,32 @@ run-scoped manifests are already consumed.
 | absent | `1` | `absent: 0` |
 | unestablished | `2` | `unestablished: reason=<token>` (plus an optional `root:` line) |
 
-Every state is decided from the process exit status alone; nothing parses stdout to route. A
-malformed invocation reports `2`, the same fail-closed convention `scripts/workpad.py
+A malformed invocation reports `2`, the same fail-closed convention `scripts/workpad.py
 deferred-presence` adopts, so a bad call loads the reference rather than silently skipping it.
+
+**`1` is also CPython's exit status for an uncaught exception**, and `1` here means "skip the
+procedure" — so a crash anywhere in the traversal would otherwise read as "nothing was deferred"
+and strand every acknowledged finding, writing no reflection, since the stub records one only on
+exit `2`. `_run_presence` wraps the mode in a `BaseException` handler that routes any escaping
+exception to `unestablished: reason=internal-error`, and the stub's skip arm requires **both**
+exit `1` **and** the literal `absent: 0` line. The three states are complete by construction only
+because of those two, not because the enumeration says so.
+
+The `reason=` tokens are a consumed contract — the stub quotes the token into its reflection — so
+each names the operand that could not be established: `malformed-invocation`,
+`unreadable-review-root`, `branch-unresolvable`, `branch-slug-escapes-review-root`,
+`unreadable-directory`, `unreadable-aggregate`, `internal-error`.
+
+**Every probe that decides a state is a guarded `stat`, never `os.path.exists`/`isdir`.** Those
+suppress every `OSError`, so a mode-000 ancestor, a stale mount, or an `EIO` reads identically to
+a genuinely missing path — which would classify an unreadable tree `absent` and reintroduce the
+issue-#555 silent-loss shape one level above the guard that closed it.
+
+**A branch git could not resolve is `branch-unresolvable`, not a detached HEAD.** Only git
+*answering cleanly with empty output* is the benign case. On a first Phase 4 entry there is no
+aggregate yet, so a branch-mode `/prflow:review-and-fix` run's manifest lives **only** under the
+branch slug: reading a `dubious ownership` refusal, an absent `git`, or a timeout as a detached
+HEAD would search the PR slug alone and report `absent` on exactly the run the predicate protects.
 
 ## Accepted loss: partial and all-failed collapse into unestablished
 
@@ -56,13 +79,18 @@ mode's own richer contract is untouched for the filing fence that consumes it.
 
 ## The stub's degraded arms, in full
 
-- **exit 1** — do not read the reference; continue to §4.1.
 - **exit 0** — read the reference and follow it.
-- **exit 2** — read the reference anyway and record a `note`-kind reflection naming the
-  operand that could not be established, quoting the `reason=` token.
-- **no output at all** — the shape a harness refusal takes. Routes exactly as exit 2 does,
-  except that the reflection records the no-output condition itself rather than a token the
-  run never received. An unavailable operand is never read as "nothing was deferred".
+- **exit 1 *and* the printed line is exactly `absent: 0`** — do not read the reference; continue
+  to §4.1. Both conditions, because `1` is also a crashing interpreter's status.
+- **every other outcome** — exit `2` with its reason token, exit `1` without that line, any other
+  exit code, or no output at all (the shape a harness refusal takes). Read the reference anyway
+  and record a `note`-kind reflection naming what was actually observed. This arm is the
+  **residual**, so an outcome nobody enumerated lands here rather than on the skip. An unavailable
+  operand is never read as "nothing was deferred".
+- **the vendored path did not run** — `command not found`, `No such file`, `Permission denied`,
+  rc 126 or rc 127. Re-invoke through the portable anchor. `Permission denied` is in that set
+  because a consumer whose vendor step dropped the executable bit reports rc 126, which a trigger
+  naming only the not-found reading would leave with no second arm.
 - **the reference read fails** — absent, empty, harness-refused, or mismatched boundary
   markers. Records a `dropped-failed` reflection naming the reference path and continues to
   §4.1 without halting Phase 4.
@@ -73,9 +101,13 @@ The filing fence derives its branch-slug search directory through a `tr` chain, 
 not in the project's preflight-guaranteed set. A missing `tr` empties the slug, which the
 fence handles with a breadcrumb and a fallback to `pr-<N>`-only search. The predicate cannot
 take that fallback silently — a gate that skips a search directory would report `absent` for a
-PR whose deferrals live under the branch slug — so it derives the slug in Python instead, and
-`lib/test/test_python_scripts.py` asserts the port against the fence's own live `tr` pipeline
-over a table of branch-name shapes.
+PR whose deferrals live under the branch slug — so it derives the slug in Python instead.
+
+`lib/test/test_python_scripts.py` asserts the port against the fence's own `tr` pipeline over a
+table of branch-name shapes, **extracting that pipeline from the shipped reference file at test
+time** rather than re-typing it. That is what makes it a differential: a hand-typed chain in the
+test would keep agreeing with the port after someone widened the fence's keep-set, and the drift
+the criterion exists to catch would ship green.
 
 This closes the dependence for the **gate**, not for the fence: on a host without `tr` the
 predicate can now report present from a branch-slug directory the fence then does not search,
@@ -84,11 +116,37 @@ pre-existing behaviour for such a host, unchanged.
 
 ## Coupled sites moved in the same commit
 
-Every assertion that located §4.0.5 content by naming the phase file's path was re-targeted,
-never deleted: an assertion left on the phase file reports a count of zero and passes nothing.
-That covers the `#254` branch-slug and search-set pins, the `#555` discovery pins, the `#275`
-portable-anchor `file-deferrals.py` pin, the `#271` `run-jq.sh` pin, the `#480` sentinel pins
-(two of which *execute* the shipped sentinel line, and one of which probes operand-initialization
-ordering), the `ensure-label.sh` per-file counts, and the positional routing-bullet count. The
-`### 4.0.5` heading stays at line start in the phase file, because the `#815` section-4.0 `sed`
-range terminates on it and would otherwise run to end of file and pass vacuously.
+Every assertion that located §4.0.5 content by naming the phase file's path was re-targeted
+rather than deleted — **with the one retirement recorded below** — because an assertion left on
+the phase file reports a count of zero and passes nothing. That covers the `#254` branch-slug and
+search-set pins, the `#555` discovery pins, the `#275` portable-anchor `file-deferrals.py` pin,
+the `#271` `run-jq.sh` pin, the `#480` sentinel pins (two of which *execute* the shipped sentinel
+line, and one of which probes operand-initialization ordering), the `ensure-label.sh` per-file
+counts, and the positional routing-bullet count. The `### 4.0.5` heading stays at line start in
+the phase file, because the `#815` section-4.0 `sed` range terminates on it and would otherwise
+run to end of file and pass vacuously.
+
+### The one retirement, and its authorization
+
+`lib/test/run.sh`'s routed-comparand loop asserted three printed literals against the phase file.
+Two belong to §4.1 and stay. The third, `deferred labels to apply: [`, moved with the fence and
+was **retired rather than re-pointed**.
+
+That literal resolves into agent-executed prompt prose, so re-stating it against a new target is
+new wording-only pin authorship — which `CLAUDE.md`'s issue-#810 authoring boundary prohibits and
+the diff-scoped mutation-routing gate reports. The pin is a raw `grep -qF` inside `assert_eq`, so
+it is **outside** the existence-pin census and no ledger row for it can be minted; `CONTRIBUTING.md`'s
+*Disposing of a pin outside the existence census* therefore routes the decision to the parent
+prose-pin policy's own question — does any tool or consumer read the pinned content?
+
+**The consumer search, run over the surface the lint's own `machine_consumer_evidence` reads**
+(tracked `scripts/`, `lib/`, `.github/` minus `lib/test/`, with `#`-comment regions subtracted —
+211 files) returned **no reader**: the literal occurs in no consumer file's operative text.
+`distinctive_consumer_tokens` yields an empty token set for this literal, so the search reduced to
+whole-literal containment; that narrowing is recorded here rather than left implicit, since a
+token-level match could in principle have found a generic consumer this search cannot see.
+
+What stops being asserted: that the §4.0.5 label-config fence still *prints* the line its own
+reader-routing arms literal-match. Per the recorded decision that agent-executed prompt prose
+carries no automated regression coverage by design, retirement owes no replacement coverage, and
+the compensating control is the review pass.

@@ -65,8 +65,11 @@ BOTH presence sources: the run-scoped manifests (which a re-entry after filing h
 already consumed) and the slug-level aggregate (which has no producer on a first
 entry). Reading either alone fails open.
 
-Exit codes (presence mode) — three states, complete by construction:
-    0  present       stdout `present: <n>`
+Exit codes (presence mode) — three states, complete by construction because
+`_run_presence` catches every escaping exception. That wrapper is load-bearing rather
+than defensive: CPython exits 1 on an uncaught exception and 1 is `absent` here, so
+without it a crash would read as "nothing was deferred" and strand acknowledged findings.
+    0  present       stdout `present: <n>` (run-scoped matches plus the aggregate)
     1  absent        stdout `absent: 0`
     2  unestablished stdout `unestablished: reason=<token>` (+ an optional `root:` line)
 Discovery mode's `3` and `4` are unreachable here: an unreadable candidate collapses
@@ -242,25 +245,104 @@ def _slug_escapes_review_root(review_root, slug):
     return not candidate.startswith(base + os.sep)
 
 
-def _resolve_current_branch():
-    """The checked-out branch name, or "" when it cannot be resolved.
+# Sentinel distinguishing "git answered, and the answer is no branch" from "git could
+# not be asked". They must not collapse: on a FIRST entry there is no aggregate yet, so
+# a branch-mode /prflow:review-and-fix run's manifest lives ONLY under the branch slug —
+# the branch candidate is the sole evidence there, not a redundant second look. Reading a
+# git failure as a detached HEAD would search the PR slug alone and report `absent`,
+# stranding exactly the findings this predicate exists to protect.
+BRANCH_UNRESOLVABLE = object()
 
-    Every failure — a non-zero git, a detached HEAD, no repository, git absent, a hung
-    call — collapses onto the empty string, which is the fence's own benign
-    detached-HEAD case: search the PR slug alone. This is deliberately NOT an
-    unestablished state; a branch that cannot be named contributes no second candidate,
-    and the PR slug is the one the aggregate lives under regardless.
+
+def _resolve_current_branch():
+    """The checked-out branch name, "" for a detached HEAD, or BRANCH_UNRESOLVABLE.
+
+    Only git answering successfully with empty output is the benign detached-HEAD case.
+    Every failure — a non-zero git (a corrupt repository, a `dubious ownership`
+    safe.directory refusal, an unreadable HEAD), git absent from PATH, a matcher refusal,
+    a timeout — returns the sentinel, which the caller routes to `unestablished`. git's
+    own stderr is breadcrumbed rather than discarded, so an operator can attribute the
+    stop instead of reading a clean `absent`.
     """
     try:
         proc = subprocess.run(
             ["git", "branch", "--show-current"],
             capture_output=True, text=True, timeout=5,
         )
-    except (OSError, subprocess.SubprocessError):
-        return ""
+    except (OSError, subprocess.SubprocessError) as exc:
+        sys.stderr.write(
+            "devflow: presence: could not run git to resolve the current branch (%s)\n"
+            % exc
+        )
+        return BRANCH_UNRESOLVABLE
     if proc.returncode != 0:
-        return ""
+        sys.stderr.write(
+            "devflow: presence: git branch --show-current exited %d: %s\n"
+            % (proc.returncode, (proc.stderr or "").strip())
+        )
+        return BRANCH_UNRESOLVABLE
     return proc.stdout.strip()
+
+
+def _probe_review_root():
+    """Classify REVIEW_ROOT as 'missing' / 'ok' / 'failed'.
+
+    `os.path.isdir` swallows every OSError, so a mode-000 ancestor, a stale mount, or an
+    EIO all read False — identical to a genuinely missing root. Reading those as missing
+    would classify an unreadable tree `absent`, which is the issue-#555 silent-loss shape
+    reintroduced one level above the guard that closed it. One guarded `stat` separates
+    the three, and only a genuinely missing root takes the cheap skip.
+    """
+    try:
+        st = os.stat(REVIEW_ROOT)
+    except FileNotFoundError:
+        return "missing"
+    except OSError as exc:
+        sys.stderr.write(
+            "devflow: presence: review root %s could not be inspected (%s)\n"
+            % (os.path.abspath(REVIEW_ROOT), exc)
+        )
+        return "failed"
+    import stat as _stat
+    if not _stat.S_ISDIR(st.st_mode):
+        sys.stderr.write(
+            "devflow: presence: review root %s exists but is not a directory\n"
+            % os.path.abspath(REVIEW_ROOT)
+        )
+        return "failed"
+    return "ok"
+
+
+def _probe_aggregate(agg_path):
+    """Classify the slug-level aggregate as 'absent' / 'ok' / 'failed'.
+
+    One guarded `stat`, not an `exists`/`isfile`/`getsize` chain: `os.path.exists`
+    suppresses EACCES, ELOOP and EIO alike, so a hydrated aggregate under a
+    tightened-mode directory would read `absent` on the very re-entry where it is the
+    only surviving source. A zero-byte file classifies `absent` — the discovery mode
+    matches only files of non-zero size, so an empty aggregate holds nothing either.
+    """
+    try:
+        st = os.stat(agg_path)
+    except FileNotFoundError:
+        return "absent"
+    except NotADirectoryError:
+        # The slug directory is not a directory, so no file can exist at this path. The
+        # fault is real but it is the DIRECTORY's, and `classify_root` already reports it
+        # as `failed`; attributing it to the aggregate here would route the run to a
+        # reason token naming the wrong operand. Both still exit 2 — only which operand
+        # the stub's reflection names changes.
+        return "absent"
+    except OSError as exc:
+        sys.stderr.write(
+            "devflow: presence: aggregate %s could not be inspected (%s)\n"
+            % (os.path.abspath(agg_path), exc)
+        )
+        return "failed"
+    import stat as _stat
+    if not _stat.S_ISREG(st.st_mode):
+        return "failed"
+    return "ok" if st.st_size > 0 else "absent"
 
 
 def _print_presence_unestablished(reason, root=None):
@@ -278,10 +360,17 @@ def _print_presence_unestablished(reason, root=None):
 
 
 def cmd_presence(rest):
-    """Answer whether a deferred review finding is present for the PR named in `rest`."""
+    """Answer whether a deferred review finding is present for the PR named in `rest`.
+
+    Wrapped by `_run_presence` so no exit path can escape the three-state contract.
+    """
     # Arity and type first, before any filesystem or git work: a malformed call must
     # not be able to produce a partial roots-echo that reads like a real search.
-    if len(rest) != 1 or not rest[0].isdigit():
+    # `isascii()` is load-bearing: `str.isdigit()` is Unicode-aware, so a superscript or
+    # Devanagari digit would pass arity/type validation, compose a search directory no
+    # producer ever writes, and report `absent` — the one answer this mode must never
+    # reach by accident.
+    if len(rest) != 1 or not (rest[0].isascii() and rest[0].isdigit()):
         sys.stderr.write(
             "devflow: presence: usage: discover-deferral-manifests.py %s N\n"
             % PRESENCE_FLAG
@@ -290,22 +379,35 @@ def cmd_presence(rest):
     pr_number = rest[0]
 
     slug_dir = "%s/pr-%s" % (REVIEW_ROOT, pr_number)
+    agg_path = "%s/%s" % (slug_dir, MANIFEST_NAME)
     candidates = [slug_dir]
-    # Skip the branch derivation entirely when the review root does not exist. Every
-    # candidate under a missing root classifies `absent` and the aggregate cannot exist
-    # either, so the answer is the same — and this is the common case on the path the
-    # predicate exists to make cheap, where the git subprocess would be pure overhead.
-    branch_slug = ""
-    if os.path.isdir(REVIEW_ROOT):
-        branch_slug = _derive_branch_slug(_resolve_current_branch())
-    if branch_slug:
-        if _slug_escapes_review_root(REVIEW_ROOT, branch_slug):
-            sys.stderr.write(
-                "devflow: presence: branch slug %r would resolve outside %s — dropping "
-                "the branch candidate; searching the pr-%s slug alone\n"
-                % (branch_slug, os.path.abspath(REVIEW_ROOT), pr_number)
-            )
-        else:
+
+    # A genuinely missing review root can hold nothing, so the branch derivation — and
+    # the git subprocess it costs — is skipped on that path, which is the common shape on
+    # the runs this predicate exists to make cheap. A root that exists but cannot be
+    # inspected is NOT that case and stops here rather than reading as absent.
+    root_state = _probe_review_root()
+    if root_state == "failed":
+        return _print_presence_unestablished("unreadable-review-root", REVIEW_ROOT)
+    if root_state == "ok":
+        branch = _resolve_current_branch()
+        if branch is BRANCH_UNRESOLVABLE:
+            # The branch candidate is the sole source on a first entry, so a branch that
+            # could not be resolved leaves the answer unestablished rather than absent.
+            return _print_presence_unestablished("branch-unresolvable")
+        branch_slug = _derive_branch_slug(branch)
+        if branch_slug:
+            if _slug_escapes_review_root(REVIEW_ROOT, branch_slug):
+                # A branch name whose slug leaves the review root is a broken input, not
+                # a normal one; dropping its evidence silently would be the absent-shaped
+                # answer this mode must not reach by accident.
+                sys.stderr.write(
+                    "devflow: presence: branch slug %r would resolve outside %s\n"
+                    % (branch_slug, os.path.abspath(REVIEW_ROOT))
+                )
+                return _print_presence_unestablished(
+                    "branch-slug-escapes-review-root", REVIEW_ROOT
+                )
             branch_dir = "%s/%s" % (REVIEW_ROOT, branch_slug)
             if branch_dir != slug_dir:
                 candidates.append(branch_dir)
@@ -323,25 +425,7 @@ def cmd_presence(rest):
     # manifests, so the walk above never sees it. It is checked independently because
     # it is the ONLY surviving source once a prior entry has filed and consumed the
     # run-scoped manifests.
-    agg_path = "%s/%s" % (slug_dir, MANIFEST_NAME)
-    # Three values only, one per routing branch below. A zero-byte aggregate classifies
-    # `absent` rather than taking a fourth value no branch reads — the discovery mode
-    # matches only files of non-zero size, so an empty aggregate holds nothing either, and
-    # a value the routing never inspects is a case a reader has to prove is not silently
-    # dropped. The size fact stays visible in the breadcrumb below.
-    agg_state = "absent"
-    if os.path.exists(agg_path):
-        if not os.path.isfile(agg_path):
-            agg_state = "failed"
-        else:
-            try:
-                agg_state = "ok" if os.path.getsize(agg_path) > 0 else "absent"
-            except OSError as exc:
-                sys.stderr.write(
-                    "devflow: presence: aggregate %s could not be sized (%s)\n"
-                    % (os.path.abspath(agg_path), exc)
-                )
-                agg_state = "failed"
+    agg_state = _probe_aggregate(agg_path)
 
     sys.stderr.write(
         "devflow: presence roots: %s aggregate %s=%s\n"
@@ -349,10 +433,16 @@ def cmd_presence(rest):
            os.path.abspath(agg_path), agg_state)
     )
 
+    # The aggregate counts toward the reported total. Reporting it as `present: 0` on the
+    # aggregate-only path would put the present line one glyph from the `absent: 0` line
+    # that means the opposite — routing is exit-code-only, but a human reading the tool
+    # result would take the wrong signal.
+    if agg_state == "ok":
+        present += 1
     # Present wins over an unreadable sibling: a finding this mode positively saw is
     # not made less present by a directory it could not read, and both answers route
     # the caller to the same place.
-    if present or agg_state == "ok":
+    if present:
         sys.stdout.write("present: %d\n" % present)
         return 0
     if agg_state == "failed":
@@ -364,11 +454,29 @@ def cmd_presence(rest):
     return 1
 
 
+def _run_presence(rest):
+    """Run `cmd_presence` so that NO outcome can escape the three-state contract.
+
+    CPython exits 1 on an uncaught exception, and 1 is this mode's `absent` — the one
+    answer that means "skip the procedure". Without this wrapper a crash anywhere in the
+    traversal would be read by the phase-file stub as "nothing was deferred", strand
+    every acknowledged finding, and write no reflection, because the stub records one
+    only on exit 2. `BaseException` rather than `Exception` so an interrupt lands on
+    unestablished too; the traceback still reaches stderr for the operator.
+    """
+    try:
+        return cmd_presence(rest)
+    except BaseException:  # noqa: BLE001 - deliberate: see docstring
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return _print_presence_unestablished("internal-error")
+
+
 def main(argv=None):
     _force_utf8_streams()
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] == PRESENCE_FLAG:
-        return cmd_presence(args[1:])
+        return _run_presence(args[1:])
     if not args:
         # NO discovery marker here — a usage error is not a discovery outcome, so
         # it must not be mistaken for a PARTIAL one. Emitting neither marker is

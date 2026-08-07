@@ -4059,8 +4059,9 @@ P4_FILE="$IMPL_PHASES_DIR/phase-4-documentation.md"
 IMPL_REFS_DIR="$LIB/../skills/implement/references"
 # Issue #1374 relocated §4.0.5's filing procedure out of the phase file and behind a
 # predicate-gated reference, so every pin whose literal lives inside that procedure now
-# names this path. The pins were re-targeted, never deleted: a pin left on the phase file
-# reports a count of zero and passes nothing.
+# names this path. The pins were re-targeted rather than deleted — with one recorded
+# retirement, marked at its own site below — because a pin left on the phase file reports
+# a count of zero and passes nothing.
 P405_REF="$IMPL_REFS_DIR/deferred-review-findings.md"
 # Directory-reconciliation: the actual phases/*.md files must equal IMPL_PHASE_STEMS — the
 # single registered phase set the bundle members and the per-phase loop both derive from. A

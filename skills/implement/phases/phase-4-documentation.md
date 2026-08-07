@@ -32,7 +32,7 @@ The Phase 4.0.5 procedure lives in `<skill-dir>/references/deferred-review-findi
 .prflow/vendor/prflow/scripts/discover-deferral-manifests.py --presence-for-pr <this-run's-PR-number>
 ```
 
-On a `command not found` / `No such file` / rc-127 reading — the vendored path does not resolve on this tier — re-invoke the same helper through the portable anchor, which is why the vendored spelling is an arm rather than a replacement:
+On any reading that says the vendored path did not *run* — `command not found`, `No such file`, `Permission denied`, rc 126 or rc 127 — re-invoke the same helper through the portable anchor, which is why the vendored spelling is an arm rather than a replacement. A consumer whose vendor step dropped the executable bit reports `Permission denied` rather than `command not found`, so a trigger naming only the not-found reading would leave that consumer with no second arm:
 
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/discover-deferral-manifests.py --presence-for-pr <this-run's-PR-number>
@@ -40,9 +40,9 @@ On a `command not found` / `No such file` / rc-127 reading — the vendored path
 
 Read the **exit code and printed state line from the tool result**, never a captured shell variable. Route on the exit code:
 
-- **exit 1 — `absent: 0`.** Do **not** read the reference; continue to §4.1.
 - **exit 0 — `present: <n>`.** `Read` `<skill-dir>/references/deferred-review-findings.md` — via the same `<skill-dir>` anchor this file's entry-gate uses — and follow it.
-- **exit 2 — `unestablished: reason=<token>`, optionally followed by a `root:` line — or no output at all.** Read the reference **anyway**, and record `workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "…"`. When a reason was reported, name the operand that could not be established and quote the token; when nothing was printed at all — the shape a harness refusal takes — record that no-output condition itself rather than a token you did not receive. An unavailable operand is **never** read as "nothing was deferred": that reading silently strands acknowledged findings, while a needless load costs one read.
+- **exit 1 *and* the printed line is exactly `absent: 0`.** Do **not** read the reference; continue to §4.1. Both conditions are required: 1 is also the status a crashing interpreter returns, so an exit 1 carrying no `absent: 0` line is the arm below, not this one.
+- **Every other outcome** — exit 2 with `unestablished: reason=<token>` (optionally a `root:` line), exit 1 without that `absent: 0` line, any other exit code, or no output at all. Read the reference **anyway**, and record `workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "…"` naming what you observed: the reason token when one was reported, the exit code when it was outside the contract, or the no-output condition itself — the shape a harness refusal takes — rather than a token you did not receive. An unavailable operand is **never** read as "nothing was deferred": that reading silently strands acknowledged findings, while a needless load costs one read. This arm is the residual, so an outcome nobody enumerated lands here rather than on the skip.
 
 **Marker contract.** Accept the load only when the file's **first line is its `start` boundary marker and its last line the matching `end` marker**, each naming that file's own path.
 
