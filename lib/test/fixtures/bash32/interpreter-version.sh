@@ -7,9 +7,9 @@
 # Every other fixture in this corpus is a claim ABOUT Bash 3.2, so a corpus that ran
 # green under Bash 5 would report a portable surface it never exercised. This fixture
 # is what makes the rest of the lane mean anything, and it is deliberately an equality
-# on BOTH version components: Bash 3.0 and 3.1 lack `+=` string append and the `[[ =~ ]]`
-# regex operator that shipped helpers use, so "major is 3" is not the property the lane
-# claims to verify, and Bash 4 supports the very constructs the corpus asserts are absent.
+# on BOTH version components: the interpreter this lane exists for is the stock macOS
+# one, 3.2.57, so "major is 3" is not the property the lane claims to verify — and Bash 4
+# supports the very constructs the corpus asserts are absent.
 #
 # Exit 0 = the interpreter is 3.2. Exit 1 = anything else, naming what it actually is.
 set -u

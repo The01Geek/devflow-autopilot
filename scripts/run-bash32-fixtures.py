@@ -287,7 +287,7 @@ def main(argv=None) -> int:
             return 0
         # Every other empty selection is an empty MEASUREMENT, not an empty answer: an
         # unestablished classification, or a conservative decision that somehow selected
-        # nothing, would otherwise run the six construct fixtures over zero repository
+        # nothing, would otherwise run the construct fixtures over zero repository
         # surface and report the lane `pass`. Refuse instead of reporting a clean lane
         # over nothing.
         print("run-bash32-fixtures: an empty selection that is not a fully-established selective "
@@ -319,20 +319,28 @@ def main(argv=None) -> int:
             failed = True
             sys.stderr.write(_diagnostic(output))
 
-    if selected:
-        parse_fixture = manifest_path.parent / "parse-under-bash32.sh"
-        outcome, status, duration, output = run_supervised(
-            [args.bash, str(parse_fixture), *[str(root / p) for p in selected]],
-            SURFACE_PARSE_DEADLINE_SECONDS, launcher, env={**os.environ, "BASH": args.bash},
-        )
-        result["fixtures"].append({
-            "id": "portable-surface-parse", "construct": f"{len(selected)} selected surface(s) parse",
-            "outcome": outcome, "status": status, "duration_ms": int(duration * 1000),
-        })
-        print(f"portable-surface-parse {outcome} {int(duration * 1000)}ms")
-        if outcome != OUTCOME_PASS:
-            failed = True
-            sys.stderr.write(_diagnostic(output))
+    # Unconditional: every empty selection already returned above, either as the one
+    # established not_applicable or as a refusal. Re-testing `selected` here would read
+    # as if a lane could reach this point with nothing to parse.
+    if not selected:
+        # Not reachable by reasoning, and refused rather than skipped anyway: silently
+        # omitting the per-surface parse would report a lane that verified no surface.
+        print("run-bash32-fixtures: reached the per-surface parse with an empty selection",
+              file=sys.stderr)
+        return 2
+    parse_fixture = manifest_path.parent / "parse-under-bash32.sh"
+    outcome, status, duration, output = run_supervised(
+        [args.bash, str(parse_fixture), *[str(root / p) for p in selected]],
+        SURFACE_PARSE_DEADLINE_SECONDS, launcher, env={**os.environ, "BASH": args.bash},
+    )
+    result["fixtures"].append({
+        "id": "portable-surface-parse", "construct": f"{len(selected)} selected surface(s) parse",
+        "outcome": outcome, "status": status, "duration_ms": int(duration * 1000),
+    })
+    print(f"portable-surface-parse {outcome} {int(duration * 1000)}ms")
+    if outcome != OUTCOME_PASS:
+        failed = True
+        sys.stderr.write(_diagnostic(output))
 
     result["domain_result"] = DOMAIN_FAIL if failed else DOMAIN_PASS
     _emit(result, args.result_file)

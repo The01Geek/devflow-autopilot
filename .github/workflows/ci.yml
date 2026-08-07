@@ -307,9 +307,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # pipefail, because the step's shell is `bash -e` without it and the pipeline
-          # would otherwise report `tee`'s status — swallowing the classifier's exit 2
-          # (no decision possible at all) and leaving an empty classification behind.
+          # Set explicitly rather than relied upon: the default `run` shell is already
+          # `bash -eo pipefail`, but a repo- or workflow-level `defaults.run.shell` would
+          # silently drop it, and without pipefail this pipeline reports `tee`'s status —
+          # swallowing the classifier's exit 2 (no decision possible at all) and leaving
+          # an empty classification behind.
           set -o pipefail
           mkdir -p .prflow/tmp
           python3 scripts/classify-portability-risk.py \
@@ -612,7 +614,7 @@ jobs:
     # has CONCLUDED (`!cancelled()`), so a red `lint` — which is NOT a required
     # status check, hence a mergeable PR — is ANNOUNCED rather than skipped in
     # silence. The credential-safety property is preserved by step-level gating:
-    # the checkout, mint, and post steps each require both results to be `success`,
+    # the checkout, mint, and post steps each require `test` and `lint` to be `success`,
     # so an ineligible run still reaches no App-token mint and no PR-code checkout.
     #
     # The remaining `if:` guards are all GitHub-evaluated, so an ineligible run
@@ -682,7 +684,9 @@ jobs:
       # network — gh authenticates from GH_TOKEN — so the checkout leaves no
       # credential behind for later steps to inherit.
       #
-      # Step-gated on both dependencies succeeding: on the announcement path
+      # Step-gated on `test` and `lint` succeeding — deliberately not on the
+      # portability aggregator, which is a `needs:` edge for ORDERING only while the
+      # lane is advisory: on the announcement path
       # (a red/pending dependency) this checkout of the pull request's own code
       # does NOT run, preserving the "ineligible run reaches no PR-code checkout
       # and mints no credential" property across the widened job `if:`.

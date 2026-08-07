@@ -328,6 +328,43 @@ assert_eq "#1277 classifier: an established population touching no portable surf
   "$(_pl_classify "$(_pl_gh_stub clean 'if [ "$2" = "repos/o/r/pulls/7" ]; then printf "{\"changed_files\": 1, \"head\": {\"sha\": \"abc\"}}"; else printf "[{\"filename\": \"README.md\", \"status\": \"modified\"}]"; fi')" \
     --repo o/r --event-name pull_request --pr 7 --head-sha abc)"
 
+# The UNDER-selection direction, which the zero-selection row above cannot reach: an
+# established population touching a genuinely portable surface must return that exact
+# subset. Over-selection only wastes runner minutes; under-selection silently ships an
+# unverified incompatibility, so a regression that dropped a legitimately-changed file
+# has to be visible here.
+#
+# The probe path is DERIVED, never transcribed: a portable registry entry that is not a
+# closure member and that the classifier's own `SELECT_ALL_PATHS`/`SELECT_ALL_PREFIXES`
+# do not widen — read out of the classifier module rather than copied, so a widened
+# select-all set cannot leave this row silently asserting the wrong branch.
+_pl_leaf_surface="$(python3 - "$PL_REPO" "$PL_REGISTRY" <<'PL_LEAF'
+import importlib.util, json, sys
+from pathlib import Path
+root, registry = Path(sys.argv[1]), Path(sys.argv[2])
+spec = importlib.util.spec_from_file_location("cls", root / "scripts/classify-portability-risk.py")
+cls = importlib.util.module_from_spec(spec); spec.loader.exec_module(cls)
+entries = json.loads(registry.read_text(encoding="utf-8"))["entries"]
+closure = {m for v in entries.values() for m in (v.get("shared_library_closure") or [])}
+for path in sorted(p for p, v in entries.items() if v.get("state") == "portable"):
+    if path in closure or path in cls.SELECT_ALL_PATHS or path.startswith(cls.SELECT_ALL_PREFIXES):
+        continue
+    print(path)
+    break
+PL_LEAF
+)"
+# An empty probe path would make the row below assert `selective|...|0` and pass while
+# checking nothing, so the derivation's own success is asserted first.
+assert_eq "#1277 classifier: the selective probe path derives a real leaf portable surface" \
+  "yes" "$([ -n "$_pl_leaf_surface" ] && printf 'yes' || printf 'no')"
+
+assert_eq "#1277 classifier: an established population touching one portable surface selects exactly that surface" \
+  "selective|True|changed-file-population-established|$_pl_leaf_surface" \
+  "$(DEVFLOW_GH="$(_pl_gh_stub leaf 'if [ "$2" = "repos/o/r/pulls/7" ]; then printf "{\"changed_files\": 1, \"head\": {\"sha\": \"abc\"}}"; else printf "[{\"filename\": \"%s\", \"status\": \"modified\"}]" "$PL_LEAF_SURFACE"; fi')" \
+      PL_LEAF_SURFACE="$_pl_leaf_surface" python3 "$PL_CLASSIFY" --registry "$PL_REGISTRY" \
+      --repo o/r --event-name pull_request --pr 7 --head-sha abc 2>/dev/null \
+      | python3 -c 'import json,sys; d=json.load(sys.stdin); print("%s|%s|%s|%s" % (d["execution"], d["established"], d["reason"], ",".join(d["selected"])))')"
+
 # Touching the registry re-decides what portable MEANS, so a subset would prove
 # nothing about the surface the old registry described.
 assert_eq "#1277 classifier: touching the registry selects the complete portable population" \
@@ -410,7 +447,7 @@ assert_eq "#1277 supervisor: an established empty selection is not_applicable" \
 
 # The mirror case: an UNestablished classification never reaches not_applicable, even
 # with an empty list, because "we could not look" is not "there was nothing". It is a
-# REFUSAL rather than a lane result — running the six construct fixtures over zero
+# REFUSAL rather than a lane result — running the construct fixtures over zero
 # repository surface and reporting `pass` is exactly the clean-lane-over-nothing the
 # supervisor exists to prevent.
 printf '{"schema_version": 1, "execution": "conservative", "established": false, "selected": []}\n' \
@@ -487,6 +524,25 @@ launcher = sup._load_signal_launcher(root)
 outcome, status, _duration, _output = sup.run_supervised([bash, str(fixture)], 30, launcher)
 print(outcome, status)
 PL_PROPAGATE
+)"
+
+# The PASS arm, isolated the same way. Every supervisor path reachable end-to-end on
+# this Linux host terminates at the interpreter precondition, `not_applicable` or a
+# refusal, so the zero-exit -> `pass` mapping runs only on the advisory macOS producer;
+# driving `run_supervised` directly gives it host-independent coverage. Paired with the
+# red-fixture row below it, this is the discriminating pair the end-to-end control
+# cannot be.
+assert_eq "#1277 supervisor: a fixture that exits zero maps to the pass outcome with status 0" \
+  "pass 0" "$(python3 - "$PL_REPO" "$(command -v bash)" "$_pl_redfx_dir/green.sh" <<'PL_PASS'
+import importlib.util, sys
+from pathlib import Path
+root, bash, fixture = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+spec = importlib.util.spec_from_file_location("sup", root / "scripts/run-bash32-fixtures.py")
+sup = importlib.util.module_from_spec(spec); spec.loader.exec_module(sup)
+launcher = sup._load_signal_launcher(root)
+outcome, status, _duration, _output = sup.run_supervised([bash, str(fixture)], 30, launcher)
+print(outcome, status)
+PL_PASS
 )"
 
 # The WATCHDOG arm, isolated from the interpreter precondition the same way. The

@@ -71,6 +71,12 @@ SELECT_ALL_PATHS = (
     "lib/shell-surface-registry.json",
     "lib/test/check-shell-surface-totality.py",
     "scripts/classify-portability-risk.py",
+    # The classifier's own import dependency: `gh_json_ex` decides whether the
+    # changed-file population is `established` at all, so a regression there can
+    # under-select exactly the way a change to this file can. Python imports are not
+    # otherwise walked — a closure for them would need its own reconciler, which is the
+    # registry's job for shell and out of this lane's scope.
+    "scripts/gh_json_ex.py",
     "scripts/run-bash32-fixtures.py",
     "lib/test/gate-portability-result.sh",
     "lib/test/fixtures/bash32/manifest.tsv",
