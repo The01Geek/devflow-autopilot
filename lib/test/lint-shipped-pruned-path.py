@@ -2,15 +2,23 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 """Fail the suite when a shipped prompt surface references a path the vendor slice
-prunes (issue #1072), or cites a PRFlow-internal issue/PR number or acceptance
-criterion (issue #1241).
+prunes (issue #1072), cites a PRFlow-internal issue/PR number or acceptance criterion
+(issue #1241), or — inside a vendored-skill body — names PRFlow's own `CLAUDE.md`
+(issue #1401).
 
-Both forbidden classes share one cause: `skills/**` / `agents/**` ships verbatim into
-every consumer repo, so a reference that only resolves against THIS repository's tree
-or issue tracker points at nothing in a consumer's checkout. The pruned-path check
-(below) covers the tree paths; the citation check covers `#123` / `issue #123` /
-`PR #123` and `AC5`-style acceptance-criterion references. Both are exempted by the
-same per-line declaration marker described below.
+All three forbidden classes share one cause: `skills/**` / `agents/**` ships verbatim
+into every consumer repo, so a reference that only resolves against THIS repository's
+tree, issue tracker, or project-memory file points at nothing in a consumer's checkout.
+The pruned-path check (below) covers the tree paths; the citation check covers `#123` /
+`issue #123` / `PR #123` and `AC5`-style acceptance-criterion references. The
+CLAUDE.md-token check (issue #1401) is narrower in scope: it fires only inside the
+DERIVED vendored-skill directories — every `skills/<name>/` whose `SKILL.md` carries the
+vendored-provenance sentence — because every OTHER shipped file may legitimately name
+`CLAUDE.md` as the consumer's own project memory. The vendor slice never copies PRFlow's
+`CLAUDE.md`, so a pointer to it in a vendored body resolves against a consumer's own,
+unrelated project-memory file. The scope is derived, never a transcribed directory list,
+and an empty or unestablished derivation refuses non-zero rather than scanning nothing. All three are
+exempted by the same per-line declaration marker described below.
 
 Why this exists: `.github/actions/vendor-plugin/vendor-slice.sh`'s
 `devflow_copy_slice()` deletes subtrees from the vendored plugin before it lands in
@@ -84,12 +92,14 @@ prune target subtracts nothing and is not printed); it exits 0 even when the exe
 selects nothing, so the derivation is observable on the success path.
 
 Exit status is 0 only when the prune set AND the docs.* exemption set were established,
-the post-exemption forbidden set is non-empty, the enumeration selected at least one
-audited file, every selected file was read, and none referenced a prune target without
-a marker. It is non-zero when a reference is found, when the prune set or the exemption
-set cannot be established, when the exemption empties the forbidden set, when the
-enumeration is unusable, when it selects no audited file at all, and when any selected
-path could not be read.
+the post-exemption forbidden set is non-empty, the vendored-skill scope (issue #1401)
+was derived non-empty, the enumeration selected at least one audited file, every selected
+file was read, and none referenced a prune target, cited a PRFlow-internal reference, or
+named PRFlow's own `CLAUDE.md` inside a vendored body without a marker. It is non-zero
+when any such reference is found, when the prune set or the exemption set cannot be
+established, when the exemption empties the forbidden set, when the vendored-skill scope
+derives empty, when the enumeration is unusable, when it selects no audited file at all,
+and when any selected path could not be read.
 """
 
 from __future__ import annotations
@@ -150,6 +160,15 @@ class DocsDefaultsParseError(Exception):
     that cannot yield a real exemption derivation, so the two derivations fail closed
     on identical terms. The caller catches it in `main` and refuses non-zero naming the
     schema source — an unestablished exemption set is never silently an empty one.
+    """
+
+
+class VendoredScopeError(Exception):
+    """The vendored-skill directory scope could not be established (issue #1401).
+
+    Raised on an unreadable `skills/*/SKILL.md`: skipping one would drop its directory
+    from scope while another match keeps the empty-derivation guard quiet, so every file
+    in the dropped directory escapes the token ban on an exit-0 run.
     """
 
 
@@ -437,6 +456,59 @@ def scan_citations(text: str) -> list[tuple[int, str]]:
     return _scan(text, match)
 
 
+#: The vendored-provenance sentence (issue #1401). A `skills/<name>/SKILL.md` carrying
+#: it is a body vendored from the MIT-licensed superpowers plugin, shipped verbatim into
+#: every consumer repo. The scope of the `CLAUDE.md`-token ban below is DERIVED from
+#: which SKILL.md bodies carry this sentence — never a transcribed directory list — so a
+#: rename or a newly-vendored skill moves the scope with no edit here, and an empty
+#: derivation fails the run closed rather than silently scanning nothing.
+_PROVENANCE_SENTENCE = "MIT-licensed `superpowers` plugin"
+
+#: The token forbidden inside a vendored-skill body (issue #1401): it names PRFlow's OWN
+#: `CLAUDE.md`, which the vendor slice never copies, so in a consumer's checkout it
+#: resolves against that repo's own project-memory file — a non-shipping pointer. A plain
+#: substring test, never a regex over citation shapes: a shape rule over the whole audited
+#: population would report the correct generic `CLAUDE.md` references every other
+#: skills/**+agents/** file legitimately carries. `CLAUDE.local.md` does not contain this
+#: token as a substring, so it is never a match.
+_VENDORED_CLAUDE_MD_TOKEN = "CLAUDE.md"
+
+
+def derive_vendored_skill_dirs(root: Path) -> set[str]:
+    """Return the set of `skills/<name>/` prefixes whose `SKILL.md` carries the
+    vendored-provenance sentence (issue #1401).
+
+    Root-anchored and non-recursive (`skills/*/SKILL.md`) so it is independent of the
+    `--files-from` narrowing and cannot reach a sibling worktree. Derived, never
+    transcribed: a rename or a newly-vendored skill moves the scope with no edit here.
+    The SKILL.md read here is a direct lossy read, deliberately NOT the shared
+    `_pop.read_source` — the derivation is a property of the on-disk tree, not of the
+    audited population a test may narrow or stub. An empty result is the caller's
+    fail-closed signal; `main` refuses non-zero rather than scanning nothing, the same
+    posture as the empty-prune-set refusal. An unreadable `SKILL.md` raises rather than
+    skipping, because a partial derivation drops that directory from scope while the
+    remaining match keeps the empty-derivation guard quiet.
+    """
+    dirs: set[str] = set()
+    for skill_md in root.glob("skills/*/SKILL.md"):
+        try:
+            text = skill_md.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            raise VendoredScopeError(f"could not read {skill_md}: {exc}") from exc
+        if _PROVENANCE_SENTENCE in text:
+            dirs.add(f"skills/{skill_md.parent.name}/")
+    return dirs
+
+
+def scan_vendored_claude_md(text: str) -> list[tuple[int, str]]:
+    """Return (1-based line, matched token) for each unmarked `CLAUDE.md` reference,
+    sharing the fence-aware `pruned-path-ok` marker discharge through `_scan`."""
+    return _scan(
+        text,
+        lambda line: _VENDORED_CLAUDE_MD_TOKEN if _VENDORED_CLAUDE_MD_TOKEN in line else None,
+    )
+
+
 def is_audited(path: str) -> bool:
     normalized = path.replace("\\", "/")
     return any(normalized.startswith(p) for p in AUDITED_PREFIXES)
@@ -597,6 +669,29 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
+    # Derive the vendored-skill directory scope for the CLAUDE.md-token ban (issue
+    # #1401). An empty derivation is a fail-open shape — no directory would be scanned
+    # for the token — so it refuses non-zero naming the empty population, the same
+    # posture as the empty-prune-set and empty-audited refusals above.
+    try:
+        vendored_dirs = derive_vendored_skill_dirs(root)
+    except VendoredScopeError as exc:
+        print(
+            f"lint-shipped-pruned-path: could not establish the vendored-skill scope "
+            f"under {root}: {exc}; auditing nothing",
+            file=sys.stderr,
+        )
+        return 1
+    if not vendored_dirs:
+        print(
+            "lint-shipped-pruned-path: no skills/<name>/SKILL.md under "
+            f"{root} carries the vendored-provenance sentence "
+            f"{_PROVENANCE_SENTENCE!r} — refusing to audit the vendored-skill surface "
+            "against an empty derived population",
+            file=sys.stderr,
+        )
+        return 1
+
     findings: list[str] = []
     skipped: list[tuple[str, str]] = []
     read_ok = 0
@@ -616,6 +711,17 @@ def main(argv: list[str] | None = None) -> int:
                 f"{relative}:{number}: cites PRFlow-internal '{cite}' (issue/PR or "
                 "acceptance-criterion reference) with no pruned-path-ok marker"
             )
+        # The CLAUDE.md-token ban applies only inside the derived vendored-skill dirs
+        # (issue #1401): every other skills/**+agents/** file may name CLAUDE.md as the
+        # consumer's own project memory, which is correct usage and must not be reported.
+        normalized = relative.replace("\\", "/")
+        if any(normalized.startswith(d) for d in vendored_dirs):
+            for number, tok in scan_vendored_claude_md(text):
+                findings.append(
+                    f"{relative}:{number}: references PRFlow's own '{tok}' (a vendored "
+                    "skill body ships verbatim into a consumer, so it names that repo's "
+                    "own project memory) with no pruned-path-ok marker"
+                )
 
     for finding in findings:
         print(finding)
