@@ -3,9 +3,7 @@ title: "Requirements"
 description: "Prepare the local tools and GitHub access that PRFlow needs."
 ---
 
-# Requirements
-
-This page is for anyone preparing a workstation for local PRFlow runs. Cloud runs have a separate [environment and runner setup path](/docs/runs/cloud/setup).
+Prepare your workstation with the tools required for local PRFlow runs. Cloud runs use a separate [environment and runner setup path](/docs/runs/cloud/setup).
 
 ## Required Local Tools
 

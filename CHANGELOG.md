@@ -4,6 +4,11 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.32] — 2026-08-07
+
+### Changed
+Brought `CLAUDE.md` into conformance with its own instruction-plus-consequence prose rule. Each instruction now carries at most one sentence naming what breaks if it is skipped; rationale essays, motivating-incident archaeology, rejected-design records, anti-refactor notes and epistemics commentary are gone. Every instruction, prohibition, degraded arm, closed-set enumeration, coupled-mirror obligation, sanctioned canonical-page summary and frozen figure is preserved, as is every literal the suite pins against this file, so agent behaviour and the suite are unchanged.
+
 ## [2.31.31] — 2026-08-07
 
 ### Changed

@@ -3,9 +3,7 @@ title: "Command Reference"
 description: "Look up every public PRFlow command, argument, supported client and result."
 ---
 
-# Command Reference
-
-This page is for users who need the canonical PRFlow command and availability matrix. A command is the text you enter. It invokes a PRFlow skill, whose documented behavior is called a workflow in these guides.
+Find the canonical syntax and client availability for every public PRFlow command. A command is the text you enter. It invokes a PRFlow skill, whose documented behavior is called a workflow in these guides.
 
 ## Client Syntax
 

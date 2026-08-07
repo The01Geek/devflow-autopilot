@@ -3,9 +3,7 @@ title: "Human Control"
 description: "See which decisions, permissions and merge actions remain with people."
 ---
 
-# Human Control
-
-This page is for developers and maintainers who want clear boundaries around PRFlow's autonomy. PRFlow can prepare and review changes, but people retain authority over the repository.
+PRFlow can prepare and review changes, but people retain authority over the repository. These boundaries clarify what the agent may do and which decisions remain yours.
 
 ## Before a Run
 

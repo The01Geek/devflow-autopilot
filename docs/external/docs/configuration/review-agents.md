@@ -3,9 +3,7 @@ title: "Review Agents"
 description: "Override model, effort and iteration participation for individual review agents."
 ---
 
-# Review Agents
-
-This page is for maintainers who have measured a reason to tune individual review passes. PRFlow can apply model overrides to each reviewer request. It accepts and resolves per-agent effort settings. The current client cannot apply a different effort value to each agent, so PRFlow reports that the reviewer inherited the session effort.
+Tune individual review passes only when your results show a clear reason to do so. PRFlow can apply model overrides to each reviewer request. It accepts and resolves per-agent effort settings. The current client cannot apply a different effort value to each agent, so PRFlow reports that the reviewer inherited the session effort.
 
 `prflow_review.agent_overrides` is an object. It accepts a `default` entry and these canonical agent keys:
 

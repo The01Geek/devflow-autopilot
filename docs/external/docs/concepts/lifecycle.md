@@ -3,9 +3,7 @@ title: "The PRFlow Lifecycle"
 description: "Follow an issue through implementation, review, documentation and human merge."
 ---
 
-# The PRFlow Lifecycle
-
-This page follows seven lifecycle stages from issue preparation through human merge. PRFlow performs the middle stages through four implementation phases. The final merge remains human-controlled.
+Follow a PRFlow request through seven lifecycle stages, from issue preparation to human merge. PRFlow performs the middle stages through four implementation phases, while the final merge remains human-controlled.
 
 ```mermaid
 flowchart TD

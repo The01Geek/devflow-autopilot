@@ -3,9 +3,7 @@ title: "Runs"
 description: "Choose local interactive execution or optional GitHub Actions automation."
 ---
 
-# Runs
-
-This page is for teams choosing where PRFlow should execute. The lifecycle is similar in both modes, but the credentials, permission boundary and interaction model differ.
+Choose local or cloud execution based on where your team wants PRFlow to run. Both modes follow a similar lifecycle, but their credentials, permission boundaries and interaction models differ.
 
 ```mermaid
 flowchart TD

@@ -3,9 +3,7 @@ title: "Tool Permissions"
 description: "Grant repository commands to the correct PRFlow execution path."
 ---
 
-# Tool Permissions
-
-This page is for maintainers granting cloud agents access to repository-specific test, lint, build or deployment commands.
+Grant cloud agents only the repository-specific test, lint, build or deployment commands their work requires.
 
 Installation and runtime provisioning do not grant command execution. PRFlow appends configured entries to a built-in allowlist; configured arrays do not replace the base profile.
 

@@ -3,9 +3,7 @@ title: "Cloud Runners"
 description: "Select and provision GitHub-hosted or self-hosted runners for PRFlow."
 ---
 
-# Cloud Runners
-
-This page is for maintainers who need to move PRFlow jobs away from the default GitHub-hosted Linux runner.
+Move PRFlow jobs from the default GitHub-hosted Linux runner to a compatible self-hosted or custom runner.
 
 ## Select a Runner
 

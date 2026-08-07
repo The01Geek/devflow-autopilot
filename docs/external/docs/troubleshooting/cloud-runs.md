@@ -3,9 +3,7 @@ title: "Cloud-Run Problems"
 description: "Diagnose comment authorization, authentication, runners, runtime setup, stale pins and interrupted workflows."
 ---
 
-# Cloud-Run Problems
-
-This page is for maintainers diagnosing a GitHub Actions run or a comment that did not start one.
+Diagnose a GitHub Actions run that failed or an authorized comment that did not start one.
 
 ## A Comment Did Not Trigger
 

@@ -3,9 +3,7 @@ title: "Troubleshooting"
 description: "Resolve PRFlow installation, configuration, command and cloud-run problems by symptom."
 ---
 
-# Troubleshooting
-
-This section is for users and maintainers diagnosing a PRFlow failure from the first visible symptom.
+Start with the first visible symptom to identify why a PRFlow command, configuration or run failed.
 
 - [Installation Problems](/docs/troubleshooting/installation) covers plugin loading, missing prerequisites, marketplace updates and installer sidecars.
 - [Command Problems](/docs/troubleshooting/commands) covers unknown commands, GitHub authentication and blocked verification.

@@ -1,11 +1,9 @@
 ---
 title: "Getting Started"
-description: "Install PRFlow and turn a GitHub issue into a review-ready pull request."
+description: "Install PRFlow and carry a request from user story and specification to a review-ready pull request."
 ---
 
-# Getting Started
-
-This guide is for developers and teams that use GitHub and want an agent to carry a well-scoped issue through implementation, verification, review and documentation. PRFlow prepares the pull request. You keep final review and merge control.
+Start with a user story, feature request or existing GitHub issue. PRFlow can shape the request into an approved issue, then carry it through implementation, verification, review and documentation. You keep final review and merge control.
 
 PRFlow works especially well in established repositories where a change must follow existing architecture, tests and documentation conventions. You can run it locally from Claude Code, GitHub Copilot CLI or Codex CLI. Cloud automation is optional.
 
