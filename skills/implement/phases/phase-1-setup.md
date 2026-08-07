@@ -119,7 +119,7 @@ else
 fi
 ```
 
-**Preserve `workpad.py id`'s three-way exit contract before any create decision** — branch on all three:
+**Preserve `workpad.py id`'s three-way exit contract before any create decision** — reading the command's own exit status inline (never a captured `$?` in a later statement), branch on all three:
 
 - **Exit 0 (the `if` branch)** → found; `WORKPAD_ID` is the printed comment ID. Resume it (the non-empty-`WORKPAD_ID` arm below).
 - **Exit 2 (the `elif [ "$?" -eq 2 ]` branch)** → scanned cleanly, no workpad; create it (the create arm below). This is the **only** value that authorizes a create.
@@ -274,8 +274,10 @@ Read the helper's one-token stdout result and its exit code:
   access or correct the reference. Never treat this as a clean dependency set.
 - **Any exit code that is not 0 is a non-clean measurement — never PROCEED.**
   Only exit 0 continues to §1.4; exit 2 is the Blocked path above, and **exit 3
-  and any other non-zero code** are treated as UNAVAILABLE (the helper fails
-  closed to `UNAVAILABLE` on any unanticipated error rather than exiting 1).
+  and any other non-zero code** are treated as UNAVAILABLE — take the same
+  terminal Blocked path (the helper fails closed to `UNAVAILABLE` on any
+  unanticipated error rather than exiting 1). A non-zero exit never proceeds
+  silently.
 
 The clean path is intentionally a Progress note rather than a reflection. The
 blocked paths make no history mutation: they do not rebase, reset, force-push,
@@ -287,7 +289,7 @@ delete a branch, or create a PR.
 
 A re-triggered or backstop-resumed run may already have a feature branch and an **open PR** from its first attempt — and the local harness may hand it a *fresh* worktree on a *different* branch, which Signal 1 below would happily adopt, opening a second branch and a second PR while silently abandoning the committed work. So before evaluating either signal, look for the run's own prior output:
 
-**This pre-check runs on EVERY §1.4 entry** — fresh run, resume, and terminal re-trigger alike — and Phase 1.3's `resume-kind:` value never waives it. Where the two surfaces disagree, **this pre-check governs branch adoption**.
+**This pre-check runs on EVERY §1.4 entry** — fresh run, resume, and terminal re-trigger alike — and Phase 1.3's `resume-kind:` value never waives it. Where this pre-check and that marker disagree, **this pre-check governs branch adoption**.
 
 1. Read the workpad's `**Branch:**` line (the workpad was located in 1.3; a placeholder like `_(creating…)_` counts as absent).
 2. Query the issue's open PRs two ways, because either alone has a blind spot — by head branch (misses a PR whose branch the workpad never recorded) and by body reference (misses a PR that does not cite the issue):
@@ -325,9 +327,8 @@ Capture the checkout's own stderr in the **same statement** that runs it: git's 
 The refusal git actually prints is `fatal: '<branch>' is already used by worktree at '<path>'` — **match `already used by worktree`**, verified against git 2.50.1. Do **not** match the bare phrase `already checked out`: it occurs only in git's `--help` prose, never in the refusal error, so keying on it silently routes a resumable worktree case into the fail-closed stop below. (Git before 2.43 worded the same refusal `is already checked out at`, so that full phrase is retained as a secondary alternative for older git.)
 
 ```bash
-# The `|| true` is deliberate and is NOT a swallowed failure: the failure is captured in
-# $CO_ERR and routed by the three bullets below. Without it, a checkout refusal would
-# abort the block before LANDED could be computed.
+# The failure is captured in $CO_ERR and routed by the three bullets below; without the
+# `|| true` a checkout refusal would abort the block before LANDED could be computed.
 CO_ERR=$( { git fetch origin "$HEAD_REF" && git checkout "$HEAD_REF"; } 2>&1 1>/dev/null ) || true
 LANDED=no; [ -n "$HEAD_REF" ] && [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$HEAD_REF" ] && LANDED=yes
 ```
@@ -345,7 +346,8 @@ if [ "$LANDED" = yes ] && [ -n "${GITHUB_RUN_ID:-}" ]; then
   PR_NUMBER=$(printf '%s' "$PR_JSON" | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -r --arg h "$HEAD_REF" '[.[] | select(.headRefName == $h)] | sort_by(.createdAt) | last | .number // empty' 2>/dev/null) || PR_NUMBER=""
   if [ -n "$PR_NUMBER" ]; then
     # Read the PR body via REST `gh api` (repo-scope), symmetric with the PATCH below, so
-    # the whole read-modify-write path uses one repo-scoped surface. The `if !` reads
+    # the whole read-modify-write path uses one repo-scoped surface — never `gh pr edit
+    # --body`, which is org-scoped GraphQL and fails under a repo-scoped token. The `if !` reads
     # `gh api`'s OWN exit status, so a failed read gets its own breadcrumb rather than
     # being misreported as "no [View run] line".
     if ! PR_BODY=$(gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER" --jq '.body' 2>/dev/null); then
@@ -379,8 +381,8 @@ if [ "$LANDED" = yes ] && [ -n "${GITHUB_RUN_ID:-}" ]; then
 fi
 ```
 
-- **`LANDED` is `yes`** — the tree is on the PR's head branch. Skip branch creation and both signals entirely, **then run §1.4.0.5's Verdict B classification and then take the *Base-branch update checkpoint 1 — invocation* step at the end of §1.4 before continuing to §1.5**. Both of those are arm-independent, and skipping forward past either leaves a resumed run on a stale base with its ahead-of-base history unscreened. On this arm §1.4's `USE_CURRENT`-gated freshness record does not run, so Verdict B's ordering obligation binds against the checkpoint alone: classify **before** the checkpoint invocation and **before** the §1.5 push, so a stop verdict still precedes every history-mutating step. The classification's `current_branch` is `$HEAD_REF` and its open-PR operands come from the very `PR_JSON` entry this pre-check selected, so no extra query is needed; set `open_pr_selected_by` to `head` or `body` according to which of the two queries above returned that entry.
-- **`LANDED` is `no` and `$CO_ERR` matches `already used by worktree` (or the older `already checked out at`)** — the branch is live in another linked worktree. Do not force it and do not duplicate the branch: read that worktree's path from `git worktree list --porcelain` and continue in that worktree instead, noting the switch in the workpad. **Re-materialize the §1.1 issue-body cache under the new worktree root before any Phase 2 consumer reads it:** §1.1 wrote the cache anchored to the *original* root, so re-run the §1.1 producer (root anchor → ignore precondition → delete-then-fetch into `.prflow/tmp/issue-body/issue-$ISSUE_NUMBER.md`) inside the switched worktree for §1.2/§1.3.5/§1.6 and the Phase 2 dispatches. (If the harness already placed you in a worktree, the checkout happens **inside** it, so no extra step is needed.)
+- **`LANDED` is `yes`** — the tree is on the PR's head branch. Skip branch creation and both signals entirely, **then run §1.4.0.5's Verdict B classification and then take the *Base-branch update checkpoint 1 — invocation* step at the end of §1.4 before continuing to §1.5**. Both of those are arm-independent: skipping forward past the checkpoint leaves a resumed run on a stale base, and skipping forward past Verdict B leaves its ahead-of-base history unscreened. On this arm §1.4's `USE_CURRENT`-gated freshness record does not run, so Verdict B's ordering obligation binds against the checkpoint alone: classify **before** the checkpoint invocation and **before** the §1.5 push, so a stop verdict still precedes every history-mutating step. The classification's `current_branch` is `$HEAD_REF` and its open-PR operands come from the very `PR_JSON` entry this pre-check selected, so no extra query is needed; set `open_pr_selected_by` to `head` or `body` according to which of the two queries above returned that entry.
+- **`LANDED` is `no` and `$CO_ERR` matches `already used by worktree` (or the older `already checked out at`)** — the branch is live in another linked worktree. Do not force it and do not duplicate the branch: read that worktree's path from `git worktree list --porcelain` and continue in that worktree instead, noting the switch in the workpad. **Re-materialize the §1.1 issue-body cache under the new worktree root before any Phase 2 consumer reads it:** §1.1 wrote the cache anchored to the *original* root, so re-run the §1.1 producer (root anchor → ignore precondition → delete-then-fetch into `.prflow/tmp/issue-body/issue-$ISSUE_NUMBER.md`) inside the switched worktree, so the cache exists under that worktree's own `$(git rev-parse --show-toplevel)` for §1.2/§1.3.5/§1.6 and the Phase 2 dispatches. (If the harness already placed you in a worktree, the checkout happens **inside** it, so no extra step is needed.)
 - **`LANDED` is `no` for any other reason** (including an empty `HEAD_REF`) — record it and **stop**: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "resume pre-check: PR #<n> exists on branch $HEAD_REF but the checkout did not land ($CO_ERR); refusing to fall through to branch creation, which would duplicate that PR and abandon its commits"`, then emit the 👎 outcome reaction and stop the run. An open PR is *known* to exist, so creating a branch is a known duplication.
 
 **When there is no workpad `Branch` line and no open PR for the issue** — `PR_JSON` is the literal `[]`, meaning the queries *ran* and found nothing — this pre-check adopts nothing and the rest of §1.4 behaves as it did before this pre-check existed: Signal 1, then Signal 2, then the create-fresh fallthrough. Record the **Queried cleanly, none found** note above before falling through.
@@ -515,7 +517,7 @@ The clean path is a Progress `--note`; the stop paths make **no history mutation
 
 #### 1.4.1 Base-branch update checkpoint 1 (every §1.4 arm) — the canonical outcome-handling contract
 
-The invocation itself is **not** made here and is **not** gated on `USE_CURRENT` — it is made from the *Base-branch update checkpoint 1 — invocation* step below, which states the arms it runs on. This section is the **contract** that call site (and checkpoints 2 and 4) routes on. This is **Checkpoint 1** of the four base-branch update checkpoints; checkpoints 2 (Phase 3.1) and 4 (Phase 4.3) reuse the **implement-driven outcome-handling contract defined here**. Do **not** gate the call on the recorded behind-by value — the cloud allowlists do not grant an inline `git rev-list`, and the helper derives behind-by *internally* and no-ops with `UP_TO_DATE` when not behind.
+The invocation itself is **not** made here and is **not** gated on `USE_CURRENT` — it is made from the *Base-branch update checkpoint 1 — invocation* step below, which states the arms it runs on. This section is the **contract** that call site (and checkpoints 2 and 4) routes on. This is **Checkpoint 1** of the four base-branch update checkpoints; checkpoints 2 (Phase 3.1) and 4 (Phase 4.3) reuse the **implement-driven outcome-handling contract defined here**. Do **not** gate the call on the recorded behind-by value — the cloud allowlists do not grant an inline `git rev-list`, which is why §1.4's own freshness derivation is record-only; the helper derives behind-by *internally* and no-ops with `UP_TO_DATE` when not behind.
 
 The helper prints exactly one token on stdout with a matching exit code. Read it and act on it. **This is an *implement-driven* call site**, so outcomes are recorded on the **issue workpad** and the two hard stops flip it to **Blocked** (standalone `/prflow:review-and-fix` call sites record in the loop's own record and stop-and-report instead — see review-and-fix Step 3 / Loop Exit):
 
@@ -528,7 +530,7 @@ The helper prints exactly one token on stdout with a matching exit code. Read it
 
 **(§1.4 flow only — not part of the contract checkpoints 2 and 4 inherit:)** on the adopted-branch arm, skip the create fence below. Then jump straight to filling the workpad `Branch` line below — and from there take the *Base-branch update checkpoint 1 — invocation* step that follows it, which runs on this arm too.
 
-**Branch creation is reachable only through a recorded pre-check outcome.** Before running the create fence, confirm this run wrote its `resume-precheck: ` note above; if it did not, the pre-check has not run — go back and run it. Creating a branch without having queried the issue's open pull requests is the duplicate-branch-and-PR failure the pre-check exists to prevent, and a `fresh` classification from Phase 1.3 is not a substitute for that query. The adoption operand is an open pull request for the issue, never the bare existence of a branch named for the issue.
+**Branch creation is reachable only through a recorded pre-check outcome.** Before running the create fence, confirm this run wrote its `resume-precheck: ` note above; if it did not, the pre-check has not run — go back and run it. Creating a branch without having queried the issue's open pull requests is the duplicate-branch-and-PR failure the pre-check exists to prevent, and a `fresh` classification from Phase 1.3 is not a substitute for that query. **This pre-check's** adoption operand is an open pull request for the issue, never the bare existence of a branch named for the issue.
 
 **(§1.4 flow only:)** Otherwise, create a new branch. The canonical branch name is computed by the helper (handles slugification, unicode, length truncation, and collision suffixing deterministically):
 
@@ -614,9 +616,10 @@ git ls-files 'skills/*/SKILL.md' | wc -l   # skill count
 # SKIPPED enumeration looking like an empty one. The guard turns nomatch off under native
 # zsh and is a no-op elsewhere ($ZSH_VERSION unset -> `&&` short-circuits, `|| :` stays rc-0).
 # With nomatch off an unmatched glob leaves $1 the literal pattern, so `[ -e "$1" ]` decides
-# match-vs-no-match structurally. The second arm separates a PERMISSION-unlistable parent
+# match-vs-no-match structurally: no `2>/dev/null` to hide a real error, and exactly one of
+# the three arms can print. The second arm separates a PERMISSION-unlistable parent
 # from a genuinely empty one, testing mode bits only (the read bit to name the entries, the
-# search bit to stat them for the trailing `/`), so an entry that fails for another reason
+# search bit to stat them for the trailing `/`), so an entry or parent that fails for another reason
 # (dead mount, EIO) still reaches the empty arm. All three arms print on stdout so a caller
 # capturing stdout can tell "nothing here" from "could not look".
 # Unhandled: bash's `failglob`, where an unmatched pattern aborts `set --` before it runs.
@@ -685,7 +688,7 @@ Scan the Acceptance Criteria for any criterion whose satisfaction requires **edi
 - A **local/interactive-tier** run (no `GITHUB_ACTIONS`) pushes workflow files routinely (a human credential landed that way).
 - A **cloud-tier** run's capability depends on whether a **workflow-capable token** is in play. DevFlow's `devflow-implement` workflow mints an optional GitHub App installation token (Contents **and** Workflows write) and seeds it into `actions/checkout` **when — and only when — the `DEVFLOW_APP_ID` repository variable is set**; the workflow exports that variable to this run as the `DEVFLOW_APP_ID` environment value. When **`DEVFLOW_APP_ID` is non-empty**, the seeded App token carries the `workflows` scope and this run pushes `.github/workflows/` exactly like a human run — **do NOT defer.** When **`DEVFLOW_APP_ID` is empty/unset**, the run falls back to the built-in `GITHUB_TOKEN` (github-actions[bot]), which **cannot** push `.github/workflows/` — that is the one enumerated blocked capability.
 
-**Defer only when you can positively confirm the pushing credential cannot push a workflow file — i.e. a cloud-tier run (`GITHUB_ACTIONS=true`) whose `DEVFLOW_APP_ID` is empty/unset.** In every other case the credential *can* push `.github/workflows/`, so record the finding as a note and proceed; neither defer nor block.
+**Defer only when you can positively confirm the pushing credential cannot push a workflow file — i.e. a cloud-tier run (`GITHUB_ACTIONS=true`) whose `DEVFLOW_APP_ID` is empty/unset.** In every other case — a local/interactive run (no `GITHUB_ACTIONS`), or a cloud run whose `DEVFLOW_APP_ID` is non-empty — the pass reads the credential as workflow-capable, so record the finding as a note and proceed; neither defer nor block.
 
 **When a discriminating signal is genuinely unreadable, proceed — do not defer. An empty `DEVFLOW_APP_ID` is NOT an "unreadable" signal — on the cloud tier it is the positively-read DEFER signal.** Because the workflow always exports the variable (empty-valued when unset), the shell-level `[ -z "$DEVFLOW_APP_ID" ]` collapse of *empty* and *absent* does **not** apply: tie "unreadable" to **`GITHUB_ACTIONS` itself being absent** (a non-cloud environment where the workflow never ran to export anything). Concretely: `GITHUB_ACTIONS=true` + empty `DEVFLOW_APP_ID` ⇒ **defer**; the "unreadable → proceed" arm fires **only** when `GITHUB_ACTIONS` is absent/unreadable. Never route an empty-but-present `DEVFLOW_APP_ID` to the proceed arm. A spurious deferral silently under-delivers shippable workflow work, whereas a genuinely-unpushable workflow edit that slips through fails loudly at push time.
 
@@ -698,7 +701,7 @@ Route by capability (the deferral arms below are the **cloud-tier, `DEVFLOW_APP_
 - **Cloud tier, `DEVFLOW_APP_ID` empty, some but not all in-scope ACs are workflow-resident** → route every capability-blocked AC through the Phase 2.2.5 scope-adjustment **before Phase 2.3 writes any code**: narrow the workpad ACs to the pushable subset, and preserve each deferred criterion verbatim in the 2.2.5 `--note` with the `GITHUB_TOKEN`-fallback workflows-scope boundary (no workflow-capable App token; `DEVFLOW_APP_ID` unset) named as the reason (Phase 4.0 then files the workflows-capable follow-up). Treat a coupled test-suite pin (or any file) that asserts the deferred workflow's content as **blocked with it**, so the pushable subset stays CI-green on its own. This arm defers punted work, so record it as a `deferred` reflection: `--reflection-kind deferred --reflection "issue-claim audit (execution-capability): cloud tier — ACs {list} require editing .github/workflows/ (incl. coupled CI pins), which this run's GITHUB_TOKEN fallback (no workflow-capable App token; DEVFLOW_APP_ID unset) cannot push; deferring via 2.2.5 to a workflows-capable follow-up"`.
 - **Cloud tier, `DEVFLOW_APP_ID` empty, every in-scope AC is workflow-resident** → there is no shippable subset, so take the Phase 1 Blocked path instead of opening a near-empty PR: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "issue-claim audit (execution-capability): every in-scope acceptance criterion requires editing .github/workflows/, which this cloud run's GITHUB_TOKEN fallback (no workflow-capable App token; DEVFLOW_APP_ID unset) cannot push — this issue must be implemented by a workflows-capable run (a human/PAT, or a cloud run with the DevFlow App configured). Re-dispatch there; no PR opened"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop the run.
 
-**Boundary-assumption caveat (state it in the note).** The deferral fires on the two observable signals `GITHUB_ACTIONS=true` + empty `DEVFLOW_APP_ID`, which the pass reads as the `GITHUB_TOKEN` fallback (github-actions[bot], no `workflows` scope) — it cannot see the actual credential. A consumer whose cloud run carries that scope without setting `DEVFLOW_APP_ID` (a bespoke PAT-seeded checkout) is **spuriously deferred**; it suppresses the deferral by overriding this pass via `.prflow/prompt-extensions/implement.md`, which forces the *proceed* arm — do **not** add a config key for it. Name the observed `DEVFLOW_APP_ID`/tier signals in the cloud-tier note so the deferral reads as an auditable plan-time decision.
+**Boundary-assumption caveat (state it in the note).** The deferral fires on the two observable signals `GITHUB_ACTIONS=true` + empty `DEVFLOW_APP_ID`, which the pass reads as the `GITHUB_TOKEN` fallback (github-actions[bot], no `workflows` scope) — it cannot see the actual credential. A consumer whose cloud run carries that scope without setting `DEVFLOW_APP_ID` (a bespoke PAT-seeded checkout) is **spuriously deferred**; it suppresses the deferral by overriding this pass via `.prflow/prompt-extensions/implement.md`, which forces the *proceed* arm — do **not** add a config key for it. Conversely, a consumer that sets `DEVFLOW_APP_ID` for an App **without** the `workflows` scope does **not** defer here and its workflow push then fails at push time — loud and recoverable. Name the observed `DEVFLOW_APP_ID`/tier signals in the cloud-tier note so the deferral reads as an auditable plan-time decision.
 
 #### Pass 6 — Verified-premise re-check
 
