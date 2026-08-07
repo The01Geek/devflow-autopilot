@@ -38056,10 +38056,10 @@ fi
 # These fixtures drive the REAL self-scan process boundary (git diff | stale-prose-lint.py --rev
 # HEAD), the complement of the examine_file unit assertions in test_python_scripts.py; the
 # authoritative rule statement is the module-header R3 spec. Each accept-side fixture below
-# exited 1 with a gating STALE R3 under the shipped rule; the still-gates fixtures pin a genuine
+# exited 1 with a gating STALE R3 before this change; the still-gates fixtures pin a genuine
 # plural count mismatch plus its matched-count VERIFIED sibling. AC7 replays the two lines that
-# gate live on main today. (No count-shaped phrase appears in these comment lines: a comment IS
-# prose the lint examines, so the shapes live only in the code-line printf fixtures below.)
+# gated under the pre-#1405 rule. (No count-shaped phrase appears in these comment lines: a
+# comment IS prose the lint examines, so the shapes live only in the code-line printf fixtures.)
 SPF="$(probe_tmp '#1405 ac1 singular ordinal')"
 printf '%s\n' 'Step 3 item 6 produced no new fix commit.' 'assert a' 'assert b' > "$SPF"
 SPR="$(spl_repo "$SPF")"
@@ -38101,9 +38101,9 @@ SPR="$(spl_repo "$SPF")"
 assert_eq "#1405 AC6 R3 no longer masks R4 (exits 1)" "1" "$(spl_rc "$SPR")"
 assert_eq "#1405 AC6 emits a STALE R4 row (previously masked by the gating R3 match)" "yes" "$(spl_has "$SPR" STALE R4)"
 
-# AC7 — the two lines that gate live on main today, replayed through the self-scan boundary: a
-# diff adding them now exits 0. Each block size mismatches the claimed count, so both gated
-# (exit 1) under the shipped rule.
+# AC7 — the two lines that gated under the pre-#1405 rule, replayed through the self-scan
+# boundary: a diff adding them now exits 0. Each block size mismatches the claimed count, so both
+# gated (exit 1) before this change.
 SPF="$(probe_tmp '#1405 ac7 both live-gating lines')"
 printf '%s\n' \
   'Step 3 item 6 produced no new fix commit.' \

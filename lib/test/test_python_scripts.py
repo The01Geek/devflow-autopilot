@@ -5297,7 +5297,20 @@ def _rows_1405(body_lines):
     # added-dict + rows boilerplate — one place turns a fixture into rows.
     return _full_rows_818("docs/x.md", body_lines)
 
-_ASSERT2_1405 = ["assert x", "assert y"]  # two adjacent assertion lines (block count = 2)
+_ASSERT2_1405 = ["assert x", "assert y"]  # two adjacent assertion lines
+
+# The plural derivation `_COUNT_NOUNS.replace("s?", "s")` is a textual transform whose correctness
+# rests on every `_COUNT_NOUNS` alternative ending in a terminal `s?`. Pin that premise so a future
+# noun added without one (an irregular plural, an `(es)?` group) fails LOUDLY here instead of
+# silently leaving the derived gating alternation permitting a singular noun again — the exact
+# false-positive class #1405 closed. Behavioral: reads the imported runtime constants.
+assert_eq("#1405: every _COUNT_NOUNS alternative ends in a terminal 's?' (the plural derivation's premise)",
+          [], [a for a in stale_prose_lint._COUNT_NOUNS.split("|") if not a.endswith("s?")])
+assert_eq("#1405: the derived plural alternation differs from the singular-permitting source and "
+          "carries no residual optional-'s?'",
+          [True, True],
+          [stale_prose_lint._COUNT_NOUNS_PLURAL != stale_prose_lint._COUNT_NOUNS,
+           "s?" not in stale_prose_lint._COUNT_NOUNS_PLURAL])
 
 # AC1 — a singular ordinal reference emits no STALE and exactly one non-gating UNRESOLVABLE R3
 # recognition row whose detail begins `count-locked: recognition-only`.
