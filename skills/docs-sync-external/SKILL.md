@@ -125,7 +125,7 @@ Only edit customer-facing files in `[[EXTERNAL_DOC_LOCATION]]` and its subdirect
 
 ## Style Guide
 
-This Style Guide is the single source for PRFlow's **customer-facing** style mechanics — AP style, the Oxford-comma rule, preferred word choices, and the formatting conventions below. For the rules that are not audience-specific, follow the shared writing standard `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/writing-standard.md`; a failed load emits a breadcrumb naming the file and the failure kind, and you compose without it.
+This Style Guide is the single source for **customer-facing** style mechanics — AP style, the Oxford-comma rule, preferred word choices, and the formatting conventions below. For the rules that are not audience-specific, follow the shared writing standard `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/writing-standard.md`; a failed load emits a breadcrumb naming the file and the failure kind, and you compose without it.
 
 ### Tone and Voice
 - **Clear, straightforward, and informative**: Professional yet accessible

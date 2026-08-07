@@ -156,7 +156,7 @@ mkdir -p [[INTERNAL_DOC_LOCATION]]/{category1,category2,category3,...}
 find [[INTERNAL_DOC_LOCATION]] -type d -empty -exec touch {}/.gitkeep \;
 ```
 
-Leave the `.gitkeep` files in place; they are superseded as seed documents and later documentation are added to each directory.
+Leave the `.gitkeep` files in place, including in directories that later gain documents — nothing in this skill removes them.
 
 ### Step 5: Write Seed Documents
 
