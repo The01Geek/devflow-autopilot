@@ -27817,29 +27817,29 @@ assert_eq "#1373 repo's own tracked .changeset/*.md all parse cleanly" "0" "$CS_
 
 # AC: the npm `"pkg": patch` form turns the check RED, naming the offending file AND the
 # parser's own error text (proving the failure is diagnosable, not a bare non-zero exit).
-CSFX="$(mktemp -d)"
-printf -- '---\n"prflow": patch\n---\n\n- npm form (#1373)\n' > "$CSFX/npm.md"
-python3 "$CS_CHECK" "$CSFX/npm.md" >"$CSFX/out" 2>&1; CS_RC=$?
+TMP_CSFX="$(mktemp -d)"
+printf -- '---\n"prflow": patch\n---\n\n- npm form (#1373)\n' > "$TMP_CSFX/npm.md"
+python3 "$CS_CHECK" "$TMP_CSFX/npm.md" >"$TMP_CSFX/out" 2>&1; CS_RC=$?
 assert_eq "#1373 npm form: check exits non-zero (RED)" "yes" "$([ "$CS_RC" -ne 0 ] && echo yes || echo no)"
 assert_eq "#1373 npm form: message names the offending file" "yes" \
-  "$(grep -qF 'npm.md' "$CSFX/out" && echo yes || echo no)"
+  "$(grep -qF 'npm.md' "$TMP_CSFX/out" && echo yes || echo no)"
 assert_eq "#1373 npm form: message carries the parser's own error text" "yes" \
-  "$(grep -qF "missing required 'bump:' key" "$CSFX/out" && echo yes || echo no)"
+  "$(grep -qF "missing required 'bump:' key" "$TMP_CSFX/out" && echo yes || echo no)"
 
 # AC: the correct `bump:` form is green.
-printf -- '---\nbump: patch\ntype: Fixed\n---\n\n- correct form (#1373)\n' > "$CSFX/good.md"
-python3 "$CS_CHECK" "$CSFX/good.md" >/dev/null 2>&1; CS_RC=$?
+printf -- '---\nbump: patch\ntype: Fixed\n---\n\n- correct form (#1373)\n' > "$TMP_CSFX/good.md"
+python3 "$CS_CHECK" "$TMP_CSFX/good.md" >/dev/null 2>&1; CS_RC=$?
 assert_eq "#1373 correct bump: form parses cleanly (green)" "0" "$CS_RC"
 
 # AC: parse-only — the check never runs the consolidator (which deletes consumed changesets
 # and rewrites tracked files). Run it on a VALID fixture changeset and assert the file
 # survives and nothing else was written to the directory: the consolidator would have
 # deleted keep.md and materialized plugin.json/CHANGELOG.md.
-printf -- '---\nbump: patch\n---\n\n- keep (#1373)\n' > "$CSFX/keep.md"
-python3 "$CS_CHECK" "$CSFX/keep.md" >/dev/null 2>&1
+printf -- '---\nbump: patch\n---\n\n- keep (#1373)\n' > "$TMP_CSFX/keep.md"
+python3 "$CS_CHECK" "$TMP_CSFX/keep.md" >/dev/null 2>&1
 assert_eq "#1373 parse-only: valid changeset NOT deleted (consolidator would delete it)" "yes" \
-  "$([ -f "$CSFX/keep.md" ] && echo yes || echo no)"
-rm -rf "$CSFX"
+  "$([ -f "$TMP_CSFX/keep.md" ] && echo yes || echo no)"
+rm -rf "$TMP_CSFX"
 
 # AC: enumeration reads the git INDEX, not a filesystem walk. A tracked-good + untracked-bad
 # .changeset pair must pass — git ls-files sees only the tracked good file, while a recursive
