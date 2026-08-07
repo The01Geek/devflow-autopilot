@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1387",
+  "generated_at": "2026-08-07T13:46:37Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.28",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 3.4050972499999994,
+    "tokens": {
+      "input_tokens": 34,
+      "output_tokens": 13982,
+      "cache_read_input_tokens": 1951964,
+      "cache_creation_input_tokens": 143499,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 42,
+        "outputTokens": 20308,
+        "cacheReadInputTokens": 2090357,
+        "cacheCreationInputTokens": 210222,
+        "webSearchRequests": 0,
+        "costUSD": 3.4050972499999994,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 21,
+    "duration_ms": 292014
+  },
+  "permission_denials": {
+    "count": 5,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      ".prflow/vendor/prflow/scripts/load-prompt-extension.sh review 2>&1 || scripts/load-prompt-extension.sh review 2>&1",
+      "echo \"=== Writing-skills evidence marker (routing gate discharge, PR body) ===\"; gh pr view 1387 --json body -q .body | grep -o 'Writing-skills evidence:.*micro-tests=[a-z]*' | head -1; echo; echo \"=== four slots present? ===\"; b=$(gh pr view 1387 --json body -q .body); for s in skill-loaded guidance-applied pressure-scenario micro-tests; do echo \"$b\" | grep -oE \"$s=(yes|no)\" | head -1; done; echo \"=== Verification evidence marker present? ===\"; echo \"$b\" | grep -o 'Verification evidence:[^.]*'  …[per-command-truncated]",
+      "gh pr view 1387 --json body -q .body > .prflow/tmp/pr1387-body.txt 2>/dev/null; mkdir -p .prflow/tmp; gh pr view 1387 --json body -q .body > .prflow/tmp/pr1387-body.txt; echo \"=== routing-gate slots ===\"; grep -oE '(skill-loaded|guidance-applied|pressure-scenario|micro-tests)=(yes|no)' .prflow/tmp/pr1387-body.txt; echo \"=== verification evidence reference ===\"; grep -o 'Verification evidence[^.]*' .prflow/tmp/pr1387-body.txt | head -1",
+      "scripts/post-review-verdict.sh 1387 APPROVE .prflow/tmp/review/pr-1387/verdict.md 0cdacc00dade88a190e29837b254c11127cc9d14 2>.prflow/tmp/review/pr-1387/post.err; echo \"post-rc=$?\"; echo \"---stderr---\"; cat .prflow/tmp/review/pr-1387/post.err 2>/dev/null",
+      "scripts/post-review-verdict.sh 1387 APPROVE .prflow/tmp/review/pr-1387/verdict.md 0cdacc00dade88a190e29837b254c11127cc9d14; echo \"post-rc=$?\""
+    ],
+    "total": 5,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
