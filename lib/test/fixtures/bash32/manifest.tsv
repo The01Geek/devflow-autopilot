@@ -1,0 +1,18 @@
+# The Bash 3.2 construct-fixture corpus (issue #1277). Tab-separated, one fixture per row.
+#
+# COMPLETE BY CONSTRUCTION: this file is the closed set of construct fixtures, and
+# `lib/test/modules/portability-lane.sh` fails when the rows and the directory's
+# `*.sh` files disagree in either direction — a fixture added without a row would run
+# nowhere, and a row without a fixture would report a construct nobody checked.
+#
+# `parse-under-bash32.sh` is deliberately NOT a row: it is the per-surface fixture the
+# registry's `fixture_command` names, parameterised by a path, rather than a
+# construct claim about the interpreter.
+#
+# Columns: id <TAB> script <TAB> construct <TAB> deadline_seconds
+interpreter-version	interpreter-version.sh	stock Bash 3.2 interpreter identity	30
+case-modification	case-modification.sh	${v,,} / ${v^^} case-modification expansion	30
+associative-array	associative-array.sh	declare -A associative arrays	30
+trap-forms	trap-forms.sh	trap -p round-trip, delivery, reset-to-default	60
+read-flags	read-flags.sh	read -r / -d idioms and the Bash-4 read -N	30
+process-control	process-control.sh	backgrounding, status-preserving wait, process substitution, wait -n	60

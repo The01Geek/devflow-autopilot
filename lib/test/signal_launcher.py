@@ -70,6 +70,14 @@ def _spawn_failure_status(exc: OSError) -> int:
     return 127 if exc.errno == errno.ENOENT else 126
 
 
+#: Public alias for the spawn-status policy above (issue #1277). A second spawner —
+#: `scripts/run-bash32-fixtures.py`, which launches each Bash 3.2 fixture — needs the
+#: same 127/126 translation, and a private name would have meant a second copy of the
+#: policy that drifts the first time the repository decides EACCES deserves different
+#: handling. One definition, two callers.
+spawn_failure_status = _spawn_failure_status
+
+
 def _fail_spawn(prog: str, argv0: str, exc: OSError) -> SystemExit:
     """Emit the one-line spawn diagnostic and build the matching ``SystemExit``.
 

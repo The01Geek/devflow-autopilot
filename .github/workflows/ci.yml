@@ -265,6 +265,122 @@ jobs:
       - name: Gate on shard results
         run: bash lib/test/gate-shard-result.sh "${{ needs.shard.result }}"
 
+  # ── macOS Bash 3.2 portability lane (issue #1277) ────────────────────────────────
+  #
+  # Every required job above runs on Ubuntu, whose bash is 5.x, so a Bash-4-only
+  # construct in a shipped helper ships undetected and fails only on a stock macOS
+  # user's machine. This producer runs a SELECTED portable surface under macOS's
+  # `/bin/bash` — 3.2.57, the last GPLv2 release Apple ships — and the `portability`
+  # aggregator below turns its outcome into one stable check name.
+  #
+  # The split into producer + aggregator is the same shape `shard` → `test` uses, and
+  # for the same reason: the aggregator runs `if: always()` so the check REPORTS even
+  # when the producer fails, cancels, or is skipped. A check that merely disappears on
+  # a failed producer is the un-gating trap.
+  portability_producer:
+    name: portability producer (macOS Bash 3.2)
+    runs-on: macos-latest
+    # An explicit ceiling, distinct from the per-fixture watchdog inside the
+    # supervisor. The watchdog bounds ONE fixture; this bounds everything else that
+    # can hang (a wedged checkout, a stalled Python install) so the aggregator is
+    # never waiting on a job that will not conclude.
+    timeout-minutes: 15
+    steps:
+      # No credential is persisted: this job runs pull-request code and needs no
+      # network git. Shallow is fine — the classifier reads the changed-file
+      # population from the pull-request API rather than from a local diff, precisely
+      # because a shallow checkout cannot compute one.
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      # Decides WHICH portable surface runs. Emits a versioned JSON result and exits
+      # 0 for every produced decision, including the conservative ones — a degraded
+      # read is a correct conservative outcome, not a step failure. It exits non-zero
+      # only when no decision is possible at all, which fails the job as it should.
+      - name: Classify portability risk
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Set explicitly rather than relied upon: the default `run` shell is already
+          # `bash -eo pipefail`, but a repo- or workflow-level `defaults.run.shell` would
+          # silently drop it, and without pipefail this pipeline reports `tee`'s status —
+          # swallowing the classifier's exit 2 (no decision possible at all) and leaving
+          # an empty classification behind.
+          set -o pipefail
+          mkdir -p .prflow/tmp
+          python3 scripts/classify-portability-risk.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --head-sha "${{ github.event.pull_request.head.sha }}" \
+            --event-name "${{ github.event_name }}" \
+            --registry lib/shell-surface-registry.json \
+            | tee .prflow/tmp/portability-classification.json
+
+      # `continue-on-error` so the lane's DOMAIN RESULT, not this step's exit status,
+      # is what the aggregator gates on — and so the artifact upload below is reached
+      # on a failing lane. The two axes stay separate on purpose (issue #1277): the
+      # step outcome is the native Actions conclusion, recorded beside the domain
+      # result rather than collapsed into it.
+      - name: Run the Bash 3.2 fixture corpus
+        id: fixtures
+        continue-on-error: true
+        run: |
+          python3 scripts/run-bash32-fixtures.py \
+            --root . \
+            --bash /bin/bash \
+            --classification .prflow/tmp/portability-classification.json \
+            --result-file .prflow/tmp/portability-domain-result.txt
+
+      - name: Record the native Actions conclusion beside the domain result
+        if: always()
+        run: |
+          printf 'ACTIONS_CONCLUSION: %s\n' "${{ steps.fixtures.outcome }}" \
+            >> .prflow/tmp/portability-domain-result.txt
+
+      - name: Upload the portability domain result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portability-domain-result
+          path: .prflow/tmp/portability-domain-result.txt
+          if-no-files-found: ignore
+
+  # The stable check identity. This job name IS the context a branch-protection rule
+  # would name, so it is deliberately short, tier-free, and does not mention the
+  # producer: renaming it silently un-gates whatever rule referenced the old name.
+  portability:
+    name: portability / macOS Bash 3.2
+    needs: [portability_producer]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # `continue-on-error` because an ABSENT artifact is one of the arms the gate
+      # must decide, not a reason to skip the gate: a download that fails here would
+      # otherwise end the job before the helper ever ran, and a check that never runs
+      # its own gate is the failure this job exists to prevent.
+      - name: Download the portability domain result
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: portability-domain-result
+          path: portability-result
+
+      # Both operands — the producer's native conclusion and the lane's own domain
+      # result — go to the helper, which owns every arm so lib/test/run.sh can drive
+      # them (the repo's inline-workflow-shell convention).
+      - name: Gate on the portability result
+        run: bash lib/test/gate-portability-result.sh "${{ needs.portability_producer.result }}" portability-result/portability-domain-result.txt
+
   lint:
     name: lint (shellcheck + actionlint + ruff)
     runs-on: ubuntu-latest
@@ -366,6 +482,8 @@ jobs:
           shellcheck --severity=warning -e SC1091 \
             lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh \
             lib/test/run-shard.sh lib/test/gate-shard-result.sh \
+            lib/test/gate-portability-result.sh \
+            lib/test/modules/portability-lane.sh \
             lib/test/run-parallel.sh \
             lib/test/modules/parallel-suite-runner.sh \
             lib/test/run-python-pool.sh \
@@ -479,15 +597,24 @@ jobs:
   # diagnosis lands two jobs away from the edit.
   auto_review_trigger:
     name: auto-review notification (not a check; skipped = not sent)
-    needs: [test, lint]
-    # `needs: [test, lint]` names BOTH jobs, because `lint` is not downstream of
-    # `test` — the only `needs:` elsewhere in this file is `test: needs: [shard]`.
+    needs: [test, lint, portability]
+    # `portability` joins the dependency set (issue #1277) so a review is never
+    # requested before the macOS lane has reached a TERMINAL result — whichever of
+    # macOS and Linux finishes first, the reviewer sees a lane outcome rather than a
+    # pending one. It is DELIBERATELY absent from the step-level result gates below:
+    # a failing portability lane must still DISPATCH the review (a portability defect
+    # is exactly the kind of thing the review should be looking at), so the edge buys
+    # ordering, not suppression. `!cancelled()` already lets the job run over a red
+    # dependency, so nothing else changes.
+    #
+    # `needs:` names each job explicitly, because `lint` is not downstream of `test`
+    # and the portability aggregator is downstream of neither.
     # But the two dependency-RESULT tests are NOT in this `if:` anymore: they moved
-    # onto the individual steps below. The job now runs whenever both dependencies
-    # have CONCLUDED (`!cancelled()`), so a red `lint` — which is NOT a required
+    # onto the individual steps below. The job now runs whenever every dependency
+    # has CONCLUDED (`!cancelled()`), so a red `lint` — which is NOT a required
     # status check, hence a mergeable PR — is ANNOUNCED rather than skipped in
     # silence. The credential-safety property is preserved by step-level gating:
-    # the checkout, mint, and post steps each require both results to be `success`,
+    # the checkout, mint, and post steps each require `test` and `lint` to be `success`,
     # so an ineligible run still reaches no App-token mint and no PR-code checkout.
     #
     # The remaining `if:` guards are all GitHub-evaluated, so an ineligible run
@@ -557,7 +684,9 @@ jobs:
       # network — gh authenticates from GH_TOKEN — so the checkout leaves no
       # credential behind for later steps to inherit.
       #
-      # Step-gated on both dependencies succeeding: on the announcement path
+      # Step-gated on `test` and `lint` succeeding — deliberately not on the
+      # portability aggregator, which is a `needs:` edge for ORDERING only while the
+      # lane is advisory: on the announcement path
       # (a red/pending dependency) this checkout of the pull request's own code
       # does NOT run, preserving the "ineligible run reaches no PR-code checkout
       # and mints no credential" property across the widened job `if:`.

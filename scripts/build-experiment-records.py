@@ -72,6 +72,10 @@ from pathlib import Path
 # Insert this script's own dir so the sibling module resolves regardless of cwd.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_fingerprint import fingerprint_from_config  # noqa: E402
+# The shared paginated `gh api` reader (issue #1277). Same sibling-module idiom; the
+# establish-vs-absent contract has one implementation so this reader and the
+# portability classifier cannot drift apart on what a failed call means.
+from gh_json_ex import gh_json_ex as _shared_gh_json_ex  # noqa: E402
 
 # The gh binary — DEVFLOW_GH (the documented override the shell helpers resolve via
 # lib/resolve-gh.sh) wins when set and non-empty, else `gh`. No probe (the test-stub
@@ -273,66 +277,22 @@ def _run(cmd):
 
 
 def _gh_json_ex(endpoint, paginate=False):
-    """GET a gh api endpoint and parse it, returning (value, ok). `ok` is False whenever
-    the call did not yield a USABLE ANSWER — the "could not establish" case — and True
-    only when it did.
+    """GET a gh api endpoint and parse it, returning (value, ok).
 
-    Two ways to fail to establish, and both must set ok=False (issue #431 review):
-      * the gh call itself failed (non-zero rc: transport/auth/rate-limit/absent binary);
-      * the call exited 0 but its body is NON-EMPTY and unparseable (a truncated
-        response, an HTML proxy error page served with rc 0, a `gh` whose --paginate
-        output shape changed). Reading that as ok=True laundered it into the caller's
-        `absent` arm — the strong claim "we looked and it genuinely was not there" —
-        which is precisely the conflation the no-repo/no-sha/fetch-failed vocabulary
-        exists to prevent, and which `_assert_provenance_coherent` cannot catch because
-        the value is null while the provenance claims a successful measurement.
+    The establish-vs-absent contract this function implements is shared with issue
+    #1277's portability classifier and lives in `scripts/gh_json_ex.py`; this is a
+    delegation so the two callers cannot drift. Reading a failed call as a genuine
+    absence is precisely the conflation the no-repo/no-sha/fetch-failed vocabulary
+    exists to prevent, and which `_assert_provenance_coherent` cannot catch because
+    the value is null while the provenance claims a successful measurement.
 
-    An EMPTY body with rc 0 stays ok=True: that is a real answer (the artifact is
-    genuinely absent), not a failure to establish one."""
-    cmd = [GH, "api"]
-    if paginate:
-        cmd.append("--paginate")
-    cmd.append(endpoint)
-    rc, out, err = _run(cmd)
-    if rc != 0:
-        _warn(f"gh api {endpoint} failed (rc={rc}): {(err or '').strip()[:160]}")
-        return None, False
-    if not out.strip():
-        return None, True
-    # --paginate concatenates one JSON value per page. For array endpoints that is
-    # `[...][...]`; wrap-and-split so we flatten to a single list. A single object
-    # (non-paginated) parses directly.
-    try:
-        return json.loads(out), True
-    except json.JSONDecodeError:
-        pass
-    # Paginated concatenation: split top-level JSON values and merge lists.
-    merged = []
-    parsed_any = False
-    dec = json.JSONDecoder()
-    idx, n = 0, len(out)
-    while idx < n:
-        while idx < n and out[idx].isspace():
-            idx += 1
-        if idx >= n:
-            break
-        try:
-            val, end = dec.raw_decode(out, idx)
-        except json.JSONDecodeError:
-            # rc was 0 but the body does not parse. NOT ok: we did not establish an
-            # answer (see the docstring). Return whatever pages did parse alongside
-            # ok=False so the caller degrades to an unestablished provenance rather
-            # than asserting a measured absence.
-            _warn(f"gh api {endpoint} returned unparseable output (rc=0) — treating as "
-                  "unestablished, not as a genuine absence")
-            return (merged if parsed_any else None), False
-        parsed_any = True
-        if isinstance(val, list):
-            merged.extend(val)
-        else:
-            merged.append(val)
-        idx = end
-    return (merged if parsed_any else None), True
+    `GH` and `_run` are passed through rather than re-resolved in the shared module,
+    so this file keeps owning its own `DEVFLOW_GH` read and its own subprocess
+    wrapper (which `_git_show` also uses).
+    """
+    return _shared_gh_json_ex(
+        endpoint, paginate=paginate, warn_fn=_warn, gh=GH, run_fn=_run,
+    )
 
 
 def _git_show(repo_root, spec):

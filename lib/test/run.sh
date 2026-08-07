@@ -32145,6 +32145,21 @@ if ! devflow_run_full_suite_module "$LIB/test/modules/phase2-durability-checkpoi
   exit 1
 fi
 # ────────────────────────────────────────────────────────────────────────────
+echo "#1277 macOS Bash 3.2 portability lane"
+# ────────────────────────────────────────────────────────────────────────────
+# The four lane components driven arm by arm against planted fixtures: the
+# shell-surface registry's totality checker (each failure class, plus the live
+# registry reconciled against the tracked tree), the shallow-safe classifier's
+# degraded-input matrix and risk-trigger arms, the process-group supervisor's
+# watchdog / interpreter precondition / not_applicable contract, and the aggregator
+# gate's conclusion-by-domain matrix — then the rendered-workflow boundary, without
+# which every one of those would be green over a lane CI never runs.
+if ! devflow_run_full_suite_module "$LIB/test/modules/portability-lane.sh" \
+  "portability-lane" 40; then
+  printf 'ERROR: portability-lane boundary could not record its result\n'
+  exit 1
+fi
+# ────────────────────────────────────────────────────────────────────────────
 echo "#312: workflow endpoint↔permission lint"
 # ────────────────────────────────────────────────────────────────────────────
 # A devflow workflow job must declare the token permission every `gh api` endpoint

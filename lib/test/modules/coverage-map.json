@@ -257,6 +257,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/classify-portability-risk.py": {
+      "note": "issue #1277 shallow-safe portability-risk classifier (paginated PR-files read, changed_files reconciliation, head-SHA binding, conservative degraded arms)",
+      "owner": "portability-lane"
+    },
     "scripts/collect-staged-telemetry.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -437,6 +441,10 @@
     "scripts/gh-fresh.sh": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "scripts/gh_json_ex.py": {
+      "note": "issue #1277 shared paginated gh api reader; the establish-vs-absent contract build-experiment-records.py and the portability classifier both use",
+      "owner": "portability-lane"
     },
     "scripts/harden-stop-hooks.sh": {
       "note": "",
@@ -657,6 +665,10 @@
       "note": "issue #908 review Important #2: RGC_RC/FIRED -> counts outcome routing out of devflow-runner.yml's guard step",
       "owner": "unmodularized"
     },
+    "scripts/run-bash32-fixtures.py": {
+      "note": "issue #1277 process-group fixture supervisor (per-fixture watchdog, interpreter precondition, closed domain-result set)",
+      "owner": "portability-lane"
+    },
     "scripts/run-jq.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -769,6 +781,7 @@
     "lib/plugin-identity.json",
     "lib/rename-map.json",
     "lib/review-profile.tokens",
+    "lib/shell-surface-registry.json",
     "lib/subagent-dispatch-sites.json",
     "lib/writing-standard.md",
     "scripts/devflow-cloud-writer-contract.json",
@@ -1062,6 +1075,10 @@
     "1271": {
       "note": "",
       "owner": "review-stall-backstop"
+    },
+    "1277": {
+      "note": "",
+      "owner": "portability-lane"
     },
     "1288": {
       "note": "",

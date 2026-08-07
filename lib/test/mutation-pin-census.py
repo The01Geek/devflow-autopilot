@@ -28,7 +28,7 @@ HELPERS = (
     "_ra_conflict_red_under",
 )
 RETAINED_BOUNDARY_IDENTITIES = frozenset()
-EXPECTED_SOURCE_COUNT = 18
+EXPECTED_SOURCE_COUNT = 19
 NON_UTF8_SHELL_FIXTURES = frozenset(
     {"lib/test/fixtures/ghapi-repo-path/adversarial-nonutf8.sh"}
 )
@@ -235,7 +235,15 @@ def _audited_sources(repo_root: Path) -> tuple[str, ...]:
 # re-asked for them and test_census_outer_memos_are_reused_across_builds went RED
 # with zero hits, exactly as its remedy text predicts. The bound is now 76: four
 # above the swept population, preserving a few files of headroom.
-_SOURCE_PARSE_CACHE_SIZE = 76
+#
+# Bound raise, issue #1277 (macOS Bash 3.2 portability lane). The lane's new shell
+# sources — the Bash-3.2 fixture corpus, the aggregator gate, and the lane's own test
+# module — push the swept population past the old bound of 76, with the same symptom
+# every prior raise records: test_census_outer_memos_are_reused_across_builds goes RED
+# at zero hits because entries were evicted before extraction re-asked for them. The
+# bound is now 84. No count is stated here: the sweep's population is measured by that
+# test, and a transcribed figure rots on the next shell source added.
+_SOURCE_PARSE_CACHE_SIZE = 84
 
 
 @functools.lru_cache(maxsize=_SOURCE_PARSE_CACHE_SIZE)
