@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1378",
+  "generated_at": "2026-08-07T02:16:37Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.21",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 2.347278,
+    "tokens": {
+      "input_tokens": 32,
+      "output_tokens": 11793,
+      "cache_read_input_tokens": 1781906,
+      "cache_creation_input_tokens": 116134,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 32,
+        "outputTokens": 11793,
+        "cacheReadInputTokens": 1781906,
+        "cacheCreationInputTokens": 116134,
+        "webSearchRequests": 0,
+        "costUSD": 2.347278,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 24,
+    "duration_ms": 182043
+  },
+  "permission_denials": {
+    "count": 7,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "echo \"SKILL_DIR=${CLAUDE_SKILL_DIR:-UNSET}\"; echo \"RUN_ID=${GITHUB_RUN_ID:-EMPTY}\"; echo \"ATTEMPT=${GITHUB_RUN_ATTEMPT:-EMPTY}\"; echo \"GH_ACTIONS=${GITHUB_ACTIONS:-EMPTY}\"; echo \"REPO=${GITHUB_REPOSITORY:-EMPTY}\"",
+      "printf 'SKILL_DIR=%s\\n' \"${CLAUDE_SKILL_DIR:-UNSET}\"; printf 'RUN_ID=%s\\n' \"${GITHUB_RUN_ID:-EMPTY}\"; printf 'ATTEMPT=%s\\n' \"${GITHUB_RUN_ATTEMPT:-EMPTY}\"; printf 'GH_ACTIONS=%s\\n' \"${GITHUB_ACTIONS:-EMPTY}\"",
+      "echo \"=== byte-diff of the two sentences ===\"; diff <(git show 611c85e:skills/review/SKILL.md | sed -n '64p') <(git show 611c85e:skills/implement/SKILL.md | sed -n '30p') && echo \"IDENTICAL\"\necho; echo \"=== residual 'blocks until' across tree at PR head ===\"; git grep -n \"blocks until the subagent\" 611c85e -- ':!*.changeset*' 2>/dev/null\ngit grep -n \"A dispatch blocks until\" 611c85e 2>/dev/null\necho \"--- all 'blocks until' occurrences ---\"; git grep -n \"blocks until\" 611c85e 2>/dev/null\necho; ec …[per-command-truncated]",
+      "git show 611c85e:skills/review/SKILL.md | sed -n '64p' > .prflow/tmp/rv-a.txt 2>/dev/null || (mkdir -p .prflow/tmp && git show 611c85e:skills/review/SKILL.md | sed -n '64p' > .prflow/tmp/rv-a.txt); git show 611c85e:skills/implement/SKILL.md | sed -n '30p' > .prflow/tmp/rv-b.txt; diff .prflow/tmp/rv-a.txt .prflow/tmp/rv-b.txt && echo \"IDENTICAL\"",
+      "git show 611c85e:skills/review/SKILL.md | sed -n '64p' > .prflow/tmp/rv-a.txt; git show 611c85e:skills/implement/SKILL.md | sed -n '30p' > .prflow/tmp/rv-b.txt; if cmp -s .prflow/tmp/rv-a.txt .prflow/tmp/rv-b.txt; then echo \"BYTE-IDENTICAL\"; else echo \"DIFFERS\"; cmp .prflow/tmp/rv-a.txt .prflow/tmp/rv-b.txt; fi",
+      "sed -n '1,60p' scripts/post-review-verdict.sh 2>/dev/null | grep -iE \"usage|arg|head|verdict|marker|\\\\$1|\\\\$2|\\\\$3|\\\\$4\" | head -30",
+      "scripts/post-review-verdict.sh 1378 APPROVE .prflow/tmp/review/1378/verdict.md 611c85e97a97bec7451813f81ea1124b7fa6f4c3 ; echo \"post-rc=$?\""
+    ],
+    "total": 7,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
