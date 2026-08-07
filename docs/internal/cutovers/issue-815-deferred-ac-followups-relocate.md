@@ -36,34 +36,38 @@ degraded arm.
 | `skills/implement/phases/phase-4-documentation.md` | 116,879 | 96,264 |
 | `skills/implement/references/deferred-ac-followups.md` | — | 29,651 |
 
-Removing section 4.0 alone leaves 93,638, so the routing stub is 2,626 bytes — inside the
-acceptance criterion's ~3,200-byte allowance — and the phase file lands 359 bytes under its
-96,623 ceiling. The stub was trimmed twice: once at authoring time, and again after the base
-merge added 256 bytes to §4.1 and pushed the file over the ceiling. Every remaining element
-is one the acceptance criteria require it to carry separately — the predicate call, each of
-the three exit-code arms, the marker contract, the degraded arm and its stated residual, and
-the self-sufficiency sentence — so the remaining headroom is what a future edit has to work
-within, not slack to spend freely. `lib/test/run.sh` asserts the ceiling positionally, so a
-later edit that grows the phase file goes RED rather than drifting.
+Removing section 4.0 alone leaves 93,638, so the routing stub was 2,626 bytes — inside the
+acceptance criterion's ~3,200-byte allowance. The stub was trimmed twice: once at authoring
+time, and again after the base merge added 256 bytes to §4.1. Every remaining element is one
+the acceptance criteria require it to carry separately — the predicate call, each of the
+three exit-code arms, the marker contract, the degraded arm and its stated residual, and the
+self-sufficiency sentence.
+
+**No byte ceiling on this file is enforced anywhere in the tree, and none ever was.** Issue
+#1374 searched `lib/test/run.sh` for a positional size assertion over
+`skills/implement/phases/phase-4-documentation.md` and found none; the sentences that used
+to stand here described such a gate as live and as turning a growing file RED, which would
+have told a reader a check existed to catch an edit that in fact nothing catches. The
+figures above and below stay because they are a past-time snapshot of what a change cost —
+a record, not a threshold.
 
 These figures are a **past-time snapshot**, not a live measurement: they record what the
 move cost at the moment it was made, so a later change to either file does not retroactively
 falsify the record. The counter is `wc -c`.
 
-## Ceiling raise — issue #834 (registered per the #656 enforcement-constant exception)
+## Size record — issue #834
 
 Issue #834 appends a consumer prompt-extension by-path handoff sentence to the Phase 4.1
 `prflow:docs` dispatch in `skills/implement/phases/phase-4-documentation.md`. The addition
 is **unconditional** — every Phase 4.1 run dispatches that subagent, and the child cannot
 resolve its own skill anchor — so it is not routable behind a conditional
 progressively-loaded reference the way section 4.0 was: a gate that always fires saves no
-context and adds a degraded arm that could silently drop the handoff. The 359 bytes the move
-left under the ceiling are residual headroom, not slack budgeted for this, so the ceiling is
-re-registered rather than the addition being deferred or shrunk past its operative content.
+context and adds a degraded arm that could silently drop the handoff. The addition was
+therefore taken rather than deferred or shrunk past its operative content.
 
 | ref | `wc -c skills/implement/phases/phase-4-documentation.md` |
 | --- | --- |
-| pre-#834 (`main` at the raise) | 96,264 |
+| pre-#834 (`main` at the change) | 96,264 |
 | #834 first draft | 98,005 |
 | #834 after trimming the paragraph's non-operative rationale | 97,729 |
 
@@ -71,9 +75,9 @@ The paragraph was trimmed before the raise was taken: the two sentences restatin
 quoted child-facing sentence already says (that it is inert when no extension exists, and
 that a file read needs no allowlist or permission grant) were removed, keeping the
 substitution rule, the verbatim child sentence, the no-probe prohibition, and the
-unreadable-extension relay. The new ceiling is **97,729** — the trimmed measurement with
-**no added slack**, so the next edit that grows this file goes RED and must register its own
-raise. These figures are a past-time snapshot on the same terms as the table above.
+unreadable-extension relay. These figures are a past-time snapshot on the same terms as the
+table above; **97,729** is what the file measured after that trim, not a threshold any check
+compares against.
 
 ## Conservation
 

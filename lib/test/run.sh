@@ -4056,6 +4056,13 @@ IMPL_PHASES_DIR="$LIB/../skills/implement/phases"
 # Shared phase-file path, colocated with its parent IMPL_PHASES_DIR so the #232 and #230
 # pin blocks below reference one source of truth for the path (not two differently-named locals).
 P4_FILE="$IMPL_PHASES_DIR/phase-4-documentation.md"
+IMPL_REFS_DIR="$LIB/../skills/implement/references"
+# Issue #1374 relocated §4.0.5's filing procedure out of the phase file and behind a
+# predicate-gated reference, so every pin whose literal lives inside that procedure now
+# names this path. The pins were re-targeted rather than deleted — with one recorded
+# retirement, marked at its own site below — because a pin left on the phase file reports
+# a count of zero and passes nothing.
+P405_REF="$IMPL_REFS_DIR/deferred-review-findings.md"
 # Directory-reconciliation: the actual phases/*.md files must equal IMPL_PHASE_STEMS — the
 # single registered phase set the bundle members and the per-phase loop both derive from. A
 # future phase file added to the directory (and wired into the orchestrator) WITHOUT being
@@ -4410,12 +4417,12 @@ assert_pin_unique "#366/#356: SKILL self-check cites the cloud Stall backstop as
 # actually adds the branch-slug dir to the search set; pin it removal-proof so deleting
 # the branch-slug arm goes RED. Also pin the BRANCH_SLUG derivation (its producer).
 assert_pin_unique "#254: Phase 4.0.5 derives the sanitized branch slug from CUR_BRANCH" \
-  'BRANCH_SLUG=$(printf '"'"'%s'"'"' "$CUR_BRANCH" | tr' "$P4_FILE"
+  'BRANCH_SLUG=$(printf '"'"'%s'"'"' "$CUR_BRANCH" | tr' "$P405_REF"  # structural-pin-ok: routing-dispatch-contract -- the slug this derives keys the second candidate search directory the discovery helper is handed; losing the derivation silently narrows the search to pr-<N>
 assert_pin_unique "#254: Phase 4.0.5 adds the branch-slug dir to the manifest search set (operative)" \
-  'SEARCH_DIRS="$SLUG_DIR $BRANCH_DIR"' "$P4_FILE"
+  'SEARCH_DIRS="$SLUG_DIR $BRANCH_DIR"' "$P405_REF"  # structural-pin-ok: routing-dispatch-contract -- the operand handed to discover-deferral-manifests.py's argv; dropping the branch-slug arm makes a branch-mode run's manifest unreachable
 # The aggregate must still be written at pr-<N>/deferrals.json (the path /pr-description reads).
 assert_pin_unique "#254: Phase 4.0.5 keeps the aggregate at the pr-<N> slug path" \
-  'AGG="${SLUG_DIR}/deferrals.json"' "$P4_FILE"
+  'AGG="${SLUG_DIR}/deferrals.json"' "$P405_REF"  # structural-pin-ok: cross-file-phase-contract -- the aggregate path /pr-description reads in Phase 4.2 and /prflow:review honors; a moved path leaves both consumers reading nothing
 # ── issue #555: Phase 4.0.5 manifest discovery runs through the fail-closed helper, not a
 # multi-root `find` whose exit status the `| sort` capture masked. Under the old shape a
 # search that FAILED and a search that legitimately matched nothing both yielded an empty
@@ -4425,19 +4432,19 @@ assert_pin_unique "#254: Phase 4.0.5 keeps the aggregate at the pr-<N> slug path
 # reader routing gains fail-closed arms. Pin the discovery statement, the sentinel field,
 # the extended filing guard, roots-echo surfacing, and the two routing arms.
 assert_pin_unique "#555: Phase 4.0.5 discovers manifests through the fail-closed helper" \
-  'discover-deferral-manifests.py $SEARCH_DIRS 2>.prflow/tmp/devflow-dm.err' "$P4_FILE"  # structural-pin-ok: helper-contract -- the discovery helper's stderr capture path is a typed executable boundary between the fence and discover-deferral-manifests.py; the #915 move off cloud-denied /tmp changed the literal's text but not the contract it protects.
+  'discover-deferral-manifests.py $SEARCH_DIRS 2>.prflow/tmp/devflow-dm.err' "$P405_REF"  # structural-pin-ok: helper-contract -- the discovery helper's stderr capture path is a typed executable boundary between the fence and discover-deferral-manifests.py; the #915 move off cloud-denied /tmp changed the literal's text but not the contract it protects.
 assert_pin_unique "#555: Phase 4.0.5 initializes DISCOVERY_STATE empty before the discovery statement (the #480 sentinel-operand rule)" \
-  'DISCOVERY_STATE=""' "$P4_FILE"
+  'DISCOVERY_STATE=""' "$P405_REF"  # structural-pin-ok: lifecycle-state-transition -- the pre-statement initialization that makes a refused discovery observable as discovery=[] rather than aborting the sentinel
 assert_pin_unique "#555: Phase 4.0.5 discriminates the partial marker with the file-deferrals.py grep idiom" \
-  "elif grep -q 'devflow: discovery partial:' .prflow/tmp/devflow-dm.err; then" "$P4_FILE"  # structural-pin-ok: helper-contract -- the partial-discovery marker is a typed executable boundary between the fence and discover-deferral-manifests.py's stderr protocol; the #915 move off cloud-denied /tmp changed the literal's text but not the contract it protects.
+  "elif grep -q 'devflow: discovery partial:' .prflow/tmp/devflow-dm.err; then" "$P405_REF"  # structural-pin-ok: helper-contract -- the partial-discovery marker is a typed executable boundary between the fence and discover-deferral-manifests.py's stderr protocol; the #915 move off cloud-denied /tmp changed the literal's text but not the contract it protects.
 assert_pin_unique "#555: the failed/refused arm blanks MANIFESTS so the merge guard is unambiguously false" \
-  'DISCOVERY_STATE=failed' "$P4_FILE"
+  'DISCOVERY_STATE=failed' "$P405_REF"  # structural-pin-ok: lifecycle-state-transition -- the failed/refused arm's state assignment, which the filing guard below reads to refuse filing
 assert_pin_unique "#555: the sentinel carries the discovery= field, guarded with :- like filing=" \
-  'discovery=[${DISCOVERY_STATE:-}]' "$P4_FILE"
+  'discovery=[${DISCOVERY_STATE:-}]' "$P405_REF"  # structural-pin-ok: machine-sentinel-provenance -- the emitted sentinel field the reader's fail-closed routing literal-matches; without it a failed discovery is indistinguishable from a clean no-op
 assert_pin_unique "#555: the filing guard requires a successful discovery (a persisted prior aggregate must not drive filing on a failed/refused discovery)" \
-  '{ [ "$DISCOVERY_STATE" = ok ] || [ "$DISCOVERY_STATE" = partial ]; } && [ -n "$AGG" ] && [ -s "$AGG" ]' "$P4_FILE"
+  '{ [ "$DISCOVERY_STATE" = ok ] || [ "$DISCOVERY_STATE" = partial ]; } && [ -n "$AGG" ] && [ -s "$AGG" ]' "$P405_REF"  # structural-pin-ok: routing-dispatch-contract -- the guard that stops a persisted prior aggregate from driving filing on a failed or refused discovery
 assert_pin_unique "#555: the fence surfaces the helper roots-echo into the tool result on every path" \
-  "grep 'devflow: discovery roots:' .prflow/tmp/devflow-dm.err || true" "$P4_FILE"  # structural-pin-ok: helper-contract -- the discovery roots-echo grep is a typed executable boundary between the fence and discover-deferral-manifests.py's stderr protocol; the #915 move off cloud-denied /tmp changed the literal's text but not the contract it protects.
+  "grep 'devflow: discovery roots:' .prflow/tmp/devflow-dm.err || true" "$P405_REF"  # structural-pin-ok: helper-contract -- the discovery roots-echo grep is a typed executable boundary between the fence and discover-deferral-manifests.py's stderr protocol; the #915 move off cloud-denied /tmp changed the literal's text but not the contract it protects.
 # ── issue #555 (review finding): a bundled helper granted as a vendored-literal LEADING
 # TOKEN is exec'd by path — no `python3`/`bash` wrapper is available, because an interpreter
 # head is ungranted on the cloud tiers. Without the exec bit such a call dies rc 126 on every
@@ -4599,7 +4606,7 @@ fi
 # were classified into exits and qualifiers. Pin the population mechanically so a later rework
 # that adds or drops a bullet turns the suite RED at the desk instead of rotting the header.
 # The region is the routing list between the count-locked header and the label-apply prose.
-_P4_ROUTING_BULLETS="$(awk '/further exits before any label is applied/,/^If the printed/' "$P4_FILE" | grep -c '^- \*\*')"
+_P4_ROUTING_BULLETS="$(awk '/further exits before any label is applied/,/^If the printed/' "$P405_REF" | grep -c '^- \*\*')"
 assert_eq "#555 the §4.0.5 reader-routing list still carries exactly 8 bullets (6 exits + 2 qualifiers) — the count-locked header's numerals are only true at this population" \
   "8" "$_P4_ROUTING_BULLETS"
 
@@ -15048,7 +15055,7 @@ for PA_FILE in "$LIB"/../skills/review/phases/*.md "$LIB"/../skills/review-and-f
     "$(if grep -qF 'CLAUDE_SKILL_DIR' "$PA_FILE"; then grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no; else echo yes; fi)"  # raw-guard-ok: loop body: conditional presence pin over the enumerated $PA_FILE loop variable
 done
 assert_eq "#275 pin (R0): portable-anchor coverage spans every review phase + fix-loop + create-issue + implement reference file (enumeration reconciled)" \
-  "35" "$PA_REF_COUNT"
+  "36" "$PA_REF_COUNT"
 # Mutation proof (PASS->FAIL, self-contained): the absence EREs must actually MATCH the
 # two fragile forms they exist to reject — an ERE typo would leave P1/P2 green forever
 # (vacuous absence pins). Inject each fragile form into a temp copy of a migrated file
@@ -15153,8 +15160,8 @@ assert_pin_unique "#275 pin (P3-live): phase-2 carries a live config-get.sh docs
   "$PORTABLE_ANCHOR_LITERAL"'scripts/config-get.sh .docs.internal' "$LIB/../skills/implement/phases/phase-2-implement.md"
 assert_pin_unique "#275 pin (P3-live): phase-3 carries the live --persist backstop via the portable anchor" \
   "$PORTABLE_ANCHOR_LITERAL"'lib/efficiency-trace.sh --persist' "$LIB/../skills/implement/phases/phase-3-review.md"
-assert_pin_unique "#275 pin (P3-live): phase-4 carries a live file-deferrals.py invocation via the portable anchor" \
-  "$PORTABLE_ANCHOR_LITERAL"'scripts/file-deferrals.py' "$LIB/../skills/implement/phases/phase-4-documentation.md"
+assert_pin_unique "#275 pin (P3-live): the gated §4.0.5 reference carries a live file-deferrals.py invocation via the portable anchor" \
+  "$PORTABLE_ANCHOR_LITERAL"'scripts/file-deferrals.py' "$LIB/../skills/implement/references/deferred-review-findings.md"  # structural-pin-ok: helper-contract -- the filing helper's invocation must resolve through the portable anchor; a bare or absolute spelling is refused on every runner this anchor exists for
 assert_pin_unique "#275 pin (P4-ci): create-issue preamble carries the never-capture operative sentence" \
   'Never capture the anchor into a shell variable that a later statement reads' "$LIB/../skills/create-issue/SKILL.md"
 # ────────────────────────────────────────────────────────────────────────────
@@ -30273,8 +30280,8 @@ assert_pin_unique "#271 coupled: skills/review/SKILL.md trace example invokes th
 # read; `run-jq.sh -s '.[0] as $f` only at the phase-4 merge.
 assert_pin_unique "#271 coupled: skills/implement/SKILL.md reaction-comment read invokes the run-jq.sh wrapper" \
   "scripts/run-jq.sh -r '.comment.id" "$LIB/../skills/implement/SKILL.md"
-assert_pin_unique "#271 coupled: phase-4-documentation.md deferrals merge invokes the run-jq.sh wrapper" \
-  "scripts/run-jq.sh -s '.[0] as \$f" "$LIB/../skills/implement/phases/phase-4-documentation.md"
+assert_pin_unique "#271 coupled: the gated §4.0.5 reference deferrals merge invokes the run-jq.sh wrapper" \
+  "scripts/run-jq.sh -s '.[0] as \$f" "$LIB/../skills/implement/references/deferred-review-findings.md"
 
 # ── #313 third-party model provider resolver ───────────────────────────────
 # The provider resolver is an INLINE jq program embedded in all three cloud
@@ -34615,8 +34622,12 @@ assert_eq "#455 ungranted-head pin goes RED on a fence that uses paste (anti-vac
 # ── a run where nothing went wrong. Behavioral, not structural: replay the SHIPPED sentinel line
 # ── under `set -u` with only the pre-guard initializers set, exactly as the no-op path leaves it.
 I480_P4="$IMPL_DIR/phases/phase-4-documentation.md"
-I480_SENTINEL="$(grep -F 'echo "phase 4.0.5 filing fence ran;' "$I480_P4")"
-assert_eq "#480 the 4.0.5 sentinel line is present in the phase file (the pin below is not vacuous)" "1" \
+# #1374 relocated the §4.0.5 filing fence into its own gated reference, so every literal
+# that lives INSIDE that fence is read from here; the §4.1 literals still read from the
+# phase file above.
+I480_REF405="$IMPL_DIR/references/deferred-review-findings.md"
+I480_SENTINEL="$(grep -F 'echo "phase 4.0.5 filing fence ran;' "$I480_REF405")"
+assert_eq "#480 the 4.0.5 sentinel line is present in the gated reference (the pin below is not vacuous)" "1" \
   "$(printf '%s\n' "$I480_SENTINEL" | grep -cF 'filed deferred-finding issues=[' || true)"
 assert_eq "#480 the 4.0.5 sentinel PRINTS on the clean-no-op path under 'set -u' (unset FILED_NUMBERS must not abort the echo)" "yes" \
   "$(bash -c 'set -uo pipefail
@@ -34640,7 +34651,7 @@ MANIFEST_STATE=""
 # refused" rule fabricates a harness-denial reflection on a run where nothing went wrong. Pin the
 # ORDERING against the file itself: both initializers must appear BEFORE the aggregate guard.
 assert_eq "#480 the 4.0.5 sentinel operands are initialized BEFORE the aggregate guard (placement, not just presence)" "yes" \
-  "$(python3 - "$I480_P4" <<'PY'
+  "$(python3 - "$I480_REF405" <<'PY'
 import sys
 lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
 def first(pred):
@@ -34718,10 +34729,18 @@ assert_eq "#480 phase 3.1 prints the draft PR number sentinel (the comparand its
 # literal-match these printed lines, and each is the comparand of a fail-closed exit. Unpinned,
 # renaming or dropping any of them leaves the phases routing on a line the fence no longer prints
 # (#480 review). Pin each by its emitted literal.
-for lit in 'deferred labels to apply: [' 'docs labels to apply: [' 'docs PR number: ['; do
+for lit in 'docs labels to apply: [' 'docs PR number: ['; do
   assert_eq "#480 phase-4 prints the routed comparand '$lit'" "yes" \
     "$(grep -qF "$lit" "$I480_P4" && echo yes || echo no)"
 done
+# The deferred-label comparand `deferred labels to apply: [` left this population with the
+# fence that prints it (#1374) and was RETIRED rather than re-pointed at the reference. Its
+# literal resolves into agent-executed prompt prose that no program consumer reads, so
+# re-stating it against a new target is new wording-only pin authorship, which #810's
+# authoring boundary prohibits and the diff-scoped mutation-routing gate reports. Per the
+# recorded decision that such prose carries no automated regression coverage by design,
+# retirement owes no replacement coverage; the compensating control is the review pass. The
+# two literals above are unchanged legacy sites and stay.
 # The ensure-label quoting pin must be a COUNT, not an existential: `grep -qF` over the bundle is
 # satisfied by ANY one of the three call sites, so unquoting just the docs-label site (whose
 # default `Documented` is one word, but whose configured value need not be) slipped through
@@ -34730,8 +34749,10 @@ done
 # and 4.1 stayed). Kept as a COUNT PER FILE rather than relaxed to an existential or
 # summed over the bundle: either relaxation restores the exact vacuity this pin closed —
 # unquoting one site while another satisfies the check.
-assert_eq "#480 BOTH phase-file ensure-label call sites (4.0.5, 4.1) quote the label arg (a count pin — an existential one missed a single-site regression)" "2" \
+assert_eq "#480/#1374 the phase file's remaining ensure-label call site (4.1) quotes the label arg (a count pin — an existential one missed a single-site regression)" "1" \
   "$(grep -cF 'ensure-label.sh "<label>"' "$I480_P4" || true)"
+assert_eq "#480/#1374 the relocated phase-4.0.5 ensure-label call site quotes the label arg" "1" \
+  "$(grep -cF 'ensure-label.sh "<label>"' "$I480_REF405" || true)"
 assert_eq "#480/#815 the relocated phase-4.0 ensure-label call site quotes the label arg" "1" \
   "$(grep -cF 'ensure-label.sh "<label>"' "$I815_REF" || true)"
 assert_eq "#480 no UNQUOTED 'ensure-label.sh <label>' survives anywhere in the implement skill bundle" "0" \
@@ -34754,9 +34775,11 @@ assert_eq "#815 the reference's last line is the matching end boundary marker" \
   '<!-- prflow:implement-ref step=4.0 file=skills/implement/references/deferred-ac-followups.md end -->' \
   "$(tail -1 "$I815_REF")"  # structural-pin-ok: routing-dispatch-contract -- the closing half of the same accept-the-load contract
 # The move is what buys the reduction, so assert the procedure actually LEFT the phase file
-# rather than being duplicated into the reference. SECTION-scoped, not file-scoped: §4.0.5
-# stays in the phase file and discusses `gh issue create` in its own prose, so a whole-file
-# count would be asserting that a section this change never touched stopped mentioning it.
+# rather than being duplicated into the reference. SECTION-scoped rather than file-scoped, a
+# scoping #1374 preserved rather than needed: §4.0.5's own prose has since moved to its own
+# gated reference too, so the phase file now mentions `gh issue create` nowhere and a
+# whole-file count would read 0 for a reason unrelated to §4.0. Keeping the slice scoped is
+# what makes a future regression that re-adds a create fence to §4.0 attributable to §4.0.
 I815_S40="$(probe_tmp '#815 phase-file section 4.0 slice')"
 if [ "$I815_S40" != "/dev/null" ]; then
   sed -n '/^### 4.0 File Follow-Up/,/^### 4.0.5/p' "$I480_P4" > "$I815_S40"
@@ -34825,6 +34848,45 @@ assert_eq "#815 the module-runner fixture materialises the gated reference" "yes
   "$(grep -qF 'skills/implement/references' "$LIB/../lib/test/test_module_runner.py" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the fixture's partial copy must carry every bundle member or its emptied-phase proof is confounded
 I815_REG='{"glob": "skills/implement/references/*.md", "load_class": "reference", "required": false}'
 assert_eq "#815 the flight-recorder registry carries a reference load_class row for implement" "yes" "$(grep -qF "$I815_REG" "$LIB/../scripts/workflow-flight-recorder-registry.json" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- the registry row's own load_class/required vocabulary; required:false records that a predicate-gated surface is correctly absent from most runs
+
+# ── #1374 Phase 4.0.5's filing procedure is a PREDICATE-GATED reference too ──
+# Same gating shape as #815 above, over the other deferral channel. Only the pieces a
+# mutation cannot satisfy by rewriting the sentence that carries them are pinned: the
+# boundary contract that IS the load gate, and the negative control that a second
+# references/ file still leaves the phases/ reconciliation alone.
+echo "#1374 deferred-review-finding reference gating"
+assert_eq "#1374 the gated reference exists and is non-empty" "yes" \
+  "$([ -s "$P405_REF" ] && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- the stub's exit-0 arm reads this exact path; an absent or empty file routes every gated load to the degraded arm
+assert_eq "#1374 the reference's first line is its own start boundary marker" \
+  '<!-- prflow:implement-ref step=4.0.5 file=skills/implement/references/deferred-review-findings.md start -->' \
+  "$(head -1 "$P405_REF")"  # structural-pin-ok: routing-dispatch-contract -- the stub accepts the load only on this exact first line, so a drifted marker sends every gated load down the degraded arm
+assert_eq "#1374 the reference's last line is its own end boundary marker" \
+  '<!-- prflow:implement-ref step=4.0.5 file=skills/implement/references/deferred-review-findings.md end -->' \
+  "$(tail -1 "$P405_REF")"  # structural-pin-ok: routing-dispatch-contract -- the closing half of the same accept-the-load contract
+# The move is what buys the reduction, so assert the fence actually LEFT the phase file.
+# Whole-file scoped here, unlike #815's section slice: the fence's discovery statement is a
+# literal no other part of the phase file writes, so a surviving copy can only be the
+# duplication this asserts against.
+assert_eq "#1374 the phase file no longer carries the §4.0.5 discovery statement" "0" \
+  "$(grep -cF 'discover-deferral-manifests.py $SEARCH_DIRS' "$P4_FILE" || true)"
+assert_eq "#1374 the phase file retains a line-start '### 4.0.5' heading (the #815 section-4.0 sed range terminates on it)" "yes" \
+  "$(grep -qE '^### 4\.0\.5' "$P4_FILE" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the #815 sed range terminates on this heading; without it the slice runs to EOF and stops being scoped to section 4.0, so its count no longer attributes what it measures to the section it names
+assert_eq "#1374 the phases/ directory reconciliation is untouched (the second reference is NOT a phase stem)" "yes" \
+  "$([ ! -e "$IMPL_PHASES_DIR/deferred-review-findings.md" ] && \
+     [ "$IMPL_PHASE_STEMS" = "phase-1-setup phase-2-implement phase-3-review phase-4-documentation" ] \
+     && echo yes || echo no)"
+assert_eq "#1374 the implement shape-lint population reaches the second gated reference" "yes" \
+  "$(printf '%s\n' "${IMPL_SHAPE_FILES[@]}" | grep -qxF "$P405_REF" && echo yes || echo no)"
+assert_eq "#1374 the cloud-writer manifest classifies the second gated reference as a reachable asset" "yes" \
+  "$(grep -qF 'skills/implement/references/deferred-review-findings.md' "$LIB/../lib/test/cloud_writer_contract.py" && echo yes || echo no)"  # structural-pin-ok: generated-artifact-identity -- an unlisted reachable asset is an AC1 closure violation the required check reports
+# The predicate itself: the stub must emit the GRANTED vendored literal as its leading
+# token, because the cloud matcher denies the unexpanded anchor there — a stub spelled
+# anchor-first would be refused on the implement tier, route to the unestablished arm, and
+# read the reference on every run.
+assert_pin_unique "#1374 the §4.0.5 stub emits the granted vendored literal as the predicate's leading token" \
+  '.prflow/vendor/prflow/scripts/discover-deferral-manifests.py --presence-for-pr' "$P4_FILE"  # structural-pin-ok: routing-dispatch-contract -- the cloud allowlist grants this helper only as a repo-relative vendored literal in leading-token position; any other spelling is silently refused
+assert_pin_unique "#1374 the §4.0.5 stub retains the portable anchor as the predicate's fallback arm" \
+  "$PORTABLE_ANCHOR_LITERAL"'scripts/discover-deferral-manifests.py --presence-for-pr' "$P4_FILE"  # structural-pin-ok: routing-dispatch-contract -- the fallback arm is what keeps the predicate runnable on a tier where no repo-relative vendored path exists
 # The prose mirrors this change updates (docs/internal/DEVFLOW_SYSTEM_OVERVIEW.md,
 # docs/internal/cloud-allowlist.md, lib/intervention-surfaces.md, docs/internal/implement-skill.md, and the
 # prompt-extension trigger-glob lists) deliberately carry NO presence pin:
