@@ -24,8 +24,6 @@ While **any of the four trigger components** holds, **offer one more audit round
 - A **silent non-response** follows the existing Step 2 silent-non-response rule: **pause and re-ask in the final chat message; never dispatch and never proceed on silence.**
 - When none of the offer's grounds holds — no trigger component at `hold` (`t1=`, `t2=`, `coverage=`, `calibration=`) and no `unledgered_revise` round warranting one — proceed to Step 4 with no offer.
 
-
-
 This boundary offer fires only *before* presentation; once inside Step 4's iterate-on-feedback loop, sub-step 4's re-audit offer is the only discovery-offer surface there. Step 4's final-byte trigger (`query-final-byte`) is evaluated at the **approval election on every run** — not after that loop's offer resolves, since a run approved on first presentation never enters the loop — and is **suppressed only when that loop's offer opened a round in the same pause**, so exactly one offer fires per pause.
 
 <!-- prflow:create-issue-ref step=fallback-audit-boundary-offer file=skills/create-issue/references/fallback-audit-boundary-offer.md end -->
