@@ -4,6 +4,16 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.33] — 2026-08-07
+
+### Changed
+- **`/prflow:init` prompt trimmed to the instruction-plus-consequence prose rule.** Removed rationale essays, rejected-design records, incident archaeology, maintainer notes, and reviewer-misreading pre-emption from `skills/init/SKILL.md` (body prose and `#` comments in fenced blocks alike), keeping every instruction, prohibition, degraded arm, breadcrumb literal, exact command form, and closed-set enumeration. No behavioral change — the same helpers run in the same order with the same flags. (#1408)
+
+## [2.31.32] — 2026-08-07
+
+### Changed
+Brought `CLAUDE.md` into conformance with its own instruction-plus-consequence prose rule. Each instruction now carries at most one sentence naming what breaks if it is skipped; rationale essays, motivating-incident archaeology, rejected-design records, anti-refactor notes and epistemics commentary are gone. Every instruction, prohibition, degraded arm, closed-set enumeration, coupled-mirror obligation, sanctioned canonical-page summary and frozen figure is preserved, as is every literal the suite pins against this file, so agent behaviour and the suite are unchanged.
+
 ## [2.31.31] — 2026-08-07
 
 ### Changed

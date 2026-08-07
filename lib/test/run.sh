@@ -49820,7 +49820,7 @@ assert_eq "#1124 lint: the neither-form report names the stale enrolled site" "y
   "$(case "$AF_NEITHER_OUT" in *"carries NEITHER the anchor nor the vendored-literal"*) echo yes ;; *) echo no ;; esac)"
 
 # ── Public documentation source contract ────────────────────────────────────
-# The public site is source-only: Markdown/MDX plus docs.json. Mintlify reads
+# The public site is source-only: Markdown/MDX, authored CSS and docs.json. Mintlify reads
 # this subtree directly, so route membership, file membership and category
 # landing pages are repository behavior rather than deployment-time convention.
 PUBLIC_SITE_ROOT="$LIB/../docs/external"
@@ -49933,6 +49933,34 @@ public_docs_stay_shallow() {
   printf 'yes\n'
 }
 
+public_docs_rely_on_renderer_h1() {
+  local site_root docs_root
+  site_root="${1:-$PUBLIC_SITE_ROOT}"
+  docs_root="${2:-$site_root/docs}"
+  [ -d "$docs_root" ] || { printf 'no\n'; return; }
+  python3 - "$docs_root" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+fence = re.compile(r"^\s*(```|~~~)")
+heading = re.compile(r"^#\s+")
+
+for page in root.rglob("*.md"):  # tree-walk-ok: inspect every authored inner page, including unstaged additions
+    in_fence = False
+    for line in page.read_text(encoding="utf-8").splitlines():
+        if fence.match(line):
+            in_fence = not in_fence
+            continue
+        if not in_fence and heading.match(line):
+            print("no")
+            raise SystemExit(0)
+
+print("yes")
+PY
+}
+
 public_site_has_no_build_output() {
   # `find`'s own status is read directly rather than a tail-of-pipe `grep -q`: piping made a
   # failed walk indistinguishable from a clean one (empty stdout -> `yes`), so the guard failed
@@ -49940,7 +49968,7 @@ public_site_has_no_build_output() {
   local site_root hit
   site_root="${1:-$PUBLIC_SITE_ROOT}"
   [ -d "$site_root" ] || { printf 'no\n'; return; }
-  hit="$(find "$site_root" \( -type d -name node_modules -o -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name package.json -o -name package-lock.json -o -name pnpm-lock.yaml -o -name yarn.lock -o -name bun.lock -o -name bun.lockb \) \) -print -quit)" || { printf 'no\n'; return; } # tree-walk-ok: reject generated or dependency output even while the public site is unstaged
+  hit="$(find "$site_root" \( -type d -name node_modules -o -type f \( -name '*.html' -o -name '*.js' -o -name package.json -o -name package-lock.json -o -name pnpm-lock.yaml -o -name yarn.lock -o -name bun.lock -o -name bun.lockb \) \) -print -quit)" || { printf 'no\n'; return; } # tree-walk-ok: reject generated or dependency output even while the public site is unstaged
   if [ -n "$hit" ]; then
     printf 'no\n'
   else
@@ -49967,13 +49995,38 @@ assert_eq "public site: product name is PRFlow" "PRFlow" \
   "$([ -r "$PUBLIC_SITE_CONFIG" ] && "$PUBLIC_RUN_JQ" -r '.name // ""' "$PUBLIC_SITE_CONFIG" 2>/dev/null || true)"
 assert_eq "public site: theme is maple" "maple" \
   "$([ -r "$PUBLIC_SITE_CONFIG" ] && "$PUBLIC_RUN_JQ" -r '.theme // ""' "$PUBLIC_SITE_CONFIG" 2>/dev/null || true)"
+assert_eq "public site: primary, light and dark accents use the olive palette color" "#555934 #555934 #555934" \
+  "$([ -r "$PUBLIC_SITE_CONFIG" ] && "$PUBLIC_RUN_JQ" -r '[.colors.primary, .colors.light, .colors.dark] | join(" ")' "$PUBLIC_SITE_CONFIG" 2>/dev/null || true)"
+assert_eq "public site: custom dark-mode text stylesheet exists" "yes" \
+  "$([ -f "$PUBLIC_SITE_ROOT/style.css" ] && echo yes || echo no)"
+assert_eq "public site: dark-mode text override is scoped to page content" "yes" \
+  "$(public_file_contains "$PUBLIC_SITE_ROOT/style.css" '.dark #content-container')"
+assert_eq "public site: dark-mode content text uses the cream palette color" "yes" \
+  "$(public_file_contains "$PUBLIC_SITE_ROOT/style.css" 'color: #F2E6D8;')"
+assert_eq "public site: dark-mode eyebrow text uses the cream palette color" "yes" \
+  "$(public_file_contains "$PUBLIC_SITE_ROOT/style.css" '.dark #content-container .eyebrow')"
+assert_eq "public site: dark-mode primary utility text uses the cream palette color" "yes" \
+  "$(public_file_contains "$PUBLIC_SITE_ROOT/style.css" '.dark [class~="text-primary"]')"
+assert_eq "public site: dark-mode ordered-list markers use the cream palette color" "yes" \
+  "$(public_file_contains "$PUBLIC_SITE_ROOT/style.css" '.dark #content-container ol > li::marker')"
+assert_eq "public site: dark-mode pagination text uses the cream palette color" "yes" \
+  "$(public_file_contains "$PUBLIC_SITE_ROOT/style.css" '.dark #pagination :where(a, a *)')"
+assert_eq "public site: content borders use the olive palette color" "yes" \
+  "$(public_file_contains "$PUBLIC_SITE_ROOT/style.css" 'border-color: #555934;')"
+assert_eq "public site: content shadows use the olive palette color" "yes" \
+  "$(public_file_contains "$PUBLIC_SITE_ROOT/style.css" 'rgba(85, 89, 52, 0.24)')"
 assert_eq "public site: every navigation route resolves to a page" "yes" "$(public_route_files_resolve)"
 assert_eq "public site: every page under docs/ is navigated exactly once" "yes" "$(public_docs_pages_are_navigated_once)"
 assert_eq "public site: every root-relative internal link resolves to a page" "yes" "$(public_internal_links_resolve)"
 assert_eq "public site: root homepage is navigated exactly once" "1" "$(public_nav_routes | awk '$0 == "index" { n++ } END { print n + 0 }')"
+assert_eq "public site: custom homepage matches the documentation page shell spacing" "yes" \
+  "$(public_file_contains "$PUBLIC_SITE_ROOT/index.mdx" '<div className="px-4 pt-40 lg:pt-10 lg:pl-16 lg:pr-10">')"
+assert_eq "public site: custom homepage matches the documentation reading-column width" "yes" \
+  "$(public_file_contains "$PUBLIC_SITE_ROOT/index.mdx" '<div className="mx-auto w-full max-w-2xl 2xl:max-w-3xl xl:w-[calc(100%-13rem)]">')"
 assert_eq "public site: documentation hub is navigated exactly once" "1" "$(public_nav_routes | awk '$0 == "docs/index" { n++ } END { print n + 0 }')"
 assert_eq "public site: every documentation directory has index.md" "yes" "$(public_directories_have_index)"
 assert_eq "public site: documentation nesting is at most category/subcategory/page" "yes" "$(public_docs_stay_shallow)"
+assert_eq "public site: inner pages rely on Mintlify's generated H1" "yes" "$(public_docs_rely_on_renderer_h1)"
 assert_eq "public site: no generated site output or dependency manifest is present" "yes" "$(public_site_has_no_build_output)"
 assert_eq "public site: PRFlow external-doc path selects the Mintlify source root" "docs/external/" \
   "$("$PUBLIC_RUN_JQ" -r '.docs.external // ""' "$LIB/../.prflow/config.json" 2>/dev/null || true)"
@@ -50052,6 +50105,10 @@ mkdir -p "$PUBLIC_BUILD_FIXTURE/docs"
 printf '# Docs\n' > "$PUBLIC_BUILD_FIXTURE/docs/index.md"
 assert_eq "public site guard: a source-only tree carries no build output" "yes" \
   "$(public_site_has_no_build_output "$PUBLIC_BUILD_FIXTURE")"
+printf '.example { color: inherit; }\n' > "$PUBLIC_BUILD_FIXTURE/style.css"
+assert_eq "public site guard: an authored CSS source file is accepted" "yes" \
+  "$(public_site_has_no_build_output "$PUBLIC_BUILD_FIXTURE")"
+rm -f "$PUBLIC_BUILD_FIXTURE/style.css"
 printf '{}\n' > "$PUBLIC_BUILD_FIXTURE/package.json"
 assert_eq "public site guard: a dependency manifest in the site root is rejected" "no" \
   "$(public_site_has_no_build_output "$PUBLIC_BUILD_FIXTURE")"

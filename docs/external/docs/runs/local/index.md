@@ -3,9 +3,7 @@ title: "Local Runs"
 description: "Run PRFlow interactively from a supported coding client."
 ---
 
-# Local Runs
-
-This page is for developers running PRFlow from Claude Code, GitHub Copilot CLI or Codex CLI. Local runs are the fastest way to start and require no GitHub Actions workflow or cloud secret.
+Run PRFlow directly from Claude Code, GitHub Copilot CLI or Codex CLI. Local runs are the fastest way to start and require no GitHub Actions workflow or cloud secret.
 
 Open your coding client anywhere inside the target Git repository, then enter a namespaced command. For example, the implementation command is `/prflow:implement 123` in Claude Code, `/prflow/implement 123` in GitHub Copilot CLI and `$prflow:implement 123` in Codex CLI.
 

@@ -3,9 +3,7 @@ title: "Implementation Problems"
 description: "Recover from issue blockers, branch-state refusals, capability limits and interrupted implementation."
 ---
 
-# Implementation Problems
-
-This page is for users whose `/prflow:implement` run stops before producing a complete pull request.
+Recover an `/prflow:implement` run that stops before producing a complete pull request.
 
 ## A Declared Issue Dependency Is Still Open
 

@@ -3,8 +3,6 @@ title: "Implement an Issue"
 description: "Turn an existing GitHub issue into a review-ready or draft pull request with recorded verification evidence."
 ---
 
-# Implement an Issue
-
 Use this workflow when you have an open GitHub issue with actionable acceptance criteria. It can create a branch, commit and push changes and create or update a pull request. The result is a review-ready or draft pull request with recorded verification evidence, or a Blocked result naming the required human action.
 
 ```text

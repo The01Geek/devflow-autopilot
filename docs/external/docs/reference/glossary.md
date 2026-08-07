@@ -3,9 +3,7 @@ title: "Glossary"
 description: "Understand the terms PRFlow uses for issues, branches, reviews and human control."
 ---
 
-# Glossary
-
-This page defines PRFlow terms for users who do not know the repository's internal implementation.
+Use this glossary to understand PRFlow terms without needing to know the product's internal implementation.
 
 **Acceptance criteria**: Testable statements in an issue that define when the requested outcome is complete.
 

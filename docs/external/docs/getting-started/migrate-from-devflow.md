@@ -3,8 +3,6 @@ title: "Migrate from DevFlow"
 description: "Update the renamed PRFlow plugin and migrate existing local and cloud repositories safely."
 ---
 
-# Migrate from DevFlow
-
 PRFlow is the new name for the DevFlow plugin. After updating the plugin, migrate each existing repository once. The marketplace keeps its original `devflow-marketplace` name, so do not remove or rename it.
 
 If you are installing the plugin for the first time, follow [Installation](/docs/getting-started/installation) instead.

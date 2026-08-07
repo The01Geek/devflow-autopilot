@@ -3,9 +3,7 @@ title: "Initialization"
 description: "Scaffold and refresh repository-specific PRFlow configuration."
 ---
 
-# Initialization
-
-This page is for maintainers who want repository-specific PRFlow configuration. Initialization is recommended after installation and after updates. It is not required for local runs because every setting has a built-in default.
+Create repository-specific PRFlow configuration with the initialization workflow. Run it after installation and updates when you want detected permissions and explicit settings; local runs can use built-in defaults without it.
 
 Initialization is separate from plugin installation. Run it from anywhere inside the target Git repository with the syntax for your client:
 

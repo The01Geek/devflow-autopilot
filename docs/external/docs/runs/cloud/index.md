@@ -3,8 +3,6 @@ title: "Cloud Runs"
 description: "Run PRFlow from authorized GitHub comments through repository automation."
 ---
 
-# Cloud Runs
-
 Cloud runs are for teams that want authorized collaborators to start PRFlow from GitHub. They run in GitHub Actions without an open local Claude Code session.
 
 Cloud commands pass through an authorization gate before the agent job starts. The gate uses narrow GitHub permissions. The agent job then receives model credentials and its configured repository permissions. Maintainer-controlled workflows and configuration define both jobs. The run writes its work to a branch, workpad, pull request or review; it does not merge the change.

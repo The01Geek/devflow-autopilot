@@ -3,9 +3,15 @@
   "theme": "maple",
   "name": "PRFlow",
   "colors": {
-    "primary": "#635BFF",
-    "light": "#7C73FF",
-    "dark": "#4B45CC"
+    "primary": "#555934",
+    "light": "#555934",
+    "dark": "#555934"
+  },
+  "background": {
+    "color": {
+      "light": "#F2E6D8",
+      "dark": "#593E2E"
+    }
   },
   "seo": {
     "metatags": {

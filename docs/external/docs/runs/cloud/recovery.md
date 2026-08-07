@@ -3,9 +3,7 @@ title: "Cloud Recovery"
 description: "Resume or recover a blocked, failed or interrupted PRFlow cloud run."
 ---
 
-# Cloud Recovery
-
-This page is for collaborators recovering an implementation or review after the cloud run has stopped making progress.
+Resume an implementation or review when a cloud run stops making progress or ends before completing the handoff.
 
 ## Start With Recorded State
 

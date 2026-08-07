@@ -1,6 +1,6 @@
 # Mintlify Publishing
 
-PRFlow publishes its public site directly from authored Markdown and MDX in this repository. Mintlify builds and deploys the site after a change reaches the repository's default branch; generated site assets and JavaScript dependencies do not belong in the plugin repository.
+PRFlow publishes its public site directly from authored Markdown, MDX and CSS in this repository. Mintlify builds and deploys the site after a change reaches the repository's default branch; generated site assets and JavaScript dependencies do not belong in the plugin repository.
 
 ## Source Contract
 

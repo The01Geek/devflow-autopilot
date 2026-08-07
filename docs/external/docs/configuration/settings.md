@@ -3,9 +3,7 @@ title: "Settings"
 description: "Find the focused reference for each PRFlow configuration family."
 ---
 
-# Settings
-
-This page is a map for maintainers editing `.prflow/config.json`. Each linked reference lists types, accepted values, fallbacks, execution scope, security notes and examples.
+Use this map to find every `.prflow/config.json` setting by purpose. Each linked reference lists types, accepted values, fallbacks, execution scope, security notes and examples.
 
 | **Configuration family** | **Reference** |
 | --- | --- |

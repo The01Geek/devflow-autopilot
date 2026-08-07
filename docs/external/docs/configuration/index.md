@@ -3,9 +3,7 @@ title: "Configuration"
 description: "Configure PRFlow by execution tier without editing the plugin."
 ---
 
-# Configuration
-
-This section is for maintainers adapting PRFlow to a repository. Shared settings live in `.prflow/config.json`; credentials stay in GitHub secrets or the local environment.
+Adapt PRFlow to your repository with shared settings in `.prflow/config.json`. Keep credentials in GitHub secrets or the local environment.
 
 Running `/prflow:init` is recommended. It creates the file when absent and backfills newly scaffolded keys without replacing existing values or arrays. Local skills can use built-in defaults without a config file, but cloud workflows require the committed file.
 

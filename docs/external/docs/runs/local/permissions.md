@@ -3,9 +3,7 @@ title: "Local Permissions"
 description: "Grant only the repository, Git and GitHub access a local PRFlow run needs."
 ---
 
-# Local Permissions
-
-This page is for developers reviewing tool requests from a local PRFlow run. The exact prompt and persistence options come from your coding client.
+Review and approve the tool access a local PRFlow run needs. The exact prompt and persistence options come from your coding client.
 
 ## Match Permission to the Workflow
 
