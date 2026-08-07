@@ -26003,6 +26003,198 @@ with tempfile.TemporaryDirectory(prefix='psg1350n-') as _R1350n:
                '| ---' in _out1350n))
 
 
+# ── issue #1276: lint-manifest strict reader/validator ───────────────────────
+# The declarative lint manifest is a best-effort parser over agent-/human-mutable
+# JSON, so it follows the repo's six-shape reader matrix: every degraded shape
+# resolves to a typed `unestablished` result with a specific reason, never a
+# plausible-but-unobserved "N/A". These assertions pin both the established path
+# (the shipped manifest validates) and the full rejection matrix AC #1276 names.
+import copy as _lm_copy  # noqa: E402
+
+lint_manifest = _load('lint_manifest', SCRIPTS / 'lint_manifest.py')
+
+
+def _lm_valid():
+    """A minimal but complete manifest object that validates, for mutation tests."""
+    return {
+        "schema_version": 1,
+        "tools": {
+            "shellcheck": {
+                "version": "0.10.0",
+                "timeout_seconds": 600,
+                "artifacts": [
+                    {"os": "linux", "arch": "x86_64",
+                     "digest": "sha256:" + "a" * 64,
+                     "archive_type": "tar.xz", "member": "shellcheck",
+                     "strategy": "extract-tar"},
+                ],
+            },
+            "ruff": {
+                "version": "0.6.9",
+                "timeout_seconds": 600,
+                "artifacts": [
+                    {"os": "linux", "arch": "x86_64",
+                     "digest": "sha256:" + "b" * 64,
+                     "archive_type": "tar.gz", "member": "ruff",
+                     "strategy": "extract-tar"},
+                ],
+            },
+        },
+        "selectors": [
+            {"id": "shell-portable", "language": "shell",
+             "include_globs": ["**/*.sh"], "exclude_globs": ["lib/test/**"]},
+            {"id": "python", "language": "python", "include_globs": ["**/*.py"]},
+        ],
+        "exclusions": ["lib/test/fixtures/**"],
+        "special_invocations": [
+            {"id": "run-sh-extended-analysis-off", "path": "lib/test/run.sh",
+             "tool": "shellcheck", "extra_flags": ["--extended-analysis=false"]},
+        ],
+        "full_profiles": [
+            {"id": "shell-full", "tool": "shellcheck", "selector": "shell-portable"},
+            {"id": "python-full", "tool": "ruff", "selector": "python"},
+        ],
+    }
+
+
+def _lm_reason(obj):
+    """Validate a manifest OBJECT and return (established, reason-prefix)."""
+    r = lint_manifest.validate_manifest(obj)
+    prefix = None if r.reason is None else r.reason.split(":", 1)[0]
+    return (r.established, prefix)
+
+
+def _lm_bytes(raw):
+    """Validate manifest BYTES and return (established, reason-prefix)."""
+    r = lint_manifest.parse_manifest(raw)
+    prefix = None if r.reason is None else r.reason.split(":", 1)[0]
+    return (r.established, prefix)
+
+
+# The shipped manifest and the in-repo canonical fixture both establish.
+_lm_shipped = lint_manifest.load_manifest(SCRIPTS.parent / ".prflow" / "lint-manifest.json")
+assert_eq("#1276 the shipped .prflow/lint-manifest.json establishes", True, _lm_shipped.established)
+assert_eq("#1276 a complete valid manifest object establishes", (True, None), _lm_reason(_lm_valid()))
+
+# A result is NEVER "N/A": it is exactly one of the two typed states.
+assert_eq("#1276 result status is one of the two typed words",
+          True, _lm_shipped.status in ("established", "unestablished"))
+assert_raises("#1276 an out-of-vocabulary status is rejected at construction",
+              ValueError, lambda: lint_manifest.ManifestResult("N/A"))
+
+# ── Six-shape matrix at the top level ────────────────────────────────────────
+assert_eq("#1276 top-level array is wrong-type", (False, "wrong-type"), _lm_reason([1, 2, 3]))
+assert_eq("#1276 top-level scalar (number) is wrong-type", (False, "wrong-type"), _lm_reason(7))
+assert_eq("#1276 top-level scalar (string) is wrong-type", (False, "wrong-type"), _lm_reason("x"))
+assert_eq("#1276 valid-falsy false is wrong-type not established", (False, "wrong-type"), _lm_reason(False))
+assert_eq("#1276 valid-falsy 0 is wrong-type not established", (False, "wrong-type"), _lm_reason(0))
+assert_eq("#1276 valid-falsy null is wrong-type not established", (False, "wrong-type"), _lm_reason(None))
+
+# ── Byte-level degraded shapes ───────────────────────────────────────────────
+assert_eq("#1276 empty bytes are unestablished empty", (False, "empty"), _lm_bytes(b""))
+assert_eq("#1276 invalid UTF-8 is unestablished", (False, "invalid-utf8"), _lm_bytes(b"\xff\xfe\x00"))
+assert_eq("#1276 malformed JSON is unestablished", (False, "malformed-json"), _lm_bytes(b"{not json"))
+assert_eq("#1276 truncated JSON is unestablished", (False, "malformed-json"),
+          _lm_bytes(b'{"schema_version": 1, "tools": '))
+assert_eq("#1276 duplicate object keys are rejected (json silently keeps last)",
+          (False, "duplicate-key"),
+          _lm_bytes(b'{"schema_version": 1, "schema_version": 2, "tools": {}, "selectors": [], "full_profiles": []}'))
+# A missing manifest file is a distinct unestablished reason, never an exception.
+_lm_missing = lint_manifest.load_manifest(SCRIPTS.parent / ".prflow" / "no-such-manifest.json")
+assert_eq("#1276 a missing manifest file is unestablished missing",
+          (False, "missing"), (_lm_missing.established, _lm_missing.reason.split(":", 1)[0]))
+
+# ── Structural / field-level rejections ──────────────────────────────────────
+def _lm_mut(mutate):
+    obj = _lm_valid()
+    mutate(obj)
+    return _lm_reason(obj)
+
+
+def _lm_del(obj, key):
+    del obj[key]
+
+
+assert_eq("#1276 unknown top-level field rejected",
+          (False, "unknown-field"), _lm_mut(lambda o: o.__setitem__("evil", 1)))
+assert_eq("#1276 missing required top-level key rejected",
+          (False, "missing"), _lm_mut(lambda o: _lm_del(o, "tools")))
+assert_eq("#1276 unknown schema_version rejected",
+          (False, "unknown-version"), _lm_mut(lambda o: o.__setitem__("schema_version", 99)))
+assert_eq("#1276 non-int schema_version rejected",
+          (False, "wrong-type"), _lm_mut(lambda o: o.__setitem__("schema_version", "1")))
+assert_eq("#1276 unknown tool rejected",
+          (False, "unknown-enum"), _lm_mut(lambda o: o["tools"].__setitem__("flake8", {})))
+assert_eq("#1276 missing required tool rejected",
+          (False, "missing"), _lm_mut(lambda o: o["tools"].__delitem__("ruff")))
+assert_eq("#1276 unknown-enum os rejected",
+          (False, "unknown-enum"),
+          _lm_mut(lambda o: o["tools"]["ruff"]["artifacts"][0].__setitem__("os", "plan9")))
+assert_eq("#1276 unknown-enum strategy (unknown strategy ID) rejected",
+          (False, "unknown-enum"),
+          _lm_mut(lambda o: o["tools"]["ruff"]["artifacts"][0].__setitem__("strategy", "curl-bash")))
+assert_eq("#1276 unknown-enum archive_type rejected",
+          (False, "unknown-enum"),
+          _lm_mut(lambda o: o["tools"]["ruff"]["artifacts"][0].__setitem__("archive_type", "rar")))
+assert_eq("#1276 bad digest shape rejected",
+          (False, "invalid-value"),
+          _lm_mut(lambda o: o["tools"]["ruff"]["artifacts"][0].__setitem__("digest", "md5:abc")))
+assert_eq("#1276 duplicate platform tuple (same digest) is duplicate-id",
+          (False, "duplicate-id"),
+          _lm_mut(lambda o: o["tools"]["ruff"]["artifacts"].append(
+              _lm_copy.deepcopy(o["tools"]["ruff"]["artifacts"][0]))))
+
+
+def _lm_conflict(o):
+    dup = _lm_copy.deepcopy(o["tools"]["ruff"]["artifacts"][0])
+    dup["digest"] = "sha256:" + "c" * 64
+    o["tools"]["ruff"]["artifacts"].append(dup)
+
+
+assert_eq("#1276 same platform tuple with two digests is conflicting-id",
+          (False, "conflicting-id"), _lm_mut(_lm_conflict))
+assert_eq("#1276 duplicate selector id rejected",
+          (False, "duplicate-id"),
+          _lm_mut(lambda o: o["selectors"].append(
+              {"id": "python", "language": "python", "include_globs": ["**/*.py"]})))
+assert_eq("#1276 profile referencing an undefined selector is conflicting-id",
+          (False, "conflicting-id"),
+          _lm_mut(lambda o: o["full_profiles"][0].__setitem__("selector", "nope")))
+
+# ── The AC #1276 declarative-purity rejections: shell commands, package-manager
+#    snippets, arbitrary executable paths, URL templates, env expansion. Each is
+#    a string that fails its typed field's regex. ──────────────────────────────
+assert_eq("#1276 a shell command in a glob is rejected (declarative purity)",
+          (False, "invalid-value"),
+          _lm_mut(lambda o: o["selectors"][0]["include_globs"].append("*.sh; rm -rf /")))
+assert_eq("#1276 an env-expansion glob is rejected",
+          (False, "invalid-value"),
+          _lm_mut(lambda o: o["selectors"][0]["include_globs"].append("$HOME/*.sh")))
+assert_eq("#1276 a URL template digest is rejected",
+          (False, "invalid-value"),
+          _lm_mut(lambda o: o["tools"]["ruff"]["artifacts"][0].__setitem__(
+              "digest", "https://example.test/ruff#{version}")))
+assert_eq("#1276 an executable PATH (not a basename) in member is rejected",
+          (False, "invalid-value"),
+          _lm_mut(lambda o: o["tools"]["ruff"]["artifacts"][0].__setitem__("member", "/usr/bin/ruff")))
+assert_eq("#1276 a package-manager snippet in a flag is rejected",
+          (False, "invalid-value"),
+          _lm_mut(lambda o: o["special_invocations"][0]["extra_flags"].append("&& pip install evil")))
+assert_eq("#1276 a shell metacharacter in extra_flags is rejected",
+          (False, "invalid-value"),
+          _lm_mut(lambda o: o["special_invocations"][0]["extra_flags"].append("--x=$(whoami)")))
+assert_eq("#1276 timeout out of bounds rejected",
+          (False, "invalid-value"),
+          _lm_mut(lambda o: o["tools"]["ruff"].__setitem__("timeout_seconds", 999999)))
+# The special-invocation still carries the run.sh extended-analysis flag as a
+# typed field — the declarative representation of the AC's dedicated invocation.
+assert_eq("#1276 run.sh special invocation carries --extended-analysis=false declaratively",
+          True,
+          any(si["path"] == "lib/test/run.sh"
+              and "--extended-analysis=false" in si["extra_flags"]
+              for si in _lm_valid()["special_invocations"]))
+
+
 print()
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)
