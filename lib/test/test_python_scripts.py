@@ -26194,6 +26194,51 @@ assert_eq("#1276 run.sh special invocation carries --extended-analysis=false dec
               and "--extended-analysis=false" in si["extra_flags"]
               for si in _lm_valid()["special_invocations"]))
 
+# ── Review finding: a trailing newline must NOT slip past a typed field. `$`
+#    matches before a final `\n` in non-MULTILINE mode; `\Z` (used by the module)
+#    does not. One assertion per field-bearing value. ───────────────────────────
+assert_eq("#1276 trailing-newline version rejected (\\Z anchor, not $)",
+          (False, "invalid-value"),
+          _lm_mut(lambda o: o["tools"]["ruff"].__setitem__("version", "0.6.9\n")))
+assert_eq("#1276 trailing-newline digest rejected",
+          (False, "invalid-value"),
+          _lm_mut(lambda o: o["tools"]["ruff"]["artifacts"][0].__setitem__(
+              "digest", "sha256:" + "b" * 64 + "\n")))
+assert_eq("#1276 trailing-newline member rejected",
+          (False, "invalid-value"),
+          _lm_mut(lambda o: o["tools"]["ruff"]["artifacts"][0].__setitem__("member", "ruff\n")))
+assert_eq("#1276 trailing-newline glob rejected",
+          (False, "invalid-value"),
+          _lm_mut(lambda o: o["selectors"][0]["include_globs"].append("**/*.sh\n")))
+assert_eq("#1276 trailing-newline flag rejected",
+          (False, "invalid-value"),
+          _lm_mut(lambda o: o["special_invocations"][0]["extra_flags"].append("--x=y\n")))
+
+# ── Review finding: pathologically-nested JSON fails closed (RecursionError is
+#    not a JSONDecodeError) rather than escaping as an unhandled exception. ──────
+_lm_deep = b"[" * 200000 + b"]" * 200000
+assert_eq("#1276 deeply-nested JSON is unestablished, not an escaped RecursionError",
+          (False, "malformed-json"), _lm_bytes(_lm_deep))
+
+# ── Review finding: the CLI usage-error exit code (1) is distinct from the
+#    UNESTABLISHED exit code (2), so a caller can branch on the exit status. ─────
+assert_eq("#1276 CLI establishes the shipped manifest with exit 0",
+          0, lint_manifest.main([str(SCRIPTS.parent / ".prflow" / "lint-manifest.json")]))
+assert_eq("#1276 CLI returns 2 for a validated-but-unestablished manifest",
+          2, lint_manifest.main([str(SCRIPTS.parent / ".prflow" / "no-such-manifest.json")]))
+
+
+def _lm_cli_exit(argv):
+    try:
+        lint_manifest.main(argv)
+    except SystemExit as _e:
+        return _e.code
+    return "no-exit"
+
+
+assert_eq("#1276 CLI usage error (missing path) exits 1, NOT 2 (no collision with unestablished)",
+          1, _lm_cli_exit([]))
+
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

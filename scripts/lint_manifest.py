@@ -45,15 +45,18 @@ KNOWN_LANGUAGES = frozenset({"shell", "python"})
 #    commands, package-manager snippets, arbitrary executable paths, URL
 #    templates, and environment expansion: any of `$ ; | & \` ( ) < > space`,
 #    a `://` scheme, or a `/` in an executable member fails its field. ─────────
-_VERSION_RE = re.compile(r"^[0-9]+(\.[0-9]+){1,3}$")
-_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
-_MEMBER_RE = re.compile(r"^[A-Za-z0-9._-]+$")  # a basename, never a path
-_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
-_FLAG_RE = re.compile(r"^--[a-z0-9][a-z0-9-]*(=[A-Za-z0-9._-]+)?$")
+# `\Z` (true end of string), not `$` (which matches before a trailing newline in
+# non-MULTILINE mode) — so a value ending in `\n` cannot slip past a field whose
+# whole purpose is to reject content outside its closed vocabulary.
+_VERSION_RE = re.compile(r"\A[0-9]+(\.[0-9]+){1,3}\Z")
+_DIGEST_RE = re.compile(r"\Asha256:[0-9a-f]{64}\Z")
+_MEMBER_RE = re.compile(r"\A[A-Za-z0-9._-]+\Z")  # a basename, never a path
+_ID_RE = re.compile(r"\A[a-z0-9][a-z0-9-]*\Z")
+_FLAG_RE = re.compile(r"\A--[a-z0-9][a-z0-9-]*(=[A-Za-z0-9._-]+)?\Z")
 # A glob is a repo-relative selector pattern: path separators and glob
 # metacharacters only. `$` (env expansion), whitespace, and shell metacharacters
 # are rejected, so a URL template or command string can never masquerade as one.
-_GLOB_RE = re.compile(r"^[A-Za-z0-9._*/?\[\]{}-]+$")
+_GLOB_RE = re.compile(r"\A[A-Za-z0-9._*/?\[\]{}-]+\Z")
 
 # Timeout bounds (seconds). A value outside the inclusive range is rejected.
 _TIMEOUT_MIN = 1
@@ -163,6 +166,13 @@ def parse_manifest(raw: bytes) -> ManifestResult:
         # Covers both malformed and truncated JSON (an unterminated document
         # raises `Expecting … delimiter`), which the caller need not distinguish.
         return _unestablished(f"malformed-json: {exc.msg}")
+    except RecursionError:
+        # A pathologically nested document (trivially producible by a hostile or
+        # corrupt file) overflows json's recursive decoder with a RecursionError,
+        # which is not a JSONDecodeError. Fail closed to unestablished like every
+        # other malformed shape rather than letting it escape as an exception the
+        # caller must guard.
+        return _unestablished("malformed-json: input nesting too deep")
     return validate_manifest(data)
 
 
@@ -411,15 +421,24 @@ def _validate_full_profiles(profiles, selector_ids) -> ManifestResult:
 def main(argv=None) -> int:
     """CLI: validate a manifest path and print one machine-readable line.
 
-    Prints `ESTABLISHED` (exit 0) or `UNESTABLISHED <reason>` (exit 2); an
-    argument error exits 1. Mirrors the one-token contract the other bundled
-    helpers use, so a workflow step can branch on the exit status.
+    Prints `ESTABLISHED` (exit 0) or `UNESTABLISHED <reason>` (exit 2); a usage
+    error exits 1 and a clean `--help` exits 0. Mirrors the one-token contract
+    the other bundled helpers use, so a workflow step can branch on the exit
+    status — and a usage error is a distinct code from a validated-but-
+    unestablished manifest, never collapsed onto it.
     """
     import argparse
 
     parser = argparse.ArgumentParser(description="Validate a lint manifest.")
     parser.add_argument("path", help="path to the lint manifest JSON file")
-    args = parser.parse_args(argv)
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:
+        # argparse exits 2 on a usage error, which would collide with the exit-2
+        # UNESTABLISHED result below and defeat the branch-on-exit-status
+        # contract. Remap a usage error (nonzero code) to exit 1; leave a clean
+        # --help / --version (code 0 or None) untouched.
+        raise SystemExit(1 if exc.code else exc.code) from None
     result = load_manifest(args.path)
     if result.established:
         print("ESTABLISHED")
