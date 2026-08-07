@@ -34,7 +34,15 @@ PRFlow suppresses a second review request while a fresh progress comment shows a
 
 ## The Progress Comment Has No Verdict
 
-Open the linked Actions run and inspect execution diagnostics for permission denials or an engine error. A failed run can flip the comment to `Review failed`. A configured backstop may post a bounded resume request, but it does not retry forever.
+Check the last item of the comment's checklist first: **Run complete — everything this run owed**. On a standalone `/prflow:review` it is ticked only once the verdict has reached a durable channel — the formal GitHub review, or a marked comment when the review could not be posted. An unticked final item means the run ended without delivering, and the run states why. The comment's status field can read finished while that item is unticked; the item, not the status, is what tells you delivery happened.
+
+Note that a ticked item confirms a durable verdict exists, not that the pull request carries an approve or request-changes merge signal. When the verdict reached the comment channel instead of the reviews API, the run says so.
+
+Before it terminates, a standalone review re-reads its own checklist and makes one bounded attempt to complete a missing delivery. It does not retry beyond that one attempt.
+
+On `/prflow:review-and-fix`, which posts no verdict to GitHub at all, the same item is ticked when the fix loop reaches its terminal work. When that skill is driven inline by another run, its closing bookkeeping can be skipped and the item is left unticked; on that path this is a bookkeeping gap, not a missing verdict.
+
+If the item is still unticked, open the linked Actions run and inspect execution diagnostics for permission denials or an engine error. A failed run can flip the comment to `Review failed`. A configured backstop may post a bounded resume request, but it does not retry forever.
 
 Fresh installs do not provide the old automatic `Devflow Review` status workflow. Do not add that status as a required check unless your repository deliberately retained and operates the legacy tier.
 
