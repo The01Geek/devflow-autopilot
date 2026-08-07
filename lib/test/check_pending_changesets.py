@@ -13,9 +13,11 @@ fails identically until a human diagnoses it.
 This check parses every tracked ``.changeset/*.md`` with the **same** ``_parse_changeset`` the
 consolidator uses (imported, never re-implemented, so the check cannot drift from the parser it
 protects) and fails RED naming any file that would raise ``ChangesetError``. It reuses the
-consolidator's own ``_is_consumable`` predicate so the audited population is exactly the set the
-consolidator would consume (``README.md`` exempt; the npm ``config.json`` excluded by the
-``.md`` filter).
+consolidator's own ``_is_consumable`` predicate so the audited population is the tracked subset
+of the set the consolidator would consume (``README.md`` exempt; the npm ``config.json``
+excluded by the ``.md`` filter). It is the *tracked* subset because the enumeration reads the git
+index (below); at merge time on ``main`` there are no untracked changesets, so the gap is inert
+where it matters.
 
 **Parse only — never consolidate.** The consolidator mutates the tree (it deletes consumed
 changesets and rewrites tracked files, with no dry-run mode), so this check calls only the pure
@@ -42,32 +44,40 @@ import subprocess
 import sys
 from pathlib import Path
 
-_SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent / "scripts"
+_TEST_DIR = Path(__file__).resolve().parent
+_SCRIPTS_DIR = _TEST_DIR.parent.parent / "scripts"
 
 
-def _load_consolidator():
-    """Import scripts/consolidate-changesets.py by path (its hyphen forbids a plain import)."""
-    path = _SCRIPTS_DIR / "consolidate-changesets.py"
-    spec = importlib.util.spec_from_file_location("_consolidate_changesets", path)
-    if spec is None or spec.loader is None:  # pragma: no cover - defensive
-        raise RuntimeError(f"cannot load the consolidator module from {path}")
+def _load_by_path(name: str, path: Path):
+    """Import a sibling script by path (a hyphen in the filename forbids a plain import)."""
+    spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
 
 
-def _enumerate_from_index(root: str) -> list[str]:
-    """Tracked ``.changeset/*.md`` paths, read from the git index (never a recursive walk)."""
-    result = subprocess.run(
-        ["git", "-C", root, "ls-files", "-z", "--", ".changeset/*.md"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+# The consolidator whose parser this check protects, and the shared git-ls-files population
+# reader (issue #724) — reused for its git-toplevel root resolution (#295) and the index-read
+# argv (LS_FILES_INDEX carries `-c core.quotePath=false`, #1217, and states the worktree-immune
+# index choice at the call site) rather than re-deriving that machinery here.
+_consolidator = _load_by_path("_consolidate_changesets", _SCRIPTS_DIR / "consolidate-changesets.py")
+_population = _load_by_path("_lint_population", _TEST_DIR / "lint_population.py")
+
+
+def _enumerate_from_index(root: Path) -> list[str]:
+    """Tracked ``.changeset/*.md`` paths, read from the git index (never a recursive walk).
+
+    Zero pending changesets is a clean empty population, not an error (mirroring the
+    consolidator's own zero-pending no-op), so this keeps a targeted pathspec and its own
+    empty handling rather than ``enumerate_population``, whose fail-closed contract raises on
+    an empty result.
+    """
+    argv = [*_population.LS_FILES_INDEX, "-z", "--", ".changeset/*.md"]
+    result = subprocess.run(argv, cwd=str(root), capture_output=True, text=True, check=False)
     if result.returncode != 0:
-        raise RuntimeError(
+        raise _population.EnumerationError(
             f"git ls-files could not enumerate .changeset/*.md under {root}: "
-            f"{result.stderr.strip()}"
+            f"{result.stderr.strip() or '(no stderr)'}"
         )
     names = [p for p in result.stdout.split("\0") if p]
     return [os.path.join(root, p) for p in names]
@@ -77,23 +87,24 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--root",
-        default=".",
-        help="repo root whose git index is enumerated (ignored when FILE args are given)",
+        default=None,
+        help="repo root whose git index is enumerated (default: git toplevel, else cwd; "
+        "ignored when FILE args are given)",
     )
     parser.add_argument("files", nargs="*", help="explicit changeset files (fixture mode)")
     args = parser.parse_args(argv)
 
-    consolidator = _load_consolidator()
-    parse_changeset = consolidator._parse_changeset
-    is_consumable = consolidator._is_consumable
-    ChangesetError = consolidator.ChangesetError
+    parse_changeset = _consolidator._parse_changeset
+    is_consumable = _consolidator._is_consumable
+    ChangesetError = _consolidator.ChangesetError
 
     if args.files:
         candidates = list(args.files)
     else:
+        root = _population.resolve_root(args.root, tool="check-pending-changesets")
         try:
-            candidates = _enumerate_from_index(args.root)
-        except RuntimeError as exc:
+            candidates = _enumerate_from_index(root)
+        except _population.EnumerationError as exc:
             print(f"check-pending-changesets: {exc}", file=sys.stderr)
             return 1
 
