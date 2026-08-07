@@ -269,7 +269,7 @@ giving the child absolute values its own working directory cannot change:
 
 - `<REPO_ROOT>` — `git rev-parse --show-toplevel`.
 - `<PLUGIN_ROOT>` — the resolved value of `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../`, with the trailing slash dropped. Substitute the resolved absolute path; never hand the child the unexpanded anchor, which it cannot expand. The **same rule already governs the first handoff sentence** — the anchor-relative path to the brief itself — so resolve that one at emission too, for the same reason: a child that cannot expand it cannot find the brief it is told to follow.
-- `<INTERNAL_DOC_ROOT>` — `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/`. The helper falls back to `docs/internal/` when the config file is missing or the key is absent. <!-- pruned-path-ok: the configurable consumer-owned internal-doc root, not a path expected inside the vendored plugin -->
+- `<INTERNAL_DOC_ROOT>` — `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/`. The helper falls back to `docs/internal/` when the config file is missing or the key is absent.
 
 Append all three sentences **unconditionally**. The `<PLUGIN_ROOT>` and
 `<INTERNAL_DOC_ROOT>` sentences are **required** — without them the child has no bundled-helper

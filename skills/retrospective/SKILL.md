@@ -31,7 +31,7 @@ so on a host whose `PATH` jq is present but unrunnable (a shim-shadowed Windows/
 is the case the wrapper exists for) the construction fails, and you report that failure as
 the `{"error": "<reason>"}` object of *§ If the bundle is unusable* rather than silently
 producing nothing. If it carries no
-internal-documentation root, use `docs/internal/`. <!-- pruned-path-ok: the configurable consumer-owned internal-doc root, not a path expected inside the vendored plugin -->
+internal-documentation root, use `docs/internal/`.
 Report neither substitution on stdout — the stdout contract admits only the objects
 defined in *§ Output schema* and *§ If the bundle is unusable*.
 
