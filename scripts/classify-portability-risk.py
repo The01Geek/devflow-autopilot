@@ -59,6 +59,9 @@ from pathlib import Path
 SCHEMA_VERSION = 1
 CLASSIFIER_VERSION = 1
 
+#: The registry schema this classifier reads; must match the totality checker's.
+REGISTRY_SCHEMA_VERSION = 1
+
 #: Changing any of these means the *selection machinery itself* changed, so a subset
 #: chosen by the new machinery proves nothing about the old surface. Every one of them
 #: selects the complete portable population. Kept as literal paths for the same reason
@@ -96,8 +99,19 @@ def _load_shared_gh():
 
 
 def load_registry(path: Path):
-    """Return `(portable_paths, all_paths, closure_members)` or raise OSError/ValueError."""
+    """Return `(portable_paths, all_paths, closure_members)` or raise OSError/ValueError.
+
+    The `schema_version` is checked here as well as in the totality checker: this is a
+    second reader of one schema, and the failure it guards against is silent — a state
+    rename would leave every entry looking non-portable and the lane would verify
+    nothing while reporting a clean selection.
+    """
     document = json.loads(path.read_text(encoding="utf-8"))
+    if document.get("schema_version") != REGISTRY_SCHEMA_VERSION:
+        raise ValueError(
+            f"unsupported registry schema_version {document.get('schema_version')!r} "
+            f"(this classifier understands {REGISTRY_SCHEMA_VERSION})"
+        )
     entries = document.get("entries")
     if not isinstance(entries, dict):
         raise ValueError("the registry has no `entries` object")
@@ -110,51 +124,53 @@ def load_registry(path: Path):
 
 
 def changed_files(gh, repo: str, pr: int, head_sha: str):
-    """Return `(filenames, established, detail)`.
+    """Return `(filenames, detail)`, where `filenames` is None when the population
+    could not be established.
 
-    `established` is True only when every page was read, the distinct-file tally
-    matches the PR's own `changed_files`, the head SHA agrees, and no filename came
-    back twice with conflicting statuses.
+    `None` — rather than an empty list plus a separate flag — is what makes the
+    unestablished state unrepresentable as "we looked and found nothing": every arm
+    below that could not establish an answer returns it, and only the final arm
+    returns a list.
     """
     meta, ok = gh.gh_json_ex(f"repos/{repo}/pulls/{pr}")
     if not ok or not isinstance(meta, dict):
-        return [], False, "the pull-request metadata could not be established"
+        return None, "the pull-request metadata could not be established"
     expected = meta.get("changed_files")
     current_head = ((meta.get("head") or {}).get("sha")) if isinstance(meta.get("head"), dict) else None
     if not isinstance(expected, int):
-        return [], False, "the pull request reported no usable `changed_files` count"
+        return None, "the pull request reported no usable `changed_files` count"
     if head_sha and current_head and head_sha != current_head:
-        return [], False, (
+        return None, (
             f"evidence is bound to {head_sha[:12]} but the pull request's current head "
             f"is {current_head[:12]} — the classification would be stale"
         )
     if head_sha and not current_head:
-        return [], False, "the pull request's current head SHA could not be established"
+        return None, "the pull request's current head SHA could not be established"
 
     pages, ok = gh.gh_json_ex(f"repos/{repo}/pulls/{pr}/files?per_page=100", paginate=True)
     if not ok:
-        return [], False, "the pull-request files pages could not be established"
+        return None, "the pull-request files pages could not be established"
     if pages is None:
         pages = []
     if not isinstance(pages, list):
-        return [], False, "the pull-request files response was not a list"
+        return None, "the pull-request files response was not a list"
 
     statuses: dict[str, set] = {}
     for item in pages:
         if not isinstance(item, dict) or not isinstance(item.get("filename"), str):
-            return [], False, "a pull-request files record was not a usable object"
+            return None, "a pull-request files record was not a usable object"
         statuses.setdefault(item["filename"], set()).add(item.get("status"))
     conflicting = sorted(name for name, seen in statuses.items() if len(seen) > 1)
     if conflicting:
-        return [], False, f"conflicting statuses for the same filename: {', '.join(conflicting[:5])}"
+        return None, f"conflicting statuses for the same filename: {', '.join(conflicting[:5])}"
 
     distinct = sorted(statuses)
     if len(distinct) != expected:
-        return [], False, (
+        return None, (
             f"pagination returned {len(distinct)} distinct file(s) but the pull request "
             f"reports changed_files={expected} — the population is truncated or conflicting"
         )
-    return distinct, True, f"{len(distinct)} changed file(s) reconciled against changed_files"
+    return distinct, f"{len(distinct)} changed file(s) reconciled against changed_files"
 
 
 def select(paths, portable, classified, closure_members):
@@ -168,7 +184,8 @@ def select(paths, portable, classified, closure_members):
     for path in paths:
         if path in closure_members:
             return list(portable), REASON_SHARED_DEPENDENCY
-    return [p for p in portable if p in set(paths)], REASON_ESTABLISHED
+    changed = set(paths)
+    return [p for p in portable if p in changed], REASON_ESTABLISHED
 
 
 def main(argv=None) -> int:
@@ -208,8 +225,8 @@ def main(argv=None) -> int:
         return 0
 
     gh = _load_shared_gh()
-    paths, established, detail = changed_files(gh, args.repo, int(args.pr), args.head_sha)
-    if not established:
+    paths, detail = changed_files(gh, args.repo, int(args.pr), args.head_sha)
+    if paths is None:
         result.update(execution="conservative", established=False, selected=list(portable),
                       reason="unestablished", detail=detail)
         print(json.dumps(result, sort_keys=True))

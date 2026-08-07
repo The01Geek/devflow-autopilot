@@ -256,6 +256,13 @@
       "shared_library_closure": [],
       "state": "portable"
     },
+    "lib/test/gate-portability-result.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/test/gate-portability-result.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
     "lib/test/gate-shard-result.sh": {
       "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/test/gate-shard-result.sh",
       "min_bash": "3.2",
@@ -309,6 +316,11 @@
       "state": "excluded"
     },
     "lib/test/modules/phase2-durability-checkpoint.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/modules/portability-lane.sh": {
       "min_bash": "4.3",
       "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
       "state": "excluded"

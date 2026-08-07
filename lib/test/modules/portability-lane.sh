@@ -22,7 +22,8 @@
 # machinery selecting, supervising and gating them behaves.
 #
 # The `trap _pl_cleanup EXIT` below relies on the sourcing contract both callers use
-# (a ( ... ) subshell), so the trap fires at subshell exit and cannot clobber the
+# (module-harness.sh's full-suite boundary and run-module.sh each source this module
+# inside a ( ... ) subshell), so the trap fires at subshell exit and cannot clobber the
 # runner's own EXIT handling.
 
 PL_REPO="$LIB/.."
@@ -34,7 +35,12 @@ PL_REGISTRY="$PL_REPO/lib/shell-surface-registry.json"
 PL_FIXTURE_DIR="$LIB/test/fixtures/bash32"
 PL_CI="$PL_REPO/.github/workflows/ci.yml"
 
-_pl_tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/devflow-portability-lane.XXXXXX")" || {
+# The harness's owned-directory allocator rather than a bare `mktemp -d`: it snapshots
+# the template namespace and refuses a candidate it did not create, so a colliding or
+# pre-planted directory is a loud failure instead of a fixture tree this module then
+# deletes on the way out.
+_pl_tmp_root="$(devflow_module_allocate_owned_directory \
+  "${TMPDIR:-/tmp}/devflow-portability-lane.XXXXXX")" || {
   printf 'could not allocate portability-lane fixture\n' >&2
   return 1
 }
@@ -497,10 +503,15 @@ assert_eq "#1277 gate: a domain token outside the closed set is refused" \
 assert_eq "#1277 gate: no artifact path at all is refused" \
   "1" "$(bash "$PL_GATE" success >/dev/null 2>&1; printf '%s' "$?")"
 
-# The trailing ACTIONS_CONCLUSION line the workflow appends must not disturb the read,
-# and the gate must take the LAST DOMAIN_RESULT line rather than a prefix match.
-assert_eq "#1277 gate: the appended native conclusion line does not disturb the domain read" \
-  "0" "$(_pl_gate success "$_pl_pass_file")"
+# The gate takes the LAST DOMAIN_RESULT line, not the first. A first-wins read would
+# be green on this fixture, so it is the discriminating case rather than a re-run of
+# the pass arm above — and the trailing ACTIONS_CONCLUSION line the workflow appends
+# must not disturb either read.
+_pl_lastwins_file="$_pl_tmp_root/gate-lastwins.txt"
+printf 'DOMAIN_RESULT: pass\n{"schema_version": 1}\nDOMAIN_RESULT: fail\nACTIONS_CONCLUSION: success\n' \
+  > "$_pl_lastwins_file"
+assert_eq "#1277 gate: the LAST DOMAIN_RESULT line decides, and a trailing conclusion line does not disturb it" \
+  "1" "$(_pl_gate success "$_pl_lastwins_file")"
 
 # ── 7. Rendered-workflow boundary ──────────────────────────────────────────────
 #

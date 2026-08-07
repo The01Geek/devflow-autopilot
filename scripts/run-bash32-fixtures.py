@@ -45,7 +45,6 @@ the supervisor could not run at all (unusable manifest, unusable classifier resu
 from __future__ import annotations
 
 import argparse
-import errno
 import importlib.util
 import json
 import os
@@ -68,7 +67,19 @@ OUTCOME_WATCHDOG = "watchdog_expiry"
 #: cannot hold the lane open by ignoring the signal.
 KILL_GRACE_SECONDS = 2.0
 
-DEFAULT_DEADLINE_SECONDS = 60
+#: How long to drain a killed group's pipes. Deliberately its own constant rather than
+#: reusing KILL_GRACE_SECONDS: that one is a policy choice about how much time a
+#: fixture's trap deserves, and sharing it would silently double the worst-case
+#: watchdog latency the next time someone tuned the grace.
+KILL_DRAIN_SECONDS = 1.0
+
+#: The interpreter-identity probe's own deadline — a wedged `/bin/bash -c` must not
+#: hang the lane either, so the probe is supervised like any fixture.
+PROBE_DEADLINE_SECONDS = 30
+
+#: Deadline for the per-surface parse fixture, which runs once over the whole selected
+#: population (the construct fixtures carry their own, from the manifest's 4th column).
+SURFACE_PARSE_DEADLINE_SECONDS = 60
 
 
 def _load_signal_launcher(root: Path):
@@ -127,10 +138,9 @@ def run_supervised(argv, deadline_seconds, launcher, env=None):
         )
     except OSError as exc:
         detail = exc.strerror or type(exc).__name__
-        # The shell statuses for the same two conditions: 127 not found, 126 found but
-        # not executable. Translating is what keeps "your fixture never started" from
-        # reading as "your fixture ran and exited 1".
-        status = 127 if exc.errno == errno.ENOENT else 126
+        # The shared 127-not-found / 126-not-executable policy, so "your fixture never
+        # started" is never reported as "your fixture ran and exited 1".
+        status = launcher.spawn_failure_status(exc)
         return OUTCOME_FAIL, status, time.monotonic() - started, f"could not start {argv[0]}: {detail}"
 
     try:
@@ -139,7 +149,7 @@ def run_supervised(argv, deadline_seconds, launcher, env=None):
         _terminate_group(child)
         output = ""
         try:
-            output = child.communicate(timeout=KILL_GRACE_SECONDS)[0] or ""
+            output = child.communicate(timeout=KILL_DRAIN_SECONDS)[0] or ""
         except (subprocess.TimeoutExpired, ValueError, OSError):
             pass
         return OUTCOME_WATCHDOG, None, time.monotonic() - started, output
@@ -158,27 +168,27 @@ def _terminate_group(child) -> None:
     try:
         pgid = os.getpgid(child.pid)
     except OSError:
-        pgid = None
-    for sig, delay in ((signal.SIGTERM, KILL_GRACE_SECONDS), (signal.SIGKILL, 0.0)):
-        if pgid is None:
-            break
-        try:
-            os.killpg(pgid, sig)
-        except OSError:
-            break
-        if delay:
-            deadline = time.monotonic() + delay
-            while time.monotonic() < deadline and child.poll() is None:
-                time.sleep(0.05)
-            if child.poll() is not None:
-                return
+        return
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except OSError:
+        return
+    deadline = time.monotonic() + KILL_GRACE_SECONDS
+    while time.monotonic() < deadline and child.poll() is None:
+        time.sleep(0.05)
+    if child.poll() is not None:
+        return
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except OSError:
+        pass
 
 
 def assert_interpreter(bash: str, launcher) -> tuple[bool, str]:
     """Return `(is_bash_32, reported_version)` for the named interpreter."""
     outcome, _status, _duration, output = run_supervised(
         [bash, "-c", 'printf "%s|%s|%s" "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}" "${BASH_VERSION}"'],
-        30, launcher,
+        PROBE_DEADLINE_SECONDS, launcher,
     )
     if outcome != OUTCOME_PASS:
         return False, f"the interpreter could not be probed ({outcome})"
@@ -197,8 +207,6 @@ def main(argv=None) -> int:
     parser.add_argument("--classification", default=None,
                         help="path to the classifier's JSON result; omitted means the complete portable population")
     parser.add_argument("--registry", default=None, help="path to lib/shell-surface-registry.json")
-    parser.add_argument("--surface-deadline-seconds", type=int, default=DEFAULT_DEADLINE_SECONDS,
-                        help="deadline for the per-surface parse fixture")
     parser.add_argument("--result-file", default=None, help="also write the JSON result to this path")
     args = parser.parse_args(argv)
 
@@ -282,7 +290,7 @@ def main(argv=None) -> int:
         parse_fixture = manifest_path.parent / "parse-under-bash32.sh"
         outcome, status, duration, output = run_supervised(
             [args.bash, str(parse_fixture), *[str(root / p) for p in selected]],
-            args.surface_deadline_seconds, launcher, env={**os.environ, "BASH": args.bash},
+            SURFACE_PARSE_DEADLINE_SECONDS, launcher, env={**os.environ, "BASH": args.bash},
         )
         result["fixtures"].append({
             "id": "portable-surface-parse", "construct": f"{len(selected)} selected surface(s) parse",

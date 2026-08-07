@@ -120,8 +120,6 @@ def _duplicate_keys(text: str) -> list[str]:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Reconcile the shell-surface registry against the tracked tree.")
-    parser.add_argument("--registry", default=None,
-                        help="path to the registry JSON (default: <root>/lib/shell-surface-registry.json)")
     parser.add_argument("--list-portable", action="store_true",
                         help="on success, print the portable population one path per line instead of OK")
     population = _load_population_reader()
@@ -129,7 +127,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     root = population.resolve_root(args.root, tool=TOOL)
-    registry_path = Path(args.registry) if args.registry else root / "lib" / "shell-surface-registry.json"
+    registry_path = root / "lib" / "shell-surface-registry.json"
 
     try:
         raw = registry_path.read_text(encoding="utf-8")
