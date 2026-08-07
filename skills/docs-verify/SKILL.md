@@ -22,7 +22,7 @@ If the invocation fails because the helper path does not exist (`No such file`, 
 - `--report-only` — a bare flag.
 - `--search-space <pathspec>` — takes exactly the **one** argument that follows it. That argument is the flag's value, never part of the topic.
 
-**Malformed invocations (all arms explicit).** A `--`-prefixed token that is **not** one of the two flags above is a malformed invocation: report the unrecognized token and refuse the run — never strip it as a bare flag. Silently consuming a mistyped `--reprot-only` would drop the caller into the **default write mode**, which makes file changes, so the parser fails closed on an unrecognized flag exactly as it does below. `--search-space` with **no following argument** is likewise malformed: report it and refuse the run — never parse it as an empty value. An operand supplied but **empty** (`--search-space ''`) does **not** fall through to the no-operand default: report `unestablished` for the *exact operand and population identity* duty. Silently coercing a real empty value onto the default would restore the whole-tracked-tree sweep and destroy the two legs' disjointness — this repo's documented off-switch-that-never-worked defect.
+**Malformed invocations (all arms explicit).** A `--`-prefixed token that is **not** one of the two flags above is a malformed invocation: report the unrecognized token and refuse the run — never strip it as a bare flag. Silently consuming a mistyped `--reprot-only` would drop the caller into the **default write mode**, which makes file changes, so the parser fails closed on an unrecognized flag exactly as it does below. `--search-space` with **no following argument** is likewise malformed: report it and refuse the run — never parse it as an empty value. An operand supplied but **empty** (`--search-space ''`) does **not** fall through to the no-operand default: report `unestablished` for the *exact operand and population identity* duty. Silently coercing a real empty value onto the default would restore the whole-tracked-tree sweep and destroy the two legs' disjointness.
 
 Grammar: `[--report-only] [--search-space <pathspec>] <topic…>`.
 
@@ -45,8 +45,7 @@ report briefly** — it is not what you were dispatched to produce.
 the behavior that matters is frequently not visible at the call site: it lives in a guard several
 layers up, a default that silently coerces, a coupled site that must change in lockstep, or a
 consumer nobody references by name. Treat "I read the obvious file and it looked simple" as an
-unfinished read, not a finding. Surface-level confirmation is the failure this pass exists to
-prevent.
+unfinished read, not a finding.
 
 **Breadth and depth are separate budgets.** The duty floor below bounds how **many** things you
 examine. It never bounds how **carefully** you examine each one. Reading fewer files properly beats
@@ -65,8 +64,7 @@ Return a status for **every** duty on the floor, never only for the duties you w
 **The bar for `discharged` (apply it per duty, before you write the status).** `discharged` does not
 mean "I did some work on this duty." It means: **you can state the duty's answer, and cite the tool
 output you read it from.** If you cannot do both, the status is `unestablished` — which is a normal,
-expected outcome, not a failure to hide. A report with every duty `discharged` and no citations is
-less useful than one that says plainly which two duties it could not close.
+expected outcome, not a failure to hide.
 
 Record `unestablished` — do not round up to `discharged` — whenever any of these hold:
 
@@ -97,11 +95,8 @@ and read your own qualification — it is the test, not a footnote:
   miss a caller spelled differently", "I enumerated the callers of this helper, not every possible
   path to the endpoint"? Then `discharged` is correct. State the bound; it is the useful part.
 
-The difference is whether the caveat undermines what you asserted, or merely describes where you
-stopped looking.
-
-Unknown is not zero, and a duty you could not close is information the caller needs — it is exactly
-what tells them to look harder rather than plan against a gap they cannot see.
+Unknown is not zero: report a duty you could not close, so the caller looks harder rather than
+planning against a gap they cannot see.
 
 **How to discharge a duty (technique, not extra scope).** These are ways of reading, applied to the
 six duties above — they add no seventh duty and license no wider survey:
@@ -118,9 +113,9 @@ six duties above — they add no seventh duty and license no wider survey:
   real value — read these deliberately rather than assuming the happy path.
 
 **Cite `file:line` in this report.** Your report is ephemeral analysis a caller consumes immediately,
-so line numbers are precise and useful here. This is the opposite of the rule for documentation
-*written into* `[[INTERNAL_DOC_LOCATION]]`, which references bare paths and symbol names because line
-numbers rot in committed files.
+so line numbers are precise and useful here. In documentation *written into*
+`[[INTERNAL_DOC_LOCATION]]`, reference bare paths and symbol names instead — line numbers rot in
+committed files.
 
 **Calibrate quantitative claims.** Mark any count, size, percentage, or arithmetic total you did not
 read directly from tool output in this session as `(unverified estimate)`, and mark the same way a
@@ -232,9 +227,7 @@ naming rules, the quality standards, the scope constraints, and the completion c
 **This gate fails closed.** If the reference cannot be read, or its boundary markers are absent or do
 not match, **stop and report that** — do not proceed to edit documentation from memory. Write mode
 creates and modifies files inside `[[INTERNAL_DOC_LOCATION]]`, and doing so without its scope
-constraints and file-operation rules is worse than not running at all. (This is deliberately stricter
-than `/prflow:create-issue`'s references, which degrade best-effort because nothing there may block
-issue creation. Do not unify the two.)
+constraints and file-operation rules is worse than not running at all.
 
 ### Report-Only Output (`--report-only` mode)
 
@@ -256,8 +249,8 @@ Return findings as text — **do not write them to a file**. Structure:
 A discrepancy in any file **outside** that location — a stale default in a schema, a wrong literal in
 a code comment, an out-of-date example config — is **not a verdict input**. Note it under
 *Drift detail* as an out-of-location contradiction if it is load-bearing, and leave the verdict
-unchanged. This rule exists because the verdict drives the caller's escalation decision: two runs
-over the same tree must return the same token, and without a stated boundary they do not.
+unchanged. Without that stated boundary, two runs over the same tree return different tokens and the
+caller's escalation decision turns on noise.
 
 If `[[INTERNAL_DOC_LOCATION]]` itself cannot be read, that is **not** `DOCS MISSING` — an absence you
 could not establish is not an established absence. Report the *exact operand and population identity*
