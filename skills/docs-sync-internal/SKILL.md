@@ -190,7 +190,7 @@ Edit files in `[[INTERNAL_DOC_LOCATION]]`:
 **Step 5: Verify Every Factual Claim Against the Codebase**
 ⚠️ **MANDATORY — do not skip. Write docs from the code, never from the issue body, the plan, or your memory of what the change "should" do.**
 
-A doc update copied from an issue body or implementation plan inherits every one of its errors. Before you finish, re-open the actual source and confirm each concrete assertion in the lines you added or edited:
+A doc update copied from issue or plan prose inherits every contradiction between that prose and the shipped code, and ships those errors into the docs. Before you finish, re-open the actual source and confirm each concrete assertion in the lines you added or edited:
 
 - **File paths and class / method / function / CSS-class / route names** — `grep`/open the file and confirm the symbol exists, is spelled exactly as written, and lives where the doc says. If the doc claims "X is handled in `path/to/Foo`", open that file and find it before you write the sentence.
 - **Counts and lists** ("N config files", "the K screens that do Y", "approximately M templates") — re-derive every count from a `grep`/`ls`/`find` you actually ran, and propagate the corrected number to *every* place in the doc that repeats it (summary tables, ordered steps, prose). A stale count in one section while another is fixed is a classic half-edit.

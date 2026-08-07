@@ -250,8 +250,8 @@ Return findings as text — **do not write them to a file**. Structure:
 A discrepancy in any file **outside** that location — a stale default in a schema, a wrong literal in
 a code comment, an out-of-date example config — is **not a verdict input**. Note it under
 *Drift detail* as an out-of-location contradiction if it is load-bearing, and leave the verdict
-unchanged. Without a stated boundary, two runs over the same tree return different tokens and the
-caller's escalation decision turns on noise.
+unchanged. Two runs over the same tree must return the same token; without a stated boundary they do
+not, and the caller's escalation decision turns on noise.
 
 If `[[INTERNAL_DOC_LOCATION]]` itself cannot be read, that is **not** `DOCS MISSING` — an absence you
 could not establish is not an established absence. Report the *exact operand and population identity*
