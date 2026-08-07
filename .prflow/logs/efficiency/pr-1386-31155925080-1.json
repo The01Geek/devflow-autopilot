@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1386",
+  "generated_at": "2026-08-07T07:09:54Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.26",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 6.21578475,
+    "tokens": {
+      "input_tokens": 38,
+      "output_tokens": 17256,
+      "cache_read_input_tokens": 2448179,
+      "cache_creation_input_tokens": 141592,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 8818,
+        "outputTokens": 45176,
+        "cacheReadInputTokens": 3498987,
+        "cacheCreationInputTokens": 441893,
+        "webSearchRequests": 0,
+        "costUSD": 6.21578475,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 30,
+    "duration_ms": 528871
+  },
+  "permission_denials": {
+    "count": 10,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "scripts/load-prompt-extension.sh review 2>&1; echo \"rc=$?\"",
+      "scripts/load-prompt-extension.sh review",
+      "echo \"RUN_ID=${GITHUB_RUN_ID:-none} ATTEMPT=${GITHUB_RUN_ATTEMPT:-none} ACTIONS=${GITHUB_ACTIONS:-none} SKILL_DIR=${CLAUDE_SKILL_DIR:-none}\"",
+      "gh pr diff 1386 | awk '/^diff --git/{in_logs=/ [ab]\\/\\.prflow\\/logs\\//} !in_logs' > .prflow/tmp/review/pr-1386/local/diff.patch\nwc -l .prflow/tmp/review/pr-1386/local/diff.patch\necho \"---FILES---\"\ngrep '^diff --git' .prflow/tmp/review/pr-1386/local/diff.patch | sed -E 's#^diff --git a/(.*) b/.*#\\1#'",
+      "ls .changeset/ 2>/dev/null; echo \"---existing changeset sample---\"; for f in .changeset/*.md; do [ \"$f\" != \".changeset/issue-1276-lint-manifest.md\" ] && echo \"== $f ==\" && cat \"$f\" && break; done",
+      "python3 -c \"\nimport importlib.util, pathlib, copy\nspec = importlib.util.spec_from_file_location('lm','scripts/lint_manifest.py')\nm = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\ndef r(o): x=m.validate_manifest(o); return (x.established, None if x.reason is None else x.reason.split(':',1)[0])\ndef b(raw): x=m.parse_manifest(raw); return (x.established, None if x.reason is None else x.reason.split(':',1)[0])\nprint('deep', b(b'['*200000 + b']'*200000))\nprint('dupkey', b(b'{\\\"sch …[per-command-truncated]",
+      "cat > /tmp/chk.py <<'PYEOF'\nimport importlib.util\nspec = importlib.util.spec_from_file_location('lm','scripts/lint_manifest.py')\nm = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\ndef r(o):\n    x=m.validate_manifest(o); return (x.established, None if x.reason is None else x.reason.split(':',1)[0])\ndef b(raw):\n    x=m.parse_manifest(raw); return (x.established, None if x.reason is None else x.reason.split(':',1)[0])\nprint('deep', b(b'['*200000 + b']'*200000))\nprint('dupkey', b( …[per-command-truncated]",
+      "printf '%s\\n' \\\n'import importlib.util' \\\n'spec = importlib.util.spec_from_file_location(\"lm\",\"scripts/lint_manifest.py\")' \\\n'm = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)' \\\n'def r(o):' \\\n'    x=m.validate_manifest(o)' \\\n'    return (x.established, None if x.reason is None else x.reason.split(chr(58),1)[0])' \\\n'def b(raw):' \\\n'    x=m.parse_manifest(raw)' \\\n'    return (x.established, None if x.reason is None else x.reason.split(chr(58),1)[0])' \\\n'print(\"deep\", b(b\"[\"*20 …[per-command-truncated]",
+      "printf '%s\\n' \\\n'import importlib.util' \\\n'spec = importlib.util.spec_from_file_location(\"lm\",\"scripts/lint_manifest.py\")' \\\n'm = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)' \\\n'def r(o):' \\\n'    x=m.validate_manifest(o)' \\\n'    return (x.established, None if x.reason is None else x.reason.split(chr(58),1)[0])' \\\n'def b(raw):' \\\n'    x=m.parse_manifest(raw)' \\\n'    return (x.established, None if x.reason is None else x.reason.split(chr(58),1)[0])' \\\n'print(\"deep\", b(b\"[\"*20 …[per-command-truncated]",
+      "python3 - <<'PYEOF'\nimport importlib.util\nspec = importlib.util.spec_from_file_location(\"lm\",\"scripts/lint_manifest.py\")\nm = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\ndef r(o):\n    x=m.validate_manifest(o)\n    return (x.established, None if x.reason is None else x.reason.split(chr(58),1)[0])\ndef b(raw):\n    x=m.parse_manifest(raw)\n    return (x.established, None if x.reason is None else x.reason.split(chr(58),1)[0])\nprint(\"deep\", b(b\"[\"*200000 + b\"]\"*200000))\ndef mk(membe …[per-command-truncated]"
+    ],
+    "total": 10,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
