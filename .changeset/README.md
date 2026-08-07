@@ -59,3 +59,8 @@ The workflow then stages those changes and commits them back to `main` with a
 A malformed changeset (missing/invalid `bump`, unparseable frontmatter, empty prose) fails the
 Action loudly, naming the offending file — it is never silently skipped, and no partial write
 lands.
+
+The test suite catches such a malformed changeset **before** merge, too: it parses every tracked
+`.changeset/*.md` with the same parser the consolidator uses, so a bad frontmatter (e.g. the npm
+`"pkg": patch` form) turns the suite RED at the desk and in CI rather than only aborting
+`version-consolidate` after merge.

@@ -15055,7 +15055,7 @@ for PA_FILE in "$LIB"/../skills/review/phases/*.md "$LIB"/../skills/review-and-f
     "$(if grep -qF 'CLAUDE_SKILL_DIR' "$PA_FILE"; then grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no; else echo yes; fi)"  # raw-guard-ok: loop body: conditional presence pin over the enumerated $PA_FILE loop variable
 done
 assert_eq "#275 pin (R0): portable-anchor coverage spans every review phase + fix-loop + create-issue + implement reference file (enumeration reconciled)" \
-  "30" "$PA_REF_COUNT"
+  "36" "$PA_REF_COUNT"
 # Mutation proof (PASS->FAIL, self-contained): the absence EREs must actually MATCH the
 # two fragile forms they exist to reject — an ERE typo would leave P1/P2 green forever
 # (vacuous absence pins). Inject each fragile form into a temp copy of a migrated file
@@ -27805,6 +27805,85 @@ assert_eq "#290 .changeset/README documents the bump frontmatter key" "yes" \
   "$(grep -qiF 'bump' "$FDROOT/.changeset/README.md" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#1373 repo's own pending changesets validate against the consolidator's parser"
+# ────────────────────────────────────────────────────────────────────────────
+# A .changeset/*.md using the npm form (`"prflow": patch`) instead of the required
+# `bump: patch` parses to a human eye and passes every PR-side check, then aborts
+# version-consolidate at merge time on main. lib/test/check_pending_changesets.py parses
+# every tracked .changeset/*.md with the SAME _parse_changeset the consolidator uses
+# (imported, never the consolidator itself — that mutates the tree), enumerating the
+# population from the git index rather than a repo-root walk. Each AC of #1373 maps to at
+# least one behavioral assertion below.
+CS_CHECK="$FDROOT/lib/test/check_pending_changesets.py"
+assert_eq "#1373 check_pending_changesets.py exists" "yes" "$([ -f "$CS_CHECK" ] && echo yes || echo no)"
+
+# The repo's own pending changesets (enumerated from the git index) all parse — the live
+# guard: a bad changeset committed to this branch turns the suite RED at the desk and in CI.
+python3 "$CS_CHECK" --root "$FDROOT" >/dev/null 2>&1; CS_RC=$?
+assert_eq "#1373 repo's own tracked .changeset/*.md all parse cleanly" "0" "$CS_RC"
+
+# AC: the npm `"pkg": patch` form turns the check RED, naming the offending file AND the
+# parser's own error text (proving the failure is diagnosable, not a bare non-zero exit).
+TMP_CSFX="$(mktemp -d)"
+printf -- '---\n"prflow": patch\n---\n\n- npm form (#1373)\n' > "$TMP_CSFX/npm.md"
+python3 "$CS_CHECK" "$TMP_CSFX/npm.md" >"$TMP_CSFX/out" 2>&1; CS_RC=$?
+assert_eq "#1373 npm form: check exits non-zero (RED)" "yes" "$([ "$CS_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#1373 npm form: message names the offending file" "yes" \
+  "$(grep -qF 'npm.md' "$TMP_CSFX/out" && echo yes || echo no)"
+assert_eq "#1373 npm form: message carries the parser's own error text" "yes" \
+  "$(grep -qF "missing required 'bump:' key" "$TMP_CSFX/out" && echo yes || echo no)"
+
+# AC: the correct `bump:` form is green.
+printf -- '---\nbump: patch\ntype: Fixed\n---\n\n- correct form (#1373)\n' > "$TMP_CSFX/good.md"
+python3 "$CS_CHECK" "$TMP_CSFX/good.md" >/dev/null 2>&1; CS_RC=$?
+assert_eq "#1373 correct bump: form parses cleanly (green)" "0" "$CS_RC"
+
+# AC: parse-only — the check never runs the consolidator (which deletes consumed changesets
+# and rewrites tracked files). Run it on a VALID fixture changeset in a directory of its own
+# and assert the helper ran clean, the changeset survived (the consolidator would have deleted
+# it), and no consolidator output (plugin.json / CHANGELOG.md) was materialized.
+CSPO="$(mktemp -d)"
+printf -- '---\nbump: patch\n---\n\n- keep (#1373)\n' > "$CSPO/keep.md"
+python3 "$CS_CHECK" "$CSPO/keep.md" >/dev/null 2>&1; CS_RC=$?
+assert_eq "#1373 parse-only: helper ran to a clean verdict on the valid fixture" "0" "$CS_RC"
+assert_eq "#1373 parse-only: valid changeset NOT deleted (consolidator would delete it)" "yes" \
+  "$([ -f "$CSPO/keep.md" ] && echo yes || echo no)"
+assert_eq "#1373 parse-only: no consolidator output written (tree byte-identical)" "yes" \
+  "$([ ! -f "$CSPO/CHANGELOG.md" ] && [ ! -e "$CSPO/.claude-plugin" ] && echo yes || echo no)"
+rm -rf "$CSPO" "$TMP_CSFX"
+
+# AC: enumeration reads the git INDEX, not a filesystem walk. A tracked-good + untracked-bad
+# .changeset pair must pass — git ls-files sees only the tracked good file, while a recursive
+# repo-root walk would find the untracked malformed file and (wrongly) go RED. This is also
+# what makes the result worktree-immune (issue #711).
+CSIDX="$(mktemp -d)"
+git -C "$CSIDX" init -q >/dev/null 2>&1
+mkdir -p "$CSIDX/.changeset"
+printf -- '---\nbump: patch\n---\n\n- tracked good (#1373)\n' > "$CSIDX/.changeset/good.md"
+git -C "$CSIDX" add .changeset/good.md >/dev/null 2>&1
+printf -- '---\n"prflow": patch\n---\n\n- untracked bad (#1373)\n' > "$CSIDX/.changeset/bad.md"
+python3 "$CS_CHECK" --root "$CSIDX" >/dev/null 2>&1; CS_RC=$?
+assert_eq "#1373 index enumeration: an UNTRACKED malformed changeset is not audited (index, not walk)" "0" "$CS_RC"
+# And a TRACKED malformed changeset in the same fixture does go RED — the enumeration is live.
+git -C "$CSIDX" add .changeset/bad.md >/dev/null 2>&1
+python3 "$CS_CHECK" --root "$CSIDX" >/dev/null 2>&1; CS_RC=$?
+assert_eq "#1373 index enumeration: a TRACKED malformed changeset turns the check RED" "yes" \
+  "$([ "$CS_RC" -ne 0 ] && echo yes || echo no)"
+rm -rf "$CSIDX"
+
+# AC: README.md is exempt (the consolidator's own _is_consumable predicate), so a tracked
+# README.md that is not a changeset does not turn the check RED.
+CSRD="$(mktemp -d)"
+git -C "$CSRD" init -q >/dev/null 2>&1
+mkdir -p "$CSRD/.changeset"
+printf '# Changesets\nprose, not a changeset\n' > "$CSRD/.changeset/README.md"
+printf -- '---\nbump: patch\n---\n\n- good (#1373)\n' > "$CSRD/.changeset/good.md"
+git -C "$CSRD" add .changeset/README.md .changeset/good.md >/dev/null 2>&1
+python3 "$CS_CHECK" --root "$CSRD" >/dev/null 2>&1; CS_RC=$?
+assert_eq "#1373 README.md is exempt from the changeset audit" "0" "$CS_RC"
+rm -rf "$CSRD"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "#953 pinned release-tag sites: derivation, drift guard, bump rewrite, tag/release"
 # ────────────────────────────────────────────────────────────────────────────
 # The install docs pin a release tag in two machine-recognizable forms (the installer
@@ -33261,6 +33340,12 @@ CI_MOD_VARS=(
   --var "CI_REF_FB_READONLY=skills/create-issue/references/fallback-read-only-sandbox.md"
   --var "CI_REF_FB_DISPATCH=skills/create-issue/references/fallback-audit-dispatch-arms.md"
   --var "CI_REF_FB_STATEOWNER=skills/create-issue/references/fallback-state-owner-unavailable.md"
+  --var "CI_REF_FB_RECON=skills/create-issue/references/fallback-audit-round-reconciliation.md"
+  --var "CI_REF_FB_OFFER=skills/create-issue/references/fallback-audit-boundary-offer.md"
+  --var "CI_REF_FB_WRITEREC=skills/create-issue/references/fallback-draft-write-recovery.md"
+  --var "CI_REF_FB_TIERREAD=skills/create-issue/references/fallback-implement-offer-tier-read.md"
+  --var "CI_REF_FB_VISUAL=skills/create-issue/references/fallback-visual-specification.md"
+  --var "CI_REF_FB_EVIDENCE=skills/create-issue/references/fallback-audit-evidence-degraded.md"
   --var "CI_TMPL_AUDIT=skills/create-issue/references/audit-prompt-template.md"
   --var "CI_TMPL=skills/create-issue/references/issue-template.md"
   --var "CI_EXT=.prflow/prompt-extensions/create-issue.md"
@@ -45343,7 +45428,7 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 231; then
+  "create-issue-contract" 285; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi
