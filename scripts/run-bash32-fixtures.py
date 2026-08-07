@@ -266,6 +266,14 @@ def main(argv=None) -> int:
         except (OSError, ValueError, KeyError, TypeError) as exc:
             print(f"run-bash32-fixtures: the registry is unusable: {exc}", file=sys.stderr)
             return 2
+        # Shape-guarded like the other three registry readers, and INSIDE the refusal
+        # rather than beside it: a parseable-but-non-mapping `entries`, or a scalar
+        # record, would otherwise leave the try/except and surface as a traceback
+        # instead of this file's one-line `return 2` diagnostic.
+        if not isinstance(entries, dict) or not all(isinstance(r, dict) for r in entries.values()):
+            print("run-bash32-fixtures: the registry is unusable: `entries` is not a mapping "
+                  "of path to record", file=sys.stderr)
+            return 2
         selected = sorted(p for p, r in entries.items() if r.get("state") == "portable")
 
     result = {

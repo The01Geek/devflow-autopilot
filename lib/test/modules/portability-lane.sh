@@ -526,6 +526,47 @@ print(outcome, status)
 PL_PROPAGATE
 )"
 
+# The interpreter precondition's MINOR component, which no other row reaches: the live
+# host is Bash 5.x and `/nonexistent/bash` never runs, so both are rejected on the major
+# alone and a mutant dropping the `minor == "2"` clause — accepting 3.0 and 3.1 — or one
+# widening the major to accept 4 survives every other assertion. Each row stubs an
+# interpreter that answers the probe with a faked BASH_VERSINFO triplet, so acceptance
+# flips on exactly `3|2` and on nothing else.
+_pl_probe_dir="$_pl_tmp_root/probes"
+mkdir -p "$_pl_probe_dir"
+# _pl_fake_bash <major> <minor> — a stub answering `-c` with the faked triplet.
+_pl_fake_bash() {
+  local p="$_pl_probe_dir/bash-$1-$2"
+  printf '#!/usr/bin/env bash\nprintf "%%s|%%s|%%s" "%s" "%s" "%s.%s.0(1)-release"\n' \
+    "$1" "$2" "$1" "$2" > "$p"
+  chmod +x "$p"
+  printf '%s' "$p"
+}
+for _pl_ver in 3:0 3:1 3:2 4:0 4:2 5:2; do
+  _pl_maj="${_pl_ver%%:*}"; _pl_min="${_pl_ver##*:}"
+  case "$_pl_maj.$_pl_min" in 3.2) _pl_want="True" ;; *) _pl_want="False" ;; esac
+  assert_eq "#1277 supervisor: the interpreter precondition accepts Bash $_pl_maj.$_pl_min only when it is 3.2" \
+    "$_pl_want" "$(python3 - "$PL_REPO" "$(_pl_fake_bash "$_pl_maj" "$_pl_min")" <<'PL_PROBE'
+import importlib.util, sys
+from pathlib import Path
+root, bash = Path(sys.argv[1]), sys.argv[2]
+spec = importlib.util.spec_from_file_location("sup", root / "scripts/run-bash32-fixtures.py")
+sup = importlib.util.module_from_spec(spec); spec.loader.exec_module(sup)
+is_32, _version = sup.assert_interpreter(bash, sup._load_signal_launcher(root))
+print(is_32)
+PL_PROBE
+)"
+done
+
+# What this does NOT cover, stated rather than left to be inferred:
+# `lib/test/fixtures/bash32/interpreter-version.sh` carries the same equality as a
+# second, independent statement, and it is not drivable here — `BASH_VERSINFO` is a
+# readonly special variable, so no stub can make a 5.x host present as 3.0 to it, and
+# rewriting the fixture into a mutated copy would assert the copy rather than the
+# shipped bytes. The rows above cover the equality that actually gates the lane: the
+# supervisor refuses before any fixture runs, so the fixture's own reject branch is
+# reachable only on a real non-3.2 interpreter.
+
 # The PASS arm, isolated the same way. Every supervisor path reachable end-to-end on
 # this Linux host terminates at the interpreter precondition, `not_applicable` or a
 # refusal, so the zero-exit -> `pass` mapping runs only on the advisory macOS producer;
