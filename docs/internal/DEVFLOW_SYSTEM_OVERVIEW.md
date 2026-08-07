@@ -891,10 +891,97 @@ A structured handoff that prevents a deliberately-deferred Critical finding from
 
 ---
 
+### 13.9 The macOS Bash 3.2 portability lane (issue #1277)
+
+Every required CI job runs on `ubuntu-latest`, whose bash is 5.x, so a Bash-4-only
+construct in a shipped helper ships undetected and fails only on a stock macOS user's
+machine — Apple still ships `/bin/bash` 3.2.57, the last GPLv2 release. `lib/test/run.sh`
+carried a Bash-3 block, but it arms only when the host `/bin/bash` reports major version 3,
+so required Linux CI never ran it. The lane closes that gap with four components plus two
+`ci.yml` jobs. **It is currently advisory: the check is emitted and visible but not
+required.** Making it merge-gating is issue #1395; making its own bytes trusted against a
+hostile pull request is issue #1396; the measured shadow-substitution subsystem the parent
+issue also specifies is issue #1397.
+
+**`lib/shell-surface-registry.json`** classifies every tracked shipped shell entry point
+into exactly one of the closed state set `portable` / `excluded`. A portable record names
+its minimum Bash version, its transitive shared-library closure, its stock-Bash fixture
+command, and its owning test module; an exclusion names its minimum version and a non-empty
+reason. Keys are literal paths — never globs, because a pattern key matching today's
+Bash-4 infrastructure would silently swallow a future portable file added beside it.
+
+**`lib/test/check-shell-surface-totality.py`** is the registry's independent reconciler. It
+derives the population from the git index through `lib/test/lint_population.py`'s shared
+index-reading argv — never from the registry, and never through a repository-root-anchored
+walk, which would sweep sibling worktrees — and fails on an unclassified entry, a registry
+key naming an untracked path, a duplicate declared twice in the source text (invisible after
+`json.loads`, which keeps the last), an unknown state, a closure that does not resolve
+portably, a glob-shaped key, and every schema violation. It exits 1 on any input it cannot
+read rather than reporting coverage from whatever parsed.
+
+**`scripts/classify-portability-risk.py`** decides which portable surface the lane runs. The
+changed-file population comes from the paginated pull-request **files** API rather than the
+local checkout, because CI checks out a merge ref whose diff is not the PR's own change set
+and a shallow checkout cannot compute one at all. Three conditions must all hold before the
+result is `established`: every page was read (through the shared establish-vs-absent contract
+in `scripts/gh_json_ex.py`), the distinct-filename tally equals the PR's own `changed_files`,
+and the head SHA this run was told to classify equals the PR's current head. Any degraded
+input — a failed read, an rc-0 unparseable body, an absent or superseded head SHA, a
+truncated pagination, one filename returned twice with conflicting statuses — selects the
+**complete portable population**, as do non-PR events and any change touching the selection
+machinery itself, an unclassified shell surface, or a shared dependency. The asymmetry is the
+whole point: over-selecting costs runner minutes, under-selecting silently ships an
+unverified incompatibility.
+
+**`scripts/run-bash32-fixtures.py`** is the trusted supervisor. GNU `timeout` is absent on a
+stock macOS runner and this repository's preflight guarantees only `git`/`gh`/`jq`/`python3`,
+so the deadline is enforced in Python — and it has to reach the whole **process group**,
+because a fixture that backgrounds a child and dies leaves that child holding the job open.
+Each fixture launches with `start_new_session=True` and the shared default-signal restoration
+from `lib/test/signal_launcher.py`, and an expiry SIGTERMs then SIGKILLs the group. A watchdog
+expiry is recorded as its own outcome, distinct from an ordinary failure, so a hung lane does
+not read as a detected incompatibility. No fixture runs until the named Bash reports
+`BASH_VERSINFO[0] == 3` **and** `[1] == 2` — a corpus green under Bash 5 would report a
+verified surface it never exercised. The lane emits exactly one domain result from the closed
+set `pass` / `fail` / `not_applicable`, and `not_applicable` is reachable only from a
+fully-established *selective* classification that selected nothing; every other empty
+selection is refused rather than reported as a clean lane over no surface at all.
+
+**The fixture corpus** under `lib/test/fixtures/bash32/` is the executable statement of the
+shell-syntax policy: one fixture per construct (case-modification expansion, associative
+arrays, trap forms, read flags, process control), plus the interpreter-identity fixture and
+the per-surface `parse-under-bash32.sh` the registry's `fixture_command` names. Each
+absence-of-feature fixture separates an interpreter *refusal* from a probe that never ran —
+statuses 126 and 127 are non-zero too, and counting them as refusals would establish an
+absence by not looking.
+
+**The two `ci.yml` jobs.** `portability_producer` runs on `macos-latest` under a 15-minute
+ceiling, classifies, then runs the corpus under `/bin/bash` directly. Its fixture step is
+`continue-on-error` so the lane's *domain result* — not the step's exit status — is what the
+gate reads, and the native Actions conclusion is recorded beside it rather than collapsed
+into it. `portability` is the always-running aggregator whose job **name is the stable check
+context** `portability / macOS Bash 3.2`; renaming it would silently un-gate whatever rule
+referenced the old name. Its terminal step is `lib/test/gate-portability-result.sh`, which
+succeeds only when the producer's conclusion is the literal `success` **and** the domain
+result is `pass` or an established `not_applicable`. Both operands are required: a producer
+that completes while emitting `fail` is a real incompatibility, and one that emits `pass`
+after being cancelled emitted it about a corpus it did not finish.
+
+**`auto_review_trigger` depends on the aggregator but is never suppressed by it.** The
+`needs:` edge buys ordering — a review is not requested before the macOS lane has reached a
+terminal result — while no step-level gate reads its result, so a failing portability lane
+still dispatches the review, which is exactly the change a reviewer should be looking at.
+
+The lane found its first real defect on its first run: `scripts/render-grounding-block.sh`
+nested a quoted heredoc inside a command substitution, which stock macOS `/bin/bash` refuses
+to **parse**. That is a parse-time failure, so no runtime guard downstream could have caught
+it.
+
+
 ## 14. The cloud tier: GitHub Actions architecture
 
 Three PRFlow workflows remain in the tree — `install.sh` ships the first two into a
-consumer repository (plus the repo's own `ci.yml`, whose **required** status check is the **`lib + python tests`** job, *not* `CI`, which is only the workflow `name:` and never resolves as a check — since issue #877 that job is an **aggregator** that recombines the pass/fail/skip tallies of a concurrent `shard` matrix (`monolith` + `python-pool` + `modules-*`) and fails the required check if any shard fails, is cancelled, is skipped, or is missing; the required-check name is unchanged):
+consumer repository (plus the repo's own `ci.yml`, whose **required** status check is the **`lib + python tests`** job, *not* `CI`, which is only the workflow `name:` and never resolves as a check — `ci.yml` also publishes the **advisory, not-yet-required** `portability / macOS Bash 3.2` check described in §13.9 — since issue #877 that job is an **aggregator** that recombines the pass/fail/skip tallies of a concurrent `shard` matrix (`monolith` + `python-pool` + `modules-*`) and fails the required check if any shard fails, is cancelled, is skipped, or is missing; the required-check name is unchanged):
 
 | Workflow | `name:` | Purpose |
 |---|---|---|
