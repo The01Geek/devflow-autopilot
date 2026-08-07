@@ -49520,6 +49520,13 @@ assert_eq "#1072 lint: an agents/ path is audited (second prefix, reported like 
 # fixture that never materialized.
 SP_NUL_ROOT="$(git_sandbox '#1072 generated NUL fixture root')"
 mkdir -p "$SP_NUL_ROOT/skills" 2>/dev/null
+# Seed a vendored-provenance SKILL.md (issue #1401) so this generated root's derived
+# vendored-skill scope is non-empty — otherwise the empty-derivation refusal fires
+# before the NUL skip this pair asserts. The seeded dir holds no forbidden token, and
+# the NUL fixtures below live directly under skills/ (not under it), so it changes no
+# other behavior here.
+mkdir -p "$SP_NUL_ROOT/skills/vendored" 2>/dev/null
+printf 'Originates in the MIT-licensed `superpowers` plugin.\n' > "$SP_NUL_ROOT/skills/vendored/SKILL.md" 2>/dev/null
 printf 'refers to lib/test/run.sh\000 with a NUL byte\n' > "$SP_NUL_ROOT/skills/nul-byte.md" 2>/dev/null
 # The control writes the SAME line with the NUL byte removed, so the pair differs in exactly one
 # byte. It is what attributes the skip to the NUL rather than to the generated root, the file
@@ -49581,6 +49588,49 @@ r_skip = run(lambda root, ff, *, ls_files_argv: ["skills/x.md"],
 print(r_enum, r_skip)
 PY
 )"
+
+# ── #1401 vendored-skill CLAUDE.md-token ban (lib/test/lint-shipped-pruned-path.py) ──
+# A vendored skill body (skills/receiving-code-review/, skills/requesting-code-review/)
+# ships verbatim into every consumer, so a pointer to PRFlow's own CLAUDE.md resolves
+# against the consumer's unrelated project-memory file. The lint bans the CLAUDE.md
+# token, but ONLY inside the DERIVED vendored-skill directories — every skills/<name>/
+# whose SKILL.md carries the vendored-provenance sentence — so the correct generic
+# CLAUDE.md references every other shipped file carries are not reported. The fixture
+# skills/receiving-code-review/ and skills/requesting-code-review/ dirs under $SP_FX each
+# carry a provenance-bearing SKILL.md so the derivation is non-empty; a skills/implement/
+# SKILL.md and an agents/ file (no provenance) are the scope negative controls. Six cases,
+# complete by construction (issue #1401).
+# Case 1 — fires on the SKILL member itself.
+assert_eq "#1401 lint: a CLAUDE.md reference in a vendored SKILL.md is reported" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/receiving-code-review/SKILL.md)" in "rc=1|"*"skills/receiving-code-review/SKILL.md:"*"references PRFlow's own 'CLAUDE.md'"*) echo yes ;; *) echo no ;; esac)"
+# Case 2 — fires on a non-SKILL companion under the same derived directory (the scope is
+# the directory, not a two-file list — this is skills/requesting-code-review/code-reviewer.md's real risk).
+assert_eq "#1401 lint: a CLAUDE.md reference in a non-SKILL vendored file is reported (derived-directory scope)" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/requesting-code-review/code-reviewer.md)" in "rc=1|"*"skills/requesting-code-review/code-reviewer.md:"*"references PRFlow's own 'CLAUDE.md'"*) echo yes ;; *) echo no ;; esac)"
+# Case 3 — the shared declaration marker discharges the reference.
+assert_eq "#1401 lint: a marked CLAUDE.md reference in a vendored file is not reported" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/receiving-code-review/marked-claude.md)"
+# Case 4 (both directions) — docs/CLAUDE.md contains the token as a substring and fires;
+# CLAUDE.local.md does not contain it as a substring and is clean. This pair exists to stop
+# an implementer widening the plain substring test into a regular expression.
+assert_eq "#1401 lint: docs/CLAUDE.md contains the token as a substring and is reported" "yes" \
+  "$(case "$(sp_run "$SP_SIMPLE" skills/receiving-code-review/docs-claude.md)" in "rc=1|"*"docs-claude.md:"*"references PRFlow's own 'CLAUDE.md'"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#1401 lint: CLAUDE.local.md does not contain the token as a substring and is clean" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/receiving-code-review/claude-local.md)"
+# Case 5 — an empty derived population fails closed. Needs a root of its own: a seeded
+# $SP_FX can no longer produce an empty derivation.
+SP_EMPTY_ROOT="$(git_sandbox '#1401 empty-derivation root')"
+mkdir -p "$SP_EMPTY_ROOT/skills" 2>/dev/null
+printf 'names CLAUDE.md but no vendored SKILL.md exists in this tree\n' > "$SP_EMPTY_ROOT/skills/x.md" 2>/dev/null
+assert_eq "#1401 lint: an empty vendored-skill derivation refuses, naming the empty population" "yes" \
+  "$(case "$(sp_run_root "$SP_EMPTY_ROOT" "$SP_SIMPLE" skills/x.md)" in "rc=1|"*"no skills/<name>/SKILL.md"*"empty derived population"*) echo yes ;; *) echo no ;; esac)"
+rm -rf "$SP_EMPTY_ROOT"
+# Case 6 — scope negative controls: the token in a non-vendored skill SKILL.md and in an
+# agents/ file is correct generic usage and is NOT reported.
+assert_eq "#1401 lint: CLAUDE.md in a non-vendored skill SKILL.md is not reported (scope control)" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" skills/implement/SKILL.md)"
+assert_eq "#1401 lint: CLAUDE.md in an agents/ file is not reported (scope control)" "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
+  "$(sp_run "$SP_SIMPLE" agents/code-reviewer.md)"
 
 # ── #1248 ungranted-helper-spelling lint (lib/test/lint-ungranted-helper-spelling.py) ──
 # The cloud matcher grants each bundled helper ONLY at the vendored literal
