@@ -68,7 +68,7 @@ class ManifestResult:
     empty answer a caller could mistake for "validated, nothing to do".
     """
 
-    __slots__ = ("status", "manifest", "reason")
+    __slots__ = ("manifest", "reason", "status")
 
     def __init__(self, status: str, *, manifest=None, reason: str | None = None):
         if status not in ("established", "unestablished"):
@@ -93,6 +93,25 @@ def _established(manifest) -> ManifestResult:
 
 def _unestablished(reason: str) -> ManifestResult:
     return ManifestResult("unestablished", reason=reason)
+
+
+def _check_keys(where, obj, known, required) -> ManifestResult | None:
+    """Reject an unknown key (`unknown-field`) or a missing required key (`missing`).
+
+    Returns an unestablished `ManifestResult` on the first violation, or `None`
+    when the object's key set is within `known` and covers `required`. Shared by
+    every closed-schema object validator so the two rejection messages stay
+    identical across sites. `where` is `None` at the top level, whose messages
+    read "top-level key" rather than "<where> key".
+    """
+    label = "top-level" if where is None else where
+    for key in obj:
+        if key not in known:
+            return _unestablished(f"unknown-field: unknown {label} key {key!r}")
+    for key in required:
+        if key not in obj:
+            return _unestablished(f"missing: required {label} key {key!r}")
+    return None
 
 
 class _DuplicateKey(ValueError):
@@ -162,12 +181,8 @@ def validate_manifest(data) -> ManifestResult:
 
     required = ("schema_version", "tools", "selectors", "full_profiles")
     known_top = set(required) | {"exclusions", "special_invocations"}
-    for key in data:
-        if key not in known_top:
-            return _unestablished(f"unknown-field: unknown top-level key {key!r}")
-    for key in required:
-        if key not in data:
-            return _unestablished(f"missing: required top-level key {key!r}")
+    if (r := _check_keys(None, data, known_top, required)) is not None:
+        return r
 
     version = data["schema_version"]
     if isinstance(version, bool) or not isinstance(version, int):
@@ -190,8 +205,7 @@ def validate_manifest(data) -> ManifestResult:
             return exc_result
 
     if "special_invocations" in data:
-        si_result = _validate_special_invocations(
-            data["special_invocations"], selector_ids)
+        si_result = _validate_special_invocations(data["special_invocations"])
         if not si_result.established:
             return si_result
 
@@ -237,12 +251,8 @@ def _validate_tool(name, tool) -> ManifestResult:
         return _unestablished(
             f"wrong-type: tool {name!r} is a {_json_kind(tool)}, expected object")
     known = {"version", "timeout_seconds", "artifacts"}
-    for key in tool:
-        if key not in known:
-            return _unestablished(f"unknown-field: tool {name!r} key {key!r}")
-    for key in known:
-        if key not in tool:
-            return _unestablished(f"missing: tool {name!r} key {key!r}")
+    if (r := _check_keys(f"tool {name!r}", tool, known, known)) is not None:
+        return r
 
     version = tool["version"]
     if not isinstance(version, str) or not _VERSION_RE.match(version):
@@ -280,12 +290,8 @@ def _validate_artifact(name, idx, art) -> ManifestResult:
     if not isinstance(art, dict):
         return _unestablished(f"wrong-type: {where} is a {_json_kind(art)}")
     known = {"os", "arch", "digest", "archive_type", "member", "strategy"}
-    for key in art:
-        if key not in known:
-            return _unestablished(f"unknown-field: {where} key {key!r}")
-    for key in known:
-        if key not in art:
-            return _unestablished(f"missing: {where} key {key!r}")
+    if (r := _check_keys(where, art, known, known)) is not None:
+        return r
     if art["os"] not in KNOWN_OS:
         return _unestablished(f"unknown-enum: {where} os {art['os']!r}")
     if art["arch"] not in KNOWN_ARCH:
@@ -311,12 +317,8 @@ def _validate_selectors(selectors, out_ids: set[str]) -> ManifestResult:
         if not isinstance(sel, dict):
             return _unestablished(f"wrong-type: {where} is a {_json_kind(sel)}")
         known = {"id", "language", "include_globs", "exclude_globs"}
-        for key in sel:
-            if key not in known:
-                return _unestablished(f"unknown-field: {where} key {key!r}")
-        for key in ("id", "language", "include_globs"):
-            if key not in sel:
-                return _unestablished(f"missing: {where} key {key!r}")
+        if (r := _check_keys(where, sel, known, ("id", "language", "include_globs"))) is not None:
+            return r
         sid = sel["id"]
         if not isinstance(sid, str) or not _ID_RE.match(sid):
             return _unestablished(f"invalid-value: {where} id {sid!r}")
@@ -348,7 +350,7 @@ def _validate_exclusions(exclusions) -> ManifestResult:
     return _validate_globs("exclusions", exclusions)
 
 
-def _validate_special_invocations(sis, selector_ids) -> ManifestResult:
+def _validate_special_invocations(sis) -> ManifestResult:
     if not isinstance(sis, list):
         return _unestablished("wrong-type: special_invocations must be an array")
     seen: set[str] = set()
@@ -357,12 +359,8 @@ def _validate_special_invocations(sis, selector_ids) -> ManifestResult:
         if not isinstance(si, dict):
             return _unestablished(f"wrong-type: {where} is a {_json_kind(si)}")
         known = {"id", "path", "tool", "extra_flags"}
-        for key in si:
-            if key not in known:
-                return _unestablished(f"unknown-field: {where} key {key!r}")
-        for key in ("id", "path", "tool", "extra_flags"):
-            if key not in si:
-                return _unestablished(f"missing: {where} key {key!r}")
+        if (r := _check_keys(where, si, known, known)) is not None:
+            return r
         sid = si["id"]
         if not isinstance(sid, str) or not _ID_RE.match(sid):
             return _unestablished(f"invalid-value: {where} id {sid!r}")
@@ -392,12 +390,8 @@ def _validate_full_profiles(profiles, selector_ids) -> ManifestResult:
         if not isinstance(prof, dict):
             return _unestablished(f"wrong-type: {where} is a {_json_kind(prof)}")
         known = {"id", "tool", "selector"}
-        for key in prof:
-            if key not in known:
-                return _unestablished(f"unknown-field: {where} key {key!r}")
-        for key in known:
-            if key not in prof:
-                return _unestablished(f"missing: {where} key {key!r}")
+        if (r := _check_keys(where, prof, known, known)) is not None:
+            return r
         pid = prof["id"]
         if not isinstance(pid, str) or not _ID_RE.match(pid):
             return _unestablished(f"invalid-value: {where} id {pid!r}")
