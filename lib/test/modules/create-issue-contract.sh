@@ -50,6 +50,12 @@ CI_REF_FB_NOTASK="$CI_ROOT/skills/create-issue/references/fallback-no-task-tool.
 CI_REF_FB_READONLY="$CI_ROOT/skills/create-issue/references/fallback-read-only-sandbox.md"
 CI_REF_FB_DISPATCH="$CI_ROOT/skills/create-issue/references/fallback-audit-dispatch-arms.md"
 CI_REF_FB_STATEOWNER="$CI_ROOT/skills/create-issue/references/fallback-state-owner-unavailable.md"
+CI_REF_FB_RECON="$CI_ROOT/skills/create-issue/references/fallback-audit-round-reconciliation.md"
+CI_REF_FB_OFFER="$CI_ROOT/skills/create-issue/references/fallback-audit-boundary-offer.md"
+CI_REF_FB_WRITEREC="$CI_ROOT/skills/create-issue/references/fallback-draft-write-recovery.md"
+CI_REF_FB_TIERREAD="$CI_ROOT/skills/create-issue/references/fallback-implement-offer-tier-read.md"
+CI_REF_FB_VISUAL="$CI_ROOT/skills/create-issue/references/fallback-visual-specification.md"
+CI_REF_FB_EVIDENCE="$CI_ROOT/skills/create-issue/references/fallback-audit-evidence-degraded.md"
 CI_EXT="$CI_ROOT/.prflow/prompt-extensions/create-issue.md"
 CI_CLAUDE="$CI_ROOT/CLAUDE.md"
 CI_INVENTORY="$CI_ROOT/lib/test/modules/create-issue-contract.inventory.md"
@@ -1179,7 +1185,7 @@ echo "#614 create-issue split: routing, markers, purity"
 # The reference roster is stated ONCE here and drives every loop below, so a reference
 # can never be registered in one assertion's list and silently dropped from another.
 CI614_STEP_REFS="step-2-clarify step-3-5-steelman revision-delta step-3-6-audit step-4-present-create"
-CI614_FALLBACK_REFS="fallback-no-task-tool fallback-read-only-sandbox fallback-audit-dispatch-arms fallback-state-owner-unavailable"
+CI614_FALLBACK_REFS="fallback-no-task-tool fallback-read-only-sandbox fallback-audit-dispatch-arms fallback-state-owner-unavailable fallback-audit-round-reconciliation fallback-audit-boundary-offer fallback-draft-write-recovery fallback-implement-offer-tier-read fallback-visual-specification fallback-audit-evidence-degraded"
 CI614_REFS="$CI614_STEP_REFS $CI614_FALLBACK_REFS"
 
 # Marker ids per AC2's decided id space: the step number for step references, the literal
@@ -1290,6 +1296,21 @@ ci614_purity "$CI_REF_FB_DISPATCH" \
   'Bracket the embedded body with **exactly those printed tokens**'
 ci614_purity "$CI_REF_FB_STATEOWNER" \
   'A fallback lifecycle is **never silent**'
+# #1372: the arms gated out of the step references, enumerated by CI614_FALLBACK_REFS above.
+# Each literal is body prose from the arm's own procedure, so its presence here and absence
+# from every step reference is what proves the clean run no longer carries that arm's bytes.
+ci614_purity "$CI_REF_FB_RECON" \
+  'A recurrence of an INVALIDATED entry'
+ci614_purity "$CI_REF_FB_OFFER" \
+  'One further arm you must check yourself, because no trigger fires on it'
+ci614_purity "$CI_REF_FB_WRITEREC" \
+  'If that single re-attempt also disagrees, stop retrying'
+ci614_purity "$CI_REF_FB_TIERREAD" \
+  'Lowercase only a JSON boolean'
+ci614_purity "$CI_REF_FB_VISUAL" \
+  'A screenshot/mockup is **preferred, not mandatory**'
+ci614_purity "$CI_REF_FB_EVIDENCE" \
+  'the retry hand-embedding the template-file text in full'
 unset -f ci614_purity
 
 # Step-reference purity (shadow finding): T4 proves fallback prose left the default path, but

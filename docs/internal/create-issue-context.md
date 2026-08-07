@@ -367,6 +367,53 @@ the re-run comparable:
 >   per-round shell calls `<R>`, runs hitting ≥1 accidental failure `<F>` of `<n>`,
 >   missing-`--round` failures `<M>`  (each must be strictly lower than the before column)
 
+### Gating rarely-taken procedural arms (issue #1372) — static delta recorded, runtime after-side UNMEASURED
+
+Six rarely-taken procedural arms moved out of the always-loaded
+`skills/create-issue/references/step-*.md` files into six new
+`references/fallback-*.md` files, each reached only by its own routing-table
+predicate in `skills/create-issue/SKILL.md` — the same gating the pre-existing
+fallbacks already used. The routing table is the defining enumeration of that set
+and of each member's predicate; see also
+[`DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md) §11.
+
+**What is measured: static shipped size only.** The clean-run *unconditional* load —
+`SKILL.md` plus the references a default path (no fallback predicate firing) reads —
+drops from **302,500 B to 288,788 B**. Per the first section of this document that is
+**static shipped size, not runtime main-thread context**, and it is recorded here as a
+static byte delta and nothing more. It is **not** a word-count or prompt-length gate:
+the #766 apparatus stays retired and this change revives no part of it. Re-derive the
+figure from the routing table and the on-disk reference files rather than treating the
+two byte counts as anything a check enforces.
+
+**What is NOT measured: the runtime after-side.** No runtime main-thread-context
+measurement of this change exists. `scripts/create-issue-context-eval.py` can only
+measure runs that executed the *post*-change skill, which cannot exist before this
+merges — the same constraint the #793 and #795 sections state. The obligation and its
+guard are unchanged and apply here: **a change shipped as a context reduction whose
+real before/after shows no decrease is reverted or deferred, never shipped as a
+reduction.** This change's static delta does not discharge that obligation, and the
+row below is unfilled **by pendency, not by omission**.
+
+**Before-side snapshot (documented past-time snapshot — do not re-derive or overwrite).**
+Captured on the maintainer's machine; the after-side must be taken against the
+**identical** corpus root and the same instrument, or the comparison is not one.
+
+| Field | Value |
+| --- | --- |
+| Generating instrument | `scripts/create-issue-context-eval.py` |
+| Generating revision | `a75578da` |
+| Corpus root | `~/.claude-2/projects/<this repository's project slug>` |
+| Bounded create-issue runs | **224** |
+| Median peak main-thread context | **115,174** tokens |
+| Max peak main-thread context | **924,039** tokens |
+
+> Maintainer post-merge record (fill from post-merge runs against the identical corpus
+> root above, using the same instrument; unfilled means the measurement is still due):
+> - after: captured `<date>`, runs `<n>`, median peak `<N'>`, max peak `<M'>`
+>   (median peak must be strictly lower than the before row for this to stand as a
+>   runtime reduction)
+
 ## Explicitly out of scope / deferred (follow-ups)
 
 - **The mechanical "escaped-information" number is not required and not delivered.** The
