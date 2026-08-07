@@ -1034,7 +1034,11 @@ case, e.g. `scripts/discover-deferral-manifests.py` — is granted by adding its
 vendored-literal token
 `Bash(.prflow/vendor/prflow/scripts/<helper>:*)` (the **row-I2-proven** explicit
 leading-token form) to the `implement` profile in `lib/capability-profiles.json`
-and regenerating. That **one edit** rewrites:
+and regenerating. Because the token carries a `:*` suffix it is a **prefix**
+grant over the helper's whole argument surface, so a *new mode* on an
+already-granted helper owes no allowlist edit at all — issue #1374 added
+`--presence-for-pr N` to this exact helper and regenerated nothing. That **one
+edit** rewrites:
 
 - `devflow-implement.yml`'s generated `implement` region — the `Resolve
   allowed-tools` step's `TOOLS='…'` baseline, which `claude_args`'s
