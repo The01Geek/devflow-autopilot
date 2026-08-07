@@ -56,7 +56,12 @@ byte-equality between a JSON record and a prose line, and so is unreachable in p
   ``a X and a Y … both`` claim resolved against the adjacent assertion block; a
   mismatch is STALE, a match a VERIFIED ``count-locked`` row (the PR #336 shape).
   ``R3b`` names the two-item *shape* only; both sub-cases are emitted under the
-  ``rule`` TSV token ``R3`` — there is no ``R3b`` output token.
+  ``rule`` TSV token ``R3`` — there is no ``R3b`` output token. The numeric R3
+  arm's ``_COUNT_RE`` requires the trigger noun in **plural** form and refuses a
+  numeral directly preceded by ``#`` / ``§`` / a digit / ``.`` / ``-`` (issue
+  #1405) — so a singular ordinal reference (``Step 3 item 6``) or a ``#402``-style
+  reference is not read as a count claim; a plural ordinal (``Step 3 items 1-4``)
+  is a disclosed residual that still gates.
 * **R4 modality-conflict (operator-token restricted).** A deny-absolute
   (``never``/``no``/``not``/``any``/``forbidden`` …) about a **backticked operator
   token** — one of ``> >> < << | || && & |& 2> 2>> &>`` — that the SAME post-diff
@@ -472,7 +477,16 @@ _ASSERT_LINE_RE = re.compile(r"(?i)\bassert\w*\b")
 # The gating R3 noun set — shared as one constant so the recognition tier's _RECOG_NOUN
 # below cannot silently drift from the gating _COUNT_RE (a new noun added here reaches both).
 _COUNT_NOUNS = r"assertions?|asserts?|checks?|bullets?|items?|entries?|cases?"
-_COUNT_RE = re.compile(rf"\b(\d+)\s+({_COUNT_NOUNS})\b", re.IGNORECASE)
+# The gating R3 pattern carries two guards the non-gating recognition tier (_RECOG_NUM /
+# _RECOG_NOUN) already ships (issue #1405): the trigger noun must be PLURAL, and the numeral
+# must not be glued to ``#`` / ``§`` / another digit / ``.`` / ``-``. Together they stop a
+# singular ordinal reference (``Step 3 item 6``) and a ``#402``-style reference from gating.
+# Both live HERE, on the compiled pattern, leaving _COUNT_NOUNS byte-identical: the recognition
+# tier interpolates that constant and must keep recognising singular nouns. The plural
+# alternation is derived from _COUNT_NOUNS (the single source of nouns) by promoting each
+# optional-plural ``s?`` to a required ``s``.
+_COUNT_NOUNS_PLURAL = _COUNT_NOUNS.replace("s?", "s")
+_COUNT_RE = re.compile(rf"(?<![#§\d.\-])\b(\d+)\s+({_COUNT_NOUNS_PLURAL})\b", re.IGNORECASE)
 # ── R3 recognition-only tier (issue #439), non-gating ──────────────────────────────────
 # Spelled-out numeral words two..twelve → their integer value. "one" is deliberately absent
 # (idiom-heavy) and thirteen+ is out of scope; see the module header's recognition-tier records.
