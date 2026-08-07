@@ -49022,15 +49022,17 @@ SP_FX="$LIB/test/fixtures/shipped-pruned-path"
 SP_SIMPLE="$SP_FX/slices/simple.sh"
 SP_SCHEMA="$SP_FX/schemas/real-docs.json"
 
-# Real-tree run: exits 0 AND audited a positive number of files (a green run whose count had
-# silently collapsed to zero would otherwise read as clean while auditing nothing).
+# Real-tree run: exits 0 AND its audited count equals an independently derived tracked
+# skills/** + agents/** count. A positive-only floor would stay green if one audited prefix
+# disappeared while the other still selected files.
 SP_OUT="$(cd "$LIB/.." && python3 "$SP_LINT" 2>&1)"; SP_RC=$?
 assert_eq "#1072 lint: clean on the tree as it stands" "rc=0" \
   "$([ "$SP_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$SP_RC" "$SP_OUT")"
-assert_eq "#1072 lint: the real-tree run audited a positive number of files" "yes" \
+SP_TRACKED_POPULATION="$(cd "$LIB/.." && git ls-files -- 'skills/**' 'agents/**' | python3 -c 'import sys; print(sum(1 for line in sys.stdin if line.strip()))')"
+assert_eq "#1072 lint: the real-tree audited count matches the independently enumerated tracked population" "$SP_TRACKED_POPULATION" \
   "$(printf '%s' "$SP_OUT" | python3 -c 'import re,sys
 m = re.search(r"audited (\d+) of", sys.stdin.read())
-print("yes" if m and int(m.group(1)) > 0 else "no")')"
+print(m.group(1) if m else "unestablished")')"
 
 # AC11 / test_derived_set_matches_pinned_expectation: the POST-EXEMPTION derived set from the
 # REAL slice and REAL schema equals the checked-in expectation. The floor the non-empty check
@@ -49123,6 +49125,12 @@ sp_run_schema() {  # <slice> <schema> <path…> -> "rc=<n>|<stdout+stderr>"
 sp_exemptset() {  # <slice> [schema] — shares sp_printset's base with sp_pruneset (no drift)
   sp_printset --print-exempt-set "$@"
 }
+# The two print modes are alternate complete outputs, not an ordered pair. Rejecting their
+# combination attributes the failure to argparse's mutual-exclusion guard; the single-flag
+# success assertions below are the positive controls on the same slice/schema operands.
+SP_BOTH_OUT="$(python3 "$SP_LINT" --print-prune-set --print-exempt-set --slice-source "$SP_FX/slices/ext-site-libtest.sh" --schema-source "$SP_FX/schemas/ext-only.json" 2>&1)"; SP_BOTH_RC=$?
+assert_eq "#1309 lint: --print-prune-set and --print-exempt-set are mutually exclusive" "yes" \
+  "$(case "rc=$SP_BOTH_RC|$SP_BOTH_OUT" in "rc=2|"*"argument --print-exempt-set: not allowed with argument --print-prune-set"*) echo yes ;; *) echo no ;; esac)"
 # Assertion 1 (RED-first): a prune target that equals a docs.external default is subtracted from
 # the prune set; the co-pruned non-defaults (docs/site, lib/test) survive. RED before #1309: the
 # set still contained docs/external.
@@ -49142,6 +49150,10 @@ assert_eq "#1309 lint: a still-forbidden path on an otherwise-exempt file is rep
 # via prefix would be a silent fail-open).
 assert_eq "#1309 lint: exemption is equality not prefix (a finer default does not exempt a coarser target)" "rc=0|docs" \
   "$(sp_pruneset "$SP_FX/slices/prune-docs-bare.sh" "$SP_FX/schemas/internal-only.json")"
+# Reverse-direction control: a coarser default must not exempt either finer prune target.
+# Together the pair kills either one-way prefix implementation while preserving equality.
+assert_eq "#1309 lint: exemption is equality not prefix (a coarser default does not exempt finer targets)" "rc=0|docs/external docs/internal" \
+  "$(sp_pruneset "$SP_FX/slices/only-docs.sh" "$SP_FX/schemas/docs-bare-default.json")"
 # Assertion 5 (control): a non-string default contributes no exemption and raises no error.
 assert_eq "#1309 lint: a non-string default contributes no exemption and does not error" \
   "rc=0|lint-shipped-pruned-path: audited 1 of 1 files; prune set: lib/test" \
@@ -49185,6 +49197,51 @@ assert_eq "#1309 lint: --print-exempt-set emits nothing (exit 0) when the sets s
 # under both scan_text and scan_citations with the fifteen markers deleted — are the companions.)
 assert_eq "#1309 lint: the real post-exemption prune set contains neither docs/external nor docs/internal" "" \
   "$(cd "$LIB/.." && python3 "$SP_LINT" --print-prune-set | grep -E '^docs/(external|internal)$' || true)"
+
+# Marker-deletion census: a declaration on a line whose only prune-target match is an
+# exempt root, and which suppresses no citation, is redundant. Re-derive that predicate from
+# the live slice/schema and scan the complete tracked population so restoring any deleted
+# false-positive marker makes this assertion RED.
+assert_eq "#1309 lint: no redundant exempt-root-only pruned-path marker remains in the tracked population" "" \
+  "$(cd "$LIB/.." && python3 - "$SP_LINT" <<'PY'
+import importlib.util
+import subprocess
+import sys
+from pathlib import Path
+
+root = Path.cwd()
+spec = importlib.util.spec_from_file_location("shipped_pruned_path", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+all_targets = mod.parse_prune_targets(
+    (root / mod.DEFAULT_SLICE_REL).read_text(encoding="utf-8", errors="replace")
+)
+defaults = mod.parse_docs_defaults((root / mod.DEFAULT_SCHEMA_REL).read_bytes())
+exempt = [target for target in all_targets if target.rstrip("/") in defaults]
+forbidden = [target for target in all_targets if target.rstrip("/") not in defaults]
+paths = subprocess.run(
+    ["git", "ls-files", "--", "skills/**", "agents/**"],
+    cwd=root,
+    check=True,
+    capture_output=True,
+    text=True,
+).stdout.splitlines()
+redundant = []
+for relative in paths:
+    lines = (root / relative).read_text(encoding="utf-8").split("\n")
+    states = mod._fence_states(lines)
+    for number, (line, fenced) in enumerate(zip(lines, states), 1):
+        marker = mod._MARKER_SHELL if fenced else mod._MARKER_HTML
+        if not marker.search(line):
+            continue
+        if not any(target in line for target in exempt):
+            continue
+        if any(target in line for target in forbidden) or mod._CITATION.search(line):
+            continue
+        redundant.append(f"{relative}:{number}")
+print(" ".join(redundant))
+PY
+)"
 
 # Audited-population behavior, driven over the fixture skills/ tree with a fixture slice (target
 # lib/test). Every list rides through probe_tmp so the fixtures stay unreachable from the default

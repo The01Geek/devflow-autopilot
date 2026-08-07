@@ -76,7 +76,7 @@ no `--others`, no repository-root-anchored recursive walk, per issue #711).
 Usage:
     lint-shipped-pruned-path.py [--root DIR] [--files-from PATH]
                                 [--slice-source PATH] [--schema-source PATH]
-                                [--print-prune-set] [--print-exempt-set]
+                                [--print-prune-set | --print-exempt-set]
 
 `--print-exempt-set` prints, one per line, the prune targets the docs.* exemption
 subtracted from the forbidden set (a path-shaped docs.* default that is not itself a
@@ -282,7 +282,7 @@ def parse_docs_defaults(schema_bytes: bytes) -> set[str]:
     defaults declared under `properties.docs.properties` of the config schema (issue
     #1309). A member here is a candidate exemption: a prune target that string-equals
     one of these (after both sides are trailing-slash-stripped) is a documented
-    consumer-facing doc root, not a path that vanishes from a consumer's checkout.
+    consumer-facing docs path, not a path that vanishes from a consumer's checkout.
 
     Path-shaped means the string default contains a `/`, which is what keeps the
     block's non-path defaults (`labels` = `Documented`, `changelog_file` =
@@ -467,7 +467,8 @@ def main(argv: list[str] | None = None) -> int:
             "(default: <root>/" + DEFAULT_SCHEMA_REL + ")"
         ),
     )
-    parser.add_argument(
+    print_group = parser.add_mutually_exclusive_group()
+    print_group.add_argument(
         "--print-prune-set",
         action="store_true",
         help=(
@@ -475,7 +476,7 @@ def main(argv: list[str] | None = None) -> int:
             "auditing nothing"
         ),
     )
-    parser.add_argument(
+    print_group.add_argument(
         "--print-exempt-set",
         action="store_true",
         help=(
@@ -512,7 +513,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Derive the docs.* exemption set from the schema and subtract it from the prune
     # set (issue #1309). A prune target that is also a documented docs.* default names
-    # the consumer's OWN doc root, which is expected to exist in their checkout — the
+    # the consumer's OWN docs path, which is expected to exist in their checkout — the
     # opposite of the vanishing-path premise this lint guards. The read fails closed:
     # an absent/unreadable file is an OSError, an unparseable/keyless/non-object schema
     # is a DocsDefaultsParseError, and either refuses non-zero naming the schema — an
