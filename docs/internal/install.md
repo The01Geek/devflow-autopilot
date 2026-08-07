@@ -145,9 +145,9 @@ PowerShell's double-quote handling can split a `--note`/`--reflection` text argu
 For autonomous GitHub Actions automation, run the installer from your repo root. It is idempotent, so re-running it at a *newer* release tag is also how you update. It writes into your repository — the workflows and composite actions under `.github/`, a local `marketplace.json`, and `.prflow/` templates (config scaffold, schema, ignore file) — so those changes land in version control. **Download it, read it, then run the downloaded file:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.31.24/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.31.26/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.31.24 bash devflow-install.sh
+DEVFLOW_REF=v2.31.26 bash devflow-install.sh
 ```
 
 <a id="pinning-the-installer"></a>
@@ -166,8 +166,8 @@ Independently of either pin, `install.sh` stamps `.prflow/config.json`'s `prflow
 `curl … | bash` runs the script without giving you a chance to read it. If you accept that, still pin both refs:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.31.24/install.sh \
-  | DEVFLOW_REF=v2.31.24 bash
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.31.26/install.sh \
+  | DEVFLOW_REF=v2.31.26 bash
 ```
 
 </details>
@@ -413,7 +413,7 @@ Issue #455 fixed a cloud `/prflow:implement` defect where the run's best-effort 
 
 **Skew symptom — silent label-apply denial.** If you take only *one* half, cloud implement runs keep hitting the wall the issue fixed: bump `prflow_version` without re-running `install.sh` and the reworked skill emits the granted-literal calls but the workflow still lacks the grants; re-run `install.sh` without bumping `prflow_version` and the workflow grants the helpers but the vendored skill still emits the denied loop/capture shapes. Either way the applies are refused with no error and the PR/deferred issues silently carry none of the configured labels. Take **both** halves in the same upgrade.
 
-**Issue #555 adds the deferral-discovery helper to the same two-halves shape — and this one fails *loudly*.** Phase 4.0.5 no longer discovers deferrals manifests with a multi-root `find` (whose masked exit status made a failed search read as the clean no-op); it invokes `scripts/discover-deferral-manifests.py`, which classifies each candidate root independently and carries discovery status in its exit code. The **workflow grant** — `Bash(.prflow/vendor/prflow/scripts/discover-deferral-manifests.py:*)` in `devflow-implement.yml`'s baked `--allowed-tools` — arrives by **re-running `install.sh`**; the **fence rework** (the helper capture, `DISCOVERY_STATE`, the `discovery=` sentinel field, and the fail-closed reader-routing arms) arrives by **bumping `prflow_version`**. Skew symptom: a consumer holding only the skill half has the reworked fence but no grant, so the discovery statement is refused, produces no output, and lands in the reader-routing fail-closed `discovery=[]` exit — a recorded `dropped-failed` reflection and nothing filed, **not** the silent loss the old shape produced. Take both halves in the same upgrade to get filing back.
+**Issue #555 adds the deferral-discovery helper to the same two-halves shape — and this one fails *loudly*.** Phase 4.0.5 no longer discovers deferrals manifests with a multi-root `find` (whose masked exit status made a failed search read as the clean no-op); it invokes `scripts/discover-deferral-manifests.py`, which classifies each candidate root independently and carries discovery status in its exit code. The **workflow grant** — `Bash(.prflow/vendor/prflow/scripts/discover-deferral-manifests.py:*)` in `devflow-implement.yml`'s baked `--allowed-tools` — arrives by **re-running `install.sh`**; the **fence rework** (the helper capture, `DISCOVERY_STATE`, the `discovery=` sentinel field, and the fail-closed reader-routing arms) arrives by **bumping `prflow_version`**. Skew symptom: a consumer holding only the skill half has the reworked fence but no grant, so the discovery statement is refused, produces no output, and lands in the reader-routing fail-closed `discovery=[]` exit — a recorded `dropped-failed` reflection and nothing filed, **not** the silent loss the old shape produced. Take both halves in the same upgrade to get filing back. Issue #1374 adds a second mode to that same helper (`--presence-for-pr N`, the predicate gating Phase 4.0.5's now-relocated filing procedure); the grant above is a **prefix** grant, so it already covers it and no allowlist change is owed. A consumer holding only the skill half reaches the predicate's fail-closed unestablished arm, which reads the reference anyway.
 
 **Issue #668 adds the receiving-review session-artifact producer on the same two-halves shape.** The `receiving-code-review` skill's Reception Preflight invokes `scripts/reception-record.py` (which imports `scripts/reception_identity.py`) to derive a content-based candidate identity, mint a claim-context nonce, and write session artifacts. The **workflow grant** — `Bash(.prflow/vendor/prflow/scripts/reception-record.py:*)` in the `implement` and `command` capability profiles' generated regions — arrives by **re-running `install.sh`** (it refreshes the workflow files). The **helper plus skill rework** — the two new `scripts/` files and the eleven-fact preflight prose — arrive by **bumping `prflow_version`** (the workflows fetch them from that pinned ref at runtime). Skew symptom: a consumer holding only the skill half has the reworked preflight but no grant, so on cloud autonomous surfaces the helper is silently denied and produces no output — the candidate-identity and claim-context facts render `missing` and the run continues (a **visible** degraded outcome, not a false pass). Take both halves in the same upgrade to record the session identity.
 

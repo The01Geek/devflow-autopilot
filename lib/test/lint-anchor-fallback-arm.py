@@ -72,6 +72,12 @@ ENROLLED: tuple[tuple[str, str], ...] = (
     # enrollment tracks cloud-reachability, which is a policy scope, not a tree fact.
     ("skills/implement/SKILL.md", "load-prompt-extension.sh implement"),
     ("skills/implement/phases/phase-3-review.md", "apply-pr-triggerer.sh <draft-pr-number>"),
+    # Enrolled at issue #1374, which put Phase 4.0.5's filing procedure behind this
+    # presence predicate. The predicate runs on the cloud implement tier on every run
+    # that reaches Phase 4, so an anchor-only spelling would be refused there, route to
+    # the unestablished arm, and read the reference the gate exists to skip.
+    ("skills/implement/phases/phase-4-documentation.md",
+     "discover-deferral-manifests.py --presence-for-pr <this-run's-PR-number>"),
 )
 
 #: The portable source anchor prefix (issue #275), byte-identical to the ``lpe-coverage``
