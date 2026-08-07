@@ -34690,9 +34690,11 @@ assert_eq "#815 the reference's last line is the matching end boundary marker" \
   '<!-- prflow:implement-ref step=4.0 file=skills/implement/references/deferred-ac-followups.md end -->' \
   "$(tail -1 "$I815_REF")"  # structural-pin-ok: routing-dispatch-contract -- the closing half of the same accept-the-load contract
 # The move is what buys the reduction, so assert the procedure actually LEFT the phase file
-# rather than being duplicated into the reference. SECTION-scoped, not file-scoped: §4.0.5
-# stays in the phase file and discusses `gh issue create` in its own prose, so a whole-file
-# count would be asserting that a section this change never touched stopped mentioning it.
+# rather than being duplicated into the reference. SECTION-scoped rather than file-scoped, a
+# scoping #1374 preserved rather than needed: §4.0.5's own prose has since moved to its own
+# gated reference too, so the phase file now mentions `gh issue create` nowhere and a
+# whole-file count would read 0 for a reason unrelated to §4.0. Keeping the slice scoped is
+# what makes a future regression that re-adds a create fence to §4.0 attributable to §4.0.
 I815_S40="$(probe_tmp '#815 phase-file section 4.0 slice')"
 if [ "$I815_S40" != "/dev/null" ]; then
   sed -n '/^### 4.0 File Follow-Up/,/^### 4.0.5/p' "$I480_P4" > "$I815_S40"
@@ -34783,7 +34785,7 @@ assert_eq "#1374 the reference's last line is its own end boundary marker" \
 assert_eq "#1374 the phase file no longer carries the §4.0.5 discovery statement" "0" \
   "$(grep -cF 'discover-deferral-manifests.py $SEARCH_DIRS' "$P4_FILE" || true)"
 assert_eq "#1374 the phase file retains a line-start '### 4.0.5' heading (the #815 section-4.0 sed range terminates on it)" "yes" \
-  "$(grep -qE '^### 4\.0\.5' "$P4_FILE" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the sed range above ends on this heading; without it the slice runs to EOF and its count assertion passes vacuously
+  "$(grep -qE '^### 4\.0\.5' "$P4_FILE" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the #815 sed range terminates on this heading; without it the slice runs to EOF and stops being scoped to section 4.0, so its count no longer attributes what it measures to the section it names
 assert_eq "#1374 the phases/ directory reconciliation is untouched (the second reference is NOT a phase stem)" "yes" \
   "$([ ! -e "$IMPL_PHASES_DIR/deferred-review-findings.md" ] && \
      [ "$IMPL_PHASE_STEMS" = "phase-1-setup phase-2-implement phase-3-review phase-4-documentation" ] \

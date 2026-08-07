@@ -54,9 +54,12 @@ because of those two, not because the enumeration says so.
 The `reason=` tokens are a consumed contract — the stub quotes the token into its reflection — so
 each names the operand that could not be established: `malformed-invocation`,
 `unreadable-review-root`, `branch-unresolvable`, `branch-slug-escapes-review-root`,
-`unreadable-directory`, `unreadable-aggregate`, `internal-error`, plus two that make an
-unformable branch candidate observable rather than absent: `branch-slug-empty` (a non-empty
-branch whose every character the keep-filter drops) and `branch-slug-escapes-review-root`.
+`unreadable-directory`, `unreadable-aggregate`, `internal-error`, `branch-slug-empty` (a
+non-empty branch whose every character the keep-filter drops, leaving the candidate
+unformable) and `branch-slug-escapes-review-root` (a slug that is formable but resolves
+outside the review root). Eight in all, named as module constants rather than literals at
+each call site, because the stub quotes the token into its reflection and a drifted token
+would be invisible until a reader met an unfamiliar word in a workpad.
 
 The filing fence handles both of those by breadcrumbing and falling back to `pr-<N>`-only search,
 which is right for a best-effort filing step. It is wrong for a *gate*: on a first Phase 4 entry
@@ -139,8 +142,9 @@ search-set pins, the `#555` discovery pins, the `#275` portable-anchor `file-def
 the `#271` `run-jq.sh` pin, the `#480` sentinel pins (two of which *execute* the shipped sentinel
 line, and one of which probes operand-initialization ordering), the `ensure-label.sh` per-file
 counts, and the positional routing-bullet count. The `### 4.0.5` heading stays at line start in
-the phase file, because the `#815` section-4.0 `sed` range terminates on it and would otherwise
-run to end of file and pass vacuously.
+the phase file, because the `#815` section-4.0 `sed` range terminates on it; without it the
+slice runs to end of file and stops being scoped to §4.0, so its count no longer attributes
+what it measures to the section it names.
 
 ### The one retirement, and its authorization
 

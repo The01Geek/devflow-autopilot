@@ -13801,6 +13801,10 @@ with tempfile.TemporaryDirectory() as _pm_base:
         'feat/issue-1374',                # a path separator
         'issue#1374 (draft)!',            # characters outside [a-z0-9._-]
         '###!!!',                         # every character dropped by the filter
+        '\u212aELVIN',                     # U+212A KELVIN SIGN: str.lower() maps it INTO
+                                          # the keep-set ('k'), the fence's tr in the C
+                                          # locale drops it — the one row that catches a
+                                          # port rewritten to use str.lower()
         '',                               # empty name (detached HEAD)
         'worktree-issue-1374',            # the ordinary shape, as a control
     )
@@ -13841,9 +13845,9 @@ with tempfile.TemporaryDirectory() as _pm_base:
         _gi = _subprocess.run(['git', 'init', '-q', '-b', branch, str(d)],
                               capture_output=True, text=True)
         if _gi.returncode != 0:
-            # A silently branchless fixture would still satisfy the dedup count below
-            # (one candidate, counted once) while the de-duplication under test never
-            # ran — the fixture passing for the wrong reason. Raise instead.
+            # A failed init leaves a non-repo cwd, which the hardened resolver reports as
+            # branch-unresolvable — so every fixture below would fail with an unrelated
+            # exit-2 assertion. Raise here so the failure is attributed to `git init`.
             raise AssertionError(
                 '#1374 harness: git init -b %r failed (rc=%d); the presence-mode fixtures '
                 'cannot be built: %s' % (branch, _gi.returncode, _gi.stderr))
@@ -13866,15 +13870,18 @@ with tempfile.TemporaryDirectory() as _pm_base:
     assert_eq("#1374: a manifest under the branch slug alone reports present (the PR slug holds none)",
               (0, True), (_rc, _so.startswith('present:')))
 
-    # ---- Happy path 3: manifests under BOTH candidates. Asserts the printed COUNT, not
-    # ---- just the prefix: `present += 1`, `present = len(matches)`, or a `break` after the
-    # ---- first ok root all still print a `present:` line and would otherwise pass.
+    # ---- Happy path 3: manifests under BOTH candidates, and TWO under one of them. The
+    # ---- asymmetry is what discriminates: with one manifest each, `present += 1` and the
+    # ---- shipped `present += len(matches)` both yield 2 and the assertion cannot tell
+    # ---- them apart. At 2-and-1 the shipped code yields 3 and `present += 1` yields 2,
+    # ---- so this also catches `present = len(matches)` and a `break` after the first root.
     _d, _rev = _pm_tree('present-both-slugs', branch='feat/Both-Slugs')
     _dm_manifest(_rev / 'pr-93', 'run-a', '{"deferrals": [{"file": "a.py"}]}')
-    _dm_manifest(_rev / 'feat-both-slugs', 'run-b', '{"deferrals": [{"file": "b.py"}]}')
+    _dm_manifest(_rev / 'pr-93', 'run-b', '{"deferrals": [{"file": "b.py"}]}')
+    _dm_manifest(_rev / 'feat-both-slugs', 'run-c', '{"deferrals": [{"file": "c.py"}]}')
     _rc, _so, _se = _dm_run([_PM_FLAG, '93'], _d)
-    assert_eq("#1374: manifests under both candidates are summed into the reported count",
-              (0, 'present: 2'), (_rc, _so.strip()))
+    assert_eq("#1374: matches from both candidates are SUMMED into the reported count",
+              (0, 'present: 3'), (_rc, _so.strip()))
 
     # ---- AC4's second half: ONLY a non-empty slug-level aggregate, no run-scoped
     # ---- manifest. A predicate reading only the run-scoped source fails open here,

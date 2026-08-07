@@ -107,6 +107,19 @@ REVIEW_ROOT = ".prflow/tmp/review"
 # and the shell chain cannot drift through an interpretation of a range expression.
 _SLUG_KEEP = frozenset("abcdefghijklmnopqrstuvwxyz0123456789._-")
 
+# The presence mode's `reason=` vocabulary. It is a CROSS-FILE contract — the §4.0.5 stub
+# quotes the token into the reflection it records — so the set is named here rather than
+# left as literals at each call site, where a drifted token would be invisible until a
+# reader met an unfamiliar word in a workpad.
+REASON_MALFORMED_INVOCATION = "malformed-invocation"
+REASON_UNREADABLE_REVIEW_ROOT = "unreadable-review-root"
+REASON_BRANCH_UNRESOLVABLE = "branch-unresolvable"
+REASON_BRANCH_SLUG_EMPTY = "branch-slug-empty"
+REASON_BRANCH_SLUG_ESCAPES = "branch-slug-escapes-review-root"
+REASON_UNREADABLE_DIRECTORY = "unreadable-directory"
+REASON_UNREADABLE_AGGREGATE = "unreadable-aggregate"
+REASON_INTERNAL_ERROR = "internal-error"
+
 # Aggregate discrimination markers the §4.0.5 fence greps. At most one is emitted
 # per run (the partial/all-failed arms are exclusive branches), and the per-root
 # failed breadcrumb below is deliberately worded so its own fixed text contains
@@ -211,14 +224,16 @@ def classify_root(root):
 def _derive_branch_slug(branch):
     """Port the §4.0.5 fence's `tr '/' '-' | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-'`
     chain into Python, so this mode's search directories do not depend on `tr` — a tool
-    the project's preflight does not guarantee, whose absence would empty the slug and
-    silently drop the branch-slug candidate (guard-class 2).
+    the project's preflight does not guarantee, whose absence empties the slug and drops
+    the branch-slug candidate. The fence tolerates that with a breadcrumb because filing
+    is best-effort; a gate cannot, because the dropped candidate is the sole source on a
+    first entry (guard-class 2).
 
-    The case fold is an explicit ASCII A–Z shift rather than str.lower(), which is
-    Unicode-aware and would map characters `tr` leaves alone in the C locale — after
-    which the keep-filter drops them either way, so the two agree on the result but not
-    on the reasoning; the explicit shift is what makes the agreement true by construction
-    rather than by coincidence.
+    The case fold is an explicit ASCII A–Z shift rather than str.lower(), and the two do
+    NOT agree: str.lower() maps some non-ASCII characters INTO the keep-set, so a branch
+    named with U+212A KELVIN SIGN slugs to `k` under str.lower() and to nothing under the
+    fence's `tr` in the C locale — a non-empty slug pointing at a directory no producer
+    writes. The explicit shift is what keeps the port byte-equivalent to the chain.
     """
     out = []
     for ch in branch.replace("/", "-"):
@@ -232,9 +247,11 @@ def _derive_branch_slug(branch):
 def _slug_escapes_review_root(review_root, slug):
     """True when joining `slug` onto `review_root` resolves outside it.
 
-    The keep-filter above passes `.` and `-`, so a branch named `..` slugs to `..` and
-    would point the branch candidate at the review root's parent. Discovery there would
-    walk an unrelated tree and could report a manifest that belongs to no run of this PR.
+    The keep-filter above passes `.` and `-`, so a slug of `..` would point the branch
+    candidate at the review root's parent and a slug of `.` at the root itself; both are
+    rejected. Git will not create a branch named `..`, so this is defence in depth over a
+    `_resolve_current_branch` return value nothing else in this file constrains — not a
+    shape reachable from an ordinary checkout.
 
     `scripts/issue-audit-state.py` guards the same hazard for its own slugs with a
     `[A-Za-z0-9][A-Za-z0-9._-]*` full-match; the two are separate stdlib-only CLIs with no
@@ -341,6 +358,13 @@ def _probe_aggregate(agg_path):
         return "failed"
     import stat as _stat
     if not _stat.S_ISREG(st.st_mode):
+        # Breadcrumbed like every other `failed` classification in this file (the
+        # convention classify_root states), so the operator sees the reason and not only
+        # the path the `root:` line names.
+        sys.stderr.write(
+            "devflow: presence: aggregate %s exists but is not a regular file\n"
+            % os.path.abspath(agg_path)
+        )
         return "failed"
     return "ok" if st.st_size > 0 else "absent"
 
@@ -375,7 +399,7 @@ def cmd_presence(rest):
             "devflow: presence: usage: discover-deferral-manifests.py %s N\n"
             % PRESENCE_FLAG
         )
-        return _print_presence_unestablished("malformed-invocation")
+        return _print_presence_unestablished(REASON_MALFORMED_INVOCATION)
     pr_number = rest[0]
 
     slug_dir = "%s/pr-%s" % (REVIEW_ROOT, pr_number)
@@ -388,13 +412,19 @@ def cmd_presence(rest):
     # inspected is NOT that case and stops here rather than reading as absent.
     root_state = _probe_review_root()
     if root_state == "failed":
-        return _print_presence_unestablished("unreadable-review-root", REVIEW_ROOT)
+        return _print_presence_unestablished(REASON_UNREADABLE_REVIEW_ROOT, REVIEW_ROOT)
+    if root_state not in ("ok", "missing"):
+        # Every arm is enumerated, so a value that is neither is a defect in this file
+        # rather than a state of the tree. Falling through would silently take the
+        # PR-slug-only search — the shape that strands a first entry's findings — so the
+        # unrecognized value fails closed instead.
+        return _print_presence_unestablished(REASON_INTERNAL_ERROR)
     if root_state == "ok":
         branch = _resolve_current_branch()
         if branch is BRANCH_UNRESOLVABLE:
             # The branch candidate is the sole source on a first entry, so a branch that
             # could not be resolved leaves the answer unestablished rather than absent.
-            return _print_presence_unestablished("branch-unresolvable")
+            return _print_presence_unestablished(REASON_BRANCH_UNRESOLVABLE)
         branch_slug = _derive_branch_slug(branch)
         if branch and not branch_slug:
             # A branch that exists but whose every character the keep-filter drops leaves
@@ -406,7 +436,7 @@ def cmd_presence(rest):
                 "devflow: presence: branch %r derives an empty slug (every character is "
                 "outside [a-z0-9._-]); the branch candidate cannot be formed\n" % branch
             )
-            return _print_presence_unestablished("branch-slug-empty")
+            return _print_presence_unestablished(REASON_BRANCH_SLUG_EMPTY)
         if branch_slug:
             if _slug_escapes_review_root(REVIEW_ROOT, branch_slug):
                 # A branch name whose slug leaves the review root is a broken input, not
@@ -442,7 +472,7 @@ def cmd_presence(rest):
                 "devflow: presence: candidate %s could not be inspected (%s)\n"
                 % (os.path.abspath(root), exc)
             )
-            return _print_presence_unestablished("unreadable-directory", root)
+            return _print_presence_unestablished(REASON_UNREADABLE_DIRECTORY, root)
         status, matches = classify_root(root)
         results.append((root, status))
         present += len(matches)
@@ -472,10 +502,10 @@ def cmd_presence(rest):
         sys.stdout.write("present: %d\n" % present)
         return 0
     if agg_state == "failed":
-        return _print_presence_unestablished("unreadable-aggregate", agg_path)
+        return _print_presence_unestablished(REASON_UNREADABLE_AGGREGATE, agg_path)
     first_failed = next((r for r, s in results if s == "failed"), None)
     if first_failed is not None:
-        return _print_presence_unestablished("unreadable-directory", first_failed)
+        return _print_presence_unestablished(REASON_UNREADABLE_DIRECTORY, first_failed)
     sys.stdout.write("absent: 0\n")
     return 1
 
@@ -503,7 +533,7 @@ def _run_presence(rest):
         except BaseException:  # noqa: BLE001 - the return below is the contract
             pass
         try:
-            _print_presence_unestablished("internal-error")
+            _print_presence_unestablished(REASON_INTERNAL_ERROR)
         except BaseException:  # noqa: BLE001 - the return below is the contract
             pass
         return 2
