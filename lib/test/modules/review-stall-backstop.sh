@@ -915,10 +915,10 @@ unset _wf801 _t801
 # block. Keeping the barrier cloud-scoped is what keeps step-3-6-audit.md's cross-reference —
 # which contrasts its own unconditional wait with "the cloud-tier headless-wait discipline" —
 # accurate without editing that file.
-# The literal is the barrier's acknowledgment clause rather than its lead sentence: the two
-# roots word that lead differently (issue #1254 reworded the implement root's to state
-# collect-before-proceeding), while this clause is the barrier's in both and is what a
-# relocation would carry with it. So these checks bind the PLACEMENT of the acknowledgment
+# The literal is the barrier's acknowledgment clause rather than its lead sentence: the lead is
+# reworded independently per root (#1254 for implement, #1365 for review), while this clause is
+# the barrier's in both and is what a relocation would carry with it. So these checks bind the
+# PLACEMENT of the acknowledgment
 # clause and assert nothing about the collect requirement's own wording — do not read their
 # green as coverage of it.
 BARRIER_LIT801="a launch acknowledgment is never treated as the return"
