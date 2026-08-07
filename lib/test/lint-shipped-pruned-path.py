@@ -3,22 +3,52 @@
 # SPDX-License-Identifier: MIT
 """Fail the suite when a shipped prompt surface references a path the vendor slice
 prunes (issue #1072), cites a PRFlow-internal issue/PR number or acceptance criterion
-(issue #1241), or — inside a vendored-skill body — names PRFlow's own `CLAUDE.md`
-(issue #1401).
+(issue #1241), names a `.github/workflows/` file the installer never ships (issue
+#1402), or — inside a vendored-skill body — names PRFlow's own `CLAUDE.md` (issue
+#1401).
 
-All three forbidden classes share one cause: `skills/**` / `agents/**` ships verbatim
+All four forbidden classes share one cause: `skills/**` / `agents/**` ships verbatim
 into every consumer repo, so a reference that only resolves against THIS repository's
-tree, issue tracker, or project-memory file points at nothing in a consumer's checkout.
-The pruned-path check (below) covers the tree paths; the citation check covers `#123` /
-`issue #123` / `PR #123` and `AC5`-style acceptance-criterion references. The
+tree, issue tracker, workflow set, or project-memory file points at nothing in a
+consumer's checkout. The pruned-path check (below) covers the tree paths; the citation
+check covers `#123` / `issue #123` / `PR #123` and `AC5`-style acceptance-criterion
+references. The never-shipped-workflow check (issue #1402) covers the `.github/workflows/`
+members that reach no consumer. The
 CLAUDE.md-token check (issue #1401) is narrower in scope: it fires only inside the
 DERIVED vendored-skill directories — every `skills/<name>/` whose `SKILL.md` carries the
 vendored-provenance sentence — because every OTHER shipped file may legitimately name
 `CLAUDE.md` as the consumer's own project memory. The vendor slice never copies PRFlow's
 `CLAUDE.md`, so a pointer to it in a vendored body resolves against a consumer's own,
 unrelated project-memory file. The scope is derived, never a transcribed directory list,
-and an empty or unestablished derivation refuses non-zero rather than scanning nothing. All three are
+and an empty or unestablished derivation refuses non-zero rather than scanning nothing. All four are
 exempted by the same per-line declaration marker described below.
+
+Never-shipped workflows (issue #1402) — why the prune set cannot see them
+------------------------------------------------------------------------
+`devflow_copy_slice()` copies no `.github/` at all, so no `.github/workflows/` member is
+a *prune target* and the derivation above is structurally blind to the whole family. Yet
+a consumer *does* have `.github/workflows/`: `install.sh` copies some workflows there.
+The path family resolves in a consumer's checkout; individual members do not — so a
+blanket `.github/` ban would be wrong, and the class is keyed to membership instead.
+
+The never-shipped set is **derived, never transcribed**, by the same principle as the two
+sets above: `parse_shipped_workflow_names()` reads the two `install.sh` declarations that
+decide which workflow names reach a consumer — the copy loop's literal operand list and
+the `DEVFLOW_WITHHELD_TIER` value — and `derive_never_shipped_basenames()` subtracts
+their union from the `.github/workflows/*.yml` basenames present under the workflows
+source. Membership is over **parsed word lists**, never a substring search over
+`install.sh`: `ci` occurs as a substring on many unrelated lines, and `devflow-review`
+occurs in prose that *removes* that tier. An unestablished declaration refuses non-zero
+naming `install.sh` and audits nothing.
+
+Two disclosed residuals, neither closed here:
+
+* **The extensionless stem is invisible.** The scan keys on the `<basename>.yml`
+  filename, so a bare stem in prose (`matcher-probe row 9`) matches nothing. Keying on
+  the stem alone would ban the substring `ci` outright, which no marker budget absorbs.
+* **A workflow absent from the workflows source is invisible.** The forbidden set is an
+  intersection with what is actually present, so a pointer to a workflow that was deleted
+  from the tree (`devflow-review.yml`) names nothing the derivation can see.
 
 Why this exists: `.github/actions/vendor-plugin/vendor-slice.sh`'s
 `devflow_copy_slice()` deletes subtrees from the vendored plugin before it lands in
@@ -84,20 +114,27 @@ no `--others`, no repository-root-anchored recursive walk, per issue #711).
 Usage:
     lint-shipped-pruned-path.py [--root DIR] [--files-from PATH]
                                 [--slice-source PATH] [--schema-source PATH]
-                                [--print-prune-set | --print-exempt-set]
+                                [--install-source PATH] [--workflows-source DIR]
+                                [--print-prune-set | --print-exempt-set
+                                 | --print-never-shipped-set]
 
 `--print-exempt-set` prints, one per line, the prune targets the docs.* exemption
 subtracted from the forbidden set (a path-shaped docs.* default that is not itself a
 prune target subtracts nothing and is not printed); it exits 0 even when the exemption
 selects nothing, so the derivation is observable on the success path.
+`--print-never-shipped-set` prints, one per line, the never-shipped workflow basenames.
 
 Exit status is 0 only when the prune set AND the docs.* exemption set were established,
-the post-exemption forbidden set is non-empty, the vendored-skill scope (issue #1401)
+the post-exemption forbidden set is non-empty, the never-shipped workflow set (issue
+#1402) was derived non-empty, the vendored-skill scope (issue #1401)
 was derived non-empty, the enumeration selected at least one audited file, every selected
-file was read, and none referenced a prune target, cited a PRFlow-internal reference, or
+file was read, and none referenced a prune target, cited a PRFlow-internal reference,
+named a never-shipped workflow, or
 named PRFlow's own `CLAUDE.md` inside a vendored body without a marker. It is non-zero
 when any such reference is found, when the prune set or the exemption set cannot be
-established, when the exemption empties the forbidden set, when the vendored-skill scope
+established, when the exemption empties the forbidden set, when either `install.sh`
+declaration or the workflows listing cannot be established, when the never-shipped set
+derives empty, when the vendored-skill scope
 derives empty, when the enumeration is unusable, when it selects no audited file at all,
 and when any selected path could not be read.
 """
@@ -148,6 +185,14 @@ DEFAULT_SLICE_REL = ".github/actions/vendor-plugin/vendor-slice.sh"
 #: #1309) is derived from the documented `docs.*` config defaults it declares.
 DEFAULT_SCHEMA_REL = ".prflow/config.schema.json"
 
+#: The default installer source, relative to the resolved root. The shipped-workflow name
+#: set (issue #1402) is derived from the two declarations it carries.
+DEFAULT_INSTALL_REL = "install.sh"
+
+#: The default workflows source, relative to the resolved root. Its `*.yml` children are
+#: the population the never-shipped set (issue #1402) is the complement within.
+DEFAULT_WORKFLOWS_REL = ".github/workflows"
+
 
 class PruneParseError(Exception):
     """The prune set could not be established from the slice source. Fails closed."""
@@ -160,6 +205,17 @@ class DocsDefaultsParseError(Exception):
     that cannot yield a real exemption derivation, so the two derivations fail closed
     on identical terms. The caller catches it in `main` and refuses non-zero naming the
     schema source — an unestablished exemption set is never silently an empty one.
+    """
+
+
+class NeverShippedParseError(Exception):
+    """The never-shipped workflow set could not be established (issue #1402).
+
+    Mirrors `PruneParseError` and `DocsDefaultsParseError`: raised on every shape of
+    `install.sh` or the workflows source that cannot yield a real derivation, so all
+    three derivations fail closed on identical terms. `main` catches it and refuses
+    non-zero naming the source it read — an unestablished set is never silently an
+    empty one, which would leave the whole workflow family unaudited on an exit-0 run.
     """
 
 
@@ -342,6 +398,157 @@ def parse_docs_defaults(schema_bytes: bytes) -> set[str]:
             continue
         defaults.add(default.rstrip("/"))
     return defaults
+
+
+#: The copy loop that installs workflow files: `for <var> in <literal names>; do`, whose
+#: body installs `.github/workflows/$<var>.yml`. Identified by that body reference rather
+#: than by the loop variable's name, so a rename in the installer is tracked rather than
+#: silently missed — the same derive-don't-transcribe posture `_staging_variable` takes.
+_COPY_LOOP = re.compile(r"^\s*for\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+(.+?)\s*;\s*do\s*$")
+
+#: The withheld-tier declaration: a simple assignment whose value is a quoted word list.
+_WITHHELD_TIER = re.compile(
+    r"^\s*DEVFLOW_WITHHELD_TIER=(?:\"([^\"]*)\"|'([^']*)'|(\S*))\s*$"
+)
+
+
+def parse_shipped_workflow_names(install_text: str) -> set[str]:
+    """Return the workflow basenames `install.sh` declares as reaching a consumer.
+
+    The set is the union of exactly two declarations — complete by construction, because
+    those two are the only places the installer decides a workflow name's fate:
+
+    * the copy-loop operand list, whose members the installer copies into a consumer's
+      `.github/workflows/`, and
+    * `DEVFLOW_WITHHELD_TIER`, whose members a consumer that installed an earlier release
+      still carries (they are reported and only removed on an explicit opt-in), so a
+      shipped sentence naming one still resolves there.
+
+    Membership is over **parsed word lists**, never a substring search: `ci` occurs as a
+    substring on many unrelated `install.sh` lines and `devflow-review` occurs in prose
+    that removes that tier, so a substring test would silently over-admit both.
+
+    The copy loop is identified by two properties together, never by the loop variable's
+    name: its **body** names `.github/workflows/$<var>.yml`, and its **operand list holds
+    a literal word**. Both conjuncts are load-bearing, because `install.sh` carries a
+    second loop over workflow paths (`devflow_withheld_tier_present`) whose body satisfies
+    the first conjunct alone — it iterates `$DEVFLOW_WITHHELD_TIER`, so only the literal
+    operand list tells the two apart.
+
+    Raises `NeverShippedParseError` on every shape that cannot yield a real name set: no
+    loop naming a workflow path, no such loop declaring a literal word (every candidate
+    iterating a variable reference, which this parser cannot resolve), no
+    `DEVFLOW_WITHHELD_TIER` assignment, or one declaring no literal word. Each refusal
+    names the declaration that failed.
+    """
+    lines = install_text.split("\n")
+    shipped: set[str] = set()
+
+    loop_words: list[str] = []
+    saw_workflow_loop = False
+    for index, line in enumerate(lines):
+        match = _COPY_LOOP.match(line)
+        if not match:
+            continue
+        candidate_var, operands = match.group(1), match.group(2)
+        install_ref = f".github/workflows/${candidate_var}.yml"
+        install_ref_braced = f".github/workflows/${{{candidate_var}}}.yml"
+        # Scan the loop body for the workflow-path reference. `done` at any indentation
+        # closes it; an unclosed loop runs to end of file and fails the reference test.
+        references_workflow = False
+        for body_line in lines[index + 1:]:
+            if re.match(r"\s*done\b", body_line):
+                break
+            if install_ref in body_line or install_ref_braced in body_line:
+                references_workflow = True
+                break
+        if not references_workflow:
+            continue
+        saw_workflow_loop = True
+        # A `$`-carrying operand is a variable this parser cannot resolve, so it
+        # contributes no name rather than contributing its own literal text. The
+        # LITERAL operand list is what distinguishes the copy loop from `install.sh`'s
+        # other workflow-path loop, which iterates a variable — keep scanning past a
+        # loop whose operands are all variable references rather than selecting it.
+        candidate_words = [word for word in operands.split() if "$" not in word]
+        if candidate_words:
+            loop_words = candidate_words
+            break
+    if not saw_workflow_loop:
+        raise NeverShippedParseError(
+            "no workflow copy loop found (no `for <var> in …; do` whose body names "
+            ".github/workflows/$<var>.yml)"
+        )
+    if not loop_words:
+        raise NeverShippedParseError(
+            "no workflow copy loop declares a literal workflow name (every candidate "
+            "loop iterates a variable reference)"
+        )
+    shipped.update(loop_words)
+
+    withheld_words: list[str] | None = None
+    for line in lines:
+        match = _WITHHELD_TIER.match(line)
+        if not match:
+            continue
+        value = next(group for group in match.groups() if group is not None)
+        withheld_words = [word for word in value.split() if "$" not in word]
+        break
+    if withheld_words is None:
+        raise NeverShippedParseError("no DEVFLOW_WITHHELD_TIER assignment found")
+    if not withheld_words:
+        raise NeverShippedParseError(
+            "the DEVFLOW_WITHHELD_TIER assignment declares no literal workflow name"
+        )
+    shipped.update(withheld_words)
+    return shipped
+
+
+def derive_never_shipped_basenames(
+    workflows_source: Path, shipped: set[str]
+) -> list[str]:
+    """Return the sorted `.github/workflows/*.yml` basenames absent from `shipped`.
+
+    The population is a **non-recursive, root-anchored glob** of the workflows source —
+    the closed leaf-pathspec form issue #711's tree-enumeration convention admits, and
+    the same shape `derive_vendored_skill_dirs` uses, so it cannot descend into a sibling
+    worktree. A basename here is the file's stem (`matcher-probe`), and the scan below
+    keys on `<stem>.yml`.
+
+    Raises `NeverShippedParseError` when the workflows source yields no `*.yml` at all
+    (an absent, empty, or unreadable directory — an unestablished population would leave
+    the class auditing nothing) and when every present workflow is shipped, which would
+    audit the shipped surface against an empty forbidden set.
+    """
+    try:
+        present = sorted(path.stem for path in workflows_source.glob("*.yml"))
+    except OSError as exc:
+        raise NeverShippedParseError(
+            f"could not list the workflows source {workflows_source}: {exc}"
+        ) from exc
+    if not present:
+        raise NeverShippedParseError(
+            f"the workflows source {workflows_source} holds no *.yml file"
+        )
+    never_shipped = [stem for stem in present if stem not in shipped]
+    if not never_shipped:
+        raise NeverShippedParseError(
+            f"every workflow under {workflows_source} is declared shipped by install.sh, "
+            "leaving the never-shipped set empty"
+        )
+    return never_shipped
+
+
+def scan_never_shipped(text: str, basenames: list[str]) -> list[tuple[int, str]]:
+    """Return (1-based line, matched filename) for each unmarked never-shipped reference.
+
+    Keys on the `<basename>.yml` filename rather than the bare stem, so both the
+    fully-qualified `.github/workflows/<name>.yml` and the bare `<name>.yml` spellings
+    match while an extensionless stem does not — the disclosed residual in the module
+    docstring. Shares the fence-aware marker discharge through `_scan`.
+    """
+    filenames = [f"{basename}.yml" for basename in basenames]
+    return _scan(text, lambda line: next((f for f in filenames if f in line), None))
 
 
 #: A recognized declaration marker, by fence context. Each requires a non-empty reason.
@@ -539,6 +746,22 @@ def main(argv: list[str] | None = None) -> int:
             "(default: <root>/" + DEFAULT_SCHEMA_REL + ")"
         ),
     )
+    parser.add_argument(
+        "--install-source",
+        default=None,
+        help=(
+            "the installer to derive the shipped-workflow name set from "
+            "(default: <root>/" + DEFAULT_INSTALL_REL + ")"
+        ),
+    )
+    parser.add_argument(
+        "--workflows-source",
+        default=None,
+        help=(
+            "the directory whose *.yml children the never-shipped set is the complement "
+            "within (default: <root>/" + DEFAULT_WORKFLOWS_REL + ")"
+        ),
+    )
     print_group = parser.add_mutually_exclusive_group()
     print_group.add_argument(
         "--print-prune-set",
@@ -556,12 +779,28 @@ def main(argv: list[str] | None = None) -> int:
             "and exit, auditing nothing"
         ),
     )
+    print_group.add_argument(
+        "--print-never-shipped-set",
+        action="store_true",
+        help=(
+            "print the never-shipped workflow basenames (one per line) and exit, "
+            "auditing nothing"
+        ),
+    )
     args = parser.parse_args(argv)
 
     root = _pop.resolve_root(args.root, tool="lint-shipped-pruned-path")
     slice_source = Path(args.slice_source) if args.slice_source else root / DEFAULT_SLICE_REL
     schema_source = (
         Path(args.schema_source) if args.schema_source else root / DEFAULT_SCHEMA_REL
+    )
+    install_source = (
+        Path(args.install_source) if args.install_source else root / DEFAULT_INSTALL_REL
+    )
+    workflows_source = (
+        Path(args.workflows_source)
+        if args.workflows_source
+        else root / DEFAULT_WORKFLOWS_REL
     )
 
     try:
@@ -641,6 +880,36 @@ def main(argv: list[str] | None = None) -> int:
             print(target)
         return 0
 
+    # Derive the never-shipped workflow set (issue #1402). Placed AFTER the two print
+    # branches above so neither of their behaviours moves, and BEFORE the enumeration
+    # below so an unestablished declaration refuses without auditing a single file.
+    try:
+        install_text = install_source.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        print(
+            f"lint-shipped-pruned-path: could not read install source {install_source}: "
+            f"{exc}; auditing nothing",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        shipped_workflows = parse_shipped_workflow_names(install_text)
+        never_shipped = derive_never_shipped_basenames(
+            workflows_source, shipped_workflows
+        )
+    except NeverShippedParseError as exc:
+        print(
+            f"lint-shipped-pruned-path: could not establish a never-shipped workflow set "
+            f"from {install_source} and {workflows_source}: {exc}; auditing nothing",
+            file=sys.stderr,
+        )
+        return 1
+
+    if args.print_never_shipped_set:
+        for basename in never_shipped:
+            print(basename)
+        return 0
+
     try:
         population = _pop.enumerate_population(
             root,
@@ -710,6 +979,12 @@ def main(argv: list[str] | None = None) -> int:
             findings.append(
                 f"{relative}:{number}: cites PRFlow-internal '{cite}' (issue/PR or "
                 "acceptance-criterion reference) with no pruned-path-ok marker"
+            )
+        for number, workflow in scan_never_shipped(text, never_shipped):
+            findings.append(
+                f"{relative}:{number}: references never-shipped workflow '{workflow}' "
+                "(the installer copies it into no consumer, so it names nothing in their "
+                "checkout) with no pruned-path-ok marker"
             )
         # The CLAUDE.md-token ban applies only inside the derived vendored-skill dirs
         # (issue #1401): every other skills/**+agents/** file may name CLAUDE.md as the
