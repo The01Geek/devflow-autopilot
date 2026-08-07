@@ -477,16 +477,19 @@ _ASSERT_LINE_RE = re.compile(r"(?i)\bassert\w*\b")
 # The gating R3 noun set — shared as one constant so the recognition tier's _RECOG_NOUN
 # below cannot silently drift from the gating _COUNT_RE (a new noun added here reaches both).
 _COUNT_NOUNS = r"assertions?|asserts?|checks?|bullets?|items?|entries?|cases?"
-# The gating R3 pattern carries two guards the non-gating recognition tier (_RECOG_NUM /
-# _RECOG_NOUN) already ships (issue #1405): the trigger noun must be PLURAL, and the numeral
-# must not be glued to ``#`` / ``§`` / another digit / ``.`` / ``-``. Together they stop a
-# singular ordinal reference (``Step 3 item 6``) and a ``#402``-style reference from gating.
-# Both live HERE, on the compiled pattern, leaving _COUNT_NOUNS byte-identical: the recognition
-# tier interpolates that constant and must keep recognising singular nouns. The plural
-# alternation is derived from _COUNT_NOUNS (the single source of nouns) by promoting each
-# optional-plural ``s?`` to a required ``s``.
+# The numeral lookbehind, shared by the gating _COUNT_RE and the recognition _RECOG_NUM below as
+# ONE constant (the same single-source discipline _COUNT_NOUNS carries) so the two tiers' guard
+# against a numeral glued to ``#`` / ``§`` / a digit / ``.`` / ``-`` cannot silently drift — the
+# exact drift issue #1405 closed. Kills ``#402`` references, ``§2.3`` section numbers, decimals.
+_NUM_LOOKBEHIND = r"(?<![#§\d.\-])"
+# The gating R3 pattern carries two guards the non-gating recognition tier already ships (issue
+# #1405): the trigger noun must be PLURAL, and the numeral must clear _NUM_LOOKBEHIND — see the
+# module-header R3 spec for the rule and its disclosed plural-ordinal residual. Both live HERE,
+# on the compiled pattern, leaving _COUNT_NOUNS byte-identical: the recognition tier interpolates
+# that constant and must keep recognising singular nouns. The plural alternation is derived from
+# _COUNT_NOUNS (the single source of nouns) by promoting each optional-plural ``s?`` to ``s``.
 _COUNT_NOUNS_PLURAL = _COUNT_NOUNS.replace("s?", "s")
-_COUNT_RE = re.compile(rf"(?<![#§\d.\-])\b(\d+)\s+({_COUNT_NOUNS_PLURAL})\b", re.IGNORECASE)
+_COUNT_RE = re.compile(rf"{_NUM_LOOKBEHIND}\b(\d+)\s+({_COUNT_NOUNS_PLURAL})\b", re.IGNORECASE)
 # ── R3 recognition-only tier (issue #439), non-gating ──────────────────────────────────
 # Spelled-out numeral words two..twelve → their integer value. "one" is deliberately absent
 # (idiom-heavy) and thirteen+ is out of scope; see the module header's recognition-tier records.
@@ -509,9 +512,10 @@ _RECOG_MOD = r"[*`]{0,2}[A-Za-z][\w'-]*[*`]{0,2}\s+"
 # value map can never drift — a word the regex matched but the map lacked would KeyError. The
 # ``\b`` anchors on the alternation below make alternative order irrelevant.
 _WORD_ALT = "|".join(_WORD_NUM)
-# The numeral: a word numeral (bounded) OR a digit run, NOT directly preceded by ``#`` / ``§`` /
-# a digit / ``.`` / ``-`` (kills ``#402`` references, ``§2.3`` section numbers, decimals).
-_RECOG_NUM = r"(?<![#§\d.\-])(?:\b(?P<word>" + _WORD_ALT + r")\b|(?P<digit>\d+))"
+# The numeral: a word numeral (bounded) OR a digit run, guarded by the shared _NUM_LOOKBEHIND
+# above (NOT directly preceded by ``#`` / ``§`` / a digit / ``.`` / ``-``) — one source with the
+# gating _COUNT_RE, so the two tiers' numeral guard cannot drift (issue #1405).
+_RECOG_NUM = _NUM_LOOKBEHIND + r"(?:\b(?P<word>" + _WORD_ALT + r")\b|(?P<digit>\d+))"
 _RECOG_RE = re.compile(
     _RECOG_NUM + r"\s+(?P<mods>(?:" + _RECOG_MOD + r"){0,2})(?P<noun>" + _RECOG_NOUN + r")\b",
     re.IGNORECASE,

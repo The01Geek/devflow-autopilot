@@ -22,7 +22,7 @@
     "scripts/resolve-review-overrides.py": "d6281afc429636c7c59774c2ac3f0c1d7fde80be6e084993fee452066a2444af",
     "scripts/run-jq.sh": "1bcf3697f7fb24a50cbc246ef42ab9503be8fef4478103da0d183dcd971ad1fd",
     "scripts/section_parse.py": "9333d432e81365eb92e44709bf4317d4d0f37046098b0c0f0d866eb11cd33108",
-    "scripts/stale-prose-lint.py": "acd338557f1aef6ba79d7e4fe489a168f52f0af7e506562021c0ae0db49d8986",
+    "scripts/stale-prose-lint.py": "93b6c0bdd5f940c7feabfe416df075683a7654bf1a82bacaeee6bff3e2d145fa",
     "scripts/update-branch-checkpoint.sh": "c60408fb8f9e2227aabf9cf1094462a946a1471230f8e9b5e598a490c5f290b5",
     "scripts/workpad.py": "361f27bd35a0824ba3c30d147bbfde57172a0a6f0c0225aefef719b41bf13a20",
     "skills/docs-release-notes/SKILL.md": "b3ab6938f1e59f822a7f36deb06f708acbc99b53e2cdf67f772b8eb115f4435f",

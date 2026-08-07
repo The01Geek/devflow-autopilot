@@ -38053,14 +38053,13 @@ else
 fi
 
 # ── #1405 gating R3 plurality + numeral-lookbehind narrowing (process boundary) ───────
-# The gating R3 numeric rule now requires a PLURAL trigger noun and refuses a numeral glued to
-# a preceding hash / section-sign / digit / dot / dash. These fixtures drive the REAL self-scan
-# process boundary (git diff | stale-prose-lint.py --rev HEAD), the complement of the
-# examine_file unit assertions in test_python_scripts.py. Each accept-side fixture below exited 1
-# with a gating STALE R3 under the shipped rule; the still-gates fixtures pin a genuine plural
-# count mismatch plus its matched-count VERIFIED sibling. AC7 replays the two lines that gate
-# live on main today. (No count-shaped phrase appears in these comment lines: a comment IS prose
-# the lint examines, so the shapes live only in the code-line printf fixtures below.)
+# These fixtures drive the REAL self-scan process boundary (git diff | stale-prose-lint.py --rev
+# HEAD), the complement of the examine_file unit assertions in test_python_scripts.py; the
+# authoritative rule statement is the module-header R3 spec. Each accept-side fixture below
+# exited 1 with a gating STALE R3 under the shipped rule; the still-gates fixtures pin a genuine
+# plural count mismatch plus its matched-count VERIFIED sibling. AC7 replays the two lines that
+# gate live on main today. (No count-shaped phrase appears in these comment lines: a comment IS
+# prose the lint examines, so the shapes live only in the code-line printf fixtures below.)
 SPF="$(probe_tmp '#1405 ac1 singular ordinal')"
 printf '%s\n' 'Step 3 item 6 produced no new fix commit.' 'assert a' 'assert b' > "$SPF"
 SPR="$(spl_repo "$SPF")"

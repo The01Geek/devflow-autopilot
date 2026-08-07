@@ -5286,18 +5286,16 @@ assert_eq("#818/AC116 (behavioural): the two new tokens are OBSERVED on their ow
 
 
 # ── stale_prose_lint gating R3 plurality + numeral-lookbehind narrowing (issue #1405) ──────
-# The gating _COUNT_RE now requires a PLURAL trigger noun and refuses a numeral glued to
-# `#`/`§`/a digit/`.`/`-` — the two guards the non-gating recognition tier already carried — so
-# a singular ordinal reference (`Step 3 item 6`) or a `#402`-style reference is no longer read as
-# a count claim. Each accept-side assertion below was RED against the shipped rule (which gated
-# the same fixture); the still-gates assertions are paired with a matched-count sibling proving
-# the narrowed rule still count-resolves rather than blanket-passing. Fixtures drive examine_file
-# directly (the #1405 unit boundary; the process boundary is the #423 sandbox in run.sh).
+# The gating _COUNT_RE now requires a PLURAL trigger noun and clears the shared numeral
+# lookbehind (the authoritative rule and its disclosed plural-ordinal residual live in the
+# module-header R3 spec). Each accept-side assertion below was RED against the shipped rule; the
+# still-gates assertions are paired with a matched-count sibling proving the narrowed rule still
+# count-resolves rather than blanket-passing. Fixtures drive examine_file directly (the #1405
+# unit boundary; the process boundary is the #423 sandbox in run.sh).
 def _rows_1405(body_lines):
-    added = {i + 1: t for i, t in enumerate(body_lines)}
-    rows = []
-    stale_prose_lint.examine_file("docs/x.md", added, list(body_lines), rows)
-    return rows
+    # Reuse the single examine_file driver (`_full_rows_818`) rather than re-implementing the
+    # added-dict + rows boilerplate — one place turns a fixture into rows.
+    return _full_rows_818("docs/x.md", body_lines)
 
 _ASSERT2_1405 = ["assert x", "assert y"]  # two adjacent assertion lines (block count = 2)
 
