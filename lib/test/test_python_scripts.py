@@ -13846,8 +13846,8 @@ with tempfile.TemporaryDirectory() as _pm_base:
                               capture_output=True, text=True)
         if _gi.returncode != 0:
             # A failed init leaves a non-repo cwd, which the hardened resolver reports as
-            # branch-unresolvable — so every fixture below would fail with an unrelated
-            # exit-2 assertion. Raise here so the failure is attributed to `git init`.
+            # branch-unresolvable — so every fixture below would fail on the unestablished
+            # arm instead. Raise here so the failure is attributed to `git init`.
             raise AssertionError(
                 '#1374 harness: git init -b %r failed (rc=%d); the presence-mode fixtures '
                 'cannot be built: %s' % (branch, _gi.returncode, _gi.stderr))
