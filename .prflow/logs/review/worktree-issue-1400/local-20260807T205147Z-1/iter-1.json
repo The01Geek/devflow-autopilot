@@ -1,0 +1,655 @@
+{
+  "iter": 1,
+  "started_at": "2026-08-07T20:51:47Z",
+  "fix_commit_sha": "922b3cc0c",
+  "fix_files": [
+    ".changeset/issue-1400-phase-1-setup-prose-rule.md",
+    "scripts/devflow-cloud-writer-contract.json",
+    "skills/implement/phases/phase-1-setup.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "sweep_defs_read": [
+    "phase-2-implement.md"
+  ],
+  "sweep_evidence": {
+    "status": "run"
+  },
+  "checklist": [
+    {
+      "id": "VC-1",
+      "claim": "Every uniqueness pin in lib/test/run.sh scoped to phase-1-setup.md still matches exactly once at head.",
+      "file": "skills/implement/phases/phase-1-setup.md",
+      "verification_mode": "lite",
+      "claim_signature": "api_contract:phase-1-setup.md:uniqueness-pins",
+      "verdict": "PASS",
+      "evidence": "grep -cF over each pinned literal returns 1 (or 2 for the two counted literals); the #779/#576/#547 positional guards and the §1.6 slice counts re-derived green",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-2",
+      "claim": "scripts/devflow-cloud-writer-contract.json pins the current bytes of phase-1-setup.md.",
+      "file": "scripts/devflow-cloud-writer-contract.json",
+      "verification_mode": "lite",
+      "claim_signature": "generated_artifact:cloud-writer-manifest",
+      "verdict": "PASS",
+      "evidence": "lib/test/cloud_writer_contract.py check reports closure OK at head; regenerated in the same commit as each file change",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-3",
+      "claim": "No other skills/** file is modified and no test or pin is added.",
+      "file": "skills/implement/phases/phase-1-setup.md",
+      "verification_mode": "lite",
+      "claim_signature": "api_contract:diff-scope",
+      "verdict": "PASS",
+      "evidence": "git diff --name-only origin/main...HEAD lists exactly three paths: the phase file, the manifest, and the changeset",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-4",
+      "claim": "The shipped-surface lints accept the rewritten file.",
+      "file": "skills/implement/phases/phase-1-setup.md",
+      "verification_mode": "lite",
+      "claim_signature": "api_contract:shipped-surface-lints",
+      "verdict": "PASS",
+      "evidence": "lint-issue-body-refetch.py, lint-skills-glob-guard.py, lint-shipped-pruned-path.py and lint-anchor-fallback-arm.py all exit 0",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "dispatched_effort": [
+    {
+      "agent": "prflow:code-reviewer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "prflow:requesting-code-review",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    }
+  ],
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer",
+    "prflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Important",
+      "description": "The `|| true` fence comment keeps its reviewer-misreading framing (\"is deliberate and is NOT a swallowed failure\"), which AC2 excludes and explicitly holds fence comments to.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          328,
+          330
+        ],
+        "kind": "style"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Important",
+      "description": "The REST-not-GraphQL prohibition on the PR-body write (`gh pr edit --body` is org-scoped GraphQL) was dropped rather than compressed.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          347,
+          350
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "The Pass 1 enumeration fence lost the no-`2>/dev/null` prohibition and the one-arm-prints invariant, in the one fence the prose tells the agent to adapt.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          612,
+          626
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "§1.3.5's non-zero-exit catch-all lost its action clause (\"take the same terminal Blocked path\") and its fail-loud direction, leaving only a classification.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          275,
+          278
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "Pass 5 widened a bounded credential enumeration into \"In every other case\" and deleted the App-without-`workflows`-scope residual, making two shipped claims false.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          688,
+          701
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "The changeset's \"Every … prohibition … closed-set enumeration is preserved\" universal was false against head while the dropped prohibitions stood.",
+      "defect_signature": {
+        "file": ".changeset/issue-1400-phase-1-setup-prose-rule.md",
+        "line_range": [
+          11,
+          11
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 3,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "§1.4.1 lost the bridging clause that reconciles \"the cloud allowlists do not grant an inline git rev-list\" with §1.4's own inline rev-list.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          518,
+          518
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "The §1.4 landed-resume bullet merged two distinct consequences into one \"either\" that attributes both to each omission.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          382,
+          382
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "The adoption-operand sentence lost its scoping to the pre-check, so it reads as contradicted by Signal 2's name-based adoption.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          531,
+          531
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "The Pass 1 fence comment dropped \"or parent\", describing a test the block does not perform on entries.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          619,
+          619
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "\"Where the two surfaces disagree\" lost its antecedent, leaving a dangling referent.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          290,
+          290
+        ],
+        "kind": "style"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "§1.3 dropped the site-specific `$?` prohibition from the `workpad.py id` exit contract, the one fence whose shape depends on it.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          122,
+          122
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "The worktree-switch bullet lost the explicit `$(git rev-parse --show-toplevel)` root anchor.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          383,
+          383
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "§1.4.1's disclosed evidence-gap paragraph (new-branch and landed-resume arms carry no Phase-1 reconciliation evidence) was deleted rather than compressed.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          522,
+          522
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "pushed_back"
+    },
+    {
+      "agent": "prflow:requesting-code-review",
+      "severity": "Important",
+      "description": "AC7/AC9/AC11 undischarged at this head — the PR body carries no `Writing-skills evidence:` line, no stopped-short statement, and no whole-suite record.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": null,
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "922b3cc0c"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "922b3cc0c"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "922b3cc0c"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "922b3cc0c"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied",
+      "commit": "922b3cc0c"
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "applied",
+      "commit": "922b3cc0c"
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "applied",
+      "commit": "922b3cc0c"
+    },
+    {
+      "finding_id": "F-8",
+      "decision": "applied",
+      "commit": "922b3cc0c"
+    },
+    {
+      "finding_id": "F-9",
+      "decision": "applied",
+      "commit": "922b3cc0c"
+    },
+    {
+      "finding_id": "F-10",
+      "decision": "applied",
+      "commit": "922b3cc0c"
+    },
+    {
+      "finding_id": "F-11",
+      "decision": "applied",
+      "commit": "922b3cc0c"
+    },
+    {
+      "finding_id": "F-12",
+      "decision": "applied",
+      "commit": "922b3cc0c"
+    },
+    {
+      "finding_id": "F-13",
+      "decision": "applied",
+      "commit": "922b3cc0c"
+    },
+    {
+      "finding_id": "F-14",
+      "decision": "pushed_back",
+      "source_file": "skills/implement/phases/phase-1-setup.md",
+      "claim_text": "the disclosed evidence-gap paragraph in §1.4.1's UP_TO_DATE/DISABLED bullet was deleted rather than compressed",
+      "skip_category": "claim-quality",
+      "evidence": "the issue's AC2 names 'commentary on what the design does not defend against' as a category to remove; the code-reviewer agent independently classified the same removal as specified behavior rather than a defect",
+      "parking_evidence": {
+        "basis": "the removal is mandated by the driving issue's acceptance criteria, so restoring it would fail AC2",
+        "failing_input": "the §1.4.1 UP_TO_DATE/DISABLED bullet's evidence-gap disclosure",
+        "source": "issue #1400 AC2, and prflow:code-reviewer's 'Notes below the reporting threshold' entry classifying the same removal as specified behavior",
+        "finding_ref": {
+          "iter": 1,
+          "index": 13
+        }
+      }
+    },
+    {
+      "finding_id": "F-15",
+      "decision": "deferred",
+      "source_file": "skills/implement/phases/phase-1-setup.md",
+      "claim_text": "AC7/AC9/AC11 undischarged — PR body evidence surfaces empty and no whole-suite record",
+      "skip_category": "out-of-scope",
+      "evidence": "these are Phase 4.2/4.3 obligations of the implement run that owns this loop; the PR description is authored at Phase 4.2 and the whole-suite launch is Phase 4.3's completion-evidence flight",
+      "parking_evidence": {
+        "basis": "the deliverables are produced by a later phase of the caller, not by this fix loop",
+        "failing_input": "the PR #1403 body and the workpad Verification evidence marker at this head",
+        "source": "skills/implement/phases/phase-4-documentation.md §4.2/§4.3",
+        "finding_ref": {
+          "iter": 1,
+          "index": 14
+        }
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 13,
+    "fix_diff_lines": 34,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "parked_class_sweep": {
+    "classes": [],
+    "truncation": null,
+    "dispatch": "verified"
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "not_verified",
+      "outcome": "clean",
+      "reason": null
+    }
+  },
+  "verification_evidence": {
+    "focused_selection": "no coverage-map entry covers skills/implement/phases/phase-1-setup.md (the map covers lib/ and scripts/ only) — exemption ground: no coverage-map entry; verification is the run.sh pin corpus plus the four shipped-surface lints, re-derived green at 922b3cc0c",
+    "skipped_checks": []
+  },
+  "shadow": {
+    "ran_at": "2026-08-07T21:30:00Z",
+    "reviewed_sha": "922b3cc0c3263708ae162205c6452bd93d1dab1f",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:comment-analyzer"
+    ],
+    "expected_reviewers": [
+      "prflow:code-reviewer",
+      "prflow:silent-failure-hunter",
+      "prflow:comment-analyzer",
+      "prflow:requesting-code-review"
+    ],
+    "reason": "the final-pass reviewer was not re-dispatched for the shadow fan-out; coverage is recorded as not_verified on that ground",
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "prflow:comment-analyzer",
+        "severity": "Critical",
+        "description": "The rewritten PR-body fence comment binds 'a body with no such line' to the Resolves-anchored line, but the elif tests for the bare `[View run](` substring — false against HEAD.",
+        "defect_signature": {
+          "file": "skills/implement/phases/phase-1-setup.md",
+          "line_range": [
+            357,
+            359
+          ],
+          "kind": "documented_falsehood"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "prflow:code-reviewer",
+        "severity": "Important",
+        "description": "The changeset's 'commentary on what the design does not defend against are gone' universal is false — honest-scope statements are retained at §1.4.0.5 and two untouched fence comments carry limitation notes.",
+        "defect_signature": {
+          "file": ".changeset/issue-1400-phase-1-setup-prose-rule.md",
+          "line_range": [
+            5,
+            5
+          ],
+          "kind": "documented_falsehood"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "fix-delta-gate",
+        "severity": "Important",
+        "description": "The restored 'Conversely, a consumer that sets DEVFLOW_APP_ID for an App without the workflows scope…' sentence re-introduces AC2-excluded commentary and duplicates the consequence already stated two paragraphs above.",
+        "defect_signature": {
+          "file": "skills/implement/phases/phase-1-setup.md",
+          "line_range": [
+            696,
+            696
+          ],
+          "kind": "style"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "prflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "The Pass-numbering note lost the 'former Pass 4' antecedent, so 'Pass 5 keeps its number' has no referent and the numbering gap is unexplained.",
+        "defect_signature": {
+          "file": "skills/implement/phases/phase-1-setup.md",
+          "line_range": [
+            674,
+            674
+          ],
+          "kind": "comment_drift"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "prflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "The CONFLICT override lost the sentence scoping it against checkpoints 2/3/4, the only in-file mention of checkpoint 3 and of checkpoint 4's single-re-invocation bound.",
+        "defect_signature": {
+          "file": "skills/implement/phases/phase-1-setup.md",
+          "line_range": [
+            572,
+            572
+          ],
+          "kind": "comment_drift"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "prflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "The §1.4.1 UP_TO_DATE/DISABLED disclosed-residual paragraph was deleted rather than compressed.",
+        "defect_signature": {
+          "file": "skills/implement/phases/phase-1-setup.md",
+          "line_range": [
+            524,
+            524
+          ],
+          "kind": "comment_drift"
+        },
+        "fix_decision": "pushed_back"
+      },
+      {
+        "agent": "fix-delta-gate",
+        "severity": "Important",
+        "description": "The §1.6 slice is not byte-identical to origin/main, read as an AC5 failure.",
+        "defect_signature": {
+          "file": "skills/implement/phases/phase-1-setup.md",
+          "line_range": [
+            592,
+            734
+          ],
+          "kind": "other"
+        },
+        "fix_decision": "pushed_back"
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 7,
+      "overlap_with_iter_N": 1,
+      "new": 6,
+      "new_critical": 1,
+      "new_important": 2
+    },
+    "promoted_to_iter_next": true
+  },
+  "telemetry": {
+    "phase_0": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 30
+    },
+    "phase_0_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5
+    },
+    "phase_1": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 20
+    },
+    "phase_1_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "phase_2": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 40
+    },
+    "phase_3": {
+      "calls": 4,
+      "tokens": 601101,
+      "wall_clock_s": 749
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 10
+    },
+    "step_2_6": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "phase_4_x": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 20
+    }
+  },
+  "synthesized": false
+}

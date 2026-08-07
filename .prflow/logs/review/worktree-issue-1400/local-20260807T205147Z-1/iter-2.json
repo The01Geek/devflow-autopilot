@@ -1,0 +1,368 @@
+{
+  "iter": 2,
+  "started_at": "2026-08-07T21:35:00Z",
+  "fix_commit_sha": "c039bc5fe",
+  "fix_files": [
+    ".changeset/issue-1400-phase-1-setup-prose-rule.md",
+    "scripts/devflow-cloud-writer-contract.json",
+    "skills/implement/phases/phase-1-setup.md"
+  ],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "sweep_defs_read": [
+    "phase-2-implement.md"
+  ],
+  "sweep_evidence": {
+    "status": "run"
+  },
+  "checklist": [
+    {
+      "id": "VC-1",
+      "claim": "Every uniqueness pin in lib/test/run.sh scoped to phase-1-setup.md still matches exactly once at head.",
+      "file": "skills/implement/phases/phase-1-setup.md",
+      "verification_mode": "lite",
+      "claim_signature": "api_contract:phase-1-setup.md:uniqueness-pins",
+      "verdict": "PASS",
+      "evidence": "grep -cF over each pinned literal returns 1 (or 2 for the two counted literals); the #779/#576/#547 positional guards and the §1.6 slice counts re-derived green",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-2",
+      "claim": "scripts/devflow-cloud-writer-contract.json pins the current bytes of phase-1-setup.md.",
+      "file": "scripts/devflow-cloud-writer-contract.json",
+      "verification_mode": "lite",
+      "claim_signature": "generated_artifact:cloud-writer-manifest",
+      "verdict": "PASS",
+      "evidence": "lib/test/cloud_writer_contract.py check reports closure OK at head; regenerated in the same commit as each file change",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-3",
+      "claim": "No other skills/** file is modified and no test or pin is added.",
+      "file": "skills/implement/phases/phase-1-setup.md",
+      "verification_mode": "lite",
+      "claim_signature": "api_contract:diff-scope",
+      "verdict": "PASS",
+      "evidence": "git diff --name-only origin/main...HEAD lists exactly three paths: the phase file, the manifest, and the changeset",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-4",
+      "claim": "The shipped-surface lints accept the rewritten file.",
+      "file": "skills/implement/phases/phase-1-setup.md",
+      "verification_mode": "lite",
+      "claim_signature": "api_contract:shipped-surface-lints",
+      "verdict": "PASS",
+      "evidence": "lint-issue-body-refetch.py, lint-skills-glob-guard.py, lint-shipped-pruned-path.py and lint-anchor-fallback-arm.py all exit 0",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "dispatched_effort": [
+    {
+      "agent": "prflow:code-reviewer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "prflow:silent-failure-hunter",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "prflow:requesting-code-review",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    }
+  ],
+  "phase3_dispatched": [
+    "prflow:code-reviewer",
+    "prflow:silent-failure-hunter",
+    "prflow:comment-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "The rewritten PR-body fence comment binds 'a body with no such line' to the Resolves-anchored line, but the elif tests for the bare `[View run](` substring — false against HEAD.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          357,
+          359
+        ],
+        "kind": "documented_falsehood"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:code-reviewer",
+      "severity": "Important",
+      "description": "The changeset's 'commentary on what the design does not defend against are gone' universal is false — honest-scope statements are retained at §1.4.0.5 and two untouched fence comments carry limitation notes.",
+      "defect_signature": {
+        "file": ".changeset/issue-1400-phase-1-setup-prose-rule.md",
+        "line_range": [
+          5,
+          5
+        ],
+        "kind": "documented_falsehood"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "fix-delta-gate",
+      "severity": "Important",
+      "description": "The restored 'Conversely, a consumer that sets DEVFLOW_APP_ID for an App without the workflows scope…' sentence re-introduces AC2-excluded commentary and duplicates the consequence already stated two paragraphs above.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          696,
+          696
+        ],
+        "kind": "style"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "The Pass-numbering note lost the 'former Pass 4' antecedent, so 'Pass 5 keeps its number' has no referent and the numbering gap is unexplained.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          674,
+          674
+        ],
+        "kind": "comment_drift"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "The CONFLICT override lost the sentence scoping it against checkpoints 2/3/4, the only in-file mention of checkpoint 3 and of checkpoint 4's single-re-invocation bound.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          572,
+          572
+        ],
+        "kind": "comment_drift"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "prflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "The §1.4.1 UP_TO_DATE/DISABLED disclosed-residual paragraph was deleted rather than compressed.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          524,
+          524
+        ],
+        "kind": "comment_drift"
+      },
+      "fix_decision": "pushed_back"
+    },
+    {
+      "agent": "fix-delta-gate",
+      "severity": "Important",
+      "description": "The §1.6 slice is not byte-identical to origin/main, read as an AC5 failure.",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          592,
+          734
+        ],
+        "kind": "other"
+      },
+      "fix_decision": "pushed_back"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "S-1",
+      "decision": "applied",
+      "commit": "c039bc5fe"
+    },
+    {
+      "finding_id": "S-2",
+      "decision": "applied",
+      "commit": "c039bc5fe"
+    },
+    {
+      "finding_id": "S-3",
+      "decision": "applied",
+      "commit": "c039bc5fe"
+    },
+    {
+      "finding_id": "S-4",
+      "decision": "applied",
+      "commit": "c039bc5fe"
+    },
+    {
+      "finding_id": "S-5",
+      "decision": "applied",
+      "commit": "c039bc5fe"
+    },
+    {
+      "finding_id": "S-6",
+      "decision": "pushed_back",
+      "source_file": "skills/implement/phases/phase-1-setup.md",
+      "claim_text": "the §1.4.1 disclosed-residual paragraph should be restored",
+      "skip_category": "claim-quality",
+      "evidence": "the driving issue's AC2 names 'commentary on what the design does not defend against' as a removal target; two of the four reviewers independently classified the same removal as specified behavior",
+      "parking_evidence": {
+        "basis": "restoring it would fail AC2",
+        "failing_input": "the §1.4.1 UP_TO_DATE/DISABLED evidence-gap paragraph",
+        "source": "issue #1400 AC2",
+        "finding_ref": {
+          "iter": 2,
+          "index": 5
+        }
+      }
+    },
+    {
+      "finding_id": "S-7",
+      "decision": "pushed_back",
+      "source_file": "skills/implement/phases/phase-1-setup.md",
+      "claim_text": "the §1.6 slice must be byte-identical to origin/main",
+      "skip_category": "claim-quality",
+      "evidence": "AC5 says the HEADING '### 1.6 Issue-Claim Audit' is byte-unchanged, not the whole slice; the same issue names '§1.6 Pass 5' as a primary compression target and its Mechanical constraints only forbid renaming the heading and moving it off the file's end",
+      "parking_evidence": {
+        "basis": "the finding reads AC5's subject as the section rather than the heading, which the issue's own Scope and Mechanical-constraints text contradicts",
+        "failing_input": "the §1.6 heading-to-EOF slice byte count",
+        "source": "issue #1400 AC5 and its 'Where the surplus concentrates' / 'Mechanical constraints' sections",
+        "finding_ref": {
+          "iter": 2,
+          "index": 6
+        }
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 5,
+    "fix_diff_lines": 14,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "parked_class_sweep": {
+    "classes": [],
+    "truncation": null,
+    "dispatch": "verified"
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "refixed",
+      "reason": null
+    }
+  },
+  "verification_evidence": {
+    "focused_selection": "no coverage-map entry covers skills/implement/phases/phase-1-setup.md — exemption ground: no coverage-map entry. Verification is the run.sh pin corpus (a shadow reviewer independently ran lib/test/run-shard.sh monolith at 922b3cc0c: 8828 passed, 0 failed, 0 skipped) plus the four shipped-surface lints, all re-derived green at c039bc5fe.",
+    "skipped_checks": []
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_0": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 10
+    },
+    "phase_0_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 2
+    },
+    "phase_1": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5
+    },
+    "phase_1_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "phase_2": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 20
+    },
+    "phase_3": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5
+    },
+    "step_2_6": {
+      "calls": 4,
+      "tokens": 566157,
+      "wall_clock_s": 754
+    },
+    "phase_4_x": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 15
+    }
+  },
+  "synthesized": false
+}
