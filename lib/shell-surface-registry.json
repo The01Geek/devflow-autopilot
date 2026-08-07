@@ -1,0 +1,1139 @@
+{
+  "entries": {
+    ".github/actions/setup-project-env/resolve-node-cache.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh .github/actions/setup-project-env/resolve-node-cache.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    ".github/actions/vendor-plugin/vendor-slice.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh .github/actions/vendor-plugin/vendor-slice.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    ".github/probe-plugin/phprobe-read-env.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh .github/probe-plugin/phprobe-read-env.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "install.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh install.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        ".github/actions/vendor-plugin/vendor-slice.sh"
+      ],
+      "state": "portable"
+    },
+    "lib/actionable-patterns.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/actionable-patterns.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/config-source.sh",
+        "lib/resolve-state-dir.sh"
+      ],
+      "state": "portable"
+    },
+    "lib/audit-bundle-selection.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/audit-bundle-selection.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/compose-filing-key.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/compose-filing-key.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "lib/config-source.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/config-source.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-state-dir.sh"
+      ],
+      "state": "portable"
+    },
+    "lib/efficiency-trace.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/efficiency-trace.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/config-source.sh",
+        "lib/resolve-state-dir.sh",
+        "lib/telemetry-branch.sh"
+      ],
+      "state": "portable"
+    },
+    "lib/fetch-pr-context.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/fetch-pr-context.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/config-source.sh",
+        "lib/resolve-bin.sh",
+        "lib/resolve-gh.sh",
+        "lib/resolve-state-dir.sh"
+      ],
+      "state": "portable"
+    },
+    "lib/filing-decisions.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/filing-decisions.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/implement-stop-guard.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/implement-stop-guard.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/config-source.sh",
+        "lib/resolve-state-dir.sh"
+      ],
+      "state": "portable"
+    },
+    "lib/materialize-retrospectives.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/materialize-retrospectives.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/meta-issue.sh": {
+      "min_bash": "4.0",
+      "reason": "uses case-modification expansion (${var,,}), a Bash 4 feature",
+      "state": "excluded"
+    },
+    "lib/normalize-path.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/normalize-path.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/open-state-pr.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/open-state-pr.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/pattern-state.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/pattern-state.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-gh.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "lib/post-status.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/post-status.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/preflight.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/preflight.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-gh.sh",
+        "lib/resolve-python.sh"
+      ],
+      "state": "portable"
+    },
+    "lib/probe-observation.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/probe-observation.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/recurring-targets.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/recurring-targets.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/render-report.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/render-report.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/resolve-bin.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/resolve-bin.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/resolve-gh.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/resolve-gh.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh"
+      ],
+      "state": "portable"
+    },
+    "lib/resolve-jq.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/resolve-jq.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh"
+      ],
+      "state": "portable"
+    },
+    "lib/resolve-python.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/resolve-python.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/resolve-state-dir.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/resolve-state-dir.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/scan.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/scan.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/config-source.sh",
+        "lib/resolve-bin.sh",
+        "lib/resolve-gh.sh",
+        "lib/resolve-state-dir.sh"
+      ],
+      "state": "portable"
+    },
+    "lib/select-findings.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/select-findings.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/filing-decisions.sh"
+      ],
+      "state": "portable"
+    },
+    "lib/telemetry-branch.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/telemetry-branch.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/test/cloud-form-layout-test.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/test/cloud-form-layout-test.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/test/gate-shard-result.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/test/gate-shard-result.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/test/module-harness.sh": {
+      "min_bash": "4.3",
+      "reason": "intentionally uses associative arrays (declare -A) and `wait -n` for its worker pool; CLAUDE.md records that it cannot serve as the portable execution surface",
+      "state": "excluded"
+    },
+    "lib/test/modules/capability-profiles.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/modules/create-issue-contract.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/modules/efficiency-trace-telemetry.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/modules/experiment-records.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/modules/harness-python-guards.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/modules/installer-wiring.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/modules/issue-audit-state.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/modules/parallel-suite-runner.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/modules/phase2-durability-checkpoint.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/modules/prompt-extension-reader.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/modules/regenerate-artifacts.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/modules/retrospective-lifecycle.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/modules/review-and-fix-contract.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/modules/review-stall-backstop.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/modules/review-trigger-helpers.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/modules/tier1-rename-migration.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/modules/workflow-flight-recorder.sh": {
+      "min_bash": "4.3",
+      "reason": "a test module, sourced and executed by lib/test/module-harness.sh; it never runs under an interpreter the harness does not supply, and the harness is itself excluded for its Bash-4 worker pool",
+      "state": "excluded"
+    },
+    "lib/test/path-portability-test.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/test/path-portability-test.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/test/run-module.sh": {
+      "min_bash": "4.3",
+      "reason": "sources Bash-4-only infrastructure (lib/test/module-harness.sh), so it inherits that floor",
+      "state": "excluded"
+    },
+    "lib/test/run-parallel.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/test/run-parallel.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/test/run-python-pool.sh": {
+      "min_bash": "4.3",
+      "reason": "sources Bash-4-only infrastructure (lib/test/module-harness.sh), so it inherits that floor",
+      "state": "excluded"
+    },
+    "lib/test/run-shard.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/test/run-shard.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/test/run.sh": {
+      "min_bash": "4.0",
+      "reason": "uses case-modification expansion (${v,,}) and `shopt -s globstar`, both Bash 4 only; it is the suite driver, not a shipped runtime helper",
+      "state": "excluded"
+    },
+    "lib/test/summary.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/test/summary.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/test/warn-ignored-signals.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/test/warn-ignored-signals.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "lib/verdict-receipt.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh lib/verdict-receipt.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/apply-labels.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/apply-labels.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/apply-pr-triggerer.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/apply-pr-triggerer.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/assert-cli-version.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/assert-cli-version.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/authorize-actor.sh": {
+      "min_bash": "4.0",
+      "reason": "uses case-modification expansion (${actor,,}), a Bash 4 feature",
+      "state": "excluded"
+    },
+    "scripts/backfill-telemetry-unavailable.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/backfill-telemetry-unavailable.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/config-source.sh",
+        "lib/resolve-bin.sh",
+        "lib/resolve-jq.sh",
+        "lib/resolve-state-dir.sh",
+        "lib/telemetry-branch.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/build-denial-record.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/build-denial-record.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/check-verdict-post-reached.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/check-verdict-post-reached.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/verdict-receipt.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/classify-head-reviews.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/classify-head-reviews.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/classify-id-exit.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/classify-id-exit.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/collect-staged-telemetry.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/collect-staged-telemetry.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/compose-implement-prompt.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/compose-implement-prompt.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/compose-vendor-marketplace.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/compose-vendor-marketplace.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/config-get.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/config-get.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-state-dir.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/dead-run-verdict-present.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/dead-run-verdict-present.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-gh.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/decide-verdict-gap-job-status.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/decide-verdict-gap-job-status.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/dedupe-implement-run.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/dedupe-implement-run.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/dedupe-review-command.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/dedupe-review-command.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/derive-review-preconditions.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/derive-review-preconditions.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-gh.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/derive-review-verdict.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/derive-review-verdict.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-gh.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/describe-command-job-arm.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/describe-command-job-arm.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/describe-dead-run-cause.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/describe-dead-run-cause.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/describe-defer-probe.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/describe-defer-probe.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/probe-observation.sh",
+        "lib/resolve-bin.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/describe-denial-count.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/describe-denial-count.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/describe-hook-probe.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/describe-hook-probe.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/describe-permissionrequest-probe.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/describe-permissionrequest-probe.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/probe-observation.sh",
+        "lib/resolve-bin.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/describe-plugin-compose.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/describe-plugin-compose.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/describe-pretooluse-deny-probe.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/describe-pretooluse-deny-probe.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/probe-observation.sh",
+        "lib/resolve-bin.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/describe-pretooluse-probe.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/describe-pretooluse-probe.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/describe-skip-title.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/describe-skip-title.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/describe-verdict-post-gap.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/describe-verdict-post-gap.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/detect-project-tools.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/detect-project-tools.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-state-dir.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/detect-standalone-command.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/detect-standalone-command.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/diagnose-review-progress-marker.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/diagnose-review-progress-marker.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-gh.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/dismiss-stale-rejections-net.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/dismiss-stale-rejections-net.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-gh.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/dismiss-stale-rejections.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/dismiss-stale-rejections.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/emit-git-env.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/emit-git-env.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/ensure-label.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/ensure-label.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/extract-denied-command-line.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/extract-denied-command-line.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/extract-doc-needed-paths.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/extract-doc-needed-paths.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/extract-execution-shape.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/extract-execution-shape.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/filter-runner-tools.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/filter-runner-tools.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/flip-review-progress-failed.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/flip-review-progress-failed.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/gh-fresh.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/gh-fresh.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/harden-stop-hooks.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/harden-stop-hooks.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/install-gh-wrapper.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/install-gh-wrapper.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "scripts/gh-fresh.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/load-prompt-extension.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/load-prompt-extension.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-state-dir.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/materialize-trusted-prompt-extensions.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/materialize-trusted-prompt-extensions.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/migrate-consumer-tier1.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/migrate-consumer-tier1.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/parse-engine-error.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/parse-engine-error.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/phase2-durability-checkpoint.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/phase2-durability-checkpoint.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/post-ci-review-trigger.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/post-ci-review-trigger.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-gh.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/post-issue-comment.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/post-issue-comment.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/post-review-backstop-comment.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/post-review-backstop-comment.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/post-review-verdict.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/post-review-verdict.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-gh.sh",
+        "lib/resolve-jq.sh",
+        "lib/verdict-receipt.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/prepare-harness-floor.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/prepare-harness-floor.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/provision-auto-mode.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/provision-auto-mode.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/provision-local-settings.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/provision-local-settings.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/provision-python3-shim.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/provision-python3-shim.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-python.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/publish-release.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/publish-release.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-gh.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/react-to-trigger.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/react-to-trigger.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/record-empty-branch.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/record-empty-branch.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/refresh-app-credentials.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/refresh-app-credentials.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/render-grounding-block.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/render-grounding-block.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/render-guard-visibility.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/render-guard-visibility.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/render-prompt-extension.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/render-prompt-extension.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/request-review-backstop.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/request-review-backstop.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-gh.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/resolve-command-trigger.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/resolve-command-trigger.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/resolve-committer-identity.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/resolve-committer-identity.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/resolve-existing-pr.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/resolve-existing-pr.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-gh.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/resolve-extra-plugins.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/resolve-extra-plugins.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/resolve-guard-counts-file.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/resolve-guard-counts-file.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/resolve-implement-trigger.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/resolve-implement-trigger.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/resolve-main-root.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/resolve-main-root.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/retry-with-backoff.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/retry-with-backoff.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/route-guard-counts-outcome.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/route-guard-counts-outcome.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/run-jq.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/run-jq.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/run-review-progress-diagnosis.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/run-review-progress-diagnosis.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/scaffold-config.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/scaffold-config.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-state-dir.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/scrub-credentials.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/scrub-credentials.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/scrub-transcript.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/scrub-transcript.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/seed-review-progress.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/seed-review-progress.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/stall-backstop-decide.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/stall-backstop-decide.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/stop-hook-probe.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/stop-hook-probe.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/stop-refresher.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/stop-refresher.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/summarize-ci-checks.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/summarize-ci-checks.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-gh.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/surface-execution-diagnostics.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/surface-execution-diagnostics.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/resolve-bin.sh",
+        "lib/resolve-jq.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/telemetry-push-artifact.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/telemetry-push-artifact.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [
+        "lib/config-source.sh",
+        "lib/resolve-bin.sh",
+        "lib/resolve-jq.sh",
+        "lib/resolve-state-dir.sh",
+        "lib/telemetry-branch.sh"
+      ],
+      "state": "portable"
+    },
+    "scripts/update-branch-checkpoint.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/update-branch-checkpoint.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    },
+    "scripts/validate-telemetry-artifact.sh": {
+      "fixture_command": "lib/test/fixtures/bash32/parse-under-bash32.sh scripts/validate-telemetry-artifact.sh",
+      "min_bash": "3.2",
+      "owning_test_module": "portability-lane",
+      "shared_library_closure": [],
+      "state": "portable"
+    }
+  },
+  "schema_version": 1
+}

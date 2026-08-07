@@ -123,7 +123,14 @@ PATHS_EOF
   # expansion (not tr/sed) so the literal $PR_BASE_SHA text is not itself expanded.
   # Backtick containment for the SHA does NOT rest on this substitution (it does
   # not strip backticks) — it rests on the top-of-file HEAD_SHA backtick strip.
-  _DISP_PROSE=$(cat <<'__DISP_PROSE_EOF__'
+  # The heredoc is emitted from a FUNCTION rather than directly inside the `$( … )`
+  # below, because stock macOS Bash 3.2 mis-scans a quoted heredoc nested in a command
+  # substitution and refuses the whole file with `unexpected EOF while looking for
+  # matching '` — at parse time, so no guard downstream of here can catch it (issue
+  # #1277; the macOS lane's first run found it). The `$( … )` around the call is kept
+  # so trailing-newline stripping is byte-identical to before.
+  _devflow_disp_prose() {
+    cat <<'__DISP_PROSE_EOF__'
 > **5. Trusted-source displacement (issues #458, #874).** The working-tree files
 > listed below were deliberately displaced before this session started by one of
 > two trusted-source producers — the Stop-hook trusted-source floor, which
@@ -153,7 +160,8 @@ PATHS_EOF
 >
 > Displaced paths this run:
 __DISP_PROSE_EOF__
-)
+  }
+  _DISP_PROSE=$(_devflow_disp_prose)
   _DISP_PROSE="${_DISP_PROSE//__HEAD_SHA__/${HEAD_SHA:-unknown}}"
   DISPLACED_SECTION="${_DISP_PROSE}
 ${DISPLACED_LIST}>"
