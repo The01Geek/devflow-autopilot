@@ -471,6 +471,11 @@
       "note": "create-issue Step 3.6 audit-lifecycle state owner; the shell-level CLI drivers live in the issue-audit-state module, the pure-function coverage in the focused Python test named above",
       "owner": "issue-audit-state"
     },
+    "scripts/lint_manifest.py": {
+      "focused_test": "lib/test/test_python_scripts.py",
+      "note": "issue #1276 declarative lint-manifest strict reader/validator",
+      "owner": "unmodularized"
+    },
     "scripts/load-prompt-extension.sh": {
       "note": "consumer prompt-extension reader; its contract is driven by the prompt-extension-reader module",
       "owner": "prompt-extension-reader"
