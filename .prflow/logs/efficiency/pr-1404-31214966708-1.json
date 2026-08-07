@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1404",
+  "generated_at": "2026-08-07T21:06:02Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.29",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 22.31087099999999,
+    "tokens": {
+      "input_tokens": 1510,
+      "output_tokens": 78707,
+      "cache_read_input_tokens": 28183061,
+      "cache_creation_input_tokens": 309384,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 1590,
+        "outputTokens": 100027,
+        "cacheReadInputTokens": 30353437,
+        "cacheCreationInputTokens": 554454,
+        "webSearchRequests": 0,
+        "costUSD": 22.31087099999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 132,
+    "duration_ms": 3011556
+  },
+  "permission_denials": {
+    "count": 11,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "cd /home/runner/work/prflow/prflow\nSP_FX=lib/test/fixtures/shipped-pruned-path\nSP_SIMPLE=$SP_FX/slices/simple.sh\nSP_SCHEMA=$SP_FX/schemas/real-docs.json\nrun(){ local f=$(mktemp); printf '%s\\n' \"$@\" >\"$f\"; python3 lib/test/lint-shipped-pruned-path.py --root \"$SP_FX\" --files-from \"$f\" --slice-source \"$SP_SIMPLE\" --schema-source \"$SP_SCHEMA\" 2>&1; echo \"rc=$?\"; rm -f \"$f\"; }\necho \"== case1 SKILL member ==\"; run skills/receiving-code-review/SKILL.md\necho \"== case2 non-SKILL member ==\"; run skills/re …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\n# Case 5: sandbox root with a skills file but NO provenance SKILL.md\nER=$(mktemp -d)\nmkdir -p \"$ER/skills\"\nprintf 'names CLAUDE.md but no provenance SKILL.md exists here\\n' > \"$ER/skills/x.md\"\nL=$(mktemp); printf 'skills/x.md\\n' > \"$L\"\necho \"== case5 empty derivation ==\"\npython3 lib/test/lint-shipped-pruned-path.py --root \"$ER\" --files-from \"$L\" --slice-source lib/test/fixtures/shipped-pruned-path/slices/simple.sh --schema-source lib/test/fixtures/shipped-prune …[per-command-truncated]",
+      "ls .changeset/ 2>/dev/null | head; echo \"---example---\"; for f in .changeset/*.md; do [ \"$(basename \"$f\")\" != \"README.md\" ] && { echo \"== $f ==\"; cat \"$f\"; break; }; done 2>/dev/null",
+      "cd /home/runner/work/prflow/prflow\nRUN_URL=\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"\ncat > .prflow/tmp/pr-body-1401.md <<EOF\n## Summary\n\nFixes #1401. Removes a non-shipping pointer from a vendored skill body and adds a mechanical guard so the class of defect cannot recur.\n\n\\`skills/receiving-code-review/SKILL.md\\` pointed at a named bullet of PRFlow's own \\`CLAUDE.md\\` — a file the vendor slice never copies, so in a consumer repo the pointer resolves against that repo's …[per-command-truncated]",
+      "echo \"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"",
+      "printf '%s/%s/actions/runs/%s\\n' \"$GITHUB_SERVER_URL\" \"$GITHUB_REPOSITORY\" \"$GITHUB_RUN_ID\"",
+      "FX=lib/test/fixtures/shipped-pruned-path\nSL=$FX/slices/simple.sh\nSC=$(ls $FX/schemas/*.json | head -1)\n# find the schema used SP_SCHEMA\ngrep -n \"SP_SCHEMA=\" lib/test/run.sh | head",
+      "FX=lib/test/fixtures/shipped-pruned-path; SC=$FX/schemas/real-docs.json; SL=$FX/slices/simple.sh\nfor f in skills/receiving-code-review/SKILL.md skills/requesting-code-review/code-reviewer.md skills/receiving-code-review/marked-claude.md skills/receiving-code-review/docs-claude.md skills/receiving-code-review/claude-local.md skills/implement/SKILL.md agents/code-reviewer.md; do\n  printf '%s\\n' \"$f\" > /tmp/list.txt\n  out=$(python3 lib/test/lint-shipped-pruned-path.py --root \"$FX\" --files-from /tmp …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nFK=2f67c7b13c4d327758f23b13dfa9b59620227f83b7502e77628767e1161953ba\nTOK=15a832776538764a760d601f4cd796690133e687f6c74d26c366ae5238270db4\n.prflow/vendor/prflow/scripts/verification-flight.py mark-running --flight \"$FK\" --token \"$TOK\" 2>&1 | tail -3",
+      "cd /home/runner/work/prflow/prflow\nTRIGGER=$(gh api \"repos/{owner}/{repo}/issues/1401/comments?per_page=100\" --jq 'map(select((.body | contains(\"/prflow:implement\")) and ((.body | test(\"(pr|dev)flow:workpad\")) | not))) | last | .id' 2>/dev/null || true)\nprintf 'trigger comment id: %s\\n' \"$TRIGGER\"\n.prflow/vendor/prflow/scripts/react-to-trigger.sh --repo The01Geek/prflow --event issue_comment --comment \"$TRIGGER\" --reaction hooray --report-failure 2>&1 | tail -2 || echo \"reaction best-effort fail …[per-command-truncated]",
+      "cd /home/runner/work/prflow/prflow\nrm -f .prflow/tmp/flight-decl-1401.json .prflow/tmp/flight-summary-1401.json .prflow/tmp/pr-body-1401.md\necho \"== final workpad status ==\"\n.prflow/vendor/prflow/scripts/workpad.py body 5221590602 2>/dev/null | grep -m1 'Status:'\necho \"== PR state ==\"\ngh pr view 1404 --json state,isDraft --jq '{state,isDraft}' 2>&1"
+    ],
+    "total": 11,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
