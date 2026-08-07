@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "slug": "pr-1404",
+  "generated_at": "2026-08-07T21:49:13Z",
+  "source": null,
+  "synthesized": true,
+  "iterations": 0,
+  "per_iteration": [],
+  "telemetry": [],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.31.29",
+    "workflow": "The01Geek/prflow/.github/workflows/devflow.yml@refs/heads/main",
+    "command": "review",
+    "scope": "whole-job",
+    "cost_usd": 5.615186499999999,
+    "tokens": {
+      "input_tokens": 31,
+      "output_tokens": 22145,
+      "cache_read_input_tokens": 1927529,
+      "cache_creation_input_tokens": 147816,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 57,
+        "outputTokens": 45051,
+        "cacheReadInputTokens": 2304883,
+        "cacheCreationInputTokens": 445100,
+        "webSearchRequests": 0,
+        "costUSD": 5.615186499999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 29,
+    "duration_ms": 411243
+  },
+  "permission_denials": {
+    "count": 5,
+    "tool_names": [
+      "Bash"
+    ],
+    "commands_state": "present",
+    "commands": [
+      "scripts/load-prompt-extension.sh review 2>&1; echo \"---rc=$?---\"",
+      "scripts/load-prompt-extension.sh review 2>&1; echo \"---rc=$?---\"",
+      "scripts/load-prompt-extension.sh review",
+      "mkdir -p .prflow/tmp/review/pr-1404/local-run; gh pr diff 1404 > .prflow/tmp/review/pr-1404/local-run/diff.patch; wc -l .prflow/tmp/review/pr-1404/local-run/diff.patch",
+      "cat > .prflow/tmp/review/pr-1404/local-run/verdict.md <<'EOF'\n<!-- prflow:review-progress run=local-standalone -->\n# PRFlow Review — PR #1404 — ✅ APPROVE\n\n**Reviewed HEAD:** `6cc94957e1c8eda742509d3aee1b835873b59c35`\n**Diff profile:** `engine_self_modifying` + `detect_all_audit` → full checklist + Phase 3.1.5 completeness-critic pass.\n**Test evidence (CI, authoritative for this commit):** `lib + python tests: success`; all shards + `lint (shellcheck + actionlint + ruff): success`.\n\n## Verdict: A …[per-command-truncated]"
+    ],
+    "total": 5,
+    "truncated": false,
+    "commands_field_enabled": true,
+    "scrub": {
+      "applied": true,
+      "blocklist_incomplete": true,
+      "shapes": "GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+    }
+  }
+}
