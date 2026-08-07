@@ -2,7 +2,7 @@
 
 ## The Step 3.6 → Step 4 boundary offer
 
-This file is loaded from `references/step-3-6-audit.md`, whose unconditional `query-boundary` call reports a trigger component at `hold` — or which found an `unledgered_revise` round. Read that answer back rather than re-calling it.
+`references/step-3-6-audit.md` loads this file when its unconditional `query-boundary` call reports a trigger component at `hold`, or when it found an `unledgered_revise` round. Read that answer back rather than re-calling it.
 
 Its trigger component answers `t1=hold|not-hold t2=hold|not-hold coverage=hold|not-hold calibration=hold|not-hold reason=…`.
 
@@ -22,7 +22,6 @@ While **any of the four trigger components** holds, **offer one more audit round
 - On **"no"** — an **explicit decline** through the question tool, or one of **Step 2's three explicit disengagement replies** — record it with `record-override --kind user-decline --surface t1t2-boundary` and proceed to Step 4 with surviving findings quoted verbatim.
 - When the tool refuses the offer because the ceiling is reached, record `record-override --kind cap-reached` and proceed; the summary line names the ceiling.
 - A **silent non-response** follows the existing Step 2 silent-non-response rule: **pause and re-ask in the final chat message; never dispatch and never proceed on silence.**
-- When none of the offer's grounds holds — no trigger component at `hold` (`t1=`, `t2=`, `coverage=`, `calibration=`) and no `unledgered_revise` round warranting one — proceed to Step 4 with no offer.
 
 This boundary offer fires only *before* presentation; once inside Step 4's iterate-on-feedback loop, sub-step 4's re-audit offer is the only discovery-offer surface there. Step 4's final-byte trigger (`query-final-byte`) is evaluated at the **approval election on every run** — not after that loop's offer resolves, since a run approved on first presentation never enters the loop — and is **suppressed only when that loop's offer opened a round in the same pause**, so exactly one offer fires per pause.
 
