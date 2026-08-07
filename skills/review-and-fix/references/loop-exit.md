@@ -326,6 +326,10 @@ After the persist block above, on a **converged writable run with telemetry enab
 
 If the self-check warns that the record or the workpads were not persisted, the deterministic recovery is `lib/efficiency-trace.sh --persist` (Layer 3) — the same command the `Stop` hook and the cloud wrapper invoke. The warning is observability, not a gate: a writable run that converged but somehow skipped the persist block above is exactly the interactive-drop failure mode this self-check exists to surface (see Common Mistakes).
 
+### Tick the final Blueprint row
+
+As the loop's last terminal-work step, after the persistence self-check above, tick the final Blueprint row (*Run complete — everything this run owed*) in this run's progress comment — PR mode only, since non-PR mode has no comment to tick. Here the tick asserts only that the loop reached its terminal work. **This path makes no corrective delivery attempt**, because it posts no verdict to GitHub at all. A run whose Loop Exit steps were dropped leaves the row unticked.
+
 ---
 
 
