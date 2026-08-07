@@ -3,9 +3,7 @@ title: "Runtime Setup"
 description: "Configure cloud runtimes, services and repository install commands."
 ---
 
-# Runtime Setup
-
-This page is for maintainers preparing the GitHub Actions runner before PRFlow starts the agent.
+Prepare the GitHub Actions runner with the tools and setup commands PRFlow needs before it starts the agent.
 
 Provisioning runs in this order: Python, Node.js, PHP, service containers and then `setup.install` lines.
 

@@ -3,9 +3,7 @@ title: "Cloud Triggers"
 description: "Use authorized standalone GitHub comments to start supported PRFlow workflows."
 ---
 
-# Cloud Triggers
-
-This page is for collaborators starting an installed PRFlow cloud workflow from GitHub.
+Start an installed PRFlow cloud workflow from GitHub with an authorized comment or supported event.
 
 ## Implement an Issue
 

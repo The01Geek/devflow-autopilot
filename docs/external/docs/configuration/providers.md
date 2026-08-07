@@ -3,9 +3,7 @@ title: "Model Providers"
 description: "Route cloud execution sections through Anthropic-compatible endpoints."
 ---
 
-# Model Providers
-
-This page is for maintainers opting a cloud execution section into an Anthropic-compatible gateway or proxy. Provider routing is best effort; gateway behavior can differ from the Anthropic default.
+Route a cloud execution section through an Anthropic-compatible gateway or proxy. Provider routing is best effort, and gateway behavior can differ from the Anthropic default.
 
 ## Provider Entry Settings
 

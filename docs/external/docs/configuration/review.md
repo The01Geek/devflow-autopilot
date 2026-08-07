@@ -3,9 +3,7 @@ title: "Review Settings"
 description: "Configure review verdicts, fix routing, progress and legacy automatic-review controls."
 ---
 
-# Review Settings
-
-This page is for maintainers tuning the shared review engine and local review-and-fix loop.
+Tune the shared review engine and the local review-and-fix loop to match your repository's risk and verification needs.
 
 ## Review Engine
 

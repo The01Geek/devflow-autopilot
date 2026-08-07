@@ -3,9 +3,7 @@ title: "Working Directory"
 description: "Understand how local PRFlow runs resolve the repository root and nested repositories."
 ---
 
-# Working Directory
-
-This page is for local users who launch PRFlow from a repository subdirectory, monorepo package or nested Git checkout.
+Launch PRFlow safely from a repository subdirectory, monorepo package or nested Git checkout by confirming which repository and branch the run will use.
 
 ## Run From Any Repository Subdirectory
 

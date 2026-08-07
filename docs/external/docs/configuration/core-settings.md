@@ -3,16 +3,14 @@ title: "Core Settings"
 description: "Configure repository defaults, cloud authorization and shared command behavior."
 ---
 
-# Core Settings
-
-This page is for maintainers configuring settings shared across PRFlow's local and cloud paths.
+Configure the repository defaults, authorization rules and shared behavior used by PRFlow's local and cloud paths.
 
 | **Setting** | **Type and accepted values** | **Fallback or scaffold** | **Tier and security note** | **Example** |
 | --- | --- | --- | --- | --- |
 | `$schema` | String path or URL | Scaffold: `./config.schema.json` | Editor only. It is ignored at runtime. | `"$schema": "./config.schema.json"` |
 | `base_branch` | String branch name | Runtime and scaffold: `main` | Review and implementation base. Confirm the branch exists. | `"base_branch": "main"` |
 | `claude_model` | String model identifier | Runtime and scaffold: `claude-opus-5` | Global model. Cloud workflows reject an empty value or one that begins with `-`. | `"claude_model": "claude-opus-5"` |
-| `prflow_version` | String tag, branch or commit SHA | Scaffold: empty; installer normally stamps a commit SHA | Thin cloud installs only. An empty runtime pin fails rather than tracking `main`. Vendored mode ignores it. | `"prflow_version": "v2.30.112"` |
+| `prflow_version` | String tag, branch or commit SHA | Scaffold: empty; installer normally stamps a commit SHA | Thin cloud installs only. An empty runtime pin fails rather than tracking `main`. Vendored mode ignores it. | `"prflow_version": "v2.31.31"` |
 | `prflow.allowed_bots` | Comma-separated string | `claude,dependabot` | All cloud gates. List only automation identities that may incur runs. | `"allowed_bots": "claude,dependabot,my-app"` |
 | `prflow.allowed_users` | `*` or comma-separated logins | `*` | All cloud gates. Humans must also have write, maintain or admin access. | `"allowed_users": "octocat,maintainer"` |
 | `prflow.workpad_marker` | Nonempty string marker | `<!-- prflow:workpad -->` | Implementation state and self-trigger guard. Changing it can make older workpads undiscoverable. | `"workpad_marker": "<!-- prflow:workpad -->"` |
@@ -27,7 +25,7 @@ This page is for maintainers configuring settings shared across PRFlow's local a
   "$schema": "./config.schema.json",
   "base_branch": "main",
   "claude_model": "claude-opus-5",
-  "prflow_version": "v2.30.112",
+  "prflow_version": "v2.31.31",
   "prflow": {
     "allowed_bots": "claude,dependabot",
     "allowed_users": "octocat,maintainer",

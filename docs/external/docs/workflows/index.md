@@ -3,9 +3,7 @@ title: "Workflows"
 description: "Choose the PRFlow workflow that matches the outcome and edit authority you want."
 ---
 
-# Workflows
-
-This page helps you choose the smallest workflow with the needed edit authority.
+Choose the smallest PRFlow workflow that can produce the outcome you need with the appropriate edit authority.
 
 The diagram uses PRFlow skill names without a client-specific command prefix. The command examples below show how to invoke them in each supported client.
 

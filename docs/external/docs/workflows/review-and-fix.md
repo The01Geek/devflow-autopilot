@@ -3,8 +3,6 @@ title: "Review and Fix"
 description: "Review a pull request or branch, apply authorized corrections and record verification."
 ---
 
-# Review and Fix
-
 Use this workflow when you explicitly authorize PRFlow to assess changes and commit corrections. It changes the active branch and can push when requested. The result is corrections followed by recorded verification, or a report naming unresolved findings.
 
 ```text

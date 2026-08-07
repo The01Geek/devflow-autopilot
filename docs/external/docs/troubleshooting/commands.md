@@ -3,9 +3,7 @@ title: "Command Problems"
 description: "Fix unknown commands, GitHub authentication, wrong context and blocked verification."
 ---
 
-# Command Problems
-
-This page is for users whose local PRFlow command is unavailable or cannot complete an operation.
+Restore a local PRFlow command that is unavailable, resolves incorrectly or cannot complete its operation.
 
 ## The Command Is Unknown
 
