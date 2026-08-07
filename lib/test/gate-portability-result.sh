@@ -61,10 +61,29 @@ if [ ! -f "$result_file" ]; then
   exit 1
 fi
 
+# The line terminator and any trailing blanks are stripped as they are read, so a CRLF
+# artifact is diagnosed as the carriage return it carries rather than reported as an
+# unrecognised token that looks byte-identical to a legal one in the annotation.
 domain=""
 while IFS= read -r line || [ -n "$line" ]; do
   case "$line" in
-    "DOMAIN_RESULT: "*) domain="${line#DOMAIN_RESULT: }" ;;
+    "DOMAIN_RESULT: "*)
+      value="${line#DOMAIN_RESULT: }"
+      value="${value%$'\r'}"
+      while [ "$value" != "${value% }" ] || [ "$value" != "${value%	}" ]; do
+        value="${value% }"
+        value="${value%	}"
+      done
+      # A second, DISAGREEING line is an ambiguity, not a later answer. Resolving it —
+      # in either direction — would make this gate interpret exactly the artifact it
+      # exists to refuse to interpret.
+      if [ -n "$domain" ] && [ "$value" != "$domain" ]; then
+        printf '::error::%s carries conflicting DOMAIN_RESULT lines (%s and %s) — refusing to choose between them\n' \
+          "$result_file" "$domain" "$value"
+        exit 1
+      fi
+      domain="$value"
+      ;;
   esac
 done < "$result_file"
 

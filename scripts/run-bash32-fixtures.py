@@ -58,6 +58,10 @@ DOMAIN_PASS = "pass"
 DOMAIN_FAIL = "fail"
 DOMAIN_NOT_APPLICABLE = "not_applicable"
 
+#: The classifier contract this supervisor accepts — validated, never coerced.
+CLASSIFIER_SCHEMA_VERSION = 1
+EXECUTION_SELECTIVE = "selective"
+
 OUTCOME_PASS = "pass"
 OUTCOME_FAIL = "fail"
 OUTCOME_WATCHDOG = "watchdog_expiry"
@@ -167,11 +171,15 @@ def _terminate_group(child) -> None:
     """
     try:
         pgid = os.getpgid(child.pid)
-    except OSError:
+    except OSError as exc:
+        print(f"run-bash32-fixtures: could not resolve the process group of pid {child.pid} "
+              f"({exc}) — the expired fixture's group may still be running", file=sys.stderr)
         return
     try:
         os.killpg(pgid, signal.SIGTERM)
-    except OSError:
+    except OSError as exc:
+        print(f"run-bash32-fixtures: could not SIGTERM process group {pgid} ({exc}) — "
+              "the expired fixture's group may still be running", file=sys.stderr)
         return
     deadline = time.monotonic() + KILL_GRACE_SECONDS
     while time.monotonic() < deadline and child.poll() is None:
@@ -180,8 +188,9 @@ def _terminate_group(child) -> None:
         return
     try:
         os.killpg(pgid, signal.SIGKILL)
-    except OSError:
-        pass
+    except OSError as exc:
+        print(f"run-bash32-fixtures: could not SIGKILL process group {pgid} ({exc}) — "
+              "it may still be running", file=sys.stderr)
 
 
 def assert_interpreter(bash: str, launcher) -> tuple[bool, str]:
@@ -229,14 +238,28 @@ def main(argv=None) -> int:
     # everything", which is the conservative default, never an empty selection.
     selected: list[str]
     established = True
+    execution = None
     if args.classification:
         try:
             classification = json.loads(Path(args.classification).read_text(encoding="utf-8"))
-            selected = list(classification["selected"])
-            established = bool(classification.get("established", False))
-        except (OSError, ValueError, KeyError, TypeError) as exc:
+        except (OSError, ValueError) as exc:
             print(f"run-bash32-fixtures: the classifier result is unusable: {exc}", file=sys.stderr)
             return 2
+        # Validate the contract rather than coercing it. `list(classification["selected"])`
+        # would turn the string "pass" into four one-character surfaces, and a missing
+        # `established` would default to a value this run then treats as a measurement.
+        if not isinstance(classification, dict) or classification.get("schema_version") != CLASSIFIER_SCHEMA_VERSION:
+            print("run-bash32-fixtures: the classifier result is not a schema_version "
+                  f"{CLASSIFIER_SCHEMA_VERSION} object", file=sys.stderr)
+            return 2
+        raw_selected = classification.get("selected")
+        if not isinstance(raw_selected, list) or not all(isinstance(entry, str) for entry in raw_selected):
+            print("run-bash32-fixtures: the classifier result's `selected` is not a list of paths",
+                  file=sys.stderr)
+            return 2
+        selected = raw_selected
+        established = classification.get("established") is True
+        execution = classification.get("execution")
     else:
         try:
             entries = json.loads(registry_path.read_text(encoding="utf-8"))["entries"]
@@ -255,12 +278,22 @@ def main(argv=None) -> int:
     # A fully-established classification that selected nothing is the ONE state that
     # earns not_applicable. Checked before the interpreter probe so a repository with
     # no macOS-relevant change is not gated on the runner's interpreter identity.
-    if established and not selected:
-        result.update(domain_result=DOMAIN_NOT_APPLICABLE, bash_version=None,
-                      detail="the classifier established the changed-file population and it selected "
-                             "no portable surface")
-        _emit(result, args.result_file)
-        return 0
+    if not selected:
+        if established and execution == EXECUTION_SELECTIVE:
+            result.update(domain_result=DOMAIN_NOT_APPLICABLE, bash_version=None,
+                          detail="the classifier established the changed-file population and it selected "
+                                 "no portable surface")
+            _emit(result, args.result_file)
+            return 0
+        # Every other empty selection is an empty MEASUREMENT, not an empty answer: an
+        # unestablished classification, or a conservative decision that somehow selected
+        # nothing, would otherwise run six interpreter probes over zero repository
+        # surface and report the lane `pass`. Refuse instead of reporting a clean lane
+        # over nothing.
+        print("run-bash32-fixtures: an empty selection that is not a fully-established selective "
+              f"decision (established={established}, execution={execution!r}) — refusing to report a "
+              "clean lane over no surface at all", file=sys.stderr)
+        return 2
 
     is_32, version = assert_interpreter(args.bash, launcher)
     result["bash_version"] = version
@@ -284,7 +317,7 @@ def main(argv=None) -> int:
         print(f"{fixture_id} {outcome} {int(duration * 1000)}ms")
         if outcome != OUTCOME_PASS:
             failed = True
-            sys.stderr.write((output or "").rstrip() + "\n")
+            sys.stderr.write(_diagnostic(output))
 
     if selected:
         parse_fixture = manifest_path.parent / "parse-under-bash32.sh"
@@ -299,11 +332,25 @@ def main(argv=None) -> int:
         print(f"portable-surface-parse {outcome} {int(duration * 1000)}ms")
         if outcome != OUTCOME_PASS:
             failed = True
-            sys.stderr.write((output or "").rstrip() + "\n")
+            sys.stderr.write(_diagnostic(output))
 
     result["domain_result"] = DOMAIN_FAIL if failed else DOMAIN_PASS
     _emit(result, args.result_file)
     return 1 if failed else 0
+
+
+def _diagnostic(output) -> str:
+    """The failing fixture's own output, or an explicit statement that it was lost.
+
+    A blank line here reads as "the fixture said nothing", which is what a reader
+    debugging a watchdog expiry would then believe; a killed group whose pipes never
+    drained said plenty and this process could not hear it.
+    """
+    text = (output or "").rstrip()
+    if text:
+        return text + "\n"
+    return ("(no output was captured — a killed process group that does not drain within "
+            "KILL_DRAIN_SECONDS loses whatever the fixture had written)\n")
 
 
 def _emit(result, result_file) -> None:

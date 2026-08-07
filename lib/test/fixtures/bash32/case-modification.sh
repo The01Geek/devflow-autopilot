@@ -18,10 +18,23 @@ set -u
 
 check() {
   # $1 is the expansion under test, passed as source text to a child bash.
-  if out=$("$BASH" -c "v=MiXeD; printf '%s' \"$1\"" 2>/dev/null); then
-    echo "case-modification: interpreter performed $1 (produced '$out') — this is not Bash 3.2" >&2
-    return 1
-  fi
+  #
+  # A non-zero status alone would NOT establish the refusal: 127 (not found) and 126
+  # (not executable) are also non-zero, so a $BASH that never ran would read as an
+  # interpreter that rejected the expansion — an absence established by a probe that
+  # never happened. Those two statuses are therefore called out separately.
+  out=$("$BASH" -c "v=MiXeD; printf '%s' \"$1\"" 2>/dev/null)
+  status=$?
+  case "$status" in
+    0)
+      echo "case-modification: interpreter performed $1 (produced '$out') — this is not Bash 3.2" >&2
+      return 1
+      ;;
+    126|127)
+      echo "case-modification: the probe interpreter '$BASH' could not be run (status $status) — the refusal of $1 was never established" >&2
+      return 1
+      ;;
+  esac
   return 0
 }
 

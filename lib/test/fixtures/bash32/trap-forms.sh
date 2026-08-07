@@ -46,7 +46,18 @@ esac
 #    and that notice is normal here rather than a diagnostic worth surfacing.
 ( "$BASH" -c "trap 'printf stale' USR1; trap - USR1; kill -USR1 \$\$; sleep 1" >/dev/null 2>&1 ) 2>/dev/null
 status=$?
-[ "$status" -eq 0 ] && fail "trap - USR1 did not restore the default disposition (child exited 0)"
+# The observable is death BY SIGUSR1 — status 128+SIGUSR1 — not merely a non-zero exit.
+# "Non-zero" would also be satisfied by 126/127 (a $BASH that could not run at all) and
+# by any unrelated failure of the probe body, either of which would let this fixture
+# report a restored default disposition it never observed. SIGUSR1 is 30 on macOS/BSD
+# and 10 on Linux, so both encodings are accepted; the point is which signal, not which
+# platform.
+case "$status" in
+  0)       fail "trap - USR1 did not restore the default disposition (child exited 0)" ;;
+  158|138) : ;;
+  126|127) fail "the probe interpreter '$BASH' could not be run (status $status) — the reset-to-default was never established" ;;
+  *)       fail "expected death by SIGUSR1 (128+30 or 128+10), got $status" ;;
+esac
 
 echo "trap-forms: trap -p round-trip, delivery, and reset-to-default all behave as shipped helpers require"
 exit 0

@@ -307,6 +307,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # pipefail, because the step's shell is `bash -e` without it and the pipeline
+          # would otherwise report `tee`'s status — swallowing the classifier's exit 2
+          # (no decision possible at all) and leaving an empty classification behind.
+          set -o pipefail
           mkdir -p .prflow/tmp
           python3 scripts/classify-portability-risk.py \
             --repo "${{ github.repository }}" \
@@ -601,11 +605,11 @@ jobs:
     # ordering, not suppression. `!cancelled()` already lets the job run over a red
     # dependency, so nothing else changes.
     #
-    # `needs: [test, lint]` names BOTH jobs, because `lint` is not downstream of
-    # `test` — the only `needs:` elsewhere in this file is `test: needs: [shard]`.
+    # `needs:` names each job explicitly, because `lint` is not downstream of `test`
+    # and the portability aggregator is downstream of neither.
     # But the two dependency-RESULT tests are NOT in this `if:` anymore: they moved
-    # onto the individual steps below. The job now runs whenever both dependencies
-    # have CONCLUDED (`!cancelled()`), so a red `lint` — which is NOT a required
+    # onto the individual steps below. The job now runs whenever every dependency
+    # has CONCLUDED (`!cancelled()`), so a red `lint` — which is NOT a required
     # status check, hence a mergeable PR — is ANNOUNCED rather than skipped in
     # silence. The credential-safety property is preserved by step-level gating:
     # the checkout, mint, and post steps each require both results to be `success`,

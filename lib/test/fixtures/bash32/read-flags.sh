@@ -33,10 +33,15 @@ three
 ROWS
 [ "$count" = 3 ] || fail "the while/IFS= read -r enumeration counted $count, expected 3"
 
-# -N is Bash 4 only. Assert the interpreter refuses it rather than silently reading a line.
-if printf 'abcdef' | "$BASH" -c 'read -N 3 chunk 2>/dev/null && [ "$chunk" = abc ]'; then
-  fail "interpreter supports read -N — this is not Bash 3.2"
-fi
+# -N is Bash 4 only. Assert the interpreter refuses it rather than silently reading a
+# line — and separate a refusal from a probe that never ran, since 126/127 are non-zero
+# too and would otherwise establish the absence by not looking.
+printf 'abcdef' | "$BASH" -c 'read -N 3 chunk 2>/dev/null && [ "$chunk" = abc ]'
+status=$?
+case "$status" in
+  0) fail "interpreter supports read -N — this is not Bash 3.2" ;;
+  126|127) fail "the probe interpreter '$BASH' could not be run (status $status) — read -N's absence was never established" ;;
+esac
 
 echo "read-flags: -r, -d and the while-read idiom work; read -N is refused, as Bash 3.2 requires"
 exit 0

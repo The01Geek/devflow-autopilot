@@ -38,10 +38,14 @@ if printf 'x' | "$BASH" -c 'exit 3'; then
   fail "a failing pipeline element reported success"
 fi
 
-# `wait -n` is Bash 4.3 only.
-if "$BASH" -c 'sleep 0 & wait -n' 2>/dev/null; then
-  fail "interpreter supports wait -n — this is not Bash 3.2"
-fi
+# `wait -n` is Bash 4.3 only — and, as above, 126/127 would establish its absence by
+# never running the probe, so they are called out rather than counted as a refusal.
+"$BASH" -c 'sleep 0 & wait -n' 2>/dev/null
+status=$?
+case "$status" in
+  0) fail "interpreter supports wait -n — this is not Bash 3.2" ;;
+  126|127) fail "the probe interpreter '$BASH' could not be run (status $status) — wait -n's absence was never established" ;;
+esac
 
 echo "process-control: backgrounding, status-preserving wait and process substitution work; wait -n is refused"
 exit 0

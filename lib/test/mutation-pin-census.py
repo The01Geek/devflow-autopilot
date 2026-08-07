@@ -236,14 +236,13 @@ def _audited_sources(repo_root: Path) -> tuple[str, ...]:
 # with zero hits, exactly as its remedy text predicts. The bound is now 76: four
 # above the swept population, preserving a few files of headroom.
 #
-# Bound raise, issue #1277 (macOS Bash 3.2 portability lane). The lane adds eight
-# tracked shell sources — the six construct fixtures and the per-surface fixture under
-# lib/test/fixtures/bash32/, plus lib/test/gate-portability-result.sh and
-# lib/test/modules/portability-lane.sh — taking the swept population from 72 to 80,
-# past the old bound of 76, with the same symptom every prior raise records:
-# test_census_outer_memos_are_reused_across_builds goes RED at zero hits because
-# entries were evicted before extraction re-asked for them. The bound is now 84: four
-# above the swept population, preserving the same few files of headroom.
+# Bound raise, issue #1277 (macOS Bash 3.2 portability lane). The lane's new shell
+# sources — the Bash-3.2 fixture corpus, the aggregator gate, and the lane's own test
+# module — push the swept population past the old bound of 76, with the same symptom
+# every prior raise records: test_census_outer_memos_are_reused_across_builds goes RED
+# at zero hits because entries were evicted before extraction re-asked for them. The
+# bound is now 84. No count is stated here: the sweep's population is measured by that
+# test, and a transcribed figure rots on the next shell source added.
 _SOURCE_PARSE_CACHE_SIZE = 84
 
 

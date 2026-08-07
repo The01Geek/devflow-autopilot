@@ -401,19 +401,46 @@ assert_eq "#1277 supervisor: a non-3.2 interpreter fails before any fixture runs
 # not_applicable is reachable ONLY from a fully-established empty selection, and it
 # is decided before the interpreter probe — a head with no macOS-relevant change is
 # not gated on the runner's bash identity.
-printf '{"selected": [], "established": true}\n' > "$_pl_tmp_root/empty-established.json"
+printf '{"schema_version": 1, "execution": "selective", "established": true, "selected": []}\n' \
+  > "$_pl_tmp_root/empty-established.json"
 assert_eq "#1277 supervisor: an established empty selection is not_applicable" \
   "rc=0|not_applicable" \
   "$(_pl_supervise --root "$PL_REPO" --bash /nonexistent/bash --registry "$PL_REGISTRY" \
       --classification "$_pl_tmp_root/empty-established.json")"
 
 # The mirror case: an UNestablished classification never reaches not_applicable, even
-# with an empty list, because "we could not look" is not "there was nothing".
-printf '{"selected": [], "established": false}\n' > "$_pl_tmp_root/empty-unestablished.json"
-assert_eq "#1277 supervisor: an unestablished empty selection is never not_applicable" \
-  "rc=1|fail" \
-  "$(_pl_supervise --root "$PL_REPO" --bash /nonexistent/bash --registry "$PL_REGISTRY" \
-      --classification "$_pl_tmp_root/empty-unestablished.json")"
+# with an empty list, because "we could not look" is not "there was nothing". It is a
+# REFUSAL rather than a lane result — running the six interpreter probes over zero
+# repository surface and reporting `pass` is exactly the clean-lane-over-nothing the
+# supervisor exists to prevent.
+printf '{"schema_version": 1, "execution": "conservative", "established": false, "selected": []}\n' \
+  > "$_pl_tmp_root/empty-unestablished.json"
+assert_eq "#1277 supervisor: an unestablished empty selection is refused, never a clean lane over nothing" \
+  "2" "$(python3 "$PL_SUPERVISOR" --root "$PL_REPO" --bash /nonexistent/bash --registry "$PL_REGISTRY" \
+      --classification "$_pl_tmp_root/empty-unestablished.json" >/dev/null 2>&1; printf '%s' "$?")"
+
+# The same refusal for an ESTABLISHED but conservative empty selection: a conservative
+# decision that selected nothing is a contradiction, not a not_applicable.
+printf '{"schema_version": 1, "execution": "conservative", "established": true, "selected": []}\n' \
+  > "$_pl_tmp_root/empty-conservative.json"
+assert_eq "#1277 supervisor: an established CONSERVATIVE empty selection is refused too" \
+  "2" "$(python3 "$PL_SUPERVISOR" --root "$PL_REPO" --bash /nonexistent/bash --registry "$PL_REGISTRY" \
+      --classification "$_pl_tmp_root/empty-conservative.json" >/dev/null 2>&1; printf '%s' "$?")"
+
+# `selected` is validated, never coerced: list("pass") would otherwise become the four
+# one-character "surfaces" p, a, s, s.
+printf '{"schema_version": 1, "execution": "selective", "established": true, "selected": "pass"}\n' \
+  > "$_pl_tmp_root/selected-not-a-list.json"
+assert_eq "#1277 supervisor: a non-list \`selected\` is refused rather than coerced into characters" \
+  "2" "$(python3 "$PL_SUPERVISOR" --root "$PL_REPO" --bash /nonexistent/bash --registry "$PL_REGISTRY" \
+      --classification "$_pl_tmp_root/selected-not-a-list.json" >/dev/null 2>&1; printf '%s' "$?")"
+
+# A classifier result from an unrecognised schema is unusable, not a default.
+printf '{"schema_version": 99, "execution": "selective", "established": true, "selected": []}\n' \
+  > "$_pl_tmp_root/bad-schema.json"
+assert_eq "#1277 supervisor: an unrecognised classifier schema_version is refused" \
+  "2" "$(python3 "$PL_SUPERVISOR" --root "$PL_REPO" --bash /nonexistent/bash --registry "$PL_REGISTRY" \
+      --classification "$_pl_tmp_root/bad-schema.json" >/dev/null 2>&1; printf '%s' "$?")"
 
 assert_eq "#1277 supervisor: an unusable classifier result refuses to run rather than verifying nothing" \
   "2" "$(python3 "$PL_SUPERVISOR" --root "$PL_REPO" --registry "$PL_REGISTRY" \
@@ -503,15 +530,27 @@ assert_eq "#1277 gate: a domain token outside the closed set is refused" \
 assert_eq "#1277 gate: no artifact path at all is refused" \
   "1" "$(bash "$PL_GATE" success >/dev/null 2>&1; printf '%s' "$?")"
 
-# The gate takes the LAST DOMAIN_RESULT line, not the first. A first-wins read would
-# be green on this fixture, so it is the discriminating case rather than a re-run of
-# the pass arm above — and the trailing ACTIONS_CONCLUSION line the workflow appends
-# must not disturb either read.
-_pl_lastwins_file="$_pl_tmp_root/gate-lastwins.txt"
+# Two DISAGREEING DOMAIN_RESULT lines are an ambiguity, and the gate's whole job is
+# refusing to interpret an ambiguous artifact — resolving it in either direction would
+# be the gate doing the one thing it exists not to do.
+_pl_conflict_file="$_pl_tmp_root/gate-conflict.txt"
 printf 'DOMAIN_RESULT: pass\n{"schema_version": 1}\nDOMAIN_RESULT: fail\nACTIONS_CONCLUSION: success\n' \
-  > "$_pl_lastwins_file"
-assert_eq "#1277 gate: the LAST DOMAIN_RESULT line decides, and a trailing conclusion line does not disturb it" \
-  "1" "$(_pl_gate success "$_pl_lastwins_file")"
+  > "$_pl_conflict_file"
+assert_eq "#1277 gate: conflicting DOMAIN_RESULT lines are refused, not resolved" \
+  "1" "$(_pl_gate success "$_pl_conflict_file")"
+
+# A repeated but AGREEING line is not an ambiguity, so it still decides normally.
+_pl_repeat_file="$_pl_tmp_root/gate-repeat.txt"
+printf 'DOMAIN_RESULT: pass\nDOMAIN_RESULT: pass\nACTIONS_CONCLUSION: success\n' > "$_pl_repeat_file"
+assert_eq "#1277 gate: a repeated agreeing DOMAIN_RESULT line is not an ambiguity" \
+  "0" "$(_pl_gate success "$_pl_repeat_file")"
+
+# A CRLF artifact must not present as an unrecognised token that reads byte-identical
+# to a legal one; the terminator is stripped so the token decides on its own merits.
+_pl_crlf_file="$_pl_tmp_root/gate-crlf.txt"
+printf 'DOMAIN_RESULT: pass\r\nACTIONS_CONCLUSION: success\r\n' > "$_pl_crlf_file"
+assert_eq "#1277 gate: a CRLF artifact's domain token is read without its terminator" \
+  "0" "$(_pl_gate success "$_pl_crlf_file")"
 
 # ── 7. Rendered-workflow boundary ──────────────────────────────────────────────
 #

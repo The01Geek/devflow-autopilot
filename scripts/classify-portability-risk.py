@@ -139,12 +139,18 @@ def changed_files(gh, repo: str, pr: int, head_sha: str):
     current_head = ((meta.get("head") or {}).get("sha")) if isinstance(meta.get("head"), dict) else None
     if not isinstance(expected, int):
         return None, "the pull request reported no usable `changed_files` count"
-    if head_sha and current_head and head_sha != current_head:
+    # An absent head SHA is unestablished, not "no staleness to check". Both arms below
+    # are conditioned on `head_sha`, so without this the guard would be skipped entirely
+    # and a `selective` result would be emitted bound to no commit at all — a guard whose
+    # comparand can be absent failing open exactly where it claims to fail closed.
+    if not head_sha:
+        return None, "no head SHA was supplied, so this classification could be bound to no commit"
+    if current_head and head_sha != current_head:
         return None, (
             f"evidence is bound to {head_sha[:12]} but the pull request's current head "
             f"is {current_head[:12]} — the classification would be stale"
         )
-    if head_sha and not current_head:
+    if not current_head:
         return None, "the pull request's current head SHA could not be established"
 
     pages, ok = gh.gh_json_ex(f"repos/{repo}/pulls/{pr}/files?per_page=100", paginate=True)
@@ -190,7 +196,11 @@ def select(paths, portable, classified, closure_members):
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Classify which portable shell surface the macOS lane must run.")
-    parser.add_argument("--repo", default="", help="OWNER/REPO")
+    # `{owner}/{repo}` are the placeholders `gh` fills from the git remote. Defaulting to
+    # them rather than the empty string keeps a run outside Actions — the test module drives
+    # this script locally — from composing `repos//pulls/N`, whose 404 body `gh` writes to
+    # stdout.
+    parser.add_argument("--repo", default="{owner}/{repo}", help="OWNER/REPO (default: gh's remote-derived placeholders)")
     parser.add_argument("--pr", default="", help="pull-request number (empty on a non-PR event)")
     parser.add_argument("--head-sha", default="", help="the head SHA this classification is bound to")
     parser.add_argument("--event-name", default="", help="the GitHub Actions event name")
