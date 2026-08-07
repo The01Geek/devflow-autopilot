@@ -54,21 +54,7 @@ The gate reuses the derivation gate's shape: this-run freshness, the read-only-s
 
 **Bundle currency (per-round re-check).** The existing per-round Definition-of-Ready re-check additionally re-checks bundle currency against **three triggers** — a clarification answer that changes the mechanism space; a clarification answer that contradicts an axis entry; and a mechanism class added to the approach menu after the bundle was written (drafter-generated during the mandated solution-space expansion, or user-proposed) — updating the affected entries or re-marking them `unestablished — superseded by <the trigger>` before the approach question is asked, so the `(Recommended)` citation is current as of the question. **Asking-order rule:** the implementation-approach fork question is asked in its own question-tool call, never batched with any question whose answer is a currency trigger, and only after the mechanism-space-shaping answers are in; if an answer arriving in the approach question's own call nevertheless invalidates the cited entry, the approach answer is treated as unconfirmed and the question is re-asked with a refreshed citation.
 
-**Visual-specification guidance (user-visible UI changes only — skipped entirely otherwise).**
-
-Some issues change what the user sees, and for those a text-only description leaves the visual
-intent ambiguous. Handle the visual specification as part of this Step 2 clarification — as
-**prose guidance you follow, not a new hard gate** (it adds no enforcement mechanism; an
-unresolved item lands in the existing Blocked section like any other):
-
-1. **Infer whether the issue involves user-visible UI changes** as part of your normal scope assessment above — an inference, not a dedicated "is this UI?" question. When the issue is obviously non-UI (a script, a config key, an internal doc, a CLI-only change), **the whole path below is skipped and adds no new questions**; a false positive here is the failure to avoid, so do not ask visual questions on a non-UI issue.
-2. **On a UI change, check the user-provided resources/context** — pasted images, attached files, URLs, and design-tool links such as Figma — for an existing screenshot or mockup before asking for anything.
-3. **If a screenshot/mockup is present, record it** in the issue's Visual Specification section (see `references/issue-template.md`): embed it when a hosted URL is available, otherwise reference it with a one-line note on how the implementer can obtain it. Do not then ask the user for one they already supplied.
-4. **If none is present, ask the user to provide a screenshot or mockup** via the runner's user-question tool (the same tool Step 2 uses elsewhere).
-5. **If the user has none, verify the visual details with the user before finalizing the draft** — pinning down, as applicable to the specific task: placement & layout, visual states (hover/focus/error/empty/loading/disabled), responsive behavior across breakpoints, and design-system/style match, plus any further visual dimension the task makes relevant. This checklist is a **non-exhaustive prompt**, not a fixed form: add task-specific dimensions and skip inapplicable ones.
-6. **Write the screenshot reference and/or the verified placement description into the Visual Specification section** of the drafted issue.
-
-A screenshot/mockup is **preferred, not mandatory** — verbal verification is an accepted substitute, so a UI issue is never blocked solely for lacking an image. If a UI-placement detail is still unresolved when the user disengages, it **flows to the existing `## 🚫 Blocked` section like any other unresolved decision** (the existing mechanism from the disengagement rule below — not a new gate).
+**Visual-specification guidance (user-visible UI changes only — skipped entirely otherwise).** When your scope assessment above infers that the issue changes what the user sees, load `references/fallback-visual-specification.md` per the root's routing table and follow it as part of this clarification. An obviously non-UI issue never loads it, so a text-only story carries none of that guidance.
 
 **How to ask:**
 
