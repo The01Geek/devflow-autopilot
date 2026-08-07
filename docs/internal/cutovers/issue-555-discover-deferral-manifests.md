@@ -30,6 +30,17 @@ is, and it carries the traversal, classification, and exit contract); what remai
 the invocation contract, the arm selection, and the fail-closed handling — the categories the
 prose-cutover policy explicitly retains on the mandatory path.
 
+**Superseded in part by issue #1374.** The paragraph above argues that §4.0.5's discrimination
+cannot move to a conditionally-loaded reference "without leaving that execution point with
+nothing to execute". That held while the *only* candidate gate was one the agent applied after
+reading the section. #1374 supplied a gate that runs *before* it — the presence predicate
+`discover-deferral-manifests.py --presence-for-pr N`, whose exit code decides the read — so the
+whole fence, arms and all, now lives in `skills/implement/references/deferred-review-findings.md`
+and the phase file carries only the predicate and its routing. Every routing arm this page
+describes still exists and still fires; it fires from the reference, which a run with deferrals
+has already loaded by the time it reaches them. The `+7,096 bytes` figure above stays as the
+past-time record of what #555 cost on the mandatory path at the time.
+
 `CLAUDE.md`'s addition is one clause appended to the existing #561 capability-manifest gotcha,
 stating the implement-tier bundled-helper grant flow: such a grant is authored in
 `lib/capability-profiles.json` and regenerated (which syncs the `matcher-probe.yml` `IMPLEMENT`
