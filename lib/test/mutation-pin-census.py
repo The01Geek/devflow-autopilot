@@ -223,11 +223,19 @@ def _audited_sources(repo_root: Path) -> tuple[str, ...]:
 # test_census_outer_memos_are_reused_across_builds went RED with zero hits on
 # _definition_scan, exactly as its remedy text predicts. The reception pass that
 # followed added five more fixture slices for the lint's refusal arms, taking the
-# population to 65, so the bound is 70: five above the swept population, the same
+# population to 65, so the bound was 70: five above the swept population, the same
 # few-files headroom the paragraph above describes (the prior 56 stood 5 above a
 # population of 51). Sizing it AT the population would leave zero headroom and turn
 # the next added shell source RED.
-_SOURCE_PARSE_CACHE_SIZE = 70
+#
+# Bound raise, issue #1309 (docs.* default exemption). The exemption's fixture
+# corpus adds four tracked shell sources under
+# lib/test/fixtures/shipped-pruned-path/slices/, taking the swept population from
+# 68 to 72 — past the old bound of 70, so entries were evicted before extraction
+# re-asked for them and test_census_outer_memos_are_reused_across_builds went RED
+# with zero hits, exactly as its remedy text predicts. The bound is now 76: four
+# above the swept population, preserving a few files of headroom.
+_SOURCE_PARSE_CACHE_SIZE = 76
 
 
 @functools.lru_cache(maxsize=_SOURCE_PARSE_CACHE_SIZE)
